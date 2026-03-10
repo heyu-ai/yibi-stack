@@ -1,0 +1,16 @@
+[project]
+name = "my-daily-routine-skill"
+version = "0.1.0"
+description = "日常瑣事自動化工具集"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.40",
+    "click>=8.1",
+    "python-dotenv>=1.0",
+    "pydantic>=2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
