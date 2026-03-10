@@ -210,3 +210,8 @@ marimo/_lsp/
 __marimo__/
 
 .claude/settings.local.json
+
+# Gmail Scan
+gmail_scan_output/
+gmail_scan_profiles.json
+gmail_scan.db
