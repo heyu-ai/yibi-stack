@@ -46,7 +46,7 @@ disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tasks"]
 pythonpath = ["."]
 
 [tool.bandit]
