@@ -215,3 +215,10 @@ __marimo__/
 gmail_scan_output/
 gmail_scan_profiles.json
 gmail_scan.db
+
+# Gmail Billing
+billing_profiles.json
+billing_output/
+
+# Git worktrees
+.worktrees/
