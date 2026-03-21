@@ -6,9 +6,8 @@
 
 | Skill | 描述 | SKILL.md | 相依工具 |
 |-------|------|----------|---------|
-| `gmail-scan` | 通用 Gmail 掃描，支援多 profile 郵件搜尋與附件下載 | [skills/gmail-scan/SKILL.md](gmail-scan/SKILL.md) | `gws` CLI, `uv` |
-| `gmail-billing` | 從 Gmail 掃描金融帳單 PDF，自動下載、解密、分類、轉 CSV | [skills/gmail-billing/SKILL.md](gmail-billing/SKILL.md) | `gws` CLI, `uv`, Java Runtime |
-| `gmail-billing-monthly` | 每季金融帳單完整 pipeline：下載 → 解密 → 轉 CSV，含 parser 失敗分析與實作流程 | [skills/gmail-billing-monthly/SKILL.md](gmail-billing-monthly/SKILL.md) | `gws` CLI, `uv`, Java Runtime |
+| `gmail-scan` | 通用 Gmail 掃描（非金融類），支援多 profile 郵件搜尋與附件下載。金融帳單請用 gmail-billing | [skills/gmail-scan/SKILL.md](gmail-scan/SKILL.md) | `gws` CLI, `uv` |
+| `gmail-billing` | 從 Gmail 掃描金融帳單 PDF，自動下載、解密、分類、轉 CSV。支援 on-demand 補掃與每季定期批次匯入 | [skills/gmail-billing/SKILL.md](gmail-billing/SKILL.md) | `gws` CLI, `uv`, Java Runtime |
 | `einvoice-blank-upload` | 上傳空白未使用發票號碼到財政部電子發票整合服務平台（每兩個月） | [skills/einvoice-blank-upload/SKILL.md](einvoice-blank-upload/SKILL.md) | `uv`, Playwright, 人工 CAPTCHA |
 
 ## 執行方式
