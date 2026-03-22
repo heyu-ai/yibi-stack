@@ -212,13 +212,11 @@ __marimo__/
 .claude/settings.local.json
 tasks/.claude/settings.local.json
 
-# Gmail Scan
-gmail_scan_output/
-gmail_scan_profiles.json
-gmail_scan.db
+# Runtime（設定檔 + DB 統一放 .runtime/）
+.runtime/
 
-# Gmail Billing
-billing_profiles.json
+# Output 目錄（保留在根目錄方便查看）
+gmail_scan_output/
 billing_output/
 
 # Git worktrees
