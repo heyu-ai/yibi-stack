@@ -1,14 +1,26 @@
 # Skills 索引
 
-此目錄為 agent 執行介面層。每個 skill 對應一個日常工作任務，包含完整的 step-by-step runbook。
+此目錄為 agent 執行介面層。每個 skill 對應一個日常工作任務或方法論，包含完整的 SKILL.md runbook。
 
 ## 可用 Skills
 
+### 可執行 Skill（有對應 `tasks/` Python 實作）
+
 | Skill | 描述 | SKILL.md | 相依工具 |
 |-------|------|----------|---------|
-| `gmail-scan` | 通用 Gmail 掃描（非金融類），支援多 profile 郵件搜尋與附件下載。金融帳單請用 gmail-billing | [skills/gmail-scan/SKILL.md](gmail-scan/SKILL.md) | `gws` CLI, `uv` |
-| `gmail-billing` | 從 Gmail 掃描金融帳單 PDF，自動下載、解密、分類、轉 CSV。支援 on-demand 補掃與每季定期批次匯入 | [skills/gmail-billing/SKILL.md](gmail-billing/SKILL.md) | `gws` CLI, `uv`, Java Runtime |
-| `einvoice-blank-upload` | 上傳空白未使用發票號碼到財政部電子發票整合服務平台（每兩個月） | [skills/einvoice-blank-upload/SKILL.md](einvoice-blank-upload/SKILL.md) | `uv`, Playwright, 人工 CAPTCHA |
+| `gmail-scan` | 通用 Gmail 掃描（非金融類），支援多 profile 郵件搜尋與附件下載。金融帳單請用 gmail-billing | [gmail-scan/SKILL.md](gmail-scan/SKILL.md) | `gws` CLI, `uv` |
+| `gmail-billing` | 從 Gmail 掃描金融帳單 PDF，自動下載、解密、分類、轉 CSV。支援 on-demand 補掃與每季定期批次匯入 | [gmail-billing/SKILL.md](gmail-billing/SKILL.md) | `gws` CLI, `uv`, Java Runtime |
+| `einvoice-blank-upload` | 上傳空白未使用發票號碼到財政部電子發票整合服務平台（每兩個月） | [einvoice-blank-upload/SKILL.md](einvoice-blank-upload/SKILL.md) | `uv`, Playwright, 人工 CAPTCHA |
+
+### 知識型 Skill（純 Markdown 方法論指引）
+
+| Skill | 描述 | SKILL.md |
+|-------|------|----------|
+| `tdd-kentbeck` | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
+| `qa-test-design` | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |
+| `detect-ai-slop` | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
+| `howie-writing-style` | 模擬 Howie 個人中文寫作風格（四段式架構、茶水間語氣） | [howie-writing-style/SKILL.md](howie-writing-style/SKILL.md) |
+| `local-port-manager` | 本地 Port 衝突解決工具（開發中） | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) |
 
 ## 執行方式
 
@@ -19,3 +31,15 @@
 ## 新增 Skill
 
 參考 [`_template/SKILL.md`](_template/SKILL.md) 取得標準格式。
+
+知識型 skill 只需建立 `skills/<skill-name>/SKILL.md`；可執行 skill 需同時在 `tasks/<task_name>/` 建立 Python 實作。
+
+## Skill 生命週期
+
+```
+ideas/    → 構想筆記（純 .md）
+drafts/   → 開發中（有目錄結構但尚未發佈）
+skills/   → 正式發佈（透過 make install 安裝 symlink）
+```
+
+升級指令：`make promote SKILL=<name>`
