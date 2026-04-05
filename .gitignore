@@ -219,5 +219,8 @@ tasks/.claude/settings.local.json
 gmail_scan_output/
 billing_output/
 
+# Skill eval 結果
+_workspace/
+
 # Git worktrees
 .worktrees/
