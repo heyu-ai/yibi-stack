@@ -87,16 +87,33 @@ YYY/MM/DD YYY/MM/DD  {description}  {amount}  {CC}  {YYY/MM/DD}  {CCY}  {forex}
 
 ---
 
-## 待處理：永豐銀行信用卡
+## 已完成：永豐銀行信用卡 (SINOPAC CC)
 
-- 現況：`config.py` 中 `SINOPAC_CC` profile 存在但 `enabled=False`
-- 問題：query 指向即時消費通知郵件，無月結 PDF 附件
-- 解法：找到月結帳單寄件者/主旨，更新 `gmail_query` 並啟用 profile
+### PDF 格式
 
-## 待處理：富邦銀行信用卡
+- **Page 1**：帳戶摘要（取帳單年月）
+- **Page 2**：交易明細（PDF 表格，欄位以 x 座標區分）
+- **Page 3+**：通知/聲明（跳過）
+- **日期格式**：MM/DD（無年份，年份從 Page 1 標題取得）
+- **單一卡號**：卡末四碼在每行重複出現
+
+### 解法
+
+- 原 gmail_query 指向即時消費通知（`spendservice@sinopac.com`），改為月結帳單寄件者
+- 寄件者：`ebillservice@newebill.banksinopac.com.tw`（與銀行對帳單相同）
+- 主旨關鍵字：`電子帳單通知`
+
+### 實作檔案
+
+`tasks/gmail_billing/parsers/sinopac_cc.py`
+
+---
+
+## 無法自動化：富邦銀行信用卡
 
 - 現況：只有 `FUBON` bank_statement profile
-- 需要：新增信用卡 profile 和對應 parser
+- 問題：帳單郵件只有網頁連結，需要登入 + 身分驗證才能下載 PDF，無法自動化
+- 結論：需人工下載後手動匯入
 
 ---
 
@@ -106,8 +123,11 @@ YYY/MM/DD YYY/MM/DD  {description}  {amount}  {CC}  {YYY/MM/DD}  {CCY}  {forex}
 |------|------|
 | `tasks/gmail_billing/parsers/ctbc_cc.py` | 新建 CTBC parser |
 | `tasks/gmail_billing/parsers/hncb_cc.py` | 新建 HNCB parser |
-| `tasks/gmail_billing/parsers/stub_parsers.py` | 移除 CTBC/HNCB stubs |
+| `tasks/gmail_billing/parsers/sinopac_cc.py` | 新建 SINOPAC CC parser |
+| `tasks/gmail_billing/parsers/stub_parsers.py` | 移除 CTBC/HNCB/SINOPAC_CC stubs |
 | `tasks/gmail_billing/parsers/registry.py` | 更新 import |
+| `.runtime/billing_profiles.json` | 啟用 SINOPAC_CC，修正 gmail_query |
+| `tasks/gmail_billing/service.py` | suffix CSV 分類繼承 + row-level 去重 |
 
 ---
 
@@ -127,6 +147,11 @@ uv run python -m tasks.gmail_billing convert \
   --pdf output/billing/raw/pdf/CREDITA2026040200103676370.decrypted.pdf \
   --parser hncb_cc
 
+# 手動測試 SINOPAC CC
+uv run python -m tasks.gmail_billing convert \
+  --pdf billing_output/raw/pdf/永豐銀行信用卡帳單.decrypted.pdf \
+  --parser sinopac_cc
+
 # 完整 pipeline
-uv run python -m tasks.gmail_billing run --days 96
+uv run python -m tasks.gmail_billing run --days 120
 ```
