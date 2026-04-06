@@ -4,13 +4,14 @@
 
 ## 可用 Skills
 
-### 可執行 Skill（有對應 `tasks/` Python 實作）
+### 可執行 Skill（執行指令、產生檔案或寄送資料）
 
 | Skill | 描述 | SKILL.md | 相依工具 |
 |-------|------|----------|---------|
 | `gmail-scan` | 通用 Gmail 掃描（非金融類），支援多 profile 郵件搜尋與附件下載。金融帳單請用 gmail-billing | [gmail-scan/SKILL.md](gmail-scan/SKILL.md) | `gws` CLI, `uv` |
 | `gmail-billing` | 從 Gmail 掃描金融帳單 PDF，自動下載、解密、分類、轉 CSV。支援 on-demand 補掃與每季定期批次匯入 | [gmail-billing/SKILL.md](gmail-billing/SKILL.md) | `gws` CLI, `uv`, Java Runtime |
 | `einvoice-blank-upload` | 上傳空白未使用發票號碼到財政部電子發票整合服務平台（每兩個月） | [einvoice-blank-upload/SKILL.md](einvoice-blank-upload/SKILL.md) | `uv`, Playwright, 人工 CAPTCHA |
+| `icf-global-news-digest` | 爬取 ICF 官網最新消息與活動，翻譯繁中，產出 Markdown 週報與 HTML 電子報並寄出（Agent-driven，無 Python 實作） | [icf-global-news-digest/SKILL.md](icf-global-news-digest/SKILL.md) | `gws` CLI, Chrome MCP |
 
 ### 知識型 Skill（純 Markdown 方法論指引）
 
@@ -21,7 +22,6 @@
 | `detect-ai-slop` | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
 | `howie-writing-style` | 模擬 Howie 個人中文寫作風格（四段式架構、茶水間語氣） | [howie-writing-style/SKILL.md](howie-writing-style/SKILL.md) |
 | `local-port-manager` | 本地 Port 衝突解決工具（開發中） | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) |
-| `icf-global-news-digest` | 爬取 ICF 官網最新消息與活動，翻譯繁中，產出 Markdown 週報與 HTML 電子報並寄出 | [icf-global-news-digest/SKILL.md](icf-global-news-digest/SKILL.md) |
 
 ## 執行方式
 
