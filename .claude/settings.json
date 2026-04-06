@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-push.sh",
+            "type": "command",
+            "statusMessage": "檢查 git push 安全性..."
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ]
+  }
+}

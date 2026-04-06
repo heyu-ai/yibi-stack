@@ -12,6 +12,12 @@
 | `gmail-billing` | 從 Gmail 掃描金融帳單 PDF，自動下載、解密、分類、轉 CSV。支援 on-demand 補掃與每季定期批次匯入 | [gmail-billing/SKILL.md](gmail-billing/SKILL.md) | `gws` CLI, `uv`, Java Runtime |
 | `einvoice-blank-upload` | 上傳空白未使用發票號碼到財政部電子發票整合服務平台（每兩個月） | [einvoice-blank-upload/SKILL.md](einvoice-blank-upload/SKILL.md) | `uv`, Playwright, 人工 CAPTCHA |
 
+### 工具型 Skill（安裝或設定開發工具）
+
+| Skill | 描述 | SKILL.md |
+|-------|------|----------|
+| `protect-push` | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
+
 ### 知識型 Skill（純 Markdown 方法論指引）
 
 | Skill | 描述 | SKILL.md |
