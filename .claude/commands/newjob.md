@@ -50,7 +50,7 @@ uv run pytest
 
 輸出結構化報告：
 
-```
+```text
 === New Job Report ===
 Branch:      <name>
 pytest:      ✅ passed / ⚠️ failed (N issues)

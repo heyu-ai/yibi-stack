@@ -10,6 +10,7 @@ git diff --stat
 ```
 
 將修改分為：
+
 - **Fix files**: 實際修復 bug 的檔案
 - **Debug artifacts**: 暫時加的 log、print、test scripts（不該 commit）
 - **Unrelated changes**: 順手改的東西（另開 PR 或 stash）
@@ -46,6 +47,7 @@ git diff --cached --stat
 ```
 
 **排除**：
+
 - Debug log（`print()` 暫時加的）
 - `.env` 變更
 - 無關的格式化改動
@@ -82,6 +84,7 @@ EOF
 ## Step 7: Lesson Learned（可選）
 
 詢問使用者是否要記錄 lesson learned：
+
 - Root cause 是什麼？
 - 什麼 check 可以更早發現？
 - 是否需要加 regression test？

@@ -30,6 +30,7 @@ git diff --stat
 ```
 
 If there are uncommitted changes, stage and commit them with a descriptive conventional commit message:
+
 ```bash
 git add <relevant files>
 git commit -m "type(scope): description"
@@ -44,11 +45,13 @@ git push -u origin HEAD
 ### Step 5: Create or Update Pull Request
 
 Check if a PR already exists:
+
 ```bash
 gh pr view 2>/dev/null && echo "PR exists" || echo "No PR"
 ```
 
 If **no PR exists**, create one:
+
 ```bash
 gh pr create --title "<type>(<scope>): <description>" --body "$(cat <<'EOF'
 ## Summary
@@ -67,6 +70,7 @@ EOF
 ```
 
 If **PR already exists**, update it:
+
 ```bash
 gh pr edit --title "<updated title>" --body "<updated body>"
 ```
