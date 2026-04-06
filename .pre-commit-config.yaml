@@ -26,6 +26,7 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+        files: ^tasks/
 
   - repo: https://github.com/PyCQA/bandit
     rev: 1.7.7
