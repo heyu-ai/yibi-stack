@@ -1,5 +1,6 @@
 ---
 name: qa-test-design
+type: know
 description: >
   資深 QA 測試設計技術，運用結構化方法產生高品質 Test Case。適用情境：
   用戶提到「幫我設計測試案例」、「寫 test case」、「分析測試範圍」、

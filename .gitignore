@@ -219,9 +219,8 @@ tasks/.claude/settings.local.json
 # Runtime（設定檔 + DB 統一放 .runtime/）
 .runtime/
 
-# Output 目錄（保留在根目錄方便查看）
-gmail_scan_output/
-billing_output/
+# Output 目錄（統一放 output/ 下）
+output/
 
 # Skill eval 結果
 _workspace/

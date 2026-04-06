@@ -1,5 +1,6 @@
 ---
 name: <skill-name>
+type: exec  # exec | tool | know
 description: <一句話描述這個 skill 做什麼>
 ---
 
