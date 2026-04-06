@@ -53,6 +53,7 @@ disallow_untyped_calls = false
 [[tool.mypy.overrides]]
 module = ["tabula.*", "playwright.*"]
 ignore_missing_imports = true
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tasks"]
