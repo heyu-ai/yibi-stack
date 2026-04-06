@@ -21,6 +21,7 @@
 | `detect-ai-slop` | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
 | `howie-writing-style` | 模擬 Howie 個人中文寫作風格（四段式架構、茶水間語氣） | [howie-writing-style/SKILL.md](howie-writing-style/SKILL.md) |
 | `local-port-manager` | 本地 Port 衝突解決工具（開發中） | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) |
+| `icf-global-news-digest` | 爬取 ICF 官網最新消息與活動，翻譯繁中，產出 Markdown 週報與 HTML 電子報並寄出 | [icf-global-news-digest/SKILL.md](icf-global-news-digest/SKILL.md) |
 
 ## 執行方式
 
