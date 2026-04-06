@@ -1,5 +1,5 @@
 [project]
-name = "my-daily-routine-skill"
+name = "ainization-skill"
 version = "0.1.0"
 description = "日常瑣事自動化工具集"
 requires-python = ">=3.11"
@@ -45,9 +45,14 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = "tests.*"
+module = "tasks.*.tests.*"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["tabula.*", "playwright.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tasks"]

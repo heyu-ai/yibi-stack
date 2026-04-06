@@ -16,7 +16,7 @@ description: <一句話描述這個 skill 做什麼>
 確認工作目錄與必要工具：
 
 ```bash
-cd ~/Workspace/github/side-project/my-daily-routine-skill
+cd "$(git rev-parse --show-toplevel)"
 ```
 
 ```bash
