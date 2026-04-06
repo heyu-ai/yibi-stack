@@ -32,28 +32,21 @@ description: >
 
 ```bash
 git rev-parse --show-toplevel
-ls .claude/
-```
-
-若 `.claude/` 不存在，建立它：
-
-```bash
-mkdir -p .claude/hooks
+[ -d .claude/ ] && echo "✓ .claude/ 存在" || echo "⚠️  .claude/ 不存在，Step 2 會自動建立"
 ```
 
 ### Step 2: 安裝 hook 腳本
 
-找到此 skill 的安裝目錄（skill 已安裝為 symlink）：
+確認 skill 已安裝，並複製 hook 腳本：
 
 ```bash
-SKILL_DIR=$(readlink -f ~/.agent/skills/protect-push 2>/dev/null || echo "")
-[ -z "$SKILL_DIR" ] && echo "錯誤：protect-push skill 未安裝。請先執行 make install-one SKILL=protect-push" && exit 1
-echo "Skill 目錄：$SKILL_DIR"
-```
+SKILL_DIR="$HOME/.agent/skills/protect-push"
+if [ ! -d "$SKILL_DIR" ]; then
+    echo "錯誤：protect-push skill 未安裝。請先執行 make install-one SKILL=protect-push"
+    exit 1
+fi
+echo "✓ Skill 目錄：$SKILL_DIR"
 
-複製 hook 腳本並設定可執行權限：
-
-```bash
 mkdir -p .claude/hooks
 cp "$SKILL_DIR/protect-push.sh" .claude/hooks/protect-push.sh
 chmod +x .claude/hooks/protect-push.sh
@@ -109,12 +102,16 @@ new_hook = {
 
 # 取得或初始化 hooks.PreToolUse
 hooks = settings.setdefault("hooks", {})
+if not isinstance(hooks, dict):
+    print("錯誤：settings.json 中 hooks 欄位格式不正確（應為 dict）")
+    sys.exit(1)
 pre_tool_use = hooks.setdefault("PreToolUse", [])
 
-# 避免重複安裝
+# 避免重複安裝（比對完整 command 字串）
+HOOK_COMMAND = '"$CLAUDE_PROJECT_DIR"/.claude/hooks/protect-push.sh'
 already_installed = any(
     any(
-        h.get("command", "").endswith("protect-push.sh")
+        h.get("command", "") == HOOK_COMMAND
         for h in entry.get("hooks", [])
     )
     for entry in pre_tool_use
