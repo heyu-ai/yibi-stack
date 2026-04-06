@@ -34,7 +34,11 @@ install: ## Install all skills (symlink to ~/.agent/skills/)
 	@for s in $(SKILL_DIR)/*/; do \
 		s=$$(basename $$s); \
 		if [ "$$s" = "_template" ]; then continue; fi; \
-		if [ -L "$(INSTALL_DIR)/$$s" ]; then \
+		if [ -L "$(INSTALL_DIR)/$$s" ] && [ ! -e "$(INSTALL_DIR)/$$s" ]; then \
+			rm -f "$(INSTALL_DIR)/$$s"; \
+			ln -sf $(CURDIR)/$(SKILL_DIR)/$$s $(INSTALL_DIR)/$$s; \
+			echo "  ⚠ $$s → relinked (was dangling)"; \
+		elif [ -L "$(INSTALL_DIR)/$$s" ]; then \
 			echo "  ↻ $$s (already linked)"; \
 		elif [ -d "$(INSTALL_DIR)/$$s" ]; then \
 			echo "  ⚠ $$s (exists as real dir, skipping)"; \
@@ -49,16 +53,46 @@ install-one: ## Install one skill: make install-one SKILL=<name>
 	ln -sf $(CURDIR)/$(SKILL_DIR)/$(SKILL) $(INSTALL_DIR)/$(SKILL)
 	@echo "✓ $(SKILL) → linked"
 
-status: ## Show ~/.agent/skills/ link status
-	@echo "=== ~/.agent/skills/ ==="
-	@for s in $(INSTALL_DIR)/*/; do \
+status: ## Show ~/.agent/skills/ link status grouped by type
+	@if [ ! -d "$(INSTALL_DIR)" ] || [ -z "$$(ls -A $(INSTALL_DIR) 2>/dev/null)" ]; then \
+		echo "=== ~/.agent/skills/ ==="; echo ""; echo "  (empty — run 'make install' first)"; exit 0; \
+	fi; \
+	echo "=== ~/.agent/skills/ ==="; \
+	print_group() { \
+		label=$$1; title=$$2; \
+		found=0; \
+		for s in $(INSTALL_DIR)/*/; do \
+			name=$$(basename $$s); \
+			skill_md="$(INSTALL_DIR)/$$name/SKILL.md"; \
+			if [ ! -L "$(INSTALL_DIR)/$$name" ]; then continue; fi; \
+			if [ ! -f "$$skill_md" ]; then continue; fi; \
+			t=$$(grep -m1 '^type:' "$$skill_md" | sed 's/#.*//' | sed 's/type:[[:space:]]*//' | tr -d '[:space:]'); \
+			if [ "$$t" = "$$label" ]; then \
+				if [ $$found -eq 0 ]; then echo ""; echo "  [$$label] $$title"; found=1; fi; \
+				target=$$(readlink "$(INSTALL_DIR)/$$name"); \
+				echo "  🔗 $$name → $$target"; \
+			fi; \
+		done; \
+	}; \
+	print_group exec "可執行"; \
+	print_group tool "工具型"; \
+	print_group know "知識型"; \
+	found_other=0; \
+	for s in $(INSTALL_DIR)/*/; do \
 		name=$$(basename $$s); \
 		if [ -L "$(INSTALL_DIR)/$$name" ]; then \
+			skill_md="$(INSTALL_DIR)/$$name/SKILL.md"; \
+			if [ -f "$$skill_md" ]; then \
+				t=$$(grep -m1 '^type:' "$$skill_md" | sed 's/#.*//' | sed 's/type:[[:space:]]*//' | tr -d '[:space:]'); \
+				if [ "$$t" = "exec" ] || [ "$$t" = "tool" ] || [ "$$t" = "know" ]; then continue; fi; \
+			fi; \
 			target=$$(readlink "$(INSTALL_DIR)/$$name"); \
+			if [ $$found_other -eq 0 ]; then echo ""; echo "  [?] 其他"; found_other=1; fi; \
 			echo "  🔗 $$name → $$target"; \
 		else \
+			if [ $$found_other -eq 0 ]; then echo ""; echo "  [?] 其他"; found_other=1; fi; \
 			echo "  📦 $$name (external)"; \
-		fi \
+		fi; \
 	done
 
 uninstall: ## Remove own symlinks from ~/.agent/skills/

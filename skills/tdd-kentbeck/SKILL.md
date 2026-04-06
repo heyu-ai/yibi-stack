@@ -1,5 +1,6 @@
 ---
 name: tdd-kentbeck
+type: know
 description: >
   以 Kent Beck 的 Test-Driven Development (TDD) 與 Tidy First 方法論驅動軟體開發。
   適用情境：用戶提到「TDD」、「測試驅動開發」、「Red Green Refactor」、「先寫測試」、

@@ -1,3 +1,9 @@
+---
+name: local-port-manager
+type: know
+description: 本地 Port 衝突解決工具（開發中）
+---
+
 # Local Port Manager
 
 <!-- TODO: 開發中，待補完 -->
