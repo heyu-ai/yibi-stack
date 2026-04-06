@@ -54,7 +54,10 @@ install-one: ## Install one skill: make install-one SKILL=<name>
 	@echo "✓ $(SKILL) → linked"
 
 status: ## Show ~/.agent/skills/ link status grouped by type
-	@echo "=== ~/.agent/skills/ ==="; \
+	@if [ ! -d "$(INSTALL_DIR)" ] || [ -z "$$(ls -A $(INSTALL_DIR) 2>/dev/null)" ]; then \
+		echo "=== ~/.agent/skills/ ==="; echo ""; echo "  (empty — run 'make install' first)"; exit 0; \
+	fi; \
+	echo "=== ~/.agent/skills/ ==="; \
 	print_group() { \
 		label=$$1; title=$$2; \
 		found=0; \
@@ -63,7 +66,7 @@ status: ## Show ~/.agent/skills/ link status grouped by type
 			skill_md="$(INSTALL_DIR)/$$name/SKILL.md"; \
 			if [ ! -L "$(INSTALL_DIR)/$$name" ]; then continue; fi; \
 			if [ ! -f "$$skill_md" ]; then continue; fi; \
-			t=$$(grep -m1 '^type:' "$$skill_md" | sed 's/type:[[:space:]]*//' | tr -d '[:space:]'); \
+			t=$$(grep -m1 '^type:' "$$skill_md" | sed 's/#.*//' | sed 's/type:[[:space:]]*//' | tr -d '[:space:]'); \
 			if [ "$$t" = "$$label" ]; then \
 				if [ $$found -eq 0 ]; then echo ""; echo "  [$$label] $$title"; found=1; fi; \
 				target=$$(readlink "$(INSTALL_DIR)/$$name"); \
@@ -80,7 +83,7 @@ status: ## Show ~/.agent/skills/ link status grouped by type
 		if [ -L "$(INSTALL_DIR)/$$name" ]; then \
 			skill_md="$(INSTALL_DIR)/$$name/SKILL.md"; \
 			if [ -f "$$skill_md" ]; then \
-				t=$$(grep -m1 '^type:' "$$skill_md" | sed 's/type:[[:space:]]*//' | tr -d '[:space:]'); \
+				t=$$(grep -m1 '^type:' "$$skill_md" | sed 's/#.*//' | sed 's/type:[[:space:]]*//' | tr -d '[:space:]'); \
 				if [ "$$t" = "exec" ] || [ "$$t" = "tool" ] || [ "$$t" = "know" ]; then continue; fi; \
 			fi; \
 			target=$$(readlink "$(INSTALL_DIR)/$$name"); \
