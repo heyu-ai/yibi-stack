@@ -47,6 +47,7 @@ uv run python -m tasks.<task_module> <command> --<option> {{value}}
 ### Step 4: 報告結果
 
 說明如何呈現輸出結果給使用者，包含：
+
 - 成功/失敗狀態
 - 關鍵數字（處理了多少筆、下載了多少檔案等）
 - 需要使用者注意的例外情況

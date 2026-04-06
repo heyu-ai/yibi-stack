@@ -50,6 +50,7 @@ cp -r <source>/ideas/  <target>/ideas/
 ### Step 5：更新 `CLAUDE.md`
 
 加入：
+
 - `drafts/` 和 `ideas/` 目錄說明
 - 知識型 skill vs 可執行 skill 的區別
 - `make install` / `make promote` 等新指令
@@ -67,7 +68,7 @@ cp -r <source>/ideas/  <target>/ideas/
 
 ### Step 8：Rename Repo
 
-```
+```text
 GitHub → my-daily-routine-skill → Settings → Repository name → howie-skills
 ```
 
@@ -87,7 +88,7 @@ mv /Users/howie/Workspace/github/side-project/my-daily-routine-skill /Users/howi
 
 ### Step 9：Archive 舊 Repo
 
-```
+```text
 GitHub → my-skills → Settings → Danger Zone → Archive this repository
 ```
 
@@ -120,6 +121,7 @@ make install
 ## 回滾方案
 
 如果合併後出問題：
+
 1. `my-skills` 只是 archive，隨時可以 unarchive
 2. `my-daily-routine-skill` 的 git history 完整保留，可以 revert merge commit
 3. GitHub rename 可以再改回來（redirect 也會自動更新）

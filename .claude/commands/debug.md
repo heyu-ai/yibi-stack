@@ -25,6 +25,7 @@ git diff HEAD~5
 ```
 
 **Common issues in this project:**
+
 - `.env` missing required variables
 - Playwright browser not installed (`playwright install`)
 - Target website structure changed
@@ -32,6 +33,7 @@ git diff HEAD~5
 ## Phase 3: Apply Fix
 
 Only after identifying root cause:
+
 1. Apply the **minimal** fix.
 2. If it's a config issue: update all relevant locations.
 3. If it's a website change: update selectors/parsing logic.
@@ -53,6 +55,7 @@ Only report success after confirming the original problem is resolved.
 ## Phase 5: Prevent Recurrence
 
 After fixing, note:
+
 - What was the root cause?
 - What check would have caught this earlier?
 - Should a test be added to prevent regression?

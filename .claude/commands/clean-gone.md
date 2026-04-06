@@ -5,6 +5,7 @@ description: Enhanced version - Clean branches marked as [gone] AND optionally a
 ## Your Task
 
 Clean up stale local git branches. This command can:
+
 1. Clean branches marked as [gone] (remote deleted)
 2. Optionally clean ALL branches with merged PRs
 
@@ -31,6 +32,7 @@ gh pr list --state merged --json number,headRefName,state --limit 100
 ### Step 3: Ask user preference
 
 Present options:
+
 - `1`: Clean only [gone] branches (safe, remote already deleted)
 - `2`: Clean [gone] branches + all merged PR branches (more thorough)
 - `3`: Cancel
@@ -38,6 +40,7 @@ Present options:
 ### Step 4: Execute cleanup based on choice
 
 **Option 1: Clean [gone] branches only**
+
 ```bash
 git branch -v | grep '\[gone\]' | sed 's/^[+* ]//' | awk '{print $1}' | while read branch; do
   echo "Processing branch: $branch"
@@ -47,6 +50,7 @@ done
 ```
 
 **Option 2: Clean [gone] + merged PR branches**
+
 ```bash
 # First clean [gone] branches (same as option 1)
 # Then clean merged PR branches (same as /clean-merged command)

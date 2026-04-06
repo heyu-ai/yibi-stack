@@ -36,7 +36,7 @@
 
 ## Skill 生命週期
 
-```
+```text
 ideas/    → 構想筆記（純 .md）
 drafts/   → 開發中（有目錄結構但尚未發佈）
 skills/   → 正式發佈（透過 make install 安裝 symlink）

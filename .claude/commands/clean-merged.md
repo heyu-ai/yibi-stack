@@ -9,11 +9,13 @@ You need to clean up local git branches whose Pull Requests have been merged on 
 ## Commands to Execute
 
 1. **Update local main branch**
+
    ```bash
    git checkout main && git pull origin main
    ```
 
 2. **List all local branches and their corresponding PRs**
+
    ```bash
    # Get all non-main local branches
    git branch --format='%(refname:short)' | grep -v '^main$'
@@ -27,6 +29,7 @@ You need to clean up local git branches whose Pull Requests have been merged on 
    - Delete the local branch
 
 4. **Clean up process**
+
    ```bash
    # Delete the branch
    git branch -D <branch-name>
