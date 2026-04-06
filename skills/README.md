@@ -13,6 +13,12 @@
 | `einvoice-blank-upload` | 上傳空白未使用發票號碼到財政部電子發票整合服務平台（每兩個月） | [einvoice-blank-upload/SKILL.md](einvoice-blank-upload/SKILL.md) | `uv`, Playwright, 人工 CAPTCHA |
 | `icf-global-news-digest` | 爬取 ICF 官網最新消息與活動，翻譯繁中，產出 Markdown 週報與 HTML 電子報並寄出（Agent-driven，無 Python 實作） | [icf-global-news-digest/SKILL.md](icf-global-news-digest/SKILL.md) | `gws` CLI, Chrome MCP |
 
+### 工具型 Skill（安裝或設定開發工具）
+
+| Skill | 描述 | SKILL.md |
+|-------|------|----------|
+| `protect-push` | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
+
 ### 知識型 Skill（純 Markdown 方法論指引）
 
 | Skill | 描述 | SKILL.md |
