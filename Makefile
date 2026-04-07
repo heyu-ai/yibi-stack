@@ -1,4 +1,4 @@
-.PHONY: help lint format typecheck test check install install-one status uninstall promote
+.PHONY: help lint format typecheck test check install install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -103,6 +103,15 @@ uninstall: ## Remove own symlinks from ~/.agent/skills/
 			echo "  ✗ $$s removed"; \
 		fi \
 	done
+
+install-scheduler: ## Install macOS LaunchAgent for scheduler (every 60s tick)
+	uv run python -m tasks.scheduler install
+
+uninstall-scheduler: ## Uninstall scheduler LaunchAgent
+	uv run python -m tasks.scheduler uninstall
+
+scheduler-status: ## Show scheduler job status
+	uv run python -m tasks.scheduler status
 
 promote: ## Promote draft to skill: make promote SKILL=<name>
 	@if [ -z "$(SKILL)" ]; then echo "Usage: make promote SKILL=name"; exit 1; fi

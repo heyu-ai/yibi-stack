@@ -1,0 +1,111 @@
+---
+name: scheduler
+description: 管理 Skill Scheduler — 設定定期自動執行的排程、查看執行狀態、手動觸發 job、安裝/卸載 LaunchAgent
+---
+
+# Skill: Scheduler
+
+管理定期自動執行 skill 的排程基礎設施。
+
+## 環境確認
+
+```bash
+# 確認在專案根目錄
+pwd  # 應為 /Users/howie/Workspace/github/ainization-skill
+
+# 確認 Python 環境
+uv run python -m tasks.scheduler --help
+```
+
+---
+
+## Mode A：初始化 + 安裝 LaunchAgent
+
+**適用情境：首次設定、重新安裝**
+
+```bash
+# 1. 初始化設定檔與資料庫
+uv run python -m tasks.scheduler setup
+
+# 2. 編輯排程設定（視需求調整 enabled/time）
+open .runtime/schedules.json
+
+# 3. 安裝 LaunchAgent（每 60 秒自動 tick）
+uv run python -m tasks.scheduler install
+
+# 4. 確認已載入
+launchctl list | grep ainization
+```
+
+**LaunchAgent 安裝後行為：**
+
+- 每 60 秒執行一次 `tick`
+- 時間未到：靜默退出（<50ms）
+- 時間到了：執行對應 job，記錄結果到 `.runtime/scheduler.db`
+- log 在 `/tmp/ainization-scheduler.log`
+
+---
+
+## Mode B：查看排程狀態
+
+**適用情境：確認排程是否正常運行**
+
+```bash
+# 查看所有 job 狀態
+uv run python -m tasks.scheduler status
+
+# 查看執行歷史
+uv run python -m tasks.scheduler history
+
+# 查看特定 job 歷史
+uv run python -m tasks.scheduler history --job-id newsletter-digest --limit 10
+
+# 查看 LaunchAgent log
+tail -f /tmp/ainization-scheduler.log
+tail -f /tmp/ainization-scheduler.err
+```
+
+---
+
+## Mode C：手動觸發 job
+
+**適用情境：測試、補跑、除錯**
+
+```bash
+# 強制執行特定 job（忽略 is_due 判斷）
+uv run python -m tasks.scheduler run-job newsletter-extract
+uv run python -m tasks.scheduler run-job newsletter-digest
+
+# Dry-run tick（只列出 due jobs，不實際執行）
+uv run python -m tasks.scheduler tick --dry-run
+```
+
+---
+
+## Mode D：卸載
+
+```bash
+uv run python -m tasks.scheduler uninstall
+```
+
+---
+
+## 設定檔說明（.runtime/schedules.json）
+
+| 欄位 | 說明 |
+|------|------|
+| `schedule` | `daily` / `weekly` / `monthly` / `bimonthly` / `quarterly` |
+| `time` | 執行時間（HH:MM），Mac 睡眠後補跑不會漏 |
+| `command` | subprocess 執行的指令陣列 |
+| `claude.prompt_file` | Prompt template 路徑（透過 ACP Gateway 執行） |
+| `skill` | skill 名稱（讀取 skills/{name}/SKILL.md 執行） |
+| `depends_on` | 依賴的 job id 陣列 |
+| `enabled` | 是否啟用 |
+
+**Claude job 前提：MiniShell ACP Gateway 必須正在運行**
+
+```bash
+# 在 MiniShell 專案啟動 Gateway
+cd ../side-project/MiniShell
+bash scripts/start-acp-gateway.sh
+```

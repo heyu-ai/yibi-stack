@@ -14,6 +14,7 @@ dependencies = [
     "pdfplumber>=0.11.9",
     "pillow>=10.0.0",
     "pytesseract>=0.3.13",
+    "markdownify>=0.14",
 ]
 
 [dependency-groups]
@@ -51,7 +52,7 @@ disallow_incomplete_defs = false
 disallow_untyped_calls = false
 
 [[tool.mypy.overrides]]
-module = ["tabula.*", "playwright.*"]
+module = ["tabula.*", "playwright.*", "markdownify.*", "bs4.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 
