@@ -1,5 +1,5 @@
 """
-規則型分類：匯豐信用卡 2025-07~12 的 241 筆「其他支出」交易
+規則型分類：匯豐信用卡 2025-07~12 的「其他支出」交易
 """
 
 from __future__ import annotations
@@ -105,13 +105,13 @@ RULES: list[tuple[str, str]] = [
     (r"杏一|藥妝|屈臣氏|康是美|Watson|MEDILIFE", "保健"),
     # 裝潢維修
     (r"B&Q|特力屋|HOME.*DEPOT|DIY", "家電家具"),
-    # Paypal 預設其他
+    # PayPal 代扣 Google 服務（歸生產力工具）
     (r"PAYPAL\*GOOGLE", "生產力工具"),
     # Google Play 相關
     (r"GOOGLE\*PLAYPASS|GOOGLE\*PLAY(?!.*CLOUD)", "線上遊戲"),
     (r"GOOGLE\*WEBTOON|WEBTOON|MANGA|ZHUJIAWEIG|漫畫人", "看漫畫"),
-    # 咖啡廳
-    (r"LOUISA|路易莎|STARBUCKS|星巴克|CAMA|COFFEE", "家庭三餐"),
+    # 咖啡廳（STARBUCKS 已由上方外送/餐廳規則涵蓋，此處保留 LOUISA/CAMA/COFFEE）
+    (r"LOUISA|路易莎|星巴克|CAMA|COFFEE", "家庭三餐"),
     # 餐廳補充
     (
         r"SUKIYA|SUKITYA|すき家|六扇門|湯鍋|草山行館|微風南京|美食廣場|Q MAO|貢茶|GONGTEA",
@@ -129,8 +129,8 @@ RULES: list[tuple[str, str]] = [
     (r"墊腳石|誠品|金石堂|三民|博客來|BOOKSTORE|BOOKS", "書籍"),
     # 影音
     (r"DisneyPLUS|Disney\+|DISNEY.*PLUS", "線上視頻"),
-    # 軟體訂閱（Cleverbridge 是軟體代售平台）
-    (r"CLEVERBRIDG|CLEVERBRIDGE|LTPASSWORD|1PASSWORD|PADDLE\*", "生產力工具"),
+    # 軟體訂閱（Cleverbridge 是軟體代售平台；1PASSWORD 已由上方生產力工具規則涵蓋）
+    (r"CLEVERBRIDG|CLEVERBRIDGE|LTPASSWORD|PADDLE\*", "生產力工具"),
     # 更多餐廳
     (r"餃子|喬園|烏菲茲|豆花|THE春|TAMEDFOX|神農市場|夜市", "家庭三餐"),
     # 卡達旅遊（HAYYA = Qatar fan ID）

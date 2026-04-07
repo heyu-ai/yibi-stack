@@ -28,7 +28,7 @@ TARGET_BANKS = set(BANK_MAP.values())
 
 
 def load_billing() -> pd.DataFrame:
-    files = sorted(glob.glob(f"{BILLING_DIR}/20[24-25]*-credit_card.csv"))
+    files = sorted(glob.glob(f"{BILLING_DIR}/202[45]*-credit_card.csv"))
     files = [f for f in files if any(f"/{y}-" in f for y in ["2024", "2025"])]
     dfs = []
     for f in files:

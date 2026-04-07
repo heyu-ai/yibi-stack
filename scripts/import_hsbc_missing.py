@@ -104,12 +104,16 @@ def create_transaction(
         "transaction_type": "EXPENSE",
         "notes": notes[:500] if notes else "",
     }
-    r = requests.post(
-        f"{API_BASE}/ledgers/{LEDGER_2025}/transactions",
-        headers=HEADERS,
-        json=payload,
-        timeout=10,
-    )
+    try:
+        r = requests.post(
+            f"{API_BASE}/ledgers/{LEDGER_2025}/transactions",
+            headers=HEADERS,
+            json=payload,
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        print(f"  ❌ 網路錯誤: {e}", file=sys.stderr)
+        return False
     if r.status_code in (200, 201):
         return True
     print(f"  ❌ {r.status_code}: {r.text[:200]}", file=sys.stderr)

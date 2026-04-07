@@ -38,7 +38,7 @@ TARGET_BANKS = set(BANK_MAP.values())
 
 
 def load_billing_data() -> pd.DataFrame:
-    files = sorted(glob.glob(f"{BILLING_DIR}/20[24-25]*-credit_card.csv"))
+    files = sorted(glob.glob(f"{BILLING_DIR}/202[45]*-credit_card.csv"))
     # Filter only 2024 and 2025
     files = [f for f in files if any(f"/{y}-" in f for y in ["2024", "2025"])]
     if not files:
@@ -53,6 +53,9 @@ def load_billing_data() -> pd.DataFrame:
         except Exception as e:
             print(f"⚠️  讀取 {f} 失敗: {e}", file=sys.stderr)
 
+    if not dfs:
+        print("❌ 沒有可讀取的 CSV 檔案", file=sys.stderr)
+        sys.exit(1)
     billing = pd.concat(dfs, ignore_index=True)
     billing["date"] = pd.to_datetime(billing["date"])
     billing["month"] = billing["date"].dt.to_period("M").astype(str)
