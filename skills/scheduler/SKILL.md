@@ -1,5 +1,6 @@
 ---
 name: scheduler
+type: exec
 description: 管理 Skill Scheduler — 設定定期自動執行的排程、查看執行狀態、手動觸發 job、安裝/卸載 LaunchAgent
 ---
 

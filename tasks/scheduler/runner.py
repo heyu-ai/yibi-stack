@@ -1,8 +1,9 @@
-"""Job 執行層：command（subprocess）和 claude（ACP Gateway HTTP）。"""
+"""Job 執行層：command（subprocess）、claude / skill（ACP Gateway HTTP）。"""
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess  # nosec B404 — job 執行需要 subprocess
 import urllib.error
@@ -13,6 +14,8 @@ from typing import IO
 
 from .._paths import PROJECT_ROOT
 from .models import JobConfig, JobRun, JobRunStatus
+
+logger = logging.getLogger(__name__)
 
 _ACP_GATEWAY_ENV_PATH = Path.home() / ".config" / "acp-gateway" / ".env"
 _DEFAULT_ACP_GATEWAY_URL = "http://localhost:7865/v1/prompt"
@@ -33,6 +36,14 @@ def _load_acp_config() -> tuple[str, str]:
                 token = line.split("=", 1)[1].strip().strip('"').strip("'")
             elif line.startswith("ACP_GATEWAY_PORT="):
                 port = line.split("=", 1)[1].strip().strip('"').strip("'")
+    else:
+        logger.warning(
+            "ACP Gateway 設定檔不存在：%s — claude/skill 類型 job 將無法認證",
+            _ACP_GATEWAY_ENV_PATH,
+        )
+
+    if not token:
+        logger.warning("ACP Gateway token 為空，claude/skill 類型 job 可能認證失敗")
 
     url = f"http://localhost:{port}/v1/prompt"
     return token, url
@@ -61,8 +72,8 @@ def run_command_job(
         return result.returncode, None
     except subprocess.TimeoutExpired:
         return 1, f"timeout after {job.timeout_seconds}s"
-    except Exception as e:
-        return 1, str(e)
+    except OSError as e:
+        return 1, f"指令執行失敗（{job.command[0]}）：{e}"
 
 
 def run_claude_job(
@@ -121,8 +132,12 @@ def run_claude_job(
         )
         log_file.write(msg + "\n")
         return 1, msg
+    except json.JSONDecodeError as e:
+        msg = f"ACP Gateway 回傳非 JSON 格式：{e}"
+        log_file.write(msg + "\n")
+        return 1, msg
     except Exception as e:
-        msg = f"ACP Gateway 呼叫發生例外：{e}"
+        msg = f"ACP Gateway 呼叫發生例外：{type(e).__name__}: {e}"
         log_file.write(msg + "\n")
         return 1, msg
 
