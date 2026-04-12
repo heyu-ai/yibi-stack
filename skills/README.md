@@ -8,6 +8,7 @@
 
 | Skill | 描述 | SKILL.md | 相依工具 |
 |-------|------|----------|---------|
+| `handover` | 跨對話、跨裝置、跨 Agent 的工作交班系統。使用 SQLite 保存工作狀態，避免 context rot。支援寫入、讀取、搜尋交班記錄 | [handover/SKILL.md](handover/SKILL.md) | `sqlite3` |
 | `gmail-scan` | 通用 Gmail 掃描（非金融類），支援多 profile 郵件搜尋與附件下載。金融帳單請用 gmail-billing | [gmail-scan/SKILL.md](gmail-scan/SKILL.md) | `gws` CLI, `uv` |
 | `gmail-billing` | 從 Gmail 掃描金融帳單 PDF，自動下載、解密、分類、轉 CSV。支援 on-demand 補掃與每季定期批次匯入 | [gmail-billing/SKILL.md](gmail-billing/SKILL.md) | `gws` CLI, `uv`, Java Runtime |
 | `einvoice-blank-upload` | 上傳空白未使用發票號碼到財政部電子發票整合服務平台（每兩個月） | [einvoice-blank-upload/SKILL.md](einvoice-blank-upload/SKILL.md) | `uv`, Playwright, 人工 CAPTCHA |
