@@ -31,6 +31,14 @@
 | `howie-writing-style` | 模擬 Howie 個人中文寫作風格（四段式架構、茶水間語氣） | [howie-writing-style/SKILL.md](howie-writing-style/SKILL.md) |
 | `local-port-manager` | 本地 Port 衝突解決工具（開發中） | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) |
 
+### 外來安裝技能（透過 `skills-lock.json` 管理，內容在 `.agents/skills/`）
+
+| Skill | 描述 | SKILL.md | 來源 |
+|-------|------|----------|------|
+| `steve-jobs-perspective` | Steve Jobs 思維框架：6 個心智模型、8 條決策啟發式、完整角色扮演規則，以 Jobs 視角分析產品與策略 | [.agents/skills/steve-jobs-perspective/SKILL.md](../.agents/skills/steve-jobs-perspective/SKILL.md) | `alchaincyf/steve-jobs-skill` |
+
+> 外來技能由 `skills-lock.json` 追蹤版本與 hash，透過 `.claude/skills/<name>` symlink 掛載，**不在 `skills/` 目錄下維護內容**。更新指令：`npx skills upgrade <name>`
+
 ## 執行方式
 
 1. 選擇對應的 skill
