@@ -65,7 +65,7 @@ class JobConfig(BaseModel):
     @field_validator("day_of_month")
     @classmethod
     def validate_day_of_month(cls, v: int | None) -> int | None:
-        if v is not None and not (1 <= v <= 31):
+        if v is not None and not 1 <= v <= 31:
             raise ValueError(f"day_of_month 必須在 1-31，收到：{v}")
         return v
 
@@ -74,7 +74,7 @@ class JobConfig(BaseModel):
     def validate_months(cls, v: list[int] | None) -> list[int] | None:
         if v is not None:
             for m in v:
-                if not (1 <= m <= 12):
+                if not 1 <= m <= 12:
                     raise ValueError(f"months 中有無效月份：{m}")
         return v
 

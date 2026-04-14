@@ -26,6 +26,7 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.2.0",
     "mypy>=1.8.0",
+    "pylint>=3.0.0",
     "pre-commit>=3.6.0",
     "bandit[toml]",
 ]
@@ -64,6 +65,55 @@ follow_imports = "skip"
 [tool.pytest.ini_options]
 testpaths = ["tasks"]
 pythonpath = ["."]
+
+[tool.pylint.main]
+load-plugins = ["pylint.extensions.no_self_use"]
+
+[tool.pylint.messages_control]
+# 與 ruff 重疊的規則停用；mypy 已涵蓋型別檢查，停用相關警告
+disable = [
+    "C0114",  # missing-module-docstring（由 ruff 處理）
+    "C0115",  # missing-class-docstring
+    "C0116",  # missing-function-docstring
+    "C0415",  # import-outside-toplevel（02-error-and-import.md 規定重型 import 延遲）
+    "W0404",  # reimported（延遲 import 的副作用）
+    "W0621",  # redefined-outer-name（延遲 import 的副作用）
+    "W0511",  # fixme（TODO comment 允許）
+    "W0718",  # broad-exception-caught（service/parser 刻意捕捉）
+    "R0801",  # duplicate-code（pdfplumber 延遲 import 樣板是刻意的）
+    "R0903",  # too-few-public-methods（Pydantic model 常觸發）
+    "W0212",  # protected-access（tests 常用）
+    "E1101",  # generated-members（pydantic、sqlalchemy 動態屬性）
+    "E1133",  # not-an-iterable（pydantic Field 讓 pylint 誤判型別）
+    "R6301",  # no-self-use（abstract base class 方法必須是 instance method）
+    "W2301",  # unnecessary-ellipsis（abstract method body 慣例）
+    "W0613",  # unused-argument（abstract method 簽名需要參數）
+    "R1702",  # too-many-nested-blocks（PDF parser 嵌套條件多）
+    "C1803",  # use-implicit-booleaness-not-comparison（明確比較更清晰）
+    "R0902",  # too-many-instance-attributes（dataclass/Pydantic 欄位多）
+    "C0103",  # invalid-name（SCREAMING_SNAKE_CASE 私有常數）
+    "C0302",  # too-many-lines（大型 test_parsers.py 是刻意的）
+    "C0413",  # wrong-import-position（tests 中路徑設定需要）
+    "W1510",  # subprocess-run-check（已用 nosec 標記，回傳碼由 caller 處理）
+    "W0622",  # redefining-builtin（tests 中用 id 命名 DB 主鍵）
+    "W0221",  # arguments-differ（pydantic model_post_init override）
+    "R0911",  # too-many-return-statements（service 多重錯誤路徑）
+    "R0917",  # too-many-positional-arguments（Click command 參數多）
+]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.pylint.design]
+max-args = 10
+max-locals = 40       # parser 函式天生需要大量區域變數
+max-branches = 35     # PDF 解析分支多
+max-statements = 120  # parser parse() 方法長
+max-instance-attributes = 12
+
+[tool.pylint.basic]
+# 允許 SCREAMING_SNAKE_CASE 私有常數（如 _TYPE_TO_FORMAT）
+const-rgx = "([A-Z_][A-Z0-9_]*|[a-z_][a-z0-9_]*)$"
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv", "scripts"]

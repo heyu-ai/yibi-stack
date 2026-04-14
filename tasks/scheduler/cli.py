@@ -272,7 +272,9 @@ def install() -> None:
     click.echo(f"已寫入：{_PLIST_PATH}")
 
     # 卸載舊的（若存在），再載入新的
-    subprocess.run(["launchctl", "unload", str(_PLIST_PATH)], capture_output=True)  # nosec B603 B607
+    subprocess.run(  # nosec B603 B607
+        ["launchctl", "unload", str(_PLIST_PATH)], capture_output=True
+    )
     lc_result = subprocess.run(  # nosec B603 B607
         ["launchctl", "load", str(_PLIST_PATH)], capture_output=True, text=True
     )
@@ -291,6 +293,8 @@ def uninstall() -> None:
         click.echo("LaunchAgent 不存在，跳過。")
         return
 
-    subprocess.run(["launchctl", "unload", str(_PLIST_PATH)], capture_output=True)  # nosec B603 B607
+    subprocess.run(  # nosec B603 B607
+        ["launchctl", "unload", str(_PLIST_PATH)], capture_output=True
+    )
     _PLIST_PATH.unlink()
     click.echo(f"已卸載並刪除：{_PLIST_PATH}")
