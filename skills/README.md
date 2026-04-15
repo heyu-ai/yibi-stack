@@ -22,6 +22,7 @@
 |-------|------|----------|
 | `handover` | 跨對話、跨裝置、跨 Agent 的工作交班系統。使用 SQLite 保存工作狀態，避免 context rot。支援寫入、讀取、搜尋交班記錄（需 `sqlite3`） | [handover/SKILL.md](handover/SKILL.md) |
 | `protect-push` | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
+| `insight-collector` | 安裝 Claude Code Stop hook，自動從 session transcript 擷取 ★ Insight 區塊，以 JSONL 累積至 `~/.claude/insight/insights.jsonl` | [insight-collector/SKILL.md](insight-collector/SKILL.md) |
 
 ### 知識型 Skill（純 Markdown 方法論指引）
 
