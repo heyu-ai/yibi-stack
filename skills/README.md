@@ -31,6 +31,7 @@
 | `tdd-kentbeck` | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
 | `flutter-tdd` | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試、mockito/mocktail、Clean Architecture 可測試性設計 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
 | `qa-test-design` | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |
+| `spectra-amplifier` | Spec Kit 五層深度規格展開 + OpenSpec 變更管理框架融合方法論（User Stories → FS → Data Model → Assumptions → Testability） | [spectra-amplifier/SKILL.md](spectra-amplifier/SKILL.md) |
 | `detect-ai-slop` | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
 | `howie-writing-style` | 模擬 Howie 個人中文寫作風格（四段式架構、茶水間語氣） | [howie-writing-style/SKILL.md](howie-writing-style/SKILL.md) |
 | `local-port-manager` | 本地 Port 衝突解決工具（開發中） | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) |
