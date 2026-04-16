@@ -1,4 +1,4 @@
-.PHONY: help lint format typecheck test check install install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status
+.PHONY: help lint format typecheck test check install install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -25,11 +25,23 @@ check: ## Run all checks (lint + format check + typecheck + test)
 	uv run mypy tasks/
 	uv run pytest
 
+# ─── Build Tools ─────────────────────────────────────────────────────────────
+
+BIN_DIR := bin
+
+build-tools: ## Build all CLI binaries (Go)
+	@mkdir -p $(BIN_DIR)
+	@for d in cmd/*/; do \
+		name=$$(basename $$d); \
+		echo "  building $$name..."; \
+		(cd $$d && go build -o $(CURDIR)/$(BIN_DIR)/$$name .) && echo "  ✓ $(BIN_DIR)/$$name" || echo "  ✗ $$name build failed"; \
+	done
+
 # ─── Skill Management ───────────────────────────────────────────────────────
 
 SKILL_DIR := skills
 INSTALL_DIR := $(HOME)/.agents/skills
-install: ## Install all skills (symlink to ~/.agents/skills/)
+install: build-tools ## Install all skills (symlink to ~/.agents/skills/) + build CLI tools
 	@mkdir -p $(INSTALL_DIR)
 	@for s in $(SKILL_DIR)/*/; do \
 		s=$$(basename $$s); \

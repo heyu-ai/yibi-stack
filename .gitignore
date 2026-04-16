@@ -229,5 +229,8 @@ _workspace/
 # Git worktrees
 .worktrees/
 
+# Superpowers 執行產物（plans/specs 以 openspec 為 source of truth）
+docs/superpowers/
+
 # Compiled binaries
 bin/
