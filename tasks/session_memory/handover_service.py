@@ -65,7 +65,8 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
         tags=tags or [],
         device=device or detect_device(),
         agent_type=agent_type or detect_agent_type(),
-        subscription_account=account or detect_account(warn=False),
+        subscription_account=account
+        or detect_account(agent_type=agent_type or "claude", warn=False),
         branch=branch if branch is not None else detect_branch(),
         working_dir=working_dir or str(Path.cwd()),
         last_files=last_files or [],

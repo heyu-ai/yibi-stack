@@ -9,7 +9,7 @@ description: >
   - handover 交班記錄讀寫搜尋（SQLite + JSONL 鏡像）
   - insight 自動收集（Claude Code Stop hook）
   - 一次性 migrate 舊資料
-  - 三層 fallback 的 account 偵測（env var → config → unknown）
+  - 四層 fallback 的 account 偵測（env var → adapter → config → unknown）
 ---
 
 # agents：Multi-Agent 工作協作中樞
@@ -103,13 +103,14 @@ uv run python -m tasks.session_memory insight list --last 5
 - `config.json`（每台機器自己一份）
 - Syncthing 衝突檔
 
-## 帳號偵測（三層 fallback）
+## 帳號偵測（四層 fallback）
 
 | 優先序 | 來源 | 覆蓋情境 |
 |---|---|---|
 | 1 | 環境變數 `AGENT_ACCOUNT` | 特定 session 手動指定 |
-| 2 | `~/.agents/config.json` 的 `default_account` | 90% 日常場景 |
-| 3 | `unknown`（+ stderr 警告） | 未設定時 |
+| 2 | Agent adapter 自動偵測（Gemini/Codex/Claude） | 大多數已登入場景 |
+| 3 | `~/.agents/config.json` 的 `default_account` | 手動指定固定帳號 |
+| 4 | `unknown`（+ stderr 警告） | 未設定時 |
 
 切換帳號：
 
@@ -125,5 +126,5 @@ uv run python -m tasks.session_memory account set-default claude-pro    # 永久
 | `init` 後 config.json 已存在 | 用 `--force` 覆蓋，或手動編輯 `~/.agents/config.json` |
 | Stop hook 不觸發 | 確認 `~/.claude/settings.json` 有 entry；用 `insight install-hook` 重新註冊 |
 | `migrate` 跑兩次會重複嗎 | 不會，以 `id` 去重 |
-| 想把 account 改為自動從 `.credentials.json` 偵測 | 不做，維護成本太高；env var + default 已足 |
+| 想讓 account 自動偵測 | 已支援：`detect_account(agent_type=...)` 自動讀取 Gemini/Codex credential；Claude 需先執行 `agents account link-claude` 建立 hash 對照 |
 | Syncthing 衝突 | 單台機器每天寫入次數低，衝突機率極低；真的衝突會以 `.sync-conflict-*` 副本保留 |

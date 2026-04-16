@@ -1,9 +1,11 @@
-"""測試帳號偵測三層 fallback。"""
+"""測試帳號偵測 fallback 邏輯。"""
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from tasks.session_memory.account import detect_account, detect_agent_type, detect_project
 from tasks.session_memory.models import AgentsConfig
@@ -20,43 +22,57 @@ def _write_config(path: Path, **overrides: object) -> Path:
 
 
 class TestDetectAccount:
-    """AGENTS-DT-001..003：帳號偵測三層 fallback 決策表。"""
+    """AGENTS-DT-001..003：帳號偵測基礎 fallback 決策表（env var / config / unknown）。
 
-    def test_agents_dt_001_env_var_wins(self, tmp_path: Path, monkeypatch) -> None:
+    adapter 層見 TestDetectAccountWithAdapter。
+    """
+
+    def test_agents_dt_001_env_var_wins(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """AGENTS-DT-001：env var 最優先，即使 config.json 有 default_account 也被蓋過。"""
         _write_config(tmp_path / "config.json", default_account="from-config")
         monkeypatch.setenv("AGENT_ACCOUNT", "from-env")
         with patch("tasks.session_memory.account.load_agents_config", return_value=None):
             assert detect_account() == "from-env"
 
-    def test_agents_dt_002_config_fallback(self, tmp_path: Path, monkeypatch) -> None:
+    def test_agents_dt_002_config_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AGENTS-DT-002：env 未設，讀 config.json 的 default_account。"""
         monkeypatch.delenv("AGENT_ACCOUNT", raising=False)
         cfg = AgentsConfig(device_id="d", default_account="from-config")
-        with patch("tasks.session_memory.account.load_agents_config", return_value=cfg):
+        with (
+            patch("tasks.session_memory.account.get_adapter", return_value=None),
+            patch("tasks.session_memory.account.load_agents_config", return_value=cfg),
+        ):
             assert detect_account(warn=False) == "from-config"
 
-    def test_agents_dt_003_unknown_fallback(self, monkeypatch) -> None:
+    def test_agents_dt_003_unknown_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AGENTS-DT-003：env 未設且無 config.json，回傳 unknown。"""
         monkeypatch.delenv("AGENT_ACCOUNT", raising=False)
-        with patch("tasks.session_memory.account.load_agents_config", return_value=None):
+        with (
+            patch("tasks.session_memory.account.get_adapter", return_value=None),
+            patch("tasks.session_memory.account.load_agents_config", return_value=None),
+        ):
             assert detect_account(warn=False) == "unknown"
 
-    def test_agents_eg_001_empty_env_falls_back(self, monkeypatch) -> None:
+    def test_agents_eg_001_empty_env_falls_back(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AGENTS-EG-001：env 設為空字串時應 fallback（避免『有設但是空字串』的 corner case）。"""
         monkeypatch.setenv("AGENT_ACCOUNT", "   ")
-        with patch("tasks.session_memory.account.load_agents_config", return_value=None):
+        with (
+            patch("tasks.session_memory.account.get_adapter", return_value=None),
+            patch("tasks.session_memory.account.load_agents_config", return_value=None),
+        ):
             assert detect_account(warn=False) == "unknown"
 
 
 class TestDetectAgentType:
-    def test_agents_dt_004_env_wins(self, monkeypatch) -> None:
+    def test_agents_dt_004_env_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AGENTS-DT-004：AGENT_TYPE env var 最優先。"""
         monkeypatch.setenv("AGENT_TYPE", "gemini")
         with patch("tasks.session_memory.account.load_agents_config", return_value=None):
             assert detect_agent_type() == "gemini"
 
-    def test_agents_dt_005_default(self, monkeypatch) -> None:
+    def test_agents_dt_005_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AGENTS-DT-005：無 env、無 config 時回傳預設 claude。"""
         monkeypatch.delenv("AGENT_TYPE", raising=False)
         with patch("tasks.session_memory.account.load_agents_config", return_value=None):
@@ -69,3 +85,83 @@ class TestDetectProject:
         project_dir = tmp_path / "my-project"
         project_dir.mkdir()
         assert detect_project(project_dir) == "my-project"
+
+
+class TestDetectAccountWithAdapter:
+    """AGENTS-DT-010..013：四層 fallback 決策表（含 adapter 層）。"""
+
+    def test_agents_dt_010_env_var_overrides_adapter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """AGENTS-DT-010：env var 設定時，adapter 不被呼叫。"""
+        monkeypatch.setenv("AGENT_ACCOUNT", "from-env")
+        mock_adapter = MagicMock()
+        mock_adapter.detect.return_value = "from-adapter"
+        with patch("tasks.session_memory.account.get_adapter", return_value=mock_adapter):
+            result = detect_account(agent_type="gemini")
+        assert result == "from-env"
+        mock_adapter.detect.assert_not_called()
+
+    def test_agents_dt_011_adapter_wins_over_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """AGENTS-DT-011：env 未設，adapter 有值時，優先於 config.json。"""
+        monkeypatch.delenv("AGENT_ACCOUNT", raising=False)
+        mock_adapter = MagicMock()
+        mock_adapter.detect.return_value = "from-adapter"
+        cfg = AgentsConfig(device_id="d", default_account="from-config")
+        with (
+            patch("tasks.session_memory.account.get_adapter", return_value=mock_adapter),
+            patch("tasks.session_memory.account.load_agents_config", return_value=cfg),
+            patch("tasks.session_memory.account.AccountRegistry"),
+        ):
+            result = detect_account(agent_type="gemini", warn=False)
+        assert result == "from-adapter"
+
+    def test_agents_dt_012_config_fallback_when_adapter_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AGENTS-DT-012：env 未設，adapter 回傳 None，讀 config.json。"""
+        monkeypatch.delenv("AGENT_ACCOUNT", raising=False)
+        mock_adapter = MagicMock()
+        mock_adapter.detect.return_value = None
+        cfg = AgentsConfig(device_id="d", default_account="from-config")
+        with (
+            patch("tasks.session_memory.account.get_adapter", return_value=mock_adapter),
+            patch("tasks.session_memory.account.load_agents_config", return_value=cfg),
+        ):
+            result = detect_account(agent_type="gemini", warn=False)
+        assert result == "from-config"
+
+    def test_agents_dt_013_unknown_when_all_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """AGENTS-DT-013：全部失敗回傳 unknown。"""
+        monkeypatch.delenv("AGENT_ACCOUNT", raising=False)
+        mock_adapter = MagicMock()
+        mock_adapter.detect.return_value = None
+        with (
+            patch("tasks.session_memory.account.get_adapter", return_value=mock_adapter),
+            patch("tasks.session_memory.account.load_agents_config", return_value=None),
+        ):
+            result = detect_account(agent_type="gemini", warn=False)
+        assert result == "unknown"
+
+
+class TestDetectAgentTypeWithCaller:
+    """AGENTS-DT-014..016：detect_agent_type caller 參數。"""
+
+    def test_agents_dt_014_caller_used_as_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """AGENTS-DT-014：caller 有值，env 未設時回傳 caller。"""
+        monkeypatch.delenv("AGENT_TYPE", raising=False)
+        with patch("tasks.session_memory.account.load_agents_config", return_value=None):
+            assert detect_agent_type(caller="gemini") == "gemini"
+
+    def test_agents_dt_015_env_overrides_caller(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """AGENTS-DT-015：env var 設定時優先於 caller。"""
+        monkeypatch.setenv("AGENT_TYPE", "codex")
+        with patch("tasks.session_memory.account.load_agents_config", return_value=None):
+            assert detect_agent_type(caller="gemini") == "codex"
+
+    def test_agents_dt_016_no_caller_falls_back_to_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AGENTS-DT-016：caller 未傳，config.json 有值時讀 config。"""
+        monkeypatch.delenv("AGENT_TYPE", raising=False)
+        cfg = AgentsConfig(device_id="d", default_agent="gemini")
+        with patch("tasks.session_memory.account.load_agents_config", return_value=cfg):
+            assert detect_agent_type() == "gemini"

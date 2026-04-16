@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import textwrap
+from pathlib import Path
 
 import click
 
@@ -154,6 +155,46 @@ def account_set_default(account_name: str) -> None:
     config.default_account = account_name
     save_agents_config(config)
     click.echo(f"✓ default_account = {account_name}")
+
+
+@account.command("link-claude")
+@click.pass_context
+def link_claude(ctx: click.Context) -> None:
+    """建立 Claude Code userID hash → email 對照（首次設定必做）。"""
+    from .registry import AccountRegistry
+
+    # 支援測試時透過 obj 注入路徑
+    obj = ctx.obj or {}
+    claude_json_path: Path = obj.get("claude_json_path") or Path.home() / ".claude" / ".claude.json"
+    accounts_path: Path | None = obj.get("accounts_path")
+
+    if not claude_json_path.exists():
+        click.echo(f"✗ 找不到 {claude_json_path}", err=True)
+        click.echo("  請確認 Claude Code 已安裝並登入過。", err=True)
+        raise SystemExit(1)
+
+    try:
+        data = json.loads(claude_json_path.read_text(encoding="utf-8"))
+        user_id = data.get("userID", "").strip()
+    except Exception as e:
+        click.echo(f"✗ 無法讀取 {claude_json_path}：{e}", err=True)
+        raise SystemExit(1) from e
+
+    if not user_id:
+        click.echo("✗ .claude.json 沒有 userID 欄位", err=True)
+        raise SystemExit(1)
+
+    email = click.prompt("請輸入此 Claude 帳號的 email")
+    if "@" not in email:
+        click.echo("✗ email 格式不正確（必須包含 @）", err=True)
+        raise SystemExit(1)
+
+    reg = AccountRegistry(accounts_path=accounts_path)
+    is_new = reg.auto_register(email.strip(), "claude", extra={"hash": user_id})
+    if is_new:
+        click.echo(f"✓ 已建立對照：{user_id[:8]}... → {email}")
+    else:
+        click.echo(f"✓ 已存在：{email}（未重複寫入）")
 
 
 # ─── handover ────────────────────────────────────────────────────────────

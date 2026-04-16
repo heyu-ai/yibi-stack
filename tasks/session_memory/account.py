@@ -1,47 +1,68 @@
-"""帳號、裝置、專案偵測：三層 fallback（env var → config.json → 預設值）。"""
+"""帳號、裝置、專案偵測：四層 fallback（env var → adapter → config.json → 預設值）。"""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess  # nosec B404 — git 指令需要 subprocess
 import sys
 from pathlib import Path
 
+from .adapters import get_adapter
 from .config import load_agents_config
+from .registry import AccountRegistry
 
 _UNKNOWN_ACCOUNT = "unknown"
 _ENV_KEY_ACCOUNT = "AGENT_ACCOUNT"
 _ENV_KEY_AGENT = "AGENT_TYPE"
 
 
-def detect_account(warn: bool = True) -> str:
-    """三層 fallback：
+def detect_account(agent_type: str = "claude", warn: bool = True) -> str:
+    """四層 fallback：
 
     1. 環境變數 `AGENT_ACCOUNT`（特定 session override）
-    2. `~/.agents/config.json` 的 `default_account`
-    3. 回傳 "unknown" 並印 warning 到 stderr
+    2. Agent-specific adapter（Gemini/Codex/Claude 自動偵測）
+    3. `~/.agents/config.json` 的 `default_account`
+    4. 回傳 "unknown" 並印 warning 到 stderr
     """
+    # 層 1：env var
     if v := os.environ.get(_ENV_KEY_ACCOUNT):
         return v.strip() or _UNKNOWN_ACCOUNT
 
+    # 層 2：adapter 偵測
+    adapter = get_adapter(agent_type)
+    if adapter:
+        email = adapter.detect()
+        if email:
+            with contextlib.suppress(Exception):  # nosec B110 — auto_register 失敗不影響主流程
+                AccountRegistry().auto_register(email, agent_type)
+            return email
+
+    # 層 3：config.json default_account
     config = load_agents_config()
     if config and config.default_account:
         return config.default_account
 
+    # 層 4：unknown
     if warn:
         print(
-            "[agents] AGENT_ACCOUNT 未設定、config.json 無 default_account，記錄為 unknown。"
+            "[agents] AGENT_ACCOUNT 未設定、adapter 無法偵測、"
+            "config.json 無 default_account，記錄為 unknown。"
             "\n  設定方式：export AGENT_ACCOUNT=<your-account>"
-            "\n  或編輯 ~/.agents/config.json 的 default_account 欄位。",
+            "\n  或執行：uv run python -m tasks.session_memory account link-claude",
             file=sys.stderr,
         )
     return _UNKNOWN_ACCOUNT
 
 
-def detect_agent_type(default: str = "claude") -> str:
-    """偵測當前 agent 類型：env var → config.default_agent → default 參數。"""
+def detect_agent_type(caller: str | None = None, default: str = "claude") -> str:
+    """偵測當前 agent 類型：env var → caller → config.default_agent → default 參數。"""
     if v := os.environ.get(_ENV_KEY_AGENT):
-        return v.strip() or default
+        stripped = v.strip()
+        if stripped:
+            return stripped
+    if caller:
+        return caller
     config = load_agents_config()
     if config and config.default_agent:
         return config.default_agent
