@@ -10,6 +10,17 @@
           }
         ],
         "matcher": "Bash"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/markdownlint-pre-commit.sh",
+            "statusMessage": "markdownlint 檢查 staged .md 檔...",
+            "timeout": 30
+          }
+        ]
       }
     ]
   }
