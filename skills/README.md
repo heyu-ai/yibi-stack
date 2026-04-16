@@ -12,7 +12,7 @@
 | `gmail-billing` | 從 Gmail 掃描金融帳單 PDF，自動下載、解密、分類、轉 CSV。支援 on-demand 補掃與每季定期批次匯入 | [gmail-billing/SKILL.md](gmail-billing/SKILL.md) | `gws` CLI, `uv`, Java Runtime |
 | `gmail-scan-stock` | 掃描富邦／國泰／永豐金證券月對帳單，彙整庫存股票總現值 | [gmail-scan-stock/SKILL.md](gmail-scan-stock/SKILL.md) | `uv` |
 | `einvoice-blank-upload` | 上傳空白未使用發票號碼到財政部電子發票整合服務平台（每兩個月） | [einvoice-blank-upload/SKILL.md](einvoice-blank-upload/SKILL.md) | `uv`, Playwright, 人工 CAPTCHA |
-| `icf-global-news-digest` | 爬取 ICF 官網最新消息與活動，翻譯繁中，產出 Markdown 週報與 HTML 電子報並寄出（Agent-driven，無 Python 實作） | [icf-global-news-digest/SKILL.md](icf-global-news-digest/SKILL.md) | `gws` CLI, Chrome MCP |
+| `icf-global-news-digest` | 爬取 ICF 官網最新消息與活動，翻譯繁中，產出 Markdown 週報與 HTML 電子報並寄出（Agent-driven，無 Python 實作） | [icf-global-news-digest/SKILL.md](icf-global-news-digest/SKILL.md) | `gwscli`, Chrome MCP |
 | `gmail-newsletter` | 從 Gmail 擷取訂閱電子報：付費電子報輸出全文 Markdown（供匯入 Heptbase），免費電子報（中/英）由 Claude 生成每日摘要 digest | [gmail-newsletter/SKILL.md](gmail-newsletter/SKILL.md) | `gws` CLI, `uv` |
 | `saas-tracker` | 掃描 Gmail 中的 SaaS 發票與收據，自動辨識廠商、金額、幣別，匯出費用追蹤 CSV。支援多 profile、自動去重、月度摘要 | [saas-tracker/SKILL.md](saas-tracker/SKILL.md) | `gwscli`, `uv` |
 | `scheduler` | 管理 Skill Scheduler — 設定定期自動執行的排程、查看執行狀態、手動觸發 job、安裝/卸載 LaunchAgent | [scheduler/SKILL.md](scheduler/SKILL.md) | `uv`, MiniShell ACP Gateway（claude job） |

@@ -9,7 +9,7 @@
 | **主體 Repo** | `my-daily-routine-skill`（41 commits, 10+ PRs, 有 CI/CD） |
 | **併入 Repo** | `my-skills`（1 commit, 純 Markdown, 無 CI） |
 | **最終名稱** | `ainization-skill` |
-| **安裝機制** | 保留 symlink 到 `~/.agent/skills/` |
+| **安裝機制** | 保留 symlink 到 `~/.agents/skills/` |
 
 **理由**：`my-daily-routine-skill` 有完整的 Python 基建（pyproject.toml、GitHub Actions、tests）和豐富的 git history，是更好的主體。`my-skills` 只有 1 個 commit，內容全部是 Markdown，搬遷成本極低。
 
@@ -99,7 +99,7 @@ GitHub → my-skills → Settings → Danger Zone → Archive this repository
 
 ```bash
 # 移除舊的 my-skills symlink
-cd ~/.agent/skills/
+cd ~/.agents/skills/
 # 確認哪些是指向舊 repo 的 symlink
 ls -la | grep my-skills
 

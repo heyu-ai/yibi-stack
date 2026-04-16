@@ -228,3 +228,6 @@ _workspace/
 
 # Git worktrees
 .worktrees/
+
+# Compiled binaries
+bin/

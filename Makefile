@@ -28,8 +28,8 @@ check: ## Run all checks (lint + format check + typecheck + test)
 # ─── Skill Management ───────────────────────────────────────────────────────
 
 SKILL_DIR := skills
-INSTALL_DIR := $(HOME)/.agent/skills
-install: ## Install all skills (symlink to ~/.agent/skills/)
+INSTALL_DIR := $(HOME)/.agents/skills
+install: ## Install all skills (symlink to ~/.agents/skills/)
 	@mkdir -p $(INSTALL_DIR)
 	@for s in $(SKILL_DIR)/*/; do \
 		s=$$(basename $$s); \
@@ -53,11 +53,11 @@ install-one: ## Install one skill: make install-one SKILL=<name>
 	ln -sf $(CURDIR)/$(SKILL_DIR)/$(SKILL) $(INSTALL_DIR)/$(SKILL)
 	@echo "✓ $(SKILL) → linked"
 
-status: ## Show ~/.agent/skills/ link status grouped by type
+status: ## Show ~/.agents/skills/ link status grouped by type
 	@if [ ! -d "$(INSTALL_DIR)" ] || [ -z "$$(ls -A $(INSTALL_DIR) 2>/dev/null)" ]; then \
-		echo "=== ~/.agent/skills/ ==="; echo ""; echo "  (empty — run 'make install' first)"; exit 0; \
+		echo "=== ~/.agents/skills/ ==="; echo ""; echo "  (empty — run 'make install' first)"; exit 0; \
 	fi; \
-	echo "=== ~/.agent/skills/ ==="; \
+	echo "=== ~/.agents/skills/ ==="; \
 	print_group() { \
 		label=$$1; title=$$2; \
 		found=0; \
@@ -95,7 +95,7 @@ status: ## Show ~/.agent/skills/ link status grouped by type
 		fi; \
 	done
 
-uninstall: ## Remove own symlinks from ~/.agent/skills/
+uninstall: ## Remove own symlinks from ~/.agents/skills/
 	@for s in $(SKILL_DIR)/*/; do \
 		s=$$(basename $$s); \
 		if [ -L "$(INSTALL_DIR)/$$s" ]; then \
