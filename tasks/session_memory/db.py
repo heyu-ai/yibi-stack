@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import sqlite3
 from pathlib import Path
@@ -141,18 +140,26 @@ class AgentsDB:
 
     def upsert_handover(self, record: HandoverRecord) -> None:
         """寫入或更新（migrate 用：同 id 視為相同記錄，跳過）。"""
-        # 同 id 已存在，視為重複遷移，靜默跳過
-        with contextlib.suppress(sqlite3.IntegrityError):
+        try:
             self.insert_handover(record)
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed: handovers.id" not in str(e):
+                raise  # 非重複 id 的 IntegrityError（如 NOT NULL、CHECK），照常拋出
 
-    def read_recent(self, last: int = 4) -> list[dict[str, Any]]:
+    def read_recent(self, last: int = 4, project: str | None = None) -> list[dict[str, Any]]:
         """取最近 N 筆，回傳 dict list（JSON array 欄位已 decode）。"""
         if last <= 0:
             raise ValueError("last 必須為正整數")
-        cur = self.conn.execute(
-            "SELECT * FROM handovers ORDER BY timestamp DESC LIMIT ?",
-            (last,),
-        )
+        if project:
+            cur = self.conn.execute(
+                "SELECT * FROM handovers WHERE project = ? ORDER BY timestamp DESC LIMIT ?",
+                (project, last),
+            )
+        else:
+            cur = self.conn.execute(
+                "SELECT * FROM handovers ORDER BY timestamp DESC LIMIT ?",
+                (last,),
+            )
         return [_decode_row(row) for row in cur.fetchall()]
 
     def search(

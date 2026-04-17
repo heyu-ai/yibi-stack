@@ -89,13 +89,14 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
 def read_recent(
     last: int = 4,
     *,
+    project: str | None = None,
     db_path: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """讀取最近 N 筆。"""
+    """讀取最近 N 筆，可選依 project 過濾。"""
     db = AgentsDB(db_path or HANDOVER_DB_PATH)
     try:
         db.init_db()
-        return db.read_recent(last)
+        return db.read_recent(last, project=project)
     finally:
         db.close()
 

@@ -104,3 +104,29 @@ class TestSearch:
         """AGENTS-EG-003：read_recent last<=0 應 raise。"""
         with pytest.raises(ValueError):
             db.read_recent(last=0)
+
+    def test_agents_dt_009_read_recent_project_filter(self, db: AgentsDB) -> None:
+        """AGENTS-DT-009：read_recent project 過濾只回傳匹配的 rows。"""
+        db.insert_handover(make_record(id="a", project="flight-mcp"))
+        db.insert_handover(make_record(id="b", project="voice-lab"))
+        rows = db.read_recent(last=10, project="flight-mcp")
+        assert len(rows) == 1
+        assert rows[0]["id"] == "a"
+
+    def test_agents_dt_010_read_recent_project_filter_respects_last(self, db: AgentsDB) -> None:
+        """AGENTS-DT-010：project 過濾時 last limit 仍有效。"""
+        db.insert_handover(
+            make_record(id="a", project="flight-mcp", timestamp="2026-04-14T00:00:00+00:00")
+        )
+        db.insert_handover(
+            make_record(id="b", project="flight-mcp", timestamp="2026-04-15T00:00:00+00:00")
+        )
+        rows = db.read_recent(last=1, project="flight-mcp")
+        assert len(rows) == 1
+        assert rows[0]["id"] == "b"  # 最新一筆
+
+    def test_agents_eg_004_read_recent_project_not_found_returns_empty(self, db: AgentsDB) -> None:
+        """AGENTS-EG-004：project 不存在時回傳空 list，不拋例外。"""
+        db.insert_handover(make_record(id="a", project="flight-mcp"))
+        rows = db.read_recent(last=5, project="nonexistent")
+        assert rows == []

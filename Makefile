@@ -41,7 +41,9 @@ build-tools: ## Build all CLI binaries (Go)
 
 SKILL_DIR := skills
 INSTALL_DIR := $(HOME)/.agents/skills
-install: build-tools ## Install all skills (symlink to ~/.agents/skills/) + build CLI tools
+CMD_DIR := commands
+CLAUDE_CMD_DIR := $(HOME)/.claude/commands
+install: build-tools ## Install all skills (symlink to ~/.agents/skills/) + commands (symlink to ~/.claude/commands/) + build CLI tools
 	@mkdir -p $(INSTALL_DIR)
 	@for s in $(SKILL_DIR)/*/; do \
 		s=$$(basename $$s); \
@@ -57,6 +59,24 @@ install: build-tools ## Install all skills (symlink to ~/.agents/skills/) + buil
 		else \
 			ln -sf $(CURDIR)/$(SKILL_DIR)/$$s $(INSTALL_DIR)/$$s; \
 			echo "  ✓ $$s → linked"; \
+		fi \
+	done
+	@mkdir -p $(CLAUDE_CMD_DIR)
+	@echo ""
+	@echo "  Installing commands → $(CLAUDE_CMD_DIR)/"
+	@for f in $(CMD_DIR)/*.md; do \
+		name=$$(basename $$f); \
+		if [ -L "$(CLAUDE_CMD_DIR)/$$name" ] && [ ! -e "$(CLAUDE_CMD_DIR)/$$name" ]; then \
+			rm -f "$(CLAUDE_CMD_DIR)/$$name"; \
+			ln -sf $(CURDIR)/$$f $(CLAUDE_CMD_DIR)/$$name; \
+			echo "  ⚠ $$name → relinked (was dangling)"; \
+		elif [ -L "$(CLAUDE_CMD_DIR)/$$name" ]; then \
+			echo "  ↻ $$name (already linked)"; \
+		elif [ -f "$(CLAUDE_CMD_DIR)/$$name" ]; then \
+			echo "  ⚠ $$name (exists as real file, skipping)"; \
+		else \
+			ln -sf $(CURDIR)/$$f $(CLAUDE_CMD_DIR)/$$name; \
+			echo "  ✓ $$name → linked"; \
 		fi \
 	done
 

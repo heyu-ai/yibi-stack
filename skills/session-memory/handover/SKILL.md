@@ -4,8 +4,10 @@ type: tool
 description: >
   跨對話、跨裝置、跨 Agent 的工作交班系統。使用 SQLite + JSONL 保存工作狀態，
   避免 context rot 和 compact 資訊遺失。
-  適用情境：用戶說「/handover」、「交班」、「記錄進度」、「切換任務」、
+  寫入情境：用戶說「/handover」、「交班」、「記錄進度」、「切換任務」、
   「我要換到另一台電腦繼續」、「切到 Gemini/Codex 繼續」、「context 快滿了」。
+  讀取情境：用戶說「handover back」、「讀取上次進度」、「我回來了」、「上次做到哪」、
+  「show handover」、「resume from handover」、「帶我回到上次的工作」。
   是 `agents` skill 的子 skill。
 ---
 
@@ -85,12 +87,23 @@ uv run python -m tasks.session_memory handover write \
 
 未提供的 metadata 會自動偵測：`device` / `agent_type` / `account` / `branch` / `project` / `working_dir`。
 
-### Step 3 — 讀取交班
+### Step 3 — 讀取交班（Handover Back）
+
+用戶說「handover back」、「我回來了」、「讀取上次進度」時，先偵測當前專案再讀取：
 
 ```bash
-uv run python -m tasks.session_memory handover read --last 4           # 文字摘要
-uv run python -m tasks.session_memory handover read --last 4 --json   # 原始 JSON
+# 自動偵測當前專案（與 handover write 的 detect_project() 一致：使用 pwd basename）
+PROJECT=$(basename "$(pwd)")
+uv run python -m tasks.session_memory handover read --last 3 --project "$PROJECT"
+
+# 不帶 --project 顯示所有專案的記錄（向後相容）
+uv run python -m tasks.session_memory handover read --last 4
+
+# 原始 JSON
+uv run python -m tasks.session_memory handover read --last 4 --json
 ```
+
+讀取後，根據 `next_priorities` 提示使用者下一步是什麼。
 
 ### Step 4 — 搜尋
 

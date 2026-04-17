@@ -31,10 +31,12 @@ echo "Current branch: $CURRENT"
 ## Step 3: Code Quality Check
 
 ```bash
-uv run pytest
+# 依專案選用（Python 用 uv run pytest，有 Makefile 用 make check）
+make check 2>/dev/null || uv run pytest
 ```
 
 - 如果失敗：修好後再繼續
+- 特別注意 frontend checks（CI 不跑 eslint/tsc，本地必須通過）
 
 ## Step 4: Selective Staging
 
