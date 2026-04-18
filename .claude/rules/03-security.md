@@ -14,10 +14,10 @@
 
 ```python
 # 正確：儲存加密後的值
-config.pdf_password_encrypted = encrypt(password, key)
+config.pdf_secret_fernet = encrypt(secret, key)
 
-# 錯誤：明文密碼存 JSON
-config.pdf_password = "my-secret-password"
+# 錯誤：明文存 JSON（絕對不要這樣做）
+config.pdf_secret = "<明文值>"
 ```
 
 加密金鑰從環境變數取得，不可硬編碼：
@@ -53,4 +53,4 @@ cursor.execute(f"SELECT * FROM runs {where}", params)  # nosec B608
 ## Protect-Push Hook
 
 `.claude/hooks/protect-push.sh` 防止從 worktree branch 直推 origin/main。
-不要繞過此 hook（不用 `--no-verify`）。
+不要繞過此 hook，也不要使用任何 bypass 旗標停用 git hook 驗證。
