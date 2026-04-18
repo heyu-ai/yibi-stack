@@ -7,8 +7,19 @@
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 ls ~/.agents/handover/handover.db 2>/dev/null || echo "⚠️  DB 不存在，請先跑 uv run python -m tasks.session_memory init"
-SKILL_REPO=$(python3 -c "import json,pathlib; print(json.load(open(str(pathlib.Path.home()/'.agents/config.json'))).get('skill_repo',''))" 2>/dev/null)
-if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; fi
+SKILL_REPO=$(python3 -c "
+import json, pathlib, sys
+p = pathlib.Path.home() / '.agents' / 'config.json'
+if not p.exists():
+    print('⚠️  ~/.agents/config.json 不存在，請先執行：uv run python -m tasks.session_memory init', file=sys.stderr)
+    sys.exit(1)
+try:
+    print(json.loads(p.read_text()).get('skill_repo', ''))
+except json.JSONDecodeError as e:
+    print(f'⚠️  ~/.agents/config.json JSON 格式錯誤：{e}', file=sys.stderr)
+    sys.exit(1)
+") || exit 1
+if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; exit 1; fi
 ```
 
 ## Step 2 — 從對話萃取摘要
@@ -29,6 +40,19 @@ if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainiza
 ## Step 3 — 寫入交班
 
 ```bash
+SKILL_REPO=$(python3 -c "
+import json, pathlib, sys
+p = pathlib.Path.home() / '.agents' / 'config.json'
+if not p.exists():
+    print('⚠️  ~/.agents/config.json 不存在，請先執行：uv run python -m tasks.session_memory init', file=sys.stderr)
+    sys.exit(1)
+try:
+    print(json.loads(p.read_text()).get('skill_repo', ''))
+except json.JSONDecodeError as e:
+    print(f'⚠️  ~/.agents/config.json JSON 格式錯誤：{e}', file=sys.stderr)
+    sys.exit(1)
+") || exit 1
+if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; exit 1; fi
 uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover write \
   --session-type {{session_type}} \
@@ -48,6 +72,19 @@ uv run --directory "$SKILL_REPO" \
 ## Step 4 — 確認寫入
 
 ```bash
+SKILL_REPO=$(python3 -c "
+import json, pathlib, sys
+p = pathlib.Path.home() / '.agents' / 'config.json'
+if not p.exists():
+    print('⚠️  ~/.agents/config.json 不存在，請先執行：uv run python -m tasks.session_memory init', file=sys.stderr)
+    sys.exit(1)
+try:
+    print(json.loads(p.read_text()).get('skill_repo', ''))
+except json.JSONDecodeError as e:
+    print(f'⚠️  ~/.agents/config.json JSON 格式錯誤：{e}', file=sys.stderr)
+    sys.exit(1)
+") || exit 1
+if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; exit 1; fi
 uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover read --last 1
 ```

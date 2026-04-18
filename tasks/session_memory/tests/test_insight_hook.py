@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from tasks.session_memory.insight_hook import install_hook, run_hook, uninstall_hook
 
@@ -161,3 +162,50 @@ class TestRunHook:
         rc = run_hook(stdin_text="not-json", output_path=output)
         assert rc == 0
         assert not output.exists()
+
+    def test_agents_eg_032_stdin_oserror_returns_zero(self, tmp_path: Path) -> None:
+        """AGENTS-EG-032：stdin OSError（broken pipe 等）靜默回傳 0，不拋例外。"""
+        output = tmp_path / "insights.jsonl"
+        with patch("tasks.session_memory.insight_hook.sys") as mock_sys:
+            mock_sys.stdin.read.side_effect = OSError("broken pipe")
+            rc = run_hook(stdin_text=None, output_path=output)
+        assert rc == 0
+        assert not output.exists()
+
+    def test_agents_st_042_insight_encodes_home_working_dir(self, tmp_path: Path) -> None:
+        """AGENTS-ST-042：run_hook 寫入的 working_dir 對 $HOME 內路徑做 tilde-encode。"""
+        fake_cwd = str(Path.home() / "Workspace" / "my-proj")
+        transcript = tmp_path / "transcript.jsonl"
+        transcript.write_text(
+            json.dumps(
+                {
+                    "type": "user",
+                    "sessionId": "sess-encode",
+                    "cwd": fake_cwd,
+                    "gitBranch": "main",
+                }
+            )
+            + "\n"
+            + json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "`★ Insight ─────`\nportable test\n`─────`",
+                            }
+                        ]
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        output = tmp_path / "insights.jsonl"
+        stdin = json.dumps(
+            {"hook_event_name": "Stop", "transcript_path": str(transcript), "reason": "end_of_turn"}
+        )
+        run_hook(stdin_text=stdin, output_path=output)
+        record = json.loads(output.read_text(encoding="utf-8").strip())
+        assert record["working_dir"] == "~/Workspace/my-proj"

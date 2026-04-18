@@ -125,6 +125,11 @@ class TestPortablePaths:
         """AGENTS-CV-012：to_portable_path 對 $HOME 外的路徑不修改。"""
         assert to_portable_path("/var/log/syslog") == "/var/log/syslog"
 
+    def test_agents_cv_017_to_portable_sibling_prefix_unchanged(self) -> None:
+        """AGENTS-CV-017：路徑前綴與 $HOME 字串相同但不在其下時原樣回傳（防止前綴誤匹配）。"""
+        sibling = str(Path.home()) + "other/path"  # e.g. /Users/howieother/path
+        assert to_portable_path(sibling) == sibling
+
     def test_agents_cv_013_from_portable_expands_tilde(self) -> None:
         """AGENTS-CV-013：from_portable_path 將 ~/... 展開為當前 home 絕對路徑。"""
         home = str(Path.home())
@@ -136,7 +141,7 @@ class TestPortablePaths:
 
     def test_agents_cv_015_from_portable_absolute_unchanged(self) -> None:
         """AGENTS-CV-015：from_portable_path 對舊式絕對路徑原樣回傳（向後相容）。"""
-        old_abs = "/Users/howie/Workspace/foo"
+        old_abs = "/var/log/old-absolute-path"  # 任何機器都不在 $HOME 下
         assert from_portable_path(old_abs) == old_abs
 
     def test_agents_cv_016_roundtrip(self) -> None:
@@ -183,6 +188,22 @@ class TestPortablePaths:
         )
         rows = read_recent(last=1, db_path=paths["db"])
         assert rows[0]["last_files"] == files  # 展開後與原始一致
+        # JSONL 鏡像儲存 tilde-encode 格式（不預先展開）
+        mirror = json.loads(paths["jsonl"].read_text(encoding="utf-8").strip())
+        assert mirror["last_files"] == ["~/proj/foo.py", "~/proj/bar.py"]
+
+    def test_agents_st_024_jsonl_mirror_stores_portable_path(self, paths: dict[str, Path]) -> None:
+        """AGENTS-ST-024：JSONL 鏡像儲存的 working_dir 為 tilde-encode 格式（不展開）。"""
+        write_handover(
+            session_type=SessionType.admin,
+            topic="t",
+            summary="s",
+            working_dir=str(Path.home() / "Workspace" / "test-proj"),
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+        mirror = json.loads(paths["jsonl"].read_text(encoding="utf-8").strip())
+        assert mirror["working_dir"] == "~/Workspace/test-proj"  # JSONL 存 portable 格式
 
 
 class TestSearch:
@@ -200,3 +221,51 @@ class TestSearch:
         rows = search_handovers(query="parser", db_path=paths["db"])
         assert len(rows) == 1
         assert "parser" in rows[0]["topic"]
+
+    def test_agents_st_023_search_returns_expanded_working_dir(
+        self, paths: dict[str, Path]
+    ) -> None:
+        """AGENTS-ST-023：search_handovers 回傳的 working_dir 已展開為絕對路徑。"""
+        write_handover(
+            session_type=SessionType.debug,
+            topic="portable path search test",
+            summary="s",
+            working_dir=str(Path.home() / "Workspace" / "test-proj"),
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+        rows = search_handovers(query="portable path search", db_path=paths["db"])
+        assert rows[0]["working_dir"] == str(Path.home() / "Workspace" / "test-proj")
+
+
+class TestExpandPaths:
+    def test_agents_eg_031_expand_paths_does_not_mutate_input(self) -> None:
+        """AGENTS-EG-031：_expand_paths 不修改傳入的原始 dict（docstring 承諾不變動原物件）。"""
+        from tasks.session_memory.handover_service import _expand_paths
+
+        original: dict[str, object] = {
+            "working_dir": "~/proj",
+            "last_files": ["~/proj/a.py"],
+        }
+        snapshot = dict(original)
+        _expand_paths(original)
+        assert original == snapshot
+
+    def test_agents_eg_033_expand_paths_handles_null_fields(self) -> None:
+        """AGENTS-EG-033：working_dir=None / last_files=None 時不拋 KeyError 或 TypeError。"""
+        from tasks.session_memory.handover_service import _expand_paths
+
+        result = _expand_paths({"working_dir": None, "last_files": None})
+        assert result["working_dir"] is None
+        assert result["last_files"] is None
+
+
+class TestFromPortablePath:
+    def test_agents_cv_019_tilde_username_raises(self) -> None:
+        """AGENTS-CV-019：~username 形式應 raise ValueError，不可靜默回傳錯誤路徑。"""
+        import pytest
+
+        from tasks.session_memory.config import from_portable_path
+
+        with pytest.raises(ValueError, match="~username"):
+            from_portable_path("~otheruser/foo")

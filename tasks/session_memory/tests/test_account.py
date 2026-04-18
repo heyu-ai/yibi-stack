@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from tasks.session_memory.account import detect_account, detect_agent_type, detect_project
 from tasks.session_memory.models import AgentsConfig
@@ -165,3 +166,65 @@ class TestDetectAgentTypeWithCaller:
         cfg = AgentsConfig(device_id="d", default_agent="gemini")
         with patch("tasks.session_memory.account.load_agents_config", return_value=cfg):
             assert detect_agent_type() == "gemini"
+
+
+class TestAgentsConfigSkillRepo:
+    def test_agents_vl_010_absolute_path_accepted(self) -> None:
+        """AGENTS-VL-010：skill_repo 為絕對路徑時正常建立。"""
+        cfg = AgentsConfig(device_id="d", skill_repo="/Users/doxa/Workspace/ainization-skill")
+        assert cfg.skill_repo == "/Users/doxa/Workspace/ainization-skill"
+
+    def test_agents_vl_011_none_accepted(self) -> None:
+        """AGENTS-VL-011：skill_repo=None 表示尚未設定，為合法值。"""
+        cfg = AgentsConfig(device_id="d")
+        assert cfg.skill_repo is None
+
+    def test_agents_vl_012_relative_path_raises(self) -> None:
+        """AGENTS-VL-012：skill_repo 為相對路徑時應 raise ValidationError。"""
+        with pytest.raises(ValidationError):
+            AgentsConfig(device_id="d", skill_repo="relative/path")
+
+    def test_agents_vl_013_empty_string_raises(self) -> None:
+        """AGENTS-VL-013：skill_repo="" 不合法（應傳 None 表示未設定，空字串無意義）。"""
+        with pytest.raises(ValidationError):
+            AgentsConfig(device_id="d", skill_repo="")
+
+
+class TestAgentsConfigDeviceId:
+    def test_agents_vl_020_non_empty_device_id_accepted(self) -> None:
+        """AGENTS-VL-020：device_id 為非空字串時正常建立。"""
+        cfg = AgentsConfig(device_id="my-macbook")
+        assert cfg.device_id == "my-macbook"
+
+    def test_agents_vl_021_empty_device_id_raises(self) -> None:
+        """AGENTS-VL-021：device_id="" 應 raise ValidationError（用於 DB key，不可為空）。"""
+        with pytest.raises(ValidationError):
+            AgentsConfig(device_id="")
+
+    def test_agents_vl_022_whitespace_only_device_id_raises(self) -> None:
+        """AGENTS-VL-022：device_id 純空白字元應 raise ValidationError。"""
+        with pytest.raises(ValidationError):
+            AgentsConfig(device_id="   ")
+
+    def test_agents_vl_023_device_id_stripped_on_construction(self) -> None:
+        """AGENTS-VL-023：device_id 前後空白自動 strip，避免 DB key 含空白字元。"""
+        cfg = AgentsConfig(device_id="  my-mac  ")
+        assert cfg.device_id == "my-mac"
+
+    def test_agents_vl_014_skill_repo_empty_string_raises_with_clear_message(self) -> None:
+        """AGENTS-VL-014：skill_repo="" 應 raise ValidationError，訊息說明需傳 None 而非空字串。"""
+        with pytest.raises(ValidationError, match="空字串"):
+            AgentsConfig(device_id="d", skill_repo="")
+
+
+class TestLoadAgentsConfigValidation:
+    def test_agents_eg_040_load_config_invalid_field_raises_runtime_error(
+        self, tmp_path: Path
+    ) -> None:
+        """AGENTS-EG-040：config.json 含不合法欄位時 load_agents_config 應 raise RuntimeError。"""
+        from tasks.session_memory.config import load_agents_config
+
+        p = tmp_path / "config.json"
+        p.write_text('{"device_id": "d", "skill_repo": "relative/path"}', encoding="utf-8")
+        with pytest.raises(RuntimeError, match="設定檔欄位不合法"):
+            load_agents_config(p)

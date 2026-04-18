@@ -4,11 +4,22 @@
 
 ## Step 1 — 偵測當前專案並讀取交班
 
-使用當前工作目錄的 basename 作為 project name（與 `handover write` 寫入時的 `detect_project()` 行為一致）：
+使用當前工作目錄的 basename 作為 project name（通常與 `handover write` 寫入時的 `detect_project()` 結果相同；若路徑含 symlink，`detect_project()` 會先 `resolve()`，結果可能不同）：
 
 ```bash
-SKILL_REPO=$(python3 -c "import json,pathlib; print(json.load(open(str(pathlib.Path.home()/'.agents/config.json'))).get('skill_repo',''))" 2>/dev/null)
-if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; fi
+SKILL_REPO=$(python3 -c "
+import json, pathlib, sys
+p = pathlib.Path.home() / '.agents' / 'config.json'
+if not p.exists():
+    print('⚠️  ~/.agents/config.json 不存在，請先執行：uv run python -m tasks.session_memory init', file=sys.stderr)
+    sys.exit(1)
+try:
+    print(json.loads(p.read_text()).get('skill_repo', ''))
+except json.JSONDecodeError as e:
+    print(f'⚠️  ~/.agents/config.json JSON 格式錯誤：{e}', file=sys.stderr)
+    sys.exit(1)
+") || exit 1
+if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; exit 1; fi
 PROJECT=$(basename "$(pwd)")
 uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover read --last 3 --project "$PROJECT"
@@ -22,6 +33,19 @@ uv run --directory "$SKILL_REPO" \
 不帶 `--project` 顯示所有記錄（跨專案）：
 
 ```bash
+SKILL_REPO=$(python3 -c "
+import json, pathlib, sys
+p = pathlib.Path.home() / '.agents' / 'config.json'
+if not p.exists():
+    print('⚠️  ~/.agents/config.json 不存在，請先執行：uv run python -m tasks.session_memory init', file=sys.stderr)
+    sys.exit(1)
+try:
+    print(json.loads(p.read_text()).get('skill_repo', ''))
+except json.JSONDecodeError as e:
+    print(f'⚠️  ~/.agents/config.json JSON 格式錯誤：{e}', file=sys.stderr)
+    sys.exit(1)
+") || exit 1
+if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; exit 1; fi
 uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover read --last 3
 ```

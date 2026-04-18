@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SessionType(StrEnum):
@@ -19,12 +20,37 @@ class SessionType(StrEnum):
 class AgentsConfig(BaseModel):
     """~/.agents/config.json 本機設定。"""
 
+    model_config = ConfigDict(frozen=True)
+
     version: str = "1.0"
     device_id: str
     default_account: str | None = None
     default_agent: str = "claude"
     operator: str = "howie"
-    skill_repo: str | None = None  # make install 時寫入；供跨機器 command 找到 uv 專案
+    # make install 時寫入；供跨機器 command 找到 uv 專案。
+    # 機器本地絕對路徑，不套用 to_portable_path（不應跨機器同步）。
+    skill_repo: str | None = None
+
+    @field_validator("device_id")
+    @classmethod
+    def check_device_id_non_empty(cls, v: str) -> str:
+        """device_id 不可為空字串（用作機器識別符與 DB key）；自動 strip 前後空白。"""
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("device_id 不可為空")
+        return stripped
+
+    @field_validator("skill_repo")
+    @classmethod
+    def check_absolute_path(cls, v: str | None) -> str | None:
+        """skill_repo 若有值必須為絕對路徑；未設定時傳 None，不接受空字串。"""
+        if v is None:
+            return v
+        if not v:
+            raise ValueError("skill_repo 不可為空字串，未設定時請傳 None")
+        if not Path(v).is_absolute():
+            raise ValueError("skill_repo 必須為絕對路徑")
+        return v
 
 
 class HandoverRecord(BaseModel):

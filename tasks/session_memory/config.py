@@ -6,6 +6,8 @@ import json
 import socket
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from .models import AgentsConfig
 
 # 統一根目錄 — 跨 repo 共用，不在 .runtime/ 下
@@ -30,7 +32,10 @@ def load_agents_config(path: Path | None = None) -> AgentsConfig | None:
         data = json.loads(config_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         raise RuntimeError(f"設定檔格式錯誤：{config_path}") from e
-    return AgentsConfig.model_validate(data)
+    try:
+        return AgentsConfig.model_validate(data)
+    except ValidationError as e:
+        raise RuntimeError(f"設定檔欄位不合法：{config_path}\n{e}") from e
 
 
 def save_agents_config(config: AgentsConfig, path: Path | None = None) -> None:
@@ -68,11 +73,18 @@ def to_portable_path(p: str) -> str:
 
 
 def from_portable_path(p: str) -> str:
-    """將 ~/... 展開為當前機器的完整絕對路徑；非 ~ 開頭則原樣回傳。"""
+    """將 ~/... 展開為當前機器的完整絕對路徑；非 ~ 開頭則原樣回傳。
+
+    僅處理 ~ 與 ~/ 前綴；任何其他 ~ 開頭形式（如 ~username）視為無效輸入，raise ValueError。
+    """
+    if not p:
+        return p
     if p == "~":
         return str(Path.home())
     if p.startswith("~/"):
         return str(Path.home()) + p[1:]
+    if p.startswith("~"):
+        raise ValueError(f"from_portable_path：不支援 ~username 格式，請手動轉換路徑：{p!r}")
     return p
 
 

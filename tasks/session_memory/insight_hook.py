@@ -42,8 +42,13 @@ def run_hook(
     """
     try:
         raw = stdin_text if stdin_text is not None else sys.stdin.read()
+    except OSError as e:
+        print(f"[agents-insight] 無法讀取 stdin：{e}", file=sys.stderr)
+        return 0
+    try:
         hook_input = json.loads(raw)
-    except Exception:
+    except json.JSONDecodeError as e:
+        print(f"[agents-insight] hook payload JSON 解析失敗：{e}", file=sys.stderr)
         return 0
 
     if hook_input.get("hook_event_name") != "Stop":

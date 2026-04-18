@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import uuid
 from datetime import UTC, datetime
@@ -126,20 +127,40 @@ def search_handovers(
 
 
 def _expand_paths(row: dict[str, Any]) -> dict[str, Any]:
-    """將 working_dir 與 last_files 的 ~/... 展開為當前機器絕對路徑。"""
-    if row.get("working_dir"):
-        row["working_dir"] = from_portable_path(row["working_dir"])
-    if row.get("last_files") and isinstance(row["last_files"], list):
-        row["last_files"] = [from_portable_path(f) for f in row["last_files"]]
-    return row
+    """將 working_dir 與 last_files 的 ~/... 展開為當前機器絕對路徑。回傳新 dict，不改原物件。
+
+    若單一欄位展開失敗（如舊格式絕對路徑），保留原值並繼續，避免舊 DB 資料讓整批讀取崩潰。
+    """
+    result = dict(row)
+    if result.get("working_dir"):
+        with contextlib.suppress(ValueError):  # 保留原值，向後相容舊 DB 格式
+            result["working_dir"] = from_portable_path(result["working_dir"])
+    if result.get("last_files") and isinstance(result["last_files"], list):
+        expanded: list[str] = []
+        for f in result["last_files"]:
+            try:
+                expanded.append(from_portable_path(f))
+            except ValueError:
+                expanded.append(f)  # 保留原值
+        result["last_files"] = expanded
+    return result
 
 
 def _append_jsonl(record: HandoverRecord, path: Path) -> None:
-    """把 record 以單行 JSON 寫入 JSONL 檔案尾端。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    line = json.dumps(record.model_dump(mode="json"), ensure_ascii=False)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(line + "\n")
+    """把 record 以單行 JSON 寫入 JSONL 檔案尾端。
+
+    JSONL 為 DB 的備份副本。若寫入失敗（如磁碟空間不足），僅記錄警告，
+    不影響主要 DB 寫入（DB 已在呼叫端完成，資料不遺失）。
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(record.model_dump(mode="json"), ensure_ascii=False)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError as e:
+        import warnings
+
+        warnings.warn(f"JSONL 備份寫入失敗（DB 資料已保存）：{e}", stacklevel=2)
 
 
 def _now_iso() -> str:

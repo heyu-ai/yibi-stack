@@ -18,7 +18,7 @@ from .config import (
     load_agents_config,
     save_agents_config,
 )
-from .models import SessionType
+from .models import AgentsConfig, SessionType
 
 
 @click.group()
@@ -41,10 +41,13 @@ def init(device_id: str | None, default_account: str | None, force: bool) -> Non
         click.echo(f"設定檔已存在：{AGENTS_CONFIG_PATH}（使用 --force 覆蓋）")
     else:
         config = generate_default_config()
+        overrides: dict[str, object] = {}
         if device_id:
-            config.device_id = device_id
+            overrides["device_id"] = device_id
         if default_account:
-            config.default_account = default_account
+            overrides["default_account"] = default_account
+        if overrides:
+            config = AgentsConfig.model_validate({**config.model_dump(), **overrides})
         save_agents_config(config)
         click.echo(f"✓ 已建立 config.json：{AGENTS_CONFIG_PATH}")
         click.echo(f"  device_id = {config.device_id}")
@@ -152,7 +155,7 @@ def account_set_default(account_name: str) -> None:
         msg = "找不到 config.json，請先執行：uv run python -m tasks.session_memory init"
         click.echo(msg, err=True)
         raise SystemExit(1)
-    config.default_account = account_name
+    config = AgentsConfig.model_validate({**config.model_dump(), "default_account": account_name})
     save_agents_config(config)
     click.echo(f"✓ default_account = {account_name}")
 

@@ -82,12 +82,16 @@ install: build-tools ## Install all skills (symlink to ~/.agents/skills/) + comm
 	@echo ""
 	@echo "  Registering skill_repo in ~/.agents/config.json"
 	@python3 -c "\
-import json, pathlib; \
+import json, pathlib, sys; \
 p = pathlib.Path.home() / '.agents' / 'config.json'; \
-c = json.loads(p.read_text()) if p.exists() else {}; \
+try: \
+    c = json.loads(p.read_text()) if p.exists() else {}; \
+except json.JSONDecodeError as e: \
+    print(f'  ✗ config.json JSON 格式錯誤：{e}', file=sys.stderr); sys.exit(1); \
 c['skill_repo'] = '$(CURDIR)'; \
 p.parent.mkdir(parents=True, exist_ok=True); \
-p.write_text(json.dumps(c, indent=2) + '\n')"
+p.write_text(json.dumps(c, indent=2) + chr(10))" \
+	|| { echo "  ✗ 無法更新 ~/.agents/config.json（見上方錯誤）"; exit 1; }
 	@echo "  ✓ skill_repo = $(CURDIR)"
 
 install-one: ## Install one skill: make install-one SKILL=<name>
