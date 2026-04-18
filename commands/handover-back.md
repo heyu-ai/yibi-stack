@@ -7,8 +7,10 @@
 使用當前工作目錄的 basename 作為 project name（與 `handover write` 寫入時的 `detect_project()` 行為一致）：
 
 ```bash
+SKILL_REPO=$(python3 -c "import json,pathlib; print(json.load(open(str(pathlib.Path.home()/'.agents/config.json'))).get('skill_repo',''))" 2>/dev/null)
+if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; fi
 PROJECT=$(basename "$(pwd)")
-uv run --directory /Users/howie/Workspace/github/ainization-skill \
+uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover read --last 3 --project "$PROJECT"
 ```
 
@@ -20,7 +22,7 @@ uv run --directory /Users/howie/Workspace/github/ainization-skill \
 不帶 `--project` 顯示所有記錄（跨專案）：
 
 ```bash
-uv run --directory /Users/howie/Workspace/github/ainization-skill \
+uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover read --last 3
 ```
 

@@ -7,6 +7,8 @@
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 ls ~/.agents/handover/handover.db 2>/dev/null || echo "⚠️  DB 不存在，請先跑 uv run python -m tasks.session_memory init"
+SKILL_REPO=$(python3 -c "import json,pathlib; print(json.load(open(str(pathlib.Path.home()/'.agents/config.json'))).get('skill_repo',''))" 2>/dev/null)
+if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; fi
 ```
 
 ## Step 2 — 從對話萃取摘要
@@ -27,7 +29,7 @@ ls ~/.agents/handover/handover.db 2>/dev/null || echo "⚠️  DB 不存在，�
 ## Step 3 — 寫入交班
 
 ```bash
-uv run --directory /Users/howie/Workspace/github/ainization-skill \
+uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover write \
   --session-type {{session_type}} \
   --topic "{{topic}}" \
@@ -46,7 +48,7 @@ uv run --directory /Users/howie/Workspace/github/ainization-skill \
 ## Step 4 — 確認寫入
 
 ```bash
-uv run --directory /Users/howie/Workspace/github/ainization-skill \
+uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover read --last 1
 ```
 

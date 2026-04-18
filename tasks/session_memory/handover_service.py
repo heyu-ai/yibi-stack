@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .account import detect_account, detect_agent_type, detect_branch, detect_device, detect_project
-from .config import HANDOVER_DB_PATH, HANDOVER_JSONL_PATH
+from .config import HANDOVER_DB_PATH, HANDOVER_JSONL_PATH, from_portable_path, to_portable_path
 from .db import AgentsDB
 from .models import HandoverRecord, SessionType
 
@@ -68,8 +68,8 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
         subscription_account=account
         or detect_account(agent_type=agent_type or "claude", warn=False),
         branch=branch if branch is not None else detect_branch(),
-        working_dir=working_dir or str(Path.cwd()),
-        last_files=last_files or [],
+        working_dir=to_portable_path(working_dir or str(Path.cwd())),
+        last_files=[to_portable_path(f) for f in (last_files or [])],
         test_status=test_status,
         token_usage_estimate=token_usage_estimate,
         project=project or detect_project(),
@@ -96,7 +96,7 @@ def read_recent(
     db = AgentsDB(db_path or HANDOVER_DB_PATH)
     try:
         db.init_db()
-        return db.read_recent(last, project=project)
+        return [_expand_paths(row) for row in db.read_recent(last, project=project)]
     finally:
         db.close()
 
@@ -113,7 +113,7 @@ def search_handovers(
     db = AgentsDB(db_path or HANDOVER_DB_PATH)
     try:
         db.init_db()
-        return db.search(
+        rows = db.search(
             query=query,
             session_type=session_type,
             project=project,
@@ -122,6 +122,16 @@ def search_handovers(
         )
     finally:
         db.close()
+    return [_expand_paths(row) for row in rows]
+
+
+def _expand_paths(row: dict[str, Any]) -> dict[str, Any]:
+    """將 working_dir 與 last_files 的 ~/... 展開為當前機器絕對路徑。"""
+    if row.get("working_dir"):
+        row["working_dir"] = from_portable_path(row["working_dir"])
+    if row.get("last_files") and isinstance(row["last_files"], list):
+        row["last_files"] = [from_portable_path(f) for f in row["last_files"]]
+    return row
 
 
 def _append_jsonl(record: HandoverRecord, path: Path) -> None:

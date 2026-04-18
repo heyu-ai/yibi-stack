@@ -79,6 +79,16 @@ install: build-tools ## Install all skills (symlink to ~/.agents/skills/) + comm
 			echo "  ✓ $$name → linked"; \
 		fi \
 	done
+	@echo ""
+	@echo "  Registering skill_repo in ~/.agents/config.json"
+	@python3 -c "\
+import json, pathlib; \
+p = pathlib.Path.home() / '.agents' / 'config.json'; \
+c = json.loads(p.read_text()) if p.exists() else {}; \
+c['skill_repo'] = '$(CURDIR)'; \
+p.parent.mkdir(parents=True, exist_ok=True); \
+p.write_text(json.dumps(c, indent=2) + '\n')"
+	@echo "  ✓ skill_repo = $(CURDIR)"
 
 install-one: ## Install one skill: make install-one SKILL=<name>
 	@mkdir -p $(INSTALL_DIR)

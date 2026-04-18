@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .account import detect_account, detect_device
-from .config import INSIGHTS_JSONL_PATH
+from .config import INSIGHTS_JSONL_PATH, to_portable_path
 
 # ^ anchor + MULTILINE 確保 closing delimiter 必須在行首
 INSIGHT_PATTERN = re.compile(
@@ -85,7 +85,7 @@ def run_hook(
                     "timestamp": now,
                     "session_id": session_id,
                     "project": project,
-                    "working_dir": working_dir,
+                    "working_dir": to_portable_path(working_dir),
                     "branch": branch,
                     "agent_type": "claude",
                     "account": account,

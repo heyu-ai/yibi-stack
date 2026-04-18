@@ -24,6 +24,7 @@ class AgentsConfig(BaseModel):
     default_account: str | None = None
     default_agent: str = "claude"
     operator: str = "howie"
+    skill_repo: str | None = None  # make install 時寫入；供跨機器 command 找到 uv 專案
 
 
 class HandoverRecord(BaseModel):

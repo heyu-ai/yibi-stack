@@ -57,6 +57,25 @@ def _detect_hostname() -> str:
         return "unknown-device"
 
 
+def to_portable_path(p: str) -> str:
+    """將 $HOME 開頭的絕對路徑轉為 ~/... 格式，提升跨機器可攜性。"""
+    home = str(Path.home())
+    if p == home:
+        return "~"
+    if p.startswith(home + "/"):
+        return "~" + p[len(home) :]
+    return p
+
+
+def from_portable_path(p: str) -> str:
+    """將 ~/... 展開為當前機器的完整絕對路徑；非 ~ 開頭則原樣回傳。"""
+    if p == "~":
+        return str(Path.home())
+    if p.startswith("~/"):
+        return str(Path.home()) + p[1:]
+    return p
+
+
 def ensure_dirs(home: Path | None = None) -> None:
     """建立 ~/.agents/ 下所有必要目錄。"""
     root = home or AGENTS_HOME
