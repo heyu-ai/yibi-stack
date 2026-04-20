@@ -330,6 +330,26 @@ def handover_read(last: int, project: str | None, as_json: bool) -> None:
         click.echo(f"  {r['conversation_summary'][:120]}")
 
 
+@handover.command("install-hooks")
+def handover_install_hooks() -> None:
+    """註冊 PreCompact + SessionStart auto-handover hooks 到 ~/.claude/settings.json。"""
+    from .auto_handover_hooks import install_hooks
+
+    precompact_new, session_new, msg = install_hooks()
+    prefix = "✓" if (precompact_new or session_new) else "↻"
+    click.echo(f"{prefix} {msg}")
+
+
+@handover.command("uninstall-hooks")
+def handover_uninstall_hooks() -> None:
+    """從 ~/.claude/settings.json 移除 auto-handover hooks。"""
+    from .auto_handover_hooks import uninstall_hooks
+
+    removed, msg = uninstall_hooks()
+    prefix = "✓" if removed else "↻"
+    click.echo(f"{prefix} {msg}")
+
+
 @handover.command("search")
 @click.option(
     "--query",
