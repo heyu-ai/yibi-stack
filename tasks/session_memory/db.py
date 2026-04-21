@@ -213,6 +213,46 @@ class AgentsDB:
         cur = self.conn.execute(sql, params)
         return [_decode_row(row) for row in cur.fetchall()]
 
+    def query_lessons(
+        self,
+        project: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """查詢含 lessons_learned 的 handover 記錄。
+
+        只回傳 lessons_learned 非空的記錄，欄位精簡為教訓相關欄位。
+        """
+        if limit <= 0:
+            raise ValueError("limit 必須為正整數")
+        if project:
+            cur = self.conn.execute(
+                "SELECT id, timestamp, topic, project, lessons_learned, attempted_approaches "
+                "FROM handovers "
+                "WHERE lessons_learned != '[]' AND project = ? "
+                "ORDER BY timestamp DESC LIMIT ?",
+                (project, limit),
+            )
+        else:
+            cur = self.conn.execute(
+                "SELECT id, timestamp, topic, project, lessons_learned, attempted_approaches "
+                "FROM handovers "
+                "WHERE lessons_learned != '[]' "
+                "ORDER BY timestamp DESC LIMIT ?",
+                (limit,),
+            )
+        rows = cur.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            for col in ("lessons_learned", "attempted_approaches"):
+                if col in d and isinstance(d[col], str):
+                    try:
+                        d[col] = json.loads(d[col])
+                    except json.JSONDecodeError:
+                        d[col] = []
+            result.append(d)
+        return result
+
     def count(self) -> int:
         """回傳總筆數（migrate 驗證用）。"""
         cur = self.conn.execute("SELECT COUNT(*) AS c FROM handovers")

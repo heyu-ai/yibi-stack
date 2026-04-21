@@ -1,12 +1,23 @@
 ---
 name: learn
 type: tool
-description: 管理專案 learnings — 瀏覽、搜尋、修剪、匯出 gstack 跨對話累積的模式與洞察。關鍵字：learnings、學到、pattern、pitfall、之前遇過、記得嗎、remember
+description: >
+  管理專案 learnings — 整合 gstack learnings、handover 交班教訓、insight 洞察三大來源，
+  統一瀏覽、搜尋、修剪、匯出。
+  關鍵字：learnings、lesson learned、教訓、學到、pattern、pitfall、
+  之前遇過、記得嗎、remember、avoid、prevent、預防、怎麼避免、
+  what went wrong、retrospective、回顧、踩過的坑、經驗、陷阱
 ---
 
-# Learn — 專案 Learnings 管理
+# Learn — 教訓統一管理
 
-跨對話累積的模式（pattern）、陷阱（pitfall）、架構決策（architecture）存放於 `~/.gstack/projects/<slug>/learnings.jsonl`。此 skill 提供瀏覽、搜尋、修剪、匯出等操作。
+跨對話累積的模式（pattern）、陷阱（pitfall）、架構決策（architecture）整合自三個來源：
+
+| 來源 | 儲存位置 | 特性 |
+|------|----------|------|
+| **gstack learnings** | `~/.gstack/projects/<slug>/learnings.jsonl` | 結構化，有 type/confidence |
+| **handover 教訓** | `~/.agents/handover/handover.db` | 交班記錄的 lessons_learned、attempted_approaches |
+| **insight 洞察** | `~/.agents/insight/insights.jsonl` | Stop hook 自動收集的 ★ Insight 區塊 |
 
 **HARD GATE**：本 skill 不實作程式碼變更，只管理 learnings。
 
@@ -16,8 +27,10 @@ description: 管理專案 learnings — 瀏覽、搜尋、修剪、匯出 gstack
 
 根據使用者的輸入判斷要執行哪個動作：
 
-- `/learn`（無參數）→ **顯示最近**
-- `/learn search <query>` → **搜尋**
+- `/learn`（無參數）→ **統一顯示最近**（三個來源）
+- `/learn search <query>` → **搜尋**（三個來源）
+- `/learn handover` → **只看 handover 教訓**
+- `/learn insights` → **只看 insight 洞察**
 - `/learn prune` → **修剪**
 - `/learn export` → **匯出**
 - `/learn stats` → **統計**
@@ -25,29 +38,89 @@ description: 管理專案 learnings — 瀏覽、搜尋、修剪、匯出 gstack
 
 ---
 
-## 顯示最近（預設）
+## 統一顯示最近（預設）
 
-顯示最近 20 筆 learnings，依 type 分組。
+依序查詢三個來源，並以清楚標題區隔呈現。
+
+### 1. gstack learnings（結構化教訓）
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20 2>/dev/null || echo "尚無 learnings。"
+~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20 2>/dev/null || echo ""
 ```
 
-若無任何 learnings，告知使用者：
+### 2. handover 交班教訓
 
-> 本專案尚未累積 learnings。隨著使用 review、investigate 等 skill，gstack 會自動記錄發現的模式與洞察。
+```bash
+PROJECT=$(basename "$(pwd)")
+uv run python -m tasks.session_memory lessons show --project "$PROJECT" --last 10 2>/dev/null || echo ""
+```
+
+若無 `--project` 匹配，可改用無 project 過濾：
+
+```bash
+uv run python -m tasks.session_memory lessons show --last 10 2>/dev/null || echo ""
+```
+
+### 3. insight 洞察（可選）
+
+若使用者明確要求包含 insights：
+
+```bash
+PROJECT=$(basename "$(pwd)")
+uv run python -m tasks.session_memory insight list --project "$PROJECT" --last 5 2>/dev/null || echo ""
+```
+
+若三個來源都無資料，告知使用者：
+
+> 本專案尚未累積 learnings。隨著使用 review、investigate、handover 等 skill，系統會自動記錄發現的模式與洞察。
+
+---
+
+## 只看 handover 教訓
+
+```bash
+PROJECT=$(basename "$(pwd)")
+uv run python -m tasks.session_memory lessons show --project "$PROJECT" --last 20
+```
+
+---
+
+## 只看 insight 洞察
+
+```bash
+PROJECT=$(basename "$(pwd)")
+uv run python -m tasks.session_memory insight list --project "$PROJECT" --last 20
+```
 
 ---
 
 ## 搜尋
 
+同時搜尋三個來源，並以標題區隔呈現結果。
+
+### 1. gstack learnings
+
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "USER_QUERY" --limit 20 2>/dev/null || echo "無符合結果。"
+~/.claude/skills/gstack/bin/gstack-learnings-search --query "USER_QUERY" --limit 20 2>/dev/null || echo ""
 ```
 
-將 `USER_QUERY` 替換為使用者的搜尋詞。清晰呈現搜尋結果。
+### 2. handover 教訓
+
+```bash
+PROJECT=$(basename "$(pwd)")
+uv run python -m tasks.session_memory lessons search "USER_QUERY" --project "$PROJECT" --last 10 2>/dev/null || echo ""
+```
+
+### 3. insight 洞察（含 insights 旗標時）
+
+```bash
+PROJECT=$(basename "$(pwd)")
+uv run python -m tasks.session_memory lessons search "USER_QUERY" --project "$PROJECT" --insights --last 10 2>/dev/null || echo ""
+```
+
+將 `USER_QUERY` 替換為使用者的搜尋詞。清晰呈現所有來源的搜尋結果，並標示來源。
 
 ---
 

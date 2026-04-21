@@ -466,5 +466,80 @@ def insight_list(last: int, project: str | None) -> None:
         click.echo(text[:240])
 
 
+# ─── lessons ─────────────────────────────────────────────────────────────
+
+
+@cli.group()
+def lessons() -> None:
+    """教訓聯合查詢：整合 handover lessons_learned 與 insight 洞察。"""
+
+
+@lessons.command("show")
+@click.option("--project", default=None, help="只顯示指定 project 的教訓（預設顯示全部）")
+@click.option("--last", default=20, type=int, help="每個來源最多顯示 N 筆")
+@click.option("--insights", "include_insights", is_flag=True, help="同時顯示 insight 洞察")
+@click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
+def lessons_show(project: str | None, last: int, include_insights: bool, as_json: bool) -> None:
+    """顯示 handover 教訓（可選合併 insight）。"""
+    from .lessons_service import show_lessons
+
+    rows = show_lessons(project=project, limit=last, include_insights=include_insights)
+
+    if as_json:
+        click.echo(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+
+    if not rows:
+        click.echo("(尚無教訓記錄)")
+        return
+
+    for r in rows:
+        src = r["source"]
+        label = {"handover": "交班教訓", "handover-approach": "試過的方案", "insight": "洞察"}.get(
+            src, src
+        )
+        click.echo("─" * 60)
+        click.echo(f"[{r['timestamp'][:10]}] [{label}] {r.get('context', '')}")
+        if r.get("project"):
+            click.echo(f"  project = {r['project']}")
+        click.echo(f"  {r['text']}")
+
+
+@lessons.command("search")
+@click.argument("query")
+@click.option("--project", default=None, help="只搜尋指定 project")
+@click.option("--last", default=20, type=int, help="最多回傳 N 筆")
+@click.option("--insights", "include_insights", is_flag=True, help="同時搜尋 insight 洞察")
+@click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
+def lessons_search(
+    query: str, project: str | None, last: int, include_insights: bool, as_json: bool
+) -> None:
+    """在 handover 教訓（與可選 insight）中搜尋關鍵字。"""
+    from .lessons_service import search_lessons
+
+    rows = search_lessons(
+        query=query, project=project, limit=last, include_insights=include_insights
+    )
+
+    if as_json:
+        click.echo(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+
+    if not rows:
+        click.echo(f"(無符合「{query}」的教訓記錄)")
+        return
+
+    for r in rows:
+        src = r["source"]
+        label = {"handover": "交班教訓", "handover-approach": "試過的方案", "insight": "洞察"}.get(
+            src, src
+        )
+        click.echo("─" * 60)
+        click.echo(f"[{r['timestamp'][:10]}] [{label}] {r.get('context', '')}")
+        if r.get("project"):
+            click.echo(f"  project = {r['project']}")
+        click.echo(f"  {r['text']}")
+
+
 if __name__ == "__main__":
     cli()

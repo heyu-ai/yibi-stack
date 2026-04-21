@@ -130,3 +130,57 @@ class TestSearch:
         db.insert_handover(make_record(id="a", project="flight-mcp"))
         rows = db.read_recent(last=5, project="nonexistent")
         assert rows == []
+
+
+class TestQueryLessons:
+    def test_agents_lesson_dt_001_empty_db_returns_empty(self, db: AgentsDB) -> None:
+        """AGENTS-LESSON-DT-001：空 DB 回傳空 list。"""
+        rows = db.query_lessons()
+        assert rows == []
+
+    def test_agents_lesson_dt_002_only_returns_records_with_lessons(self, db: AgentsDB) -> None:
+        """AGENTS-LESSON-DT-002：只回傳有 lessons_learned 的記錄。"""
+        db.insert_handover(make_record(id="has-lesson", lessons_learned=["nom 比 regex 穩"]))
+        db.insert_handover(make_record(id="no-lesson", lessons_learned=[]))
+        rows = db.query_lessons()
+        assert len(rows) == 1
+        assert rows[0]["id"] == "has-lesson"
+        assert "nom 比 regex 穩" in rows[0]["lessons_learned"]
+
+    def test_agents_lesson_dt_003_project_filter(self, db: AgentsDB) -> None:
+        """AGENTS-LESSON-DT-003：project 過濾只回傳匹配的記錄。"""
+        db.insert_handover(make_record(id="a", project="proj-a", lessons_learned=["lesson a"]))
+        db.insert_handover(make_record(id="b", project="proj-b", lessons_learned=["lesson b"]))
+        rows = db.query_lessons(project="proj-a")
+        assert len(rows) == 1
+        assert rows[0]["id"] == "a"
+
+    def test_agents_lesson_dt_004_limit(self, db: AgentsDB) -> None:
+        """AGENTS-LESSON-DT-004：limit 控制回傳數量上限。"""
+        for i in range(5):
+            db.insert_handover(
+                make_record(
+                    id=f"r{i}",
+                    timestamp=f"2026-04-{i + 10:02d}T00:00:00+00:00",
+                    lessons_learned=[f"lesson {i}"],
+                )
+            )
+        rows = db.query_lessons(limit=3)
+        assert len(rows) == 3
+
+    def test_agents_lesson_dt_005_includes_attempted_approaches(self, db: AgentsDB) -> None:
+        """AGENTS-LESSON-DT-005：回傳記錄含 attempted_approaches 欄位。"""
+        db.insert_handover(
+            make_record(
+                id="ap",
+                lessons_learned=["lesson"],
+                attempted_approaches=["試過 regex 太脆弱"],
+            )
+        )
+        rows = db.query_lessons()
+        assert rows[0]["attempted_approaches"] == ["試過 regex 太脆弱"]
+
+    def test_agents_lesson_eg_001_limit_zero_raises(self, db: AgentsDB) -> None:
+        """AGENTS-LESSON-EG-001：limit <= 0 應 raise ValueError。"""
+        with pytest.raises(ValueError):
+            db.query_lessons(limit=0)
