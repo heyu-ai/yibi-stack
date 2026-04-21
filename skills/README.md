@@ -24,7 +24,7 @@
 |-------|------|----------|
 | `session-memory` | 跨對話工作記憶中樞：跨 Agent / 跨帳號 / 跨機器的統一 handover 交班與 insight 收集系統，所有產出收斂至 `~/.agents/`。整合子 skill：`handover`（SQLite + JSONL 交班記錄）與 `insight`（Stop hook 自動收集 ★ Insight） | [session-memory/SKILL.md](session-memory/SKILL.md) |
 | `protect-push` | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
-| `learn` | 管理專案 learnings — 瀏覽、搜尋、修剪、匯出 gstack 跨對話累積的模式與洞察 | [learn/SKILL.md](learn/SKILL.md) |
+| `learn` | 統一教訓管理 — 整合 gstack learnings、handover 交班教訓、insight 洞察三大來源，支援瀏覽、搜尋、修剪、匯出 | [learn/SKILL.md](learn/SKILL.md) |
 
 ### 知識型 Skill（純 Markdown 方法論指引）
 
