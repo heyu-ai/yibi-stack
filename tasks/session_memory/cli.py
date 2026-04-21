@@ -471,7 +471,7 @@ def insight_list(last: int, project: str | None) -> None:
 
 @cli.group()
 def lessons() -> None:
-    """教訓聯合查詢：整合 handover lessons_learned 與 insight 洞察。"""
+    """教訓聯合查詢：show 顯示，search 搜尋。整合 handover 教訓、試過的方案與 insight 洞察。"""
 
 
 @lessons.command("show")
@@ -480,7 +480,7 @@ def lessons() -> None:
 @click.option("--insights", "include_insights", is_flag=True, help="同時顯示 insight 洞察")
 @click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
 def lessons_show(project: str | None, last: int, include_insights: bool, as_json: bool) -> None:
-    """顯示 handover 教訓（可選合併 insight）。"""
+    """顯示 handover 教訓與試過的方案（可選合併 insight）。"""
     from .lessons_service import show_lessons
 
     rows = show_lessons(project=project, limit=last, include_insights=include_insights)
@@ -514,7 +514,7 @@ def lessons_show(project: str | None, last: int, include_insights: bool, as_json
 def lessons_search(
     query: str, project: str | None, last: int, include_insights: bool, as_json: bool
 ) -> None:
-    """在 handover 教訓（與可選 insight）中搜尋關鍵字。"""
+    """在 handover 教訓、試過的方案（與可選 insight）中搜尋關鍵字。"""
     from .lessons_service import search_lessons
 
     rows = search_lessons(
