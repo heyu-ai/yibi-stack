@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import HANDOVER_DB_PATH
-from .models import HandoverRecord, SessionType
+from .models import EventType, HandoverEvent, HandoverRecord, SessionType
 
 _JSON_ARRAY_COLS = (
     "completed",
@@ -89,6 +89,26 @@ class AgentsDB:
             CREATE INDEX IF NOT EXISTS idx_handovers_project ON handovers(project);
             CREATE INDEX IF NOT EXISTS idx_handovers_account
               ON handovers(subscription_account);
+
+            CREATE TABLE IF NOT EXISTS handover_events (
+              id            TEXT PRIMARY KEY,
+              timestamp     TEXT NOT NULL,
+              session_id    TEXT,
+              event_type    TEXT NOT NULL,
+              source_layer  TEXT,
+              matcher       TEXT,
+              handover_id   TEXT,
+              project       TEXT,
+              device        TEXT,
+              extra_json    TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_events_timestamp
+              ON handover_events(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_events_session
+              ON handover_events(session_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_events_type
+              ON handover_events(event_type);
             """
         )
         self.conn.commit()
@@ -259,6 +279,122 @@ class AgentsDB:
         row = cur.fetchone()
         return int(row["c"]) if row else 0
 
+    def insert_event(self, event: HandoverEvent) -> None:
+        """寫入一筆 handover_event。"""
+        self.conn.execute(
+            """
+            INSERT INTO handover_events (
+              id, timestamp, session_id, event_type, source_layer,
+              matcher, handover_id, project, device, extra_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.id,
+                event.timestamp,
+                event.session_id,
+                event.event_type.value,
+                event.source_layer.value if event.source_layer else None,
+                event.matcher,
+                event.handover_id,
+                event.project,
+                event.device,
+                json.dumps(event.extra, ensure_ascii=False),
+            ),
+        )
+        self.conn.commit()
+
+    def read_events(
+        self,
+        last: int = 50,
+        session_id: str | None = None,
+        event_type: EventType | None = None,
+    ) -> list[dict[str, Any]]:
+        """讀取最近 N 筆事件，可依 session_id / event_type 過濾。"""
+        if last <= 0:
+            raise ValueError("last 必須為正整數")
+
+        conditions: list[str] = []
+        params: list[object] = []
+        if session_id is not None:
+            conditions.append("session_id = ?")
+            params.append(session_id)
+        if event_type is not None:
+            conditions.append("event_type = ?")
+            params.append(event_type.value)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
+        sql = (
+            f"SELECT * FROM handover_events {where} "  # nosec B608
+            "ORDER BY timestamp DESC LIMIT ?"
+        )
+        params.append(last)
+
+        cur = self.conn.execute(sql, params)
+        return [_decode_event_row(row) for row in cur.fetchall()]
+
+    def aggregate_success_counts(
+        self,
+        since: str | None = None,
+        project: str | None = None,
+    ) -> dict[str, int]:
+        """依 session_id 聚合成功/失敗旗標。
+
+        定義：
+        - `wrote_after_intercept`：同 session 有 intercept + handover_written
+        - `silent_fail`：同 session 有 intercept + passthrough 但無 handover_written
+        - `hard_fail`：同 session 有 layer3_session_start 但無 handover_written
+        - `layer1_win`：同 session 有 handover_written 但無 layer2_intercept
+        """
+        conditions: list[str] = ["session_id IS NOT NULL"]
+        params: list[object] = []
+        if since:
+            conditions.append("timestamp >= ?")
+            params.append(since)
+        if project:
+            conditions.append("project = ?")
+            params.append(project)
+
+        where = f"WHERE {' AND '.join(conditions)}"  # nosec B608
+        sql = f"""
+            WITH flags AS (
+              SELECT
+                session_id,
+                MAX(CASE WHEN event_type='layer2_intercept' THEN 1 ELSE 0 END) AS intercepted,
+                MAX(CASE WHEN event_type='handover_written' THEN 1 ELSE 0 END) AS wrote,
+                MAX(CASE WHEN event_type='layer2_passthrough' THEN 1 ELSE 0 END) AS passed,
+                MAX(CASE WHEN event_type='layer3_session_start' THEN 1 ELSE 0 END) AS compacted,
+                MAX(CASE WHEN event_type='layer2_stale_reset' THEN 1 ELSE 0 END) AS stale
+              FROM handover_events
+              {where}
+              GROUP BY session_id
+            )
+            SELECT
+              COUNT(*) AS sessions_observed,
+              COALESCE(SUM(intercepted), 0) AS total_intercepts,
+              COALESCE(SUM(intercepted*wrote), 0) AS wrote_after_intercept,
+              COALESCE(SUM(intercepted*(1-wrote)*passed), 0) AS silent_fail,
+              COALESCE(SUM(compacted*(1-wrote)), 0) AS hard_fail,
+              COALESCE(SUM((1-intercepted)*wrote), 0) AS layer1_win,
+              COALESCE(SUM(stale), 0) AS stale_reset
+            FROM flags
+        """  # nosec B608
+        cur = self.conn.execute(sql, params)
+        row = cur.fetchone()
+        if row is None:
+            return dict.fromkeys(
+                (
+                    "sessions_observed",
+                    "total_intercepts",
+                    "wrote_after_intercept",
+                    "silent_fail",
+                    "hard_fail",
+                    "layer1_win",
+                    "stale_reset",
+                ),
+                0,
+            )
+        return {k: int(row[k]) for k in row.keys()}  # noqa: SIM118  sqlite3.Row 非 dict
+
 
 def _decode_row(row: sqlite3.Row) -> dict[str, Any]:
     """把 sqlite3.Row 轉成 dict，並把 JSON array 欄位 decode 回 list。"""
@@ -269,4 +405,18 @@ def _decode_row(row: sqlite3.Row) -> dict[str, Any]:
                 out[col] = json.loads(out[col])
             except json.JSONDecodeError:
                 out[col] = []
+    return out
+
+
+def _decode_event_row(row: sqlite3.Row) -> dict[str, Any]:
+    """把 handover_events 的 sqlite3.Row 轉成 dict，extra_json decode 為 extra dict。"""
+    out = dict(row)
+    raw = out.pop("extra_json", "{}")
+    if isinstance(raw, str):
+        try:
+            out["extra"] = json.loads(raw)
+        except json.JSONDecodeError:
+            out["extra"] = {}
+    else:
+        out["extra"] = {}
     return out

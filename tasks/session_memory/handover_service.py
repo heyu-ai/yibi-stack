@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import sqlite3
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -80,11 +81,37 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
     try:
         db.init_db()
         db.insert_handover(record)
+    except sqlite3.IntegrityError as e:
+        raise RuntimeError(f"交班記錄寫入失敗（ID 衝突或 schema 不符）：{e}") from e
+    except sqlite3.OperationalError as e:
+        raise RuntimeError(f"交班記錄寫入失敗（資料庫錯誤）：{e}") from e
     finally:
         db.close()
 
     _append_jsonl(record, jsonl_path or HANDOVER_JSONL_PATH)
+    _emit_handover_written_event(record, db_path=db_path)
     return record
+
+
+def _emit_handover_written_event(record: HandoverRecord, *, db_path: Path | None) -> None:
+    """寫入 handover_written 事件，供成功率量測使用。永不 raise。"""
+    import warnings
+
+    from .metrics_service import _try_resolve_session_id, log_event
+    from .models import EventType, SourceLayer
+
+    try:
+        log_event(
+            EventType.handover_written,
+            session_id=_try_resolve_session_id(),
+            source_layer=SourceLayer.cli,
+            handover_id=record.id,
+            project=record.project,
+            device=record.device,
+            db_path=db_path,
+        )
+    except Exception as e:  # noqa: BLE001  shadow logging 不影響主流程
+        warnings.warn(f"handover_written 事件寫入失敗：{e}", stacklevel=2)
 
 
 def read_recent(

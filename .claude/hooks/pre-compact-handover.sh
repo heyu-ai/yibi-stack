@@ -47,20 +47,64 @@ fi
 
 # 清除過期狀態檔（超過 3600 秒 = 1 小時）
 if [ -f "$STATE_FILE" ]; then
-    FILE_AGE=$(( $(date +%s) - $(stat -f %m "$STATE_FILE" 2>/dev/null || stat -c %Y "$STATE_FILE" 2>/dev/null || echo 0) ))
+    FILE_MTIME=$(stat -f %m "$STATE_FILE" 2>/dev/null || stat -c %Y "$STATE_FILE" 2>/dev/null || echo "")
+    if [ -z "$FILE_MTIME" ]; then
+        echo "pre-compact-handover: 警告：無法讀取狀態檔 mtime，跳過過期檢查" >&2
+        FILE_MTIME=0
+    fi
+    FILE_AGE=$(( $(date +%s) - FILE_MTIME ))
     if [ "$FILE_AGE" -gt 3600 ]; then
         rm -f "$STATE_FILE"
+        # Shadow logging：狀態檔過期，重新攔截
+        REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+        (
+            cd "$REPO_ROOT" && \
+            SESSION_ID_ENV="$SESSION_ID" MATCHER_ENV="$MATCHER" \
+            uv run python -c "
+import os
+from tasks.session_memory.metrics_service import log_event
+from tasks.session_memory.models import EventType, SourceLayer
+log_event(EventType.layer2_stale_reset, session_id=os.environ.get('SESSION_ID_ENV') or None,
+    source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
+"
+        ) >/dev/null 2>&1 || true
     fi
 fi
 
 # 第二次：狀態檔已存在 → 放行
 if [ -f "$STATE_FILE" ]; then
     rm -f "$STATE_FILE"
+    # Shadow logging：第二次放行
+    REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+    (
+        cd "$REPO_ROOT" && \
+        SESSION_ID_ENV="$SESSION_ID" MATCHER_ENV="$MATCHER" \
+        uv run python -c "
+import os
+from tasks.session_memory.metrics_service import log_event
+from tasks.session_memory.models import EventType, SourceLayer
+log_event(EventType.layer2_passthrough, session_id=os.environ.get('SESSION_ID_ENV') or None,
+    source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
+"
+    ) >/dev/null 2>&1 || true
     exit 0
 fi
 
 # 第一次：建立狀態檔 → 攔截並提醒
 touch "$STATE_FILE"
+# Shadow logging：第一次攔截
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+(
+    cd "$REPO_ROOT" && \
+    SESSION_ID_ENV="$SESSION_ID" MATCHER_ENV="$MATCHER" \
+    uv run python -c "
+import os
+from tasks.session_memory.metrics_service import log_event
+from tasks.session_memory.models import EventType, SourceLayer
+log_event(EventType.layer2_intercept, session_id=os.environ.get('SESSION_ID_ENV') or None,
+    source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
+"
+) >/dev/null 2>&1 || true
 
 python3 -c "
 import json

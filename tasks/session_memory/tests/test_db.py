@@ -1,11 +1,32 @@
-"""測試 AgentsDB：CRUD、search、upsert 冪等。"""
+"""測試 AgentsDB：CRUD、search、upsert 冪等、handover_events CRUD。"""
 
 from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from tasks.session_memory.db import AgentsDB
-from tasks.session_memory.models import HandoverRecord, SessionType
+from tasks.session_memory.models import (
+    EventType,
+    HandoverEvent,
+    HandoverRecord,
+    SessionType,
+    SourceLayer,
+)
+
+
+def make_event(**overrides: object) -> HandoverEvent:
+    """建立測試用 HandoverEvent。"""
+    defaults: dict[str, object] = {
+        "id": str(uuid.uuid4()),
+        "timestamp": datetime.now(UTC).astimezone().replace(microsecond=0).isoformat(),
+        "session_id": "sess-db-test",
+        "event_type": EventType.layer2_intercept,
+        "source_layer": SourceLayer.layer2,
+    }
+    return HandoverEvent.model_validate({**defaults, **overrides})
 
 
 def make_record(**overrides: object) -> HandoverRecord:
@@ -184,3 +205,134 @@ class TestQueryLessons:
         """AGENTS-LESSON-EG-001：limit <= 0 應 raise ValueError。"""
         with pytest.raises(ValueError):
             db.query_lessons(limit=0)
+
+
+# ── handover_events CRUD ──────────────────────────────────────────────────────
+
+
+class TestHandoverEvents:
+    def test_agents_ev_st_001_insert_and_read_back(self, db: AgentsDB) -> None:
+        """AGENTS-EV-ST-001：insert_event 後可用 read_events 讀回。"""
+        event = make_event(id="ev-001", session_id="sess-1", event_type=EventType.layer2_intercept)
+        db.insert_event(event)
+        rows = db.read_events(last=10)
+        assert len(rows) == 1
+        assert rows[0]["id"] == "ev-001"
+        assert rows[0]["event_type"] == "layer2_intercept"
+        assert rows[0]["session_id"] == "sess-1"
+        assert isinstance(rows[0]["extra"], dict)  # extra_json decode 為 dict
+
+    def test_agents_ev_st_002_filter_by_session_id(self, db: AgentsDB) -> None:
+        """AGENTS-EV-ST-002：read_events 依 session_id 過濾。"""
+        db.insert_event(make_event(id="e1", session_id="s1"))
+        db.insert_event(make_event(id="e2", session_id="s2"))
+        rows = db.read_events(session_id="s1")
+        assert len(rows) == 1
+        assert rows[0]["id"] == "e1"
+
+    def test_agents_ev_st_003_filter_by_event_type(self, db: AgentsDB) -> None:
+        """AGENTS-EV-ST-003：read_events 依 event_type 過濾。"""
+        db.insert_event(make_event(id="e1", event_type=EventType.layer2_intercept))
+        db.insert_event(make_event(id="e2", event_type=EventType.handover_written))
+        rows = db.read_events(event_type=EventType.handover_written)
+        assert len(rows) == 1
+        assert rows[0]["event_type"] == "handover_written"
+
+    def test_agents_ev_eg_001_read_events_last_zero_raises(self, db: AgentsDB) -> None:
+        """AGENTS-EV-EG-001：read_events last=0 raise ValueError。"""
+        with pytest.raises(ValueError, match="正整數"):
+            db.read_events(last=0)
+
+    def test_agents_ev_st_004_null_session_id_stored(self, db: AgentsDB) -> None:
+        """AGENTS-EV-ST-004：session_id=None 可正常寫入，read_events 也可讀回。"""
+        db.insert_event(make_event(id="e-null", session_id=None))
+        rows = db.read_events()
+        assert rows[0]["session_id"] is None
+
+
+# ── aggregate_success_counts 直接測試 ─────────────────────────────────────────
+
+
+class TestAggregateSuccessCounts:
+    def _ts(self, hours_ago: int = 1) -> str:
+        return (datetime.now(UTC) - timedelta(hours=hours_ago)).isoformat()
+
+    def test_agents_agg_st_001_empty_returns_zeros(self, db: AgentsDB) -> None:
+        """AGENTS-AGG-ST-001：無資料時全部回傳 0。"""
+        result = db.aggregate_success_counts()
+        assert result["sessions_observed"] == 0
+        assert result["wrote_after_intercept"] == 0
+
+    def test_agents_agg_st_002_wrote_after_intercept(self, db: AgentsDB) -> None:
+        """AGENTS-AGG-ST-002：intercept + handover_written → wrote_after_intercept=1。"""
+        db.insert_event(
+            make_event(
+                id="e1",
+                session_id="s1",
+                event_type=EventType.layer2_intercept,
+                timestamp=self._ts(2),
+            )
+        )
+        db.insert_event(
+            make_event(
+                id="e2",
+                session_id="s1",
+                event_type=EventType.handover_written,
+                timestamp=self._ts(1),
+            )
+        )
+        result = db.aggregate_success_counts()
+        assert result["wrote_after_intercept"] == 1
+        assert result["silent_fail"] == 0
+
+    def test_agents_agg_st_003_silent_fail(self, db: AgentsDB) -> None:
+        """AGENTS-AGG-ST-003：intercept + passthrough 無 written → silent_fail=1。"""
+        db.insert_event(
+            make_event(
+                id="e1",
+                session_id="s1",
+                event_type=EventType.layer2_intercept,
+                timestamp=self._ts(2),
+            )
+        )
+        db.insert_event(
+            make_event(
+                id="e2",
+                session_id="s1",
+                event_type=EventType.layer2_passthrough,
+                timestamp=self._ts(1),
+            )
+        )
+        result = db.aggregate_success_counts()
+        assert result["silent_fail"] == 1
+
+    def test_agents_agg_st_004_since_filter(self, db: AgentsDB) -> None:
+        """AGENTS-AGG-ST-004：since 只聚合範圍內事件。"""
+        old_ts = (datetime.now(UTC) - timedelta(days=60)).isoformat()
+        recent_ts = self._ts(1)
+        db.insert_event(
+            make_event(
+                id="old",
+                session_id="s-old",
+                event_type=EventType.handover_written,
+                timestamp=old_ts,
+            )
+        )
+        db.insert_event(
+            make_event(
+                id="new",
+                session_id="s-new",
+                event_type=EventType.handover_written,
+                timestamp=recent_ts,
+            )
+        )
+        cutoff = (datetime.now(UTC) - timedelta(days=7)).isoformat()
+        result = db.aggregate_success_counts(since=cutoff)
+        assert result["sessions_observed"] == 1
+        assert result["layer1_win"] == 1
+
+    def test_agents_agg_st_005_null_session_excluded(self, db: AgentsDB) -> None:
+        """AGENTS-AGG-ST-005：session_id IS NULL 的事件不列入聚合。"""
+        db.insert_event(make_event(id="e1", session_id=None, event_type=EventType.layer2_intercept))
+        result = db.aggregate_success_counts()
+        assert result["sessions_observed"] == 0

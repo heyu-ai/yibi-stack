@@ -18,7 +18,7 @@ from .config import (
     load_agents_config,
     save_agents_config,
 )
-from .models import AgentsConfig, SessionType
+from .models import AgentsConfig, EventType, SessionType
 
 
 @click.group()
@@ -539,6 +539,119 @@ def lessons_search(
         if r.get("project"):
             click.echo(f"  project = {r['project']}")
         click.echo(f"  {r['text']}")
+
+
+# ─── metrics ─────────────────────────────────────────────────────────────
+
+
+@cli.group()
+def metrics() -> None:
+    """Auto-handover 成功率量測：事件流、統計、rule-based 建議。"""
+
+
+@metrics.command("stats")
+@click.option("--since-days", default=30, type=int, help="統計起始點（N 天前），預設 30")
+@click.option("--project", default=None, help="只統計指定 project")
+@click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
+def metrics_stats(since_days: int, project: str | None, as_json: bool) -> None:
+    """計算並顯示 auto-handover 成功率。"""
+    from datetime import UTC, datetime, timedelta
+
+    from .metrics_service import compute_stats
+
+    since = datetime.now(UTC) - timedelta(days=since_days)
+    report = compute_stats(since=since, project=project)
+
+    if as_json:
+        click.echo(report.model_dump_json(indent=2))
+        return
+
+    click.echo(f"── Auto-Handover 成功率報告（近 {since_days} 天）──")
+    if project:
+        click.echo(f"  project         = {project}")
+    click.echo(f"  sessions_observed    = {report.sessions_observed}")
+    click.echo(f"  total_intercepts     = {report.total_intercepts}")
+    click.echo(f"  wrote_after_intercept= {report.wrote_after_intercept}")
+    click.echo(f"  silent_fail          = {report.silent_fail}")
+    click.echo(f"  hard_fail            = {report.hard_fail}")
+    click.echo(f"  layer1_win           = {report.layer1_win}")
+    click.echo(f"  stale_reset          = {report.stale_resets}")
+    click.echo("")
+    click.echo(f"  success_rate         = {report.success_rate:.1%}")
+    click.echo(f"  silent_fail_rate     = {report.silent_fail_rate:.1%}")
+    click.echo(f"  hard_fail_rate       = {report.hard_fail_rate:.1%}")
+    click.echo(f"  layer1_win_rate      = {report.layer1_win_rate:.1%}")
+
+
+@metrics.command("events")
+@click.option("--last", default=50, type=int, help="讀取最近 N 筆")
+@click.option("--session-id", default=None, help="只顯示指定 session_id")
+@click.option(
+    "--type",
+    "event_type",
+    default=None,
+    type=click.Choice([e.value for e in EventType]),
+    help="只顯示指定事件類型",
+)
+@click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
+def metrics_events(
+    last: int, session_id: str | None, event_type: str | None, as_json: bool
+) -> None:
+    """列出最近 N 筆 handover 事件流。"""
+    from .metrics_service import list_events
+
+    rows = list_events(
+        last=last,
+        session_id=session_id,
+        event_type=EventType(event_type) if event_type else None,
+    )
+
+    if as_json:
+        click.echo(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+
+    if not rows:
+        click.echo("(尚無事件紀錄)")
+        return
+
+    for r in rows:
+        click.echo(
+            f"[{r['timestamp']}] {r['event_type']:22s} "
+            f"session={(r.get('session_id') or '-')[:12]:12s} "
+            f"matcher={r.get('matcher') or '-':7s} "
+            f"project={r.get('project') or '-'}"
+        )
+
+
+@metrics.command("advice")
+@click.option("--since-days", default=30, type=int, help="統計窗口（N 天前），預設 30")
+@click.option("--project", default=None, help="只評估指定 project")
+@click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
+def metrics_advice(since_days: int, project: str | None, as_json: bool) -> None:
+    """基於統計數據產生 rule-based 改善建議。"""
+    from datetime import UTC, datetime, timedelta
+
+    from .metrics_service import compute_stats, generate_advice
+
+    since = datetime.now(UTC) - timedelta(days=since_days)
+    report = compute_stats(since=since, project=project)
+    suggestions = generate_advice(report)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {"report": report.model_dump(mode="json"), "advice": suggestions},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+
+    click.echo(f"── Auto-Handover 改善建議（近 {since_days} 天）──")
+    click.echo(f"  success_rate={report.success_rate:.1%}  sessions={report.sessions_observed}")
+    click.echo("")
+    for idx, msg in enumerate(suggestions, 1):
+        click.echo(f"[{idx}] {msg}")
 
 
 if __name__ == "__main__":

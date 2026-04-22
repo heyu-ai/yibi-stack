@@ -1,11 +1,11 @@
-"""Agents 資料模型：AgentsConfig、HandoverRecord、InsightRecord、SessionType。"""
+"""Agents 資料模型：AgentsConfig、HandoverRecord、InsightRecord、SessionType、HandoverEvent。"""
 
 from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SessionType(StrEnum):
@@ -15,6 +15,28 @@ class SessionType(StrEnum):
     debug = "debug"
     discussion = "discussion"
     admin = "admin"
+
+
+class EventType(StrEnum):
+    """Handover 事件類型。用於量測 auto-handover 成功率與三層防護的實際觸發效果。"""
+
+    layer2_intercept = "layer2_intercept"
+    layer2_passthrough = "layer2_passthrough"
+    layer2_stale_reset = "layer2_stale_reset"
+    handover_written = "handover_written"
+    layer3_session_start = "layer3_session_start"
+    layer1_self_suggest = "layer1_self_suggest"
+    handover_back_invoked = "handover_back_invoked"
+    cli_metrics_query = "cli_metrics_query"
+
+
+class SourceLayer(StrEnum):
+    """事件觸發來源層。"""
+
+    layer1 = "layer1"
+    layer2 = "layer2"
+    layer3 = "layer3"
+    cli = "cli"
 
 
 class AgentsConfig(BaseModel):
@@ -81,6 +103,87 @@ class HandoverRecord(BaseModel):
     test_status: str | None = None
     token_usage_estimate: str | None = None
     project: str | None = None
+
+
+class HandoverEvent(BaseModel):
+    """Handover 生命週期事件記錄（寫入 handover_events table）。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    timestamp: str
+    session_id: str | None = None
+    event_type: EventType
+    source_layer: SourceLayer | None = None
+    matcher: str | None = None
+    handover_id: str | None = None
+    project: str | None = None
+    device: str | None = None
+    extra: dict[str, object] = Field(default_factory=dict)
+
+    @field_validator("id")
+    @classmethod
+    def check_id_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("id 不可為空")
+        return v
+
+    @field_validator("timestamp")
+    @classmethod
+    def check_timestamp_iso(cls, v: str) -> str:
+        from datetime import datetime
+
+        try:
+            datetime.fromisoformat(v)
+        except ValueError as e:
+            raise ValueError(f"timestamp 必須為 ISO 8601 格式：{v!r}") from e
+        return v
+
+    @field_validator("session_id")
+    @classmethod
+    def check_session_id_not_empty_string(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("session_id 若有值不可為空字串，請傳 None")
+        return v
+
+
+class MetricsReport(BaseModel):
+    """Auto-handover 成功率統計報告。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    since: str | None = None
+    project: str | None = None
+    total_intercepts: int = 0
+    wrote_after_intercept: int = 0
+    silent_fail: int = 0
+    hard_fail: int = 0
+    layer1_win: int = 0
+    stale_resets: int = 0
+    sessions_observed: int = 0
+    success_rate: float = 0.0
+    silent_fail_rate: float = 0.0
+    hard_fail_rate: float = 0.0
+    layer1_win_rate: float = 0.0
+
+    @model_validator(mode="after")
+    def check_non_negative(self) -> MetricsReport:
+        for field in (
+            "total_intercepts",
+            "wrote_after_intercept",
+            "silent_fail",
+            "hard_fail",
+            "layer1_win",
+            "stale_resets",
+            "sessions_observed",
+        ):
+            if getattr(self, field) < 0:
+                raise ValueError(f"{field} 不可為負數")
+        for field in ("success_rate", "silent_fail_rate", "hard_fail_rate", "layer1_win_rate"):
+            v = getattr(self, field)
+            if v < 0.0 or v > 1.0:
+                raise ValueError(f"{field} 必須在 0.0 ~ 1.0 之間，收到 {v}")
+        return self
 
 
 class InsightRecord(BaseModel):
