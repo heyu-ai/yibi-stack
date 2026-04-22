@@ -17,6 +17,7 @@
 | `saas-tracker` | 掃描 Gmail 中的 SaaS 發票與收據，自動辨識廠商、金額、幣別，匯出費用追蹤 CSV。支援多 profile、自動去重、月度摘要 | [saas-tracker/SKILL.md](saas-tracker/SKILL.md) | `gwscli`, `uv` |
 | `ledger-import` | 將 gmail-billing 產出的帳單 CSV 匯入 LedgerOne 記帳系統。支援 dry-run 預覽、dedup 去重、多月份批次匯入 | [ledger-import/SKILL.md](ledger-import/SKILL.md) | `uv` |
 | `scheduler` | 管理 Skill Scheduler — 設定定期自動執行的排程、查看執行狀態、手動觸發 job、安裝/卸載 LaunchAgent | [scheduler/SKILL.md](scheduler/SKILL.md) | `uv`, MiniShell ACP Gateway（claude job） |
+| `daily-ai-footprint` | 聚合當日 AI 與數位活動（Claude Code insights、Gmail）為 Heptabase 友善的每日回溯報告，含 Claude API 產生的 300 字敘事摘要 | [daily-ai-footprint/SKILL.md](daily-ai-footprint/SKILL.md) | `uv`, Anthropic API, session-memory |
 
 ### 工具型 Skill（安裝或設定開發工具）
 
