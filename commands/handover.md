@@ -53,8 +53,10 @@ except json.JSONDecodeError as e:
     sys.exit(1)
 ") || exit 1
 if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; exit 1; fi
+REAL_WORKDIR=$(pwd)
 uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover write \
+  --workdir "$REAL_WORKDIR" \
   --session-type {{session_type}} \
   --topic "{{topic}}" \
   --summary "{{summary}}" \
