@@ -19,6 +19,7 @@
 | `ledger-import` | 將 gmail-billing 產出的帳單 CSV 匯入 LedgerOne 記帳系統。支援 dry-run 預覽、dedup 去重、多月份批次匯入 | [ledger-import/SKILL.md](ledger-import/SKILL.md) | `uv` |
 | `scheduler` | 管理 Skill Scheduler — 設定定期自動執行的排程、查看執行狀態、手動觸發 job、安裝/卸載 LaunchAgent | [scheduler/SKILL.md](scheduler/SKILL.md) | `uv`, MiniShell ACP Gateway（claude job） |
 | `daily-ai-footprint` | 聚合當日 AI 與數位活動（Claude Code insights、Gmail）為 Heptabase 友善的每日回溯報告，含 Claude API 產生的 300 字敘事摘要 | [daily-ai-footprint/SKILL.md](daily-ai-footprint/SKILL.md) | `uv`, Anthropic API, session-memory |
+| `verify-ai-models` | 驗證 Gemini 模型在 Google AI Studio 與 Vertex AI 上的實際可用性（LLM / TTS / Live 三種能力），確認可呼叫並回傳有效輸出，而非僅列在文件上 | [verify-ai-models/SKILL.md](verify-ai-models/SKILL.md) | `uv` |
 
 ### 工具型 Skill（安裝或設定開發工具）
 
