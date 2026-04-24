@@ -46,8 +46,10 @@ else
 fi
 
 # 清除過期狀態檔（超過 3600 秒 = 1 小時）
+# 注意：使用 date -r 取得 mtime，相容 macOS（BSD）與 Linux（GNU coreutils）
+# stat -f %m 為 BSD 語法，GNU stat 的 -f 意義不同，會輸出 filesystem info 到 stdout 造成垃圾
 if [ -f "$STATE_FILE" ]; then
-    FILE_MTIME=$(stat -f %m "$STATE_FILE" 2>/dev/null || stat -c %Y "$STATE_FILE" 2>/dev/null || echo "")
+    FILE_MTIME=$(date -r "$STATE_FILE" +%s 2>/dev/null || echo "")
     if [ -z "$FILE_MTIME" ]; then
         echo "pre-compact-handover: 警告：無法讀取狀態檔 mtime，跳過過期檢查" >&2
         FILE_MTIME=0
@@ -55,7 +57,7 @@ if [ -f "$STATE_FILE" ]; then
     FILE_AGE=$(( $(date +%s) - FILE_MTIME ))
     if [ "$FILE_AGE" -gt 3600 ]; then
         rm -f "$STATE_FILE"
-        # Shadow logging：狀態檔過期，重新攔截
+        # Shadow logging：狀態檔過期，重新攔截（async，避免佔用 hook timeout）
         REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
         (
             cd "$REPO_ROOT" && \
@@ -67,14 +69,14 @@ from tasks.session_memory.models import EventType, SourceLayer
 log_event(EventType.layer2_stale_reset, session_id=os.environ.get('SESSION_ID_ENV') or None,
     source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
 "
-        ) >/dev/null 2>&1 || true
+        ) >/dev/null 2>&1 &
     fi
 fi
 
 # 第二次：狀態檔已存在 → 放行
 if [ -f "$STATE_FILE" ]; then
     rm -f "$STATE_FILE"
-    # Shadow logging：第二次放行
+    # Shadow logging：第二次放行（async，避免佔用 hook timeout）
     REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
     (
         cd "$REPO_ROOT" && \
@@ -86,13 +88,13 @@ from tasks.session_memory.models import EventType, SourceLayer
 log_event(EventType.layer2_passthrough, session_id=os.environ.get('SESSION_ID_ENV') or None,
     source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
 "
-    ) >/dev/null 2>&1 || true
+    ) >/dev/null 2>&1 &
     exit 0
 fi
 
 # 第一次：建立狀態檔 → 攔截並提醒
 touch "$STATE_FILE"
-# Shadow logging：第一次攔截
+# Shadow logging：第一次攔截（async，避免佔用 hook timeout）
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 (
     cd "$REPO_ROOT" && \
@@ -104,7 +106,7 @@ from tasks.session_memory.models import EventType, SourceLayer
 log_event(EventType.layer2_intercept, session_id=os.environ.get('SESSION_ID_ENV') or None,
     source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
 "
-) >/dev/null 2>&1 || true
+) >/dev/null 2>&1 &
 
 python3 -c "
 import json

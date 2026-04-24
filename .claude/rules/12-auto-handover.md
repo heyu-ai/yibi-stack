@@ -34,9 +34,13 @@
 若你收到 systemMessage 內含「context 即將 compact」或「請先執行 handover」字樣，
 這是系統在 auto-compact 前攔截並提醒你。處理方式：
 
-1. 立即詢問使用者是否要執行 handover
-2. 同意 → 執行 `/handover`（寫入交班），完成後告知使用者 compact 將自動進行
-3. 拒絕 → 不執行 handover（下次 auto-compact 將直接通過）
+**重要判斷**：先看使用者的最新訊息是否已包含 `/handover`：
+- **是** → 直接執行 `/handover`，無需再詢問（使用者已同意）
+- **否** → 立即詢問使用者是否要執行 handover，同意再執行
+
+執行流程：
+1. 執行 `/handover`（寫入交班），完成後告知使用者 compact 將自動進行
+2. 拒絕時 → 不執行 handover（下次 auto-compact 將直接通過）
 
 ## SessionStart 恢復（Layer 3）
 
