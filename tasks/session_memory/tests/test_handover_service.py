@@ -92,6 +92,28 @@ class TestWriteHandover:
         assert record.branch == "main"
         assert record.subscription_account == "test-account"
 
+    def test_agents_st_030_project_inferred_from_working_dir(
+        self, paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        """AGENTS-ST-030: 未傳 project 時從 working_dir basename 推導。
+
+        防止 uv run --directory 造成 cwd 漂移導致 project 被錯誤記錄。
+        此測試在舊版（detect_project() 不傳 cwd）會因 cwd 是 repo root 而失敗。
+        """
+        fake_workdir = tmp_path / "my-real-project"
+        fake_workdir.mkdir()
+
+        record = write_handover(
+            session_type=SessionType.debug,
+            topic="t",
+            summary="s",
+            working_dir=str(fake_workdir),
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+
+        assert record.project == "my-real-project"
+
     def test_agents_st_012_explicit_override_metadata(self, paths: dict[str, Path]) -> None:
         """AGENTS-ST-012：明確提供 device/account 時覆蓋自動偵測。"""
         record = write_handover(

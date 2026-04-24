@@ -51,6 +51,9 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
     if not summary.strip():
         raise ValueError("summary 不可為空")
 
+    # 統一計算有效工作目錄，確保 working_dir 與 project 來自同一路徑
+    effective_dir = Path(working_dir).resolve() if working_dir else Path.cwd().resolve()
+
     record = HandoverRecord(
         id=str(uuid.uuid4()),
         timestamp=_now_iso(),
@@ -70,11 +73,11 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
         subscription_account=account
         or detect_account(agent_type=agent_type or "claude", warn=False),
         branch=branch if branch is not None else detect_branch(),
-        working_dir=to_portable_path(working_dir or str(Path.cwd())),
+        working_dir=to_portable_path(str(effective_dir)),
         last_files=[to_portable_path(f) for f in (last_files or [])],
         test_status=test_status,
         token_usage_estimate=token_usage_estimate,
-        project=project or detect_project(),
+        project=project or detect_project(effective_dir),
     )
 
     db = AgentsDB(db_path or HANDOVER_DB_PATH)

@@ -83,9 +83,18 @@ def detect_device() -> str:
 
 
 def detect_project(cwd: Path | str | None = None) -> str:
-    """以工作目錄 basename 作為 project 名稱。"""
+    """以工作目錄 basename 作為 project 名稱。路徑無效時回傳 'unknown-project'。"""
+    import warnings
+
     path = Path(cwd) if cwd else Path.cwd()
-    return path.resolve().name
+    name = path.resolve().name
+    if not name:
+        warnings.warn(
+            f"detect_project：無法從路徑取得 basename（path={path}），回傳 'unknown-project'",
+            stacklevel=2,
+        )
+        return "unknown-project"
+    return name
 
 
 def detect_branch(cwd: Path | str | None = None) -> str | None:

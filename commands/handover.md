@@ -53,10 +53,13 @@ except json.JSONDecodeError as e:
     sys.exit(1)
 ") || exit 1
 if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; exit 1; fi
-REAL_WORKDIR=$(pwd)
+REAL_WORKDIR=$(pwd) || { echo "✗ 無法取得當前工作目錄，請確認目錄存在"; exit 1; }
+PROJECT=$(basename "$REAL_WORKDIR")
+if [ -z "$PROJECT" ]; then echo "✗ 無法判斷 project 名稱（pwd 回傳空值）"; exit 1; fi
 uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover write \
   --workdir "$REAL_WORKDIR" \
+  --project "$PROJECT" \
   --session-type {{session_type}} \
   --topic "{{topic}}" \
   --summary "{{summary}}" \

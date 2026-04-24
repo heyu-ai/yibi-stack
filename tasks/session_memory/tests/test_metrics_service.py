@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -18,6 +19,11 @@ from tasks.session_memory.metrics_service import (
     log_event,
 )
 from tasks.session_memory.models import EventType, HandoverEvent, MetricsReport, SourceLayer
+
+_skip_if_root = pytest.mark.skipif(
+    os.getuid() == 0,
+    reason="root 無視 chmod 限制，唯讀目錄測試需非 root 身份執行",
+)
 
 # ── 測試資料工廠 ───────────────────────────────────────────────────────────────
 
@@ -85,6 +91,7 @@ class TestLogEvent:
         )
         assert result is None
 
+    @_skip_if_root
     def test_metrics_eg_002_broken_db_returns_none_with_warning(self, tmp_path: Path) -> None:
         """METRICS-EG-002: DB 不可寫時回傳 None 並發出 UserWarning，不 raise。"""
         import stat
@@ -422,6 +429,7 @@ class TestAppendJsonl:
         lines = path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 3
 
+    @_skip_if_root
     def test_metrics_eg_022_oserror_swallowed_with_warning(self, tmp_path: Path) -> None:
         """METRICS-EG-022: 唯讀目錄無法寫入時發出 UserWarning，不 raise。"""
         import stat
