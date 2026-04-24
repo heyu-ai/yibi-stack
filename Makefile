@@ -1,4 +1,4 @@
-.PHONY: help lint format typecheck test check install install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools
+.PHONY: help lint format typecheck test check ci install install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +24,17 @@ check: ## Run all checks (lint + format check + typecheck + test)
 	uv run ruff format --check tasks/
 	uv run mypy tasks/
 	uv run pytest
+
+ci: ## 本地 CI fallback（pre-commit + tests；AgentShield security-scan 略過）
+	@echo "━━━ [1/2] pre-commit（lint / format / type / security）━━━"
+	uv run pre-commit run --all-files
+	@echo ""
+	@echo "━━━ [2/2] tests ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	$(MAKE) test
+	@echo ""
+	@echo "  ℹ  security-scan（AgentShield）：需 GitHub Actions 環境，本地略過"
+	@echo ""
+	@echo "✅ 本地 CI 項目通過（pre-commit + tests）"
 
 # ─── Build Tools ─────────────────────────────────────────────────────────────
 
