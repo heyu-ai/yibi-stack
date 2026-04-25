@@ -47,36 +47,39 @@ fi
 
 # 清除過期狀態檔（超過 3600 秒 = 1 小時）
 # 注意：使用 date -r 取得 mtime，相容 macOS（BSD）與 Linux（GNU coreutils）
-# stat -f %m 為 BSD 語法，GNU stat 的 -f 意義不同，會輸出 filesystem info 到 stdout 造成垃圾
+# stat -f %m 為 BSD 語法，GNU stat 的 -f 意義不同，以 filesystem 模式查詢
+# %m 被視為 mount point 路徑，失敗後輸出 filesystem info 到 stdout 污染 FILE_MTIME 變數
 if [ -f "$STATE_FILE" ]; then
     FILE_MTIME=$(date -r "$STATE_FILE" +%s 2>/dev/null || echo "")
     if [ -z "$FILE_MTIME" ]; then
+        # 無法讀取 mtime：跳過過期檢查，不刪狀態檔（避免 FILE_MTIME=0 造成永遠過期）
         echo "pre-compact-handover: 警告：無法讀取狀態檔 mtime，跳過過期檢查" >&2
-        FILE_MTIME=0
-    fi
-    FILE_AGE=$(( $(date +%s) - FILE_MTIME ))
-    if [ "$FILE_AGE" -gt 3600 ]; then
-        rm -f "$STATE_FILE"
-        # Shadow logging：狀態檔過期，重新攔截（async，避免佔用 hook timeout）
-        REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-        (
-            cd "$REPO_ROOT" && \
-            SESSION_ID_ENV="$SESSION_ID" MATCHER_ENV="$MATCHER" \
-            uv run python -c "
+    else
+        FILE_AGE=$(( $(date +%s) - FILE_MTIME ))
+        if [ "$FILE_AGE" -gt 3600 ]; then
+            rm -f "$STATE_FILE"
+            # Shadow logging：狀態檔過期，重新攔截（async，避免佔用 hook timeout）
+            REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+            (
+                cd "$REPO_ROOT" && \
+                SESSION_ID_ENV="$SESSION_ID" MATCHER_ENV="$MATCHER" \
+                uv run python -c "
 import os
 from tasks.session_memory.metrics_service import log_event
 from tasks.session_memory.models import EventType, SourceLayer
 log_event(EventType.layer2_stale_reset, session_id=os.environ.get('SESSION_ID_ENV') or None,
     source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
 "
-        ) >/dev/null 2>&1 &
+            ) >/dev/null 2>&1 &
+            disown
+        fi
     fi
 fi
 
 # 第二次：狀態檔已存在 → 放行
 if [ -f "$STATE_FILE" ]; then
     rm -f "$STATE_FILE"
-    # Shadow logging：第二次放行（async，避免佔用 hook timeout）
+    # Shadow logging：第二次放行（async fire-and-forget，失敗不影響 hook 結果）
     REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
     (
         cd "$REPO_ROOT" && \
@@ -89,12 +92,13 @@ log_event(EventType.layer2_passthrough, session_id=os.environ.get('SESSION_ID_EN
     source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
 "
     ) >/dev/null 2>&1 &
+    disown
     exit 0
 fi
 
 # 第一次：建立狀態檔 → 攔截並提醒
 touch "$STATE_FILE"
-# Shadow logging：第一次攔截（async，避免佔用 hook timeout）
+# Shadow logging：第一次攔截（async fire-and-forget，失敗不影響 hook 結果）
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 (
     cd "$REPO_ROOT" && \
@@ -107,6 +111,7 @@ log_event(EventType.layer2_intercept, session_id=os.environ.get('SESSION_ID_ENV'
     source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
 "
 ) >/dev/null 2>&1 &
+disown
 
 python3 -c "
 import json
