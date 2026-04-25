@@ -45,21 +45,22 @@ else
     STATE_FILE="/tmp/claude-handover-suggested-default"
 fi
 
+# REPO_ROOT：供所有 shadow logging 使用，計算一次
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+
 # 清除過期狀態檔（超過 3600 秒 = 1 小時）
-# 注意：使用 date -r 取得 mtime，相容 macOS（BSD）與 Linux（GNU coreutils）
-# stat -f %m 為 BSD 語法，GNU stat 的 -f 意義不同，以 filesystem 模式查詢
-# %m 被視為 mount point 路徑，失敗後輸出 filesystem info 到 stdout 污染 FILE_MTIME 變數
+# date -r 相容 macOS（BSD）與 Linux（GNU coreutils）；stat -f %m 在 GNU stat 下行為不同
 if [ -f "$STATE_FILE" ]; then
+    NOW=$(date +%s)
     FILE_MTIME=$(date -r "$STATE_FILE" +%s 2>/dev/null || echo "")
     if [ -z "$FILE_MTIME" ]; then
-        # 無法讀取 mtime：跳過過期檢查，不刪狀態檔（避免 FILE_MTIME=0 造成永遠過期）
+        # 無法讀取 mtime：跳過過期檢查，保留狀態檔（避免 FILE_MTIME=0 → 永遠視為過期）
         echo "pre-compact-handover: 警告：無法讀取狀態檔 mtime，跳過過期檢查" >&2
     else
-        FILE_AGE=$(( $(date +%s) - FILE_MTIME ))
+        FILE_AGE=$(( NOW - FILE_MTIME ))
         if [ "$FILE_AGE" -gt 3600 ]; then
             rm -f "$STATE_FILE"
-            # Shadow logging：狀態檔過期，重新攔截（async，避免佔用 hook timeout）
-            REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+            # Shadow logging：狀態檔過期，重新攔截（async fire-and-forget）
             (
                 cd "$REPO_ROOT" && \
                 SESSION_ID_ENV="$SESSION_ID" MATCHER_ENV="$MATCHER" \
@@ -79,8 +80,7 @@ fi
 # 第二次：狀態檔已存在 → 放行
 if [ -f "$STATE_FILE" ]; then
     rm -f "$STATE_FILE"
-    # Shadow logging：第二次放行（async fire-and-forget，失敗不影響 hook 結果）
-    REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+    # Shadow logging：第二次放行（async fire-and-forget）
     (
         cd "$REPO_ROOT" && \
         SESSION_ID_ENV="$SESSION_ID" MATCHER_ENV="$MATCHER" \
@@ -98,8 +98,7 @@ fi
 
 # 第一次：建立狀態檔 → 攔截並提醒
 touch "$STATE_FILE"
-# Shadow logging：第一次攔截（async fire-and-forget，失敗不影響 hook 結果）
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# Shadow logging：第一次攔截（async fire-and-forget）
 (
     cd "$REPO_ROOT" && \
     SESSION_ID_ENV="$SESSION_ID" MATCHER_ENV="$MATCHER" \

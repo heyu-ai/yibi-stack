@@ -39,7 +39,7 @@ if [ ! -f "$HANDOVER_DB" ]; then
     exit 0
 fi
 
-# Shadow logging：記錄 layer3_session_start 事件
+# Shadow logging：記錄 layer3_session_start 事件（async fire-and-forget）
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 (
     cd "$REPO_ROOT" && \
@@ -56,7 +56,8 @@ log_event(
     matcher=os.environ.get('MATCHER_ENV') or None,
 )
 "
-) >/dev/null 2>&1 || true
+) >/dev/null 2>&1 &
+disown
 
 # 輸出 systemMessage 提示執行 /handover-back
 python3 -c "
