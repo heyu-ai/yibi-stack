@@ -84,11 +84,12 @@ class TestLogEvent:
 
     def test_metrics_eg_001_invalid_event_type_returns_none(self, tmp_path: Path) -> None:
         """METRICS-EG-001: 非法 event_type 回傳 None，不 raise。"""
-        result = log_event(
-            "not_a_valid_event",
-            db_path=tmp_path / "ev.db",
-            jsonl_path=tmp_path / "ev.jsonl",
-        )
+        with pytest.warns(UserWarning, match="not_a_valid_event"):
+            result = log_event(
+                "not_a_valid_event",
+                db_path=tmp_path / "ev.db",
+                jsonl_path=tmp_path / "ev.jsonl",
+            )
         assert result is None
 
     @_skip_if_root
