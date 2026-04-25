@@ -1,0 +1,11 @@
+[project]
+name = "verify-gemini-models"
+version = "0.1.0"
+description = "Two-tier Gemini model verification tool"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.26.0",
+    "websockets>=12.0",
+    "google-auth>=2.27.0",
+    "requests>=2.31.0",
+]
