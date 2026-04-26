@@ -28,6 +28,7 @@ description: >
 |---|---|
 | `handover` | 結構化交班：`agents handover write/read/search` |
 | `insight`  | 自動收集 ★ Insight 區塊（Stop hook）：`agents insight install-hook` / `collect` / `list` |
+| `recap`    | 自動收集 Claude Code away_summary（Stop hook）：`agents recap install-hook` / `collect` / `list` |
 
 ## 目錄結構
 
@@ -40,6 +41,8 @@ description: >
 │   └── handover.jsonl         # append-only 鏡像（git / Syncthing 友善）
 ├── insight/
 │   └── insights.jsonl         # 所有 Agent 的洞察
+├── recap/
+│   └── session-recap.jsonl    # Claude Code away_summary 時序
 └── inbox/                     # 外部匯入暫存（第二階段才用）
 ```
 
@@ -94,6 +97,7 @@ uv run python -m tasks.session_memory insight list --last 5
 
 - [handover/SKILL.md](handover/SKILL.md)
 - [insight/SKILL.md](insight/SKILL.md)
+- [recap/SKILL.md](recap/SKILL.md)
 
 ## 跨機器同步
 

@@ -11,6 +11,7 @@ import click
 from .config import (
     AGENTS_CONFIG_PATH,
     INSIGHTS_JSONL_PATH,
+    RECAP_JSONL_PATH,
     REGISTRY_DIR,
     STIGNORE_PATH,
     ensure_dirs,
@@ -464,6 +465,81 @@ def insight_list(last: int, project: str | None) -> None:
         click.echo(f"[{r.get('timestamp')}] {r.get('project')} ({r.get('account')})")
         text = str(r.get("insight_text", ""))
         click.echo(text[:240])
+
+
+# ─── recap ───────────────────────────────────────────────────────────────
+
+
+@cli.group()
+def recap() -> None:
+    """Recap 自動收集：擷取 Claude Code away_summary（Stop hook）。"""
+
+
+@recap.command("install-hook")
+def recap_install_hook() -> None:
+    """註冊 Stop hook 到 ~/.claude/settings.json。"""
+    from .recap_hook import install_hook
+
+    is_new, msg = install_hook()
+    prefix = "✓" if is_new else "↻"
+    click.echo(f"{prefix} {msg}")
+    click.echo(f"  輸出：{RECAP_JSONL_PATH}")
+
+
+@recap.command("uninstall-hook")
+def recap_uninstall_hook() -> None:
+    """從 ~/.claude/settings.json 移除 Stop hook。"""
+    from .recap_hook import uninstall_hook
+
+    removed, msg = uninstall_hook()
+    prefix = "✓" if removed else "↻"
+    click.echo(f"{prefix} {msg}")
+
+
+@recap.command("collect")
+def recap_collect() -> None:
+    """Stop hook entry point — 從 stdin 讀 hook payload 並擷取 away_summary。"""
+    import sys
+
+    from .recap_hook import run_hook
+
+    raise SystemExit(run_hook(sys.stdin.read(), RECAP_JSONL_PATH))
+
+
+@recap.command("list")
+@click.option("--last", default=10, type=int, help="最多顯示 N 筆")
+@click.option("--project", default=None, help="只顯示指定 project")
+@click.option("--session", default=None, help="只顯示指定 session_id")
+def recap_list(last: int, project: str | None, session: str | None) -> None:
+    """列出最近 N 筆 recap（可依 project / session filter）。"""
+    if not RECAP_JSONL_PATH.exists():
+        click.echo("(尚無 session-recap.jsonl)")
+        return
+
+    rows: list[dict[str, object]] = []
+    with RECAP_JSONL_PATH.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if project and entry.get("project") != project:
+                continue
+            if session and entry.get("session_id") != session:
+                continue
+            rows.append(entry)
+
+    for r in rows[-last:]:
+        click.echo("─" * 60)
+        click.echo(
+            f"[{r.get('timestamp')}] {r.get('project')} "
+            f"branch={r.get('branch')} session={str(r.get('session_id', ''))[:8]}"
+        )
+        text = str(r.get("recap_text", ""))
+        click.echo(text[:300])
 
 
 # ─── lessons ─────────────────────────────────────────────────────────────

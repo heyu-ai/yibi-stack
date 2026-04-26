@@ -172,63 +172,25 @@ def install_hook(
     回傳 (is_new, message)。is_new=True 表示新增；False 表示已存在跳過。
     hook_command 留空時用 `uv run python -m tasks.session_memory insight collect`。
     """
-    path = settings_path or (Path.home() / ".claude" / "settings.json")
-    cmd = hook_command or _default_hook_command()
+    from ._hook_utils import install_stop_hook
 
-    settings = _read_settings(path)
-    hooks = settings.setdefault("hooks", {})
-    stop_hooks = hooks.setdefault("Stop", [])
-
-    for entry in stop_hooks:
-        for h in entry.get("hooks", []):
-            if _HOOK_COMMAND_MARKER in h.get("command", ""):
-                return False, "hook 已註冊，跳過"
-
-    stop_hooks.append(
-        {
-            "matcher": "",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": cmd,
-                }
-            ],
-        }
+    return install_stop_hook(
+        marker=_HOOK_COMMAND_MARKER,
+        hook_label="insight",
+        settings_path=settings_path,
+        hook_command=hook_command or _default_hook_command(),
     )
-    _write_settings(path, settings)
-    return True, f"hook 已註冊：{cmd}"
 
 
 def uninstall_hook(settings_path: Path | None = None) -> tuple[bool, str]:
     """移除 Stop hook；回傳 (removed, message)。"""
-    path = settings_path or (Path.home() / ".claude" / "settings.json")
-    if not path.exists():
-        return False, f"settings.json 不存在：{path}"
+    from ._hook_utils import uninstall_stop_hook
 
-    settings = _read_settings(path)
-    stop_hooks = settings.get("hooks", {}).get("Stop", [])
-    if not stop_hooks:
-        return False, "settings.json 無 Stop hook 設定"
-
-    new_entries: list[dict[str, Any]] = []
-    removed = False
-    for entry in stop_hooks:
-        remaining = [
-            h for h in entry.get("hooks", []) if _HOOK_COMMAND_MARKER not in h.get("command", "")
-        ]
-        if len(remaining) != len(entry.get("hooks", [])):
-            removed = True
-        if remaining:
-            new_entry = dict(entry)
-            new_entry["hooks"] = remaining
-            new_entries.append(new_entry)
-
-    if not removed:
-        return False, "找不到對應的 agents insight hook"
-
-    settings["hooks"]["Stop"] = new_entries
-    _write_settings(path, settings)
-    return True, "已移除 agents insight hook"
+    return uninstall_stop_hook(
+        marker=_HOOK_COMMAND_MARKER,
+        hook_label="agents insight",
+        settings_path=settings_path,
+    )
 
 
 def _default_hook_command() -> str:
@@ -236,26 +198,5 @@ def _default_hook_command() -> str:
 
     使用 `--project` 指定 repo 根，讓 hook 不受執行當下 cwd 影響。
     """
-    # repo 根：由 tasks/agents/insight_hook.py 往上兩層
     repo_root = Path(__file__).resolve().parents[2]
     return f"uv run --project {repo_root} python -m tasks.session_memory insight collect"
-
-
-def _read_settings(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"settings.json 格式錯誤：{path}") from e
-    if not isinstance(data, dict):
-        raise RuntimeError(f"settings.json 根層必須為 JSON object：{path}")
-    return data
-
-
-def _write_settings(path: Path, settings: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )

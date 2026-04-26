@@ -19,6 +19,8 @@ HANDOVER_JSONL_PATH = HANDOVER_DIR / "handover.jsonl"
 HANDOVER_EVENTS_JSONL_PATH = HANDOVER_DIR / "handover_events.jsonl"
 INSIGHT_DIR = AGENTS_HOME / "insight"
 INSIGHTS_JSONL_PATH = INSIGHT_DIR / "insights.jsonl"
+RECAP_DIR = AGENTS_HOME / "recap"
+RECAP_JSONL_PATH = RECAP_DIR / "session-recap.jsonl"
 REGISTRY_DIR = AGENTS_HOME / "_registry"
 INBOX_DIR = AGENTS_HOME / "inbox"
 STIGNORE_PATH = AGENTS_HOME / ".stignore"
@@ -95,6 +97,7 @@ def ensure_dirs(home: Path | None = None) -> None:
     for subdir in (
         root / "handover",
         root / "insight",
+        root / "recap",
         root / "_registry",
         root / "inbox",
     ):

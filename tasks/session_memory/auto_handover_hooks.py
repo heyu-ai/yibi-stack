@@ -15,7 +15,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .insight_hook import _read_settings, _write_settings
+from ._hook_utils import read_settings as _read_settings
+from ._hook_utils import write_settings as _write_settings
 
 # 冪等比對字串
 _PRECOMPACT_MARKER = "pre-compact-handover.sh"

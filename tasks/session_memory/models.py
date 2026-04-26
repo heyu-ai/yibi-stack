@@ -200,3 +200,42 @@ class InsightRecord(BaseModel):
     device: str | None = None
     insight_text: str
     session_reason: str = ""
+
+
+class RecapRecord(BaseModel):
+    """Away summary 單筆記錄（JSONL 內 schema）。
+
+    id 使用 transcript entry 自帶的 uuid，以確保冪等性（同筆不重複寫入）。
+    timestamp 使用 entry 自帶的時間，保留正確時序。
+    """
+
+    id: str
+    timestamp: str
+    session_id: str
+    project: str
+    working_dir: str
+    branch: str
+    agent_type: str = "claude"
+    account: str = "unknown"
+    device: str | None = None
+    recap_text: str
+    cc_version: str = ""
+    session_reason: str = ""
+
+    @field_validator("id", "session_id", "recap_text")
+    @classmethod
+    def check_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("欄位不可為空字串")
+        return v
+
+    @field_validator("timestamp")
+    @classmethod
+    def check_timestamp_iso(cls, v: str) -> str:
+        from datetime import datetime
+
+        try:
+            datetime.fromisoformat(v)
+        except ValueError as e:
+            raise ValueError(f"timestamp 必須為 ISO 8601 格式：{v!r}") from e
+        return v
