@@ -33,6 +33,8 @@
 
 | Skill | 描述 | SKILL.md |
 |-------|------|----------|
+| `ci-triage` | 快速定位 CI 失敗原因的診斷順序：ruff → mypy → bandit → pytest，含常見錯誤速查 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |
+| `new-task-module` | 根據 module 結構規範自動建立新 task module 骨架（7 個檔案）並更新索引 | [new-task-module/SKILL.md](new-task-module/SKILL.md) |
 | `tdd-kentbeck` | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
 | `flutter-tdd` | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試、mockito/mocktail、Clean Architecture 可測試性設計 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
 | `qa-test-design` | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |

@@ -4,6 +4,19 @@
     "deny": []
   },
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // \"\"' | { read -r f; [[ \"$f\" == */tasks/*.py ]] && uv run --directory \"$CLAUDE_PROJECT_DIR\" mypy \"$f\" --no-error-summary 2>/dev/null | grep -E 'error:|note:' || true; } || true",
+            "statusMessage": "mypy 型別檢查...",
+            "async": true
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [
