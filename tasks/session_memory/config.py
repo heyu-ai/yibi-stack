@@ -21,6 +21,8 @@ INSIGHT_DIR = AGENTS_HOME / "insight"
 INSIGHTS_JSONL_PATH = INSIGHT_DIR / "insights.jsonl"
 RECAP_DIR = AGENTS_HOME / "recap"
 RECAP_JSONL_PATH = RECAP_DIR / "session-recap.jsonl"
+DEBUGS_DIR = AGENTS_HOME / "debugs"
+DEBUG_REPORTS_JSONL_PATH = DEBUGS_DIR / "debug-reports.jsonl"
 REGISTRY_DIR = AGENTS_HOME / "_registry"
 INBOX_DIR = AGENTS_HOME / "inbox"
 STIGNORE_PATH = AGENTS_HOME / ".stignore"
@@ -98,6 +100,7 @@ def ensure_dirs(home: Path | None = None) -> None:
         root / "handover",
         root / "insight",
         root / "recap",
+        root / "debugs",
         root / "_registry",
         root / "inbox",
     ):

@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def _validate_non_empty(v: str) -> str:
+    stripped = v.strip()
+    if not stripped:
+        raise ValueError("欄位不可為空字串")
+    return stripped
+
+
+def _validate_iso_timestamp(v: str) -> str:
+    try:
+        datetime.fromisoformat(v)
+    except ValueError as e:
+        raise ValueError(f"timestamp 必須為 ISO 8601 格式：{v!r}") from e
+    return v
 
 
 class SessionType(StrEnum):
@@ -131,13 +147,7 @@ class HandoverEvent(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def check_timestamp_iso(cls, v: str) -> str:
-        from datetime import datetime
-
-        try:
-            datetime.fromisoformat(v)
-        except ValueError as e:
-            raise ValueError(f"timestamp 必須為 ISO 8601 格式：{v!r}") from e
-        return v
+        return _validate_iso_timestamp(v)
 
     @field_validator("session_id")
     @classmethod
@@ -225,17 +235,41 @@ class RecapRecord(BaseModel):
     @field_validator("id", "session_id", "recap_text")
     @classmethod
     def check_non_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("欄位不可為空字串")
-        return v
+        return _validate_non_empty(v)
 
     @field_validator("timestamp")
     @classmethod
     def check_timestamp_iso(cls, v: str) -> str:
-        from datetime import datetime
+        return _validate_iso_timestamp(v)
 
-        try:
-            datetime.fromisoformat(v)
-        except ValueError as e:
-            raise ValueError(f"timestamp 必須為 ISO 8601 格式：{v!r}") from e
-        return v
+
+class DebugReportRecord(BaseModel):
+    """Debug report 單筆記錄（JSONL 內 schema）。
+
+    全文 Markdown 存 debugs/<date>_<keyword>_debug_report.md；
+    此模型只存跨專案搜尋用的摘要欄位。
+    """
+
+    id: str
+    timestamp: str
+    project: str
+    working_dir: str
+    branch: str
+    keyword: str
+    report_path: str
+    symptom_summary: str
+    root_cause: str
+    prevention_tags: list[str] = Field(default_factory=list)
+    agent_type: str = "claude"
+    account: str = "unknown"
+    device: str | None = None
+
+    @field_validator("id", "project", "keyword", "report_path", "symptom_summary", "root_cause")
+    @classmethod
+    def check_non_empty(cls, v: str) -> str:
+        return _validate_non_empty(v)
+
+    @field_validator("timestamp")
+    @classmethod
+    def check_timestamp_iso(cls, v: str) -> str:
+        return _validate_iso_timestamp(v)

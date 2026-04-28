@@ -1,4 +1,4 @@
-"""Agents CLI：init / migrate / account / handover / insight 子命令。"""
+"""Agents CLI：init / migrate / account / handover / insight / debug 子命令。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import click
 
 from .config import (
     AGENTS_CONFIG_PATH,
+    DEBUG_REPORTS_JSONL_PATH,
     INSIGHTS_JSONL_PATH,
     RECAP_JSONL_PATH,
     REGISTRY_DIR,
@@ -728,6 +729,80 @@ def metrics_advice(since_days: int, project: str | None, as_json: bool) -> None:
     click.echo("")
     for idx, msg in enumerate(suggestions, 1):
         click.echo(f"[{idx}] {msg}")
+
+
+# ─── debug ───────────────────────────────────────────────────────────────
+
+
+@cli.group()
+def debug() -> None:
+    """Debug report 管理：save 歸檔摘要 / list 查詢歷史。"""
+
+
+@debug.command("save")
+@click.option("--keyword", required=True, help="關鍵字（kebab-case 或 snake_case）")
+@click.option("--report-path", required=True, help="本地報告檔案路徑（相對 project root）")
+@click.option("--symptom", required=True, help="症狀一行摘要")
+@click.option("--root-cause", required=True, help="根因一行摘要")
+@click.option("--prevention-tags", default="", help="逗號分隔預防標籤（如 test,mypy,ci）")
+def debug_save(
+    keyword: str,
+    report_path: str,
+    symptom: str,
+    root_cause: str,
+    prevention_tags: str,
+) -> None:
+    """將 debug report 摘要寫入 ~/.agents/debugs/debug-reports.jsonl。"""
+    from pydantic import ValidationError
+
+    from .debug_report_service import save_debug_report
+
+    tags = [t.strip() for t in prevention_tags.split(",") if t.strip()]
+    try:
+        record = save_debug_report(
+            keyword=keyword,
+            report_path=report_path,
+            symptom_summary=symptom,
+            root_cause=root_cause,
+            prevention_tags=tags,
+        )
+    except (RuntimeError, ValidationError) as e:
+        click.echo(f"✗ 無法儲存 debug report：{e}", err=True)
+        raise SystemExit(1) from e
+    click.echo("✓ Debug report 摘要已歸檔")
+    click.echo(f"  id       = {record.id}")
+    click.echo(f"  keyword  = {record.keyword}")
+    click.echo(f"  project  = {record.project}")
+    click.echo(f"  路徑     = {DEBUG_REPORTS_JSONL_PATH}")
+
+
+@debug.command("list")
+@click.option("--last", default=10, type=int, help="最多顯示 N 筆")
+@click.option("--project", default=None, help="只顯示指定 project")
+def debug_list(last: int, project: str | None) -> None:
+    """列出最近 N 筆 debug report 摘要（可依 project filter）。"""
+    from .debug_report_service import list_debug_reports
+
+    try:
+        rows = list_debug_reports(last=last, project=project)
+    except RuntimeError as e:
+        click.echo(f"✗ {e}", err=True)
+        raise SystemExit(1) from e
+
+    if not rows:
+        if not DEBUG_REPORTS_JSONL_PATH.exists():
+            click.echo("(尚未有任何 debug report，請先執行 debug save)")
+        else:
+            click.echo("(無符合條件的記錄)")
+        return
+
+    for r in rows:
+        click.echo("─" * 60)
+        click.echo(f"[{r.timestamp[:10]}] [{r.keyword}] {r.project}")
+        click.echo(f"  症狀：{r.symptom_summary}")
+        click.echo(f"  根因：{r.root_cause}")
+        if r.prevention_tags:
+            click.echo(f"  標籤：{', '.join(r.prevention_tags)}")
 
 
 if __name__ == "__main__":
