@@ -20,6 +20,7 @@
 | `scheduler` | 管理 Skill Scheduler — 設定定期自動執行的排程、查看執行狀態、手動觸發 job、安裝/卸載 LaunchAgent | [scheduler/SKILL.md](scheduler/SKILL.md) | `uv`, MiniShell ACP Gateway（claude job） |
 | `daily-ai-footprint` | 聚合當日 AI 與數位活動（Claude Code insights、Gmail）為 Heptabase 友善的每日回溯報告，含 Claude API 產生的 300 字敘事摘要 | [daily-ai-footprint/SKILL.md](daily-ai-footprint/SKILL.md) | `uv`, Anthropic API, session-memory |
 | `verify-gemini-models` | 驗證 Gemini 模型在 Google AI Studio 與 Vertex AI 上的實際可用性（LLM / TTS / Live 三種能力），支援 Gemini 3.x global 端點，確認可呼叫並回傳有效輸出（原 verify-ai-models） | [verify-gemini-models/SKILL.md](verify-gemini-models/SKILL.md) | `uv` |
+| `local-port-manager` | 機器層 port 分配登錄，管理多專案服務 port 避免衝突。支援 suggest（查不寫）+ reserve（確認後登記）兩步驟工作流 | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) | `uv` |
 
 ### 工具型 Skill（安裝或設定開發工具）
 
@@ -41,7 +42,6 @@
 | `spectra-amplifier` | Spec Kit 五層深度規格展開 + OpenSpec 變更管理框架融合方法論（User Stories → FS → Data Model → Assumptions → Testability） | [spectra-amplifier/SKILL.md](spectra-amplifier/SKILL.md) |
 | `detect-ai-slop` | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
 | `howie-writing-style` | 模擬 Howie 個人中文寫作風格（四段式架構、茶水間語氣） | [howie-writing-style/SKILL.md](howie-writing-style/SKILL.md) |
-| `local-port-manager` | 本地 Port 衝突解決工具（開發中） | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) |
 
 ### 外來安裝技能（透過 `skills-lock.json` 管理，內容在 `.agents/skills/`）
 
