@@ -83,11 +83,36 @@ def detect_device() -> str:
 
 
 def detect_project(cwd: Path | str | None = None) -> str:
-    """以工作目錄 basename 作為 project 名稱。路徑無效時回傳 'unknown-project'。"""
+    """從 git repo 名稱判斷 project；worktree 下回傳主 repo 名稱而非 branch 名稱。
+
+    邏輯：用 git rev-parse --git-common-dir 取得主 repo .git 路徑，其 parent.name 即
+    repo 目錄名稱。非 git repo 時 fallback 回 cwd basename。
+    """
     import warnings
 
     path = Path(cwd) if cwd else Path.cwd()
-    name = path.resolve().name
+    resolved = path.resolve()
+
+    try:
+        result = subprocess.run(  # nosec B603 B607
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=str(resolved),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            git_common = result.stdout.strip()
+            # 解析為絕對路徑（worktree 已是絕對，主 repo 是相對的 .git）
+            git_common_path = (resolved / git_common).resolve()
+            name = git_common_path.parent.name
+            if name:
+                return name
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    # fallback：非 git repo 時用 cwd basename
+    name = resolved.name
     if not name:
         warnings.warn(
             f"detect_project：無法從路徑取得 basename（path={path}），回傳 'unknown-project'",

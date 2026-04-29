@@ -81,11 +81,39 @@ class TestDetectAgentType:
 
 
 class TestDetectProject:
-    def test_agents_cv_001_basename_from_cwd(self, tmp_path: Path) -> None:
-        """AGENTS-CV-001：project = 工作目錄 basename。"""
+    def test_agents_cv_001_git_repo_name(self, tmp_path: Path) -> None:
+        """AGENTS-CV-001：git repo 時 project = 主 repo 名稱（非 cwd basename）。"""
         project_dir = tmp_path / "my-project"
         project_dir.mkdir()
-        assert detect_project(project_dir) == "my-project"
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = ".git\n"
+            result = detect_project(project_dir)
+        assert result == "my-project"
+
+    def test_agents_cv_002_worktree_returns_main_repo_name(self, tmp_path: Path) -> None:
+        """AGENTS-CV-002：git worktree 下 project = 主 repo 名稱，而非 worktree 目錄名稱。"""
+        main_repo = tmp_path / "ainization-skill"
+        main_repo.mkdir()
+        worktree_dir = tmp_path / "deploy-stage-for-testing"
+        worktree_dir.mkdir()
+        git_common = main_repo / ".git"
+        git_common.mkdir()
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = f"{git_common}\n"
+            result = detect_project(worktree_dir)
+        assert result == "ainization-skill"
+
+    def test_agents_cv_003_non_git_fallback_to_basename(self, tmp_path: Path) -> None:
+        """AGENTS-CV-003：非 git repo 時 fallback 回 cwd basename。"""
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 128
+            mock_run.return_value.stdout = ""
+            result = detect_project(project_dir)
+        assert result == "my-project"
 
 
 class TestDetectAccountWithAdapter:
