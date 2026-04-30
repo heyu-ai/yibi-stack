@@ -31,8 +31,32 @@ You need to clean up local git branches whose Pull Requests have been merged on 
 4. **Clean up process**
 
    ```bash
-   # Delete the branch
-   git branch -D <branch-name>
+   MAIN_REPO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+   PM="uv run --project $MAIN_REPO python -m tasks.local_port_manager"
+
+   # 對每個 PR 已 merged 的 branch 執行以下 loop：
+   gh pr list --state merged --json headRefName -q '.[].headRefName' \
+     | while read branch; do
+       [ -z "$branch" ] && continue
+       git show-ref --verify --quiet "refs/heads/$branch" || continue
+       # Port 登記清理（有登記才 release；工具不可用時警告但繼續）
+       if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+         echo "  ⚠ 不在 git repo 內 — 跳過 port cleanup for $branch"
+       elif command -v uv >/dev/null 2>&1 && [ -n "$MAIN_REPO" ]; then
+         ports=$($PM list -p "$branch" 2>/dev/null | awk 'NR>2 {print $2}')
+         if [ -n "$ports" ]; then
+           echo "$ports" | while read svc; do
+             $PM release "$branch" "$svc" \
+               && echo "  ✓ released port: $branch/$svc" \
+               || echo "  ✗ failed to release port: $branch/$svc (registry may need manual cleanup)"
+           done
+         fi
+       else
+         echo "  ⚠ uv 不可用 — 跳過 port cleanup for $branch"
+       fi
+       # 刪除 branch
+       git branch -D "$branch"
+     done
    ```
 
 ## Expected Behavior

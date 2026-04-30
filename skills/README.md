@@ -59,7 +59,7 @@
 
 ## 新增 Skill
 
-參考 [`_template/SKILL.md`](_template/SKILL.md) 取得標準格式。
+參考 [`_template/SKILL.md.tpl`](_template/SKILL.md.tpl) 取得標準格式。
 
 知識型 skill 只需建立 `skills/<skill-name>/SKILL.md`；可執行 skill 需同時在 `tasks/<task_name>/` 建立 Python 實作。
 

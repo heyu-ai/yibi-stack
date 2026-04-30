@@ -63,4 +63,4 @@ uv run python -m tasks.<module> <command> --profile {{profile_name}}
 
 ## 參考模板
 
-`skills/_template/SKILL.md` 是標準格式參考。
+`skills/_template/SKILL.md.tpl` 是標準格式參考。

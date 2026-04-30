@@ -42,8 +42,26 @@ Present options:
 **Option 1: Clean [gone] branches only**
 
 ```bash
+MAIN_REPO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+PM="uv run --project $MAIN_REPO python -m tasks.local_port_manager"
+
 git branch -v | grep '\[gone\]' | sed 's/^[+* ]//' | awk '{print $1}' | while read branch; do
   echo "Processing branch: $branch"
+  # Port 登記清理（有登記才 release；工具不可用時警告但繼續）
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "  ⚠ 不在 git repo 內 — 跳過 port cleanup for $branch"
+  elif command -v uv >/dev/null 2>&1 && [ -n "$MAIN_REPO" ]; then
+    ports=$($PM list -p "$branch" 2>/dev/null | awk 'NR>2 {print $2}')
+    if [ -n "$ports" ]; then
+      echo "$ports" | while read svc; do
+        $PM release "$branch" "$svc" \
+          && echo "  ✓ released port: $branch/$svc" \
+          || echo "  ✗ failed to release port: $branch/$svc (registry may need manual cleanup)"
+      done
+    fi
+  else
+    echo "  ⚠ uv 不可用 — 跳過 port cleanup for $branch"
+  fi
   echo "  Deleting branch: $branch"
   git branch -D "$branch"
 done
@@ -52,8 +70,8 @@ done
 **Option 2: Clean [gone] + merged PR branches**
 
 ```bash
-# First clean [gone] branches (same as option 1)
-# Then clean merged PR branches (same as /clean-merged command)
+# First clean [gone] branches (same as option 1, port release included)
+# Then clean merged PR branches (same as /clean-merged command, port release included)
 ```
 
 ## Expected Behavior

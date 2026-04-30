@@ -51,26 +51,20 @@ build-tools: ## Build all CLI binaries (Go)
 # ─── Skill Management ───────────────────────────────────────────────────────
 
 SKILL_DIR := skills
+CLAUDE_SKILL_DIR := $(HOME)/.claude/skills
 INSTALL_DIR := $(HOME)/.agents/skills
 CMD_DIR := commands
 CLAUDE_CMD_DIR := $(HOME)/.claude/commands
-install: build-tools ## Install all skills (symlink to ~/.agents/skills/) + commands (symlink to ~/.claude/commands/) + build CLI tools
-	@mkdir -p $(INSTALL_DIR)
+
+install: ## Install all skills to ~/.claude/skills/ (Claude Code, primary) + ~/.agents/skills/ (Cline/Warp) + commands
+	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  ✗ Cannot create $(CLAUDE_SKILL_DIR) — check permissions"; exit 1; }
+	@mkdir -p "$(INSTALL_DIR)" || { echo "  ✗ Cannot create $(INSTALL_DIR) — check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
 		s=$$(basename $$s); \
 		if [ "$$s" = "_template" ]; then continue; fi; \
-		if [ -L "$(INSTALL_DIR)/$$s" ] && [ ! -e "$(INSTALL_DIR)/$$s" ]; then \
-			rm -f "$(INSTALL_DIR)/$$s"; \
-			ln -sf $(CURDIR)/$(SKILL_DIR)/$$s $(INSTALL_DIR)/$$s; \
-			echo "  ⚠ $$s → relinked (was dangling)"; \
-		elif [ -L "$(INSTALL_DIR)/$$s" ]; then \
-			echo "  ↻ $$s (already linked)"; \
-		elif [ -d "$(INSTALL_DIR)/$$s" ]; then \
-			echo "  ⚠ $$s (exists as real dir, skipping)"; \
-		else \
-			ln -sf $(CURDIR)/$(SKILL_DIR)/$$s $(INSTALL_DIR)/$$s; \
-			echo "  ✓ $$s → linked"; \
-		fi \
+		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
+			$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$$s" "$$dir/$$s" || exit 1; \
+		done \
 	done
 	@mkdir -p $(CLAUDE_CMD_DIR)
 	@echo ""
@@ -97,58 +91,81 @@ install: build-tools ## Install all skills (symlink to ~/.agents/skills/) + comm
 	@echo "  ✓ skill_repo = $(CURDIR)"
 
 install-one: ## Install one skill: make install-one SKILL=<name>
-	@mkdir -p $(INSTALL_DIR)
-	ln -sf $(CURDIR)/$(SKILL_DIR)/$(SKILL) $(INSTALL_DIR)/$(SKILL)
-	@echo "✓ $(SKILL) → linked"
+	@if [ -z "$(SKILL)" ]; then echo "✗ SKILL 未指定，用法：make install-one SKILL=<name>"; exit 1; fi
+	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  ✗ Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
+	@mkdir -p "$(INSTALL_DIR)" || { echo "  ✗ Cannot create $(INSTALL_DIR)"; exit 1; }
+	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(CLAUDE_SKILL_DIR)/$(SKILL)"
+	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(INSTALL_DIR)/$(SKILL)"
+	@echo "✓ $(SKILL) → done"
 
-status: ## Show ~/.agents/skills/ link status grouped by type
-	@if [ ! -d "$(INSTALL_DIR)" ] || [ -z "$$(ls -A $(INSTALL_DIR) 2>/dev/null)" ]; then \
-		echo "=== ~/.agents/skills/ ==="; echo ""; echo "  (empty — run 'make install' first)"; exit 0; \
-	fi; \
-	echo "=== ~/.agents/skills/ ==="; \
-	print_group() { \
-		label=$$1; title=$$2; \
-		found=0; \
-		for s in $(INSTALL_DIR)/*/; do \
+status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.agents/skills/ (agents)
+	@echo "=== ~/.claude/skills/  (Claude Code) ==="; \
+	if [ ! -d "$(CLAUDE_SKILL_DIR)" ] || [ -z "$$(ls -A $(CLAUDE_SKILL_DIR) 2>/dev/null)" ]; then \
+		echo "  (empty — run 'make install' first)"; \
+	else \
+		for s in $(CLAUDE_SKILL_DIR)/*/; do \
 			name=$$(basename $$s); \
-			skill_md="$(INSTALL_DIR)/$$name/SKILL.md"; \
-			if [ ! -L "$(INSTALL_DIR)/$$name" ]; then continue; fi; \
-			if [ ! -f "$$skill_md" ]; then continue; fi; \
-			t=$$(grep -m1 '^type:' "$$skill_md" | sed 's/#.*//' | sed 's/type:[[:space:]]*//' | tr -d '[:space:]'); \
-			if [ "$$t" = "$$label" ]; then \
-				if [ $$found -eq 0 ]; then echo ""; echo "  [$$label] $$title"; found=1; fi; \
-				target=$$(readlink "$(INSTALL_DIR)/$$name"); \
+			if [ -L "$(CLAUDE_SKILL_DIR)/$$name" ]; then \
+				target=$$(readlink "$(CLAUDE_SKILL_DIR)/$$name"); \
 				echo "  🔗 $$name → $$target"; \
+			elif [ -d "$(CLAUDE_SKILL_DIR)/$$name" ]; then \
+				echo "  📦 $$name (real dir — external)"; \
 			fi; \
 		done; \
-	}; \
-	print_group exec "可執行"; \
-	print_group tool "工具型"; \
-	print_group know "知識型"; \
-	found_other=0; \
-	for s in $(INSTALL_DIR)/*/; do \
-		name=$$(basename $$s); \
-		if [ -L "$(INSTALL_DIR)/$$name" ]; then \
-			skill_md="$(INSTALL_DIR)/$$name/SKILL.md"; \
-			if [ -f "$$skill_md" ]; then \
+	fi; \
+	echo ""; \
+	echo "=== ~/.agents/skills/  (Cline / Warp) ==="; \
+	if [ ! -d "$(INSTALL_DIR)" ] || [ -z "$$(ls -A $(INSTALL_DIR) 2>/dev/null)" ]; then \
+		echo "  (empty — run 'make install' first)"; \
+	else \
+		print_group() { \
+			label=$$1; title=$$2; \
+			found=0; \
+			for s in $(INSTALL_DIR)/*/; do \
+				name=$$(basename $$s); \
+				skill_md="$(INSTALL_DIR)/$$name/SKILL.md"; \
+				if [ ! -L "$(INSTALL_DIR)/$$name" ]; then continue; fi; \
+				if [ ! -f "$$skill_md" ]; then continue; fi; \
 				t=$$(grep -m1 '^type:' "$$skill_md" | sed 's/#.*//' | sed 's/type:[[:space:]]*//' | tr -d '[:space:]'); \
-				if [ "$$t" = "exec" ] || [ "$$t" = "tool" ] || [ "$$t" = "know" ]; then continue; fi; \
+				if [ "$$t" = "$$label" ]; then \
+					if [ $$found -eq 0 ]; then echo ""; echo "  [$$label] $$title"; found=1; fi; \
+					target=$$(readlink "$(INSTALL_DIR)/$$name"); \
+					echo "  🔗 $$name → $$target"; \
+				fi; \
+			done; \
+		}; \
+		print_group exec "可執行"; \
+		print_group tool "工具型"; \
+		print_group know "知識型"; \
+		found_other=0; \
+		for s in $(INSTALL_DIR)/*/; do \
+			name=$$(basename $$s); \
+			if [ -L "$(INSTALL_DIR)/$$name" ]; then \
+				skill_md="$(INSTALL_DIR)/$$name/SKILL.md"; \
+				if [ -f "$$skill_md" ]; then \
+					t=$$(grep -m1 '^type:' "$$skill_md" | sed 's/#.*//' | sed 's/type:[[:space:]]*//' | tr -d '[:space:]'); \
+					if [ "$$t" = "exec" ] || [ "$$t" = "tool" ] || [ "$$t" = "know" ]; then continue; fi; \
+				fi; \
+				target=$$(readlink "$(INSTALL_DIR)/$$name"); \
+				if [ $$found_other -eq 0 ]; then echo ""; echo "  [?] 其他"; found_other=1; fi; \
+				echo "  🔗 $$name → $$target"; \
+			else \
+				if [ $$found_other -eq 0 ]; then echo ""; echo "  [?] 其他"; found_other=1; fi; \
+				echo "  📦 $$name (external)"; \
 			fi; \
-			target=$$(readlink "$(INSTALL_DIR)/$$name"); \
-			if [ $$found_other -eq 0 ]; then echo ""; echo "  [?] 其他"; found_other=1; fi; \
-			echo "  🔗 $$name → $$target"; \
-		else \
-			if [ $$found_other -eq 0 ]; then echo ""; echo "  [?] 其他"; found_other=1; fi; \
-			echo "  📦 $$name (external)"; \
-		fi; \
-	done
+		done; \
+	fi
 
-uninstall: ## Remove own symlinks from ~/.agents/skills/
+uninstall: ## Remove own symlinks from ~/.claude/skills/ and ~/.agents/skills/
 	@for s in $(SKILL_DIR)/*/; do \
 		s=$$(basename $$s); \
+		if [ -L "$(CLAUDE_SKILL_DIR)/$$s" ]; then \
+			rm "$(CLAUDE_SKILL_DIR)/$$s" && echo "  ✗ $$s removed (Claude Code)" \
+			    || echo "  ✗ $$s FAILED to remove from $(CLAUDE_SKILL_DIR)"; \
+		fi; \
 		if [ -L "$(INSTALL_DIR)/$$s" ]; then \
-			rm "$(INSTALL_DIR)/$$s"; \
-			echo "  ✗ $$s removed"; \
+			rm "$(INSTALL_DIR)/$$s" && echo "  ✗ $$s removed (agents)" \
+			    || echo "  ✗ $$s FAILED to remove from $(INSTALL_DIR)"; \
 		fi \
 	done
 
@@ -167,7 +184,7 @@ install-handover-hooks: ## 安裝 auto-handover PreCompact + SessionStart hook �
 uninstall-handover-hooks: ## 移除 auto-handover PreCompact + SessionStart hook 從 ~/.claude/settings.json
 	uv run python -m tasks.session_memory handover uninstall-hooks
 
-install-all: install install-handover-hooks install-scheduler ## 一次裝齊 skill / hook / scheduler（新環境首次設定用）
+install-all: build-tools install install-handover-hooks install-scheduler ## 一次裝齊 Go tools / skill / hook / scheduler（新環境首次設定用）
 
 promote: ## Promote draft to skill: make promote SKILL=<name>
 	@if [ -z "$(SKILL)" ]; then echo "Usage: make promote SKILL=name"; exit 1; fi

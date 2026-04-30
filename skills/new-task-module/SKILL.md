@@ -128,7 +128,7 @@ class Test{{ModuleName}}Config:
 mkdir -p skills/{{skill_name}}
 ```
 
-建立 `skills/{{skill_name}}/SKILL.md`，使用 `skills/_template/SKILL.md` 為基礎。
+建立 `skills/{{skill_name}}/SKILL.md`，使用 `skills/_template/SKILL.md.tpl` 為基礎。
 
 ### Step 5：更新索引
 

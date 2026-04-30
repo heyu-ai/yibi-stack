@@ -88,6 +88,48 @@ done
 
 **維護提示**：在專案的 `.claude/commands/newjob.md` 覆蓋此 user-level 版本，可加入專案特定的 gitignored 檔案清單。
 
+### 2c. Port 衝突預防（多 Worktree 支援）
+
+若專案有 `docker-compose.yml`，在啟動服務前先透過 `local-port-manager` 確認 host port 不與其他 worktree 衝突。
+
+```bash
+# BRANCH_NAME 是 port registry 的 key，必須與 git branch name 一致
+# 讓 /clean-gone 和 /clean-merged 的 release 步驟能對上
+BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+MAIN_REPO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+WT=$(git rev-parse --show-toplevel)
+DC_FILE=$(ls "$WT/docker-compose.yml" "$WT/docker-compose.yaml" 2>/dev/null | head -1)
+PM="uv run --project $MAIN_REPO python -m tasks.local_port_manager"
+
+# 若無 docker-compose 檔案，跳過整個 port 衝突預防步驟
+[ -z "$DC_FILE" ] && echo "  ⏭ 無 docker-compose 檔案，跳過 port 衝突預防" && exit 0
+```
+
+**初始化 port registry（若尚未建立）：**
+
+```bash
+$PM init || { echo "  ⚠ port registry init 失敗 — 跳過 port 衝突預防"; exit 0; }
+```
+
+**對每個需要 host port 的服務執行以下流程：**
+
+1. `$PM suggest $BRANCH_NAME <service>` — 取得建議 port（不衝突）
+2. 若建議 port 與 docker-compose 預設值**不同**，在 `$WT/docker-compose.override.yml` 加入 port 覆蓋，並更新 `.env` 中對應的變數（如 `POSTGRES_PORT=5433`）
+3. `$PM reserve $BRANCH_NAME <service> --port <port>` — 寫入登記
+
+常見需要檢查的服務對應：
+
+| service | 預設 port | .env 變數（慣例） |
+|---------|-----------|-------------------|
+| postgres / db | 5432 | `POSTGRES_PORT` |
+| redis | 6379 | `REDIS_PORT` |
+| mysql | 3306 | `MYSQL_PORT` |
+| elasticsearch | 9200 | `ES_PORT` |
+
+若專案無 docker-compose.yml，跳過此步驟。
+
+**收尾提示**：Worktree 刪除時（`/clean-gone` 或 `/clean-merged`），port 登記會隨 branch 一併清理——前提是 `BRANCH_NAME` 與 git branch name 完全一致（即使用 `git rev-parse --abbrev-ref HEAD` 取得的值）。
+
 ## Step 3: Environment Validation
 
 在目標工作目錄中執行（已在 worktree，直接使用相對路徑）。**每個步驟若失敗，診斷並修復後再繼續。**
