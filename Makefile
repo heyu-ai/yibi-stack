@@ -1,4 +1,4 @@
-.PHONY: help lint format typecheck test check ci install install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools
+.PHONY: help lint format typecheck test check ci install install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -160,6 +160,14 @@ uninstall-scheduler: ## Uninstall scheduler LaunchAgent
 
 scheduler-status: ## Show scheduler job status
 	uv run python -m tasks.scheduler status
+
+install-handover-hooks: ## 安裝 auto-handover PreCompact + SessionStart hook 到 ~/.claude/settings.json
+	uv run python -m tasks.session_memory handover install-hooks
+
+uninstall-handover-hooks: ## 移除 auto-handover PreCompact + SessionStart hook 從 ~/.claude/settings.json
+	uv run python -m tasks.session_memory handover uninstall-hooks
+
+install-all: install install-handover-hooks install-scheduler ## 一次裝齊 skill / hook / scheduler（新環境首次設定用）
 
 promote: ## Promote draft to skill: make promote SKILL=<name>
 	@if [ -z "$(SKILL)" ]; then echo "Usage: make promote SKILL=name"; exit 1; fi
