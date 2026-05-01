@@ -1,6 +1,7 @@
 ---
 name: detect-ai-slop
 type: know
+scope: global
 description: 辨識 AI 生成文字（AI Slop）的分析技術。適用情境：用戶貼上一段文字請你「判斷是不是 AI 寫的」「分析這段文字的 AI 感」「幫我看看這是不是 ChatGPT/Claude/Gemini 產出的」「偵測 AI 內容」「這篇文章讀起來怪怪的」「這個回覆像機器人」等。也適用於用戶想要「改掉 AI 味」「讓文章更像人寫的」「去除 AI 痕跡」「humanize」的場景。當用戶提到 slop、AI detection、AI 偵測、AI 判斷、機器人文字、AI 寫作風格分析時，必須觸發此 Skill。
 ---
 

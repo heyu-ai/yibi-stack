@@ -1,6 +1,7 @@
 ---
 name: protect-push
 type: tool
+scope: global
 description: >
   安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main。
   適用於使用 EnterWorktree 或 git worktree add 的所有專案。

@@ -1,6 +1,7 @@
 ---
 name: spectra-amplifier
 type: know
+scope: global
 description: >
   Spec Kit 五層深度規格展開 + OpenSpec/Spectra 變更管理框架的融合方法論。
   適用情境：用戶提到「寫 spec」「寫規格」「展開需求」「需求規格」「proposal」

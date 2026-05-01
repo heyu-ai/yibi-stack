@@ -1,6 +1,7 @@
 ---
 name: session-memory
 type: tool
+scope: global
 description: >
   Multi-Agent 工作協作中樞：跨 Agent（Claude / Gemini / Codex / Gemma）、
   跨帳號（claude-pro / claude-team）、跨機器（MacBook / Mac mini / cloud）的
@@ -51,10 +52,36 @@ description: >
 
 ## 步驟
 
+> **執行位置**：本 skill 可從任何 cwd 觸發，底層實作住在 ainization-skill repo。
+> 執行所有 `uv run python -m tasks.*` 指令前，先捕捉原始 project 再 cd 過去（Step 1 有完整腳本）：
+>
+> ```bash
+> _gcd=$(git rev-parse --git-common-dir 2>/dev/null)
+> case "$_gcd" in
+>     /*) ORIG_PROJECT=$(basename "$(dirname "$_gcd")") ;;
+>     ?*) ORIG_PROJECT=$(basename "$(git rev-parse --show-toplevel)") ;;
+>     *)  ORIG_PROJECT=$(basename "$PWD") ;;
+> esac
+> unset _gcd
+> SKILL_REPO=$(jq -r '.skill_repo // empty' "$HOME/.agents/config.json")
+> cd "$SKILL_REPO"
+> ```
+>
+> 若 `jq` 不可用：`python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo',''))"`
+
 ### Step 1 — 環境確認
 
 ```bash
-cd "$(git rev-parse --show-toplevel)"
+_gcd=$(git rev-parse --git-common-dir 2>/dev/null)
+case "$_gcd" in
+    /*) ORIG_PROJECT=$(basename "$(dirname "$_gcd")") ;;
+    ?*) ORIG_PROJECT=$(basename "$(git rev-parse --show-toplevel)") ;;
+    *)  ORIG_PROJECT=$(basename "$PWD") ;;
+esac
+unset _gcd
+SKILL_REPO=$(jq -r '.skill_repo // empty' "$HOME/.agents/config.json")
+cd "$SKILL_REPO"
+
 uv --version
 python3 --version
 ```

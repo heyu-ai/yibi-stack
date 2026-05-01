@@ -1,6 +1,7 @@
 ---
 name: new-task-module
 type: exec
+scope: project
 description: 根據 04-module-structure.md 規範，自動建立新 task module 的完整骨架（7 個檔案）。觸發關鍵字：新增 task、建立 module、new task module、新增功能模組
 ---
 

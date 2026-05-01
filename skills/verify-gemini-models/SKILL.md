@@ -1,6 +1,7 @@
 ---
 name: verify-gemini-models
 type: exec
+scope: global
 description: >
   驗證 Gemini 模型在 Google AI Studio 與 GCP Vertex AI 上的**實際可用性**——
   不只是「列在文件上」，而是真正可呼叫並回傳有效輸出。支援 Gemini 3.x global 端點
@@ -39,6 +40,9 @@ description: >
 
 ## 步驟
 
+> **執行位置**：本 skill 可從任何 cwd 觸發，Step 3 腳本已透過 `~/.agents/config.json` 自動
+> 定位 ainization-skill repo，無需 `cd`。
+
 ### Step 1 — 環境確認
 
 確認工具與憑證可用：
@@ -51,7 +55,9 @@ echo $GCP_PROJECT_ID
 
 # Google AI Studio — API key
 echo $GEMINI_API_KEY
-# 或從專案 .env 讀取：grep GEMINI_API_KEY .env
+# 或從 ainization-skill repo 的 .env 讀取：
+SKILL_REPO=$(jq -r '.skill_repo // empty' "$HOME/.agents/config.json")
+grep GEMINI_API_KEY "$SKILL_REPO/.env" 2>/dev/null
 ```
 
 若憑證缺少，停下來告知使用者需要執行哪個指令，等待確認後再繼續。

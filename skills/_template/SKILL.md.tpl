@@ -1,6 +1,7 @@
 ---
 name: <skill-name>
 type: exec
+scope: global  # global | project（必填）
 description: <一句話描述這個 skill 做什麼>
 ---
 

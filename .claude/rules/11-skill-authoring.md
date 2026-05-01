@@ -9,8 +9,25 @@ globs: skills/**
 ---
 name: <skill-name>        # kebab-case，與目錄名稱一致
 type: exec                # exec | tool | know
+scope: global             # global | project（必填，缺漏會讓 make install 失敗）
 description: <一行中文說明，包含觸發關鍵字>
 ---
+```
+
+### scope 選擇標準
+
+| scope | 判斷依據 |
+|-------|---------|
+| `global` | 純方法論，或執行步驟在任何 git repo 都能跑（知識型 skill、通用工具） |
+| `project` | 步驟需要 `uv run python -m tasks.*`、`.runtime/*.json` profile、或本 repo 特定資源 |
+
+**重要**：`make install` 預設只裝 `scope: global` 的 skill。缺少 `scope:` 欄位會讓 install 以 `exit 1` 失敗並顯示錯誤提示，必須補上。
+
+若 skill 的實作住在此 repo 但語意上跨專案有用（如 session-memory、local-port-manager），在 SKILL.md 的執行步驟開頭加上 skill_repo 路徑解析後可設為 `global`：
+
+```bash
+SKILL_REPO=$(jq -r '.skill_repo // empty' "$HOME/.agents/config.json")
+cd "$SKILL_REPO"
 ```
 
 ## Exec Skill 標準 4 步驟

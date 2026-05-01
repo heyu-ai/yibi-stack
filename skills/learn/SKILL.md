@@ -1,6 +1,7 @@
 ---
 name: learn
 type: tool
+scope: global
 description: >
   管理專案 learnings — 整合 gstack learnings、handover 交班教訓、insight 洞察三大來源，
   統一瀏覽、搜尋、修剪、匯出。
@@ -20,6 +21,24 @@ description: >
 | **insight 洞察** | `~/.agents/insight/insights.jsonl` | Stop hook 自動收集的 ★ Insight 區塊 |
 
 **HARD GATE**：本 skill 不實作程式碼變更，只管理 learnings。
+
+> **執行位置**：本 skill 可從任何 cwd 觸發，底層的 `uv run python -m tasks.session_memory` 指令
+> 需要在 ainization-skill repo 下執行。**skill 啟動時執行一次**（不要在每個 bash block 前重複執行）：
+>
+> ```bash
+> _gcd=$(git rev-parse --git-common-dir 2>/dev/null)
+> case "$_gcd" in
+>     /*) ORIG_PROJECT=$(basename "$(dirname "$_gcd")") ;;
+>     ?*) ORIG_PROJECT=$(basename "$(git rev-parse --show-toplevel)") ;;
+>     *)  ORIG_PROJECT=$(basename "$PWD") ;;
+> esac
+> unset _gcd
+> SKILL_REPO=$(jq -r '.skill_repo // empty' "$HOME/.agents/config.json")
+> cd "$SKILL_REPO"
+> ```
+>
+> `ORIG_PROJECT` 必須在 `cd` 前捕捉，且使用 `--git-common-dir` 而非 `--show-toplevel`，
+> 以確保 worktree 環境下取得的是 repo 名稱而非 branch 目錄名稱。
 
 ---
 
@@ -52,7 +71,7 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ### 2. handover 交班教訓
 
 ```bash
-PROJECT=$(basename "$(pwd)")
+PROJECT="$ORIG_PROJECT"
 uv run python -m tasks.session_memory lessons show --project "$PROJECT" --last 10 2>/dev/null || echo ""
 ```
 
@@ -67,7 +86,7 @@ uv run python -m tasks.session_memory lessons show --last 10 2>/dev/null || echo
 若使用者明確要求包含 insights：
 
 ```bash
-PROJECT=$(basename "$(pwd)")
+PROJECT="$ORIG_PROJECT"
 uv run python -m tasks.session_memory insight list --project "$PROJECT" --last 5 2>/dev/null || echo ""
 ```
 
@@ -80,7 +99,7 @@ uv run python -m tasks.session_memory insight list --project "$PROJECT" --last 5
 ## 只看 handover 教訓
 
 ```bash
-PROJECT=$(basename "$(pwd)")
+PROJECT="$ORIG_PROJECT"
 uv run python -m tasks.session_memory lessons show --project "$PROJECT" --last 20
 ```
 
@@ -89,7 +108,7 @@ uv run python -m tasks.session_memory lessons show --project "$PROJECT" --last 2
 ## 只看 insight 洞察
 
 ```bash
-PROJECT=$(basename "$(pwd)")
+PROJECT="$ORIG_PROJECT"
 uv run python -m tasks.session_memory insight list --project "$PROJECT" --last 20
 ```
 
@@ -109,14 +128,14 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ### 2. handover 教訓
 
 ```bash
-PROJECT=$(basename "$(pwd)")
+PROJECT="$ORIG_PROJECT"
 uv run python -m tasks.session_memory lessons search "USER_QUERY" --project "$PROJECT" --last 10 2>/dev/null || echo ""
 ```
 
 ### 3. insight 洞察（含 insights 旗標時）
 
 ```bash
-PROJECT=$(basename "$(pwd)")
+PROJECT="$ORIG_PROJECT"
 uv run python -m tasks.session_memory lessons search "USER_QUERY" --project "$PROJECT" --insights --last 10 2>/dev/null || echo ""
 ```
 

@@ -1,6 +1,7 @@
 ---
 name: flutter-tdd
 type: know
+scope: global
 description: >
   Flutter 行動應用的測試驅動開發（TDD）專家指引。
   適用情境：用戶詢問 Flutter 測試、TDD 工作流程、unit/widget/integration test 撰寫、

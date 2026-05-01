@@ -1,4 +1,4 @@
-.PHONY: help lint format typecheck test check ci install install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all
+.PHONY: help lint format typecheck test check ci install install-project install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -56,14 +56,26 @@ INSTALL_DIR := $(HOME)/.agents/skills
 CMD_DIR := commands
 CLAUDE_CMD_DIR := $(HOME)/.claude/commands
 
-install: ## Install all skills to ~/.claude/skills/ (Claude Code, primary) + ~/.agents/skills/ (Cline/Warp) + commands
+install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/ + commands（跨專案可用）
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  ✗ Cannot create $(CLAUDE_SKILL_DIR) — check permissions"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  ✗ Cannot create $(INSTALL_DIR) — check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
-		s=$$(basename $$s); \
-		if [ "$$s" = "_template" ]; then continue; fi; \
+		name=$$(basename $$s); \
+		if [ "$$name" = "_template" ]; then continue; fi; \
+		skill_md="$(SKILL_DIR)/$$name/SKILL.md"; \
+		if [ ! -f "$$skill_md" ]; then \
+			echo "  ✗ $$name 缺少 SKILL.md"; exit 1; \
+		fi; \
+		scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
+		if [ -z "$$scope" ]; then \
+			echo "  ✗ $$name 缺少 scope frontmatter（global|project），請在 SKILL.md 補上"; exit 1; \
+		fi; \
+		if [ "$$scope" != "global" ] && [ "$$scope" != "project" ]; then \
+			echo "  ✗ $$name 的 scope 值無效（$$scope），只接受 global 或 project"; exit 1; \
+		fi; \
+		if [ "$$scope" != "global" ]; then continue; fi; \
 		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
-			$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$$s" "$$dir/$$s" || exit 1; \
+			$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$$name" "$$dir/$$name" || exit 1; \
 		done \
 	done
 	@mkdir -p $(CLAUDE_CMD_DIR)
@@ -90,6 +102,29 @@ install: ## Install all skills to ~/.claude/skills/ (Claude Code, primary) + ~/.
 	|| { echo "  ✗ 無法更新 ~/.agents/config.json（見上方錯誤）"; exit 1; }
 	@echo "  ✓ skill_repo = $(CURDIR)"
 
+install-project: ## Install scope=project skills（本 repo 限定，ainization-skill 開發用）
+	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  ✗ Cannot create $(CLAUDE_SKILL_DIR) — check permissions"; exit 1; }
+	@mkdir -p "$(INSTALL_DIR)" || { echo "  ✗ Cannot create $(INSTALL_DIR) — check permissions"; exit 1; }
+	@for s in $(SKILL_DIR)/*/; do \
+		name=$$(basename $$s); \
+		if [ "$$name" = "_template" ]; then continue; fi; \
+		skill_md="$(SKILL_DIR)/$$name/SKILL.md"; \
+		if [ ! -f "$$skill_md" ]; then \
+			echo "  ✗ $$name 缺少 SKILL.md"; exit 1; \
+		fi; \
+		scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
+		if [ -z "$$scope" ]; then \
+			echo "  ✗ $$name 缺少 scope frontmatter（global|project），請在 SKILL.md 補上"; exit 1; \
+		fi; \
+		if [ "$$scope" != "global" ] && [ "$$scope" != "project" ]; then \
+			echo "  ✗ $$name 的 scope 值無效（$$scope），只接受 global 或 project"; exit 1; \
+		fi; \
+		if [ "$$scope" != "project" ]; then continue; fi; \
+		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
+			$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$$name" "$$dir/$$name" || exit 1; \
+		done \
+	done
+
 install-one: ## Install one skill: make install-one SKILL=<name>
 	@if [ -z "$(SKILL)" ]; then echo "✗ SKILL 未指定，用法：make install-one SKILL=<name>"; exit 1; fi
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  ✗ Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
@@ -103,13 +138,29 @@ status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.age
 	if [ ! -d "$(CLAUDE_SKILL_DIR)" ] || [ -z "$$(ls -A $(CLAUDE_SKILL_DIR) 2>/dev/null)" ]; then \
 		echo "  (empty — run 'make install' first)"; \
 	else \
+		found_global=0; found_project=0; found_ext=0; \
 		for s in $(CLAUDE_SKILL_DIR)/*/; do \
 			name=$$(basename $$s); \
-			if [ -L "$(CLAUDE_SKILL_DIR)/$$name" ]; then \
-				target=$$(readlink "$(CLAUDE_SKILL_DIR)/$$name"); \
-				echo "  🔗 $$name → $$target"; \
-			elif [ -d "$(CLAUDE_SKILL_DIR)/$$name" ]; then \
-				echo "  📦 $$name (real dir — external)"; \
+			if [ ! -L "$(CLAUDE_SKILL_DIR)/$$name" ]; then \
+				if [ $$found_ext -eq 0 ]; then echo "  [external]"; found_ext=1; fi; \
+				echo "    📦 $$name (real dir)"; \
+				continue; \
+			fi; \
+			target=$$(readlink "$(CLAUDE_SKILL_DIR)/$$name"); \
+			skill_md="$(CLAUDE_SKILL_DIR)/$$name/SKILL.md"; \
+			scope=""; \
+			if [ -f "$$skill_md" ]; then \
+				scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
+			fi; \
+			if [ "$$scope" = "global" ]; then \
+				if [ $$found_global -eq 0 ]; then echo "  [global]"; found_global=1; fi; \
+				echo "    🔗 $$name"; \
+			elif [ "$$scope" = "project" ]; then \
+				if [ $$found_project -eq 0 ]; then echo "  [project]"; found_project=1; fi; \
+				echo "    🔗 $$name"; \
+			else \
+				if [ $$found_ext -eq 0 ]; then echo "  [external / no-scope]"; found_ext=1; fi; \
+				echo "    🔗 $$name → $$target"; \
 			fi; \
 		done; \
 	fi; \
@@ -118,40 +169,29 @@ status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.age
 	if [ ! -d "$(INSTALL_DIR)" ] || [ -z "$$(ls -A $(INSTALL_DIR) 2>/dev/null)" ]; then \
 		echo "  (empty — run 'make install' first)"; \
 	else \
-		print_group() { \
-			label=$$1; title=$$2; \
-			found=0; \
-			for s in $(INSTALL_DIR)/*/; do \
-				name=$$(basename $$s); \
-				skill_md="$(INSTALL_DIR)/$$name/SKILL.md"; \
-				if [ ! -L "$(INSTALL_DIR)/$$name" ]; then continue; fi; \
-				if [ ! -f "$$skill_md" ]; then continue; fi; \
-				t=$$(grep -m1 '^type:' "$$skill_md" | sed 's/#.*//' | sed 's/type:[[:space:]]*//' | tr -d '[:space:]'); \
-				if [ "$$t" = "$$label" ]; then \
-					if [ $$found -eq 0 ]; then echo ""; echo "  [$$label] $$title"; found=1; fi; \
-					target=$$(readlink "$(INSTALL_DIR)/$$name"); \
-					echo "  🔗 $$name → $$target"; \
-				fi; \
-			done; \
-		}; \
-		print_group exec "可執行"; \
-		print_group tool "工具型"; \
-		print_group know "知識型"; \
-		found_other=0; \
+		found_global=0; found_project=0; found_ext=0; \
 		for s in $(INSTALL_DIR)/*/; do \
 			name=$$(basename $$s); \
-			if [ -L "$(INSTALL_DIR)/$$name" ]; then \
-				skill_md="$(INSTALL_DIR)/$$name/SKILL.md"; \
-				if [ -f "$$skill_md" ]; then \
-					t=$$(grep -m1 '^type:' "$$skill_md" | sed 's/#.*//' | sed 's/type:[[:space:]]*//' | tr -d '[:space:]'); \
-					if [ "$$t" = "exec" ] || [ "$$t" = "tool" ] || [ "$$t" = "know" ]; then continue; fi; \
-				fi; \
-				target=$$(readlink "$(INSTALL_DIR)/$$name"); \
-				if [ $$found_other -eq 0 ]; then echo ""; echo "  [?] 其他"; found_other=1; fi; \
-				echo "  🔗 $$name → $$target"; \
+			if [ ! -L "$(INSTALL_DIR)/$$name" ]; then \
+				if [ $$found_ext -eq 0 ]; then echo "  [external]"; found_ext=1; fi; \
+				echo "    📦 $$name (real dir)"; \
+				continue; \
+			fi; \
+			skill_md="$(INSTALL_DIR)/$$name/SKILL.md"; \
+			scope=""; \
+			if [ -f "$$skill_md" ]; then \
+				scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
+			fi; \
+			if [ "$$scope" = "global" ]; then \
+				if [ $$found_global -eq 0 ]; then echo "  [global]"; found_global=1; fi; \
+				echo "    🔗 $$name"; \
+			elif [ "$$scope" = "project" ]; then \
+				if [ $$found_project -eq 0 ]; then echo "  [project]"; found_project=1; fi; \
+				echo "    🔗 $$name"; \
 			else \
-				if [ $$found_other -eq 0 ]; then echo ""; echo "  [?] 其他"; found_other=1; fi; \
-				echo "  📦 $$name (external)"; \
+				if [ $$found_ext -eq 0 ]; then echo "  [external / no-scope]"; found_ext=1; fi; \
+				target=$$(readlink "$(INSTALL_DIR)/$$name"); \
+				echo "    🔗 $$name → $$target"; \
 			fi; \
 		done; \
 	fi
@@ -184,7 +224,7 @@ install-handover-hooks: ## 安裝 auto-handover PreCompact + SessionStart hook �
 uninstall-handover-hooks: ## 移除 auto-handover PreCompact + SessionStart hook 從 ~/.claude/settings.json
 	uv run python -m tasks.session_memory handover uninstall-hooks
 
-install-all: build-tools install install-handover-hooks install-scheduler ## 一次裝齊 Go tools / skill / hook / scheduler（新環境首次設定用）
+install-all: build-tools install install-project install-handover-hooks install-scheduler ## 一次裝齊 Go tools / skill（含 project）/ hook / scheduler（新環境首次設定用）
 
 promote: ## Promote draft to skill: make promote SKILL=<name>
 	@if [ -z "$(SKILL)" ]; then echo "Usage: make promote SKILL=name"; exit 1; fi
