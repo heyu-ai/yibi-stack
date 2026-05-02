@@ -34,6 +34,7 @@
 | Skill | 描述 | SKILL.md |
 |-------|------|----------|
 | `pr-review-cycle` | 完整 PR 生命週期：建立 PR → parallel review → fix → re-review → simplify → CI → merge（通用，任何技術棧） | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |
+| `pr-review-cycle-codex` | pr-review-cycle 的 cross-model 強化版：CI 通過後追加 codex review（硬性 gate）+ codex challenge（adversarial 第二意見），降低 Claude 系 reviewer 集體盲點 | [pr-review-cycle-codex/SKILL.md](pr-review-cycle-codex/SKILL.md) |
 | `ci-triage` | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests），含 Python / JS / Go 工具範例 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |
 | `tdd-kentbeck` | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
 | `flutter-tdd` | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
