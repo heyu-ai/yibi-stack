@@ -86,7 +86,11 @@ done
 [ -d "$MAIN_REPO/.runtime" ] && cp -r "$MAIN_REPO/.runtime" "$WT/.runtime" && echo "  ✓ copied .runtime/"
 ```
 
-**維護提示**：在專案的 `.claude/commands/newjob.md` 覆蓋此 user-level 版本，可加入專案特定的 gitignored 檔案清單。
+**維護提示**：在專案的 `.claude/commands/newjob.md` 覆蓋此 user-level 版本，加入專案特定內容。常見覆蓋項目：
+
+- 額外的 gitignored 檔案（如 `certs/`, `secrets/`）
+- **Step 3b 的 `docker compose up -d`**（全域版本不執行，專案版才啟動）
+- 其他 infra 初始化指令（如 `make seed`、`terraform init`）
 
 ### 2c. Port 衝突預防（多 Worktree 支援）
 
@@ -147,27 +151,51 @@ $PM init || { echo "  ⚠ port registry init 失敗 — 跳過 port 衝突預防
 [ -f "mobile/pubspec.yaml" ] && cd mobile && flutter pub get && cd ..
 ```
 
-### 3b. 啟動服務並等待健康
+### 3b. 啟動服務（Project Hook — 全域版本跳過）
+
+**全域版本不執行此步驟。** `docker compose up -d` 有副作用（網路、資源、port 佔用），不在全域命令中自動觸發。
 
 ```bash
-docker compose up -d
-docker compose ps
+echo "  ⏭ Step 3b 全域版本跳過（docker compose 由專案層級 newjob.md 負責）"
 ```
 
-服務未 healthy 時，查看 logs 診斷並修復：`docker compose logs <service>`
+若需要啟動服務，在**專案層級 `.claude/commands/newjob.md`** 中加入下方範本（此處不執行）：
 
-若專案無 Docker，跳過此步驟。
+```text
+# 專案 Step 3b 範本（複製到專案 newjob.md 後，取消 # 前綴）：
+# WT=$(git rev-parse --show-toplevel)
+# DC_FILE=$(ls "$WT/docker-compose.yml" "$WT/docker-compose.yaml" 2>/dev/null | head -1)  # Step 2c 已算過，若同 shell context 可直接沿用
+# if [ -z "$DC_FILE" ]; then echo "  ⏭ 無 docker-compose 檔案，跳過"; else
+#   docker compose up -d && docker compose ps
+# fi
+```
 
 ### 3c. 執行 Migration
 
 ```bash
-make migrate 2>/dev/null || (cd backend && uv run alembic upgrade head) 2>/dev/null || true
+# Guard：只在有 Makefile 頂層 migrate target（^migrate:）或 alembic.ini 時才執行
+if { [ -f "Makefile" ] && grep -q "^migrate:" Makefile; } || \
+   { [ -f "alembic.ini" ] || [ -f "backend/alembic.ini" ]; }; then
+  make migrate 2>/dev/null || \
+    (cd backend && uv run alembic upgrade head) || \
+    echo "  ⚠ migration 失敗，請手動確認"
+else
+  echo "  ⏭ 無 migration 設定，跳過"
+fi
 ```
 
 ### 3d. 建立綠色 Baseline
 
 ```bash
-make test 2>/dev/null || uv run pytest
+# Guard：依技術棧分別執行測試，避免 Python 工具跑在 Node-only 專案上
+if [ -f "pyproject.toml" ] || [ -f "backend/pyproject.toml" ]; then
+  make test 2>/dev/null || uv run pytest
+elif [ -f "package.json" ] || [ -f "frontend/package.json" ] || \
+     [ -f "admin/package.json" ] || [ -f "mobile/pubspec.yaml" ]; then
+  make test 2>/dev/null || npm test 2>/dev/null || true
+else
+  echo "  ⏭ 無可測試的專案，跳過"
+fi
 ```
 
 測試失敗是 **warning** 不是 blocker（使用者可能正要修 broken main）。
@@ -175,7 +203,12 @@ make test 2>/dev/null || uv run pytest
 ### 3e. 確認 Lint 乾淨
 
 ```bash
-make lint 2>/dev/null || uv run ruff check .
+# Guard：只在有 pyproject.toml 或 backend/pyproject.toml 時才執行 ruff
+if [ -f "pyproject.toml" ] || [ -f "backend/pyproject.toml" ]; then
+  make lint 2>/dev/null || uv run ruff check .
+else
+  echo "  ⏭ 無 Python 專案，跳過 lint"
+fi
 ```
 
 Lint 失敗時自動修復（`make format` 或 `uv run ruff format .`），然後重跑確認通過。
