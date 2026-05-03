@@ -40,6 +40,20 @@
 
 CJK 文字、全形標點（，、。：「」）、ASCII 標點均 OK。
 
+## 寫 bash 前的 5 秒自我檢查
+
+- [ ] 有換行 / heredoc / `\` 續行嗎？
+- [ ] 引號超過兩層嵌套嗎？
+- [ ] 內嵌 Python / Node / 複雜 jq 嗎？
+- [ ] 有多層 if/elif/case 嗎？
+- [ ] 有複雜參數展開 `${var//pat/rep}` / 間接引用 `${!var}` 嗎？
+
+以上 >=2 項 yes → 拆 bash call / 寫獨立 script / 換工具（sed / realpath / 簡單 jq）
+
+- [ ] 字串內有 emoji / em dash（—）/ en dash（–）/ 零寬空白嗎？
+
+yes → 依 Anti-Pattern 2 對照表替換（獨立規則，不計入上方門檻）
+
 ## 完整方法論
 
 跨專案完整版見 skill `bash-anti-patterns`（含 before/after 範例、agent 自檢 checklist、
