@@ -1,7 +1,7 @@
 # Bash Anti-Pattern 違規清單（待修）
 
 由 PR 建立 `bash-anti-patterns` skill 時同步掃描產出（2026-05-03）。
-修復 PR 完成後，整檔刪除。
+違規清單修復完成後，上方各條目逐一刪除；底部「Hook 攔截案例分析」節永久保留，待規則 14、15 正式建立後再一併刪除本檔。
 
 ## 違規類型說明
 
@@ -151,4 +151,127 @@
 4. **修 Makefile** → U 類 3 處
 5. **修 commands/handover.md + handover-back.md** → U 類若未被 step 1 解決的部分
 
-每個 fix PR 完成後，刪除本清單對應條目。全清空後刪除本檔。
+每個 fix PR 完成後，刪除本清單對應條目。違規清單全清空後，刪除上方所有段落；底部 Hook 攔截案例分析節仍保留，待規則 14、15 建立後再刪除本檔。
+
+---
+
+## Hook 攔截案例分析（v2 規則素材）
+
+記錄 2026-05-03 對話中分析的攔截案例，作為 v2 規則演化素材。
+**這一節與上方違規清單獨立，不隨 fix PR 刪除。**
+
+### 案例分類體系
+
+| 類別 | 說明 |
+|------|------|
+| A | 純權限提示 |
+| B | "Newline followed by #..." -- command injection |
+| C | "changes directory before running git" -- cd-before-git |
+| D | "Unhandled node type: string" -- parser 失敗 |
+| E | "Contains simple_expansion" / "Contains ansi_c_string" -- quoting hygiene |
+| F1 | "Compound command contains cd with output redirection" -- path resolution bypass |
+| N/A | hook 未觸發 / 無對應訊息類別（含：正面教材案例、靜默盲點） |
+
+### 全案例快速索引
+
+v2 素材欄標記「13 AP3」「14」「15」均為**擬議規則（尚未建立）**，非現有規則檔案。
+
+| Case | 指令摘要 | 類別 | 違反 AP | AP1 Score /5 | 根因 | v2 素材（擬議） |
+|------|---------|------|---------|-------|------|---------|
+| 1 | codex prereq | N/A（正面教材） | AP1+AP2 正例 | N/A | 2+5 | 否 |
+| 2 | sync deps | N/A（靜默盲點） | 未攔 | N/A | N/A | 15 |
+| 3 | docker compose | E（simple_expansion） | 未直接違反 | N/A | 5 | 14 |
+| 4 | alembic cd | A（盲點） | 未攔 | 1/5 | 3 延伸+6 新 | 13 AP3+15 |
+| 5 | pre-commit hooks | D | AP1+AP2 | 2/5 | 2+5 | 否 |
+| 6 | python3 inline regex | B | AP1 | 3/5 | 2 | 否 |
+| 7 | cd + git status | C | 未違反 | 0/5 | 3 | 13 AP3+git-C |
+| 8 | echo ANSI-C quoting | E（ansi_c_string） | AP1 | 2/5 | 2+6 | 14+根因 6 |
+| 9 | cd + git commit（heredoc） | C | 未違反 | 1/5 | 3（冗餘） | 13 AP3+heredoc 豁免（v2 提案） |
+| 10 | cd + find + 2>/dev/null | F1 | 未違反 | 0/5 | 7 新 | 13 AP3 子類 |
+| 11 | cd + grep + 2>/dev/null | F1 | 未違反 | 0/5 | 7+tool-selection | 13 AP3 預防 |
+| 12 | cd + git log + 2>/dev/null | C | 未違反 | 0/5 | 3 | hook 條件邊界 |
+| 13 | gh pr merge + RESULT 驗證 | D | AP1 | 2/5 | 2 | 否 |
+| 14 | Codex prereq 兩層 if + `${:-}` | D | AP1+AP2 | 2/5 | 2+5 | 否 |
+| 15 | cd + gh pr view + 2>/dev/null（worktree） | F1 | 未違反 | 0/5 | 7 | 13 AP3 子類 |
+
+---
+
+### 根因編號
+
+| 根因 | 說明 |
+|------|------|
+| 1 | permissions 嚴格 |
+| 2 | 指令複雜度（AP1 核心） |
+| 3 | cd-before-command 習慣 |
+| 5 | Unicode 字元（AP2 核心） |
+| 6 | 測試資料 / 邏輯內嵌 bash 字串 |
+| 7 | cd + 2>/dev/null 組合（F1 核心） |
+
+---
+
+### v2 規則候選對照表
+
+以下均為**擬議規則，尚未建立檔案**；左欄名稱僅為未來建檔時的計畫名稱。
+
+| 規則（擬議） | 素材來源 | 核心內容 |
+|------|---------|---------|
+| 13 AP3（stateful cd） | Cases 4、7、9-12 | cd 三子類：CWD 污染 / git hook / 路徑解析隱藏 |
+| 13 新增：`git -C` 修法 | Cases 7、12 | cd-before-git 標準修法 = `git -C <path>` |
+| 13 新增：heredoc 豁免 | Case 9 | `$(cat <<'EOF'...EOF)` 用於 commit message 時，不計入多行複雜度 |
+| 13 新增：tool-selection 預防 | Cases 10、11 | cd + grep/find 改用 Read/Grep tool + 絕對路徑 |
+| 14-shell-quoting-hygiene.md | Cases 3、8 | E 類（simple_expansion、ansi_c_string）的修法與 `$'...'` 提取原則 |
+| 15-irreversible-operations.md | Cases 2、4 | 不可逆操作防護（DB migration、silent fail） |
+
+---
+
+### cd 風險三分類（Cases 4-12 累積）
+
+| 子類 | 觸發 Hook | 案例 | 修法 |
+|------|----------|------|------|
+| CWD 污染 | 無（盲點） | 4 | 工具原生 `--directory` / subshell |
+| 不可信 git hooks | C | 7、9、12 | `git -C <path>` |
+| 路徑解析隱藏 | F1 | 10、11、15 | 絕對路徑，移除 cd；或改用 Read/Grep tool |
+
+---
+
+### C 與 F1 hook 觸發條件邊界（Cases 10-12 揭露）
+
+- `cd + git + anything` → **C**（cd-before-git hook）
+- `cd + 非 git + 2>/dev/null` → **F1**（path resolution bypass hook）
+- `cd + 非 git（無 redirection）` → **未攔**（盲點，見 Case 4）
+
+兩個 hook 條件互斥，不是優先序問題。
+
+---
+
+### Case 13 詳細分析：gh pr merge + RESULT 驗證 pipeline
+
+**指令**：
+
+```bash
+gh pr merge 298 --squash --delete-branch
+RESULT=$(gh pr view 298 --json state,mergeCommit -q '{state: .state, url: .mergeCommit.url}')
+echo "$RESULT"
+echo "$RESULT" | grep -q '"state":"MERGED"' || echo "MERGE_FAILED"
+```
+
+| 分析項目 | 結果 |
+|---------|------|
+| 訊息類別 | D（"Unhandled node type: string" — parser 失敗） |
+| 違反 Anti-Pattern | AP1 |
+| Complexity score | 2/5（多行：4 行跨行狀態依賴；巢狀引號：`grep -q '"state":"MERGED"'`） |
+| 根因 | 根因 2：「操作 + 驗證」合一，兩件事被強行塞進一個 bash call |
+| Hook 可攔 | 是（D 類） |
+| 教材價值 | 中 |
+| 規則盲點 | 否 |
+
+**核心反模式**：`RESULT=$(cmd) ... grep "..." || echo "FAILED"` 是 run-and-check pattern，但驗證邏輯應由 Claude 判讀下一個 bash call 的輸出，不需在 bash 裡自己 grep。
+
+**修法**：
+
+```bash
+# bash call 1：執行 merge
+gh pr merge 298 --squash --delete-branch
+# bash call 2：取得狀態（Claude 判斷輸出）
+gh pr view 298 --json state,mergeCommit -q '{state: .state, url: .mergeCommit.url}'
+```
