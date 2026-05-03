@@ -5,21 +5,15 @@
 ## Step 1 — 環境確認
 
 ```bash
+command -v jq >/dev/null 2>&1 || { echo "✗ jq 未安裝，請執行：brew install jq (macOS) / apt install jq (Debian/Ubuntu)" >&2; exit 1; }
 cd "$(git rev-parse --show-toplevel)"
-ls ~/.agents/handover/handover.db 2>/dev/null || echo "⚠️  DB 不存在，請先跑 uv run python -m tasks.session_memory init"
-SKILL_REPO=$(python3 -c "
-import json, pathlib, sys
-p = pathlib.Path.home() / '.agents' / 'config.json'
-if not p.exists():
-    print('⚠️  ~/.agents/config.json 不存在，請先執行：uv run python -m tasks.session_memory init', file=sys.stderr)
-    sys.exit(1)
-try:
-    print(json.loads(p.read_text()).get('skill_repo', ''))
-except json.JSONDecodeError as e:
-    print(f'⚠️  ~/.agents/config.json JSON 格式錯誤：{e}', file=sys.stderr)
-    sys.exit(1)
-") || exit 1
-if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; exit 1; fi
+[ -f ~/.agents/handover/handover.db ] || echo "⚠️  DB 不存在，請先跑 uv run python -m tasks.session_memory init"
+SKILL_REPO=$(jq -r '.skill_repo // empty' ~/.agents/config.json) || {
+  echo "✗ 讀取 ~/.agents/config.json 失敗" >&2; exit 1
+}
+[ -z "$SKILL_REPO" ] && { echo "✗ skill_repo 未設定，請在 ainization-skill 目錄執行 make install" >&2; exit 1; }
+SKILL_REPO=$(realpath "$SKILL_REPO" 2>/dev/null) || { echo "✗ skill_repo 路徑無法解析（symlink 失效？）：$SKILL_REPO" >&2; exit 1; }
+[ -d "$SKILL_REPO" ] || { echo "✗ skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 ```
 
 ## Step 2 — 從對話萃取摘要
@@ -40,22 +34,15 @@ if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainiza
 ## Step 3 — 寫入交班
 
 ```bash
-SKILL_REPO=$(python3 -c "
-import json, pathlib, sys
-p = pathlib.Path.home() / '.agents' / 'config.json'
-if not p.exists():
-    print('⚠️  ~/.agents/config.json 不存在，請先執行：uv run python -m tasks.session_memory init', file=sys.stderr)
-    sys.exit(1)
-try:
-    print(json.loads(p.read_text()).get('skill_repo', ''))
-except json.JSONDecodeError as e:
-    print(f'⚠️  ~/.agents/config.json JSON 格式錯誤：{e}', file=sys.stderr)
-    sys.exit(1)
-") || exit 1
-if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; exit 1; fi
-REAL_WORKDIR=$(pwd) || { echo "✗ 無法取得當前工作目錄，請確認目錄存在"; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "✗ jq 未安裝，請執行：brew install jq (macOS) / apt install jq (Debian/Ubuntu)" >&2; exit 1; }
+SKILL_REPO=$(jq -r '.skill_repo // empty' ~/.agents/config.json) || {
+  echo "✗ 讀取 ~/.agents/config.json 失敗" >&2; exit 1
+}
+[ -z "$SKILL_REPO" ] && { echo "✗ skill_repo 未設定，請在 ainization-skill 目錄執行 make install" >&2; exit 1; }
+SKILL_REPO=$(realpath "$SKILL_REPO" 2>/dev/null) || { echo "✗ skill_repo 路徑無法解析（symlink 失效？）：$SKILL_REPO" >&2; exit 1; }
+[ -d "$SKILL_REPO" ] || { echo "✗ skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
+REAL_WORKDIR=$(pwd)
 PROJECT=$(basename "$REAL_WORKDIR")
-if [ -z "$PROJECT" ]; then echo "✗ 無法判斷 project 名稱（pwd 回傳空值）"; exit 1; fi
 uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover write \
   --workdir "$REAL_WORKDIR" \
@@ -77,19 +64,13 @@ uv run --directory "$SKILL_REPO" \
 ## Step 4 — 確認寫入
 
 ```bash
-SKILL_REPO=$(python3 -c "
-import json, pathlib, sys
-p = pathlib.Path.home() / '.agents' / 'config.json'
-if not p.exists():
-    print('⚠️  ~/.agents/config.json 不存在，請先執行：uv run python -m tasks.session_memory init', file=sys.stderr)
-    sys.exit(1)
-try:
-    print(json.loads(p.read_text()).get('skill_repo', ''))
-except json.JSONDecodeError as e:
-    print(f'⚠️  ~/.agents/config.json JSON 格式錯誤：{e}', file=sys.stderr)
-    sys.exit(1)
-") || exit 1
-if [ -z "$SKILL_REPO" ]; then echo "⚠️  skill_repo 未設定，請在 ainization-skill 目錄執行 make install"; exit 1; fi
+command -v jq >/dev/null 2>&1 || { echo "✗ jq 未安裝，請執行：brew install jq (macOS) / apt install jq (Debian/Ubuntu)" >&2; exit 1; }
+SKILL_REPO=$(jq -r '.skill_repo // empty' ~/.agents/config.json) || {
+  echo "✗ 讀取 ~/.agents/config.json 失敗" >&2; exit 1
+}
+[ -z "$SKILL_REPO" ] && { echo "✗ skill_repo 未設定，請在 ainization-skill 目錄執行 make install" >&2; exit 1; }
+SKILL_REPO=$(realpath "$SKILL_REPO" 2>/dev/null) || { echo "✗ skill_repo 路徑無法解析（symlink 失效？）：$SKILL_REPO" >&2; exit 1; }
+[ -d "$SKILL_REPO" ] || { echo "✗ skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover read --last 1
 ```
