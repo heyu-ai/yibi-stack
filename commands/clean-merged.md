@@ -41,7 +41,7 @@ You need to clean up local git branches whose Pull Requests have been merged on 
        git show-ref --verify --quiet "refs/heads/$branch" || continue
        # Port 登記清理（有登記才 release；工具不可用時警告但繼續）
        if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-         echo "  ⚠ 不在 git repo 內 — 跳過 port cleanup for $branch"
+         echo "  [WARN] 不在 git repo 內 -- 跳過 port cleanup for $branch"
        elif command -v uv >/dev/null 2>&1 && [ -n "$MAIN_REPO" ]; then
          ports=$($PM list -p "$branch" 2>/dev/null | awk 'NR>2 {print $2}')
          if [ -n "$ports" ]; then
@@ -52,7 +52,7 @@ You need to clean up local git branches whose Pull Requests have been merged on 
            done
          fi
        else
-         echo "  ⚠ uv 不可用 — 跳過 port cleanup for $branch"
+         echo "  [WARN] uv 不可用 -- 跳過 port cleanup for $branch"
        fi
        # 刪除 branch
        git branch -D "$branch"

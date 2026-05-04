@@ -49,7 +49,7 @@ git branch -v | grep '\[gone\]' | sed 's/^[+* ]//' | awk '{print $1}' | while re
   echo "Processing branch: $branch"
   # Port 登記清理（有登記才 release；工具不可用時警告但繼續）
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    echo "  ⚠ 不在 git repo 內 — 跳過 port cleanup for $branch"
+    echo "  [WARN] 不在 git repo 內 -- 跳過 port cleanup for $branch"
   elif command -v uv >/dev/null 2>&1 && [ -n "$MAIN_REPO" ]; then
     ports=$($PM list -p "$branch" 2>/dev/null | awk 'NR>2 {print $2}')
     if [ -n "$ports" ]; then
@@ -60,7 +60,7 @@ git branch -v | grep '\[gone\]' | sed 's/^[+* ]//' | awk '{print $1}' | while re
       done
     fi
   else
-    echo "  ⚠ uv 不可用 — 跳過 port cleanup for $branch"
+    echo "  [WARN] uv 不可用 -- 跳過 port cleanup for $branch"
   fi
   echo "  Deleting branch: $branch"
   git branch -D "$branch"

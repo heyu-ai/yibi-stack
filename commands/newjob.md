@@ -53,7 +53,7 @@ WT=$(git rev-parse --show-toplevel)
 
 UPSTREAM=$(git -C "$WT" rev-parse --abbrev-ref @{upstream} 2>/dev/null || echo "none")
 if [ "$UPSTREAM" = "origin/main" ]; then
-  echo "⚠️ DANGER: branch 追蹤 origin/main，修正中..."
+  echo "[WARN] DANGER: branch 追蹤 origin/main，修正中..."
   git -C "$WT" branch --unset-upstream
   git -C "$WT" push origin "HEAD:$NAME"
   git -C "$WT" branch -u "origin/$NAME"
@@ -117,13 +117,13 @@ DC_FILE=$(ls "$WT/docker-compose.yml" "$WT/docker-compose.yaml" 2>/dev/null | he
 PM="uv run --project $MAIN_REPO python -m tasks.local_port_manager"
 
 # 若無 docker-compose 檔案，跳過整個 port 衝突預防步驟
-[ -z "$DC_FILE" ] && echo "  ⏭ 無 docker-compose 檔案，跳過 port 衝突預防" && exit 0
+[ -z "$DC_FILE" ] && echo "  [SKIP] 無 docker-compose 檔案，跳過 port 衝突預防" && exit 0
 ```
 
 **初始化 port registry（若尚未建立）：**
 
 ```bash
-$PM init || { echo "  ⚠ port registry init 失敗 — 跳過 port 衝突預防"; exit 0; }
+$PM init || { echo "  [WARN] port registry init 失敗 -- 跳過 port 衝突預防"; exit 0; }
 ```
 
 **對每個需要 host port 的服務執行以下流程：**
@@ -167,7 +167,7 @@ $PM init || { echo "  ⚠ port registry init 失敗 — 跳過 port 衝突預防
 **全域版本不執行此步驟。** `docker compose up -d` 有副作用（網路、資源、port 佔用），不在全域命令中自動觸發。
 
 ```bash
-echo "  ⏭ Step 3b 全域版本跳過（docker compose 由專案層級 newjob.md 負責）"
+echo "  [SKIP] Step 3b 全域版本跳過（docker compose 由專案層級 newjob.md 負責）"
 ```
 
 若需要啟動服務，在**專案層級 `.claude/commands/newjob.md`** 中加入下方範本（此處不執行）：
@@ -189,9 +189,9 @@ if { [ -f "Makefile" ] && grep -q "^migrate:" Makefile; } || \
    { [ -f "alembic.ini" ] || [ -f "backend/alembic.ini" ]; }; then
   make migrate 2>/dev/null || \
     (cd backend && uv run alembic upgrade head) || \
-    echo "  ⚠ migration 失敗，請手動確認"
+    echo "  [WARN] migration 失敗，請手動確認"
 else
-  echo "  ⏭ 無 migration 設定，跳過"
+  echo "  [SKIP] 無 migration 設定，跳過"
 fi
 ```
 
@@ -205,7 +205,7 @@ elif [ -f "package.json" ] || [ -f "frontend/package.json" ] || \
      [ -f "admin/package.json" ] || [ -f "mobile/pubspec.yaml" ]; then
   make test 2>/dev/null || npm test 2>/dev/null || true
 else
-  echo "  ⏭ 無可測試的專案，跳過"
+  echo "  [SKIP] 無可測試的專案，跳過"
 fi
 ```
 
@@ -218,7 +218,7 @@ fi
 if [ -f "pyproject.toml" ] || [ -f "backend/pyproject.toml" ]; then
   make lint 2>/dev/null || uv run ruff check .
 else
-  echo "  ⏭ 無 Python 專案，跳過 lint"
+  echo "  [SKIP] 無 Python 專案，跳過 lint"
 fi
 ```
 
