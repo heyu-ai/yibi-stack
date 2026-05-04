@@ -217,3 +217,115 @@ class TestBlocked:
         """Codex P1 fix: osascript -l JavaScript heredoc -> 攔截"""
         cmd = "osascript -l JavaScript <<'JS'\nconsole.log(1)\nJS"
         assert run_hook(cmd) == 2
+
+
+class TestGrepBRECase25:
+    """Case 25：grep 雙引號 BRE alternation \\| 觸發 D 類。"""
+
+    def test_ap1_block_015_grep_dquote_backslash_pipe(self) -> None:
+        """grep -i 雙引號 \\| BRE alternation -> 攔截"""
+        assert run_hook('grep -i "media\\|cdn" file.txt') == 2
+
+    def test_ap1_block_016_grep_dquote_multi_alternation(self) -> None:
+        """grep 雙引號多個 \\| -> 攔截（Case 25a 原型）"""
+        assert run_hook('grep -i "media\\|cdn\\|delivery" file.txt') == 2
+
+    def test_ap1_block_017_grep_dquote_status_match(self) -> None:
+        """grep 雙引號 \\| status filter -> 攔截（Case 25b 原型）"""
+        assert run_hook('git status --short | grep "media-delivery\\|openspec" | head -20') == 2
+
+    def test_ap1_allow_015_grep_squote_backslash_pipe(self) -> None:
+        """grep 單引號 \\| BRE -> 放行（正確修法 A）"""
+        assert run_hook("grep -i 'media\\|cdn' file.txt") == 0
+
+    def test_ap1_allow_016_grep_E_flag_dquote(self) -> None:
+        """grep -E 雙引號 ERE -> 放行（-E 排除）"""
+        assert run_hook('grep -E "media|cdn" file.txt') == 0
+
+    def test_ap1_allow_017_grep_Ei_combined_flag(self) -> None:
+        """grep -Ei 組合 flag 含 E -> 放行（-E 在組合 flag 中）"""
+        assert run_hook('grep -Ei "media\\|cdn" file.txt') == 0
+
+    def test_ap1_allow_018_grep_extended_regexp_long_form(self) -> None:
+        """grep --extended-regexp 長格式 -> 放行"""
+        assert run_hook('grep --extended-regexp "media|cdn" file.txt') == 0
+
+    def test_ap1_allow_019_rg_not_grep(self) -> None:
+        """rg (ripgrep) 不是 grep -> 放行"""
+        assert run_hook('rg "media\\|cdn" file.txt') == 0
+
+    def test_ap1_block_018_sed_E_does_not_exempt_later_grep(self) -> None:
+        """sed -E && grep BRE: -E 不跨指令豁免後面的 grep -> 攔截（scope fix）"""
+        assert run_hook('sed -E "s/x/y/" file && grep "media\\|cdn" log') == 2
+
+
+class TestNestedSubshellCase26:
+    """Case 26：$(outer "$(inner)") 反向巢狀 subshell 觸發 D 類。"""
+
+    def test_ap1_block_018_nested_subshell_dirname_git(self) -> None:
+        """$(dirname "$(git rev-parse ...)") -> 攔截（Case 26 原型）"""
+        assert run_hook('MAIN=$(dirname "$(git rev-parse --git-common-dir)")') == 2
+
+    def test_ap1_block_019_nested_subshell_generic(self) -> None:
+        """$(outer_cmd "$(inner_cmd)") 通用模式 -> 攔截"""
+        assert run_hook('RESULT=$(process "$(fetch --url http://example.com)")') == 2
+
+    def test_ap1_allow_018_simple_subshell_no_dquote(self) -> None:
+        """$(git rev-parse HEAD) 無巢狀雙引號 -> 放行"""
+        assert run_hook("FOO=$(git rev-parse HEAD)") == 0
+
+    def test_ap1_allow_019_subshell_with_dquote_var(self) -> None:
+        """$(git -C "$REPO" log) 雙引號變數（非巢狀 subshell）-> 放行"""
+        assert run_hook('git -C "$REPO" log --oneline -5') == 0
+
+    def test_ap1_allow_020_awk_subshell(self) -> None:
+        """$(git list | awk '{print $1}') 單引號 awk 不觸發 -> 放行"""
+        assert run_hook("MAIN=$(git worktree list | head -1 | awk '{print $1}')") == 0
+
+    def test_ap1_block_020_nested_subshell_with_intermediate_quoted_arg(self) -> None:
+        """$(outer --opt "value" "$(inner)") 中間有引號引數也應攔截"""
+        assert run_hook('RESULT=$(process --opt "value" "$(inner_cmd)")') == 2
+
+    def test_ap1_block_021_literal_paren_in_string_before_nested_subshell(self) -> None:
+        """echo ) ( 含 literal ) 後接真正的巢狀 subshell -> 攔截（state machine fix）"""
+        assert run_hook('echo ") (" && FOO=$(cmd "$(inner)")') == 2
+
+    def test_ap1_allow_021_echo_date_not_nested(self) -> None:
+        """echo \"$(date)\" 無外層 $() -> 放行"""
+        assert run_hook('echo "$(date)"') == 0
+
+    def test_ap1_allow_022_two_independent_subshells(self) -> None:
+        """FOO=$(cmd) && echo \"$(date)\" 兩個獨立 $() -> 放行"""
+        assert run_hook('BRANCH=$(git branch --show-current) && echo "$(date): done"') == 0
+
+
+class TestGitCommitExemption:
+    """git commit -m heredoc 豁免：commit message 內含範例程式碼不應誤攔。"""
+
+    def test_ap1_allow_021_git_commit_heredoc_with_nested_subshell_example(self) -> None:
+        """commit message 含 Case 26 範例 -> 豁免（false positive 防護）"""
+        cmd = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "feat: add feature\n"
+            "\n"
+            '- 修法：$(outer "$(inner)")\n'
+            "EOF\n"
+            ')"'
+        )
+        assert run_hook(cmd) == 0
+
+    def test_ap1_allow_022_git_commit_heredoc_with_grep_example(self) -> None:
+        """commit message 含 Case 25 範例（grep 雙引號 BRE）-> 豁免"""
+        cmd = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "feat: add grep hook\n"
+            "\n"
+            '- rule: grep "pat\\|pat2" -> block\n'
+            "EOF\n"
+            ')"'
+        )
+        assert run_hook(cmd) == 0
+
+    def test_ap1_allow_023_git_commit_plain_single_quoted_message(self) -> None:
+        """git commit -m 'plain single-quoted msg' -> 放行（非 heredoc，不豁免但也不觸發）"""
+        assert run_hook("git commit -m 'add grep rule for pat\\|pat2'") == 0
