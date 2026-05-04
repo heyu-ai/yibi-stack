@@ -76,6 +76,81 @@ cd-before-git 的標準修法仍是 `git -C <path>`（Cases 7/12 建立）；問
 
 CJK 文字、全形標點（，、。：「」）、ASCII 標點均 OK。
 
+## Anti-Pattern 3：Stateful cd
+
+`cd <path> && cmd` 有三種不同的危害機制，對應不同修法。
+
+### AP3 Sub-class A：CWD 污染（hook 不攔，靜默盲點）
+
+**觸發**：`cd <path> && <非 git 指令>`——cd 改變 session CWD，後續 bash call 全
+受影響；tool 的 `--directory` 選項可完全迴避。
+
+**案例**：4（alembic upgrade）、17/18（cd + python3 -c async DB query）
+
+```bash
+# 違規：cd 污染 CWD，後續執行環境不乾淨
+cd /path/to/backend && uv run python3 scripts/check_stats.py
+
+# 修法 A（最優先）：使用工具原生 --directory
+uv run --directory /path/to/backend python3 scripts/check_stats.py
+
+# 修法 B：subshell 隔離（不污染外層 CWD）
+( cd /path/to/backend && uv run python3 scripts/check_stats.py )
+```
+
+常用工具對應修法：
+
+| 工具 | cd 版（違規） | --directory 版（修法） |
+|------|------------|----------------------|
+| uv run | `cd /p && uv run python3 ...` | `uv run --directory /p python3 ...` |
+| pytest | `cd /p && uv run pytest` | `uv run --directory /p pytest` |
+| npm | `cd /p && npm test` | `npm --prefix /p test` |
+
+### AP3 Sub-class B：cd-before-git（C 類 hook 嘗試攔）
+
+**觸發**：`cd <path> && git <anything>`——cd 改變 CWD 後執行 git，讓 git
+採用非預期的 hooks 路徑；C 類 hook 會嘗試攔截，但不保證每次觸發。
+
+**案例**：7（cd + git status）、9（cd + git commit heredoc）、12（cd + git log）
+
+```bash
+# 違規：cd 後執行 git，CWD 決定採用哪個 .git/hooks
+cd /path/to/repo && git status
+
+# 修法：git -C 指定工作目錄，不改變 session CWD
+git -C /path/to/repo status
+git -C /path/to/repo log --oneline -5
+git -C /path/to/repo rev-parse --short HEAD
+```
+
+### AP3 Sub-class C：路徑解析隱藏（F1 類 hook 嘗試攔）
+
+**觸發**：`cd <path> && <command> ... 2>/dev/null`——cd 讓相對路徑解析依賴
+CWD，加上 `2>/dev/null` 吞掉錯誤訊息，導致路徑問題靜默失敗。
+F1 hook 偵測「compound command 含 cd 且有 output redirection」。
+
+**案例**：10（cd + find + 2>/dev/null）、11（cd + grep + 2>/dev/null）、
+15（cd + gh pr view + 2>/dev/null）
+
+```bash
+# 違規：cd 改變路徑基準，2>/dev/null 掩蓋找不到路徑的錯誤
+cd /path/to/project && find . -name "*.py" 2>/dev/null
+
+# 修法 A：改用絕對路徑，保留錯誤輸出
+find /path/to/project -name "*.py"
+
+# 修法 B：改用 Read/Grep tool（Claude 工具層），直接以絕對路徑操作
+# Glob: /path/to/project/**/*.py
+```
+
+### AP3 全覽
+
+| 子類 | hook 攔截 | 案例 | 修法 |
+|------|----------|------|------|
+| A: CWD 污染 | 無（靜默盲點） | 4/17/18 | `--directory` flag 或 subshell |
+| B: cd-before-git | C 類（部分） | 7/9/12 | `git -C <path>` |
+| C: 路徑解析隱藏 | F1 類（部分） | 10/11/15 | 絕對路徑 / Read/Grep tool |
+
 ## 寫 bash 前的 5 秒自我檢查
 
 - [ ] 有換行 / heredoc / `\` 續行嗎？
@@ -89,6 +164,10 @@ CJK 文字、全形標點（，、。：「」）、ASCII 標點均 OK。
 - [ ] 字串內有 emoji / em dash（—）/ en dash（–）/ 零寬空白嗎？
 
 yes → 依 Anti-Pattern 2 對照表替換（獨立規則，不計入上方門檻）
+
+- [ ] 指令含 `cd <path> &&` 嗎？
+
+yes → 判斷子類：git 指令改 `git -C`；非 git 改 `--directory`；有 2>/dev/null 改絕對路徑。詳見 Anti-Pattern 3。
 
 ## AP2 自動攔截
 
@@ -139,22 +218,35 @@ osascript scripts/check_windows.applescript
 
 `$(cat <<'EOF')` 用於 commit message 純文字時有豁免；osascript/DSL heredoc **不豁免**。
 
-### `cd /abs/path && cmd`（CWD 污染）
+### `cd /abs/path && cmd`（Stateful cd）
 
-cd-before-command 不算 AP1 complexity 分項，但與 inline Python 合用時加重複雜度，
-且污染 session CWD。標準替代：
+`cd` 有三種危害子類，詳見 Anti-Pattern 3。速查對應：
 
-| 工具 | 修法 |
-|------|------|
-| uv run | `uv run --directory /path python3 scripts/xxx.py` |
-| git | `git -C /path log --oneline` |
-| pytest | `uv run --directory /path pytest` |
+- `cd ... && git <cmd>` → `git -C <path> <cmd>`（Sub-class B）
+- `cd ... && uv run` → `uv run --directory <path>`（Sub-class A）
+- `cd ... && cmd 2>/dev/null` → 改絕對路徑，移除 cd（Sub-class C）
 
-### output filter pipeline `\| grep -v "..."`
+### `cat <<'EOF' | command`（heredoc-pipe）
+
+`cat <<'EOF' | cmd` 的 pipeline AST 節點超出 parser 能力，觸發
+`Unhandled node type: pipeline`（Case 23）。即使 AP1 score 僅 1/5，仍必攔。
+
+```bash
+# 違規：heredoc 直接接管線，parser 在 pipeline 節點失敗
+cat << 'ARTIFACT_EOF' | spectra new artifact --stdin
+## content ...
+ARTIFACT_EOF
+
+# 修法：用 Write tool 先寫檔（固定路徑，Write 與 shell 使用同一路徑），再用 < redirect
+spectra new artifact --stdin < /tmp/artifact_input.md
+rm -f /tmp/artifact_input.md
+```
+
+### output filter pipeline `| grep -v "..."`
 
 ```bash
 # 違規：用 bash pre-filter 替代 Claude 判讀輸出
-cmd 2>&1 | grep -v "^2026\|INFO\|BEGIN\|ROLLBACK"
+cmd 2>&1 | grep -v "INFO"
 
 # 修法：移除 grep filter，Claude 直接接收完整輸出
 cmd 2>&1
