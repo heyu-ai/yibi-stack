@@ -84,6 +84,17 @@ done
 
 # 複製 .runtime/ 目錄（若存在）
 [ -d "$MAIN_REPO/.runtime" ] && cp -r "$MAIN_REPO/.runtime" "$WT/.runtime" && echo "  ✓ copied .runtime/"
+
+# 複製 .claude/settings.local.json（Claude Code allowlist，不進 git）
+# 刻意複製完整 allowlist：worktree 與主 repo 屬同一開發者，繼承所有本地授權是預期行為。
+# 含絕對路徑的 allow rule 仍指向主 repo 路徑（對 cross-repo 命令仍有效）。
+if [ "$MAIN_REPO" = "$WT" ]; then
+  echo "  [WARN] MAIN_REPO == WT，跳過複製 settings.local.json"
+elif [ -f "$MAIN_REPO/.claude/settings.local.json" ]; then
+  mkdir -p "$WT/.claude"
+  cp "$MAIN_REPO/.claude/settings.local.json" "$WT/.claude/settings.local.json"
+  echo "  ✓ copied .claude/settings.local.json"
+fi
 ```
 
 **維護提示**：在專案的 `.claude/commands/newjob.md` 覆蓋此 user-level 版本，加入專案特定內容。常見覆蓋項目：
