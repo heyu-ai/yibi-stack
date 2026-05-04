@@ -63,10 +63,10 @@ test -f "${CODEX_HOME:-$HOME/.codex}/auth.json" && echo "AUTH: FILE_EXISTS" || e
 | Step | 內容 |
 |------|------|
 | 1 | 建立 PR（commit + push + gh pr create） |
-| 2 | Parallel review（4 個 Claude agent） |
-| 3 | Fix（Critical → Important） |
-| 4 | Re-review |
-| 5 | Simplify |
+| 2 | Simplify（/simplify，作為獨立 commit） |
+| 3 | Parallel review（4 個 Claude agent） |
+| 4 | Fix（Critical → Important） |
+| 5 | Re-review |
 | 6 | CI Check（`gh pr checks {{pr_number}} --watch`） |
 
 CI 全綠後才進 Step 7。
@@ -101,15 +101,15 @@ codex review --base {{base_branch}} -c 'model_reasoning_effort="high"'
 
 1. 列出每一個 `[P1]` finding，附 codex 的說明與 `Recommendation:` 行
 2. 展示 cross-model analysis（Claude 系漏抓了什麼）
-3. **強制**回 Step 3 修正：
+3. **強制**回 Step 4 修正：
    - 依序處理每個 `[P1]`
-   - 修完執行本地 CI（參照 Step 3 的 CI 指令查找邏輯）
+   - 修完執行本地 CI（參照 Step 4 的 CI 指令查找邏輯）
    - commit + push
 4. CI 自動重跑（回 Step 6 等待）
 5. CI 通過後重新執行 Step 7
 
-Codex 修正後**不必**重跑 Step 4 / Step 5（修正範圍由 Codex finding 界定）；
-若修正涉及 3 個以上新檔案，則回 Step 4 重跑 Claude review。
+Codex 修正後**不必**重跑 Step 3 / Step 5（修正範圍由 Codex finding 界定）；
+若修正涉及 3 個以上新檔案，則回 Step 5 重跑 Claude review。
 
 **Circuit breaker**：若重試達 3 次仍 GATE: FAIL，停止自動重試，向使用者呈現持續出現的
 `[P1]` findings，詢問：「誤判、還是需要更多修改時間、還是退回重新設計 PR？」等待明確指示後才繼續。
