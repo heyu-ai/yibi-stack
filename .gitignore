@@ -216,6 +216,7 @@ __marimo__/
 .claude/worktrees/
 tasks/.claude/settings.local.json
 agents/.claude/settings.local.json
+skills/.claude/settings.local.json
 
 # Runtime（設定檔 + DB 統一放 .runtime/）
 .runtime/
