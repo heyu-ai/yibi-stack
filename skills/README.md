@@ -64,6 +64,7 @@
 | `ledger-import` | 將 gmail-billing 產出的帳單 CSV 匯入 LedgerOne 記帳系統 | [ledger-import/SKILL.md](ledger-import/SKILL.md) | `uv` |
 | `scheduler` | 管理 Skill Scheduler — 設定定期自動執行的排程、查看執行狀態、手動觸發 job | [scheduler/SKILL.md](scheduler/SKILL.md) | `uv`, MiniShell ACP Gateway |
 | `daily-ai-footprint` | 聚合當日 AI 與數位活動為 Heptabase 友善的每日回溯報告，含 Claude API 產生的 300 字敘事摘要 | [daily-ai-footprint/SKILL.md](daily-ai-footprint/SKILL.md) | `uv`, Anthropic API, session-memory |
+| `heptabase-daily-journal` | 每晚睡前：拉明天 Google Calendar 行程寫入 Heptabase journal + 今天 AI handover 回顧寫入 journal | [heptabase-daily-journal/SKILL.md](heptabase-daily-journal/SKILL.md) | `uv`, `heptabase` CLI, Google Calendar MCP |
 
 #### 知識型（本 Repo 規範）
 
