@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path // \"\"' | { read -r f; [[ \"$f\" == */tasks/*.py ]] && uv run --directory \"$CLAUDE_PROJECT_DIR\" mypy \"$f\" --no-error-summary 2>/dev/null | grep -E 'error:|note:' || true; } || true",
+            "command": "jq -r '.tool_input.file_path // \"\"' | { read -r f; [[ \"$f\" == */tasks/*.py ]] && uv run --directory \"$(git rev-parse --show-toplevel)\" mypy \"$f\" --no-error-summary 2>/dev/null | grep -E 'error:|note:' || true; } || true",
             "statusMessage": "mypy 型別檢查...",
             "async": true
           }
@@ -21,7 +21,7 @@
       {
         "hooks": [
           {
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-push.sh",
+            "command": "\"$(git rev-parse --show-toplevel)\"/.claude/hooks/protect-push.sh || exit 2",
             "type": "command",
             "statusMessage": "檢查 git push 安全性..."
           }
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/bash-ap2-check.py",
+            "command": "python3 \"$(git rev-parse --show-toplevel)\"/.claude/hooks/bash-ap2-check.py || exit 2",
             "statusMessage": "AP2 Unicode 字元檢查...",
             "timeout": 10
           }
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/markdownlint-pre-commit.sh",
+            "command": "\"$(git rev-parse --show-toplevel)\"/.claude/hooks/markdownlint-pre-commit.sh",
             "statusMessage": "markdownlint 檢查 staged .md 檔...",
             "timeout": 30
           }
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/bash-ap1-inline-check.sh",
+            "command": "\"$(git rev-parse --show-toplevel)\"/.claude/hooks/bash-ap1-inline-check.sh || exit 2",
             "statusMessage": "AP1 inline Python / osascript 檢查...",
             "timeout": 15
           }
