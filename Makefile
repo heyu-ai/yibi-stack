@@ -1,4 +1,4 @@
-.PHONY: help lint format typecheck test check ci install install-project install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all
+.PHONY: help lint format typecheck test check ci install install-project install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -224,7 +224,10 @@ install-handover-hooks: ## 安裝 auto-handover PreCompact + SessionStart hook �
 uninstall-handover-hooks: ## 移除 auto-handover PreCompact + SessionStart hook 從 ~/.claude/settings.json
 	uv run python -m tasks.session_memory handover uninstall-hooks
 
-install-all: build-tools install install-project install-handover-hooks install-scheduler ## 一次裝齊 Go tools / skill（含 project）/ hook / scheduler（新環境首次設定用）
+patch-pr-review-agents: ## 為 pr-review-toolkit agents 加入 git -C 指令規範（plugin 更新後重跑）
+	@bash scripts/patch-pr-review-agents.sh
+
+install-all: build-tools install install-project install-handover-hooks install-scheduler patch-pr-review-agents ## 一次裝齊 Go tools / skill（含 project）/ hook / scheduler / plugin patch（新環境首次設定用）
 
 promote: ## Promote draft to skill: make promote SKILL=<name>
 	@if [ -z "$(SKILL)" ]; then echo "Usage: make promote SKILL=name"; exit 1; fi
