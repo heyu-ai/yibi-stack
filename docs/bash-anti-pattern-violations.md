@@ -695,7 +695,7 @@ git -C "$MAIN_REPO" status --short | grep -E 'media-delivery|openspec' | head -2
 
 ```bash
 MAIN_REPO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-PM="uv run --project $MAIN_REPO python -m tasks.local_port_manager"
+PM="uv run --directory $MAIN_REPO python -m tasks.local_port_manager"
 branch="feat/newjob-copy-settings-local"
 ports=$($PM list -p "$branch" 2>/dev/null | awk 'NR>2 {print $1}')
 if [ -n "$ports" ]; then
@@ -759,10 +759,10 @@ git rev-parse --path-format=absolute --git-common-dir
 
 # bash call 3：設定變數後取得 port list（Claude 判斷是否為空）
 MAIN_REPO=<上步結果>
-uv run --project "$MAIN_REPO" python -m tasks.local_port_manager list -p "feat/newjob-copy-settings-local" 2>/dev/null
+uv run --directory "$MAIN_REPO" python -m tasks.local_port_manager list -p "feat/newjob-copy-settings-local" 2>/dev/null
 
 # bash call 4：若 Claude 判斷有 port，逐一 release（per port，不用 loop）
-uv run --project "$MAIN_REPO" python -m tasks.local_port_manager release "feat/newjob-copy-settings-local" "$svc"
+uv run --directory "$MAIN_REPO" python -m tasks.local_port_manager release "feat/newjob-copy-settings-local" "$svc"
 
 # bash call 5：刪除 branch
 git branch -D "feat/newjob-copy-settings-local"
@@ -853,3 +853,21 @@ hook 層阻擋（至少涵蓋 `git push --force`、`rm -rf`、`alembic upgrade h
 
 **決策點**：觀察 v2 rule 13 AP3 上線後，agent 自我矯正率是否達標；
 若仍高頻犯規再考慮 hook。
+
+### v3-4：偵測 5 — `$(cmd "$VAR")` 頂層 subshell 含 quoted 變數引數
+
+**問題**：`$(dirname "$GIT_COMMON")`、`$(ls "$WT/file.yml")` 等在頂層 `$()`
+內含 `"$var"` 形式的 quoted argument，觸發 CC 內建 "Unhandled node type: string"。
+目前 hook 偵測 1-4 均無法攔截此模式。
+
+**發現背景**：PR #99 修 Case 26（反向巢狀 subshell），但漏掉了更單純的母結構。
+`commands/clean-gone.md` 也有相同漏洞，由 `scripts/lint_skill_bash.py` 發現並修正。
+
+**阻礙**：`$(dirname "$GIT_COMMON")` 是 Rule 4 修法文件化的 fix pattern（拆兩 call 後第二 call）；
+加入偵測 5 會攔截 `TestHandoverAntiBashPatterns` 中 4 個 `allow` 測試，需先更新
+`skills/session-memory/` handover skill 改用 `| xargs basename` 等不含 quoted arg 的寫法。
+
+**前置條件**：更新 handover skill + 相關測試，確認 `$(dirname $VAR)`（unquoted）是否觸發
+CC `simple_expansion` —— 若兩種形式都被 CC 攔截，fix 需要完全迴避 `dirname` in `$()`。
+
+**狀態**：待 handover skill 重構後同步實作。

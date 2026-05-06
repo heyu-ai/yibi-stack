@@ -112,11 +112,12 @@ fi
 # BRANCH_NAME 是 port registry 的 key，必須與 git branch name 一致
 # 讓 /clean-gone 和 /clean-merged 的 release 步驟能對上
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir)
-MAIN_REPO=$(dirname "$GIT_COMMON")
-WT=$(git rev-parse --show-toplevel)
-DC_FILE=$(ls "$WT/docker-compose.yml" "$WT/docker-compose.yaml" 2>/dev/null | head -1)
-PM="uv run --directory $MAIN_REPO python -m tasks.local_port_manager"
+MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
+
+# 偵測 docker-compose 檔案（用 [ -f ] 取代 $(ls "...") 避免 quoted-in-subshell 問題）
+DC_FILE=""
+[ -f docker-compose.yml ] && DC_FILE=docker-compose.yml
+[ -z "$DC_FILE" ] && [ -f docker-compose.yaml ] && DC_FILE=docker-compose.yaml
 
 # 若無 docker-compose 檔案，跳過整個 port 衝突預防步驟
 [ -z "$DC_FILE" ] && echo "  [SKIP] 無 docker-compose 檔案，跳過 port 衝突預防"
@@ -127,16 +128,16 @@ PM="uv run --directory $MAIN_REPO python -m tasks.local_port_manager"
 **初始化 port registry（若尚未建立）：**
 
 ```bash
-$PM init || echo "  [WARN] port registry init 失敗 -- 跳過 port 衝突預防"
+uv run --directory "$MAIN_REPO" python -m tasks.local_port_manager init || echo "  [WARN] port registry init 失敗 -- 跳過 port 衝突預防"
 ```
 
 **若上方輸出 `[WARN]`，停止執行 Step 2c 其餘所有 bash 指令，直接跳到 Step 3。**
 
 **對每個需要 host port 的服務執行以下流程：**
 
-1. `$PM suggest $BRANCH_NAME <service>` — 取得建議 port（不衝突）
-2. 若建議 port 與 docker-compose 預設值**不同**，在 `$WT/docker-compose.override.yml` 加入 port 覆蓋，並更新 `.env` 中對應的變數（如 `POSTGRES_PORT=5433`）
-3. `$PM reserve $BRANCH_NAME <service> --port <port>` — 寫入登記
+1. `uv run --directory "$MAIN_REPO" python -m tasks.local_port_manager suggest $BRANCH_NAME <service>` — 取得建議 port（不衝突）
+2. 若建議 port 與 docker-compose 預設值**不同**，在 `docker-compose.override.yml` 加入 port 覆蓋，並更新 `.env` 中對應的變數（如 `POSTGRES_PORT=5433`）
+3. `uv run --directory "$MAIN_REPO" python -m tasks.local_port_manager reserve $BRANCH_NAME <service> --port <port>` — 寫入登記
 
 常見需要檢查的服務對應：
 
@@ -153,9 +154,13 @@ $PM init || echo "  [WARN] port registry init 失敗 -- 跳過 port 衝突預防
 
 ## Step 3: Environment Validation
 
-**重要**：EnterWorktree 後 session cwd 已自動切換到 worktree。**不要再 `cd <abs-path>` 切換目錄**——直接用相對路徑執行所有指令。額外的 cd 會觸發 Claude Code 的安全提示（"Multiple directory changes"）。
+**重要**：EnterWorktree 後 session cwd 已自動切換到 worktree。以下所有 bash 指令**必須**照 code block 原文執行：
 
-在目標工作目錄中執行（已在 worktree，直接使用相對路徑）。**每個步驟若失敗，診斷並修復後再繼續。**
+- **不要** `cd <any-path>` 切換目錄（AP3 CWD 污染）
+- **不要** 在指令中加 `WT=$(git rev-parse --show-toplevel)` 或 `$WT/` 前綴（`$(cmd "$WT/...")` 形式觸發 CC 內建 "Unhandled node type: string"；`"${WT}/..."` 括號形式另觸發 Rule 5 false positive）
+- **直接用相對路徑**，code block 已寫好，複製貼上即可
+
+**每個步驟若失敗，診斷並修復後再繼續。**
 
 ### 3a. 同步依賴
 

@@ -1,4 +1,4 @@
-.PHONY: help lint format typecheck test check ci install install-project install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents
+.PHONY: help lint lint-md format typecheck test check ci install install-project install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -7,8 +7,12 @@ help: ## Show this help
 
 # ─── Development ─────────────────────────────────────────────────────────────
 
-lint: ## Run ruff linter
+lint: ## Run ruff linter + markdown bash anti-pattern check
 	uv run ruff check tasks/
+	python3 scripts/lint_skill_bash.py
+
+lint-md: ## Check bash anti-patterns in SKILL.md / commands markdown files
+	python3 scripts/lint_skill_bash.py
 
 format: ## Run ruff formatter
 	uv run ruff format tasks/
@@ -19,11 +23,12 @@ typecheck: ## Run mypy type checker
 test: ## Run pytest
 	uv run pytest
 
-check: ## Run all checks (lint + format check + typecheck + test)
+check: ## Run all checks (lint + format check + typecheck + test + markdown bash lint)
 	uv run ruff check tasks/
 	uv run ruff format --check tasks/
 	uv run mypy tasks/
 	uv run pytest
+	python3 scripts/lint_skill_bash.py
 
 ci: ## 本地 CI fallback（pre-commit + tests；AgentShield security-scan 略過）
 	@echo "━━━ [1/2] pre-commit（lint / format / type / security）━━━"

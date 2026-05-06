@@ -224,4 +224,41 @@ if [ "${NESTED_SUBSHELL_MATCH:-}" = "yes" ]; then
     exit 2
 fi
 
+# TODO v3：偵測 5b — $(cmd "$VAR") 頂層 $() 內含 double-quoted 變數引數
+# 觸發 CC 內建 "Unhandled node type: string" 但範圍比偵測 4 更廣。
+# 目前暫不加入：$(dirname "$VAR") 是 Rule 4 的文件化修法，貿然攔截需先更新
+# handover skill 的修法模式（test_handover_allow_001-003/005）。
+# 評估後在獨立 PR 實作並同步更新 skills/session-memory/SKILL.md。
+
+# ── 偵測 5：$(jq [flags] 'filter') 單引號 jq filter 在 subshell ─────────
+# 判斷：jq 命令在 $() 內且 filter 為單引號字串（'...' 不含 $）
+#   - Claude Code 內建靜態分析器對此回報 "Unhandled node type: string"
+#   - 是 "string literal node in subshell" 的具體化：jq filter 幾乎不含 $，
+#     因此可安全以 unquoted path 取代（jq -r .field 接受不帶引號的簡單路徑）
+#   - 範圍刻意限縮到 jq，避免誤攔 awk '{print $1}'（$1 在單引號內但語意不同）
+JQ_FILTER_MATCH=$(printf '%s' "$CMD" | python3 -c "
+import re, sys
+cmd = sys.stdin.read()
+sq = chr(39)
+# Pattern: \$(jq<whitespace><optional-flags>'filter-without-dollar')
+# 此程式碼位於 bash double-quoted string 內，bash escape 處理會先發生：
+#   r'\\\$'  ->  bash: \\ -> \ 且 \$ -> $  ->  Python 實際收到 r'\$'
+#   r'\$' 在 Python regex = 匹配 literal $ (不是 end-of-string anchor chr(36))
+# 最終 pattern 等同 r'\$\(jq\s[^)]*' + sq + '[^' + sq + r'\$' + ']+' + sq
+ptn = r'\\\$\(jq\s[^)]*' + sq + '[^' + sq + r'\\\$' + ']+' + sq
+if re.search(ptn, cmd):
+    print('yes')
+" 2>/dev/null || true)
+
+if [ "${JQ_FILTER_MATCH:-}" = "yes" ]; then
+    echo "BLOCKED: \$(jq '...') single-quoted filter in subshell (AP1 D 類)"
+    echo ""
+    echo "\$() 內的 jq 單引號 filter 觸發 Claude Code 內建 Unhandled node type: string。"
+    echo ""
+    echo "修法：移除 filter 的單引號（jq 接受不含特殊字元的 path 不需要引號）："
+    echo "  違規：SKILL_REPO=\$(jq -r '.skill_repo' ~/.agents/config.json)"
+    echo "  修法：SKILL_REPO=\$(jq -r .skill_repo ~/.agents/config.json)"
+    exit 2
+fi
+
 exit 0

@@ -375,6 +375,16 @@ class TestHandoverAntiBashPatterns:
         cmd = 'PROJECT=$(basename "$PWD")'
         assert run_hook(cmd) == 0
 
+    def test_handover_block_004_jq_single_quoted_filter(self) -> None:
+        """SKILL_REPO=$(jq -r '.skill_repo' ...) 單引號 filter -> 攔截（Detector 5）"""
+        cmd = (
+            "SKILL_REPO=$(jq -r '.skill_repo' ~/.agents/config.json)\n"
+            '[ "$SKILL_REPO" = "null" ] && SKILL_REPO=""\n'
+            'uv run --directory "$SKILL_REPO" \\\n'
+            "  python -m tasks.session_memory handover read --last 1"
+        )
+        assert run_hook(cmd) == 2
+
     def test_handover_allow_004_jq_unquoted_filter(self) -> None:
         """$(jq -r .skill_repo ...) 無引號 filter -> 放行"""
         cmd = (
@@ -384,6 +394,36 @@ class TestHandoverAntiBashPatterns:
             "  python -m tasks.session_memory handover read --last 1"
         )
         assert run_hook(cmd) == 0
+
+    def test_handover_allow_004_full_handover_read_fixed(self) -> None:
+        """完整 handover read 指令（jq unquoted，修復後）-> 放行"""
+        cmd = (
+            "SKILL_REPO=$(jq -r .skill_repo ~/.agents/config.json)\n"
+            '[ "$SKILL_REPO" = "null" ] && SKILL_REPO=""\n'
+            'uv run --directory "$SKILL_REPO" \\\n'
+            "  python -m tasks.session_memory handover read --last 1"
+        )
+        assert run_hook(cmd) == 0
+
+    def test_handover_block_005_jq_no_flags(self) -> None:
+        """$(jq '.key' file) 無 flag 單引號 filter -> 攔截"""
+        assert run_hook("VAL=$(jq '.key' file.json)") == 2
+
+    def test_handover_block_006_jq_multi_flags(self) -> None:
+        """$(jq -r -e '.key' file) 多 flag 單引號 filter -> 攔截"""
+        assert run_hook("VAL=$(jq -r -e '.key' file.json)") == 2
+
+    def test_handover_block_007_jq_filter_with_pipe(self) -> None:
+        """$(jq -r '.a | .b' file) filter 含管線 -> 攔截"""
+        assert run_hook("VAL=$(jq -r '.a | .b' file.json)") == 2
+
+    def test_handover_allow_006_jq_unquoted_nested_path(self) -> None:
+        """$(jq -r .a.b file) 無引號複合路徑 -> 放行"""
+        assert run_hook("VAL=$(jq -r .user.name ~/.agents/config.json)") == 0
+
+    def test_handover_allow_007_jq_dollar_in_filter(self) -> None:
+        """$(jq -r '.[\"$var\"]' file) filter 含 $ -> 放行（可能合法 jq 表達式）"""
+        assert run_hook("VAL=$(jq -r '.[\"$key\"]' data.json)") == 0
 
     def test_handover_allow_005_case_statement_fixed(self) -> None:
         """修復後的 case 陳述式（拆成兩行）-> 放行"""
@@ -403,7 +443,3 @@ class TestHandoverAntiBashPatterns:
             "esac"
         )
         assert run_hook(cmd) == 0
-
-    def test_handover_allow_006_jq_unquoted_nested_path(self) -> None:
-        """$(jq -r .a.b file) 無引號複合路徑 -> 放行"""
-        assert run_hook("VAL=$(jq -r .user.name ~/.agents/config.json)") == 0

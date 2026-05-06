@@ -42,8 +42,7 @@ Present options:
 **Option 1: Clean [gone] branches only**
 
 ```bash
-MAIN_REPO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-PM="uv run --project $MAIN_REPO python -m tasks.local_port_manager"
+MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
 
 git branch -v | grep '\[gone\]' | sed 's/^[+* ]//' | awk '{print $1}' | while read branch; do
   echo "Processing branch: $branch"
@@ -51,12 +50,12 @@ git branch -v | grep '\[gone\]' | sed 's/^[+* ]//' | awk '{print $1}' | while re
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "  [WARN] 不在 git repo 內 -- 跳過 port cleanup for $branch"
   elif command -v uv >/dev/null 2>&1 && [ -n "$MAIN_REPO" ]; then
-    ports=$($PM list -p "$branch" 2>/dev/null | awk 'NR>2 {print $2}')
+    ports=$(uv run --directory "$MAIN_REPO" python -m tasks.local_port_manager list -p "$branch" 2>/dev/null | awk 'NR>2 {print $2}')
     if [ -n "$ports" ]; then
       echo "$ports" | while read svc; do
-        $PM release "$branch" "$svc" \
-          && echo "  ✓ released port: $branch/$svc" \
-          || echo "  ✗ failed to release port: $branch/$svc (registry may need manual cleanup)"
+        uv run --directory "$MAIN_REPO" python -m tasks.local_port_manager release "$branch" "$svc" \
+          && echo "  [OK] released port: $branch/$svc" \
+          || echo "  [FAIL] failed to release port: $branch/$svc (registry may need manual cleanup)"
       done
     fi
   else
