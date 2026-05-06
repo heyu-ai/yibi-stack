@@ -53,18 +53,25 @@ description: >
 ## 步驟
 
 > **執行位置**：本 skill 可從任何 cwd 觸發，底層實作住在 ainization-skill repo。
-> 執行所有 `uv run python -m tasks.*` 指令前，先捕捉原始 project 再 cd 過去（Step 1 有完整腳本）：
+> 執行所有 `uv run python -m tasks.*` 指令前，先捕捉原始 project 並解析 SKILL_REPO（Step 1 有完整腳本）：
 >
 > ```bash
 > _gcd=$(git rev-parse --git-common-dir 2>/dev/null)
 > case "$_gcd" in
->     /*) ORIG_PROJECT=$(basename "$(dirname "$_gcd")") ;;
->     ?*) ORIG_PROJECT=$(basename "$(git rev-parse --show-toplevel)") ;;
->     *)  ORIG_PROJECT=$(basename "$PWD") ;;
+>     /*)
+>       _dir=$(dirname "$_gcd")
+>       ORIG_PROJECT=$(basename "$_dir")
+>       unset _dir ;;
+>     ?*)
+>       _top=$(git rev-parse --show-toplevel)
+>       ORIG_PROJECT=$(basename "$_top")
+>       unset _top ;;
+>     *)
+>       ORIG_PROJECT=$(basename "$PWD") ;;
 > esac
 > unset _gcd
-> SKILL_REPO=$(jq -r '.skill_repo // empty' "$HOME/.agents/config.json")
-> cd "$SKILL_REPO"
+> SKILL_REPO=$(jq -r '.skill_repo' "$HOME/.agents/config.json")
+> [ "$SKILL_REPO" = "null" ] && SKILL_REPO=""
 > ```
 >
 > 若 `jq` 不可用：`python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo',''))"`
@@ -74,13 +81,20 @@ description: >
 ```bash
 _gcd=$(git rev-parse --git-common-dir 2>/dev/null)
 case "$_gcd" in
-    /*) ORIG_PROJECT=$(basename "$(dirname "$_gcd")") ;;
-    ?*) ORIG_PROJECT=$(basename "$(git rev-parse --show-toplevel)") ;;
-    *)  ORIG_PROJECT=$(basename "$PWD") ;;
+    /*)
+      _dir=$(dirname "$_gcd")
+      ORIG_PROJECT=$(basename "$_dir")
+      unset _dir ;;
+    ?*)
+      _top=$(git rev-parse --show-toplevel)
+      ORIG_PROJECT=$(basename "$_top")
+      unset _top ;;
+    *)
+      ORIG_PROJECT=$(basename "$PWD") ;;
 esac
 unset _gcd
-SKILL_REPO=$(jq -r '.skill_repo // empty' "$HOME/.agents/config.json")
-cd "$SKILL_REPO"
+SKILL_REPO=$(jq -r '.skill_repo' "$HOME/.agents/config.json")
+[ "$SKILL_REPO" = "null" ] && SKILL_REPO=""
 
 uv --version
 python3 --version
@@ -89,7 +103,7 @@ python3 --version
 ### Step 2 — 初始化
 
 ```bash
-uv run python -m tasks.session_memory init \
+uv run --directory "$SKILL_REPO" python -m tasks.session_memory init \
   --device-id {{device_id}} \
   --default-account {{default_account}}
 ```
@@ -102,7 +116,7 @@ uv run python -m tasks.session_memory init \
 ### Step 3 — 搬遷舊資料（若有）
 
 ```bash
-uv run python -m tasks.session_memory migrate
+uv run --directory "$SKILL_REPO" python -m tasks.session_memory migrate
 ```
 
 從 `~/.handover/` 與 `~/.claude/insight/` 一次性搬到 `~/.agents/`。冪等、可重跑。
@@ -110,15 +124,15 @@ uv run python -m tasks.session_memory migrate
 ### Step 4 — 安裝 Stop hook
 
 ```bash
-uv run python -m tasks.session_memory insight install-hook
+uv run --directory "$SKILL_REPO" python -m tasks.session_memory insight install-hook
 ```
 
 ### Step 5 — 驗證
 
 ```bash
-uv run python -m tasks.session_memory account detect      # 印出偵測到的 account / device / project
-uv run python -m tasks.session_memory handover read --last 4
-uv run python -m tasks.session_memory insight list --last 5
+uv run --directory "$SKILL_REPO" python -m tasks.session_memory account detect
+uv run --directory "$SKILL_REPO" python -m tasks.session_memory handover read --last 4
+uv run --directory "$SKILL_REPO" python -m tasks.session_memory insight list --last 5
 ```
 
 ## 子 skill
@@ -151,7 +165,7 @@ uv run python -m tasks.session_memory insight list --last 5
 
 ```bash
 export AGENT_ACCOUNT=claude-team      # 臨時切
-uv run python -m tasks.session_memory account set-default claude-pro    # 永久改
+uv run --directory "$SKILL_REPO" python -m tasks.session_memory account set-default claude-pro
 ```
 
 ## 常見問題

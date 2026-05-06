@@ -329,3 +329,77 @@ class TestGitCommitExemption:
     def test_ap1_allow_023_git_commit_plain_single_quoted_message(self) -> None:
         """git commit -m 'plain single-quoted msg' -> 放行（非 heredoc，不豁免但也不觸發）"""
         assert run_hook("git commit -m 'add grep rule for pat\\|pat2'") == 0
+
+
+class TestHandoverAntiBashPatterns:
+    """fix-handover-skill-anti-bash：handover/session-memory 指令模式驗證。
+
+    舊模式（修復前）應被 hook 攔截，新模式（修復後）應放行。
+    Note：jq '//' trigger 是 Claude Code 內建 checker，非本 hook 範圍——僅驗證 Rule 4。
+    """
+
+    # ── 舊模式：應被攔截 ──────────────────────────────────────────────
+
+    def test_handover_block_001_basename_dirname_nested(self) -> None:
+        """$(basename "$(dirname ...)") Rule 4 nested subshell -> 攔截"""
+        cmd = (
+            "_gcd=$(git rev-parse --git-common-dir 2>/dev/null)\n"
+            'ORIG=$(basename "$(dirname "$_gcd")")'
+        )
+        assert run_hook(cmd) == 2
+
+    def test_handover_block_002_basename_git_show_toplevel_nested(self) -> None:
+        """$(basename "$(git rev-parse --show-toplevel)") Rule 4 -> 攔截（session-memory 舊模式）"""
+        cmd = 'ORIG=$(basename "$(git rev-parse --show-toplevel)")'
+        assert run_hook(cmd) == 2
+
+    def test_handover_block_003_basename_pwd_nested(self) -> None:
+        """PROJECT=$(basename "$(pwd)") Rule 4 -> 攔截（handover/SKILL.md Step 3 舊模式）"""
+        cmd = 'PROJECT=$(basename "$(pwd)")'
+        assert run_hook(cmd) == 2
+
+    # ── 新模式：應放行 ────────────────────────────────────────────────
+
+    def test_handover_allow_001_dirname_split_two_calls(self) -> None:
+        """拆成兩個 call: _dir=$(dirname ...) + basename "$_dir" -> 放行（修復後）"""
+        cmd = '_dir=$(dirname "$_gcd")\nORIG=$(basename "$_dir")'
+        assert run_hook(cmd) == 0
+
+    def test_handover_allow_002_git_show_toplevel_split(self) -> None:
+        """_top=$(git rev-parse --show-toplevel) + basename "$_top" -> 放行（修復後）"""
+        cmd = '_top=$(git rev-parse --show-toplevel)\nORIG=$(basename "$_top")'
+        assert run_hook(cmd) == 0
+
+    def test_handover_allow_003_basename_pwd_var(self) -> None:
+        """PROJECT=$(basename "$PWD") 用 $PWD 變數，無巢狀 subshell -> 放行（修復後）"""
+        cmd = 'PROJECT=$(basename "$PWD")'
+        assert run_hook(cmd) == 0
+
+    def test_handover_allow_004_full_handover_read_fixed(self) -> None:
+        """完整 handover read 指令（修復後）-> 放行"""
+        cmd = (
+            "SKILL_REPO=$(jq -r '.skill_repo' ~/.agents/config.json)\n"
+            '[ "$SKILL_REPO" = "null" ] && SKILL_REPO=""\n'
+            'uv run --directory "$SKILL_REPO" \\\n'
+            "  python -m tasks.session_memory handover read --last 1"
+        )
+        assert run_hook(cmd) == 0
+
+    def test_handover_allow_005_case_statement_fixed(self) -> None:
+        """修復後的 case 陳述式（拆成兩行）-> 放行"""
+        cmd = (
+            "_gcd=$(git rev-parse --git-common-dir 2>/dev/null)\n"
+            'case "$_gcd" in\n'
+            "    /*)\n"
+            '      _dir=$(dirname "$_gcd")\n'
+            '      ORIG=$(basename "$_dir")\n'
+            "      unset _dir ;;\n"
+            "    ?*)\n"
+            "      _top=$(git rev-parse --show-toplevel)\n"
+            '      ORIG=$(basename "$_top")\n'
+            "      unset _top ;;\n"
+            "    *)\n"
+            '      ORIG=$(basename "$PWD") ;;\n'
+            "esac"
+        )
+        assert run_hook(cmd) == 0

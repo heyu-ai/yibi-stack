@@ -66,49 +66,20 @@
 
 ---
 
-### commands/handover.md
+### commands/handover.md ✓ 已修（fix-handover-skill-anti-bash, 2026-05-06）
 
-> 注意：fix/handover-commands-jq-refactor 已將 python3 inline 改為 jq，但尚未 merge 到 main。
-> 本清單基於 main 分支狀態。
+修復項目：
 
-**Anti-Pattern 1（inline python3 `SKILL_REPO=$(python3 -c "...")`）：**
-
-| 行號 | 症狀 | Complexity Score |
-|------|------|-----------------|
-| L10 | `SKILL_REPO=$(python3 -c "import json, sys; ...")` | 2（內嵌其他語言 + 巢狀引號）|
-| L43 | 同上 | 2 |
-| L80 | 同上 | 2 |
-
-**修法**：merge fix/handover-commands-jq-refactor 即可解決。
-
-**Anti-Pattern 2（bash echo 含 emoji）：**
-
-| 行號 | 原始內容 | 修法 |
-|------|---------|------|
-| L9 | `echo "⚠️  DB 不存在，請先跑 uv run..."` | `echo "[WARN] DB 不存在，請先跑 uv run..."` |
-| L22 | `echo "⚠️  skill_repo 未設定..."` | `echo "[WARN] skill_repo 未設定..."` |
-| L55 | 同上重複 | 同上 |
-| L92 | 同上重複 | 同上 |
+- emoji `✗`/`⚠️` → `[FAIL]`/`[WARN]`（AP2）
+- `jq -r '.skill_repo // empty'` → `jq -r '.skill_repo'` + `null` 字串檢查（D 類 `//` trigger）
+- `cd "$(git rev-parse --show-toplevel)"` → `git rev-parse --show-toplevel`（AP3 Sub-class B）
+- `$(realpath "$SKILL_REPO" ...)` 移除，改用 `[ -d "$SKILL_REPO" ]`
 
 ---
 
-### commands/handover-back.md
+### commands/handover-back.md ✓ 已修（fix-handover-skill-anti-bash, 2026-05-06）
 
-**Anti-Pattern 1（inline python3）：**
-
-| 行號 | 症狀 | Complexity Score |
-|------|------|-----------------|
-| L10 | `SKILL_REPO=$(python3 -c "import json, sys; ...")` | 2 |
-| L36 | 同上 | 2 |
-
-**修法**：merge fix/handover-commands-jq-refactor 即可解決。
-
-**Anti-Pattern 2（bash echo 含 emoji）：**
-
-| 行號 | 原始內容 | 修法 |
-|------|---------|------|
-| L22 | `echo "⚠️  skill_repo 未設定..."` | `echo "[WARN] skill_repo 未設定..."` |
-| L48 | 同上重複 | 同上 |
+修復項目：同 handover.md，兩個 bash block 全部修正（AP2 + D 類 `//` trigger）。
 
 ---
 
@@ -138,18 +109,17 @@
 | .claude/rules/12-auto-handover.md | L15 | ⚠️ 在 ` ```text ` block，非 bash |
 | .claude/rules/13-bash-anti-patterns.md | 多處 | 本規範文件，em dash / emoji 是說明文字 |
 | .claude/rules/*.md | em dash 行 | Markdown 文件中的 em dash 是 prose，非 bash |
-| commands/handover.md | L14,L19 | ⚠️ 在 Python `print()` 字串（hook 已修正為 jq 版本，原違規已消失） |
-| commands/handover-back.md | L14,L19 | 同上 |
+| commands/handover.md | — | 所有 AP2 違規已於 fix-handover-skill-anti-bash 修復，不再屬假陽性清單範圍 |
+| commands/handover-back.md | — | 同上 |
 
 ---
 
 ## 建議 Fix PR 執行順序
 
-1. **先 merge fix/handover-commands-jq-refactor** → 解決 handover.md/handover-back.md 的 Anti-Pattern 1
+1. ~~**先 merge fix/handover-commands-jq-refactor**~~ → ✓ 已完成（fix-handover-skill-anti-bash）
 2. **修 commands/newjob.md** → U 類 9 處，C 類 2 處（Step 3d/3e）
 3. **修 commands/clean-gone.md + commands/clean-merged.md** → U 類各 2 處
 4. **修 Makefile** → U 類 3 處
-5. **修 commands/handover.md + handover-back.md** → U 類若未被 step 1 解決的部分
 
 每個 fix PR 完成後，刪除本清單對應條目。違規清單全清空後，刪除上方所有段落；底部 Hook 攔截案例分析節仍保留，待規則 14、15 建立後再刪除本檔。
 
