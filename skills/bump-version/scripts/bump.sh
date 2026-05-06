@@ -208,6 +208,19 @@ echo "[OK] 版本檔：$VERSION_FILE"
 # Flutter 的 TAG_VERSION 去掉 +build，其他語言與 BUMP_VERSION 相同
 TAG_VERSION=$(echo "$NEW_VERSION" | cut -d+ -f1)
 
+# Flutter 專案：若根目錄存在 VERSION 純文字檔（CI 讀此檔做 tag 驗證），同步更新
+# 搜尋順序：當前目錄 → 上一層（pubspec.yaml 在 mobile/ 而 VERSION 在 repo root 的 monorepo 結構）
+if [ "$PROJECT_TYPE" = "flutter" ]; then
+  for _version_path in "VERSION" "../VERSION"; do
+    if [ -f "$_version_path" ]; then
+      echo "$TAG_VERSION" > "$_version_path"
+      echo "[OK] 同步 VERSION 檔案：$_version_path → $TAG_VERSION"
+      VERSION_FILE="pubspec.yaml + $_version_path"
+      break
+    fi
+  done
+fi
+
 RESULT_ENV="/tmp/bump_version_result.env"
 printf 'BUMP_VERSION=%s\nTAG_VERSION=%s\nVERSION_FILE=%s\n' "$NEW_VERSION" "$TAG_VERSION" "$VERSION_FILE" > "$RESULT_ENV"
 echo "[OK] 結果寫入：$RESULT_ENV"
