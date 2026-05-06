@@ -36,12 +36,12 @@ which codex 2>/dev/null && echo "PREREQ: BINARY_OK" || echo "PREREQ: NOT_FOUND -
 
 ```bash
 # bash call 2（BINARY_OK 後執行）：確認 API key（無 key 時 exit 0，不阻斷流程）
-test -n "${CODEX_API_KEY}" -o -n "${OPENAI_API_KEY}" && echo "AUTH: KEY_SET" || true
+test -n "$CODEX_API_KEY" -o -n "$OPENAI_API_KEY" && echo "AUTH: KEY_SET" || true
 ```
 
 ```bash
 # bash call 3（call 2 無輸出時執行）：確認 auth.json
-test -f "${CODEX_HOME:-$HOME/.codex}/auth.json" && echo "AUTH: FILE_EXISTS" || echo "AUTH: NOT_AUTHED"
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"; test -f "$CODEX_DIR/auth.json" && echo "AUTH: FILE_EXISTS" || echo "AUTH: NOT_AUTHED"
 ```
 
 | 輸出 | 處理 |
