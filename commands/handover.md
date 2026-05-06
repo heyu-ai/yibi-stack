@@ -8,7 +8,7 @@
 command -v jq >/dev/null 2>&1 || { echo '[FAIL] jq 未安裝，請執行：brew install jq (macOS) / apt install jq (Debian/Ubuntu)' >&2; exit 1; }
 git rev-parse --show-toplevel
 [ -f ~/.agents/handover/handover.db ] || echo '[WARN] DB 不存在，請先跑 uv run python -m tasks.session_memory init'
-SKILL_REPO=$(jq -r '.skill_repo' ~/.agents/config.json) || {
+SKILL_REPO=$(jq -r .skill_repo ~/.agents/config.json) || {
   echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1
 }
 [ "$SKILL_REPO" = "null" ] && SKILL_REPO=""
@@ -35,7 +35,7 @@ SKILL_REPO=$(jq -r '.skill_repo' ~/.agents/config.json) || {
 
 ```bash
 command -v jq >/dev/null 2>&1 || { echo '[FAIL] jq 未安裝，請執行：brew install jq (macOS) / apt install jq (Debian/Ubuntu)' >&2; exit 1; }
-SKILL_REPO=$(jq -r '.skill_repo' ~/.agents/config.json) || {
+SKILL_REPO=$(jq -r .skill_repo ~/.agents/config.json) || {
   echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1
 }
 [ "$SKILL_REPO" = "null" ] && SKILL_REPO=""
@@ -65,7 +65,7 @@ uv run --directory "$SKILL_REPO" \
 
 ```bash
 command -v jq >/dev/null 2>&1 || { echo '[FAIL] jq 未安裝，請執行：brew install jq (macOS) / apt install jq (Debian/Ubuntu)' >&2; exit 1; }
-SKILL_REPO=$(jq -r '.skill_repo' ~/.agents/config.json) || {
+SKILL_REPO=$(jq -r .skill_repo ~/.agents/config.json) || {
   echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1
 }
 [ "$SKILL_REPO" = "null" ] && SKILL_REPO=""

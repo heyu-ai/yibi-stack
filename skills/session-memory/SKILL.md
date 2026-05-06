@@ -70,7 +70,7 @@ description: >
 >       ORIG_PROJECT=$(basename "$PWD") ;;
 > esac
 > unset _gcd
-> SKILL_REPO=$(jq -r '.skill_repo' "$HOME/.agents/config.json")
+> SKILL_REPO=$(jq -r .skill_repo "$HOME/.agents/config.json")
 > [ "$SKILL_REPO" = "null" ] && SKILL_REPO=""
 > ```
 >
@@ -93,7 +93,7 @@ case "$_gcd" in
       ORIG_PROJECT=$(basename "$PWD") ;;
 esac
 unset _gcd
-SKILL_REPO=$(jq -r '.skill_repo' "$HOME/.agents/config.json")
+SKILL_REPO=$(jq -r .skill_repo "$HOME/.agents/config.json")
 [ "$SKILL_REPO" = "null" ] && SKILL_REPO=""
 
 uv --version

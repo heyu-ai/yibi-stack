@@ -375,10 +375,10 @@ class TestHandoverAntiBashPatterns:
         cmd = 'PROJECT=$(basename "$PWD")'
         assert run_hook(cmd) == 0
 
-    def test_handover_allow_004_full_handover_read_fixed(self) -> None:
-        """完整 handover read 指令（修復後）-> 放行"""
+    def test_handover_allow_004_jq_unquoted_filter(self) -> None:
+        """$(jq -r .skill_repo ...) 無引號 filter -> 放行"""
         cmd = (
-            "SKILL_REPO=$(jq -r '.skill_repo' ~/.agents/config.json)\n"
+            "SKILL_REPO=$(jq -r .skill_repo ~/.agents/config.json)\n"
             '[ "$SKILL_REPO" = "null" ] && SKILL_REPO=""\n'
             'uv run --directory "$SKILL_REPO" \\\n'
             "  python -m tasks.session_memory handover read --last 1"
@@ -403,3 +403,7 @@ class TestHandoverAntiBashPatterns:
             "esac"
         )
         assert run_hook(cmd) == 0
+
+    def test_handover_allow_006_jq_unquoted_nested_path(self) -> None:
+        """$(jq -r .a.b file) 無引號複合路徑 -> 放行"""
+        assert run_hook("VAL=$(jq -r .user.name ~/.agents/config.json)") == 0
