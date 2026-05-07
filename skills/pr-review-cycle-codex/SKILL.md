@@ -40,8 +40,8 @@ test -n "$CODEX_API_KEY" -o -n "$OPENAI_API_KEY" && echo "AUTH: KEY_SET" || true
 ```
 
 ```bash
-# bash call 3（call 2 無輸出時執行）：確認 auth.json
-CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"; test -f "$CODEX_DIR/auth.json" && echo "AUTH: FILE_EXISTS" || echo "AUTH: NOT_AUTHED"
+# bash call 3（call 2 無輸出時執行）：確認 auth.json（預設路徑 ~/.codex；自訂 CODEX_HOME 見 FAQ）
+test -f ~/.codex/auth.json && echo "AUTH: FILE_EXISTS" || echo "AUTH: NOT_AUTHED"
 ```
 
 | 輸出 | 處理 |
@@ -279,6 +279,7 @@ Spectra change `{{change_name}}` 已 archive，spec 狀態已更新為完成。
 | 問題 | 處理方式 |
 |------|----------|
 | codex 安裝或認證問題 | 見「前置需求」表格 |
+| 設定了自訂 `CODEX_HOME`，bash call 3 回報 `NOT_AUTHED` | bash call 3 固定查 `~/.codex/auth.json`；請在 terminal 手動確認實際路徑後再繼續 |
 | codex review 報 `[PROMPT] cannot be used with --base` | `--base` 與 positional prompt 互斥；改用 fallback：`codex review --base <branch>` 見 Step 7 |
 | codex challenge `--json` 模式無輸出 | 改用 stdin fallback（不加 `--json`），見 Step 8 |
 | codex review timeout（>5 分鐘）| 重試一次；持續失敗查 `~/.codex/logs/` |
