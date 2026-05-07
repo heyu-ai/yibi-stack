@@ -166,20 +166,27 @@ class AgentsDB:
             if "UNIQUE constraint failed: handovers.id" not in str(e):
                 raise  # 非重複 id 的 IntegrityError（如 NOT NULL、CHECK），照常拋出
 
-    def read_recent(self, last: int = 4, project: str | None = None) -> list[dict[str, Any]]:
+    def read_recent(
+        self,
+        last: int = 4,
+        project: str | None = None,
+        exclude_tags: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """取最近 N 筆，回傳 dict list（JSON array 欄位已 decode）。"""
         if last <= 0:
             raise ValueError("last 必須為正整數")
+        conditions: list[str] = []
+        params: list[object] = []
         if project:
-            cur = self.conn.execute(
-                "SELECT * FROM handovers WHERE project = ? ORDER BY timestamp DESC LIMIT ?",
-                (project, last),
-            )
-        else:
-            cur = self.conn.execute(
-                "SELECT * FROM handovers ORDER BY timestamp DESC LIMIT ?",
-                (last,),
-            )
+            conditions.append("project = ?")
+            params.append(project)
+        for tag in exclude_tags or []:
+            conditions.append("tags NOT LIKE ? ESCAPE '\\'")
+            params.append(f'%"{_escape_like(tag)}"%')
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
+        sql = f"SELECT * FROM handovers {where} ORDER BY timestamp DESC LIMIT ?"  # nosec B608
+        params.append(last)
+        cur = self.conn.execute(sql, params)
         return [_decode_row(row) for row in cur.fetchall()]
 
     def search(
@@ -394,6 +401,15 @@ class AgentsDB:
                 0,
             )
         return {k: int(row[k]) for k in row.keys()}  # noqa: SIM118  sqlite3.Row 非 dict
+
+
+def _escape_like(value: str, escape_char: str = "\\") -> str:
+    """逸出 SQLite LIKE 萬用字元（%、_）和 escape 字元本身。"""
+    return (
+        value.replace(escape_char, escape_char * 2)
+        .replace("%", escape_char + "%")
+        .replace("_", escape_char + "_")
+    )
 
 
 def _decode_row(row: sqlite3.Row) -> dict[str, Any]:

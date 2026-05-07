@@ -270,6 +270,8 @@ Spectra change `{{change_name}}` 已 archive，spec 狀態已更新為完成。
 
 完成後，向使用者回報：Spectra archive 狀態（已 archive / 已跳過）、Jira ticket 狀態（已 transition 至 `{{selected_state}}` + comment 已寫入 / 已跳過 / 失敗原因）。
 
+> **下一步建議**：跑 `/pr-retro` 收尾這個 session（agent 會從 PR context 推論 5 題草稿給你校準，寫入專屬 retro tag 不污染 handover-back）。
+
 ---
 
 ## 常見問題

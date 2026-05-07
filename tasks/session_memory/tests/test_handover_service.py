@@ -260,6 +260,158 @@ class TestSearch:
         assert rows[0]["working_dir"] == str(Path.home() / "Workspace" / "test-proj")
 
 
+class TestReadRecent:
+    def test_agents_dt_001_read_recent_excludes_tags(self, paths: dict[str, Path]) -> None:
+        """AGENTS-DT-001：read_recent exclude_tags 排除含指定 tag 的記錄，且 substring 不誤排。"""
+        write_handover(
+            session_type=SessionType.discussion,
+            topic="Retro: PR #1",
+            summary="retro test",
+            tags=["pr-retrospective"],
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+        write_handover(
+            session_type=SessionType.discussion,
+            topic="false match test",
+            summary="should not be excluded",
+            tags=["not-pr-retrospective"],
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+        write_handover(
+            session_type=SessionType.sdd,
+            topic="regular work",
+            summary="normal handover",
+            tags=["feature"],
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+
+        rows = read_recent(last=10, exclude_tags=["pr-retrospective"], db_path=paths["db"])
+        topics = [r["topic"] for r in rows]
+        assert len(rows) == 2
+        assert "Retro: PR #1" not in topics
+        assert "false match test" in topics
+        assert "regular work" in topics
+
+    def test_agents_dt_002_exclude_multiple_tags(self, paths: dict[str, Path]) -> None:
+        """AGENTS-DT-002：多個 exclude_tags 均 AND 排除（兩種 tag 都不出現在結果）。"""
+        write_handover(
+            session_type=SessionType.discussion,
+            topic="retro record",
+            summary="s",
+            tags=["pr-retrospective"],
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+        write_handover(
+            session_type=SessionType.discussion,
+            topic="learn record",
+            summary="s",
+            tags=["learn-only"],
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+        write_handover(
+            session_type=SessionType.sdd,
+            topic="normal work",
+            summary="s",
+            tags=["feature"],
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+
+        rows = read_recent(
+            last=10,
+            exclude_tags=["pr-retrospective", "learn-only"],
+            db_path=paths["db"],
+        )
+        topics = [r["topic"] for r in rows]
+        assert len(rows) == 1
+        assert "normal work" in topics
+        assert "retro record" not in topics
+        assert "learn record" not in topics
+
+    def test_agents_dt_003_exclude_tags_none_is_noop(self, paths: dict[str, Path]) -> None:
+        """AGENTS-DT-003：exclude_tags=None 不過濾任何記錄。"""
+        write_handover(
+            session_type=SessionType.discussion,
+            topic="retro record",
+            summary="s",
+            tags=["pr-retrospective"],
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+        write_handover(
+            session_type=SessionType.sdd,
+            topic="normal work",
+            summary="s",
+            tags=["feature"],
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+
+        rows = read_recent(last=10, exclude_tags=None, db_path=paths["db"])
+        assert len(rows) == 2
+
+    def test_agents_dt_004_exclude_tags_empty_list_is_noop(self, paths: dict[str, Path]) -> None:
+        """AGENTS-DT-004：exclude_tags=[] 不過濾任何記錄。"""
+        write_handover(
+            session_type=SessionType.discussion,
+            topic="retro record",
+            summary="s",
+            tags=["pr-retrospective"],
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+
+        rows = read_recent(last=10, exclude_tags=[], db_path=paths["db"])
+        assert len(rows) == 1
+
+    def test_agents_dt_005_project_and_exclude_tags_combined(self, paths: dict[str, Path]) -> None:
+        """AGENTS-DT-005：project + exclude_tags 交集過濾（proj-a retro 和 proj-b 都不出現）。"""
+        write_handover(
+            session_type=SessionType.sdd,
+            topic="proj-a work",
+            summary="s",
+            tags=["feature"],
+            project="proj-a",
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+        write_handover(
+            session_type=SessionType.discussion,
+            topic="proj-a retro",
+            summary="s",
+            tags=["pr-retrospective"],
+            project="proj-a",
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+        write_handover(
+            session_type=SessionType.sdd,
+            topic="proj-b work",
+            summary="s",
+            tags=["feature"],
+            project="proj-b",
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+
+        rows = read_recent(
+            last=10,
+            project="proj-a",
+            exclude_tags=["pr-retrospective"],
+            db_path=paths["db"],
+        )
+        topics = [r["topic"] for r in rows]
+        assert len(rows) == 1
+        assert "proj-a work" in topics
+        assert "proj-a retro" not in topics
+        assert "proj-b work" not in topics
+
+
 class TestExpandPaths:
     def test_agents_eg_031_expand_paths_does_not_mutate_input(self) -> None:
         """AGENTS-EG-031：_expand_paths 不修改傳入的原始 dict（docstring 承諾不變動原物件）。"""

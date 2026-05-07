@@ -13,7 +13,8 @@ SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.hom
 WORKDIR=$(pwd)
 PROJECT=$(basename "$WORKDIR")
 uv run --directory "$SKILL_REPO" \
-  python -m tasks.session_memory handover read --last 3 --project "$PROJECT"
+  python -m tasks.session_memory handover read --last 3 --project "$PROJECT" \
+  --exclude-tags pr-retrospective
 ```
 
 若查無記錄，明確告知使用者所用的 project name，方便確認是否有誤：
@@ -28,7 +29,7 @@ SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.hom
 [ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
 [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 uv run --directory "$SKILL_REPO" \
-  python -m tasks.session_memory handover read --last 3
+  python -m tasks.session_memory handover read --last 3 --exclude-tags pr-retrospective
 ```
 
 ## Step 2 — 呈現重點

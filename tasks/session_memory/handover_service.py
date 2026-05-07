@@ -121,13 +121,17 @@ def read_recent(
     last: int = 4,
     *,
     project: str | None = None,
+    exclude_tags: list[str] | None = None,
     db_path: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """讀取最近 N 筆，可選依 project 過濾。"""
+    """讀取最近 N 筆，可選依 project 過濾，可排除含指定 tag 的記錄。"""
     db = AgentsDB(db_path or HANDOVER_DB_PATH)
     try:
         db.init_db()
-        return [_expand_paths(row) for row in db.read_recent(last, project=project)]
+        return [
+            _expand_paths(row)
+            for row in db.read_recent(last, project=project, exclude_tags=exclude_tags)
+        ]
     finally:
         db.close()
 

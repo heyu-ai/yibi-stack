@@ -29,6 +29,7 @@
 | `protect-push` | tool | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
 | `bump-version` | know | Project-level 版本 bump（Flutter/Python/Node.js/Go）+ CHANGELOG 生成 + git tag 發布，附帶 commit-msg hook 安裝 | [bump-version/SKILL.md](bump-version/SKILL.md) |
 | `learn` | tool | 統一教訓管理 — 整合 gstack learnings、handover 交班教訓、insight 洞察三大來源，支援瀏覽、搜尋、修剪、匯出 | [learn/SKILL.md](learn/SKILL.md) |
+| `pr-retrospective` | tool | PR 收尾 agent-led 五問回顧（agent 從 PR context 推論草稿、使用者校準），寫入 session-memory handover 並標 `pr-retrospective` tag（handover-back 自動排除），依答案路由到 /claude-md-management、hookify、writing-skills 等下游 skill | [pr-retrospective/SKILL.md](pr-retrospective/SKILL.md) |
 
 #### 知識型（方法論）
 

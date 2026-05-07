@@ -308,12 +308,14 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
 @handover.command("read")
 @click.option("--last", default=4, type=int, help="讀取最近 N 筆")
 @click.option("--project", default=None, help="只顯示指定 project 的記錄（預設顯示全部）")
+@click.option("--exclude-tags", default=None, help="排除含此 tag 的記錄（可逗號分隔多個）")
 @click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
-def handover_read(last: int, project: str | None, as_json: bool) -> None:
-    """讀取最近 N 筆 handover，可依 project 過濾。"""
+def handover_read(last: int, project: str | None, exclude_tags: str | None, as_json: bool) -> None:
+    """讀取最近 N 筆 handover，可依 project 過濾，可排除指定 tag。"""
     from .handover_service import read_recent
 
-    rows = read_recent(last=last, project=project)
+    tags = [t.strip() for t in (exclude_tags or "").split(",") if t.strip()]
+    rows = read_recent(last=last, project=project, exclude_tags=tags or None)
     if as_json:
         click.echo(json.dumps(rows, ensure_ascii=False, indent=2))
         return
