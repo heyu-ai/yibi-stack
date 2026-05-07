@@ -12,6 +12,14 @@ from pathlib import Path
 
 HOOK = Path(__file__).parent.parent / "bash-ap1-inline-check.sh"
 
+# Pattern C canonical: python3 -c 單行讀取 skill_repo（jq 的安全替代方案）
+_SKILL_REPO_PY = (
+    "import json,pathlib; "
+    "print(json.loads("
+    "(pathlib.Path.home()/'.agents'/'config.json').read_text()"
+    ").get('skill_repo') or '')"
+)
+
 
 def run_hook(command: str) -> int:
     """以給定指令字串執行 hook，回傳 exit code。"""
@@ -386,7 +394,7 @@ class TestHandoverAntiBashPatterns:
         assert run_hook(cmd) == 2
 
     def test_handover_allow_004_jq_unquoted_filter(self) -> None:
-        """$(jq -r .skill_repo ...) 無引號 filter -> 放行"""
+        """$(jq -r .skill_repo) 無引號 -> hook 放行，但 CC 內建 analyzer 仍可能跳確認框"""
         cmd = (
             "SKILL_REPO=$(jq -r .skill_repo ~/.agents/config.json)\n"
             '[ "$SKILL_REPO" = "null" ] && SKILL_REPO=""\n'
@@ -396,13 +404,18 @@ class TestHandoverAntiBashPatterns:
         assert run_hook(cmd) == 0
 
     def test_handover_allow_004_full_handover_read_fixed(self) -> None:
-        """完整 handover read 指令（jq unquoted，修復後）-> 放行"""
+        """完整 handover read 指令（python3 -c canonical，修復後）-> 放行"""
         cmd = (
-            "SKILL_REPO=$(jq -r .skill_repo ~/.agents/config.json)\n"
-            '[ "$SKILL_REPO" = "null" ] && SKILL_REPO=""\n'
+            f'SKILL_REPO=$(python3 -c "{_SKILL_REPO_PY}")\n'
+            "[ -z \"$SKILL_REPO\" ] && { echo '[FAIL] skill_repo 未設定' >&2; exit 1; }\n"
             'uv run --directory "$SKILL_REPO" \\\n'
             "  python -m tasks.session_memory handover read --last 1"
         )
+        assert run_hook(cmd) == 0
+
+    def test_handover_allow_008_python3_skill_repo(self) -> None:
+        """python3 -c 單行讀 skill_repo（Pattern C canonical）-> 放行"""
+        cmd = f'SKILL_REPO=$(python3 -c "{_SKILL_REPO_PY}")'
         assert run_hook(cmd) == 0
 
     def test_handover_block_005_jq_no_flags(self) -> None:

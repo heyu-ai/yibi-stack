@@ -871,3 +871,54 @@ hook 層阻擋（至少涵蓋 `git push --force`、`rm -rf`、`alembic upgrade h
 CC `simple_expansion` —— 若兩種形式都被 CC 攔截，fix 需要完全迴避 `dirname` in `$()`。
 
 **狀態**：待 handover skill 重構後同步實作。
+
+---
+
+### Case 27 詳細分析：`$(jq -r .X file)` unquoted filter 觸發 CC `Unhandled node type: string`
+
+**指令**：
+
+```bash
+SKILL_REPO=$(jq -r .skill_repo ~/.agents/config.json)
+uv run --directory "$SKILL_REPO" python -m tasks.session_memory handover read --last 1 --full
+```
+
+| 分析項目 | 結果 |
+|---------|------|
+| 訊息類別 | CC 內建靜態分析器：`Unhandled node type: string` |
+| 觸發 Anti-Pattern | AP1（間接）—— CC parser 把 leading-dot jq filter 視為 string node |
+| 本地 AP1 hook | **放行**（D 類只攔單引號形式；測試 `test_handover_allow_004_jq_unquoted_filter` 明確允許） |
+| 根因 | CC 內建 parser 與本地 AP1 hook 是兩套獨立規則。unquoted `.skill_repo` 在 bash 語法上有效，但 CC parser 的 token-level 分析把 leading-dot bare-word 歸為 string 節點後失敗 |
+| CC 行為 | 跳出 "Do you want to proceed?" 確認框，使用者每次都需要手動確認 |
+
+**雙重困境**（兩條路都被堵）：
+
+| 寫法 | 結果 |
+|------|------|
+| `$(jq -r .skill_repo …)` unquoted | CC 內建擋（本 Case） |
+| `$(jq -r '.skill_repo' …)` 單引號 | 本地 AP1 D 類擋（Case 25 同根因） |
+| `$(jq -r '.skill_repo // empty' …)` | 本地 AP1 D 類擋（`//` 又加重） |
+
+**修法（Pattern C）**：
+
+```bash
+# 修法 A（最優先）：捨棄 jq，改 python3 -c 單行
+SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
+[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+[ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
+```
+
+**為什麼 Pattern C 安全**：外層 `$()`、內層 `"..."`、再內層 `'...'` 三層異型引號交替，
+無 same-type 衝突；`python3 -c` 單行（無換行）不觸發 AP1 multi-line 偵測；
+純 ASCII 不觸發 AP2；已在 `skills/session-memory/SKILL.md` 和 `skills/verify-gemini-models/SKILL.md` 實戰驗證。
+
+**連帶修正**（本次 PR）：
+
+- `commands/handover.md`（3 個 bash 區塊）
+- `commands/handover-back.md`（2 個 bash 區塊）
+- `skills/session-memory/SKILL.md`（2 處）
+- `skills/learn/SKILL.md`、`skills/local-port-manager/SKILL.md`、`skills/verify-gemini-models/SKILL.md`（各 1 處）
+- `.claude/rules/11-skill-authoring.md` canonical 範例（教錯了的根源）
+
+**關聯**：v3-4 偵測 5（`$(cmd "$VAR")` quoted arg in subshell）是不同但相鄰的問題，
+保持獨立議題處理。

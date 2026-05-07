@@ -56,7 +56,9 @@ echo $GCP_PROJECT_ID
 # Google AI Studio — API key
 echo $GEMINI_API_KEY
 # 或從 ainization-skill repo 的 .env 讀取：
-SKILL_REPO=$(jq -r '.skill_repo // empty' "$HOME/.agents/config.json")
+SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
+[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+[ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 grep GEMINI_API_KEY "$SKILL_REPO/.env" 2>/dev/null
 ```
 
@@ -75,7 +77,10 @@ grep GEMINI_API_KEY "$SKILL_REPO/.env" 2>/dev/null
 腳本有獨立的 `pyproject.toml`，從 skill 目錄執行：
 
 ```bash
-SKILL_DIR="$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo',''))")/skills/verify-gemini-models"
+SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
+[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+[ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
+SKILL_DIR="$SKILL_REPO/skills/verify-gemini-models"
 
 uv run --project "$SKILL_DIR" python "$SKILL_DIR/scripts/check_models.py" \
   --models "gemini-2.5-flash,gemini-2.5-pro,gemini-2.5-flash-preview-tts,gemini-2.5-pro-preview-tts,gemini-3.1-pro-preview,gemini-3-flash-preview,gemini-3.1-flash-lite-preview,gemini-3.1-flash-tts-preview,gemini-3.1-flash-image-preview,gemini-3-pro-image-preview,gemini-3.1-flash-live-preview,gemini-2.5-flash-native-audio-preview-12-2025" \

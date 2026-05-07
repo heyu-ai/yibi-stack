@@ -70,11 +70,10 @@ description: >
 >       ORIG_PROJECT=$(basename "$PWD") ;;
 > esac
 > unset _gcd
-> SKILL_REPO=$(jq -r .skill_repo "$HOME/.agents/config.json")
-> [ "$SKILL_REPO" = "null" ] && SKILL_REPO=""
+> SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
+> [ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+> [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 > ```
->
-> 若 `jq` 不可用：`python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo',''))"`
 
 ### Step 1 — 環境確認
 
@@ -93,8 +92,9 @@ case "$_gcd" in
       ORIG_PROJECT=$(basename "$PWD") ;;
 esac
 unset _gcd
-SKILL_REPO=$(jq -r .skill_repo "$HOME/.agents/config.json")
-[ "$SKILL_REPO" = "null" ] && SKILL_REPO=""
+SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
+[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+[ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 
 uv --version
 python3 --version

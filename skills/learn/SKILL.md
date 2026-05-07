@@ -28,12 +28,20 @@ description: >
 > ```bash
 > _gcd=$(git rev-parse --git-common-dir 2>/dev/null)
 > case "$_gcd" in
->     /*) ORIG_PROJECT=$(basename "$(dirname "$_gcd")") ;;
->     ?*) ORIG_PROJECT=$(basename "$(git rev-parse --show-toplevel)") ;;
+>     /*)
+>       _dir=$(dirname "$_gcd")
+>       ORIG_PROJECT=$(basename "$_dir")
+>       unset _dir ;;
+>     ?*)
+>       _top=$(git rev-parse --show-toplevel)
+>       ORIG_PROJECT=$(basename "$_top")
+>       unset _top ;;
 >     *)  ORIG_PROJECT=$(basename "$PWD") ;;
 > esac
 > unset _gcd
-> SKILL_REPO=$(jq -r '.skill_repo // empty' "$HOME/.agents/config.json")
+> SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
+> [ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+> [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 > cd "$SKILL_REPO"
 > ```
 >
