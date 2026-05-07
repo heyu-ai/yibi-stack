@@ -17,13 +17,10 @@ Project-level 版本 bump、CHANGELOG 生成、git tag 標準流程。
 
 ## 腳本位置
 
-所有腳本住在 skill 目錄，`make install` 安裝後的路徑：
+腳本住在 skill 目錄，`make install` 安裝後可直接呼叫（有 shebang，無需 `bash` 前綴）：
 
-```bash
-SKILL_DIR="$HOME/.agents/skills/bump-version"
-# 或（Claude Code skill 路徑，兩者皆可）
-SKILL_DIR="$HOME/.claude/skills/bump-version"
-```
+- `~/.claude/skills/bump-version/scripts/`（Claude Code 路徑，**以下範例均使用此路徑**）
+- `~/.agents/skills/bump-version/scripts/`（agents 共用路徑，功能等價；若使用此路徑，將以下所有範例的 `~/.claude/skills/` 替換為 `~/.agents/skills/`）
 
 若 `make install` 或 `make install-one SKILL=bump-version` 尚未執行，腳本不存在，需先安裝。
 
@@ -48,8 +45,7 @@ git-cliff --unreleased --bump 2>/dev/null | head -5
 ### Step 2: 執行版本 bump
 
 ```bash
-SKILL_DIR="$HOME/.agents/skills/bump-version"
-bash "$SKILL_DIR/scripts/bump.sh" {{patch|minor|major}}
+~/.claude/skills/bump-version/scripts/bump.sh {{patch|minor|major}}
 ```
 
 腳本輸出新版本到 `/tmp/bump_version_result.env`，讀取：
@@ -67,7 +63,7 @@ echo "BUMP_VERSION=$BUMP_VERSION, TAG_VERSION=$TAG_VERSION, VERSION_FILE=$VERSIO
 ### Step 3: 生成 CHANGELOG
 
 ```bash
-bash "$SKILL_DIR/scripts/changelog.sh" "$TAG_VERSION"
+~/.claude/skills/bump-version/scripts/changelog.sh "$TAG_VERSION"
 ```
 
 工具優先序：git-cliff（有 cliff.toml 或 .cliff.toml） > git-cliff（preset） > git log fallback。
@@ -119,8 +115,7 @@ CHANGELOG：已更新
 ### 安裝
 
 ```bash
-SKILL_DIR="$HOME/.agents/skills/bump-version"
-bash "$SKILL_DIR/scripts/init-commit-hook.sh"
+~/.claude/skills/bump-version/scripts/init-commit-hook.sh
 ```
 
 安裝後產生：
