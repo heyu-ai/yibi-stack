@@ -43,6 +43,7 @@ Present options:
 
 ```bash
 MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
+[ -z "$MAIN_REPO" ] && { echo "[FAIL] git worktree list 無法取得主 repo 路徑" >&2; exit 1; }
 
 git branch -v | grep '\[gone\]' | sed 's/^[+* ]//' | awk '{print $1}' | while read branch; do
   echo "Processing branch: $branch"

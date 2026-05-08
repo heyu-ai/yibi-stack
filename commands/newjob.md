@@ -37,7 +37,7 @@ git -C "$MAIN_REPO" pull origin main
 
 `EnterWorktree` 會：
 
-- 在 `.claude/worktrees/<name>` 建立 worktree（branch `<name>` based on HEAD）
+- 在 `.claude/worktrees/<name>` 建立 worktree（branch `<name>` based on `origin/main`，因 `worktree.baseRef: "fresh"`）
 - **自動切換 session cwd** 到新 worktree
 
 > **注意**：呼叫 `EnterWorktree` 後，session 已在 worktree 內。後續所有指令的相對路徑都以 worktree 為基礎。
@@ -50,11 +50,13 @@ git -C "$MAIN_REPO" pull origin main
 ```bash
 NAME=<worktree-name>
 WT=$(git rev-parse --show-toplevel)
+[ -z "$WT" ] && { echo "[FAIL] git rev-parse --show-toplevel 失敗，無法確認 worktree 路徑" >&2; exit 1; }
 
-# linked worktree 的 .git 是 file（gitdir: 指標）；主 repo 的 .git 是 directory
+# EnterWorktree 建立的 linked worktree 其根目錄的 .git 是 file（gitdir: 指標）；
+# 主 worktree 的 .git 是 directory。此 guard 假設使用標準 linked-worktree 佈局。
 [ -d "$WT/.git" ] && { echo "[FAIL] cwd 仍在主 repo，EnterWorktree contract 失效" >&2; exit 1; }
 
-UPSTREAM=$(git rev-parse --abbrev-ref HEAD@{upstream} 2>/dev/null)
+UPSTREAM=$(git rev-parse --abbrev-ref 'HEAD@{upstream}' 2>/dev/null)
 [ -z "$UPSTREAM" ] && UPSTREAM="none"
 if [ "$UPSTREAM" = "origin/main" ]; then
   echo "[WARN] DANGER: branch 追蹤 origin/main，修正中..."
@@ -73,7 +75,7 @@ Worktree 建立後，從主 repo 複製被 `.gitignore` 排除但開發必需的
 
 ```bash
 # EnterWorktree 後 cwd 已切換；用 git worktree list 找主 repo 路徑
-MAIN_REPO=$(git worktree list | head -1 | python3 -c "import sys; print(sys.stdin.read().split()[0])")
+MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
 [ -z "$MAIN_REPO" ] && { echo "[FAIL] git worktree list 無法取得主 repo 路徑" >&2; exit 1; }
 WT=$(git rev-parse --show-toplevel)
 
@@ -116,7 +118,7 @@ fi
 # BRANCH_NAME 是 port registry 的 key，必須與 git branch name 一致
 # 讓 /clean-gone 和 /clean-merged 的 release 步驟能對上
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-MAIN_REPO=$(git worktree list | head -1 | python3 -c "import sys; print(sys.stdin.read().split()[0])")
+MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
 [ -z "$MAIN_REPO" ] && { echo "[FAIL] git worktree list 無法取得主 repo 路徑" >&2; exit 1; }
 
 # 偵測 docker-compose 檔案（用 [ -f ] 取代 $(ls "...") 避免 quoted-in-subshell 問題）
