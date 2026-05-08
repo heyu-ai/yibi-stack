@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# SessionStart hook: inject bash anti-pattern rules as additionalContext.
+# This ensures every Claude Code session loads the rules without needing
+# .claude/rules/ files in each project.
+
+set -euo pipefail
+trap 'exit 0' ERR
+
+SCRIPT_DIR="$(dirname "$0")"
+PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
+
+RULES_FILE="$PLUGIN_ROOT/rules-context.md"
+if [ ! -f "$RULES_FILE" ]; then
+    exit 0
+fi
+
+ESCAPED=$(python3 -c "
+import sys, json
+content = sys.stdin.read()
+if not content:
+    sys.exit(1)
+sys.stdout.write(json.dumps(content)[1:-1])
+" < "$RULES_FILE" 2>/dev/null || true)
+
+[ -z "$ESCAPED" ] && exit 0
+
+CONTEXT="[bash-hygiene plugin] The following bash anti-pattern rules are active in this session:\\n\\n$ESCAPED"
+
+if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
+    printf '{\n  "additional_context": "%s"\n}\n' "$CONTEXT"
+elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
+    printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$CONTEXT"
+else
+    printf '{\n  "additionalContext": "%s"\n}\n' "$CONTEXT"
+fi
+
+exit 0

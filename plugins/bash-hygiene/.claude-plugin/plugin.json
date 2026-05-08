@@ -1,0 +1,20 @@
+{
+  "name": "bash-hygiene",
+  "description": "Bash anti-pattern detection for Claude Code agents: AP1 (overly complex commands), AP2 (Unicode in bash strings), shell quoting hygiene, and irreversible operation boundaries.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Howie Yu",
+    "email": "howie.yu@gmail.com"
+  },
+  "repository": "ainization/ainization-skill",
+  "license": "MIT",
+  "keywords": [
+    "bash",
+    "linting",
+    "anti-pattern",
+    "hooks",
+    "shell",
+    "unicode",
+    "quoting"
+  ]
+}

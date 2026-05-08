@@ -1,0 +1,5 @@
+{
+  "name": "bash-hygiene",
+  "version": "1.0.0",
+  "description": "Bash anti-pattern detection plugin for Claude Code"
+}
