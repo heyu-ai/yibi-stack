@@ -51,7 +51,10 @@ git -C "$MAIN_REPO" pull origin main
 NAME=<worktree-name>
 WT=$(git rev-parse --show-toplevel)
 
-UPSTREAM=$(git -C "$WT" rev-parse --abbrev-ref 'HEAD@{upstream}' 2>/dev/null)
+# linked worktree 的 .git 是 file（gitdir: 指標）；主 repo 的 .git 是 directory
+[ -d "$WT/.git" ] && { echo "[FAIL] cwd 仍在主 repo，EnterWorktree contract 失效" >&2; exit 1; }
+
+UPSTREAM=$(git rev-parse --abbrev-ref HEAD@{upstream} 2>/dev/null)
 [ -z "$UPSTREAM" ] && UPSTREAM="none"
 if [ "$UPSTREAM" = "origin/main" ]; then
   echo "[WARN] DANGER: branch 追蹤 origin/main，修正中..."
@@ -70,7 +73,8 @@ Worktree 建立後，從主 repo 複製被 `.gitignore` 排除但開發必需的
 
 ```bash
 # EnterWorktree 後 cwd 已切換；用 git worktree list 找主 repo 路徑
-MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
+MAIN_REPO=$(git worktree list | head -1 | python3 -c "import sys; print(sys.stdin.read().split()[0])")
+[ -z "$MAIN_REPO" ] && { echo "[FAIL] git worktree list 無法取得主 repo 路徑" >&2; exit 1; }
 WT=$(git rev-parse --show-toplevel)
 
 for f in \
@@ -112,7 +116,8 @@ fi
 # BRANCH_NAME 是 port registry 的 key，必須與 git branch name 一致
 # 讓 /clean-gone 和 /clean-merged 的 release 步驟能對上
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
+MAIN_REPO=$(git worktree list | head -1 | python3 -c "import sys; print(sys.stdin.read().split()[0])")
+[ -z "$MAIN_REPO" ] && { echo "[FAIL] git worktree list 無法取得主 repo 路徑" >&2; exit 1; }
 
 # 偵測 docker-compose 檔案（用 [ -f ] 取代 $(ls "...") 避免 quoted-in-subshell 問題）
 DC_FILE=""
