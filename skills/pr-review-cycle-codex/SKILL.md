@@ -87,10 +87,10 @@ Codex 會對 PR 的完整 branch diff 做 review，輸出包含 `[P1]`（Critica
 `codex review` 的 `--base` 與 positional `[PROMPT]` 互斥。直接執行 fallback：
 
 ```bash
-codex review --base {{base_branch}} -c 'model_reasoning_effort="high"'
+codex review -C "$(git rev-parse --show-toplevel)" --base {{base_branch}} -c 'model_reasoning_effort="high"'
 ```
 
-`--base` 已足夠讓 codex 找到 diff，不需要額外 prompt。輸出格式與 Skill 觸發相同，[P1]/[P2] gate 判定不變。
+`-C` 明確指定 repo 根目錄，防止 gstack preamble 等 script 改變 CWD 導致 codex 跑到錯誤的 repo（AP3 Sub-class A）。`--base` 已足夠讓 codex 找到 diff，不需要額外 prompt。輸出格式與 Skill 觸發相同，[P1]/[P2] gate 判定不變。
 
 **解讀 gate 結果：**
 
@@ -280,7 +280,8 @@ Spectra change `{{change_name}}` 已 archive，spec 狀態已更新為完成。
 |------|----------|
 | codex 安裝或認證問題 | 見「前置需求」表格 |
 | 設定了自訂 `CODEX_HOME`，bash call 3 回報 `NOT_AUTHED` | bash call 3 固定查 `~/.codex/auth.json`；請在 terminal 手動確認實際路徑後再繼續 |
-| codex review 報 `[PROMPT] cannot be used with --base` | `--base` 與 positional prompt 互斥；改用 fallback：`codex review --base <branch>` 見 Step 7 |
+| codex review 報 `[PROMPT] cannot be used with --base` | `--base` 與 positional prompt 互斥；改用 fallback：`codex review -C "$(git rev-parse --show-toplevel)" --base <branch>` 見 Step 7 |
+| codex review 跑到錯誤的 repo | gstack preamble 的 `eval`/`cd` 改變了 CWD（AP3 Sub-class A）；Step 7 fallback 已加 `-C "$(git rev-parse --show-toplevel)"` 防護 |
 | codex challenge `--json` 模式無輸出 | 改用 stdin fallback（不加 `--json`），見 Step 8 |
 | codex review timeout（>5 分鐘）| 重試一次；持續失敗查 `~/.codex/logs/` |
 | codex challenge timeout（>10 分鐘）| 重試一次；持續失敗查 `~/.codex/logs/` |
