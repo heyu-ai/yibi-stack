@@ -14,7 +14,7 @@ Automatically detects and blocks common bash anti-patterns that cause Claude Cod
 
 ```bash
 # Register marketplace (one-time)
-claude plugin marketplace add ainization/ainization-skill
+claude plugin marketplace add howie/ainization-skill
 
 # Install plugin
 claude plugin install bash-hygiene@ainization-skill

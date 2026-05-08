@@ -39,7 +39,8 @@ _COMMIT_HEREDOC_RE = re.compile(
 )
 
 _VIOLATION_MESSAGE = """\
-[AP2 VIOLATION] Bash command contains prohibited Unicode characters (em dash / en dash / emoji / zero-width).
+[AP2 VIOLATION] Bash command contains prohibited Unicode characters
+(em dash / en dash / emoji / zero-width).
 
 Replace per Anti-Pattern 2 rules:
 

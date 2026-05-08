@@ -27,6 +27,7 @@ Replacements: [SKIP] / [OK] / [WARN] / [FAIL] / -- / -
 ## Anti-Pattern 3: Stateful cd
 
 `cd <path> && cmd` has three harm mechanisms:
+
 - `cd ... && git <cmd>` -> use `git -C <path> <cmd>`
 - `cd ... && uv run` -> use `uv run --directory <path>`
 - `cd ... && cmd 2>/dev/null` -> use absolute paths, remove cd

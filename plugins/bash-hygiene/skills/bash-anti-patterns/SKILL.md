@@ -267,13 +267,14 @@ cat README.md
 
 ```bash
 # 先註冊 marketplace（一次性）
-claude plugin marketplace add ainization/ainization-skill
+claude plugin marketplace add howie/ainization-skill
 
 # 安裝 plugin
 claude plugin install bash-hygiene@ainization-skill
 ```
 
 安裝後自動獲得：
+
 - AP1/AP2 PreToolUse hooks（所有專案生效）
 - SessionStart 規則注入（agent 每次啟動都讀到完整規範）
 - 本 skill 作為知識查閱入口
