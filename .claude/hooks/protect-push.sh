@@ -44,7 +44,7 @@ except Exception:
 GH_MATCH=$(echo "$CMD" | python3 -c "
 import re, sys
 cmd = sys.stdin.read()
-parts = re.split(r'[;|\n]|&&|\|\|', cmd)
+parts = re.split(r'&&|\|\||[;|\n]', cmd)
 for part in parts:
     stripped = part.strip().lstrip('(').strip()
     if re.match(r'gh\s+pr\s+merge\b', stripped):
@@ -61,8 +61,9 @@ if [ "${GH_MATCH:-}" = "yes" ]; then
 fi
 
 # ── 保護 2 & 3：git push 相關 ────────────────────────────────────────
-# [[ ]] 的 * 在 pattern 模式下可跨換行比對（與 filename glob 不同）
-[[ "$CMD" != *"git push"* ]] && exit 0
+# Fast-exit: skip if no "git push" or "git -C ... push" pattern.
+# Must also check for "git"..."push" to catch git -C <path> push commands.
+[[ "$CMD" != *"git"*"push"* ]] && exit 0
 
 # 保護 2：直接推 main/master（同樣採用 command-boundary detection，避免 false positive）
 # 涵蓋語法（均有測試覆蓋）：
@@ -75,7 +76,7 @@ fi
 PUSH_MAIN_MATCH=$(echo "$CMD" | python3 -c "
 import re, sys
 cmd = sys.stdin.read()
-parts = re.split(r'[;|\n]|&&|\|\|', cmd)
+parts = re.split(r'&&|\|\||[;|\n]', cmd)
 for part in parts:
     stripped = part.strip().lstrip('(').strip()
     # 必須是 git push 指令（以 git push 開頭，非 git commit、git pull 等）
@@ -100,6 +101,82 @@ fi
 
 # 保護 3：worktree branch 追蹤 origin/main
 # main/master 本身由保護 2 處理；此處只處理其他 branch 追蹤 origin/main 的情況
+#
+# 只對「裸 git push（使用 tracking）」觸發；明確指定 non-main 目的地的 push 放行。
+# 同時過濾 CMD 中只含 git push 文字（如 commit message、echo 字串）的情況。
+PUSH_MODE=$(echo "$CMD" | python3 -c "
+import re, sys
+cmd = sys.stdin.read()
+parts = re.split(r'&&|\|\||[;|\n]', cmd)
+# Strip leading VAR=value env assignments (P2: handle GIT_SSH_COMMAND='...' git push)
+_env_re = re.compile(r'^(?:\w+=(?:[^\s\'\"]+|\'[^\']*\'|\"[^\"]*\")\s+)*')
+push_found = False
+bare_found = False
+for part in parts:
+    stripped = _env_re.sub('', part.strip().lstrip('(').strip())
+    if not re.match(r'git\s+push\b', stripped):
+        continue
+    push_found = True
+    # 移除 flag（以 - 開頭的 token），取 positional args：[git, push, [remote], [dest]]
+    # 特別處理「需要 argument 的 flag」（如 -o / --push-option）：同時跳過其 argument token
+    _arg_opts = {'-o', '--push-option', '--receive-pack', '--exec', '--repo'}
+    tokens = stripped.split()
+    positional = []
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t.startswith('-'):
+            if '=' not in t and t in _arg_opts:
+                i += 2  # 跳過 flag + argument
+            else:
+                i += 1  # 只跳過 flag
+        else:
+            positional.append(t)
+            i += 1
+    if len(positional) >= 4:
+        # Check ALL refspecs (positional[3], [4], ...) — multiple refspecs are valid.
+        # Only mark explicit-other when every refspec is provably safe.
+        for dest in positional[3:]:
+            # shell expansion or backtick -> unresolvable, treat as bare
+            # (backtick is \x60; no bare dollar signs in this comment)
+            if re.search(r'[$\x60]', dest):
+                bare_found = True
+                break
+            # glob pattern -> unsafe
+            if '*' in dest or '?' in dest:
+                bare_found = True
+                break
+            if ':' in dest:
+                rhs = dest.rsplit(':', 1)[1]
+                # empty rhs (delete refspec) or main/HEAD rhs -> bare
+                if not rhs or re.match(
+                    r'^(HEAD|main|master|refs/heads/(main|master))$', rhs
+                ):
+                    bare_found = True
+                    break
+                # else: explicit non-main rhs -> safe, continue checking
+            elif re.match(r'^(main|master|refs/heads/(main|master))$', dest):
+                # explicit main/master -> let protection 2 handle, treat as bare
+                bare_found = True
+                break
+            # HEAD resolves to current branch name (not tracking) -> safe
+            # else: explicit named non-main branch -> safe, continue
+    else:
+        # 裸 push（無明確目的地）-> 需檢查 tracking
+        bare_found = True
+# 所有 push parts 都明確指向 non-main -> 放行；否則交給 tracking 檢查
+if not push_found:
+    print('none')
+elif not bare_found:
+    print('explicit-other')
+else:
+    print('bare')
+" 2>/dev/null || echo "none")
+
+# 無實際 git push 指令（僅文字）或明確指定 non-main 目的地 -> 放行
+[ "${PUSH_MODE:-bare}" = "none" ] && exit 0
+[ "${PUSH_MODE:-bare}" = "explicit-other" ] && exit 0
+
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
 [ -z "${BRANCH:-}" ] && exit 0
 [ "$BRANCH" = "HEAD" ] && exit 0  # detached HEAD 狀態，無 upstream 可查

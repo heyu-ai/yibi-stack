@@ -15,6 +15,9 @@
 
 set -euo pipefail
 
+_DIR=$(dirname "${BASH_SOURCE[0]}")
+SCRIPT_DIR=$(cd "$_DIR" && pwd)
+
 STDIN_DATA=$(cat)
 
 CMD=$(python3 -c '
@@ -32,61 +35,47 @@ except (json.JSONDecodeError, ValueError, KeyError, TypeError, AttributeError):
 # 只攔截包含 git push 的指令
 [[ "$CMD" != *"git push"* && "$CMD" != *"git -C"*"push"* ]] && exit 0
 
-# 解析 -C 路徑（支援 $VAR 和 literal path）
-GIT_DIR=$(python3 -c '
-import sys, re
-cmd = sys.stdin.read().strip()
-c_match = re.search(r"git\s+-C\s+" + chr(34) + r"?(\$\w+|[^\s" + chr(34) + r"]+)" + chr(34) + r"?", cmd)
-if not c_match:
-    print("")
-    sys.exit(0)
-raw = c_match.group(1)
-if raw.startswith("$"):
-    varname = raw[1:]
-    var_match = re.search(r"\b" + re.escape(varname) + r"=(?:" + chr(34) + r"([^" + chr(34) + r"]*)" + chr(34) + r"|([^\s;&|]+))", cmd)
-    if var_match:
-        print(var_match.group(1) or var_match.group(2))
-    else:
-        print("")
-else:
-    print(raw)
-' <<< "$CMD" 2>/dev/null || echo "")
+block_push() {
+    printf '%b\n' "$1"
+    exit 2
+}
 
-# 取得目前 branch（使用 -C 路徑若有的話）
-if [[ -n "$GIT_DIR" ]]; then
-  BRANCH=$(git -C "$GIT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-else
-  BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+# 確認 parse_git_dir.py 存在（有 -C 的 push 才強制要求）
+if [[ ! -f "$SCRIPT_DIR/parse_git_dir.py" && "$CMD" == *"git -C"*"push"* ]]; then
+    block_push "BLOCKED: protect-push: parse_git_dir.py 未安裝於 $SCRIPT_DIR\n請重新執行 make install-one SKILL=protect-push 更新安裝。"
 fi
 
+# 解析 git -C 路徑（支援 \$VAR 和 literal path，失敗時 exit 2 表示無法解析）
+PARSE_EXIT=0
+GIT_DIR=$(python3 "$SCRIPT_DIR/parse_git_dir.py" "$CMD" 2>/dev/null) || PARSE_EXIT=$?
+if [ "$PARSE_EXIT" -ne 0 ]; then
+    block_push "BLOCKED: protect-push: git -C target 無法解析（exit $PARSE_EXIT）\n請改用 literal path 或先把 worktree 路徑指定給變數再執行 push。"
+fi
+
+# 包裝 git 指令，依據是否有 GIT_DIR 決定是否加 -C
+git_cmd() {
+    if [[ -n "$GIT_DIR" ]]; then
+        git -C "$GIT_DIR" "$@"
+    else
+        git "$@"
+    fi
+}
+
+# 取得目前 branch
+BRANCH=$(git_cmd rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 [ -z "$BRANCH" ] && exit 0
 
 # main/master branch 直接 push 也應該擋住（這是 worktree 忘記切 branch 的情況）
 if [ "$BRANCH" = "main" ] || [ "$BRANCH" = "master" ]; then
-    MSG="BLOCKED: 目前在 '$BRANCH' branch！"
-    MSG="$MSG\n直接 push 到 $BRANCH 會繞過 PR 流程。"
-    MSG="$MSG\n\n請先建立 feature branch："
-    MSG="$MSG\n  git checkout -b feat/your-feature-name"
-    printf '{"decision":"block","reason":"%s"}\n' "$MSG"
-    exit 0
+    block_push "BLOCKED: 目前在 '$BRANCH' branch！\n直接 push 到 $BRANCH 會繞過 PR 流程。\n\n請先建立 feature branch：\n  git checkout -b feat/your-feature-name"
 fi
 
 # 用 git config 查 upstream remote 與 merge ref（避免 @{upstream} zsh 問題）
-if [[ -n "$GIT_DIR" ]]; then
-  REMOTE=$(git -C "$GIT_DIR" config "branch.${BRANCH}.remote" 2>/dev/null || echo "")
-  MERGE=$(git -C "$GIT_DIR" config "branch.${BRANCH}.merge" 2>/dev/null || echo "")
-else
-  REMOTE=$(git config "branch.${BRANCH}.remote" 2>/dev/null || echo "")
-  MERGE=$(git config "branch.${BRANCH}.merge" 2>/dev/null || echo "")
-fi
+REMOTE=$(git_cmd config "branch.${BRANCH}.remote" 2>/dev/null || echo "")
+MERGE=$(git_cmd config "branch.${BRANCH}.merge" 2>/dev/null || echo "")
 
 if [ "$REMOTE" = "origin" ] && [[ "$MERGE" =~ ^refs/heads/(main|master)$ ]]; then
-    MSG="BLOCKED: branch '$BRANCH' 追蹤 origin/main！"
-    MSG="$MSG\n推送會直接到 main，繞過 PR 流程。"
-    MSG="$MSG\n\n請先修正 tracking 再 push："
-    MSG="$MSG\n  git branch --unset-upstream && git push -u origin HEAD"
-    printf '{"decision":"block","reason":"%s"}\n' "$MSG"
-    exit 0
+    block_push "BLOCKED: branch '$BRANCH' 追蹤 origin/main！\n推送會直接到 main，繞過 PR 流程。\n\n請先修正 tracking 再 push：\n  git branch --unset-upstream && git push -u origin HEAD"
 fi
 
 exit 0

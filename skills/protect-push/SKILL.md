@@ -51,8 +51,10 @@ echo "✓ Skill 目錄：$SKILL_DIR"
 
 mkdir -p .claude/hooks
 cp "$SKILL_DIR/protect-push.sh" .claude/hooks/protect-push.sh
+cp "$SKILL_DIR/parse_git_dir.py" .claude/hooks/parse_git_dir.py
 chmod +x .claude/hooks/protect-push.sh
 echo "✓ hook 腳本已安裝：.claude/hooks/protect-push.sh"
+echo "✓ 路徑解析器已安裝：.claude/hooks/parse_git_dir.py"
 ```
 
 ### Step 3: 設定 settings.json
@@ -139,6 +141,7 @@ EOF
 ```bash
 echo "=== 安裝驗證 ==="
 [ -x ".claude/hooks/protect-push.sh" ] && echo "✓ hook 腳本：存在且可執行" || echo "✗ hook 腳本：未找到"
+[ -f ".claude/hooks/parse_git_dir.py" ] && echo "✓ 路徑解析器：存在" || echo "✗ 路徑解析器：未找到"
 python3 -c "
 import json
 from pathlib import Path

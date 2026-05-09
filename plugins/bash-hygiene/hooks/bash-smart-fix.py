@@ -49,23 +49,23 @@ def _load_command() -> str:
     return command if isinstance(command, str) else ""
 
 
+def _name_unused(name: str, cmd: str) -> bool:
+    """True if neither $name nor ${name} appears in cmd."""
+    return f"${name}" not in cmd and f"${{{name}}}" not in cmd
+
+
 def _var_name(inner_cmd: str, cmd: str) -> str:
     """Pick a variable name that does not already appear in cmd."""
     for keywords, name in _VAR_CANDIDATES:
-        if (
-            any(kw in inner_cmd for kw in keywords)
-            and f"${name}" not in cmd
-            and f"${{{name}}}" not in cmd
-        ):  # noqa: E501
+        if any(kw in inner_cmd for kw in keywords) and _name_unused(name, cmd):
             return name
-    base = _VAR_FALLBACK
-    if f"${base}" not in cmd and f"${{{base}}}" not in cmd:
-        return base
+    if _name_unused(_VAR_FALLBACK, cmd):
+        return _VAR_FALLBACK
     for i in range(1, 10):
-        name = f"{base}{i}"
-        if f"${name}" not in cmd and f"${{{name}}}" not in cmd:
-            return name
-    return base
+        candidate = f"{_VAR_FALLBACK}{i}"
+        if _name_unused(candidate, cmd):
+            return candidate
+    return _VAR_FALLBACK
 
 
 def _quote_state_at(text: str, pos: int) -> tuple[bool, bool]:
@@ -109,6 +109,10 @@ def _detect_rule2(cmd: str) -> tuple[str, str | None, int, int] | None:
             continue
         full_match = m.group(0)
         inner_cmd = m.group(2).strip()
+        # Rule 2 is specifically "outer double-quote -> $() -> inner double-quote"
+        # conflict. VAR="$(cmd)" without nested double quotes is valid bash — skip.
+        if '"' not in inner_cmd:
+            continue
         prefix = cmd[: m.start()]
         if _is_compound_prefix(prefix):
             return (full_match, None, m.start(), m.end())
@@ -117,14 +121,25 @@ def _detect_rule2(cmd: str) -> tuple[str, str | None, int, int] | None:
         return (full_match, f"{var}=$({inner_cmd})\n{fixed}", m.start(), m.end())
 
     # Check embedded matches (manual guidance only).
+    # Rule 2B: "$(cmd)" without inner double-quotes still triggers Claude Code's
+    # parser (documented in .claude/rules/14-shell-quoting-hygiene.md).
+    # Exception: standalone "$(cmd)" in an assignment context (VAR="$(cmd)") with
+    # no inner double-quotes is valid bash — skip to avoid false positives.
     for m in _RULE2_EMBEDDED.finditer(cmd):
         _, in_single = _quote_state_at(cmd, m.start())
         if in_single:
             continue
-        full_match = m.group(0)
+        is_standalone = len(m.group(0)) == len(m.group(1)) + 2
+        if is_standalone and '"' not in m.group(2).strip():
+            prefix = cmd[: m.start()]
+            # Only skip genuine shell assignments: VAR="$(cmd)" or A=x B="$(cmd)".
+            # Check the last command segment (after any &&/||/;/| separator) to
+            # avoid false skips for arguments like `echo VAR="$(cmd)"` while still
+            # allowing valid assignments after separators like `cd repo && WT="$(cmd)"`.
+            last_seg = re.split(r"&&|\|\||[;|&\n]", prefix)[-1].lstrip()
+            if re.match(r"^(?:\w+=\S*\s+)*\w+=$", last_seg):
+                continue
         inner_expr = m.group(1)  # e.g., "$(git rev-parse HEAD)"
-        inner_cmd = m.group(2).strip()
-        # Embedded: suggest extracting the subshell manually.
         return (inner_expr, None, m.start(), m.end())
 
     return None
@@ -150,27 +165,26 @@ def main() -> None:
         sys.exit(0)
 
     result = _detect_rule2(cmd)
-    if result:
-        token, fix, start, end = result
-        if fix is None:
-            # Manual guidance: use position-based replacement for precision.
-            quoted_var = '"$VAR"'
-            manual_cmd = cmd[:start] + quoted_var + cmd[end:]
-            _print_fix(
-                "Rule 2 -- double-quoted $(cmd) subshell",
-                f"Found: {token}  |  Split manually: extract VAR=$(...) before the separator",
-                "# Manual fix required -- hoist order depends on context:\n"
-                f"# VAR=(...)\n# {manual_cmd}",
-            )
-        else:
-            _print_fix(
-                "Rule 2 -- outer double-quote wrapping $(cmd) subshell",
-                f"Found: {token}  |  Trigger: Unhandled node type: string",
-                fix,
-            )
-        sys.exit(2)
+    if result is None:
+        sys.exit(0)
 
-    sys.exit(0)
+    token, fix, start, end = result
+    if fix is None:
+        # Manual guidance: use position-based replacement for precision.
+        manual_cmd = cmd[:start] + '"$VAR"' + cmd[end:]
+        _print_fix(
+            "Rule 2 -- double-quoted $(cmd) subshell",
+            f"Found: {token}  |  Split manually: extract VAR=$(...) before the separator",
+            "# Manual fix required -- hoist order depends on context:\n"
+            f"# VAR=(...)\n# {manual_cmd}",
+        )
+    else:
+        _print_fix(
+            "Rule 2 -- outer double-quote wrapping $(cmd) subshell",
+            f"Found: {token}  |  Trigger: Unhandled node type: string",
+            fix,
+        )
+    sys.exit(2)
 
 
 if __name__ == "__main__":
