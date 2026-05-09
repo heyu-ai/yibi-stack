@@ -21,6 +21,7 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/bash-ap2-check.py\"",
             "statusMessage": "AP2 Unicode check...",
+            "async": false,
             "timeout": 10
           }
         ]
@@ -32,7 +33,20 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/bash-ap1-inline-check.sh\"",
             "statusMessage": "AP1 inline complexity check...",
+            "async": false,
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/bash-smart-fix.py\"",
+            "statusMessage": "Rule 2 / output-filter check...",
+            "async": false,
+            "timeout": 10
           }
         ]
       }

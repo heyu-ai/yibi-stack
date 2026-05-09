@@ -38,7 +38,7 @@ Rule 1: `$(cmd $VAR)` — always quote: `"$VAR"` (prevents simple_expansion)
 Rule 2: `"$(cmd "$VAR")"` same-type quote conflict — split into separate bash calls
 Rule 3: `grep "pat\|pat2"` double-quoted BRE — use single quotes: `grep 'pat\|pat2'`
 Rule 4: `$(outer "$(inner)")` reverse nesting — split into two bash calls
-Rule 5: `"${VAR}"` brace form triggers expansion false positive — use `"$VAR"` plain form
+Rule 5: both `"${VAR}"` and `"$VAR"` trigger false positives (expansion / simple_expansion) — add to allow list; do NOT rewrite to plain form as that also triggers
 
 ## Irreversible Operations
 
