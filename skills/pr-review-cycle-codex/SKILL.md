@@ -3,11 +3,22 @@ name: pr-review-cycle-codex
 type: know
 scope: global
 description: >
-  pr-review-cycle 的 cross-model 強化版：流程相同，但在 CI 通過後、merge 前
-  追加 codex review（硬性 gate）+ codex challenge（adversarial 第二意見），
-  補強 Claude 系 reviewer 可能集體錯過的盲點；merge 後收尾 spectra archive + Jira sync。
+  [DEPRECATED] codex-only 強化版。新 session 請依規模選擇：小型 PR 用
+  `/pr-review-cycle`（Claude-only，4 subagent 平行）；中大型或高風險 PR 用
+  `/pr-review-cycle-mob`（mob review by multiple frontier-model agents，自動
+  偵測 codex / gemini / 本地 open-weights，≥2 家可用即啟動 debate + aggregate）。
+  本 skill 內容保留供既有 session / muscle memory 不中斷。
   觸發情境：「跑 PR cycle + codex」「pr-review-cycle-codex」「PR 流程加 cross-model review」「cross model review」「jira sync」「spectra archive」
 ---
+
+> **[DEPRECATED]** 本 skill 為 codex-only 強化版的早期設計。新 session 請依規模選擇：
+>
+> - 小型 PR / 快速合併 → [`/pr-review-cycle`](../pr-review-cycle/SKILL.md)
+>   （Claude-only，4 subagent 平行）
+> - 中大型或高風險 PR → [`/pr-review-cycle-mob`](../pr-review-cycle-mob/SKILL.md)
+>   （mob review，自動偵測 codex / gemini / open-weights，≥2 家啟動 debate）
+>
+> 本檔案內容保留是為了不中斷既有 muscle memory，未來會移除。
 
 # PR Review Cycle（Codex 強化版）
 

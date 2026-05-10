@@ -35,8 +35,9 @@
 
 | Skill | 描述 | SKILL.md |
 |-------|------|----------|
-| `pr-review-cycle` | 完整 PR 生命週期：建立 PR → parallel review → fix → re-review → simplify → CI → merge → spectra archive + Jira sync（通用，任何技術棧） | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |
-| `pr-review-cycle-codex` | pr-review-cycle 的 cross-model 強化版：CI 通過後追加 codex review（硬性 gate）+ codex challenge（adversarial 第二意見）→ merge → spectra archive + Jira sync | [pr-review-cycle-codex/SKILL.md](pr-review-cycle-codex/SKILL.md) |
+| `pr-review-cycle` | 完整 PR 生命週期：建立 PR → parallel review（Claude pr-review-toolkit 4 subagent）→ fix → re-review → simplify → CI → merge → spectra archive + Jira sync。適用小型 feature / 快速合併 | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |
+| `pr-review-cycle-mob` | Mob review by multiple frontier-model agents：自動偵測 codex / gemini / 本地 open-weights，≥2 家可用即啟動 R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM（含 actionable NIT）→ 人類快速複查 → CI → merge → spectra archive + Jira sync。適用中大型 PR / 高風險改動 / 跨家視角壓力測試；外部模型不足 2 家時退回 `/pr-review-cycle` | [pr-review-cycle-mob/SKILL.md](pr-review-cycle-mob/SKILL.md) |
+| `pr-review-cycle-codex` | [DEPRECATED] codex-only 強化版；想要 mob 群審用 `/pr-review-cycle-mob`，小型 PR 用 `/pr-review-cycle`。內容保留供既有 session 不中斷 | [pr-review-cycle-codex/SKILL.md](pr-review-cycle-codex/SKILL.md) |
 | `ci-triage` | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests），含 Python / JS / Go 工具範例 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |
 | `tdd-kentbeck` | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
 | `flutter-tdd` | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
