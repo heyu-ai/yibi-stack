@@ -151,6 +151,52 @@ gh pr checks {{pr_number}} --watch
 
 ### Step 7 — Merge
 
+**Pre-merge 確認：版本 bump**
+
+執行 `gh pr merge` 之前，先暫停並向使用者確認：
+
+> 此次變更是否需要 bump 版本？
+>
+> - **需要** → 請先執行 [`/bump-version`](../bump-version/SKILL.md)（會在 feature branch 上 commit 版本檔 + CHANGELOG + git tag + push）。
+>   完成後**回到上一步等待 CI 全綠**（新 commit 觸發新一輪 CI），再回到本步驟繼續 merge。
+>   注意：`--squash` merge 後 git tag 指向 feature branch HEAD 而非 main 的 merge commit；如需 tag 指向 main，merge 後在 main 上重新 tag。
+> - **不需要** → 確認後繼續 merge。
+> - **不確定** → 簡述本次變更性質，由 agent 依下方準則建議 bump 類型，**等使用者確認後**再執行 `/bump-version` 或繼續 merge。
+
+判斷準則（agent 提交使用者裁決前可先評估）：
+
+| 變更性質 | 建議 |
+|---------|------|
+| 純內部重構、測試、CI 設定 | 通常不需要 bump |
+| Bug fix、文件修正、效能調整、相容性修正 | patch |
+| 新功能、新 API（向後相容）| minor |
+| Breaking change（API 不相容）| major |
+
+（判斷準則僅供快速評估，完整定義見 [`/bump-version`](../bump-version/SKILL.md) Step 1）
+
+使用者明確回應「不需要」或「已執行 `/bump-version`」後，才執行下一步 `gh pr merge`。
+若使用者回應「已執行 `/bump-version`」，先確認 bump commit 已推送至遠端：
+
+```bash
+BRANCH=$(git branch --show-current)
+git fetch origin $BRANCH
+git log --oneline -3 origin/$BRANCH
+```
+
+確認近 3 筆 commit 中有一筆訊息符合 `chore(release): v*` 格式後再繼續；若未找到，提示使用者完成 `/bump-version` Step 4（push）後再回來。
+從該 commit message 提取版本號（如 `v1.2.3`），再精確確認該版本 tag 已推送至遠端（commit push 與 tag push 是獨立操作，tag 可能靜默未推）：
+
+```bash
+git ls-remote --tags origin 'refs/tags/v<TAG_VERSION>'
+```
+
+（例：`git ls-remote --tags origin 'refs/tags/v1.2.3'`）
+確認輸出包含精確版本 tag，而非僅有舊版 tag；若輸出為空，提示使用者執行 `git push --tags`。
+
+> **若目標 repo 有 tag-triggered CI/CD**（如 GitHub Release 自動發布）：git tag 在 merge 之前就已推送，可能觸發生產部署流程。評估風險後再決定是否繼續；或改為 merge 後在 main 上重新 tag。
+
+---
+
 CI 全綠後 squash merge，並取得 merge commit SHA（供 Step 8b Jira comment 使用）：
 
 ```bash
@@ -251,3 +297,4 @@ Spectra change `{{change_name}}` 已 archive，spec 狀態已更新為完成。
 | Jira key 無法從 branch / PR 偵測 | 詢問使用者提供 key（格式：`PROJECT-123`），或確認此 PR 無對應 Jira issue 後跳過 |
 | Jira transition 選項不確定 | 呼叫 `getTransitionsForJiraIssue` 列出所有選項後詢問使用者確認 |
 | Jira MCP 需認證 | Atlassian MCP 需要 OAuth；若工具回傳 auth 錯誤，提示使用者在 claude.ai 完成授權 |
+| 使用者跳過 bump 但事後需要版本標記 | 建立 release branch，在上面跑 [`/bump-version`](../bump-version/SKILL.md)，再開 PR merge 進 main（CI 通過 + 確認 CHANGELOG 正確即可合併，不需跑完整 review cycle；若 main 已有新 commit，CHANGELOG 可能含多餘項目，需人工確認） |
