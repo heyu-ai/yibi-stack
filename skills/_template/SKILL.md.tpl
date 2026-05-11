@@ -38,6 +38,20 @@ grep "REQUIRED_VAR" .env
 
 若不存在，說明如何建立。
 
+### Step 2.5: Effort Level 策略（視情況加入）
+
+> 當 skill 在不同深度/廣度下有明顯差異時，在 Step 3 前加入此區塊。
+
+當前 effort：${CLAUDE_EFFORT}
+
+| Effort | 執行策略 |
+|--------|---------|
+| high | 完整執行（擴大掃描範圍、完整報告；附件下載等副作用仍需使用者逐次確認） |
+| medium | 標準執行（預設設定值） |
+| low | 最小步驟（只回報統計數字，跳過耗時子任務） |
+
+> 若 `${CLAUDE_EFFORT}` 未設定或為 `normal`，視為 medium。effort 控制分析深度與資料範圍，不可逆操作（大量下載、外部寄信、付費 API 呼叫）不因 effort 自動授權，仍需使用者確認。
+
 ### Step 3: 執行
 
 ```bash
