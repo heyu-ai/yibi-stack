@@ -69,26 +69,33 @@ echo "BUMP_VERSION=$BUMP_VERSION, TAG_VERSION=$TAG_VERSION, VERSION_FILE=$VERSIO
 工具優先序：git-cliff（有 cliff.toml 或 .cliff.toml） > git-cliff（preset） > git log fallback。
 工具差異見 `references/changelog-tools.md`。
 
-### Step 4: Commit + Tag + Push
+### Step 4 — Pre-release Test Gate
+
+```bash
+~/.claude/skills/bump-version/scripts/gates.sh
+```
+
+若需略過測試（緊急情況）：
+
+```bash
+~/.claude/skills/bump-version/scripts/gates.sh --skip-gates
+```
+
+`gates.sh` 依 `PROJECT_TYPE` 自動選擇對應的測試指令：
+
+| 平台 | 執行內容 |
+|------|---------|
+| flutter | `flutter analyze` + `flutter test` |
+| python | `uv run pytest`（或 `pytest`） |
+| nodejs | `npm test` |
+| go | `go test ./...` |
+
+### Step 5 — Commit
 
 ```bash
 git add -A
 git commit -m "chore(release): v${TAG_VERSION}"
-git tag "v${TAG_VERSION}"
-git push
-git push --tags
 ```
-
-**Go 專案**：無版本檔修改，直接從 tag 步驟開始：
-
-```bash
-git tag "v${TAG_VERSION}"
-git push --tags
-```
-
-> **Go major version 注意**：若 bump 到 v2 以上，必須在 tag 前手動更新 `go.mod` 的 module 行
-> 加入 `/v2` 後綴（例：`module github.com/org/repo/v2`）。跳過此步驟會產生不符合 Go module
-> 規範的 tag。詳見 `references/project-types.md`。
 
 **Node.js 專案**：若有 `package-lock.json`，Step 2 後需更新：
 
@@ -96,15 +103,38 @@ git push --tags
 npm install --package-lock-only
 ```
 
-### Step 5: 報告
+### Step 6 — Release
+
+```bash
+~/.claude/skills/bump-version/scripts/release.sh
+```
+
+此腳本完整執行：
+
+1. 確認工作目錄乾淨
+2. `git tag vX.Y.Z` + `git push origin vX.Y.Z`（觸發 CI）
+3. 從 CHANGELOG.md 擷取當版 release notes
+4. `gh release create vX.Y.Z` 建立 GitHub Release
+5. 執行 platform hook（如 Flutter：驗證 GitHub Actions 已觸發）
+
+**Flutter 專案**：推 tag 後 GitHub Actions 自動觸發 `.ipa` 建置 + TestFlight 上傳。
+設定方式見 `references/flutter-ci-testflight.md`。
+
+**Go major version 注意**：若 bump 到 v2 以上，必須在 Step 5 commit 前手動更新 `go.mod` 的 module 行
+加入 `/v2` 後綴（例：`module github.com/org/repo/v2`）。跳過此步驟會產生不符合 Go module
+規範的 tag。詳見 `references/project-types.md`。
+
+### Step 7 — 報告
 
 ```text
 === Release 完成 ===
 版本：v${BUMP_VERSION}
 版本檔：${VERSION_FILE}
-Tag：v${BUMP_VERSION}
-CHANGELOG：已更新
+Tag：v${TAG_VERSION}
+GitHub Release：已建立
 ```
+
+Flutter 專案另會印出 CI workflow run URL，可追蹤 TestFlight 上傳進度。
 
 ---
 
@@ -156,3 +186,8 @@ Jira 範例：`ticket_pattern: "(PROJ|MYTEAM)-[0-9]+"`
 | git-cliff 格式與現有 CHANGELOG 不符 | 建立 `cliff.toml` 自訂格式，見 `references/changelog-tools.md` |
 | commit hook 擋住 Merge commit | 正常，hook 已跳過 `Merge` 開頭的 commit |
 | commit-convention.yaml 設定未生效 | 確認 `.claude/hooks/commit-msg-parse.py` 存在（重新執行 init-commit-hook.sh） |
+| Flutter 專案沒看到 CI 觸發 | 確認 `.github/workflows/` 有監聽 `on: push: tags: ['v*']` 的 workflow；參考 `references/flutter-ci-testflight.md` |
+| `gh release create` 失敗（401/403）| 確認 `gh auth status` 已登入，或執行 `gh auth login` |
+| release notes 顯示「See CHANGELOG.md」| CHANGELOG 格式需為 `## [X.Y.Z]`（Keep a Changelog 格式），git-cliff 自動生成符合此格式 |
+| 想略過測試快速發版 | `gates.sh --skip-gates`（GitHub Release notes 會加上略過測試警告） |
+| tag 已推但 GitHub Release 未建立（`gh release create` 失敗）| 直接補建：`gh release create vX.Y.Z --notes "See CHANGELOG.md"`；或刪除 tag 重跑：`git push origin :refs/tags/vX.Y.Z && release.sh` |

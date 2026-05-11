@@ -205,6 +205,7 @@ echo "[OK] $BUMP_TYPE bump: v${NEW_VERSION}"
 echo "[OK] 版本檔：$VERSION_FILE"
 
 # 結果輸出（供 agent 讀取）
+# 輸出變數：BUMP_VERSION、TAG_VERSION、VERSION_FILE、PROJECT_TYPE
 # Flutter 的 TAG_VERSION 去掉 +build，其他語言與 BUMP_VERSION 相同
 TAG_VERSION=$(echo "$NEW_VERSION" | cut -d+ -f1)
 
@@ -222,5 +223,6 @@ if [ "$PROJECT_TYPE" = "flutter" ]; then
 fi
 
 RESULT_ENV="/tmp/bump_version_result.env"
-printf 'BUMP_VERSION=%s\nTAG_VERSION=%s\nVERSION_FILE=%s\n' "$NEW_VERSION" "$TAG_VERSION" "$VERSION_FILE" > "$RESULT_ENV"
+REPO_ROOT_PATH=$(git rev-parse --show-toplevel)
+printf 'BUMP_VERSION=%q\nTAG_VERSION=%q\nVERSION_FILE=%q\nPROJECT_TYPE=%q\nREPO_ROOT=%q\n' "$NEW_VERSION" "$TAG_VERSION" "$VERSION_FILE" "$PROJECT_TYPE" "$REPO_ROOT_PATH" > "$RESULT_ENV"
 echo "[OK] 結果寫入：$RESULT_ENV"
