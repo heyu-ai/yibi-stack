@@ -258,6 +258,7 @@ cat README.md
 - [ ] 用了 `grep "...\|..."` 雙引號 BRE 嗎？→ 改單引號
 - [ ] 用了 `$(outer "$(inner)")` 反向巢狀嗎？→ 拆兩 call
 - [ ] 這是不可逆操作嗎？（rm -rf / force push / migrate / publish）→ 先說明，等確認
+- [ ] 用了 `sudo` / `env` / `watch` 等 wrapper 包不可逆操作嗎？→ deny rule 仍會攔截，不要以為 wrapper 能繞過
 
 **AP1 門檻：換行 / 引號 / 內嵌語言 三項中任兩項 yes → 拆 bash call / 寫 script / 換工具**
 
@@ -370,6 +371,46 @@ STOP：操作描述
 ```
 
 AP3 / Rule 14 Rule 5 / Rule 15 的複雜度判斷靠 prompt rule 教學，不在 hook 範圍。
+
+## exec wrapper 穿透 deny rule（2026-05）
+
+Claude Code `settings.json` 的 `permissions.deny` 清單現在可穿透以下 wrapper 指令：
+
+| wrapper | 說明 |
+|---------|------|
+| `sudo` | 權限提升 |
+| `env` | 環境變數設定 |
+| `watch` | 週期執行 |
+| `ionice` | I/O 優先級設定 |
+| `setsid` | 新 session 執行 |
+
+**重要**：以下寫法全部都會被 deny rule 攔截，不要誤以為 wrapper 能繞過：
+
+```bash
+# 這類寫法也會被 deny rule 攔截
+sudo rm -rf /dangerous/path
+env DANGEROUS_VAR=1 bash script.sh
+watch -n1 bash -c "rm /tmp/files"
+ionice -c 3 rm -rf /path
+```
+
+**使用者應善用此機制**：在 `settings.json` 設好 deny rule 後，即使 agent
+生成帶 wrapper 的指令，仍會被攔截。這是加強 Rule 15 不可逆操作防護的可靠手段：
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf*)",
+      "Bash(sudo rm*)",
+      "Bash(env * rm*)"
+    ]
+  }
+}
+```
+
+**對 agent 的影響**：被 deny rule 攔截時，agent 應停止並說明操作內容，
+請使用者確認後手動執行（Rule 15 標準行為），而非嘗試改用 wrapper 繞過。
 
 ## 為什麼會這樣（技術背景）
 

@@ -310,6 +310,19 @@ subagent 會：
 **不適用**：Cases 25/26（引號修法）、Cases 20/23（拆 bash call 即可）。
 這些 cases 不需要 subagent，只需按對應修法調整指令。
 
+## exec wrapper 穿透 deny rule（2026-05）
+
+Claude Code deny rule 現在可穿透 `env` / `sudo` / `watch` / `ionice` / `setsid`：
+
+```bash
+# 這類寫法也會被 deny rule 攔截
+sudo rm -rf /dangerous/path
+env DANGEROUS_VAR=1 bash script.sh
+```
+
+不要以為用 wrapper 就能繞過 deny rule。
+被攔截時，依 Rule 15 標準行為：說明操作內容，請使用者手動執行。
+
 ## 完整方法論
 
 跨專案完整版見 skill `bash-anti-patterns`（含 before/after 範例、agent 自檢 checklist、
