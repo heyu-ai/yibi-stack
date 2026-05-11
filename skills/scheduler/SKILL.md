@@ -111,3 +111,27 @@ uv run python -m tasks.scheduler uninstall
 cd ../side-project/MiniShell
 bash scripts/start-acp-gateway.sh
 ```
+
+---
+
+## CLAUDE_CODE_SESSION_ID 追蹤
+
+Scheduled job 在 Claude Code 環境中執行時，`$CLAUDE_CODE_SESSION_ID` 可用於將 log 與對應的 Claude Code session 關聯，方便事後追蹤：
+
+```bash
+# 在 job script 中記錄 session ID
+echo "job_start: $(date -Iseconds) session=$CLAUDE_CODE_SESSION_ID" >> /tmp/ainization-scheduler.log
+```
+
+也可以在 `command` 類型的 job 中直接使用環境變數：
+
+```json
+{
+  "id": "my-job",
+  "type": "command",
+  "command": ["bash", "-c", "echo session=$CLAUDE_CODE_SESSION_ID >> /tmp/my-job.log && uv run ..."]
+}
+```
+
+> 提示：將 session ID 記錄進 log 後，可透過 handover log 與 insight 交叉比對，
+> 還原特定 session 觸發的 scheduled job 執行紀錄。

@@ -303,6 +303,30 @@ uv run --directory "$SKILL_REPO" \
 
 ---
 
+## PostToolUse Hook 延伸
+
+PostToolUse hook 現在支援所有工具輸出替換（`hookSpecificOutput.updatedToolOutput`），
+不再只限 MCP 工具。可考慮在高價值工具（如 `Write`、`Bash`）執行後自動記錄 insight，
+在 retro 時提供更豐富的素材：
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [{ "type": "command", "command": "python3 ~/.agents/scripts/capture-write-insight.py" }]
+      }
+    ]
+  }
+}
+```
+
+> 評估建議：只為「寫入重要產出」的工具加 hook，避免 Bash/Read 等高頻工具造成過多雜訊。
+> 此 hook 主要補強 session-memory Stop hook 尚未收到的 mid-session insight。
+
+---
+
 ## 常見問題
 
 | 問題 | 處理方式 |
