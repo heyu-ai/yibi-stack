@@ -84,6 +84,29 @@ CI 全綠後才進 Step 7。
 
 ---
 
+### Step 6.5 — Cross-Model Review 路徑選擇（CI 通過後）
+
+CI 全綠後，選擇以下其中一條路徑執行 cross-model review：
+
+| 路徑 | 指令 | 適用情境 |
+|------|------|---------|
+| **A：Codex Review + Challenge（原有流程）** | `Skill(skill="codex", args="review")` | 本地 codex CLI 可用、需要 adversarial challenge |
+| **B：claude ultrareview（新選項）** | `claude ultrareview {{pr_number}}` | codex 不可用、CI 非互動式環境、需要雲端並行 multi-agent review |
+
+**路徑 B：claude ultrareview**
+
+```bash
+claude ultrareview {{pr_number}}
+```
+
+> **注意**：`claude ultrareview` 為付費功能（billed），執行前確認使用者已授權計費。
+> 選擇路徑 B 後，**跳過 Step 7 / Step 8**，直接進 Step 9（Merge）。
+> ultrareview 輸出已包含 review findings；Critical findings 處理方式與 Step 7 GATE: FAIL 相同。
+
+選擇路徑 A 繼續以下 Step 7。
+
+---
+
 ### Step 7 — Codex Review（硬性 gate）
 
 觸發方式：`Skill(skill="codex", args="review")`（codex skill 以 `args` 做 mode 偵測）
@@ -347,6 +370,8 @@ Spectra change `{{change_name}}` 已 archive，spec 狀態已更新為完成。
 | codex review PASS 但 challenge 找到 Critical | 依 Step 8 分級處置；Critical 需使用者明確拒絕才能 knowingly ship |
 | codex 跑去讀 `.claude/skills/` 噪音檔案 | codex skill 內建 filesystem boundary 防護；若仍發生，建議重跑 |
 | 想跳過 challenge 只跑 review | 用 `/pr-review-cycle`；本 skill 是「全套 cross-model 強化」入口，不提供半套選項 |
+| codex 無法使用、想用 claude ultrareview | 在 Step 6.5 選擇路徑 B，執行 `claude ultrareview {{pr_number}}`；路徑 B 跳過 Step 7/8 |
+| claude ultrareview 報計費錯誤 | ultrareview 為付費功能，確認帳戶已授權後重試 |
 | Step 1–6 遇到問題 | 參照 `/pr-review-cycle` 的常見問題表（完全共用） |
 | spectra archive validation 失敗 | `spectra analyze {{change_name}}` 查看 Critical 錯誤，修正後再 archive；`--no-validate` 需使用者明確指示才使用 |
 | Jira key 無法從 branch / PR 偵測 | 詢問使用者提供 key（格式：`PROJECT-123`），或確認此 PR 無對應 Jira issue 後跳過 |
