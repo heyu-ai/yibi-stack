@@ -11,8 +11,7 @@ if [ ! -d "$SKILLS_DIR" ]; then
     exit 1
 fi
 
-ALL_SKILLS=$(ls "$SKILLS_DIR" | sort)
-GSTACK_SKILLS=""
+GSTACK_SKILLS=()
 
 for d in "$SKILLS_DIR"/*/; do
     name=$(basename "$d")
@@ -20,14 +19,18 @@ for d in "$SKILLS_DIR"/*/; do
     if [ -n "$target" ]; then
         case "$target" in
             */gstack/*)
-                GSTACK_SKILLS="${GSTACK_SKILLS}${name}"$'\n'
+                GSTACK_SKILLS+=("$name")
                 ;;
         esac
     fi
 done
 
-GSTACK_SORTED=$(printf '%s' "$GSTACK_SKILLS" | sort)
+if [ "${#GSTACK_SKILLS[@]}" -gt 0 ]; then
+    GSTACK_SORTED=$(printf '%s\n' "${GSTACK_SKILLS[@]}" | sort)
+else
+    GSTACK_SORTED=""
+fi
 
 comm -23 \
-    <(printf '%s\n' $ALL_SKILLS) \
-    <(printf '%s\n' $GSTACK_SORTED | grep -v '^$')
+    <(ls "$SKILLS_DIR" | sort) \
+    <(printf '%s\n' "$GSTACK_SORTED" | grep -v '^$')

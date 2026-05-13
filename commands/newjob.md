@@ -81,20 +81,17 @@ Worktree 建立後，從主 repo 複製被 `.gitignore` 排除但開發必需的
 
 ```bash
 # EnterWorktree 後 cwd 已切換；用 git worktree list 找主 repo 路徑
-MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
-if [ -z "$MAIN_REPO" ]; then
-  echo '[FAIL] git worktree list 無法取得主 repo 路徑' >&2
+# --porcelain 第一行格式固定為 "worktree <path>"，路徑含空格也安全
+# awk/cut 的單引號引數在 $() 內觸發 CC token scanner；改用 # prefix removal 規避
+WT_LINE=$(git worktree list --porcelain | head -1)
+MAIN_REPO=${WT_LINE#worktree }
+if [ -z "$MAIN_REPO" ] || [ "$MAIN_REPO" = "$WT_LINE" ]; then
+  echo '[FAIL] git worktree list --porcelain 輸出非預期格式，無法取得主 repo 路徑' >&2
   exit 1
 fi
 WT=$(git rev-parse --show-toplevel)
 
-for f in \
-  .env \
-  backend/.env \
-  frontend/.env \
-  admin/.env \
-  mobile/.env \
-; do
+for f in .env backend/.env frontend/.env admin/.env mobile/.env; do
   [ -f "$MAIN_REPO/$f" ] && cp "$MAIN_REPO/$f" "$WT/$f" && echo "  [OK] copied $f"
 done
 
@@ -127,13 +124,15 @@ fi
 # BRANCH_NAME 是 port registry 的 key，必須與 git branch name 一致
 # 讓 /clean-gone 和 /clean-merged 的 release 步驟能對上
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
-if [ -z "$MAIN_REPO" ]; then
-  echo '[FAIL] git worktree list 無法取得主 repo 路徑' >&2
+WT_LINE=$(git worktree list --porcelain | head -1)
+MAIN_REPO=${WT_LINE#worktree }
+if [ -z "$MAIN_REPO" ] || [ "$MAIN_REPO" = "$WT_LINE" ]; then
+  echo '[FAIL] git worktree list --porcelain 輸出非預期格式，無法取得主 repo 路徑' >&2
   exit 1
 fi
 
-# 偵測 docker-compose 檔案（用 [ -f ] 取代 $(ls "...") 避免 quoted-in-subshell 問題）
+# 偵測 docker-compose 檔案：用相對路徑，cwd 已是 worktree 根目錄
+# 避開 "$VAR/suffix" 形式（會觸發 CC parser 確認框）
 DC_FILE=""
 [ -f docker-compose.yml ] && DC_FILE=docker-compose.yml
 [ -z "$DC_FILE" ] && [ -f docker-compose.yaml ] && DC_FILE=docker-compose.yaml
@@ -173,112 +172,17 @@ uv run --directory "$MAIN_REPO" python -m tasks.local_port_manager init || echo 
 
 ## Step 3: Environment Validation
 
-**重要**：EnterWorktree 後 session cwd 已自動切換到 worktree。以下所有 bash 指令**必須**照 code block 原文執行：
-
-- **不要** `cd <any-path>` 切換目錄（AP3 CWD 污染）
-- **不要** 在指令中加 `WT=$(git rev-parse --show-toplevel)` 或 `$WT/` 前綴（`$(cmd "$WT/...")` 形式觸發 CC 內建 "Unhandled node type: string"；`"${WT}/..."` 括號形式另觸發 Rule 5 false positive）
-- **直接用相對路徑**，code block 已寫好，複製貼上即可
-
-**每個步驟若失敗，診斷並修復後再繼續。**
-
-### 3a. 同步依賴
+環境驗證邏輯住在 script 檔，不在 markdown code block，避免 agent 重寫 bash 觸發 CC hook 確認框。
 
 ```bash
-# Python（pyproject.toml）
-[ -f "pyproject.toml" ] && uv sync --all-extras
-[ -f "backend/pyproject.toml" ] && uv sync --directory backend --all-extras
-# Node（package.json）
-[ -f "frontend/package.json" ] && npm --prefix frontend install
-[ -f "admin/package.json" ] && npm --prefix admin install
-# Flutter（pubspec.yaml）
-if [ -f "mobile/pubspec.yaml" ]; then
-  flutter pub get --directory mobile
-fi
+bash ~/.claude/commands/scripts/newjob-validate.sh
 ```
 
-### 3b. 啟動服務（Project Hook — 全域版本跳過）
+若 `~/.claude/commands/scripts/newjob-validate.sh` 不存在，先在 ainization-skill repo 執行 `make install`。
 
-**全域版本不執行此步驟。** `docker compose up -d` 有副作用（網路、資源、port 佔用），不在全域命令中自動觸發。
+**每個步驟若失敗，診斷並修復後再繼續。** 測試失敗是 warning 不是 blocker。Lint 失敗時自動修復（`make format` 或 `uv run ruff format .`）後重跑。
 
-```bash
-echo "  [SKIP] Step 3b 全域版本跳過（docker compose 由專案層級 newjob.md 負責）"
-```
-
-若需要啟動服務，在**專案層級 `.claude/commands/newjob.md`** 中加入下方範本（此處不執行）：
-
-```text
-# 專案 Step 3b 範本（複製到專案 newjob.md 後，取消 # 前綴）：
-# WT=$(git rev-parse --show-toplevel)
-# DC_FILE=$(ls "$WT/docker-compose.yml" "$WT/docker-compose.yaml" 2>/dev/null | head -1)  # Step 2c 已算過，若同 shell context 可直接沿用
-# if [ -z "$DC_FILE" ]; then echo "  [SKIP] 無 docker-compose 檔案，跳過"; else
-#   docker compose up -d && docker compose ps
-# fi
-```
-
-### 3c. 執行 Migration
-
-```bash
-# Guard：只在有 Makefile 頂層 migrate target（^migrate:）或 alembic.ini 時才執行
-HAS_MIGRATE=0
-[ -f "Makefile" ] && grep -q '^migrate:' Makefile && HAS_MIGRATE=1
-[ -f "alembic.ini" ] && HAS_MIGRATE=1
-[ -f "backend/alembic.ini" ] && HAS_MIGRATE=1
-if [ "$HAS_MIGRATE" = "1" ]; then
-  make migrate 2>/dev/null || uv run --directory backend alembic upgrade head || echo "  [WARN] migration 失敗，請手動確認"
-else
-  echo "  [SKIP] 無 migration 設定，跳過"
-fi
-```
-
-### 3d. 建立綠色 Baseline
-
-```bash
-# Guard：依技術棧偵測，避免 Python 工具跑在 Node/Frontend-only 專案上
-HAS_PYTHON=0
-[ -f "pyproject.toml" ] && HAS_PYTHON=1
-[ -f "backend/pyproject.toml" ] && HAS_PYTHON=1
-HAS_FRONTEND=0
-[ -f "package.json" ] && HAS_FRONTEND=1
-[ -f "frontend/package.json" ] && HAS_FRONTEND=1
-[ -f "admin/package.json" ] && HAS_FRONTEND=1
-[ -f "mobile/pubspec.yaml" ] && HAS_FRONTEND=1
-if [ "$HAS_PYTHON" = "1" ]; then
-  make test 2>/dev/null || uv run pytest
-elif [ "$HAS_FRONTEND" = "1" ]; then
-  make test || npm test || echo "  [WARN] 測試失敗（非 blocker，繼續）"
-else
-  echo "  [SKIP] 無可測試的專案，跳過"
-fi
-```
-
-測試失敗是 **warning** 不是 blocker（使用者可能正要修 broken main）。
-
-### 3e. 確認 Lint 乾淨
-
-```bash
-# Guard：只在有 pyproject.toml 或 backend/pyproject.toml 時才執行 ruff
-if [ -f "pyproject.toml" ] || [ -f "backend/pyproject.toml" ]; then
-  make lint 2>/dev/null || uv run ruff check .
-else
-  echo "  [SKIP] 無 Python 專案，跳過 lint"
-fi
-```
-
-Lint 失敗時自動修復（`make format` 或 `uv run ruff format .`），然後重跑確認通過。
-
-### 3f. 啟用 pre-commit hooks
-
-```bash
-if [ -d ".githooks" ]; then
-  git config core.hooksPath .githooks && echo "  [OK] hooks: .githooks" || echo "  [WARN] git config core.hooksPath 失敗"
-fi
-```
-
-```bash
-if [ ! -d ".githooks" ] && [ -f ".pre-commit-config.yaml" ]; then
-  uv run pre-commit install && echo "  [OK] pre-commit installed" || echo "  [WARN] pre-commit install 失敗，hooks 未啟用"
-fi
-```
+**專案層級覆蓋**：在 `.claude/commands/newjob.md` 取代此步驟，可加入 `docker compose up -d` 及其他 infra 初始化指令。
 
 ## Step 4: Go/No-Go Report
 

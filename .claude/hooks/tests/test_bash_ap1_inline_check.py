@@ -287,8 +287,18 @@ class TestNestedSubshellCase26:
         assert run_hook('git -C "$REPO" log --oneline -5') == 0
 
     def test_ap1_allow_020_awk_subshell(self) -> None:
-        """$(git list | awk '{print $1}') 單引號 awk 不觸發 -> 放行"""
+        """$(git list | awk '{print $1}') 單引號 awk hook 不觸發 -> 放行
+        注意：awk '{print $1}' 在 $() 內仍觸發 CC 內建 parser 確認框（非本 hook 範疇）
+        newjob 已替換為 git worktree list --porcelain + #worktree prefix removal"""
         assert run_hook("MAIN=$(git worktree list | head -1 | awk '{print $1}')") == 0
+
+    def test_ap1_allow_023_porcelain_bare_pipeline(self) -> None:
+        """WT_LINE=$(git worktree list --porcelain | head -1) 無引號引數 -> 放行（newjob 新模式）"""
+        assert run_hook("WT_LINE=$(git worktree list --porcelain | head -1)") == 0
+
+    def test_ap1_allow_024_prefix_removal_expansion(self) -> None:
+        """MAIN_REPO=${WT_LINE#worktree } prefix removal -> 放行（newjob 新模式）"""
+        assert run_hook("MAIN_REPO=${WT_LINE#worktree }") == 0
 
     def test_ap1_block_020_nested_subshell_with_intermediate_quoted_arg(self) -> None:
         """$(outer --opt "value" "$(inner)") 中間有引號引數也應攔截"""
