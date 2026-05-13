@@ -47,6 +47,34 @@ rm -f /tmp/pr-body.md
 
 ---
 
+### Step 1.5 — Scope Drift Detection（Informational，不阻擋）
+
+PR 建立後，先檢查「做了該做的事嗎？沒多做、沒少做？」
+
+```bash
+git diff main...HEAD --stat
+```
+
+同時讀取 PR description（stated intent）：
+
+```bash
+gh pr view --json title,body -q '"\(.title)\n\(.body)"'
+```
+
+比對 diff 與 stated intent，輸出：
+
+```text
+Scope Check: [CLEAN / DRIFT DETECTED / REQUIREMENTS MISSING]
+Intent:    <1 句話：PR 聲稱要做什麼>
+Delivered: <1 句話：diff 實際改了什麼>
+[如有 DRIFT：列出每個不在計畫內的改動]
+[如有 MISSING：列出 PR description 提到但 diff 沒有的需求]
+```
+
+此步驟為 **informational**，不阻擋後續流程。若 DRIFT DETECTED，在 Step 3 的 code review 結果中一併標注。
+
+---
+
 ### Step 2 — Simplify
 
 執行 `/simplify`，對 PR 全部變更跑三個向度的 review（reuse / quality / efficiency）。
