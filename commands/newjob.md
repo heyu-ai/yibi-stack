@@ -220,7 +220,7 @@ echo "  [SKIP] Step 3b 全域版本跳過（docker compose 由專案層級 newjo
 ```bash
 # Guard：只在有 Makefile 頂層 migrate target（^migrate:）或 alembic.ini 時才執行
 HAS_MIGRATE=0
-[ -f "Makefile" ] && grep -q "^migrate:" Makefile && HAS_MIGRATE=1
+[ -f "Makefile" ] && grep -q '^migrate:' Makefile && HAS_MIGRATE=1
 [ -f "alembic.ini" ] && HAS_MIGRATE=1
 [ -f "backend/alembic.ini" ] && HAS_MIGRATE=1
 if [ "$HAS_MIGRATE" = "1" ]; then

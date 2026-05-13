@@ -206,9 +206,11 @@ gh pr checks {{pr_number}} --watch
 若使用者回應「已執行 `/bump-version`」，先確認 bump commit 已推送至遠端：
 
 ```bash
-BRANCH=$(git branch --show-current)
-git fetch origin $BRANCH
-git log --oneline -3 origin/$BRANCH
+git fetch
+```
+
+```bash
+git log --oneline -3 '@{upstream}'
 ```
 
 確認近 3 筆 commit 中有一筆訊息符合 `chore(release): v*` 格式後再繼續；若未找到，提示使用者完成 `/bump-version` Step 4（push）後再回來。
