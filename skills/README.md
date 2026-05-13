@@ -23,6 +23,7 @@
 
 | Skill | 類型 | 描述 | SKILL.md |
 |-------|------|------|----------|
+| `codex` | tool | OpenAI Codex CLI 第二意見：review（pass/fail gate）、challenge（對抗模式）、consult（詢問 codebase）；auth 確認用兩次 bash call，不觸發 if/elif 確認框 | [codex/SKILL.md](codex/SKILL.md) |
 | `verify-gemini-models` | exec | 驗證 Gemini 模型在 Google AI Studio 與 Vertex AI 上的實際可用性（LLM / TTS / Live），支援 Gemini 3.x global 端點 | [verify-gemini-models/SKILL.md](verify-gemini-models/SKILL.md) |
 | `local-port-manager` | exec | 機器層 port 分配登錄，管理多專案服務 port 避免衝突。支援 suggest（查不寫）+ reserve（確認後登記）兩步驟工作流 | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) |
 | `session-memory` | tool | 跨對話工作記憶中樞：跨 Agent / 跨帳號 / 跨機器的統一 handover 交班與 insight 收集系統，所有產出收斂至 `~/.agents/` | [session-memory/SKILL.md](session-memory/SKILL.md) |

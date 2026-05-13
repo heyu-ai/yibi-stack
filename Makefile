@@ -1,4 +1,4 @@
-.PHONY: help lint lint-md format typecheck test check ci install install-project install-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents
+.PHONY: help lint lint-md format typecheck test check ci install install-project install-one install-force-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -140,6 +140,14 @@ install-one: ## Install one skill: make install-one SKILL=<name>
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(CLAUDE_SKILL_DIR)/$(SKILL)"
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(INSTALL_DIR)/$(SKILL)"
 	@echo "✓ $(SKILL) → done"
+
+install-force-one: ## 強制安裝單一 skill，覆蓋 real directory（搶回被 gstack 蓋過的 skill）: make install-force-one SKILL=<name>
+	@if [ -z "$(SKILL)" ]; then echo "✗ SKILL 未指定，用法：make install-force-one SKILL=<name>"; exit 1; fi
+	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  ✗ Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
+	@mkdir -p "$(INSTALL_DIR)" || { echo "  ✗ Cannot create $(INSTALL_DIR)"; exit 1; }
+	@$(CURDIR)/scripts/safe_symlink.sh --force "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(CLAUDE_SKILL_DIR)/$(SKILL)"
+	@$(CURDIR)/scripts/safe_symlink.sh --force "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(INSTALL_DIR)/$(SKILL)"
+	@echo "✓ $(SKILL) → done (forced)"
 
 status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.agents/skills/ (agents)
 	@echo "=== ~/.claude/skills/  (Claude Code) ==="; \
