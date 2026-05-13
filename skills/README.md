@@ -55,12 +55,12 @@
 
 | Skill | 描述 | SKILL.md | 相依工具 |
 |-------|------|----------|---------|
-| `gmail-scan` | 通用 Gmail 掃描（非金融類），支援多 profile 郵件搜尋與附件下載 | [gmail-scan/SKILL.md](gmail-scan/SKILL.md) | `gws` CLI, `uv` |
-| `gmail-billing` | 從 Gmail 掃描金融帳單 PDF，自動下載、解密、分類、轉 CSV | [gmail-billing/SKILL.md](gmail-billing/SKILL.md) | `gws` CLI, `uv`, Java Runtime |
-| `gmail-scan-stock` | 掃描富邦／國泰／永豐金證券月對帳單，彙整庫存股票總現值 | [gmail-scan-stock/SKILL.md](gmail-scan-stock/SKILL.md) | `uv` |
+| `gmail-scan` | 通用 Gmail 掃描（非金融類），支援多 profile 郵件搜尋與附件下載 | [gmail-scan/SKILL.md](gmail-scan/SKILL.md) | `gwscli`, `uv` |
+| `gmail-billing` | 從 Gmail 掃描金融帳單 PDF，自動下載、解密、分類、轉 CSV | [gmail-billing/SKILL.md](gmail-billing/SKILL.md) | `gwscli`, `uv`, Java Runtime |
+| `gmail-scan-stock` | 掃描富邦／國泰／永豐金證券月對帳單，彙整庫存股票總現值 | [gmail-scan-stock/SKILL.md](gmail-scan-stock/SKILL.md) | `gwscli`, `uv` |
 | `einvoice-blank-upload` | 上傳空白未使用發票號碼到財政部電子發票整合服務平台（每兩個月） | [einvoice-blank-upload/SKILL.md](einvoice-blank-upload/SKILL.md) | `uv`, Playwright, 人工 CAPTCHA |
 | `icf-global-news-digest` | 爬取 ICF 官網最新消息與活動，翻譯繁中，產出 Markdown 週報與 HTML 電子報並寄出 | [icf-global-news-digest/SKILL.md](icf-global-news-digest/SKILL.md) | `gwscli`, Chrome MCP |
-| `gmail-newsletter` | 從 Gmail 擷取訂閱電子報，付費電子報輸出全文 Markdown，免費電子報由 Claude 生成摘要 | [gmail-newsletter/SKILL.md](gmail-newsletter/SKILL.md) | `gws` CLI, `uv` |
+| `gmail-newsletter` | 從 Gmail 擷取訂閱電子報，付費電子報輸出全文 Markdown，免費電子報由 Claude 生成摘要 | [gmail-newsletter/SKILL.md](gmail-newsletter/SKILL.md) | `gwscli`, `uv` |
 | `saas-tracker` | 掃描 Gmail 中的 SaaS 發票與收據，自動辨識廠商、金額、幣別，匯出費用追蹤 CSV | [saas-tracker/SKILL.md](saas-tracker/SKILL.md) | `gwscli`, `uv` |
 | `saas-expense` | 整理 SaaS 代墊請款檔案：重命名 invoice PDF、擷取付款截圖，上傳至 Google Drive 報帳目錄 | [saas-expense/SKILL.md](saas-expense/SKILL.md) | `uv`, Google Drive MCP |
 | `ledger-import` | 將 gmail-billing 產出的帳單 CSV 匯入 LedgerOne 記帳系統 | [ledger-import/SKILL.md](ledger-import/SKILL.md) | `uv` |
