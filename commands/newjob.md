@@ -62,6 +62,22 @@ if [ -d "$WT/.git" ]; then
   exit 1
 fi
 
+# Git linked worktree 鎖定被 checkout 的 branch，讓主 repo 無法再 checkout 同一 branch。
+# 此 repo 預設分支為 main，故只檢查 main；若改用其他預設分支名稱，需同步更新此處。
+CURRENT_BRANCH=$(git -C "$WT" rev-parse --abbrev-ref HEAD)
+if [ -z "$CURRENT_BRANCH" ]; then
+  echo '[FAIL] 無法取得 worktree 當前 branch 名稱' >&2
+  exit 1
+fi
+if [ "$CURRENT_BRANCH" = "HEAD" ]; then
+  echo '[FAIL] worktree 處於 detached HEAD 狀態 -- 請先 git checkout <branch>' >&2
+  exit 1
+fi
+if [ "$CURRENT_BRANCH" = "main" ]; then
+  echo '[FAIL] worktree 正在 checkout main -- 請刪除此 worktree 並重新執行 /newjob' >&2
+  exit 1
+fi
+
 UPSTREAM=$(git rev-parse --abbrev-ref 'HEAD@{upstream}' 2>/dev/null)
 [ -z "$UPSTREAM" ] && UPSTREAM="none"
 if [ "$UPSTREAM" = "origin/main" ]; then
