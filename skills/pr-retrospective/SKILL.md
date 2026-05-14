@@ -6,7 +6,8 @@ description: >
   單一 PR / session 收尾的 agent-led 回顧：agent 從 PR context（title/body/AC/commits/diff）
   自動推論 5 題草稿（problem / value / experience / lessons / improvement），
   呈現給使用者校準後寫入 session-memory handover（tags 含 "pr-retrospective" 以便 handover-back 排除），
-  並依答案路由到 /claude-md-management:revise-claude-md、hookify:hookify、
+  並依 Lesson Classifier 路由到 .claude/rules/ 子檔（bash/quoting/skill-authoring/irreversible/security）
+  或 CLAUDE.md（fallback），再觸發 hookify:hookify、/claude-md-management:revise-claude-md、
   /claude-code-setup:claude-automation-recommender、superpowers:writing-skills 等下游 skill。
   觸發關鍵字：pr 回顧、pr retro、pr retrospective、session 收尾、merge 後檢討、
   五個問題回顧、AC 驗收、DoD 完成、what problem we want to solve、
@@ -163,7 +164,7 @@ gh pr diff "$PR_NUMBER" --name-only 2>/dev/null | head -30
 
 ### Q5 Improvement Actions（依 Q4 lessons 路由）
 建議下一步動作：
-- [ ] 更新 CLAUDE.md（lesson N 是 single-line gotcha）-> /claude-md-management:revise-claude-md
+- [ ] 寫入規則文件（lesson N 是可重用規則）-> 依 Step 5 Lesson Classifier 路由到對應層
 - [ ] 新增 hook（lesson N 是應該被自動阻擋的 pattern）-> hookify:hookify
 - [ ] 查歷史 lesson（驗證是否重複犯）-> /learn search "<keyword>"
 
@@ -252,12 +253,47 @@ uv run --directory "$SKILL_REPO" \
 
 ### Step 5 — 路由建議 + 自動跑 read-only 動作
 
+#### Lesson Classifier
+
+Q4 每個 lesson 先按下表分類再決定目的地。**CLAUDE.md 是最後 fallback，不是 default**：
+
+| Lesson 類別 | 判斷訊號（關鍵字 / 情境）| 目的地 |
+|-------------|--------------------------|--------|
+| Bash anti-pattern（AP1/AP2/AP3）| `for loop`、`heredoc`、`$()`、`cd &&`、bash 字串 Unicode | `.claude/rules/13-bash-anti-patterns.md` |
+| Shell quoting hygiene | `simple_expansion`、`Unhandled node type: string`、BRE alternation、反向巢狀 subshell | `.claude/rules/14-shell-quoting-hygiene.md` |
+| SKILL.md authoring | `scope:` 欄位、`{{placeholder}}`、frontmatter 格式、skill 執行介面設計 | `.claude/rules/11-skill-authoring.md` |
+| 不可逆操作邊界 | `protect-push`、`gh pr merge`、`alembic`、`rm -rf`、force push | `.claude/rules/15-irreversible-operations.md` |
+| 安全性 / 注入 | mrkdwn sanitize、`Content-Type`、SQL injection、API key 明文 | `.claude/rules/03-security.md` |
+| Python / task module 慣例 | Pydantic、`@field_validator`、click CLI、SQLite、pytest、parser registry、module structure、CJK 文字規範 | `.claude/rules/` 對應子檔（rule 01-10；依主題對應；03/11/13-15 已有上方專屬行）|
+| Repo metadata（無對應 rule）| 新 runtime 檔案、新 make target、`CLAUDE_EFFORT` hook 語意、本 repo 特定設定 | `<repo>/CLAUDE.md` 對應段落 |
+| 跨專案個人偏好 | 個人工具選擇（`gwscli`、commit email 格式）、跨專案操作習慣 | `~/.claude/CLAUDE.md` |
+| **一次性 / 無重現性** | 環境問題、偶發錯誤、與 codebase 無關的學習 | **不寫文件**（session-memory handover 已記錄即可）|
+
+> **rules/ 存在性**：`.claude/rules/` 只存在於採用 path-scoped rules 架構的 repo。在其他 repo 執行 `/pr-retro` 時，若目標 rule 檔不存在，改路由到 `<repo>/CLAUDE.md` 作為 fallback。
+
+#### CLAUDE.md 行數檢查（路由到任何 CLAUDE.md 時才執行）
+
+若 Lesson Classifier 結果是 `<repo>/CLAUDE.md` 或 `~/.claude/CLAUDE.md`，先確認**目標**行數：
+
+- 路由到 `<repo>/CLAUDE.md` → `wc -l CLAUDE.md`
+- 路由到 `~/.claude/CLAUDE.md` → `wc -l ~/.claude/CLAUDE.md`
+
+若目標 CLAUDE.md >= 180 行（精簡目標 200 行，Anthropic adherence 參考值；提前 20 行為 append buffer），在建議更新前輸出：
+
+```text
+[WARN] <target-path> 已 <N> 行，接近 200 行精簡目標。
+metadata / preference 類 lesson 本就適合 CLAUDE.md；若整體已過長，
+建議先執行 /claude-md-prune 精簡後再 append。本次仍可繼續，由使用者決定。
+```
+
+#### Q5 勾選 -> 行動映射
+
 依 Q5 勾選映射：
 
 | Q5 勾選 | 動作 |
 |---|---|
 | 查歷史 lesson | `Skill(skill="learn", args="search '<Q1 keyword>'")` **自動執行** |
-| 更新 CLAUDE.md | 輸出建議文字：「執行 `/claude-md-management:revise-claude-md`，建議的 gotcha：`<draft>`」|
+| 寫入規則文件 | 依 Lesson Classifier 輸出建議：「lesson N 屬於 <類別>，建議 append 到 `.claude/rules/XX.md`（最相關段落後；不確定就 append 到檔尾）。草稿：`<draft text>`。用 Edit 工具直接寫入 rule 檔。」|
 | 新增 hook | 輸出建議文字：「執行 `hookify:hookify`，建議的 trigger：`<draft>`」|
 | 建立 skill | 輸出建議文字：「執行 `superpowers:writing-skills`，問題定義：`<Q4 lesson>`」|
 | 找 automation | 輸出建議文字：「執行 `/claude-code-setup:claude-automation-recommender`」|
