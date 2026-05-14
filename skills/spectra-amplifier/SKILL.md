@@ -42,6 +42,20 @@ docs/openspec/changes/[feature-name]/
 
 ---
 
+## Effort Level 策略
+
+當前 effort：${CLAUDE_EFFORT}
+
+| Effort | 執行策略 |
+|--------|---------|
+| high | 完整五層展開；Layer 2 跑全三項 QA 速檢（等價類別 + 邊界值 + 狀態轉移）；Layer 3 必做衝突偵測；tasks.md 含優先序自動推導與 `[PRIORITY-REVIEW]` 提示；specs/ 產出完整邊界值場景 |
+| medium | 完整五層展開；Layer 2 依需求選擇 1-2 項 QA 技術；衝突偵測執行；tasks.md 基本 Phase 結構 |
+| low | 只做 Layer 1-2，產出 User Stories 與基本 FS；略過 Layer 3 API/資料模型、Layer 4-5 詳細內容 |
+
+> 若 `${CLAUDE_EFFORT}` 未設定或為 `normal`，視為 high。
+
+---
+
 ## 五層展開流程
 
 ### Layer 1 — User Stories（使用者故事）
