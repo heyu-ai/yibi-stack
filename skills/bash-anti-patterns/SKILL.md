@@ -2,7 +2,20 @@
 name: bash-anti-patterns
 type: know
 scope: global
-description: 識別與避免 Claude Code agent 下 bash 指令的三層防線：(1) Anti-Pattern 1 過度複雜單行（多行 heredoc、巢狀引號、內嵌 Python -c / Node -e、複雜 if/elif、for-loop-file-list），(2) Anti-Pattern 2 bash 字串內特殊 Unicode（em dash、en dash、emoji），(3) Anti-Pattern 3 stateful cd（CWD 污染 / cd-before-git / cd + 2>/dev/null 路徑隱藏）。另含 Rule 14 shell 引號衛生（simple_expansion / 同型引號衝突 / grep BRE alternation / 反向巢狀 subshell / expansion false positive）與 Rule 15 不可逆操作邊界（alembic migrate / terraform apply / git push --force / rm -rf / kubectl apply）。觸發情境：parser 錯誤「Unhandled node type: string」「Contains simple_expansion」「Contains expansion」「Newline followed by # inside quoted argument」、「bash heredoc 失敗」、「cd 會污染 CWD」、「stateful cd」、「不可逆操作要不要執行」、「terraform apply 確認」、「git push --force 安全嗎」、agent 自我反省「這段 bash 太複雜」「要不要寫成 script」「cd 指令要不要改成 --directory」時。
+description: >-
+  識別與避免 Claude Code agent 下 bash 指令的三層防線：(1) Anti-Pattern 1
+  過度複雜單行（多行 heredoc、巢狀引號、內嵌 Python -c / Node -e、複雜 if/elif、
+  for-loop-file-list），(2) Anti-Pattern 2 bash 字串內特殊 Unicode（em dash、
+  en dash、emoji），(3) Anti-Pattern 3 stateful cd（CWD 污染 / cd-before-git /
+  cd + 2>/dev/null 路徑隱藏）。另含 Rule 14 shell 引號衛生（simple_expansion /
+  同型引號衝突 / grep BRE alternation / 反向巢狀 subshell / expansion false
+  positive）與 Rule 15 不可逆操作邊界（alembic migrate / terraform apply /
+  git push --force / rm -rf / kubectl apply）。觸發情境：parser 錯誤「Unhandled
+  node type: string」「Contains simple_expansion」「Contains expansion」「Newline
+  followed by # inside quoted argument」、「bash heredoc 失敗」、「cd 會污染 CWD」、
+  「stateful cd」、「不可逆操作要不要執行」、「terraform apply 確認」、「git push
+  --force 安全嗎」、agent 自我反省「這段 bash 太複雜」「要不要寫成 script」
+  「cd 指令要不要改成 --directory」時。
 ---
 
 # Bash Anti-Patterns — Claude Code Agent 下 bash 指令的三層防線
