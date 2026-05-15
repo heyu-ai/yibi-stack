@@ -368,7 +368,11 @@ cat /tmp/pr-review/prompt-r2.md /tmp/pr-review/r1-aggregate.md > /tmp/pr-review/
 ```
 
 ```bash
-codex exec -C $(git rev-parse --show-toplevel) -s read-only -c 'model_reasoning_effort="high"' < /tmp/pr-review/codex-r2-input.md > /tmp/pr-review/codex-r2.md 2>&1
+WT=$(git rev-parse --show-toplevel)
+```
+
+```bash
+codex exec -C "$WT" -s read-only -c 'model_reasoning_effort="high"' < /tmp/pr-review/codex-r2-input.md > /tmp/pr-review/codex-r2.md 2>&1
 ```
 
 ```bash
@@ -698,7 +702,7 @@ Spectra change `{{change_name}}` 已 archive，spec 狀態已更新為完成。
 | Voice | 偵測 | R1 呼叫 | R2 呼叫 | 預期輸出 |
 |---|---|---|---|---|
 | Claude | always | Task() pr-review-toolkit 4 subagents | lead 自己寫 claude-r2.md | finding markdown |
-| Codex | `which codex` + auth | `codex review --base $BASE` | `codex exec -C $(git rev-parse --show-toplevel) -s read-only < input.md` | [P1]/[P2] 分級 |
+| Codex | `which codex` + auth | `codex review --base $BASE` | `WT=$(git rev-parse --show-toplevel)` then `codex exec -C "$WT" -s read-only < input.md` | [P1]/[P2] 分級 |
 | Gemini *(optional)* | `which gemini` + auth | `gemini -m gemini-3.1-pro-preview -p @input.md` | `gemini -m ... -p @input.md` | 散文格式（lead 解析）|
 
 每個 voice 的 R1 / R2 都應寫到 `/tmp/pr-review/<voice>-r{1,2}.md`，由 lead 統一讀取

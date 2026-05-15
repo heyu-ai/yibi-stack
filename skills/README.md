@@ -37,14 +37,14 @@
 
 | Skill | 描述 | SKILL.md |
 |-------|------|----------|
-| `pr-review-cycle` | 完整 PR 生命週期：建立 PR → parallel review（Claude pr-review-toolkit 4 subagent）→ fix → re-review → simplify → CI → merge → spectra archive + Jira sync。適用小型 feature / 快速合併 | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |
-| `pr-review-cycle-mob` | Mob review by multiple frontier-model agents：自動偵測 codex / gemini / 本地 open-weights，≥2 家可用即啟動 R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM（含 actionable NIT）→ 人類快速複查 → CI → merge → spectra archive + Jira sync。適用中大型 PR / 高風險改動 / 跨家視角壓力測試；外部模型不足 2 家時退回 `/pr-review-cycle` | [pr-review-cycle-mob/SKILL.md](pr-review-cycle-mob/SKILL.md) |
-| `pr-review-cycle-codex` | [DEPRECATED] codex-only 強化版；想要 mob 群審用 `/pr-review-cycle-mob`，小型 PR 用 `/pr-review-cycle`。內容保留供既有 session 不中斷 | [pr-review-cycle-codex/SKILL.md](pr-review-cycle-codex/SKILL.md) |
+| `pr-review-cycle` | 完整 PR 生命週期：建立 PR → parallel review（Claude pr-review-toolkit 4 subagent）→ fix → re-review → simplify → CI → merge → spectra archive + Jira sync。適用小型 feature / 快速合併。住址：[plugins/spectra/](../plugins/spectra/README.md) | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |
+| `pr-review-cycle-mob` | Mob review by multiple frontier-model agents：自動偵測 codex / gemini / 本地 open-weights，≥1 家可用即啟動 R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM（含 actionable NIT）→ 人類快速複查 → CI → merge → spectra archive + Jira sync。適用中大型 PR / 高風險改動 / 跨家視角壓力測試；偵測不到任何外部模型（0 家）時退回 `/pr-review-cycle`。住址：[plugins/spectra/](../plugins/spectra/README.md) | [pr-review-cycle-mob/SKILL.md](pr-review-cycle-mob/SKILL.md) |
+| `pr-review-cycle-codex` | [DEPRECATED] codex-only 強化版；想要 mob 群審用 `/pr-review-cycle-mob`，小型 PR 用 `/pr-review-cycle`。內容保留供既有 session 不中斷。住址：[plugins/spectra/](../plugins/spectra/README.md) | [pr-review-cycle-codex/SKILL.md](pr-review-cycle-codex/SKILL.md) |
 | `ci-triage` | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests），含 Python / JS / Go 工具範例 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |
 | `tdd-kentbeck` | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
 | `flutter-tdd` | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
 | `qa-test-design` | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |
-| `spectra-amplifier` | Spec Kit 五層深度規格展開 + OpenSpec 變更管理框架融合方法論 | [spectra-amplifier/SKILL.md](spectra-amplifier/SKILL.md) |
+| `spectra-amplifier` | Spec Kit 五層深度規格展開 + OpenSpec 變更管理框架融合方法論。住址：[plugins/spectra/](../plugins/spectra/README.md) | [spectra-amplifier/SKILL.md](spectra-amplifier/SKILL.md) |
 | `detect-ai-slop` | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
 | `bash-anti-patterns` | Claude Code agent 下 bash 指令三層防線：AP1 過度複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd；Rule 14 shell 引號衛生（simple_expansion / BRE alternation / 反向巢狀）；Rule 15 不可逆操作邊界（migrate / force push / rm -rf / publish）；含判斷標準、對策決策樹與可選裝 PreToolUse hook | [bash-anti-patterns/SKILL.md](bash-anti-patterns/SKILL.md) |
 | `howie-writing-style` | 模擬 Howie 個人中文寫作風格（四段式架構、茶水間語氣） | [howie-writing-style/SKILL.md](howie-writing-style/SKILL.md) |

@@ -542,7 +542,7 @@ docs/openspec/changes/[feature-name]/
 ```bash
 # 填補完成後
 spectra analyze <change-name> --json   # 只修 Critical + Warning，最多 2 次
-spectra validate "<change-name>"       # 通過才算完成
+spectra validate <change-name>       # 通過才算完成
 ```
 
 ### 與 project-level skill 共存

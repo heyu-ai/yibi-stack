@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Lint bash fenced blocks in SKILL.md / commands markdown files.
 
-從 commands/*.md、skills/**/SKILL.md、.claude/commands/*.md 抽取
+從 commands/*.md、skills/**/SKILL.md、.claude/commands/*.md、
+plugins/**/SKILL.md、plugins/**/commands/*.md 抽取
 所有 ```bash fenced block，透過現有 PreToolUse hook 驗證是否有
 bash anti-pattern 違規。
 
@@ -40,6 +41,8 @@ MD_GLOBS = [
     "commands/*.md",
     "skills/**/SKILL.md",
     ".claude/commands/*.md",
+    "plugins/**/SKILL.md",
+    "plugins/**/commands/*.md",
 ]
 
 
