@@ -11,7 +11,7 @@
 | `global` | 跨專案可用（方法論 / 通用工具）| `make install`（預設） |
 | `project` | 本 repo 限定（需要 `tasks/` Python 實作）| `make install-project` |
 
-`make install-all` = `build-tools` + `install` + `install-project` + `install-handover-hooks` + `install-scheduler` + `plugin patch`（新環境一次到位）。
+`make install-all` = `build-tools` + `install` + `install-project` + `install-handover-hooks` + `install-scheduler` + `patch-pr-review-agents`（新環境一次到位）。
 
 ---
 
@@ -26,7 +26,6 @@
 | `session-memory` | tool | 跨對話工作記憶中樞：跨 Agent / 跨帳號 / 跨機器的統一 handover 交班與 insight 收集系統，所有產出收斂至 `~/.agents/` | [session-memory/SKILL.md](session-memory/SKILL.md) |
 | `local-port-manager` | exec | 機器層 port 分配登錄，管理多專案服務 port 避免衝突。支援 suggest（查不寫）+ reserve（確認後登記）兩步驟工作流 | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) |
 | `protect-push` | tool | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
-| `bump-version` | know | Project-level 版本 bump（Flutter/Python/Node.js/Go）+ CHANGELOG 生成 + git tag 發布，附帶 commit-msg hook 安裝 | [bump-version/SKILL.md](bump-version/SKILL.md) |
 | `learn` | tool | 統一教訓管理 — 整合 gstack learnings、handover 交班教訓、insight 洞察三大來源，支援瀏覽、搜尋、修剪、匯出 | [learn/SKILL.md](learn/SKILL.md) |
 | `pr-retrospective` | tool | PR 收尾五問回顧（agent 推論草稿、使用者校準），寫入 session-memory handover；依 Lesson Classifier 路由 lessons 到 `.claude/rules/` 或 CLAUDE.md，再觸發 hookify、writing-skills 等下游 skill | [pr-retrospective/SKILL.md](pr-retrospective/SKILL.md) |
 | `claude-md-prune` | tool | 審查並精簡 CLAUDE.md：把累積的 gotcha 路由到對應的 `.claude/rules/` 子檔，刪除過期或重複內容，維持 CLAUDE.md 在 Anthropic 建議的 200 行軟上限內 | [claude-md-prune/SKILL.md](claude-md-prune/SKILL.md) |
@@ -37,6 +36,7 @@
 
 | Skill | 描述 | SKILL.md |
 |-------|------|----------|
+| `bump-version` | Project-level 版本 bump（Flutter/Python/Node.js/Go）+ CHANGELOG 生成 + git tag 發布，附帶 commit-msg hook 安裝 | [bump-version/SKILL.md](bump-version/SKILL.md) |
 | `spectra-amplifier` | Spec Kit 五層深度規格展開 + OpenSpec 變更管理框架融合方法論。住址：[plugins/spectra/](../plugins/spectra/README.md) | [spectra-amplifier/SKILL.md](spectra-amplifier/SKILL.md) |
 | `pr-review-cycle` | 完整 PR 生命週期：建立 PR → parallel review（Claude pr-review-toolkit 4 subagent）→ fix → re-review → simplify → CI → merge → spectra archive + Jira sync。適用小型 feature / 快速合併。住址：[plugins/spectra/](../plugins/spectra/README.md) | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |
 | `pr-review-cycle-mob` | Mob review by multiple frontier-model agents：自動偵測 codex / gemini，≥1 家可用即啟動 R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM → 人類快速複查 → CI → merge。住址：[plugins/spectra/](../plugins/spectra/README.md) | [pr-review-cycle-mob/SKILL.md](pr-review-cycle-mob/SKILL.md) |
