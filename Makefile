@@ -1,4 +1,4 @@
-.PHONY: help lint lint-md format typecheck test check ci install install-project install-one install-force-one status uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents
+.PHONY: help lint lint-md format typecheck test check ci install install-project install-one install-force-one status status-own uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -211,6 +211,22 @@ status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.age
 			fi; \
 		done; \
 	fi
+
+status-own: ## Show install status for skills in THIS repo only (excludes gstack/external)
+	@echo "=== yibi-stack skills (CC=~/.claude/skills, AG=~/.agents/skills) ==="; \
+	echo ""; \
+	for s in $(SKILL_DIR)/*/; do \
+		name=$$(basename $$s); \
+		if [ "$$name" = "_template" ]; then continue; fi; \
+		skill_md="$(SKILL_DIR)/$$name/SKILL.md"; \
+		scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
+		own="$(CURDIR)/$(SKILL_DIR)/$$name"; \
+		cc_target=$$(readlink "$(CLAUDE_SKILL_DIR)/$$name" 2>/dev/null); \
+		ag_target=$$(readlink "$(INSTALL_DIR)/$$name" 2>/dev/null); \
+		if [ "$$cc_target" = "$$own" ]; then cc_s="OK"; else cc_s="--"; fi; \
+		if [ "$$ag_target" = "$$own" ]; then ag_s="OK"; else ag_s="--"; fi; \
+		printf "  CC:%-2s AG:%-2s  %-30s [%s]\n" "$$cc_s" "$$ag_s" "$$name" "$$scope"; \
+	done
 
 uninstall: ## Remove own symlinks from ~/.claude/skills/ and ~/.agents/skills/
 	@for s in $(SKILL_DIR)/*/; do \
