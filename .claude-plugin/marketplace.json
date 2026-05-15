@@ -1,9 +1,9 @@
 {
-  "name": "ainization-skill",
-  "description": "Howie's skill marketplace: bash anti-pattern detection, methodology guides, and productivity tools for Claude Code agents.",
+  "name": "yibi-stack",
+  "description": "Agentic skill stack for Claude Code: bash hygiene, Spectra/OpenSpec methodology, PR review workflows, TDD, and productivity tools.",
   "owner": {
     "name": "Howie Yu",
-    "email": "howie.yu@gmail.com"
+    "email": "2318485+howie@users.noreply.github.com"
   },
   "plugins": [
     {
