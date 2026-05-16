@@ -41,7 +41,7 @@ description: >
 ## 步驟
 
 > **執行位置**：本 skill 可從任何 cwd 觸發，Step 3 腳本已透過 `~/.agents/config.json` 自動
-> 定位 ainization-skill repo，無需 `cd`。
+> 定位 yibi-stack repo，無需 `cd`。
 
 ### Step 1 — 環境確認
 
@@ -55,9 +55,9 @@ echo $GCP_PROJECT_ID
 
 # Google AI Studio — API key
 echo $GEMINI_API_KEY
-# 或從 ainization-skill repo 的 .env 讀取：
+# 或從 yibi-stack repo 的 .env 讀取：
 SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
-[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; }
 [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 grep GEMINI_API_KEY "$SKILL_REPO/.env" 2>/dev/null
 ```
@@ -78,7 +78,7 @@ grep GEMINI_API_KEY "$SKILL_REPO/.env" 2>/dev/null
 
 ```bash
 SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
-[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; }
 [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 SKILL_DIR="$SKILL_REPO/skills/verify-gemini-models"
 

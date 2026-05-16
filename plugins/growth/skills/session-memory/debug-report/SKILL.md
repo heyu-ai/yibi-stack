@@ -116,7 +116,7 @@ uv run python -m tasks.session_memory debug save \
 uv run python -m tasks.session_memory debug list
 
 # 過濾特定 project
-uv run python -m tasks.session_memory debug list --project ainization-skill
+uv run python -m tasks.session_memory debug list --project yibi-stack
 
 # jq 跨專案搜尋
 jq -r '"\(.timestamp[:10]) [\(.keyword)] \(.root_cause)"' \

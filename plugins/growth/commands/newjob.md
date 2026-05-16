@@ -194,7 +194,7 @@ uv run --directory "$MAIN_REPO" python -m tasks.local_port_manager init || echo 
 bash ~/.claude/commands/scripts/newjob-validate.sh
 ```
 
-若 `~/.claude/commands/scripts/newjob-validate.sh` 不存在，先在 ainization-skill repo 執行 `make install`。
+若 `~/.claude/commands/scripts/newjob-validate.sh` 不存在，先在 yibi-stack repo 執行 `make install`。
 
 **每個步驟若失敗，診斷並修復後再繼續。** 測試失敗是 warning 不是 blocker。Lint 失敗時自動修復（`make format` 或 `uv run ruff format .`）後重跑。
 

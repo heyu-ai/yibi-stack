@@ -23,7 +23,7 @@ description: >
 **HARD GATE**：本 skill 不實作程式碼變更，只管理 learnings。
 
 > **執行位置**：本 skill 可從任何 cwd 觸發，底層的 `uv run python -m tasks.session_memory` 指令
-> 需要在 ainization-skill repo 下執行。**skill 啟動時執行一次**（不要在每個 bash block 前重複執行）：
+> 需要在 yibi-stack repo 下執行。**skill 啟動時執行一次**（不要在每個 bash block 前重複執行）：
 >
 > ```bash
 > _gcd=$(git rev-parse --git-common-dir 2>/dev/null)
@@ -40,7 +40,7 @@ description: >
 > esac
 > unset _gcd
 > SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
-> [ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+> [ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; }
 > [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 > cd "$SKILL_REPO"
 > ```

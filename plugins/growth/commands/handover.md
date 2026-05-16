@@ -8,7 +8,7 @@
 git rev-parse --show-toplevel
 [ -f ~/.agents/handover/handover.db ] || echo '[WARN] DB 不存在，請先跑 uv run python -m tasks.session_memory init'
 SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
-[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; }
 [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 ```
 
@@ -31,7 +31,7 @@ SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.hom
 
 ```bash
 SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
-[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; }
 [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 REAL_WORKDIR=$(pwd)
 PROJECT=$(basename "$REAL_WORKDIR")
@@ -57,7 +57,7 @@ uv run --directory "$SKILL_REPO" \
 
 ```bash
 SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
-[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
+[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; }
 [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover read --last 1

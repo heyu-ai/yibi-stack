@@ -106,10 +106,10 @@ uv run python -m tasks.session_memory insight uninstall-hook
 ```bash
 # CLI 列出最近 N 筆
 uv run python -m tasks.session_memory insight list --last 10
-uv run python -m tasks.session_memory insight list --project ainization-skill
+uv run python -m tasks.session_memory insight list --project yibi-stack
 
 # 也可直接用 jq
-jq 'select(.project == "ainization-skill")' ~/.agents/insight/insights.jsonl
+jq 'select(.project == "yibi-stack")' ~/.agents/insight/insights.jsonl
 jq -r '.project' ~/.agents/insight/insights.jsonl | sort | uniq -c | sort -rn
 ```
 

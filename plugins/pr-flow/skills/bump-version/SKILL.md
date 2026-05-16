@@ -179,7 +179,7 @@ Jira 範例：`ticket_pattern: "(PROJ|MYTEAM)-[0-9]+"`
 
 | 問題 | 處理方式 |
 |------|---------|
-| `bump-version skill 未安裝` | `make install-one SKILL=bump-version`（在 ainization-skill repo 執行） |
+| `bump-version skill 未安裝` | `make install-one SKILL=bump-version`（在 yibi-stack repo 執行） |
 | 無法偵測專案類型 | 確認根目錄有 pubspec.yaml / pyproject.toml / package.json / go.mod 其中之一 |
 | Python 偵測失敗 | pyproject.toml 需含頂層 `version = "x.y.z"` 行（Poetry 需使用 PEP 621 格式） |
 | Go major bump 後 module path 需更新 | 手動修改 `go.mod` 的 `module` 行，加 `/v2` 後綴 |

@@ -55,7 +55,7 @@ uv run python -m tasks.session_memory recap install-hook
   "timestamp": "2026-04-25T10:30:00+08:00",
   "uuid": "4c6cec93-a48c-4d8f-...",
   "sessionId": "4c6cec93-a48c-4d8f-93b2-2ad43150c263",
-  "cwd": "/Users/howie/Workspace/github/ainization-skill",
+  "cwd": "/Users/howie/Workspace/github/yibi-stack",
   "gitBranch": "fix/metrics-test-warning",
   "version": "2.1.112"
 }
@@ -68,7 +68,7 @@ uv run python -m tasks.session_memory recap install-hook
 uv run python -m tasks.session_memory recap list
 
 # 過濾特定 project
-uv run python -m tasks.session_memory recap list --project ainization-skill
+uv run python -m tasks.session_memory recap list --project yibi-stack
 
 # 查單一 session 的時序軌跡
 SESSION_ID="4c6cec93-a48c-4d8f-93b2-2ad43150c263"

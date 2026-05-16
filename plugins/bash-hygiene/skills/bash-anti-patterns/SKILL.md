@@ -437,7 +437,7 @@ Claude Code 的 bash tool 使用簡化 shell parser 而非完整的 bash AST par
 
 ## 與本 repo 的關係
 
-本 skill 為跨專案完整版。ainization-skill repo 內的三個 rule 檔是精簡子集：
+本 skill 為跨專案完整版。yibi-stack repo 內的三個 rule 檔是精簡子集：
 
 - `.claude/rules/13-bash-anti-patterns.md`：AP1/AP2/AP3 判斷標準與速查
 - `.claude/rules/14-shell-quoting-hygiene.md`：五類引號錯誤 Rules 1-5

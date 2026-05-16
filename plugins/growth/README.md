@@ -4,7 +4,7 @@ Claude Code plugin for session continuity and knowledge retention across convers
 
 ## Prerequisites
 
-These skills require the yibi-stack repository to be cloned and `make install` to be run for task execution (`session-memory`, `learn`, `handover` all invoke `python -m tasks.*`). Plugin install provides the skill runbooks and slash commands only.
+These skills require the yibi-stack repository to be cloned and `make install` to be run for task execution (`session-memory` and `learn` invoke `python -m tasks.*`; the `/handover`, `/handover-back`, and `/newjob` commands do the same). Plugin install provides the skill runbooks and slash commands only.
 
 ```bash
 git clone https://github.com/howie/yibi-stack && cd yibi-stack && make install
