@@ -1,0 +1,19 @@
+{
+  "name": "growth",
+  "description": "Session continuity and knowledge retention for Claude Code agents: session-memory, learn skill, and handover/newjob slash commands.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Howie Yu",
+    "email": "2318485+howie@users.noreply.github.com"
+  },
+  "repository": "howie/yibi-stack",
+  "license": "MIT",
+  "keywords": [
+    "session-memory",
+    "handover",
+    "learn",
+    "productivity",
+    "knowledge-retention",
+    "newjob"
+  ]
+}
