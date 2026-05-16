@@ -92,7 +92,7 @@ make uninstall-scheduler # 卸載 LaunchAgent
 make scheduler-status    # 查看 job 執行狀態
 
 # 新環境一次到位
-make install-all         # 等同 install + install-handover-hooks + install-scheduler
+make install-all         # 等同 build-tools + install + install-project + install-handover-hooks + install-scheduler + patch-pr-review-agents
 ```
 
 ## Runtime 設定檔（不進 git）
