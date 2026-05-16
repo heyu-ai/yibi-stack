@@ -71,7 +71,7 @@ scripts/          CI and lint tooling
 ```bash
 claude plugin marketplace add howie/yibi-stack
 claude plugin install bash-hygiene@yibi-stack
-claude plugin install spectra@yibi-stack
+claude plugin install yibi-spectra@yibi-stack
 ```
 
 **Full install** (plugins + all skills + hooks + scheduler):
@@ -80,7 +80,7 @@ claude plugin install spectra@yibi-stack
 # 1. Install plugins (pre-execution hooks + rules)
 claude plugin marketplace add howie/yibi-stack
 claude plugin install bash-hygiene@yibi-stack
-claude plugin install spectra@yibi-stack
+claude plugin install yibi-spectra@yibi-stack
 
 # 2. Clone and install skills + hooks + scheduler
 git clone https://github.com/howie/yibi-stack
@@ -118,7 +118,7 @@ See [`skills/README.md`](skills/README.md) for the full index.
 | Plugin | Install | Description |
 |--------|---------|-------------|
 | `bash-hygiene` | `claude plugin install bash-hygiene@yibi-stack` | Pre-execution bash anti-pattern detection with auto-fix guidance |
-| `spectra` | `claude plugin install spectra@yibi-stack` | Spectra + OpenSpec spec-amplifier methodology |
+| `yibi-spectra` | `claude plugin install yibi-spectra@yibi-stack` | Spectra + OpenSpec spec-amplifier methodology |
 
 ---
 
@@ -189,7 +189,7 @@ scripts/          CI 與 lint 工具腳本
 ```bash
 claude plugin marketplace add howie/yibi-stack
 claude plugin install bash-hygiene@yibi-stack
-claude plugin install spectra@yibi-stack
+claude plugin install yibi-spectra@yibi-stack
 ```
 
 **完整安裝**（plugin + 所有 skill + hook + scheduler）：
@@ -198,7 +198,7 @@ claude plugin install spectra@yibi-stack
 # 1. 安裝 plugin（pre-execution hook + 規則）
 claude plugin marketplace add howie/yibi-stack
 claude plugin install bash-hygiene@yibi-stack
-claude plugin install spectra@yibi-stack
+claude plugin install yibi-spectra@yibi-stack
 
 # 2. Clone 並安裝 skill + hook + scheduler
 git clone https://github.com/howie/yibi-stack
@@ -236,7 +236,7 @@ make status-own
 | Plugin | 安裝指令 | 說明 |
 |--------|---------|------|
 | `bash-hygiene` | `claude plugin install bash-hygiene@yibi-stack` | 執行前 bash 反模式偵測，附自動修法指引 |
-| `spectra` | `claude plugin install spectra@yibi-stack` | Spectra + OpenSpec 規格展開方法論 |
+| `yibi-spectra` | `claude plugin install yibi-spectra@yibi-stack` | Spectra + OpenSpec 規格展開方法論 |
 
 ---
 

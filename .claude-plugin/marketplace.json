@@ -16,7 +16,7 @@
       "source": "./plugins/bash-hygiene"
     },
     {
-      "name": "spectra",
+      "name": "yibi-spectra",
       "description": "Spectra + OpenSpec spec-amplifier methodology, change-management templates, and CLI dependency check for Claude Code agents.",
       "author": {
         "name": "Howie Yu"

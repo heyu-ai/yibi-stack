@@ -26,7 +26,7 @@ Amplifier methodology and all openspec templates work standalone without the CLI
 claude plugin marketplace add howie/yibi-stack
 
 # Install plugin
-claude plugin install spectra@yibi-stack
+claude plugin install yibi-spectra@yibi-stack
 ```
 
 ## What you get
