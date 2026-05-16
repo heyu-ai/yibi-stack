@@ -17,7 +17,7 @@ scripts/  → CI/lint 工具腳本
   - **可執行 skill**：有對應的 `tasks/` Python 實作（如 session-memory、scheduler）
   - **知識型 skill**：純 Markdown 方法論指引（如 tdd-kentbeck、qa-test-design）
 - **`tasks/`** — 實作細節，包含 CLI entry point、設定模型、服務邏輯；`tasks/*/skill.md` 為開發者參考文件
-- **`plugins/`** — Claude Code plugin：bash-hygiene（AP 偵測）、spectra（規格展開方法論）
+- **`plugins/`** — Claude Code plugin packs（7 個）：bash-hygiene / sdd / growth / pr-flow / 3rd-tools / tdd / util
 
 ## 編碼慣例
 

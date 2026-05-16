@@ -22,7 +22,7 @@ claude plugin marketplace add howie/yibi-stack  # 一次性註冊
 
 claude plugin install growth@yibi-stack          # session-memory + learn + handover/newjob
 claude plugin install pr-flow@yibi-stack         # PR 全流程 6 skills + 5 commands
-claude plugin install sdd@yibi-stack             # spectra-amplifier + qa-test-design
+claude plugin install sdd@yibi-stack             # spectra-amplifier + qa-test-design + /sdd:setup
 claude plugin install bash-hygiene@yibi-stack    # bash-anti-patterns + protect-push
 claude plugin install 3rd-tools@yibi-stack       # codex + verify-gemini-models + detect-ai-slop
 claude plugin install tdd@yibi-stack             # tdd-kentbeck + flutter-tdd + ci-triage

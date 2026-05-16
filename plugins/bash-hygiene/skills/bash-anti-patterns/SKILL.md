@@ -2,7 +2,20 @@
 name: bash-anti-patterns
 type: know
 scope: global
-description: "Bash anti-pattern detection for Claude Code agents -- AP1 overly complex commands, AP2 Unicode in bash strings, AP3 stateful cd, shell quoting hygiene, irreversible operation boundaries."
+description: >-
+  識別與避免 Claude Code agent 下 bash 指令的三層防線：(1) Anti-Pattern 1
+  過度複雜單行（多行 heredoc、巢狀引號、內嵌 Python -c / Node -e、複雜 if/elif、
+  for-loop-file-list），(2) Anti-Pattern 2 bash 字串內特殊 Unicode（em dash、
+  en dash、emoji），(3) Anti-Pattern 3 stateful cd（CWD 污染 / cd-before-git /
+  cd + 2>/dev/null 路徑隱藏）。另含 Rule 14 shell 引號衛生（simple_expansion /
+  同型引號衝突 / grep BRE alternation / 反向巢狀 subshell / expansion false
+  positive）與 Rule 15 不可逆操作邊界（alembic migrate / terraform apply /
+  git push --force / rm -rf / kubectl apply）。觸發情境：parser 錯誤「Unhandled
+  node type: string」「Contains simple_expansion」「Contains expansion」「Newline
+  followed by # inside quoted argument」、「bash heredoc 失敗」、「cd 會污染 CWD」、
+  「stateful cd」、「不可逆操作要不要執行」、「terraform apply 確認」、「git push
+  --force 安全嗎」、agent 自我反省「這段 bash 太複雜」「要不要寫成 script」
+  「cd 指令要不要改成 --directory」時。
 ---
 
 # Bash Anti-Patterns — Claude Code Agent 下 bash 指令的三層防線
@@ -258,36 +271,159 @@ cat README.md
 - [ ] 用了 `grep "...\|..."` 雙引號 BRE 嗎？→ 改單引號
 - [ ] 用了 `$(outer "$(inner)")` 反向巢狀嗎？→ 拆兩 call
 - [ ] 這是不可逆操作嗎？（rm -rf / force push / migrate / publish）→ 先說明，等確認
+- [ ] 用了 `sudo` / `env` / `watch` 等 wrapper 包不可逆操作嗎？→ deny rule 仍會攔截，不要以為 wrapper 能繞過
 
 **AP1 門檻：換行 / 引號 / 內嵌語言 三項中任兩項 yes → 拆 bash call / 寫 script / 換工具**
 
-## 安裝方式
+## 在你的專案啟用本規範
 
-### 方式 1：安裝 Plugin（推薦）
+三個 rule 可獨立啟用。把 `.md` 存到專案的 `.claude/rules/`，Claude Code session
+將無條件載入（不需關鍵字觸發）。
 
-```bash
-# 先註冊 marketplace（一次性）
-claude plugin marketplace add howie/yibi-stack
+### Rule 13：bash 指令反模式（AP1 + AP2 + AP3）
 
-# 安裝 plugin
-claude plugin install bash-hygiene@yibi-stack
+存成 `.claude/rules/13-bash-anti-patterns.md`：
+
+```markdown
+# Bash 指令反模式（Anti-Patterns）
+
+## Anti-Pattern 1：過度複雜的單一指令
+
+判斷標準（complexity score：5 項中 >=2 項即過度，必須拆解）：
+1. 多行（heredoc / 反斜線續行）
+2. 巢狀引號（雙引號內含單引號，或 $(cmd "$VAR") 同型衝突）
+3. 內嵌其他語言（python -c / node -e / jq 多行表達式）
+4. 多層 if / elif / case 分支
+5. 複雜參數展開（${var//pattern/replace}、間接引用）
+
+不算過度：純 git workflow chain、線性工具串接（make lint && make test）。
+「&& 數量本身不是判斷項」。對策：拆 bash call / 寫 script / 換 jq|realpath 工具。
+黃金法則：永遠不要為了省一個 bash call 把多步邏輯擠進一行。
+
+## Anti-Pattern 2：bash 指令字串內含特殊 Unicode
+
+範圍：bash 指令本身的字元內容（echo 字串、變數值 literal、heredoc 內容）。
+不限制：bash 讀取的檔案內容、markdown 文件、code 註解、commit message。
+禁用：em dash（—）/ en dash（–）/ emoji / 零寬空白。
+替代：[SKIP] / [OK] / [WARN] / [FAIL] / -- / -
+
+## Anti-Pattern 3：Stateful cd
+
+cd <path> && cmd 三種危害，選對修法：
+- cd ... && git <cmd>         -> git -C <path> <cmd>（C 類 hook 攔）
+- cd ... && uv run            -> uv run --directory <path>（無 hook 攔，靜默盲點）
+- cd ... && cmd 2>/dev/null   -> 改絕對路徑，移除 cd（F1 類 hook 攔）
+
+完整方法論見 skill bash-anti-patterns。
 ```
 
-安裝後自動獲得：
+### Rule 14：shell 引號衛生
 
-- AP1/AP2 PreToolUse hooks（所有專案生效）
-- SessionStart 規則注入（agent 每次啟動都讀到完整規範）
-- 本 skill 作為知識查閱入口
+存成 `.claude/rules/14-shell-quoting-hygiene.md`：
 
-### 方式 2：手動複製 Rules 到專案
+```markdown
+# Shell Quoting Hygiene（引號衛生）
 
-若不用 plugin，可手動將規則存到專案的 `.claude/rules/`：
+Rule 1：$(cmd $VAR) 裡的 $VAR 一律加引號 -> "$VAR"（防 simple_expansion；注意：避免括號形式 "${VAR}"，見 Rule 5）
+Rule 2："$(cmd "$VAR")" 同型引號衝突 -> 拆成獨立 bash call（防 D 類）
+Rule 3：grep "pat\|pat2" 雙引號 BRE -> grep 'pat\|pat2'（防 D 類）
+Rule 4：$(outer "$(inner)") 反向巢狀 -> 拆成兩個獨立 bash call（防 D 類）
+Rule 5："${VAR}" 括號形式觸發 expansion false positive -> 改 "$VAR" plain form
 
-- `13-bash-anti-patterns.md`：AP1/AP2/AP3 判斷標準與速查
-- `14-shell-quoting-hygiene.md`：五類引號錯誤 Rules 1-5
-- `15-irreversible-operations.md`：五類不可逆操作邊界
+完整方法論與判斷流程見 skill bash-anti-patterns。
+```
 
-詳細內容見 plugin repo 的 `rules-context.md`。
+### Rule 15：不可逆操作邊界
+
+存成 `.claude/rules/15-irreversible-operations.md`：
+
+```markdown
+# 不可逆操作邊界
+
+以下操作不得由 agent 自主執行，必須先說明影響讓使用者確認：
+
+DB / Storage：alembic upgrade/downgrade、prisma migrate deploy、DROP/TRUNCATE/DELETE 無 WHERE
+Deployment：kubectl apply（prod）、terraform apply、gh release create、npm/uv publish
+Git：git push --force/-f、git reset --hard、shared branch rebase、git filter-branch
+File：rm -rf、find ... -delete、> 覆寫已存在檔案
+Cloud：aws s3 rm --recursive、gcloud compute instances delete
+
+標準回應格式：
+STOP：操作描述
+影響：<資源與範圍>
+回滾難度：高 / 中 / 低
+建議：<dry-run 指令 或 請使用者手動執行>
+
+完整清單與 v3 deny list backlog 見 skill bash-anti-patterns。
+```
+
+### 路徑 2：安裝 PreToolUse hooks（進階，機械性攔截）
+
+加裝兩支 hook 可機械性阻擋最高頻的 AP1 / AP2 違規：
+
+1. 從本 repo 複製 hooks：
+   - AP1 hook：`.claude/hooks/bash-ap1-inline-check.sh`（攔截 python -c 多行 / osascript heredoc / grep BRE alternation / 反向巢狀 subshell）
+   - AP2 hook：`.claude/hooks/bash-ap2-check.py` 或 `hooks/pre-tool-use-bash-unicode.sh`（攔截 Unicode）
+
+2. 在 `.claude/settings.json` 加入：
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/bash-ap1-inline-check.sh" },
+          { "type": "command", "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/bash-ap2-check.py" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+AP3 / Rule 14 Rule 5 / Rule 15 的複雜度判斷靠 prompt rule 教學，不在 hook 範圍。
+
+## exec wrapper 穿透 deny rule（2026-05）
+
+Claude Code `settings.json` 的 `permissions.deny` 清單現在可穿透以下 wrapper 指令：
+
+| wrapper | 說明 |
+|---------|------|
+| `sudo` | 權限提升 |
+| `env` | 環境變數設定 |
+| `watch` | 週期執行 |
+| `ionice` | I/O 優先級設定 |
+| `setsid` | 新 session 執行 |
+
+**重要**：以下寫法全部都會被 deny rule 攔截，不要誤以為 wrapper 能繞過：
+
+```bash
+# 這類寫法也會被 deny rule 攔截
+sudo rm -rf /dangerous/path
+env DANGEROUS_VAR=1 bash script.sh
+watch -n1 bash -c "rm /tmp/files"
+ionice -c 3 rm -rf /path
+```
+
+**使用者應善用此機制**：在 `settings.json` 設好 deny rule 後，即使 agent
+生成帶 wrapper 的指令，仍會被攔截。這是加強 Rule 15 不可逆操作防護的可靠手段：
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf*)",
+      "Bash(sudo rm*)",
+      "Bash(env * rm*)"
+    ]
+  }
+}
+```
+
+**對 agent 的影響**：被 deny rule 攔截時，agent 應停止並說明操作內容，
+請使用者確認後手動執行（Rule 15 標準行為），而非嘗試改用 wrapper 繞過。
 
 ## 為什麼會這樣（技術背景）
 
@@ -298,3 +434,14 @@ Claude Code 的 bash tool 使用簡化 shell parser 而非完整的 bash AST par
 - 這些問題與特定 bash 版本或 OS 無關，是 tool 層的限制
 
 不需深究實作細節——記住判斷標準與對策就夠。
+
+## 與本 repo 的關係
+
+本 skill 為跨專案完整版。ainization-skill repo 內的三個 rule 檔是精簡子集：
+
+- `.claude/rules/13-bash-anti-patterns.md`：AP1/AP2/AP3 判斷標準與速查
+- `.claude/rules/14-shell-quoting-hygiene.md`：五類引號錯誤 Rules 1-5
+- `.claude/rules/15-irreversible-operations.md`：五類不可逆操作邊界
+
+維護紀律：改 rule 核心判斷標準時必須同步 skill；改 skill 增加範例或技術背景時，
+不一定要改 rule。三個 rule 可各自獨立維護，互不依賴。

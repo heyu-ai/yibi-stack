@@ -35,7 +35,7 @@ yibi-stack layers three forms of enforcement on top of Claude Code:
 | Benefit | Mechanism |
 |---------|-----------|
 | Safer shell execution | `bash-hygiene` plugin intercepts 3 anti-pattern categories (AP1: overcomplex single commands / AP2: unicode in shell strings / AP3: stateful `cd`) via PreToolUse hooks — before they cause silent failures |
-| Spec-first development | `spectra` plugin + `spectra-amplifier` skill expands thin requirements into 5-layer specs (Context → Behavior → Data → Constraints → Acceptance Criteria), compatible with OpenSpec change management |
+| Spec-first development | `sdd` plugin + `spectra-amplifier` skill expands thin requirements into 5-layer specs (Context → Behavior → Data → Constraints → Acceptance Criteria), compatible with OpenSpec change management |
 | Multi-model PR review | `pr-review-cycle-mob` orchestrates Claude + Codex + Gemini in parallel independent review → cross-model debate → aggregate, catching issues no single model would flag |
 | Persistent work memory | `session-memory` skill auto-handovers before context compression and restores on next session start — no more losing track of multi-day work |
 | Release discipline | `bump-version`, `protect-push`, and `ci-triage` skills codify release workflow so Claude doesn't push to main without explicit intent |
@@ -44,12 +44,17 @@ yibi-stack layers three forms of enforcement on top of Claude Code:
 ### Architecture
 
 ```
-plugins/          Claude Code plugins (installable via claude plugin install)
+plugins/          Claude Code plugin packs (installable via claude plugin install)
   bash-hygiene/   PreToolUse hook enforcement, shell hygiene rules, anti-pattern guide
-  spectra/        Spectra + OpenSpec methodology, spec-amplifier workflow
+  sdd/            Spec-Driven Development: Spectra + OpenSpec methodology, qa-test-design
+  growth/         Session continuity: session-memory, learn, handover/newjob commands
+  pr-flow/        PR workflow: review cycles, retrospective, bump-version, pr commands
+  3rd-tools/      Third-party AI: Codex, Gemini model verification, AI slop detection
+  tdd/            Test-Driven Development: Kent Beck TDD, Flutter TDD, CI triage
+  util/           Utility: local port manager, debug command
 
 skills/           Agent execution layer -- SKILL.md runbooks (installed via make install)
-  <skill-name>/   Each skill is a flat directory with a SKILL.md runbook
+  <skill-name>/   Each skill is a flat directory with a SKILL.md runbook (or a symlink)
                   scope:global  -- works in any repo (methodology, cross-project tools)
                   scope:project -- requires this repo's Python tasks
 
@@ -60,7 +65,7 @@ scripts/          CI and lint tooling
 
 ### Plugins vs Skills — what's the difference?
 
-**Plugins** (`plugins/bash-hygiene`, `plugins/spectra`) are proper Claude Code plugins with `package.json` manifests. They install hooks, rules, and a small number of bundled skills. Installable via `claude plugin install` without cloning.
+**Plugins** (`plugins/bash-hygiene`, `plugins/sdd`, `plugins/growth`, `plugins/pr-flow`, `plugins/3rd-tools`, `plugins/tdd`, `plugins/util`) are proper Claude Code plugins with `package.json` manifests. They install hooks, rules, and bundled skills. Installable via `claude plugin install` without cloning.
 
 **Skills** (`skills/*/SKILL.md`) are runbook files — not plugins. They're installed as symlinks into `~/.claude/skills/` via `make install`. They tell Claude *how* to approach a workflow; no hooks are involved. Skills are **not** individually installable via `claude plugin install`.
 
@@ -71,7 +76,10 @@ scripts/          CI and lint tooling
 ```bash
 claude plugin marketplace add howie/yibi-stack
 claude plugin install bash-hygiene@yibi-stack
-claude plugin install yibi-spectra@yibi-stack
+claude plugin install sdd@yibi-stack
+claude plugin install growth@yibi-stack
+claude plugin install pr-flow@yibi-stack
+claude plugin install tdd@yibi-stack
 ```
 
 **Full install** (plugins + all skills + hooks + scheduler):
@@ -79,8 +87,7 @@ claude plugin install yibi-spectra@yibi-stack
 ```bash
 # 1. Install plugins (pre-execution hooks + rules)
 claude plugin marketplace add howie/yibi-stack
-claude plugin install bash-hygiene@yibi-stack
-claude plugin install yibi-spectra@yibi-stack
+claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack
 
 # 2. Clone and install skills + hooks + scheduler
 git clone https://github.com/howie/yibi-stack
@@ -98,7 +105,7 @@ make status-own
 
 | Skill | What it does |
 |-------|-------------|
-| `spectra-amplifier` | 5-layer spec expansion via `yibi-spectra` plugin |
+| `spectra-amplifier` | 5-layer spec expansion via `sdd` plugin |
 | `pr-review-cycle` | Full PR lifecycle: create -> parallel review -> fix -> CI -> merge |
 | `pr-review-cycle-mob` | Multi-model mob review (Claude + Codex + Gemini) |
 | `bash-anti-patterns` | AP1/AP2/AP3 detection guide + shell quoting hygiene reference |
@@ -118,7 +125,12 @@ See [`skills/README.md`](skills/README.md) for the full index.
 | Plugin | Install | Description |
 |--------|---------|-------------|
 | `bash-hygiene` | `claude plugin install bash-hygiene@yibi-stack` | Pre-execution bash anti-pattern detection with auto-fix guidance |
-| `yibi-spectra` | `claude plugin install yibi-spectra@yibi-stack` | Spectra + OpenSpec spec-amplifier methodology |
+| `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec spec-amplifier methodology + qa-test-design |
+| `growth` | `claude plugin install growth@yibi-stack` | Session continuity: session-memory, learn, handover/newjob commands |
+| `pr-flow` | `claude plugin install pr-flow@yibi-stack` | Full PR workflow: 6 skills + 5 slash commands |
+| `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex, Gemini model verification, AI slop detection |
+| `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD, Flutter TDD, CI triage |
+| `util` | `claude plugin install util@yibi-stack` | Local port manager + debug command |
 
 ---
 
@@ -153,7 +165,7 @@ yibi-stack 在 Claude Code 之上疊加三層約束：
 | 好處 | 機制 |
 |------|------|
 | 更安全的 shell 執行 | `bash-hygiene` plugin 透過 PreToolUse hook，在執行前攔截三類反模式（AP1 過複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd），避免靜默失敗 |
-| 規格先行的開發 | `yibi-spectra` plugin + `spectra-amplifier` skill 把薄需求展開為五層規格（情境→行為→資料→約束→驗收條件），兼容 OpenSpec 變更管理框架 |
+| 規格先行的開發 | `sdd` plugin + `spectra-amplifier` skill 把薄需求展開為五層規格（情境→行為→資料→約束→驗收條件），兼容 OpenSpec 變更管理框架 |
 | 多模型 PR 審閱 | `pr-review-cycle-mob` 讓 Claude + Codex + Gemini 並行獨立審閱再交叉辯論，捕捉單一模型漏掉的問題 |
 | 持久化工作記憶 | `session-memory` skill 在對話壓縮前自動交班，下次 session 開啟時自動恢復工作上下文，多日開發不斷線 |
 | 發版紀律 | `bump-version` + `protect-push` + `ci-triage` 讓 Claude 不會在沒有明確意圖的情況下推上 main |
@@ -162,12 +174,17 @@ yibi-stack 在 Claude Code 之上疊加三層約束：
 ### 架構
 
 ```
-plugins/          Claude Code plugins（可透過 claude plugin install 安裝）
+plugins/          Claude Code plugin packs（可透過 claude plugin install 安裝）
   bash-hygiene/   PreToolUse hook 防線、shell 衛生規則、反模式修法指南
-  spectra/        Spectra + OpenSpec 方法論、規格展開工作流
+  sdd/            Spec-Driven Development：Spectra + OpenSpec 方法論、qa-test-design
+  growth/         跨 session 連續性：session-memory、learn、handover/newjob commands
+  pr-flow/        PR 全流程：review cycles、retrospective、bump-version、PR commands
+  3rd-tools/      第三方 AI：Codex、Gemini 模型驗證、AI slop 偵測
+  tdd/            測試驅動開發：Kent Beck TDD、Flutter TDD、CI 診斷
+  util/           工具：local port manager、debug command
 
 skills/           Agent 執行介面層（SKILL.md runbook，透過 make install 安裝）
-  <skill-name>/   每個 skill 是一個平坦目錄，包含 SKILL.md runbook
+  <skill-name>/   每個 skill 是一個目錄（或指向 plugins/ 的 symlink）
                   scope:global  -- 跨專案可用（方法論、通用工具）
                   scope:project -- 本 repo 限定（需要 tasks/ Python 實作）
 
@@ -178,7 +195,7 @@ scripts/          CI 與 lint 工具腳本
 
 ### Plugin 與 Skill 的差別？
 
-**Plugin**（`plugins/bash-hygiene`、`plugins/spectra`）是有 `package.json` manifest 的正式 Claude Code plugin，會安裝 hook、rules 和少量隨附 skill，不需 clone 即可用 `claude plugin install` 安裝。
+**Plugin**（`plugins/bash-hygiene`、`plugins/sdd`、`plugins/growth`、`plugins/pr-flow`、`plugins/3rd-tools`、`plugins/tdd`、`plugins/util`）是有 `package.json` manifest 的正式 Claude Code plugin，會安裝 hook、rules 和隨附 skill，不需 clone 即可用 `claude plugin install` 安裝。
 
 **Skill**（`skills/*/SKILL.md`）是 runbook 檔案，不是 plugin。透過 `make install` 以 symlink 安裝到 `~/.claude/skills/`，告訴 Claude 如何執行特定工作流程。**Skills 無法透過 `claude plugin install` 個別安裝。**
 
@@ -189,7 +206,10 @@ scripts/          CI 與 lint 工具腳本
 ```bash
 claude plugin marketplace add howie/yibi-stack
 claude plugin install bash-hygiene@yibi-stack
-claude plugin install yibi-spectra@yibi-stack
+claude plugin install sdd@yibi-stack
+claude plugin install growth@yibi-stack
+claude plugin install pr-flow@yibi-stack
+claude plugin install tdd@yibi-stack
 ```
 
 **完整安裝**（plugin + 所有 skill + hook + scheduler）：
@@ -197,8 +217,7 @@ claude plugin install yibi-spectra@yibi-stack
 ```bash
 # 1. 安裝 plugin（pre-execution hook + 規則）
 claude plugin marketplace add howie/yibi-stack
-claude plugin install bash-hygiene@yibi-stack
-claude plugin install yibi-spectra@yibi-stack
+claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack
 
 # 2. Clone 並安裝 skill + hook + scheduler
 git clone https://github.com/howie/yibi-stack
@@ -216,7 +235,7 @@ make status-own
 
 | Skill | 功能 |
 |-------|------|
-| `spectra-amplifier` | 五層規格展開（透過 `yibi-spectra` plugin） |
+| `spectra-amplifier` | 五層規格展開（透過 `sdd` plugin） |
 | `pr-review-cycle` | 完整 PR 生命週期：建立 → 並行 review → 修正 → CI → merge |
 | `pr-review-cycle-mob` | 多模型群審（Claude + Codex + Gemini） |
 | `bash-anti-patterns` | AP1/AP2/AP3 偵測指南 + shell 引號衛生參考 |
@@ -236,7 +255,12 @@ make status-own
 | Plugin | 安裝指令 | 說明 |
 |--------|---------|------|
 | `bash-hygiene` | `claude plugin install bash-hygiene@yibi-stack` | 執行前 bash 反模式偵測，附自動修法指引 |
-| `yibi-spectra` | `claude plugin install yibi-spectra@yibi-stack` | Spectra + OpenSpec 規格展開方法論 |
+| `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec 規格展開 + qa-test-design 測試設計 |
+| `growth` | `claude plugin install growth@yibi-stack` | 跨 session 記憶：session-memory、learn、handover/newjob |
+| `pr-flow` | `claude plugin install pr-flow@yibi-stack` | 完整 PR 流程：6 個 skill + 5 個 slash command |
+| `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex、Gemini 模型驗證、AI slop 偵測 |
+| `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD、Flutter TDD、CI 診斷 |
+| `util` | `claude plugin install util@yibi-stack` | 本機 port 管理 + debug command |
 
 ---
 

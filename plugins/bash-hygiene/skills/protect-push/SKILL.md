@@ -42,7 +42,7 @@ git rev-parse --show-toplevel
 確認 skill 已安裝，並複製 hook 腳本：
 
 ```bash
-SKILL_DIR="$HOME/.agent/skills/protect-push"
+SKILL_DIR="$HOME/.agents/skills/protect-push"
 if [ ! -d "$SKILL_DIR" ]; then
     echo "錯誤：protect-push skill 未安裝。請先執行 make install-one SKILL=protect-push"
     exit 1
