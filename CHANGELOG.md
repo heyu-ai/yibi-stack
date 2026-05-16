@@ -134,7 +134,6 @@
 - 修復 DBS CC parser 誤判亂碼 + 新增 card mapping 基礎
 - sync ruff version and add github_token to claude-code-action
 
-
 ## [0.3.0] - 2026-05-16
 
 ### Features
