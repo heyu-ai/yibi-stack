@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release (if not exists)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME:?GITHUB_REF_NAME is empty}"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists (skipping)"
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+            || { echo "ERROR: gh release create failed" >&2; exit 1; }
+            echo "Release $TAG created by GitHub Actions"
+          fi

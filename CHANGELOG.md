@@ -1,5 +1,139 @@
 # CHANGELOG
 
+## [0.3.1] - 2026-05-16
+
+### Features
+
+- add spectra plugin v0.1 -- openspec workflow packaging (#146)
+- add SaaS invoice PDF amount extractor (#144)
+- lesson routing classifier + /claude-md-prune skill (#145)
+- add effort level strategy with high as default (#142)
+- add codex skill + install-force-one to reclaim gstack-overwritten skills (#139)
+- add list_non_gstack_skills.sh to replace AP1 for-loop (#136)
+- add release pipeline with test gates and GitHub CI integration (#132)
+- add claude ultrareview as alternative cross-model review option (#129)
+- add pre-merge bump-version reminder checkpoint (#131)
+- add CLAUDE_EFFORT effort-level branching to all exec skills (#118) (#127)
+- smart-fix hook with auto-corrected command output (#115)
+- bash-hygiene plugin + marketplace (#112)
+- apply release note features (worktree.baseRef + CLAUDE_EFFORT) (#111)
+- pr-retrospective skill + handover --exclude-tags discriminator (#108)
+- pr-review-cycle 加入 Spectra Archive + Jira Sync 收尾步驟 (#106)
+- SKILL.md bash anti-pattern lint + AP1 Detection-5 (#103)
+- Flutter 專案同步 VERSION 純文字檔 (#101)
+- patch-pr-review-agents -- auto-apply git -C rule to plugin agents (#96)
+- heptabase-daily-journal -- nightly Heptabase journal update skill (#95)
+- bash anti-patterns v2 -- AP3 stateful cd + rule 14/15 + hook scope (#94)
+- D class bash anti-pattern three-layer defense (Cases 25/26 + bash-to-script agent) (#92)
+- copy .claude/settings.local.json into worktree (Step 2b) (#91)
+- bump-version -- cross-project version bump + CHANGELOG + commit-msg hook (#90)
+- Simplify step before Review (#88)
+- AP1 高頻違規速查 + PreToolUse hook + Cases 16-18 (#87)
+- AP2 PreToolUse hook + Rule 14 shell quoting hygiene (#86)
+- 補充 bash-anti-patterns 5 秒自我檢查清單 (#83)
+- 補充 bash-anti-patterns 5 秒自我檢查清單
+- 新增 bash-anti-patterns skill、rule 與可選裝 PreToolUse hook (#81)
+- 新增 pr-review-cycle-codex skill (#79)
+- 用 heptabase CLI 自動推入 note (#76)
+- 引入 scope frontmatter，區分全域與本 repo 限定 skill (#77)
+- Claude Code 為主要安裝目標，支援 npx skills (#75)
+- 機器層 Port 分配登錄系統 (#71)
+- 新增 /debug_report skill — 除錯報告與清理儀式 (#70)
+- 新增 ci-triage、new-task-module skill 與 PostToolUse mypy hook (#69)
+- 加入 recap hook 收集 Claude Code away_summary (#68)
+- 重構 verify-ai-models → verify-gemini-models，加入 Gemini 3.x global 端點支援 (#66)
+- 新增 Gemini 模型可用性驗證 skill (#62)
+- 新增 make ci 本地 CI fallback 指令 (#61)
+- 新增 SaaS 代墊請款 skill (#58)
+- 新增每日 AI 數位足跡聚合 skill (#52)
+- auto-handover 成功率評估機制 Phase 1 (#53)
+- 整合 session-memory 教訓，建立三源統一查詢入口 (#51)
+- 新增 auto-handover 三層防護，context 接近上限自動建議交班 (#49)
+- 建立 LedgerOne 帳單匯入 task module 與 skill (#48)
+- 新增 AgentShield 安全掃描至 CI 流程 (#45)
+- user-level commands、handover 跨機器路徑、PR review 修正
+- 將 Claude commands 移至 commands/ 並透過 make install 安裝至 user-level (#43)
+- make install 自動 build Go binaries (#40)
+- 帳號自動偵測（Adapter Pattern，四層 fallback） (#39)
+- newjob 改用 worktree-first 工作流，新增 learn skill (#38)
+- 新增 messages send 指令，icf-global-news-digest 改用 gwscli (#37)
+- 新增 spectra-amplifier 知識型 skill (#36)
+- 新增 SaaS 發票追蹤 skill，使用 gwscli (#33)
+- 安裝 insight-collector skill — Stop hook 自動收集 ★ Insight 至 JSONL (#32)
+- gwscli Go binary 取代 gws CLI，支援多帳號 OAuth (#31)
+- 安裝 flutter-tdd skill — Flutter TDD 專家知識型指引 (#30)
+- 新增完整安裝指南與 Syncthing 同步支援 (#29)
+- 掃描富邦/國泰/永豐金證券月對帳單，彙整庫存股票總現值 (#25)
+- 安裝 handover skill — 跨對話工作交班系統 (#27)
+- 安裝 steve-jobs-perspective skill (#26)
+- 新增 .claude/rules/ 專案慣例指引
+- 新增 gmail-newsletter skill 與 scheduler 排程基礎設施
+- 新增 2024~2025 信用卡帳單交叉驗證與 HSBC 補匯入腳本
+- 實作 CTBC/HNCB 信用卡 parser，修正 HSBC OCR 描述偏移，修復 format CSV 去重
+- 新增 protect-push skill — 防止 worktree branch 直推 origin/main
+- 新增 icf-global-news-digest 知識型 skill
+- add markdownlint-cli2 linter for markdown files
+- 整合 my-skills 知識型 skill 至 monorepo
+- Global CSV Schema 10 欄 + service enrichment + dbs_bank bug fix
+- add Gmail billing PDF pipeline with parsers and skill runbooks
+- add QA test suite covering all 3 task modules
+- add Python dev quality toolchain (ruff, mypy, pre-commit, CI)
+- add Gmail scan task module
+- add CSV import for einvoice blank upload
+
+### Bug Fixes
+
+- disable additional pre-existing markdownlint violations
+- correct markdownlint config format and CHANGELOG trailing newline
+- add runner.os to pre-commit cache key
+- fix setup-uv input name and replace individual steps with pre-commit
+- guard against worktree checking out main branch (#141)
+- remove bash anti-patterns triggering CC confirmation dialogs (#137)
+- eliminate bash anti-patterns causing confirmation prompts (#134)
+- add parse_git_dir.py + fix Rule2 false positive + Protection 3 (#116)
+- handle git -C worktree paths + block push on main (#113)
+- correct repository owner from ainization to howie (#114)
+- pr-review-cycle-codex Step 7 fallback add -C flag (AP3 Sub-class A)
+- 修正 newjob.md bash anti-pattern 違規（Case 28） (#110)
+- pr-review-cycle-codex -- 前置需求 bash 去除 expansion/simple_expansion (#100)
+- 遷移 jq skill_repo 至 python3 -c，消除 CC 確認框（Case 27） (#107)
+- bump-version 消除 bash+SKILL_DIR 反模式 (#105)
+- fix jq single-quoted filter in subshell triggers CC static analyzer (#104)
+- handover/session-memory bash anti-patterns + AP2 hook tests (#102)
+- 修正 newjob.md bash anti-pattern 違規（AP1/AP2/AP3） (#99)
+- 以 git rev-parse --show-toplevel 取代 CLAUDE_PROJECT_DIR (#98)
+- 修正 bash 指令字串內的 emoji 與 em dash（Anti-Pattern 2） (#82)
+- 修正 Case 18/19 complexity score 及補 skills/.claude gitignore (#89)
+- pr-review-cycle-codex 補 codex CLI flag 相容性 fallback (#84)
+- handover/handover-back 改用 jq，移除 inline Python (#80)
+- 移除全域 docker compose，補齊 Step 3 bash guard (#78)
+- 新增 Makefile hook target，修補安裝路徑碎片化 (#73)
+- detect_project() 在 worktree 下回傳主 repo 名稱 (#72)
+- 明確捕捉 test_metrics_eg_001 的預期 UserWarning (#67)
+- 修正 markdownlint 與 ruff 錯誤
+- 修正 markdownlint MD032 list blank lines
+- 改善 PreCompact Hook 判斷邏輯
+- 修正 FILE_MTIME=0 永遠過期 bug + 補 disown
+- 修正 GNU stat 造成第二次攔截 crash 的 bug
+- 修正 PR review 發現的所有問題
+- 修正 project 欄位永遠偵測為 ainization-skill 的問題 (#60)
+- 修正 working_dir 被 uv --directory 覆蓋為 skill_repo 路徑的問題 (#54)
+- 修正 PR review 發現的五個問題
+- 擴充 protect-push 防護範圍至三個高風險操作 (#50)
+- 修正 python3 -c 內嵌 try/except 語法錯誤 (#47)
+- 修復跨機器絕對路徑，支援多台機器共用 handover (#44)
+- 將 skill type 從 exec 更正為 tool (#28)
+- PR review 修復 — dedup、silent fallback、error handling
+- 修正 PR review 發現的錯誤處理與靜默失敗問題
+- 修正 sinopac_cc type annotations 與 hsbc_cc import-untyped
+- PR review 修復 — type 解析、目錄樹結構、docstring
+- 修復 protect-push hook 靜默失效與 SKILL.md 可攜性問題
+- 修正 icf-global-news-digest skill 分類與安全問題（PR review）
+- 修復 CI mypy/markdownlint 失敗
+- 回應 code review — mypy hook 加 files filter、Dialog type annotation
+- 修復 DBS CC parser 誤判亂碼 + 新增 card mapping 基礎
+- sync ruff version and add github_token to claude-code-action
+
 ## [0.3.0] - 2026-05-16
 
 ### Features
@@ -135,4 +269,3 @@
 - 回應 code review — mypy hook 加 files filter、Dialog type annotation
 - 修復 DBS CC parser 誤判亂碼 + 新增 card mapping 基礎
 - sync ruff version and add github_token to claude-code-action
-

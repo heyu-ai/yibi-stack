@@ -1,0 +1,13 @@
+# markdownlint configuration for yibi-stack
+# SKILL.md files use long table columns, code blocks, bold-as-section-label,
+# bare URLs, and command files that don't start with H1.
+# These rules are relaxed to match the project's existing writing conventions.
+default: true
+MD013: false
+MD024:
+  siblings_only: true
+MD028: false
+MD034: false
+MD036: false
+MD040: false
+MD041: false
