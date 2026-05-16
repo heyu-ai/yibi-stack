@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.11"
+          enable-caching: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Lint
+        run: uv run ruff check tasks/
+
+      - name: Format check
+        run: uv run ruff format --check tasks/
+
+      - name: Type check
+        run: uv run mypy tasks/
+
+      - name: Test
+        run: uv run pytest --tb=short
+
+      - name: SKILL.md bash lint
+        run: python3 scripts/lint_skill_bash.py
