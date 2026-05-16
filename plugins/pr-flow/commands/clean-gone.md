@@ -1,6 +1,7 @@
 ---
 description: Enhanced version - Clean branches marked as [gone] AND optionally all merged branches with PRs
 ---
+<!-- markdownlint-disable-file MD041 -->
 
 ## Your Task
 

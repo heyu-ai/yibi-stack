@@ -11,6 +11,8 @@ description: >
   觸發情境：「跑 PR cycle + codex」「pr-review-cycle-codex」「PR 流程加 cross-model review」「cross model review」「jira sync」「spectra archive」
 ---
 
+# PR Review Cycle（Codex 強化版）— [DEPRECATED]
+
 > **[DEPRECATED]** 本 skill 為 codex-only 強化版的早期設計。新 session 請依規模選擇：
 >
 > - 小型 PR / 快速合併 → [`/pr-review-cycle`](../pr-review-cycle/SKILL.md)
@@ -19,8 +21,6 @@ description: >
 >   （mob review，自動偵測 codex / gemini / open-weights，≥2 家啟動 debate）
 >
 > 本檔案內容保留是為了不中斷既有 muscle memory，未來會移除。
-
-# PR Review Cycle（Codex 強化版）
 
 延伸 `/pr-review-cycle`，在合併前追加 OpenAI Codex 的獨立 review + adversarial challenge，
 以 cross-model 第二意見補強 Claude 系 reviewer 可能集體錯過的盲點。
@@ -93,7 +93,7 @@ CI 全綠後，選擇以下其中一條路徑執行 cross-model review：
 | **A：Codex Review + Challenge（原有流程）** | `Skill(skill="codex", args="review")` | 本地 codex CLI 可用、需要 adversarial challenge |
 | **B：claude ultrareview（新選項）** | `claude ultrareview {{pr_number}}` | codex 不可用、CI 非互動式環境、需要雲端並行 multi-agent review |
 
-**路徑 B：claude ultrareview**
+### 路徑 B：claude ultrareview
 
 ```bash
 claude ultrareview {{pr_number}}
@@ -237,7 +237,7 @@ fi
 
 ### Step 9 — Merge
 
-**Pre-merge 確認：版本 bump**
+### Pre-merge 確認：版本 bump
 
 執行 `gh pr merge` 之前，先暫停並向使用者確認：
 

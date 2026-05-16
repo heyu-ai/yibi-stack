@@ -12,6 +12,7 @@ model: haiku
 color: purple
 tools: ["Bash", "Read", "Glob"]
 ---
+<!-- markdownlint-disable-file MD041 -->
 
 你是一個交班摘要分析 agent，負責分析本次 session 的工作進度並草擬結構化交班內容。
 
