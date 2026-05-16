@@ -159,11 +159,12 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 
 ## 修剪
 
-檢查 learnings 是否過時或有矛盾。
+> **注意**：修剪功能目前僅適用於 gstack learnings（私有工具）。無 gstack 時此命令為 no-op。
 
-若 gstack 可用（私有工具），先查詢 gstack learnings：
+先確認 `~/.claude/skills/gstack/bin/gstack-slug` 存在，再執行修剪。若不存在則告知使用者 gstack 未安裝，跳過此 section。
 
 ```bash
+[ -x ~/.claude/skills/gstack/bin/gstack-slug ] || { echo "gstack 未安裝，修剪功能不適用"; exit 0; }
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 100 2>/dev/null
 ```
@@ -187,7 +188,7 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 
 將 learnings 匯出為適合加入 CLAUDE.md 或專案文件的 Markdown。
 
-若 gstack 可用（私有工具）：
+若偵測到 `~/.claude/skills/gstack/bin/gstack-slug` 存在，才執行：
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
@@ -252,7 +253,7 @@ fi
 4. 信心度（1–10）
 5. 相關檔案（可選）
 
-若 gstack 可用（私有工具），也可記錄到 gstack：
+若偵測到 `~/.claude/skills/gstack/bin/gstack-learnings-log` 存在，才執行：
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":N,"source":"user-stated","files":["FILE1"]}'
