@@ -112,4 +112,4 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **Effort fallback 是風險判斷，非慣例**：一般工具 fallback 設 `medium`；規格展開／深度 review 工具（如 spectra-amplifier）可設 `high`，因規格缺漏代價高於多做
 - **`${CLAUDE_EFFORT}` 在 SKILL.md 不展開**：靜態 Markdown 中 agent 讀到的是 literal string；若需實際值，用 `echo "${CLAUDE_EFFORT:-normal}"` eval
 - **Slash command 的 bash code block 被 agent 重寫**：commands/*.md 中，agent 理解意圖後自行生成 bash 而非複製貼上，可能引入反模式。複雜 bash 邏輯移到 `commands/scripts/*.sh`
-- **`make install-all` 說明文字的 target 名稱要逐字引用**：文件寫 `plugin patch` 但 Makefile 實際 target 是 `patch-pr-review-agents`，使用者跑 `make "plugin patch"` 會 404。README/CLAUDE.md 中的 make target 名稱一律從 Makefile 直接 copy，不可改寫成「可讀標籤」
+- **make target 名稱一律逐字引用**：README/CLAUDE.md 中的 target 名稱必須從 Makefile 直接 copy，不可改寫成「可讀標籤」（例如把 `patch-pr-review-agents` 縮寫為其他名稱），否則使用者執行時 404

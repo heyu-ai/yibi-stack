@@ -82,7 +82,7 @@ uv run python -m tasks.<module> <command> --profile {{profile_name}}
 
 建立或修改 skill 後，必須更新 `skills/README.md` 的索引表格。
 
-`skills/README.md` 有兩張獨立表格：「可執行/工具型（exec/tool）」和「知識型（know）」。
+`skills/README.md` 在「全域 Skill」section 下有兩張表格：「可執行/工具型（exec/tool）」和「知識型（know）」。`scope: project` 的 exec skill 屬於第三張「本 Repo 限定」表格，不在此規則範圍。
 **分類依據是 SKILL.md frontmatter 的 `type` 欄位，不是功能感覺**：
 
 | frontmatter `type` | 應放的表格 |
