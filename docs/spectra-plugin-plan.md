@@ -18,7 +18,7 @@
 
 | 項目 | 事實 |
 |------|------|
-| Upstream repo | https://github.com/kaochenlong/spectra-app（public，open source，**578 stars**） |
+| Upstream repo | <https://github.com/kaochenlong/spectra-app>（public，open source，**578 stars**） |
 | 創立日 | 2026-02-04（3 個月內爆紅） |
 | 維護節奏 | v2.2.5 (4/22) → v2.3.0 (5/8) → **v2.3.1 (5/12)**，月更甚至週更 |
 | 作者 | Chien Lung Kao（5xCamp Ruby 訓練機構社群熟人；homepage `spectra.5xcamp.us`） |
@@ -48,7 +48,7 @@
 採取「**徹底搬遷 + degraded mode**」策略：
 
 - 把 4 個相關 skill 從 `skills/` **整個搬進** `plugins/spectra/skills/`，外層 `skills/` 改為相對路徑 symlink 反向指回（make install 不受影響）。
-- plugin README 第一段明確標示 **prereq: 從 https://spectra.dev 下載 Spectra.app for macOS**。
+- plugin README 第一段明確標示 **prereq: 從 <https://spectra.dev> 下載 Spectra.app for macOS**。
 - SessionStart hook 偵測缺失時，inject 一行提示「amplifier 方法論可獨立使用，但 archive/validate/analyze 需要 CLI」——不 block。
 - 不 wrap `/spectra-propose`、`/spectra-apply`（那些是 spectra app 自帶；wrap 會 drift）。只加一個 `/spectra:setup` 做依賴診斷。
 
@@ -63,7 +63,7 @@
 
 ### ✅ Step 1：建立 plugin scaffold
 
-```
+```text
 plugins/spectra/
 ├── .claude-plugin/plugin.json
 ├── package.json
@@ -78,7 +78,7 @@ plugins/spectra/
 
 ### ✅ Step 2：搬遷 4 個 skill
 
-```
+```text
 plugins/spectra/skills/spectra-amplifier/SKILL.md
 plugins/spectra/skills/pr-review-cycle/SKILL.md
 plugins/spectra/skills/pr-review-cycle-mob/SKILL.md
@@ -95,7 +95,7 @@ plugins/spectra/skills/pr-review-cycle-codex/SKILL.md
 
 ### ✅ Step 4：references/ 範本
 
-```
+```text
 references/openspec-layout.md
 references/proposal-template.md
 references/design-template.md

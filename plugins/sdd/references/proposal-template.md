@@ -82,7 +82,7 @@
 
 ### 冒煙測試情境
 
-**ST-001：{{scenario-title}}**
+### ST-001：{{scenario-title}}
 
 - GIVEN {{前置條件}}
 - WHEN {{操作}}

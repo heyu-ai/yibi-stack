@@ -571,7 +571,7 @@ CI 失敗：本地重現（用 Step 6 找到的 CI 指令）→ 修 → commit +
 
 ### Step 10 — Merge
 
-**Pre-merge 確認：版本 bump**
+### Pre-merge 確認：版本 bump
 
 執行 `gh pr merge` 之前，先暫停並向使用者確認：
 

@@ -70,7 +70,7 @@ make lint && make test
 
 ### 對策（依優先序）
 
-**1. 拆成多個 bash call（最常見也最簡單）**
+### 1. 拆成多個 bash call（最常見也最簡單）
 
 每個 call 解一個問題，agent 看完再決定下一步：
 
@@ -87,7 +87,7 @@ echo "$INPUT" > /tmp/input.json
 RESULT=$(jq -r '.key.nested // empty' /tmp/input.json)
 ```
 
-**2. 寫成獨立 script 檔**
+### 2. 寫成獨立 script 檔
 
 放 `~/.claude/scripts/` 或專案 `scripts/`，從 bash 呼叫 `bash <path>`：
 
@@ -111,7 +111,7 @@ EOF
 python3 /tmp/process.py < input.txt
 ```
 
-**3. 用對的工具取代 inline 邏輯**
+### 3. 用對的工具取代 inline 邏輯
 
 | 需求 | 不要用 | 改用 |
 |------|--------|------|
@@ -122,7 +122,7 @@ python3 /tmp/process.py < input.txt
 
 ### Before / After 完整範例
 
-**範例 A：jq 巢狀條件 → 兩段 pipe**
+### 範例 A：jq 巢狀條件 → 兩段 pipe
 
 ```bash
 # 錯：jq 多行複雜表達式（內嵌語言 + 多層條件 = score 2）
@@ -141,7 +141,7 @@ if [ "$STATUS" = "active" ]; then
 fi
 ```
 
-**範例 B：複雜 if/elif → case statement**
+### 範例 B：複雜 if/elif → case statement
 
 ```bash
 # 錯：多層 if/elif（多層分支 = score 1，加上複雜參數展開 ${EXT##*.} = score 2）
@@ -169,7 +169,7 @@ case "$EXT" in
 esac
 ```
 
-**範例 C：heredoc inline Python → 拆出獨立 script**
+### 範例 C：heredoc inline Python → 拆出獨立 script
 
 ```bash
 # 錯：heredoc + 內嵌 Python（score 1 + score 3 = 2，過度）
@@ -197,7 +197,7 @@ python3 /tmp/filter_active.py < data.json
 
 ### 範圍（請先讀清楚，避免過度限制）
 
-**本規範只限制：bash 指令本身的字元內容**
+本規範只限制：bash 指令本身的字元內容
 
 - `echo` 的字串參數
 - 變數值 literal
@@ -273,7 +273,7 @@ cat README.md
 - [ ] 這是不可逆操作嗎？（rm -rf / force push / migrate / publish）→ 先說明，等確認
 - [ ] 用了 `sudo` / `env` / `watch` 等 wrapper 包不可逆操作嗎？→ deny rule 仍會攔截，不要以為 wrapper 能繞過
 
-**AP1 門檻：換行 / 引號 / 內嵌語言 三項中任兩項 yes → 拆 bash call / 寫 script / 換工具**
+### AP1 門檻：換行 / 引號 / 內嵌語言 三項中任兩項 yes → 拆 bash call / 寫 script / 換工具
 
 ## 在你的專案啟用本規範
 

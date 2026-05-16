@@ -90,7 +90,8 @@
 **追溯**：AC-001-1, AC-001-2（US-001）
 
 1. **輸入約束**：無輸入參數；讀取 `~/.gemini/google_accounts.json`
-2. **處理邏輯**：系統 SHALL 讀取 `AGENTS_HOME / ".." / ".gemini" / "google_accounts.json"`（即 `Path.home() / ".gemini" / "google_accounts.json"`）；若檔案存在 SHALL 解析 JSON；SHALL 取 `data["active"]`；若 `active` 為非空字串 SHALL 回傳此值
+2. **處理邏輯**：系統 SHALL 讀取 `AGENTS_HOME / ".." / ".gemini" / "google_accounts.json"`
+   （即 `Path.home() / ".gemini" / "google_accounts.json"`）；若檔案存在 SHALL 解析 JSON；SHALL 取 `data["active"]`；若 `active` 為非空字串 SHALL 回傳此值
 3. **輸出／副作用**：MUST 回傳 `str | None`；`None` 代表無法偵測，呼叫端繼續 fallback
 4. **不做什麼**：MUST NOT 讀取 `oauth_creds.json` 或任何 token 檔案；本規格不負責 Gemini 登入狀態驗證
 5. **錯誤處理**：若檔案不存在、JSON 解析失敗、`active` 欄位缺失，SHALL 靜默回傳 `None`，不拋例外
@@ -114,7 +115,9 @@
 **追溯**：AC-003-1, AC-003-2, AC-003-3（US-003）
 
 1. **輸入約束**：無輸入參數；讀取 `~/.claude/.claude.json`；查詢 `_registry/accounts.json`
-2. **處理邏輯**：SHALL 讀取 `Path.home() / ".claude" / ".claude.json"` 取得 `userID`（SHA256 hash）；SHALL 在 `_registry/accounts.json` 中尋找 `agent_type == "claude"` 且 `hash == userID` 的記錄；若找到 SHALL 回傳對應的 `email`；若未找到 SHALL 回傳 `None`（不詢問，詢問由 `agents account link-claude` 指令負責）
+2. **處理邏輯**：SHALL 讀取 `Path.home() / ".claude" / ".claude.json"` 取得 `userID`（SHA256 hash）；
+   SHALL 在 `_registry/accounts.json` 中尋找 `agent_type == "claude"` 且 `hash == userID` 的記錄；
+   若找到 SHALL 回傳對應的 `email`；若未找到 SHALL 回傳 `None`（不詢問，詢問由 `agents account link-claude` 指令負責）
 3. **輸出／副作用**：MUST 回傳 `str | None`
 4. **不做什麼**：MUST NOT 直接詢問使用者；MUST NOT 嘗試反解 SHA256
 5. **錯誤處理**：`.claude.json` 不存在、JSON 錯誤、`accounts.json` 讀取失敗，SHALL 靜默回傳 `None`
@@ -228,31 +231,31 @@
 
 ## 冒煙測試情境
 
-**ST-001：Gemini 帳號自動填充**
+### ST-001：Gemini 帳號自動填充
 
 - GIVEN `~/.gemini/google_accounts.json` 存在，`active` = `"howie@gmail.com"`，且 `AGENT_ACCOUNT` 未設定
 - WHEN 執行 `detect_account(agent_type="gemini")`
 - THEN 回傳 `"howie@gmail.com"`，且 `accounts.json` 新增一筆 gemini 帳號記錄
 
-**ST-002：Codex JWT 解碼**
+### ST-002：Codex JWT 解碼
 
 - GIVEN `~/.codex/auth.json` 存在，`tokens.id_token` 為含 email 的有效 JWT
 - WHEN 執行 `detect_account(agent_type="codex")`
 - THEN 回傳 JWT payload 中的 `email`
 
-**ST-003：Claude hash 對照表命中**
+### ST-003：Claude hash 對照表命中
 
 - GIVEN `~/.claude/.claude.json` 存在，`accounts.json` 有此 userID hash 的對應記錄
 - WHEN 執行 `detect_account(agent_type="claude")`
 - THEN 回傳對應 email，不詢問使用者
 
-**ST-004：全部 adapter 失敗的 fallback**
+### ST-004：全部 adapter 失敗的 fallback
 
 - GIVEN 所有 credential 檔案不存在，`AGENT_ACCOUNT` 未設定，`config.json` 的 `default_account` 為 `null`
 - WHEN 執行 `detect_account(warn=False)`
 - THEN 回傳 `"unknown"`，無例外、無 stderr 輸出
 
-**ST-005：env var override**
+### ST-005：env var override
 
 - GIVEN `AGENT_ACCOUNT` = `"override@example.com"`，且 `~/.gemini/google_accounts.json` 有 active 值
 - WHEN 執行 `detect_account(agent_type="gemini")`

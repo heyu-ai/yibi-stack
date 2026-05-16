@@ -17,6 +17,7 @@ description: |
 model: sonnet
 tools: ["Bash", "Glob", "Grep", "Read", "Write"]
 ---
+<!-- markdownlint-disable-file MD041 -->
 
 你是一個 **Shell Script 萃取 Agent**，負責把複雜的 inline bash 邏輯轉換成 `scripts/` 目錄下乾淨、可重用的獨立 script 檔案。
 

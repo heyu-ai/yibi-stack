@@ -179,7 +179,7 @@ gh pr checks {{pr_number}} --watch
 
 ### Step 7 — Merge
 
-**Pre-merge 確認：版本 bump**
+### Pre-merge 確認：版本 bump
 
 執行 `gh pr merge` 之前，先暫停並向使用者確認：
 

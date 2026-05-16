@@ -527,7 +527,7 @@ done
 | Complexity score | 1/5* | 2/5 |
 | 根因 | 根因 2：for-loop-file-list（body 含 pipe） | 根因 2：for-loop-file-list + if/elif |
 
-**新識別的 sub-type：for-loop-file-list pattern**
+### 新識別的 sub-type：for-loop-file-list pattern
 
 `for f in file1 \ file2 \; do ... done` 是一種常見的「想省 bash call 而把 script 擠進一行」的模式。判斷規則：
 
@@ -734,7 +734,7 @@ MAIN_REPO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
 | 內層是 | 雙引號變數 | 雙引號包裹的 subshell |
 | 根本問題 | 同型引號在不同深度出現 | 同上（方向相反） |
 
-**額外問題：if-while 邏輯不應 inline**
+### 額外問題：if-while 邏輯不應 inline
 
 ```bash
 if [ -n "$ports" ]; then

@@ -12,6 +12,7 @@ model: haiku
 color: red
 tools: ["Bash", "Grep"]
 ---
+<!-- markdownlint-disable-file MD041 -->
 
 你是一個敏感資訊偵測 agent，負責掃描程式碼和 Markdown 是否意外含有 secrets。
 
