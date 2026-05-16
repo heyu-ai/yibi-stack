@@ -219,7 +219,10 @@ status-own: ## Show install status for skills in THIS repo only (excludes gstack
 		name=$$(basename $$s); \
 		if [ "$$name" = "_template" ]; then continue; fi; \
 		skill_md="$(SKILL_DIR)/$$name/SKILL.md"; \
-		scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
+		scope=""; \
+		if [ -f "$$skill_md" ]; then \
+			scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
+		fi; \
 		own="$(CURDIR)/$(SKILL_DIR)/$$name"; \
 		cc_target=$$(readlink "$(CLAUDE_SKILL_DIR)/$$name" 2>/dev/null); \
 		ag_target=$$(readlink "$(INSTALL_DIR)/$$name" 2>/dev/null); \
