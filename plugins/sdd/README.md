@@ -1,8 +1,10 @@
-# spectra
+# sdd
 
-Claude Code plugin for Spectra + OpenSpec change-management methodology and workflow.
+Claude Code plugin for Spec-Driven Development: Spectra amplifier methodology, qa-test-design framework, and OpenSpec change-management workflow.
 
 > **This plugin does NOT bundle the spectra CLI. Install Spectra.app separately (see Prerequisites).**
+
+> **v0.2 Upgrade note:** PR review skills (`pr-review-cycle`, `pr-review-cycle-mob`, `pr-review-cycle-codex`) have moved to `pr-flow@yibi-stack`. If upgrading from `yibi-spectra`, run: `claude plugin install pr-flow@yibi-stack`
 
 ## Prerequisites
 
@@ -26,19 +28,17 @@ Amplifier methodology and all openspec templates work standalone without the CLI
 claude plugin marketplace add howie/yibi-stack
 
 # Install plugin
-claude plugin install yibi-spectra@yibi-stack
+claude plugin install sdd@yibi-stack
 ```
 
 ## What you get
 
 | Component | Description |
 |-----------|-------------|
-| `spectra-amplifier` skill | Spec Kit 五層深度規格展開 + OpenSpec/Spectra 變更管理框架方法論。呼叫方式：`/spectra:spectra-amplifier` |
-| `pr-review-cycle` skill | 完整 PR 生命週期：PR 建立 → parallel review → fix → CI → merge → spectra archive + Jira sync |
-| `pr-review-cycle-mob` skill | Mob review：多家 frontier model（Codex / Gemini / open-weights）並行 R1 + R2 交叉 debate，適用中大型 PR |
-| `pr-review-cycle-codex` skill | [DEPRECATED] codex-only review，改用 pr-review-cycle 或 pr-review-cycle-mob |
+| `spectra-amplifier` skill | Spec Kit 五層深度規格展開 + OpenSpec/Spectra 變更管理框架方法論 |
+| `qa-test-design` skill | 測試設計框架：邊界分析、等價類劃分、決策表，生成結構化 test case |
 | SessionStart hook | Detects whether `spectra` CLI is in PATH; injects a nudge when absent (silent when present) |
-| `/spectra:setup` command | Diagnose CLI installation status and print setup instructions |
+| `/sdd:setup` command | Diagnose CLI installation status and print setup instructions |
 | `references/` | 6 個 openspec 範本：目錄結構說明、proposal/design/tasks/spec-delta 骨架、archive 步驟 snippet |
 
 ## openspec 目錄範例
@@ -64,22 +64,6 @@ docs/openspec/changes/<feature-name>/
 | `tasks-template.md` | Implementation checklist 空骨架 |
 | `spec-delta-template.md` | Delta spec 骨架（GIVEN/WHEN/THEN + [ADDED]/[MODIFIED]/[REMOVED]） |
 | `spectra-archive-snippet.md` | PR 收尾 Spectra Archive + Jira Sync 完整步驟 |
-
-## Skill invocation
-
-Skills installed by this plugin are namespaced under `spectra:`:
-
-```text
-/spectra:spectra-amplifier      Spec Kit 五層展開方法論
-/spectra:pr-review-cycle        完整 PR 生命週期
-/spectra:pr-review-cycle-mob    Mob review（多 model 群審）
-```
-
-## Command invocation
-
-```text
-/spectra:setup                  CLI 診斷 + 安裝引導
-```
 
 ## License
 
