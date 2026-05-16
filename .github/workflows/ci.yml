@@ -23,25 +23,22 @@ jobs:
       - uses: astral-sh/setup-uv@v4
         with:
           python-version: "3.11"
-          enable-caching: true
+          enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
             uv.lock
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: uv sync --all-groups
 
-      - name: Lint
-        run: uv run ruff check tasks/
+      - name: Cache pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
 
-      - name: Format check
-        run: uv run ruff format --check tasks/
-
-      - name: Type check
-        run: uv run mypy tasks/
+      - name: Lint, format, type check, security (pre-commit)
+        run: uv run pre-commit run --all-files
 
       - name: Test
         run: uv run pytest --tb=short
-
-      - name: SKILL.md bash lint
-        run: uv run python scripts/lint_skill_bash.py
