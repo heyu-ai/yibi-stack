@@ -29,6 +29,7 @@ claude plugin install bash-hygiene@yibi-stack
 | Smart-fix PreToolUse hook | Detects Rule 2 `"$(cmd)"` standalone token and shows corrected command inline |
 | SessionStart hook | Injects anti-pattern rules into every session context |
 | `bash-anti-patterns` skill | Full methodology guide (invoke via `/bash-hygiene:bash-anti-patterns`) |
+| `protect-push` skill | Git pre-push hook installer: blocks direct push to main/master from worktree branches |
 
 ## Known Limitations
 

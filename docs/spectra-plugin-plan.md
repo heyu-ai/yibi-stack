@@ -2,6 +2,8 @@
 
 > **狀態（2026-05-15）**：全部 7 個 Step 已完成，plugin 住在 `plugins/spectra/`。
 > Phase 2（yibi-stack 拆 repo）也已完成。本文件作為設計決策記錄保留。
+>
+> **v0.2 更新（2026-05-16）**：plugin 改名為 `sdd`（`plugins/spectra/` → `plugins/sdd/`），PR review skills 移至 `plugins/pr-flow/`，`qa-test-design` 移入 `sdd`。本文件記錄 v0.1 計畫，現況請以 `plugins/sdd/` 和 `plugins/pr-flow/` 為準。
 
 ## Context
 

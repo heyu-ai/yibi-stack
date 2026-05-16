@@ -45,7 +45,7 @@ repos:
         entry: python3 scripts/lint_skill_bash.py
         language: system
         pass_filenames: false
-        files: ^(commands|skills|\.claude/commands)/.*\.md$
+        files: ^(commands|skills|plugins|\.claude/commands)/.*\.md$
 
   - repo: https://github.com/PyCQA/bandit
     rev: 1.7.7

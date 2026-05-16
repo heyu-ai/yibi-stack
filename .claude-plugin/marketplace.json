@@ -16,13 +16,58 @@
       "source": "./plugins/bash-hygiene"
     },
     {
-      "name": "yibi-spectra",
-      "description": "Spectra + OpenSpec spec-amplifier methodology, change-management templates, and CLI dependency check for Claude Code agents.",
+      "name": "sdd",
+      "description": "Spec-Driven Development: Spectra amplifier methodology, qa-test-design framework, OpenSpec change-management templates for Claude Code agents.",
       "author": {
         "name": "Howie Yu"
       },
       "category": "development",
-      "source": "./plugins/spectra"
+      "source": "./plugins/sdd"
+    },
+    {
+      "name": "growth",
+      "description": "Session continuity and knowledge retention: session-memory, learn skill, handover/newjob slash commands for Claude Code agents.",
+      "author": {
+        "name": "Howie Yu"
+      },
+      "category": "productivity",
+      "source": "./plugins/growth"
+    },
+    {
+      "name": "pr-flow",
+      "description": "Full PR workflow: review cycles, retrospective, bump-version, claude-md-prune, and PR slash commands for Claude Code agents.",
+      "author": {
+        "name": "Howie Yu"
+      },
+      "category": "development",
+      "source": "./plugins/pr-flow"
+    },
+    {
+      "name": "3rd-tools",
+      "description": "Third-party AI tool integrations: Codex, Gemini model verification, and AI slop detection for Claude Code agents.",
+      "author": {
+        "name": "Howie Yu"
+      },
+      "category": "ai-tools",
+      "source": "./plugins/3rd-tools"
+    },
+    {
+      "name": "tdd",
+      "description": "Test-Driven Development methodology: Kent Beck TDD, Flutter TDD, and CI triage skills for Claude Code agents.",
+      "author": {
+        "name": "Howie Yu"
+      },
+      "category": "development",
+      "source": "./plugins/tdd"
+    },
+    {
+      "name": "util",
+      "description": "Utility tools: local port manager and debug slash command for Claude Code agents.",
+      "author": {
+        "name": "Howie Yu"
+      },
+      "category": "productivity",
+      "source": "./plugins/util"
     }
   ]
 }
