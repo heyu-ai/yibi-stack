@@ -1,0 +1,14 @@
+# markdownlint configuration for yibi-stack
+# SKILL.md files use long table columns, code blocks, and bold-as-section-label
+# These rules are relaxed to match the project's writing conventions.
+default: true
+MD013:
+  # Line length limit - disabled; SKILL.md tables and code blocks exceed 80 chars
+  line_length: false
+MD024:
+  # Allow duplicate heading names - documentation naturally reuses names like
+  # "Steps", "Examples", "Notes" across sections
+  siblings_only: true
+MD036:
+  # Allow bold text as informal section labels - common pattern in SKILL.md runbooks
+  enabled: false
