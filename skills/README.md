@@ -26,7 +26,7 @@
 | `session-memory` | tool | 跨對話工作記憶中樞：跨 Agent / 跨帳號 / 跨機器的統一 handover 交班與 insight 收集系統，所有產出收斂至 `~/.agents/` | [session-memory/SKILL.md](session-memory/SKILL.md) |
 | `local-port-manager` | exec | 機器層 port 分配登錄，管理多專案服務 port 避免衝突。支援 suggest（查不寫）+ reserve（確認後登記）兩步驟工作流 | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) |
 | `protect-push` | tool | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
-| `learn` | tool | 統一教訓管理 — 整合 gstack learnings、handover 交班教訓、insight 洞察三大來源，支援瀏覽、搜尋、修剪、匯出 | [learn/SKILL.md](learn/SKILL.md) |
+| `learn` | tool | 統一教訓管理 — 整合 handover 交班教訓、insight 洞察，支援瀏覽、搜尋、修剪、匯出 | [learn/SKILL.md](learn/SKILL.md) |
 | `pr-retrospective` | tool | PR 收尾五問回顧（agent 推論草稿、使用者校準），寫入 session-memory handover；依 Lesson Classifier 路由 lessons 到 `.claude/rules/` 或 CLAUDE.md，再觸發 hookify、writing-skills 等下游 skill | [pr-retrospective/SKILL.md](pr-retrospective/SKILL.md) |
 | `claude-md-prune` | tool | 審查並精簡 CLAUDE.md：把累積的 gotcha 路由到對應的 `.claude/rules/` 子檔，刪除過期或重複內容，維持 CLAUDE.md 在 Anthropic 建議的 200 行軟上限內 | [claude-md-prune/SKILL.md](claude-md-prune/SKILL.md) |
 | `codex` | tool | OpenAI Codex CLI 第二意見：review（pass/fail gate）、challenge（對抗模式）、consult（詢問 codebase）；auth 確認用兩次 bash call，不觸發 if/elif 確認框 | [codex/SKILL.md](codex/SKILL.md) |
@@ -52,10 +52,12 @@
 
 ### 本 Repo 限定 Skill（`scope: project`，需 `make install-project`）
 
+#### 可執行 Skill
+
 | Skill | 類型 | 描述 | SKILL.md | 相依工具 |
 |-------|------|------|----------|---------|
 | `scheduler` | exec | 管理 Skill Scheduler — 設定定期自動執行的排程、查看執行狀態、手動觸發 job | [scheduler/SKILL.md](scheduler/SKILL.md) | `uv`, MiniShell ACP Gateway |
-| `new-task-module` | exec | 根據本 repo 的 module 結構規範自動建立新 task module 骨架（7 個檔案）並更新索引 | [new-task-module/SKILL.md](new-task-module/SKILL.md) | — |
+| `new-task-module` | exec | 根據本 repo 的 module 結構規範自動建立新 task module 骨架（7 個檔案）並更新索引 | [new-task-module/SKILL.md](new-task-module/SKILL.md) | -- |
 
 ---
 

@@ -3,8 +3,8 @@ name: learn
 type: tool
 scope: global
 description: >
-  管理專案 learnings — 整合 gstack learnings、handover 交班教訓、insight 洞察三大來源，
-  統一瀏覽、搜尋、修剪、匯出。
+  管理專案 learnings — 整合 handover 交班教訓、insight 洞察兩大來源，
+  統一瀏覽、搜尋、修剪、匯出。gstack learnings 為選用（私有工具）。
   關鍵字：learnings、lesson learned、教訓、學到、pattern、pitfall、
   之前遇過、記得嗎、remember、avoid、prevent、預防、怎麼避免、
   what went wrong、retrospective、回顧、踩過的坑、經驗、陷阱
@@ -12,13 +12,13 @@ description: >
 
 # Learn — 教訓統一管理
 
-跨對話累積的模式（pattern）、陷阱（pitfall）、架構決策（architecture）整合自三個來源：
+跨對話累積的模式（pattern）、陷阱（pitfall）、架構決策（architecture）整合自兩個來源：
 
 | 來源 | 儲存位置 | 特性 |
 |------|----------|------|
-| **gstack learnings** | `~/.gstack/projects/<slug>/learnings.jsonl` | 結構化，有 type/confidence |
 | **handover 教訓** | `~/.agents/handover/handover.db` | 交班記錄的 lessons_learned、attempted_approaches |
 | **insight 洞察** | `~/.agents/insight/insights.jsonl` | Stop hook 自動收集的 ★ Insight 區塊 |
+| **gstack learnings** *(optional)* | `~/.gstack/projects/<slug>/learnings.jsonl` | 私有工具，不屬於 yibi-stack；有則顯示，無則略過 |
 
 **HARD GATE**：本 skill 不實作程式碼變更，只管理 learnings。
 
@@ -67,16 +67,9 @@ description: >
 
 ## 統一顯示最近（預設）
 
-依序查詢三個來源，並以清楚標題區隔呈現。
+依序查詢各來源，並以清楚標題區隔呈現。
 
-### 1. gstack learnings（結構化教訓）
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20 2>/dev/null || echo ""
-```
-
-### 2. handover 交班教訓
+### 1. handover 交班教訓
 
 ```bash
 PROJECT="$ORIG_PROJECT"
@@ -89,7 +82,7 @@ uv run python -m tasks.session_memory lessons show --project "$PROJECT" --last 1
 uv run python -m tasks.session_memory lessons show --last 10 2>/dev/null || echo ""
 ```
 
-### 3. insight 洞察（可選）
+### 2. insight 洞察（可選）
 
 若使用者明確要求包含 insights：
 
@@ -98,7 +91,18 @@ PROJECT="$ORIG_PROJECT"
 uv run python -m tasks.session_memory insight list --project "$PROJECT" --last 5 2>/dev/null || echo ""
 ```
 
-若三個來源都無資料，告知使用者：
+### 3. gstack learnings（選用，需私有工具）
+
+若偵測到 `~/.claude/skills/gstack/bin/gstack-slug` 存在，才執行：
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20 2>/dev/null || echo ""
+```
+
+若不存在則略過，不顯示任何 gstack 相關錯誤。
+
+若各來源都無資料，告知使用者：
 
 > 本專案尚未累積 learnings。隨著使用 review、investigate、handover 等 skill，系統會自動記錄發現的模式與洞察。
 
@@ -124,38 +128,43 @@ uv run python -m tasks.session_memory insight list --project "$PROJECT" --last 2
 
 ## 搜尋
 
-同時搜尋三個來源，並以標題區隔呈現結果。
+同時搜尋各來源，並以標題區隔呈現結果。
 
-### 1. gstack learnings
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "USER_QUERY" --limit 20 2>/dev/null || echo ""
-```
-
-### 2. handover 教訓
+### 1. handover 教訓
 
 ```bash
 PROJECT="$ORIG_PROJECT"
 uv run python -m tasks.session_memory lessons search "USER_QUERY" --project "$PROJECT" --last 10 2>/dev/null || echo ""
 ```
 
-### 3. insight 洞察（含 insights 旗標時）
+### 2. insight 洞察（含 insights 旗標時）
 
 ```bash
 PROJECT="$ORIG_PROJECT"
 uv run python -m tasks.session_memory lessons search "USER_QUERY" --project "$PROJECT" --insights --last 10 2>/dev/null || echo ""
 ```
 
-將 `USER_QUERY` 替換為使用者的搜尋詞。清晰呈現所有來源的搜尋結果，並標示來源。
+### 3. gstack learnings（選用，需私有工具）
+
+若 `~/.claude/skills/gstack/bin/gstack-slug` 存在：
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-learnings-search --query "USER_QUERY" --limit 20 2>/dev/null || echo ""
+```
+
+將 `USER_QUERY` 替換為使用者的搜尋詞。清晰呈現所有可用來源的搜尋結果，並標示來源。
 
 ---
 
 ## 修剪
 
-檢查 learnings 是否過時或有矛盾。
+> **注意**：修剪功能目前僅適用於 gstack learnings（私有工具）。無 gstack 時此命令為 no-op。
+
+先確認 `~/.claude/skills/gstack/bin/gstack-slug` 存在，再執行修剪。若不存在則告知使用者 gstack 未安裝，跳過此 section。
 
 ```bash
+[ -x ~/.claude/skills/gstack/bin/gstack-slug ] || { echo "gstack 未安裝，修剪功能不適用"; exit 0; }
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 100 2>/dev/null
 ```
@@ -178,6 +187,8 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ## 匯出
 
 將 learnings 匯出為適合加入 CLAUDE.md 或專案文件的 Markdown。
+
+若偵測到 `~/.claude/skills/gstack/bin/gstack-slug` 存在，才執行：
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
@@ -208,31 +219,23 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 
 ## 統計
 
+呈現 handover 教訓數量：
+
+```bash
+uv run python -m tasks.session_memory lessons show --last 9999 --json 2>/dev/null | jq length
+```
+
+若 gstack 可用（私有工具），也顯示 gstack learnings 統計：
+
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 LEARN_FILE="$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
 if [ -f "$LEARN_FILE" ]; then
   TOTAL=$(wc -l < "$LEARN_FILE" | tr -d ' ')
-  echo "TOTAL: $TOTAL 筆"
-  # 依 type 統計（去重後）
-  cat "$LEARN_FILE" | python3 -c "
-import sys, json
-from collections import Counter
-lines = [l.strip() for l in sys.stdin if l.strip()]
-seen = {}
-for line in lines:
-    try:
-        e = json.loads(line)
-        dk = (e.get('key','')) + '|' + (e.get('type',''))
-        seen[dk] = e
-    except (json.JSONDecodeError, KeyError): pass
-types = Counter(e.get('type','unknown') for e in seen.values())
-print(f'UNIQUE: {len(seen)} (去重後)')
-for t, c in types.items(): print(f'  {t}: {c}')
-" 2>/dev/null
+  echo "gstack TOTAL: $TOTAL 筆"
 else
-  echo "尚無 learnings 記錄。"
+  echo "gstack: 尚無 learnings 記錄。"
 fi
 ```
 
@@ -250,11 +253,13 @@ fi
 4. 信心度（1–10）
 5. 相關檔案（可選）
 
-然後記錄：
+若偵測到 `~/.claude/skills/gstack/bin/gstack-learnings-log` 存在，才執行：
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":N,"source":"user-stated","files":["FILE1"]}'
 ```
+
+否則，在交班時透過 `/handover` skill 的 `lessons_learned` 欄位記錄，下次 `/learn` 就會顯示。
 
 ---
 
@@ -262,6 +267,6 @@ fi
 
 | 問題 | 處理方式 |
 |------|----------|
-| `gstack-slug` 找不到 | 確認 gstack 已安裝：`ls ~/.claude/skills/gstack/bin/` |
+| `gstack-slug` 找不到 | gstack 是私有工具，非 yibi-stack 的一部分；略過 gstack 段落即可 |
 | learnings.jsonl 不存在 | 正常，尚未累積 learnings；繼續使用其他 skill 即可 |
 | 搜尋結果為空 | 換不同關鍵字；或用 `/learn` 看全部 |

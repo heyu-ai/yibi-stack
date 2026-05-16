@@ -267,10 +267,10 @@ cat README.md
 
 ```bash
 # 先註冊 marketplace（一次性）
-claude plugin marketplace add howie/ainization-skill
+claude plugin marketplace add howie/yibi-stack
 
 # 安裝 plugin
-claude plugin install bash-hygiene@ainization-skill
+claude plugin install bash-hygiene@yibi-stack
 ```
 
 安裝後自動獲得：
