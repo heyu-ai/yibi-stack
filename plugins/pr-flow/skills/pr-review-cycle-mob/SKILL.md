@@ -79,7 +79,7 @@ which gemini >/dev/null 2>&1 && echo "GEMINI: BINARY_OK" || echo "GEMINI: NOT_FO
 # Gemini auth（GEMINI_API_KEY 或 GOOGLE_API_KEY 任一即可）
 if env | grep -qE '^(GEMINI_API_KEY|GOOGLE_API_KEY)=.'; then
   echo "GEMINI_AUTH: KEY_SET"
-elif test -f ~/.gemini/credentials.json; then
+elif test -f ~/.gemini/gemini-credentials.json || test -f ~/.gemini/credentials.json; then
   echo "GEMINI_AUTH: FILE_EXISTS"
 else
   echo "GEMINI_AUTH: NOT_AUTHED"
