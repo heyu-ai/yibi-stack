@@ -94,13 +94,16 @@ fi
 
 外部 reviewer「可用」= binary OK + auth OK（Codex 或 Gemini）。
 
-**`BINARY_OK + NOT_AUTHED` 的處理**：binary 找到但 auth 失敗不算「可用」，
+**`BINARY_OK + NOT_AUTHED` 的處理**：binary 找到但 auth 失敗（`NOT_AUTHED` 或 `KEY_WHITESPACE_PREFIX`）不算「可用」，
 且必須在 Step 0 **明確停止**，不能靜默折算成可用數少一家——否則使用者以為工具未安裝，
 而非 auth 壞掉。偵測到此狀態時，先向使用者顯示修復指令，確認修復後重跑 Step 0。
 
+**注意**：下方計數表格只適用於「所有 binary-OK 的工具均已通過 auth」的情況。
+任一工具出現 `BINARY_OK + NOT_AUTHED / KEY_WHITESPACE_PREFIX` → 先執行上述停止流程，不進入 count 計算。
+
 | 可用外部 reviewer | 動作 |
 |---:|---|
-| 0 | **退回 `/pr-review-cycle`**（Claude-only 即足夠；本 skill 終止） |
+| 0（全部 NOT_FOUND，無 auth 失敗）| **退回 `/pr-review-cycle`**（Claude-only 即足夠；本 skill 終止） |
 | **1**（Codex 或 Gemini）| **2-voice mob**（Claude + 1 外部，cross-model debate 已有意義） |
 | **2**（Codex + Gemini）| **3-voice full mob**（最廣覆蓋） |
 
@@ -724,7 +727,7 @@ aggregate。
 | 問題 | 處理方式 |
 |---|---|
 | Step 0 零家可用（全部 NOT_FOUND 或 auth 失敗）| 本 skill 終止，改執行 `/pr-review-cycle`（Claude-only 即足夠） |
-| Step 0 偵測到 `KEY_WHITESPACE_PREFIX` | key 值有前置空格（如從 terminal 複製帶入）；執行 `export KEY=$(echo $KEY)` 去除空格後重跑 Step 0 |
+| Step 0 偵測到 `KEY_WHITESPACE_PREFIX` | key 值有前置空格（如從 terminal 複製帶入）；執行 `export CODEX_API_KEY="${CODEX_API_KEY# }"` 或對應 key 名去除前置空格後重跑 Step 0 |
 | `GEMINI_AUTH: NOT_AUTHED` 但有舊版 `~/.gemini/credentials.json` | 舊版 Gemini CLI 使用舊路徑；執行 `gemini auth login` 重新產生 `gemini-credentials.json` |
 | Step 0 只偵測到 Codex（Gemini 無）| 進入 2-voice mob（Claude + Codex），正常流程 |
 | Step 0 只偵測到 Gemini（Codex 無）| 進入 2-voice mob（Claude + Gemini），正常流程 |
