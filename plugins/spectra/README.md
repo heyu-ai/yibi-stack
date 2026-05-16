@@ -23,10 +23,10 @@ Amplifier methodology and all openspec templates work standalone without the CLI
 
 ```bash
 # Register marketplace (one-time)
-claude plugin marketplace add howie/ainization-skill
+claude plugin marketplace add howie/yibi-stack
 
 # Install plugin
-claude plugin install spectra@ainization-skill
+claude plugin install spectra@yibi-stack
 ```
 
 ## What you get

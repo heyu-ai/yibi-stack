@@ -28,7 +28,6 @@
 | `local-port-manager` | exec | 機器層 port 分配登錄，管理多專案服務 port 避免衝突。支援 suggest（查不寫）+ reserve（確認後登記）兩步驟工作流 | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) |
 | `session-memory` | tool | 跨對話工作記憶中樞：跨 Agent / 跨帳號 / 跨機器的統一 handover 交班與 insight 收集系統，所有產出收斂至 `~/.agents/` | [session-memory/SKILL.md](session-memory/SKILL.md) |
 | `protect-push` | tool | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
-| `bump-version` | know | Project-level 版本 bump（Flutter/Python/Node.js/Go）+ CHANGELOG 生成 + git tag 發布，附帶 commit-msg hook 安裝 | [bump-version/SKILL.md](bump-version/SKILL.md) |
 | `learn` | tool | 統一教訓管理 — 整合 handover 交班教訓、insight 洞察，支援瀏覽、搜尋、修剪、匯出 | [learn/SKILL.md](learn/SKILL.md) |
 | `pr-retrospective` | tool | PR 收尾五問回顧（agent 推論草稿、使用者校準），寫入 session-memory handover；依 Lesson Classifier 路由 lessons 到 `.claude/rules/` 或 CLAUDE.md | [pr-retrospective/SKILL.md](pr-retrospective/SKILL.md) |
 | `claude-md-prune` | tool | 審查並精簡 CLAUDE.md：把累積的 gotcha 路由到對應的 `.claude/rules/` 子檔，刪除過期或重複內容，維持 CLAUDE.md 在 Anthropic 建議的 200 行軟上限內 | [claude-md-prune/SKILL.md](claude-md-prune/SKILL.md) |
@@ -47,6 +46,7 @@
 | `spectra-amplifier` | Spec Kit 五層深度規格展開 + OpenSpec 變更管理框架融合方法論。住址：[plugins/spectra/](../plugins/spectra/README.md) | [spectra-amplifier/SKILL.md](spectra-amplifier/SKILL.md) |
 | `detect-ai-slop` | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
 | `bash-anti-patterns` | Claude Code agent 下 bash 指令三層防線：AP1 過度複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd；Rule 14 shell 引號衛生（simple_expansion / BRE alternation / 反向巢狀）；Rule 15 不可逆操作邊界；含判斷標準、對策決策樹與可選裝 PreToolUse hook | [bash-anti-patterns/SKILL.md](bash-anti-patterns/SKILL.md) |
+| `bump-version` | Project-level 版本 bump（Flutter/Python/Node.js/Go）+ CHANGELOG 生成 + git tag 發布，附帶 commit-msg hook 安裝 | [bump-version/SKILL.md](bump-version/SKILL.md) |
 
 ---
 

@@ -215,21 +215,25 @@ status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.age
 status-own: ## Show install status for skills in THIS repo only (excludes gstack/external)
 	@echo "=== yibi-stack skills (CC=~/.claude/skills, AG=~/.agents/skills) ==="; \
 	echo ""; \
-	for s in $(SKILL_DIR)/*/; do \
-		name=$$(basename $$s); \
-		if [ "$$name" = "_template" ]; then continue; fi; \
-		skill_md="$(SKILL_DIR)/$$name/SKILL.md"; \
-		scope=""; \
-		if [ -f "$$skill_md" ]; then \
-			scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
-		fi; \
-		own="$(CURDIR)/$(SKILL_DIR)/$$name"; \
-		cc_target=$$(readlink "$(CLAUDE_SKILL_DIR)/$$name" 2>/dev/null); \
-		ag_target=$$(readlink "$(INSTALL_DIR)/$$name" 2>/dev/null); \
-		if [ "$$cc_target" = "$$own" ]; then cc_s="OK"; else cc_s="--"; fi; \
-		if [ "$$ag_target" = "$$own" ]; then ag_s="OK"; else ag_s="--"; fi; \
-		printf "  CC:%-2s AG:%-2s  %-30s [%s]\n" "$$cc_s" "$$ag_s" "$$name" "$$scope"; \
-	done
+	if [ ! -d "$(SKILL_DIR)" ] || [ -z "$$(ls -A $(SKILL_DIR) 2>/dev/null)" ]; then \
+		echo "  (skills/ is empty)"; \
+	else \
+		for s in $(SKILL_DIR)/*/; do \
+			name=$$(basename $$s); \
+			if [ "$$name" = "_template" ]; then continue; fi; \
+			skill_md="$(SKILL_DIR)/$$name/SKILL.md"; \
+			scope=""; \
+			if [ -f "$$skill_md" ]; then \
+				scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
+			fi; \
+			own="$(CURDIR)/$(SKILL_DIR)/$$name"; \
+			cc_target=$$(readlink "$(CLAUDE_SKILL_DIR)/$$name" 2>/dev/null); \
+			ag_target=$$(readlink "$(INSTALL_DIR)/$$name" 2>/dev/null); \
+			if [ "$$cc_target" = "$$own" ]; then cc_s="OK"; else cc_s="--"; fi; \
+			if [ "$$ag_target" = "$$own" ]; then ag_s="OK"; else ag_s="--"; fi; \
+			printf "  CC:%-2s AG:%-2s  %-30s [%s]\n" "$$cc_s" "$$ag_s" "$$name" "$$scope"; \
+		done; \
+	fi
 
 uninstall: ## Remove own symlinks from ~/.claude/skills/ and ~/.agents/skills/
 	@for s in $(SKILL_DIR)/*/; do \
@@ -262,7 +266,7 @@ uninstall-handover-hooks: ## 移除 auto-handover PreCompact + SessionStart hook
 patch-pr-review-agents: ## 為 pr-review-toolkit agents 加入 git -C 指令規範（plugin 更新後重跑）
 	@bash scripts/patch-pr-review-agents.sh
 
-install-all: build-tools install install-project install-handover-hooks install-scheduler patch-pr-review-agents ## 一次裝齊 Go tools / skill（含 project）/ hook / scheduler / plugin patch（新環境首次設定用）
+install-all: build-tools install install-project install-handover-hooks install-scheduler patch-pr-review-agents ## 一次裝齊 Go tools / skill（含 project）/ hook / scheduler / patch-pr-review-agents（新環境首次設定用）
 
 promote: ## Promote draft to skill: make promote SKILL=<name>
 	@if [ -z "$(SKILL)" ]; then echo "Usage: make promote SKILL=name"; exit 1; fi

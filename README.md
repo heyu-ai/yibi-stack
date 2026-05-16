@@ -77,6 +77,12 @@ claude plugin install spectra@yibi-stack
 **Full install** (plugins + all skills + hooks + scheduler):
 
 ```bash
+# 1. Install plugins (pre-execution hooks + rules)
+claude plugin marketplace add howie/yibi-stack
+claude plugin install bash-hygiene@yibi-stack
+claude plugin install spectra@yibi-stack
+
+# 2. Clone and install skills + hooks + scheduler
 git clone https://github.com/howie/yibi-stack
 cd yibi-stack
 make install-all
@@ -189,6 +195,12 @@ claude plugin install spectra@yibi-stack
 **完整安裝**（plugin + 所有 skill + hook + scheduler）：
 
 ```bash
+# 1. 安裝 plugin（pre-execution hook + 規則）
+claude plugin marketplace add howie/yibi-stack
+claude plugin install bash-hygiene@yibi-stack
+claude plugin install spectra@yibi-stack
+
+# 2. Clone 並安裝 skill + hook + scheduler
 git clone https://github.com/howie/yibi-stack
 cd yibi-stack
 make install-all
