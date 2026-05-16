@@ -82,6 +82,19 @@ uv run python -m tasks.<module> <command> --profile {{profile_name}}
 
 建立或修改 skill 後，必須更新 `skills/README.md` 的索引表格。
 
+## README 表格分類與 frontmatter type 一致性
+
+`skills/README.md` 有兩張獨立表格：「可執行/工具型（exec/tool）」和「知識型（know）」。
+**分類依據是 SKILL.md frontmatter 的 `type` 欄位，不是功能感覺**：
+
+| frontmatter `type` | 應放的表格 |
+|--------------------|-----------|
+| `exec` 或 `tool` | 可執行/工具型 |
+| `know` | 知識型（方法論）|
+
+常見錯誤：`type: know` 的 skill 因「感覺可執行」而被放入工具型表格（如 `bump-version`）。
+維護 README 時，先用 `grep -m1 '^type:' skills/<name>/SKILL.md` 確認 type 再決定位置。
+
 ## 參考模板
 
 `skills/_template/SKILL.md.tpl` 是標準格式參考。

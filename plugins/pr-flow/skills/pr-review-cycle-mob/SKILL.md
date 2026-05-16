@@ -61,7 +61,7 @@ which codex >/dev/null 2>&1 && echo "CODEX: BINARY_OK" || echo "CODEX: NOT_FOUND
 
 ```bash
 # Codex auth（KEY_SET 或 FILE_EXISTS 任一即可）
-if env | grep -qE '^(CODEX_API_KEY|OPENAI_API_KEY)=.'; then
+if env | grep -qE '^(CODEX_API_KEY|OPENAI_API_KEY)=[^[:space:]]'; then
   echo "CODEX_AUTH: KEY_SET"
 elif test -f ~/.codex/auth.json; then
   echo "CODEX_AUTH: FILE_EXISTS"
@@ -77,9 +77,9 @@ which gemini >/dev/null 2>&1 && echo "GEMINI: BINARY_OK" || echo "GEMINI: NOT_FO
 
 ```bash
 # Gemini auth（GEMINI_API_KEY 或 GOOGLE_API_KEY 任一即可）
-if env | grep -qE '^(GEMINI_API_KEY|GOOGLE_API_KEY)=.'; then
+if env | grep -qE '^(GEMINI_API_KEY|GOOGLE_API_KEY)=[^[:space:]]'; then
   echo "GEMINI_AUTH: KEY_SET"
-elif test -f ~/.gemini/credentials.json; then
+elif test -f ~/.gemini/gemini-credentials.json; then
   echo "GEMINI_AUTH: FILE_EXISTS"
 else
   echo "GEMINI_AUTH: NOT_AUTHED"
