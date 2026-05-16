@@ -221,7 +221,7 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 呈現 handover 教訓數量：
 
 ```bash
-uv run python -m tasks.session_memory lessons show --last 9999 2>/dev/null | wc -l
+uv run python -m tasks.session_memory lessons show --last 9999 --json 2>/dev/null | jq length
 ```
 
 若 gstack 可用（私有工具），也顯示 gstack learnings 統計：
@@ -258,11 +258,7 @@ fi
 ~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":N,"source":"user-stated","files":["FILE1"]}'
 ```
 
-否則可透過 handover skill 記錄教訓，或直接存入 session memory：
-
-```bash
-uv run python -m tasks.session_memory lessons add --type TYPE --key "KEY" --insight "INSIGHT"
-```
+否則，在交班時透過 `/handover` skill 的 `lessons_learned` 欄位記錄，下次 `/learn` 就會顯示。
 
 ---
 
