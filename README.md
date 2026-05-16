@@ -98,7 +98,7 @@ make status-own
 
 | Skill | What it does |
 |-------|-------------|
-| `spectra-amplifier` | 5-layer spec expansion via `spectra` plugin |
+| `spectra-amplifier` | 5-layer spec expansion via `yibi-spectra` plugin |
 | `pr-review-cycle` | Full PR lifecycle: create -> parallel review -> fix -> CI -> merge |
 | `pr-review-cycle-mob` | Multi-model mob review (Claude + Codex + Gemini) |
 | `bash-anti-patterns` | AP1/AP2/AP3 detection guide + shell quoting hygiene reference |
@@ -153,7 +153,7 @@ yibi-stack 在 Claude Code 之上疊加三層約束：
 | 好處 | 機制 |
 |------|------|
 | 更安全的 shell 執行 | `bash-hygiene` plugin 透過 PreToolUse hook，在執行前攔截三類反模式（AP1 過複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd），避免靜默失敗 |
-| 規格先行的開發 | `spectra` plugin + `spectra-amplifier` skill 把薄需求展開為五層規格（情境→行為→資料→約束→驗收條件），兼容 OpenSpec 變更管理框架 |
+| 規格先行的開發 | `yibi-spectra` plugin + `spectra-amplifier` skill 把薄需求展開為五層規格（情境→行為→資料→約束→驗收條件），兼容 OpenSpec 變更管理框架 |
 | 多模型 PR 審閱 | `pr-review-cycle-mob` 讓 Claude + Codex + Gemini 並行獨立審閱再交叉辯論，捕捉單一模型漏掉的問題 |
 | 持久化工作記憶 | `session-memory` skill 在對話壓縮前自動交班，下次 session 開啟時自動恢復工作上下文，多日開發不斷線 |
 | 發版紀律 | `bump-version` + `protect-push` + `ci-triage` 讓 Claude 不會在沒有明確意圖的情況下推上 main |
@@ -216,7 +216,7 @@ make status-own
 
 | Skill | 功能 |
 |-------|------|
-| `spectra-amplifier` | 五層規格展開（透過 `spectra` plugin） |
+| `spectra-amplifier` | 五層規格展開（透過 `yibi-spectra` plugin） |
 | `pr-review-cycle` | 完整 PR 生命週期：建立 → 並行 review → 修正 → CI → merge |
 | `pr-review-cycle-mob` | 多模型群審（Claude + Codex + Gemini） |
 | `bash-anti-patterns` | AP1/AP2/AP3 偵測指南 + shell 引號衛生參考 |
