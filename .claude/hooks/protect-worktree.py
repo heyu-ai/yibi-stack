@@ -13,8 +13,9 @@ Exit codes:
       導致 /clean-merged 等工具失效。
 
 Known limitations (static analysis; determined bypass is possible):
-  - git -C <path> worktree add ... pattern not matched (regex anchored to "git worktree add")
+  - git -C <path> worktree add ... not matched (regex anchored to "git worktree add")
   - ENV=val git worktree add ... prefix not stripped
+  - shell aliases for 'git' not expanded
 """
 
 import json
