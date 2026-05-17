@@ -46,7 +46,7 @@ _DETACH_FLAGS = frozenset(("-d", "--detach"))
 def _normalize_ref(ref: str) -> str:
     """Strip refs/heads/ prefix for comparison against _PROTECTED."""
     if ref.startswith("refs/heads/"):
-        return ref[len("refs/heads/"):]
+        return ref[len("refs/heads/") :]
     return ref
 
 
@@ -118,10 +118,13 @@ def main() -> None:
             print(_BLOCK_MSG.format(branch=new_branch))
             sys.exit(2)
 
-        if new_branch is None and len(positional) >= 2:
-            if _normalize_ref(positional[-1]) in _PROTECTED:
-                print(_BLOCK_MSG.format(branch=positional[-1]))
-                sys.exit(2)
+        if (
+            new_branch is None
+            and len(positional) >= 2
+            and _normalize_ref(positional[-1]) in _PROTECTED
+        ):
+            print(_BLOCK_MSG.format(branch=positional[-1]))
+            sys.exit(2)
 
     sys.exit(0)
 
