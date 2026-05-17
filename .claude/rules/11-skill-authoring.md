@@ -100,3 +100,22 @@ grep -m1 '^type:' skills/<name>/SKILL.md
 ## 參考模板
 
 `skills/_template/SKILL.md.tpl` 是標準格式參考。
+
+## 決策表與 Prose 的自洽性
+
+決策表（mode table）必須自給自足：不能只靠表格外的 prose 描述例外行為。
+agent 閱讀 SKILL.md 時按 table row 優先執行，表格外的說明段落容易被跳過。
+
+正確做法：
+- 在表格加 guard row（如「任一工具 BINARY_OK+NOT_AUTHED → 先執行停止流程，不進入 count 計算」）
+- 或在對應 row 的動作欄明確標注適用條件（如「0（全部 NOT_FOUND，無 auth 失敗）」）
+
+反模式：prose 說「偵測到 X 狀態時停止」，但 table 的 `count=0` row 說「redirect 終止」——agent 跟著 table 走，prose 的 intent 完全被覆蓋。
+
+## FAQ 修復指令格式
+
+FAQ 表格中的修復指令必須符合三個條件：
+
+1. **使用實際變數名**：不用 literal `KEY` 這類 placeholder，直接寫 `CODEX_API_KEY` / `GEMINI_API_KEY` 等實際名稱
+2. **shell-hygiene-safe 語法**：用 parameter expansion `"${VAR# }"` 去除前置空格，不用 `$(echo $VAR)` subshell（後者在 zsh 不 trim、且觸發 Rule 14 quoting hygiene hook）
+3. **跨 shell 相容**：指令在 zsh（macOS 預設）與 bash 均能正確執行
