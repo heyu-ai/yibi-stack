@@ -23,7 +23,7 @@ uv run python -m tasks.scheduler --help
 
 ## Mode A：初始化 + 安裝 LaunchAgent
 
-**適用情境：首次設定、重新安裝**
+### 適用情境：首次設定、重新安裝
 
 ```bash
 # 1. 初始化設定檔與資料庫
@@ -50,7 +50,7 @@ launchctl list | grep ainization
 
 ## Mode B：查看排程狀態
 
-**適用情境：確認排程是否正常運行**
+### 適用情境：確認排程是否正常運行
 
 ```bash
 # 查看所有 job 狀態
@@ -71,7 +71,7 @@ tail -f /tmp/ainization-scheduler.err
 
 ## Mode C：手動觸發 job
 
-**適用情境：測試、補跑、除錯**
+### 適用情境：測試、補跑、除錯
 
 ```bash
 # 強制執行特定 job（忽略 is_due 判斷）
@@ -104,7 +104,7 @@ uv run python -m tasks.scheduler uninstall
 | `depends_on` | 依賴的 job id 陣列 |
 | `enabled` | 是否啟用 |
 
-**Claude job 前提：MiniShell ACP Gateway 必須正在運行**
+### Claude job 前提：MiniShell ACP Gateway 必須正在運行
 
 ```bash
 # 在 MiniShell 專案啟動 Gateway

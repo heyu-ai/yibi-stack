@@ -26,20 +26,20 @@ AI 辨識是模式比對，不是非黑即白。重點是：
 
 檢查以下風格信號：
 
-**1. 長破折號（Em Dash —）過度使用**
+### 1. 長破折號（Em Dash —）過度使用
 
 - AI（尤其 ChatGPT）對長破折號有異常偏好
 - 判斷標準：超過 30% 的句子含有長破折號即為顯著異常
 - 注意：專業作家也會使用，需結合其他信號
 
-**2. 平行結構與修辭老套濫用**
+### 2. 平行結構與修辭老套濫用
 
 - 三連拍節奏：「快速、高效、可靠。」
 - 假深度轉折：「Something shifted.」「But here's the thing.」
 - 句中突然提問：「The solution? Simpler than you think.」
 - 空洞開場白：「As technology continues to evolve...」「In today's fast-paced world...」
 
-**3. 隨意格式化**
+### 3. 隨意格式化
 
 - 不明邏輯的加粗（bold）
 - 使用 Unicode 特殊字元製造粗體/斜體（如 𝗯𝗼𝗹𝗱）
@@ -47,37 +47,37 @@ AI 辨識是模式比對，不是非黑即白。重點是：
 
 ### 第二步：結構分析（Structural Patterns）
 
-**4. 表情符號項目清單**
+### 4. 表情符號項目清單
 
 - 用 emoji 帶頭的條列式清單（✅📊💡🎯）
 - ChatGPT/GPT-4o 特別常見；Claude 較少
 
-**5. 句子長度單調（低 Burstiness）**
+### 5. 句子長度單調（低 Burstiness）
 
 - 最可靠的人工辨識指標之一
 - 人類寫作長短句自然交錯；AI 傾向維持相近句長
 - 具體方法：數連續句子的字數，若大多落在相似區間（如都是 15-20 字），標記為異常
 
-**6. 段落結構重複**
+### 6. 段落結構重複
 
 - AI 常陷入固定公式：主題句 → 說明 → 舉例 → 回扣主題
 - 每段都相同結構 = 機械感
 
 ### 第三步：內容品質分析（Uncanny Content）
 
-**7. 比喻品質**
+### 7. 比喻品質
 
 - AI 比喻特徵：合理但空洞，「指向意義但沒有抵達」
 - 人類比喻：要嘛極度個人化，要嘛有強烈文化共鳴
 - AI 比喻往往是「差不多對但沒想通」的感覺
 
-**8. 過度迴避（Excessive Hedging）**
+### 8. 過度迴避（Excessive Hedging）
 
 - AI 訓練機制導致幾乎每句話都加緩衝語
 - 高頻特徵詞：「It is important to note」「While there are many factors」「This may vary depending on」「It's worth mentioning」
 - 判斷標準：如果幾乎每個主張都被限定詞修飾 → 強烈暗示 AI
 
-**9. 表面光鮮、內容空洞（Surface Polish, Nothing Underneath）**
+### 9. 表面光鮮、內容空洞（Surface Polish, Nothing Underneath）
 
 - 最大紅旗，也最主觀
 - 特徵：文法完美、用詞優雅，但讀完不知道作者在說什麼
@@ -86,13 +86,13 @@ AI 辨識是模式比對，不是非黑即白。重點是：
 
 ### 第四步：過渡語與觀點分析
 
-**10. 過渡語過載**
+### 10. 過渡語過載
 
 - AI 使用正式過渡語的頻率是人類的 2-3 倍
 - 高頻詞：Furthermore、Moreover、Additionally、Nevertheless、Consequently、It is worth noting
 - 如果每隔一段就以正式過渡語開頭 → 強烈暗示
 
-**11. 過度平衡的觀點**
+### 11. 過度平衡的觀點
 
 - AI 幾乎對每個話題都呈現外交式中立
 - 讀起來像維基百科——資訊多但無立場

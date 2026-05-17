@@ -8,7 +8,8 @@
 
 ### What is yibi-stack?
 
-yibi-stack is a Claude Code skill and plugin stack for engineering teams who use Claude as their primary development tool. It transforms Claude Code from a capable-but-undisciplined assistant into a workflow-aware engineering partner with built-in guardrails.
+yibi-stack is a Claude Code skill and plugin stack for engineering teams who use Claude as their primary development tool.
+It transforms Claude Code from a capable-but-undisciplined assistant into a workflow-aware engineering partner with built-in guardrails.
 
 The stack ships in two layers:
 
@@ -43,7 +44,7 @@ yibi-stack layers three forms of enforcement on top of Claude Code:
 
 ### Architecture
 
-```
+```text
 plugins/          Claude Code plugin packs (installable via claude plugin install)
   bash-hygiene/   PreToolUse hook enforcement, shell hygiene rules, anti-pattern guide
   sdd/            Spec-Driven Development: Spectra + OpenSpec methodology, qa-test-design
@@ -65,9 +66,11 @@ scripts/          CI and lint tooling
 
 ### Plugins vs Skills — what's the difference?
 
-**Plugins** (`plugins/bash-hygiene`, `plugins/sdd`, `plugins/growth`, `plugins/pr-flow`, `plugins/3rd-tools`, `plugins/tdd`, `plugins/util`) are proper Claude Code plugins with `package.json` manifests. They install hooks, rules, and bundled skills. Installable via `claude plugin install` without cloning.
+**Plugins** (`plugins/bash-hygiene`, `plugins/sdd`, `plugins/growth`, `plugins/pr-flow`, `plugins/3rd-tools`, `plugins/tdd`, `plugins/util`)
+are proper Claude Code plugins with `package.json` manifests. They install hooks, rules, and bundled skills. Installable via `claude plugin install` without cloning.
 
-**Skills** (`skills/*/SKILL.md`) are runbook files — not plugins. They're installed as symlinks into `~/.claude/skills/` via `make install`. They tell Claude *how* to approach a workflow; no hooks are involved. Skills are **not** individually installable via `claude plugin install`.
+**Skills** (`skills/*/SKILL.md`) are runbook files — not plugins. They're installed as symlinks into `~/.claude/skills/` via `make install`.
+They tell Claude *how* to approach a workflow; no hooks are involved. Skills are **not** individually installable via `claude plugin install`.
 
 ### Install
 
@@ -173,7 +176,7 @@ yibi-stack 在 Claude Code 之上疊加三層約束：
 
 ### 架構
 
-```
+```text
 plugins/          Claude Code plugin packs（可透過 claude plugin install 安裝）
   bash-hygiene/   PreToolUse hook 防線、shell 衛生規則、反模式修法指南
   sdd/            Spec-Driven Development：Spectra + OpenSpec 方法論、qa-test-design
@@ -195,7 +198,8 @@ scripts/          CI 與 lint 工具腳本
 
 ### Plugin 與 Skill 的差別？
 
-**Plugin**（`plugins/bash-hygiene`、`plugins/sdd`、`plugins/growth`、`plugins/pr-flow`、`plugins/3rd-tools`、`plugins/tdd`、`plugins/util`）是有 `package.json` manifest 的正式 Claude Code plugin，會安裝 hook、rules 和隨附 skill，不需 clone 即可用 `claude plugin install` 安裝。
+**Plugin**（`plugins/bash-hygiene`、`plugins/sdd`、`plugins/growth`、`plugins/pr-flow`、`plugins/3rd-tools`、`plugins/tdd`、`plugins/util`）
+是有 `package.json` manifest 的正式 Claude Code plugin，會安裝 hook、rules 和隨附 skill，不需 clone 即可用 `claude plugin install` 安裝。
 
 **Skill**（`skills/*/SKILL.md`）是 runbook 檔案，不是 plugin。透過 `make install` 以 symlink 安裝到 `~/.claude/skills/`，告訴 Claude 如何執行特定工作流程。**Skills 無法透過 `claude plugin install` 個別安裝。**
 
