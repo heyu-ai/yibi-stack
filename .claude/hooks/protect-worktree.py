@@ -30,6 +30,9 @@ BLOCKED: worktree 禁止 checkout '{branch}'!
   git worktree add .claude/worktrees/<name> <feature-branch>
 """
 
+# Flags that consume the next token as their argument value (not a branch/path).
+_FLAGS_WITH_ARG = frozenset(("-b", "--orphan"))
+
 
 def main() -> None:
     try:
@@ -38,7 +41,7 @@ def main() -> None:
         sys.exit(0)
 
     tool_name: str = data.get("tool_name", "")
-    tool_input: dict = data.get("tool_input", {})
+    tool_input: dict[str, object] = data.get("tool_input", {})
 
     # --- Vector 1: EnterWorktree tool ----------------------------------------
     if tool_name == "EnterWorktree":
@@ -53,18 +56,47 @@ def main() -> None:
         sys.exit(0)
 
     cmd: str = tool_input.get("command", "")
-    if not cmd:
+    if not cmd or "worktree" not in cmd:
         sys.exit(0)
 
     for part in re.split(r"&&|\|\||[;\n]", cmd):
         stripped = part.strip().lstrip("(").strip()
         if not re.match(r"git\s+worktree\s+add\b", stripped):
             continue
-        # Positional args after "git worktree add" (skip flags starting with -)
+
         tokens = stripped.split()
-        positional = [t for t in tokens[3:] if not t.startswith("-")]
-        # positional[0] = path, positional[1] = branch (optional)
-        if len(positional) >= 2 and positional[-1] in _PROTECTED:
+
+        # --detach puts the worktree in detached HEAD — does not lock the branch
+        # ref, so the main repo can still checkout main freely.
+        if "--detach" in tokens:
+            continue
+
+        # Walk tokens[3:], capturing -b/-orphan value as the new branch name.
+        # Two separate checks:
+        #   Case A: -b/-orphan <name> creates a worktree on branch <name>
+        #   Case B: no -b/-orphan, last positional is an existing branch to checkout
+        # When -b is used, the last remaining positional is the start-point (base
+        # commit), not the checkout target — skip that check to avoid false positives.
+        positional: list[str] = []
+        new_branch: str | None = None
+        i = 3
+        while i < len(tokens):
+            t = tokens[i]
+            if t in _FLAGS_WITH_ARG:
+                if i + 1 < len(tokens):
+                    new_branch = tokens[i + 1]
+                i += 2
+            elif t.startswith("-"):
+                i += 1
+            else:
+                positional.append(t)
+                i += 1
+
+        if new_branch in _PROTECTED:
+            print(_BLOCK_MSG.format(branch=new_branch))
+            sys.exit(2)
+
+        if new_branch is None and len(positional) >= 2 and positional[-1] in _PROTECTED:
             print(_BLOCK_MSG.format(branch=positional[-1]))
             sys.exit(2)
 
