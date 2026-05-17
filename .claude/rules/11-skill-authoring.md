@@ -84,9 +84,7 @@ uv run python -m tasks.<module> <command> --profile {{profile_name}}
 
 建立或修改 skill 後，必須更新 `skills/README.md` 的索引表格。
 
-## README 表格分類與 frontmatter type 一致性
-
-`skills/README.md` 有兩張獨立表格：「可執行/工具型（exec/tool）」和「知識型（know）」。
+`skills/README.md` 在「全域 Skill」section 下有兩張表格：「可執行/工具型（exec/tool）」和「知識型（know）」。`scope: project` 的 exec skill 屬於第三張「本 Repo 限定」表格，不在此規則範圍。
 **分類依據是 SKILL.md frontmatter 的 `type` 欄位，不是功能感覺**：
 
 | frontmatter `type` | 應放的表格 |
@@ -95,8 +93,32 @@ uv run python -m tasks.<module> <command> --profile {{profile_name}}
 | `know` | 知識型（方法論）|
 
 常見錯誤：`type: know` 的 skill 因「感覺可執行」而被放入工具型表格（如 `bump-version`）。
-維護 README 時，先用 `grep -m1 '^type:' skills/<name>/SKILL.md` 確認 type 再決定位置。
+維護 README 時，先用下列指令確認 type 再決定位置（從 repo 根目錄執行）：
+
+```bash
+grep -m1 '^type:' skills/<name>/SKILL.md
+```
 
 ## 參考模板
 
 `skills/_template/SKILL.md.tpl` 是標準格式參考。
+
+## 決策表與 Prose 的自洽性
+
+決策表（mode table）必須自給自足：不能只靠表格外的 prose 描述例外行為。
+agent 閱讀 SKILL.md 時按 table row 優先執行，表格外的說明段落容易被跳過。
+
+正確做法：
+
+- 在表格加 guard row（如「任一工具 BINARY_OK+NOT_AUTHED → 先執行停止流程，不進入 count 計算」）
+- 或在對應 row 的動作欄明確標注適用條件（如「0（全部 NOT_FOUND，無 auth 失敗）」）
+
+反模式：prose 說「偵測到 X 狀態時停止」，但 table 的 `count=0` row 說「redirect 終止」——agent 跟著 table 走，prose 的 intent 完全被覆蓋。
+
+## FAQ 修復指令格式
+
+FAQ 表格中的修復指令必須符合三個條件：
+
+1. **使用實際變數名**：不用 literal `KEY` 這類 placeholder，直接寫 `CODEX_API_KEY` / `GEMINI_API_KEY` 等實際名稱
+2. **shell-hygiene-safe 語法**：用 parameter expansion `"${VAR# }"` 去除前置空格，不用 `$(echo $VAR)` subshell（後者在 zsh 不 trim、且觸發 Rule 14 quoting hygiene hook）
+3. **跨 shell 相容**：指令在 zsh（macOS 預設）與 bash 均能正確執行
