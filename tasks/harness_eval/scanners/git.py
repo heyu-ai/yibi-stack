@@ -1,6 +1,6 @@
 """D6 scanner：Git 工作流程 & Commit 品質（機械分 6/10）。"""
 
-import subprocess
+import subprocess  # nosec B404
 from pathlib import Path
 
 from ..models import MechanicalFinding
@@ -9,17 +9,21 @@ _MECH_MAX = 6
 
 
 def _is_git_repo(target_dir: Path) -> bool:
-    result = subprocess.run(  # nosec B603
+    result = subprocess.run(  # nosec B603 B607
         ["git", "-C", str(target_dir), "rev-parse", "--git-dir"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     return result.returncode == 0
 
 
 def _get_recent_commits(target_dir: Path, n: int = 20) -> list[str]:
-    result = subprocess.run(  # nosec B603
+    result = subprocess.run(  # nosec B603 B607
         ["git", "-C", str(target_dir), "log", f"--max-count={n}", "--pretty=format:%s"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     if result.returncode != 0:
         return []

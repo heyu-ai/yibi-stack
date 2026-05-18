@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 class DimensionStatus(StrEnum):
     """維度健康狀態。"""
 
-    PASS = "pass"
+    PASS = "pass"  # nosec B105
     WARN = "warn"
     FAIL = "fail"
 

@@ -1,6 +1,7 @@
 """harness_eval scanner 決策表測試。"""
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 from tasks.harness_eval.scanners.claude_md import scan_claude_md
@@ -52,10 +53,14 @@ class TestScanClaudeMd:
         assert len(result.semantic_targets) >= 1
 
 
-def make_settings(tmp_path: Path, hooks: dict | None = None, extra: dict | None = None) -> Path:
+def make_settings(
+    tmp_path: Path,
+    hooks: Mapping[str, object] | None = None,
+    extra: Mapping[str, object] | None = None,
+) -> Path:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir(exist_ok=True)
-    data: dict = {}
+    data: dict[str, object] = {}
     if hooks is not None:
         data["hooks"] = hooks
     if extra:
@@ -181,6 +186,7 @@ class TestScanGit:
     def test_heval_dt_051_protect_push_hook(self, tmp_path: Path) -> None:
         """HEVAL-DT-051: .claude/hooks/ 含 protect-push.sh → score >= 3。"""
         import subprocess
+
         subprocess.run(["git", "-C", str(tmp_path), "init"], capture_output=True)
         hooks_dir = tmp_path / ".claude" / "hooks"
         hooks_dir.mkdir(parents=True)
@@ -190,6 +196,7 @@ class TestScanGit:
     def test_heval_dt_052_worktrees_dir(self, tmp_path: Path) -> None:
         """HEVAL-DT-052: .claude/worktrees/ 存在 → score >= 3。"""
         import subprocess
+
         subprocess.run(["git", "-C", str(tmp_path), "init"], capture_output=True)
         (tmp_path / ".claude" / "worktrees").mkdir(parents=True)
         assert scan_git(tmp_path).score >= 3

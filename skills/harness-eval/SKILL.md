@@ -52,33 +52,41 @@ uv run python -m tasks.harness_eval scan --target-dir "$TARGET_DIR" --format jso
 使用 `Explore` subagent 讀取 `SCAN_JSON.semantic_targets` 中的檔案，依以下 rubric 補充語意分：
 
 **D1 語意（6 分）**：讀 CLAUDE.md
+
 - signal_to_noise：>=80% 的行通過「刪掉會犯錯嗎？」測試 → 4 分；50-79% → 2 分；<50% → 0
 - 無重複 LLM 預設行為：0 重複 → 2 分；1-2 行 → 1 分；3+ → 0
 
 **D2 語意（6 分）**：讀 settings.json hooks 區塊
+
 - 機械可做事已用 hook 而非 CLAUDE.md 指示：>=80% 覆蓋 → 6 分；50-79% → 3 分；<50% → 0
 
 **D3 語意（4 分）**：讀 settings.json permissions
+
 - 無 `allowedTools: ["*"]` 過寬授權 → 4 分；有則 0 分
 
 **D4 語意（4 分）**：讀抽樣 SKILL.md（最多 3 個）
+
 - 重複工作流有 skill 封裝 → 2 分；觸發關鍵字豐富可被識別 → 2 分
 
 **D5 語意（5 分）**：判斷驗證閉環
+
 - 有明確自我驗證方式（tests / lint / screenshot）→ 5 分；有測試無 hook → 3 分；無 → 0 分
 
 **D6 語意（4 分）**：從 git log 取樣 20 筆
+
 - 風格一致（type: subject 或統一格式）→ 2 分；訊息有意義（非 fix/update/WIP）→ 2 分
 
 **D7 語意（8 分）**：讀抽樣 rules（最多 5 個）
+
 - 規則不重複 CLAUDE.md 內容 → 3 分；有 lesson 路由機制 → 3 分；規則彼此不重疊 → 2 分
 
 **D8 語意（5 分）**：讀 settings.json + 標記可疑 CLAUDE.md
+
 - MCP server 信任評估 → 2 分；確認無 prompt injection 內容 → 3 分
 
 ### Step 4 -- 三合一報告輸出
 
-```
+```text
 # Harness Eval Report -- <target_dir>
 掃描時間：<scanned_at>
 

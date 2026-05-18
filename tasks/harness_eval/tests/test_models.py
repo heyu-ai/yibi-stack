@@ -9,9 +9,9 @@ from tasks.harness_eval.models import DimensionStatus, MechanicalFinding, ScanOu
 class TestDimensionStatus:
     def test_heval_vl_001_enum_values(self) -> None:
         """HEVAL-VL-001: DimensionStatus 含 pass/warn/fail 三值。"""
-        assert DimensionStatus.PASS == "pass"
-        assert DimensionStatus.WARN == "warn"
-        assert DimensionStatus.FAIL == "fail"
+        assert str(DimensionStatus.PASS) == "pass"
+        assert str(DimensionStatus.WARN) == "warn"
+        assert str(DimensionStatus.FAIL) == "fail"
 
 
 class TestMechanicalFinding:
