@@ -37,5 +37,8 @@ if [ "${DUR:-0}" -lt 100 ] 2>/dev/null; then
 fi
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-uv run --directory "$REPO_ROOT" mypy "$FILE" --no-error-summary 2>&1 \
-    | grep -E 'error:|note:' || true
+MYPY_OUT=$(uv run --directory "$REPO_ROOT" mypy "$FILE" --no-error-summary 2>&1) || {
+    printf '[post-edit-mypy] mypy failed: %s\n' "$MYPY_OUT" >&2
+    exit 0
+}
+printf '%s\n' "$MYPY_OUT" | grep -E 'error:|note:' || true

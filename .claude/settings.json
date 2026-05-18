@@ -15,7 +15,7 @@
             "type": "command",
             "command": "\"$(git rev-parse --show-toplevel)\"/.claude/hooks/pre-compact-handover.sh",
             "statusMessage": "PreCompact handover 提醒...",
-            "timeout": 5
+            "timeout": 15
           }
         ]
       }
@@ -28,7 +28,7 @@
             "type": "command",
             "command": "\"$(git rev-parse --show-toplevel)\"/.claude/hooks/post-compact-handover-back.sh",
             "statusMessage": "SessionStart handover-back 提醒...",
-            "timeout": 5
+            "timeout": 15
           }
         ]
       }
