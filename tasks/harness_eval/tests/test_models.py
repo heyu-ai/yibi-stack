@@ -1,6 +1,8 @@
 """harness_eval 資料模型測試。"""
 
 import pytest
+from pydantic import ValidationError
+
 from tasks.harness_eval.models import DimensionStatus, MechanicalFinding, ScanOutput
 
 
@@ -32,7 +34,7 @@ class TestMechanicalFinding:
 
     def test_heval_vl_004_score_not_negative(self) -> None:
         """HEVAL-VL-004: score 不可為負數。"""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             MechanicalFinding(dimension="D1", label="test", score=-1, max_score=6)
 
 
