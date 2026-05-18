@@ -15,13 +15,13 @@ set -euo pipefail
 
 STDIN_DATA=$(cat)
 
-read -r FILE DUR < <(printf '%s' "$STDIN_DATA" | python3 -c "
+{ read -r FILE; read -r DUR; } < <(printf '%s' "$STDIN_DATA" | python3 -c "
 import sys, json
 try:
     data = json.loads(sys.stdin.read())
     fp = (data.get('tool_input') or {}).get('file_path', '')
     dur = data.get('duration_ms', 0)
-except Exception:
+except (json.JSONDecodeError, KeyError, TypeError, AttributeError, ValueError):
     fp, dur = '', 0
 print(fp)
 print(dur)
