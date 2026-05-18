@@ -66,6 +66,8 @@ echo "=== Step 5: Commit ==="
 trap - ERR
 git add pyproject.toml CHANGELOG.md
 git add plugins/*/package.json
+git add plugins/*/.claude-plugin/plugin.json
+git diff --quiet uv.lock || git add uv.lock
 git commit -m "chore(release): v${TAG_VERSION}"
 
 echo ""
