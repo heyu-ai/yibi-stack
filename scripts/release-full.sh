@@ -30,11 +30,14 @@ if ! git diff --quiet HEAD || [ -n "$(git ls-files --others --exclude-standard)"
     exit 1
 fi
 
-echo "=== Step 1: Run test gates (pre-flight) ==="
-"$GATES_SH"
+rollback() {
+    echo "[WARN] Release failed — reverting version files" >&2
+    git checkout -- pyproject.toml CHANGELOG.md 2>/dev/null || true
+    git checkout -- 'plugins/*/package.json' 2>/dev/null || true
+}
+trap rollback ERR
 
-echo ""
-echo "=== Step 2: Bump $TYPE version ==="
+echo "=== Step 1: Bump $TYPE version ==="
 ENV_FILE="/tmp/bump_version_result.env"
 rm -f "$ENV_FILE"
 "$BUMP_SH" "$TYPE"
@@ -47,15 +50,20 @@ source "$ENV_FILE"
 echo "  New version: $BUMP_VERSION (tag: $TAG_VERSION)"
 
 echo ""
-echo "=== Step 3: Sync plugin versions to $TAG_VERSION ==="
+echo "=== Step 2: Sync plugin versions to $TAG_VERSION ==="
 bash "$SYNC_SH" "$TAG_VERSION"
 
 echo ""
-echo "=== Step 4: Generate CHANGELOG ==="
+echo "=== Step 3: Generate CHANGELOG ==="
 "$CHANGELOG_SH" "$TAG_VERSION"
 
 echo ""
+echo "=== Step 4: Run test gates ==="
+"$GATES_SH"
+
+echo ""
 echo "=== Step 5: Commit ==="
+trap - ERR
 git add pyproject.toml CHANGELOG.md
 git add plugins/*/package.json
 git commit -m "chore(release): v${TAG_VERSION}"
