@@ -91,6 +91,10 @@ make install-scheduler   # 安裝 LaunchAgent（每 60 秒 tick）
 make uninstall-scheduler # 卸載 LaunchAgent
 make scheduler-status    # 查看 job 執行狀態
 
+# Plugin 發布（lockstep 版本：所有 plugin 同步升版）
+make release TYPE=patch  # patch / minor / major
+# 流程：bump pyproject.toml -> sync plugins/*/package.json -> changelog -> test gates -> commit -> tag + GitHub Release
+
 # 新環境一次到位
 make install-all         # 等同 build-tools + install + install-project + install-handover-hooks + install-scheduler + patch-pr-review-agents
 ```

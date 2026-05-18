@@ -1,4 +1,4 @@
-.PHONY: help lint lint-md format typecheck test check ci install install-project install-one install-force-one status status-own uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents
+.PHONY: help lint lint-md format typecheck test check ci install install-project install-one install-force-one status status-own uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents release
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -265,6 +265,10 @@ uninstall-handover-hooks: ## 移除 auto-handover PreCompact + SessionStart hook
 
 patch-pr-review-agents: ## 為 pr-review-toolkit agents 加入 git -C 指令規範（plugin 更新後重跑）
 	@bash scripts/patch-pr-review-agents.sh
+
+release: ## Release: make release TYPE=patch|minor|major
+	@if [ -z "$(TYPE)" ]; then echo "[FAIL] Usage: make release TYPE=patch|minor|major"; exit 1; fi
+	@bash scripts/release-full.sh "$(TYPE)"
 
 install-all: build-tools install install-project install-handover-hooks install-scheduler patch-pr-review-agents ## 一次裝齊 Go tools / skill（含 project）/ hook / scheduler / patch-pr-review-agents（新環境首次設定用）
 
