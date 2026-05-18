@@ -24,7 +24,6 @@ def scan_security(target_dir: Path) -> MechanicalFinding:
     score = 0
     gitignore_ok = False
 
-    # Check 1: gitignore
     gitignore = target_dir / ".gitignore"
     if gitignore.exists():
         content = gitignore.read_text(encoding="utf-8").lower()
@@ -38,7 +37,7 @@ def scan_security(target_dir: Path) -> MechanicalFinding:
     else:
         findings.append("WARN: .gitignore 不存在")
 
-    # Check 2: dangerous hooks（findings 無論 gitignore 結果均執行；score 僅在 gitignore_ok 時累積）
+    # findings 無論 gitignore 結果均執行；score 僅在 gitignore_ok 時累積（gitignore 是安全基線門檻）
     hooks_dir = target_dir / ".claude" / "hooks"
     if hooks_dir.exists():
         dangerous: list[str] = []
@@ -59,7 +58,6 @@ def scan_security(target_dir: Path) -> MechanicalFinding:
             score += 2
         findings.append("無 hook scripts（不適用危險指令檢查）")
 
-    # Check 3: injection（findings 無論 gitignore 結果均執行；score 僅在 gitignore_ok 時累積）
     injection_hits: list[str] = []
     check_files: list[Path] = []
     if (target_dir / "CLAUDE.md").exists():

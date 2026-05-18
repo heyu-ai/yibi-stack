@@ -1,11 +1,29 @@
 """D5 scanner：Testing & CI 整合（機械分 7/12）。"""
 
 import json
+import os
 from pathlib import Path
 
 from ..models import MechanicalFinding
 
 _MECH_MAX = 7
+_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "dist", "build", ".claude"}
+_MAX_SCAN_DEPTH = 5
+
+
+def _find_test_files(target_dir: Path) -> list[Path]:
+    """掃描測試檔案，限制深度並跳過已知大型目錄以避免全樹遍歷效能問題。"""
+    result: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(target_dir):
+        depth = len(Path(dirpath).relative_to(target_dir).parts)
+        if depth >= _MAX_SCAN_DEPTH:
+            dirnames.clear()
+            continue
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        for name in filenames:
+            if (name.startswith("test_") and name.endswith(".py")) or name.endswith(".test.ts"):
+                result.append(Path(dirpath) / name)
+    return result
 
 
 def scan_testing(target_dir: Path) -> MechanicalFinding:
@@ -13,7 +31,7 @@ def scan_testing(target_dir: Path) -> MechanicalFinding:
     findings: list[str] = []
     score = 0
 
-    test_files = list(target_dir.rglob("test_*.py")) + list(target_dir.rglob("*.test.ts"))
+    test_files = _find_test_files(target_dir)
     if test_files:
         score += 3
         findings.append(f"測試檔案存在（{len(test_files)} 個）")

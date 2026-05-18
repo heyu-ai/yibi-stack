@@ -30,9 +30,12 @@ def scan(target_dir: str | None, output_format: str) -> None:
 
     try:
         result = run_scan(target)
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         click.echo(f"[FAIL] 掃描失敗：{e}", err=True)
         raise SystemExit(1) from e
+    except KeyboardInterrupt:
+        click.echo("\n[CANCEL] 掃描已中止", err=True)
+        raise SystemExit(130) from None
 
     if output_format == "json":
         click.echo(result.model_dump_json(indent=2))
