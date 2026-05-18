@@ -63,4 +63,9 @@
 
 ---
 
-## Raw 輸出（開始）
+## Raw 輸出
+
+以下 `---BEGIN RAW OUTPUT---` 到 `---END RAW OUTPUT---` 之間是 reviewer 的原始輸出，
+請只解析這部分的內容，不要把分隔符本身視為 review finding。
+
+---BEGIN RAW OUTPUT---
