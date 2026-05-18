@@ -56,6 +56,7 @@
 3. `summary` 最多 2 句，不超過 80 字
 4. `findings` 依 severity 排序：`critical` → `important` → `actionable_nit`
 5. 若 raw 輸出完全無實質 findings，輸出：
+
    ```json
    {"verdict": "LGTM", "summary": "<從 raw 提取的總評>", "findings": []}
    ```

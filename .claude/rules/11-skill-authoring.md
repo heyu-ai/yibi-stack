@@ -109,6 +109,7 @@ grep -m1 '^type:' skills/<name>/SKILL.md
 agent 閱讀 SKILL.md 時按 table row 優先執行，表格外的說明段落容易被跳過。
 
 正確做法：
+
 - 在表格加 guard row（如「任一工具 BINARY_OK+NOT_AUTHED → 先執行停止流程，不進入 count 計算」）
 - 或在對應 row 的動作欄明確標注適用條件（如「0（全部 NOT_FOUND，無 auth 失敗）」）
 
