@@ -310,6 +310,22 @@ subagent 會：
 **不適用**：Cases 25/26（引號修法）、Cases 20/23（拆 bash call 即可）。
 這些 cases 不需要 subagent，只需按對應修法調整指令。
 
+### process substitution 多行輸出消耗（2026-05）
+
+`read -r A B < <(cmd)` 只讀一行後按 IFS 分割；若 cmd 以多個 `print()` 輸出多行，
+後續變數永遠為空值——此 bug 不報錯，靜默影響下游邏輯。
+
+```bash
+# 違規：read 只消耗第一行，DUR 永遠空值
+read -r FILE DUR < <(python3 -c "print(fp); print(dur)")
+
+# 修法：多個連續 read 各消耗一行
+{ read -r FILE; read -r DUR; } < <(python3 -c "print(fp); print(dur)")
+```
+
+mob review 實例：`post-edit-mypy.sh` 改用兩行 python3 輸出後，DUR 永遠空，
+mypy duration filter 恆 exit 0，型別檢查靜默停止。三個 voice（Claude×2、Codex）獨立發現。
+
 ## exec wrapper 穿透 deny rule（2026-05）
 
 Claude Code deny rule 現在可穿透 `env` / `sudo` / `watch` / `ionice` / `setsid`：
