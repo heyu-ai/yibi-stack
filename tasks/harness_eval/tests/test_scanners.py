@@ -178,19 +178,33 @@ class TestScanTesting:
         assert scan_testing(tmp_path).score == 7
 
 
+def _make_protect_hook(tmp_path: Path) -> None:
+    import subprocess
+
+    subprocess.run(["git", "-C", str(tmp_path), "init"], capture_output=True)
+    hooks_dir = tmp_path / ".claude" / "hooks"
+    hooks_dir.mkdir(parents=True)
+    (hooks_dir / "protect-push.sh").write_text("#!/bin/bash\nexit 0", encoding="utf-8")
+
+
 class TestScanGit:
     def test_heval_dt_050_no_git(self, tmp_path: Path) -> None:
         """HEVAL-DT-050: 非 git repo → score=0。"""
         assert scan_git(tmp_path).score == 0
 
-    def test_heval_dt_051_protect_push_hook(self, tmp_path: Path) -> None:
-        """HEVAL-DT-051: .claude/hooks/ 含 protect-push.sh → score >= 3。"""
-        import subprocess
+    def test_heval_dt_051_hook_file_only_not_registered(self, tmp_path: Path) -> None:
+        """HEVAL-DT-051: hook 檔案存在但未在 settings.json 登記 → score=0，findings 含 WARN。"""
+        _make_protect_hook(tmp_path)
+        result = scan_git(tmp_path)
+        assert result.score == 0
+        assert any("未在 settings.json 登記" in f or "不會生效" in f for f in result.findings)
 
-        subprocess.run(["git", "-C", str(tmp_path), "init"], capture_output=True)
-        hooks_dir = tmp_path / ".claude" / "hooks"
-        hooks_dir.mkdir(parents=True)
-        (hooks_dir / "protect-push.sh").write_text("#!/bin/bash\nexit 0", encoding="utf-8")
+    def test_heval_dt_053_hook_file_and_registered(self, tmp_path: Path) -> None:
+        """HEVAL-DT-053: hook 檔案存在且在 settings.json 登記 → score >= 3。"""
+        _make_protect_hook(tmp_path)
+        claude_dir = tmp_path / ".claude"
+        hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "protect-push.sh"}]}]}
+        (claude_dir / "settings.json").write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
         assert scan_git(tmp_path).score >= 3
 
     def test_heval_dt_052_worktrees_dir(self, tmp_path: Path) -> None:

@@ -1,5 +1,6 @@
 """D6 scanner：Git 工作流程 & Commit 品質（機械分 6/10）。"""
 
+import json
 import subprocess  # nosec B404
 from pathlib import Path
 
@@ -30,6 +31,21 @@ def _get_recent_commits(target_dir: Path, n: int = 20) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def _hook_registered_in_settings(hook_filename: str, settings_path: Path) -> bool:
+    """驗證 hook 檔案名稱是否出現在 settings.json 的任一 hook 命令字串中。
+
+    放在 .claude/hooks/ 的腳本若未在 settings.json 登記，不會被 Claude Code 執行。
+    """
+    if not settings_path.exists():
+        return False
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    hooks_str = json.dumps(data.get("hooks", {}))
+    return hook_filename in hooks_str
+
+
 def scan_git(target_dir: Path) -> MechanicalFinding:
     """掃描 worktree 設定、branch 保護 hook。語意分（4 分）由 agent 補充。"""
     findings: list[str] = []
@@ -54,12 +70,21 @@ def scan_git(target_dir: Path) -> MechanicalFinding:
         findings.append("WARN: .claude/worktrees/ 不存在")
 
     hooks_dir = target_dir / ".claude" / "hooks"
-    has_protect = hooks_dir.exists() and any(
-        "protect" in f.name.lower() for f in hooks_dir.iterdir() if f.is_file()
+    settings_path = target_dir / ".claude" / "settings.json"
+    protect_files = (
+        [f for f in hooks_dir.iterdir() if f.is_file() and "protect" in f.name.lower()]
+        if hooks_dir.exists()
+        else []
     )
-    if has_protect:
-        score += 3
-        findings.append("branch 保護 hook 存在（.claude/hooks/ 含 protect-*.sh）")
+    if protect_files:
+        registered = any(_hook_registered_in_settings(f.name, settings_path) for f in protect_files)
+        if registered:
+            score += 3
+            findings.append("branch 保護 hook 存在且已在 settings.json 登記（有效）")
+        else:
+            findings.append(
+                "WARN: protect hook 檔案存在（.claude/hooks/）但未在 settings.json 登記——hook 不會生效"
+            )
     else:
         findings.append("WARN: 未找到 branch 保護 hook")
 
