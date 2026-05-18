@@ -310,6 +310,22 @@ subagent 會：
 **不適用**：Cases 25/26（引號修法）、Cases 20/23（拆 bash call 即可）。
 這些 cases 不需要 subagent，只需按對應修法調整指令。
 
+### process substitution 多行輸出消耗（2026-05）
+
+`read -r A B < <(cmd)` 只讀一行後按 IFS 分割；若 cmd 以多個 `print()` 輸出多行，
+後續變數永遠為空值——此 bug 不報錯，靜默影響下游邏輯。
+
+```bash
+# 違規：read 只消耗第一行，DUR 永遠空值
+read -r FILE DUR < <(python3 -c "print(fp); print(dur)")
+
+# 修法：多個連續 read 各消耗一行
+{ read -r FILE; read -r DUR; } < <(python3 -c "print(fp); print(dur)")
+```
+
+mob review 實例：`post-edit-mypy.sh` 改用兩行 python3 輸出後，DUR 永遠空，
+mypy duration filter 恆 exit 0，型別檢查靜默停止。三個 voice（Claude×2、Codex）獨立發現。
+
 ## exec wrapper 穿透 deny rule（2026-05）
 
 Claude Code deny rule 現在可穿透 `env` / `sudo` / `watch` / `ionice` / `setsid`：
@@ -322,6 +338,37 @@ env DANGEROUS_VAR=1 bash script.sh
 
 不要以為用 wrapper 就能繞過 deny rule。
 被攔截時，依 Rule 15 標準行為：說明操作內容，請使用者手動執行。
+
+## trap ERR rollback（外部 skill 合約限制下的失敗保護）
+
+外部 skill script（如 `bump-version/scripts/bump.sh`）之間有**步驟執行合約**：
+後置 script 常讀取前置 script 寫入的狀態（如 `/tmp/bump_version_result.env`），
+步驟排序不可任意調整。當「在 file mutation 之前先跑測試」的需求與合約衝突時，
+正確解不是強行重排，而是用 `trap ERR` 在失敗時自動還原已修改的檔案：
+
+```bash
+rollback() {
+    echo "[WARN] Release failed -- reverting version files" >&2
+    git checkout -- pyproject.toml CHANGELOG.md 2>/dev/null || true
+    git checkout -- 'plugins/*/package.json' 2>/dev/null || true
+}
+trap rollback ERR
+
+# ... file mutation steps (bump, sync, changelog) ...
+
+# gates.sh 依賴 bump.sh 的 env file，必須在 bump 後執行
+"$GATES_SH"
+
+trap - ERR   # commit 前清除 trap，避免 commit 後的失敗誤觸 rollback
+git add pyproject.toml CHANGELOG.md
+git commit -m "chore(release): v${TAG_VERSION}"
+```
+
+注意事項：
+
+- `trap - ERR` 必須在 commit **之前**清除，commit 後的失敗需要不同的回復語意（`git reset HEAD~1`）
+- `git checkout -- 'plugins/*/package.json'` 的 glob 必須用單引號（shell glob 展開時機問題）
+- 若某步驟本身已有 `trap`，注意不要覆蓋外層的 `trap ERR`（用 subshell 隔離）
 
 ## 完整方法論
 

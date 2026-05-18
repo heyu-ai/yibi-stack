@@ -36,6 +36,35 @@ cd "$SKILL_REPO"
 前者觸發 AP1 D 類 hook；後者通過本地 hook 但 Claude Code 內建 parser 把 leading-dot token 視為無法解析的 string 節點，執行時跳出確認框。
 `python3 -c` 單行寫法是唯一兩邊都通過的形式。
 
+## Frontmatter — `effort`（選填，2026-05 新增）
+
+v2.1.133+ Claude Code 支援 skill / slash command 在 frontmatter 指定 effort，**覆寫呼叫端的 model effort**：
+
+```yaml
+---
+name: <skill-name>
+type: exec
+scope: global
+effort: medium     # 選填；low | medium | high
+description: ...
+---
+```
+
+### 何時用 effort frontmatter
+
+| 情境 | 建議 |
+|------|------|
+| skill 為「重型批次」（大量下載、長批次掃描、規格深度展開） | 釘 `effort: medium` 或 `high`，避免使用者在 low session 誤觸發長批次 |
+| skill 為「快速摘要型」 | 釘 `effort: low`，省 token |
+| skill 在不同 effort 下行為差不多 | 不填，跟隨呼叫端 |
+
+### 與 SKILL.md 內 `${CLAUDE_EFFORT}` 區塊的關係
+
+frontmatter `effort` 是**覆寫**呼叫端 effort 的最終值；SKILL.md body 內的 `${CLAUDE_EFFORT}` 表格定義**該 effort 下的執行策略**。兩者搭配：
+
+- 不填 frontmatter `effort` + body 有 `${CLAUDE_EFFORT}` 表格 → 跟隨呼叫端動態分流
+- 填 frontmatter `effort: medium` + body 有 `${CLAUDE_EFFORT}` 表格 → 強制走 medium 那列
+
 ## Exec Skill 標準 4 步驟
 
 ```markdown
