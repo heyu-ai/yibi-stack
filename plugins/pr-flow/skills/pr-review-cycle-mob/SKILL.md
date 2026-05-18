@@ -99,8 +99,15 @@ which gemini >/dev/null 2>&1 && echo "GEMINI: BINARY_OK" || echo "GEMINI: NOT_FO
 ```
 
 ```bash
-# Gemini auth（GEMINI_API_KEY 或 GOOGLE_API_KEY 任一即可）
-if env | grep -qE '^(GEMINI_API_KEY|GOOGLE_API_KEY)=[^[:space:]]'; then
+# Gemini auth（優先序：vertex-ai ADC > API key > OAuth credentials file）
+_GEMINI_AUTH_TYPE=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.gemini'/'settings.json').read_text()); print(d.get('security',{}).get('auth',{}).get('selectedType','unknown'))" 2>/dev/null || echo "unknown")
+if [ "$_GEMINI_AUTH_TYPE" = "vertex-ai" ]; then
+  if env | grep -qE '^GOOGLE_CLOUD_PROJECT=[^[:space:]]' && test -f ~/.config/gcloud/application_default_credentials.json; then
+    echo "GEMINI_AUTH: VERTEX_AI_OK"
+  else
+    echo "GEMINI_AUTH: VERTEX_AI_MISSING_PROJECT_OR_ADC"
+  fi
+elif env | grep -qE '^(GEMINI_API_KEY|GOOGLE_API_KEY)=[^[:space:]]'; then
   echo "GEMINI_AUTH: KEY_SET"
 elif env | grep -qE '^(GEMINI_API_KEY|GOOGLE_API_KEY)=[[:space:]]'; then
   echo "GEMINI_AUTH: KEY_WHITESPACE_PREFIX"
@@ -115,12 +122,15 @@ fi
 
 外部 reviewer「可用」= binary OK + auth OK（Codex 或 Gemini）。
 
-**`BINARY_OK + NOT_AUTHED` 的處理**：binary 找到但 auth 失敗（`NOT_AUTHED` 或 `KEY_WHITESPACE_PREFIX`）不算「可用」，
+**Gemini auth OK 狀態**：`KEY_SET`、`FILE_EXISTS`、`VERTEX_AI_OK` 均視為 auth OK。
+`VERTEX_AI_MISSING_PROJECT_OR_ADC` 視為 auth 失敗（須修復 GOOGLE_CLOUD_PROJECT env var 或 gcloud ADC）。
+
+**`BINARY_OK + NOT_AUTHED` 的處理**：binary 找到但 auth 失敗（`NOT_AUTHED`、`KEY_WHITESPACE_PREFIX`、`VERTEX_AI_MISSING_PROJECT_OR_ADC`）不算「可用」，
 且必須在 Step 0 **明確停止**，不能靜默折算成可用數少一家——否則使用者以為工具未安裝，
 而非 auth 壞掉。偵測到此狀態時，先向使用者顯示修復指令，確認修復後重跑 Step 0。
 
 **注意**：下方計數表格只適用於「所有 binary-OK 的工具均已通過 auth」的情況。
-任一工具出現 `BINARY_OK + NOT_AUTHED / KEY_WHITESPACE_PREFIX` → 先執行上述停止流程，不進入 count 計算。
+任一工具出現 `BINARY_OK + NOT_AUTHED / KEY_WHITESPACE_PREFIX / VERTEX_AI_MISSING_PROJECT_OR_ADC` → 先執行上述停止流程，不進入 count 計算。
 
 | 可用外部 reviewer | 動作 |
 |---:|---|
@@ -134,7 +144,8 @@ fi
 偵測結果：
 - Claude  ✓ 永遠可用（pr-review-toolkit）
 - Codex   ✓ / ✗ / ✗（auth 失敗，請執行 codex login 後重跑 Step 0）
-- Gemini  ✓ / ✗ / ✗（auth 失敗，請執行 gemini auth login 後重跑 Step 0）
+- Gemini  ✓ / ✗ / ✗（auth 失敗：KEY_SET/FILE_EXISTS/VERTEX_AI_OK 任一即可；
+           vertex-ai 模式失敗請確認 GOOGLE_CLOUD_PROJECT env var 已設且 gcloud ADC 存在）
 
 外部 reviewer 計數：{{N}}/2
 模式：{{2-voice-mob | 3-voice-full-mob | REDIRECT}}
