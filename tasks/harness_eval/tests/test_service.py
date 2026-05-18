@@ -14,7 +14,8 @@ class TestRunScan:
     def test_heval_st_002_eight_dimensions(self, tmp_path: Path) -> None:
         """HEVAL-ST-002: 結果含 D1~D8 共 8 個維度。"""
         result = run_scan(tmp_path)
-        assert {d.dimension for d in result.dimensions} == {"D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"}
+        expected = {"D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"}
+        assert {d.dimension for d in result.dimensions} == expected
 
     def test_heval_st_003_total_max_is_58(self, tmp_path: Path) -> None:
         """HEVAL-ST-003: 機械總滿分固定為 58。"""
