@@ -228,7 +228,8 @@ git push
 #### 3.1 — 準備工作目錄與共用 prompt
 
 把 R1/R2 中間檔案寫到 review dir（如 `/tmp/pr-review/<worktree-name>/`，下稱 `$REVIEW_DIR`）。
-用 worktree basename 作命名空間，避免並行 session 互相覆蓋；同一 worktree 重跑 review 時自然覆蓋舊輸出。
+用 worktree basename 作命名空間，避免同 repo 並行 session 互相覆蓋；同一 worktree 重跑 review 時自然覆蓋舊輸出。
+注意：此設計適用於「同 repo 不同 worktree」並行；若兩個不同 repo 的 worktree 恰好同名，仍可能衝突（屬邊緣情況）。
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
@@ -306,7 +307,7 @@ WT_ROOT=$(git rev-parse --show-toplevel)
 WT_NAME=$(basename "$WT_ROOT")
 REVIEW_DIR="/tmp/pr-review/$WT_NAME"
 codex review --base "{{base_branch}}" -c 'model_reasoning_effort="high"' > "$REVIEW_DIR/codex-r1-raw.md" 2>"$REVIEW_DIR/codex-r1.stage1.log"
-if [ $? -ne 0 ]; then echo '[FAIL] codex review 失敗，請查看 codex-r1.stage1.log'; exit 1; fi
+if [ $? -ne 0 ]; then echo "[FAIL] codex review 失敗，請查看 $REVIEW_DIR/codex-r1.stage1.log"; exit 1; fi
 if [ ! -s "$REVIEW_DIR/codex-r1-raw.md" ]; then echo '[FAIL] codex-r1-raw.md 空白，Stage 1 輸出異常'; exit 1; fi
 ```
 
@@ -317,14 +318,14 @@ if [ ! -s "$REVIEW_DIR/codex-r1-raw.md" ]; then echo '[FAIL] codex-r1-raw.md 空
 ```bash
 EXTRACT_PROMPT=~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md
 if [ ! -f "$EXTRACT_PROMPT" ]; then echo '[FAIL] extract prompt 不存在；請執行 make install'; exit 1; fi
-WT=$(git rev-parse --show-toplevel)
-WT_NAME=$(basename "$WT")
+WT_ROOT=$(git rev-parse --show-toplevel)
+WT_NAME=$(basename "$WT_ROOT")
 REVIEW_DIR="/tmp/pr-review/$WT_NAME"
 cat "$EXTRACT_PROMPT" "$REVIEW_DIR/codex-r1-raw.md" > "$REVIEW_DIR/codex-extract-input.md"
 if [ $? -ne 0 ]; then echo '[FAIL] cat 串接失敗'; exit 1; fi
 printf '\n---END RAW OUTPUT---\n' >> "$REVIEW_DIR/codex-extract-input.md"
-codex exec -C "$WT" -s read-only -c 'model_reasoning_effort="low"' < "$REVIEW_DIR/codex-extract-input.md" > "$REVIEW_DIR/codex-r1.json" 2>"$REVIEW_DIR/codex-r1.extract.log"
-if [ $? -ne 0 ]; then echo '[FAIL] codex extract 失敗，請查看 codex-r1.extract.log'; exit 1; fi
+codex exec -C "$WT_ROOT" -s read-only -c 'model_reasoning_effort="low"' < "$REVIEW_DIR/codex-extract-input.md" > "$REVIEW_DIR/codex-r1.json" 2>"$REVIEW_DIR/codex-r1.extract.log"
+if [ $? -ne 0 ]; then echo "[FAIL] codex extract 失敗，請查看 $REVIEW_DIR/codex-r1.extract.log"; exit 1; fi
 rm -f "$REVIEW_DIR/codex-extract-input.md"
 ```
 
@@ -368,8 +369,9 @@ WT_ROOT=$(git rev-parse --show-toplevel)
 WT_NAME=$(basename "$WT_ROOT")
 REVIEW_DIR="/tmp/pr-review/$WT_NAME"
 cat "$REVIEW_DIR/prompt-r1.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/gemini-r1-input.md"
+if [ $? -ne 0 ]; then echo '[FAIL] cat 串接失敗：prompt-r1.md 或 diff.patch 不存在'; exit 1; fi
 gemini -m gemini-3.1-pro-preview -p "@$REVIEW_DIR/gemini-r1-input.md" > "$REVIEW_DIR/gemini-r1-raw.md" 2>"$REVIEW_DIR/gemini-r1.stage1.log"
-if [ $? -ne 0 ]; then echo '[FAIL] gemini review 失敗，請查看 gemini-r1.stage1.log'; exit 1; fi
+if [ $? -ne 0 ]; then echo "[FAIL] gemini review 失敗，請查看 $REVIEW_DIR/gemini-r1.stage1.log"; exit 1; fi
 if [ ! -s "$REVIEW_DIR/gemini-r1-raw.md" ]; then echo '[FAIL] gemini-r1-raw.md 空白，Stage 1 輸出異常'; exit 1; fi
 rm -f "$REVIEW_DIR/gemini-r1-input.md"
 ```
@@ -389,7 +391,7 @@ cat "$EXTRACT_PROMPT" "$REVIEW_DIR/gemini-r1-raw.md" > "$REVIEW_DIR/gemini-extra
 if [ $? -ne 0 ]; then echo '[FAIL] cat 串接失敗'; exit 1; fi
 printf '\n---END RAW OUTPUT---\n' >> "$REVIEW_DIR/gemini-extract-input.md"
 gemini -m gemini-2.5-flash -p "@$REVIEW_DIR/gemini-extract-input.md" > "$REVIEW_DIR/gemini-r1.json" 2>"$REVIEW_DIR/gemini-r1.extract.log"
-if [ $? -ne 0 ]; then echo '[FAIL] gemini extract 失敗，請查看 gemini-r1.extract.log'; exit 1; fi
+if [ $? -ne 0 ]; then echo "[FAIL] gemini extract 失敗，請查看 $REVIEW_DIR/gemini-r1.extract.log"; exit 1; fi
 rm -f "$REVIEW_DIR/gemini-extract-input.md"
 ```
 
@@ -432,19 +434,20 @@ ls -lh "$REVIEW_DIR/gemini-r1.md" "$REVIEW_DIR/gemini-r1.json" 2>&1
 
 #### 4.1 — 產生 R1 aggregate
 
-用 Write tool 把所有 R1 內容串成 `$REVIEW_DIR/r1-aggregate.md`（只包含有產出的 voice）：
+用 Write tool 把所有 R1 內容串成 `$REVIEW_DIR/r1-aggregate.md`（只包含有產出的 voice）。
+寫入時將 `$REVIEW_DIR` 替換為實際路徑（如 `/tmp/pr-review/yibi-stack`），把各 voice 的 compact markdown 完整貼入：
 
 ```text
 # Round 1 Findings — 各 reviewer 獨立結果
 
 ## Claude
-<貼 $REVIEW_DIR/claude-r1.md>
+<貼 $REVIEW_DIR/claude-r1.md 內容>
 
 ## Codex（若 CODEX_OK）
-<貼 $REVIEW_DIR/codex-r1.md>
+<貼 $REVIEW_DIR/codex-r1.md 內容>
 
 ## Gemini（若 GEMINI_OK）
-<貼 $REVIEW_DIR/gemini-r1.md>
+<貼 $REVIEW_DIR/gemini-r1.md 內容>
 ```
 
 #### 4.2 — Round 2 prompt
@@ -673,15 +676,21 @@ git diff "{{base_branch}}"...HEAD --stat
 2. ...
 ```
 
-向使用者展示 summary 與 hotspot，邀請質疑。用 bash 顯示實際路徑（讓使用者可直接 cat）：
+向使用者展示 summary 與 hotspot，邀請質疑。先用 bash 取得實際路徑，再用 conversational reply 傳達（讓使用者可直接 cat 路徑）：
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 WT_NAME=$(basename "$WT_ROOT")
 REVIEW_DIR="/tmp/pr-review/$WT_NAME"
-echo "[OK] 全員 LGTM。Hotspot 三處列在 $REVIEW_DIR/human-summary.md"
-echo "有任何疑慮就在此 session 直接提，我（reviewer lead）即時回應。"
-echo "無疑慮就回 ship，進 Step 9 CI check。"
+echo "$REVIEW_DIR/human-summary.md"
+```
+
+然後向使用者回覆（把上方 echo 的實際路徑帶入 `<path>`）：
+
+```text
+全員 LGTM。Hotspot 三處列在 <path>。
+有任何疑慮就在此 session 直接提，我（reviewer lead）即時回應。
+無疑慮就回 "ship"，進 Step 9 CI check。
 ```
 
 使用者提疑慮 → lead 直接回應（必要時調 R1/R2 原始 finding 佐證）；解不開的疑慮 →
