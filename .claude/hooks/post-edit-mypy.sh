@@ -14,21 +14,18 @@
 set -euo pipefail
 
 STDIN_DATA=$(cat)
-REPO_ROOT=$(git rev-parse --show-toplevel)
 
-PARSED=$(printf '%s' "$STDIN_DATA" | python3 -c "
+read -r FILE DUR < <(printf '%s' "$STDIN_DATA" | python3 -c "
 import sys, json
 try:
     data = json.loads(sys.stdin.read())
     fp = (data.get('tool_input') or {}).get('file_path', '')
     dur = data.get('duration_ms', 0)
-    print(f'{fp}|{dur}')
 except Exception:
-    print('|0')
+    fp, dur = '', 0
+print(fp)
+print(dur)
 ") || exit 0
-
-FILE=$(printf '%s' "$PARSED" | cut -d'|' -f1)
-DUR=$(printf '%s' "$PARSED" | cut -d'|' -f2)
 
 case "$FILE" in
   */tasks/*.py) ;;
@@ -39,5 +36,6 @@ if [ "${DUR:-0}" -lt 100 ] 2>/dev/null; then
     exit 0
 fi
 
-uv run --directory "$REPO_ROOT" mypy "$FILE" --no-error-summary 2>/dev/null \
+REPO_ROOT=$(git rev-parse --show-toplevel)
+uv run --directory "$REPO_ROOT" mypy "$FILE" --no-error-summary 2>&1 \
     | grep -E 'error:|note:' || true
