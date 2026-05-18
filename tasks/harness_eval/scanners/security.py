@@ -1,4 +1,4 @@
-"""D8 scanner：Security & Trust（機械分 8/13）。"""
+"""D8 scanner：Security & Trust（機械分 7/12）。"""
 
 from pathlib import Path
 
