@@ -4,14 +4,13 @@ from pathlib import Path
 
 from ..models import MechanicalFinding
 
-_MECH_MAX = 8
+_MECH_MAX = 7
 _INJECTION_PATTERNS = [
     "ignore previous instruction",
     "ignore all instruction",
     "disregard previous",
     "you are now",
     "new persona",
-    "act as",
 ]
 _DANGEROUS_CMDS = ["rm -rf /", "rm -rf ~", "curl | bash", "curl|bash", "wget | bash"]
 _SENSITIVE_GITIGNORE = [".env", "*.key", "*.pem", "*.secret", "credentials"]
@@ -26,14 +25,19 @@ def scan_security(target_dir: Path) -> MechanicalFinding:
 
     gitignore = target_dir / ".gitignore"
     if gitignore.exists():
-        content = gitignore.read_text(encoding="utf-8").lower()
-        covered = [p for p in _SENSITIVE_GITIGNORE if p in content]
-        if covered:
-            score += 2
-            gitignore_ok = True
-            findings.append(f".gitignore 含敏感檔模式：{', '.join(covered)}")
-        else:
-            findings.append("WARN: .gitignore 未涵蓋敏感模式（.env / *.key）")
+        try:
+            gi_content = gitignore.read_text(encoding="utf-8").lower()
+        except OSError as e:
+            findings.append(f"WARN: .gitignore 無法讀取：{e}")
+            gi_content = ""
+        if gi_content:
+            covered = [p for p in _SENSITIVE_GITIGNORE if p in gi_content]
+            if covered:
+                score += 2
+                gitignore_ok = True
+                findings.append(f".gitignore 含敏感檔模式：{', '.join(covered)}")
+            else:
+                findings.append("WARN: .gitignore 未涵蓋敏感模式（.env / *.key）")
     else:
         findings.append("WARN: .gitignore 不存在")
 
@@ -42,7 +46,10 @@ def scan_security(target_dir: Path) -> MechanicalFinding:
     if hooks_dir.exists():
         dangerous: list[str] = []
         for script in hooks_dir.glob("*.sh"):
-            content_lower = script.read_text(encoding="utf-8").lower()
+            try:
+                content_lower = script.read_text(encoding="utf-8").lower()
+            except OSError:
+                continue
             for danger in _DANGEROUS_CMDS:
                 if danger in content_lower:
                     dangerous.append(f"{script.name}: '{danger}'")

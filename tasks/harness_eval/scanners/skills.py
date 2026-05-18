@@ -9,7 +9,10 @@ _REQUIRED_KEYS = {"name", "type", "scope", "description"}
 
 
 def _has_valid_frontmatter(skill_md: Path) -> bool:
-    content = skill_md.read_text(encoding="utf-8")
+    try:
+        content = skill_md.read_text(encoding="utf-8")
+    except OSError:
+        return False
     if not content.startswith("---"):
         return False
     parts = content.split("---", 2)

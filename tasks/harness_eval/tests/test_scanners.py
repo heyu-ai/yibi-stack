@@ -203,7 +203,8 @@ class TestScanGit:
         """HEVAL-DT-053: hook 檔案存在且在 settings.json 登記 → score >= 3。"""
         _make_protect_hook(tmp_path)
         claude_dir = tmp_path / ".claude"
-        hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "protect-push.sh"}]}]}
+        hook_cmd = [{"type": "command", "command": "protect-push.sh"}]
+        hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": hook_cmd}]}
         (claude_dir / "settings.json").write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
         assert scan_git(tmp_path).score >= 3
 

@@ -39,24 +39,24 @@ def scan_rules(target_dir: Path) -> MechanicalFinding:
             findings=findings,
         )
 
-    score += 2
+    score = min(score + 2, _MECH_MAX)
     findings.append(f".claude/rules/ 存在，共 {len(rule_files)} 個規則檔")
     for f in rule_files[:5]:
         semantic_targets.append(str(f))
 
     numbered = [f for f in rule_files if _NUMBER_RE.match(f.name)]
     if numbered:
-        score += 2
+        score = min(score + 2, _MECH_MAX)
         findings.append(f"規則有編號分類（{len(numbered)}/{len(rule_files)} 個有 NN- 前綴）")
     else:
         findings.append("WARN: 規則未使用編號前綴（建議 01-*.md 格式）")
 
     has_glob = any(_has_glob_frontmatter(f) for f in rule_files)
     if has_glob:
-        score += 3
+        score = min(score + 3, _MECH_MAX)
         findings.append("規則含 glob frontmatter（path-scoped auto-load）")
     elif len(rule_files) >= 3:
-        score += 2
+        score = min(score + 2, _MECH_MAX)
         findings.append("規則使用 topic 命名分類（yibi-stack 編號 + 交叉引用模式）")
 
     skills_dir = target_dir / ".claude" / "skills"
@@ -64,7 +64,7 @@ def scan_rules(target_dir: Path) -> MechanicalFinding:
         "prune" in d.name.lower() for d in skills_dir.iterdir() if d.is_dir()
     )
     if has_prune:
-        score += 2
+        score = min(score + 2, _MECH_MAX)
         findings.append("規則維護循環存在（prune skill）")
     else:
         findings.append("WARN: 未找到 rule prune 機制")

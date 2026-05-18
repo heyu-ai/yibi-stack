@@ -17,9 +17,9 @@ class TestRunScan:
         expected = {"D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"}
         assert {d.dimension for d in result.dimensions} == expected
 
-    def test_heval_st_003_total_max_is_58(self, tmp_path: Path) -> None:
-        """HEVAL-ST-003: 機械總滿分固定為 58。"""
-        assert run_scan(tmp_path).total_mechanical_max == 58
+    def test_heval_st_003_total_max_is_57(self, tmp_path: Path) -> None:
+        """HEVAL-ST-003: 機械總滿分固定為 57。"""
+        assert run_scan(tmp_path).total_mechanical_max == 57
 
     def test_heval_st_004_target_dir_recorded(self, tmp_path: Path) -> None:
         """HEVAL-ST-004: target_dir 與傳入路徑一致（resolved）。"""

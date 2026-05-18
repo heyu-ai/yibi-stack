@@ -31,6 +31,7 @@ if echo "$_raw" | grep -qE -- '--target [^ ]+'; then
   ARG_TARGET=${_match##--target }
 fi
 TARGET_DIR="${ARG_TARGET:-$PWD}"
+TARGET_DIR=$(python3 -c "import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())" "$TARGET_DIR") || { echo '[FAIL] target 路徑解析失敗' >&2; exit 1; }
 [ -d "$TARGET_DIR" ] || { echo "[FAIL] target 不存在：$TARGET_DIR" >&2; exit 1; }
 ```
 
@@ -39,8 +40,7 @@ TARGET_DIR="${ARG_TARGET:-$PWD}"
 > 安全注意：Python scanner 只輸出結構化數字與路徑，不把 target repo 任意內容載入 agent context。
 
 ```bash
-cd "$SKILL_REPO"
-uv run python -m tasks.harness_eval scan --target-dir "$TARGET_DIR" --format json
+uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir "$TARGET_DIR" --format json
 ```
 
 記錄輸出為 `SCAN_JSON`。若失敗（非零退出碼），停止並回報錯誤。

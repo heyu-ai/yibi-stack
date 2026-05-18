@@ -10,22 +10,28 @@ _MECH_MAX = 6
 
 
 def _is_git_repo(target_dir: Path) -> bool:
-    result = subprocess.run(  # nosec B603 B607
-        ["git", "-C", str(target_dir), "rev-parse", "--git-dir"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    return result.returncode == 0
+    try:
+        result = subprocess.run(  # nosec B603 B607
+            ["git", "-C", str(target_dir), "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def _get_recent_commits(target_dir: Path, n: int = 20) -> list[str]:
-    result = subprocess.run(  # nosec B603 B607
-        ["git", "-C", str(target_dir), "log", f"--max-count={n}", "--pretty=format:%s"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    try:
+        result = subprocess.run(  # nosec B603 B607
+            ["git", "-C", str(target_dir), "log", f"--max-count={n}", "--pretty=format:%s"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return []
     if result.returncode != 0:
         return []
     return [line for line in result.stdout.splitlines() if line.strip()]
@@ -83,15 +89,17 @@ def scan_git(target_dir: Path) -> MechanicalFinding:
             findings.append("branch 保護 hook 存在且已在 settings.json 登記（有效）")
         else:
             findings.append(
-                "WARN: protect hook 檔案存在（.claude/hooks/）但未在 settings.json 登記——hook 不會生效"
+                "WARN: protect hook 存在（.claude/hooks/）但未在 settings.json 登記——hook 不會生效"
             )
     else:
         findings.append("WARN: 未找到 branch 保護 hook")
 
     commits = _get_recent_commits(target_dir)
     if commits:
-        semantic_targets.append(f"__git_log__{target_dir}")
+        extra: dict[str, list[str]] = {"recent_commits": commits}
         findings.append(f"git log 取得最近 {len(commits)} 筆（供 agent 評估風格）")
+    else:
+        extra = {}
 
     return MechanicalFinding(
         dimension="D6",
@@ -100,4 +108,5 @@ def scan_git(target_dir: Path) -> MechanicalFinding:
         max_score=_MECH_MAX,
         findings=findings,
         semantic_targets=semantic_targets,
+        extra=extra,
     )

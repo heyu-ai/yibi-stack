@@ -23,8 +23,8 @@ def scan_settings(target_dir: Path) -> MechanicalFinding:
 
     try:
         data = json.loads(settings_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        findings.append("FAIL: settings.json 格式錯誤")
+    except json.JSONDecodeError as e:
+        findings.append(f"FAIL: settings.json 格式錯誤：{e}")
         return MechanicalFinding(
             dimension="D3", label="Settings & 權限", score=0, max_score=_MECH_MAX, findings=findings
         )

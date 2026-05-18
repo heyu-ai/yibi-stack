@@ -20,12 +20,15 @@ def scan_claude_md(target_dir: Path) -> MechanicalFinding:
         findings.append(f"CLAUDE.md 存在：{project_md}")
         semantic_targets.append(str(project_md))
 
-        lines = len(project_md.read_text(encoding="utf-8").splitlines())
-        if lines <= 200:
-            score += 3
-            findings.append(f"行數 {lines} <= 200（OK）")
-        else:
-            findings.append(f"WARN: 行數 {lines} > 200（Anthropic 建議上限）")
+        try:
+            lines = len(project_md.read_text(encoding="utf-8").splitlines())
+            if lines <= 200:
+                score += 3
+                findings.append(f"行數 {lines} <= 200（OK）")
+            else:
+                findings.append(f"WARN: 行數 {lines} > 200（Anthropic 建議上限）")
+        except OSError as e:
+            findings.append(f"WARN: CLAUDE.md 無法讀取行數：{e}")
     else:
         findings.append("WARN: CLAUDE.md 不存在（project root 未找到）")
 

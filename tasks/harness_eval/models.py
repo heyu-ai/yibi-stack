@@ -22,6 +22,7 @@ class MechanicalFinding(BaseModel):
     max_score: int
     findings: list[str] = Field(default_factory=list)
     semantic_targets: list[str] = Field(default_factory=list)
+    extra: dict[str, list[str]] = Field(default_factory=dict)
 
     @field_validator("score")
     @classmethod

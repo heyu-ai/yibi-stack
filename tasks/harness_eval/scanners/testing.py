@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 
 from ..models import MechanicalFinding
@@ -18,7 +19,6 @@ def _find_test_files(target_dir: Path) -> list[Path]:
         depth = len(Path(dirpath).relative_to(target_dir).parts)
         if depth >= _MAX_SCAN_DEPTH:
             dirnames.clear()
-            continue
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
         for name in filenames:
             if (name.startswith("test_") and name.endswith(".py")) or name.endswith(".test.ts"):
@@ -39,12 +39,15 @@ def scan_testing(target_dir: Path) -> MechanicalFinding:
         findings.append("WARN: 未找到測試檔案（test_*.py / *.test.ts）")
 
     wf_dir = target_dir / ".github" / "workflows"
-    has_github_ci = wf_dir.exists() and any(wf_dir.glob("*.yml"))
+    has_github_ci = wf_dir.exists() and (any(wf_dir.glob("*.yml")) or any(wf_dir.glob("*.yaml")))
     has_makefile_ci = False
     makefile = target_dir / "Makefile"
     if makefile.exists():
-        content = makefile.read_text(encoding="utf-8")
-        has_makefile_ci = "ci:" in content or "test:" in content
+        try:
+            content = makefile.read_text(encoding="utf-8")
+            has_makefile_ci = "ci:" in content or "test:" in content
+        except OSError:
+            pass
 
     if has_github_ci:
         score += 2
@@ -61,9 +64,14 @@ def scan_testing(target_dir: Path) -> MechanicalFinding:
         try:
             data = json.loads(settings_path.read_text(encoding="utf-8"))
             hook_str = json.dumps(data.get("hooks", {})).lower()
-            hook_links_test = "pytest" in hook_str or "test" in hook_str
-        except json.JSONDecodeError:
-            pass
+            hook_links_test = bool(
+                re.search(
+                    r"\b(pytest|jest|vitest|go\s+test|cargo\s+test|npm\s+test|mocha|rspec)\b",
+                    hook_str,
+                )
+            )
+        except json.JSONDecodeError as e:
+            findings.append(f"WARN: settings.json 格式錯誤，無法判斷 hook-test 連結：{e}")
 
     if hook_links_test:
         score += 2
