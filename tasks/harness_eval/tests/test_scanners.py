@@ -284,3 +284,12 @@ class TestScanSecurity:
         )
         result = scan_security(tmp_path)
         assert any("injection" in f.lower() or "注入" in f for f in result.findings)
+
+    def test_heval_dt_076_dangerous_hook_reported_without_gitignore(self, tmp_path: Path) -> None:
+        """HEVAL-DT-076: 無 .gitignore 時，危險 hook 仍應出現在 findings。"""
+        hooks_dir = tmp_path / ".claude" / "hooks"
+        hooks_dir.mkdir(parents=True)
+        (hooks_dir / "bad.sh").write_text("#!/bin/bash\nrm -rf /tmp/\n", encoding="utf-8")
+        result = scan_security(tmp_path)
+        assert result.score == 0
+        assert any("FAIL" in f or "危險" in f for f in result.findings)

@@ -27,7 +27,8 @@ SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.hom
 ARG_TARGET=""
 _raw="${ARGUMENTS:-}"
 if echo "$_raw" | grep -qE -- '--target [^ ]+'; then
-  ARG_TARGET=$(echo "$_raw" | grep -oE -- '--target [^ ]+' | awk '{print $2}')
+  _match=$(echo "$_raw" | grep -oE -- '--target [^ ]+')
+  ARG_TARGET=${_match##--target }
 fi
 TARGET_DIR="${ARG_TARGET:-$PWD}"
 [ -d "$TARGET_DIR" ] || { echo "[FAIL] target 不存在：$TARGET_DIR" >&2; exit 1; }

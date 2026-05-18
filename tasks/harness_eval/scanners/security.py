@@ -22,9 +22,10 @@ def scan_security(target_dir: Path) -> MechanicalFinding:
     findings: list[str] = []
     semantic_targets: list[str] = []
     score = 0
-
-    gitignore = target_dir / ".gitignore"
     gitignore_ok = False
+
+    # Check 1: gitignore
+    gitignore = target_dir / ".gitignore"
     if gitignore.exists():
         content = gitignore.read_text(encoding="utf-8").lower()
         covered = [p for p in _SENSITIVE_GITIGNORE if p in content]
@@ -37,16 +38,7 @@ def scan_security(target_dir: Path) -> MechanicalFinding:
     else:
         findings.append("WARN: .gitignore 不存在")
 
-    if not gitignore_ok:
-        return MechanicalFinding(
-            dimension="D8",
-            label="Security & Trust",
-            score=0,
-            max_score=_MECH_MAX,
-            findings=findings,
-            semantic_targets=semantic_targets,
-        )
-
+    # Check 2: dangerous hooks（findings 無論 gitignore 結果均執行；score 僅在 gitignore_ok 時累積）
     hooks_dir = target_dir / ".claude" / "hooks"
     if hooks_dir.exists():
         dangerous: list[str] = []
@@ -56,15 +48,18 @@ def scan_security(target_dir: Path) -> MechanicalFinding:
                 if danger in content_lower:
                     dangerous.append(f"{script.name}: '{danger}'")
         if not dangerous:
-            score += 2
+            if gitignore_ok:
+                score += 2
             findings.append("hook scripts 無危險指令")
         else:
             for d in dangerous:
                 findings.append(f"FAIL: 危險指令 {d}")
     else:
-        score += 2
+        if gitignore_ok:
+            score += 2
         findings.append("無 hook scripts（不適用危險指令檢查）")
 
+    # Check 3: injection（findings 無論 gitignore 結果均執行；score 僅在 gitignore_ok 時累積）
     injection_hits: list[str] = []
     check_files: list[Path] = []
     if (target_dir / "CLAUDE.md").exists():
@@ -85,7 +80,8 @@ def scan_security(target_dir: Path) -> MechanicalFinding:
                 break
 
     if not injection_hits:
-        score += 3
+        if gitignore_ok:
+            score += 3
         findings.append("CLAUDE.md / rules 無 prompt injection 指標")
     else:
         for hit in injection_hits:
