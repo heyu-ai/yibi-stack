@@ -54,3 +54,19 @@ cursor.execute(f"SELECT * FROM runs {where}", params)  # nosec B608
 
 `.claude/hooks/protect-push.sh` 防止從 worktree branch 直推 origin/main。
 不要繞過此 hook，也不要使用任何 bypass 旗標停用 git hook 驗證。
+
+## Scanner Gate 設計原則
+
+Security scanner 的「前置條件 gate」（如 `gitignore_ok`）只應控制 score 累積，
+不應以 early return 阻斷 findings 輸出——使用者在 gate 失敗時仍需看到所有偵測結果。
+
+```python
+# 正確：gate 只影響 score，findings 無條件執行
+if not gitignore_ok:
+    pass  # score 不累積，但繼續往下掃描
+findings.append(check_dangerous_commands())
+
+# 錯誤：gate 失敗就 early return，使用者看不到後續偵測結果
+if not gitignore_ok:
+    return MechanicalFinding(score=0, findings=["WARN: no .gitignore"])
+```
