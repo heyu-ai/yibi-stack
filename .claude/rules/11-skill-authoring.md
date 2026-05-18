@@ -122,3 +122,25 @@ FAQ 表格中的修復指令必須符合三個條件：
 1. **使用實際變數名**：不用 literal `KEY` 這類 placeholder，直接寫 `CODEX_API_KEY` / `GEMINI_API_KEY` 等實際名稱
 2. **shell-hygiene-safe 語法**：用 parameter expansion `"${VAR# }"` 去除前置空格，不用 `$(echo $VAR)` subshell（後者在 zsh 不 trim、且觸發 Rule 14 quoting hygiene hook）
 3. **跨 shell 相容**：指令在 zsh（macOS 預設）與 bash 均能正確執行
+
+## Temp File Namespace
+
+若 skill 的 bash block 寫 `/tmp/` 下的檔案，必須加上 session 識別符避免並行碰撞：
+
+```bash
+WT_ROOT=$(git rev-parse --show-toplevel)
+WT_NAME=$(basename "$WT_ROOT")
+SKILL_TMPDIR="/tmp/<skill-name>/$WT_NAME"
+mkdir -p "$SKILL_TMPDIR"
+```
+
+在 yibi-stack 的 worktree-first 慣例下，worktree basename 是天然 isolation key。
+設計新 skill 凡寫 `/tmp/` 路徑，先問「兩個 session 並行時這個路徑會撞嗎？」
+
+## Bash Block Pattern Parity
+
+對稱操作（同樣結構的 bash block）必須有對稱的 error check。若 Block A 在 `cat` 後
+檢查 `$?`，則所有類似的 Block B/C 也必須如此——否則某個 block 的 silent failure
+會讓 agent 帶著損壞的 input 繼續執行，且無法從 FAIL 訊息定位問題。
+
+FAIL 訊息中的 log 路徑必須是完整路徑（含 `$SKILL_TMPDIR`），不能只寫檔名。
