@@ -37,8 +37,11 @@ if [ "${DUR:-0}" -lt 100 ] 2>/dev/null; then
 fi
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-MYPY_OUT=$(uv run --directory "$REPO_ROOT" mypy "$FILE" --no-error-summary 2>&1) || {
-    printf '[post-edit-mypy] mypy failed: %s\n' "$MYPY_OUT" >&2
-    exit 0
-}
-printf '%s\n' "$MYPY_OUT" | grep -E 'error:|note:' || true
+MYPY_EXIT=0
+MYPY_OUT=$(uv run --directory "$REPO_ROOT" mypy "$FILE" --no-error-summary 2>&1) || MYPY_EXIT=$?
+MATCHING=$(printf '%s\n' "$MYPY_OUT" | grep -E 'error:|note:' || true)
+if [ -n "$MATCHING" ]; then
+    printf '%s\n' "$MATCHING"
+elif [ "$MYPY_EXIT" -ne 0 ]; then
+    printf '[post-edit-mypy] invocation failed (exit %s): %s\n' "$MYPY_EXIT" "$MYPY_OUT" >&2
+fi
