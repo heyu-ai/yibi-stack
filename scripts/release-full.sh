@@ -7,18 +7,21 @@ if [ -z "$TYPE" ]; then
     exit 1
 fi
 
-BUMP_SH="$HOME/.claude/skills/bump-version/scripts/bump.sh"
-CHANGELOG_SH="$HOME/.claude/skills/bump-version/scripts/changelog.sh"
-GATES_SH="$HOME/.claude/skills/bump-version/scripts/gates.sh"
-RELEASE_SH="$HOME/.claude/skills/bump-version/scripts/release.sh"
+SKILL_DIR="$HOME/.claude/skills/bump-version/scripts"
+BUMP_SH="$SKILL_DIR/bump.sh"
+CHANGELOG_SH="$SKILL_DIR/changelog.sh"
+GATES_SH="$SKILL_DIR/gates.sh"
+RELEASE_SH="$SKILL_DIR/release.sh"
 
-if [ ! -x "$BUMP_SH" ]; then
-    echo "[FAIL] bump-version skill not installed." >&2
-    echo "       Run: make install-one SKILL=bump-version" >&2
-    exit 1
-fi
+for script in "$BUMP_SH" "$CHANGELOG_SH" "$GATES_SH" "$RELEASE_SH"; do
+    if [ ! -x "$script" ]; then
+        echo "[FAIL] not executable: $script" >&2
+        echo "       Run: make install-one SKILL=bump-version" >&2
+        exit 1
+    fi
+done
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT=$(git rev-parse --show-toplevel)
 SYNC_SH="$REPO_ROOT/scripts/sync-plugin-versions.sh"
 
 echo "=== Step 1: Bump $TYPE version ==="
