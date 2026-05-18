@@ -23,11 +23,22 @@ done
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
 SYNC_SH="$REPO_ROOT/scripts/sync-plugin-versions.sh"
+cd "$REPO_ROOT"
 
-echo "=== Step 1: Bump $TYPE version ==="
+if ! git diff --quiet HEAD || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+    echo "[FAIL] Working tree is dirty. Commit or stash changes before releasing." >&2
+    exit 1
+fi
+
+echo "=== Step 1: Run test gates (pre-flight) ==="
+"$GATES_SH"
+
+echo ""
+echo "=== Step 2: Bump $TYPE version ==="
+ENV_FILE="/tmp/bump_version_result.env"
+rm -f "$ENV_FILE"
 "$BUMP_SH" "$TYPE"
 
-ENV_FILE="/tmp/bump_version_result.env"
 if [ ! -f "$ENV_FILE" ]; then
     echo "[FAIL] bump.sh did not produce $ENV_FILE" >&2
     exit 1
@@ -36,20 +47,17 @@ source "$ENV_FILE"
 echo "  New version: $BUMP_VERSION (tag: $TAG_VERSION)"
 
 echo ""
-echo "=== Step 2: Sync plugin versions to $TAG_VERSION ==="
+echo "=== Step 3: Sync plugin versions to $TAG_VERSION ==="
 bash "$SYNC_SH" "$TAG_VERSION"
 
 echo ""
-echo "=== Step 3: Generate CHANGELOG ==="
+echo "=== Step 4: Generate CHANGELOG ==="
 "$CHANGELOG_SH" "$TAG_VERSION"
 
 echo ""
-echo "=== Step 4: Run test gates ==="
-"$GATES_SH"
-
-echo ""
 echo "=== Step 5: Commit ==="
-git add -A
+git add pyproject.toml CHANGELOG.md
+git add plugins/*/package.json
 git commit -m "chore(release): v${TAG_VERSION}"
 
 echo ""
