@@ -63,7 +63,9 @@ which codex >/dev/null 2>&1 && echo "CODEX: BINARY_OK" || echo "CODEX: NOT_FOUND
 # Codex auth（KEY_SET 或 FILE_EXISTS 任一即可）
 if env | grep -qE '^(CODEX_API_KEY|OPENAI_API_KEY)=[^[:space:]]'; then
   echo "CODEX_AUTH: KEY_SET"
-elif test -f ~/.codex/auth.json; then
+elif env | grep -qE '^(CODEX_API_KEY|OPENAI_API_KEY)=[[:space:]]'; then
+  echo "CODEX_AUTH: KEY_WHITESPACE_PREFIX"
+elif test -s ~/.codex/auth.json; then
   echo "CODEX_AUTH: FILE_EXISTS"
 else
   echo "CODEX_AUTH: NOT_AUTHED"
@@ -79,7 +81,9 @@ which gemini >/dev/null 2>&1 && echo "GEMINI: BINARY_OK" || echo "GEMINI: NOT_FO
 # Gemini auth（GEMINI_API_KEY 或 GOOGLE_API_KEY 任一即可）
 if env | grep -qE '^(GEMINI_API_KEY|GOOGLE_API_KEY)=[^[:space:]]'; then
   echo "GEMINI_AUTH: KEY_SET"
-elif test -f ~/.gemini/gemini-credentials.json; then
+elif env | grep -qE '^(GEMINI_API_KEY|GOOGLE_API_KEY)=[[:space:]]'; then
+  echo "GEMINI_AUTH: KEY_WHITESPACE_PREFIX"
+elif test -s ~/.gemini/gemini-credentials.json; then
   echo "GEMINI_AUTH: FILE_EXISTS"
 else
   echo "GEMINI_AUTH: NOT_AUTHED"
@@ -90,9 +94,16 @@ fi
 
 外部 reviewer「可用」= binary OK + auth OK（Codex 或 Gemini）。
 
+**`BINARY_OK + NOT_AUTHED` 的處理**：binary 找到但 auth 失敗（`NOT_AUTHED` 或 `KEY_WHITESPACE_PREFIX`）不算「可用」，
+且必須在 Step 0 **明確停止**，不能靜默折算成可用數少一家——否則使用者以為工具未安裝，
+而非 auth 壞掉。偵測到此狀態時，先向使用者顯示修復指令，確認修復後重跑 Step 0。
+
+**注意**：下方計數表格只適用於「所有 binary-OK 的工具均已通過 auth」的情況。
+任一工具出現 `BINARY_OK + NOT_AUTHED / KEY_WHITESPACE_PREFIX` → 先執行上述停止流程，不進入 count 計算。
+
 | 可用外部 reviewer | 動作 |
 |---:|---|
-| 0 | **退回 `/pr-review-cycle`**（Claude-only 即足夠；本 skill 終止） |
+| 0（全部 NOT_FOUND，無 auth 失敗）| **退回 `/pr-review-cycle`**（Claude-only 即足夠；本 skill 終止） |
 | **1**（Codex 或 Gemini）| **2-voice mob**（Claude + 1 外部，cross-model debate 已有意義） |
 | **2**（Codex + Gemini）| **3-voice full mob**（最廣覆蓋） |
 
@@ -101,13 +112,14 @@ fi
 ```text
 偵測結果：
 - Claude  ✓ 永遠可用（pr-review-toolkit）
-- Codex   ✓ / ✗
-- Gemini  ✓ / ✗ (optional)
+- Codex   ✓ / ✗ / ✗（auth 失敗，請執行 codex login 後重跑 Step 0）
+- Gemini  ✓ / ✗ / ✗（auth 失敗，請執行 gemini auth login 後重跑 Step 0）
 
 外部 reviewer 計數：{{N}}/2
 模式：{{2-voice-mob | 3-voice-full-mob | REDIRECT}}
 
   ← 若 REDIRECT：本 skill 終止，請改執行 /pr-review-cycle
+  ← 若有 auth 失敗：請先修復 auth，再回本步驟重跑偵測
 進入 Step 1？
 ```
 
@@ -714,7 +726,9 @@ aggregate。
 
 | 問題 | 處理方式 |
 |---|---|
-| Step 0 全部 NOT_FOUND（0 家可用） | 本 skill 終止，改執行 `/pr-review-cycle`（Claude-only 即足夠） |
+| Step 0 零家可用（全部 NOT_FOUND 或 auth 失敗）| 本 skill 終止，改執行 `/pr-review-cycle`（Claude-only 即足夠） |
+| Step 0 偵測到 `KEY_WHITESPACE_PREFIX` | key 值有前置空格（如從 terminal 複製帶入）；執行 `export CODEX_API_KEY="${CODEX_API_KEY# }"` 或對應 key 名去除前置空格後重跑 Step 0 |
+| `GEMINI_AUTH: NOT_AUTHED` 但有舊版 `~/.gemini/credentials.json` | 舊版 Gemini CLI 使用舊路徑；執行 `gemini auth login` 重新產生 `gemini-credentials.json` |
 | Step 0 只偵測到 Codex（Gemini 無）| 進入 2-voice mob（Claude + Codex），正常流程 |
 | Step 0 只偵測到 Gemini（Codex 無）| 進入 2-voice mob（Claude + Gemini），正常流程 |
 | 偵測到 codex 但 auth 失敗 | `codex login`；或 `export OPENAI_API_KEY=...` |
