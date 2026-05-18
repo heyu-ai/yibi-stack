@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewFindings",
+  "description": "Codex / Gemini voice 的結構化 review 輸出，供 mob review r1-aggregate 使用",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "summary", "findings"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["LGTM", "NEEDS_CHANGES"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "1-2 句總評，不含 diff quote 或逐行 commentary"
+    },
+    "findings": {
+      "type": "array",
+      "description": "嚴重度排序（critical > important > actionable_nit）",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "title", "file", "issue", "fix"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "important", "actionable_nit"]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "5-10 字短標題"
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "受影響的相對路徑，如 'src/auth.py'"
+          },
+          "line_start": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "line_end": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "issue": {
+            "type": "string",
+            "minLength": 1,
+            "description": "問題描述，不含 diff quote"
+          },
+          "fix": {
+            "type": "string",
+            "minLength": 1,
+            "description": "建議修法，具體可執行"
+          }
+        }
+      }
+    }
+  }
+}

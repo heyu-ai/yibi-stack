@@ -268,24 +268,68 @@ Diff: 見 /tmp/pr-review/diff.patch
 
 ##### Codex voice（CODEX_OK 時）
 
+**Stage 1：Native review（raw 落地，不進主 context）**
+
 ```bash
-codex review --base "{{base_branch}}" -c 'model_reasoning_effort="high"' > /tmp/pr-review/codex-r1.md 2>&1
+codex review --base "{{base_branch}}" -c 'model_reasoning_effort="high"' > /tmp/pr-review/codex-r1-raw.md 2>&1
 ```
 
-`codex review` 不支援 `-C` flag，從正確 cwd 執行即可。`--base` 與 positional prompt 互斥，不能再加
-prompt 字串；codex 內建 review 模式自動產生 [P1]/[P2] 分級，lead 後續轉成
-Critical/Important。
+`codex review` 不支援 `-C` flag，從正確 cwd 執行即可。`--base` 與 positional prompt 互斥；codex 內建 review 模式自動產生 [P1]/[P2] 分級。Raw 輸出落地到 `codex-r1-raw.md`，**不在主 context 讀取**。
+
+**Stage 2：Extract（把 raw verbose markdown 壓縮成結構化 JSON）**
+
+```bash
+SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')")
+```
+
+```bash
+cat "$SKILL_REPO/skills/pr-review-cycle-mob/prompts/extract-r1.md" /tmp/pr-review/codex-r1-raw.md > /tmp/pr-review/codex-extract-input.md
+```
+
+```bash
+WT=$(git rev-parse --show-toplevel)
+codex exec -C "$WT" -s read-only -c 'model_reasoning_effort="low"' < /tmp/pr-review/codex-extract-input.md > /tmp/pr-review/codex-r1.json 2>&1
+```
+
+```bash
+rm -f /tmp/pr-review/codex-extract-input.md
+```
+
+**Stage 3：Render（lead 讀 JSON → 寫 compact markdown）**
+
+Lead 用 Read tool 讀 `/tmp/pr-review/codex-r1.json`，若 JSON 有效則用 Write tool 渲染成 `/tmp/pr-review/codex-r1.md`（compact markdown，依 severity 排序：critical → important → actionable_nit）。
+
+格式範例：
+
+```text
+## Codex R1
+
+**Verdict**: NEEDS_CHANGES
+**Summary**: <summary 欄位>
+
+### [critical] <title>
+- File: <file>:<line_start>-<line_end>
+- Issue: <issue>
+- Fix: <fix>
+
+### [important] <title>
+...
+```
+
+JSON parse 失敗（非合法 JSON 或欄位不符 schema）→ 跳到 FAQ「Codex extract 後 JSON parse 失敗」的 fallback 流程。
 
 ##### Gemini voice（GEMINI_OK 時）
 
 Gemini CLI 不接受 stdin prompt + diff path 的多檔組合，先串成單一檔：
+
+**Stage 1：Native review（raw 落地，不進主 context）**
 
 ```bash
 cat /tmp/pr-review/prompt-r1.md /tmp/pr-review/diff.patch > /tmp/pr-review/gemini-r1-input.md
 ```
 
 ```bash
-gemini -m gemini-3.1-pro-preview -p "@/tmp/pr-review/gemini-r1-input.md" > /tmp/pr-review/gemini-r1.md 2>&1
+gemini -m gemini-3.1-pro-preview -p "@/tmp/pr-review/gemini-r1-input.md" > /tmp/pr-review/gemini-r1-raw.md 2>&1
 ```
 
 ```bash
@@ -293,16 +337,49 @@ rm -f /tmp/pr-review/gemini-r1-input.md
 ```
 
 若無 `gemini-3.1-pro-preview` 權限，依序 fallback：`gemini-3-pro-preview` →
-`gemini-2.5-pro`（用 verify-gemini-models skill 確認可用模型）。
+`gemini-2.5-pro`（用 verify-gemini-models skill 確認可用模型）。Raw 輸出落地到 `gemini-r1-raw.md`，**不在主 context 讀取**。
+
+**Stage 2：Extract（用 gemini-2.5-flash 低成本模型萃取 JSON）**
+
+```bash
+SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')")
+```
+
+```bash
+cat "$SKILL_REPO/skills/pr-review-cycle-mob/prompts/extract-r1.md" /tmp/pr-review/gemini-r1-raw.md > /tmp/pr-review/gemini-extract-input.md
+```
+
+```bash
+gemini -m gemini-2.5-flash -p "@/tmp/pr-review/gemini-extract-input.md" > /tmp/pr-review/gemini-r1.json 2>&1
+```
+
+```bash
+rm -f /tmp/pr-review/gemini-extract-input.md
+```
+
+注意：extract 刻意用 `gemini-2.5-flash`（低成本快速模型），避免再消耗 pro 配額。
+
+**Stage 3：Render（同 Codex voice，lead 讀 JSON → 寫 compact markdown）**
+
+Lead 用 Read tool 讀 `/tmp/pr-review/gemini-r1.json`，若 JSON 有效則用 Write tool 渲染成 `/tmp/pr-review/gemini-r1.md`（格式同 Codex compact markdown）。
+
+JSON parse 失敗 → 跳到 FAQ「Gemini extract 後 JSON 不符 schema」的 fallback 流程。
 
 #### 3.3 — Sanity check
 
 ```bash
-ls -lh /tmp/pr-review/*-r1.md
+ls -lh /tmp/pr-review/*-r1.md /tmp/pr-review/*-r1.json 2>/dev/null
 ```
 
-任一檔案 < 200 bytes 或內容只有錯誤訊息 → 重跑該 voice。連續 2 次失敗 → 把該 voice
-標記為「unavailable for this PR」，記錄在最終 aggregated 報告，不阻塞流程。
+檢查項目：
+
+1. `codex-r1.md` / `gemini-r1.md`（compact markdown）< 50 bytes 或不存在 → 表示 Stage 3 render 未完成，重跑
+2. `codex-r1.json` / `gemini-r1.json` 為非合法 JSON → extract 失敗，觸發 fallback（見 FAQ）
+3. `*-r1-raw.md` 若 < 200 bytes 或只有錯誤訊息 → 重跑 Stage 1（native review）
+
+連續 2 次失敗 → 把該 voice 標記為「unavailable for this PR」，記錄在最終 aggregated 報告，不阻塞流程。
+
+`r1-aggregate.md` 只引用 compact 版（`*-r1.md`），**不引用 raw 版（`*-r1-raw.md`）**。
 
 ---
 
@@ -711,14 +788,14 @@ Spectra change `{{change_name}}` 已 archive，spec 狀態已更新為完成。
 
 ## Reviewer 呼叫快速對照表
 
-| Voice | 偵測 | R1 呼叫 | R2 呼叫 | 預期輸出 |
+| Voice | 偵測 | R1 呼叫（三段式） | R2 呼叫 | aggregate 輸入 |
 |---|---|---|---|---|
-| Claude | always | Task() pr-review-toolkit 4 subagents | lead 自己寫 claude-r2.md | finding markdown |
-| Codex | `which codex` + auth | `codex review --base $BASE` | `WT=$(git rev-parse --show-toplevel)` then `codex exec -C "$WT" -s read-only < input.md` | [P1]/[P2] 分級 |
-| Gemini *(optional)* | `which gemini` + auth | `gemini -m gemini-3.1-pro-preview -p @input.md` | `gemini -m ... -p @input.md` | 散文格式（lead 解析）|
+| Claude | always | Task() pr-review-toolkit 4 subagents | lead 自己寫 claude-r2.md | claude-r1.md（finding markdown） |
+| Codex | `which codex` + auth | S1: `codex review --base $BASE > codex-r1-raw.md`<br>S2: `codex exec low < extract-input > codex-r1.json`<br>S3: lead renders codex-r1.md | `codex exec -C "$WT" -s read-only < input.md` | codex-r1.md（compact，非 raw） |
+| Gemini *(optional)* | `which gemini` + auth | S1: `gemini -m pro -p @input > gemini-r1-raw.md`<br>S2: `gemini -m flash -p @extract-input > gemini-r1.json`<br>S3: lead renders gemini-r1.md | `gemini -m ... -p @input.md` | gemini-r1.md（compact，非 raw） |
 
-每個 voice 的 R1 / R2 都應寫到 `/tmp/pr-review/<voice>-r{1,2}.md`，由 lead 統一讀取
-aggregate。
+每個 voice 的 R1 / R2 都應寫到 `/tmp/pr-review/<voice>-r{1,2}.md`（compact 版），由 lead 統一讀取 aggregate。
+Raw 版（`*-r1-raw.md`）留在磁碟供 disputed finding 查閱，但**不進入主 context**。
 
 ---
 
@@ -748,6 +825,10 @@ aggregate。
 | Jira key 無法偵測 | 詢問使用者提供（`PROJECT-123` 格式），或確認無對應 ticket 後跳過 |
 | Jira transition 選項不確定 | 列出所有 transition 詢問使用者確認 |
 | Jira MCP auth 錯誤 | Atlassian MCP 需 OAuth；提示使用者在 claude.ai 完成授權 |
+| Codex extract 後 JSON parse 失敗 | lead 偵測 `codex-r1.json` 非合法 JSON 時：警告使用者 + 把 `codex-r1-raw.md` 直接當 `codex-r1.md` 使用（cp codex-r1-raw.md codex-r1.md）；在 final.md 標註「Codex voice 本輪走 raw form，主 context 較重」 |
+| Gemini extract 後 JSON 不符 schema | 同上，fallback 把 `gemini-r1-raw.md` 直接當 `gemini-r1.md` 使用；final.md 同樣標註 |
+| extract 步驟持續失敗（連續 2 次）| 降級至 C 路徑：Claude lead 自己讀 raw（Read tool），在主 session 內手動萃取 compact form，不再呼叫第二次 codex/gemini；效率較低但流程不阻塞 |
+| SKILL_REPO 未設定導致 extract prompt 路徑錯誤 | 執行 `python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')"` 確認值；空值表示未執行 `make install`，請在 yibi-stack 目錄執行 |
 | 使用者跳過 bump 但事後需要版本標記 | 建立 release branch，在上面跑 [`/bump-version`](../bump-version/SKILL.md)，再開 PR merge 進 main（CI 通過 + 確認 CHANGELOG 正確即可合併，不需跑完整 review cycle；若 main 已有新 commit，CHANGELOG 可能含多餘項目，需人工確認） |
 
 ---
