@@ -89,12 +89,40 @@ test -n "${CODEX_API_KEY}" -o -n "${OPENAI_API_KEY}" && echo "AUTH: KEY_SET" || 
 test -n "$CODEX_API_KEY" -o -n "$OPENAI_API_KEY" && echo "AUTH: KEY_SET" || true
 ```
 
-**根本修法：加進 allow list**（settings.json），讓此 pattern 不再跳確認框：
+**根本修法依情境分兩條路**：
+
+**A. 單行指令（`cmd "$VAR"`）→ 加進 allow list**（settings.json）：
 
 ```json
+"Bash(rg *)",
+"Bash(git -C *)",
+"Bash(basename *)",
+"Bash(dirname *)",
 "Bash(test -n *)",
 "Bash([ -n *)"
 ```
+
+**B. ≥2 個 `"$VAR"` 展開的複合腳本 → 拆 bash call 或寫成 script**：
+
+多行腳本無法用 prefix wildcard allow-list（pattern 無法跨行匹配），必須重構：
+
+| 場景 | 修法 |
+|------|------|
+| 2-4 行、變數間有依賴 | 拆成獨立 bash call，各自被 allow-list 覆蓋 |
+| 5+ 行或重複使用 | 寫成 `scripts/foo.sh`，bash 只剩 `bash scripts/foo.sh` |
+
+```bash
+# 違規：多行 multi-var script，每次都跳確認框
+WT_ROOT=$(git -C /path rev-parse --show-toplevel)
+WT_NAME=$(basename "$WT_ROOT")
+REVIEW_DIR="/tmp/pr-review/$WT_NAME"
+mkdir -p "$REVIEW_DIR"
+
+# 修法 A：拆成 4 個獨立 bash call（各自被 Bash(git -C *) / Bash(basename *) 等覆蓋）
+# 修法 B：寫成 scripts/setup_review_dir.sh 再執行
+```
+
+**判斷門檻**：一個 bash call 內出現 **≥2 個 `"$VAR"` 展開**，視為 AP1 sub-type，必須拆解或寫 script。
 
 重要限制：**切勿用 `printenv` 或 `echo $VAR` 印出 key 值**——會將 API key 明文記錄
 至 session transcript。確認 key 存在一律用 `test -n`，不用 `echo` 或 `printenv`。
