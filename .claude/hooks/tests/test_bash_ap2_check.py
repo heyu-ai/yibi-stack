@@ -66,6 +66,10 @@ class TestAP2Allowed:
         """git commit -m 含 emoji -> 豁免（commit message 不限制）"""
         assert run_hook('git commit -m "feat: add ✓ check"') == 0
 
+    def test_ap2_allow_008_git_dash_c_commit_with_emoji_in_message(self) -> None:
+        """git -C /path commit -m 含 emoji -> 豁免（git -C 形式的豁免修復）"""
+        assert run_hook('git -C /path/to/repo commit -m "feat: add ✓ check"') == 0
+
 
 # ── 基本攔截行為 ───────────────────────────────────────────────────────
 

@@ -53,7 +53,8 @@ _VIOLATION_MESSAGE = """\
 
 def _scannable(command: str) -> str:
     """Strip git commit message payloads — commit messages are AP2-exempt per rule 13."""
-    if re.search(r"(?:^|[;|\n]|&&|\|\|)\s*(?:\(\s*)?git\s+commit\b", command):
+    # [^;|\n&]* allows flags between git and commit, e.g. git -C /path commit
+    if re.search(r"(?:^|[;|\n]|&&|\|\|)\s*(?:\(\s*)?git\b[^;|\n&]*\bcommit\b", command):
         return _COMMIT_MSG_RE.sub("", command)
     return command
 
