@@ -348,6 +348,42 @@ class TestGitCommitExemption:
         """git commit -m 'plain single-quoted msg' -> 放行（非 heredoc，不豁免但也不觸發）"""
         assert run_hook("git commit -m 'add grep rule for pat\\|pat2'") == 0
 
+    def test_ap1_allow_024_git_dash_c_commit_heredoc_with_nested_subshell_example(self) -> None:
+        """git -C /path commit message 含 Case 26 範例 -> 豁免（git -C 形式的豁免修復）"""
+        cmd = (
+            "git -C /path/to/repo commit -m \"$(cat <<'EOF'\n"
+            "feat: add feature\n"
+            "\n"
+            '- 修法：$(outer "$(inner)")\n'
+            "EOF\n"
+            ')"'
+        )
+        assert run_hook(cmd) == 0
+
+    def test_ap1_allow_025_git_dash_c_commit_heredoc_with_grep_example(self) -> None:
+        """git -C /path commit message 含 Case 25 範例 -> 豁免（git -C 形式的豁免修復）"""
+        cmd = (
+            "git -C /path/to/repo commit -m \"$(cat <<'EOF'\n"
+            "fix: add grep BRE rule\n"
+            "\n"
+            '- rule: grep "pat\\|pat2" -> block\n'
+            "EOF\n"
+            ')"'
+        )
+        assert run_hook(cmd) == 0
+
+    def test_ap1_allow_026_git_lowercase_c_config_commit_heredoc(self) -> None:
+        """git -c user.name=bot commit -m heredoc -> 豁免（-c config override 全域 flag）"""
+        cmd = "git -c user.name=bot commit -m \"$(cat <<'EOF'\nfeat: add bot\nEOF\n)\""
+        assert run_hook(cmd) == 0
+
+    def test_ap1_allow_027_git_multi_flag_commit_heredoc(self) -> None:
+        """git -C /path --no-pager commit -m heredoc -> 豁免（多 flag 組合）"""
+        cmd = (
+            "git -C /path/to/repo --no-pager commit -m \"$(cat <<'EOF'\nfeat: add feature\nEOF\n)\""
+        )
+        assert run_hook(cmd) == 0
+
 
 class TestHandoverAntiBashPatterns:
     """fix-handover-skill-anti-bash：handover/session-memory 指令模式驗證。

@@ -41,15 +41,24 @@ except Exception:
 # ── git commit message 豁免 ──────────────────────────────────────────
 # git commit -m "$(cat <<'EOF'...)" 格式的 commit message 內含範例程式碼時，
 # 會對 Case 25/26 偵測器產生 false positive（與 AP2 hook 的豁免邏輯對應）。
-# bash 字串匹配作為廉價前置過濾，只在確實是 git commit 時才啟動 python3。
-if [[ "${CMD:-}" == *"git commit"* ]]; then
+# 也涵蓋 git -C /path commit 形式（flags between git and commit）。
+# bash 字串匹配作為廉價前置過濾（over-broad 無妨，python3 regex 才是實際 gate）。
+if [[ "${CMD:-}" == *git* && "${CMD:-}" == *commit* ]]; then
     IS_COMMIT_HEREDOC=$(printf '%s' "${CMD:-}" | python3 -c "
 import re, sys
 cmd = sys.stdin.read()
 bs = chr(92)
 dl = chr(36)
 dq = chr(34)
-ptn = r'\bgit\s+commit\b[^;|&\n]*-[a-zA-Z]*m\s+' + dq + bs + dl + r'\(cat\s+<<'
+# git 全域 flag 枚舉（來源：man git OPTIONS），允許出現在 git 與 commit 之間
+# Known Limitation: -c user.name=foo|bar commit -- \S+ 無引號感知，quoted pipe 仍中斷匹配
+GFLAG = (
+    r'(?:\s+(?:-C\s+\S+|-c\s+\S+|--git-dir=\S+|--work-tree=\S+'
+    r'|--namespace=\S+|--exec-path=\S+|--super-prefix=\S+|--config-env=\S+'
+    r'|--attr-source=\S+|--list-cmds=\S+'
+    r'|--no-pager|--no-replace-objects|--no-optional-locks|--paginate|--bare|-p|-P))'
+)
+ptn = r'\bgit\b' + GFLAG + r'*\s+commit\b[^;|&\n]*-[a-zA-Z]*m\s+' + dq + bs + dl + r'\(cat\s+<<'
 if re.search(ptn, cmd):
     print('yes')
 " 2>/dev/null || true)
