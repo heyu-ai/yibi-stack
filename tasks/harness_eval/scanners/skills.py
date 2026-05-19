@@ -34,25 +34,27 @@ def scan_skills(target_dir: Path) -> MechanicalFinding:
 
     claude_skills_dir = target_dir / ".claude" / "skills"
     root_skills_dir = target_dir / "skills"
+    claude_exists = claude_skills_dir.exists()
+    root_exists = root_skills_dir.exists()
 
     skill_mds: list[Path] = []
     active_dir: Path | None = None
 
-    if claude_skills_dir.exists():
+    if claude_exists:
         found = list(claude_skills_dir.rglob("SKILL.md"))
         if found:
             skill_mds = found
             active_dir = claude_skills_dir
 
-    if not skill_mds and root_skills_dir.exists():
+    if not skill_mds and root_exists:
         found = list(root_skills_dir.rglob("SKILL.md"))
         if found:
             skill_mds = found
             active_dir = root_skills_dir
 
     if active_dir is None:
-        if claude_skills_dir.exists() or root_skills_dir.exists():
-            findings.append("WARN: .claude/skills/ 存在但無任何 SKILL.md")
+        if claude_exists or root_exists:
+            findings.append("WARN: skills 目錄存在但無任何 SKILL.md")
         else:
             findings.append("WARN: .claude/skills/ 不存在")
         return MechanicalFinding(
