@@ -256,6 +256,9 @@ WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
 mkdir -p "$REVIEW_DIR"
 if [ $? -ne 0 ]; then echo "[FAIL] 無法建立 review 目錄：$REVIEW_DIR（請確認 worktree 目錄有寫入權限）"; exit 1; fi
+GIT_DIR=$(git rev-parse --git-dir)
+mkdir -p "$GIT_DIR/info"
+grep -qF '.pr-review/' "$GIT_DIR/info/exclude" 2>/dev/null || echo '.pr-review/' >> "$GIT_DIR/info/exclude"
 git diff "{{base_branch}}"...HEAD > "$REVIEW_DIR/diff.patch"
 git diff "{{base_branch}}"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"
 ```
