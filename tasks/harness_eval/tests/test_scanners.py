@@ -142,6 +142,39 @@ class TestScanSkills:
         (skill_dir / "SKILL.md").write_text(fm + "# My Skill\n", encoding="utf-8")
         assert scan_skills(tmp_path).score == 6
 
+    def test_heval_dt_033_root_skills_fallback(self, tmp_path: Path) -> None:
+        """HEVAL-DT-033: 無 .claude/skills/，skills/ 含完整 frontmatter → score=6（源碼 repo fallback）。"""
+        skill_dir = tmp_path / "skills" / "my-skill"
+        skill_dir.mkdir(parents=True)
+        fm = "---\nname: my-skill\ntype: exec\nscope: global\ndescription: test\n---\n"
+        (skill_dir / "SKILL.md").write_text(fm + "# My Skill\n", encoding="utf-8")
+        result = scan_skills(tmp_path)
+        assert result.score == 6
+        assert any("skills/" in f for f in result.findings)
+
+    def test_heval_dt_034_claude_skills_empty_falls_back_to_root(self, tmp_path: Path) -> None:
+        """HEVAL-DT-034: .claude/skills/ 存在但無 SKILL.md，skills/ 有 → fallback score=6。"""
+        (tmp_path / ".claude" / "skills").mkdir(parents=True)
+        skill_dir = tmp_path / "skills" / "my-skill"
+        skill_dir.mkdir(parents=True)
+        fm = "---\nname: my-skill\ntype: exec\nscope: global\ndescription: test\n---\n"
+        (skill_dir / "SKILL.md").write_text(fm + "# My Skill\n", encoding="utf-8")
+        result = scan_skills(tmp_path)
+        assert result.score == 6
+
+    def test_heval_dt_035_claude_skills_takes_priority(self, tmp_path: Path) -> None:
+        """HEVAL-DT-035: .claude/skills/ 有 SKILL.md 時，不使用 skills/（優先消費者模式）。"""
+        claude_skill_dir = tmp_path / ".claude" / "skills" / "installed-skill"
+        claude_skill_dir.mkdir(parents=True)
+        fm = "---\nname: installed-skill\ntype: know\nscope: global\ndescription: test\n---\n"
+        (claude_skill_dir / "SKILL.md").write_text(fm + "# Installed\n", encoding="utf-8")
+        root_skill_dir = tmp_path / "skills" / "source-skill"
+        root_skill_dir.mkdir(parents=True)
+        (root_skill_dir / "SKILL.md").write_text(fm + "# Source\n", encoding="utf-8")
+        result = scan_skills(tmp_path)
+        assert result.score == 6
+        assert any(".claude/skills/" in f for f in result.findings)
+
 
 class TestScanTesting:
     def test_heval_dt_040_no_tests(self, tmp_path: Path) -> None:

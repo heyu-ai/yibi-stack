@@ -22,14 +22,39 @@ def _has_valid_frontmatter(skill_md: Path) -> bool:
 
 
 def scan_skills(target_dir: Path) -> MechanicalFinding:
-    """掃描 .claude/skills/ 存在性與 frontmatter 完整性。語意分（4 分）由 agent 補充。"""
+    """掃描 skills 目錄存在性與 frontmatter 完整性。語意分（4 分）由 agent 補充。
+
+    搜尋策略：
+    1. 優先 .claude/skills/（消費者 repo：從 yibi-stack 安裝的 symlink）
+    2. fallback 到 skills/（源碼 repo：ainization-skill / yibi-stack 本身）
+    """
     findings: list[str] = []
     semantic_targets: list[str] = []
     score = 0
 
-    skills_dir = target_dir / ".claude" / "skills"
-    if not skills_dir.exists():
-        findings.append("WARN: .claude/skills/ 不存在")
+    claude_skills_dir = target_dir / ".claude" / "skills"
+    root_skills_dir = target_dir / "skills"
+
+    skill_mds: list[Path] = []
+    active_dir: Path | None = None
+
+    if claude_skills_dir.exists():
+        found = list(claude_skills_dir.rglob("SKILL.md"))
+        if found:
+            skill_mds = found
+            active_dir = claude_skills_dir
+
+    if not skill_mds and root_skills_dir.exists():
+        found = list(root_skills_dir.rglob("SKILL.md"))
+        if found:
+            skill_mds = found
+            active_dir = root_skills_dir
+
+    if active_dir is None:
+        if claude_skills_dir.exists() or root_skills_dir.exists():
+            findings.append("WARN: .claude/skills/ 存在但無任何 SKILL.md")
+        else:
+            findings.append("WARN: .claude/skills/ 不存在")
         return MechanicalFinding(
             dimension="D4",
             label="Skills & Commands",
@@ -38,19 +63,11 @@ def scan_skills(target_dir: Path) -> MechanicalFinding:
             findings=findings,
         )
 
-    skill_mds = list(skills_dir.rglob("SKILL.md"))
-    if not skill_mds:
-        findings.append("WARN: .claude/skills/ 存在但無任何 SKILL.md")
-        return MechanicalFinding(
-            dimension="D4",
-            label="Skills & Commands",
-            score=0,
-            max_score=_MECH_MAX,
-            findings=findings,
-        )
-
+    dir_label = ".claude/skills/" if active_dir == claude_skills_dir else "skills/"
     score += 3
-    findings.append(f".claude/skills/ 存在，共 {len(skill_mds)} 個 skill")
+    findings.append(f"{dir_label} 存在，共 {len(skill_mds)} 個 skill")
+    if active_dir != claude_skills_dir:
+        findings.append(f"（源碼 repo 模式：技能從 {dir_label} 掃描）")
 
     valid = sum(1 for s in skill_mds if _has_valid_frontmatter(s))
     if valid == len(skill_mds):
