@@ -221,6 +221,9 @@ skills/.claude/settings.local.json
 # Runtime（設定檔 + DB 統一放 .runtime/）
 .runtime/
 
+# Mob review artifacts（per-worktree，寫到 worktree root 下）
+.pr-review/
+
 # Output 目錄（統一放 output/ 下）
 output/
 
