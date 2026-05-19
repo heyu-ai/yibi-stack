@@ -70,6 +70,18 @@ class TestAP2Allowed:
         """git -C /path commit -m 含 emoji -> 豁免（git -C 形式的豁免修復）"""
         assert run_hook('git -C /path/to/repo commit -m "feat: add ✓ check"') == 0
 
+    def test_ap2_allow_009_git_lowercase_c_config_commit(self) -> None:
+        """git -c user.name=bot commit -m emoji -> 豁免（-c config override 全域 flag）"""
+        assert run_hook('git -c user.name=bot commit -m "✓ done"') == 0
+
+    def test_ap2_allow_010_git_git_dir_commit(self) -> None:
+        """git --git-dir=/path/.git commit -m emoji -> 豁免（--git-dir 全域 flag）"""
+        assert run_hook('git --git-dir=/path/.git commit -m "✓ done"') == 0
+
+    def test_ap2_allow_011_git_multi_flag_commit(self) -> None:
+        """git -C /path -c user.name=x commit -m emoji -> 豁免（多 flag 組合）"""
+        assert run_hook('git -C /path -c user.name=x commit -m "✓ done"') == 0
+
 
 # ── 基本攔截行為 ───────────────────────────────────────────────────────
 
@@ -141,3 +153,23 @@ class TestHandoverAP2Patterns:
             '{ echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }'
         )
         assert run_hook(cmd) == 0
+
+
+class TestOverExemptionBug:
+    """PR #23 over-exemption 回歸：git 非 commit 子命令在 -m payload 含 'commit' 詞時 emoji 誤放行。
+
+    這些測試預期 exit 2（攔截），但在當前實作中 exit 0（靜默放行）。
+    確認 bug 存在後，實作 Option C（精確 regex 枚舉 git 全域 flag）讓測試轉綠。
+    """
+
+    def test_ap2_overexempt_001_git_notes_add_commit_in_msg(self) -> None:
+        """git notes add -m 含 emoji + 'commit' 詞 -> 應攔截（目前誤豁免）"""
+        assert run_hook('git notes add -m "fix ✓ about commit"') == 2
+
+    def test_ap2_overexempt_002_git_log_grep_commit_emoji(self) -> None:
+        """git log --grep commit -m 含 emoji -> 應攔截（目前誤豁免）"""
+        assert run_hook('git log --grep commit -m "✓ release"') == 2
+
+    def test_ap2_overexempt_003_git_tag_commit_in_msg(self) -> None:
+        """git tag -m 含 emoji + 'commit' 詞 -> 應攔截（目前誤豁免）"""
+        assert run_hook('git tag -m "v1.0 ✓ commit" v1.0') == 2

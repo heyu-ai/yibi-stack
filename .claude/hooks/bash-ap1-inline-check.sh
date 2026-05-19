@@ -49,7 +49,13 @@ cmd = sys.stdin.read()
 bs = chr(92)
 dl = chr(36)
 dq = chr(34)
-ptn = r'\bgit\b[^;|&\n]*\bcommit\b[^;|&\n]*-[a-zA-Z]*m\s+' + dq + bs + dl + r'\(cat\s+<<'
+GFLAG = (
+    r'(?:\s+(?:-C\s+\S+|-c\s+\S+|--git-dir=\S+|--work-tree=\S+'
+    r'|--namespace=\S+|--exec-path=\S+|--super-prefix=\S+|--config-env=\S+'
+    r'|--attr-source=\S+|--list-cmds=\S+'
+    r'|--no-pager|--no-replace-objects|--no-optional-locks|--paginate|--bare|-p|-P))'
+)
+ptn = r'\bgit\b' + GFLAG + r'*\s+commit\b[^;|&\n]*-[a-zA-Z]*m\s+' + dq + bs + dl + r'\(cat\s+<<'
 if re.search(ptn, cmd):
     print('yes')
 " 2>/dev/null || true)

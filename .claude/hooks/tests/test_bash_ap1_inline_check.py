@@ -372,6 +372,16 @@ class TestGitCommitExemption:
         )
         assert run_hook(cmd) == 0
 
+    def test_ap1_allow_026_git_lowercase_c_config_commit_heredoc(self) -> None:
+        """git -c user.name=bot commit -m heredoc -> 豁免（-c config override 全域 flag）"""
+        cmd = (
+            "git -c user.name=bot commit -m \"$(cat <<'EOF'\n"
+            "feat: add bot\n"
+            "EOF\n"
+            ')"'
+        )
+        assert run_hook(cmd) == 0
+
 
 class TestHandoverAntiBashPatterns:
     """fix-handover-skill-anti-bash：handover/session-memory 指令模式驗證。

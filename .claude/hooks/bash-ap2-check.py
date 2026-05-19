@@ -38,6 +38,29 @@ _COMMIT_MSG_RE = re.compile(
     r"""|\s+--message=(?:\"[^\"]*\"|'[^']*'|\S+)"""
 )
 
+# 允許出現在 git 與 commit 子命令之間的全域 flag（來源：man git OPTIONS）。
+# 精確枚舉可防止 git notes add / git log --grep commit 等非 commit 指令觸發豁免。
+_GIT_GLOBAL_FLAG = (
+    r"(?:\s+"
+    r"(?:-C\s+\S+"             # -C <path>: run as if started in <path>
+    r"|-c\s+\S+"               # -c <name>=<value>: override config entry
+    r"|--git-dir=\S+"
+    r"|--work-tree=\S+"
+    r"|--namespace=\S+"
+    r"|--exec-path=\S+"
+    r"|--super-prefix=\S+"
+    r"|--config-env=\S+"
+    r"|--attr-source=\S+"
+    r"|--list-cmds=\S+"
+    r"|--no-pager|--no-replace-objects|--no-optional-locks"
+    r"|--paginate|--bare|-p|-P"
+    r"))"
+)
+_GIT_COMMIT_RE = re.compile(
+    r"(?:^|[;|\n]|&&|\|\|)\s*(?:\(\s*)?git\b"
+    + _GIT_GLOBAL_FLAG + r"*\s+commit\b"
+)
+
 _VIOLATION_MESSAGE = """\
 [AP2 VIOLATION] bash 指令含禁用 Unicode 字元（em dash / en dash / emoji / 零寬空白）。
 
@@ -53,8 +76,7 @@ _VIOLATION_MESSAGE = """\
 
 def _scannable(command: str) -> str:
     """Strip git commit message payloads — commit messages are AP2-exempt per rule 13."""
-    # [^;|\n&]* allows flags between git and commit, e.g. git -C /path commit
-    if re.search(r"(?:^|[;|\n]|&&|\|\|)\s*(?:\(\s*)?git\b[^;|\n&]*\bcommit\b", command):
+    if _GIT_COMMIT_RE.search(command):
         return _COMMIT_MSG_RE.sub("", command)
     return command
 
