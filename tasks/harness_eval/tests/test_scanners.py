@@ -79,23 +79,32 @@ class TestScanHooks:
         assert scan_hooks(make_settings(tmp_path)).score == 0
 
     def test_heval_dt_012_has_hooks_block(self, tmp_path: Path) -> None:
-        """HEVAL-DT-012: 有 hooks 區塊 → score >= 3。"""
+        """HEVAL-DT-012: 有 hooks 區塊但 hook 項目為空 → score == 2（只得基礎分）。"""
         target = make_settings(tmp_path, hooks={"PreToolUse": [], "PostToolUse": []})
-        assert scan_hooks(target).score >= 3
+        assert scan_hooks(target).score == 2
 
     def test_heval_dt_013_full_hooks(self, tmp_path: Path) -> None:
-        """HEVAL-DT-013: PreToolUse + PostToolUse + Stop → 機械分 12。"""
-        pre = [{"matcher": "Bash", "hooks": [{"type": "command", "command": "x.sh"}]}]
-        post = [{"matcher": "Write", "hooks": [{"type": "command", "command": "y.sh"}]}]
-        stop = [{"hooks": [{"type": "command", "command": "z.sh"}]}]
-        hooks = {"PreToolUse": pre, "PostToolUse": post, "Stop": stop}
+        """HEVAL-DT-013: 三關鍵 + 兩重要 hook + script 存在 → 機械分 12。"""
+        # 建立實際 hook script 檔案供存在性驗證
+        hooks_dir = tmp_path / ".claude" / "hooks"
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        for name in ("pre.sh", "post.sh", "stop.sh", "session.sh", "compact.sh"):
+            (hooks_dir / name).write_text("#!/bin/bash\nexit 0", encoding="utf-8")
+
+        hooks = {
+            "PreToolUse": [{"run": ".claude/hooks/pre.sh"}],
+            "PostToolUse": [{"run": ".claude/hooks/post.sh"}],
+            "Stop": [{"run": ".claude/hooks/stop.sh"}],
+            "SessionStart": [{"run": ".claude/hooks/session.sh"}],
+            "PreCompact": [{"run": ".claude/hooks/compact.sh"}],
+        }
         assert scan_hooks(make_settings(tmp_path, hooks=hooks)).score == 12
 
     def test_heval_dt_014_only_pretool(self, tmp_path: Path) -> None:
-        """HEVAL-DT-014: 只有 PreToolUse → score = 6。"""
+        """HEVAL-DT-014: 只有 PreToolUse（無 run script）→ score = 4（基礎 + PreToolUse）。"""
         pre = [{"matcher": "Bash", "hooks": [{"type": "command", "command": "x.sh"}]}]
         hooks = {"PreToolUse": pre}
-        assert scan_hooks(make_settings(tmp_path, hooks=hooks)).score == 6
+        assert scan_hooks(make_settings(tmp_path, hooks=hooks)).score == 4
 
 
 class TestScanSettings:
@@ -108,18 +117,34 @@ class TestScanSettings:
         assert scan_settings(make_settings(tmp_path, hooks={})).score == 0
 
     def test_heval_dt_022_deny_with_rm(self, tmp_path: Path) -> None:
-        """HEVAL-DT-022: deny list 含 rm -rf → score >= 3。"""
+        """HEVAL-DT-022: deny list 只含 rm -rf → 部分覆蓋，score >= 1 but < 3。"""
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(exist_ok=True)
         data = {"permissions": {"deny": ["Bash(rm -rf *)"]}}
         (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
-        assert scan_settings(tmp_path).score >= 3
+        assert scan_settings(tmp_path).score >= 1
 
-    def test_heval_dt_023_deny_and_allow(self, tmp_path: Path) -> None:
-        """HEVAL-DT-023: deny + allow 均存在 → score=6。"""
+    def test_heval_dt_022b_deny_comprehensive(self, tmp_path: Path) -> None:
+        """HEVAL-DT-022b: deny list 覆蓋 3+ 高風險操作 → score 得 3 分（deny 滿分）。"""
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(exist_ok=True)
-        data = {"permissions": {"deny": ["Bash(rm -rf *)"], "allow": ["Bash(git status)"]}}
+        data = {"permissions": {"deny": [
+            "Bash(rm -rf *)",
+            "Bash(*--force*)",
+            "Bash(*reset --hard*)",
+        ]}}
+        (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+        result = scan_settings(tmp_path)
+        assert result.score >= 3
+
+    def test_heval_dt_023_deny_and_allow(self, tmp_path: Path) -> None:
+        """HEVAL-DT-023: 完整 deny（3 項）+ 精確 allow → score=6。"""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir(exist_ok=True)
+        data = {"permissions": {
+            "deny": ["Bash(rm -rf *)", "Bash(*--force*)", "Bash(*reset --hard*)"],
+            "allow": ["Bash(git status)"],
+        }}
         (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
         assert scan_settings(tmp_path).score == 6
 
@@ -135,12 +160,33 @@ class TestScanSkills:
         assert scan_skills(tmp_path).score == 0
 
     def test_heval_dt_032_skill_valid_frontmatter(self, tmp_path: Path) -> None:
-        """HEVAL-DT-032: skill 含完整 frontmatter → score=6。"""
+        """HEVAL-DT-032: skill 含完整 frontmatter + commands/ → score=6。"""
         skill_dir = tmp_path / ".claude" / "skills" / "my-skill"
         skill_dir.mkdir(parents=True)
         fm = "---\nname: my-skill\ntype: know\nscope: global\ndescription: test\n---\n"
         (skill_dir / "SKILL.md").write_text(fm + "# My Skill\n", encoding="utf-8")
+        # commands/ 加 2 分
+        cmds_dir = tmp_path / ".claude" / "commands"
+        cmds_dir.mkdir(parents=True)
+        (cmds_dir / "my-cmd.md").write_text("# My Command\n", encoding="utf-8")
         assert scan_skills(tmp_path).score == 6
+
+    def test_heval_dt_032b_skill_no_commands(self, tmp_path: Path) -> None:
+        """HEVAL-DT-032b: skill 含完整 frontmatter 但無 commands/ → score=4。"""
+        skill_dir = tmp_path / ".claude" / "skills" / "my-skill"
+        skill_dir.mkdir(parents=True)
+        fm = "---\nname: my-skill\ntype: know\nscope: global\ndescription: test\n---\n"
+        (skill_dir / "SKILL.md").write_text(fm + "# My Skill\n", encoding="utf-8")
+        assert scan_skills(tmp_path).score == 4
+
+    def test_heval_dt_033_root_skills_dir(self, tmp_path: Path) -> None:
+        """HEVAL-DT-033: root-level skills/ 目錄有 SKILL.md → 也能被偵測。"""
+        skill_dir = tmp_path / "skills" / "my-skill"
+        skill_dir.mkdir(parents=True)
+        fm = "---\nname: my-skill\ntype: know\nscope: global\ndescription: test\n---\n"
+        (skill_dir / "SKILL.md").write_text(fm + "# My Skill\n", encoding="utf-8")
+        result = scan_skills(tmp_path)
+        assert result.score >= 2
 
 
 class TestScanTesting:

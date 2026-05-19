@@ -7,6 +7,44 @@ from ..models import MechanicalFinding
 
 _MECH_MAX = 6
 
+# 高風險操作關鍵字，deny list 應涵蓋這些
+_DESTRUCTIVE_PATTERNS = [
+    ("rm", "rm -rf 刪除防護"),
+    ("force", "git push --force 防護"),
+    ("reset --hard", "git reset --hard 防護"),
+    ("drop", "DROP TABLE 防護"),
+    ("alembic", "DB migration 防護"),
+]
+
+# 過寬授權的萬用字元模式
+_WILDCARD_PATTERNS = ["Bash(*)", "Bash(bash*)", "*"]
+
+
+def _check_deny_coverage(deny: list[object]) -> tuple[int, list[str]]:
+    """回傳 (score, findings)：deny list 覆蓋多少高風險操作。"""
+    deny_str = " ".join(str(d).lower() for d in deny)
+    covered: list[str] = []
+    for keyword, label in _DESTRUCTIVE_PATTERNS:
+        if keyword.lower() in deny_str:
+            covered.append(label)
+    if len(covered) >= 3:
+        return 3, [f"deny list 覆蓋 {len(covered)}/{len(_DESTRUCTIVE_PATTERNS)} 高風險操作：{covered}"]
+    if covered:
+        missing = [lbl for kw, lbl in _DESTRUCTIVE_PATTERNS if kw.lower() not in deny_str]
+        return 1, [
+            f"WARN: deny list 部分覆蓋（{len(covered)} 項），缺少：{missing[:3]}",
+        ]
+    return 0, [f"WARN: deny list 存在（{len(deny)} 條）但未覆蓋任何高風險操作"]
+
+
+def _has_wildcard_allow(allow: list[object]) -> bool:
+    """偵測是否有過寬的萬用字元授權。"""
+    for entry in allow:
+        s = str(entry)
+        if any(s.strip() == w for w in _WILDCARD_PATTERNS):
+            return True
+    return False
+
 
 def scan_settings(target_dir: Path) -> MechanicalFinding:
     """掃描 settings.json deny/allow list。語意分（4 分）由 agent 補充。"""
@@ -33,28 +71,33 @@ def scan_settings(target_dir: Path) -> MechanicalFinding:
     deny = perms.get("deny", [])
     allow = perms.get("allow", [])
 
-    deny_has_rm = any("rm" in str(d).lower() for d in deny)
-    if deny_has_rm:
-        score += 3
-        findings.append(f"deny list 含 rm 防護（{len(deny)} 條規則）")
-    elif deny:
-        score += 1
-        findings.append(f"WARN: deny list 存在（{len(deny)} 條）但未含 rm -rf 防護")
+    # deny list 品質評分（0-3 分）
+    if deny:
+        deny_score, deny_findings = _check_deny_coverage(deny)
+        score += deny_score
+        findings.extend(deny_findings)
     else:
-        findings.append("WARN: deny list 未設定")
+        findings.append("WARN: deny list 未設定（建議至少防護 rm -rf 與 git push --force）")
 
+    # allow list 精確性評分（0-3 分）
     if allow:
-        score += 3
-        findings.append(f"allow list 存在（{len(allow)} 條規則）")
+        if _has_wildcard_allow(allow):
+            findings.append(
+                f"WARN: allow list 含萬用字元過寬授權（{len(allow)} 條），建議改為具體工具名稱"
+            )
+            score += 1
+        else:
+            score += 3
+            findings.append(f"allow list 精確授權（{len(allow)} 條，無萬用字元）")
     else:
-        findings.append("WARN: allow list 未設定（使用預設許可）")
+        findings.append("WARN: allow list 未設定（使用預設許可，可能產生過多確認框）")
 
     semantic_targets.append(str(settings_path))
 
     return MechanicalFinding(
         dimension="D3",
         label="Settings & 權限",
-        score=score,
+        score=min(score, _MECH_MAX),
         max_score=_MECH_MAX,
         findings=findings,
         semantic_targets=semantic_targets,
