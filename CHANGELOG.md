@@ -5,6 +5,7 @@
 ### Features
 
 - enhance scanners + add harness-eval-focus sub-skill
+- Detection 6 -- block rg BRE backslash-pipe in ERE context
 - add Vertex AI auth detection for Gemini in mob review
 - Claude Code harness 就緒度評量 skill (#13)
 - apply Claude Code 2026-W20 release notes (#12)
@@ -92,6 +93,10 @@
 ### Bug Fixes
 
 - fix 9 mob-review issues across 3 scanners
+- escape pipe in markdown table to fix MD056
+- scope bleed + -F exemption in Detection 6
+- use single quotes for python3 -c to fix Unhandled node type: string hook (#19)
+- D4 scanner fallback to skills/ for source repos (#18)
 - namespace /tmp/pr-review by worktree to prevent parallel session clashes (#14)
 - re-enable all markdownlint rules and fix violations
 - fix Gemini auth detection for gemini-credentials.json (#4)
