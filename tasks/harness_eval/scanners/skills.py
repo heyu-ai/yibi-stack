@@ -1,6 +1,7 @@
 """D4 scanner：Skills & Commands（機械分 6/10）。"""
 
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 from ..models import MechanicalFinding
@@ -36,7 +37,7 @@ def _has_valid_frontmatter(skill_md: Path) -> bool:
     return all(f"{key}:" in parts[1] for key in _REQUIRED_KEYS)
 
 
-def _iter_skill_mds(skills_dir: Path):
+def _iter_skill_mds(skills_dir: Path) -> Iterator[Path]:
     """遍歷 skills_dir 下所有 SKILL.md，跟隨 symlink 進入子目錄。"""
     for root, dirs, files in os.walk(skills_dir, followlinks=True):
         root_path = Path(root)

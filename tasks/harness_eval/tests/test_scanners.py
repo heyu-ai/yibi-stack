@@ -106,8 +106,9 @@ class TestScanHooks:
         for name in ("pre.sh", "post.sh", "stop.sh", "session.sh", "compact.sh"):
             (hooks_dir / name).write_text("#!/bin/bash\nexit 0", encoding="utf-8")
 
-        def make_hook(name: str) -> list[dict]:
-            return [{"matcher": "Bash", "hooks": [{"type": "command", "command": f".claude/hooks/{name}"}]}]
+        def make_hook(name: str) -> list[dict[str, object]]:
+            cmd = f".claude/hooks/{name}"
+            return [{"matcher": "Bash", "hooks": [{"type": "command", "command": cmd}]}]
 
         hooks = {
             "PreToolUse": make_hook("pre.sh"),
@@ -129,7 +130,7 @@ class TestScanHooks:
         assert result.score == 2 + 2 + 2 + 2 + 2  # block + 3 critical + inline bonus
 
     def test_heval_dt_014_only_pretool(self, tmp_path: Path) -> None:
-        """HEVAL-DT-014: 只有 PreToolUse（有 script 但不存在）→ score = 4（基礎 + PreToolUse，WARN script 遺失）。"""
+        """HEVAL-DT-014: 只有 PreToolUse（script 不存在）→ score=4，WARN script 遺失。"""
         pre = [{"matcher": "Bash", "hooks": [{"type": "command", "command": "x.sh"}]}]
         hooks = {"PreToolUse": pre}
         result = scan_hooks(make_settings(tmp_path, hooks=hooks))
@@ -158,11 +159,15 @@ class TestScanSettings:
         """HEVAL-DT-022b: deny list 覆蓋 3+ 高風險操作 → score 得 3 分（deny 滿分）。"""
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(exist_ok=True)
-        data = {"permissions": {"deny": [
-            "Bash(rm -rf *)",
-            "Bash(*--force*)",
-            "Bash(*reset --hard*)",
-        ]}}
+        data = {
+            "permissions": {
+                "deny": [
+                    "Bash(rm -rf *)",
+                    "Bash(*--force*)",
+                    "Bash(*reset --hard*)",
+                ]
+            }
+        }
         (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
         result = scan_settings(tmp_path)
         assert result.score >= 3
@@ -171,10 +176,12 @@ class TestScanSettings:
         """HEVAL-DT-023: 完整 deny（3 項）+ 精確 allow → score=6。"""
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(exist_ok=True)
-        data = {"permissions": {
-            "deny": ["Bash(rm -rf *)", "Bash(*--force*)", "Bash(*reset --hard*)"],
-            "allow": ["Bash(git status)"],
-        }}
+        data = {
+            "permissions": {
+                "deny": ["Bash(rm -rf *)", "Bash(*--force*)", "Bash(*reset --hard*)"],
+                "allow": ["Bash(git status)"],
+            }
+        }
         (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
         assert scan_settings(tmp_path).score == 6
 
@@ -194,10 +201,12 @@ class TestScanSettings:
         """HEVAL-DT-025: allow list 含 Bash(git *) 應被偵測為萬用字元過寬授權。"""
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(exist_ok=True)
-        data = {"permissions": {
-            "deny": ["Bash(rm -rf *)"],
-            "allow": ["Bash(git *)", "Bash(ls)"],
-        }}
+        data = {
+            "permissions": {
+                "deny": ["Bash(rm -rf *)"],
+                "allow": ["Bash(git *)", "Bash(ls)"],
+            }
+        }
         (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
         result = scan_settings(tmp_path)
         assert any("萬用字元" in f for f in result.findings)
@@ -262,7 +271,10 @@ class TestScanSkills:
         skill_dir = tmp_path / ".claude" / "skills" / "long-skill"
         skill_dir.mkdir(parents=True)
         long_desc = "a " * 300  # 600 bytes description
-        fm = f"---\nname: long-skill\ntype: know\nscope: global\ndescription: >\n  {long_desc}\n---\n"
+        fm = (
+            f"---\nname: long-skill\ntype: know\nscope: global\n"
+            f"description: >\n  {long_desc}\n---\n"
+        )
         (skill_dir / "SKILL.md").write_text(fm + "# Body\n", encoding="utf-8")
         result = scan_skills(tmp_path)
         assert result.score >= 2
