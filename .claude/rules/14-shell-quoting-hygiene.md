@@ -190,3 +190,29 @@ if c == "\\" and in_double:   # 只在雙引號內跳過下一個字元
 | `$(outer "$(inner)")` 反向巢狀 | `Unhandled node type: string` | Rule 4；hook 自動攔截 |
 | `"${VAR}"` 括號形式（已加引號）| `Contains expansion` | Rule 5；**false positive**；加進 allow list |
 | `"$VAR"` plain form（已加引號）| `Contains simple_expansion` | Rule 5；**false positive**；加進 allow list |
+
+## Quoting Rule 6：inline Python comment 含 `"` 截斷外層 shell double-quote（PR #23 教訓）
+
+`python3 -c "..."` 的 shell 字串是外層雙引號包住的。**即使是 Python comment（`#`），
+其中出現的 `"` 仍會被 bash parser 視為雙引號的閉合**，提前終止外層字串，造成 Python 程式碼被截斷，
+regex 或其他邏輯靜默失效（無錯誤訊息）。
+
+```bash
+# 違規：comment 內含 " 截斷外層 shell string
+python3 -c "
+import re, sys
+# Known Limitation: user.name="foo | bar" -- quoted pipe breaks match
+ptn = r'\bcommit\b'
+re.search(ptn, sys.stdin.read())
+"
+# bash 在 "foo | bar" 的 " 處截斷，python3 收到的是殘破 code
+
+# 修法 A：comment 內不用雙引號，改用中文全形引號或刪除引號
+# Known Limitation: user.name=foo|bar -- quoted pipe breaks match
+
+# 修法 B：把 inline python 移到獨立 .py 檔案（根治方案）
+python3 scripts/check_pattern.py
+```
+
+判斷準則：**在 bash `"..."` 字串內寫任何語言的 comment，一律避免 `"`**；若需要引號，
+改用單引號 `'`（bash double-quote 內的 `'` 是 literal，不閉合 outer string）。

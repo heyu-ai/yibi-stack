@@ -399,6 +399,26 @@ git commit -m "chore(release): v${TAG_VERSION}"
 - `git checkout -- 'plugins/*/package.json'` 的 glob 必須用單引號（shell glob 展開時機問題）
 - 若某步驟本身已有 `trap`，注意不要覆蓋外層的 `trap ERR`（用 subshell 隔離）
 
+## 豁免 regex 應精確枚舉，不用開放 glob（PR #23 教訓）
+
+hook 豁免邏輯若用 `[^;|\n&]*`（開放 glob）代替精確 flag 枚舉，表面上只放寬了「flag 可出現在
+git 和 commit 之間」，實際上卻允許 git subcommand 的 *argument* 中出現 `commit` 詞邊界，
+導致非 commit 指令的 AP2 偵測被誤豁免（over-exemption 回歸）。
+
+```python
+# 違規：開放 glob 讓 git notes add -m "fix about commit" 觸發豁免
+if re.search(r"git\b[^;|\n&]*\bcommit\b", cmd):
+    strip_payload()   # emoji 被剝除，AP2 靜默放行
+
+# 修法：精確枚舉 git 全域 flag（來源：man git OPTIONS）
+_GIT_GLOBAL_FLAG = r"(?:\s+(?:-C\s+\S+|-c\s+\S+|--git-dir=\S+|...))"
+if re.search(r"git\b" + _GIT_GLOBAL_FLAG + r"*\s+commit\b", cmd):
+    strip_payload()   # 只有真實 git commit 才豁免
+```
+
+判斷準則：**豁免 regex 必須對「被豁免的指令類型」精確描述**，開放 `[^chars]*` 等 glob
+只要目標詞（如 `commit`）可能出現在其他指令的引數中，就必須改成枚舉或 subcommand-position 限制。
+
 ## 完整方法論
 
 跨專案完整版見 skill `bash-anti-patterns`（含 before/after 範例、agent 自檢 checklist、
