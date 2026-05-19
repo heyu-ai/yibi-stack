@@ -35,7 +35,7 @@ cd "$SKILL_REPO"
 **注意**：不要用 `$(jq -r '.skill_repo' …)`（單引號 filter）或 `$(jq -r .skill_repo …)`（unquoted filter）。
 前者觸發 AP1 D 類 hook（filter token 內含 leading-dot）；後者通過本地 hook 但 Claude Code 內建 parser 把 leading-dot token 視為無法解析的 string 節點，執行時跳出確認框。
 
-`python3 -c` 單行寫法是唯一兩邊都通過的形式，但 `-c` 後的表達式必須用**單引號**包（Python 內部字串改用雙引號）。雙引號版 `$(python3 -c "...")` 違反 Rule 14 Quoting Rule 2，觸發 `Unhandled node type: string`。
+`python3 -c` 單行寫法是唯一兩邊都通過的形式，但 `-c` 後的表達式必須用**單引號**包（Python 內部字串改用雙引號）——雙引號版 `$(python3 -c "...")` 是「外層 `$()` → `"..."` 內層字串」的反向巢狀結構，違反 Rule 14 Quoting Rule 4，觸發 `Unhandled node type: string`。
 
 ## Frontmatter — `effort`（選填，2026-05 新增）
 
