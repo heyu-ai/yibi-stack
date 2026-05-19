@@ -118,6 +118,11 @@ else
 fi
 ```
 
+```bash
+# Claude Code allow list 確認（gemini 呼叫免確認框）
+python3 -c 'import json,pathlib,sys; d=json.loads((pathlib.Path.home()/".claude"/"settings.json").read_text()); allow=d.get("permissions",{}).get("allow",[]); sys.exit(0 if any("gemini" in s for s in allow) else 1)' 2>/dev/null && echo "GEMINI_ALLOW_LIST: OK" || echo "GEMINI_ALLOW_LIST: MISSING"
+```
+
 ### 模式判定
 
 外部 reviewer「可用」= binary OK + auth OK（Codex 或 Gemini）。
@@ -146,6 +151,8 @@ fi
 - Codex   ✓ / ✗ / ✗（auth 失敗，請執行 codex login 後重跑 Step 0）
 - Gemini  ✓ / ✗ / ✗（auth 失敗：KEY_SET/FILE_EXISTS/VERTEX_AI_OK 任一即可；
            vertex-ai 模式失敗請確認 GOOGLE_CLOUD_PROJECT env var 已設且 gcloud ADC 存在）
+- Allow list: OK / MISSING（MISSING 不阻擋執行，但每次 gemini 呼叫會跳確認框；
+              修復：執行 make patch-gemini-allow-list 或 make install-all）
 
 外部 reviewer 計數：{{N}}/2
 模式：{{2-voice-mob | 3-voice-full-mob | REDIRECT}}

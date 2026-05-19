@@ -96,7 +96,7 @@ make release TYPE=patch  # patch / minor / major
 # 流程：bump pyproject.toml -> sync plugins/*/package.json -> changelog -> test gates -> commit -> tag + GitHub Release
 
 # 新環境一次到位
-make install-all         # 等同 build-tools + install + install-project + install-handover-hooks + install-scheduler + patch-pr-review-agents
+make install-all         # 等同 build-tools + install + install-project + install-handover-hooks + install-scheduler + patch-pr-review-agents + patch-gemini-allow-list
 ```
 
 ## Runtime 設定檔（不進 git）
