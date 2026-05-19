@@ -25,8 +25,8 @@ def scan_skills(target_dir: Path) -> MechanicalFinding:
     """掃描 skills 目錄存在性與 frontmatter 完整性。語意分（4 分）由 agent 補充。
 
     搜尋策略：
-    1. 優先 .claude/skills/（消費者 repo：從 yibi-stack 安裝的 symlink）
-    2. fallback 到 skills/（源碼 repo：ainization-skill / yibi-stack 本身）
+    1. 優先 .claude/skills/（消費者 repo：安裝 skill 後的 symlink 掛載點）
+    2. fallback 到 skills/（源碼 repo：技能以源碼形式存放於根目錄 skills/）
     """
     findings: list[str] = []
     semantic_targets: list[str] = []
