@@ -151,3 +151,10 @@ FAQ 表格中的修復指令必須符合三個條件：
 1. **使用實際變數名**：不用 literal `KEY` 這類 placeholder，直接寫 `CODEX_API_KEY` / `GEMINI_API_KEY` 等實際名稱
 2. **shell-hygiene-safe 語法**：用 parameter expansion `"${VAR# }"` 去除前置空格，不用 `$(echo $VAR)` subshell（後者在 zsh 不 trim、且觸發 Rule 14 quoting hygiene hook）
 3. **跨 shell 相容**：指令在 zsh（macOS 預設）與 bash 均能正確執行
+
+## Table Description 欄單一職責
+
+Markdown 表格的說明欄只應包含**功能描述**，不得重複其他欄位（如 Install 欄）的資訊。
+
+常見錯誤：在說明欄附加安裝路徑（如 `— no package.json, installed as global skill`）。
+Install 欄已攜帶安裝指令；說明欄重複此資訊會在安裝方法變更時造成雙重維護負擔，且與其他欄位的 pattern 不一致。
