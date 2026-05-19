@@ -43,8 +43,8 @@ _COMMIT_MSG_RE = re.compile(
 # Known Limitation: -c user.name="foo | bar" commit -- \S+ 無引號感知，quoted | 中斷匹配，豁免失敗。
 _GIT_GLOBAL_FLAG = (
     r"(?:\s+"
-    r"(?:-C\s+\S+"             # -C <path>: run as if started in <path>
-    r"|-c\s+\S+"               # -c <name>=<value>: override config entry
+    r"(?:-C\s+\S+"  # -C <path>: run as if started in <path>
+    r"|-c\s+\S+"  # -c <name>=<value>: override config entry
     r"|--git-dir=\S+"
     r"|--work-tree=\S+"
     r"|--namespace=\S+"
@@ -58,8 +58,7 @@ _GIT_GLOBAL_FLAG = (
     r"))"
 )
 _GIT_COMMIT_RE = re.compile(
-    r"(?:^|[;|\n]|&&|\|\|)\s*(?:\(\s*)?git\b"
-    + _GIT_GLOBAL_FLAG + r"*\s+commit\b"
+    r"(?:^|[;|\n]|&&|\|\|)\s*(?:\(\s*)?git\b" + _GIT_GLOBAL_FLAG + r"*\s+commit\b"
 )
 
 _VIOLATION_MESSAGE = """\
