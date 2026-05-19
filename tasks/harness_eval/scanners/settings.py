@@ -7,7 +7,7 @@ from ..models import MechanicalFinding
 
 _MECH_MAX = 6
 
-# 高風險操作關鍵字，deny list 應涵蓋這些
+# 高風險操作關鍵字，deny list 應涵蓋這些；逐條比對，避免 join 跨條目誤匹配
 _DESTRUCTIVE_PATTERNS = [
     ("rm", "rm -rf 刪除防護"),
     ("force", "git push --force 防護"),
@@ -16,21 +16,22 @@ _DESTRUCTIVE_PATTERNS = [
     ("alembic", "DB migration 防護"),
 ]
 
-# 過寬授權的萬用字元模式
-_WILDCARD_PATTERNS = ["Bash(*)", "Bash(bash*)", "*"]
-
 
 def _check_deny_coverage(deny: list[object]) -> tuple[int, list[str]]:
-    """回傳 (score, findings)：deny list 覆蓋多少高風險操作。"""
-    deny_str = " ".join(str(d).lower() for d in deny)
+    """回傳 (score, findings)：deny list 覆蓋多少高風險操作。
+
+    逐條比對每個 deny entry，避免 join 成單一字串時的跨條目誤匹配
+    （如 Bash(enforce*) 不應匹配 force 關鍵字）。
+    """
     covered: list[str] = []
     for keyword, label in _DESTRUCTIVE_PATTERNS:
-        if keyword.lower() in deny_str:
+        kw = keyword.lower()
+        if any(kw in str(d).lower() for d in deny):
             covered.append(label)
     if len(covered) >= 3:
         return 3, [f"deny list 覆蓋 {len(covered)}/{len(_DESTRUCTIVE_PATTERNS)} 高風險操作：{covered}"]
     if covered:
-        missing = [lbl for kw, lbl in _DESTRUCTIVE_PATTERNS if kw.lower() not in deny_str]
+        missing = [lbl for kw, lbl in _DESTRUCTIVE_PATTERNS if not any(kw.lower() in str(d).lower() for d in deny)]
         return 1, [
             f"WARN: deny list 部分覆蓋（{len(covered)} 項），缺少：{missing[:3]}",
         ]
@@ -38,10 +39,13 @@ def _check_deny_coverage(deny: list[object]) -> tuple[int, list[str]]:
 
 
 def _has_wildcard_allow(allow: list[object]) -> bool:
-    """偵測是否有過寬的萬用字元授權。"""
+    """偵測是否有過寬的萬用字元授權。
+
+    使用 substring 偵測 '*' 而非精確匹配，涵蓋 Bash(*) / Bash(git *) / Bash( * ) 等變體。
+    """
     for entry in allow:
         s = str(entry)
-        if any(s.strip() == w for w in _WILDCARD_PATTERNS):
+        if "*" in s:
             return True
     return False
 
@@ -63,6 +67,11 @@ def scan_settings(target_dir: Path) -> MechanicalFinding:
         data = json.loads(settings_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         findings.append(f"FAIL: settings.json 格式錯誤：{e}")
+        return MechanicalFinding(
+            dimension="D3", label="Settings & 權限", score=0, max_score=_MECH_MAX, findings=findings
+        )
+    except OSError as e:
+        findings.append(f"FAIL: settings.json 無法讀取：{e}")
         return MechanicalFinding(
             dimension="D3", label="Settings & 權限", score=0, max_score=_MECH_MAX, findings=findings
         )

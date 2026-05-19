@@ -1,5 +1,6 @@
 """D4 scanner：Skills & Commands（機械分 6/10）。"""
 
+import os
 from pathlib import Path
 
 from ..models import MechanicalFinding
@@ -13,16 +14,39 @@ _SKILL_DIRS = [".claude/skills", "skills"]
 
 def _has_valid_frontmatter(skill_md: Path) -> bool:
     try:
-        with skill_md.open(encoding="utf-8") as f:
-            head = f.read(512)
+        # 逐行讀到第二個 "---" 結尾，避免截斷長 description
+        lines: list[str] = []
+        dash_count = 0
+        with skill_md.open(encoding="utf-8", errors="replace") as f:
+            for line in f:
+                lines.append(line)
+                if line.strip() == "---":
+                    dash_count += 1
+                    if dash_count == 2:
+                        break
     except OSError:
         return False
-    if not head.startswith("---"):
+
+    if dash_count < 2:
         return False
+    head = "".join(lines)
     parts = head.split("---", 2)
     if len(parts) < 3:
         return False
     return all(f"{key}:" in parts[1] for key in _REQUIRED_KEYS)
+
+
+def _iter_skill_mds(skills_dir: Path):
+    """遍歷 skills_dir 下所有 SKILL.md，跟隨 symlink 進入子目錄。"""
+    for root, dirs, files in os.walk(skills_dir, followlinks=True):
+        root_path = Path(root)
+        # 過濾 skills_dir 之下的隱藏目錄（相對路徑 parts）
+        rel_parts = root_path.relative_to(skills_dir).parts
+        if any(part.startswith(".") for part in rel_parts):
+            dirs.clear()
+            continue
+        if "SKILL.md" in files:
+            yield root_path / "SKILL.md"
 
 
 def _find_skill_mds(target_dir: Path) -> tuple[list[Path], str]:
@@ -31,10 +55,7 @@ def _find_skill_mds(target_dir: Path) -> tuple[list[Path], str]:
         skills_dir = target_dir / rel_dir
         if not skills_dir.exists():
             continue
-        skill_mds = [
-            p for p in skills_dir.rglob("SKILL.md")
-            if not any(part.startswith(".") and part not in {".claude"} for part in p.parts)
-        ]
+        skill_mds = list(_iter_skill_mds(skills_dir))
         if skill_mds:
             return skill_mds, rel_dir
     return [], ""
@@ -68,12 +89,15 @@ def scan_skills(target_dir: Path) -> MechanicalFinding:
         for s in skill_mds[:3]:
             semantic_targets.append(str(s))
 
-    # commands/ 目錄（slash command 快捷鍵）
+    # commands/ 目錄（slash command 快捷鍵），需有實際 .md 檔才給分
     commands_dir = target_dir / ".claude" / "commands"
     if commands_dir.exists():
         cmds = list(commands_dir.glob("*.md"))
-        score += 2
-        findings.append(f".claude/commands/ 存在（{len(cmds)} 個 slash command）")
+        if cmds:
+            score += 2
+            findings.append(f".claude/commands/ 存在（{len(cmds)} 個 slash command）")
+        else:
+            findings.append("WARN: .claude/commands/ 存在但無任何 slash command .md")
     else:
         findings.append("WARN: .claude/commands/ 不存在（slash command 未設定）")
 
