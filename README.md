@@ -53,6 +53,7 @@ plugins/          Claude Code plugin packs (installable via claude plugin instal
   3rd-tools/      Third-party AI: Codex, Gemini model verification, AI slop detection
   tdd/            Test-Driven Development: Kent Beck TDD, Flutter TDD, CI triage
   util/           Utility: local port manager, debug command
+  harness/        Harness readiness evaluation (README only, no package.json -- skill installed via make install)
 
 skills/           Agent execution layer -- SKILL.md runbooks (installed via make install)
   <skill-name>/   Each skill is a flat directory with a SKILL.md runbook (or a symlink)
@@ -68,6 +69,7 @@ scripts/          CI and lint tooling
 
 **Plugins** (`plugins/bash-hygiene`, `plugins/sdd`, `plugins/growth`, `plugins/pr-flow`, `plugins/3rd-tools`, `plugins/tdd`, `plugins/util`)
 are proper Claude Code plugins with `package.json` manifests. They install hooks, rules, and bundled skills. Installable via `claude plugin install` without cloning.
+`plugins/harness` is a documentation placeholder only (no `package.json`) — its `harness-eval` skill installs via `make install-one SKILL=harness-eval` (see Plugins table).
 
 **Skills** (`skills/*/SKILL.md`) are runbook files — not plugins. They're installed as symlinks into `~/.claude/skills/` via `make install`.
 They tell Claude *how* to approach a workflow; no hooks are involved. Skills are **not** individually installable via `claude plugin install`.
@@ -84,6 +86,8 @@ claude plugin install growth@yibi-stack
 claude plugin install pr-flow@yibi-stack
 claude plugin install tdd@yibi-stack
 ```
+
+Note: `harness-eval` is not installable via `claude plugin install` — clone the repo and run `make install-one SKILL=harness-eval` (or `make install-all` for a full setup).
 
 **Full install** (plugins + all skills + hooks + scheduler):
 
@@ -120,6 +124,7 @@ make status-own
 | `ci-triage` | CI failure triage funnel (Lint -> Type -> Security -> Tests) |
 | `learn` | Browse, search, prune, and export lessons learned |
 | `pr-retrospective` | 5-question PR retro, routes lessons to `.claude/rules/` or CLAUDE.md |
+| `harness-eval` | 8-dimension harness readiness score (0-100) with PASS/WARN/FAIL checklist and priority TODO |
 
 See [`skills/README.md`](skills/README.md) for the full index.
 
@@ -134,6 +139,7 @@ See [`skills/README.md`](skills/README.md) for the full index.
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex, Gemini model verification, AI slop detection |
 | `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD, Flutter TDD, CI triage |
 | `util` | `claude plugin install util@yibi-stack` | Local port manager + debug command |
+| `harness` | `make install-one SKILL=harness-eval` | Harness readiness evaluation |
 
 ---
 
@@ -185,6 +191,7 @@ plugins/          Claude Code plugin packs（可透過 claude plugin install 安
   3rd-tools/      第三方 AI：Codex、Gemini 模型驗證、AI slop 偵測
   tdd/            測試驅動開發：Kent Beck TDD、Flutter TDD、CI 診斷
   util/           工具：local port manager、debug command
+  harness/        Harness 就緒度評量（純 README，無 package.json，skill 透過 make install 安裝）
 
 skills/           Agent 執行介面層（SKILL.md runbook，透過 make install 安裝）
   <skill-name>/   每個 skill 是一個目錄（或指向 plugins/ 的 symlink）
@@ -200,6 +207,7 @@ scripts/          CI 與 lint 工具腳本
 
 **Plugin**（`plugins/bash-hygiene`、`plugins/sdd`、`plugins/growth`、`plugins/pr-flow`、`plugins/3rd-tools`、`plugins/tdd`、`plugins/util`）
 是有 `package.json` manifest 的正式 Claude Code plugin，會安裝 hook、rules 和隨附 skill，不需 clone 即可用 `claude plugin install` 安裝。
+`plugins/harness` 是純文件容器（無 `package.json`）——其 `harness-eval` skill 透過 `make install-one SKILL=harness-eval` 安裝（見下方 Plugins 表格）。
 
 **Skill**（`skills/*/SKILL.md`）是 runbook 檔案，不是 plugin。透過 `make install` 以 symlink 安裝到 `~/.claude/skills/`，告訴 Claude 如何執行特定工作流程。**Skills 無法透過 `claude plugin install` 個別安裝。**
 
@@ -215,6 +223,8 @@ claude plugin install growth@yibi-stack
 claude plugin install pr-flow@yibi-stack
 claude plugin install tdd@yibi-stack
 ```
+
+注意：`harness-eval` 無法透過 `claude plugin install` 安裝——需 clone 本 repo 後執行 `make install-one SKILL=harness-eval`（或 `make install-all` 一次裝齊）。
 
 **完整安裝**（plugin + 所有 skill + hook + scheduler）：
 
@@ -251,6 +261,7 @@ make status-own
 | `ci-triage` | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests） |
 | `learn` | 瀏覽、搜尋、修剪、匯出教訓記錄 |
 | `pr-retrospective` | PR 收尾五問回顧，路由 lesson 到 `.claude/rules/` 或 CLAUDE.md |
+| `harness-eval` | 8 維度 harness 就緒度評分（0-100），附 PASS/WARN/FAIL 清單與優先改善 TODO |
 
 完整索引見 [`skills/README.md`](skills/README.md)。
 
@@ -265,6 +276,7 @@ make status-own
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex、Gemini 模型驗證、AI slop 偵測 |
 | `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD、Flutter TDD、CI 診斷 |
 | `util` | `claude plugin install util@yibi-stack` | 本機 port 管理 + debug command |
+| `harness` | `make install-one SKILL=harness-eval` | Harness 就緒度評量 |
 
 ---
 

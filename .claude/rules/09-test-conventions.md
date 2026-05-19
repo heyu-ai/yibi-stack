@@ -86,3 +86,18 @@ Fixture 的資料結構必須與被測工具的**真實** schema 一致，不可
 ghost hook 偵測永遠無效，直到 mob review 對照真實 `.claude/settings.json` 才發現。
 
 正確做法：寫 fixture 前先讀真實工具的 schema 文件，或對照真實設定檔（如 `.claude/settings.json`）。
+
+## Assertion 語意精確性
+
+Findings / output 驗證避免過寬的 substring match——目標字串若同時出現在多個合理路徑，
+assertion 就失去保護力，fallback 邏輯失效時靜默通過。
+
+```python
+# 違規：".claude/skills/" 也含 "skills/"，fallback 失效時仍通過
+assert any("skills/" in f for f in result.findings)
+
+# 正確：用語意唯一的字串鎖定預期分支
+assert any("源碼 repo 模式" in f for f in result.findings)
+```
+
+適用場景：任何驗證「走了哪條邏輯分支」的 assertion。

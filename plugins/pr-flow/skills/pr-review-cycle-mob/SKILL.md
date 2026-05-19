@@ -100,7 +100,7 @@ which gemini >/dev/null 2>&1 && echo "GEMINI: BINARY_OK" || echo "GEMINI: NOT_FO
 
 ```bash
 # Gemini auth（優先序：vertex-ai ADC > API key > OAuth credentials file）
-_GEMINI_AUTH_TYPE=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.gemini'/'settings.json').read_text()); print(d.get('security',{}).get('auth',{}).get('selectedType','unknown'))" 2>/dev/null || echo "unknown")
+_GEMINI_AUTH_TYPE=$(python3 -c 'import json,pathlib; d=json.loads((pathlib.Path.home()/".gemini"/"settings.json").read_text(encoding="utf-8")); print(d.get("security",{}).get("auth",{}).get("selectedType","unknown"))' 2>/dev/null || echo "unknown")
 if [ "$_GEMINI_AUTH_TYPE" = "vertex-ai" ]; then
   if env | grep -qE '^GOOGLE_CLOUD_PROJECT=[^[:space:]]' && test -f ~/.config/gcloud/application_default_credentials.json; then
     echo "GEMINI_AUTH: VERTEX_AI_OK"

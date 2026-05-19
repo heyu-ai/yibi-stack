@@ -50,7 +50,12 @@ def _iter_skill_mds(skills_dir: Path):
 
 
 def _find_skill_mds(target_dir: Path) -> tuple[list[Path], str]:
-    """在多個可能位置搜尋 SKILL.md，回傳（檔案清單, 來源描述）。"""
+    """在多個可能位置搜尋 SKILL.md，回傳（檔案清單, 來源描述）。
+
+    搜尋策略：
+    1. 優先 .claude/skills/（消費者 repo：安裝 skill 後的 symlink 掛載點）
+    2. fallback 到 skills/（源碼 repo：技能以源碼形式存放於根目錄 skills/）
+    """
     for rel_dir in _SKILL_DIRS:
         skills_dir = target_dir / rel_dir
         if not skills_dir.exists():
@@ -62,7 +67,7 @@ def _find_skill_mds(target_dir: Path) -> tuple[list[Path], str]:
 
 
 def scan_skills(target_dir: Path) -> MechanicalFinding:
-    """掃描 skills/ 存在性與 frontmatter 完整性。語意分（4 分）由 agent 補充。"""
+    """掃描 skills 目錄存在性與 frontmatter 完整性。語意分（4 分）由 agent 補充。"""
     findings: list[str] = []
     semantic_targets: list[str] = []
     score = 0
@@ -75,6 +80,8 @@ def scan_skills(target_dir: Path) -> MechanicalFinding:
     else:
         score += 2
         findings.append(f"skills/ 存在於 {source_dir}，共 {len(skill_mds)} 個 skill")
+        if source_dir == "skills":
+            findings.append("（源碼 repo 模式：技能從 skills/ 掃描）")
 
         valid = sum(1 for s in skill_mds if _has_valid_frontmatter(s))
         if valid == len(skill_mds):

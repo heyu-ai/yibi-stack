@@ -56,3 +56,19 @@ result = subprocess.run(  # nosec B603
 - 永遠用 list args（不用 `shell=True`）
 - 永遠設定 `timeout`
 - 加上 bandit nosec 註解：`# nosec B404`（import）、`# nosec B603`（呼叫）
+
+## Filesystem 路徑存在性檢查
+
+路徑存在性檢查優先用 `is_dir()` / `is_file()`，不用 `exists()`：
+
+```python
+# 違規：同名非目錄檔案時返回 True，後續 rglob() 拋 NotADirectoryError
+if path.exists():
+    for f in path.rglob("*.md"): ...
+
+# 正確：直接排除非目錄
+if path.is_dir():
+    for f in path.rglob("*.md"): ...
+```
+
+`exists()` 只在「不區分型態、只需確認路徑存在」的場合使用（如 config 檔、log 檔）。

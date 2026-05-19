@@ -206,8 +206,10 @@ class TestScanSettings:
 
 class TestScanSkills:
     def test_heval_dt_030_no_skills_dir(self, tmp_path: Path) -> None:
-        """HEVAL-DT-030: 無 .claude/skills/ → score=0。"""
-        assert scan_skills(tmp_path).score == 0
+        """HEVAL-DT-030: .claude/skills/ 與 skills/ 均不存在 → score=0，finding 含 WARN。"""
+        result = scan_skills(tmp_path)
+        assert result.score == 0
+        assert any("WARN" in f for f in result.findings)
 
     def test_heval_dt_031_empty_skills_dir(self, tmp_path: Path) -> None:
         """HEVAL-DT-031: .claude/skills/ 存在但無 SKILL.md → score=0。"""
@@ -235,13 +237,14 @@ class TestScanSkills:
         assert scan_skills(tmp_path).score == 4
 
     def test_heval_dt_033_root_skills_dir(self, tmp_path: Path) -> None:
-        """HEVAL-DT-033: root-level skills/ 目錄有 SKILL.md → 也能被偵測。"""
+        """HEVAL-DT-033: root-level skills/ 目錄有 SKILL.md → 偵測到，finding 含源碼 repo 模式。"""
         skill_dir = tmp_path / "skills" / "my-skill"
         skill_dir.mkdir(parents=True)
         fm = "---\nname: my-skill\ntype: know\nscope: global\ndescription: test\n---\n"
         (skill_dir / "SKILL.md").write_text(fm + "# My Skill\n", encoding="utf-8")
         result = scan_skills(tmp_path)
         assert result.score >= 2
+        assert any("源碼 repo 模式" in f for f in result.findings)
 
     def test_heval_dt_034_empty_commands_dir_no_points(self, tmp_path: Path) -> None:
         """HEVAL-DT-034: .claude/commands/ 存在但無 .md → 不得分，有 WARN。"""

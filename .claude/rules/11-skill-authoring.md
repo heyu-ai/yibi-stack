@@ -26,15 +26,16 @@ description: <一行中文說明，包含觸發關鍵字>
 若 skill 的實作住在此 repo 但語意上跨專案有用（如 session-memory、local-port-manager），在 SKILL.md 的執行步驟開頭加上 skill_repo 路徑解析後可設為 `global`：
 
 ```bash
-SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
+SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text()).get("skill_repo") or "")') || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
 [ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; }
 [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 cd "$SKILL_REPO"
 ```
 
 **注意**：不要用 `$(jq -r '.skill_repo' …)`（單引號 filter）或 `$(jq -r .skill_repo …)`（unquoted filter）。
-前者觸發 AP1 D 類 hook；後者通過本地 hook 但 Claude Code 內建 parser 把 leading-dot token 視為無法解析的 string 節點，執行時跳出確認框。
-`python3 -c` 單行寫法是唯一兩邊都通過的形式。
+前者觸發 AP1 D 類 hook（filter token 內含 leading-dot）；後者通過本地 hook 但 Claude Code 內建 parser 把 leading-dot token 視為無法解析的 string 節點，執行時跳出確認框。
+
+`python3 -c` 單行寫法是唯一兩邊都通過的形式，但 `-c` 後的表達式必須用**單引號**包（Python 內部字串改用雙引號）——雙引號版 `$(python3 -c "...")` 是「外層 `$()` → `"..."` 內層字串」的反向巢狀結構，違反 Rule 14 Quoting Rule 4，觸發 `Unhandled node type: string`。
 
 ## Frontmatter — `effort`（選填，2026-05 新增）
 
@@ -151,3 +152,10 @@ FAQ 表格中的修復指令必須符合三個條件：
 1. **使用實際變數名**：不用 literal `KEY` 這類 placeholder，直接寫 `CODEX_API_KEY` / `GEMINI_API_KEY` 等實際名稱
 2. **shell-hygiene-safe 語法**：用 parameter expansion `"${VAR# }"` 去除前置空格，不用 `$(echo $VAR)` subshell（後者在 zsh 不 trim、且觸發 Rule 14 quoting hygiene hook）
 3. **跨 shell 相容**：指令在 zsh（macOS 預設）與 bash 均能正確執行
+
+## Table Description 欄單一職責
+
+Markdown 表格的說明欄只應包含**功能描述**，不得重複其他欄位（如 Install 欄）的資訊。
+
+常見錯誤：在說明欄附加安裝路徑（如 `— no package.json, installed as global skill`）。
+Install 欄已攜帶安裝指令；說明欄重複此資訊會在安裝方法變更時造成雙重維護負擔，且與其他欄位的 pattern 不一致。
