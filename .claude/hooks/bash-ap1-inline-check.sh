@@ -276,21 +276,15 @@ dq = chr(34)
 if not re.search(r'\brg\b', cmd):
     sys.exit(0)
 found = False
-for m in re.finditer(sq + r'([^' + sq + r']*)' + sq, cmd):
-    if bs + '|' not in m.group(1):
-        continue
-    before = cmd[:m.start()]
-    if re.search(r'\brg\b', before):
-        found = True
-        break
-if not found:
-    for m in re.finditer(dq + r'([^' + dq + r']*)' + dq, cmd):
+for qt in (sq, dq):
+    for m in re.finditer(qt + r'([^' + qt + r']*)' + qt, cmd):
         if bs + '|' not in m.group(1):
             continue
-        before = cmd[:m.start()]
-        if re.search(r'\brg\b', before):
+        if re.search(r'\brg\b', cmd[:m.start()]):
             found = True
             break
+    if found:
+        break
 if found:
     print('yes')
 " 2>/dev/null || true)

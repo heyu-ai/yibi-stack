@@ -485,7 +485,7 @@ class TestRgBREDetection6:
 
     def test_ap1_block_022_rg_with_flags_backslash_pipe(self) -> None:
         """rg -rl 帶 flag 的 pattern 含 \\| -> 攔截"""
-        assert run_hook("rg -rl '五層\\|Event Storm\\|ezSpec' /Users/howie/Workspace") == 2
+        assert run_hook("rg -rl '五層\\|Event Storm\\|ezSpec' /tmp") == 2
 
     def test_ap1_allow_020_rg_ere_alternation(self) -> None:
         """rg 正確 ERE | alternation（無反斜線）-> 放行"""
