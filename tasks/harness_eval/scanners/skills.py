@@ -86,7 +86,9 @@ def scan_skills(target_dir: Path) -> MechanicalFinding:
         valid = sum(1 for s in skill_mds if _has_valid_frontmatter(s))
         if valid == len(skill_mds):
             score += 2
-            findings.append(f"所有 {valid} 個 skill frontmatter 完整（name/type/scope/description）")
+            findings.append(
+                f"所有 {valid} 個 skill frontmatter 完整（name/type/scope/description）"
+            )
         elif valid > 0:
             score += 1
             findings.append(f"WARN: {valid}/{len(skill_mds)} skill frontmatter 完整")

@@ -28,10 +28,15 @@ def _check_deny_coverage(deny: list[object]) -> tuple[int, list[str]]:
         kw = keyword.lower()
         if any(kw in str(d).lower() for d in deny):
             covered.append(label)
+    total = len(_DESTRUCTIVE_PATTERNS)
     if len(covered) >= 3:
-        return 3, [f"deny list 覆蓋 {len(covered)}/{len(_DESTRUCTIVE_PATTERNS)} 高風險操作：{covered}"]
+        return 3, [f"deny list 覆蓋 {len(covered)}/{total} 高風險操作：{covered}"]
     if covered:
-        missing = [lbl for kw, lbl in _DESTRUCTIVE_PATTERNS if not any(kw.lower() in str(d).lower() for d in deny)]
+        missing = [
+            lbl
+            for kw, lbl in _DESTRUCTIVE_PATTERNS
+            if not any(kw.lower() in str(d).lower() for d in deny)
+        ]
         return 1, [
             f"WARN: deny list 部分覆蓋（{len(covered)} 項），缺少：{missing[:3]}",
         ]

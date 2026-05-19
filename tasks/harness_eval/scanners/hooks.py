@@ -62,13 +62,17 @@ def _has_inline_hooks(hooks: dict[str, object]) -> bool:
             for hook in entry.get("hooks", []) or []:
                 if isinstance(hook, dict):
                     cmd = hook.get("command", "")
-                    if isinstance(cmd, str) and cmd and not any(
-                        t.endswith(".sh") or t.endswith(".py") for t in cmd.split()
+                    if (
+                        isinstance(cmd, str)
+                        and cmd
+                        and not any(t.endswith(".sh") or t.endswith(".py") for t in cmd.split())
                     ):
                         return True
             run = entry.get("run", "")
-            if isinstance(run, str) and run and not any(
-                t.endswith(".sh") or t.endswith(".py") for t in run.split()
+            if (
+                isinstance(run, str)
+                and run
+                and not any(t.endswith(".sh") or t.endswith(".py") for t in run.split())
             ):
                 return True
     return False
@@ -157,9 +161,7 @@ def scan_hooks(target_dir: Path) -> MechanicalFinding:
                 if not (hook_dir / base).exists():
                     missing.append(sp)
         if missing:
-            findings.append(
-                f"WARN: {len(missing)} 個 hook script 登記但檔案不存在：{missing[:3]}"
-            )
+            findings.append(f"WARN: {len(missing)} 個 hook script 登記但檔案不存在：{missing[:3]}")
         else:
             score += 2
             findings.append(f"hook script 檔案存在性驗證通過（{len(script_paths)} 個）")

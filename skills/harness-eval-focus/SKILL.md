@@ -107,6 +107,7 @@ Transformer hook 風險：
 **讀取目標**：`.claude/settings.json`（全文）
 
 Claude Code 的 4 層 Permission 模型：
+
 1. **Tool-level** 個別工具自訂規則
 2. **Global Rules Engine** user 設定的 allow/deny list
 3. **Interactive + Hook + ML Racing** 三路並行審核
