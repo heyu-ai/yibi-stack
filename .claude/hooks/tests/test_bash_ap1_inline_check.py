@@ -258,9 +258,9 @@ class TestGrepBRECase25:
         """grep --extended-regexp 長格式 -> 放行"""
         assert run_hook('grep --extended-regexp "media|cdn" file.txt') == 0
 
-    def test_ap1_allow_019_rg_not_grep(self) -> None:
-        """rg (ripgrep) 不是 grep -> 放行"""
-        assert run_hook('rg "media\\|cdn" file.txt') == 0
+    def test_ap1_block_019_rg_bre_double_quoted(self) -> None:
+        """rg 雙引號 pattern 含 \\| -> Detection 6 攔截（ERE 工具誤用 BRE 語法）"""
+        assert run_hook('rg "media\\|cdn" file.txt') == 2
 
     def test_ap1_block_018_sed_E_does_not_exempt_later_grep(self) -> None:
         """sed -E && grep BRE: -E 不跨指令豁免後面的 grep -> 攔截（scope fix）"""
@@ -347,6 +347,42 @@ class TestGitCommitExemption:
     def test_ap1_allow_023_git_commit_plain_single_quoted_message(self) -> None:
         """git commit -m 'plain single-quoted msg' -> 放行（非 heredoc，不豁免但也不觸發）"""
         assert run_hook("git commit -m 'add grep rule for pat\\|pat2'") == 0
+
+    def test_ap1_allow_024_git_dash_c_commit_heredoc_with_nested_subshell_example(self) -> None:
+        """git -C /path commit message 含 Case 26 範例 -> 豁免（git -C 形式的豁免修復）"""
+        cmd = (
+            "git -C /path/to/repo commit -m \"$(cat <<'EOF'\n"
+            "feat: add feature\n"
+            "\n"
+            '- 修法：$(outer "$(inner)")\n'
+            "EOF\n"
+            ')"'
+        )
+        assert run_hook(cmd) == 0
+
+    def test_ap1_allow_025_git_dash_c_commit_heredoc_with_grep_example(self) -> None:
+        """git -C /path commit message 含 Case 25 範例 -> 豁免（git -C 形式的豁免修復）"""
+        cmd = (
+            "git -C /path/to/repo commit -m \"$(cat <<'EOF'\n"
+            "fix: add grep BRE rule\n"
+            "\n"
+            '- rule: grep "pat\\|pat2" -> block\n'
+            "EOF\n"
+            ')"'
+        )
+        assert run_hook(cmd) == 0
+
+    def test_ap1_allow_026_git_lowercase_c_config_commit_heredoc(self) -> None:
+        """git -c user.name=bot commit -m heredoc -> 豁免（-c config override 全域 flag）"""
+        cmd = "git -c user.name=bot commit -m \"$(cat <<'EOF'\nfeat: add bot\nEOF\n)\""
+        assert run_hook(cmd) == 0
+
+    def test_ap1_allow_027_git_multi_flag_commit_heredoc(self) -> None:
+        """git -C /path --no-pager commit -m heredoc -> 豁免（多 flag 組合）"""
+        cmd = (
+            "git -C /path/to/repo --no-pager commit -m \"$(cat <<'EOF'\nfeat: add feature\nEOF\n)\""
+        )
+        assert run_hook(cmd) == 0
 
 
 class TestHandoverAntiBashPatterns:
@@ -466,3 +502,51 @@ class TestHandoverAntiBashPatterns:
             "esac"
         )
         assert run_hook(cmd) == 0
+
+
+class TestRgBREDetection6:
+    """Detection 6：rg '...\\|...' BRE alternation 在 ERE 工具（靜默空結果）。
+
+    rg 使用 Rust ERE-like regex：| 是 alternation，\\| 是 literal pipe。
+    含 \\| 的 pattern 靜默搜尋 literal pipe，回傳 0 筆無報錯。
+    """
+
+    def test_ap1_block_020_rg_single_quoted_backslash_pipe(self) -> None:
+        """rg 單引號 pattern 含 \\| -> 攔截（最常見的誤用情境）"""
+        assert run_hook("rg -rl 'foo\\|bar\\|baz' /path") == 2
+
+    def test_ap1_block_021_rg_double_quoted_backslash_pipe(self) -> None:
+        """rg 雙引號 pattern 含 \\| -> 攔截（遷移自 grep 時的常見錯誤）"""
+        assert run_hook('rg "media\\|cdn\\|delivery" file.txt') == 2
+
+    def test_ap1_block_022_rg_unicode_pattern_backslash_pipe(self) -> None:
+        """rg Unicode pattern 含 \\| -> 攔截"""
+        assert run_hook("rg -rl '五層\\|Event Storm\\|ezSpec' /tmp") == 2
+
+    def test_ap1_allow_020_rg_ere_alternation(self) -> None:
+        """rg 正確 ERE | alternation（無反斜線）-> 放行"""
+        assert run_hook("rg -rl 'foo|bar|baz' /path") == 0
+
+    def test_ap1_allow_021_rg_no_alternation(self) -> None:
+        """rg 無 alternation pattern -> 放行"""
+        assert run_hook("rg -l 'pattern' /path") == 0
+
+    def test_ap1_allow_022_rg_multiple_e_flags(self) -> None:
+        """rg 多個 -e flag -> 放行"""
+        assert run_hook("rg -l -e 'foo' -e 'bar' /path") == 0
+
+    def test_ap1_allow_023_rg_fixed_strings_short_flag(self) -> None:
+        """rg -F fixed-string mode：\\| 是 literal 搜尋，不是 BRE 語法錯誤 -> 放行"""
+        assert run_hook("rg -F 'err\\|warn' /var/log/") == 0
+
+    def test_ap1_allow_024_rg_fixed_strings_long_form(self) -> None:
+        """rg --fixed-strings long form -> 放行"""
+        assert run_hook("rg --fixed-strings 'foo\\|bar' /path") == 0
+
+    def test_ap1_allow_025_rg_scope_boundary_and_chain(self) -> None:
+        """rg 後接 && grep BRE pattern -> grep pattern 不被當成 rg pattern，放行"""
+        assert run_hook("rg TODO . && grep 'foo\\|bar' file") == 0
+
+    def test_ap1_allow_026_rg_scope_boundary_pipe(self) -> None:
+        """rg pattern | sed 含 \\| -> pipeline 後方 sed 不被判斷為 rg pattern，放行"""
+        assert run_hook("rg foo /path | sed 's/\\|/!/g'") == 0

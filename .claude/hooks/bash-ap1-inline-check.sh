@@ -41,15 +41,24 @@ except Exception:
 # ── git commit message 豁免 ──────────────────────────────────────────
 # git commit -m "$(cat <<'EOF'...)" 格式的 commit message 內含範例程式碼時，
 # 會對 Case 25/26 偵測器產生 false positive（與 AP2 hook 的豁免邏輯對應）。
-# bash 字串匹配作為廉價前置過濾，只在確實是 git commit 時才啟動 python3。
-if [[ "${CMD:-}" == *"git commit"* ]]; then
+# 也涵蓋 git -C /path commit 形式（flags between git and commit）。
+# bash 字串匹配作為廉價前置過濾（over-broad 無妨，python3 regex 才是實際 gate）。
+if [[ "${CMD:-}" == *git* && "${CMD:-}" == *commit* ]]; then
     IS_COMMIT_HEREDOC=$(printf '%s' "${CMD:-}" | python3 -c "
 import re, sys
 cmd = sys.stdin.read()
 bs = chr(92)
 dl = chr(36)
 dq = chr(34)
-ptn = r'\bgit\s+commit\b[^;|&\n]*-[a-zA-Z]*m\s+' + dq + bs + dl + r'\(cat\s+<<'
+# git 全域 flag 枚舉（來源：man git OPTIONS），允許出現在 git 與 commit 之間
+# Known Limitation: -c user.name=foo|bar commit -- \S+ 無引號感知，quoted pipe 仍中斷匹配
+GFLAG = (
+    r'(?:\s+(?:-C\s+\S+|-c\s+\S+|--git-dir=\S+|--work-tree=\S+'
+    r'|--namespace=\S+|--exec-path=\S+|--super-prefix=\S+|--config-env=\S+'
+    r'|--attr-source=\S+|--list-cmds=\S+'
+    r'|--no-pager|--no-replace-objects|--no-optional-locks|--paginate|--bare|-p|-P))'
+)
+ptn = r'\bgit\b' + GFLAG + r'*\s+commit\b[^;|&\n]*-[a-zA-Z]*m\s+' + dq + bs + dl + r'\(cat\s+<<'
 if re.search(ptn, cmd):
     print('yes')
 " 2>/dev/null || true)
@@ -258,6 +267,54 @@ if [ "${JQ_FILTER_MATCH:-}" = "yes" ]; then
     echo "修法：移除 filter 的單引號（jq 接受不含特殊字元的 path 不需要引號）："
     echo "  違規：SKILL_REPO=\$(jq -r '.skill_repo' ~/.agents/config.json)"
     echo "  修法：SKILL_REPO=\$(jq -r .skill_repo ~/.agents/config.json)"
+    exit 2
+fi
+
+# ── 偵測 6：rg '...\|...' BRE alternation 語法（ERE 工具誤用）─────────────
+# 判斷：rg 指令中的 quoted pattern 含 \|（BRE alternation 語法）
+#   - rg 使用 Rust ERE-like regex：| 是 alternation，\| 是 literal pipe 字元
+#   - 典型錯誤：從 grep BRE 遷移到 rg 時沿用 \| 語法
+#   - 後果：靜默搜尋含 literal pipe 字串，回傳 0 筆，無報錯
+#   - 偵測範圍：單引號 pattern（最常見）與雙引號 pattern
+RG_BRE_MATCH=$(printf '%s' "$CMD" | python3 -c "
+import re, sys
+cmd = sys.stdin.read()
+bs = chr(92)
+sq = chr(39)
+dq = chr(34)
+if not re.search(r'\brg\b', cmd):
+    sys.exit(0)
+found = False
+for qt in (sq, dq):
+    for m in re.finditer(qt + r'([^' + qt + r']*)' + qt, cmd):
+        if bs + '|' not in m.group(1):
+            continue
+        rg_hits = list(re.finditer(r'\brg\b', cmd[:m.start()]))
+        if not rg_hits:
+            continue
+        between = cmd[rg_hits[-1].end():m.start()]
+        if re.search(r'[|&;()\n]', between):
+            continue
+        if re.search(r'-[a-zA-Z]*F[a-zA-Z]*\b|--fixed-strings', between):
+            continue
+        found = True
+        break
+    if found:
+        break
+if found:
+    print('yes')
+" 2>/dev/null || true)
+
+if [ "${RG_BRE_MATCH:-}" = "yes" ]; then
+    echo "BLOCKED: rg pattern BRE alternation 誤用（Detection 6）"
+    echo ""
+    echo "rg 使用 Rust ERE-like regex：| 是 alternation，\\| 是 literal pipe 字元。"
+    echo "含 \\| 的 pattern 搜尋 literal pipe，不是多選一，結果靜默為空，無報錯。"
+    echo ""
+    echo "修法（擇一）："
+    echo "  A) 優先改用 Claude Code 內建 Grep tool（pattern 用 | 做 alternation）"
+    echo "  B) rg ERE 語法：rg -rl 'pat1|pat2|pat3' /path"
+    echo "  C) 多個 -e flag：rg -l -e 'pat1' -e 'pat2' /path"
     exit 2
 fi
 
