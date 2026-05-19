@@ -290,8 +290,8 @@ cmd 2>&1
 | 工具 | Alternation 語法 | `\|` 代表 |
 |------|----------------|----------|
 | `grep`（BRE） | `\|` | alternation |
-| `grep -E` | `|` | literal pipe |
-| `rg` | `|` | literal pipe |
+| `grep -E` | \| | literal pipe |
+| `rg` | \| | literal pipe |
 
 ```bash
 # 違規：rg 用 BRE 語法，實際搜尋含 pipe 的 literal 字串，非 alternation
