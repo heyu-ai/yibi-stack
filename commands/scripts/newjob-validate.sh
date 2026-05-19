@@ -59,3 +59,23 @@ elif [ -f ".pre-commit-config.yaml" ]; then
 else
   echo "  [SKIP] 無 hooks 設定，跳過"
 fi
+
+# 3g. Spectra version drift 偵測（Layer 3A）
+echo "--- 3g. Spectra Drift ---"
+VENDOR_FILE="docs/openspec/spectra-vendor/VERSION"
+if [ ! -f "$VENDOR_FILE" ]; then
+  echo "  [SKIP] $VENDOR_FILE 不存在（非 Spectra SDD 專案）"
+else
+  VENDOR_LINE=$(cat "$VENDOR_FILE")
+  VENDOR_VER=${VENDOR_LINE#spectra }
+  VENDOR_VER=${VENDOR_VER%% *}
+  CURRENT_LINE=$(spectra --version 2>/dev/null || echo "spectra unknown")
+  CURRENT_VER=${CURRENT_LINE#spectra }
+  CURRENT_VER=${CURRENT_VER%% *}
+  if [ "$CURRENT_VER" = "$VENDOR_VER" ]; then
+    echo "  [OK] Spectra version matches vendor baseline ($VENDOR_VER)"
+  else
+    echo "  [WARN] Spectra version drift: CLI=$CURRENT_VER vs vendor baseline=$VENDOR_VER"
+    echo "  Review docs/openspec/spectra-vendor/ before running /spectra-apply"
+  fi
+fi
