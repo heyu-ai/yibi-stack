@@ -75,3 +75,18 @@ class TestRunScan:
 from tasks.gmail_scan.models import ScanProfile
 from tasks.gmail_scan.service import run_scan
 ```
+
+## Assertion 語意精確性
+
+Findings / output 驗證避免過寬的 substring match——目標字串若同時出現在多個合理路徑，
+assertion 就失去保護力，fallback 邏輯失效時靜默通過。
+
+```python
+# 違規：".claude/skills/" 也含 "skills/"，fallback 失效時仍通過
+assert any("skills/" in f for f in result.findings)
+
+# 正確：用語意唯一的字串鎖定預期分支
+assert any("源碼 repo 模式" in f for f in result.findings)
+```
+
+適用場景：任何驗證「走了哪條邏輯分支」的 assertion。
