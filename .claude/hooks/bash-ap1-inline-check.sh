@@ -280,9 +280,16 @@ for qt in (sq, dq):
     for m in re.finditer(qt + r'([^' + qt + r']*)' + qt, cmd):
         if bs + '|' not in m.group(1):
             continue
-        if re.search(r'\brg\b', cmd[:m.start()]):
-            found = True
-            break
+        rg_hits = list(re.finditer(r'\brg\b', cmd[:m.start()]))
+        if not rg_hits:
+            continue
+        between = cmd[rg_hits[-1].end():m.start()]
+        if re.search(r'[|&;()\n]', between):
+            continue
+        if re.search(r'-[a-zA-Z]*F[a-zA-Z]*\b|--fixed-strings', between):
+            continue
+        found = True
+        break
     if found:
         break
 if found:
@@ -296,7 +303,7 @@ if [ "${RG_BRE_MATCH:-}" = "yes" ]; then
     echo "含 \\| 的 pattern 搜尋 literal pipe，不是多選一，結果靜默為空，無報錯。"
     echo ""
     echo "修法（擇一）："
-    echo "  A) 優先改用 Grep tool（pattern 直接用 | 做 alternation）"
+    echo "  A) 優先改用 Claude Code 內建 Grep tool（pattern 用 | 做 alternation）"
     echo "  B) rg ERE 語法：rg -rl 'pat1|pat2|pat3' /path"
     echo "  C) 多個 -e flag：rg -l -e 'pat1' -e 'pat2' /path"
     exit 2

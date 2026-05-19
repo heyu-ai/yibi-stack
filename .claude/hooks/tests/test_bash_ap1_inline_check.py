@@ -483,8 +483,8 @@ class TestRgBREDetection6:
         """rg 雙引號 pattern 含 \\| -> 攔截（遷移自 grep 時的常見錯誤）"""
         assert run_hook('rg "media\\|cdn\\|delivery" file.txt') == 2
 
-    def test_ap1_block_022_rg_with_flags_backslash_pipe(self) -> None:
-        """rg -rl 帶 flag 的 pattern 含 \\| -> 攔截"""
+    def test_ap1_block_022_rg_unicode_pattern_backslash_pipe(self) -> None:
+        """rg Unicode pattern 含 \\| -> 攔截"""
         assert run_hook("rg -rl '五層\\|Event Storm\\|ezSpec' /tmp") == 2
 
     def test_ap1_allow_020_rg_ere_alternation(self) -> None:
@@ -498,3 +498,19 @@ class TestRgBREDetection6:
     def test_ap1_allow_022_rg_multiple_e_flags(self) -> None:
         """rg 多個 -e flag -> 放行"""
         assert run_hook("rg -l -e 'foo' -e 'bar' /path") == 0
+
+    def test_ap1_allow_023_rg_fixed_strings_short_flag(self) -> None:
+        """rg -F fixed-string mode：\\| 是 literal 搜尋，不是 BRE 語法錯誤 -> 放行"""
+        assert run_hook("rg -F 'err\\|warn' /var/log/") == 0
+
+    def test_ap1_allow_024_rg_fixed_strings_long_form(self) -> None:
+        """rg --fixed-strings long form -> 放行"""
+        assert run_hook("rg --fixed-strings 'foo\\|bar' /path") == 0
+
+    def test_ap1_allow_025_rg_scope_boundary_and_chain(self) -> None:
+        """rg 後接 && grep BRE pattern -> grep pattern 不被當成 rg pattern，放行"""
+        assert run_hook("rg TODO . && grep 'foo\\|bar' file") == 0
+
+    def test_ap1_allow_026_rg_scope_boundary_pipe(self) -> None:
+        """rg pattern | sed 含 \\| -> pipeline 後方 sed 不被判斷為 rg pattern，放行"""
+        assert run_hook("rg foo /path | sed 's/\\|/!/g'") == 0
