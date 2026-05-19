@@ -18,7 +18,7 @@ description: >
 ### Step 1 -- 環境確認 + Target 決定
 
 ```bash
-SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()).get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
+SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text()).get("skill_repo") or "")') || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
 [ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 yibi-stack 執行 make install' >&2; exit 1; }
 [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在：$SKILL_REPO" >&2; exit 1; }
 ```
@@ -31,7 +31,7 @@ if echo "$_raw" | grep -qE -- '--target [^ ]+'; then
   ARG_TARGET=${_match##--target }
 fi
 TARGET_DIR="${ARG_TARGET:-$PWD}"
-TARGET_DIR=$(python3 -c "import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())" "$TARGET_DIR") || { echo '[FAIL] target 路徑解析失敗' >&2; exit 1; }
+TARGET_DIR=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$TARGET_DIR") || { echo '[FAIL] target 路徑解析失敗' >&2; exit 1; }
 [ -d "$TARGET_DIR" ] || { echo "[FAIL] target 不存在：$TARGET_DIR" >&2; exit 1; }
 ```
 
