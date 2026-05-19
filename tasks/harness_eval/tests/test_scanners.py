@@ -145,7 +145,7 @@ class TestScanSkills:
         assert scan_skills(tmp_path).score == 6
 
     def test_heval_dt_033_root_skills_fallback(self, tmp_path: Path) -> None:
-        """HEVAL-DT-033: 無 .claude/skills/，skills/ 含完整 frontmatter → score=6（源碼 repo fallback）。"""
+        """HEVAL-DT-033: 無 .claude/skills/，skills/ 有 SKILL.md -> score=6（fallback）。"""
         skill_dir = tmp_path / "skills" / "my-skill"
         skill_dir.mkdir(parents=True)
         fm = "---\nname: my-skill\ntype: exec\nscope: global\ndescription: test\n---\n"
@@ -155,7 +155,7 @@ class TestScanSkills:
         assert any("源碼 repo 模式" in f for f in result.findings)
 
     def test_heval_dt_034_claude_skills_empty_falls_back_to_root(self, tmp_path: Path) -> None:
-        """HEVAL-DT-034: .claude/skills/ 存在但無 SKILL.md，skills/ 有 → fallback score=6，含源碼 repo 標記。"""
+        """HEVAL-DT-034: .claude/skills/ 空 + skills/ 有 SKILL.md -> fallback score=6。"""
         (tmp_path / ".claude" / "skills").mkdir(parents=True)
         skill_dir = tmp_path / "skills" / "my-skill"
         skill_dir.mkdir(parents=True)
@@ -179,14 +179,14 @@ class TestScanSkills:
         assert any(".claude/skills/" in f for f in result.findings)
 
     def test_heval_dt_036_root_skills_exists_but_empty(self, tmp_path: Path) -> None:
-        """HEVAL-DT-036: skills/ 存在但無 SKILL.md（.claude/skills/ 不存在）→ score=0，finding 含 WARN。"""
+        """HEVAL-DT-036: skills/ 存在但無 SKILL.md -> score=0，finding 含 WARN。"""
         (tmp_path / "skills").mkdir()
         result = scan_skills(tmp_path)
         assert result.score == 0
         assert any("skills 目錄存在但無任何 SKILL.md" in f for f in result.findings)
 
     def test_heval_dt_037_both_dirs_exist_both_empty(self, tmp_path: Path) -> None:
-        """HEVAL-DT-037: .claude/skills/ 與 skills/ 均存在但都無 SKILL.md → score=0，finding 含 WARN。"""
+        """HEVAL-DT-037: 兩目錄均存在但都無 SKILL.md -> score=0，finding 含 WARN。"""
         (tmp_path / ".claude" / "skills").mkdir(parents=True)
         (tmp_path / "skills").mkdir()
         result = scan_skills(tmp_path)
