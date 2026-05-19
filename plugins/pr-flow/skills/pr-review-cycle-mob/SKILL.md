@@ -120,7 +120,7 @@ fi
 
 ```bash
 # Claude Code allow list 確認（gemini 呼叫免確認框）
-python3 -c 'import json,pathlib,sys; d=json.loads((pathlib.Path.home()/".claude"/"settings.json").read_text()); allow=d.get("permissions",{}).get("allow",[]); sys.exit(0 if any("gemini" in s for s in allow) else 1)' 2>/dev/null && echo "GEMINI_ALLOW_LIST: OK" || echo "GEMINI_ALLOW_LIST: MISSING"
+python3 -c 'import json,pathlib,sys; d=json.loads((pathlib.Path.home()/".claude"/"settings.json").read_text()); allow=d.get("permissions",{}).get("allow",[]); sys.exit(0 if "Bash(gemini:*)" in allow else 1)' 2>/dev/null && echo "GEMINI_ALLOW_LIST: OK" || echo "GEMINI_ALLOW_LIST: MISSING"
 ```
 
 ### 模式判定

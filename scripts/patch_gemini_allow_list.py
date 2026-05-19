@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """幂等地將 gemini 相關指令加入 ~/.claude/settings.json allow list。"""
 import json
+import os
 import pathlib
 
 SETTINGS_PATH = pathlib.Path.home() / ".claude" / "settings.json"
@@ -27,10 +28,9 @@ def main() -> None:
             added.append(entry)
 
     if added:
-        SETTINGS_PATH.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        tmp = SETTINGS_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, SETTINGS_PATH)
         for entry in added:
             print(f"  [OK] Added: {entry}")
     else:
