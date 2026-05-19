@@ -53,8 +53,12 @@ def scan_skills(target_dir: Path) -> MechanicalFinding:
             active_dir = root_skills_dir
 
     if active_dir is None:
-        if claude_exists or root_exists:
-            findings.append("WARN: skills 目錄存在但無任何 SKILL.md")
+        if claude_exists and root_exists:
+            findings.append("WARN: .claude/skills/ 與 skills/ 均無 SKILL.md")
+        elif claude_exists:
+            findings.append("WARN: .claude/skills/ 存在但無任何 SKILL.md")
+        elif root_exists:
+            findings.append("WARN: skills/ 存在但無任何 SKILL.md")
         else:
             findings.append("WARN: .claude/skills/ 不存在")
         return MechanicalFinding(

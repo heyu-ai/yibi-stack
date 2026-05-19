@@ -183,7 +183,7 @@ class TestScanSkills:
         (tmp_path / "skills").mkdir()
         result = scan_skills(tmp_path)
         assert result.score == 0
-        assert any("skills 目錄存在但無任何 SKILL.md" in f for f in result.findings)
+        assert any("skills/ 存在但無任何 SKILL.md" in f for f in result.findings)
 
     def test_heval_dt_037_both_dirs_exist_both_empty(self, tmp_path: Path) -> None:
         """HEVAL-DT-037: 兩目錄均存在但都無 SKILL.md -> score=0，finding 含 WARN。"""
@@ -191,7 +191,7 @@ class TestScanSkills:
         (tmp_path / "skills").mkdir()
         result = scan_skills(tmp_path)
         assert result.score == 0
-        assert any("skills 目錄存在但無任何 SKILL.md" in f for f in result.findings)
+        assert any(".claude/skills/ 與 skills/ 均無 SKILL.md" in f for f in result.findings)
 
 
 class TestScanTesting:
