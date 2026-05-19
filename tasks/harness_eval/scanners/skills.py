@@ -34,8 +34,8 @@ def scan_skills(target_dir: Path) -> MechanicalFinding:
 
     claude_skills_dir = target_dir / ".claude" / "skills"
     root_skills_dir = target_dir / "skills"
-    claude_exists = claude_skills_dir.exists()
-    root_exists = root_skills_dir.exists()
+    claude_exists = claude_skills_dir.is_dir()
+    root_exists = root_skills_dir.is_dir()
 
     skill_mds: list[Path] = []
     active_dir: Path | None = None

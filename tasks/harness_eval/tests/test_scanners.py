@@ -126,8 +126,10 @@ class TestScanSettings:
 
 class TestScanSkills:
     def test_heval_dt_030_no_skills_dir(self, tmp_path: Path) -> None:
-        """HEVAL-DT-030: 無 .claude/skills/ → score=0。"""
-        assert scan_skills(tmp_path).score == 0
+        """HEVAL-DT-030: .claude/skills/ 與 skills/ 均不存在 → score=0，finding 含不存在提示。"""
+        result = scan_skills(tmp_path)
+        assert result.score == 0
+        assert any(".claude/skills/ 不存在" in f for f in result.findings)
 
     def test_heval_dt_031_empty_skills_dir(self, tmp_path: Path) -> None:
         """HEVAL-DT-031: .claude/skills/ 存在但無 SKILL.md → score=0。"""
@@ -150,10 +152,10 @@ class TestScanSkills:
         (skill_dir / "SKILL.md").write_text(fm + "# My Skill\n", encoding="utf-8")
         result = scan_skills(tmp_path)
         assert result.score == 6
-        assert any("skills/" in f for f in result.findings)
+        assert any("源碼 repo 模式" in f for f in result.findings)
 
     def test_heval_dt_034_claude_skills_empty_falls_back_to_root(self, tmp_path: Path) -> None:
-        """HEVAL-DT-034: .claude/skills/ 存在但無 SKILL.md，skills/ 有 → fallback score=6。"""
+        """HEVAL-DT-034: .claude/skills/ 存在但無 SKILL.md，skills/ 有 → fallback score=6，含源碼 repo 標記。"""
         (tmp_path / ".claude" / "skills").mkdir(parents=True)
         skill_dir = tmp_path / "skills" / "my-skill"
         skill_dir.mkdir(parents=True)
@@ -161,6 +163,7 @@ class TestScanSkills:
         (skill_dir / "SKILL.md").write_text(fm + "# My Skill\n", encoding="utf-8")
         result = scan_skills(tmp_path)
         assert result.score == 6
+        assert any("源碼 repo 模式" in f for f in result.findings)
 
     def test_heval_dt_035_claude_skills_takes_priority(self, tmp_path: Path) -> None:
         """HEVAL-DT-035: .claude/skills/ 有 SKILL.md 時，不使用 skills/（優先消費者模式）。"""
@@ -174,6 +177,21 @@ class TestScanSkills:
         result = scan_skills(tmp_path)
         assert result.score == 6
         assert any(".claude/skills/" in f for f in result.findings)
+
+    def test_heval_dt_036_root_skills_exists_but_empty(self, tmp_path: Path) -> None:
+        """HEVAL-DT-036: skills/ 存在但無 SKILL.md（.claude/skills/ 不存在）→ score=0，finding 含 WARN。"""
+        (tmp_path / "skills").mkdir()
+        result = scan_skills(tmp_path)
+        assert result.score == 0
+        assert any("skills 目錄存在但無任何 SKILL.md" in f for f in result.findings)
+
+    def test_heval_dt_037_both_dirs_exist_both_empty(self, tmp_path: Path) -> None:
+        """HEVAL-DT-037: .claude/skills/ 與 skills/ 均存在但都無 SKILL.md → score=0，finding 含 WARN。"""
+        (tmp_path / ".claude" / "skills").mkdir(parents=True)
+        (tmp_path / "skills").mkdir()
+        result = scan_skills(tmp_path)
+        assert result.score == 0
+        assert any("skills 目錄存在但無任何 SKILL.md" in f for f in result.findings)
 
 
 class TestScanTesting:
