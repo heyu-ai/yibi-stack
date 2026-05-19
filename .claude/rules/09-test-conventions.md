@@ -76,6 +76,17 @@ from tasks.gmail_scan.models import ScanProfile
 from tasks.gmail_scan.service import run_scan
 ```
 
+## Test Fixture Schema 必須對照真實工具 Schema
+
+Fixture 的資料結構必須與被測工具的**真實** schema 一致，不可自創。
+測試通過只驗證「邏輯在測試資料下能跑」，不驗證「在真實環境下能跑」。
+
+反例（PR #20 hooks.py）：fixture 用 `{"run": ".sh"}` 但 Claude Code 真實 schema 是
+`{"hooks": [{"type": "command", "command": ".sh"}]}`——59 tests 全過，但生產環境
+ghost hook 偵測永遠無效，直到 mob review 對照真實 `.claude/settings.json` 才發現。
+
+正確做法：寫 fixture 前先讀真實工具的 schema 文件，或對照真實設定檔（如 `.claude/settings.json`）。
+
 ## Assertion 語意精確性
 
 Findings / output 驗證避免過寬的 substring match——目標字串若同時出現在多個合理路徑，
