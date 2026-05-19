@@ -13,12 +13,13 @@ _SKILL_DIRS = [".claude/skills", "skills"]
 
 def _has_valid_frontmatter(skill_md: Path) -> bool:
     try:
-        content = skill_md.read_text(encoding="utf-8")
+        with skill_md.open(encoding="utf-8") as f:
+            head = f.read(512)
     except OSError:
         return False
-    if not content.startswith("---"):
+    if not head.startswith("---"):
         return False
-    parts = content.split("---", 2)
+    parts = head.split("---", 2)
     if len(parts) < 3:
         return False
     return all(f"{key}:" in parts[1] for key in _REQUIRED_KEYS)
