@@ -40,6 +40,7 @@ _COMMIT_MSG_RE = re.compile(
 
 # 允許出現在 git 與 commit 子命令之間的全域 flag（來源：man git OPTIONS）。
 # 精確枚舉可防止 git notes add / git log --grep commit 等非 commit 指令觸發豁免。
+# Known Limitation: -c user.name="foo | bar" commit -- \S+ 無引號感知，quoted | 中斷匹配，豁免失敗。
 _GIT_GLOBAL_FLAG = (
     r"(?:\s+"
     r"(?:-C\s+\S+"             # -C <path>: run as if started in <path>

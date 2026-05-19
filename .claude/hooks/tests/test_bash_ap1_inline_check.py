@@ -382,6 +382,16 @@ class TestGitCommitExemption:
         )
         assert run_hook(cmd) == 0
 
+    def test_ap1_allow_027_git_multi_flag_commit_heredoc(self) -> None:
+        """git -C /path --no-pager commit -m heredoc -> 豁免（多 flag 組合）"""
+        cmd = (
+            "git -C /path/to/repo --no-pager commit -m \"$(cat <<'EOF'\n"
+            "feat: add feature\n"
+            "EOF\n"
+            ')"'
+        )
+        assert run_hook(cmd) == 0
+
 
 class TestHandoverAntiBashPatterns:
     """fix-handover-skill-anti-bash：handover/session-memory 指令模式驗證。
