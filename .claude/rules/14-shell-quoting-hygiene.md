@@ -190,6 +190,37 @@ if c == "\\" and in_double:   # 只在雙引號內跳過下一個字元
 | `$(outer "$(inner)")` 反向巢狀 | `Unhandled node type: string` | Rule 4；hook 自動攔截 |
 | `"${VAR}"` 括號形式（已加引號）| `Contains expansion` | Rule 5；**false positive**；加進 allow list |
 | `"$VAR"` plain form（已加引號）| `Contains simple_expansion` | Rule 5；**false positive**；加進 allow list |
+| `echo "exit:$?"` / `[ $? -ne 0 ]` | `Contains simple_expansion` | Rule 5；`$?` 無論是否在引號內皆攔截；改用 `if ! <cmd>; then` |
+
+## $? 特殊案例（PR #24 教訓）
+
+`$?`（exit status 變數）是 `simple_expansion` AST 節點，Rule 5「不區分是否已加引號」同樣適用：
+
+| 模式 | 觸發？| 正確替代 |
+|------|--------|---------|
+| `echo "exit:$?"` | 是 | 刪除這行，bash block 已有 `if ! cmd` |
+| `echo exit:$?` | 是 | 同上 |
+| `[ $? -ne 0 ]` | 是 | `if ! <command>; then` |
+| `if ! gemini ...; then` | 否 | 推薦寫法 |
+
+SKILL.md bash block 不要在指令後加任何 `$?` 相關程式碼——用
+`if ! <command>; then echo '[FAIL]...'; exit 1; fi` 取代所有 `if [ $? -ne 0 ]` 形式。
+
+## Gemini CLI workspace sandbox（PR #24 教訓）
+
+Gemini CLI 的 `@<path>` 引用受 workspace sandbox 限制，只允許 git worktree 目錄內的路徑。
+
+```bash
+# 違規：/tmp 不在 Gemini workspace
+gemini -m model -p "@/tmp/pr-review/wt-name/input.md"
+
+# 修法：把 input 放進 worktree，用相對路徑（worktree 刪除時自動清理）
+cp /tmp/pr-review/wt-name/input.md "$WT_ROOT/gemini-input.md"
+gemini -m model -p "@gemini-input.md"
+rm -f "$WT_ROOT/gemini-input.md"
+```
+
+不要用 `~/.gemini/tmp/`——需要額外手動 rm，且跨 session 可能殘留。
 
 ## Quoting Rule 6：inline Python comment 含 `"` 截斷外層 shell double-quote（PR #23 教訓）
 
