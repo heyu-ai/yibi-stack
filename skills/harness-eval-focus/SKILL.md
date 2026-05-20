@@ -82,7 +82,7 @@ description: >
 | `PostCompact` | 狀態更新 | 壓縮後通知或更新 memory |
 | `Notification` | 背景通知 | 長任務完成推播 |
 
-**v2 新增：reflection vs validation 區分**
+### v2 新增：reflection vs validation 區分
 
 | 類型 | 觸發 event | 目的 | 範例 command |
 |---|---|---|---|

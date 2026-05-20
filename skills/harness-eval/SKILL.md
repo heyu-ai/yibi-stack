@@ -145,6 +145,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 ```
 
 **等級（依百分比，與總分絕對值脫鉤）**：
+
 - ≥85% Excellent
 - 70-84% Good
 - 50-69% Needs Work
