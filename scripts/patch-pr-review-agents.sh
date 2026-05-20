@@ -40,8 +40,7 @@ INSTALL_PATH=$(jq -r --arg key "$PLUGIN_KEY" '.plugins[$key][0].installPath // e
 
 if [ -z "$CURRENT_SHA" ]; then
   echo "  [WARN] installed_plugins.json 缺少 gitCommitSha 欄位，使用 version 作為 patch 追蹤 ID"
-  CURRENT_SHA=$(jq -r --arg key "$PLUGIN_KEY" '.plugins[$key][0].version // empty' "$INSTALLED_JSON")
-  [ -z "$CURRENT_SHA" ] && CURRENT_SHA="unknown"
+  CURRENT_SHA=$(jq -r --arg key "$PLUGIN_KEY" '.plugins[$key][0].version // "unknown"' "$INSTALLED_JSON")
 fi
 if [ -z "$INSTALL_PATH" ]; then
   echo "  [FAIL] installed_plugins.json 缺少 installPath 欄位，請重新安裝 pr-review-toolkit" >&2
