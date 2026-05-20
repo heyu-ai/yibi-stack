@@ -11,15 +11,18 @@ class TestRunScan:
         """HEVAL-ST-001: run_scan 回傳 ScanOutput。"""
         assert isinstance(run_scan(tmp_path), ScanOutput)
 
-    def test_heval_st_002_eight_dimensions(self, tmp_path: Path) -> None:
-        """HEVAL-ST-002: 結果含 D1~D8 共 8 個維度。"""
+    def test_heval_st_002_ten_dimensions(self, tmp_path: Path) -> None:
+        """HEVAL-ST-002: 結果含 D1~D10 共 10 個維度。"""
         result = run_scan(tmp_path)
-        expected = {"D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"}
+        expected = {"D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10"}
         assert {d.dimension for d in result.dimensions} == expected
 
-    def test_heval_st_003_total_max_is_57(self, tmp_path: Path) -> None:
-        """HEVAL-ST-003: 機械總滿分固定為 57。"""
-        assert run_scan(tmp_path).total_mechanical_max == 57
+    def test_heval_st_003_total_max_is_69(self, tmp_path: Path) -> None:
+        """HEVAL-ST-003: 機械總滿分固定為 69。
+
+        D1=8 + D2=13 + D3=6 + D4=8 + D5=7 + D6=6 + D7=7 + D8=7 + D9=4 + D10=3
+        """
+        assert run_scan(tmp_path).total_mechanical_max == 69
 
     def test_heval_st_004_target_dir_recorded(self, tmp_path: Path) -> None:
         """HEVAL-ST-004: target_dir 與傳入路徑一致（resolved）。"""
@@ -34,4 +37,4 @@ class TestRunScan:
         """HEVAL-ST-006: ScanOutput 可 JSON 往返。"""
         result = run_scan(tmp_path)
         restored = ScanOutput.model_validate_json(result.model_dump_json())
-        assert len(restored.dimensions) == 8
+        assert len(restored.dimensions) == 10
