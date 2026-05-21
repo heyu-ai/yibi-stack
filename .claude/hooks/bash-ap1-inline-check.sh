@@ -22,9 +22,7 @@
 set -uo pipefail
 trap 'exit 0' ERR
 
-# ── 事件記錄（fire-and-forget）────────────────────────────────────────────
-# Hook 永遠住在 <repo>/.claude/hooks/，用相對路徑算出 log script，
-# 避免每次 PreToolUse 都 fork git（hot-path）且不依賴 git 可用。
+# ── fire-and-forget 全域簡易 log ────────────────────────────────────────
 _LOG_SCRIPT="${BASH_SOURCE[0]%/*}/../../scripts/log_bash_hygiene_event.py"
 
 _log_block() {
@@ -33,6 +31,10 @@ _log_block() {
     python3 "$_LOG_SCRIPT" ap1 "$1" "$2" >/dev/null 2>&1 &
     disown 2>/dev/null || true
 }
+
+# ── per-repo opt-in audit log ────────────────────────────────────────────
+# shellcheck source=_audit_log.sh
+source "$(dirname "$0")/_audit_log.sh"
 
 # ── 解析指令 ─────────────────────────────────────────────────────────
 STDIN_DATA=$(cat 2>/dev/null || true)
@@ -49,6 +51,15 @@ except Exception:
 " 2>/dev/null || true)
 
 [ -z "${CMD:-}" ] && exit 0
+
+# Helper: 印出所有訊息行、記錄 audit event，然後 exit 2。
+# 用法：block "reason-slug" "行1" "行2" ...
+block() {
+    local reason="$1"; shift
+    for msg in "$@"; do echo "$msg"; done
+    audit_block "$reason" || true
+    exit 2
+}
 
 # ── git commit message 豁免 ──────────────────────────────────────────
 # git commit -m "$(cat <<'EOF'...)" 格式的 commit message 內含範例程式碼時，
@@ -111,14 +122,14 @@ if '\n' in after_c: print('yes')
 
 if [ "${PYTHON_MATCH:-}" = "yes" ]; then
     _log_block "python_c_multiline" "$CMD"
-    echo "BLOCKED: python -c multi-line body detected (AP1)"
-    echo ""
-    echo "多行 python -c 違反 Anti-Pattern 1（score: 多行 + 內嵌 Python >= 2）"
-    echo ""
-    echo "修法："
-    echo "  1. 將 Python 邏輯提取成獨立 .py 檔案"
-    echo "  2. 用 uv run --directory /path python3 scripts/xxx.py 取代 cd + inline"
-    exit 2
+    block "python-c-multiline" \
+        "BLOCKED: python -c multi-line body detected (AP1)" \
+        "" \
+        "多行 python -c 違反 Anti-Pattern 1（score: 多行 + 內嵌 Python >= 2）" \
+        "" \
+        "修法：" \
+        "  1. 將 Python 邏輯提取成獨立 .py 檔案" \
+        "  2. 用 uv run --directory /path python3 scripts/xxx.py 取代 cd + inline"
 fi
 
 # ── 偵測 2：osascript heredoc ─────────────────────────────────────────
@@ -133,14 +144,14 @@ if re.search(r'osascript\b[^&|;\n]*<<', cmd):
 
 if [ "${OSASCRIPT_MATCH:-}" = "yes" ]; then
     _log_block "osascript_heredoc" "$CMD"
-    echo "BLOCKED: osascript heredoc detected (AP1)"
-    echo ""
-    echo "osascript heredoc 違反 Anti-Pattern 1（score: 多行 heredoc + 內嵌 AppleScript >= 2）"
-    echo "heredoc 豁免僅適用 commit message 純文字，不適用 DSL/腳本 heredoc。"
-    echo ""
-    echo "修法：將 AppleScript 提取成獨立 .applescript 檔案"
-    echo "  osascript scripts/xxx.applescript"
-    exit 2
+    block "osascript-heredoc" \
+        "BLOCKED: osascript heredoc detected (AP1)" \
+        "" \
+        "osascript heredoc 違反 Anti-Pattern 1（score: 多行 heredoc + 內嵌 AppleScript >= 2）" \
+        "heredoc 豁免僅適用 commit message 純文字，不適用 DSL/腳本 heredoc。" \
+        "" \
+        "修法：將 AppleScript 提取成獨立 .applescript 檔案" \
+        "  osascript scripts/xxx.applescript"
 fi
 
 # ── 偵測 3：grep "...\|..." 雙引號 BRE alternation ─────────────────────
@@ -173,16 +184,16 @@ if found:
 
 if [ "${GREP_BRE_MATCH:-}" = "yes" ]; then
     _log_block "grep_bre_double_quote" "$CMD"
-    echo "BLOCKED: grep double-quoted BRE alternation (AP1 D 類)"
-    echo ""
-    echo "grep 雙引號 pattern 內含 \| 觸發 Unhandled node type: string。"
-    echo "即使 AP1 score 1/5，hook 仍觸發（Case 25）。"
-    echo ""
-    echo "修法（擇一）："
-    echo "  A) 單引號 BRE：grep -i 'pat1\|pat2'"
-    echo "  B) ERE flag：  grep -Ei 'pat1|pat2'"
-    echo "  C) 拆成多個 grep call"
-    exit 2
+    block "grep-bre-doublequote" \
+        "BLOCKED: grep double-quoted BRE alternation (AP1 D 類)" \
+        "" \
+        "grep 雙引號 pattern 內含 \| 觸發 Unhandled node type: string。" \
+        "即使 AP1 score 1/5，hook 仍觸發（Case 25）。" \
+        "" \
+        "修法（擇一）：" \
+        "  A) 單引號 BRE：grep -i 'pat1\|pat2'" \
+        "  B) ERE flag：  grep -Ei 'pat1|pat2'" \
+        "  C) 拆成多個 grep call"
 fi
 
 # ── 偵測 4：$(outer "$(inner)") 反向巢狀 subshell ─────────────────────
@@ -237,16 +248,16 @@ if found:
 
 if [ "${NESTED_SUBSHELL_MATCH:-}" = "yes" ]; then
     _log_block "nested_subshell" "$CMD"
-    echo "BLOCKED: \$(outer \"\$(inner)\") nested subshell (AP1 D 類)"
-    echo ""
-    echo "外層 \$() 包雙引號包內層 \$() 觸發 Unhandled node type: string（Case 26）。"
-    echo ""
-    echo "修法：拆成兩個獨立 bash call"
-    echo "  bash call 1：取得內層輸出"
-    echo "    GIT_COMMON=\$(git rev-parse --git-common-dir)"
-    echo "  bash call 2：用結果"
-    echo "    dirname \"\$GIT_COMMON\""
-    exit 2
+    block "nested-subshell" \
+        "BLOCKED: \$(outer \"\$(inner)\") nested subshell (AP1 D 類)" \
+        "" \
+        "外層 \$() 包雙引號包內層 \$() 觸發 Unhandled node type: string（Case 26）。" \
+        "" \
+        "修法：拆成兩個獨立 bash call" \
+        "  bash call 1：取得內層輸出" \
+        "    GIT_COMMON=\$(git rev-parse --git-common-dir)" \
+        "  bash call 2：用結果" \
+        "    dirname \"\$GIT_COMMON\""
 fi
 
 # TODO v3：偵測 5b — $(cmd "$VAR") 頂層 $() 內含 double-quoted 變數引數
@@ -277,14 +288,14 @@ if re.search(ptn, cmd):
 
 if [ "${JQ_FILTER_MATCH:-}" = "yes" ]; then
     _log_block "jq_single_quote_filter" "$CMD"
-    echo "BLOCKED: \$(jq '...') single-quoted filter in subshell (AP1 D 類)"
-    echo ""
-    echo "\$() 內的 jq 單引號 filter 觸發 Claude Code 內建 Unhandled node type: string。"
-    echo ""
-    echo "修法：移除 filter 的單引號（jq 接受不含特殊字元的 path 不需要引號）："
-    echo "  違規：SKILL_REPO=\$(jq -r '.skill_repo' ~/.agents/config.json)"
-    echo "  修法：SKILL_REPO=\$(jq -r .skill_repo ~/.agents/config.json)"
-    exit 2
+    block "jq-singlequote-filter" \
+        "BLOCKED: \$(jq '...') single-quoted filter in subshell (AP1 D 類)" \
+        "" \
+        "\$() 內的 jq 單引號 filter 觸發 Claude Code 內建 Unhandled node type: string。" \
+        "" \
+        "修法：移除 filter 的單引號（jq 接受不含特殊字元的 path 不需要引號）：" \
+        "  違規：SKILL_REPO=\$(jq -r '.skill_repo' ~/.agents/config.json)" \
+        "  修法：SKILL_REPO=\$(jq -r .skill_repo ~/.agents/config.json)"
 fi
 
 # ── 偵測 6：rg '...\|...' BRE alternation 語法（ERE 工具誤用）─────────────
@@ -324,16 +335,17 @@ if found:
 
 if [ "${RG_BRE_MATCH:-}" = "yes" ]; then
     _log_block "rg_bre_alternation" "$CMD"
-    echo "BLOCKED: rg pattern BRE alternation 誤用（Detection 6）"
-    echo ""
-    echo "rg 使用 Rust ERE-like regex：| 是 alternation，\\| 是 literal pipe 字元。"
-    echo "含 \\| 的 pattern 搜尋 literal pipe，不是多選一，結果靜默為空，無報錯。"
-    echo ""
-    echo "修法（擇一）："
-    echo "  A) 優先改用 Claude Code 內建 Grep tool（pattern 用 | 做 alternation）"
-    echo "  B) rg ERE 語法：rg -rl 'pat1|pat2|pat3' /path"
-    echo "  C) 多個 -e flag：rg -l -e 'pat1' -e 'pat2' /path"
-    exit 2
+    block "rg-bre-misuse" \
+        "BLOCKED: rg pattern BRE alternation 誤用（Detection 6）" \
+        "" \
+        "rg 使用 Rust ERE-like regex：| 是 alternation，\\| 是 literal pipe 字元。" \
+        "含 \\| 的 pattern 搜尋 literal pipe，不是多選一，結果靜默為空，無報錯。" \
+        "" \
+        "修法（擇一）：" \
+        "  A) 優先改用 Claude Code 內建 Grep tool（pattern 用 | 做 alternation）" \
+        "  B) rg ERE 語法：rg -rl 'pat1|pat2|pat3' /path" \
+        "  C) 多個 -e flag：rg -l -e 'pat1' -e 'pat2' /path"
 fi
 
+audit_allow || true
 exit 0
