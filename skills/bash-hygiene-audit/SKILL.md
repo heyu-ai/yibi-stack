@@ -137,3 +137,4 @@ uv run --directory "$SKILL_REPO" python -m tasks.bash_hygiene_audit stats
 | `stats` 顯示「無記錄」 | log 檔不存在或在其他 git repo；確認 cwd 在目標 repo 內 |
 | `jq` 未安裝導致 bash hook 無法寫入 | `brew install jq`，bash hook（ap1）依賴 jq 進行 JSON 序列化 |
 | Python hooks 的 audit 仍不寫入 | 確認 `~/.agents/bash-hygiene.json` 存在且 `audit_enabled` 為 `true` |
+| `command_preview` 含 inline secret 的疑慮 | `curl -H "Authorization: Bearer token"` 等指令的前 200 字元會以明文儲存於 `.runtime/logs/`。log 已 gitignore 不會 commit，但長期留存於磁碟。建議只在無 inline secret 的 repo 啟用 audit，或配合 `.runtime/` 定期清理策略使用 |

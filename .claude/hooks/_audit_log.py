@@ -61,7 +61,7 @@ def log_event(
         if path is None:
             return
         record = {
-            "ts": datetime.now(UTC).isoformat(),
+            "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "hook": hook,
             "hook_version": HOOK_VERSION,
             "exit_code": exit_code,
@@ -79,7 +79,7 @@ def log_event(
         pass
 
 
-# 供 bash hook 呼叫的 CLI entry（bash-ap1 不應使用，改用 _audit_log.sh）
+# CLI entry 供非 bash hook 使用；bash hook 應改用 _audit_log.sh
 def _main_cli() -> None:  # pragma: no cover
     import argparse
 

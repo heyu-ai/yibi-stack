@@ -36,9 +36,11 @@ def _base_record(
 class TestReadLog:
     def test_bhaudit_st_001_empty_file(self, tmp_path: Path) -> None:
         """BHAUDIT-ST-001: 空檔案回傳空列表。"""
-        log = tmp_path / "bash-hygiene-audit.jsonl"
+        log_dir = tmp_path / ".runtime" / "logs"
+        log_dir.mkdir(parents=True)
+        log = log_dir / "bash-hygiene-audit.jsonl"
         log.write_text("")
-        result = read_log(project_root=tmp_path.parent, last=10)
+        result = read_log(project_root=tmp_path, last=10)
         assert result == []
 
     def test_bhaudit_st_002_reads_records(self, tmp_path: Path) -> None:

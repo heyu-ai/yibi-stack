@@ -105,8 +105,8 @@ def main() -> None:
     if not isinstance(command, str) or not command:
         sys.exit(0)
 
-    elapsed = int((time.monotonic() - start) * 1000)
     m = _AP2.search(_scannable(command))
+    elapsed = int((time.monotonic() - start) * 1000)
     if not m:
         _log_event("ap2", command, exit_code=0, duration_ms=elapsed)
         sys.exit(0)

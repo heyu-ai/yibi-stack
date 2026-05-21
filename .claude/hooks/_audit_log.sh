@@ -23,19 +23,21 @@ _audit_log_path() {
 
 _audit_write() {
     # $1 = verdict (allow|block)  $2 = block_reason (empty string if allow)
+    # $3 = command string (optional; defaults to $CMD from caller's scope)
     _audit_check
     [ "$_AUDIT_ENABLED" = "yes" ] || return 0
     command -v jq >/dev/null 2>&1 || return 0
     local log_path
     log_path=$(_audit_log_path) || return 0
-    local ts cmd_preview cmd_hash exit_code record
+    local ts cmd_src cmd_preview cmd_hash exit_code record
     ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    cmd_preview="${CMD:0:200}"
-    cmd_hash=$(printf '%s' "$CMD" | shasum -a 256 2>/dev/null | cut -c1-16) || cmd_hash=""
+    cmd_src="${3:-${CMD:-}}"
+    cmd_preview="${cmd_src:0:200}"
+    cmd_hash=$(printf '%s' "$cmd_src" | shasum -a 256 2>/dev/null | cut -c1-16) || cmd_hash=""
     if [ "$1" = "block" ]; then exit_code=2; else exit_code=0; fi
     record=$(jq -c -n \
         --arg ts "$ts" \
-        --arg hook "ap1" \
+        --arg hook "${AUDIT_HOOK:-ap1}" \
         --arg ver "1" \
         --arg verdict "$1" \
         --argjson code "$exit_code" \
@@ -48,11 +50,13 @@ _audit_write() {
           command_preview:$preview,command_hash:$hash,
           session_id:(if $sid=="" then null else $sid end)}' 2>/dev/null) || return 0
     {
-        flock -x 9 2>/dev/null || true
+        if command -v flock >/dev/null 2>&1; then
+            flock -x 9
+        fi
         printf '%s\n' "$record" >> "$log_path"
     } 9>>"$log_path"
     return 0
 }
 
-audit_allow() { _audit_write "allow" "" || true; }
-audit_block() { _audit_write "block" "${1:-}" || true; }
+audit_allow() { _audit_write "allow" "" "${CMD:-}" || true; }
+audit_block() { _audit_write "block" "${1:-}" "${CMD:-}" || true; }

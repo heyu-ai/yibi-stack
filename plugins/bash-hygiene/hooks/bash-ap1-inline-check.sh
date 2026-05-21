@@ -44,7 +44,7 @@ except Exception:
     pass
 " 2>/dev/null || true)
 
-[ -z "${CMD:-}" ] && exit 0
+[ -z "${CMD:-}" ] && { audit_allow || true; exit 0; }
 
 # Helper: print block messages, record audit event, then exit 2.
 # Usage: block "reason-slug" "line1" "line2" ...
@@ -67,7 +67,7 @@ ptn = r'\bgit\s+commit\b[^;|&\n]*-[a-zA-Z]*m\s+' + dq + bs + dl + r'\(cat\s+<<'
 if re.search(ptn, cmd):
     print('yes')
 " 2>/dev/null || true)
-    [ "${IS_COMMIT_HEREDOC:-}" = "yes" ] && exit 0
+    [ "${IS_COMMIT_HEREDOC:-}" = "yes" ] && { audit_allow || true; exit 0; }
 fi
 
 # Detection 1: python -c with newlines (checks all occurrences via finditer)
@@ -234,6 +234,51 @@ if [ "${JQ_FILTER_MATCH:-}" = "yes" ]; then
         "Fix: remove quotes from jq filter (jq accepts unquoted simple paths)" \
         "  Bad:  RESULT=\$(jq -r '.key' file.json)" \
         "  Good: RESULT=\$(jq -r .key file.json)"
+fi
+
+# Detection 6: rg '...\|...' BRE alternation misuse in ERE tool
+# rg uses Rust ERE-like regex: | is alternation, \| is literal pipe.
+# BRE \| syntax returns 0 results silently when searching for literal pipe.
+RG_BRE_MATCH=$(printf '%s' "$CMD" | python3 -c "
+import re, sys
+cmd = sys.stdin.read()
+bs = chr(92)
+sq = chr(39)
+dq = chr(34)
+if not re.search(r'\brg\b', cmd):
+    sys.exit(0)
+found = False
+for qt in (sq, dq):
+    for m in re.finditer(qt + r'([^' + qt + r']*)' + qt, cmd):
+        if bs + '|' not in m.group(1):
+            continue
+        rg_hits = list(re.finditer(r'\brg\b', cmd[:m.start()]))
+        if not rg_hits:
+            continue
+        between = cmd[rg_hits[-1].end():m.start()]
+        if re.search(r'[|&;()\n]', between):
+            continue
+        if re.search(r'-[a-zA-Z]*F[a-zA-Z]*\b|--fixed-strings', between):
+            continue
+        found = True
+        break
+    if found:
+        break
+if found:
+    print('yes')
+" 2>/dev/null || true)
+
+if [ "${RG_BRE_MATCH:-}" = "yes" ]; then
+    block "rg-bre-misuse" \
+        "BLOCKED: rg pattern BRE alternation misuse (Detection 6)" \
+        "" \
+        "rg uses Rust ERE-like regex: | is alternation, \\| is literal pipe." \
+        "Pattern with \\| searches for literal pipe, not alternation. Results silently empty." \
+        "" \
+        "Fix (choose one):" \
+        "  A) Use Claude Code built-in Grep tool (pattern uses | for alternation)" \
+        "  B) rg ERE syntax: rg -rl 'pat1|pat2|pat3' /path" \
+        "  C) Multiple -e flags: rg -l -e 'pat1' -e 'pat2' /path"
 fi
 
 audit_allow || true

@@ -67,7 +67,7 @@ def show(last: int, hook: str | None, verdict: str | None) -> None:
         click.echo("（無記錄）")
         return
     for r in records:
-        icon = "[BLOCK]" if r.verdict == "block" else "[ALLOW]"
+        icon = {"block": "[BLOCK]", "allow": "[ALLOW]"}.get(str(r.verdict), "[ERROR]")
         reason = f"  reason={r.block_reason}" if r.block_reason else ""
         dur = f"  {r.duration_ms}ms" if r.duration_ms is not None else ""
         click.echo(f"{r.ts}  {icon}  hook={r.hook}{reason}{dur}")

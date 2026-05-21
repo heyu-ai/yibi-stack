@@ -11,13 +11,15 @@ _CONFIG_PATH = Path.home() / ".agents" / "bash-hygiene.json"
 
 
 def load_config() -> AuditConfig:
-    """載入 toggle config；檔案不存在時回傳預設值（audit_enabled=False）。"""
+    """載入 toggle config；檔案不存在時回傳預設值（audit_enabled=False）。
+    檔案存在但損壞時拋出 RuntimeError（呼叫方為 CLI，應顯示錯誤）。
+    """
     if not _CONFIG_PATH.is_file():
         return AuditConfig()
     try:
         return AuditConfig.model_validate(json.loads(_CONFIG_PATH.read_text("utf-8")))
-    except Exception:
-        return AuditConfig()
+    except Exception as e:
+        raise RuntimeError(f"設定檔損壞，請刪除後重新執行 enable：{_CONFIG_PATH}") from e
 
 
 def save_config(config: AuditConfig) -> None:

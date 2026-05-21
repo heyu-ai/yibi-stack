@@ -50,7 +50,7 @@ except Exception:
     pass
 " 2>/dev/null || true)
 
-[ -z "${CMD:-}" ] && exit 0
+[ -z "${CMD:-}" ] && { audit_allow || true; exit 0; }
 
 # Helper: 印出所有訊息行、記錄 audit event，然後 exit 2。
 # 用法：block "reason-slug" "行1" "行2" ...
@@ -85,7 +85,7 @@ ptn = r'\bgit\b' + GFLAG + r'*\s+commit\b[^;|&\n]*-[a-zA-Z]*m\s+' + dq + bs + dl
 if re.search(ptn, cmd):
     print('yes')
 " 2>/dev/null || true)
-    [ "${IS_COMMIT_HEREDOC:-}" = "yes" ] && exit 0
+    [ "${IS_COMMIT_HEREDOC:-}" = "yes" ] && { audit_allow || true; exit 0; }
 fi
 
 # ── 偵測 1：python -c 含換行 ──────────────────────────────────────────
