@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from tasks.bash_hygiene_audit.models import AuditRecord
-from tasks.bash_hygiene_audit.service import compute_stats, read_log
+from tasks.bash_hygiene_audit.service import compute_stats, count_log_lines, read_log
 
 
 def _make_jsonl(records: list[dict[str, object]]) -> str:
@@ -83,6 +83,18 @@ class TestReadLog:
         log.write_text("not-valid-json\n" + json.dumps(_base_record()) + "\n")
         result = read_log(last=10, project_root=tmp_path)
         assert len(result) == 1
+
+    def test_bhaudit_st_006_count_log_lines(self, tmp_path: Path) -> None:
+        """BHAUDIT-ST-006: count_log_lines 正確計算非空行數（忽略空行）。"""
+        log_dir = tmp_path / ".runtime" / "logs"
+        log_dir.mkdir(parents=True)
+        log = log_dir / "bash-hygiene-audit.jsonl"
+        log.write_text(json.dumps(_base_record()) + "\n" + json.dumps(_base_record()) + "\n\n")
+        assert count_log_lines(project_root=tmp_path) == 2
+
+    def test_bhaudit_st_007_count_log_lines_no_file(self, tmp_path: Path) -> None:
+        """BHAUDIT-ST-007: log 不存在時 count_log_lines 回傳 0。"""
+        assert count_log_lines(project_root=tmp_path) == 0
 
 
 class TestComputeStats:

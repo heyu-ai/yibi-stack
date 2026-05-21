@@ -100,6 +100,50 @@ class TestShow:
         finally:
             svc_mod._find_log_path = orig_fn
 
+    def test_bhaudit_st_016_show_error_verdict(self, tmp_path: Path) -> None:
+        """BHAUDIT-ST-016: show 指令對 error verdict 顯示 [ERROR]（非 [ALLOW]）。"""
+        import tasks.bash_hygiene_audit.service as svc_mod
+
+        record = {**_base_record("allow"), "verdict": "error", "exit_code": 1}
+        log = tmp_path / "bash-hygiene-audit.jsonl"
+        log.write_text(json.dumps(record) + "\n")
+
+        orig_fn = svc_mod._find_log_path
+
+        def mock_fn(project_root: Path | None = None) -> Path | None:
+            return log
+
+        svc_mod._find_log_path = mock_fn
+        try:
+            runner = CliRunner()
+            result = runner.invoke(cli, ["show"])
+            assert result.exit_code == 0
+            assert "[ERROR]" in result.output
+            assert "[ALLOW]" not in result.output
+        finally:
+            svc_mod._find_log_path = orig_fn
+
+
+class TestStatus:
+    def test_bhaudit_st_015_status_shows_off(self, tmp_path: Path) -> None:
+        """BHAUDIT-ST-015: status 在 audit 停用時顯示 [OFF]。"""
+        import tasks.bash_hygiene_audit.config as cfg_mod
+        import tasks.bash_hygiene_audit.service as svc_mod
+
+        orig_cfg = cfg_mod._CONFIG_PATH
+        orig_fn = svc_mod._find_log_path
+        cfg_mod._CONFIG_PATH = tmp_path / "nonexistent.json"
+        svc_mod._find_log_path = lambda project_root=None: None
+        try:
+            runner = CliRunner()
+            result = runner.invoke(cli, ["status"])
+            assert result.exit_code == 0
+            assert "[OFF]" in result.output
+            assert "尚無記錄" in result.output
+        finally:
+            cfg_mod._CONFIG_PATH = orig_cfg
+            svc_mod._find_log_path = orig_fn
+
 
 class TestStats:
     def test_bhaudit_st_014_stats_output(self, tmp_path: Path) -> None:

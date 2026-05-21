@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import click
+
+if TYPE_CHECKING:
+    from .models import AuditConfig
 
 _DISPLAY_COLS = 80
 
@@ -12,12 +17,22 @@ def cli() -> None:
     """bash-hygiene audit log 管理與分析。"""
 
 
+def _load_or_exit() -> AuditConfig:
+    from .config import load_config
+
+    try:
+        return load_config()
+    except RuntimeError as e:
+        click.echo(f"[FAIL] {e}", err=True)
+        raise SystemExit(1) from e
+
+
 @cli.command()
 def enable() -> None:
     """啟用 audit log 記錄（設定 audit_enabled=true）。"""
-    from .config import load_config, save_config
+    from .config import save_config
 
-    config = load_config()
+    config = _load_or_exit()
     config.audit_enabled = True
     save_config(config)
     click.echo("[OK] audit log 已啟用。")
@@ -27,9 +42,9 @@ def enable() -> None:
 @cli.command()
 def disable() -> None:
     """停用 audit log 記錄（設定 audit_enabled=false）。"""
-    from .config import load_config, save_config
+    from .config import save_config
 
-    config = load_config()
+    config = _load_or_exit()
     config.audit_enabled = False
     save_config(config)
     click.echo("[OK] audit log 已停用。")
@@ -38,10 +53,10 @@ def disable() -> None:
 @cli.command()
 def status() -> None:
     """顯示 audit log 目前狀態（toggle + log 檔路徑 + 記錄數）。"""
-    from .config import config_path, load_config
+    from .config import config_path
     from .service import count_log_lines, log_path
 
-    config = load_config()
+    config = _load_or_exit()
     state = "[ON]" if config.audit_enabled else "[OFF]"
     click.echo(f"audit log：{state}")
     click.echo(f"config 路徑：{config_path()}")
