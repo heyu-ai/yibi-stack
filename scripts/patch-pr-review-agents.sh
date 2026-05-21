@@ -131,4 +131,8 @@ if [ -n "$CURRENT_SHA" ]; then
     echo "  [WARN] 識別 ID 無法寫入 state file：$STATE_FILE（patch 已套用，但下次仍會重跑）" >&2
   fi
 fi
-echo "  [OK] $PATCHED agent(s) patched，識別 ID：${CURRENT_SHA:0:12}"
+if [ -n "$CURRENT_SHA" ]; then
+  echo "  [OK] $PATCHED agent(s) patched，識別 ID：${CURRENT_SHA:0:12}"
+else
+  echo "  [OK] $PATCHED agent(s) patched（未找到可追蹤識別 ID，下次仍會重跑）"
+fi
