@@ -22,6 +22,17 @@
 set -uo pipefail
 trap 'exit 0' ERR
 
+# ── 事件記錄（fire-and-forget）────────────────────────────────────────────
+_HOOK_DIR=$(dirname "${BASH_SOURCE[0]}")
+_REPO_ROOT=$(git -C "$_HOOK_DIR" rev-parse --show-toplevel 2>/dev/null || true)
+_LOG_SCRIPT="${_REPO_ROOT}/scripts/log_bash_hygiene_event.py"
+
+_log_block() {
+    [ -f "${_LOG_SCRIPT}" ] || return 0
+    python3 "${_LOG_SCRIPT}" ap1 "$1" "${CMD:0:120}" >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+}
+
 # ── 解析指令 ─────────────────────────────────────────────────────────
 STDIN_DATA=$(cat 2>/dev/null || true)
 
@@ -98,6 +109,7 @@ if '\n' in after_c: print('yes')
 " 2>/dev/null || true)
 
 if [ "${PYTHON_MATCH:-}" = "yes" ]; then
+    _log_block "python_c_multiline"
     echo "BLOCKED: python -c multi-line body detected (AP1)"
     echo ""
     echo "多行 python -c 違反 Anti-Pattern 1（score: 多行 + 內嵌 Python >= 2）"
@@ -119,6 +131,7 @@ if re.search(r'osascript\b[^&|;\n]*<<', cmd):
 " 2>/dev/null || true)
 
 if [ "${OSASCRIPT_MATCH:-}" = "yes" ]; then
+    _log_block "osascript_heredoc"
     echo "BLOCKED: osascript heredoc detected (AP1)"
     echo ""
     echo "osascript heredoc 違反 Anti-Pattern 1（score: 多行 heredoc + 內嵌 AppleScript >= 2）"
@@ -158,6 +171,7 @@ if found:
 " 2>/dev/null || true)
 
 if [ "${GREP_BRE_MATCH:-}" = "yes" ]; then
+    _log_block "grep_bre_double_quote"
     echo "BLOCKED: grep double-quoted BRE alternation (AP1 D 類)"
     echo ""
     echo "grep 雙引號 pattern 內含 \| 觸發 Unhandled node type: string。"
@@ -221,6 +235,7 @@ if found:
 " 2>/dev/null || true)
 
 if [ "${NESTED_SUBSHELL_MATCH:-}" = "yes" ]; then
+    _log_block "nested_subshell"
     echo "BLOCKED: \$(outer \"\$(inner)\") nested subshell (AP1 D 類)"
     echo ""
     echo "外層 \$() 包雙引號包內層 \$() 觸發 Unhandled node type: string（Case 26）。"
@@ -260,6 +275,7 @@ if re.search(ptn, cmd):
 " 2>/dev/null || true)
 
 if [ "${JQ_FILTER_MATCH:-}" = "yes" ]; then
+    _log_block "jq_single_quote_filter"
     echo "BLOCKED: \$(jq '...') single-quoted filter in subshell (AP1 D 類)"
     echo ""
     echo "\$() 內的 jq 單引號 filter 觸發 Claude Code 內建 Unhandled node type: string。"
@@ -306,6 +322,7 @@ if found:
 " 2>/dev/null || true)
 
 if [ "${RG_BRE_MATCH:-}" = "yes" ]; then
+    _log_block "rg_bre_alternation"
     echo "BLOCKED: rg pattern BRE alternation 誤用（Detection 6）"
     echo ""
     echo "rg 使用 Rust ERE-like regex：| 是 alternation，\\| 是 literal pipe 字元。"
