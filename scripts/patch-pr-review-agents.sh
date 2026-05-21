@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 為 pr-review-toolkit 的所有 agent 加入 git -C 指令規範。
 # 雙層冪等保護：
-#   1) STATE_FILE 記錄上次 patch 的 gitCommitSha，SHA 相符則整批跳過
+#   1) STATE_FILE 記錄上次 patch 的識別 ID（gitCommitSha 優先，version fallback；無法取得時不寫入，強制重跑），ID 相符則整批跳過
 #   2) 每個 agent 檔案以末尾唯一字串作為已 patch 標記，防止 patch 中途中斷後重複寫入
 set -euo pipefail
 
@@ -39,8 +39,8 @@ CURRENT_SHA=$(jq -r --arg key "$PLUGIN_KEY" '.plugins[$key][0].gitCommitSha // e
 INSTALL_PATH=$(jq -r --arg key "$PLUGIN_KEY" '.plugins[$key][0].installPath // empty' "$INSTALLED_JSON")
 
 if [ -z "$CURRENT_SHA" ]; then
-  echo "  [WARN] installed_plugins.json 缺少 gitCommitSha 欄位，使用 version 作為 patch 追蹤 ID"
-  CURRENT_SHA=$(jq -r --arg key "$PLUGIN_KEY" '.plugins[$key][0].version // "unknown"' "$INSTALLED_JSON")
+  echo "  [WARN] installed_plugins.json 缺少 gitCommitSha 欄位，使用 version 作為 patch 追蹤 ID" >&2
+  CURRENT_SHA=$(jq -r --arg key "$PLUGIN_KEY" '.plugins[$key][0].version // ""' "$INSTALLED_JSON")
 fi
 if [ -z "$INSTALL_PATH" ]; then
   echo "  [FAIL] installed_plugins.json 缺少 installPath 欄位，請重新安裝 pr-review-toolkit" >&2
@@ -124,8 +124,11 @@ if [ "$PATCHED" -eq 0 ]; then
 fi
 
 # STATE_FILE 在全部 patch 完成後才寫入，確保中途中斷時下次能重試
+# CURRENT_SHA 為空時不寫入（無可追蹤 ID），下次執行走 all_patched check 判斷
 mkdir -p "$(dirname "$STATE_FILE")"
-if ! echo "$CURRENT_SHA" > "$STATE_FILE"; then
-  echo "  [WARN] SHA 無法寫入 state file：$STATE_FILE（patch 已套用，但下次仍會重跑）" >&2
+if [ -n "$CURRENT_SHA" ]; then
+  if ! echo "$CURRENT_SHA" > "$STATE_FILE"; then
+    echo "  [WARN] SHA 無法寫入 state file：$STATE_FILE（patch 已套用，但下次仍會重跑）" >&2
+  fi
 fi
-echo "  [OK] $PATCHED agent(s) patched，SHA 已記錄：${CURRENT_SHA:0:12}"
+echo "  [OK] $PATCHED agent(s) patched，識別 ID：${CURRENT_SHA:0:12}"
