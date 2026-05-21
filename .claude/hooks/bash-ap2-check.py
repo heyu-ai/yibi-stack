@@ -19,8 +19,24 @@ Exit code:
 """
 
 import json
+import pathlib
 import re
+import subprocess  # nosec B404
 import sys
+
+_LOG_SCRIPT = pathlib.Path(__file__).parent.parent.parent / "scripts" / "log_bash_hygiene_event.py"
+
+
+def _log_block(pattern: str, cmd: str) -> None:
+    if not _LOG_SCRIPT.exists():
+        return
+    subprocess.Popen(  # nosec B603
+        [sys.executable, str(_LOG_SCRIPT), "ap2", pattern, cmd],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
 
 _AP2 = re.compile(
     r"["
@@ -90,9 +106,12 @@ def main() -> None:
     except Exception:
         sys.exit(0)
 
-    if not _AP2.search(_scannable(command)):
+    m = _AP2.search(_scannable(command))
+    if not m:
         sys.exit(0)
 
+    char_code = f"unicode_U+{ord(m.group(0)):05X}"
+    _log_block(char_code, command)
     print(_VIOLATION_MESSAGE)
     sys.exit(2)
 
