@@ -121,3 +121,4 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **`Path.rglob()` 不追蹤 symlink**：`pathlib` 的 `rglob()` 預設不進 symlink 子目錄。若目標目錄含 symlink（如本 repo `skills/` 的 plugin symlink），改用 `os.walk(followlinks=True)` 或 Python 3.13+ 的 `glob(follow_symlinks=True)`
 - **`plugins/harness` 無 `package.json`**：`plugins/` 下並非所有子目錄都是可 `claude plugin install` 的正式 plugin。
   `plugins/harness` 是 README-only 容器，需用 `make install-one SKILL=harness-eval`；並列時必須 inline 標注例外，否則讀者繼承區塊語意靜默失敗。
+- **bootstrap script 的 `[SKIP]` 應改 `[WARN]`**：`make install-all` chain 中目標資源（如 `~/.claude/settings.json`）不存在時，靜默 `[SKIP]` + exit 0 等同問題隱藏。應改 `[WARN]` 並說明修復指令（例：「請先啟動 Claude Code 以產生設定檔，再重跑 `make patch-gemini-allow-list`」）。

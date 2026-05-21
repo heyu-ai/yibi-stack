@@ -72,3 +72,17 @@ if path.is_dir():
 ```
 
 `exists()` 只在「不區分型態、只需確認路徑存在」的場合使用（如 config 檔、log 檔）。
+
+## Pathlib 路徑操作語意
+
+`Path.with_suffix(ext)` 是**替換**最後一個副檔名，不是附加後綴：
+
+```python
+# 陷阱：with_suffix 替換 .json，結果 settings.json.tmp 只是「碰巧正確」
+tmp = SETTINGS_PATH.with_suffix(".json.tmp")   # settings.json -> settings.json.tmp
+
+# 正確：明確指定完整檔名
+tmp = SETTINGS_PATH.with_name("settings.json.tmp")  # 語意自明
+```
+
+需要 `.tmp` 暫存檔時一律用 `with_name(stem + ".tmp")` 或 `with_name("filename.tmp")`。
