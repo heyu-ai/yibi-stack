@@ -23,13 +23,13 @@ set -uo pipefail
 trap 'exit 0' ERR
 
 # ── 事件記錄（fire-and-forget）────────────────────────────────────────────
-_HOOK_DIR=$(dirname "${BASH_SOURCE[0]}")
-_REPO_ROOT=$(git -C "$_HOOK_DIR" rev-parse --show-toplevel 2>/dev/null || true)
-_LOG_SCRIPT="${_REPO_ROOT}/scripts/log_bash_hygiene_event.py"
+# Hook 永遠住在 <repo>/.claude/hooks/，用相對路徑算出 log script，
+# 避免每次 PreToolUse 都 fork git（hot-path）且不依賴 git 可用。
+_LOG_SCRIPT="${BASH_SOURCE[0]%/*}/../../scripts/log_bash_hygiene_event.py"
 
 _log_block() {
-    [ -f "${_LOG_SCRIPT}" ] || return 0
-    python3 "${_LOG_SCRIPT}" ap1 "$1" "${CMD:0:120}" >/dev/null 2>&1 &
+    [ -f "$_LOG_SCRIPT" ] || return 0
+    python3 "$_LOG_SCRIPT" ap1 "$1" "${CMD:0:120}" >/dev/null 2>&1 &
     disown 2>/dev/null || true
 }
 
