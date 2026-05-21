@@ -24,7 +24,7 @@ import re
 import subprocess
 import sys
 
-_LOG_SCRIPT = pathlib.Path(__file__).parent.parent / "scripts" / "log_bash_hygiene_event.py"
+_LOG_SCRIPT = pathlib.Path(__file__).parent.parent.parent / "scripts" / "log_bash_hygiene_event.py"
 
 
 def _log_block(pattern: str, cmd_prefix: str) -> None:
