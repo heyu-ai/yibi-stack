@@ -34,9 +34,9 @@ if ! jq -e --arg key "$PLUGIN_KEY" '.plugins[$key] | length > 0' "$INSTALLED_JSO
 fi
 
 # 取得目前 SHA 與安裝路徑（取 [0]，每個 plugin key 通常只有一筆安裝記錄）
-# 用 // empty 讓 null 值輸出空字串，而非字面 "null"
-CURRENT_ID=$(jq -r --arg key "$PLUGIN_KEY" '.plugins[$key][0].gitCommitSha // empty' "$INSTALLED_JSON")
-INSTALL_PATH=$(jq -r --arg key "$PLUGIN_KEY" '.plugins[$key][0].installPath // empty' "$INSTALLED_JSON")
+# 用 // "" 讓 null 值輸出空字串，而非字面 "null"
+CURRENT_ID=$(jq -r --arg key "$PLUGIN_KEY" '.plugins[$key][0].gitCommitSha // ""' "$INSTALLED_JSON")
+INSTALL_PATH=$(jq -r --arg key "$PLUGIN_KEY" '.plugins[$key][0].installPath // ""' "$INSTALLED_JSON")
 
 if [ -z "$CURRENT_ID" ]; then
   echo "  [WARN] installed_plugins.json 缺少 gitCommitSha 欄位，使用 version 作為 patch 追蹤 ID" >&2
