@@ -20,6 +20,15 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 0
 fi
 
+# fire-and-forget event logging（3 levels up from plugins/bash-hygiene/hooks/）
+_LOG_SCRIPT="${BASH_SOURCE[0]%/*}/../../../scripts/log_bash_hygiene_event.py"
+
+_log_block() {
+    [ -f "$_LOG_SCRIPT" ] || return 0
+    python3 "$_LOG_SCRIPT" ap1 "$1" "$2" >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+}
+
 STDIN_DATA=$(cat 2>/dev/null || true)
 
 CMD=$(printf '%s' "${STDIN_DATA:-}" | python3 -c "
@@ -76,6 +85,7 @@ for m in re.finditer(r'python[0-9]*(?:\.[0-9]+)*(?:\s+-\w+)*\s+-c', cmd):
 " 2>/dev/null || true)
 
 if [ "${PYTHON_MATCH:-}" = "yes" ]; then
+    _log_block "python_c_multiline" "$CMD"
     echo "BLOCKED: python -c multi-line body detected (AP1)"
     echo ""
     echo "Multi-line python -c violates Anti-Pattern 1 (score: multi-line + inline Python >= 2)"
@@ -93,6 +103,7 @@ if re.search(r'osascript\b[^&|;\n]*<<', cmd):
 " 2>/dev/null || true)
 
 if [ "${OSASCRIPT_MATCH:-}" = "yes" ]; then
+    _log_block "osascript_heredoc" "$CMD"
     echo "BLOCKED: osascript heredoc detected (AP1)"
     echo ""
     echo "osascript heredoc violates Anti-Pattern 1 (score: multi-line heredoc + inline AppleScript >= 2)"
@@ -127,6 +138,7 @@ if found:
 " 2>/dev/null || true)
 
 if [ "${GREP_BRE_MATCH:-}" = "yes" ]; then
+    _log_block "grep_bre_double_quote" "$CMD"
     echo "BLOCKED: grep double-quoted BRE alternation (AP1)"
     echo ""
     echo "Fix: use single quotes or -E flag"
@@ -182,6 +194,7 @@ if found:
 " 2>/dev/null || true)
 
 if [ "${NESTED_SUBSHELL_MATCH:-}" = "yes" ]; then
+    _log_block "nested_subshell" "$CMD"
     echo "BLOCKED: \$(outer \"\$(inner)\") nested subshell (AP1)"
     echo ""
     echo "Fix: split into two separate bash calls"
@@ -202,6 +215,7 @@ if re.search(ptn, cmd):
 " 2>/dev/null || true)
 
 if [ "${JQ_FILTER_MATCH:-}" = "yes" ]; then
+    _log_block "jq_single_quote_filter" "$CMD"
     echo "BLOCKED: \$(jq '...') single-quoted filter in subshell (AP1)"
     echo ""
     echo "Fix: remove quotes from jq filter (jq accepts unquoted simple paths)"
