@@ -5,15 +5,15 @@ Fail-safe 合約：任何 exception 靜默吞掉，絕不影響 hook 判斷。
     from _audit_log import log_event
     log_event("ap2", command, exit_code=0, duration_ms=elapsed_ms)
 """
+
 from __future__ import annotations
 
 import fcntl
 import hashlib
 import json
 import os
-import subprocess
-import time
-from datetime import datetime, timezone
+import subprocess  # nosec B404
+from datetime import UTC, datetime
 from pathlib import Path
 
 CONFIG_PATH = Path.home() / ".agents" / "bash-hygiene.json"
@@ -32,7 +32,7 @@ def _enabled() -> bool:
 
 def _log_path() -> Path | None:
     try:
-        r = subprocess.run(
+        r = subprocess.run(  # nosec B603 B607
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
@@ -61,7 +61,7 @@ def log_event(
         if path is None:
             return
         record = {
-            "ts": datetime.now(timezone.utc).astimezone().isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "hook": hook,
             "hook_version": HOOK_VERSION,
             "exit_code": exit_code,
@@ -75,7 +75,7 @@ def log_event(
         with path.open("a", encoding="utf-8") as f:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except Exception:
+    except Exception:  # nosec B110
         pass
 
 

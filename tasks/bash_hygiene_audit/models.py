@@ -1,7 +1,16 @@
 """bash-hygiene audit log 資料模型。"""
+
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydantic import BaseModel, Field
+
+
+class Verdict(StrEnum):
+    ALLOW = "allow"
+    BLOCK = "block"
+    ERROR = "error"
 
 
 class AuditConfig(BaseModel):
@@ -17,7 +26,7 @@ class AuditRecord(BaseModel):
     hook: str
     hook_version: str = "1"
     exit_code: int
-    verdict: str
+    verdict: Verdict
     block_reason: str | None = None
     command_preview: str = ""
     command_hash: str = ""

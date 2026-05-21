@@ -1,4 +1,5 @@
 """BHAUDIT-VL 模型驗證測試。"""
+
 from __future__ import annotations
 
 import pytest

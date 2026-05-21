@@ -30,7 +30,8 @@ uv run --directory "$SKILL_REPO" python -m tasks.bash_hygiene_audit status
 ```
 
 輸出範例：
-```
+
+```text
 audit log：[OFF]
 config 路徑：/Users/foo/.agents/bash-hygiene.json
 log 路徑：（尚無記錄）
@@ -86,7 +87,8 @@ uv run --directory "$SKILL_REPO" python -m tasks.bash_hygiene_audit stats
 ```
 
 輸出範例：
-```
+
+```text
 總計：42 筆  block：8（19.0%）  allow：34
 平均耗時：3.2ms
 --- by hook ---

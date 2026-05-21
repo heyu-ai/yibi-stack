@@ -1,4 +1,5 @@
 """User-level toggle config 管理（~/.agents/bash-hygiene.json）。"""
+
 from __future__ import annotations
 
 import json
@@ -14,9 +15,7 @@ def load_config() -> AuditConfig:
     if not _CONFIG_PATH.is_file():
         return AuditConfig()
     try:
-        return AuditConfig.model_validate(
-            json.loads(_CONFIG_PATH.read_text("utf-8"))
-        )
+        return AuditConfig.model_validate(json.loads(_CONFIG_PATH.read_text("utf-8")))
     except Exception:
         return AuditConfig()
 
@@ -24,9 +23,7 @@ def load_config() -> AuditConfig:
 def save_config(config: AuditConfig) -> None:
     """儲存 toggle config 至 ~/.agents/bash-hygiene.json。"""
     _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _CONFIG_PATH.write_text(
-        config.model_dump_json(indent=2) + "\n", encoding="utf-8"
-    )
+    _CONFIG_PATH.write_text(config.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
 
 def config_path() -> Path:

@@ -1,7 +1,10 @@
 """CLI 入口：bash-hygiene audit log 分析工具。"""
+
 from __future__ import annotations
 
 import click
+
+_DISPLAY_COLS = 80
 
 
 @click.group()
@@ -36,7 +39,7 @@ def disable() -> None:
 def status() -> None:
     """顯示 audit log 目前狀態（toggle + log 檔路徑 + 記錄數）。"""
     from .config import config_path, load_config
-    from .service import log_path, read_log
+    from .service import count_log_lines, log_path
 
     config = load_config()
     state = "[ON]" if config.audit_enabled else "[OFF]"
@@ -45,9 +48,8 @@ def status() -> None:
 
     path = log_path()
     if path and path.is_file():
-        records = read_log(last=99999)
         click.echo(f"log 路徑：{path}")
-        click.echo(f"記錄筆數：{len(records)}")
+        click.echo(f"記錄筆數：{count_log_lines()}")
     else:
         click.echo("log 路徑：（尚無記錄）")
 
@@ -70,7 +72,7 @@ def show(last: int, hook: str | None, verdict: str | None) -> None:
         dur = f"  {r.duration_ms}ms" if r.duration_ms is not None else ""
         click.echo(f"{r.ts}  {icon}  hook={r.hook}{reason}{dur}")
         if r.command_preview:
-            preview = r.command_preview[:80].replace("\n", " ")
+            preview = r.command_preview[:_DISPLAY_COLS].replace("\n", " ")
             click.echo(f"  cmd: {preview}")
 
 
@@ -85,7 +87,9 @@ def stats() -> None:
         return
     s = compute_stats(records)
     block_pct = (s.block_count / s.total * 100) if s.total else 0
-    click.echo(f"總計：{s.total} 筆  block：{s.block_count}（{block_pct:.1f}%）  allow：{s.allow_count}")
+    click.echo(
+        f"總計：{s.total} 筆  block：{s.block_count}（{block_pct:.1f}%）  allow：{s.allow_count}"
+    )
     if s.avg_duration_ms is not None:
         click.echo(f"平均耗時：{s.avg_duration_ms:.1f}ms")
     if s.by_hook:

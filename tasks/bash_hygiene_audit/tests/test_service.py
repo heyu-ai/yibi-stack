@@ -1,10 +1,9 @@
 """BHAUDIT-ST / BHAUDIT-DT service 層測試。"""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import pytest
 
 from tasks.bash_hygiene_audit.models import AuditRecord
 from tasks.bash_hygiene_audit.service import compute_stats, read_log
@@ -47,7 +46,9 @@ class TestReadLog:
         log_dir = tmp_path / ".runtime" / "logs"
         log_dir.mkdir(parents=True)
         log = log_dir / "bash-hygiene-audit.jsonl"
-        log.write_text(_make_jsonl([_base_record(), _base_record("block", block_reason="ap2-unicode")]))
+        log.write_text(
+            _make_jsonl([_base_record(), _base_record("block", block_reason="ap2-unicode")])
+        )
         result = read_log(last=10, project_root=tmp_path)
         assert len(result) == 2
         assert result[0].verdict == "allow"
@@ -83,15 +84,19 @@ class TestReadLog:
 
 
 class TestComputeStats:
-    def _make_records(self, verdicts: list[str], durations: list[int | None] | None = None) -> list[AuditRecord]:
+    def _make_records(
+        self, verdicts: list[str], durations: list[int | None] | None = None
+    ) -> list[AuditRecord]:
         if durations is None:
             durations = [None] * len(verdicts)
         return [
-            AuditRecord.model_validate({
-                **_base_record(verdict=v, duration_ms=d),
-                "block_reason": "ap2-unicode" if v == "block" else None,
-            })
-            for v, d in zip(verdicts, durations)
+            AuditRecord.model_validate(
+                {
+                    **_base_record(verdict=v, duration_ms=d),
+                    "block_reason": "ap2-unicode" if v == "block" else None,
+                }
+            )
+            for v, d in zip(verdicts, durations, strict=True)
         ]
 
     def test_bhaudit_dt_001_all_allow(self) -> None:

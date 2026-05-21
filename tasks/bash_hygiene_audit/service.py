@@ -1,18 +1,19 @@
 """bash-hygiene audit log 讀取與統計分析。"""
+
 from __future__ import annotations
 
 import json
-import subprocess
+import subprocess  # nosec B404
 from pathlib import Path
 
-from .models import AuditRecord, AuditStats
+from .models import AuditRecord, AuditStats, Verdict
 
 
 def _find_log_path(project_root: Path | None = None) -> Path | None:
     """找到當前 git repo 的 audit log 路徑；找不到時回傳 None。"""
     if project_root is None:
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607
                 ["git", "rev-parse", "--show-toplevel"],
                 capture_output=True,
                 text=True,
@@ -37,14 +38,15 @@ def read_log(
     if path is None or not path.is_file():
         return []
     records: list[AuditRecord] = []
-    for line in path.read_text("utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            records.append(AuditRecord.model_validate(json.loads(line)))
-        except Exception:
-            continue
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(AuditRecord.model_validate(json.loads(line)))
+            except Exception:  # nosec B112
+                continue
     if hook:
         records = [r for r in records if r.hook == hook]
     if verdict:
@@ -57,9 +59,9 @@ def compute_stats(records: list[AuditRecord]) -> AuditStats:
     stats = AuditStats(total=len(records))
     durations: list[int] = []
     for r in records:
-        if r.verdict == "allow":
+        if r.verdict == Verdict.ALLOW:
             stats.allow_count += 1
-        elif r.verdict == "block":
+        elif r.verdict == Verdict.BLOCK:
             stats.block_count += 1
         else:
             stats.error_count += 1
@@ -76,3 +78,12 @@ def compute_stats(records: list[AuditRecord]) -> AuditStats:
 def log_path(project_root: Path | None = None) -> Path | None:
     """回傳 audit log 絕對路徑（供 CLI status 指令顯示）。"""
     return _find_log_path(project_root)
+
+
+def count_log_lines(project_root: Path | None = None) -> int:
+    """回傳 audit log 非空行數（不做 Pydantic 解析，供 status 指令輕量計數）。"""
+    path = _find_log_path(project_root)
+    if path is None or not path.is_file():
+        return 0
+    with path.open("r", encoding="utf-8") as f:
+        return sum(1 for line in f if line.strip())

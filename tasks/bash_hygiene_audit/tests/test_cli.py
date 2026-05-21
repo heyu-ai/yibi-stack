@@ -1,10 +1,10 @@
 """BHAUDIT-ST CLI 層測試。"""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-import pytest
 from click.testing import CliRunner
 
 from tasks.bash_hygiene_audit.cli import cli
