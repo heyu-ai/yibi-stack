@@ -23,6 +23,17 @@ import pathlib
 import re
 import subprocess  # nosec B404
 import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+try:
+    from _audit_log import log_event as _log_event
+except Exception:  # pragma: no cover
+
+    def _log_event(*_a: object, **_kw: object) -> None:  # type: ignore[misc]
+        pass
+
 
 _LOG_SCRIPT = pathlib.Path(__file__).parent.parent.parent / "scripts" / "log_bash_hygiene_event.py"
 
@@ -98,6 +109,7 @@ def _scannable(command: str) -> str:
 
 
 def main() -> None:
+    start = time.monotonic()
     try:
         data = json.load(sys.stdin)
         if data.get("tool_name") != "Bash":
@@ -107,11 +119,14 @@ def main() -> None:
         sys.exit(0)
 
     m = _AP2.search(_scannable(command))
+    elapsed = int((time.monotonic() - start) * 1000)
     if not m:
+        _log_event("ap2", command, exit_code=0, duration_ms=elapsed)
         sys.exit(0)
 
     char_code = f"unicode_U+{ord(m.group(0)):05X}"
     _log_block(char_code, command)
+    _log_event("ap2", command, exit_code=2, block_reason="ap2-unicode", duration_ms=elapsed)
     print(_VIOLATION_MESSAGE)
     sys.exit(2)
 

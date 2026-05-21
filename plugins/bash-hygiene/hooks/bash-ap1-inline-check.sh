@@ -15,6 +15,9 @@
 set -euo pipefail
 trap 'exit 0' ERR
 
+# shellcheck source=_audit_log.sh
+source "$(dirname "$0")/_audit_log.sh"
+
 if ! command -v python3 >/dev/null 2>&1; then
     echo "[bash-hygiene] python3 not found, AP1 checks disabled" >&2
     exit 0
@@ -41,7 +44,16 @@ except Exception:
     pass
 " 2>/dev/null || true)
 
-[ -z "${CMD:-}" ] && exit 0
+[ -z "${CMD:-}" ] && { audit_allow || true; exit 0; }
+
+# Helper: print block messages, record audit event, then exit 2.
+# Usage: block "reason-slug" "line1" "line2" ...
+block() {
+    local reason="$1"; shift
+    for msg in "$@"; do echo "$msg"; done
+    audit_block "$reason" || true
+    exit 2
+}
 
 # git commit message exemption
 if [[ "${CMD:-}" == *"git commit"* ]]; then
@@ -55,7 +67,7 @@ ptn = r'\bgit\s+commit\b[^;|&\n]*-[a-zA-Z]*m\s+' + dq + bs + dl + r'\(cat\s+<<'
 if re.search(ptn, cmd):
     print('yes')
 " 2>/dev/null || true)
-    [ "${IS_COMMIT_HEREDOC:-}" = "yes" ] && exit 0
+    [ "${IS_COMMIT_HEREDOC:-}" = "yes" ] && { audit_allow || true; exit 0; }
 fi
 
 # Detection 1: python -c with newlines (checks all occurrences via finditer)
@@ -86,12 +98,12 @@ for m in re.finditer(r'python[0-9]*(?:\.[0-9]+)*(?:\s+-\w+)*\s+-c', cmd):
 
 if [ "${PYTHON_MATCH:-}" = "yes" ]; then
     _log_block "python_c_multiline" "$CMD"
-    echo "BLOCKED: python -c multi-line body detected (AP1)"
-    echo ""
-    echo "Multi-line python -c violates Anti-Pattern 1 (score: multi-line + inline Python >= 2)"
-    echo ""
-    echo "Fix: extract Python logic into a standalone .py file"
-    exit 2
+    block "python-c-multiline" \
+        "BLOCKED: python -c multi-line body detected (AP1)" \
+        "" \
+        "Multi-line python -c violates Anti-Pattern 1 (score: multi-line + inline Python >= 2)" \
+        "" \
+        "Fix: extract Python logic into a standalone .py file"
 fi
 
 # Detection 2: osascript heredoc
@@ -104,12 +116,12 @@ if re.search(r'osascript\b[^&|;\n]*<<', cmd):
 
 if [ "${OSASCRIPT_MATCH:-}" = "yes" ]; then
     _log_block "osascript_heredoc" "$CMD"
-    echo "BLOCKED: osascript heredoc detected (AP1)"
-    echo ""
-    echo "osascript heredoc violates Anti-Pattern 1 (score: multi-line heredoc + inline AppleScript >= 2)"
-    echo ""
-    echo "Fix: extract AppleScript into a standalone .applescript file"
-    exit 2
+    block "osascript-heredoc" \
+        "BLOCKED: osascript heredoc detected (AP1)" \
+        "" \
+        "osascript heredoc violates Anti-Pattern 1 (score: multi-line heredoc + inline AppleScript >= 2)" \
+        "" \
+        "Fix: extract AppleScript into a standalone .applescript file"
 fi
 
 # Detection 3: grep "...\|..." double-quoted BRE alternation
@@ -139,12 +151,12 @@ if found:
 
 if [ "${GREP_BRE_MATCH:-}" = "yes" ]; then
     _log_block "grep_bre_double_quote" "$CMD"
-    echo "BLOCKED: grep double-quoted BRE alternation (AP1)"
-    echo ""
-    echo "Fix: use single quotes or -E flag"
-    echo "  A) grep -i 'pat1\|pat2'"
-    echo "  B) grep -Ei 'pat1|pat2'"
-    exit 2
+    block "grep-bre-doublequote" \
+        "BLOCKED: grep double-quoted BRE alternation (AP1)" \
+        "" \
+        "Fix: use single quotes or -E flag" \
+        "  A) grep -i 'pat1\|pat2'" \
+        "  B) grep -Ei 'pat1|pat2'"
 fi
 
 # Detection 4: $(outer "$(inner)") nested subshell
@@ -195,10 +207,10 @@ if found:
 
 if [ "${NESTED_SUBSHELL_MATCH:-}" = "yes" ]; then
     _log_block "nested_subshell" "$CMD"
-    echo "BLOCKED: \$(outer \"\$(inner)\") nested subshell (AP1)"
-    echo ""
-    echo "Fix: split into two separate bash calls"
-    exit 2
+    block "nested-subshell" \
+        "BLOCKED: \$(outer \"\$(inner)\") nested subshell (AP1)" \
+        "" \
+        "Fix: split into two separate bash calls"
 fi
 
 # Detection 5: $(jq 'filter') single-quoted jq filter in subshell
@@ -216,12 +228,58 @@ if re.search(ptn, cmd):
 
 if [ "${JQ_FILTER_MATCH:-}" = "yes" ]; then
     _log_block "jq_single_quote_filter" "$CMD"
-    echo "BLOCKED: \$(jq '...') single-quoted filter in subshell (AP1)"
-    echo ""
-    echo "Fix: remove quotes from jq filter (jq accepts unquoted simple paths)"
-    echo "  Bad:  RESULT=\$(jq -r '.key' file.json)"
-    echo "  Good: RESULT=\$(jq -r .key file.json)"
-    exit 2
+    block "jq-singlequote-filter" \
+        "BLOCKED: \$(jq '...') single-quoted filter in subshell (AP1)" \
+        "" \
+        "Fix: remove quotes from jq filter (jq accepts unquoted simple paths)" \
+        "  Bad:  RESULT=\$(jq -r '.key' file.json)" \
+        "  Good: RESULT=\$(jq -r .key file.json)"
 fi
 
+# Detection 6: rg '...\|...' BRE alternation misuse in ERE tool
+# rg uses Rust ERE-like regex: | is alternation, \| is literal pipe.
+# BRE \| syntax returns 0 results silently when searching for literal pipe.
+RG_BRE_MATCH=$(printf '%s' "$CMD" | python3 -c "
+import re, sys
+cmd = sys.stdin.read()
+bs = chr(92)
+sq = chr(39)
+dq = chr(34)
+if not re.search(r'\brg\b', cmd):
+    sys.exit(0)
+found = False
+for qt in (sq, dq):
+    for m in re.finditer(qt + r'([^' + qt + r']*)' + qt, cmd):
+        if bs + '|' not in m.group(1):
+            continue
+        rg_hits = list(re.finditer(r'\brg\b', cmd[:m.start()]))
+        if not rg_hits:
+            continue
+        between = cmd[rg_hits[-1].end():m.start()]
+        if re.search(r'[|&;()\n]', between):
+            continue
+        if re.search(r'-[a-zA-Z]*F[a-zA-Z]*\b|--fixed-strings', between):
+            continue
+        found = True
+        break
+    if found:
+        break
+if found:
+    print('yes')
+" 2>/dev/null || true)
+
+if [ "${RG_BRE_MATCH:-}" = "yes" ]; then
+    block "rg-bre-misuse" \
+        "BLOCKED: rg pattern BRE alternation misuse (Detection 6)" \
+        "" \
+        "rg uses Rust ERE-like regex: | is alternation, \\| is literal pipe." \
+        "Pattern with \\| searches for literal pipe, not alternation. Results silently empty." \
+        "" \
+        "Fix (choose one):" \
+        "  A) Use Claude Code built-in Grep tool (pattern uses | for alternation)" \
+        "  B) rg ERE syntax: rg -rl 'pat1|pat2|pat3' /path" \
+        "  C) Multiple -e flags: rg -l -e 'pat1' -e 'pat2' /path"
+fi
+
+audit_allow || true
 exit 0

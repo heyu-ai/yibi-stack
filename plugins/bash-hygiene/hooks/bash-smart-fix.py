@@ -16,6 +16,17 @@ from __future__ import annotations
 import json
 import re
 import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+try:
+    from _audit_log import log_event as _log_event
+except Exception:  # pragma: no cover
+
+    def _log_event(*_a: object, **_kw: object) -> None:  # type: ignore[misc]
+        pass
+
 
 # Standalone: entire quoted token is "$(inner)" with no surrounding text.
 _RULE2_STANDALONE = re.compile(r'"(\$\(([^()]+)\))"')
@@ -160,12 +171,15 @@ def _print_fix(header: str, detail: str, fix: str) -> None:
 
 
 def main() -> None:
+    t_start = time.monotonic()
     cmd = _load_command()
     if not cmd:
         sys.exit(0)
 
     result = _detect_rule2(cmd)
+    elapsed = int((time.monotonic() - t_start) * 1000)
     if result is None:
+        _log_event("smart-fix", cmd, exit_code=0, duration_ms=elapsed)
         sys.exit(0)
 
     token, fix, start, end = result
@@ -184,6 +198,7 @@ def main() -> None:
             f"Found: {token}  |  Trigger: Unhandled node type: string",
             fix,
         )
+    _log_event("smart-fix", cmd, exit_code=2, block_reason="rule2-doublequote", duration_ms=elapsed)
     sys.exit(2)
 
 
