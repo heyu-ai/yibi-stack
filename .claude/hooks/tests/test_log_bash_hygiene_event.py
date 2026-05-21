@@ -1,4 +1,5 @@
 """log_bash_hygiene_event.py 的單元測試。"""
+
 import json
 import subprocess
 import sys
@@ -61,7 +62,9 @@ class TestLogEvent:
     def test_cmd_name_field_not_credential(self, tmp_path: Path) -> None:
         """LOGEVENT-ST-002: KEY=value 指令只記錄指令名稱，不含 token"""
         with patch.object(Path, "home", return_value=tmp_path):
-            _m.log_event("ap2", "unicode_U+02014", "SECRET_TOKEN=abc123 curl https://api.example.com")
+            _m.log_event(
+                "ap2", "unicode_U+02014", "SECRET_TOKEN=abc123 curl https://api.example.com"
+            )
 
         log_path = make_log_path(tmp_path)
         rec = json.loads(log_path.read_text())

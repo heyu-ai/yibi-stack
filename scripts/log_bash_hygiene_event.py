@@ -10,6 +10,7 @@
   pattern  偵測模式（如 python_c_multiline、unicode_U+2014）
   cmd_name 指令名稱（去除前置 KEY=value env 賦值後的第一個 token，最多 40 字元）
 """
+
 import contextlib
 import datetime
 import fcntl

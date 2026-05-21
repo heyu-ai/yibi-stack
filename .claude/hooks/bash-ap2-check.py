@@ -21,7 +21,7 @@ Exit code:
 import json
 import pathlib
 import re
-import subprocess
+import subprocess  # nosec B404
 import sys
 
 _LOG_SCRIPT = pathlib.Path(__file__).parent.parent.parent / "scripts" / "log_bash_hygiene_event.py"
@@ -30,12 +30,13 @@ _LOG_SCRIPT = pathlib.Path(__file__).parent.parent.parent / "scripts" / "log_bas
 def _log_block(pattern: str, cmd: str) -> None:
     if not _LOG_SCRIPT.exists():
         return
-    subprocess.Popen(
+    subprocess.Popen(  # nosec B603
         [sys.executable, str(_LOG_SCRIPT), "ap2", pattern, cmd],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+
 
 _AP2 = re.compile(
     r"["

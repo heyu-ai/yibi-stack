@@ -18,7 +18,7 @@ Exemptions:
 import json
 import pathlib
 import re
-import subprocess
+import subprocess  # nosec B404
 import sys
 
 # plugins/bash-hygiene/hooks/ は 4 層深いため parent x4 で repo root に到達
@@ -30,12 +30,13 @@ _LOG_SCRIPT = (
 def _log_block(pattern: str, cmd: str) -> None:
     if not _LOG_SCRIPT.exists():
         return
-    subprocess.Popen(
+    subprocess.Popen(  # nosec B603
         [sys.executable, str(_LOG_SCRIPT), "ap2", pattern, cmd],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+
 
 _AP2 = re.compile(
     r"["
