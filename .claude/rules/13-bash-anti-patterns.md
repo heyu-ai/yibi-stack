@@ -419,6 +419,45 @@ if re.search(r"git\b" + _GIT_GLOBAL_FLAG + r"*\s+commit\b", cmd):
 判斷準則：**豁免 regex 必須對「被豁免的指令類型」精確描述**，開放 `[^chars]*` 等 glob
 只要目標詞（如 `commit`）可能出現在其他指令的引數中，就必須改成枚舉或 subcommand-position 限制。
 
+## Shell Script 診斷訊息必須走 stderr（PR #31 教訓）
+
+`[WARN]`、`[FAIL]`、`[SKIP]` 等診斷性 `echo` 一律加 `>&2`，
+不能走 stdout——stdout 在 CI pipeline 中可能被解析、重導向或捕捉，
+混入診斷訊息會導致下游靜默失效。
+
+```bash
+# 違規：診斷訊息走 stdout，污染 CI stdout 解析
+echo "  [WARN] gitCommitSha 缺失，使用 version 作為追蹤 ID"
+
+# 修法：一律 >&2
+echo "  [WARN] gitCommitSha 缺失，使用 version 作為追蹤 ID" >&2
+echo "  [FAIL] jq 未安裝，請執行 brew install jq" >&2
+```
+
+判斷準則：任何含 `[WARN]`/`[FAIL]`/`[SKIP]` 前綴的 `echo` 必須 `>&2`。
+`[OK]` 若為使用者可見的流程完成摘要則走 stdout；若為除錯資訊則走 stderr。
+
+## 追蹤 ID 系統不能用硬編碼 sentinel 作為 fallback（PR #31 教訓）
+
+冪等性追蹤（STATE_FILE、cache key）使用 fallback 時，
+不能硬編碼 sentinel 字串（如 `"unknown"`、`"none"`）——
+若兩次執行都產生同一 sentinel，ID 比對永遠相符，升級偵測被靜默繞過。
+
+```bash
+# 違規：null 時 fallback 到硬編碼 sentinel
+TRACKING_ID=$(jq -r '.version // "unknown"' "$JSON")
+# 下次執行：TRACKING_ID="unknown" == STATE_FILE "unknown" -> always-match
+
+# 修法：null 時回傳空字串，不寫入 STATE_FILE
+TRACKING_ID=$(jq -r '.version // ""' "$JSON")
+if [ -n "$TRACKING_ID" ]; then
+  echo "$TRACKING_ID" > "$STATE_FILE"
+fi
+# 空 TRACKING_ID 時靠 all_patched 等次級防護兜底
+```
+
+適用場景：任何「前次 ID vs 本次 ID」比對的冪等保護邏輯。
+
 ## 完整方法論
 
 跨專案完整版見 skill `bash-anti-patterns`（含 before/after 範例、agent 自檢 checklist、
