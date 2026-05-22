@@ -244,14 +244,14 @@ prompt 應明確要求「每個 cross-ref 兩端都 verify」，否則 single-so
 ## 跨 repo 引用：doc body 必須 self-contained，lineage 放 commit message
 
 當把某 repo 的 lesson / incident codify 成另一 repo 的 doc / skill / rule 時，**doc body 不能塞
-「來源：<other-repo> PR #<N> retro」這種 cross-repo 來源指標**。下游 reader 可能沒有來源 repo 的
+「來源：`<other-repo>` PR #`<N>` retro」這種 cross-repo 來源指標**。下游 reader 可能沒有來源 repo 的
 存取權，pointer 等於空指針；即使有權，跨 repo 切換 + 翻 retro 也是 ~10 倍於閱讀原文的成本。
 
 正確做法：
 
 1. **doc body**：原 incident 的可重現摘要（self-contained，含足夠 context 讓讀者不出本 repo 就能
    理解 lesson）。
-2. **commit message**：詳述 lineage（"derived from <repo> PR #<N> retro" + handover ID + 日期）。
+2. **commit message**：詳述 lineage（"derived from `<repo>` PR #`<N>` retro" + handover ID + 日期）。
 3. **PR description**：同 commit message 詳述，加上「為何要把這條 lesson 跨 repo 帶過來」的動機。
 
 實證：yibi-stack PR #36（pr-test-analyzer FAQ）第一版在 FAQ row 尾巴寫「來源：openab_workspace
