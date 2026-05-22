@@ -1,11 +1,16 @@
-"""D2 scanner：Hooks 設定（機械分 12/18）。"""
+"""D2 scanner：Hooks 設定（機械分 13/19）。
+
+新增（Anthropic best practices for large codebases）：
+- reflection hook 偵測：Stop / SessionEnd / PreCompact 是否含「反思 / lesson / memory」用途，
+  能在 context 仍新鮮時將學到的東西寫回 CLAUDE.md。
+"""
 
 import json
 from pathlib import Path
 
 from ..models import MechanicalFinding
 
-_MECH_MAX = 12
+_MECH_MAX = 13
 
 # lifecycle hook 三級重要性
 _CRITICAL_HOOKS: dict[str, str] = {
@@ -17,6 +22,20 @@ _IMPORTANT_HOOKS: dict[str, str] = {
     "SessionStart": "session 恢復（handover-back）",
     "PreCompact": "context 壓縮前保存交班",
 }
+# reflection hook 關鍵字：command 字串內含這些 token 視為「反思型」hook
+_REFLECTION_KEYWORDS = (
+    "reflect",
+    "reflection",
+    "lesson",
+    "retro",
+    "memory",
+    "handover",
+    "learn",
+    "post-session",
+    "postsession",
+)
+# 哪些 lifecycle event 適合放 reflection hook
+_REFLECTION_EVENTS = ("Stop", "SessionEnd", "PreCompact", "SubagentStop")
 
 
 def _collect_hook_script_paths(hooks: dict[str, object]) -> list[str]:
@@ -49,6 +68,29 @@ def _collect_hook_script_paths(hooks: dict[str, object]) -> list[str]:
                     if token.endswith(".sh") or token.endswith(".py"):
                         paths.append(token)
     return paths
+
+
+def _has_reflection_hook(hooks: dict[str, object]) -> bool:
+    """判斷是否有 reflection 用途的 hook（Stop / SessionEnd / PreCompact 內含反思關鍵字）。"""
+    for event in _REFLECTION_EVENTS:
+        entries = hooks.get(event)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            # 新版 nested schema
+            for hook in entry.get("hooks", []) or []:
+                if not isinstance(hook, dict):
+                    continue
+                cmd = hook.get("command", "")
+                if isinstance(cmd, str) and any(k in cmd.lower() for k in _REFLECTION_KEYWORDS):
+                    return True
+            # 舊版 run schema
+            run = entry.get("run", "")
+            if isinstance(run, str) and any(k in run.lower() for k in _REFLECTION_KEYWORDS):
+                return True
+    return False
 
 
 def _has_inline_hooks(hooks: dict[str, object]) -> bool:
@@ -169,6 +211,18 @@ def scan_hooks(target_dir: Path) -> MechanicalFinding:
         # inline hook 使用者不依賴 script 檔案，直接給 script 驗證分
         score += 2
         findings.append("hook 使用 inline 指令（無 script 路徑需驗證）")
+
+    # Reflection hook 偵測（1 分）
+    if _has_reflection_hook(hooks):
+        score += 1
+        findings.append(
+            "reflection hook 已配置（Stop/SessionEnd/PreCompact 含 lesson/memory/handover）"
+        )
+    else:
+        findings.append(
+            "WARN: 無 reflection hook（建議在 Stop/SessionEnd 加入寫回 lesson 的 hook，"
+            "讓 agent 在 context 新鮮時更新 CLAUDE.md）"
+        )
 
     return MechanicalFinding(
         dimension="D2",

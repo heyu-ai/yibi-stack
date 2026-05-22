@@ -1,4 +1,9 @@
-"""D4 scanner：Skills & Commands（機械分 6/10）。"""
+"""D4 scanner：Skills & Commands（機械分 8/12）。
+
+新增（Anthropic best practices for large codebases）：
+- plugins/ 分發單位偵測（plugins as installable bundles for org-wide rollout）
+- SKILL.md frontmatter 是否含 `allowed-tools` 或 path-scoping 標記（progressive disclosure）
+"""
 
 import os
 from collections.abc import Iterator
@@ -6,11 +11,15 @@ from pathlib import Path
 
 from ..models import MechanicalFinding
 
-_MECH_MAX = 6
+_MECH_MAX = 8
 _REQUIRED_KEYS = {"name", "type", "scope", "description"}
+# 進階 scoping 欄位：有任一存在即視為「skill 有 path/tool scoping」
+_SCOPING_KEYS = ("allowed-tools", "allowed_tools", "glob", "files", "paths")
 
 # skills 可能的位置：.claude/skills/（symlink 安裝目標）或 skills/（source repo）
 _SKILL_DIRS = [".claude/skills", "skills"]
+# plugins 可能的位置：plugins/（marketplace repo）或 .claude/plugins/（消費者安裝）
+_PLUGIN_DIRS = ["plugins", ".claude/plugins"]
 
 
 def _has_valid_frontmatter(skill_md: Path) -> bool:
@@ -37,11 +46,33 @@ def _has_valid_frontmatter(skill_md: Path) -> bool:
     return all(f"{key}:" in parts[1] for key in _REQUIRED_KEYS)
 
 
+def _has_scoping_marker(skill_md: Path) -> bool:
+    """判斷 frontmatter 是否含 path/tool scoping 欄位（progressive disclosure 訊號）。"""
+    try:
+        lines: list[str] = []
+        dash_count = 0
+        with skill_md.open(encoding="utf-8", errors="replace") as f:
+            for line in f:
+                lines.append(line)
+                if line.strip() == "---":
+                    dash_count += 1
+                    if dash_count == 2:
+                        break
+    except OSError:
+        return False
+    if dash_count < 2:
+        return False
+    parts = "".join(lines).split("---", 2)
+    if len(parts) < 3:
+        return False
+    fm = parts[1]
+    return any(f"{key}:" in fm for key in _SCOPING_KEYS)
+
+
 def _iter_skill_mds(skills_dir: Path) -> Iterator[Path]:
     """遍歷 skills_dir 下所有 SKILL.md，跟隨 symlink 進入子目錄。"""
     for root, dirs, files in os.walk(skills_dir, followlinks=True):
         root_path = Path(root)
-        # 過濾 skills_dir 之下的隱藏目錄（相對路徑 parts）
         rel_parts = root_path.relative_to(skills_dir).parts
         if any(part.startswith(".") for part in rel_parts):
             dirs.clear()
@@ -51,12 +82,7 @@ def _iter_skill_mds(skills_dir: Path) -> Iterator[Path]:
 
 
 def _find_skill_mds(target_dir: Path) -> tuple[list[Path], str]:
-    """在多個可能位置搜尋 SKILL.md，回傳（檔案清單, 來源描述）。
-
-    搜尋策略：
-    1. 優先 .claude/skills/（消費者 repo：安裝 skill 後的 symlink 掛載點）
-    2. fallback 到 skills/（源碼 repo：技能以源碼形式存放於根目錄 skills/）
-    """
+    """在多個可能位置搜尋 SKILL.md，回傳（檔案清單, 來源描述）。"""
     for rel_dir in _SKILL_DIRS:
         skills_dir = target_dir / rel_dir
         if not skills_dir.exists():
@@ -67,8 +93,27 @@ def _find_skill_mds(target_dir: Path) -> tuple[list[Path], str]:
     return [], ""
 
 
+def _find_plugin_packs(target_dir: Path) -> list[Path]:
+    """搜尋 plugins/ 或 .claude/plugins/ 下含 package.json 的 plugin 子目錄。
+
+    Anthropic 強調 plugins 是「分發單位」：bundle skills/hooks/MCP 給組織。
+    判斷依據：子目錄含 package.json（Claude Code plugin manifest）。
+    """
+    for rel_dir in _PLUGIN_DIRS:
+        plugins_dir = target_dir / rel_dir
+        if not plugins_dir.is_dir():
+            continue
+        packs: list[Path] = []
+        for child in plugins_dir.iterdir():
+            if child.is_dir() and (child / "package.json").is_file():
+                packs.append(child)
+        if packs:
+            return packs
+    return []
+
+
 def scan_skills(target_dir: Path) -> MechanicalFinding:
-    """掃描 skills 目錄存在性與 frontmatter 完整性。語意分（4 分）由 agent 補充。"""
+    """掃描 skills 目錄、commands、plugins、scoping markers。語意分由 agent 補充。"""
     findings: list[str] = []
     semantic_targets: list[str] = []
     score = 0
@@ -96,10 +141,24 @@ def scan_skills(target_dir: Path) -> MechanicalFinding:
         else:
             findings.append("WARN: 所有 skill 缺少完整 frontmatter")
 
+        # scoping marker（progressive disclosure 訊號）
+        scoped = sum(1 for s in skill_mds if _has_scoping_marker(s))
+        if scoped > 0:
+            score += 1
+            findings.append(
+                f"path/tool scoping：{scoped}/{len(skill_mds)} 個 skill 含 "
+                f"allowed-tools/glob/files 欄位（progressive disclosure）"
+            )
+        else:
+            findings.append(
+                "WARN: 無 skill 含 allowed-tools/glob 等 scoping 欄位"
+                "（Anthropic 建議將 skill 綁定到特定路徑/工具，避免 context bloat）"
+            )
+
         for s in skill_mds[:3]:
             semantic_targets.append(str(s))
 
-    # commands/ 目錄（slash command 快捷鍵），需有實際 .md 檔才給分
+    # commands/ 目錄（slash command 快捷鍵）
     commands_dir = target_dir / ".claude" / "commands"
     if commands_dir.exists():
         cmds = list(commands_dir.glob("*.md"))
@@ -110,6 +169,16 @@ def scan_skills(target_dir: Path) -> MechanicalFinding:
             findings.append("WARN: .claude/commands/ 存在但無任何 slash command .md")
     else:
         findings.append("WARN: .claude/commands/ 不存在（slash command 未設定）")
+
+    # plugins/ 分發單位（Anthropic: bundle/distribute skills+hooks+MCP）
+    plugin_packs = _find_plugin_packs(target_dir)
+    if plugin_packs:
+        score += 1
+        findings.append(f"plugin packs：{len(plugin_packs)} 個（含 package.json，可作分發單位）")
+    else:
+        findings.append(
+            "WARN: 無 plugin packs（plugins/ 或 .claude/plugins/ 下無 package.json 子目錄）"
+        )
 
     return MechanicalFinding(
         dimension="D4",

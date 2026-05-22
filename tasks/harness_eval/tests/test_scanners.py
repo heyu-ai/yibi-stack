@@ -7,10 +7,12 @@ from pathlib import Path
 from tasks.harness_eval.scanners.claude_md import scan_claude_md
 from tasks.harness_eval.scanners.git import scan_git
 from tasks.harness_eval.scanners.hooks import scan_hooks
+from tasks.harness_eval.scanners.navigation import scan_navigation
 from tasks.harness_eval.scanners.rules import scan_rules
 from tasks.harness_eval.scanners.security import scan_security
 from tasks.harness_eval.scanners.settings import scan_settings
 from tasks.harness_eval.scanners.skills import scan_skills
+from tasks.harness_eval.scanners.subagents import scan_subagents
 from tasks.harness_eval.scanners.testing import scan_testing
 
 
@@ -35,22 +37,49 @@ class TestScanClaudeMd:
         assert result.score >= 3
 
     def test_heval_dt_003_under_200_lines(self, tmp_path: Path) -> None:
-        """HEVAL-DT-003: CLAUDE.md 100 行 → 機械分 6/6。"""
+        """HEVAL-DT-003: CLAUDE.md 100 行（fresh, no subdir）→ 機械分 7/8。
+
+        existence(3) + line(3) + cascade(0) + staleness(1) = 7。
+        """
         content = "\n".join([f"line {i}" for i in range(100)])
         result = scan_claude_md(make_target(tmp_path, claude_md=content))
-        assert result.score == 6
+        assert result.score == 7
 
     def test_heval_dt_004_over_200_lines(self, tmp_path: Path) -> None:
-        """HEVAL-DT-004: CLAUDE.md 250 行 → score = 3（只得存在分）。"""
+        """HEVAL-DT-004: CLAUDE.md 250 行 → score = 4。
+
+        existence(3) + line(0) + cascade(0) + staleness(1) = 4。
+        """
         content = "\n".join([f"line {i}" for i in range(250)])
         result = scan_claude_md(make_target(tmp_path, claude_md=content))
-        assert result.score == 3
+        assert result.score == 4
 
     def test_heval_dt_005_semantic_targets_populated(self, tmp_path: Path) -> None:
         """HEVAL-DT-005: CLAUDE.md 存在時 semantic_targets 含路徑。"""
         content = "# Test\nsome rule"
         result = scan_claude_md(make_target(tmp_path, claude_md=content))
         assert len(result.semantic_targets) >= 1
+
+    def test_heval_dt_006_subdir_cascade_detected(self, tmp_path: Path) -> None:
+        """HEVAL-DT-006: subdir CLAUDE.md 存在 → cascade +1，總分 8/8。"""
+        (tmp_path / "CLAUDE.md").write_text("# Root\n", encoding="utf-8")
+        sub = tmp_path / "services" / "api"
+        sub.mkdir(parents=True)
+        (sub / "CLAUDE.md").write_text("# API local conventions\n", encoding="utf-8")
+        result = scan_claude_md(tmp_path)
+        # existence(3) + line(3, root 1 line) + cascade(1) + staleness(1) = 8
+        assert result.score == 8
+        assert any("分層 cascade" in f for f in result.findings)
+
+    def test_heval_dt_007_stale_model_name_detected(self, tmp_path: Path) -> None:
+        """HEVAL-DT-007: CLAUDE.md 含過時 model 名 → staleness 0 分。"""
+        (tmp_path / "CLAUDE.md").write_text(
+            "# Root\nUse claude-3-opus for reasoning.\n", encoding="utf-8"
+        )
+        result = scan_claude_md(tmp_path)
+        # existence(3) + line(3) + cascade(0) + staleness(0, 因含 claude-3-) = 6
+        assert result.score == 6
+        assert any("過時 model" in f for f in result.findings)
 
 
 def make_settings(
@@ -84,7 +113,7 @@ class TestScanHooks:
         assert scan_hooks(target).score == 2
 
     def test_heval_dt_013_full_hooks_run_schema(self, tmp_path: Path) -> None:
-        """HEVAL-DT-013: 三關鍵 + 兩重要 hook（run schema）+ script 存在 → 機械分 12。"""
+        """HEVAL-DT-013: 三關鍵+兩重要 hook + script 存在 → 機械分 12（無 reflection）。"""
         hooks_dir = tmp_path / ".claude" / "hooks"
         hooks_dir.mkdir(parents=True, exist_ok=True)
         for name in ("pre.sh", "post.sh", "stop.sh", "session.sh", "compact.sh"):
@@ -100,10 +129,11 @@ class TestScanHooks:
         assert scan_hooks(make_settings(tmp_path, hooks=hooks)).score == 12
 
     def test_heval_dt_013b_full_hooks_nested_schema(self, tmp_path: Path) -> None:
-        """HEVAL-DT-013b: 三關鍵 + 兩重要 hook（Claude Code 嵌套 schema）+ script 存在 → 12。"""
+        """HEVAL-DT-013b: 三關鍵 + 兩重要 hook（嵌套 schema）+ script + reflection → 13。"""
         hooks_dir = tmp_path / ".claude" / "hooks"
         hooks_dir.mkdir(parents=True, exist_ok=True)
-        for name in ("pre.sh", "post.sh", "stop.sh", "session.sh", "compact.sh"):
+        # 把 stop.sh 命名為含 reflection 關鍵字觸發 +1
+        for name in ("pre.sh", "post.sh", "stop-lesson.sh", "session.sh", "compact.sh"):
             (hooks_dir / name).write_text("#!/bin/bash\nexit 0", encoding="utf-8")
 
         def make_hook(name: str) -> list[dict[str, object]]:
@@ -113,11 +143,11 @@ class TestScanHooks:
         hooks = {
             "PreToolUse": make_hook("pre.sh"),
             "PostToolUse": make_hook("post.sh"),
-            "Stop": make_hook("stop.sh"),
+            "Stop": make_hook("stop-lesson.sh"),  # 含 "lesson" → reflection
             "SessionStart": make_hook("session.sh"),
             "PreCompact": make_hook("compact.sh"),
         }
-        assert scan_hooks(make_settings(tmp_path, hooks=hooks)).score == 12
+        assert scan_hooks(make_settings(tmp_path, hooks=hooks)).score == 13
 
     def test_heval_dt_013c_inline_hooks_get_script_points(self, tmp_path: Path) -> None:
         """HEVAL-DT-013c: inline 指令 hook（無 .sh/.py）→ 自動得 2 分 script 驗證分。"""
@@ -127,7 +157,23 @@ class TestScanHooks:
             "Stop": [{"run": "echo done"}],
         }
         result = scan_hooks(make_settings(tmp_path, hooks=hooks))
-        assert result.score == 2 + 2 + 2 + 2 + 2  # block + 3 critical + inline bonus
+        # block(2) + 3 critical(6) + 0 important + inline bonus(2) + reflection(0) = 10
+        assert result.score == 10
+
+    def test_heval_dt_013d_reflection_hook_detected(self, tmp_path: Path) -> None:
+        """HEVAL-DT-013d: Stop hook command 含 'memory'（inline 指令）→ reflection +1。"""
+        hooks = {
+            "Stop": [
+                {
+                    "matcher": "Stop",
+                    "hooks": [{"type": "command", "command": "echo update memory"}],
+                }
+            ],
+        }
+        result = scan_hooks(make_settings(tmp_path, hooks=hooks))
+        # block(2) + Stop(2) + inline bonus(2) + reflection(1) = 7
+        assert result.score == 7
+        assert any("reflection hook" in f for f in result.findings)
 
     def test_heval_dt_014_only_pretool(self, tmp_path: Path) -> None:
         """HEVAL-DT-014: 只有 PreToolUse（script 不存在）→ score=4，WARN script 遺失。"""
@@ -226,24 +272,61 @@ class TestScanSkills:
         assert scan_skills(tmp_path).score == 0
 
     def test_heval_dt_032_skill_valid_frontmatter(self, tmp_path: Path) -> None:
-        """HEVAL-DT-032: skill 含完整 frontmatter + commands/ → score=6。"""
+        """HEVAL-DT-032: skill 含完整 frontmatter + commands/（無 scoping、無 plugins）→ score=6。
+
+        skills(2) + frontmatter(2) + scoping(0) + commands(2) + plugins(0) = 6
+        """
         skill_dir = tmp_path / ".claude" / "skills" / "my-skill"
         skill_dir.mkdir(parents=True)
         fm = "---\nname: my-skill\ntype: know\nscope: global\ndescription: test\n---\n"
         (skill_dir / "SKILL.md").write_text(fm + "# My Skill\n", encoding="utf-8")
-        # commands/ 加 2 分
         cmds_dir = tmp_path / ".claude" / "commands"
         cmds_dir.mkdir(parents=True)
         (cmds_dir / "my-cmd.md").write_text("# My Command\n", encoding="utf-8")
         assert scan_skills(tmp_path).score == 6
 
     def test_heval_dt_032b_skill_no_commands(self, tmp_path: Path) -> None:
-        """HEVAL-DT-032b: skill 含完整 frontmatter 但無 commands/ → score=4。"""
+        """HEVAL-DT-032b: skill 含完整 frontmatter 但無 commands/、plugins、scoping → score=4。"""
         skill_dir = tmp_path / ".claude" / "skills" / "my-skill"
         skill_dir.mkdir(parents=True)
         fm = "---\nname: my-skill\ntype: know\nscope: global\ndescription: test\n---\n"
         (skill_dir / "SKILL.md").write_text(fm + "# My Skill\n", encoding="utf-8")
         assert scan_skills(tmp_path).score == 4
+
+    def test_heval_dt_032c_skill_with_scoping_marker(self, tmp_path: Path) -> None:
+        """HEVAL-DT-032c: skill frontmatter 含 allowed-tools → scoping +1。"""
+        skill_dir = tmp_path / ".claude" / "skills" / "scoped-skill"
+        skill_dir.mkdir(parents=True)
+        fm = (
+            "---\n"
+            "name: scoped-skill\n"
+            "type: know\n"
+            "scope: global\n"
+            "description: test\n"
+            "allowed-tools: Read, Grep\n"
+            "---\n"
+        )
+        (skill_dir / "SKILL.md").write_text(fm + "# Body\n", encoding="utf-8")
+        result = scan_skills(tmp_path)
+        # skills(2) + frontmatter(2) + scoping(1) = 5
+        assert result.score == 5
+        assert any("path/tool scoping" in f for f in result.findings)
+
+    def test_heval_dt_032d_plugins_detected(self, tmp_path: Path) -> None:
+        """HEVAL-DT-032d: plugins/ 含 package.json 的子目錄 → plugins +1。"""
+        # 必須先有 skill 才能進入主分支
+        skill_dir = tmp_path / ".claude" / "skills" / "my-skill"
+        skill_dir.mkdir(parents=True)
+        fm = "---\nname: my-skill\ntype: know\nscope: global\ndescription: test\n---\n"
+        (skill_dir / "SKILL.md").write_text(fm, encoding="utf-8")
+        # 建立 plugin pack
+        pack = tmp_path / "plugins" / "my-pack"
+        pack.mkdir(parents=True)
+        (pack / "package.json").write_text("{}", encoding="utf-8")
+        result = scan_skills(tmp_path)
+        # skills(2) + frontmatter(2) + plugins(1) = 5
+        assert result.score == 5
+        assert any("plugin packs" in f for f in result.findings)
 
     def test_heval_dt_033_root_skills_dir(self, tmp_path: Path) -> None:
         """HEVAL-DT-033: root-level skills/ 目錄有 SKILL.md → 偵測到，finding 含源碼 repo 模式。"""
@@ -446,3 +529,100 @@ class TestScanSecurity:
         result = scan_security(tmp_path)
         assert result.score == 0
         assert any("FAIL" in f or "危險" in f for f in result.findings)
+
+
+class TestScanSubagents:
+    def test_heval_dt_080_no_agents_dir(self, tmp_path: Path) -> None:
+        """HEVAL-DT-080: .claude/agents/ 不存在 → score=0。"""
+        result = scan_subagents(tmp_path)
+        assert result.score == 0
+        assert result.dimension == "D9"
+        assert any("WARN" in f for f in result.findings)
+
+    def test_heval_dt_081_empty_agents_dir(self, tmp_path: Path) -> None:
+        """HEVAL-DT-081: agents/ 存在但無 .md → score=0。"""
+        (tmp_path / ".claude" / "agents").mkdir(parents=True)
+        assert scan_subagents(tmp_path).score == 0
+
+    def test_heval_dt_082_agent_no_tools_scoping(self, tmp_path: Path) -> None:
+        """HEVAL-DT-082: agent .md 無 tools 欄位 → score=2（僅存在分）。"""
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "explore.md").write_text(
+            "---\nname: explore\n---\nExplorer agent\n", encoding="utf-8"
+        )
+        assert scan_subagents(tmp_path).score == 2
+
+    def test_heval_dt_083_agent_read_only_tools(self, tmp_path: Path) -> None:
+        """HEVAL-DT-083: agent 含 read-only tools → score=4（滿分）。"""
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "explore.md").write_text(
+            "---\nname: explore\ntools: Read, Grep, Glob\n---\nExploration only\n",
+            encoding="utf-8",
+        )
+        result = scan_subagents(tmp_path)
+        # exists(2) + tools_scoping(1) + read_only(1) = 4
+        assert result.score == 4
+        assert any("read-only" in f for f in result.findings)
+
+    def test_heval_dt_084_agent_has_write_tool(self, tmp_path: Path) -> None:
+        """HEVAL-DT-084: agent 含 Edit/Write → 不算 read-only，僅得 scoping 分。"""
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "editor.md").write_text(
+            "---\nname: editor\ntools: Read, Edit, Write\n---\n", encoding="utf-8"
+        )
+        result = scan_subagents(tmp_path)
+        # exists(2) + tools_scoping(1) + read_only(0) = 3
+        assert result.score == 3
+
+
+class TestScanNavigation:
+    def test_heval_dt_090_no_signals(self, tmp_path: Path) -> None:
+        """HEVAL-DT-090: 無 codebase map、無 CLAUDE.md → score=0。"""
+        result = scan_navigation(tmp_path)
+        assert result.score == 0
+        assert result.dimension == "D10"
+
+    def test_heval_dt_091_architecture_md(self, tmp_path: Path) -> None:
+        """HEVAL-DT-091: ARCHITECTURE.md 存在 → +1。"""
+        (tmp_path / "ARCHITECTURE.md").write_text("# Arch\n", encoding="utf-8")
+        assert scan_navigation(tmp_path).score == 1
+
+    def test_heval_dt_092_at_mentions_in_claude_md(self, tmp_path: Path) -> None:
+        """HEVAL-DT-092: CLAUDE.md 含 @-mention → +1。"""
+        (tmp_path / "CLAUDE.md").write_text(
+            "Read @docs/architecture.md for details.\n", encoding="utf-8"
+        )
+        result = scan_navigation(tmp_path)
+        assert result.score == 1
+        assert any("@-mention" in f for f in result.findings)
+
+    def test_heval_dt_093_tree_structure_in_claude_md(self, tmp_path: Path) -> None:
+        """HEVAL-DT-093: CLAUDE.md 含目錄樹字元 → +1。"""
+        (tmp_path / "CLAUDE.md").write_text(
+            "Structure:\nsrc/\n├── api/\n└── core/\n", encoding="utf-8"
+        )
+        result = scan_navigation(tmp_path)
+        assert result.score == 1
+        assert any("目錄樹" in f or "結構圖" in f for f in result.findings)
+
+    def test_heval_dt_094_full_navigation_signals(self, tmp_path: Path) -> None:
+        """HEVAL-DT-094: 三項皆備 → 滿分 3。"""
+        (tmp_path / "ARCHITECTURE.md").write_text("# Arch\n", encoding="utf-8")
+        (tmp_path / "CLAUDE.md").write_text(
+            "See @ARCHITECTURE.md\n\nLayout:\nsrc/\n├── a/\n└── b/\n", encoding="utf-8"
+        )
+        assert scan_navigation(tmp_path).score == 3
+
+    def test_heval_dt_095_arrow_style_dir_listing(self, tmp_path: Path) -> None:
+        """HEVAL-DT-095: CLAUDE.md 用 'dir/ → 說明' 風格列出 3+ 條 → 也視為結構描述。"""
+        (tmp_path / "CLAUDE.md").write_text(
+            "## Layout\nskills/   → 介面層\ntasks/    → 實作\nplugins/  → 分發單位\n",
+            encoding="utf-8",
+        )
+        result = scan_navigation(tmp_path)
+        # 此格式無 @-mention，僅得 tree-structure 分
+        assert result.score == 1
+        assert any("目錄樹" in f or "結構圖" in f for f in result.findings)
