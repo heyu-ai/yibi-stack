@@ -115,7 +115,13 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **`CLAUDE_EFFORT=normal` 是 hook 預設值**：hooks 使用 `${CLAUDE_EFFORT:-normal}`；SKILL.md effort 表格的 fallback note 必須同時涵蓋 unset 和 `normal`（兩者皆視為 medium）
 - **Effort fallback 是風險判斷，非慣例**：一般工具 fallback 設 `medium`；規格展開／深度 review 工具（如 spectra-amplifier）可設 `high`，因規格缺漏代價高於多做
 - **`${CLAUDE_EFFORT}` 在 SKILL.md 不展開**：靜態 Markdown 中 agent 讀到的是 literal string；若需實際值，用 `echo "${CLAUDE_EFFORT:-normal}"` eval
-- **Slash command 的 bash code block 被 agent 重寫**：commands/*.md 中，agent 理解意圖後自行生成 bash 而非複製貼上，可能引入反模式。複雜 bash 邏輯移到 `commands/scripts/*.sh`
+- **Slash command 的 bash code block 被 agent 重寫**：commands/*.md 或 SKILL.md 中，
+  agent 理解意圖後自行生成 bash 而非複製貼上，可能引入反模式（fat command、
+  `if [ $? -ne 0 ]`、`||` 條件分支）。複雜 bash 邏輯移到 `commands/scripts/*.sh` 或
+  `skills/<name>/scripts/*.sh`，文件只保留單行 `bash <script-path>` 呼叫。範例：
+  `plugins/pr-flow/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh`
+  （PR review Step 3.1 工作目錄準備）。配合 `.claude/rules/16-allowlist-hygiene.md`，
+  allow-list 永久放行 pattern 用完整 script 路徑而非 fat command wildcard。
 - **make target 名稱一律逐字引用**：README/CLAUDE.md 中的 target 名稱必須從 Makefile 直接 copy，不可改寫成「可讀標籤」（例如把 `patch-pr-review-agents` 縮寫為其他名稱），否則使用者執行時 404
 - **hook 腳本在 `.claude/hooks/` 不等於已啟用**：Claude Code 只執行在 `settings.json` 的 `hooks` 命令字串中登記的 hook；評估 hook 有效性必須做「檔案存在 × settings.json 登記」雙重交叉驗證
 - **`Path.rglob()` 不追蹤 symlink**：`pathlib` 的 `rglob()` 預設不進 symlink 子目錄。若目標目錄含 symlink（如本 repo `skills/` 的 plugin symlink），改用 `os.walk(followlinks=True)` 或 Python 3.13+ 的 `glob(follow_symlinks=True)`
