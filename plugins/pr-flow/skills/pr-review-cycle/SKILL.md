@@ -313,9 +313,11 @@ Spectra change `{{change_name}}` 已 archive，spec 狀態已更新為完成。
 
 ## 常見問題處理
 
+<!-- KEEP IN SYNC WITH ../pr-review-cycle-mob/SKILL.md (same FAQ row for pr-test-analyzer anti-patterns). If you update one, update both. -->
+
 | 問題 | 處理方式 |
 |------|----------|
-| pr-test-analyzer 怎麼避開「假測試 / presence-only / no-CI」三種陷阱？ | 三個 anti-pattern 必檢：(1) **Fake test** — test case 邏輯本身有 silent bug，所有 case PASS 但其中某 case 跟其他 case 跑同樣 path（如 empty-string env 走了 unset 分支、never exported），看 PASS 不代表那個情境真的被測到。修法：**反向驗證** — 故意把 production code 改錯，看該 test case 是否真的 fail；不 fail 就是 fake test。(2) **Presence test ≠ contract test** — grep `function_name` 確認函式被叫只是最弱形式；若 invariant 是「函式必須**用正確 args** 呼叫」（例：每個 deploy script 必須以**正確的 default-context** 呼叫 require_kubectl_context），test 必須 grep 完整 contract（`function_name <expected_arg>` 配對），不能只測 function name presence。(3) **Test 沒進 CI = 半成品 test** — 提交 test file 但沒 `.pre-commit-config.yaml` 或 CI workflow 觸發，regression 只在 operator 手跑時暴露；operator 通常不會自發跑 test。修法：是否進 CI 應跟「測什麼」「怎麼測」並列為 test 設計三要素，pre-commit local hook + `files:` regex 是 zero-cost 方案。來源：openab_workspace PR #73 retro。|
+| pr-test-analyzer 怎麼避開「假測試 / presence-only / no-CI」三種陷阱？ | 三個 anti-pattern 必檢：(1) **Fake test**（mutation-testing 視角的反向版）— test case 邏輯本身有 silent bug，所有 case PASS 但其中某 case 的測試動作根本沒生效（例：環境變數覆寫測試走了 unset 分支、empty 值沒實際 export，結果跟另一個 case 跑同樣 path）；「all green」掩護從未被測到的情境。修法：mutation testing intuition — 故意把 production code 改錯一行、看該 test case 是否**真的** fail；不 fail 就是 fake test。(2) **Presence test ≠ contract test** — `grep function_name` 確認函式被叫只是最弱形式；若 invariant 是「函式必須**用正確 args** 呼叫」（例：deploy script 必須以**正確的 default-context** 呼叫對應 guard helper），test 必須驗完整 contract（`function_name <expected_arg>` 配對），不能只測 function name presence。(3) **Test 沒進 CI = 半成品 test** — 提交 test file 但沒 CI / pre-commit / git-hook / `make test` target 任一觸發機制，regression 只在 operator 手跑時暴露；operator 通常不會自發跑 test。修法：是否進 CI 應跟「測什麼」「怎麼測」並列為 test 設計三要素。機制依專案技術棧選：Python repo 常用 pre-commit local hook + `files:` regex；TS/JS repo 用 husky / lefthook；Go / Rust repo 用 `make test` + CI workflow `step: run: make test`。共通要求：改 production code 觸發自動測。|
 | Step 3 agent 沒有 git diff 可讀 | 先執行 Step 1 建立 branch/PR |
 | 找不到本地 CI 指令 | 讀 `Makefile` / `package.json` / `pyproject.toml`，或問使用者 |
 | Linter 失敗 | 查對應工具的 `--fix` 選項（ruff: `ruff check --fix`；eslint: `--fix`；gofmt: 自動格式化） |
