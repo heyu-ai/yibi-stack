@@ -240,3 +240,55 @@ prompt 應明確要求「每個 cross-ref 兩端都 verify」，否則 single-so
 與「Hook 說明必須對照實際腳本驗證」的關係：兩者同屬 cross-doc / cross-artifact verification
 精神——hook 規範要對照腳本，rule cite 要對照原文，rule 與 spec 的關係要對照 source spec。
 撰寫時都要 verify，不能假設 reviewer 會抓。
+
+## 跨 repo 引用：doc body 必須 self-contained，lineage 放 commit message
+
+當把某 repo 的 lesson / incident codify 成另一 repo 的 doc / skill / rule 時，**doc body 不能塞
+「來源：`<other-repo>` PR #`<N>` retro」這種 cross-repo 來源指標**。下游 reader 可能沒有來源 repo 的
+存取權，pointer 等於空指針；即使有權，跨 repo 切換 + 翻 retro 也是 ~10 倍於閱讀原文的成本。
+
+正確做法：
+
+1. **doc body**：原 incident 的可重現摘要（self-contained，含足夠 context 讓讀者不出本 repo 就能
+   理解 lesson）。
+2. **commit message**：詳述 lineage（"derived from `<repo>` PR #`<N>` retro" + handover ID + 日期）。
+3. **PR description**：同 commit message 詳述，加上「為何要把這條 lesson 跨 repo 帶過來」的動機。
+
+實證：yibi-stack PR #36（pr-test-analyzer FAQ）第一版在 FAQ row 尾巴寫「來源：openab_workspace
+PR #73 retro。」——code-reviewer NIT-1 + comment-analyzer Important #2 兩個 voice 都 flag，理由：
+yibi-stack reader 沒 openab_workspace 存取權，pointer 等於空指針。Fix pass 把來源指標從 doc body
+拿掉、移到 commit message + PR description；FAQ row 改成完全 self-contained，舉的例子改用泛型
+helper 名稱（不再綁定 openab_workspace 特有的 `require_kubectl_context`）。
+
+與「Cross-doc Cite」（上一段）的關係：兩者同屬 cross-doc 寫作衛生，但軸不同——
+Cross-doc Cite 要求**引用時 paste 原文**避免方向錯；本節要求**引用後 doc body 仍要 self-contained**
+避免 dead link。實務上兩條一起遵循：先 paste 原文 verify direction，然後把 verified 的內容自然
+融入本 repo doc 的 narrative，不留 cross-repo pointer。
+
+## Retro / lesson-routing skill 的「下一步」必須命名具體目的地
+
+任何「從 retro / review 收尾結果產生後續動作」的 skill（`/pr-retro`、各種 `*-cycle`、`*-review`），
+在「建議下一步」段落不能只寫「考慮一下」「或許可以」「之後再決定」這類**動詞模糊 + 目的地缺席**的措辭。
+
+實證：yibi-stack PR #36 retro（handover `c88c0e9e`）結束後，agent 用 4-option AskUserQuestion
+（A/B/C/D）把三個 testing-discipline lesson 路到具體目的地（每選項都對應實際 rule 檔 + section
+名），使用者選 A 後一輪內完成落地（本 PR 即落地結果）。反例：若 follow-up 只寫「考慮把 lesson
+寫進文件」，使用者選後還要再開一輪「寫哪？」對話，retro 落地率會跌一個量級。
+
+正確做法（skill 設計時）：
+
+```markdown
+<!-- 違規：動詞模糊 + 目的地缺席 -->
+- [ ] 考慮把 lesson 寫入文件
+
+<!-- 正確：明確命名目的地 + 動詞 -->
+- [ ] 寫入 `.claude/rules/15-irreversible-operations.md` 類別 3 Recovery section（git 工作流復原）
+- [ ] 寫入 `~/.claude/CLAUDE.md` 跨專案個人偏好區
+- [ ] 寫入 `<repo>/CLAUDE.md` Gotchas section（repo-specific）
+- [ ] 不寫文件，僅保留在 session-memory（一次性/無重現性 lesson）
+```
+
+每個選項對應的「目的地檔案 + section」應該已經被 skill 自身計算過（class 對應 routing table），
+讓使用者在 AskUserQuestion 時看到的就是 actionable 路徑，不是抽象建議。
+
+來源實踐：`/pr-retro` Step 5 Lesson Classifier（pr-retrospective SKILL.md）已用此 pattern。
