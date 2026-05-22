@@ -252,16 +252,18 @@ git push
 Gemini CLI `@file` 沙箱只允許讀取 worktree root 或 `~/.gemini/tmp/<name>/`，因此刻意選 worktree root 下而非 `/tmp/`。
 
 ```bash
-WT_ROOT=$(git rev-parse --show-toplevel)
-REVIEW_DIR="$WT_ROOT/.pr-review"
-mkdir -p "$REVIEW_DIR"
-if [ $? -ne 0 ]; then echo "[FAIL] 無法建立 review 目錄：$REVIEW_DIR（請確認 worktree 目錄有寫入權限）"; exit 1; fi
-GIT_DIR=$(git rev-parse --git-dir)
-mkdir -p "$GIT_DIR/info"
-grep -qF '.pr-review/' "$GIT_DIR/info/exclude" 2>/dev/null || echo '.pr-review/' >> "$GIT_DIR/info/exclude"
-git diff "{{base_branch}}"...HEAD > "$REVIEW_DIR/diff.patch"
-git diff "{{base_branch}}"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"
+BASE_BRANCH="{{base_branch}}" bash ~/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh
 ```
+
+Script 最後一行輸出 `REVIEW_DIR=<絕對路徑>`，後續 bash call 從 worktree root 推導
+（`WT_ROOT=$(git rev-parse --show-toplevel); REVIEW_DIR="$WT_ROOT/.pr-review"`）。
+
+**為什麼抽成 script**：原本的 fat bash block 違反 rule 13 AP1（多步驟邏輯擠一行）、
+rule 14 Quoting Rule 5（多 `"$VAR"` 展開）、rule 14 `$?` 章節（`if [ $? -ne 0 ]`），
+且寫入 `.git/info/exclude` 觸發權限確認框。Script 內部用 `set -euo pipefail` 與
+`if ! cmd; then` 取代 `$?`；allow-list 永久放行只需單一 pattern
+`Bash(bash ~/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh)`
+（rule 16 Allow-list 衛生：完整 script 路徑 + script 已 review，等於審核一次永久信任）。
 
 Extract prompt 路徑固定在 `~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md`（由 `make install` 建立的 symlink），不需要解析 `SKILL_REPO`。
 
