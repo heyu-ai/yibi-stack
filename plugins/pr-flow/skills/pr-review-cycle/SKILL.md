@@ -315,6 +315,7 @@ Spectra change `{{change_name}}` 已 archive，spec 狀態已更新為完成。
 
 | 問題 | 處理方式 |
 |------|----------|
+| pr-test-analyzer 怎麼避開「假測試 / presence-only / no-CI」三種陷阱？ | 三個 anti-pattern 必檢：(1) **Fake test** — test case 邏輯本身有 silent bug，所有 case PASS 但其中某 case 跟其他 case 跑同樣 path（如 empty-string env 走了 unset 分支、never exported），看 PASS 不代表那個情境真的被測到。修法：**反向驗證** — 故意把 production code 改錯，看該 test case 是否真的 fail；不 fail 就是 fake test。(2) **Presence test ≠ contract test** — grep `function_name` 確認函式被叫只是最弱形式；若 invariant 是「函式必須**用正確 args** 呼叫」（例：每個 deploy script 必須以**正確的 default-context** 呼叫 require_kubectl_context），test 必須 grep 完整 contract（`function_name <expected_arg>` 配對），不能只測 function name presence。(3) **Test 沒進 CI = 半成品 test** — 提交 test file 但沒 `.pre-commit-config.yaml` 或 CI workflow 觸發，regression 只在 operator 手跑時暴露；operator 通常不會自發跑 test。修法：是否進 CI 應跟「測什麼」「怎麼測」並列為 test 設計三要素，pre-commit local hook + `files:` regex 是 zero-cost 方案。來源：openab_workspace PR #73 retro。|
 | Step 3 agent 沒有 git diff 可讀 | 先執行 Step 1 建立 branch/PR |
 | 找不到本地 CI 指令 | 讀 `Makefile` / `package.json` / `pyproject.toml`，或問使用者 |
 | Linter 失敗 | 查對應工具的 `--fix` 選項（ruff: `ruff check --fix`；eslint: `--fix`；gofmt: 自動格式化） |
