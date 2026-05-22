@@ -80,6 +80,35 @@ git filter-branch --env-filter '...'
 **例外**：個人 worktree branch 的 `git reset --hard` 若僅影響本地未 push 的變更，
 影響範圍小，可在說明後執行。判斷準則：該 branch 是否已 push 到 remote。
 
+### Recovery：用 branch + reset 救回誤推 main 的 commit（仍未 push 才適用）
+
+當使用者在 `main` 直接 commit 後想轉成 PR 流程，**未 push** 之前是完全可逆的。順序很重要：
+
+```bash
+# 1) 先用 ref 把 commit 保住（branch 是輕量 ref，不會丟資料）
+git branch <feat-name> HEAD
+
+# 2) 再倒 main 回 origin/main（reset --hard 在這步**安全**，
+#    因為 commit 已經被 step 1 的 branch 保住）
+git reset --hard origin/main
+
+# 3) 切到剛剛保住的 feat branch，從這邊 push + 開 PR
+git checkout <feat-name>
+git push -u origin <feat-name>
+```
+
+**順序為何不能反**：先 `reset --hard` 再 `branch` 會丟掉 commit（HEAD 已倒回，branch
+只會指到 reset 後的 HEAD，而非原本誤推 main 的那個 commit）。先 `branch` 後 `reset`
+是 atomic 防禦：第 1 步成功 = commit 永遠不會丟，第 2 步失敗也沒事。
+
+**判斷準則**：在跑 step 2 之前必須先確認 `git push` **沒有發生過**（`git log
+origin/main..main` 顯示要保住的 commit，且該 commit 在 origin/main 的 history 不存在）。
+若已 push，這個 recovery 不適用，要走 PR + revert commit 流程。
+
+實證：yibi-stack PR #36 的初始 commit `18b94f9` 誤推到本地 main，使用此 recovery 安全
+轉到 `feat-pr-test-anti-patterns-faq` branch，commit 完整保留並照 `/pr-review-cycle`
+流程跑完。
+
 ## 類別 4：File Destructive（檔案破壞性操作）
 
 | 操作 | 風險 | 建議做法 |
