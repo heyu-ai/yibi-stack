@@ -101,6 +101,19 @@ git push -u origin <feat-name>
 只會指到 reset 後的 HEAD，而非原本誤推 main 的那個 commit）。先 `branch` 後 `reset`
 是 atomic 防禦：第 1 步成功 = commit 永遠不會丟，第 2 步失敗也沒事。
 
+**Pre-flight canary（強烈建議在 step 2 前跑一次）**：
+
+```bash
+# 先 fetch 確認 remote view 是新的；再列出「main 領先 origin/main 但未在 origin 的 commit」
+git -C <repo> fetch origin
+git -C <repo> log HEAD..origin/main --oneline   # 應該是空的（origin 沒新 commit）
+git -C <repo> log origin/main..HEAD --oneline   # 應該只看到你想保住的 commit
+```
+
+若 `origin/main..HEAD` 包含**多於**你想保住的 commit，或包含已經在 `origin/main` 的
+commit，**先停下來**——你的 main 可能不是你想的那個狀態。寧可錯失 recovery 機會也不要
+誤刪。確認單一目標 commit 後再跑 step 2 的 `reset --hard origin/main`。
+
 **判斷準則**：在跑 step 2 之前必須先確認 `git push` **沒有發生過**（`git log
 origin/main..main` 顯示要保住的 commit，且該 commit 在 origin/main 的 history 不存在）。
 若已 push，這個 recovery 不適用，要走 PR + revert commit 流程。
