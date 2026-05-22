@@ -255,15 +255,26 @@ Gemini CLI `@file` 沙箱只允許讀取 worktree root 或 `~/.gemini/tmp/<name>
 BASE_BRANCH="{{base_branch}}" bash ~/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh
 ```
 
-Script 最後一行輸出 `REVIEW_DIR=<絕對路徑>`，後續 bash call 從 worktree root 推導
-（`WT_ROOT=$(git rev-parse --show-toplevel); REVIEW_DIR="$WT_ROOT/.pr-review"`）。
+Script 最後一行輸出 `REVIEW_DIR=<絕對路徑>` 為 informational；後續 bash call 不需要解析此輸出，
+直接從 worktree root 推導即可（`WT_ROOT=$(git rev-parse --show-toplevel); REVIEW_DIR="$WT_ROOT/.pr-review"`，
+兩者等價）。
 
-**為什麼抽成 script**：原本的 fat bash block 違反 rule 13 AP1（多步驟邏輯擠一行）、
+**為什麼抽成 script**：原本的 fat bash block 違反 rule 13 AP1（過度複雜的單一指令）、
 rule 14 Quoting Rule 5（多 `"$VAR"` 展開）、rule 14 `$?` 章節（`if [ $? -ne 0 ]`），
 且寫入 `.git/info/exclude` 觸發權限確認框。Script 內部用 `set -euo pipefail` 與
-`if ! cmd; then` 取代 `$?`；allow-list 永久放行只需單一 pattern
-`Bash(bash ~/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh)`
-（rule 16 Allow-list 衛生：完整 script 路徑 + script 已 review，等於審核一次永久信任）。
+`if ! cmd; then` 取代 `$?`，並在進入 git diff 前先用 `git rev-parse --verify` 驗證 `BASE_BRANCH`
+是有效 ref（避免 typo 留 0-byte diff.patch）。
+
+**Allow-list pattern 注意**：`Bash()` rule 對 `~` **不展開**（rule 16「安全 pattern 範例」重點第 2 點），
+因此 `Bash(bash ~/.agents/skills/.../setup-review-dir.sh)` 寫法**不會** match runtime 字串。
+寫進 `~/.claude/settings.local.json` 永久放行時用展開後的絕對路徑：
+
+```text
+Bash(bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh)
+```
+
+`<you>` 用 `whoami` 或 `echo $USER` 確認。完整絕對路徑符合 rule 16 安全 pattern
+（exact match + script 已 review，等於審核一次永久信任）。
 
 Extract prompt 路徑固定在 `~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md`（由 `make install` 建立的 symlink），不需要解析 `SKILL_REPO`。
 
