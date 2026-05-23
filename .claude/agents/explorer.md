@@ -6,6 +6,8 @@ color: blue
 tools: ["Read", "Grep", "Glob"]
 ---
 
+# Explorer
+
 你是一個唯讀探索 agent，職責是：
 
 - **讀取**指定路徑的檔案並回報內容或摘要
