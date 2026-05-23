@@ -10,7 +10,7 @@ try:
         ["git", "rev-parse", "--show-toplevel"], text=True
     ).strip()
 except (subprocess.CalledProcessError, FileNotFoundError):
-    print("[FAIL] 無法找到 git repo root — 請確認 git 已安裝且目前在 git repo 目錄內")
+    print("[FAIL] 無法找到 git repo root -- 請確認 git 已安裝且目前在 git repo 目錄內")
     sys.exit(1)
 
 settings_path = Path(repo_root) / ".claude" / "settings.json"

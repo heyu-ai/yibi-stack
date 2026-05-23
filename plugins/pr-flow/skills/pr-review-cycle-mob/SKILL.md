@@ -719,13 +719,10 @@ Group review 已跑 3 輪仍未全員 LGTM，剩餘未解項目：
 fix 後若需要手動觸發單一聲音重跑，input 必須用**Step 7.1 刷新後的 diff.patch**，不可沿用 setup 階段產生的舊版：
 
 ```bash
-# 正確：重跑 codex 用 reviewer prompt + 最新 diff（Step 7.1 已刷新）
-# output 命名用輪次（不覆蓋原始 r1）
+# 正確：重跑 codex 用 codex review 原生模式（自動讀 git diff）；output 命名用輪次
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
-cat "$REVIEW_DIR/prompt-r1.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-rerun-input.md"
 codex review --base "{{base_branch}}" -c 'model_reasoning_effort="high"' 2>"$REVIEW_DIR/codex-rerun.log" | tee "$REVIEW_DIR/codex-r2-r1.md" > /dev/null
-rm -f "$REVIEW_DIR/codex-rerun-input.md"
 
 # 錯誤 1：缺 reviewer prompt -- codex exec 不知道在做 code review
 # 錯誤 2：output 直接覆蓋 codex-r1.md -- 破壞 aggregate 歷史
