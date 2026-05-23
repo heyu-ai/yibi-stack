@@ -458,6 +458,24 @@ fi
 
 適用場景：任何「前次 ID vs 本次 ID」比對的冪等保護邏輯。
 
+## jq `--arg` 空字串傳入時避免 `if $x=="" then null`（PR #48 教訓）
+
+`jq --arg rid "$RULE_ID"` 傳空字串後，若 jq 表達式寫 `if $rid=="" then null else $rid end`，
+產出的 `rule_id: null` 會讓 Pydantic `str` 欄位 ValidationError，**整筆 record 被靜默丟棄**——無報錯、無計數，只是那些 event 再也找不到。
+
+```bash
+# 違規：null 讓 Pydantic str field 靜默 drop record
+--arg rid "$RULE_ID"
+# jq 內：rule_id: (if $rid=="" then null else $rid end)
+
+# 修法：直接傳 $rid，允許空字串（Pydantic str 接受 ""，不接受 null）
+--arg rid "$RULE_ID"
+# jq 內：rule_id: $rid
+```
+
+與「追蹤 ID sentinel」的差異：sentinel 陷阱是 shell 層用硬編碼字串做 fallback；
+這條是 jq 層把空字串主動轉 null，兩者都導致靜默失效，但發生在不同層。
+
 ## 完整方法論
 
 跨專案完整版見 skill `bash-anti-patterns`（含 before/after 範例、agent 自檢 checklist、
