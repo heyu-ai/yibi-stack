@@ -12,15 +12,16 @@ if ! printf '%s' "$cmd" | grep -qE '^git commit'; then
   exit 0
 fi
 
-# Skip in effort=low (rapid iteration mode).
-# Note: this is the only mechanism that auto-blocks format violations before commit.
+# Skip in effort=low (rapid iteration; linter gates are deferred to CI)
 if [ "${CLAUDE_EFFORT:-normal}" = "low" ]; then
   echo "[SKIP] pre-commit gate skipped (CLAUDE_EFFORT=low)" >&2
   exit 0
 fi
 
+staged_all=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)
+
 # ── markdownlint on staged .md files ─────────────────────────────────────
-staged_md=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null | grep '\.md$' || true)
+staged_md=$(printf '%s\n' "$staged_all" | grep '\.md$' || true)
 if [ -n "$staged_md" ]; then
   echo "[pre-commit] markdownlint: checking staged .md files..."
   if ! printf '%s\n' "$staged_md" | tr '\n' '\0' | xargs -0 npx markdownlint-cli2 2>&1; then
@@ -31,7 +32,7 @@ if [ -n "$staged_md" ]; then
 fi
 
 # ── ruff format --check on staged .py files ──────────────────────────────
-staged_py=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null | grep '\.py$' || true)
+staged_py=$(printf '%s\n' "$staged_all" | grep '\.py$' || true)
 if [ -n "$staged_py" ]; then
   echo "[pre-commit] ruff format: checking staged .py files..."
   if ! printf '%s\n' "$staged_py" | tr '\n' '\0' | xargs -0 ruff format --check 2>&1; then

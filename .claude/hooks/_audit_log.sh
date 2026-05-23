@@ -30,10 +30,10 @@ _audit_write() {
     command -v jq >/dev/null 2>&1 || return 0
     local log_path
     log_path=$(_audit_log_path) || return 0
-    local ts cmd_src cmd_preview cmd_hash exit_code record
+    local ts cmd_src cmd_snippet cmd_hash exit_code record
     ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     cmd_src="${3:-${CMD:-}}"
-    cmd_preview="${cmd_src:0:200}"
+    cmd_snippet="${cmd_src:0:200}"
     cmd_hash=$(printf '%s' "$cmd_src" | shasum -a 256 2>/dev/null | cut -c1-16) || cmd_hash=""
     if [ "$1" = "block" ]; then exit_code=2; else exit_code=0; fi
     record=$(jq -c -n \
@@ -43,14 +43,14 @@ _audit_write() {
         --arg verdict "$1" \
         --argjson code "$exit_code" \
         --arg reason "${2:-}" \
-        --arg preview "$cmd_preview" \
+        --arg cmd_snippet "$cmd_snippet" \
         --arg hash "${cmd_hash:-}" \
         --arg sid "${CLAUDE_SESSION_ID:-}" \
         --arg rid "${4:-}" \
         '{ts:$ts,hook:$hook,hook_version:$ver,exit_code:$code,verdict:$verdict,
           block_reason:(if $reason=="" then null else $reason end),
           rule_id:(if $rid=="" then null else $rid end),
-          cmd_snippet:$preview,command_hash:$hash,
+          cmd_snippet:$cmd_snippet,command_hash:$hash,
           session_id:(if $sid=="" then null else $sid end)}' 2>/dev/null) || return 0
     {
         if command -v flock >/dev/null 2>&1; then
