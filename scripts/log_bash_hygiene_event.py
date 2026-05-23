@@ -33,6 +33,7 @@ def _cmd_name(cmd: str) -> str:
 
 
 def log_event(hook: str, pattern: str, cmd: str, rule_id: str = "", outcome: str = "block") -> None:
+    safe_cmd = _ENV_PREFIX_RE.sub("", cmd.strip())
     rec = {
         "ts": datetime.datetime.now(datetime.UTC).isoformat(),
         "hook": hook,
@@ -40,7 +41,7 @@ def log_event(hook: str, pattern: str, cmd: str, rule_id: str = "", outcome: str
         "rule_id": rule_id,
         "outcome": outcome,
         "cmd_name": _cmd_name(cmd),
-        "cmd_snippet": cmd[:200],
+        "cmd_snippet": safe_cmd[:200],
     }
     log_path = pathlib.Path.home() / ".agents" / "bash-hygiene-events.jsonl"
     with contextlib.suppress(Exception):
