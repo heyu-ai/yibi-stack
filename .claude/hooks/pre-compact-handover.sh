@@ -2,8 +2,9 @@
 # PreCompact hook: 攔截第一次 auto-compact，提醒 Claude 在壓縮前執行 handover
 #
 # 流程：
-#   1. 讀取 stdin JSON，取得 session_id 與 matcher
-#   2. 只處理 matcher = "auto"（手動 /compact 直接放行）
+#   1. 讀取 stdin JSON，取得 session_id（matcher 欄位在 payload 中不保證存在）
+#   2. hook_event_name 不是 PreCompact 時直接放行（其他 event 不處理）
+#      filtering by auto vs manual 已由 settings.json matcher:"auto" 完成
 #   3. 狀態檔 /tmp/claude-handover-suggested-{session_id}：
 #      - 不存在（第一次）→ 建立狀態檔，輸出 systemMessage，exit 2（攔截）
 #      - 已存在（第二次）→ 刪除狀態檔，exit 0（放行）
@@ -34,9 +35,10 @@ EVENT=$(echo "$PARSED" | cut -d'|' -f1)
 SESSION_ID=$(echo "$PARSED" | cut -d'|' -f2)
 MATCHER=$(echo "$PARSED" | cut -d'|' -f3)
 
-# 只處理 PreCompact + auto
+# 只處理 PreCompact
+# 不再雙重檢查 MATCHER：Claude Code 已透過 settings.json matcher:"auto" 做過濾，
+# JSON payload 不保證包含 matcher 欄位，冗餘檢查導致靜默 exit 0
 [ "$EVENT" != "PreCompact" ] && exit 0
-[ "$MATCHER" != "auto" ] && exit 0
 
 # 狀態檔路徑
 if [ -n "$SESSION_ID" ]; then
