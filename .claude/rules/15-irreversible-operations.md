@@ -155,6 +155,29 @@ gcloud compute instances delete my-vm --zone us-central1-a
 gcloud sql instances delete prod-db
 ```
 
+## Git Push 前確認 Upstream Tracking（防意外推到 main）
+
+從 `origin/main` 建立的 feature branch，upstream tracking 預設指向 `origin/main`。
+未加 `-u` 直接執行 `git push origin <feature-branch>` 時，
+git 依 tracking 設定推到 `origin/main`，繞過 PR review 流程。
+
+**標準做法：push 前執行 `git branch -vv` 確認 upstream**
+
+| upstream 顯示 | push 指令 |
+|--------------|---------|
+| `[origin/main: ahead N]` | 必須用 `git push -u origin <branch-name>` 建立專屬遠端 branch |
+| `[origin/<branch-name>]` | 直接 `git push` 即可 |
+
+```bash
+# 確認 upstream 後用 -u 建立遠端 branch
+git branch -vv
+git push -u origin chore/my-feature-branch
+```
+
+這是「影響共享 branch」的不可逆操作：一旦推到 `origin/main`，
+所有協作者的下次 `git pull` 都會取得未經 review 的變更。
+個人 worktree branch 若未 push，影響範圍小，不在此規則範圍。
+
 ## 適用範圍
 
 本規則適用於所有 Claude Code agent session。不影響使用者自行在 terminal 執行的指令。

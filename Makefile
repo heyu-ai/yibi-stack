@@ -1,4 +1,4 @@
-.PHONY: help lint lint-md format typecheck test check ci install install-project install-one install-force-one status status-own uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents patch-gemini-allow-list release
+.PHONY: help lint lint-md format typecheck test check ci install install-project install-one install-force-one status status-own uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents patch-gemini-allow-list patch-agy-allow-list release
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -266,14 +266,17 @@ uninstall-handover-hooks: ## 移除 auto-handover PreCompact + SessionStart hook
 patch-pr-review-agents: ## 為 pr-review-toolkit agents 加入 git -C 指令規範（plugin 更新後重跑）
 	@bash scripts/patch-pr-review-agents.sh
 
-patch-gemini-allow-list: ## 將 gemini:* 加入 ~/.claude/settings.json allow list（mob review 免確認框）
+patch-gemini-allow-list: ## [DEPRECATED] 舊版 gemini:* allow list patch；請改用 patch-agy-allow-list
 	@python3 scripts/patch_gemini_allow_list.py
+
+patch-agy-allow-list: ## 將 agy:* 加入 ~/.claude/settings.json allow list（mob review 免確認框）
+	@python3 scripts/patch_agy_allow_list.py
 
 release: ## Release: make release TYPE=patch|minor|major
 	@if [ -z "$(TYPE)" ]; then echo "[FAIL] Usage: make release TYPE=patch|minor|major"; exit 1; fi
 	@bash scripts/release-full.sh "$(TYPE)"
 
-install-all: build-tools install install-project install-handover-hooks install-scheduler patch-pr-review-agents patch-gemini-allow-list ## 一次裝齊 Go tools / skill（含 project）/ hook / scheduler / patch-pr-review-agents / patch-gemini-allow-list（新環境首次設定用）
+install-all: build-tools install install-project install-handover-hooks install-scheduler patch-pr-review-agents patch-agy-allow-list ## 一次裝齊 Go tools / skill（含 project）/ hook / scheduler / patch-pr-review-agents / patch-agy-allow-list（新環境首次設定用）
 
 promote: ## Promote draft to skill: make promote SKILL=<name>
 	@if [ -z "$(SKILL)" ]; then echo "Usage: make promote SKILL=name"; exit 1; fi
