@@ -24,11 +24,13 @@ trap 'exit 0' ERR
 
 # ── fire-and-forget 全域簡易 log ────────────────────────────────────────
 _LOG_SCRIPT="${BASH_SOURCE[0]%/*}/../../scripts/log_bash_hygiene_event.py"
+_RULE_ID="13"
 
 _log_block() {
+    # $1 = pattern  $2 = cmd  $3 = rule_id (defaults to _RULE_ID)
     [ -f "$_LOG_SCRIPT" ] || return 0
     command -v python3 >/dev/null 2>&1 || return 0
-    python3 "$_LOG_SCRIPT" ap1 "$1" "$2" >/dev/null 2>&1 &
+    python3 "$_LOG_SCRIPT" ap1 "$1" "$2" "${3:-$_RULE_ID}" block >/dev/null 2>&1 &
     disown 2>/dev/null || true
 }
 
@@ -57,7 +59,7 @@ except Exception:
 block() {
     local reason="$1"; shift
     for msg in "$@"; do echo "$msg"; done
-    audit_block "$reason" || true
+    audit_block "$reason" "$_RULE_ID" || true
     exit 2
 }
 

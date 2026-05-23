@@ -22,11 +22,11 @@ def _base_record(
     return {
         "ts": "2026-05-21T00:00:00Z",
         "hook": hook,
-        "hook_version": "1",
+        "hook_version": "2",
         "exit_code": 2 if verdict == "block" else 0,
         "verdict": verdict,
         "block_reason": block_reason,
-        "command_preview": "echo test",
+        "cmd_snippet": "echo test",
         "command_hash": "abc123",
         "session_id": None,
         "duration_ms": duration_ms,

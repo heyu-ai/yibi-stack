@@ -72,6 +72,24 @@ class TestLogEvent:
         assert "SECRET_TOKEN" not in json.dumps(rec)
         assert "abc123" not in json.dumps(rec)
 
+    def test_new_fields_written(self, tmp_path: Path) -> None:
+        """LOGEVENT-ST-005: rule_id / outcome / cmd_snippet 正確寫入記錄。"""
+        with patch.object(Path, "home", return_value=tmp_path):
+            _m.log_event("ap1", "python_c_multiline", "python3 script.py", "13", "block")
+        rec = json.loads(make_log_path(tmp_path).read_text())
+        assert rec["rule_id"] == "13"
+        assert rec["outcome"] == "block"
+        assert rec["cmd_snippet"] == "python3 script.py"
+
+    def test_cmd_snippet_strips_env_prefix(self, tmp_path: Path) -> None:
+        """LOGEVENT-ST-006: cmd_snippet 剝除 KEY=value 前綴，不含 credentials。"""
+        with patch.object(Path, "home", return_value=tmp_path):
+            _m.log_event("ap2", "pattern", "SECRET_TOKEN=abc123 curl https://api.example.com")
+        rec = json.loads(make_log_path(tmp_path).read_text())
+        assert "SECRET_TOKEN" not in rec["cmd_snippet"]
+        assert "abc123" not in rec["cmd_snippet"]
+        assert rec["cmd_snippet"].startswith("curl")
+
     def test_auto_creates_directory(self, tmp_path: Path) -> None:
         """LOGEVENT-ST-003: ~/.agents/ 目錄不存在時自動建立"""
         assert not (tmp_path / ".agents").exists()

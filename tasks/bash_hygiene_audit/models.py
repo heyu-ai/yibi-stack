@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class Verdict(StrEnum):
@@ -24,11 +24,16 @@ class AuditRecord(BaseModel):
 
     ts: str
     hook: str
-    hook_version: str = "1"
+    hook_version: str = "2"
     exit_code: int
     verdict: Verdict
     block_reason: str | None = None
-    command_preview: str = ""
+    rule_id: str = ""
+    cmd_snippet: str = Field(
+        default="",
+        validation_alias=AliasChoices("cmd_snippet", "command_preview"),
+        description="Command preview; v1 key 'command_preview' accepted for back-compat",
+    )
     command_hash: str = ""
     session_id: str | None = None
     duration_ms: int | None = None
