@@ -72,6 +72,7 @@ v2 規則欄標記「13 AP3」「14」「15」為 **v2 已建立規則**（2026-
 | 24 | test -n "${VAR}" -o ... && echo | E（expansion）| 未直接違反（false positive）| 0/5 | 9（hook 廣義攔截 expansion 節點）| E 類第三子類 |
 | 25 | MAIN_REPO=... + grep "...\|..." 雙引號 alternation（兩個 variant） | D | AP1 | 1/5 | 10（`\|` 在雙引號 string 內，新根因） | D 類新子類 |
 | 26 | `$(dirname "$(git rev-parse ...)")` + if-while + `$PM` 變數命令 | D | AP1 | 3/5 | 2+6（`$(outer "$(inner)")` 反向巢狀引號衝突） | D 類 Case 20 反向變體 |
+| 27 | `$(jq -r .skill_repo file)` unquoted leading-dot jq filter | N/A（CC 內建擋） | AP1（間接）| N/A | CC parser 把 leading-dot bare-word 歸為 string 節點後失敗 | Pattern C（python3 -c 取代 jq） |
 
 ---
 

@@ -32,6 +32,7 @@ You need to clean up local git branches whose Pull Requests have been merged on 
 4. **Clean up process**
 
    ```bash
+   # split to avoid $(outer "$(inner)") -- Rule 14 Quoting Rule 4
    GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir)
    MAIN_REPO=$(dirname "$GIT_COMMON")
    PM="uv run --project $MAIN_REPO python -m tasks.local_port_manager"

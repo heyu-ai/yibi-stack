@@ -550,3 +550,58 @@ class TestRgBREDetection6:
     def test_ap1_allow_026_rg_scope_boundary_pipe(self) -> None:
         """rg pattern | sed 含 \\| -> pipeline 後方 sed 不被判斷為 rg pattern，放行"""
         assert run_hook("rg foo /path | sed 's/\\|/!/g'") == 0
+
+
+class TestFixBashAntiPatternsPR:
+    """fix-bash-anti-patterns PR：clean-merged 結構修正 + protect-push $? 修正 regression。
+
+    舊模式（修復前）應被 hook 攔截，新模式（修復後）應放行。
+    """
+
+    # ── clean-merged: $(dirname "$(git rev-parse --path-format=absolute ...)") ──
+
+    def test_clean_merged_old_nested_subshell_blocks(self) -> None:
+        """clean-merged 修復前：$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+        Rule 14 Quoting Rule 4 反向巢狀 subshell -> 攔截"""
+        cmd = 'MAIN_REPO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")'
+        assert run_hook(cmd) == 2
+
+    def test_clean_merged_new_split_passes(self) -> None:
+        """clean-merged 修復後：拆成兩個獨立 bash call -> 放行（Rule 14 Quoting Rule 4 修法）"""
+        cmd = (
+            "GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir)\n"
+            'MAIN_REPO=$(dirname "$GIT_COMMON")'
+        )
+        assert run_hook(cmd) == 0
+
+    # ── protect-push: [ $? -ne 0 ] && echo && exit 1 → if ! python3 - << 'EOF'...fi ──
+
+    def test_protect_push_old_dollar_question_passes_ap1_hook(self) -> None:
+        """protect-push 修復前：python3 heredoc 後接 [ $? -ne 0 ]。
+
+        $? 觸發 CC 內建 simple_expansion 攔截（不在本 AP1 hook 範疇），
+        本 hook 放行（exit 0）。實際修法動機是避免 CC 內建確認框。
+        對應修法：if ! python3 - << 'EOF'...then...fi（見下方 test）。
+        """
+        cmd = (
+            "python3 - << 'EOF'\n"
+            "import json\n"
+            "print('ok')\n"
+            "EOF\n"
+            "[ $? -ne 0 ] && echo '[FAIL] 合併失敗' && exit 1"
+        )
+        assert run_hook(cmd) == 0  # AP1 hook 放行；CC 內建攔截 $? 的 simple_expansion
+
+    def test_protect_push_new_if_not_heredoc_passes(self) -> None:
+        """protect-push 修復後：if ! python3 - << 'EOF'...then...fi -> 放行（Rule 14 $? 正確修法）"""
+        cmd = (
+            "if ! python3 - << 'EOF'\n"
+            "import json\n"
+            "print('ok')\n"
+            "EOF\n"
+            "then\n"
+            "  echo '[FAIL] 合併失敗' >&2\n"
+            "  exit 1\n"
+            "fi"
+        )
+        assert run_hook(cmd) == 0

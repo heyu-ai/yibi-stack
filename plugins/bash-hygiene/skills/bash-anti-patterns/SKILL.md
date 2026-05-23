@@ -143,7 +143,7 @@ fi
 
 ### 範例 B：複雜 if/elif → case statement
 
-```bash
+```text
 # 錯：多層 if/elif（多層分支 = score 1，加上複雜參數展開 ${EXT##*.} = score 2）
 EXT="${FILENAME##*.}"
 if [ "$EXT" = "py" ]; then
