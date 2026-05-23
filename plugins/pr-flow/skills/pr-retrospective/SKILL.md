@@ -251,6 +251,19 @@ uv run --directory "$SKILL_REPO" \
 
 ### Step 5 — 路由建議 + 自動跑 read-only 動作
 
+#### Promotion Gate（3 條，全通過才路由到 rule 檔）
+
+每個 Q4 lesson 在進入 Lesson Classifier 前，先依序通過 3 條 gate。**任一失敗 → 只存 session-memory，不寫規則文件**：
+
+| Gate | 判斷問題 | 失敗時行動 |
+|------|---------|-----------|
+| **G1 automation-infeasible** | 這個 lesson 能被 hook 自動阻擋嗎？（PreToolUse / PostToolUse 能機械偵測？） | 先執行 `hookify:hookify`，不寫 rule；rule 只給 hook 無法覆蓋的情境 |
+| **G2 onboarding-relevant** | 一個剛加入的貢獻者（day-1）也會犯這個錯誤嗎？ | 若 No（只有深度 context 才會踩）→ session-memory only，不開 rule |
+| **G3 no existing rule covers it** | 搜尋現有 `.claude/rules/` 後，沒有任何 rule 已覆蓋此 pattern 嗎？ | 若已有 → extend 現有 rule（append），不建新 rule 檔 |
+
+> 此 gate 的設計邏輯：rule 檔是每 session 全量載入的 token cost（無 globs 的 rule 永遠佔用 context）。
+> 只有 hook 無法解、新人也會踩、且尚無 rule 覆蓋的 lesson，才值得加進 rule。
+
 #### Lesson Classifier
 
 Q4 每個 lesson 先按下表分類再決定目的地。**CLAUDE.md 是最後 fallback，不是 default**：
@@ -258,7 +271,7 @@ Q4 每個 lesson 先按下表分類再決定目的地。**CLAUDE.md 是最後 fa
 | Lesson 類別 | 判斷訊號（關鍵字 / 情境）| 目的地 |
 |-------------|--------------------------|--------|
 | Bash anti-pattern（AP1/AP2/AP3）| `for loop`、`heredoc`、`$()`、`cd &&`、bash 字串 Unicode | `.claude/rules/13-bash-anti-patterns.md` |
-| Shell quoting hygiene | `simple_expansion`、`Unhandled node type: string`、BRE alternation、反向巢狀 subshell | `.claude/rules/14-shell-quoting-hygiene.md` |
+| Shell quoting hygiene | `simple_expansion`、`Unhandled node type: string`、BRE alternation、反向巢狀 subshell | `.claude/rules/13-bash-anti-patterns.md`（已合併自 rule 14）|
 | SKILL.md authoring | `scope:` 欄位、`{{placeholder}}`、frontmatter 格式、skill 執行介面設計 | `.claude/rules/11-skill-authoring.md` |
 | 不可逆操作邊界 | `protect-push`、`gh pr merge`、`alembic`、`rm -rf`、force push | `.claude/rules/15-irreversible-operations.md` |
 | 安全性 / 注入 | mrkdwn sanitize、`Content-Type`、SQL injection、API key 明文 | `.claude/rules/03-security.md` |
