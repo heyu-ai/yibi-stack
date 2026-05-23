@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""幂等地將 agy（Antigravity CLI）相關指令加入 ~/.claude/settings.json allow list。"""
+"""冪等地將 agy（Antigravity CLI）相關指令加入 ~/.claude/settings.json allow list。"""
 
 import json
 import os
@@ -17,7 +17,7 @@ ENTRIES_TO_ADD = [
 def main() -> None:
     if not SETTINGS_PATH.is_file():
         print(
-            f"  [WARN] {SETTINGS_PATH} 不存在 — 請先啟動 Claude Code 以產生設定檔，再重跑 make patch-agy-allow-list",
+            f"  [FAIL] {SETTINGS_PATH} 不存在 — 請先啟動 Claude Code 以產生設定檔，再重跑 make patch-agy-allow-list",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -28,7 +28,13 @@ def main() -> None:
         print(f"  [FAIL] settings.json 格式錯誤：{e}", file=sys.stderr)
         sys.exit(1)
     perms = data.setdefault("permissions", {})
-    allow: list[str] = perms.setdefault("allow", [])
+    if not isinstance(perms, dict):
+        perms = {}
+        data["permissions"] = perms
+    allow = perms.get("allow")
+    if not isinstance(allow, list):
+        allow = []
+        perms["allow"] = allow
 
     added = []
     for entry in ENTRIES_TO_ADD:
