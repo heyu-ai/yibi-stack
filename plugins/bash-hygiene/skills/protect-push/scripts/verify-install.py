@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """protect-push 安裝驗證：確認 hook 腳本存在且 settings.json 設定正確。"""
 import json
-import subprocess
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 
 try:
-    repo_root = subprocess.check_output(
+    repo_root = subprocess.check_output(  # nosec B603 B607
         ["git", "rev-parse", "--show-toplevel"], text=True
     ).strip()
-except subprocess.CalledProcessError:
-    print("[FAIL] 無法找到 git repo root，請在 git repo 目錄內執行")
+except (subprocess.CalledProcessError, FileNotFoundError):
+    print("[FAIL] 無法找到 git repo root（git 未安裝、不在 PATH 或非 git repo），請在 git repo 目錄內執行")
     sys.exit(1)
 
 settings_path = Path(repo_root) / ".claude" / "settings.json"

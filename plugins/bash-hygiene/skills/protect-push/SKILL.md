@@ -86,53 +86,8 @@ echo "[OK] settings.json 已建立"
 **情況 B：settings.json 已存在** — 讀取現有內容，用 Python 合併 hook 設定（不覆蓋其他設定）：
 
 ```bash
-python3 - << 'EOF'
-import json, sys
-from pathlib import Path
-
-settings_path = Path(".claude/settings.json")
-settings = json.loads(settings_path.read_text(encoding="utf-8"))
-
-new_hook = {
-    "hooks": [
-        {
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-push.sh",
-            "type": "command",
-            "statusMessage": "檢查 git push 安全性..."
-        }
-    ],
-    "matcher": "Bash"
-}
-
-# 取得或初始化 hooks.PreToolUse
-hooks = settings.setdefault("hooks", {})
-if not isinstance(hooks, dict):
-    print("錯誤：settings.json 中 hooks 欄位格式不正確（應為 dict）")
-    sys.exit(1)
-pre_tool_use = hooks.setdefault("PreToolUse", [])
-
-# 避免重複安裝（比對完整 command 字串）
-HOOK_COMMAND = '"$CLAUDE_PROJECT_DIR"/.claude/hooks/protect-push.sh'
-already_installed = any(
-    any(
-        h.get("command", "") == HOOK_COMMAND
-        for h in entry.get("hooks", [])
-    )
-    for entry in pre_tool_use
-)
-
-if already_installed:
-    print("[WARN] protect-push hook 已存在，略過")
-    sys.exit(0)
-
-pre_tool_use.append(new_hook)
-settings_path.write_text(
-    json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
-    encoding="utf-8"
-)
-print("[OK] protect-push hook 已合併到 settings.json")
-EOF
-[ $? -ne 0 ] && echo '[FAIL] settings.json 合併失敗，請手動確認 .claude/settings.json' >&2 && exit 1
+SKILL_DIR="$HOME/.agents/skills/protect-push"
+if ! python3 "$SKILL_DIR/scripts/merge-settings.py"; then echo '[FAIL] settings.json 合併失敗，請手動確認 .claude/settings.json' >&2; exit 1; fi
 ```
 
 ### Step 4: 驗證
