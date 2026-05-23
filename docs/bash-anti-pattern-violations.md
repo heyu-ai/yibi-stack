@@ -1,99 +1,7 @@
-# Bash Anti-Pattern 違規清單（待修）
+# Bash Anti-Pattern 違規清單
 
-由 PR 建立 `bash-anti-patterns` skill 時同步掃描產出（2026-05-03）。
-違規清單修復完成後，上方各條目逐一刪除；底部「Hook 攔截案例分析」節永久保留（規則 14、15 已於 2026-05-04 v2 正式建立）。
-
-## 違規類型說明
-
-- **U**：bash 指令字串內含 emoji / em dash / en dash（Anti-Pattern 2）
-  - 修法：改用 `[SKIP]` / `[OK]` / `[WARN]` / `[FAIL]` / `[GO]` / `--` / `-`
-  - **注意**：hook 掃描的是 raw `.tool_input.command` 字串，不解析 shell 語法。
-    因此 `python3 -c "print('⚠️ message')"` 裡的 emoji 也會被攔截，
-    即使它在 Python 字串而非 bash 字串內。所有 command 中可見的 emoji 都需修。
-- **C**：過度複雜的單一指令（Anti-Pattern 1，complexity score >= 2）
-  - 修法：拆成多個 bash call / 寫獨立 script / 換工具（jq / realpath）
-
----
-
-## 真陽性清單
-
-### commands/newjob.md
-
-**Anti-Pattern 2（bash echo 含 emoji）：**
-
-| 行號 | 原始內容 | 修法 |
-|------|---------|------|
-| L56 | `echo "⚠️ DANGER: branch 追蹤 origin/main，修正中..."` | `echo "[WARN] DANGER: branch 追蹤 origin/main，修正中..."` |
-| L109 | `&& echo "  ⏭ 無 docker-compose 檔案，跳過 port 衝突預防"` | `&& echo "  [SKIP] 無 docker-compose 檔案，跳過 port 衝突預防"` |
-| L115 | `{ echo "  ⚠ port registry init 失敗 — 跳過 port 衝突預防"; exit 0; }` | `{ echo "  [WARN] port registry init 失敗 -- 跳過 port 衝突預防"; exit 0; }` |
-| L159 | `echo "  ⏭ Step 3b 全域版本跳過（docker compose 由專案層級 newjob.md 負責）"` | `echo "  [SKIP] Step 3b 全域版本跳過（docker compose 由專案層級 newjob.md 負責）"` |
-| L168 | `echo "  ⏭ 無 docker-compose 檔案，跳過"` | `echo "  [SKIP] 無 docker-compose 檔案，跳過"` |
-| L181 | `echo "  ⚠ migration 失敗，請手動確認"` | `echo "  [WARN] migration 失敗，請手動確認"` |
-| L183 | `echo "  ⏭ 無 migration 設定，跳過"` | `echo "  [SKIP] 無 migration 設定，跳過"` |
-| L197 | `echo "  ⏭ 無可測試的專案，跳過"` | `echo "  [SKIP] 無可測試的專案，跳過"` |
-| L210 | `echo "  ⏭ 無 Python 專案，跳過 lint"` | `echo "  [SKIP] 無 Python 專案，跳過 lint"` |
-
-**Anti-Pattern 1（Step 3d/3e/3f complexity）：**
-
-| 行號範圍 | 症狀 | Complexity Score |
-|---------|------|-----------------|
-| L188-197 | 技術棧偵測 if/elif + 多重 OR 條件（`pyproject.toml \|\| backend/pyproject.toml`）| 2（多層 if/elif + 複雜條件）|
-| L204-210 | lint 偵測同模式，if + OR 多條件 | 2（多層 if + 複雜條件）|
-
-修法：考慮拆成各技術棧獨立偵測邏輯，或抽出 `detect_stack()` 函式到獨立 script。
-
----
-
-### commands/clean-gone.md
-
-**Anti-Pattern 2（bash echo 含 emoji）：**
-
-| 行號 | 原始內容 | 修法 |
-|------|---------|------|
-| L52 | `echo "  ⚠ 不在 git repo 內 — 跳過 port cleanup for $branch"` | `echo "  [WARN] 不在 git repo 內 -- 跳過 port cleanup for $branch"` |
-| L63 | `echo "  ⚠ uv 不可用 — 跳過 port cleanup for $branch"` | `echo "  [WARN] uv 不可用 -- 跳過 port cleanup for $branch"` |
-
----
-
-### commands/clean-merged.md
-
-**Anti-Pattern 2（bash echo 含 emoji）：**
-
-| 行號 | 原始內容 | 修法 |
-|------|---------|------|
-| L44 | `echo "  ⚠ 不在 git repo 內 — 跳過 port cleanup for $branch"` | `echo "  [WARN] 不在 git repo 內 -- 跳過 port cleanup for $branch"` |
-| L55 | `echo "  ⚠ uv 不可用 — 跳過 port cleanup for $branch"` | `echo "  [WARN] uv 不可用 -- 跳過 port cleanup for $branch"` |
-
----
-
-### commands/handover.md ✓ 已修（fix-handover-skill-anti-bash, 2026-05-06）
-
-修復項目：
-
-- emoji `✗`/`⚠️` → `[FAIL]`/`[WARN]`（AP2）
-- `jq -r '.skill_repo // empty'` → `jq -r '.skill_repo'` + `null` 字串檢查（D 類 `//` trigger）
-- `cd "$(git rev-parse --show-toplevel)"` → `git rev-parse --show-toplevel`（AP3 Sub-class B）
-- `$(realpath "$SKILL_REPO" ...)` 移除，改用 `[ -d "$SKILL_REPO" ]`
-
----
-
-### commands/handover-back.md ✓ 已修（fix-handover-skill-anti-bash, 2026-05-06）
-
-修復項目：同 handover.md，兩個 bash block 全部修正（AP2 + D 類 `//` trigger）。
-
----
-
-### Makefile
-
-**Anti-Pattern 2（echo 含 emoji）：**
-
-| 行號 | 原始內容 | 修法 |
-|------|---------|------|
-| L37 | `@echo "✅ 本地 CI 項目通過（pre-commit + tests）"` | `@echo "[OK] 本地 CI 項目通過（pre-commit + tests）"` |
-| L89 | `echo "  ⚠ $$name → relinked (was dangling)";` | `echo "  [WARN] $$name -> relinked (was dangling)";` |
-| L93 | `echo "  ⚠ $$name (exists as real file, skipping)";` | `echo "  [WARN] $$name (exists as real file, skipping)";` |
-
----
+> 2026-05-23：真陽性清單已隨 fix-all-bash-violations PR 清空。當前實際違規請跑 `make lint-md`。
+> 保留段落：假陽性已審清單、Hook 攔截案例分析（Cases 1–27 + v3 backlog）——規則演化素材，永久保留。
 
 ## 假陽性已審清單（不需修）
 
@@ -111,17 +19,6 @@
 | .claude/rules/*.md | em dash 行 | Markdown 文件中的 em dash 是 prose，非 bash |
 | commands/handover.md | — | 所有 AP2 違規已於 fix-handover-skill-anti-bash 修復，不再屬假陽性清單範圍 |
 | commands/handover-back.md | — | 同上 |
-
----
-
-## 建議 Fix PR 執行順序
-
-1. ~~**先 merge fix/handover-commands-jq-refactor**~~ → ✓ 已完成（fix-handover-skill-anti-bash）
-2. **修 commands/newjob.md** → U 類 9 處，C 類 2 處（Step 3d/3e）
-3. **修 commands/clean-gone.md + commands/clean-merged.md** → U 類各 2 處
-4. **修 Makefile** → U 類 3 處
-
-每個 fix PR 完成後，刪除本清單對應條目。違規清單全清空後，刪除上方所有段落；底部 Hook 攔截案例分析節仍保留，待規則 14、15 建立後再刪除本檔。
 
 ---
 
@@ -175,6 +72,7 @@ v2 規則欄標記「13 AP3」「14」「15」為 **v2 已建立規則**（2026-
 | 24 | test -n "${VAR}" -o ... && echo | E（expansion）| 未直接違反（false positive）| 0/5 | 9（hook 廣義攔截 expansion 節點）| E 類第三子類 |
 | 25 | MAIN_REPO=... + grep "...\|..." 雙引號 alternation（兩個 variant） | D | AP1 | 1/5 | 10（`\|` 在雙引號 string 內，新根因） | D 類新子類 |
 | 26 | `$(dirname "$(git rev-parse ...)")` + if-while + `$PM` 變數命令 | D | AP1 | 3/5 | 2+6（`$(outer "$(inner)")` 反向巢狀引號衝突） | D 類 Case 20 反向變體 |
+| 27 | `$(jq -r .skill_repo file)` unquoted leading-dot jq filter | N/A（CC 內建擋） | AP1（間接）| N/A | CC parser 把 leading-dot bare-word 歸為 string 節點後失敗 | Pattern C（python3 -c 取代 jq） |
 
 ---
 

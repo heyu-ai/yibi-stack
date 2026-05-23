@@ -75,7 +75,7 @@ make lint && make test
 每個 call 解一個問題，agent 看完再決定下一步：
 
 ```text
-# 錯：一行塞太多（AP1：multi-line python -c = score 2）
+# 錯：一行塞太多
 RESULT=$(python3 -c "
 import json, sys
 data = json.loads(sys.stdin.read())
@@ -147,7 +147,7 @@ fi
 
 ### 範例 B：複雜 if/elif → case statement
 
-```bash
+```text
 # 錯：多層 if/elif（多層分支 = score 1，加上複雜參數展開 ${EXT##*.} = score 2）
 EXT="${FILENAME##*.}"
 if [ "$EXT" = "py" ]; then
@@ -243,9 +243,9 @@ python3 /tmp/filter_active.py < data.json
 
 ### 範例
 
-```bash
-# 錯：emoji 在 bash echo 字串內（以 [SKIP_EMOJI] 代替實際 emoji 以免 linter 自身觸發）
-echo "  [SKIP_EMOJI] 無 docker-compose，跳過"
+```text
+# 錯：emoji 在 bash echo 字串內（這行會卡 parser）
+echo "  ⏭ 無 docker-compose，跳過"
 
 # 對：改用 ASCII 替代
 echo "  [SKIP] 無 docker-compose，跳過"

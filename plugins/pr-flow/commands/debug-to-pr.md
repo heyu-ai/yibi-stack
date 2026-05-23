@@ -75,8 +75,6 @@ gh pr create --title "fix(scope): 描述" --body "$(cat <<'EOF'
 ## Test plan
 - [ ] `uv run pytest` passes
 - [ ] Manual verification: <驗證步驟>
-
-[BOT] Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```
