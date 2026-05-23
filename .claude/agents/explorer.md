@@ -25,7 +25,7 @@ tools: [Read, Grep, Glob]
 
 每次回報格式：
 
-```
+```text
 找到：<檔案路徑>:<行號>
 內容：<相關 snippet 或摘要>
 ```
