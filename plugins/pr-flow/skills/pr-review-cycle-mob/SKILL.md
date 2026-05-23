@@ -657,15 +657,29 @@ group-review（{{N}}/3 voices active）
 
 ### Step 7 — Group re-review（直到全員 LGTM）
 
-對**本次修改的檔案**重跑 Step 3 + Step 4（R1 + R2）。
+對**本次修改的檔案**重跑 R1 + R2，但**只重跑上一輪有 NEEDS_CHANGES 的聲音**。
+
+**7.1 刷新 diff 狀態**（必做，fix 後 diff 已變）：
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
+git diff "{{base_branch}}"...HEAD > "$REVIEW_DIR/diff.patch"
 git diff "{{base_branch}}"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"
 ```
 
-新一輪覆蓋舊的 r1/r2 檔案。
+**7.2 判斷哪些聲音需要重跑**：
+
+讀取上一輪各 voice 的 `*-r2.md`（或 R1 輪的 `*-r1.md`），找出 `Final verdict: NEEDS_CHANGES` 的聲音。只對這些聲音重跑 Step 3 + Step 4；verdict 已是 LGTM 的聲音**跳過**，保留上一輪結果。
+
+```text
+re-run 判斷邏輯（agent 執行）：
+- claude   最後 verdict = NEEDS_CHANGES → 重跑
+- codex    最後 verdict = LGTM          → 跳過（省 API round-trip）
+- gemini   最後 verdict = NEEDS_CHANGES → 重跑
+```
+
+新一輪的 r1/r2 覆蓋舊檔案（只限需重跑的聲音）。LGTM 聲音的舊檔維持不動以供 aggregate 使用。
 
 #### 收斂條件
 
@@ -694,6 +708,19 @@ Group review 已跑 3 輪仍未全員 LGTM，剩餘未解項目：
 ```
 
 等待明確指示後才繼續。
+
+#### Gotcha：re-review 不可用舊 diff.patch
+
+fix 後若需要手動觸發單一聲音重跑，input 必須用**Step 7.1 刷新後的 diff.patch**，不可沿用 setup 階段產生的舊版：
+
+```bash
+# 正確：重跑 codex 用最新 diff + r1-aggregate（交叉比對 context）
+cat "$REVIEW_DIR/r1-aggregate.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-rerun-input.md"
+codex exec -C "$WT_ROOT" -s read-only < "$REVIEW_DIR/codex-rerun-input.md" > "$REVIEW_DIR/codex-r1.md"
+
+# 錯誤：prompt-r1.md 是第一輪的 reviewer prompt，不是 aggregate；且 diff.patch 若未刷新則是舊快照
+# cat "$REVIEW_DIR/prompt-r1.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-final2-input.md"
+```
 
 ---
 
