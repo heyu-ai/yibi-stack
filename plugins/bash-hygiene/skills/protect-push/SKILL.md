@@ -86,7 +86,7 @@ echo "[OK] settings.json 已建立"
 **情況 B：settings.json 已存在** — 讀取現有內容，用 Python 合併 hook 設定（不覆蓋其他設定）：
 
 ```bash
-python3 - << 'EOF'
+if ! python3 - << 'EOF'
 import json, sys
 from pathlib import Path
 
@@ -132,7 +132,10 @@ settings_path.write_text(
 )
 print("[OK] protect-push hook 已合併到 settings.json")
 EOF
-[ $? -ne 0 ] && echo '[FAIL] settings.json 合併失敗，請手動確認 .claude/settings.json' && exit 1
+then
+  echo '[FAIL] settings.json 合併失敗，請手動確認 .claude/settings.json' >&2
+  exit 1
+fi
 ```
 
 ### Step 4: 驗證

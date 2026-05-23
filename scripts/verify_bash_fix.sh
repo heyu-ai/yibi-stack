@@ -26,7 +26,7 @@ check_cmd() {
   local ap1_rc=0
   printf '%s' "$payload" | python3 "$AP2_HOOK" >/dev/null 2>&1 || ap2_rc=$?
   printf '%s' "$payload" | bash "$AP1_HOOK" >/dev/null 2>&1 || ap1_rc=$?
-  if [ $ap2_rc -ne 0 ] || [ $ap1_rc -ne 0 ]; then
+  if [ "$ap2_rc" -ne 0 ] || [ "$ap1_rc" -ne 0 ]; then
     echo "[FAIL] $desc (AP2=$ap2_rc AP1=$ap1_rc)" >&2
     FAIL=1
   else
@@ -54,7 +54,7 @@ check_cmd 'echo "[OK] name removed (Claude Code)"' "makefile: uninstall ok"
 
 echo ""
 echo "=== L3: pytest regression ==="
-if uv run pytest .claude/hooks/tests/test_bash_ap2_check.py .claude/hooks/tests/test_bash_ap1_inline_check.py .claude/hooks/tests/test_log_bash_hygiene_event.py -q 2>&1; then
+if uv run pytest .claude/hooks/tests/test_bash_ap2_check.py .claude/hooks/tests/test_bash_ap1_inline_check.py .claude/hooks/tests/test_log_bash_hygiene_event.py -q; then
   echo "[OK] L3 passed -- all hook tests green"
 else
   echo "[FAIL] L3 failed -- hook regression detected" >&2
