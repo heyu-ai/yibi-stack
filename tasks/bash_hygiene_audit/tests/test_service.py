@@ -40,8 +40,8 @@ def _base_record(
 
 
 class TestFindLogPath:
-    def test_bhaudit_st_014_worktree_resolves_to_main_repo(self, tmp_path: Path) -> None:
-        """BHAUDIT-ST-014: _find_log_path 用 --git-common-dir parent，不用 --show-toplevel。"""
+    def test_bhaudit_st_017_worktree_resolves_to_main_repo(self, tmp_path: Path) -> None:
+        """BHAUDIT-ST-017: _find_log_path 用 --git-common-dir parent，不用 --show-toplevel。"""
         fake_git_dir = tmp_path / ".git"
         fake_git_dir.mkdir()
         mock_run = MagicMock()
@@ -54,8 +54,8 @@ class TestFindLogPath:
         assert "--git-common-dir" in called_args
         assert "--show-toplevel" not in called_args
 
-    def test_bhaudit_st_015_git_unavailable_returns_none(self) -> None:
-        """BHAUDIT-ST-015: git 不可用時 _find_log_path 回傳 None，不拋例外。"""
+    def test_bhaudit_st_018_git_nonzero_returns_none(self) -> None:
+        """BHAUDIT-ST-018: git 指令回傳非零 exit code 時 _find_log_path 回傳 None，不拋例外。"""
         mock_run = MagicMock()
         mock_run.return_value.returncode = 128
         with patch("tasks.bash_hygiene_audit.service.subprocess.run", mock_run):

@@ -12,7 +12,9 @@ HOOK = Path(__file__).parents[1] / "pre-commit.sh"
 _GIT_COMMIT_JSON = json.dumps({"tool_input": {"command": "git commit -m 'test'"}})
 
 
-def _run_hook(stdin: str, env: dict[str, str] | None = None, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
+def _run_hook(
+    stdin: str, env: dict[str, str] | None = None, cwd: str | None = None
+) -> subprocess.CompletedProcess[str]:
     e = {**os.environ, **(env or {})}
     return subprocess.run(  # nosec B603
         ["bash", str(HOOK)],
@@ -30,7 +32,9 @@ class TestGuards:
         for cmd in ["echo hello", "git status", "git push origin main", "make test"]:
             stdin = json.dumps({"tool_input": {"command": cmd}})
             result = _run_hook(stdin)
-            assert result.returncode == 0, f"'{cmd}' should pass through, got exit {result.returncode}"
+            assert result.returncode == 0, (
+                f"'{cmd}' should pass through, got exit {result.returncode}"
+            )
             assert "[FAIL]" not in result.stderr
 
     def test_pre_commit_002_effort_low_skip(self) -> None:
@@ -60,10 +64,14 @@ class TestGuards:
         repo = _make_git_repo(tmp_path)
         staged_md = tmp_path / "test.md"
         staged_md.write_text("# Test\n")
-        subprocess.run(["git", "-C", str(tmp_path), "add", "test.md"], check=True, capture_output=True)  # nosec B603
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "add", "test.md"], check=True, capture_output=True
+        )  # nosec B603
         result = _run_hook(_GIT_COMMIT_JSON, cwd=str(repo))
         assert "[pre-commit]" not in result.stdout
         assert "[OK]" not in result.stdout
+        assert "[pre-commit]" in result.stderr
+        assert "[OK]" in result.stderr
 
 
 class TestStagedFiles:
@@ -79,7 +87,9 @@ class TestStagedFiles:
         repo = _make_git_repo(tmp_path)
         staged_md = tmp_path / "README.md"
         staged_md.write_text("# Test\n")
-        subprocess.run(["git", "-C", str(tmp_path), "add", "README.md"], check=True, capture_output=True)  # nosec B603
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "add", "README.md"], check=True, capture_output=True
+        )  # nosec B603
         result = _run_hook(_GIT_COMMIT_JSON, cwd=str(repo))
         assert "[pre-commit] ruff" not in result.stderr
         assert "[FAIL] ruff" not in result.stderr
@@ -89,7 +99,9 @@ class TestStagedFiles:
         repo = _make_git_repo(tmp_path)
         staged_py = tmp_path / "foo.py"
         staged_py.write_text("x = 1\n")
-        subprocess.run(["git", "-C", str(tmp_path), "add", "foo.py"], check=True, capture_output=True)  # nosec B603
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "add", "foo.py"], check=True, capture_output=True
+        )  # nosec B603
         result = _run_hook(_GIT_COMMIT_JSON, cwd=str(repo))
         assert "[pre-commit] markdownlint" not in result.stderr
         assert "[FAIL] markdownlint" not in result.stderr
@@ -105,15 +117,24 @@ class TestStagedFiles:
         result = _run_hook(_GIT_COMMIT_JSON, cwd=str(tmp_path), env=env)
         assert result.returncode == 0
         assert "[WARN]" in result.stderr
+        assert "[FAIL]" not in result.stderr
 
 
 def _make_git_repo(tmp_path: Path) -> Path:
     """最小 git repo with initial commit（供 staged-files 測試使用）。"""
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)  # nosec B603
-    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "test@test.com"], check=True, capture_output=True)  # nosec B603
-    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "Test"], check=True, capture_output=True)  # nosec B603
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "test@test.com"],
+        check=True,
+        capture_output=True,
+    )  # nosec B603
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.name", "Test"], check=True, capture_output=True
+    )  # nosec B603
     init = tmp_path / ".gitkeep"
     init.write_text("")
     subprocess.run(["git", "-C", str(tmp_path), "add", ".gitkeep"], check=True, capture_output=True)  # nosec B603
-    subprocess.run(["git", "-C", str(tmp_path), "commit", "-m", "init"], check=True, capture_output=True)  # nosec B603
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-m", "init"], check=True, capture_output=True
+    )  # nosec B603
     return tmp_path
