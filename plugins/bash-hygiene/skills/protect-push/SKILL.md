@@ -143,7 +143,8 @@ EOF
 echo "=== 安裝驗證 ==="
 [ -x ".claude/hooks/protect-push.sh" ] && echo "[OK] hook 腳本：存在且可執行" || echo "[FAIL] hook 腳本：未找到"
 [ -f ".claude/hooks/parse_git_dir.py" ] && echo "[OK] 路徑解析器：存在" || echo "[FAIL] 路徑解析器：未找到"
-python3 skills/protect-push/scripts/verify-install.py
+SKILL_DIR="$HOME/.agents/skills/protect-push"
+python3 "$SKILL_DIR/scripts/verify-install.py"
 echo "========================"
 echo "[OK] 安裝完成！下次 Claude 在此專案執行 git push 時將自動檢查 branch tracking。"
 ```

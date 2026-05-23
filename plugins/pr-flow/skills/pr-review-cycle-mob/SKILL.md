@@ -670,7 +670,7 @@ git diff "{{base_branch}}"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"
 
 **7.2 判斷哪些聲音需要重跑**：
 
-讀取上一輪各 voice 的 `*-r2.md`（或 R1 輪的 `*-r1.md`），找出 `Final verdict: NEEDS_CHANGES` 的聲音。只對這些聲音重跑 Step 3 + Step 4；verdict 已是 LGTM 的聲音**跳過**，保留上一輪結果。
+讀取每個 voice 的**最新一輪** verdict 檔案（優先 `*-r2.md`，無則 `*-r1.md`），找出 `Final verdict: NEEDS_CHANGES` 的聲音。只對這些聲音重跑 Step 3 + Step 4；verdict 已是 LGTM 的聲音**跳過**，保留上一輪結果。
 
 ```text
 re-run 判斷邏輯（agent 執行）：
