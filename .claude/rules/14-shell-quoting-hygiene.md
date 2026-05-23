@@ -77,7 +77,7 @@ Claude Code 內建 parser 廣義攔截所有 `expansion` / `simple_expansion` AS
 **不區分是否已加引號、是否在 subshell 內**——兩種形式都會觸發：
 
 | 形式 | 觸發訊息 |
-|------|---------|
+| ------ | --------- |
 | `"${VAR}"` 括號形式 | `Contains expansion` |
 | `"$VAR"` plain form | `Contains simple_expansion` |
 
@@ -107,7 +107,7 @@ test -n "$CODEX_API_KEY" -o -n "$OPENAI_API_KEY" && echo "AUTH: KEY_SET" || true
 多行腳本無法用 prefix wildcard allow-list（pattern 無法跨行匹配），必須重構：
 
 | 場景 | 修法 |
-|------|------|
+| ------ | ------ |
 | 2-4 行、變數間有依賴 | 拆成獨立 bash call，各自被 allow-list 覆蓋 |
 | 5+ 行或重複使用 | 寫成 `scripts/foo.sh`，bash 只剩 `bash scripts/foo.sh` |
 
@@ -173,31 +173,31 @@ if c == "\\" and in_double:   # 只在雙引號內跳過下一個字元
 **其他模式快速對照**（Rules 3-5；Rules 1-2 見上方流程圖）：
 
 | 模式 | 觸發訊息 | 規則 | 修法 |
-|------|---------|------|------|
+| ------ | --------- | ------ | ------ |
 | `grep "...\|..."` 雙引號 BRE | `Unhandled node type: string` | Rule 3 | 改單引號或 `-E` flag |
 | `$(outer "$(inner)")` 反向巢狀 | `Unhandled node type: string` | Rule 4 | 拆兩 call |
-| `"${VAR}"` 作為 test 引數 | `Contains expansion`（false positive）| Rule 5 | 加進 allow list |
-| `"$VAR"` 作為 test 引數 | `Contains simple_expansion`（false positive）| Rule 5 | 加進 allow list |
+| `"${VAR}"` 作為 test 引數 | `Contains expansion`（false positive） | Rule 5 | 加進 allow list |
+| `"$VAR"` 作為 test 引數 | `Contains simple_expansion`（false positive） | Rule 5 | 加進 allow list |
 
 ## Hook 類別對照
 
 | 錯誤型態 | Hook 訊息 | 根因 |
-|---------|-----------|------|
+| --------- | ----------- | ------ |
 | `$VAR` 在 `$()` 內未加引號 | `simple_expansion` | Rule 1 |
 | `"$(cmd "$VAR")"` 雙引號衝突 | `Unhandled node type: string` | Rule 2 |
 | `$'...'` ANSI-C 字串 | `ansi_c_string` | 避免使用 ANSI-C 逸出字串語法 |
 | `grep "...\|..."` 雙引號 BRE | `Unhandled node type: string` | Rule 3；hook 自動攔截 |
 | `$(outer "$(inner)")` 反向巢狀 | `Unhandled node type: string` | Rule 4；hook 自動攔截 |
-| `"${VAR}"` 括號形式（已加引號）| `Contains expansion` | Rule 5；**false positive**；加進 allow list |
-| `"$VAR"` plain form（已加引號）| `Contains simple_expansion` | Rule 5；**false positive**；加進 allow list |
+| `"${VAR}"` 括號形式（已加引號） | `Contains expansion` | Rule 5；**false positive**；加進 allow list |
+| `"$VAR"` plain form（已加引號） | `Contains simple_expansion` | Rule 5；**false positive**；加進 allow list |
 | `echo "exit:$?"` / `[ $? -ne 0 ]` | `Contains simple_expansion` | Rule 5；`$?` 無論是否在引號內皆攔截；改用 `if ! <cmd>; then` |
 
 ## $? 特殊案例（PR #24 教訓）
 
 `$?`（exit status 變數）是 `simple_expansion` AST 節點，Rule 5「不區分是否已加引號」同樣適用：
 
-| 模式 | 觸發？| 正確替代 |
-|------|--------|---------|
+| 模式 | 觸發？ | 正確替代 |
+| ------ | -------- | --------- |
 | `echo "exit:$?"` | 是 | 刪除這行，bash block 已有 `if ! cmd` |
 | `echo exit:$?` | 是 | 同上 |
 | `[ $? -ne 0 ]` | 是 | `if ! <command>; then` |
@@ -221,6 +221,19 @@ rm -f "$WT_ROOT/gemini-input.md"
 ```
 
 不要用 `~/.gemini/tmp/`——需要額外手動 rm，且跨 session 可能殘留。
+
+同樣的限制適用於 **Antigravity CLI（agy）**：`agy -p "@/abs/path"` 也會觸發 agentic mode
+（模型輸出 `call:read_file{...}` 而非實際 review 內容）。修法相同：`cd "$WT_ROOT"` 後改用
+`@.pr-review/relative-path`，並加 `--add-dir .` 允許 agy 讀取 worktree 內容。
+
+```bash
+# 違規：agy 絕對路徑 → agentic mode
+agy -p "@$REVIEW_DIR/input.md" --add-dir . --dangerously-skip-permissions
+
+# 修法：先 cd 到 worktree root，再用相對路徑
+cd "$WT_ROOT"
+agy -p "@.pr-review/input.md" --add-dir . --dangerously-skip-permissions
+```
 
 ## Quoting Rule 6：inline Python comment 含 `"` 截斷外層 shell double-quote（PR #23 教訓）
 
