@@ -14,14 +14,14 @@ def _find_log_path(project_root: Path | None = None) -> Path | None:
     if project_root is None:
         try:
             result = subprocess.run(  # nosec B603 B607
-                ["git", "rev-parse", "--show-toplevel"],
+                ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
             if result.returncode != 0:
                 return None
-            project_root = Path(result.stdout.strip())
+            project_root = Path(result.stdout.strip()).parent
         except Exception:
             return None
     return project_root / ".runtime" / "logs" / "bash-hygiene-audit.jsonl"
