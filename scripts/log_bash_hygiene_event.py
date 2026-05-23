@@ -44,7 +44,9 @@ def log_event(hook: str, pattern: str, cmd: str, rule_id: str = "", outcome: str
         "pattern": pattern,
         "rule_id": rule_id,
         "outcome": outcome,
-        "cmd_name": safe_cmd.split()[0][:40] if safe_cmd.split() else (cmd.split()[0][:40] if cmd.split() else ""),
+        "cmd_name": safe_cmd.split()[0][:40]
+        if safe_cmd.split()
+        else (cmd.split()[0][:40] if cmd.split() else ""),
         "cmd_snippet": safe_cmd[:200],
     }
     log_path = pathlib.Path.home() / ".agents" / "bash-hygiene-events.jsonl"

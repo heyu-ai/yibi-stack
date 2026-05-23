@@ -91,7 +91,7 @@ class TestLogEvent:
         assert record["hook"] == "ap2"
         assert record["verdict"] == "block"
         assert record["block_reason"] == "ap2-unicode"
-        assert record["command_preview"] == "echo hello"
+        assert record["cmd_snippet"] == "echo hello"
 
     def test_bhaudit_fl_010_exception_in_write_does_not_propagate(self, tmp_path: Path) -> None:
         """BHAUDIT-FL-010: 寫入過程拋出例外時 log_event() 仍不傳播例外（fail-safe）。"""

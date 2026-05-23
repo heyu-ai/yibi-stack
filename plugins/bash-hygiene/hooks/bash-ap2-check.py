@@ -42,7 +42,7 @@ def _log_block(pattern: str, cmd: str) -> None:
     if not _LOG_SCRIPT.exists():
         return
     subprocess.Popen(  # nosec B603
-        [sys.executable, str(_LOG_SCRIPT), "ap2", pattern, cmd],
+        [sys.executable, str(_LOG_SCRIPT), "ap2", pattern, cmd, "13", "block"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
@@ -108,12 +108,14 @@ def main() -> None:
     m = _AP2.search(_scannable(command))
     elapsed = int((time.monotonic() - start) * 1000)
     if not m:
-        _log_event("ap2", command, exit_code=0, duration_ms=elapsed)
+        _log_event("ap2", command, exit_code=0, duration_ms=elapsed, rule_id="13")
         sys.exit(0)
 
     char_code = f"unicode_U+{ord(m.group(0)):05X}"
     _log_block(char_code, command)
-    _log_event("ap2", command, exit_code=2, block_reason="ap2-unicode", duration_ms=elapsed)
+    _log_event(
+        "ap2", command, exit_code=2, block_reason="ap2-unicode", duration_ms=elapsed, rule_id="13"
+    )
     print(_VIOLATION_MESSAGE)
     sys.exit(2)
 

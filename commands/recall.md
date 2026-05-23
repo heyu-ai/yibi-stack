@@ -4,6 +4,7 @@
 支援直接顯示最近記錄或關鍵字搜尋。
 
 **使用方式：**
+
 - `/recall` — 顯示目前 project 最近 15 筆教訓與試過的方案（含 insights）
 - `/recall <關鍵字>` — 搜尋含指定關鍵字的教訓（`$ARGUMENTS` 即為關鍵字）
 
@@ -22,15 +23,18 @@ WORKDIR=$(pwd)
 PROJECT=$(basename "$WORKDIR")
 ```
 
-若執行 `git rev-parse --show-toplevel` 成功，用 git root 的 basename 取代 cwd basename：
+若執行 `git rev-parse --path-format=absolute --git-common-dir` 成功，
+用主 repo 根目錄的 basename 取代 cwd basename（在 worktree 下 `--git-common-dir`
+回傳主 repo 的 `.git`，其 parent 才是正確的主 repo 路徑）：
 
 ```bash
-GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
 ```
 
-若 `GIT_ROOT` 非空，執行：
+若 `GIT_COMMON` 非空，執行：
 
 ```bash
+GIT_ROOT=$(dirname "$GIT_COMMON")
 PROJECT=$(basename "$GIT_ROOT")
 ```
 

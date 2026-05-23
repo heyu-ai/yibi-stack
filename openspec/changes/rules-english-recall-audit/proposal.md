@@ -21,25 +21,25 @@ yibi-stack 的 agent-facing surface（`.claude/rules/` + `skills/` + `plugins/*/
 
 ### PR-B：promotion gate + rule 結構調整
 
-4. **promotion gate**：在 `skills/pr-retrospective/SKILL.md` Step 5「Lesson Classifier」加 3 條強制 gate：
+1. **promotion gate**：在 `skills/pr-retrospective/SKILL.md` Step 5「Lesson Classifier」加 3 條強制 gate：
    - automation-infeasible（先評估 hook 可行性）
    - onboarding-relevant（新貢獻者 day-1 也會犯）
    - no existing rule covers it（先搜 extend，再建新檔）
-5. **rule 合併**：rule 14（shell-quoting-hygiene）內容合併到 rule 13（bash-anti-patterns）；rule 12（auto-handover）降級到 `docs/`（hook 已自動化，rule 為純參考文件）
+2. **rule 合併**：rule 14（shell-quoting-hygiene）內容合併到 rule 13（bash-anti-patterns）；rule 12（auto-handover）降級到 `docs/`（hook 已自動化，rule 為純參考文件）
 
 ### PR-C：6 條無 globs rule 英文化
 
-6. **英文化目標**：rule 01/02/03/13/15/16（無 `globs`，每 session 全部載入）改成英文，Wrong→Right 雙欄表格取代 prose 說明
-7. **雙語策略**：rule body 只英文；人類學習走 `/recall` 召回 session-memory 中文 retro 原文
+1. **英文化目標**：rule 01/02/03/13/15/16（無 `globs`，每 session 全部載入）改成英文，Wrong→Right 雙欄表格取代 prose 說明
+2. **雙語策略**：rule body 只英文；人類學習走 `/recall` 召回 session-memory 中文 retro 原文
 
 ### PR-D：plugins SKILL.md body 英文化（分次）
 
-8. **英文化順序**（按觸發頻率 × 風險加權）：
+1. **英文化順序**（按觸發頻率 × 風險加權）：
    - 1st: `plugins/bash-hygiene/skills/bash-anti-patterns/`
    - 2nd: `plugins/pr-flow/skills/pr-review-cycle*/`
    - 3rd: `plugins/bash-hygiene/skills/protect-push/`
    - 4th+: spectra-amplifier、qa-test-design（低頻，慢做）
-9. **description 策略**：保留中文觸發詞（對齊使用者輸入習慣）+ 英文 body
+2. **description 策略**：保留中文觸發詞（對齊使用者輸入習慣）+ 英文 body
 
 ## Non-Goals
 

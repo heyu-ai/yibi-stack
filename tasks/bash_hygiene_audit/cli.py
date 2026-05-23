@@ -86,8 +86,8 @@ def show(last: int, hook: str | None, verdict: str | None) -> None:
         reason = f"  reason={r.block_reason}" if r.block_reason else ""
         dur = f"  {r.duration_ms}ms" if r.duration_ms is not None else ""
         click.echo(f"{r.ts}  {icon}  hook={r.hook}{reason}{dur}")
-        if r.command_preview:
-            preview = r.command_preview[:_DISPLAY_COLS].replace("\n", " ")
+        if r.cmd_snippet:
+            preview = r.cmd_snippet[:_DISPLAY_COLS].replace("\n", " ")
             click.echo(f"  cmd: {preview}")
 
 
