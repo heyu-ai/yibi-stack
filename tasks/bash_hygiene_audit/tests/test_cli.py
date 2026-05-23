@@ -14,11 +14,11 @@ def _base_record(verdict: str = "allow", hook: str = "ap1") -> dict[str, object]
     return {
         "ts": "2026-05-21T00:00:00Z",
         "hook": hook,
-        "hook_version": "1",
+        "hook_version": "2",
         "exit_code": 2 if verdict == "block" else 0,
         "verdict": verdict,
         "block_reason": "ap2-unicode" if verdict == "block" else None,
-        "command_preview": "echo test",
+        "cmd_snippet": "echo test",
         "command_hash": "abc123",
         "session_id": None,
         "duration_ms": 5,

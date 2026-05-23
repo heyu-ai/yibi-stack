@@ -14,10 +14,11 @@ def make_record(**kwargs: object) -> AuditRecord:
         "hook": "ap1",
         "exit_code": 0,
         "verdict": "allow",
-        "command_preview": "echo hello",
+        "cmd_snippet": "echo hello",
         "command_hash": "abc123",
+        "hook_version": "2",
     }
-    return AuditRecord(**{**defaults, **kwargs})
+    return AuditRecord.model_validate({**defaults, **kwargs})
 
 
 class TestAuditConfig:
@@ -48,6 +49,44 @@ class TestAuditRecord:
         r = make_record(exit_code=2, verdict="block", block_reason="ap2-unicode")
         assert r.verdict == "block"
         assert r.block_reason == "ap2-unicode"
+
+    def test_bhaudit_vl_007_alias_command_preview_accepted(self) -> None:
+        """BHAUDIT-VL-007: v1 log 用 command_preview key 反序列化後填入 cmd_snippet。"""
+        r = AuditRecord.model_validate(
+            {
+                "ts": "2026-05-21T00:00:00Z",
+                "hook": "ap1",
+                "exit_code": 0,
+                "verdict": "allow",
+                "command_preview": "echo hello",
+                "command_hash": "abc123",
+            }
+        )
+        assert r.cmd_snippet == "echo hello"
+
+    def test_bhaudit_vl_008_new_cmd_snippet_key_accepted(self) -> None:
+        """BHAUDIT-VL-008: v2 log 用 cmd_snippet key 正確反序列化。"""
+        r = AuditRecord.model_validate(
+            {
+                "ts": "2026-05-21T00:00:00Z",
+                "hook": "ap2",
+                "exit_code": 2,
+                "verdict": "block",
+                "cmd_snippet": "git status",
+                "command_hash": "abc123",
+            }
+        )
+        assert r.cmd_snippet == "git status"
+
+    def test_bhaudit_vl_009_hook_version_default_v2(self) -> None:
+        """BHAUDIT-VL-009: hook_version 預設為 '2'。"""
+        r = make_record()
+        assert r.hook_version == "2"
+
+    def test_bhaudit_vl_010_rule_id_default_empty(self) -> None:
+        """BHAUDIT-VL-010: rule_id 預設為空字串（不為 None），避免 sh 傳 null 被 reject。"""
+        r = make_record()
+        assert r.rule_id == ""
 
 
 class TestAuditStats:

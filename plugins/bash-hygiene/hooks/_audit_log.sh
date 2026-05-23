@@ -15,8 +15,9 @@ _audit_check() {
 }
 
 _audit_log_path() {
-    local root
-    root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+    local git_common_dir root
+    git_common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+    root=$(dirname "$git_common_dir")
     mkdir -p "$root/.runtime/logs" 2>/dev/null || return 1
     printf '%s' "$root/.runtime/logs/bash-hygiene-audit.jsonl"
 }
@@ -49,7 +50,7 @@ _audit_write() {
         --arg rid "${4:-}" \
         '{ts:$ts,hook:$hook,hook_version:$ver,exit_code:$code,verdict:$verdict,
           block_reason:(if $reason=="" then null else $reason end),
-          rule_id:(if $rid=="" then null else $rid end),
+          rule_id:$rid,
           cmd_snippet:$cmd_snippet,command_hash:$hash,
           session_id:(if $sid=="" then null else $sid end)}' 2>/dev/null) || return 0
     {

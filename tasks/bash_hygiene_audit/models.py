@@ -32,6 +32,7 @@ class AuditRecord(BaseModel):
     cmd_snippet: str = Field(
         default="",
         validation_alias=AliasChoices("cmd_snippet", "command_preview"),
+        description="Command preview; v1 key 'command_preview' accepted for back-compat",
     )
     command_hash: str = ""
     session_id: str | None = None

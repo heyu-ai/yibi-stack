@@ -24,8 +24,8 @@ PROJECT=$(basename "$WORKDIR")
 ```
 
 若執行 `git rev-parse --path-format=absolute --git-common-dir` 成功，
-用主 repo 根目錄的 basename 取代 cwd basename（在 worktree 下 `--git-common-dir`
-回傳主 repo 的 `.git`，其 parent 才是正確的主 repo 路徑）：
+用主 repo 根目錄的 basename 取代 cwd basename（`--git-common-dir` 在 worktree 和
+主 repo 均回傳主 repo 的 `.git` 目錄，其 parent 才是正確的主 repo 路徑）：
 
 ```bash
 GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)

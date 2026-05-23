@@ -59,6 +59,19 @@ class TestLogPath:
         with patch("subprocess.run", side_effect=Exception("timeout")):
             assert _audit_log._log_path() is None
 
+    def test_bhaudit_fl_005b_worktree_path_uses_parent_of_git_common_dir(
+        self, tmp_path: Path
+    ) -> None:
+        """BHAUDIT-FL-005b: --git-common-dir 輸出的 parent 為 repo root（worktree 相容）。"""
+        fake_git_dir = tmp_path / ".git"
+        fake_git_dir.mkdir()
+        mock_run = MagicMock()
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = str(fake_git_dir) + "\n"
+        with patch("subprocess.run", mock_run):
+            result = _audit_log._log_path()
+        assert result == tmp_path / ".runtime" / "logs" / "bash-hygiene-audit.jsonl"
+
 
 class TestLogEvent:
     def test_bhaudit_fl_007_does_not_raise_when_disabled(self, tmp_path: Path) -> None:
@@ -102,3 +115,17 @@ class TestLogEvent:
             patch.object(_audit_log, "_log_path", side_effect=Exception("disk full")),
         ):
             _audit_log.log_event("ap1", "echo test", exit_code=0)
+
+    def test_bhaudit_fl_011_rule_id_written_to_record(self, tmp_path: Path) -> None:
+        """BHAUDIT-FL-011: rule_id 正確寫入 JSONL 記錄。"""
+        cfg = tmp_path / "bash-hygiene.json"
+        cfg.write_text(json.dumps({"audit_enabled": True}), encoding="utf-8")
+        log_file = tmp_path / "audit.jsonl"
+        with (
+            patch.object(_audit_log, "CONFIG_PATH", cfg),
+            patch.object(_audit_log, "_log_path", return_value=log_file),
+        ):
+            _audit_log.log_event("ap2", "echo hello", exit_code=2, rule_id="13")
+        record = json.loads(log_file.read_text("utf-8").strip())
+        assert record["rule_id"] == "13"
+        assert record["hook_version"] == "2"

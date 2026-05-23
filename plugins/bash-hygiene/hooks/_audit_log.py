@@ -3,7 +3,7 @@
 Fail-safe 合約：任何 exception 靜默吞掉，絕不影響 hook 判斷。
 呼叫方式：
     from _audit_log import log_event
-    log_event("ap2", command, exit_code=0, duration_ms=elapsed_ms)
+    log_event("ap2", command, exit_code=0, duration_ms=elapsed_ms, rule_id="13")
 """
 
 from __future__ import annotations
