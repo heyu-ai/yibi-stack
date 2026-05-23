@@ -138,3 +138,4 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **`plugins/harness` 無 `package.json`**：`plugins/` 下並非所有子目錄都是可 `claude plugin install` 的正式 plugin。
   `plugins/harness` 是 README-only 容器，需用 `make install-one SKILL=harness-eval`；並列時必須 inline 標注例外，否則讀者繼承區塊語意靜默失敗。
 - **bootstrap script 的 `[SKIP]` 應改 `[WARN]`**：`make install-all` chain 中目標資源（如 `~/.claude/settings.json`）不存在時，靜默 `[SKIP]` + exit 0 等同問題隱藏。應改 `[WARN]` 並說明修復指令（例：「請先啟動 Claude Code 以產生設定檔，再重跑 `make patch-gemini-allow-list`」）。
+- **pre-commit 鎖版 vs 本地工具版本不同**：`.pre-commit-config.yaml` 鎖定特定版本（如 `markdownlint-cli2 v0.17.2`），本地 `npx markdownlint-cli2` 預設最新版，規則集不同（例：MD060 只存在於新版）。debug hook 失敗一律用 `pre-commit run --all-files`，不要用 `npx markdownlint-cli2`，避免看到鎖版中不存在規則的假陽性。
