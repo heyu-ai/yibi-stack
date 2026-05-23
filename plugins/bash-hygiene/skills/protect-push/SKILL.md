@@ -49,12 +49,13 @@ if [ ! -d "$SKILL_DIR" ]; then
 fi
 echo "[OK] Skill 目錄：$SKILL_DIR"
 
-mkdir -p .claude/hooks
-cp "$SKILL_DIR/protect-push.sh" .claude/hooks/protect-push.sh || exit 1
-cp "$SKILL_DIR/parse_git_dir.py" .claude/hooks/parse_git_dir.py || exit 1
-chmod +x .claude/hooks/protect-push.sh
-echo "[OK] hook 腳本已安裝：.claude/hooks/protect-push.sh"
-echo "[OK] 路徑解析器已安裝：.claude/hooks/parse_git_dir.py"
+REPO_ROOT=$(git rev-parse --show-toplevel)
+mkdir -p "$REPO_ROOT/.claude/hooks"
+cp "$SKILL_DIR/protect-push.sh" "$REPO_ROOT/.claude/hooks/protect-push.sh" || exit 1
+cp "$SKILL_DIR/parse_git_dir.py" "$REPO_ROOT/.claude/hooks/parse_git_dir.py" || exit 1
+chmod +x "$REPO_ROOT/.claude/hooks/protect-push.sh"
+echo "[OK] hook 腳本已安裝：$REPO_ROOT/.claude/hooks/protect-push.sh"
+echo "[OK] 路徑解析器已安裝：$REPO_ROOT/.claude/hooks/parse_git_dir.py"
 ```
 
 ### Step 3: 設定 settings.json

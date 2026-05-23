@@ -684,7 +684,19 @@ re-run 判斷邏輯（agent 執行）：
 - gemini   上輪 NEEDS_CHANGES → R1 + R2
 ```
 
-新一輪的 r1 覆蓋舊 r1 檔案（全員）；r2 只覆蓋需重跑的聲音。若 LGTM 聲音在新 R1 出現 NEEDS_CHANGES，立即補跑 R2。
+新一輪的 r1 覆蓋舊 r1 檔案（全員）；r2 只覆蓋需重跑的聲音。
+
+**LGTM 聲音的舊 r2 處理（重要）**：跳過 R2 的聲音，其舊 `*-r2.md` 仍留在磁碟，但本輪聚合時**不可引用舊 r2**——舊 r2 對應的是之前輪次的 diff，內容可能已過時。在執行 Step 5 聚合前，刪除 LGTM-skip 聲音的舊 r2 檔：
+
+```bash
+WT_ROOT=$(git rev-parse --show-toplevel)
+REVIEW_DIR="$WT_ROOT/.pr-review"
+# LGTM 聲音跳過 R2：先刪舊 r2 再聚合，避免 aggregate 讀到過期結果
+# 按實際跳過的聲音替換 voice 名稱（codex / gemini / claude）
+rm -f "$REVIEW_DIR/codex-r2.md"   # 若 codex 本輪為 LGTM-skip
+```
+
+若 LGTM 聲音在新 R1 出現 NEEDS_CHANGES，立即補跑 R2（r2 檔已被刪，補跑後重新寫入即可）。
 
 #### 收斂條件
 
