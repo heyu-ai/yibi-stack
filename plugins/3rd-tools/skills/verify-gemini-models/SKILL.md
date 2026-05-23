@@ -48,12 +48,12 @@ description: >
 確認工具與憑證可用：
 
 ```bash
-# Vertex AI — Application Default Credentials
+# Vertex AI -- Application Default Credentials
 ls ~/.config/gcloud/application_default_credentials.json
 echo $GCP_PROJECT_ID
 # 若缺少：gcloud auth application-default login && export GCP_PROJECT_ID=<project>
 
-# Google AI Studio — API key
+# Google AI Studio -- API key
 echo $GEMINI_API_KEY
 # 或從 yibi-stack repo 的 .env 讀取：
 if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi

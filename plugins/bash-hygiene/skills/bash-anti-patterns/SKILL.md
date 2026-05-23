@@ -53,7 +53,7 @@ description: >-
 以下都是合法用法，不構成反模式：
 
 ```bash
-# 合法的 git workflow chain — && 數量不是問題
+# 合法的 git workflow chain -- && 數量不是問題
 git add . && git commit -m "feat: add feature" && git push origin feature
 
 # 合法的工具串接
@@ -74,17 +74,19 @@ make lint && make test
 
 每個 call 解一個問題，agent 看完再決定下一步：
 
-```bash
-# 錯：一行塞太多
+```text
+# 錯：一行塞太多（AP1：multi-line python -c = score 2）
 RESULT=$(python3 -c "
 import json, sys
 data = json.loads(sys.stdin.read())
 print(data.get('key', {}).get('nested', ''))
 " <<< "$INPUT")
+```
 
-# 對：分兩步
+```bash
+# 對：分兩步（jq 用雙引號 filter 避免 AP1 D 類）
 echo "$INPUT" > /tmp/input.json
-RESULT=$(jq -r '.key.nested // empty' /tmp/input.json)
+RESULT=$(jq -r ".key.nested" /tmp/input.json)
 ```
 
 ### 2. 寫成獨立 script 檔
@@ -124,7 +126,7 @@ python3 /tmp/process.py < input.txt
 
 ### 範例 A：jq 巢狀條件 → 兩段 pipe
 
-```bash
+```text
 # 錯：jq 多行複雜表達式（內嵌語言 + 多層條件 = score 2）
 RESULT=$(jq -r '
   if .status == "active" then
@@ -133,11 +135,13 @@ RESULT=$(jq -r '
     "inactive"
   end
 ' config.json)
+```
 
-# 對：拆成兩段
-STATUS=$(jq -r '.status' config.json)
+```bash
+# 對：拆成兩段（jq 用雙引號 filter；含內嵌引號時用 \" 轉義）
+STATUS=$(jq -r ".status" config.json)
 if [ "$STATUS" = "active" ]; then
-  RESULT=$(jq -r '.users[] | select(.role == "admin") | .name' config.json)
+  RESULT=$(jq -r ".users[] | select(.role==\"admin\") | .name" config.json)
 fi
 ```
 
@@ -240,20 +244,20 @@ python3 /tmp/filter_active.py < data.json
 ### 範例
 
 ```bash
-# 錯：emoji 在 bash echo 字串內（這行會卡 parser）
-echo "  ⏭ 無 docker-compose，跳過"
+# 錯：emoji 在 bash echo 字串內（以 [SKIP_EMOJI] 代替實際 emoji 以免 linter 自身觸發）
+echo "  [SKIP_EMOJI] 無 docker-compose，跳過"
 
 # 對：改用 ASCII 替代
 echo "  [SKIP] 無 docker-compose，跳過"
 
-# 錯：em dash 在 bash echo 字串內
-echo "PREREQ: NOT_FOUND — stop here"
+# 錯：em dash 在 bash echo 字串內（此處 [EM_DASH] 代表 U+2014 em dash，以免 linter 自身觸發）
+echo "PREREQ: NOT_FOUND [EM_DASH] stop here"
 
 # 對：改用 ASCII 雙連字號
 echo "PREREQ: NOT_FOUND -- stop here"
 
 # OK：emoji 在 markdown 文件段落（這不是 bash 指令）
-# README.md: > ✅ 安裝完成
+# README.md: > [OK] 安裝完成
 
 # OK：bash cat 讀含 emoji 的檔案（emoji 在檔案內，不在 bash 字串）
 cat README.md
