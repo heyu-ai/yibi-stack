@@ -397,6 +397,7 @@ GEMINI_MODEL="gemini-3.1-pro-preview" bash ~/.agents/skills/pr-review-cycle-mob/
 
 **@file 觸發 agentic 模式**（`gemini-r1-raw.md` 開頭含 `call:` 或 `tool_use:`）：
 以 `GEMINI_EXTRA_ARGS=--yolo` 傳入 script，讓 `--yolo` 注入 `gemini` 呼叫：
+
 ```bash
 GEMINI_EXTRA_ARGS=--yolo GEMINI_MODEL="gemini-3.1-pro-preview" bash ~/.agents/skills/pr-review-cycle-mob/scripts/gemini-r1-stage1.sh
 ```
