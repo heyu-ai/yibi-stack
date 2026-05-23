@@ -53,7 +53,7 @@ description: >-
 以下都是合法用法，不構成反模式：
 
 ```bash
-# 合法的 git workflow chain — && 數量不是問題
+# 合法的 git workflow chain -- && 數量不是問題
 git add . && git commit -m "feat: add feature" && git push origin feature
 
 # 合法的工具串接
@@ -240,20 +240,20 @@ python3 /tmp/filter_active.py < data.json
 ### 範例
 
 ```bash
-# 錯：emoji 在 bash echo 字串內（這行會卡 parser）
-echo "  ⏭ 無 docker-compose，跳過"
+# 錯：emoji 在 bash echo 字串內（以 [SKIP_EMOJI] 代替實際 emoji 以免 linter 自身觸發）
+echo "  [SKIP_EMOJI] 無 docker-compose，跳過"
 
 # 對：改用 ASCII 替代
 echo "  [SKIP] 無 docker-compose，跳過"
 
 # 錯：em dash 在 bash echo 字串內
-echo "PREREQ: NOT_FOUND — stop here"
+echo "PREREQ: NOT_FOUND -- stop here"
 
 # 對：改用 ASCII 雙連字號
 echo "PREREQ: NOT_FOUND -- stop here"
 
 # OK：emoji 在 markdown 文件段落（這不是 bash 指令）
-# README.md: > ✅ 安裝完成
+# README.md: > [OK] 安裝完成
 
 # OK：bash cat 讀含 emoji 的檔案（emoji 在檔案內，不在 bash 字串）
 cat README.md

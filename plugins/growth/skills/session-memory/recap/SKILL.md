@@ -75,7 +75,7 @@ SESSION_ID="4c6cec93-a48c-4d8f-93b2-2ad43150c263"
 uv run python -m tasks.session_memory recap list --session "$SESSION_ID"
 
 # jq：按時間排序看工作軌跡
-jq -r 'select(.session_id == "4c6cec93") | "\(.timestamp) — \(.recap_text)"' \
+jq -r 'select(.session_id == "4c6cec93") | "\(.timestamp) -- \(.recap_text)"' \
   ~/.agents/recap/session-recap.jsonl | sort
 
 # jq：列出所有 project 的最後一筆 recap

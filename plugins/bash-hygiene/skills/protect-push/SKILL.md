@@ -34,7 +34,7 @@ description: >
 
 ```bash
 git rev-parse --show-toplevel
-[ -d .claude/ ] && echo "✓ .claude/ 存在" || echo "⚠️  .claude/ 不存在，Step 2 會自動建立"
+[ -d .claude/ ] && echo "[OK] .claude/ 存在" || echo "[WARN]  .claude/ 不存在，Step 2 會自動建立"
 ```
 
 ### Step 2: 安裝 hook 腳本
@@ -47,14 +47,14 @@ if [ ! -d "$SKILL_DIR" ]; then
     echo "錯誤：protect-push skill 未安裝。請先執行 make install-one SKILL=protect-push"
     exit 1
 fi
-echo "✓ Skill 目錄：$SKILL_DIR"
+echo "[OK] Skill 目錄：$SKILL_DIR"
 
 mkdir -p .claude/hooks
 cp "$SKILL_DIR/protect-push.sh" .claude/hooks/protect-push.sh || exit 1
 cp "$SKILL_DIR/parse_git_dir.py" .claude/hooks/parse_git_dir.py || exit 1
 chmod +x .claude/hooks/protect-push.sh
-echo "✓ hook 腳本已安裝：.claude/hooks/protect-push.sh"
-echo "✓ 路徑解析器已安裝：.claude/hooks/parse_git_dir.py"
+echo "[OK] hook 腳本已安裝：.claude/hooks/protect-push.sh"
+echo "[OK] 路徑解析器已安裝：.claude/hooks/parse_git_dir.py"
 ```
 
 ### Step 3: 設定 settings.json
@@ -80,7 +80,7 @@ cat > .claude/settings.json << 'EOF'
   }
 }
 EOF
-echo "✓ settings.json 已建立"
+echo "[OK] settings.json 已建立"
 ```
 
 **情況 B：settings.json 已存在** — 讀取現有內容，用 Python 合併 hook 設定（不覆蓋其他設定）：
@@ -122,7 +122,7 @@ already_installed = any(
 )
 
 if already_installed:
-    print("⚠️  protect-push hook 已存在，略過")
+    print("[WARN]  protect-push hook 已存在，略過")
     sys.exit(0)
 
 pre_tool_use.append(new_hook)
@@ -130,7 +130,7 @@ settings_path.write_text(
     json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
     encoding="utf-8"
 )
-print("✓ protect-push hook 已合併到 settings.json")
+print("[OK] protect-push hook 已合併到 settings.json")
 EOF
 [ $? -ne 0 ] && echo '[FAIL] settings.json 合併失敗，請手動確認 .claude/settings.json' && exit 1
 ```
@@ -141,21 +141,11 @@ EOF
 
 ```bash
 echo "=== 安裝驗證 ==="
-[ -x ".claude/hooks/protect-push.sh" ] && echo "✓ hook 腳本：存在且可執行" || echo "✗ hook 腳本：未找到"
-[ -f ".claude/hooks/parse_git_dir.py" ] && echo "✓ 路徑解析器：存在" || echo "✗ 路徑解析器：未找到"
-python3 -c "
-import json
-from pathlib import Path
-s = json.loads(Path('.claude/settings.json').read_text())
-hooks = s.get('hooks', {}).get('PreToolUse', [])
-found = any(
-    any('protect-push' in h.get('command','') for h in e.get('hooks',[]))
-    for e in hooks
-)
-print('✓ settings.json：hook 設定正確' if found else '✗ settings.json：未找到 hook 設定')
-"
+[ -x ".claude/hooks/protect-push.sh" ] && echo "[OK] hook 腳本：存在且可執行" || echo "[FAIL] hook 腳本：未找到"
+[ -f ".claude/hooks/parse_git_dir.py" ] && echo "[OK] 路徑解析器：存在" || echo "[FAIL] 路徑解析器：未找到"
+python3 skills/protect-push/scripts/verify-install.py
 echo "========================"
-echo "✅ 安裝完成！下次 Claude 在此專案執行 git push 時將自動檢查 branch tracking。"
+echo "[OK] 安裝完成！下次 Claude 在此專案執行 git push 時將自動檢查 branch tracking。"
 ```
 
 ## 常見問題處理
