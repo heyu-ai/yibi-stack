@@ -81,8 +81,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)\"/.claude/hooks/markdownlint-pre-commit.sh",
-            "statusMessage": "markdownlint 檢查 staged .md 檔...",
+            "command": "\"$(git rev-parse --show-toplevel)\"/.claude/hooks/pre-commit.sh",
+            "statusMessage": "pre-commit: markdownlint + ruff format...",
             "timeout": 30
           }
         ]

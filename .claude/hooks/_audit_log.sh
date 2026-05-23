@@ -24,6 +24,7 @@ _audit_log_path() {
 _audit_write() {
     # $1 = verdict (allow|block)  $2 = block_reason (empty string if allow)
     # $3 = command string (optional; defaults to $CMD from caller's scope)
+    # $4 = rule_id (optional; rule file number, e.g. "13")
     _audit_check
     [ "$_AUDIT_ENABLED" = "yes" ] || return 0
     command -v jq >/dev/null 2>&1 || return 0
@@ -38,16 +39,18 @@ _audit_write() {
     record=$(jq -c -n \
         --arg ts "$ts" \
         --arg hook "${AUDIT_HOOK:-ap1}" \
-        --arg ver "1" \
+        --arg ver "2" \
         --arg verdict "$1" \
         --argjson code "$exit_code" \
         --arg reason "${2:-}" \
         --arg preview "$cmd_preview" \
         --arg hash "${cmd_hash:-}" \
         --arg sid "${CLAUDE_SESSION_ID:-}" \
+        --arg rid "${4:-}" \
         '{ts:$ts,hook:$hook,hook_version:$ver,exit_code:$code,verdict:$verdict,
           block_reason:(if $reason=="" then null else $reason end),
-          command_preview:$preview,command_hash:$hash,
+          rule_id:(if $rid=="" then null else $rid end),
+          cmd_snippet:$preview,command_hash:$hash,
           session_id:(if $sid=="" then null else $sid end)}' 2>/dev/null) || return 0
     {
         if command -v flock >/dev/null 2>&1; then
@@ -58,5 +61,5 @@ _audit_write() {
     return 0
 }
 
-audit_allow() { _audit_write "allow" "" "${CMD:-}" || true; }
-audit_block() { _audit_write "block" "${1:-}" "${CMD:-}" || true; }
+audit_allow() { _audit_write "allow" "" "${CMD:-}" "" || true; }
+audit_block() { _audit_write "block" "${1:-}" "${CMD:-}" "${2:-}" || true; }
