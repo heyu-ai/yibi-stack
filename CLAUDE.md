@@ -40,12 +40,12 @@ scripts/  → CI/lint 工具腳本
 
 ## Codebase Map
 
-完整的目錄樹狀地圖與模組入口見 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
+完整的目錄樹狀地圖與模組入口見 @ARCHITECTURE.md。
 
 關鍵路徑速查：
-- 共用路徑常數：[`tasks/_paths.py`](tasks/_paths.py)
-- Bash lint 工具：[`scripts/lint_skill_bash.py`](scripts/lint_skill_bash.py)
-- 編碼慣例總覽：[`.claude/rules/`](.claude/rules/)（01-16 條規則，依 glob 自動載入）
+- 共用路徑常數：@tasks/_paths.py
+- Bash lint 工具：@scripts/lint_skill_bash.py
+- 編碼慣例總覽：@.claude/rules/（01-16 條規則，依 glob 自動載入）
 
 ## 如何執行 Skill
 
