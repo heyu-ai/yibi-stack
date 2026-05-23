@@ -7,9 +7,9 @@
 使用當前工作目錄的 basename 作為 project name（通常與 `handover write` 寫入時的 `detect_project()` 結果相同；若路徑含 symlink，`detect_project()` 會先 `resolve()`，結果可能不同）：
 
 ```bash
-SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")') || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
-[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; }
-[ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
+if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
+if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
 WORKDIR=$(pwd)
 PROJECT=$(basename "$WORKDIR")
 uv run --directory "$SKILL_REPO" \
@@ -25,9 +25,9 @@ uv run --directory "$SKILL_REPO" \
 不帶 `--project` 顯示所有記錄（跨專案）：
 
 ```bash
-SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")') || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
-[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; }
-[ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
+if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
+if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
 uv run --directory "$SKILL_REPO" \
   python -m tasks.session_memory handover read --last 3 --exclude-tags pr-retrospective
 ```

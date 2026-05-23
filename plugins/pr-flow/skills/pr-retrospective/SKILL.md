@@ -37,8 +37,8 @@ description: >
 ### Step 0 — 環境與 PR 解析（只在 skill 啟動時跑一次）
 
 ```bash
-command -v jq >/dev/null 2>&1 || { echo '[FAIL] jq not installed' >&2; exit 1; }
-command -v gh >/dev/null 2>&1 || { echo '[FAIL] gh not installed' >&2; exit 1; }
+if ! command -v jq >/dev/null 2>&1; then echo '[FAIL] jq not installed' >&2; exit 1; fi
+if ! command -v gh >/dev/null 2>&1; then echo '[FAIL] gh not installed' >&2; exit 1; fi
 ```
 
 ```bash
@@ -60,12 +60,10 @@ unset _gcd _dir _top
 ```
 
 ```bash
-SKILL_REPO=$(jq -r .skill_repo "$HOME/.agents/config.json") || {
-  echo '[FAIL] reading ~/.agents/config.json failed' >&2; exit 1
-}
+if ! SKILL_REPO=$(jq -r .skill_repo "$HOME/.agents/config.json"); then echo '[FAIL] reading ~/.agents/config.json failed' >&2; exit 1; fi
 [ "$SKILL_REPO" = "null" ] && SKILL_REPO=""
-[ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo not configured' >&2; exit 1; }
-[ -d "$SKILL_REPO" ] || { echo '[FAIL] skill_repo path not found' >&2; exit 1; }
+if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo not configured' >&2; exit 1; fi
+if [ ! -d "$SKILL_REPO" ]; then echo '[FAIL] skill_repo path not found' >&2; exit 1; fi
 REAL_WORKDIR=$(pwd)
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 ```
