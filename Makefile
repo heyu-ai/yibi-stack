@@ -50,7 +50,7 @@ build-tools: ## Build all CLI binaries (Go)
 	@for d in cmd/*/; do \
 		name=$$(basename $$d); \
 		echo "  building $$name..."; \
-		(cd $$d && go build -o $(CURDIR)/$(BIN_DIR)/$$name .) && echo "  ✓ $(BIN_DIR)/$$name" || echo "  ✗ $$name build failed"; \
+		(cd $$d && go build -o $(CURDIR)/$(BIN_DIR)/$$name .) && echo "  [OK] $(BIN_DIR)/$$name" || echo "  [FAIL] $$name build failed"; \
 	done
 
 # ─── Skill Management ───────────────────────────────────────────────────────
@@ -62,21 +62,21 @@ CMD_DIR := commands
 CLAUDE_CMD_DIR := $(HOME)/.claude/commands
 
 install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/ + commands（跨專案可用）
-	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  ✗ Cannot create $(CLAUDE_SKILL_DIR) — check permissions"; exit 1; }
-	@mkdir -p "$(INSTALL_DIR)" || { echo "  ✗ Cannot create $(INSTALL_DIR) — check permissions"; exit 1; }
+	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }
+	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
 		name=$$(basename $$s); \
 		if [ "$$name" = "_template" ]; then continue; fi; \
 		skill_md="$(SKILL_DIR)/$$name/SKILL.md"; \
 		if [ ! -f "$$skill_md" ]; then \
-			echo "  ✗ $$name 缺少 SKILL.md"; exit 1; \
+			echo "  [FAIL] $$name 缺少 SKILL.md"; exit 1; \
 		fi; \
 		scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
 		if [ -z "$$scope" ]; then \
-			echo "  ✗ $$name 缺少 scope frontmatter（global|project），請在 SKILL.md 補上"; exit 1; \
+			echo "  [FAIL] $$name 缺少 scope frontmatter（global|project），請在 SKILL.md 補上"; exit 1; \
 		fi; \
 		if [ "$$scope" != "global" ] && [ "$$scope" != "project" ]; then \
-			echo "  ✗ $$name 的 scope 值無效（$$scope），只接受 global 或 project"; exit 1; \
+			echo "  [FAIL] $$name 的 scope 值無效（$$scope），只接受 global 或 project"; exit 1; \
 		fi; \
 		if [ "$$scope" != "global" ]; then continue; fi; \
 		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
@@ -98,7 +98,7 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 			echo "  [WARN] $$name (exists as real file, skipping)"; \
 		else \
 			ln -sf $(CURDIR)/$$f $(CLAUDE_CMD_DIR)/$$name; \
-			echo "  ✓ $$name → linked"; \
+			echo "  [OK] $$name -> linked"; \
 		fi \
 	done
 	@if [ -d "$(CMD_DIR)/scripts" ]; then \
@@ -107,25 +107,25 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 	@echo ""
 	@echo "  Registering skill_repo in ~/.agents/config.json"
 	@python3 scripts/register_skill_repo.py '$(CURDIR)' \
-	|| { echo "  ✗ 無法更新 ~/.agents/config.json（見上方錯誤）"; exit 1; }
-	@echo "  ✓ skill_repo = $(CURDIR)"
+	|| { echo "  [FAIL] 無法更新 ~/.agents/config.json（見上方錯誤）"; exit 1; }
+	@echo "  [OK] skill_repo = $(CURDIR)"
 
 install-project: ## Install scope=project skills（本 repo 限定，ainization-skill 開發用）
-	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  ✗ Cannot create $(CLAUDE_SKILL_DIR) — check permissions"; exit 1; }
-	@mkdir -p "$(INSTALL_DIR)" || { echo "  ✗ Cannot create $(INSTALL_DIR) — check permissions"; exit 1; }
+	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }
+	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
 		name=$$(basename $$s); \
 		if [ "$$name" = "_template" ]; then continue; fi; \
 		skill_md="$(SKILL_DIR)/$$name/SKILL.md"; \
 		if [ ! -f "$$skill_md" ]; then \
-			echo "  ✗ $$name 缺少 SKILL.md"; exit 1; \
+			echo "  [FAIL] $$name 缺少 SKILL.md"; exit 1; \
 		fi; \
 		scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
 		if [ -z "$$scope" ]; then \
-			echo "  ✗ $$name 缺少 scope frontmatter（global|project），請在 SKILL.md 補上"; exit 1; \
+			echo "  [FAIL] $$name 缺少 scope frontmatter（global|project），請在 SKILL.md 補上"; exit 1; \
 		fi; \
 		if [ "$$scope" != "global" ] && [ "$$scope" != "project" ]; then \
-			echo "  ✗ $$name 的 scope 值無效（$$scope），只接受 global 或 project"; exit 1; \
+			echo "  [FAIL] $$name 的 scope 值無效（$$scope），只接受 global 或 project"; exit 1; \
 		fi; \
 		if [ "$$scope" != "project" ]; then continue; fi; \
 		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
@@ -134,25 +134,25 @@ install-project: ## Install scope=project skills（本 repo 限定，ainization-
 	done
 
 install-one: ## Install one skill: make install-one SKILL=<name>
-	@if [ -z "$(SKILL)" ]; then echo "✗ SKILL 未指定，用法：make install-one SKILL=<name>"; exit 1; fi
-	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  ✗ Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
-	@mkdir -p "$(INSTALL_DIR)" || { echo "  ✗ Cannot create $(INSTALL_DIR)"; exit 1; }
+	@if [ -z "$(SKILL)" ]; then echo "[FAIL] SKILL 未指定，用法：make install-one SKILL=<name>"; exit 1; fi
+	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
+	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR)"; exit 1; }
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(CLAUDE_SKILL_DIR)/$(SKILL)"
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(INSTALL_DIR)/$(SKILL)"
-	@echo "✓ $(SKILL) → done"
+	@echo "[OK] $(SKILL) -> done"
 
 install-force-one: ## 強制安裝單一 skill，覆蓋 real directory（搶回被 gstack 蓋過的 skill）: make install-force-one SKILL=<name>
-	@if [ -z "$(SKILL)" ]; then echo "✗ SKILL 未指定，用法：make install-force-one SKILL=<name>"; exit 1; fi
-	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  ✗ Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
-	@mkdir -p "$(INSTALL_DIR)" || { echo "  ✗ Cannot create $(INSTALL_DIR)"; exit 1; }
+	@if [ -z "$(SKILL)" ]; then echo "[FAIL] SKILL 未指定，用法：make install-force-one SKILL=<name>"; exit 1; fi
+	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
+	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR)"; exit 1; }
 	@$(CURDIR)/scripts/safe_symlink.sh --force "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(CLAUDE_SKILL_DIR)/$(SKILL)"
 	@$(CURDIR)/scripts/safe_symlink.sh --force "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(INSTALL_DIR)/$(SKILL)"
-	@echo "✓ $(SKILL) → done (forced)"
+	@echo "[OK] $(SKILL) -> done (forced)"
 
 status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.agents/skills/ (agents)
 	@echo "=== ~/.claude/skills/  (Claude Code) ==="; \
 	if [ ! -d "$(CLAUDE_SKILL_DIR)" ] || [ -z "$$(ls -A $(CLAUDE_SKILL_DIR) 2>/dev/null)" ]; then \
-		echo "  (empty — run 'make install' first)"; \
+		echo "  (empty -- run 'make install' first)"; \
 	else \
 		found_global=0; found_project=0; found_ext=0; \
 		for s in $(CLAUDE_SKILL_DIR)/*/; do \
@@ -183,7 +183,7 @@ status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.age
 	echo ""; \
 	echo "=== ~/.agents/skills/  (Cline / Warp) ==="; \
 	if [ ! -d "$(INSTALL_DIR)" ] || [ -z "$$(ls -A $(INSTALL_DIR) 2>/dev/null)" ]; then \
-		echo "  (empty — run 'make install' first)"; \
+		echo "  (empty -- run 'make install' first)"; \
 	else \
 		found_global=0; found_project=0; found_ext=0; \
 		for s in $(INSTALL_DIR)/*/; do \
@@ -239,12 +239,12 @@ uninstall: ## Remove own symlinks from ~/.claude/skills/ and ~/.agents/skills/
 	@for s in $(SKILL_DIR)/*/; do \
 		s=$$(basename $$s); \
 		if [ -L "$(CLAUDE_SKILL_DIR)/$$s" ]; then \
-			rm "$(CLAUDE_SKILL_DIR)/$$s" && echo "  ✗ $$s removed (Claude Code)" \
-			    || echo "  ✗ $$s FAILED to remove from $(CLAUDE_SKILL_DIR)"; \
+			rm "$(CLAUDE_SKILL_DIR)/$$s" && echo "  [OK] $$s removed (Claude Code)" \
+			    || echo "  [FAIL] $$s FAILED to remove from $(CLAUDE_SKILL_DIR)"; \
 		fi; \
 		if [ -L "$(INSTALL_DIR)/$$s" ]; then \
-			rm "$(INSTALL_DIR)/$$s" && echo "  ✗ $$s removed (agents)" \
-			    || echo "  ✗ $$s FAILED to remove from $(INSTALL_DIR)"; \
+			rm "$(INSTALL_DIR)/$$s" && echo "  [OK] $$s removed (agents)" \
+			    || echo "  [FAIL] $$s FAILED to remove from $(INSTALL_DIR)"; \
 		fi \
 	done
 
@@ -279,4 +279,4 @@ promote: ## Promote draft to skill: make promote SKILL=<name>
 	@if [ -z "$(SKILL)" ]; then echo "Usage: make promote SKILL=name"; exit 1; fi
 	mv drafts/$(SKILL) $(SKILL_DIR)/$(SKILL)
 	$(MAKE) install-one SKILL=$(SKILL)
-	@echo "✓ $(SKILL) promoted and linked"
+	@echo "[OK] $(SKILL) promoted and linked"

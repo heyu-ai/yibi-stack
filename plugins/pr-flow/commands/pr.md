@@ -63,8 +63,6 @@ gh pr create --title "<type>(<scope>): <description>" --body "$(cat <<'EOF'
 ## Test plan
 - [ ] `uv run pytest` passes
 - [ ] Manual verification: <describe what to verify>
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```

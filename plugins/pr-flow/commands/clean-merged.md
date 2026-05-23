@@ -32,7 +32,8 @@ You need to clean up local git branches whose Pull Requests have been merged on 
 4. **Clean up process**
 
    ```bash
-   MAIN_REPO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+   GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir)
+   MAIN_REPO=$(dirname "$GIT_COMMON")
    PM="uv run --project $MAIN_REPO python -m tasks.local_port_manager"
 
    # 對每個 PR 已 merged 的 branch 執行以下 loop：
@@ -48,8 +49,8 @@ You need to clean up local git branches whose Pull Requests have been merged on 
          if [ -n "$ports" ]; then
            echo "$ports" | while read svc; do
              $PM release "$branch" "$svc" \
-               && echo "  ✓ released port: $branch/$svc" \
-               || echo "  ✗ failed to release port: $branch/$svc (registry may need manual cleanup)"
+               && echo "  [OK] released port: $branch/$svc" \
+               || echo "  [FAIL] failed to release port: $branch/$svc (registry may need manual cleanup)"
            done
          fi
        else

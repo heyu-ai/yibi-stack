@@ -53,7 +53,7 @@ description: >-
 以下都是合法用法，不構成反模式：
 
 ```bash
-# 合法的 git workflow chain — && 數量不是問題
+# 合法的 git workflow chain -- && 數量不是問題
 git add . && git commit -m "feat: add feature" && git push origin feature
 
 # 合法的工具串接
@@ -74,7 +74,7 @@ make lint && make test
 
 每個 call 解一個問題，agent 看完再決定下一步：
 
-```bash
+```text
 # 錯：一行塞太多
 RESULT=$(python3 -c "
 import json, sys
@@ -124,7 +124,7 @@ python3 /tmp/process.py < input.txt
 
 ### 範例 A：jq 巢狀條件 → 兩段 pipe
 
-```bash
+```text
 # 錯：jq 多行複雜表達式（內嵌語言 + 多層條件 = score 2）
 RESULT=$(jq -r '
   if .status == "active" then
@@ -239,7 +239,7 @@ python3 /tmp/filter_active.py < data.json
 
 ### 範例
 
-```bash
+```text
 # 錯：emoji 在 bash echo 字串內（這行會卡 parser）
 echo "  ⏭ 無 docker-compose，跳過"
 
