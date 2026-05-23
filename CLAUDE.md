@@ -102,7 +102,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
 ## Runtime 設定檔（不進 git）
 
 | 檔案 | 用途 |
-|------|------|
+| ------ | ------ |
 | `~/.agents/ports.json` | Local Port Manager port 登記（機器層，跨專案共用） |
 | `.env` | 環境變數（帳號密碼、加密金鑰） |
 | `.runtime/schedules.json` | Scheduler 排程設定（job 清單、時間、類型） |
