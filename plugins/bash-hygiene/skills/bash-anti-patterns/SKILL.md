@@ -246,8 +246,8 @@ echo "  [SKIP_EMOJI] 無 docker-compose，跳過"
 # 對：改用 ASCII 替代
 echo "  [SKIP] 無 docker-compose，跳過"
 
-# 錯：em dash 在 bash echo 字串內
-echo "PREREQ: NOT_FOUND -- stop here"
+# 錯：em dash 在 bash echo 字串內（此處 [EM_DASH] 代表 U+2014 em dash，以免 linter 自身觸發）
+echo "PREREQ: NOT_FOUND [EM_DASH] stop here"
 
 # 對：改用 ASCII 雙連字號
 echo "PREREQ: NOT_FOUND -- stop here"

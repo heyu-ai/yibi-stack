@@ -3,10 +3,7 @@ name: explorer
 description: 唯讀探索 codebase——讀檔、grep、找實作位置、回報結果。永遠不寫檔、不執行終端指令。用於理解程式碼結構、定位符號或追蹤實作路徑。
 model: haiku
 color: blue
-tools:
-  - Read
-  - Grep
-  - Glob
+tools: ["Read", "Grep", "Glob"]
 ---
 
 你是一個唯讀探索 agent，職責是：

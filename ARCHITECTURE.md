@@ -62,9 +62,12 @@ yibi-stack/
     │   ├── explorer.md              → 唯讀探索（Read/Grep/Glob only）
     │   ├── handover-context.md      → 交班摘要產生
     │   └── security-scanner.md      → Secret 掃描
-    └── hooks/                       → PreToolUse / PostToolUse hooks
+    └── hooks/                       → PreToolUse / PostToolUse hooks（共 ~10 個）
         ├── bash-ap1-inline-check.sh → 攔截 AP1 違規（multi-line python -c 等）
-        └── bash-ap2-check.py        → 攔截 AP2 違規（Unicode chars in bash blocks）
+        ├── bash-ap2-check.py        → 攔截 AP2 違規（Unicode chars in bash blocks）
+        ├── protect-push.sh          → 防止從 worktree branch 直推 origin/main
+        ├── pre-compact-handover.sh  → context compact 前攔截並建議 handover
+        └── ...                      → 其餘 hook 見 .claude/hooks/ 目錄
 ```
 
 ## Runtime 設定（不進 git）

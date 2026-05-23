@@ -657,29 +657,34 @@ group-review（{{N}}/3 voices active）
 
 ### Step 7 — Group re-review（直到全員 LGTM）
 
-對**本次修改的檔案**重跑 R1 + R2，但**只重跑上一輪有 NEEDS_CHANGES 的聲音**。
+對**本次修改的檔案**重跑 Step 3 + Step 4（R1 + R2）。
 
 **7.1 刷新 diff 狀態**（必做，fix 後 diff 已變）：
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
+mkdir -p "$REVIEW_DIR"
 git diff "{{base_branch}}"...HEAD > "$REVIEW_DIR/diff.patch"
 git diff "{{base_branch}}"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"
 ```
 
-**7.2 判斷哪些聲音需要重跑**：
+**7.2 Token 節省：只跳過上一輪 LGTM 聲音的 R2 debate**（R1 仍全員跑）：
 
-讀取每個 voice 的**最新一輪** verdict 檔案（優先 `*-r2.md`，無則 `*-r1.md`），找出 `Final verdict: NEEDS_CHANGES` 的聲音。只對這些聲音重跑 Step 3 + Step 4；verdict 已是 LGTM 的聲音**跳過**，保留上一輪結果。
+讀取每個 voice 的**最新一輪** verdict 檔案（優先 `*-r2.md`，無則 `*-r1.md`），找出 `Final verdict: NEEDS_CHANGES`（R2 格式）或 `## Verdict` 段落含 `NEEDS_CHANGES`（R1 格式）的聲音。
+
+- **所有聲音**：都重跑 R1（確認新 fix 沒有引入回歸）
+- **上輪 NEEDS_CHANGES 聲音**：R1 + R2 全跑
+- **上輪 LGTM 聲音**：只跑 R1，跳過 R2 debate（省一個 API round-trip；LGTM 聲音的 R2 是對舊 findings 的 cross-check，此輪已無舊 finding 可辯論）
 
 ```text
 re-run 判斷邏輯（agent 執行）：
-- claude   最後 verdict = NEEDS_CHANGES → 重跑
-- codex    最後 verdict = LGTM          → 跳過（省 API round-trip）
-- gemini   最後 verdict = NEEDS_CHANGES → 重跑
+- claude   上輪 NEEDS_CHANGES → R1 + R2
+- codex    上輪 LGTM          → R1 only（跳過 R2，省一次 codex exec）
+- gemini   上輪 NEEDS_CHANGES → R1 + R2
 ```
 
-新一輪的 r1/r2 覆蓋舊檔案（只限需重跑的聲音）。LGTM 聲音的舊檔維持不動以供 aggregate 使用。
+新一輪的 r1 覆蓋舊 r1 檔案（全員）；r2 只覆蓋需重跑的聲音。若 LGTM 聲音在新 R1 出現 NEEDS_CHANGES，立即補跑 R2。
 
 #### 收斂條件
 
@@ -714,11 +719,20 @@ Group review 已跑 3 輪仍未全員 LGTM，剩餘未解項目：
 fix 後若需要手動觸發單一聲音重跑，input 必須用**Step 7.1 刷新後的 diff.patch**，不可沿用 setup 階段產生的舊版：
 
 ```bash
-# 正確：重跑 codex 用最新 diff + r1-aggregate（交叉比對 context）
-cat "$REVIEW_DIR/r1-aggregate.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-rerun-input.md"
-codex exec -C "$WT_ROOT" -s read-only < "$REVIEW_DIR/codex-rerun-input.md" > "$REVIEW_DIR/codex-r1.md"
+# 正確：重跑 codex 用 reviewer prompt + 最新 diff（Step 7.1 已刷新）
+# output 命名用輪次（不覆蓋原始 r1）
+WT_ROOT=$(git rev-parse --show-toplevel)
+REVIEW_DIR="$WT_ROOT/.pr-review"
+cat "$REVIEW_DIR/prompt-r1.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-rerun-input.md"
+codex review --base "{{base_branch}}" -c 'model_reasoning_effort="high"' 2>"$REVIEW_DIR/codex-rerun.log" | tee "$REVIEW_DIR/codex-r2-r1.md" > /dev/null
+rm -f "$REVIEW_DIR/codex-rerun-input.md"
 
-# 錯誤：prompt-r1.md 是第一輪的 reviewer prompt，不是 aggregate；且 diff.patch 若未刷新則是舊快照
+# 錯誤 1：缺 reviewer prompt -- codex exec 不知道在做 code review
+# 錯誤 2：output 直接覆蓋 codex-r1.md -- 破壞 aggregate 歷史
+# cat "$REVIEW_DIR/r1-aggregate.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-rerun-input.md"
+# codex exec -C "$WT_ROOT" -s read-only < "$REVIEW_DIR/codex-rerun-input.md" > "$REVIEW_DIR/codex-r1.md"
+
+# 錯誤 3：prompt-r1.md 是 reviewer prompt（用 diff 的），不是 aggregate；且 diff.patch 若未刷新則是舊快照
 # cat "$REVIEW_DIR/prompt-r1.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-final2-input.md"
 ```
 
