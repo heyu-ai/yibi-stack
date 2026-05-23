@@ -33,7 +33,7 @@ except (json.JSONDecodeError, ValueError, KeyError, TypeError, AttributeError):
 
 EVENT=$(echo "$PARSED" | cut -d'|' -f1)
 SESSION_ID=$(echo "$PARSED" | cut -d'|' -f2)
-MATCHER=$(echo "$PARSED" | cut -d'|' -f3)
+MATCHER=$(echo "$PARSED" | cut -d'|' -f3)  # 保留供 shadow logging 使用，不用於過濾
 
 # 只處理 PreCompact（auto/manual 過濾由 settings.json matcher:"auto" 承擔）
 [ "$EVENT" != "PreCompact" ] && exit 0
