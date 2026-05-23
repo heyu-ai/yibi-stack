@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from tasks.bash_hygiene_audit.models import AuditRecord
-from tasks.bash_hygiene_audit.service import compute_stats, count_log_lines, read_log
+from tasks.bash_hygiene_audit.service import (
+    _find_log_path,
+    compute_stats,
+    count_log_lines,
+    read_log,
+)
 
 
 def _make_jsonl(records: list[dict[str, object]]) -> str:
@@ -31,6 +37,29 @@ def _base_record(
         "session_id": None,
         "duration_ms": duration_ms,
     }
+
+
+class TestFindLogPath:
+    def test_bhaudit_st_017_worktree_resolves_to_main_repo(self, tmp_path: Path) -> None:
+        """BHAUDIT-ST-017: _find_log_path 用 --git-common-dir parent，不用 --show-toplevel。"""
+        fake_git_dir = tmp_path / ".git"
+        fake_git_dir.mkdir()
+        mock_run = MagicMock()
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = str(fake_git_dir) + "\n"
+        with patch("tasks.bash_hygiene_audit.service.subprocess.run", mock_run):
+            result = _find_log_path()
+        assert result == tmp_path / ".runtime" / "logs" / "bash-hygiene-audit.jsonl"
+        called_args = mock_run.call_args[0][0]
+        assert "--git-common-dir" in called_args
+        assert "--show-toplevel" not in called_args
+
+    def test_bhaudit_st_018_git_nonzero_returns_none(self) -> None:
+        """BHAUDIT-ST-018: git 指令回傳非零 exit code 時 _find_log_path 回傳 None，不拋例外。"""
+        mock_run = MagicMock()
+        mock_run.return_value.returncode = 128
+        with patch("tasks.bash_hygiene_audit.service.subprocess.run", mock_run):
+            assert _find_log_path() is None
 
 
 class TestReadLog:

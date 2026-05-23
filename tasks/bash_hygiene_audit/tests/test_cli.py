@@ -79,7 +79,7 @@ class TestShow:
             svc_mod._find_log_path = orig_fn
 
     def test_bhaudit_st_013_show_records(self, tmp_path: Path) -> None:
-        """BHAUDIT-ST-013: show 指令正確顯示 verdict 和 hook。"""
+        """BHAUDIT-ST-013: show 指令正確顯示 verdict、hook 和 cmd_snippet。"""
         import tasks.bash_hygiene_audit.service as svc_mod
 
         log = tmp_path / "bash-hygiene-audit.jsonl"
@@ -97,6 +97,8 @@ class TestShow:
             assert result.exit_code == 0
             assert "[BLOCK]" in result.output
             assert "ap1" in result.output
+            assert "cmd:" in result.output
+            assert "echo test" in result.output
         finally:
             svc_mod._find_log_path = orig_fn
 

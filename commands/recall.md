@@ -21,22 +21,14 @@ if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目
 ```bash
 WORKDIR=$(pwd)
 PROJECT=$(basename "$WORKDIR")
-```
-
-若執行 `git rev-parse --path-format=absolute --git-common-dir` 成功，
-用主 repo 根目錄的 basename 取代 cwd basename（`--git-common-dir` 在 worktree 和
-主 repo 均回傳主 repo 的 `.git` 目錄，其 parent 才是正確的主 repo 路徑）：
-
-```bash
 GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+if [ -n "$GIT_COMMON" ]; then
+  GIT_ROOT=$(dirname "$GIT_COMMON")
+  PROJECT=$(basename "$GIT_ROOT")
+fi
 ```
 
-若 `GIT_COMMON` 非空，執行：
-
-```bash
-GIT_ROOT=$(dirname "$GIT_COMMON")
-PROJECT=$(basename "$GIT_ROOT")
-```
+（`--git-common-dir` 在 worktree 和主 repo 均回傳主 repo 的 `.git` 目錄，其 parent 為正確的主 repo 路徑。不在 git repo 內時 `GIT_COMMON` 為空，fallback 用 `pwd` basename。）
 
 ## Step 3 — 執行查詢
 
