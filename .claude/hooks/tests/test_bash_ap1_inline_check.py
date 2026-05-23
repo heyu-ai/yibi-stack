@@ -561,8 +561,8 @@ class TestFixBashAntiPatternsPR:
     # ── clean-merged: $(dirname "$(git rev-parse --path-format=absolute ...)") ──
 
     def test_clean_merged_old_nested_subshell_blocks(self) -> None:
-        """clean-merged 修復前：$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-        Rule 14 Quoting Rule 4 反向巢狀 subshell -> 攔截"""
+        """clean-merged 修復前：Rule 14 Quoting Rule 4 反向巢狀 subshell -> 攔截
+        $(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"""
         cmd = 'MAIN_REPO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")'
         assert run_hook(cmd) == 2
 
@@ -593,7 +593,8 @@ class TestFixBashAntiPatternsPR:
         assert run_hook(cmd) == 0  # AP1 hook 放行；CC 內建攔截 $? 的 simple_expansion
 
     def test_protect_push_new_if_not_heredoc_passes(self) -> None:
-        """protect-push 修復後：if ! python3 - << 'EOF'...then...fi -> 放行（Rule 14 $? 正確修法）"""
+        """protect-push 修復後：if ! python3 - << 'EOF'...then...fi -> 放行
+        Rule 14 $? 正確修法"""
         cmd = (
             "if ! python3 - << 'EOF'\n"
             "import json\n"

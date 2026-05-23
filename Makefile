@@ -8,14 +8,14 @@ help: ## Show this help
 # ─── Development ─────────────────────────────────────────────────────────────
 
 lint: ## Run ruff linter + markdown bash anti-pattern check
-	uv run ruff check tasks/
+	uv run ruff check tasks/ .claude/hooks/
 	python3 scripts/lint_skill_bash.py
 
 lint-md: ## Check bash anti-patterns in SKILL.md / commands markdown files
 	python3 scripts/lint_skill_bash.py
 
 format: ## Run ruff formatter
-	uv run ruff format tasks/
+	uv run ruff format tasks/ .claude/hooks/
 
 typecheck: ## Run mypy type checker
 	uv run mypy tasks/
@@ -24,8 +24,8 @@ test: ## Run pytest
 	uv run pytest
 
 check: ## Run all checks (lint + format check + typecheck + test + markdown bash lint)
-	uv run ruff check tasks/
-	uv run ruff format --check tasks/
+	uv run ruff check tasks/ .claude/hooks/
+	uv run ruff format --check tasks/ .claude/hooks/
 	uv run mypy tasks/
 	uv run pytest
 	python3 scripts/lint_skill_bash.py
