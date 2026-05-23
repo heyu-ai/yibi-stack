@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """protect-push 安裝：將 hook 設定合併到 .claude/settings.json。"""
+
 import json
 import subprocess  # nosec B404
 import sys
@@ -48,8 +49,7 @@ if not isinstance(pre_tool_use, list):
 HOOK_COMMAND = '"$CLAUDE_PROJECT_DIR"/.claude/hooks/protect-push.sh'
 already_installed = any(
     any(
-        isinstance(h, dict) and h.get("command", "") == HOOK_COMMAND
-        for h in entry.get("hooks", [])
+        isinstance(h, dict) and h.get("command", "") == HOOK_COMMAND for h in entry.get("hooks", [])
     )
     for entry in pre_tool_use
     if isinstance(entry, dict)

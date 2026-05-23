@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """protect-push 安裝驗證：確認 hook 腳本存在且 settings.json 設定正確。"""
+
 import json
 import subprocess  # nosec B404
 import sys
