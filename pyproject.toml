@@ -41,6 +41,7 @@ select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["F841"]
 "scripts/**/*.py" = ["E501"]
+".claude/hooks/tests/**/*.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
