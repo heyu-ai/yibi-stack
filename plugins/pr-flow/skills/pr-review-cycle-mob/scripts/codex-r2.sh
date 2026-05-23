@@ -46,4 +46,10 @@ if ! codex exec -C "$WT_ROOT" -s read-only -c 'model_reasoning_effort="high"' \
 fi
 
 rm -f "$REVIEW_DIR/codex-r2-input.md"
+
+if [ ! -s "$REVIEW_DIR/codex-r2.md" ]; then
+    echo "[FAIL] codex-r2.md 空白，R2 輸出異常" >&2
+    exit 1
+fi
+
 echo "Codex R2 complete"

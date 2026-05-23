@@ -17,6 +17,8 @@
 set -euo pipefail
 
 GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.1-pro-preview}"
+# 額外 flag 注入（例：GEMINI_EXTRA_ARGS=--yolo 用於 @file 觸發 agentic 模式時）
+GEMINI_EXTRA_ARGS="${GEMINI_EXTRA_ARGS:-}"
 
 if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
     echo "[FAIL] 當前目錄不在 git repo 內（請在 worktree 目錄執行此 script）" >&2
@@ -44,7 +46,8 @@ fi
 # cd 到 worktree root：Gemini @file 沙箱只允許讀取 worktree root 或 ~/.gemini/tmp/<name>/
 cd "$WT_ROOT"
 
-if ! gemini -m "$GEMINI_MODEL" -p "@.pr-review/gemini-r2-input.md" \
+# shellcheck disable=SC2086
+if ! gemini -m "$GEMINI_MODEL" $GEMINI_EXTRA_ARGS -p "@.pr-review/gemini-r2-input.md" \
     > "$REVIEW_DIR/gemini-r2.md" \
     2>"$REVIEW_DIR/gemini-r2.log"; then
     echo "[FAIL] gemini R2 失敗，請查看 $REVIEW_DIR/gemini-r2.log" >&2

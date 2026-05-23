@@ -50,4 +50,10 @@ if ! codex exec -C "$WT_ROOT" -s read-only -c 'model_reasoning_effort="low"' \
 fi
 
 rm -f "$REVIEW_DIR/codex-extract-input.md"
+
+if [ ! -s "$REVIEW_DIR/codex-r1.json" ]; then
+    echo "[FAIL] codex-r1.json 空白，Extract 輸出異常" >&2
+    exit 1
+fi
+
 echo "Codex R1 Stage 2 complete"

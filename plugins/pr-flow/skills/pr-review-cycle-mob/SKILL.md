@@ -391,9 +391,16 @@ GEMINI_MODEL="gemini-3.1-pro-preview" bash ~/.agents/skills/pr-review-cycle-mob/
 
 若無 `gemini-3.1-pro-preview` 權限，依序 fallback：`GEMINI_MODEL=gemini-3-pro-preview` →
 `GEMINI_MODEL=gemini-2.5-pro`（用 verify-gemini-models skill 確認可用模型）。
-Script 內部 cd 到 worktree root 後以相對路徑呼叫 `@.pr-review/gemini-r1-input.md`，
-避免 Gemini sandbox 拒絕絕對路徑；**@file 若觸發 agentic 模式**（gemini-r1-raw.md 開頭含 `call:`）
-則在 env 前加 `--yolo` 傳入 script 或直接 export。
+
+**Vertex AI 模式**（`GEMINI_AUTH: VERTEX_AI_OK`）：在 env 前加 `GOOGLE_CLOUD_LOCATION=<region>` 補 region，
+例：`GOOGLE_CLOUD_LOCATION=us-central1 GEMINI_MODEL=gemini-3.1-pro-preview bash gemini-r1-stage1.sh`。
+
+**@file 觸發 agentic 模式**（`gemini-r1-raw.md` 開頭含 `call:` 或 `tool_use:`）：
+以 `GEMINI_EXTRA_ARGS=--yolo` 傳入 script，讓 `--yolo` 注入 `gemini` 呼叫：
+```bash
+GEMINI_EXTRA_ARGS=--yolo GEMINI_MODEL="gemini-3.1-pro-preview" bash ~/.agents/skills/pr-review-cycle-mob/scripts/gemini-r1-stage1.sh
+```
+
 Raw 輸出落地到 `gemini-r1-raw.md`，**不在主 context 讀取**。
 
 ###### Stage 2：Extract（用 gemini-2.5-flash 低成本模型萃取 JSON）
