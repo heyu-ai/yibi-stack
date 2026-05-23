@@ -561,22 +561,32 @@ class TestFixBashAntiPatternsPR:
     # ── clean-merged: $(dirname "$(git rev-parse --path-format=absolute ...)") ──
 
     def test_clean_merged_old_nested_subshell_blocks(self) -> None:
-        """clean-merged 修復前：$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-        Rule 14 Quoting Rule 4 反向巢狀 subshell -> 攔截"""
+        """clean-merged 修復前：$(dirname "$(git rev-parse ...)") 反向巢狀 subshell -> 攔截。
+
+        Rule 14 Quoting Rule 4。
+        """
         cmd = 'MAIN_REPO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")'
         assert run_hook(cmd) == 2
 
-    def test_clean_merged_new_split_passes(self) -> None:
-        """clean-merged 修復後：拆成兩個獨立 bash call -> 放行（Rule 14 Quoting Rule 4 修法）"""
-        cmd = (
-            "GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir)\n"
-            'MAIN_REPO=$(dirname "$GIT_COMMON")'
-        )
+    def test_clean_merged_step1_git_rev_parse_passes(self) -> None:
+        """clean-merged 修復後步驟1：git rev-parse 獨立 bash call -> 放行。
+
+        Rule 14 Quoting Rule 4 修法（拆成兩個獨立 bash call）。
+        """
+        cmd = "GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir)"
+        assert run_hook(cmd) == 0
+
+    def test_clean_merged_step2_dirname_passes(self) -> None:
+        """clean-merged 修復後步驟2：dirname 獨立 bash call -> 放行。
+
+        Rule 14 Quoting Rule 4 修法（拆成兩個獨立 bash call）。
+        """
+        cmd = 'MAIN_REPO=$(dirname "$GIT_COMMON")'
         assert run_hook(cmd) == 0
 
     # ── protect-push: [ $? -ne 0 ] && echo && exit 1 → if ! python3 - << 'EOF'...fi ──
 
-    def test_protect_push_old_dollar_question_passes_ap1_hook(self) -> None:
+    def test_protect_push_dollar_question_not_in_ap1_hook_scope(self) -> None:
         """protect-push 修復前：python3 heredoc 後接 [ $? -ne 0 ]。
 
         $? 觸發 CC 內建 simple_expansion 攔截（不在本 AP1 hook 範疇），
@@ -593,7 +603,10 @@ class TestFixBashAntiPatternsPR:
         assert run_hook(cmd) == 0  # AP1 hook 放行；CC 內建攔截 $? 的 simple_expansion
 
     def test_protect_push_new_if_not_heredoc_passes(self) -> None:
-        """protect-push 修復後：if ! python3 - << 'EOF'...then...fi -> 放行（Rule 14 $? 正確修法）"""
+        """protect-push 修復後：if ! python3 - << 'EOF'...then...fi -> 放行。
+
+        Rule 14 $? 正確修法。
+        """
         cmd = (
             "if ! python3 - << 'EOF'\n"
             "import json\n"

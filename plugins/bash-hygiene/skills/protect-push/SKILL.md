@@ -133,7 +133,7 @@ settings_path.write_text(
 print("[OK] protect-push hook 已合併到 settings.json")
 EOF
 then
-  echo '[FAIL] settings.json 合併失敗（JSON 格式損壞？執行 python3 -m json.tool .claude/settings.json 驗證）' >&2
+  echo '[FAIL] settings.json 合併失敗（JSON 格式損壞或 hooks 欄位類型錯誤？執行 python3 -m json.tool .claude/settings.json 驗證格式，再確認 hooks 欄位是 dict 不是 list）' >&2
   exit 1
 fi
 ```

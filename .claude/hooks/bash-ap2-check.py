@@ -7,6 +7,7 @@ Exit code:
 
 禁用字元範圍（bash 指令字串內）：
   - em dash (U+2014)、en dash (U+2013)、零寬字元 U+200B/U+200C/U+200D
+  - 箭頭符號 U+2190-U+21FF（→ ← ↑ ↓ ⇒ 等）
   - 雜項技術符號 U+2300-U+23FF（warning sign、next-track button 等）
   - 雜項符號 + Dingbats U+2600-U+27BF（check mark、warning 等）
     ※ U+2400-U+25FF（Box Drawing、Geometric Shapes 等）刻意排除，避免 tree 輸出誤攔
@@ -53,6 +54,7 @@ _AP2 = re.compile(
     r"["
     r"\u2013\u2014"  # en/em dash
     r"\u200b-\u200d"  # zero-width chars (ZWSP/ZWNJ/ZWJ)
+    r"\u2190-\u21ff"  # Arrows (→ ← ↑ ↓ ⇒ 等)
     r"\u2300-\u23ff"  # Misc Technical (warning sign 等)
     r"\u2600-\u27bf"  # Misc Symbols + Dingbats (check mark 等)
     r"\U0001F000-\U0001FAFF"  # Emoji (含 Extended-A)

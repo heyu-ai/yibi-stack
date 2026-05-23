@@ -810,7 +810,7 @@ SKILL_REPO=$(python3 -c "import json,pathlib; print(json.loads((pathlib.Path.hom
 無 same-type 衝突；`python3 -c` 單行（無換行）不觸發 AP1 multi-line 偵測；
 純 ASCII 不觸發 AP2；已在 `skills/session-memory/SKILL.md` 和 `skills/verify-gemini-models/SKILL.md` 實戰驗證。
 
-**連帶修正**（本次 PR）：
+**連帶修正**（fix-handover-skill-anti-bash PR, 2026-05-06）：
 
 - `commands/handover.md`（3 個 bash 區塊）
 - `commands/handover-back.md`（2 個 bash 區塊）

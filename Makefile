@@ -9,10 +9,10 @@ help: ## Show this help
 
 lint: ## Run ruff linter + markdown bash anti-pattern check
 	uv run ruff check tasks/
-	python3 scripts/lint_skill_bash.py
+	python3 scripts/lint_skill_bash.py --fail
 
 lint-md: ## Check bash anti-patterns in SKILL.md / commands markdown files
-	python3 scripts/lint_skill_bash.py
+	python3 scripts/lint_skill_bash.py --fail
 
 format: ## Run ruff formatter
 	uv run ruff format tasks/
@@ -28,7 +28,7 @@ check: ## Run all checks (lint + format check + typecheck + test + markdown bash
 	uv run ruff format --check tasks/
 	uv run mypy tasks/
 	uv run pytest
-	python3 scripts/lint_skill_bash.py
+	python3 scripts/lint_skill_bash.py --fail
 
 ci: ## 本地 CI fallback（pre-commit + tests；AgentShield security-scan 略過）
 	@echo "━━━ [1/2] pre-commit（lint / format / type / security）━━━"
