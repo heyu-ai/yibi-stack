@@ -120,6 +120,71 @@ class TestStagedFiles:
         assert "[FAIL]" not in result.stderr
 
 
+class TestBlankProposalGate:
+    def test_pre_commit_011_blank_proposal_staged_fails(self, tmp_path: Path) -> None:
+        """PRE-COMMIT-011: 含 HTML comment 的 proposal.md staged 時被攔截，exit 2。"""
+        repo = _make_git_repo(tmp_path)
+        _setup_scripts_in_repo(tmp_path)
+        proposal_dir = tmp_path / "openspec" / "changes" / "my-change"
+        proposal_dir.mkdir(parents=True)
+        proposal = proposal_dir / "proposal.md"
+        proposal.write_text("# Proposal: my-change\n\n<!-- Explain the motivation -->\n")
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "add", str(proposal)],
+            check=True,
+            capture_output=True,
+        )  # nosec B603
+        result = _run_hook(_GIT_COMMIT_JSON, cwd=str(repo))
+        assert result.returncode == 2
+        assert "[FAIL]" in result.stderr
+
+    def test_pre_commit_012_filled_proposal_staged_passes(self, tmp_path: Path) -> None:
+        """PRE-COMMIT-012: 已填寫的 proposal.md staged 時通過。"""
+        repo = _make_git_repo(tmp_path)
+        _setup_scripts_in_repo(tmp_path)
+        proposal_dir = tmp_path / "openspec" / "changes" / "my-change"
+        proposal_dir.mkdir(parents=True)
+        proposal = proposal_dir / "proposal.md"
+        proposal.write_text(
+            "# Proposal: my-change\n\n## Why\n\nThis is fully filled.\n\n## What Changes\n\n- Done.\n"
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "add", str(proposal)],
+            check=True,
+            capture_output=True,
+        )  # nosec B603
+        result = _run_hook(_GIT_COMMIT_JSON, cwd=str(repo))
+        assert result.returncode == 0
+        assert "[OK] blank-proposal" in result.stderr
+
+    def test_pre_commit_013_non_proposal_md_no_blank_check(self, tmp_path: Path) -> None:
+        """PRE-COMMIT-013: openspec 目錄下的 spec.md（非 proposal.md）不觸發 blank-proposal 檢查。"""
+        repo = _make_git_repo(tmp_path)
+        spec_dir = tmp_path / "openspec" / "changes" / "my-change"
+        spec_dir.mkdir(parents=True)
+        spec = spec_dir / "spec.md"
+        spec.write_text("<!-- spec placeholder -->\n")
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "add", str(spec)],
+            check=True,
+            capture_output=True,
+        )  # nosec B603
+        result = _run_hook(_GIT_COMMIT_JSON, cwd=str(repo))
+        assert "[pre-commit] blank-proposal" not in result.stderr
+
+
+_ACTUAL_SCRIPT = Path(__file__).parents[3] / "scripts" / "check_blank_proposal.py"
+
+
+def _setup_scripts_in_repo(repo_path: Path) -> None:
+    """在 tmp_path 建立 scripts/ 目錄，symlink check_blank_proposal.py（供 blank-proposal 整合測試）。"""
+    scripts_dir = repo_path / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
+    link = scripts_dir / "check_blank_proposal.py"
+    if not link.exists():
+        link.symlink_to(_ACTUAL_SCRIPT)
+
+
 def _make_git_repo(tmp_path: Path) -> Path:
     """最小 git repo with initial commit（供 staged-files 測試使用）。"""
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)  # nosec B603
