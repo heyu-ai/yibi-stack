@@ -176,6 +176,24 @@ This is an irreversible operation affecting a shared branch: once pushed to `ori
 every collaborator's next `git pull` picks up unreviewed changes.
 Personal worktree branches that have not been pushed are out of scope.
 
+## Revert PR Pre-merge Checklist
+
+When creating a revert PR (to undo commits that landed on a shared branch):
+
+1. **Fetch and rebase onto latest `origin/main` before requesting review**:
+   ```bash
+   git fetch origin
+   git rebase origin/main
+   ```
+2. **Verify diff scope matches stated intent**:
+   ```bash
+   git diff origin/main HEAD --name-only
+   ```
+   Should list only the files the revert commit actually touches.
+3. **Why**: `origin/main` may have advanced since the revert branch was created (e.g., a security fix landed independently). Without rebase, the stale branch base causes `git diff origin/main HEAD` to include those newer commits in the diff — merging silently reverts them.
+
+**Real incident (PR #55)**: After the revert branch was created, `5725b86` (`security(agy): replace --dangerously-skip-permissions with --sandbox`) landed on `origin/main`. Without rebase, the diff included 3 agy scripts. Mob review caught it; rebase onto `origin/main` fixed the scope back to exactly 6 rule files.
+
 ## Scope
 
 This rule applies to all Claude Code agent sessions. It does not affect commands the user
