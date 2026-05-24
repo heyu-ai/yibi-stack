@@ -2,10 +2,11 @@
 # pr-review-cycle-mob Step 3.2 — Gemini R1 Stage 1：Native review
 #
 # 用法：
-#   GEMINI_MODEL=gemini-3.1-pro-preview bash ~/.agents/skills/pr-review-cycle-mob/scripts/gemini-r1-stage1.sh
+#   bash ~/.agents/skills/pr-review-cycle-mob/scripts/gemini-r1-stage1.sh [model]
 #
-# GEMINI_MODEL 預設 gemini-3.1-pro-preview；若無此模型權限，
-# 依序改用 gemini-3-pro-preview 或 gemini-2.5-pro。
+# $1 = Gemini 模型名稱（選填）；預設 gemini-3.1-pro-preview。
+#      若無此模型權限，改用 gemini-3-pro-preview 或 gemini-2.5-pro：
+#   bash gemini-r1-stage1.sh gemini-2.5-pro
 #
 # 副作用：
 #   - gemini-r1-raw.md 寫到 $WT_ROOT/.pr-review/
@@ -16,7 +17,7 @@
 
 set -euo pipefail
 
-GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.1-pro-preview}"
+GEMINI_MODEL="${1:-${GEMINI_MODEL:-gemini-3.1-pro-preview}}"
 # 額外 flag 注入（例：GEMINI_EXTRA_ARGS=--yolo 用於 @file 觸發 agentic 模式時）
 GEMINI_EXTRA_ARGS="${GEMINI_EXTRA_ARGS:-}"
 

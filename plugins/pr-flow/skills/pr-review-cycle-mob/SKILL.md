@@ -244,7 +244,7 @@ git push
 `agy` `@file` 要求路徑在 `--add-dir` 允許列表內；本 skill 把所有中間檔放在 `<worktree-root>/.pr-review/` 並用 `--add-dir "$WT_ROOT"` 授權，避免 `/tmp/` 路徑被沙箱拒絕。
 
 ```bash
-BASE_BRANCH="{{base_branch}}" bash ~/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh
+bash ~/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh {{base_branch}}
 ```
 
 Script 最後一行輸出 `REVIEW_DIR=<絕對路徑>` 為 informational；後續 bash call 不需要解析此輸出，
@@ -262,11 +262,12 @@ rule 14 Quoting Rule 5（多 `"$VAR"` 展開）、rule 14 `$?` 章節（`if [ $?
 寫進 `~/.claude/settings.local.json` 永久放行時用展開後的絕對路徑：
 
 ```text
-Bash(bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh)
+Bash(bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh *)
+Bash(bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage1.sh *)
 ```
 
-`<you>` 用 `whoami` 或 `echo $USER` 確認。完整絕對路徑符合 rule 16 安全 pattern
-（exact match + script 已 review，等於審核一次永久信任）。
+`<you>` 用 `whoami` 或 `echo $USER` 確認。完整絕對路徑 + trailing `*` 符合 rule 16 安全 pattern
+（script 已 review，`*` 只擴展到 branch name 引數）。
 
 Extract prompt 路徑固定在 `~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md`（由 `make install` 建立的 symlink），不需要解析 `SKILL_REPO`。
 
@@ -331,7 +332,7 @@ Diff: 見 {{REVIEW_DIR}}/diff.patch
 ###### Stage 1：Native review（raw 落地，不進主 context）
 
 ```bash
-BASE_BRANCH="{{base_branch}}" bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage1.sh
+bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage1.sh {{base_branch}}
 ```
 
 `codex review` 不支援 `-C` flag，從正確 cwd 執行即可。`--base` 與 positional prompt 互斥；codex 內建 review 模式自動產生 [P1]/[P2] 分級。Raw 輸出落地到 `codex-r1-raw.md`，**不在主 context 讀取**。
