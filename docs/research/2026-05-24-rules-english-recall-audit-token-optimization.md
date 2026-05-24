@@ -41,14 +41,27 @@ Claude tokenizer 對不同語言的 token 密度差異顯著：
 
 rules 的中文 prose 比例約 50–70%，code block 佔其餘部分。
 
-**Token 量化（TBD — 待 Step 0.3 baseline script 執行後填入）**：
+**Token 量化（2026-05-24 baseline 實測，tiktoken cl100k_base）**：
+
+| Rule file | Chars | Tokens (pre-PR-C) | t/char |
+|-----------|-------|-------------------|--------|
+| `01-language-and-tone.md` | 684 | 408 | 0.596 |
+| `02-error-and-import.md` | 1,887 | 883 | 0.468 |
+| `03-security.md` | 1,495 | 735 | 0.492 |
+| `13-bash-anti-patterns.md` | 21,657 | 11,810 | 0.545 |
+| `15-irreversible-operations.md` | 5,777 | 3,398 | 0.588 |
+| `16-allowlist-hygiene.md` | 8,218 | 4,118 | 0.501 |
+| **TOTAL** | **39,718** | **21,352** | **0.538** |
 
 | Metric | 值 |
 |--------|-----|
-| 翻譯前 always-loaded rules token 總計 | TBD（anthropic.messages.count_tokens 量測）|
-| 翻譯後 always-loaded rules token 總計 | TBD（PR-C 完成後量測）|
-| 預計節省比例 | TBD（估計 40-60%，由 CJK→English prose 轉換驅動）|
-| 每 session 節省 token 數 | TBD |
+| 翻譯前 always-loaded rules token 總計 | **21,352** tokens |
+| 翻譯後 always-loaded rules token 總計 | TBD（PR-C 完成後重跑 baseline script）|
+| 預計節省比例 | ~35-45%（t/char 從 0.538 → 約 0.25-0.33 English prose）|
+| 預計每 session 節省 | ~7,000-9,500 tokens |
+| PR-C 通過門檻 | <= 14,946 tokens（降幅 >= 30%）|
+
+詳細基線數據：`openspec/changes/rules-english-recall-audit/tokens-baseline.md`
 
 ### 1.3 Always-loaded vs On-demand 機制
 
