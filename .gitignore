@@ -238,3 +238,9 @@ docs/superpowers/
 
 # Compiled binaries
 bin/
+
+# Spectra app data
+.spectra/
+tmp/
+.antigravitycli/
+.spectra.yaml
