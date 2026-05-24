@@ -17,6 +17,7 @@ def _run_script(*args: str, tmp_path: Path | None = None) -> subprocess.Complete
         capture_output=True,
         text=True,
         cwd=str(tmp_path) if tmp_path else None,
+        timeout=30,
     )
 
 
@@ -109,3 +110,40 @@ class TestCheckFile:
         proposal = _write_proposal(tmp_path, "<!-- placeholder -->\n")
         result = _run_script(str(proposal))
         assert "修復" in result.stderr
+
+    def test_blank_proposal_011_nonexistent_path_fails(self, tmp_path: Path) -> None:
+        """BLANK-PROPOSAL-011: 不存在的路徑回傳 exit 1 並含錯誤訊息。"""
+        result = _run_script(str(tmp_path / "proposal.md"))
+        assert result.returncode == 1
+        assert "無法讀取" in result.stderr
+
+    def test_blank_proposal_012_from_index_reads_staged_content(self, tmp_path: Path) -> None:
+        """BLANK-PROPOSAL-012: --from-index 讀取 staged 內容，而非 working tree。"""
+        subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)  # nosec B603 B607
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "config", "user.email", "t@t.com"],
+            check=True,
+            capture_output=True,
+        )  # nosec B603 B607
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "config", "user.name", "T"],
+            check=True,
+            capture_output=True,
+        )  # nosec B603 B607
+
+        proposal_rel = Path("openspec") / "changes" / "my-change" / "proposal.md"
+        proposal_abs = tmp_path / proposal_rel
+        proposal_abs.parent.mkdir(parents=True)
+
+        proposal_abs.write_text("<!-- placeholder -->\n")
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "add", str(proposal_rel)], check=True, capture_output=True
+        )  # nosec B603 B607
+
+        # working tree 改成乾淨版本（模擬 partial staging）
+        proposal_abs.write_text("## Filled content\n")
+
+        # --from-index 讀 staged 版本（含 placeholder），應 fail
+        result = _run_script(str(proposal_rel), "--from-index", tmp_path=tmp_path)
+        assert result.returncode == 1
+        assert "佔位符" in result.stderr

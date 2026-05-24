@@ -49,7 +49,8 @@ fi
 staged_proposals=$(printf '%s\n' "$staged_all" | grep -E '^openspec/changes/.*/proposal\.md$' || true)
 if [ -n "$staged_proposals" ]; then
   echo "[pre-commit] blank-proposal: checking staged proposal.md files..." >&2
-  if ! printf '%s\n' "$staged_proposals" | tr '\n' '\0' | xargs -0 python3 scripts/check_blank_proposal.py; then
+  if ! printf '%s\n' "$staged_proposals" | tr '\n' '\0' | xargs -0 python3 scripts/check_blank_proposal.py --from-index; then
+    echo "[FAIL] blank-proposal check failed -- fix HTML comment placeholders before committing" >&2
     exit 2
   fi
   echo "[OK] blank-proposal passed" >&2

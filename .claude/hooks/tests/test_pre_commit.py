@@ -170,6 +170,7 @@ class TestBlankProposalGate:
             capture_output=True,
         )  # nosec B603
         result = _run_hook(_GIT_COMMIT_JSON, cwd=str(repo))
+        assert result.returncode == 0
         assert "[pre-commit] blank-proposal" not in result.stderr
 
 
