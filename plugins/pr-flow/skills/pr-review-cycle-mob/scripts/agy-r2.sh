@@ -15,8 +15,7 @@
 #   - 暫存 gemini-r2-input.md（完成後自動刪除）
 #   - CWD 切換到 $WT_ROOT（agy @file 沙箱要求相對路徑以 WT_ROOT 為基準）
 #
-# 安全注意：本 script 使用 --dangerously-skip-permissions，假設 PR 來自受信任
-# repo。外部 fork 操作者應評估 prompt injection 風險，可移除此 flag 改用互動模式。
+# 安全注意：--sandbox 啟用 OS-level terminal 限制，agy 只能讀檔，無法執行 shell 指令。
 #
 # 退出碼：0 成功；非零失敗（每種失敗都附 [FAIL] stderr 訊息）。
 
