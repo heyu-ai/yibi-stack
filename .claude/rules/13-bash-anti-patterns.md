@@ -1,365 +1,379 @@
-# Bash Anti-Patterns
+# Bash 指令反模式（Anti-Patterns）
 
-## Anti-Pattern 1: Overly Complex Single Command
+## Anti-Pattern 1：過度複雜的單一指令
 
-Complexity score (>=2 of 5 = excessive, must decompose):
+判斷標準（complexity score：5 項中 >=2 項即過度，必須拆解）：
 
-1. Multi-line (heredoc or `\` continuation)
-2. Nested same-type quotes (`"$(cmd "$VAR")"` or double-quote-within-double-quote)
-3. Embedded other language (`python -c`, `node -e`, complex multi-line jq)
-4. Multiple `if`/`elif`/`case` branches
-5. Complex parameter expansion (`${var//pat/rep}`, indirect `${!var}`)
+1. 多行（heredoc / 反斜線 `\` 續行）
+2. 巢狀引號（雙引號內含單引號內含雙引號；或 `$(cmd "$VAR")` 同型引號衝突）
+3. 內嵌其他語言（`python -c` / `node -e` / jq 多行複雜表達式）
+4. 多層 if / elif / case 分支
+5. 複雜參數展開（`${var//pattern/replace}`、間接引用 `${!var}`）
 
-**Not excessive**: pure git workflow chains (`git add && git commit && git push`),
-linear same-type chains (`make lint && make test`). `&&` count alone is not a criterion.
+**不算過度**：純 git workflow chain（`git add && git commit && git push`）、
+線性同性質串接（`make lint && make test`）。「&& 數量本身不是判斷項」。
 
-Fix priority:
-1. Split into multiple bash calls
-2. Extract to a script file (`scripts/foo.sh`, then call `bash scripts/foo.sh`)
-3. Use the right tool (JSON → `jq`, paths → `realpath`/`basename`)
+對策優先序：
 
-**Golden rule: never cram multi-step logic into one line to save a bash call.**
+1. 拆成多個 bash call
+2. 寫獨立 script 檔（`scripts/foo.sh`，再呼叫 `bash scripts/foo.sh`）
+3. 用對的工具取代 inline 邏輯（JSON → `jq`、路徑 → `realpath` / `basename`）
 
-### AP1 Sub-type: for-loop-file-list
+黃金法則：永遠不要為了省一個 bash call 把多步邏輯擠進一行。
 
-Any of these conditions requires extracting to a standalone script:
-- for body > 1 line
-- for body contains pipe (`|`)
-- for body contains `if`/`elif`
+### AP1 Sub-type：for-loop-file-list
+
+`for f in file1 \ file2 \; do ... done` 是常見的「想省 bash call 而把 script 擠進一行」模式。
+以下任一條件即需改寫為獨立 script：
+
+- for body 超過 1 行
+- for body 含 pipe（`|`）
+- for body 含 if / elif
 
 ```bash
-# Wrong: for loop + if + pipe (AP1 score 3/5)
+# 違規：for loop + if + pipe 三層（AP1 score 3/5）
 for f in a.py \
          b.py; do
   COUNT=$(grep -c "pattern" "$f")
   if [ "$COUNT" -gt 0 ]; then grep -n "pattern" "$f"; fi
 done
 
-# Fix: extract to script
+# 修法：寫成獨立 script 再執行
 bash scripts/scan_pattern.sh
 ```
 
-### AP1 Sub-type: Nested Same-type Quotes
+### AP1 Sub-type：同型引號衝突（Nested Same-type Quotes）
 
-`echo "result: $(cmd "$VAR")"` — `$()` inside double quotes uses double quotes again;
-the static analyzer reports `Unhandled node type: string`.
+`echo "result: $(cmd "$VAR")"` — 外層雙引號內的 `$()` 再度使用雙引號，
+Claude Code hook 的靜態分析器無法處理此巢狀結構，hook 回報 `Unhandled node type: string`。
 
 ```bash
-# Wrong
+# 違規：echo 內嵌 $(git -C "$MAIN_REPO" ...)
 echo "Main updated to: $(git -C "$MAIN_REPO" rev-parse --short HEAD)"
 
-# Fix: split into separate bash call
+# 修法：拆成獨立 bash call，讓 Claude 判讀輸出
 git -C "$MAIN_REPO" rev-parse --short HEAD
 ```
 
-The standard fix for cd-before-git remains `git -C <path>` (Cases 7/12); the issue is
-wrapping it in `echo "$()"`, not `git -C` itself.
+cd-before-git 的標準修法仍是 `git -C <path>`（Cases 7/12 建立）；問題在於把它包進 `echo "$()"` 的複合結構，而非 `git -C` 本身。
 
-## Anti-Pattern 2: Special Unicode in Bash Command Strings
+## Anti-Pattern 2：bash 指令字串內含特殊 Unicode
 
-**Scope**: only the bash command string content itself (`echo` strings, variable literals,
-filename literals, heredoc content).
+**範圍**：只限 bash 指令本身的字元內容（`echo` 字串、變數值 literal、檔名 literal、heredoc 內容）。
 
-**Not restricted**: file content read/written by bash, markdown docs, code comments, commit messages.
+**不限制**：bash 讀取的檔案內容、bash 寫入檔案的文字、markdown 文件、code 註解、commit message。
 
-Banned in bash command strings: em dash (—), en dash (–), emoji, zero-width spaces.
+下列字元在 bash 指令字串內**禁止使用**：em dash（—）/ en dash（–）/ emoji / 零寬空白。
 
-| Replace | With |
-|---------|------|
-| skip icon | `[SKIP]` |
-| ok icon | `[OK]` |
-| warn icon | `[WARN]` |
-| fail icon | `[FAIL]` |
+| 原本 | 改成 |
+|------|------|
+| skip 圖示 | `[SKIP]` |
+| ok 圖示 | `[OK]` |
+| warn 圖示 | `[WARN]` |
+| fail 圖示 | `[FAIL]` |
 | em dash — | `--` |
 | en dash – | `-` |
 
-CJK text, full-width punctuation (，、。：「」), and ASCII punctuation are all fine.
+CJK 文字、全形標點（，、。：「」）、ASCII 標點均 OK。
 
-## Anti-Pattern 3: Stateful cd
+## Anti-Pattern 3：Stateful cd
 
-`cd <path> && cmd` has three distinct failure modes with different fixes.
+`cd <path> && cmd` 有三種不同的危害機制，對應不同修法。
 
-### AP3 Sub-class A: CWD Pollution (no hook; silent blind spot)
+### AP3 Sub-class A：CWD 污染（hook 不攔，靜默盲點）
 
-**Trigger**: `cd <path> && <non-git command>` — cd changes session CWD; all subsequent
-bash calls are affected. Tool `--directory` option avoids this entirely.
+**觸發**：`cd <path> && <非 git 指令>`——cd 改變 session CWD，後續 bash call 全
+受影響；tool 的 `--directory` 選項可完全迴避。
 
-Cases: 4 (alembic upgrade), 17/18 (cd + python3 -c async DB query)
+**案例**：4（alembic upgrade）、17/18（cd + python3 -c async DB query）
 
 ```bash
-# Wrong: cd pollutes CWD
+# 違規：cd 污染 CWD，後續執行環境不乾淨
 cd /path/to/backend && uv run python3 scripts/check_stats.py
 
-# Fix A (preferred): use tool-native --directory
+# 修法 A（最優先）：使用工具原生 --directory
 uv run --directory /path/to/backend python3 scripts/check_stats.py
 
-# Fix B: subshell isolation (does not pollute outer CWD)
+# 修法 B：subshell 隔離（不污染外層 CWD）
 ( cd /path/to/backend && uv run python3 scripts/check_stats.py )
 ```
 
-| Tool | Wrong (cd) | Fix (--directory) |
-|------|-----------|-------------------|
+常用工具對應修法：
+
+| 工具 | cd 版（違規） | --directory 版（修法） |
+|------|------------|----------------------|
 | uv run | `cd /p && uv run python3 ...` | `uv run --directory /p python3 ...` |
 | pytest | `cd /p && uv run pytest` | `uv run --directory /p pytest` |
 | npm | `cd /p && npm test` | `npm --prefix /p test` |
 
-### AP3 Sub-class B: cd-before-git (class C hook attempts to catch)
+### AP3 Sub-class B：cd-before-git（C 類 hook 嘗試攔）
 
-**Trigger**: `cd <path> && git <anything>` — cd changes CWD before git, causing git to
-use an unexpected `.git/hooks` path. Class C hook tries to intercept but is not guaranteed.
+**觸發**：`cd <path> && git <anything>`——cd 改變 CWD 後執行 git，讓 git
+採用非預期的 hooks 路徑；C 類 hook 會嘗試攔截，但不保證每次觸發。
 
-Cases: 7 (cd + git status), 9 (cd + git commit heredoc), 12 (cd + git log)
+**案例**：7（cd + git status）、9（cd + git commit heredoc）、12（cd + git log）
 
 ```bash
-# Wrong
+# 違規：cd 後執行 git，CWD 決定採用哪個 .git/hooks
 cd /path/to/repo && git status
 
-# Fix: git -C specifies working directory without changing session CWD
+# 修法：git -C 指定工作目錄，不改變 session CWD
 git -C /path/to/repo status
 git -C /path/to/repo log --oneline -5
 git -C /path/to/repo rev-parse --short HEAD
 ```
 
-### AP3 Sub-class C: Path Resolution Hiding (class F1 hook attempts to catch)
+### AP3 Sub-class C：路徑解析隱藏（F1 類 hook 嘗試攔）
 
-**Trigger**: `cd <path> && <command> ... 2>/dev/null` — cd makes relative path resolution
-depend on CWD; `2>/dev/null` swallows errors, causing path issues to fail silently.
+**觸發**：`cd <path> && <command> ... 2>/dev/null`——cd 讓相對路徑解析依賴
+CWD，加上 `2>/dev/null` 吞掉錯誤訊息，導致路徑問題靜默失敗。
+F1 hook 偵測「compound command 含 cd 且有 output redirection」。
 
-Cases: 10 (cd + find + 2>/dev/null), 11 (cd + grep), 15 (cd + gh pr view)
+**案例**：10（cd + find + 2>/dev/null）、11（cd + grep + 2>/dev/null）、
+15（cd + gh pr view + 2>/dev/null）
 
 ```bash
-# Wrong
+# 違規：cd 改變路徑基準，2>/dev/null 掩蓋找不到路徑的錯誤
 cd /path/to/project && find . -name "*.py" 2>/dev/null
 
-# Fix A: use absolute path; keep error output
+# 修法 A：改用絕對路徑，保留錯誤輸出
 find /path/to/project -name "*.py"
 
-# Fix B: use Read/Grep tool (Claude tool layer) with absolute path
+# 修法 B：改用 Read/Grep tool（Claude 工具層），直接以絕對路徑操作
 # Glob: /path/to/project/**/*.py
 ```
 
-### AP3 Summary
+### AP3 全覽
 
-| Sub-class | Hook | Cases | Fix |
-|-----------|------|-------|-----|
-| A: CWD pollution | None (silent) | 4/17/18 | `--directory` flag or subshell |
-| B: cd-before-git | Class C (partial) | 7/9/12 | `git -C <path>` |
-| C: path resolution hiding | Class F1 (partial) | 10/11/15 | Absolute path / Read/Grep tool |
+| 子類 | hook 攔截 | 案例 | 修法 |
+|------|----------|------|------|
+| A: CWD 污染 | 無（靜默盲點） | 4/17/18 | `--directory` flag 或 subshell |
+| B: cd-before-git | C 類（部分） | 7/9/12 | `git -C <path>` |
+| C: 路徑解析隱藏 | F1 類（部分） | 10/11/15 | 絕對路徑 / Read/Grep tool |
 
-## Prefer Claude Built-in Tools for Code Search
+## 優先使用 Claude 內建工具搜尋程式碼
 
-When searching code, **prefer Grep/Glob tools over bash `rg`/`grep`/`find`**.
+搜尋程式碼時，**優先用 Grep/Glob tool，不要用 bash `rg`/`grep`/`find`**。
 
-Common violation: `cd $(git rev-parse --show-toplevel) && rg ... 2>/dev/null | head -10`
-triggers AP3-A (CWD pollution), AP3-C (`2>/dev/null` hiding), AP1 (output filter `| head`),
-and the `$()` subshell structure triggers the Claude Code parser confirmation dialog.
+常見違規模式：`cd $(git rev-parse --show-toplevel) && rg ... 2>/dev/null | head -10`
+同時觸發 AP3-A（CWD 污染）、AP3-C（`2>/dev/null` 路徑隱藏）、AP1（output filter `| head`），
+且 `$()` subshell 結構會觸發 Claude Code 內建 parser 的確認對話框。
 
-| bash (Wrong) | Claude Tool (Fix) |
-|-------------|------------------|
+| bash（違規） | Claude Tool（修法） |
+|------|------|
 | `cd $(...) && rg -n 'pattern' path/ --type dart 2>/dev/null` | Grep `pattern` in `path/` include `*.dart` |
 | `cd $(...) && find path/ -name '*auth*.dart' \| head -10` | Glob `path/**/*auth*.dart` |
 | `cd $(...) && rg -rn 'class.*User' path/ --type py 2>/dev/null` | Grep `class.*User` in `path/` include `*.py` |
 
-Advantages: zero CWD dependency, zero PreToolUse hook triggers, no manual `| head` truncation.
+Claude 內建工具的優勢：零 CWD 依賴、零 PreToolUse hook 觸發、無需手動 `| head` 截斷。
 
-**Note**: Grep/Glob tools have a result cap (no "N more results" warning). For complete result
-lists (global rename, migration audits), use `rg -l` or `find` with absolute paths, then Read
-each file. Grep tool respects `.gitignore`; to search ignored files (`build/`, `vendor/`),
-use `rg --no-ignore`.
+**注意**：Grep/Glob tool 在大型 codebase 有結果上限截斷（不會回報「還有 N 筆未顯示」）。
+需要完整結果清單時（如全域 rename、migration audit），改用 `rg -l` 或 `find` 搭配絕對路徑，
+再逐檔用 Read tool 確認。Grep tool 預設遵守 `.gitignore`；若需搜尋被 ignore 的檔案（如 `build/`、`vendor/`），
+仍需用 bash `rg --no-ignore`。
 
-**Scope**: applies to "find where code is" / "search for pattern" scenarios only.
-Use bash when you need bash-specific features (`rg --json`, `find -exec`, `wc -l`), but
-follow the AP rules above.
+**適用範圍**：純粹為了「找程式碼在哪」「搜尋 pattern」的場景。
+需要 bash 特有功能（如 `rg --json`、`find -exec`、`find -path`、`wc -l` 統計）時仍用 bash，但須遵守上述 AP 規則。
 
-## 5-Second Self-Check Before Writing Bash
+## 寫 bash 前的 5 秒自我檢查
 
-- [ ] Multi-line, heredoc, or `\` continuation?
-- [ ] More than two levels of nested quotes?
-- [ ] Embedded Python/Node/complex jq?
-- [ ] Multiple `if`/`elif`/`case` branches?
-- [ ] Complex parameter expansion (`${var//pat/rep}`, indirect `${!var}`)?
+- [ ] 有換行 / heredoc / `\` 續行嗎？
+- [ ] 引號超過兩層嵌套嗎？
+- [ ] 內嵌 Python / Node / 複雜 jq 嗎？
+- [ ] 有多層 if/elif/case 嗎？
+- [ ] 有複雜參數展開 `${var//pat/rep}` / 間接引用 `${!var}` 嗎？
 
->=2 yes → split bash calls / extract script / use the right tool
+以上 >=2 項 yes → 拆 bash call / 寫獨立 script / 換工具（sed / realpath / 簡單 jq）
 
-- [ ] Emoji, em dash (—), en dash (–), or zero-width space in strings?
+- [ ] 字串內有 emoji / em dash（—）/ en dash（–）/ 零寬空白嗎？
 
-yes → replace per AP2 table (independent rule; does not count toward threshold above)
+yes → 依 Anti-Pattern 2 對照表替換（獨立規則，不計入上方門檻）
 
-- [ ] Command contains `cd <path> &&`?
+- [ ] 指令含 `cd <path> &&` 嗎？
 
-yes → classify sub-type: git → `git -C`; non-git → `--directory`; with `2>/dev/null` → absolute path.
+yes → 判斷子類：git 指令改 `git -C`；非 git 改 `--directory`；有 2>/dev/null 改絕對路徑。詳見 Anti-Pattern 3。
 
-- [ ] Pure search (find pattern / list files)?
+- [ ] 這是純搜尋嗎？（找 pattern / 列檔案）
 
-yes → prefer Grep/Glob tool.
+yes → 優先用 Grep/Glob tool，詳見「優先使用 Claude 內建工具搜尋程式碼」。
 
-## AP2 Auto-Detection
+## AP2 自動攔截
 
-`.claude/hooks/bash-ap2-check.py` is a PreToolUse hook that auto-detects and blocks AP2.
-Scope: em dash / en dash / zero-width space / U+2300-U+23FF / U+2600-U+27BF / U+1F000-U+1FAFF.
-(U+2400-U+25FF Box Drawing intentionally excluded to avoid false positives from `tree`/`eza`.)
+`.claude/hooks/bash-ap2-check.py` 是 PreToolUse hook，自動偵測並攔截 AP2 違規。
+攔截範圍：em dash / en dash / 零寬空白 / U+2300-U+23FF / U+2600-U+27BF / U+1F000-U+1FAFF。
+（U+2400-U+25FF Box Drawing 等刻意排除，避免 tree/eza 輸出誤攔。）
 
-AP1 complexity detection requires reasoning; use the 5-second check. Exceptions: the following
-mechanically-detectable sub-types are covered by `bash-ap1-inline-check.sh`:
-- `python -c` multi-line, `osascript` heredoc
-- `grep "...\|..."` double-quote BRE alternation (Case 25)
-- `$(outer "$(inner)")` reverse-nested subshell (Case 26)
-- `rg '...\|...'` BRE alternation in ERE tool (Detection 6)
+AP1 複雜度判斷多數需要推理，仍需靠 5 秒自我檢查。例外：以下機械可判定子類有自動 hook 覆蓋（`bash-ap1-inline-check.sh`）：
 
-## High-Frequency Violations (AP1 — Decompose Immediately)
+- `python -c` 多行、`osascript` heredoc（已覆蓋）
+- `grep "...\|..."` 雙引號 BRE alternation（Case 25，已覆蓋）
+- `$(outer "$(inner)")` 反向巢狀 subshell（Case 26，已覆蓋）
+- `rg '...\|...'` BRE alternation 在 ERE 工具（Detection 6，已覆蓋）
 
-These patterns are violations as soon as they appear; no scoring needed.
+## 高頻違規速查（已構成 AP1，直接拆解）
 
-### `python3 -c "..."` with newlines
+以下模式只要出現即違規，不需再逐項算分：
+
+### `python3 -c "..."` 含換行
 
 ```bash
-# Wrong: multi-line + embedded Python = score 2
+# 違規：多行 + 內嵌 Python = score 2
 uv run python3 -c "
 import asyncio
 ...
     result = await session.execute(text('''SELECT ...'''))
 " 2>&1
 
-# Fix: extract to standalone .py; use --directory instead of cd
+# 修法：提取成獨立 .py，用 --directory 取代 cd
 uv run --directory /path/to/project python3 scripts/check_stats.py
 ```
 
-A `# comment` inside `python3 -c` also triggers class B hook
-("Newline followed by # inside a quoted argument").
+`python3 -c` 內的 `# comment` 加上換行，另會觸發 hook B 類攔截
+（"Newline followed by # inside a quoted argument"）。
 
 ### `osascript << 'TAG'` heredoc
 
 ```bash
-# Wrong: multi-line heredoc + embedded AppleScript = score 2
+# 違規：多行 heredoc + 內嵌 AppleScript = score 2
 osascript << 'ASCRIPT'
 tell application "System Events"
     ...
 end tell
 ASCRIPT
 
-# Fix: extract to .applescript file
+# 修法：提取成 .applescript 檔案
 osascript scripts/check_windows.applescript
 ```
 
-`$(cat <<'EOF')` for commit message plain text is exempt; osascript/DSL heredoc is **not**.
+`$(cat <<'EOF')` 用於 commit message 純文字時有豁免；osascript/DSL heredoc **不豁免**。
 
-### `cd /abs/path && cmd` (Stateful cd)
+### `cd /abs/path && cmd`（Stateful cd）
 
-Quick lookup; see AP3 for details:
-- `cd ... && git <cmd>` → `git -C <path> <cmd>` (Sub-class B)
-- `cd ... && uv run` → `uv run --directory <path>` (Sub-class A)
-- `cd ... && cmd 2>/dev/null` → use absolute path, remove cd (Sub-class C)
+`cd` 有三種危害子類，詳見 Anti-Pattern 3。速查對應：
 
-### `cat <<'EOF' | command` (heredoc-pipe)
+- `cd ... && git <cmd>` → `git -C <path> <cmd>`（Sub-class B）
+- `cd ... && uv run` → `uv run --directory <path>`（Sub-class A）
+- `cd ... && cmd 2>/dev/null` → 改絕對路徑，移除 cd（Sub-class C）
 
-The pipeline AST node exceeds parser capacity, triggering `Unhandled node type: pipeline`
-(Case 23). Even at AP1 score 1/5, it must be blocked.
+### `cat <<'EOF' | command`（heredoc-pipe）
+
+`cat <<'EOF' | cmd` 的 pipeline AST 節點超出 parser 能力，觸發
+`Unhandled node type: pipeline`（Case 23）。即使 AP1 score 僅 1/5，仍必攔。
 
 ```bash
-# Wrong: heredoc piped directly; parser fails at pipeline node
+# 違規：heredoc 直接接管線，parser 在 pipeline 節點失敗
 cat << 'ARTIFACT_EOF' | spectra new artifact --stdin
 ## content ...
 ARTIFACT_EOF
 
-# Fix: Write tool to file first; use < redirect
+# 修法：用 Write tool 先寫檔（固定路徑，Write 與 shell 使用同一路徑），再用 < redirect
 spectra new artifact --stdin < /tmp/artifact_input.md
 rm -f /tmp/artifact_input.md
 ```
 
-### Output filter pipeline `| grep -v "..."`
+### output filter pipeline `| grep -v "..."`
 
 ```bash
-# Wrong: bash pre-filter instead of letting Claude read full output
+# 違規：用 bash pre-filter 替代 Claude 判讀輸出
 cmd 2>&1 | grep -v "INFO"
 
-# Fix: remove grep filter; Claude receives complete output
+# 修法：移除 grep filter，Claude 直接接收完整輸出
 cmd 2>&1
 ```
 
-### `rg '...\|...'` BRE alternation in ERE tool (silent empty results)
+### `rg '...\|...'` BRE alternation 在 ERE 工具（靜默空結果）
 
-`grep` default BRE: `\|` is alternation. `rg` uses Rust ERE: `|` is alternation, `\|` is
-literal pipe. Migrating `grep` patterns to `rg` silently returns 0 results with no error.
+`grep` 預設 BRE：`\|` 是 alternation（找到「A 或 B」）。
+`rg` 使用 Rust ERE-like regex：`|` 是 alternation，`\|` 是 literal pipe 字元。
+從 `grep` 遷移到 `rg` 時沿用 `\|` 語法，結果靜默為 0 筆，無報錯。
 
-| Tool | Alternation | `\|` means |
-|------|------------|-----------|
-| `grep` (BRE) | `\|` | alternation |
-| `grep -E` | `\|` | literal pipe |
-| `rg` | `\|` | literal pipe |
+| 工具 | Alternation 語法 | `\|` 代表 |
+|------|----------------|----------|
+| `grep`（BRE） | `\|` | alternation |
+| `grep -E` | \| | literal pipe |
+| `rg` | \| | literal pipe |
 
 ```bash
-# Wrong: rg with BRE syntax searches for literal pipe, not alternation
+# 違規：rg 用 BRE 語法，實際搜尋含 pipe 的 literal 字串，非 alternation
 rg -rl '五層\|Event Storm\|ezSpec' /path
 
-# Fix A (preferred): use Grep tool (| for alternation)
+# 修法 A（最優先）：改用 Grep tool（pattern 用 | 做 alternation）
 # Grep tool: 五層|Event Storm|ezSpec  in /path
 
-# Fix B: rg ERE syntax
+# 修法 B：rg ERE 語法
 rg -rl '五層|Event Storm|ezSpec' /path
 
-# Fix C: multiple -e flags
+# 修法 C：多個 -e flag
 rg -l -e '五層' -e 'Event Storm' -e 'ezSpec' /path
 ```
 
-`bash-ap1-inline-check.sh` Detection 6 auto-detects and blocks this pattern.
+hook `bash-ap1-inline-check.sh` Detection 6 自動偵測並攔截此模式。
 
-## AP1 Auto-Fix Triggers
+## AP1 自動修復觸發條件
 
-When any of the following applies, **stop and invoke the `bash-to-script` subagent** to
-extract the bash logic into a standalone script under `scripts/`:
+當你發現自己即將寫的 bash 符合下列任一情況，**停下來呼叫 `bash-to-script` subagent**，
+請它把 bash 邏輯抽出成 `scripts/` 下的獨立 script 檔案：
 
-1. `for` loop body contains pipe or `if` (Cases 21/22)
-2. heredoc followed by `| command` (Case 23)
-3. inline `python -c` with newlines (hook already catches; subagent can generate `.py` directly)
-4. inline `osascript` heredoc (same)
+1. `for` loop body 含 pipe 或 `if`（Cases 21/22）
+2. heredoc 後接 `| command`（Case 23）
+3. inline `python -c` 含換行（hook 已攔，但 subagent 可直接生成 `.py`）
+4. inline `osascript` heredoc（同上）
 
-Example prompt:
+呼叫範例：
+
 ```text
-Task: extract this bash to a script for scanning EdgeInsets patterns across files.
-bash:
+任務：我需要把這段 bash 抽出成 script，目的是掃描多個檔案的 EdgeInsets pattern。
+bash 內容：
   for f in a.dart b.dart; do
     grep -n "EdgeInsets" "$f" | grep -v "YibiSpacing"
   done
 ```
 
-The subagent will: read existing naming in `scripts/`, choose a filename, write a clean script
-(shebang, `set -euo pipefail`, no AP1 violations), and report `CREATED: scripts/xxx.sh` and
-`INVOKE: bash scripts/xxx.sh`.
+subagent 會：
 
-**Not applicable**: Cases 25/26 (quoting fix), Cases 20/23 (split bash call). These do not
-need the subagent; just apply the corresponding fix directly.
+- 讀取 `scripts/` 現有命名慣例
+- 決定檔名（如 `scripts/scan_bare_edgeinsets.sh`）
+- 寫入乾淨 script（有 shebang、set -euo pipefail、無 AP1 違規）
+- 回報 `CREATED: scripts/xxx.sh` 和 `INVOKE: bash scripts/xxx.sh`
 
-### Process substitution multi-line output consumption (2026-05)
+**不適用**：Cases 25/26（引號修法）、Cases 20/23（拆 bash call 即可）。
+這些 cases 不需要 subagent，只需按對應修法調整指令。
 
-`read -r A B < <(cmd)` reads one line then splits by IFS; if `cmd` outputs multiple lines via
-multiple `print()` calls, subsequent variables are always empty — silently.
+### process substitution 多行輸出消耗（2026-05）
+
+`read -r A B < <(cmd)` 只讀一行後按 IFS 分割；若 cmd 以多個 `print()` 輸出多行，
+後續變數永遠為空值——此 bug 不報錯，靜默影響下游邏輯。
 
 ```bash
-# Wrong: read consumes only the first line; DUR is always empty
+# 違規：read 只消耗第一行，DUR 永遠空值
 read -r FILE DUR < <(python3 -c "print(fp); print(dur)")
 
-# Fix: consecutive reads, one per line
+# 修法：多個連續 read 各消耗一行
 { read -r FILE; read -r DUR; } < <(python3 -c "print(fp); print(dur)")
 ```
 
-## exec wrapper Penetrates deny rule (2026-05)
+mob review 實例：`post-edit-mypy.sh` 改用兩行 python3 輸出後，DUR 永遠空，
+mypy duration filter 恆 exit 0，型別檢查靜默停止。三個 voice（Claude×2、Codex）獨立發現。
 
-Claude Code deny rules now see through `env`/`sudo`/`watch`/`ionice`/`setsid`:
+## exec wrapper 穿透 deny rule（2026-05）
+
+Claude Code deny rule 現在可穿透 `env` / `sudo` / `watch` / `ionice` / `setsid`：
 
 ```bash
-# These are also blocked by deny rules
+# 這類寫法也會被 deny rule 攔截
 sudo rm -rf /dangerous/path
 env DANGEROUS_VAR=1 bash script.sh
 ```
 
-Do not assume a wrapper bypasses a deny rule. When blocked, follow rule 15 standard behavior:
-describe the operation and ask the user to run manually.
+不要以為用 wrapper 就能繞過 deny rule。
+被攔截時，依 Rule 15 標準行為：說明操作內容，請使用者手動執行。
 
-## trap ERR Rollback (External Skill Contract Constraint)
+## trap ERR rollback（外部 skill 合約限制下的失敗保護）
 
-External skill scripts (e.g., `bump-version/scripts/bump.sh`) have a **step execution contract**:
-downstream scripts often read state written by upstream scripts; step ordering cannot be freely changed.
-When "run tests before file mutation" conflicts with the contract, use `trap ERR` to auto-revert:
+外部 skill script（如 `bump-version/scripts/bump.sh`）之間有**步驟執行合約**：
+後置 script 常讀取前置 script 寫入的狀態（如 `/tmp/bump_version_result.env`），
+步驟排序不可任意調整。當「在 file mutation 之前先跑測試」的需求與合約衝突時，
+正確解不是強行重排，而是用 `trap ERR` 在失敗時自動還原已修改的檔案：
 
 ```bash
 rollback() {
@@ -371,138 +385,138 @@ trap rollback ERR
 
 # ... file mutation steps (bump, sync, changelog) ...
 
-# gates.sh depends on bump.sh's env file; must run after bump
+# gates.sh 依賴 bump.sh 的 env file，必須在 bump 後執行
 "$GATES_SH"
 
-trap - ERR   # clear trap before commit; failures after commit need different recovery
+trap - ERR   # commit 前清除 trap，避免 commit 後的失敗誤觸 rollback
 git add pyproject.toml CHANGELOG.md
 git commit -m "chore(release): v${TAG_VERSION}"
 ```
 
-Notes:
-- `trap - ERR` must be cleared **before** the commit; post-commit failures need `git reset HEAD~1`.
-- `git checkout -- 'plugins/*/package.json'` glob must use single quotes (shell glob expansion timing).
-- If a step has its own `trap`, isolate with a subshell to avoid overwriting the outer `trap ERR`.
+注意事項：
 
-## Exemption Regex Must Enumerate Precisely, Not Use Open Glob (PR #23)
+- `trap - ERR` 必須在 commit **之前**清除，commit 後的失敗需要不同的回復語意（`git reset HEAD~1`）
+- `git checkout -- 'plugins/*/package.json'` 的 glob 必須用單引號（shell glob 展開時機問題）
+- 若某步驟本身已有 `trap`，注意不要覆蓋外層的 `trap ERR`（用 subshell 隔離）
 
-A hook exemption using `[^;|\n&]*` (open glob) instead of precise flag enumeration appears to
-only widen "flag between git and commit", but actually allows the word `commit` to appear in
-the *argument* of another git subcommand, causing AP2 detection to be silently exempted.
+## 豁免 regex 應精確枚舉，不用開放 glob（PR #23 教訓）
+
+hook 豁免邏輯若用 `[^;|\n&]*`（開放 glob）代替精確 flag 枚舉，表面上只放寬了「flag 可出現在
+git 和 commit 之間」，實際上卻允許 git subcommand 的 *argument* 中出現 `commit` 詞邊界，
+導致非 commit 指令的 AP2 偵測被誤豁免（over-exemption 回歸）。
 
 ```python
-# Wrong: open glob lets "git notes add -m 'fix about commit'" trigger exemption
+# 違規：開放 glob 讓 git notes add -m "fix about commit" 觸發豁免
 if re.search(r"git\b[^;|\n&]*\bcommit\b", cmd):
-    strip_payload()
+    strip_payload()   # emoji 被剝除，AP2 靜默放行
 
-# Fix: enumerate git global flags precisely (source: man git OPTIONS)
+# 修法：精確枚舉 git 全域 flag（來源：man git OPTIONS）
 _GIT_GLOBAL_FLAG = r"(?:\s+(?:-C\s+\S+|-c\s+\S+|--git-dir=\S+|...))"
 if re.search(r"git\b" + _GIT_GLOBAL_FLAG + r"*\s+commit\b", cmd):
-    strip_payload()   # only real "git commit" is exempted
+    strip_payload()   # 只有真實 git commit 才豁免
 ```
 
-Rule: **exemption regex must precisely describe the exempted command type**; open `[^chars]*`
-globs must become enumerations or subcommand-position constraints when the target word can
-appear in another command's arguments.
+判斷準則：**豁免 regex 必須對「被豁免的指令類型」精確描述**，開放 `[^chars]*` 等 glob
+只要目標詞（如 `commit`）可能出現在其他指令的引數中，就必須改成枚舉或 subcommand-position 限制。
 
-## Shell Script Diagnostics Must Go to stderr (PR #31)
+## Shell Script 診斷訊息必須走 stderr（PR #31 教訓）
 
-`[WARN]`, `[FAIL]`, `[SKIP]` diagnostic `echo` calls must always use `>&2` — stdout may be
-parsed, redirected, or captured in CI pipelines; mixing in diagnostics causes silent downstream failures.
+`[WARN]`、`[FAIL]`、`[SKIP]` 等診斷性 `echo` 一律加 `>&2`，
+不能走 stdout——stdout 在 CI pipeline 中可能被解析、重導向或捕捉，
+混入診斷訊息會導致下游靜默失效。
 
 ```bash
-# Wrong: diagnostic goes to stdout
-echo "  [WARN] gitCommitSha missing, using version as tracking ID"
+# 違規：診斷訊息走 stdout，污染 CI stdout 解析
+echo "  [WARN] gitCommitSha 缺失，使用 version 作為追蹤 ID"
 
-# Fix: always >&2
-echo "  [WARN] gitCommitSha missing, using version as tracking ID" >&2
-echo "  [FAIL] jq not installed; run: brew install jq" >&2
+# 修法：一律 >&2
+echo "  [WARN] gitCommitSha 缺失，使用 version 作為追蹤 ID" >&2
+echo "  [FAIL] jq 未安裝，請執行 brew install jq" >&2
 ```
 
-Rule: any `echo` with `[WARN]`/`[FAIL]`/`[SKIP]` prefix must use `>&2`.
-`[OK]` goes to stdout if it is a user-visible completion summary; stderr if it is debug info.
+判斷準則：任何含 `[WARN]`/`[FAIL]`/`[SKIP]` 前綴的 `echo` 必須 `>&2`。
+`[OK]` 若為使用者可見的流程完成摘要則走 stdout；若為除錯資訊則走 stderr。
 
-## Tracking ID System Must Not Use Hardcoded Sentinels as Fallback (PR #31)
+## 追蹤 ID 系統不能用硬編碼 sentinel 作為 fallback（PR #31 教訓）
 
-Idempotency tracking (STATE_FILE, cache key) must not fall back to a hardcoded sentinel
-string (`"unknown"`, `"none"`) — if two runs both produce the same sentinel, ID comparison
-always matches and upgrade detection is silently bypassed.
+冪等性追蹤（STATE_FILE、cache key）使用 fallback 時，
+不能硬編碼 sentinel 字串（如 `"unknown"`、`"none"`）——
+若兩次執行都產生同一 sentinel，ID 比對永遠相符，升級偵測被靜默繞過。
 
 ```bash
-# Wrong: fallback to hardcoded sentinel
+# 違規：null 時 fallback 到硬編碼 sentinel
 TRACKING_ID=$(jq -r '.version // "unknown"' "$JSON")
-# Next run: TRACKING_ID="unknown" == STATE_FILE "unknown" -> always-match
+# 下次執行：TRACKING_ID="unknown" == STATE_FILE "unknown" -> always-match
 
-# Fix: return empty string on null; do not write to STATE_FILE
+# 修法：null 時回傳空字串，不寫入 STATE_FILE
 TRACKING_ID=$(jq -r '.version // ""' "$JSON")
 if [ -n "$TRACKING_ID" ]; then
   echo "$TRACKING_ID" > "$STATE_FILE"
 fi
+# 空 TRACKING_ID 時靠 all_patched 等次級防護兜底
 ```
 
-Scope: any idempotency protection logic that compares previous ID vs current ID.
+適用場景：任何「前次 ID vs 本次 ID」比對的冪等保護邏輯。
 
-## jq `--arg` with Empty String: Avoid `if $x=="" then null` (PR #48)
+## jq `--arg` 空字串傳入時避免 `if $x=="" then null`（PR #48 教訓）
 
-`jq --arg rid "$RULE_ID"` passes an empty string; if the jq expression writes
-`if $rid=="" then null else $rid end`, the resulting `rule_id: null` causes a Pydantic `str`
-field ValidationError that **silently drops the entire record** — no error, no count, it just
-disappears.
+`jq --arg rid "$RULE_ID"` 傳空字串後，若 jq 表達式寫 `if $rid=="" then null else $rid end`，
+產出的 `rule_id: null` 會讓 Pydantic `str` 欄位 ValidationError，**整筆 record 被靜默丟棄**——無報錯、無計數，只是那些 event 再也找不到。
 
 ```bash
-# Wrong: null causes Pydantic str field to silently drop record
+# 違規：null 讓 Pydantic str field 靜默 drop record
 --arg rid "$RULE_ID"
-# jq: rule_id: (if $rid=="" then null else $rid end)
+# jq 內：rule_id: (if $rid=="" then null else $rid end)
 
-# Fix: pass $rid directly; empty string is valid for Pydantic str, null is not
+# 修法：直接傳 $rid，允許空字串（Pydantic str 接受 ""，不接受 null）
 --arg rid "$RULE_ID"
-# jq: rule_id: $rid
+# jq 內：rule_id: $rid
 ```
 
-Difference from "tracking ID sentinel": sentinel trap is a shell-layer hardcoded fallback;
-this is jq converting empty string to null. Both cause silent failure but at different layers.
+與「追蹤 ID sentinel」的差異：sentinel 陷阱是 shell 層用硬編碼字串做 fallback；
+這條是 jq 層把空字串主動轉 null，兩者都導致靜默失效，但發生在不同層。
 
-## Complete Methodology
+## 完整方法論
 
-Full cross-project version: skill `bash-anti-patterns` (includes before/after examples,
-agent self-check checklist, technical background, optional PreToolUse hook).
+跨專案完整版見 skill `bash-anti-patterns`（含 before/after 範例、agent 自檢 checklist、
+技術背景、可選裝 PreToolUse hook）。
 
 ---
 
-## Shell Quoting Hygiene
+## Shell Quoting Hygiene（引號衛生）
 
-> **Note**: This section was originally rule 14 and was merged into rule 13 in PR-B to reduce always-loaded token count.
+> **注意**：本節原為獨立的 rule 14，已合併至 rule 13 以減少 always-loaded token 數。
 
-Six quoting error categories from Cases 3/8/16/17/24/25/26; hook classes E (`simple_expansion`), D (parser failure), or E-false-positive.
+Cases 3/8/16/17/24/25/26 累積出的五類引號錯誤，hook 類別均為 E（`simple_expansion`）、D（parser 失敗）或 E-false-positive。
 
-## Quoting Rule 1: Quote Variables Inside Subshells
+## Quoting Rule 1：subshell 內變數必須加引號
 
-`$VAR` inside `$(cmd $VAR)` without quotes causes word-split on paths with spaces.
-Hook reports `simple_expansion`.
+`$(cmd $VAR)` 中的 `$VAR` 若未加引號，路徑含空格時 word-split 導致錯誤。
+hook 回報 `simple_expansion`。
 
 ```bash
-# Wrong: $MAIN_REPO unquoted inside $()
+# 違規：$MAIN_REPO 在 $() 內未加引號
 echo "path: $(ls $MAIN_REPO/docker-compose.yml 2>/dev/null || echo 'not found')"
 
-# Fix: split into separate bash call
+# 修法：拆成獨立 bash call
 ls "${MAIN_REPO}/docker-compose.yml" 2>/dev/null || echo 'not found'
 ```
 
-Scope: any `$(cmd $VAR ...)` form — always quote as `"$VAR"` or `"${VAR}"`.
+適用場景：任何 `$(cmd $VAR ...)` 形式，`$VAR` 一律加 `"$VAR"` 或 `"${VAR}"`。
 
-## Quoting Rule 2: `"$(cmd)"` — Outer Double-Quote Wrapping Subshell
+## Quoting Rule 2：`"$(cmd)"` 外層雙引號包 subshell
 
-Outer double-quote containing `$(...)` subshell; parser cannot handle this structure,
-reports `Unhandled node type: string`. **Triggers even if there are no inner quotes.**
+外層雙引號內含 `$(...)` subshell，parser 無法處理此結構，回報 `Unhandled node type: string`。
+**即使 subshell 內沒有內層引號也會觸發**。
 
 ```bash
-# Wrong A: inner quotes inside subshell
+# 違規 A：subshell 內有內層引號
 echo "Main updated to: $(git -C "$MAIN_REPO" rev-parse --short HEAD)"
 
-# Wrong B: no inner quotes (still triggers)
+# 違規 B：subshell 內無內層引號（同樣觸發）
 git -C "$(git rev-parse --show-toplevel)" branch --show-current
 
-# Fix (both cases): split into temp variable + separate bash call
+# 修法（兩種情況相同）：拆成臨時變數 + 獨立 bash call
 WT=$(git rev-parse --show-toplevel)
 git -C "$WT" branch --show-current
 
@@ -510,60 +524,61 @@ HEAD=$(git -C "$MAIN_REPO" rev-parse --short HEAD)
 echo "Main updated to: $HEAD"
 ```
 
-## Quoting Rule 3: Use Single Quotes for grep BRE Alternation
+## Quoting Rule 3：grep BRE alternation 一律用單引號
 
-`grep "pat1\|pat2"` — `\|` inside double quotes; analyzer cannot classify the backslash-escaped
-`|` in a string node, reports `Unhandled node type: string`. Triggers even at AP1 score 1/5 (Case 25).
+`grep "pat1\|pat2"` 雙引號內含 `\|`，bash 靜態分析器對 string node 中的反斜線逸出 `|`
+無法分類，回報 `Unhandled node type: string`。即使 AP1 score 僅 1/5，hook 仍觸發（Case 25）。
 
 ```bash
-# Wrong: double-quote BRE alternation
+# 違規：雙引號 BRE alternation
 grep -i "media\|cdn\|delivery" file.txt
 
-# Fix A (preferred): single-quote BRE
+# 修法 A（最優先）：單引號 BRE
 grep -i 'media\|cdn\|delivery' file.txt
 
-# Fix B: ERE (-E flag)
+# 修法 B：改用 ERE（-E flag）
 grep -Ei 'media|cdn|delivery' file.txt
 ```
 
-Scope: any `grep "...\|..."` — always use single quotes or `-E` flag.
+適用場景：任何 `grep "...\|..."` 形式，一律改單引號或 `-E` flag。
 
-## Quoting Rule 4: `$(outer "$(inner)")` — Must Split bash Call
+## Quoting Rule 4：`$(outer "$(inner)")` 必拆 bash call
 
-Outer `$()` wrapping double-quote wrapping inner `$()` is the reverse of Rule 2; parser
-fails the same way (Case 26).
+外層 `$()` 包雙引號包內層 `$()` 是 Rule 2 的反向變體，parser 同樣失敗（Case 26）。
 
 ```bash
-# Wrong
+# 違規：反向巢狀 subshell
 MAIN_REPO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
 
-# Fix: two separate bash calls
+# 修法：拆成兩個獨立 bash call
 GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir)
 MAIN_REPO=$(dirname "$GIT_COMMON")
 ```
 
-Rule 2 direction: `"..." → $() → "$VAR"`. Rule 4 direction: `$() → "$(inner)"`. Same root cause.
+與 Rule 2 的差異：Rule 2 是「外層 `"..."` → `$()` → 內層 `"$VAR"`」；
+Rule 4 是「外層 `$()` → `"$(inner)"` 」，方向相反，根本原因相同。
 
-## Quoting Rule 5: Variable Expansion False Positive (Case 24)
+## Quoting Rule 5：變數展開觸發 expansion false positive（Case 24）
 
-Claude Code's built-in parser broadly intercepts all `expansion`/`simple_expansion` AST nodes
-**regardless of whether they are already quoted** — both forms trigger:
+Claude Code 內建 parser 廣義攔截所有 `expansion` / `simple_expansion` AST 節點，
+**不區分是否已加引號、是否在 subshell 內**——兩種形式都會觸發：
 
-| Form | Hook message |
-|------|-------------|
-| `"${VAR}"` bracket form | `Contains expansion` |
+| 形式 | 觸發訊息 |
+| ------ | --------- |
+| `"${VAR}"` 括號形式 | `Contains expansion` |
 | `"$VAR"` plain form | `Contains simple_expansion` |
 
-Both are **false positives** — bash syntax is correct; interception is a parser design choice.
+兩者都是 **false positive**——bash 語法正確，攔截來自 parser 設計，與是否加引號無關。
 
 ```bash
-# Both forms trigger (syntax correct; parser intercepts)
+# 兩種形式都觸發（語法正確，但 parser 攔截）
 test -n "${CODEX_API_KEY}" -o -n "${OPENAI_API_KEY}" && echo "AUTH: KEY_SET" || true
+test -n "$CODEX_API_KEY" -o -n "$OPENAI_API_KEY" && echo "AUTH: KEY_SET" || true
 ```
 
-**Fix depends on context**:
+**根本修法依情境分兩條路**：
 
-**A. Single-line command (`cmd "$VAR"`) → add to allow list** (settings.json):
+**A. 單行指令（`cmd "$VAR"`）→ 加進 allow list**（settings.json）：
 
 ```json
 "Bash(rg *)",
@@ -574,151 +589,161 @@ test -n "${CODEX_API_KEY}" -o -n "${OPENAI_API_KEY}" && echo "AUTH: KEY_SET" || 
 "Bash([ -n *)"
 ```
 
-**B. Script with >=2 `"$VAR"` expansions → split bash calls or extract to script**:
+**B. ≥2 個 `"$VAR"` 展開的複合腳本 → 拆 bash call 或寫成 script**：
 
-Multi-line scripts cannot be covered by prefix wildcard allow-list patterns:
+多行腳本無法用 prefix wildcard allow-list（pattern 無法跨行匹配），必須重構：
 
-| Scenario | Fix |
-|----------|-----|
-| 2-4 lines with dependent variables | Split into separate bash calls, each covered by its own allow-list entry |
-| 5+ lines or repeated use | Write `scripts/foo.sh`; bash call becomes just `bash scripts/foo.sh` |
-
-**Threshold**: >=2 `"$VAR"` expansions in one bash call = AP1 sub-type; must split or extract.
-
-**Never use `printenv` or `echo $VAR` to print key values** — this logs API keys in plain text to the session transcript. Always use `test -n` to check key existence.
-
-Root cause: Claude Code's built-in parser layer (outside this repo's hook scope).
-v3 backlog: hook should exempt `expansion`/`simple_expansion` nodes already wrapped in `"..."`.
-
-## Single-Quote Semantics (hook implementation note)
-
-Backslash inside bash single quotes is **literal**, not an escape character.
-Only inside double quotes does backslash escape the next character.
+| 場景 | 修法 |
+| ------ | ------ |
+| 2-4 行、變數間有依賴 | 拆成獨立 bash call，各自被 allow-list 覆蓋 |
+| 5+ 行或重複使用 | 寫成 `scripts/foo.sh`，bash 只剩 `bash scripts/foo.sh` |
 
 ```bash
-printf '%s\' "$(id)"   # single quotes do not process \; closing ' is after \
-                        # correct parse: '%s\' is the full token; "$(id)" is Rule 2 violation
+# 違規：多行 multi-var script，每次都跳確認框
+WT_ROOT=$(git -C /path rev-parse --show-toplevel)
+WT_NAME=$(basename "$WT_ROOT")
+REVIEW_DIR="/tmp/pr-review/$WT_NAME"
+mkdir -p "$REVIEW_DIR"
+
+# 修法 A：拆成 4 個獨立 bash call（各自被 Bash(git -C *) / Bash(basename *) 等覆蓋）
+# 修法 B：寫成 scripts/setup_review_dir.sh 再執行
 ```
 
-This is the key behavior of the hook's `_quote_state_at()` state machine:
+**判斷門檻**：一個 bash call 內出現 **≥2 個 `"$VAR"` 展開**，視為 AP1 sub-type，必須拆解或寫 script。
+
+重要限制：**切勿用 `printenv` 或 `echo $VAR` 印出 key 值**——會將 API key 明文記錄
+至 session transcript。確認 key 存在一律用 `test -n`，不用 `echo` 或 `printenv`。
+
+根本原因在 Claude Code 內建 parser 層（非本 repo hook 範圍），無法從 hook 側修正。
+v3 backlog：hook 應補強「`expansion` / `simple_expansion` 節點已被 `"..."` 包住則豁免」。
+
+## Bash 單引號語意備忘（hook 實作相關）
+
+Bash 單引號內 backslash 是 **literal**，不是 escape 字元。
+只有雙引號內的 backslash 才能 escape 下一個字元。
+
+```bash
+printf '%s\' "$(id)"   # 單引號不處理 \，closing ' 實際在 \ 後面
+                        # 正確解析：'%s\' 是完整 token，後面的 "$(id)" 才是 Rule 2 違規
+```
+
+這是 hook 的 `_quote_state_at()` state machine 的關鍵行為：
 
 ```python
-if c == "\\" and in_double:   # only skip next char inside double quotes
+if c == "\\" and in_double:   # 只在雙引號內跳過下一個字元
     i += 2
     continue
-# inside single quotes: backslash is a normal character; do not skip
+# 單引號內：backslash 當普通字元，不跳過
 ```
 
-Using `in_double or in_single` incorrectly would let the Rule 2 match for
-`printf '%s\' "$(id)"` be skipped, silently allowing it through.
+繞過此語意（用 `in_double or in_single` 錯誤地在單引號內也 escape）
+會讓 `printf '%s\' "$(id)"` 的 Rule 2 match 被跳過，造成靜默放行。
 
-## Decision Flow
+## 判斷流程
 
-**`$(...)` patterns** (Rules 1-2):
+**`$(...)` 模式**（Rules 1-2）：
 
 ```text
-Writing $(...)  →  Contains $VAR?
-                     Yes → quote it: "$VAR" (Rule 1) → continue
-                     No → continue
-                   Wrapped in outer "..."?
-                     No → pass
-                     Yes → contains inner "..."?
-                            No → pass
-                            Yes → split into separate bash call (Rule 2)
+寫 $(...)  →  裡面有 $VAR 嗎？
+                是 → 加引號："$VAR"（Rule 1）→ 繼續往下
+                否 → 繼續
+             外層是 "..." 包住的嗎？
+                否 → 放行
+                是 → 裡面再出現 "..." 嗎？
+                       否 → 放行
+                       是 → 拆成獨立 bash call（Rule 2）
 ```
 
-Note: `"${VAR}"` and `"$VAR"` as standalone args (e.g., `test -n "$VAR"`) both trigger
-false positives; see Rule 5.
-If a variable has adjacent prefix/suffix (e.g., `"${prefix}_suffix"`), do not change to
-`"$VAR"` (would read `$prefix_suffix`); write as `"${prefix}"_suffix` and add to allow list.
+注意：`"${VAR}"` 和 `"$VAR"` 在 `$(...)` 外作為獨立引數（如 `test -n "$VAR"`）都會觸發 false positive，見 Rule 5。
+若變數後緊接前後綴（如 `"${prefix}_suffix"`），不可改為 `"$VAR"`（會讀到 `$prefix_suffix`）——此情況改寫成 `"${prefix}"_suffix`，並加進 allow list。
 
-**Other patterns quick reference** (Rules 3-5; Rules 1-2: see flow above):
+**其他模式快速對照**（Rules 3-5；Rules 1-2 見上方流程圖）：
 
-| Pattern | Hook message | Rule | Fix |
-|---------|-------------|------|-----|
-| `grep "...\|..."` double-quote BRE | `Unhandled node type: string` | Rule 3 | Single quote or `-E` flag |
-| `$(outer "$(inner)")` reverse-nested | `Unhandled node type: string` | Rule 4 | Split two calls |
-| `"${VAR}"` as test arg | `Contains expansion` (false positive) | Rule 5 | Add to allow list |
-| `"$VAR"` as test arg | `Contains simple_expansion` (false positive) | Rule 5 | Add to allow list |
+| 模式 | 觸發訊息 | 規則 | 修法 |
+| ------ | --------- | ------ | ------ |
+| `grep "...\|..."` 雙引號 BRE | `Unhandled node type: string` | Rule 3 | 改單引號或 `-E` flag |
+| `$(outer "$(inner)")` 反向巢狀 | `Unhandled node type: string` | Rule 4 | 拆兩 call |
+| `"${VAR}"` 作為 test 引數 | `Contains expansion`（false positive） | Rule 5 | 加進 allow list |
+| `"$VAR"` 作為 test 引數 | `Contains simple_expansion`（false positive） | Rule 5 | 加進 allow list |
 
-## Hook Category Reference
+## Hook 類別對照
 
-| Error type | Hook message | Root cause |
-|-----------|-------------|-----------|
-| `$VAR` inside `$()` unquoted | `simple_expansion` | Rule 1 |
-| `"$(cmd "$VAR")"` double-quote conflict | `Unhandled node type: string` | Rule 2 |
-| `$'...'` ANSI-C string | `ansi_c_string` | Avoid ANSI-C escape string syntax |
-| `grep "...\|..."` double-quote BRE | `Unhandled node type: string` | Rule 3; auto-blocked |
-| `$(outer "$(inner)")` reverse-nested | `Unhandled node type: string` | Rule 4; auto-blocked |
-| `"${VAR}"` bracket form (already quoted) | `Contains expansion` | Rule 5; **false positive**; add to allow list |
-| `"$VAR"` plain form (already quoted) | `Contains simple_expansion` | Rule 5; **false positive**; add to allow list |
-| `echo "exit:$?"` / `[ $? -ne 0 ]` | `Contains simple_expansion` | Rule 5; `$?` intercepted regardless of quotes; use `if ! <cmd>; then` |
+| 錯誤型態 | Hook 訊息 | 根因 |
+| --------- | ----------- | ------ |
+| `$VAR` 在 `$()` 內未加引號 | `simple_expansion` | Rule 1 |
+| `"$(cmd "$VAR")"` 雙引號衝突 | `Unhandled node type: string` | Rule 2 |
+| `$'...'` ANSI-C 字串 | `ansi_c_string` | 避免使用 ANSI-C 逸出字串語法 |
+| `grep "...\|..."` 雙引號 BRE | `Unhandled node type: string` | Rule 3；hook 自動攔截 |
+| `$(outer "$(inner)")` 反向巢狀 | `Unhandled node type: string` | Rule 4；hook 自動攔截 |
+| `"${VAR}"` 括號形式（已加引號） | `Contains expansion` | Rule 5；**false positive**；加進 allow list |
+| `"$VAR"` plain form（已加引號） | `Contains simple_expansion` | Rule 5；**false positive**；加進 allow list |
+| `echo "exit:$?"` / `[ $? -ne 0 ]` | `Contains simple_expansion` | Rule 5；`$?` 無論是否在引號內皆攔截；改用 `if ! <cmd>; then` |
 
-## $? Special Case (PR #24)
+## $? 特殊案例（PR #24 教訓）
 
-`$?` (exit status variable) is a `simple_expansion` AST node; Rule 5's "regardless of quotes" applies:
+`$?`（exit status 變數）是 `simple_expansion` AST 節點，Rule 5「不區分是否已加引號」同樣適用：
 
-| Pattern | Triggers? | Correct alternative |
-|---------|----------|-------------------|
-| `echo "exit:$?"` | Yes | Remove the line; bash block already has `if ! cmd` |
-| `echo exit:$?` | Yes | Same |
-| `[ $? -ne 0 ]` | Yes | `if ! <command>; then` |
-| `if ! gemini ...; then` | No | Recommended form |
+| 模式 | 觸發？ | 正確替代 |
+| ------ | -------- | --------- |
+| `echo "exit:$?"` | 是 | 刪除這行，bash block 已有 `if ! cmd` |
+| `echo exit:$?` | 是 | 同上 |
+| `[ $? -ne 0 ]` | 是 | `if ! <command>; then` |
+| `if ! gemini ...; then` | 否 | 推薦寫法 |
 
-Do not add any `$?`-related code after commands in SKILL.md bash blocks — use
-`if ! <command>; then echo '[FAIL]...'; exit 1; fi` instead of all `if [ $? -ne 0 ]` forms.
+SKILL.md bash block 不要在指令後加任何 `$?` 相關程式碼——用
+`if ! <command>; then echo '[FAIL]...'; exit 1; fi` 取代所有 `if [ $? -ne 0 ]` 形式。
 
-## Gemini CLI Workspace Sandbox (PR #24)
+## Gemini CLI workspace sandbox（PR #24 教訓）
 
-Gemini CLI `@<path>` references are restricted to paths inside the git worktree directory.
+Gemini CLI 的 `@<path>` 引用受 workspace sandbox 限制，只允許 git worktree 目錄內的路徑。
 
 ```bash
-# Wrong: /tmp is outside Gemini workspace
+# 違規：/tmp 不在 Gemini workspace
 gemini -m model -p "@/tmp/pr-review/wt-name/input.md"
 
-# Fix: copy input into worktree; use relative path (auto-cleaned when worktree deleted)
+# 修法：把 input 放進 worktree，用相對路徑（worktree 刪除時自動清理）
 cp /tmp/pr-review/wt-name/input.md "$WT_ROOT/gemini-input.md"
 gemini -m model -p "@gemini-input.md"
 rm -f "$WT_ROOT/gemini-input.md"
 ```
 
-Do not use `~/.gemini/tmp/` — requires manual cleanup and may persist across sessions.
+不要用 `~/.gemini/tmp/`——需要額外手動 rm，且跨 session 可能殘留。
 
-Same restriction applies to **Antigravity CLI (agy)**: `agy -p "@/abs/path"` triggers agentic
-mode (model outputs `call:read_file{...}` instead of actual review). Fix: `cd "$WT_ROOT"` then
-use `@.pr-review/relative-path` with `--add-dir .`.
+同樣的限制適用於 **Antigravity CLI（agy）**：`agy -p "@/abs/path"` 也會觸發 agentic mode
+（模型輸出 `call:read_file{...}` 而非實際 review 內容）。修法相同：`cd "$WT_ROOT"` 後改用
+`@.pr-review/relative-path`，並加 `--add-dir .` 允許 agy 讀取 worktree 內容。
 
 ```bash
-# Wrong: agy absolute path -> agentic mode
+# 違規：agy 絕對路徑 → agentic mode
 agy -p "@$REVIEW_DIR/input.md" --add-dir . --dangerously-skip-permissions
 
-# Fix: cd to worktree root first, then use relative path
+# 修法：先 cd 到 worktree root，再用相對路徑
 cd "$WT_ROOT"
 agy -p "@.pr-review/input.md" --add-dir . --dangerously-skip-permissions
 ```
 
-## Quoting Rule 6: Python Comment with `"` Truncates Outer Shell Double-Quote (PR #23)
+## Quoting Rule 6：inline Python comment 含 `"` 截斷外層 shell double-quote（PR #23 教訓）
 
-The shell string for `python3 -c "..."` is wrapped in outer double quotes. **Even a Python
-comment (`#`) containing `"` is seen by the bash parser as closing the outer double-quote**,
-truncating the Python code; regex and other logic fail silently (no error message).
+`python3 -c "..."` 的 shell 字串是外層雙引號包住的。**即使是 Python comment（`#`），
+其中出現的 `"` 仍會被 bash parser 視為雙引號的閉合**，提前終止外層字串，造成 Python 程式碼被截斷，
+regex 或其他邏輯靜默失效（無錯誤訊息）。
 
 ```bash
-# Wrong: comment contains " which truncates outer shell string
+# 違規：comment 內含 " 截斷外層 shell string
 python3 -c "
 import re, sys
 # Known Limitation: user.name="foo | bar" -- quoted pipe breaks match
 ptn = r'\bcommit\b'
 re.search(ptn, sys.stdin.read())
 "
-# bash truncates at the " in "foo | bar"; python3 receives broken code
+# bash 在 "foo | bar" 的 " 處截斷，python3 收到的是殘破 code
 
-# Fix A: replace " in comments with full-width quotes or remove them
+# 修法 A：comment 內不用雙引號，改用中文全形引號或刪除引號
 # Known Limitation: user.name=foo|bar -- quoted pipe breaks match
 
-# Fix B: move inline python to a standalone .py file (root fix)
+# 修法 B：把 inline python 移到獨立 .py 檔案（根治方案）
 python3 scripts/check_pattern.py
 ```
 
-Rule: **inside a bash `"..."` string, avoid `"` in comments in any language**; if quotes are
-needed, use single quotes `'` (literal inside bash double-quote strings, does not close outer string).
+判斷準則：**在 bash `"..."` 字串內寫任何語言的 comment，一律避免 `"`**；若需要引號，
+改用單引號 `'`（bash double-quote 內的 `'` 是 literal，不閉合 outer string）。

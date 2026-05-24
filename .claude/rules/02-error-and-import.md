@@ -1,16 +1,16 @@
-# Error Handling & Imports
+# 錯誤處理 & Import 規範
 
-## Exception Type Selection
+## 例外類型選擇
 
-| Situation | Exception type |
-|-----------|---------------|
-| Environment not set up, external tool unavailable, decryption failure, missing file | `RuntimeError` |
-| Malformed input, invalid config value | `ValueError` |
-| Inside a Pydantic validator | `ValueError` (Pydantic wraps it into `ValidationError`) |
+| 情況 | 例外類型 |
+|------|----------|
+| 環境未設定、外部工具不可用、解密失敗、檔案遺失 | `RuntimeError` |
+| 輸入格式錯誤、設定值不合法 | `ValueError` |
+| Pydantic validator 內 | `ValueError`（Pydantic 會包成 ValidationError） |
 
 ## Exception Chaining
 
-Always use `raise ... from e` to preserve the full traceback:
+一律使用 `raise ... from e` 保留完整 traceback：
 
 ```python
 try:
@@ -19,10 +19,9 @@ except json.JSONDecodeError as e:
     raise RuntimeError(f"設定檔格式錯誤：{config_path}") from e
 ```
 
-## Deferred Heavy Imports
+## 重型 Import 延遲
 
-The following third-party libraries must be imported inside function bodies,
-never at module top-level:
+下列第三方庫必須放在 function body 內，不可在 module 頂層 import：
 
 - `pikepdf`, `pdfplumber`, `tabula`
 - `cryptography.fernet`
@@ -30,19 +29,18 @@ never at module top-level:
 - `pytesseract`, `PIL`
 
 ```python
-# Correct
+# 正確
 def decrypt_pdf(path: Path, password: str) -> Path:
     from cryptography.fernet import Fernet
     ...
 
-# Wrong
-from cryptography.fernet import Fernet  # module top-level
+# 錯誤
+from cryptography.fernet import Fernet  # module 頂層
 ```
 
-Standard library (`pathlib`, `json`, `sqlite3`) and lightweight packages
-(`click`, `pydantic`, `requests`) may be imported at top-level.
+標準庫（`pathlib`, `json`, `sqlite3`）及輕量套件（`click`, `pydantic`, `requests`）可在頂層 import。
 
-## Subprocess
+## Subprocess 規範
 
 ```python
 import subprocess  # nosec B404
@@ -55,36 +53,36 @@ result = subprocess.run(  # nosec B603
 )
 ```
 
-- Always use list args (never `shell=True`)
-- Always set `timeout`
-- Add bandit nosec comments: `# nosec B404` (import), `# nosec B603` (call)
+- 永遠用 list args（不用 `shell=True`）
+- 永遠設定 `timeout`
+- 加上 bandit nosec 註解：`# nosec B404`（import）、`# nosec B603`（呼叫）
 
-## Filesystem Path Existence Checks
+## Filesystem 路徑存在性檢查
 
-Prefer `is_dir()` / `is_file()` over `exists()`:
+路徑存在性檢查優先用 `is_dir()` / `is_file()`，不用 `exists()`：
 
 ```python
-# Wrong: returns True for a same-named non-directory file; rglob() raises NotADirectoryError
+# 違規：同名非目錄檔案時返回 True，後續 rglob() 拋 NotADirectoryError
 if path.exists():
     for f in path.rglob("*.md"): ...
 
-# Correct: directly excludes non-directories
+# 正確：直接排除非目錄
 if path.is_dir():
     for f in path.rglob("*.md"): ...
 ```
 
-Use `exists()` only when type doesn't matter (e.g., config files, log files).
+`exists()` 只在「不區分型態、只需確認路徑存在」的場合使用（如 config 檔、log 檔）。
 
-## Pathlib Semantics
+## Pathlib 路徑操作語意
 
-`Path.with_suffix(ext)` **replaces** the last extension — it does not append:
+`Path.with_suffix(ext)` 是**替換**最後一個副檔名，不是附加後綴：
 
 ```python
-# Trap: with_suffix replaces .json; settings.json.tmp only works by coincidence
+# 陷阱：with_suffix 替換 .json，結果 settings.json.tmp 只是「碰巧正確」
 tmp = SETTINGS_PATH.with_suffix(".json.tmp")   # settings.json -> settings.json.tmp
 
-# Correct: explicitly name the file
-tmp = SETTINGS_PATH.with_name("settings.json.tmp")  # intent is clear
+# 正確：明確指定完整檔名
+tmp = SETTINGS_PATH.with_name("settings.json.tmp")  # 語意自明
 ```
 
-For `.tmp` scratch files, always use `with_name(stem + ".tmp")` or `with_name("filename.tmp")`.
+需要 `.tmp` 暫存檔時一律用 `with_name(stem + ".tmp")` 或 `with_name("filename.tmp")`。
