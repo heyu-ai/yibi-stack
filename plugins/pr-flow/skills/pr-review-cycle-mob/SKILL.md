@@ -386,9 +386,9 @@ agy 不接受 stdin prompt + diff path 的多檔組合，先串成單一檔：
 > - **@file 觸發 agentic 模式（PR #303 教訓）**：`agy -p "@/abs/path" > out.md` 在 redirect 模式下
 >   可能讓 agy 進入 agentic tool call 模式——模型輸出 `call:read_file{...}` 文字而非實際 review 內容。
 >   確認方式：若 `gemini-r1-raw.md` 開頭含 `call:` 或 `tool_use:` → 已觸發。
->   本 skill 已內嵌 `--dangerously-skip-permissions` flag（略過工具執行確認框，強制輸出文字）；
->   若仍觸發，改以 worktree root 為 cwd 執行並改用相對路徑（`cd "$WT_ROOT" && agy -p "@.pr-review/gemini-r1-input.md" --add-dir . --dangerously-skip-permissions`）。
-> - **[安全性] `--dangerously-skip-permissions` 信任邊界**：此 flag 略過 agy 所有 tool 存取確認框，是避免 agentic mode 的必要措施。
+>   本 skill 已內嵌 `--sandbox` flag（沙箱限制 agy 工具存取，強制輸出文字避免 agentic mode）；
+>   若仍觸發，改以 worktree root 為 cwd 執行並改用相對路徑（`cd "$WT_ROOT" && agy -p "@.pr-review/gemini-r1-input.md" --add-dir . --sandbox`）。
+> - **[安全性] `--sandbox` 信任邊界**：此 flag 限制 agy 的工具存取範圍，是避免 agentic mode 的必要措施。
 >   若 PR diff 來自外部 fork 或不信任來源，diff 中的惡意指令可能被 agy auto-approve（prompt injection 風險）。
 >   本 skill 預設 PR 來自受信任 repo；對外部 fork 執行 mob review 時，操作者需自行評估此風險。
 
@@ -513,7 +513,7 @@ bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r2.sh
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r2.sh
 ```
 
-> **安全注意**：`agy-r2.sh` 使用 `--dangerously-skip-permissions`，假設 PR 來自受信任 repo。
+> **安全注意**：`agy-r2.sh` 使用 `--sandbox`，假設 PR 來自受信任 repo。
 > 對外部 fork PR 操作者應評估 prompt injection 風險，可在 script 內移除此 flag 改用互動模式。
 
 只送可用的 voice（CODEX_OK / GEMINI_OK）。
