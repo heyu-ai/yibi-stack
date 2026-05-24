@@ -45,10 +45,7 @@ def check_file(path: Path, from_index: bool = False) -> list[str]:
 def main(argv: list[str]) -> int:
     from_index = "--from-index" in argv
     args = [a for a in argv if a != "--from-index"]
-    if args:
-        targets = [Path(p) for p in args]
-    else:
-        targets = list(Path(".").glob(_PROPOSAL_GLOB))
+    targets = [Path(p) for p in args] if args else list(Path(".").glob(_PROPOSAL_GLOB))
 
     failed: list[tuple[Path, list[str]]] = []
     for target in targets:
