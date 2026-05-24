@@ -140,6 +140,7 @@ Rules 04/05/06/07/08/09/10/11 均有 `globs:`，按需載入，**不在本次翻
 | C6 | 13-bash-anti-patterns.md | 30,332 | 最大檔案，含 30+ case study；分批 commit |
 
 **通用翻譯約束**：
+
 - 全形標點 → 半形（依新 rule 01 分層規則：English prose 用半形）
 - Emoji-free（依 rule 13 AP2）
 - 保留 code identifiers、file paths、bash commands、`globs:` frontmatter 值
@@ -169,7 +170,7 @@ Rules 04/05/06/07/08/09/10/11 均有 `globs:`，按需載入，**不在本次翻
 
 每個 PR description 必含 before/after token 表格（量測工具：`anthropic.messages.count_tokens`）：
 
-```
+```markdown
 | File | Before | After | Saved |
 |------|--------|-------|-------|
 | 01-language-and-tone.md | TBD | TBD | TBD |
@@ -250,6 +251,7 @@ uv run python -m tasks.bash_hygiene_audit stats --by rule_id
 | PR-D | plugins SKILL.md body 英文化（23 個）| ⏳ NOT STARTED | — | PR-C 完成後啟動 |
 
 **已驗證事實（2026-05-24 git 操作確認）**：
+
 - `origin/main` 上 `.claude/rules/` 有 14 個 `.md` 檔案（PR-B 已落地）
 - 本地 main 落後 origin/main 3 commits（#48, #49, #50），需 `git pull` 後才對齊
 - OpenSpec change `openspec/changes/rules-english-recall-audit/` 存在但 `proposal.md` 仍是空模板（待 Step 0.2）

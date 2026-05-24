@@ -6,7 +6,9 @@
 
 yibi-stack 的 agent-facing surface（`.claude/rules/` + `skills/` + `plugins/*/skills/`）合計約 363KB，其中：
 
-- **`.claude/rules/` always-loaded 6 條**：無 `globs` frontmatter 的 rule（01/02/03/13/15/16）每 session 啟動時全部載入（token baseline 待 Step 0.3 量測）。這些 rule 全部用中文，而 CJK 字符的 tokenizer 成本是英文的 4–6 倍。PR-B 已將 always-loaded 從 8 條減為 6 條（rule 14 合併入 13，rule 12 移至 `docs/rules-reference/`）。
+- **`.claude/rules/` always-loaded 6 條**：無 `globs` frontmatter 的 rule（01/02/03/13/15/16）每 session 啟動時全部載入（token baseline 待 Step 0.3 量測）。
+  這些 rule 全部用中文，而 CJK 字符的 tokenizer 成本是英文的 4–6 倍。
+  PR-B 已將 always-loaded 從 8 條減為 6 條（rule 14 合併入 13，rule 12 移至 `docs/rules-reference/`）。
 - **audit log 無效**：`~/.agents/bash-hygiene-events.jsonl` 有 1,833 個 event，但缺少 `rule_id`、`outcome`、`cmd_snippet` 欄位——無法量化哪條 AP 最常觸發，也無法決定哪個值得寫 hook 自動修。
 - **session-memory 無召回入口**：`pr-retrospective` 寫入 145 條 retro lesson 到 `~/.agents/`，但 agent 沒有 slash command 能主動查詢。降級到 session-memory 的 lesson 實際上成了 dead store。
 - **promotion gate 形同虛設**：14 天內 9 次 rule edit、只有 1 次寫成 hook。「寫 rule 比寫 hook 容易」使預設行為偏向 rule，導致 session-start token 持續膨脹。
