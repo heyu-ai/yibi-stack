@@ -2,7 +2,9 @@
 # pr-review-cycle-mob Step 3.1 — 準備工作目錄
 #
 # 用法（從 SKILL.md 呼叫時 agent 會替換 {{base_branch}}；手動執行時自填）：
-#   BASE_BRANCH=main bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh
+#   bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh main
+#
+# $1 = base branch（必填）
 #
 # 為什麼抽成 script：
 #   1. SKILL.md 的 bash code block 容易被 agent 重寫成 fat command（rule 13 AP1）
@@ -21,8 +23,9 @@
 
 set -euo pipefail
 
-if [ -z "${BASE_BRANCH:-}" ]; then
-    echo "[FAIL] BASE_BRANCH 環境變數未設定（例：BASE_BRANCH=main bash ...）" >&2
+BASE_BRANCH="${1:-}"
+if [ -z "$BASE_BRANCH" ]; then
+    echo "[FAIL] base branch 未提供（例：bash setup-review-dir.sh main）" >&2
     exit 1
 fi
 
@@ -38,7 +41,7 @@ fi
 # branch；若需要 local `main` 對應 remote，要 `git fetch origin main:main` 或直接用
 # `BASE_BRANCH=origin/main` 作為值。
 if ! git rev-parse --verify "$BASE_BRANCH" >/dev/null 2>&1; then
-    echo "[FAIL] BASE_BRANCH '${BASE_BRANCH}' 不是有效的 git ref（請確認本地有此 branch，或改用 'origin/${BASE_BRANCH}'）" >&2
+    echo "[FAIL] '$BASE_BRANCH' 不是有效的 git ref（請確認本地有此 branch，或改用 'origin/${BASE_BRANCH}'）" >&2
     exit 1
 fi
 

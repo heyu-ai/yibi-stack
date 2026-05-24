@@ -2,7 +2,9 @@
 # pr-review-cycle-mob Step 3.2 — Codex R1 Stage 1：Native review
 #
 # 用法：
-#   BASE_BRANCH=main bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage1.sh
+#   bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage1.sh main
+#
+# $1 = base branch（必填）
 #
 # 為什麼抽成 script：
 #   1. 含 pipeline + 多個 "$VAR" 展開，觸發 rule 14 Quoting Rule 5
@@ -18,8 +20,9 @@
 
 set -euo pipefail
 
-if [ -z "${BASE_BRANCH:-}" ]; then
-    echo "[FAIL] BASE_BRANCH 環境變數未設定（例：BASE_BRANCH=main bash ...）" >&2
+BASE_BRANCH="${1:-}"
+if [ -z "$BASE_BRANCH" ]; then
+    echo "[FAIL] base branch 未提供（例：bash codex-r1-stage1.sh main）" >&2
     exit 1
 fi
 
