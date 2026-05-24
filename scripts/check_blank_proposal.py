@@ -30,8 +30,6 @@ def check_file(path: Path) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    # 若有引數就只檢查那些檔案（pre-commit 框架傳入 staged files）
-    # 若無引數就掃描全部 openspec/changes/*/proposal.md
     if argv:
         targets = [Path(p) for p in argv if Path(p).name == "proposal.md"]
     else:

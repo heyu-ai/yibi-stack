@@ -9,9 +9,7 @@ from pathlib import Path
 SCRIPT = Path(__file__).parents[3] / "scripts" / "check_blank_proposal.py"
 
 
-def _run_script(
-    *args: str, content_map: dict[str, str] | None = None, tmp_path: Path | None = None
-) -> subprocess.CompletedProcess[str]:
+def _run_script(*args: str, tmp_path: Path | None = None) -> subprocess.CompletedProcess[str]:
     """在 tmp_path 建立 proposal.md 後執行 script。"""
     cmd = [sys.executable, str(SCRIPT), *args]
     return subprocess.run(  # nosec B603

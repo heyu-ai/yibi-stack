@@ -173,16 +173,13 @@ class TestBlankProposalGate:
         assert "[pre-commit] blank-proposal" not in result.stderr
 
 
-_ACTUAL_SCRIPT = Path(__file__).parents[3] / "scripts" / "check_blank_proposal.py"
-
-
 def _setup_scripts_in_repo(repo_path: Path) -> None:
     """在 tmp_path 建立 scripts/ 目錄，symlink check_blank_proposal.py（供 blank-proposal 整合測試）。"""
     scripts_dir = repo_path / "scripts"
     scripts_dir.mkdir(exist_ok=True)
     link = scripts_dir / "check_blank_proposal.py"
     if not link.exists():
-        link.symlink_to(_ACTUAL_SCRIPT)
+        link.symlink_to(Path(__file__).parents[3] / "scripts" / "check_blank_proposal.py")
 
 
 def _make_git_repo(tmp_path: Path) -> Path:
