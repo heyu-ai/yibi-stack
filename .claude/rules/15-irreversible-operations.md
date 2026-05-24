@@ -178,7 +178,25 @@ git push -u origin chore/my-feature-branch
 所有協作者的下次 `git pull` 都會取得未經 review 的變更。
 個人 worktree branch 若未 push，影響範圍小，不在此規則範圍。
 
-## 適用範圍
+## Revert PR Pre-merge Checklist
+
+When creating a revert PR (to undo commits that landed on a shared branch):
+
+1. **Fetch and rebase onto latest `origin/main` before requesting review**:
+   ```bash
+   git fetch origin
+   git rebase origin/main
+   ```
+2. **Verify diff scope matches stated intent**:
+   ```bash
+   git diff origin/main HEAD --name-only
+   ```
+   Should list only the files the revert commit actually touches.
+3. **Why**: `origin/main` may have advanced since the revert branch was created (e.g., a security fix landed independently). Without rebase, the stale branch base causes `git diff origin/main HEAD` to include those newer commits in the diff — merging silently reverts them.
+
+**Real incident (PR #55)**: After the revert branch was created, `5725b86` (`security(agy): replace --dangerously-skip-permissions with --sandbox`) landed on `origin/main`. Without rebase, the diff included 3 agy scripts. Mob review caught it; rebase onto `origin/main` fixed the scope back to exactly 6 rule files.
+
+## Scope
 
 本規則適用於所有 Claude Code agent session。不影響使用者自行在 terminal 執行的指令。
 純文件規則，v2 不加 `.claude/settings.json` deny list；機械性阻擋列入 v3 規劃。
