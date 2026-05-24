@@ -101,8 +101,8 @@ H1 ∧ H2 ∧ H3 ∧ H4 ∧ H5 ∧ H6 全部 reject H0 → pilot 通過，進 Ph
 
 ### 3.1 自變數（Independent Variable）
 
-- **Condition**：`baseline`（all-opus，現行 SKILL.md）vs `multitier`（pilot 版 SKILL.md
-  + 6 個新 subagent）
+- **Condition**：`baseline`（all-opus，現行 SKILL.md）vs `multitier`（pilot 版
+  SKILL.md 加 6 個新 subagent）
 - 二元 categorical；隨機派至每個 trial
 
 ### 3.2 依變數（Dependent Variables）
@@ -308,7 +308,7 @@ resolution 對 Step 9-11 不夠細。
 
 每個 output 由 rater 在 5-point Likert scale 評分（移除 condition 標籤後）：
 
-```
+```text
 PR Body Quality
 1 = 必須完全重寫（漏掉關鍵 context、誤導性敘述）
 2 = 大幅修改（多處需重寫）
@@ -596,6 +596,7 @@ notebook 與 raw data 一同 commit。
 的對照報告將另文發表。
 
 預測結果（事前公告，可被反證）：
+
 - H1 cost：方向正確（multitier 較便宜）但效應太小，可能 inconclusive
 - H2 speed：通過（在 ±30s 內）
 - H3 quality：通過（在 0.5 Likert 點內）
