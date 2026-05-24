@@ -42,7 +42,7 @@ fi
 # cd 到 worktree root：agy @file 沙箱只允許讀取 worktree root 下的路徑
 cd "$WT_ROOT"
 
-if ! agy -p "@.pr-review/gemini-r1-input.md" --add-dir . --dangerously-skip-permissions \
+if ! agy -p "@.pr-review/gemini-r1-input.md" --add-dir . --sandbox \
     > "$REVIEW_DIR/gemini-r1-raw.md" \
     2>"$REVIEW_DIR/gemini-r1.stage1.log"; then
     echo "[FAIL] agy review 失敗，請查看 $REVIEW_DIR/gemini-r1.stage1.log" >&2

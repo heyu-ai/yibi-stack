@@ -47,7 +47,7 @@ cd "$WT_ROOT"
 
 if ! agy -p "@.pr-review/gemini-extract-input.md" \
     --add-dir . \
-    --dangerously-skip-permissions \
+    --sandbox \
     > "$REVIEW_DIR/gemini-r1.json" \
     2>"$REVIEW_DIR/gemini-r1.extract.log"; then
     echo "[FAIL] agy extract 失敗，請查看 $REVIEW_DIR/gemini-r1.extract.log" >&2
