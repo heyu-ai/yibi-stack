@@ -905,10 +905,12 @@ Output has no `[A-Z]{2,}-[0-9]+` format string → ask the user, or skip 11b.
 Get transitions (sequential, then parallel):
 
 - `mcp__claude_ai_Atlassian__getTransitionsForJiraIssue` (`issueId`: `{{jira_issue_key}}`)
+  If the call fails, stop and report the error to the user.
 
 Pick the option closest to "development complete and merged" (common: `Done` / `Merged` / `Released` / `Closed`). If unsure, ask the user.
 
-After confirming, **send in parallel** (no dependency):
+After confirming, **send in parallel** (no dependency); either failure must be reported
+and must not be silently ignored:
 
 - `mcp__claude_ai_Atlassian__transitionJiraIssue`: move `{{jira_issue_key}}` to selected state
 - `mcp__claude_ai_Atlassian__addCommentToJiraIssue`: comment content:
