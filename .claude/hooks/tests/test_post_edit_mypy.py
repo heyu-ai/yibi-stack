@@ -19,9 +19,7 @@ def _make_stdin(file_path: str = _TASKS_PY, duration_ms: int = 200) -> str:
     return json.dumps({"tool_input": {"file_path": file_path}, "duration_ms": duration_ms})
 
 
-def _run_hook(
-    stdin: str, env: dict[str, str] | None = None
-) -> subprocess.CompletedProcess[str]:
+def _run_hook(stdin: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     e = {**os.environ, **(env or {})}
     return subprocess.run(  # nosec B603
         ["bash", str(HOOK)],
@@ -66,13 +64,19 @@ class TestEffortGate:
         )
         assert result.returncode == 0
         # With abs path and unset effort (falls back to normal), mypy is invoked
-        assert "mypy" in result.stderr.lower(), "Expected mypy to be invoked when CLAUDE_EFFORT unset"
+        assert "mypy" in result.stderr.lower(), (
+            "Expected mypy to be invoked when CLAUDE_EFFORT unset"
+        )
 
 
 class TestPathGuard:
     def test_mypy_004_non_tasks_file_exits_zero(self) -> None:
         """MYPY-004: tasks/ 以外的檔案直接 exit 0，不執行 mypy。"""
-        for path in ["/repo/scripts/foo.py", "/repo/skills/bar.py", "/repo/.claude/hooks/pre-commit.sh"]:
+        for path in [
+            "/repo/scripts/foo.py",
+            "/repo/skills/bar.py",
+            "/repo/.claude/hooks/pre-commit.sh",
+        ]:
             result = _run_hook(_make_stdin(path, 500))
             assert result.returncode == 0, f"Expected exit 0 for {path}"
             assert "mypy" not in result.stderr.lower()

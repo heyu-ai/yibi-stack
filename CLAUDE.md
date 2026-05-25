@@ -122,7 +122,8 @@ make install-all         # 等同 build-tools + install + install-project + inst
 ## 已知 Gotcha
 
 - **protect-push 攔截 `gh pr merge`**：agent 無法自行 merge；需使用者執行 `! gh pr merge <n> --squash --delete-branch`
-- **`CLAUDE_EFFORT=normal` 是 hook 預設值**：hooks 使用 `${CLAUDE_EFFORT:-normal}`；SKILL.md effort 表格的 fallback note 必須同時涵蓋 unset 和 `normal`（兩者皆視為 medium）。CC 2.1.133+ 起 `$CLAUDE_EFFORT` 在 Bash tool（含 hook script）中已是真實 env var，可直接讀取；`:-normal` fallback 是相容舊版或未設定 session 的保護
+- **`CLAUDE_EFFORT=normal` 是 hook 預設值**：hooks 使用 `${CLAUDE_EFFORT:-normal}`；SKILL.md effort 表格的 fallback note 必須同時涵蓋 unset 和 `normal`（兩者皆視為 medium）。
+  CC 2.1.133+ 起 `$CLAUDE_EFFORT` 在 Bash tool（含 hook script）中已是真實 env var，可直接讀取；`:-normal` fallback 是相容舊版或未設定 session 的保護
 - **Effort fallback 是風險判斷，非慣例**：一般工具 fallback 設 `medium`；規格展開／深度 review 工具（如 spectra-amplifier）可設 `high`，因規格缺漏代價高於多做
 - **`${CLAUDE_EFFORT}` 在 SKILL.md 不展開**：靜態 Markdown 中 agent 讀到的是 literal string；若需實際值，用 `echo "${CLAUDE_EFFORT:-normal}"` eval。Hook script（bash）中則可直接讀取（CC 2.1.133+），無需 eval
 - **Slash command 的 bash code block 被 agent 重寫**：commands/*.md 或 SKILL.md 中，
