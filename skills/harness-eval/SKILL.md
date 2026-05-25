@@ -75,15 +75,15 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 **D3 語意（4 分）**：讀 settings.json permissions + 進階設定
 
 - deny list 覆蓋完整（含 rm、force push、DB migration、`find -delete`）→ 4 分；部分覆蓋 → 2 分；僅 rm 或無 → 0
-  *`autoMode.hard_deny`（2.1.136）設定等同強化 deny，可視為覆蓋完整*
+  *`autoMode.hard_deny`（2.1.136）可補強 auto mode 下的覆蓋；但只在 auto mode 生效，非 auto mode 仍需完整 deny list*
 - 若 allow list 含萬用字元（`Bash(*)`）：此項直接扣為 0，並列 FAIL
 - *bonus note（不計入得分）：使用 `worktree.baseRef` / `worktree.bgIsolation` / `skillOverrides` / `disableSkillShellExecution`（2.1.133-2.1.150 新設定）中至少 2 項，可在 TODO 清單標注「已採用進階設定」*
 
 **D4 語意（4 分）**：讀抽樣 SKILL.md（最多 3 個）
 
 - 重複工作流有 skill 封裝（不用每次在 prompt 解釋步驟）→ 2 分
-- 觸發關鍵字豐富（description 含多個同義詞/情境；且長度 ≤ 1,536 字元——超過啟動時警告）→ 1 分；超過上限 → 0
-- 跨組織分發友善（plugin manifest 完整 / 有 marketplace 設定；若有重型 skill，有 `effort:` frontmatter（2.1.149 確認生效））→ 1 分；無 plugin manifest 或重型 skill 缺 effort: → 0
+- 觸發關鍵字豐富（description 含多個同義詞/情境；長度 ≤ 1,536 字元——超過啟動時警告）→ 1 分；超過上限 → 0
+- 跨組織分發友善（plugin manifest 完整 / 有 marketplace 設定）→ 1 分；若另有重型 skill（深度掃描/規格展開），設定 `effort:` frontmatter（2.1.149 確認生效）可確保得分；若無重型 skill，以 plugin manifest 完整性單獨評分
 
 **D5 語意（5 分）**：判斷驗證閉環
 

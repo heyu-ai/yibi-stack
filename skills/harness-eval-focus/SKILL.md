@@ -187,7 +187,7 @@ Claude Code 的 4 層 Permission 模型：
 | slash command 覆蓋 | `.claude/commands/*.md` 有無對應 skill 的快捷入口 | 高頻 skill 加對應 command |
 | **plugin 分發（v2 新增）** | `plugins/<name>/package.json` 是否存在；marketplace 設定是否完整 | Anthropic 建議用 plugin 作為「bundle skills + hooks + MCP」的分發單位；新工程師 day-one 即可裝 |
 | 錯誤隔離 | plugin 載入失敗不應影響其他 skill | 觀察 plugin lifecycle 設定 |
-| **description 長度上限（2.1.133+）** | 每個 SKILL.md 的 description 是否 ≤ 1,536 字元（超過會在啟動時警告）| 過長 description 影響 skill 發現效率；裁剪至關鍵觸發詞 |
+| **description 長度上限** | 每個 SKILL.md 的 description 是否 ≤ 1,536 字元（超過會在啟動時警告）| 過長 description 影響 skill 發現效率；裁剪至關鍵觸發詞 |
 | **`effort:` frontmatter（2.1.149 確認生效）** | 重型 skill（深度掃描、規格展開、mob review）是否設定 `effort: medium` 或 `effort: high` | 缺少 effort: 的重型 skill 在 low session 誤觸發，導致結果品質不足；覆蓋呼叫端 effort |
 
 **觸發關鍵字豐富度範例**：
