@@ -51,15 +51,24 @@ Script stdout 輸出 `KEY=VALUE`，agent 解析並記住：
 
 > 其他使用者需依自己的 `skill_repo` 調整此路徑。
 
-偵測 PR 號（從 `$ARGUMENTS` 解析 `--pr <n>` 或 fallback 到 `gh pr view`）。
-Agent 把 skill 的 ARGUMENTS 內容作為參數傳入：
+偵測 PR 號（從 ARGUMENTS 解析 `--pr <n>` 或 fallback 到 `gh pr view`）。
+
+**無 `--pr` 引數時**（在 PR branch 上，gh 自動偵測）：
 
 ```bash
 bash /Users/howie/Workspace/github/yibi-stack/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh
 ```
 
-Script stdout 輸出 `PR_NUMBER=<n>`；agent 解析並記住 `PR_NUMBER` 供後續步驟使用。
-（若有 `--pr <n>` 引數，agent 在呼叫時把引數字串附在 script 路徑後。）
+**有 `--pr <n>` 引數時**（agent 把實際 PR 號附在後）：
+
+```bash
+bash /Users/howie/Workspace/github/yibi-stack/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh --pr 65
+```
+
+> 其他使用者需依自己的 `skill_repo` 調整此路徑（同上）。
+
+Agent 依 ARGUMENTS 選擇對應形式。Script 用 `$*` 合併所有位置引數，支援 shell-split 傳入。
+Script stdout 輸出 `PR_NUMBER=<n>`；agent 解析並記住供後續步驟使用。
 
 檢查是否已有 retro（重跑提示）：
 

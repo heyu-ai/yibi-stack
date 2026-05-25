@@ -26,14 +26,17 @@ else
   _top=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
   ORIG_PROJECT=$(basename "$_top")
 fi
-unset _gcd _dir _top 2>/dev/null || true
+unset _gcd _dir _top
 
 CONFIG="$HOME/.agents/config.json"
 if [ ! -f "$CONFIG" ]; then
   echo '[FAIL] ~/.agents/config.json not found' >&2
   exit 1
 fi
-SKILL_REPO=$(jq -r .skill_repo "$CONFIG")
+if ! SKILL_REPO=$(jq -r .skill_repo "$CONFIG"); then
+  echo '[FAIL] ~/.agents/config.json is not valid JSON — run: jq . ~/.agents/config.json' >&2
+  exit 1
+fi
 if [ "$SKILL_REPO" = "null" ] || [ -z "$SKILL_REPO" ]; then
   echo '[FAIL] skill_repo not configured in ~/.agents/config.json' >&2
   exit 1
