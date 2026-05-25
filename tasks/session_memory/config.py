@@ -105,3 +105,45 @@ def ensure_dirs(home: Path | None = None) -> None:
         root / "inbox",
     ):
         subdir.mkdir(parents=True, exist_ok=True)
+
+
+class SkillRepoError(RuntimeError):
+    """skill_repo 路徑解析失敗。"""
+
+
+def resolve_skill_repo(config_path: Path | None = None) -> Path:
+    """從 ~/.agents/config.json 讀取 skill_repo 並回傳 Path。
+
+    這是跨工具共用的 skill_repo 解析邏輯，集中在此避免各處重複實作。
+
+    Args:
+        config_path: 覆寫預設 config.json 路徑（測試用）。
+
+    Returns:
+        skill_repo 的 Path 物件（已驗證為存在的目錄）。
+
+    Raises:
+        SkillRepoError: config.json 不存在、skill_repo 未設定、或路徑不存在。
+    """
+    path = config_path or AGENTS_CONFIG_PATH
+    if not path.exists():
+        raise SkillRepoError(
+            f"找不到 {path}，請先執行 make install 以建立設定檔"
+        )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise SkillRepoError(f"設定檔格式錯誤：{path}") from e
+
+    raw = data.get("skill_repo")
+    if not raw:
+        raise SkillRepoError(
+            "skill_repo 未設定，請在 yibi-stack 目錄執行 make install"
+        )
+
+    skill_repo = Path(str(raw))
+    if not skill_repo.is_dir():
+        raise SkillRepoError(
+            f"skill_repo 路徑不存在或非目錄：{skill_repo}"
+        )
+    return skill_repo
