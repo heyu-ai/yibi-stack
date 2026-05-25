@@ -37,8 +37,7 @@ if [ "${DUR:-0}" -lt 100 ] 2>/dev/null; then
     exit 0
 fi
 
-EFFORT=${CLAUDE_EFFORT:-normal}
-if [ "$EFFORT" = "low" ]; then
+if [ "${CLAUDE_EFFORT:-normal}" = "low" ]; then
     exit 0
 fi
 
