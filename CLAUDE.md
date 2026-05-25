@@ -142,3 +142,10 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **agy auth 偵測用 `onboardingComplete`，不用 `installation_id`**：
   `~/.gemini/antigravity-cli/installation_id` 在 agy 首次啟動（OAuth 完成前）就存在，用它做 auth check 會 false positive。
   正確做法：檢查 `~/.gemini/antigravity-cli/cache/onboarding.json` 的 `onboardingComplete: true` 欄位。
+- **SKILL.md Step 0 多 bash block 連環確認框**：skill 啟動的 prereqs/env 偵測若用多個
+  inline bash block（含 `if ! cmd; then exit 1; fi`、`case` 語句），會觸發 Claude Code
+  內建 permission 攔截（`exit 1` fingerprint）與 parser 攔截（`case_statement` AST 節點無
+  allow-list 選項）。canonical fix：把所有 Step 0 邏輯抽到 `skills/<name>/scripts/bootstrap.sh`，
+  SKILL.md 只留 `bash /abs/path/bootstrap.sh` 單行呼叫，再把絕對路徑加進 `settings.json`
+  allow-list。對照 `plugins/pr-flow/skills/pr-retrospective/scripts/bootstrap.sh` 與
+  `bump-version`、`pr-review-cycle-mob` 的既有 pattern。
