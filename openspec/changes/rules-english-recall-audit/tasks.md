@@ -16,23 +16,18 @@
 - [x] T-B3 `14-shell-quoting-hygiene.md` 刪除
 - [x] T-B4 `12-auto-handover.md` 移至 `docs/rules-reference/`
 
-## PR-C ⏳ 待重做：6 條 always-loaded rules 英文化
+## PR-C #77 ✅ MERGED 2026-05-25
 
-> 背景：原 PR-C 分支因誤推 main 後 revert，需從 `origin/main` 重建。
-> 翻譯策略：rule body 只英文；Wrong/Right 雙欄表格取代 prose 說明；
-> description frontmatter 保留中文觸發詞。
+> cherry-pick 策略：從舊 PR-C draft commits 逐一 cherry-pick 到新 worktree，
+> 逐衝突解決（rule 15 保留 PR #59 revert checklist；rule 16 inline 翻譯 PR #66 /less-permission-prompts section）。
 
-- [ ] T-C1 `01-language-and-tone.md` 英文化（~40 行，最小）
-- [ ] T-C2 `02-error-and-import.md` 英文化（~60 行）
-- [ ] T-C3 `03-security.md` 英文化（~50 行）
-- [ ] T-C4 `15-irreversible-operations.md` 英文化（~160 行，含大表格）
-- [ ] T-C5 `16-allowlist-hygiene.md` 英文化（~180 行，含大表格）
-- [ ] T-C6 `13-bash-anti-patterns.md` 英文化（~500+ 行，最大，分 3 section）
-- [ ] T-C7 PR 開 + `/pr-review-cycle-mob` 群審（翻譯正確性需多重 review）
-
-**前置確認**：worktree `.claude/worktrees/pr-c-rules-english` 的 HEAD 目前指向
-`docs/rule15-revert-pr-checklist` 而非 PR-C 翻譯內容，重做前需先確認翻譯是否
-需從 git reflog 救回（見 issue #61）。
+- [x] T-C1 `01-language-and-tone.md` 英文化
+- [x] T-C2 `02-error-and-import.md` 英文化
+- [x] T-C3 `03-security.md` 英文化
+- [x] T-C4 `15-irreversible-operations.md` 英文化
+- [x] T-C5 `16-allowlist-hygiene.md` 英文化（含 PR #66 /less-permission-prompts section 翻譯）
+- [x] T-C6 `13-bash-anti-patterns.md` 英文化
+- [x] T-C7 PR #77 merged + markdownlint fixup
 
 ## PR-D ⏳ 待啟動：plugins SKILL.md body 英文化（分 4 批）
 
