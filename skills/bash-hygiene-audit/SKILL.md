@@ -118,6 +118,63 @@ Claude Code 2.1.111 起有內建 `/less-permission-prompts` skill，兩者功能
 > 注意：`/less-permission-prompts` 依執行頻率產生建議，可能包含 `Bash(git *)` 等動詞層
 > wildcard（rule 16 紅旗 2）。**不可無腦接受**，必須手動改寫成 per-verb 精確 pattern。
 
+### Step 6 — 重複攔截分析（audit log）
+
+從 audit log 找出「同一 session 同一指令被 block >= 2 次」的重複攔截事件：
+
+```bash
+uv run --directory "$SKILL_REPO" python -m tasks.bash_hygiene_audit repeats
+```
+
+顯示前 10 名熱點：
+
+```bash
+uv run --directory "$SKILL_REPO" python -m tasks.bash_hygiene_audit repeats --top 10
+```
+
+自訂 token 浪費估算（每次額外 block 的 token 預設 1500）：
+
+```bash
+uv run --directory "$SKILL_REPO" python -m tasks.bash_hygiene_audit repeats --token-estimate 2000
+```
+
+輸出範例：
+
+```text
+總 block 次數：42
+重複攔截次數：8（19.0%）
+重複事件組數：3
+累積浪費時間：45.3 秒
+累積浪費 token：~7,500 tokens
+--- top 重複攔截熱點 ---
+  1. [3x] ap2-unicode  +32.1s  ~3,000tk
+     cmd: echo "test — em dash here"
+  2. [2x] ap1-block  +8.7s  ~1,500tk
+     cmd: for f in a.py b.py; do grep -n "pattern" "$f" | head -5; done
+  3. [2x] unknown  +4.5s  ~1,500tk
+     cmd: gh pr merge 8 --squash --delete-branch 2>&1
+--- by block_reason ---
+  ap2-unicode: 3
+  ap1-block: 2
+  unknown: 3
+```
+
+### Step 7 — 回溯 transcript 分析（歷史資料）
+
+從 Claude Code session transcript 回溯 parse hook block 事件（不需要先啟用 audit log）：
+
+```bash
+uv run --directory "$SKILL_REPO" python -m tasks.bash_hygiene_audit replay-transcripts
+```
+
+指定回溯天數（預設 14 天）：
+
+```bash
+uv run --directory "$SKILL_REPO" python -m tasks.bash_hygiene_audit replay-transcripts --since-days 7
+```
+
+**注意**：`replay-transcripts` 用 Claude Code 自己的 session transcript 回溯，識別精準度比 audit log 低。`audit log` 路徑（Step 6）是精準資料，`replay-transcripts` 是歷史 baseline。
+
 ## JSONL 記錄 Schema
 
 | 欄位 | 型別 | 說明 |

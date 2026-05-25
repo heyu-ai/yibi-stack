@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from tasks.bash_hygiene_audit.models import AuditRecord
 from tasks.bash_hygiene_audit.service import (
     _find_log_path,
+    compute_repeats,
     compute_stats,
     count_log_lines,
     read_log,
@@ -169,3 +170,134 @@ class TestComputeStats:
         s = compute_stats([])
         assert s.total == 0
         assert s.avg_duration_ms is None
+
+
+def _make_block_record(
+    session_id: str,
+    command_hash: str,
+    ts: str = "2026-05-25T00:00:00Z",
+    block_reason: str = "ap2-unicode",
+    cmd_snippet: str = "echo test",
+) -> AuditRecord:
+    return AuditRecord.model_validate(
+        {
+            "ts": ts,
+            "hook": "ap2",
+            "hook_version": "2",
+            "exit_code": 2,
+            "verdict": "block",
+            "block_reason": block_reason,
+            "cmd_snippet": cmd_snippet,
+            "command_hash": command_hash,
+            "session_id": session_id,
+        }
+    )
+
+
+def _make_allow_record(session_id: str, command_hash: str = "abc") -> AuditRecord:
+    return AuditRecord.model_validate(
+        {
+            "ts": "2026-05-25T00:00:00Z",
+            "hook": "ap1",
+            "hook_version": "2",
+            "exit_code": 0,
+            "verdict": "allow",
+            "cmd_snippet": "ls -la",
+            "command_hash": command_hash,
+            "session_id": session_id,
+        }
+    )
+
+
+class TestComputeRepeats:
+    def test_bhaudit_dt_005_basic_repeat(self) -> None:
+        """BHAUDIT-DT-005: 同 session 同 hash block 3 次 → 1 個 RepeatEvent (count=3)。"""
+        records = [
+            _make_block_record("sess1", "hash1", ts="2026-05-25T00:00:00Z"),
+            _make_block_record("sess1", "hash1", ts="2026-05-25T00:01:00Z"),
+            _make_block_record("sess1", "hash1", ts="2026-05-25T00:02:00Z"),
+        ]
+        s = compute_repeats(records)
+        assert s.total_blocks == 3
+        assert s.repeated_blocks == 3
+        assert s.unique_repeat_events == 1
+        assert len(s.top_offenders) == 1
+        assert s.top_offenders[0].count == 3
+        assert s.top_offenders[0].estimated_wasted_tokens == 2 * 1500
+
+    def test_bhaudit_dt_006_cross_session_not_repeat(self) -> None:
+        """BHAUDIT-DT-006: 同 hash 但不同 session 不算重複。"""
+        records = [
+            _make_block_record("sess1", "hash1"),
+            _make_block_record("sess2", "hash1"),
+        ]
+        s = compute_repeats(records)
+        assert s.unique_repeat_events == 0
+        assert s.repeated_blocks == 0
+
+    def test_bhaudit_dt_007_top_n_sorting(self) -> None:
+        """BHAUDIT-DT-007: top_offenders 按 count 降序排列。"""
+        records = [
+            # hash2: 3 次
+            _make_block_record("s1", "hash2"),
+            _make_block_record("s1", "hash2"),
+            _make_block_record("s1", "hash2"),
+            # hash1: 2 次
+            _make_block_record("s1", "hash1"),
+            _make_block_record("s1", "hash1"),
+        ]
+        s = compute_repeats(records, top_n=5)
+        assert s.top_offenders[0].command_hash == "hash2"
+        assert s.top_offenders[0].count == 3
+        assert s.top_offenders[1].command_hash == "hash1"
+        assert s.top_offenders[1].count == 2
+
+    def test_bhaudit_eg_001_empty_records(self) -> None:
+        """BHAUDIT-EG-001: 空列表回傳 zero RepeatStats。"""
+        s = compute_repeats([])
+        assert s.total_blocks == 0
+        assert s.unique_repeat_events == 0
+        assert s.repeat_rate == 0.0
+
+    def test_bhaudit_eg_002_only_allow_records(self) -> None:
+        """BHAUDIT-EG-002: 全 allow 時 total_blocks=0，無重複事件。"""
+        records = [_make_allow_record("s1"), _make_allow_record("s1")]
+        s = compute_repeats(records)
+        assert s.total_blocks == 0
+        assert s.unique_repeat_events == 0
+
+    def test_bhaudit_dt_008_token_estimate_respected(self) -> None:
+        """BHAUDIT-DT-008: token_per_repeat_estimate 正確套用到 extra blocks。"""
+        records = [
+            _make_block_record("s1", "h1"),
+            _make_block_record("s1", "h1"),
+        ]
+        s = compute_repeats(records, token_per_repeat_estimate=500)
+        assert s.top_offenders[0].estimated_wasted_tokens == 500  # (2-1) * 500
+
+    def test_bhaudit_dt_009_wasted_ms_calculation(self) -> None:
+        """BHAUDIT-DT-009: estimated_wasted_ms = last_ts - first_ts 的毫秒差。"""
+        records = [
+            _make_block_record("s1", "h1", ts="2026-05-25T10:00:00Z"),
+            _make_block_record("s1", "h1", ts="2026-05-25T10:00:30Z"),
+        ]
+        s = compute_repeats(records)
+        assert s.top_offenders[0].estimated_wasted_ms == 30000  # 30 秒
+
+    def test_bhaudit_dt_010_no_session_id_excluded(self) -> None:
+        """BHAUDIT-DT-010: session_id 為 None 的 block 記錄不計入 repeat 分析。"""
+        record = AuditRecord.model_validate(
+            {
+                "ts": "2026-05-25T00:00:00Z",
+                "hook": "ap1",
+                "hook_version": "2",
+                "exit_code": 2,
+                "verdict": "block",
+                "cmd_snippet": "test",
+                "command_hash": "hash1",
+                "session_id": None,
+            }
+        )
+        records = [record, record]
+        s = compute_repeats(records)
+        assert s.unique_repeat_events == 0

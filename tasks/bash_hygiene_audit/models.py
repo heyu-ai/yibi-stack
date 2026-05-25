@@ -49,3 +49,30 @@ class AuditStats(BaseModel):
     by_hook: dict[str, int] = Field(default_factory=dict)
     by_reason: dict[str, int] = Field(default_factory=dict)
     avg_duration_ms: float | None = None
+
+
+class RepeatEvent(BaseModel):
+    """同一 session 內同一 command_hash 被 block 多次的事件群組。"""
+
+    session_id: str
+    command_hash: str
+    command_preview: str
+    block_reason: str | None = None
+    count: int
+    first_ts: str
+    last_ts: str
+    estimated_wasted_ms: int
+    estimated_wasted_tokens: int
+
+
+class RepeatStats(BaseModel):
+    """重複攔截統計：same-session same-hash block >= 2 次。"""
+
+    total_blocks: int = 0
+    repeated_blocks: int = 0
+    repeat_rate: float = 0.0
+    unique_repeat_events: int = 0
+    total_wasted_ms: int = 0
+    total_wasted_tokens: int = 0
+    top_offenders: list[RepeatEvent] = Field(default_factory=list)
+    by_reason: dict[str, int] = Field(default_factory=dict)

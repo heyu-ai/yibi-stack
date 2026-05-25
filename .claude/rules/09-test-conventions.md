@@ -101,3 +101,31 @@ assert any("源碼 repo 模式" in f for f in result.findings)
 ```
 
 適用場景：任何驗證「走了哪條邏輯分支」的 assertion。
+
+## Bandit `# nosec` 使用慣例
+
+測試中不應無腦加 `# nosec`；但下列兩類場景是合理例外：
+
+### B112（try_except_continue）— 串流解析跳過格式錯誤行
+
+```python
+try:
+    obj = json.loads(raw)
+except Exception:  # nosec B112
+    continue
+```
+
+適用場景：逐行解析 JSONL / log 檔時，格式錯誤的行應跳過而非中止整個解析流程。`continue` 是刻意設計，不是疏忽。
+
+### F841（unused variable）— 徹底刪除，不用 `# noqa`
+
+ruff F841「local variable assigned but never used」需**同時刪除賦值行與初始化行**；只刪其中一行，另一行仍會觸發。
+
+```python
+# 違規：刪了 loop 內的賦值，但保留了函式開頭的初始化
+prev_output_tokens = 0      # <-- 這行也要刪
+...
+# prev_output_tokens = last_output_tokens  # 已刪，但上面那行仍是 F841
+
+# 正確：兩行都刪除
+```
