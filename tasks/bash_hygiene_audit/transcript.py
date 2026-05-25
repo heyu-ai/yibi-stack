@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -98,7 +97,6 @@ def _scan_single_transcript(
     """從單一 transcript 抽出 hook block 事件並 append 到 events。"""
     prev_bash_cmd = ""
     prev_bash_ts = ""
-    prev_output_tokens = 0
     last_output_tokens = 0
 
     with path.open("r", encoding="utf-8", errors="replace") as f:
@@ -108,7 +106,7 @@ def _scan_single_transcript(
                 continue
             try:
                 obj = json.loads(raw)
-            except Exception:
+            except Exception:  # nosec B112
                 continue
 
             msg = obj.get("message", {})
@@ -120,7 +118,6 @@ def _scan_single_transcript(
             # 追蹤 assistant 的 output_tokens 和 Bash tool_use
             if role == "assistant":
                 usage = msg.get("usage", {})
-                prev_output_tokens = last_output_tokens
                 last_output_tokens = usage.get("output_tokens", 0)
                 for blk in msg.get("content") or []:
                     if (
@@ -140,9 +137,7 @@ def _scan_single_transcript(
                         continue
                     content = blk.get("content", "")
                     if isinstance(content, list):
-                        text = " ".join(
-                            b.get("text", "") for b in content if isinstance(b, dict)
-                        )
+                        text = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
                     else:
                         text = str(content)
                     if not text.startswith(_HOOK_BLOCK_PREFIX):
@@ -151,12 +146,8 @@ def _scan_single_transcript(
                     # 計算時間浪費（此次 block ts - 前一次 bash call ts）
                     try:
                         dt_block = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                        dt_bash = datetime.fromisoformat(
-                            prev_bash_ts.replace("Z", "+00:00")
-                        )
-                        wasted_ms = max(
-                            0, int((dt_block - dt_bash).total_seconds() * 1000)
-                        )
+                        dt_bash = datetime.fromisoformat(prev_bash_ts.replace("Z", "+00:00"))
+                        wasted_ms = max(0, int((dt_block - dt_bash).total_seconds() * 1000))
                     except Exception:
                         wasted_ms = 0
 
