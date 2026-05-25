@@ -18,64 +18,65 @@ description: >-
   「cd 指令要不要改成 --directory」時。
 ---
 
-# Bash Anti-Patterns — Claude Code Agent 下 bash 指令的三層防線
+# Bash Anti-Patterns — Three Defensive Layers for Claude Code Bash Commands
 
-本 Skill 提供系統化的 bash 指令編寫規範，防止 parser 失敗打斷工作流程，
-同時設定不可逆操作的 autonomy 邊界。三個 rule 檔可獨立啟用。
+This skill provides a systematic set of bash command conventions to prevent parser
+failures from disrupting your workflow, and to set autonomy boundaries for irreversible
+operations. The three rule files can be enabled independently.
 
-## 核心理念
+## Core Philosophy
 
-- **bash call 是廉價的，parser 重試是昂貴的**
-- 複雜度的成本最終由使用者在 Cmd+Enter 上付出
-- 黃金法則：永遠不要為了「省一個 bash call」把多步邏輯擠進一行
+- **Bash calls are cheap; parser retries are expensive**
+- The cost of complexity is ultimately paid by the user on every Cmd+Enter
+- Golden rule: never cram multi-step logic into one line to save a bash call
 
-## Anti-Pattern 1：過度複雜的單一指令
+## Anti-Pattern 1: Overly Complex Single Command
 
-### 症狀
+### Symptoms
 
-踩雷時會看到下列 parser 錯誤，改 escape 也沒用：
+When you hit this, you'll see parser errors that escaping cannot fix:
 
-- `Newline followed by # inside a quoted argument`（類別 B）
-- `Unhandled node type: string`（類別 D）
+- `Newline followed by # inside a quoted argument` (class B)
+- `Unhandled node type: string` (class D)
 
-### 判斷標準（≥2 項即過度，必須拆解）
+### Threshold (>=2 of 5 = excessive; must decompose)
 
-以下 5 項，同時出現兩個以上就是複雜度過高：
+Any two or more of the following make a command too complex:
 
-1. **多行**（heredoc 或反斜線 `\` 續行）
-2. **巢狀引號**（雙引號內含單引號內含雙引號）
-3. **內嵌其他語言**（`python -c`、`node -e`、`perl -e`、jq 多行複雜表達式）
-4. **多層 if / elif / case 分支**
-5. **複雜參數展開**（`${var//pattern/replace}`、`${!indirect}`、`${var%suffix}` 串接）
+1. **Multi-line** (heredoc or `\` continuation)
+2. **Nested same-type quotes** (`"''"` or `$(cmd "$VAR")` same-quote conflict)
+3. **Embedded other language** (`python -c`, `node -e`, `perl -e`, complex multi-line jq)
+4. **Multiple `if`/`elif`/`case` branches**
+5. **Complex parameter expansion** (`${var//pattern/replace}`, `${!indirect}`, chained `${var%suffix}`)
 
-### 不算過度的情境（不要誤判這些）
+### What is NOT excessive (avoid false positives)
 
-以下都是合法用法，不構成反模式：
+These are all valid patterns — do not flag them:
 
 ```bash
-# 合法的 git workflow chain -- && 數量不是問題
+# Valid git workflow chain -- && count alone is not a criterion
 git add . && git commit -m "feat: add feature" && git push origin feature
 
-# 合法的工具串接
+# Valid tool chain
 make lint && make test
 
-# 合法的簡單條件（各自獨立，不要合併成 && ... || ...）
+# Valid simple condition (keep separate; do not merge into && ... || ...)
 [ -f ".env" ] || echo "[WARN] .env not found"
 [ -f ".env" ] && source .env
-# 避免：[ -f ".env" ] && source .env || echo "..."
-# 原因：source 失敗時 || 也會觸發 echo，語意錯誤
+# Avoid: [ -f ".env" ] && source .env || echo "..."
+# Reason: if source fails, || also triggers echo -- wrong semantics
 ```
 
-**「&& 數量本身不是判斷項」** — 問題在每段操作的內部複雜度，不在串接數量。
+**`&&` count alone is not the criterion** — the issue is complexity inside each segment, not the number of chained segments.
 
-### 對策（依優先序）
+### Fixes (in priority order)
 
-### 1. 拆成多個 bash call（最常見也最簡單）
+### 1. Split into multiple bash calls (most common and simplest)
 
-每個 call 解一個問題，agent 看完再決定下一步：
+Each call solves one problem; the agent reads the result before deciding the next step:
 
 ```text
-# 錯：一行塞太多
+# Wrong: too much in one line
 RESULT=$(python3 -c "
 import json, sys
 data = json.loads(sys.stdin.read())
@@ -84,17 +85,17 @@ print(data.get('key', {}).get('nested', ''))
 ```
 
 ```bash
-# 對：分兩步（jq 用雙引號 filter 避免 AP1 D 類）
+# Fix: two steps (jq with double-quote filter to avoid AP1 class D)
 echo "$INPUT" > /tmp/input.json
 RESULT=$(jq -r ".key.nested" /tmp/input.json)
 ```
 
-### 2. 寫成獨立 script 檔
+### 2. Extract to a standalone script
 
-放 `~/.claude/scripts/` 或專案 `scripts/`，從 bash 呼叫 `bash <path>`：
+Place it in `~/.claude/scripts/` or the project's `scripts/`, then call via `bash <path>`:
 
 ```bash
-# 錯：heredoc 內嵌複雜 Python
+# Wrong: heredoc with embedded Python
 bash -c "$(cat <<'PYEOF'
 import re, sys
 for line in sys.stdin:
@@ -103,7 +104,7 @@ for line in sys.stdin:
 PYEOF
 )"
 
-# 對：寫成獨立 script，從 bash 呼叫
+# Fix: write standalone script, call from bash
 cat > /tmp/process.py << 'EOF'
 import re, sys
 for line in sys.stdin:
@@ -113,21 +114,21 @@ EOF
 python3 /tmp/process.py < input.txt
 ```
 
-### 3. 用對的工具取代 inline 邏輯
+### 3. Use the right tool instead of inline logic
 
-| 需求 | 不要用 | 改用 |
-|------|--------|------|
-| JSON 處理 | `python3 -c "import json..."` | `jq` |
-| 路徑操作 | `${VAR%/*}` 字串展開 | `dirname` / `basename` / `realpath` |
-| 簡單條件 | `if/elif/else` 三層 | `[ ]` + `&&`/`\|\|` 或 `case` |
-| 文字過濾 | inline `awk '{if...}'` | `grep -E` 或拆成多個 `grep` + `cut` pipe |
+| Need | Avoid | Use instead |
+|------|-------|-------------|
+| JSON processing | `python3 -c "import json..."` | `jq` |
+| Path manipulation | `${VAR%/*}` string expansion | `dirname` / `basename` / `realpath` |
+| Simple condition | three-level `if/elif/else` | `[ ]` + `&&`/`\|\|` or `case` |
+| Text filtering | inline `awk '{if...}'` | `grep -E` or multiple `grep` + `cut` pipes |
 
-### Before / After 完整範例
+### Before / After Examples
 
-### 範例 A：jq 巢狀條件 → 兩段 pipe
+### Example A: complex jq condition → two-step pipe
 
 ```text
-# 錯：jq 多行複雜表達式（內嵌語言 + 多層條件 = score 2）
+# Wrong: multi-line jq expression (embedded language + multi-branch = score 2)
 RESULT=$(jq -r '
   if .status == "active" then
     .users[] | select(.role == "admin") | .name
@@ -138,17 +139,17 @@ RESULT=$(jq -r '
 ```
 
 ```bash
-# 對：拆成兩段（jq 用雙引號 filter；含內嵌引號時用 \" 轉義）
+# Fix: split into two steps (jq with double-quote filter; escape inner quotes with \")
 STATUS=$(jq -r ".status" config.json)
 if [ "$STATUS" = "active" ]; then
   RESULT=$(jq -r ".users[] | select(.role==\"admin\") | .name" config.json)
 fi
 ```
 
-### 範例 B：複雜 if/elif → case statement
+### Example B: nested if/elif → case statement
 
 ```text
-# 錯：多層 if/elif（多層分支 = score 1，加上複雜參數展開 ${EXT##*.} = score 2）
+# Wrong: multi-level if/elif (multi-branch = score 1, plus complex expansion ${EXT##*.} = score 2)
 EXT="${FILENAME##*.}"
 if [ "$EXT" = "py" ]; then
   RUNNER="python3"
@@ -162,7 +163,7 @@ else
   RUNNER="unknown"
 fi
 
-# 對：先用 basename 取副檔名，再用 case
+# Fix: use basename to get extension, then case
 EXT=$(basename "$FILENAME" | cut -d. -f2)
 case "$EXT" in
   py) RUNNER="python3" ;;
@@ -173,10 +174,10 @@ case "$EXT" in
 esac
 ```
 
-### 範例 C：heredoc inline Python → 拆出獨立 script
+### Example C: inline Python heredoc → standalone script
 
 ```bash
-# 錯：heredoc + 內嵌 Python（score 1 + score 3 = 2，過度）
+# Wrong: heredoc + embedded Python (score 1 + score 3 = 2, excessive)
 python3 - <<'EOF'
 import sys, json
 data = json.load(sys.stdin)
@@ -185,8 +186,8 @@ for item in data.get('items', []):
         print(item['name'])
 EOF
 
-# 對：把 Python 寫成獨立檔，cat heredoc 寫檔（score 1 = 可接受）
-# 說明：cat > file 的 heredoc 只寫檔，不執行 Python，score 從 2 降到 1
+# Fix: write Python to a standalone file; cat heredoc only writes the file (score 1 = acceptable)
+# Note: cat > file heredoc just writes the file, does not execute Python -- score drops from 2 to 1
 cat > /tmp/filter_active.py << 'EOF'
 import sys, json
 data = json.load(sys.stdin)
@@ -197,179 +198,181 @@ EOF
 python3 /tmp/filter_active.py < data.json
 ```
 
-## Anti-Pattern 2：bash 指令字串內含特殊 Unicode
+## Anti-Pattern 2: Special Unicode in Bash Command Strings
 
-### 範圍（請先讀清楚，避免過度限制）
+### Scope (read carefully to avoid over-restriction)
 
-本規範只限制：bash 指令本身的字元內容
+This rule applies only to: **the character content of the bash command string itself**
 
-- `echo` 的字串參數
-- 變數值 literal
-- 檔名 literal
-- bash 內 heredoc 內容
+- `echo` string arguments
+- Variable value literals
+- Filename literals
+- Heredoc content inside bash
 
-**不限制：**
+**Not restricted:**
 
-- bash 讀取的檔案內容（`cat README.md` 內含 emoji 沒問題）
-- bash 寫入檔案的內容（寫到 `.md` 的文字屬檔案層面）
-- markdown 文件純文字段落
-- 程式碼註解
-- commit message 文字（git 接受 UTF-8）
+- File content read by bash (`cat README.md` containing emoji is fine)
+- File content written by bash (text going into `.md` files is at the file level)
+- Markdown document prose
+- Code comments
+- Commit message text (git accepts UTF-8)
 
-### 哪些字元會卡 parser
+### Characters that block the parser
 
-以下字元出現在 **bash 指令字串內**，會卡住 Claude Code bash tool parser：
+The following characters in **bash command strings** will jam the Claude Code bash tool parser:
 
-| 類型 | 範例字元 | Unicode 範圍 |
-|------|---------|------------|
+| Type | Example chars | Unicode range |
+|------|--------------|---------------|
 | Em dash | — | U+2014 |
 | En dash | – | U+2013 |
-| Emoji（圖示類）| 大部分 Unicode 表情符號 | U+1F300–U+1FAFF、U+2600–U+27BF |
-| 零寬空白 | （不可見） | U+200B 等 |
+| Emoji (icon types) | most Unicode emoticons | U+1F300–U+1FAFF, U+2600–U+27BF |
+| Zero-width space | (invisible) | U+200B etc. |
 
-**CJK 字元、全形標點、ASCII 標點均 OK。**
+**CJK characters, full-width punctuation, and ASCII punctuation are all fine.**
 
-### 替代對照表（bash 指令字串內）
+### Replacement table (for bash command strings)
 
-| 原本 | 改成 |
-|------|------|
-| 跳過圖示（skip 類）| `[SKIP]` 或 `(skipped)` |
-| 勾選圖示（ok 類）| `[OK]` 或 `(ok)` |
-| 警告圖示（warn 類）| `[WARN]` 或 `(warn)` |
-| 失敗圖示（fail 類）| `[FAIL]` 或 `(fail)` |
-| 火箭圖示（go 類）| `[GO]` |
-| Em dash — | `--`（ASCII 雙連字號）|
-| En dash – | `-`（ASCII 連字號）|
+| Original | Replace with |
+|----------|-------------|
+| Skip icon | `[SKIP]` or `(skipped)` |
+| OK/check icon | `[OK]` or `(ok)` |
+| Warning icon | `[WARN]` or `(warn)` |
+| Fail icon | `[FAIL]` or `(fail)` |
+| Rocket/go icon | `[GO]` |
+| Em dash — | `--` (ASCII double hyphen) |
+| En dash – | `-` (ASCII hyphen) |
 
-### 範例
+### Examples
 
 ```text
-# 錯：emoji 在 bash echo 字串內（這行會卡 parser）
-echo "  ⏭ 無 docker-compose，跳過"
+# Wrong: emoji inside bash echo string (this line jams the parser)
+echo "  ⏭ no docker-compose, skipping"
 
-# 對：改用 ASCII 替代
-echo "  [SKIP] 無 docker-compose，跳過"
+# Fix: use ASCII alternative
+echo "  [SKIP] no docker-compose, skipping"
 
-# 錯：em dash 在 bash echo 字串內（此處 [EM_DASH] 代表 U+2014 em dash，以免 linter 自身觸發）
+# Wrong: em dash inside bash echo string ([EM_DASH] represents U+2014 to avoid triggering linter)
 echo "PREREQ: NOT_FOUND [EM_DASH] stop here"
 
-# 對：改用 ASCII 雙連字號
+# Fix: use ASCII double hyphen
 echo "PREREQ: NOT_FOUND -- stop here"
 
-# OK：emoji 在 markdown 文件段落（這不是 bash 指令）
-# README.md: > [OK] 安裝完成
+# OK: emoji in a markdown document paragraph (this is not a bash command)
+# README.md: > [OK] installation complete
 
-# OK：bash cat 讀含 emoji 的檔案（emoji 在檔案內，不在 bash 字串）
+# OK: bash cat reading a file that contains emoji (emoji is in the file, not in the bash string)
 cat README.md
 ```
 
-## Agent 自我檢查 Checklist
+## Agent Self-Check Checklist
 
-下 bash 指令前快速自問：
+Before writing a bash command, quickly ask:
 
-- [ ] 這個 bash call 有換行嗎？（heredoc、反斜線續行）
-- [ ] 引號超過兩層嗎？（`"''"` 這種，或 `$(cmd "$VAR")` 同型衝突）
-- [ ] 內嵌了其他語言嗎？（`python -c`、`node -e`、jq 多行）
-- [ ] bash 字串內有 emoji 或 em dash 嗎？
-- [ ] 含 `cd <path> &&` 嗎？→ 判斷子類，改用 `--directory` / `git -C` / 絕對路徑
-- [ ] 用了 `grep "...\|..."` 雙引號 BRE 嗎？→ 改單引號
-- [ ] 用了 `$(outer "$(inner)")` 反向巢狀嗎？→ 拆兩 call
-- [ ] 這是不可逆操作嗎？（rm -rf / force push / migrate / publish）→ 先說明，等確認
-- [ ] 用了 `sudo` / `env` / `watch` 等 wrapper 包不可逆操作嗎？→ deny rule 仍會攔截，不要以為 wrapper 能繞過
+- [ ] Does this bash call have newlines? (heredoc, backslash continuation)
+- [ ] More than two levels of nested quotes? (`"''"` form, or `$(cmd "$VAR")` same-type conflict)
+- [ ] Embedded another language? (`python -c`, `node -e`, multi-line jq)
+- [ ] Emoji or em dash in the bash string?
+- [ ] Contains `cd <path> &&`? → classify sub-type: use `--directory` / `git -C` / absolute path
+- [ ] Using `grep "...\|..."` double-quote BRE? → switch to single quotes
+- [ ] Using `$(outer "$(inner)")` reverse-nested subshell? → split into two calls
+- [ ] Is this an irreversible operation? (`rm -rf` / force push / migrate / publish) → explain first, wait for confirmation
+- [ ] Using `sudo` / `env` / `watch` or similar wrappers around an irreversible operation? → deny rules still intercept; wrappers do not bypass them
 
-### AP1 門檻：換行 / 引號 / 內嵌語言 三項中任兩項 yes → 拆 bash call / 寫 script / 換工具
+### AP1 threshold: if any 2 of newline / nested quotes / embedded language answer yes → split bash call / write script / use right tool
 
-## 在你的專案啟用本規範
+## Enabling in Your Project
 
-三個 rule 可獨立啟用。把 `.md` 存到專案的 `.claude/rules/`，Claude Code session
-將無條件載入（不需關鍵字觸發）。
+The three rules can be enabled independently. Store each `.md` in your project's
+`.claude/rules/` directory — Claude Code will load them unconditionally at session start
+(no keyword trigger required).
 
-### Rule 13：bash 指令反模式（AP1 + AP2 + AP3）
+### Rule 13: bash command anti-patterns (AP1 + AP2 + AP3)
 
-存成 `.claude/rules/13-bash-anti-patterns.md`：
-
-```markdown
-# Bash 指令反模式（Anti-Patterns）
-
-## Anti-Pattern 1：過度複雜的單一指令
-
-判斷標準（complexity score：5 項中 >=2 項即過度，必須拆解）：
-1. 多行（heredoc / 反斜線續行）
-2. 巢狀引號（雙引號內含單引號，或 $(cmd "$VAR") 同型衝突）
-3. 內嵌其他語言（python -c / node -e / jq 多行表達式）
-4. 多層 if / elif / case 分支
-5. 複雜參數展開（${var//pattern/replace}、間接引用）
-
-不算過度：純 git workflow chain、線性工具串接（make lint && make test）。
-「&& 數量本身不是判斷項」。對策：拆 bash call / 寫 script / 換 jq|realpath 工具。
-黃金法則：永遠不要為了省一個 bash call 把多步邏輯擠進一行。
-
-## Anti-Pattern 2：bash 指令字串內含特殊 Unicode
-
-範圍：bash 指令本身的字元內容（echo 字串、變數值 literal、heredoc 內容）。
-不限制：bash 讀取的檔案內容、markdown 文件、code 註解、commit message。
-禁用：em dash（—）/ en dash（–）/ emoji / 零寬空白。
-替代：[SKIP] / [OK] / [WARN] / [FAIL] / -- / -
-
-## Anti-Pattern 3：Stateful cd
-
-cd <path> && cmd 三種危害，選對修法：
-- cd ... && git <cmd>         -> git -C <path> <cmd>（C 類 hook 攔）
-- cd ... && uv run            -> uv run --directory <path>（無 hook 攔，靜默盲點）
-- cd ... && cmd 2>/dev/null   -> 改絕對路徑，移除 cd（F1 類 hook 攔）
-
-完整方法論見 skill bash-anti-patterns。
-```
-
-### Rule 14：shell 引號衛生
-
-存成 `.claude/rules/14-shell-quoting-hygiene.md`：
+Store as `.claude/rules/13-bash-anti-patterns.md`:
 
 ```markdown
-# Shell Quoting Hygiene（引號衛生）
+# Bash Anti-Patterns
 
-Rule 1：$(cmd $VAR) 裡的 $VAR 一律加引號 -> "$VAR"（防 simple_expansion；注意：避免括號形式 "${VAR}"，見 Rule 5）
-Rule 2："$(cmd "$VAR")" 同型引號衝突 -> 拆成獨立 bash call（防 D 類）
-Rule 3：grep "pat\|pat2" 雙引號 BRE -> grep 'pat\|pat2'（防 D 類）
-Rule 4：$(outer "$(inner)") 反向巢狀 -> 拆成兩個獨立 bash call（防 D 類）
-Rule 5："${VAR}" 括號形式觸發 expansion false positive -> 改 "$VAR" plain form
+## Anti-Pattern 1: Overly Complex Single Command
 
-完整方法論與判斷流程見 skill bash-anti-patterns。
+Threshold (complexity score: >=2 of 5 = excessive, must decompose):
+1. Multi-line (heredoc / backslash continuation)
+2. Nested same-type quotes (double inside double, or $(cmd "$VAR") same-type conflict)
+3. Embedded other language (python -c / node -e / multi-line jq expression)
+4. Multiple if / elif / case branches
+5. Complex parameter expansion (${var//pattern/replace}, indirect refs)
+
+Not excessive: pure git workflow chains, linear tool chains (make lint && make test).
+"&& count alone is not the criterion." Fix: split bash call / write script / use jq|realpath.
+Golden rule: never cram multi-step logic into one line to save a bash call.
+
+## Anti-Pattern 2: Special Unicode in Bash Command Strings
+
+Scope: the character content of bash commands themselves (echo strings, variable literals, heredoc content).
+Not restricted: file content read/written by bash, markdown docs, code comments, commit messages.
+Banned: em dash (—) / en dash (–) / emoji / zero-width space.
+Replacements: [SKIP] / [OK] / [WARN] / [FAIL] / -- / -
+
+## Anti-Pattern 3: Stateful cd
+
+Three failure modes of cd <path> && cmd, each with a different fix:
+- cd ... && git <cmd>         -> git -C <path> <cmd>  (class C hook intercepts)
+- cd ... && uv run            -> uv run --directory <path>  (no hook; silent blind spot)
+- cd ... && cmd 2>/dev/null   -> use absolute path, remove cd  (class F1 hook intercepts)
+
+Full methodology: skill bash-anti-patterns.
 ```
 
-### Rule 15：不可逆操作邊界
+### Rule 14: shell quoting hygiene
 
-存成 `.claude/rules/15-irreversible-operations.md`：
+Store as `.claude/rules/14-shell-quoting-hygiene.md`:
 
 ```markdown
-# 不可逆操作邊界
+# Shell Quoting Hygiene
 
-以下操作不得由 agent 自主執行，必須先說明影響讓使用者確認：
+Rule 1: $VAR inside $(cmd $VAR) must always be quoted -> "$VAR" (prevents simple_expansion; avoid bracket form "${VAR}", see Rule 5)
+Rule 2: "$(cmd "$VAR")" same-type quote conflict -> split into separate bash call (prevents class D)
+Rule 3: grep "pat\|pat2" double-quote BRE -> grep 'pat\|pat2' (prevents class D)
+Rule 4: $(outer "$(inner)") reverse-nested subshell -> split into two separate bash calls (prevents class D)
+Rule 5: "${VAR}" bracket form triggers expansion false positive -> use "$VAR" plain form instead
 
-DB / Storage：alembic upgrade/downgrade、prisma migrate deploy、DROP/TRUNCATE/DELETE 無 WHERE
-Deployment：kubectl apply（prod）、terraform apply、gh release create、npm/uv publish
-Git：git push --force/-f、git reset --hard、shared branch rebase、git filter-branch
-File：rm -rf、find ... -delete、> 覆寫已存在檔案
-Cloud：aws s3 rm --recursive、gcloud compute instances delete
-
-標準回應格式：
-STOP：操作描述
-影響：<資源與範圍>
-回滾難度：高 / 中 / 低
-建議：<dry-run 指令 或 請使用者手動執行>
-
-完整清單與 v3 deny list backlog 見 skill bash-anti-patterns。
+Full methodology and decision flow: skill bash-anti-patterns.
 ```
 
-### 路徑 2：安裝 PreToolUse hooks（進階，機械性攔截）
+### Rule 15: irreversible operation boundaries
 
-加裝兩支 hook 可機械性阻擋最高頻的 AP1 / AP2 違規：
+Store as `.claude/rules/15-irreversible-operations.md`:
 
-1. 從本 repo 複製 hooks：
-   - AP1 hook：`.claude/hooks/bash-ap1-inline-check.sh`（攔截 python -c 多行 / osascript heredoc / grep BRE alternation / 反向巢狀 subshell）
-   - AP2 hook：`.claude/hooks/bash-ap2-check.py` 或 `hooks/pre-tool-use-bash-unicode.sh`（攔截 Unicode）
+```markdown
+# Irreversible Operation Boundaries
 
-2. 在 `.claude/settings.json` 加入：
+The following operations must not be executed autonomously by the agent.
+Explain the impact and wait for user confirmation first:
+
+DB / Storage: alembic upgrade/downgrade, prisma migrate deploy, DROP/TRUNCATE/DELETE without WHERE
+Deployment: kubectl apply (prod), terraform apply, gh release create, npm/uv publish
+Git: git push --force/-f, git reset --hard, shared branch rebase, git filter-branch
+File: rm -rf, find ... -delete, > overwriting an existing file
+Cloud: aws s3 rm --recursive, gcloud compute instances delete
+
+Standard response format:
+STOP: <operation description>
+Impact: <resources affected and scope>
+Rollback difficulty: High / Medium / Low
+Recommendation: <dry-run command> or <ask user to run manually>
+
+Full list and v3 deny list backlog: skill bash-anti-patterns.
+```
+
+### Path 2: Install PreToolUse hooks (advanced — mechanical interception)
+
+Adding two hooks provides mechanical blocking of the highest-frequency AP1 / AP2 violations:
+
+1. Copy hooks from this repo:
+   - AP1 hook: `.claude/hooks/bash-ap1-inline-check.sh` (intercepts python -c multiline / osascript heredoc / grep BRE alternation / reverse-nested subshell)
+   - AP2 hook: `.claude/hooks/bash-ap2-check.py` or `hooks/pre-tool-use-bash-unicode.sh` (intercepts Unicode)
+
+2. Add to `.claude/settings.json`:
 
 ```json
 {
@@ -387,32 +390,33 @@ STOP：操作描述
 }
 ```
 
-AP3 / Rule 14 Rule 5 / Rule 15 的複雜度判斷靠 prompt rule 教學，不在 hook 範圍。
+AP3 / Rule 14 Rule 5 / Rule 15 complexity judgments are handled by prompt rules, not hooks.
 
-## exec wrapper 穿透 deny rule（2026-05）
+## exec wrapper Penetrates deny rule (2026-05)
 
-Claude Code `settings.json` 的 `permissions.deny` 清單現在可穿透以下 wrapper 指令：
+Claude Code `settings.json` `permissions.deny` rules now see through the following wrappers:
 
-| wrapper | 說明 |
-|---------|------|
-| `sudo` | 權限提升 |
-| `env` | 環境變數設定 |
-| `watch` | 週期執行 |
-| `ionice` | I/O 優先級設定 |
-| `setsid` | 新 session 執行 |
+| Wrapper | Description |
+|---------|-------------|
+| `sudo` | privilege escalation |
+| `env` | environment variable injection |
+| `watch` | periodic execution |
+| `ionice` | I/O priority setting |
+| `setsid` | new session execution |
 
-**重要**：以下寫法全部都會被 deny rule 攔截，不要誤以為 wrapper 能繞過：
+**Important**: all of the following are still intercepted by deny rules — do not assume wrappers bypass them:
 
 ```bash
-# 這類寫法也會被 deny rule 攔截
+# All of these are still blocked by deny rules
 sudo rm -rf /dangerous/path
 env DANGEROUS_VAR=1 bash script.sh
 watch -n1 bash -c "rm /tmp/files"
 ionice -c 3 rm -rf /path
 ```
 
-**使用者應善用此機制**：在 `settings.json` 設好 deny rule 後，即使 agent
-生成帶 wrapper 的指令，仍會被攔截。這是加強 Rule 15 不可逆操作防護的可靠手段：
+**For users**: once deny rules are configured in `settings.json`, even agent-generated commands
+with wrappers are intercepted. This is a reliable way to strengthen Rule 15 irreversible
+operation protection:
 
 ```json
 {
@@ -426,26 +430,29 @@ ionice -c 3 rm -rf /path
 }
 ```
 
-**對 agent 的影響**：被 deny rule 攔截時，agent 應停止並說明操作內容，
-請使用者確認後手動執行（Rule 15 標準行為），而非嘗試改用 wrapper 繞過。
+**For the agent**: when blocked by a deny rule, stop and explain the operation;
+ask the user to run it manually (Rule 15 standard behavior). Do not try to use wrappers
+to bypass the rule.
 
-## 為什麼會這樣（技術背景）
+## Why This Happens (Technical Background)
 
-Claude Code 的 bash tool 使用簡化 shell parser 而非完整的 bash AST parser：
+Claude Code's bash tool uses a simplified shell parser rather than a full bash AST parser:
 
-- Heredoc 內的 `#` 字元、引號巢狀超過一定深度，觸發 parser edge case
-- Unicode codepoint 在某些平台的 byte boundary 處理有 off-by-one bug
-- 這些問題與特定 bash 版本或 OS 無關，是 tool 層的限制
+- `#` characters inside heredocs, and quote nesting beyond a certain depth, trigger parser edge cases
+- Unicode codepoints at certain byte boundaries have off-by-one bugs on some platforms
+- These issues are unrelated to specific bash versions or OS — they are tool-layer limitations
 
-不需深究實作細節——記住判斷標準與對策就夠。
+No need to understand the implementation details — knowing the threshold and fix is enough.
 
-## 與本 repo 的關係
+## Relationship to This Repo
 
-本 skill 為跨專案完整版。yibi-stack repo 內的三個 rule 檔是精簡子集：
+This skill is the complete cross-project version. The three rule files in yibi-stack are
+a condensed subset:
 
-- `.claude/rules/13-bash-anti-patterns.md`：AP1/AP2/AP3 判斷標準與速查
-- `.claude/rules/14-shell-quoting-hygiene.md`：五類引號錯誤 Rules 1-5
-- `.claude/rules/15-irreversible-operations.md`：五類不可逆操作邊界
+- `.claude/rules/13-bash-anti-patterns.md`: AP1/AP2/AP3 thresholds and quick reference
+- `.claude/rules/14-shell-quoting-hygiene.md`: five quoting error types, Rules 1-5
+- `.claude/rules/15-irreversible-operations.md`: five categories of irreversible operation boundaries
 
-維護紀律：改 rule 核心判斷標準時必須同步 skill；改 skill 增加範例或技術背景時，
-不一定要改 rule。三個 rule 可各自獨立維護，互不依賴。
+Maintenance discipline: when changing core threshold criteria in a rule, sync the skill;
+when adding examples or technical background to the skill, the rule does not need to change.
+The three rules can each be maintained independently.
