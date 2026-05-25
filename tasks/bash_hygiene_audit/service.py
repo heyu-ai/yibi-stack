@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import subprocess  # nosec B404
+from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
-from .models import AuditRecord, AuditStats, Verdict
+from .models import AuditRecord, AuditStats, RepeatEvent, RepeatStats, Verdict
 
 
 def _find_log_path(project_root: Path | None = None) -> Path | None:
@@ -73,6 +75,72 @@ def compute_stats(records: list[AuditRecord]) -> AuditStats:
     if durations:
         stats.avg_duration_ms = sum(durations) / len(durations)
     return stats
+
+
+def compute_repeats(
+    records: list[AuditRecord],
+    top_n: int = 5,
+    token_per_repeat_estimate: int = 1500,
+) -> RepeatStats:
+    """計算同 session 同 command_hash 被 block >= 2 次的重複攔截統計。
+
+    token_per_repeat_estimate：每次「額外」block 的估算 token 浪費（不含第一次）。
+    時間浪費 = 同群組最後一筆 ts 減最早一筆 ts。
+    """
+    buckets: dict[tuple[str, str], list[AuditRecord]] = defaultdict(list)
+    for r in records:
+        if r.verdict == Verdict.BLOCK and r.session_id and r.command_hash:
+            buckets[(r.session_id, r.command_hash)].append(r)
+
+    repeat_events: list[RepeatEvent] = []
+    for (sid, h), rs in buckets.items():
+        if len(rs) < 2:
+            continue
+        sorted_rs = sorted(rs, key=lambda x: x.ts)
+        first = sorted_rs[0]
+        last_r = sorted_rs[-1]
+        try:
+            dt_first = datetime.fromisoformat(first.ts.replace("Z", "+00:00"))
+            dt_last = datetime.fromisoformat(last_r.ts.replace("Z", "+00:00"))
+            wasted_ms = int((dt_last - dt_first).total_seconds() * 1000)
+        except Exception:
+            wasted_ms = 0
+        # 額外 block 次數 = count - 1（第一次是正常觸發，從第二次起算浪費）
+        extra_blocks = len(rs) - 1
+        repeat_events.append(
+            RepeatEvent(
+                session_id=sid,
+                command_hash=h,
+                command_preview=first.cmd_snippet[:80],
+                block_reason=first.block_reason,
+                count=len(rs),
+                first_ts=first.ts,
+                last_ts=last_r.ts,
+                estimated_wasted_ms=wasted_ms,
+                estimated_wasted_tokens=extra_blocks * token_per_repeat_estimate,
+            )
+        )
+
+    repeat_events.sort(key=lambda e: -e.count)
+
+    total_blocks = sum(1 for r in records if r.verdict == Verdict.BLOCK)
+    repeated_blocks = sum(e.count for e in repeat_events)
+    repeat_rate = repeated_blocks / total_blocks if total_blocks else 0.0
+    reason_counts: dict[str, int] = defaultdict(int)
+    for e in repeat_events:
+        if e.block_reason:
+            reason_counts[e.block_reason] += e.count
+
+    return RepeatStats(
+        total_blocks=total_blocks,
+        repeated_blocks=repeated_blocks,
+        repeat_rate=repeat_rate,
+        unique_repeat_events=len(repeat_events),
+        total_wasted_ms=sum(e.estimated_wasted_ms for e in repeat_events),
+        total_wasted_tokens=sum(e.estimated_wasted_tokens for e in repeat_events),
+        top_offenders=repeat_events[:top_n],
+        by_reason=dict(reason_counts),
+    )
 
 
 def log_path(project_root: Path | None = None) -> Path | None:

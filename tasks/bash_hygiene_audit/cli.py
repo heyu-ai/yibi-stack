@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import click
 
 if TYPE_CHECKING:
-    from .models import AuditConfig
+    from .models import AuditConfig, RepeatStats
 
 _DISPLAY_COLS = 80
 
@@ -115,3 +115,113 @@ def stats() -> None:
         click.echo("--- by block_reason ---")
         for reason, cnt in sorted(s.by_reason.items(), key=lambda x: -x[1]):
             click.echo(f"  {reason}: {cnt}")
+
+
+def _print_repeat_stats(s: RepeatStats) -> None:  # noqa: F821
+    """重用的重複攔截報告輸出（audit log 與 transcript 路徑共用）。"""
+    if s.total_blocks == 0:
+        click.echo("（無 block 記錄）")
+        return
+    if s.unique_repeat_events == 0:
+        click.echo(f"總 block 次數：{s.total_blocks}")
+        click.echo("（無重複攔截）")
+        return
+    repeat_pct = s.repeat_rate * 100
+    click.echo(f"總 block 次數：{s.total_blocks}")
+    click.echo(f"重複攔截次數：{s.repeated_blocks}（{repeat_pct:.1f}%）")
+    click.echo(f"重複事件組數：{s.unique_repeat_events}")
+    wasted_sec = s.total_wasted_ms / 1000
+    click.echo(f"累積浪費時間：{wasted_sec:.1f} 秒")
+    click.echo(f"累積浪費 token：~{s.total_wasted_tokens:,} tokens")
+    if s.top_offenders:
+        click.echo("--- top 重複攔截熱點 ---")
+        for i, e in enumerate(s.top_offenders, 1):
+            sec = e.estimated_wasted_ms / 1000
+            cmd_preview = e.command_preview.replace("\n", " ")[:60]
+            click.echo(
+                f"  {i}. [{e.count}x] {e.block_reason or 'unknown'}"
+                f"  +{sec:.1f}s  ~{e.estimated_wasted_tokens:,}tk"
+            )
+            click.echo(f"     cmd: {cmd_preview}")
+    if s.by_reason:
+        click.echo("--- by block_reason ---")
+        for reason, cnt in sorted(s.by_reason.items(), key=lambda x: -x[1]):
+            click.echo(f"  {reason}: {cnt}")
+
+
+@cli.command()
+@click.option("--top", "-n", default=5, help="顯示前 N 名重複攔截熱點（預設 5）")
+@click.option(
+    "--token-estimate",
+    default=1500,
+    help="每次額外 block 估算的 token 浪費（預設 1500）",
+)
+def repeats(top: int, token_estimate: int) -> None:
+    """分析 hook 重複攔截：同 session 同 hash 被 block >= 2 次的次數與累積浪費。"""
+    from .service import compute_repeats, read_log
+
+    records = read_log(last=99999)
+    if not records:
+        click.echo("（無記錄）")
+        return
+    s = compute_repeats(records, top_n=top, token_per_repeat_estimate=token_estimate)
+    _print_repeat_stats(s)
+
+
+@cli.command(name="replay-transcripts")
+@click.option("--since-days", default=14, help="回溯天數（預設 14）")
+@click.option("--top", "-n", default=5, help="顯示前 N 名重複攔截熱點（預設 5）")
+@click.option(
+    "--token-estimate",
+    default=1500,
+    help="每次額外 block 估算的 token 浪費（預設 1500）",
+)
+@click.option("--project-slug", default=None, help="指定 project slug（預設自動偵測）")
+def replay_transcripts(
+    since_days: int, top: int, token_estimate: int, project_slug: str | None
+) -> None:
+    """從 Claude Code session transcript 回溯 hook block 事件並分析重複攔截。"""
+    import subprocess  # nosec B404
+
+    from .service import compute_repeats
+    from .transcript import scan_project_transcripts, transcripts_to_audit_records
+
+    if project_slug is None:
+        try:
+            import re
+
+            # 用 --git-common-dir 確保在 linked worktree 裡也能找到主 repo 路徑
+            result = subprocess.run(  # nosec B603 B607
+                ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode != 0:
+                click.echo("[FAIL] 無法偵測 git repo 路徑", err=True)
+                raise SystemExit(1)
+            from pathlib import Path as _Path
+
+            repo_path = str(_Path(result.stdout.strip()).parent)
+            # 把 /Users/howie/Workspace/... 轉成 -Users-howie-Workspace-...
+            # leading "/" 轉成 leading "-"，不要 lstrip
+            project_slug = re.sub(r"[/\\]", "-", repo_path)
+        except Exception as exc:
+            click.echo(f"[FAIL] 無法取得 project slug：{exc}", err=True)
+            raise SystemExit(1) from exc
+
+    click.echo(f"掃描 project：{project_slug}（最近 {since_days} 天）")
+    try:
+        events = scan_project_transcripts(project_slug=project_slug, since_days=since_days)
+    except RuntimeError as exc:
+        click.echo(f"[FAIL] {exc}", err=True)
+        raise SystemExit(1) from exc
+
+    if not events:
+        click.echo("（找不到 hook block 事件）")
+        return
+
+    click.echo(f"找到 hook block 事件：{len(events)} 筆")
+    records = transcripts_to_audit_records(events)
+    s = compute_repeats(records, top_n=top, token_per_repeat_estimate=token_estimate)
+    _print_repeat_stats(s)
