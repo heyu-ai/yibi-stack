@@ -210,25 +210,29 @@ rm -f /tmp/pr-body.md
 
 ---
 
-### Step 2 — Simplify
+### Step 2 — Code Review（缺陷偵測）
 
-執行 `/simplify` 對 PR 全部變更跑三向度 review（reuse / quality / efficiency）。
-先 simplify 讓程式碼進入最終形態，group review 才針對真實結果評審而非過渡狀態。
+執行 `/code-review`，掃描 PR 全部變更的正確性 bug：
 
-無改動 → 直接進 Step 3。
-有改動 → 作為**獨立 commit**（方便每位 reviewer 看 diff）：
-
-```bash
-git add -A
+```text
+/code-review
 ```
 
-```bash
-git commit -m "refactor(...): simplify per /simplify review"
+若需更嚴格審查，可指定 effort：
+
+```text
+/code-review high
 ```
 
-```bash
-git push
+選用：加 `--comment` 把 finding 直接貼成 GitHub PR inline comment：
+
+```text
+/code-review --comment
 ```
+
+- **無 finding** → 直接進 Step 3。
+- **有 finding** → 帶入 Step 6（Fix）與 mob review 結果一併處理。
+  `/code-review` **不修改程式碼**，finding 屬 review 意見，不需獨立 commit。
 
 ---
 
