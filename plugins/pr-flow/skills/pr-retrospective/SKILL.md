@@ -27,7 +27,7 @@ description: >
 | 情境 | 應使用 |
 |------|--------|
 | 週度工程回顧 | `/retro`（weekly engineering retrospective）|
-| 查詢歷史 lessons | `/learn search <keyword>` |
+| 查詢歷史 lessons | `/recall <keyword>` |
 | 對話中途交班 | `/handover`（工作中交班，非 session 收尾）|
 
 ---
@@ -164,7 +164,7 @@ gh pr diff "$PR_NUMBER" --name-only 2>/dev/null | head -30
 建議下一步動作：
 - [ ] 寫入規則文件（lesson N 是可重用規則）-> 依 Step 5 Lesson Classifier 路由到對應層
 - [ ] 新增 hook（lesson N 是應該被自動阻擋的 pattern）-> hookify:hookify
-- [ ] 查歷史 lesson（驗證是否重複犯）-> /learn search "<keyword>"
+- [ ] 查歷史 lesson（驗證是否重複犯）-> /recall "<keyword>"
 
 請回覆：
 - "OK" -- 全部採用
@@ -303,7 +303,7 @@ metadata / preference 類 lesson 本就適合 CLAUDE.md；若整體已過長，
 
 | Q5 勾選 | 動作 |
 |---|---|
-| 查歷史 lesson | `Skill(skill="learn", args="search '<Q1 keyword>'")` **自動執行** |
+| 查歷史 lesson | `Skill(skill="recall", args="<Q1 keyword>")` **自動執行** |
 | 寫入規則文件 | 依 Lesson Classifier 輸出建議：「lesson N 屬於 <類別>，建議 append 到 `.claude/rules/XX.md`（最相關段落後；不確定就 append 到檔尾）。草稿：`<draft text>`。用 Edit 工具直接寫入 rule 檔。」|
 | 新增 hook | 輸出建議文字：「執行 `hookify:hookify`，建議的 trigger：`<draft>`」|
 | 建立 skill | 輸出建議文字：「執行 `superpowers:writing-skills`，問題定義：`<Q4 lesson>`」|
@@ -381,6 +381,6 @@ PostToolUse hook 現在支援所有工具輸出替換（`hookSpecificOutput.upda
 | 我還沒 merge，能跑嗎？ | GATE，問是否強制（預設 No）|
 | 跑兩次同 PR 會重複寫入嗎？ | 會，Step 0 提示先前已有 retro |
 | handover-back 會看到我的 retro 嗎？ | 不會（已加 `--exclude-tags pr-retrospective`）|
-| 如何只看 PR retro？ | `/learn search "pr-retrospective"` 或 `lessons search "pr-<n>"`|
+| 如何只看 PR retro？ | `/recall pr-retrospective` 或 `/recall "pr-<n>"`|
 | Agent 推論總是抓不到重點？ | iteration > 3 次後切換「請使用者直接給答案」模式 |
 | 想改寫已存在的 retro | append-only；建議寫新一筆並在 tags 加 `revised`；舊 retro 留存 |
