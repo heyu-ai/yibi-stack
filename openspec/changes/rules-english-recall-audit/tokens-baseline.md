@@ -17,14 +17,29 @@
 | `16-allowlist-hygiene.md` | 8,218 | 4,118 | 0.501 |
 | **TOTAL** | **39,718** | **21,352** | **0.538** |
 
-## Post-PR-C target
+## Post-PR-C actuals
+
+**Measured**: 2026-05-25 (after PR #77 merged)
+
+| Rule file | Chars | Tokens (post-PR-C) | t/char |
+|-----------|-------|-------------------|--------|
+| `01-language-and-tone.md` | 927 | 287 | 0.310 |
+| `02-error-and-import.md` | 2,445 | 635 | 0.260 |
+| `03-security.md` | 2,025 | 476 | 0.235 |
+| `13-bash-anti-patterns.md` | 27,156 | 7,496 | 0.276 |
+| `15-irreversible-operations.md` | 9,631 | 2,270 | 0.236 |
+| `16-allowlist-hygiene.md` | 9,361 | 2,528 | 0.270 |
+| **TOTAL** | **51,545** | **13,692** | **0.266** |
 
 | Metric | Value |
 |--------|-------|
 | Pre-PR-C total tokens | 21,352 |
-| Post-PR-C total tokens | TBD -- re-run after PR-C merges |
+| Post-PR-C total tokens | 13,692 |
+| Actual reduction | **35.9%** ✅ |
 | Target reduction | >= 30% |
 | Pass threshold | <= 14,946 tokens |
+
+Note: chars increased (~30%) because English prose expands some sections, but token density dropped from 0.538 to 0.266 t/char — consistent with CJK → English tokenizer savings.
 
 ## Notes
 
