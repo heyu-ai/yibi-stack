@@ -236,8 +236,7 @@ Claude Code 2.1.111 起內建 `/less-permission-prompts` skill，會掃描當前
 ```json
 "Bash(git *)",
 "Bash(npm *)",
-"Bash(uv *)",
-"Bash(curl *)"
+"Bash(uv *)"
 ```
 
 這些全部是**紅旗 2（指令動詞層 wildcard）**——覆蓋該 binary 的全部子命令，包含破壞性操作。
@@ -253,11 +252,12 @@ Claude Code 2.1.111 起內建 `/less-permission-prompts` skill，會掃描當前
 | 自動建議（紅旗） | 安全改寫 |
 |----------------|---------|
 | `Bash(git *)` | `Bash(git status:*)` / `Bash(git log:*)` / `Bash(git diff:*)` |
-| `Bash(npm *)` | `Bash(npm run *)` / `Bash(npm ls:*)` |
+| `Bash(npm *)` | `Bash(npm run:*)` / `Bash(npm ls:*)` |
 | `Bash(uv *)` | `Bash(uv run pytest:*)` / `Bash(uv sync)` |
-| `Bash(curl *)` | 改用 `WebFetch(domain:known.host)` |
 
 ### 絕對不要做
 
 **不可無腦「Yes, and don't ask again」接受 `/less-permission-prompts` 的全部建議。**
-自動掃描只看執行頻率，不看安全性——`rm *`、`git reset *`、`curl *` 如果執行夠頻繁也會出現在建議清單裡。
+工具嘗試過濾唯讀呼叫，但過濾不完整：`git reset *`、`curl *` 等語意模糊的命令仍可能出現。
+更關鍵的是：即使只列出「確實是唯讀」的呼叫，產生的 pattern 也可能是 `Bash(git *)`——
+動詞層 wildcard，覆蓋整個 binary 的全部子命令，包含破壞性操作。**頻率統計無法保證 pattern 安全。**

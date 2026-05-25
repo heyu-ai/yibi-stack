@@ -112,7 +112,7 @@ Claude Code 2.1.111 起有內建 `/less-permission-prompts` skill，兩者功能
 | **輸出** | block 記錄、違規熱點統計 | allowlist pattern 建議清單 |
 | **用途** | 診斷「hook 攔了什麼 / 有多頻繁」 | 減少重複出現的確認框 |
 
-**搭配使用流程**：先跑 `bash-hygiene-audit stats` 確認哪些指令最常被 allow（未 block）→
+**搭配使用流程**：先跑 `bash-hygiene-audit stats` 確認哪些 hook 最常攔截、違規熱點 pattern 為何 →
 再用 `/less-permission-prompts` 取得 allowlist 建議 → **照 rule 16 紅旗準則複查後**才套用。
 
 > 注意：`/less-permission-prompts` 依執行頻率產生建議，可能包含 `Bash(git *)` 等動詞層
