@@ -223,3 +223,41 @@ bash code block 被 agent 重寫」gotcha。
 allow-list pattern 不會比使用者預期更寬。任一單獨運作都會留下漏洞——只有 rule 13 / 14 但
 allow-list 過寬，agent 還是能執行未預期指令；只有 rule 16 但 bash 都是 fat command，
 pattern 永遠 match 不到，使用者被無止盡的確認框疲勞轟炸。
+
+## 內建 `/less-permission-prompts` 的使用警告
+
+Claude Code 2.1.111 起內建 `/less-permission-prompts` skill，會掃描當前 transcript 中常見的
+唯讀 Bash／MCP 呼叫，**自動產生一份排序過的 allowlist 建議**。使用前必須了解以下限制：
+
+### 自動建議常見的紅旗 pattern
+
+`/less-permission-prompts` 依執行頻率排序，因此高頻指令（如 `git`、`npm`、`uv`）容易產生：
+
+```json
+"Bash(git *)",
+"Bash(npm *)",
+"Bash(uv *)"
+```
+
+這些全部是**紅旗 2（指令動詞層 wildcard）**——覆蓋該 binary 的全部子命令，包含破壞性操作。
+
+### 正確使用流程
+
+1. 執行 `/less-permission-prompts` 取得建議清單
+2. **逐一用本 rule 的紅旗準則（1–5）複查每個 pattern**
+3. 通過檢查的 pattern 才 approve；不通過的**手動改寫**後再加入
+
+改寫範例：
+
+| 自動建議（紅旗） | 安全改寫 |
+|----------------|---------|
+| `Bash(git *)` | `Bash(git status:*)` / `Bash(git log:*)` / `Bash(git diff:*)` |
+| `Bash(npm *)` | `Bash(npm run:*)` / `Bash(npm ls:*)` |
+| `Bash(uv *)` | `Bash(uv run pytest:*)` / `Bash(uv sync)` |
+
+### 絕對不要做
+
+**不可無腦「Yes, and don't ask again」接受 `/less-permission-prompts` 的全部建議。**
+工具嘗試過濾唯讀呼叫，但過濾不完整：`git reset *`、`curl *` 等語意模糊的命令仍可能出現。
+更關鍵的是：即使只列出「確實是唯讀」的呼叫，產生的 pattern 也可能是 `Bash(git *)`——
+動詞層 wildcard，覆蓋整個 binary 的全部子命令，包含破壞性操作。**頻率統計無法保證 pattern 安全。**

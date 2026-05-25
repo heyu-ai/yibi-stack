@@ -101,6 +101,23 @@ uv run --directory "$SKILL_REPO" python -m tasks.bash_hygiene_audit stats
   grep-bre-doublequote: 1
 ```
 
+## 與內建 `/less-permission-prompts` 的分工
+
+Claude Code 2.1.111 起有內建 `/less-permission-prompts` skill，兩者功能不同，**互補而非替代**：
+
+| | `bash-hygiene-audit` | `/less-permission-prompts` |
+|-|---------------------|--------------------------|
+| **目的** | 記錄 hook 攔截事件，分析哪些指令被 block | 掃描 transcript，建議哪些指令可加入 allowlist |
+| **資料來源** | `.runtime/logs/bash-hygiene-audit.jsonl` | 當前 session transcript |
+| **輸出** | block 記錄、違規熱點統計 | allowlist pattern 建議清單 |
+| **用途** | 診斷「hook 攔了什麼 / 有多頻繁」 | 減少重複出現的確認框 |
+
+**搭配使用流程**：先跑 `bash-hygiene-audit stats` 確認哪些 hook 最常攔截、違規熱點 pattern 為何 →
+再用 `/less-permission-prompts` 取得 allowlist 建議 → **照 rule 16 紅旗準則複查後**才套用。
+
+> 注意：`/less-permission-prompts` 依執行頻率產生建議，可能包含 `Bash(git *)` 等動詞層
+> wildcard（rule 16 紅旗 2）。**不可無腦接受**，必須手動改寫成 per-verb 精確 pattern。
+
 ## JSONL 記錄 Schema
 
 | 欄位 | 型別 | 說明 |
