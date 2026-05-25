@@ -74,7 +74,7 @@ test -f ~/.codex/auth.json && echo "AUTH: FILE_EXISTS" || echo "AUTH: NOT_AUTHED
 | Step | 內容 |
 |------|------|
 | 1 | 建立 PR（commit + push + gh pr create） |
-| 2 | Simplify（/simplify，作為獨立 commit） |
+| 2 | Code Review（/code-review，回報 bug，finding 進 Step 4 fix 迴圈） |
 | 3 | Parallel review（4 個 Claude agent） |
 | 4 | Fix（Critical → Important） |
 | 5 | Re-review |

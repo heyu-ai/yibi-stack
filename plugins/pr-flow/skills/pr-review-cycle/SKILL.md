@@ -3,7 +3,7 @@ name: pr-review-cycle
 type: know
 scope: global
 description: >
-  完整 PR 生命週期：從建立 PR 到 simplify → parallel review → fix → re-review → CI → merge → spectra archive + Jira sync。
+  完整 PR 生命週期：從建立 PR 到 code-review → parallel review → fix → re-review → CI → merge → spectra archive + Jira sync。
   觸發情境：「跑 PR cycle」「review 這個 PR」「pr-review-cycle」「完整 PR 流程」「jira sync」「spectra archive」
 ---
 
@@ -75,20 +75,29 @@ Delivered: <1 句話：diff 實際改了什麼>
 
 ---
 
-### Step 2 — Simplify
+### Step 2 — Code Review（缺陷偵測）
 
-執行 `/simplify`，對 PR 全部變更跑三個向度的 review（reuse / quality / efficiency）。
-先 simplify 讓程式碼進入最終形態，Review 才能針對真實結果評審，而非過渡狀態。
+執行 `/code-review`，掃描 PR 全部變更的正確性 bug：
 
-若 `/simplify` 無任何改動，略過 commit 直接進 Step 3。
-
-否則將改動作為**獨立 commit**，方便 reviewer 看 diff：
-
-```bash
-git add -A
-git commit -m "refactor(...): simplify per /simplify review"
-git push
+```text
+/code-review
 ```
+
+若需更嚴格審查，可指定 effort：
+
+```text
+/code-review high
+```
+
+選用：加 `--comment` 把 finding 直接貼成 GitHub PR inline comment：
+
+```text
+/code-review --comment
+```
+
+- **無 finding** → 直接進 Step 3。
+- **有 finding** → 帶入 Step 4（Fix）與 parallel review 結果一併處理。
+  `/code-review` **不修改程式碼**，finding 屬 review 意見，不需獨立 commit。
 
 ---
 
