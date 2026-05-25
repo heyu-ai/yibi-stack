@@ -99,6 +99,14 @@ Delivered: <1 句話：diff 實際改了什麼>
 - **有 finding** → 帶入 Step 4（Fix）與 parallel review 結果一併處理。
   `/code-review` **不修改程式碼**，finding 屬 review 意見，不需獨立 commit。
 
+> **Fallback（Claude Code < 2.1.146）**：若 `/code-review` 報 `Unknown skill: code-review`，
+> 改用 `pr-review-toolkit:code-reviewer` agent 替代（行為相同，純回報不修改程式碼）：
+>
+> ```text
+> Agent(subagent_type=pr-review-toolkit:code-reviewer,
+>       prompt="對本 PR 的所有 diff 做 code review，回報 bug / 規範合規 / 邏輯錯誤")
+> ```
+
 ---
 
 ### Step 3 — Parallel Review（平行啟動 4 個 agent）
