@@ -72,3 +72,60 @@ class AccountRegistry:
                 email = record.get("email")
                 return str(email) if email else None
         return None
+
+    def list_all(self, agent_type: str | None = None) -> list[dict[str, object]]:
+        """列出所有已登記帳號，可選依 agent_type 過濾。
+
+        Args:
+            agent_type: 若指定，只回傳符合的記錄；None 表示全部回傳。
+
+        Returns:
+            帳號記錄清單（每筆至少含 email / agent_type / registered_at）。
+        """
+        records = self._load()
+        if agent_type is None:
+            return records
+        return [r for r in records if r.get("agent_type") == agent_type]
+
+    def deregister(self, email: str, agent_type: str) -> bool:
+        """移除指定帳號的登記記錄。
+
+        Args:
+            email: 帳號 email。
+            agent_type: agent 類型（如 "claude"、"codex"）。
+
+        Returns:
+            True 代表成功移除，False 代表記錄不存在。
+        """
+        records = self._load()
+        before = len(records)
+        records = [
+            r for r in records
+            if not (r.get("email") == email and r.get("agent_type") == agent_type)
+        ]
+        if len(records) == before:
+            return False
+        self._save(records)
+        return True
+
+    def update_last_seen(self, email: str, agent_type: str) -> bool:
+        """更新指定帳號的 last_seen_at 時間戳記。
+
+        Args:
+            email: 帳號 email。
+            agent_type: agent 類型。
+
+        Returns:
+            True 代表成功更新，False 代表記錄不存在。
+        """
+        records = self._load()
+        now = datetime.now(UTC).astimezone().replace(microsecond=0).isoformat()
+        updated = False
+        for record in records:
+            if record.get("email") == email and record.get("agent_type") == agent_type:
+                record["last_seen_at"] = now
+                updated = True
+                break
+        if updated:
+            self._save(records)
+        return updated
