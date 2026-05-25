@@ -238,3 +238,9 @@ docs/superpowers/
 
 # Compiled binaries
 bin/
+
+# Temp scratch files
+tmp/
+
+# Antigravity CLI (agy) local state
+.antigravitycli/
