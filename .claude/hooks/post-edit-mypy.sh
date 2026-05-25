@@ -4,6 +4,8 @@
 # 輸入（stdin JSON）：
 #   tool_input.file_path  - 被編輯的檔案路徑
 #   duration_ms           - 工具執行時間（v2.1.133+）
+# 環境變數：
+#   CLAUDE_EFFORT         - 當前 session effort（v2.1.133+；未設定時 fallback normal）
 #
 # 流程：
 #   1. 讀 stdin JSON，解析 file_path 與 duration_ms
@@ -37,6 +39,8 @@ if [ "${DUR:-0}" -lt 100 ] 2>/dev/null; then
     exit 0
 fi
 
+# no [SKIP] message: this hook fires after every edit;
+# silence avoids stderr noise unlike the lower-frequency pre-commit.sh gate
 if [ "${CLAUDE_EFFORT:-normal}" = "low" ]; then
     exit 0
 fi
