@@ -598,10 +598,8 @@ def lessons_add(
                 timeout=5,
             )
             if result.returncode == 0:
-                from pathlib import Path as _Path
-
-                resolved_project = _Path(result.stdout.strip()).parent.name
-        except Exception:  # nosec B110 — best-effort git project detection; fallback is safe
+                resolved_project = Path(result.stdout.strip()).parent.name
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
     if not resolved_project:
         resolved_project = "unknown"
@@ -622,7 +620,8 @@ def lessons_add(
         result_data = add_lesson(record_data)
         click.echo(f"id={result_data['id']} trusted={result_data['trusted']}")
     except ValidationError as e:
-        click.echo(f"ValidationError: {e}", err=True)
+        msgs = "; ".join(err["msg"] for err in e.errors())
+        click.echo(f"ValidationError: {msgs}", err=True)
         raise SystemExit(1) from e
     except Exception as e:
         click.echo(f"錯誤：{e}", err=True)
@@ -672,6 +671,11 @@ def lessons_show(  # pylint: disable=too-many-arguments
         or not include_legacy
     )
     if _use_typed:
+        _insights_path = None
+        if include_insights:
+            from .config import INSIGHTS_JSONL_PATH as _INSIGHTS_PATH
+
+            _insights_path = _INSIGHTS_PATH
         rows_typed = show_lessons_typed(
             project=project,
             lesson_type=lesson_type,
@@ -680,6 +684,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
             trusted_only=trusted_only,
             cross_project=cross_project,
             include_legacy=include_legacy,
+            insights_path=_insights_path,
             limit=last,
         )
         if as_json:
@@ -764,6 +769,11 @@ def lessons_search(  # pylint: disable=too-many-arguments
         or not include_legacy
     )
     if _use_typed:
+        _insights_path = None
+        if include_insights:
+            from .config import INSIGHTS_JSONL_PATH as _INSIGHTS_PATH
+
+            _insights_path = _INSIGHTS_PATH
         rows_typed = search_lessons_typed(
             query=query,
             project=project,
@@ -773,6 +783,7 @@ def lessons_search(  # pylint: disable=too-many-arguments
             trusted_only=trusted_only,
             cross_project=cross_project,
             include_legacy=include_legacy,
+            insights_path=_insights_path,
             limit=last,
         )
         if as_json:

@@ -59,12 +59,15 @@ uv run --directory "$SKILL_REPO" \
 
 2. 執行搜尋（去掉 filter 關鍵字後的純搜尋詞）：
 
-```bash
-uv run --directory "$SKILL_REPO" \
-  python -m tasks.session_memory lessons search "$KEYWORD" \
-  --project "$PROJECT" --last 10 --include-legacy \
-  [--type pitfall] [--trusted-only] [--cross-project]
+依推斷的 filter，組合以下指令（`$KEYWORD` 替換為實際搜尋詞，可選 flag 視推斷結果加入）：
+
+```text
+uv run --directory "$SKILL_REPO" python -m tasks.session_memory lessons search \
+  <KEYWORD> --project "$PROJECT" --last 10 --include-legacy \
+  [可選：--type pitfall] [可選：--trusted-only] [可選：--cross-project]
 ```
+
+此為 prose 指引，不可直接執行。實際呼叫時，agent 應用變數替換後生成真實的 bash call。
 
 ### `/lessons ask` 或 arguments 含「記下」「我要寫一條」
 

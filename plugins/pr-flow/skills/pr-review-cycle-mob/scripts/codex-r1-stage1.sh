@@ -41,8 +41,17 @@ fi
 
 # codex outputs review to stderr; stdout is progress UI noise.
 # Use origin/<base> to get explicit remote SHA and avoid stale local ref.
-git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
-BASE_SHA=$(git rev-parse "origin/$BASE_BRANCH")
+# Strip leading "origin/" if already qualified to avoid "origin/origin/..." construction.
+FETCH_BRANCH="${BASE_BRANCH#origin/}"
+BASE_REF="origin/$FETCH_BRANCH"
+if ! git fetch origin "$FETCH_BRANCH" --quiet 2>/dev/null; then
+    echo "[FAIL] git fetch origin $FETCH_BRANCH 失敗，請確認 remote 連線" >&2
+    exit 1
+fi
+if ! BASE_SHA=$(git rev-parse "$BASE_REF" 2>/dev/null); then
+    echo "[FAIL] git rev-parse $BASE_REF 失敗，請確認 base branch 存在" >&2
+    exit 1
+fi
 
 if ! codex review --base "$BASE_SHA" -c 'model_reasoning_effort="high"' \
     > /dev/null \

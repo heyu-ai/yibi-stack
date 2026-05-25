@@ -159,6 +159,7 @@ class TestShowLessonsTyped:
         add_lesson(
             make_lesson_data(
                 key="dedup-grain",
+                ts="2026-01-01T00:00:00+00:00",
                 insight="pathlib rglob does not follow symlinks; use os.walk(followlinks=True)",
                 source=LessonSource.observed,
             ),
@@ -167,6 +168,7 @@ class TestShowLessonsTyped:
         add_lesson(
             make_lesson_data(
                 key="dedup-grain",
+                ts="2026-06-01T00:00:00+00:00",
                 insight="AP2 hook blocks Unicode in bash heredoc; use Write tool + redirect",
                 source=LessonSource.observed,
             ),
@@ -176,6 +178,10 @@ class TestShowLessonsTyped:
         rows = show_lessons_typed(project="yibi-stack", include_legacy=False, db_path=db_path)
         assert len(rows) == 1
         assert rows[0]["key"] == "dedup-grain"
+        assert (
+            rows[0]["insight"]
+            == "AP2 hook blocks Unicode in bash heredoc; use Write tool + redirect"
+        )
 
     def test_lsn_st_005_cross_project_only_trusted(self, tmp_path: Path) -> None:
         """LSN-ST-005: cross_project=True 只回傳 trusted=True 記錄"""
@@ -525,3 +531,137 @@ class TestLessonsCLI:
             runner.invoke(cli, ["lessons", "show", "--insights"])
         mock_show.assert_called_once()
         assert mock_show.call_args.kwargs.get("include_insights") is True
+
+
+class TestLessonsAddCLI:
+    """I2: lessons add CLI 測試（project 推斷、ValidationError、exception path）。"""
+
+    def test_lsn_add_001_happy_path_explicit_project(self, tmp_path: Path) -> None:
+        """LSN-ADD-001: 明確傳 --project 時正常寫入並回傳 id"""
+        db_path = tmp_path / "test.db"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "lessons",
+                "add",
+                "--type",
+                "pitfall",
+                "--key",
+                "test-add-key",
+                "--insight",
+                "explicit project add test insight content here",
+                "--confidence",
+                "7",
+                "--source",
+                "observed",
+                "--project",
+                "test-proj",
+            ],
+            env={"AGENTS_DB_PATH": str(db_path)},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "id=" in result.output
+
+    def test_lsn_add_002_git_inference_success(self, tmp_path: Path) -> None:
+        """LSN-ADD-002: git rev-parse 成功時 project 從 common-dir parent 推斷"""
+        db_path = tmp_path / "test.db"
+        runner = CliRunner()
+        fake_git_dir = str(tmp_path / "my-project" / ".git")
+        import subprocess as _sp
+
+        fake_result = _sp.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=fake_git_dir + "\n",
+            stderr="",
+        )
+        with patch("subprocess.run", return_value=fake_result):
+            result = runner.invoke(
+                cli,
+                [
+                    "lessons",
+                    "add",
+                    "--type",
+                    "pattern",
+                    "--key",
+                    "inferred-proj-key",
+                    "--insight",
+                    "git inference test insight content minimum length",
+                    "--confidence",
+                    "5",
+                    "--source",
+                    "observed",
+                ],
+                env={"AGENTS_DB_PATH": str(db_path)},
+                catch_exceptions=False,
+            )
+        assert result.exit_code == 0, result.output
+
+    def test_lsn_add_003_git_inference_failure_falls_back_to_unknown(self, tmp_path: Path) -> None:
+        """LSN-ADD-003: git rev-parse 失敗（returncode != 0）時 project fallback 為 unknown"""
+        db_path = tmp_path / "test.db"
+        runner = CliRunner()
+        import subprocess as _sp
+
+        fake_result = _sp.CompletedProcess(
+            args=[], returncode=128, stdout="", stderr="not a git repo"
+        )
+        with patch("subprocess.run", return_value=fake_result):
+            result = runner.invoke(
+                cli,
+                [
+                    "lessons",
+                    "add",
+                    "--type",
+                    "pitfall",
+                    "--key",
+                    "fallback-unknown-key",
+                    "--insight",
+                    "git inference failure test insight content here",
+                    "--confidence",
+                    "4",
+                    "--source",
+                    "observed",
+                ],
+                env={"AGENTS_DB_PATH": str(db_path)},
+                catch_exceptions=False,
+            )
+        assert result.exit_code == 0, result.output
+
+    def test_lsn_add_004_validation_error_bad_type(self, tmp_path: Path) -> None:
+        """LSN-ADD-004: 非法 --type 值觸發 ValidationError exit 1"""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "lessons",
+                "add",
+                "--type",
+                "nonexistent-type",
+                "--key",
+                "bad-type-key",
+                "--insight",
+                "validation error test insight content here",
+                "--confidence",
+                "5",
+                "--source",
+                "observed",
+                "--project",
+                "test-proj",
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 1
+        assert "ValidationError" in result.output or "ValidationError" in (result.stderr or "")
+
+
+class TestDecayTimezoneNaive:
+    """NIT: _apply_decay 對 timezone-naive timestamp 的處理路徑。"""
+
+    def test_lsn_decay_naive_ts_treated_as_utc(self) -> None:
+        """LSN-DECAY-001: naive timestamp 補 UTC 後正確計算衰減"""
+        now = datetime(2026, 6, 25, tzinfo=UTC)
+        result = _apply_decay(8, "observed", "2026-04-26T00:00:00", now=now)
+        assert result == 6

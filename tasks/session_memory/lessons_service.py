@@ -13,7 +13,7 @@ from typing import Any
 # 確保 limit 語意為「回傳教訓條目數」而非「掃描 handover 記錄數」
 _SEARCH_INTERNAL_LIMIT = 500
 
-# Insight 注入保護：10 條 case-insensitive regex（來源對照 gstack-learnings-log:53-64）
+# Insight 注入保護：10 條 case-insensitive regex
 INJECTION_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"ignore.*previous.*(instructions|context|rules)", re.IGNORECASE),
     re.compile(r"you are now", re.IGNORECASE),
@@ -137,13 +137,25 @@ def show_lessons_typed(  # pylint: disable=too-many-arguments
         results.append({**row, "effective_confidence": eff})
 
     if include_legacy:
+        _trusted_only = trusted_only or cross_project
         results.extend(
-            _load_legacy_lessons(db_path=db_path, project=project, cross_project=cross_project)
+            _load_legacy_lessons(
+                db_path=db_path,
+                project=project,
+                cross_project=cross_project,
+                trusted_only=_trusted_only,
+                with_decay=with_decay,
+            )
         )
         if insights_path is not None:
             resolved = Path(insights_path)
             results.extend(
-                _load_insights_as_typed(resolved, project=project, cross_project=cross_project)
+                _load_insights_as_typed(
+                    resolved,
+                    project=project,
+                    cross_project=cross_project,
+                    trusted_only=_trusted_only,
+                )
             )
 
     deduped = _dedup_latest_winner(results)
@@ -197,15 +209,23 @@ def search_lessons_typed(  # pylint: disable=too-many-arguments
         results.append({**row, "effective_confidence": eff})
 
     if include_legacy:
+        _trusted_only = trusted_only or cross_project
         for entry in _load_legacy_lessons(
-            db_path=db_path, project=project, cross_project=cross_project
+            db_path=db_path,
+            project=project,
+            cross_project=cross_project,
+            trusted_only=_trusted_only,
+            with_decay=with_decay,
         ):
             if q in entry.get("insight", "").lower() or q in entry.get("key", "").lower():
                 results.append(entry)
         if insights_path is not None:
             resolved = Path(insights_path)
             for entry in _load_insights_as_typed(
-                resolved, project=project, cross_project=cross_project
+                resolved,
+                project=project,
+                cross_project=cross_project,
+                trusted_only=_trusted_only,
             ):
                 if q in entry.get("insight", "").lower():
                     results.append(entry)
@@ -219,8 +239,13 @@ def _load_legacy_lessons(
     db_path: str | Path | None,
     project: str | None,
     cross_project: bool = False,
+    trusted_only: bool = False,
+    with_decay: bool = True,
 ) -> list[dict[str, Any]]:
     """從 handovers.lessons_learned 讀取 legacy 教訓，正規化為 typed-like dict。"""
+    if trusted_only:
+        return []  # legacy items 永遠 trusted=False，無法滿足 trusted_only 要求
+
     from .db import AgentsDB
 
     db = AgentsDB(db_path=db_path)
@@ -236,6 +261,8 @@ def _load_legacy_lessons(
     for row in rows:
         ts = row.get("timestamp", "")
         proj = row.get("project") or project or ""
+        topic = row.get("topic", "")
+        eff = _apply_decay(5, "observed", ts) if with_decay else 5
         for item in row.get("lessons_learned", []):
             text = item.get("insight") if isinstance(item, dict) else str(item) if item else ""
             if not text:
@@ -250,9 +277,10 @@ def _load_legacy_lessons(
                     "confidence": 5,
                     "source": "observed",
                     "trusted": False,
-                    "effective_confidence": 5,
+                    "effective_confidence": eff,
                     "_legacy": True,
                     "_legacy_source": "handover",
+                    "_context": topic,
                 }
             )
         for item in row.get("attempted_approaches", []):
@@ -269,9 +297,10 @@ def _load_legacy_lessons(
                     "confidence": 5,
                     "source": "observed",
                     "trusted": False,
-                    "effective_confidence": 5,
+                    "effective_confidence": eff,
                     "_legacy": True,
                     "_legacy_source": "handover-approach",
+                    "_context": topic,
                 }
             )
     return result
@@ -281,8 +310,12 @@ def _load_insights_as_typed(
     path: Path,
     project: str | None,
     cross_project: bool = False,
+    trusted_only: bool = False,
 ) -> list[dict[str, Any]]:
     """從 insights.jsonl 讀取，正規化為 typed-like dict。"""
+    if trusted_only:
+        return []  # insight items 永遠 trusted=False，無法滿足 trusted_only 要求
+
     if not path.exists():
         return []
 
@@ -319,7 +352,10 @@ def _load_insights_as_typed(
                         "_context": entry.get("session_id", ""),
                     }
                 )
-    except OSError:
+    except OSError as e:
+        import sys
+
+        print(f"[WARN] insights.jsonl 讀取失敗：{e}", file=sys.stderr)
         return []
     return results
 
@@ -336,8 +372,6 @@ def show_lessons(
     委託 show_lessons_typed（include_legacy=True, with_decay=False, min_confidence=1）
     並映射回舊 dict 格式，保持 backward compat。
     """
-    from .config import INSIGHTS_JSONL_PATH
-
     _insights = insights_path if include_insights else None
     if include_insights and _insights is None:
         from .config import INSIGHTS_JSONL_PATH
@@ -358,7 +392,7 @@ def show_lessons(
     for row in typed_rows:
         if row.get("_legacy"):
             src = row.get("_legacy_source", "handover")
-            ctx = row.get("_context", "") if src == "insight" else ""
+            ctx = row.get("_context", "")
             results.append(
                 {
                     "source": src,
@@ -416,7 +450,7 @@ def search_lessons(
     for row in typed_rows:
         if row.get("_legacy"):
             src = row.get("_legacy_source", "handover")
-            ctx = row.get("_context", "") if src == "insight" else ""
+            ctx = row.get("_context", "")
             results.append(
                 {
                     "source": src,

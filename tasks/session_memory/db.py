@@ -594,6 +594,12 @@ def _decode_lesson_row(row: sqlite3.Row) -> dict[str, Any]:
         try:
             out["files"] = json.loads(raw)
         except json.JSONDecodeError:
+            import sys
+
+            print(
+                f"[WARN] lesson id={out.get('id', '?')} files 欄位 JSON 損壞，reset 為 []",
+                file=sys.stderr,
+            )
             out["files"] = []
     out["trusted"] = bool(out.get("trusted", 0))
     return out
