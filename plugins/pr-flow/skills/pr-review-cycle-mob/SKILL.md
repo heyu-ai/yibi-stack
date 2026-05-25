@@ -396,6 +396,9 @@ agy 不接受 stdin prompt + diff path 的多檔組合，先串成單一檔：
 > - **[安全性] `--sandbox` 信任邊界**：此 flag 限制 agy 的工具存取範圍，是避免 agentic mode 的必要措施。
 >   若 PR diff 來自外部 fork 或不信任來源，diff 中的惡意指令可能被 agy auto-approve（prompt injection 風險）。
 >   本 skill 預設 PR 來自受信任 repo；對外部 fork 執行 mob review 時，操作者需自行評估此風險。
+> **執行說明**：腳本已將 stderr 寫到 `$REVIEW_DIR/gemini-r1.stage1.log`，stdout 僅輸出
+> "agy R1 Stage 1 complete"。**直接執行即可，不要外加 `> $CLAUDE_JOB_DIR/foo.log 2>&1` 捕捉**——
+> 失敗時 Read `$REVIEW_DIR/gemini-r1.stage1.log` 即可看完整錯誤。
 
 ```bash
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage1.sh
@@ -404,6 +407,10 @@ bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage1.sh
 `agy` 自動選擇最佳模型（無 `-m` flag），不需手動指定。如需固定模型，可在 `~/.gemini/antigravity-cli/settings.json` 設定 `defaultModel`。Raw 輸出落地到 `gemini-r1-raw.md`，**不在主 context 讀取**。
 
 ###### Stage 2：Extract（agy 自動選輕量模型萃取 JSON）
+
+> **執行說明**：腳本已將 stderr 寫到 `$REVIEW_DIR/gemini-r1.extract.log`，stdout 僅輸出
+> "agy R1 Stage 2 complete"。**直接執行即可，不要外加 `> $CLAUDE_JOB_DIR/foo.log 2>&1` 捕捉**——
+> 失敗時 Read `$REVIEW_DIR/gemini-r1.extract.log` 即可看完整錯誤。
 
 ```bash
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage2.sh
