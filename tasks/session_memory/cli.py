@@ -807,5 +807,99 @@ def debug_list(last: int, project: str | None) -> None:
             click.echo(f"  標籤：{', '.join(r.prevention_tags)}")
 
 
+# ─── tags ────────────────────────────────────────────────────────────────
+
+
+@cli.group()
+def tags() -> None:
+    """Tag 管理：列表、統計、更名、清除。"""
+
+
+@tags.command("list")
+@click.option("--db", "db_path", default=None, help="覆寫 DB 路徑（測試用）")
+def tags_list(db_path: str | None) -> None:
+    """列出所有已使用的 tag（去重排序）。"""
+    from .tags_service import list_all_tags
+
+    path = Path(db_path) if db_path else None
+    all_tags = list_all_tags(db_path=path)
+    if not all_tags:
+        click.echo("(尚無任何 tag 記錄)")
+        return
+    for tag in all_tags:
+        click.echo(tag)
+
+
+@tags.command("stats")
+@click.option("--top", "top_n", default=None, type=int, help="只顯示最常用的前 N 個 tag")
+@click.option("--db", "db_path", default=None, help="覆寫 DB 路徑（測試用）")
+def tags_stats(top_n: int | None, db_path: str | None) -> None:
+    """顯示 tag 使用統計（count 降序）。"""
+    from .tags_service import get_tag_stats
+
+    path = Path(db_path) if db_path else None
+    stats = get_tag_stats(db_path=path, top_n=top_n)
+
+    if not stats.entries:
+        click.echo("(尚無任何 tag 記錄)")
+        return
+
+    click.echo(f"共 {stats.total_unique_tags} 個 tag，覆蓋 {stats.total_handovers_with_tags} 筆 handover")
+    click.echo("─" * 50)
+    for entry in stats.entries:
+        projects_str = f" [{', '.join(entry.projects[:3])}]" if entry.projects else ""
+        click.echo(f"  {entry.count:4d}  {entry.tag}{projects_str}")
+
+
+@tags.command("rename")
+@click.argument("old_tag")
+@click.argument("new_tag")
+@click.option("--db", "db_path", default=None, help="覆寫 DB 路徑（測試用）")
+@click.option("--yes", "confirmed", is_flag=True, help="跳過確認提示")
+def tags_rename(old_tag: str, new_tag: str, db_path: str | None, confirmed: bool) -> None:
+    """將所有 handover 記錄中的 OLD_TAG 更名為 NEW_TAG。"""
+    from .tags_service import rename_tag
+
+    if not confirmed:
+        if not click.confirm(f"確認將 tag '{old_tag}' 更名為 '{new_tag}'？"):
+            click.echo("已取消")
+            return
+
+    path = Path(db_path) if db_path else None
+    try:
+        n = rename_tag(old_tag, new_tag, db_path=path)
+    except ValueError as e:
+        click.echo(f"✗ {e}", err=True)
+        raise SystemExit(1) from e
+
+    if n == 0:
+        click.echo(f"(找不到含 '{old_tag}' 的 handover 記錄)")
+    else:
+        click.echo(f"✓ 已更新 {n} 筆 handover：'{old_tag}' → '{new_tag}'")
+
+
+@tags.command("purge")
+@click.argument("tag")
+@click.option("--db", "db_path", default=None, help="覆寫 DB 路徑（測試用）")
+@click.option("--yes", "confirmed", is_flag=True, help="跳過確認提示（不可逆操作）")
+def tags_purge(tag: str, db_path: str | None, confirmed: bool) -> None:
+    """刪除所有含指定 TAG 的 handover 記錄（不可逆）。"""
+    from .tags_service import purge_tag
+
+    if not confirmed:
+        click.echo(f"[警告] 此操作將永久刪除所有含 tag '{tag}' 的 handover 記錄，無法復原。")
+        if not click.confirm("確認繼續？"):
+            click.echo("已取消")
+            return
+
+    path = Path(db_path) if db_path else None
+    n = purge_tag(tag, db_path=path)
+
+    if n == 0:
+        click.echo(f"(找不到含 '{tag}' 的 handover 記錄，未刪除任何資料)")
+    else:
+        click.echo(f"✓ 已刪除 {n} 筆含 tag '{tag}' 的 handover 記錄")
+
+
 if __name__ == "__main__":
     cli()

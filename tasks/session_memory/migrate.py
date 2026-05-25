@@ -185,3 +185,70 @@ def _append_jsonl(record: HandoverRecord, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record.model_dump(mode="json"), ensure_ascii=False) + "\n")
+
+
+def ensure_tag_index(db_path: Path | None = None) -> bool:
+    """確保 handovers.tags 欄位的 SQLite index 存在。
+
+    schema v1.1 新增：tags 全文 LIKE 查詢在大型 DB（>10k 筆）下沒有 index 會全表掃描。
+    此函式作為 migration step，已存在時為 no-op（冪等）。
+
+    Args:
+        db_path: 覆寫預設 DB 路徑（測試用）。
+
+    Returns:
+        True 表示 index 已存在或成功建立；False 表示 DB 不存在（跳過）。
+    """
+    from .config import HANDOVER_DB_PATH as _DEFAULT_DB_PATH
+
+    path = db_path or _DEFAULT_DB_PATH
+    if not path.exists():
+        return False
+
+    conn = None
+    try:
+        conn = __import__("sqlite3").connect(str(path))
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_handovers_tags_fts ON handovers(tags)"
+        )
+        conn.commit()
+        return True
+    finally:
+        if conn:
+            conn.close()
+
+
+def rebuild_tags_index(db_path: Path | None = None) -> dict[str, int]:
+    """重建 tags LIKE 統計快取（用於 CLI tags stats 加速）。
+
+    掃描所有 handover 記錄，計算各 tag 的使用頻率，寫入
+    ~/.agents/_cache/tags_index.json。
+
+    Args:
+        db_path: 覆寫預設 DB 路徑（測試用）。
+
+    Returns:
+        tag -> count 的 dict，按 count 降序排列。
+    """
+    import json as _json
+
+    from .config import AGENTS_HOME
+    from .db import AgentsDB
+
+    db = AgentsDB(db_path)
+    try:
+        db.init_db()
+        tag_rows = db.get_tag_usage()
+    finally:
+        db.close()
+
+    index = {row["tag"]: row["count"] for row in tag_rows}
+
+    cache_dir = AGENTS_HOME / "_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / "tags_index.json"
+    cache_path.write_text(
+        _json.dumps(index, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return index
