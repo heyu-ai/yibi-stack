@@ -13,7 +13,7 @@ _MAX_SCAN_DEPTH = 5
 
 
 def _has_factory_helpers(test_file: Path) -> bool:
-    """測試是否含 column-0 的 `def make_` 行（縮排行與注釋行不計）。"""
+    """回傳 True 當測試含 column-0 的 `def make_` 行；其他任何前綴皆不符合。"""
     try:
         for line in test_file.read_text(encoding="utf-8", errors="ignore").splitlines():
             if line.startswith("def make_"):
@@ -42,9 +42,13 @@ def scan_testing(target_dir: Path) -> MechanicalFinding:
     findings: list[str] = []
     score = 0
 
+    _SEMANTIC_TARGET_LIMIT = 20
     test_files = _find_test_files(target_dir)
     factory_helper_files = [
         str(tf.relative_to(target_dir)) for tf in test_files if _has_factory_helpers(tf)
+    ]
+    semantic_targets = [
+        str(tf.relative_to(target_dir)) for tf in test_files[:_SEMANTIC_TARGET_LIMIT]
     ]
 
     if test_files:
@@ -85,6 +89,8 @@ def scan_testing(target_dir: Path) -> MechanicalFinding:
                     hook_str,
                 )
             )
+        except OSError as e:
+            findings.append(f"WARN: settings.json 無法讀取，略過 hook-test 連結偵測：{e}")
         except json.JSONDecodeError as e:
             findings.append(f"WARN: settings.json 格式錯誤，無法判斷 hook-test 連結：{e}")
 
@@ -100,5 +106,6 @@ def scan_testing(target_dir: Path) -> MechanicalFinding:
         score=score,
         max_score=_MECH_MAX,
         findings=findings,
+        semantic_targets=semantic_targets,
         extra={"factory_helper_files": factory_helper_files},
     )

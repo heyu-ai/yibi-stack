@@ -85,16 +85,18 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 - 觸發關鍵字豐富（description 含多個同義詞/情境；長度 ≤ 1,536 字元——超過啟動時警告）→ 1 分；超過上限 → 0
 - 跨組織分發友善（plugin manifest 完整 / 有 marketplace 設定）→ 1 分；若另有重型 skill（深度掃描/規格展開），設定 `effort:` frontmatter（2.1.149 確認生效）可確保得分；若無重型 skill，以 plugin manifest 完整性單獨評分
 
-**D5 語意（5 分）**：判斷測試有效性（三子項獨立評分，支援 partial credit）
+**D5 語意（5 分）**：判斷測試有效性（三子項，partial credit 可達，但有一項硬性 zero-gate）
 
-- **有意義的 assertion（2 分）**：測試含值比對（`assert x == y`）、型態比對（`isinstance`）或狀態比對，而非只斷言不拋例外或 `result is not None`。可觀察指標：有 `== / != / assertRaises / assertEqual` 或對 result 屬性的具體值比對。→ 2 分；僅存在性斷言 → 0
+**Zero-gate**：若「有意義的 assertion」子項 = 0（所有測試只做存在性斷言，如 `result is not None`，無任何值比對），整個語意分強制歸 0，不論其他子項得分。
+
+- **有意義的 assertion（2 分）**：測試含值比對（`assert x == y`）、型態比對（`isinstance`）或狀態比對，而非只斷言不拋例外或 `result is not None`。可觀察指標：有 `== / != / assertRaises / assertEqual` 或對 result 屬性的具體值比對。→ 2 分；僅存在性斷言 → 0（觸發 zero-gate）
 - **factory helper pattern（2 分）**：測試使用可重複利用的測試資料建構，而非全部硬編碼 inline。各語言判斷依據：
   - **Python**：有 module-level `def make_*()` function（行首 `def make_`）；或 `extra["factory_helper_files"]` 非空時可直接給 2 分
   - **TypeScript/JavaScript**：有 module-level `create*()` / `build*()` / `make*()` helper function
   - **Dart/Flutter**：有 `setUp()` callback 初始化共用 fixture，或測試間共用的命名工廠建構子
   - **Go**：有 package-level table-driven `cases` / `tests` 變數集中測試輸入
   → 2 分；所有測試直接硬編碼測試資料 → 0
-- **邊界條件覆蓋（1 分）**：測試套件含至少 3 種不同情境（success path、missing/invalid input、boundary condition），或 test ID 含 `EG-` 分類。→ 1 分；僅 happy path → 0
+- **邊界條件覆蓋（1 分）**：測試套件含至少 3 種不同情境（success path、missing/invalid input、boundary condition）且 test ID 含 `EG-` 分類。→ 1 分；僅 happy path → 0
 
 **D6 語意（4 分）**：從 git log 取樣 20 筆
 

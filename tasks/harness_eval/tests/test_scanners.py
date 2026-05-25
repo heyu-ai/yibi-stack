@@ -373,11 +373,11 @@ def make_test_dir(tmp_path: Path, test_content: str, filename: str = "test_sampl
 
 class TestScanTestingFactoryHelper:
     def test_factory_helper_column0_detected(self, tmp_path: Path) -> None:
-        """HEVAL-EG-001: column-0 `def make_` → factory_helper_files 非空。"""
+        """HEVAL-EG-001: column-0 `def make_` → factory_helper_files 含正確相對路徑。"""
         content = "def make_scan_profile(**kwargs):\n    return {}\n\ndef test_x(): pass\n"
         target = make_test_dir(tmp_path, content)
         result = scan_testing(target)
-        assert result.extra.get("factory_helper_files"), "factory_helper_files 應非空"
+        assert result.extra.get("factory_helper_files") == ["tests/test_sample.py"]
 
     def test_factory_helper_indented_ignored(self, tmp_path: Path) -> None:
         """HEVAL-EG-002: 縮排 `def make_`（方法）→ 不計入 factory_helper_files。"""
@@ -419,6 +419,25 @@ class TestScanTestingFactoryHelper:
         result = scan_testing(target)
         assert result.max_score == 7
         assert result.score == 3  # 只有測試存在，無 CI 無 hook
+
+    def test_factory_helper_oserror_skipped(self, tmp_path: Path) -> None:
+        """HEVAL-EG-007: 無法讀取的測試檔案 → 靜默跳過，factory_helper_files 為空。"""
+        content = "def make_x(): pass\n"
+        target = make_test_dir(tmp_path, content)
+        test_file = target / "tests" / "test_sample.py"
+        test_file.chmod(0o000)
+        try:
+            result = scan_testing(target)
+            assert result.extra["factory_helper_files"] == []
+        finally:
+            test_file.chmod(0o644)
+
+    def test_semantic_targets_populated(self, tmp_path: Path) -> None:
+        """HEVAL-EG-008: test files 存在時 semantic_targets 含相對路徑。"""
+        content = "def test_x(): pass\n"
+        target = make_test_dir(tmp_path, content)
+        result = scan_testing(target)
+        assert result.semantic_targets == ["tests/test_sample.py"]
 
 
 class TestScanTesting:

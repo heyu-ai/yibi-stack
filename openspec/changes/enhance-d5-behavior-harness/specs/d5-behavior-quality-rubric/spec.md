@@ -111,7 +111,7 @@ The recommendation SHALL NOT appear when D5 total >= 4.
 
 #### Scenario: mutmut recommendation triggered for low D5 score
 
-- **WHEN** D5 mechanical score is 3 (tests exist + CI, no hook-test link) and D5 semantic score is 0
+- **WHEN** D5 mechanical score is 3 (only tests exist, no CI, no hook-test link) and D5 semantic score is 0
 - **THEN** D5 total is 3 (< 4) and the TODO list includes the mutmut recommendation
 
 #### Scenario: no mutmut recommendation for adequate D5 score
