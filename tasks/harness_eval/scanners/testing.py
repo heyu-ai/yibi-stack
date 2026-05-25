@@ -12,6 +12,17 @@ _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "dist", "build", "
 _MAX_SCAN_DEPTH = 5
 
 
+def _has_factory_helpers(test_file: Path) -> bool:
+    """測試是否含 column-0 的 `def make_` 行（縮排行與注釋行不計）。"""
+    try:
+        for line in test_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.startswith("def make_"):
+                return True
+    except OSError:
+        pass
+    return False
+
+
 def _find_test_files(target_dir: Path) -> list[Path]:
     """掃描測試檔案，限制深度並跳過已知大型目錄以避免全樹遍歷效能問題。"""
     result: list[Path] = []
@@ -32,6 +43,10 @@ def scan_testing(target_dir: Path) -> MechanicalFinding:
     score = 0
 
     test_files = _find_test_files(target_dir)
+    factory_helper_files = [
+        str(tf.relative_to(target_dir)) for tf in test_files if _has_factory_helpers(tf)
+    ]
+
     if test_files:
         score += 3
         findings.append(f"測試檔案存在（{len(test_files)} 個）")
@@ -85,4 +100,5 @@ def scan_testing(target_dir: Path) -> MechanicalFinding:
         score=score,
         max_score=_MECH_MAX,
         findings=findings,
+        extra={"factory_helper_files": factory_helper_files},
     )

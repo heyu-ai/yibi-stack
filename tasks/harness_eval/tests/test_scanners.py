@@ -364,6 +364,63 @@ class TestScanSkills:
         assert not any("frontmatter" in f and "缺少" in f for f in result.findings)
 
 
+def make_test_dir(tmp_path: Path, test_content: str, filename: str = "test_sample.py") -> Path:
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / filename).write_text(test_content, encoding="utf-8")
+    return tmp_path
+
+
+class TestScanTestingFactoryHelper:
+    def test_factory_helper_column0_detected(self, tmp_path: Path) -> None:
+        """HEVAL-EG-001: column-0 `def make_` → factory_helper_files 非空。"""
+        content = "def make_scan_profile(**kwargs):\n    return {}\n\ndef test_x(): pass\n"
+        target = make_test_dir(tmp_path, content)
+        result = scan_testing(target)
+        assert result.extra.get("factory_helper_files"), "factory_helper_files 應非空"
+
+    def test_factory_helper_indented_ignored(self, tmp_path: Path) -> None:
+        """HEVAL-EG-002: 縮排 `def make_`（方法）→ 不計入 factory_helper_files。"""
+        content = (
+            "class TestFoo:\n"
+            "    def make_scan_result(self):\n"
+            "        return {}\n\n"
+            "    def test_x(self): pass\n"
+        )
+        target = make_test_dir(tmp_path, content)
+        result = scan_testing(target)
+        assert result.extra.get("factory_helper_files") == [], "縮排方法不應被計入"
+
+    def test_factory_helper_comment_ignored(self, tmp_path: Path) -> None:
+        """HEVAL-EG-003: 注釋行 `# def make_` → 不計入 factory_helper_files。"""
+        content = "# def make_profile():\n#     return {}\n\ndef test_x(): pass\n"
+        target = make_test_dir(tmp_path, content)
+        result = scan_testing(target)
+        assert result.extra.get("factory_helper_files") == [], "注釋行不應被計入"
+
+    def test_factory_helper_call_ignored(self, tmp_path: Path) -> None:
+        """HEVAL-EG-004: 呼叫表達式 `make_foo()` → 不計入 factory_helper_files。"""
+        content = "def test_x():\n    result = make_foo()\n    assert result\n"
+        target = make_test_dir(tmp_path, content)
+        result = scan_testing(target)
+        assert result.extra.get("factory_helper_files") == [], "呼叫表達式不應被計入"
+
+    def test_factory_helper_absent_returns_empty_list(self, tmp_path: Path) -> None:
+        """HEVAL-EG-005: 無 `def make_` → factory_helper_files 為空清單。"""
+        content = "def test_x():\n    assert 1 == 1\n"
+        target = make_test_dir(tmp_path, content)
+        result = scan_testing(target)
+        assert result.extra["factory_helper_files"] == []
+
+    def test_factory_helper_score_unchanged(self, tmp_path: Path) -> None:
+        """HEVAL-EG-006: factory_helper_files 不影響機械分（max 7）。"""
+        content = "def make_scan_profile():\n    return {}\n\ndef test_x(): pass\n"
+        target = make_test_dir(tmp_path, content)
+        result = scan_testing(target)
+        assert result.max_score == 7
+        assert result.score == 3  # 只有測試存在，無 CI 無 hook
+
+
 class TestScanTesting:
     def test_heval_dt_040_no_tests(self, tmp_path: Path) -> None:
         """HEVAL-DT-040: 無測試檔案 → score=0。"""
