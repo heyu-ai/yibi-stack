@@ -67,19 +67,23 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 **D2 語意（6 分）**：讀 settings.json hooks 區塊
 
 - 機械可自動化的事已用 hook 而非 CLAUDE.md 文字描述（lint/type-check/handover）→ >=80% → 3 分；50-79% → 2 分；<50% → 0
+  *2.1.133-2.1.150 新能力加分考量：`args` exec form（2.1.139，直接 spawn 程式不經 shell，避開引號地雷）、`continueOnBlock: true`（2.1.139，PostToolUse gate 後允許 agent 繼續工作流）、PostToolUse `duration_ms`（效能監控）有至少 1 項 → 此條目可給滿分即使整體覆蓋率略低*
 - hook 無靜默修改行為（transformer hook 必須有文件說明）→ 2 分；有但未記錄 → 0
-- reflection hook 真的會更新 CLAUDE.md（不只是寫 log）→ 1 分
+- reflection hook 使用現代 lifecycle event（Stop / SessionEnd / PreCompact）且實際寫回 CLAUDE.md 或 memory → 1 分；僅 log 不寫回 → 0
+  *PreCompact block（exit 2 或 `{"decision":"block"}`）防止重要工作被壓縮也計入此條目*
 
-**D3 語意（4 分）**：讀 settings.json permissions
+**D3 語意（4 分）**：讀 settings.json permissions + 進階設定
 
 - deny list 覆蓋完整（含 rm、force push、DB migration、`find -delete`）→ 4 分；部分覆蓋 → 2 分；僅 rm 或無 → 0
+  *`autoMode.hard_deny`（2.1.136）可補強 auto mode 下的覆蓋；但只在 auto mode 生效，非 auto mode 仍需完整 deny list*
 - 若 allow list 含萬用字元（`Bash(*)`）：此項直接扣為 0，並列 FAIL
+- *bonus note（不計入得分）：使用 `worktree.baseRef` / `worktree.bgIsolation` / `skillOverrides` / `disableSkillShellExecution`（2.1.133-2.1.150 新設定）中至少 2 項，可在 TODO 清單標注「已採用進階設定」*
 
 **D4 語意（4 分）**：讀抽樣 SKILL.md（最多 3 個）
 
 - 重複工作流有 skill 封裝（不用每次在 prompt 解釋步驟）→ 2 分
-- 觸發關鍵字豐富（description 含多個同義詞/情境）→ 1 分
-- 跨組織分發友善（plugin manifest 完整 / 有 marketplace 設定）→ 1 分
+- 觸發關鍵字豐富（description 含多個同義詞/情境；長度 ≤ 1,536 字元——超過啟動時警告）→ 1 分；超過上限 → 0
+- 跨組織分發友善（plugin manifest 完整 / 有 marketplace 設定）→ 1 分；若另有重型 skill（深度掃描/規格展開），設定 `effort:` frontmatter（2.1.149 確認生效）可確保得分；若無重型 skill，以 plugin manifest 完整性單獨評分
 
 **D5 語意（5 分）**：判斷驗證閉環
 

@@ -68,6 +68,10 @@ description: >
 | transformer vs gate 識別 | hook 是否修改 `updatedInput`（靜默改寫行為） | transformer hook 必須有文件說明其改寫邏輯 |
 | async 標記適當性 | 長跑任務（備份/日誌）有無 `"async": true` | 沒有 async 的長跑 hook 會阻塞 tool 執行 |
 | hook 層級來源 | user settings vs project config vs plugin | 同名 hook 有無衝突（後者覆蓋前者）|
+| **`args` exec form（2.1.139）** | hook command 是否使用 `args: ["script", "--flag"]` 陣列形式（不經 shell spawn）| 避開引號/subshell 地雷；路徑 placeholder 不需加引號 |
+| **`continueOnBlock`（2.1.139）** | PostToolUse gate hook 是否設定 `"continueOnBlock": true` | 允許 block 後把拒絕理由回饋 agent 並繼續 turn，而非強制中斷 |
+| **PostToolUse `duration_ms`** | hook script 是否讀取 `input.duration_ms` 做效能監控 | 識別緩慢工具；可依耗時決定是否 skip 重型檢查 |
+| **PreCompact block 設定** | PreCompact hook 是否設定 exit 2 或 `{"decision":"block"}` 防止壓縮 | 保護重要工作不被 context 壓縮打斷 |
 
 **關鍵 lifecycle event 類型對照表**（來源：Claude Code 架構文件）：
 
@@ -128,10 +132,13 @@ Claude Code 的 4 層 Permission 模型：
 
 | 檢查項目 | 評估方式 | 常見問題與修法 |
 |---|---|---|
-| deny 覆蓋高風險操作 | 檢查：rm -rf / git push --force / git reset --hard / DROP TABLE / alembic upgrade / find -delete | 缺一補一 |
+| deny 覆蓋高風險操作 | 檢查：rm -rf / git push --force / git reset --hard / DROP TABLE / alembic upgrade / find -delete | 缺一補一；`autoMode.hard_deny`（2.1.136）可設無條件封鎖補強 |
 | allow list 精確度 | 有無萬用字元（`Bash(*)`、`*`）| 改為具體工具名稱或 pattern |
 | bypass mode 使用 | `bypassPermissions` 有無合理 scope 限制 | bypass 不等於無安全：alwaysDeny 仍生效 |
 | MCP server 授權 | mcpServer 設定有無不必要的過寬授權 | 只給最小必要工具集 |
+| **`worktree.baseRef`（2.1.133+）** | settings.json 是否設定 `"worktree": {"baseRef": "fresh"}` | `fresh` 從 origin/main 建 worktree（最安全）；`head` 從 local HEAD（省 fetch）|
+| **`autoMode.hard_deny`（2.1.136）** | 是否設定 `autoMode: {hard_deny: [...]}` 無條件封鎖規則 | auto mode 下 hard_deny 不受使用者意圖或 allow 例外影響，適合保護生產環境 |
+| **`skillOverrides` / `disableSkillShellExecution`** | 是否使用這些進階設定做 per-project 客製化（2.1.133+）| `disableSkillShellExecution: true` 禁止 skill 執行 shell 指令，沙盒化執行環境 |
 
 **高風險操作 deny list 範本**（可直接複製到 settings.json）：
 
@@ -180,6 +187,8 @@ Claude Code 的 4 層 Permission 模型：
 | slash command 覆蓋 | `.claude/commands/*.md` 有無對應 skill 的快捷入口 | 高頻 skill 加對應 command |
 | **plugin 分發（v2 新增）** | `plugins/<name>/package.json` 是否存在；marketplace 設定是否完整 | Anthropic 建議用 plugin 作為「bundle skills + hooks + MCP」的分發單位；新工程師 day-one 即可裝 |
 | 錯誤隔離 | plugin 載入失敗不應影響其他 skill | 觀察 plugin lifecycle 設定 |
+| **description 長度上限** | 每個 SKILL.md 的 description 是否 ≤ 1,536 字元（超過會在啟動時警告）| 過長 description 影響 skill 發現效率；裁剪至關鍵觸發詞 |
+| **`effort:` frontmatter（2.1.149 確認生效）** | 重型 skill（深度掃描、規格展開、mob review）是否設定 `effort: medium` 或 `effort: high` | 缺少 effort: 的重型 skill 在 low session 誤觸發，導致結果品質不足；覆蓋呼叫端 effort |
 
 **觸發關鍵字豐富度範例**：
 
