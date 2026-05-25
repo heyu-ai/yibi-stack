@@ -9,7 +9,8 @@
 #   1. 讀 stdin JSON，解析 file_path 與 duration_ms
 #   2. 非 tasks/*.py 直接 exit 0
 #   3. duration_ms < 100 視為超短編輯，略過，減少雜訊
-#   4. 用 --directory 跑 mypy，輸出 error/note 行給 Claude
+#   4. CLAUDE_EFFORT=low 略過（快速 session 不需型別檢查）
+#   5. 用 --directory 跑 mypy，輸出 error/note 行給 Claude
 
 set -euo pipefail
 
@@ -33,6 +34,11 @@ case "$FILE" in
 esac
 
 if [ "${DUR:-0}" -lt 100 ] 2>/dev/null; then
+    exit 0
+fi
+
+EFFORT=${CLAUDE_EFFORT:-normal}
+if [ "$EFFORT" = "low" ]; then
     exit 0
 fi
 
