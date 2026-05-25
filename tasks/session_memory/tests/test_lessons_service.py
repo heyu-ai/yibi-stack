@@ -1,8 +1,9 @@
-"""測試 lessons_service：show_lessons、search_lessons。"""
+"""測試 lessons_service：show_lessons、search_lessons、add_lesson、_apply_decay 等。"""
 
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,8 +11,14 @@ from click.testing import CliRunner
 
 from tasks.session_memory.cli import cli
 from tasks.session_memory.db import AgentsDB
-from tasks.session_memory.lessons_service import search_lessons, show_lessons
-from tasks.session_memory.models import HandoverRecord, SessionType
+from tasks.session_memory.lessons_service import (
+    _apply_decay,
+    add_lesson,
+    search_lessons,
+    show_lessons,
+    show_lessons_typed,
+)
+from tasks.session_memory.models import HandoverRecord, LessonSource, LessonType, SessionType
 
 
 def make_record(**overrides: object) -> HandoverRecord:
@@ -55,6 +62,218 @@ _SAMPLE_INSIGHT: dict[str, object] = {
     "insight_text": "★ 這是一個洞察",
     "session_reason": "stop",
 }
+
+
+def make_lesson_data(**kwargs: object) -> dict[str, object]:
+    defaults: dict[str, object] = {
+        "project": "yibi-stack",
+        "type": LessonType.pitfall,
+        "key": "test-key",
+        "insight": "AP2 hook blocks Unicode in bash heredoc; use Write tool + redirect",
+        "confidence": 8,
+        "source": LessonSource.observed,
+    }
+    return {**defaults, **kwargs}
+
+
+class TestAddLesson:
+    def test_lsn_st_001_add_and_roundtrip(self, tmp_path: Path) -> None:
+        """LSN-ST-001: add_lesson 寫入後 query_lessons_typed 可取回相同記錄"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.close()
+
+        result = add_lesson(make_lesson_data(), db_path=db_path)
+        assert "id" in result
+        assert result["trusted"] is False
+
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        rows = db.query_lessons_typed(project="yibi-stack")
+        db.close()
+
+        assert len(rows) == 1
+        assert rows[0]["key"] == "test-key"
+        assert rows[0]["type"] == "pitfall"
+
+    def test_lsn_st_001_user_stated_returns_trusted_true(self, tmp_path: Path) -> None:
+        """LSN-ST-001: user-stated source 回傳 trusted=True"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.close()
+
+        result = add_lesson(make_lesson_data(source=LessonSource.user_stated), db_path=db_path)
+        assert result["trusted"] is True
+
+
+class TestApplyDecay:
+    def _ts_ago(self, days: int) -> str:
+        return (datetime.now(UTC) - timedelta(days=days)).isoformat()
+
+    def test_lsn_st_002_observed_60_days_decays_by_2(self) -> None:
+        """LSN-ST-002: observed confidence=8 存 60 天 -> effective=6"""
+        ts = self._ts_ago(60)
+        result = _apply_decay(8, "observed", ts)
+        assert result == 6
+
+    def test_lsn_st_003_user_stated_no_decay(self) -> None:
+        """LSN-ST-003: user-stated confidence=9 存 90 天 -> 仍為 9"""
+        ts = self._ts_ago(90)
+        result = _apply_decay(9, "user-stated", ts)
+        assert result == 9
+
+    def test_lsn_st_003_cross_model_no_decay(self) -> None:
+        """LSN-ST-003: cross-model 不衰減"""
+        ts = self._ts_ago(120)
+        result = _apply_decay(7, "cross-model", ts)
+        assert result == 7
+
+    def test_decay_floor_is_1(self) -> None:
+        """decay 下限為 1（observed confidence=2, 90 天 -> 1）"""
+        ts = self._ts_ago(90)
+        result = _apply_decay(2, "observed", ts)
+        assert result == 1
+
+    def test_decay_inferred_30_days(self) -> None:
+        """inferred confidence=5, 30 天 -> 4"""
+        ts = self._ts_ago(30)
+        result = _apply_decay(5, "inferred", ts)
+        assert result == 4
+
+
+class TestShowLessonsTyped:
+    def _db_with_lesson(self, tmp_path: Path, **kwargs: object) -> Path:
+        db_path = tmp_path / "test.db"
+        add_lesson(make_lesson_data(**kwargs), db_path=db_path)
+        return db_path
+
+    def test_lsn_st_004_dedup_latest_winner(self, tmp_path: Path) -> None:
+        """LSN-ST-004: 同 key+type 保留最新 ts"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.close()
+
+        add_lesson(
+            make_lesson_data(
+                key="dedup-grain",
+                insight="pathlib rglob does not follow symlinks; use os.walk(followlinks=True)",
+                source=LessonSource.observed,
+            ),
+            db_path=db_path,
+        )
+        add_lesson(
+            make_lesson_data(
+                key="dedup-grain",
+                insight="AP2 hook blocks Unicode in bash heredoc; use Write tool + redirect",
+                source=LessonSource.observed,
+            ),
+            db_path=db_path,
+        )
+
+        rows = show_lessons_typed(project="yibi-stack", include_legacy=False, db_path=db_path)
+        assert len(rows) == 1
+        assert rows[0]["key"] == "dedup-grain"
+
+    def test_lsn_st_005_cross_project_only_trusted(self, tmp_path: Path) -> None:
+        """LSN-ST-005: cross_project=True 只回傳 trusted=True 記錄"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.close()
+
+        add_lesson(
+            make_lesson_data(project="proj-a", source=LessonSource.user_stated, key="k1"),
+            db_path=db_path,
+        )
+        add_lesson(
+            make_lesson_data(project="proj-b", source=LessonSource.observed, key="k2"),
+            db_path=db_path,
+        )
+
+        rows = show_lessons_typed(cross_project=True, include_legacy=False, db_path=db_path)
+        assert all(r["trusted"] for r in rows)
+        keys = {r["key"] for r in rows}
+        assert "k1" in keys
+        assert "k2" not in keys
+
+    def test_lsn_st_006_include_legacy_merges_handover_lessons(self, tmp_path: Path) -> None:
+        """LSN-ST-006: include_legacy=True 合併 handovers.lessons_learned"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.insert_handover(
+            make_record(
+                project="yibi-stack",
+                lessons_learned=["rg uses ERE not BRE; backslash-pipe is literal, not alternation"],
+            )
+        )
+        db.close()
+
+        rows = show_lessons_typed(project="yibi-stack", include_legacy=True, db_path=db_path)
+        assert len(rows) >= 1
+        insights = [r["insight"] for r in rows]
+        assert any("rg" in i for i in insights)
+
+    def test_lsn_eg_001_empty_typed_table_returns_legacy(self, tmp_path: Path) -> None:
+        """LSN-EG-001: lessons table 為空 + include_legacy=True 時回傳 legacy"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.insert_handover(
+            make_record(project="yibi-stack", lessons_learned=["some legacy lesson text here"])
+        )
+        db.close()
+
+        rows = show_lessons_typed(project="yibi-stack", include_legacy=True, db_path=db_path)
+        assert len(rows) >= 1
+
+    def test_lsn_eg_002_legacy_rows_deduplicated(self, tmp_path: Path) -> None:
+        """LSN-EG-002: 同 key+type 的 legacy rows 被 dedup"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        lesson_text = "identical lesson text that deduplicates correctly"
+        db.insert_handover(
+            make_record(id="h1", project="yibi-stack", lessons_learned=[lesson_text])
+        )
+        db.insert_handover(
+            make_record(id="h2", project="yibi-stack", lessons_learned=[lesson_text])
+        )
+        db.close()
+
+        rows = show_lessons_typed(project="yibi-stack", include_legacy=True, db_path=db_path)
+        matching = [r for r in rows if lesson_text in r.get("insight", "")]
+        assert len(matching) == 1
+
+
+class TestBackwardCompat:
+    def test_lsn_cv_001_show_lessons_returns_legacy_text(self, tmp_path: Path) -> None:
+        """LSN-CV-001: show_lessons() 舊行為不變（仍回傳 legacy lessons_learned 內容）"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.insert_handover(make_record(lessons_learned=["nom 比 regex 穩"]))
+        db.close()
+
+        rows = show_lessons(db_path=db_path)
+        assert len(rows) >= 1
+        texts = [r["text"] for r in rows]
+        assert any("nom" in t for t in texts)
+
+    def test_lsn_cv_001_search_lessons_returns_matching(self, tmp_path: Path) -> None:
+        """LSN-CV-001: search_lessons() 舊行為不變（仍搜尋 lessons_learned 文字）"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.insert_handover(make_record(lessons_learned=["always test edge cases thoroughly"]))
+        db.close()
+
+        rows = search_lessons(query="edge cases", db_path=db_path)
+        assert len(rows) >= 1
+        assert any("edge cases" in r["text"] for r in rows)
 
 
 class TestShowLessons:
