@@ -433,11 +433,13 @@ class TestScanTestingFactoryHelper:
             test_file.chmod(0o644)
 
     def test_semantic_targets_populated(self, tmp_path: Path) -> None:
-        """HEVAL-EG-008: test files 存在時 semantic_targets 含相對路徑。"""
+        """HEVAL-EG-008: test files 存在時 semantic_targets 含絕對路徑（與其他 scanner 一致）。"""
         content = "def test_x(): pass\n"
         target = make_test_dir(tmp_path, content)
         result = scan_testing(target)
-        assert result.semantic_targets == ["tests/test_sample.py"]
+        assert len(result.semantic_targets) == 1
+        assert result.semantic_targets[0].endswith("tests/test_sample.py")
+        assert result.semantic_targets[0].startswith("/")
 
 
 class TestScanTesting:

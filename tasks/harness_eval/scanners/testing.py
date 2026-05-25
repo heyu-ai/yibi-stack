@@ -47,9 +47,7 @@ def scan_testing(target_dir: Path) -> MechanicalFinding:
     factory_helper_files = [
         str(tf.relative_to(target_dir)) for tf in test_files if _has_factory_helpers(tf)
     ]
-    semantic_targets = [
-        str(tf.relative_to(target_dir)) for tf in test_files[:_SEMANTIC_TARGET_LIMIT]
-    ]
+    semantic_targets = [str(tf) for tf in test_files[:_SEMANTIC_TARGET_LIMIT]]
 
     if test_files:
         score += 3
