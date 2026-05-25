@@ -8,12 +8,16 @@ from pathlib import Path
 from ..models import MechanicalFinding
 
 _MECH_MAX = 7
+_SEMANTIC_TARGET_LIMIT = 20
 _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "dist", "build", ".claude"}
 _MAX_SCAN_DEPTH = 5
 
 
 def _has_factory_helpers(test_file: Path) -> bool:
-    """回傳 True 當測試含 column-0 的 `def make_` 行；其他任何前綴皆不符合。"""
+    """回傳 True 當測試含 column-0 的 `def make_` 行（縮排方法、注釋行、呼叫表達式均不符合）。
+
+    OSError（無讀取權限、broken symlink 等）時靜默回傳 False，呼叫端不補 WARN。
+    """
     try:
         for line in test_file.read_text(encoding="utf-8", errors="ignore").splitlines():
             if line.startswith("def make_"):
@@ -42,7 +46,6 @@ def scan_testing(target_dir: Path) -> MechanicalFinding:
     findings: list[str] = []
     score = 0
 
-    _SEMANTIC_TARGET_LIMIT = 20
     test_files = _find_test_files(target_dir)
     factory_helper_files = [
         str(tf.relative_to(target_dir)) for tf in test_files if _has_factory_helpers(tf)
@@ -63,8 +66,8 @@ def scan_testing(target_dir: Path) -> MechanicalFinding:
         try:
             content = makefile.read_text(encoding="utf-8")
             has_makefile_ci = "ci:" in content or "test:" in content
-        except OSError:
-            pass
+        except OSError as e:
+            findings.append(f"WARN: Makefile 無法讀取，略過 CI target 偵測：{e}")
 
     if has_github_ci:
         score += 2

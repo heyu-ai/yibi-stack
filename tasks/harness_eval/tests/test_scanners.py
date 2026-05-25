@@ -433,13 +433,28 @@ class TestScanTestingFactoryHelper:
             test_file.chmod(0o644)
 
     def test_semantic_targets_populated(self, tmp_path: Path) -> None:
-        """HEVAL-EG-008: test files 存在時 semantic_targets 含絕對路徑（與其他 scanner 一致）。"""
+        """HEVAL-EG-008: test files 存在時 semantic_targets 含絕對路徑。"""
         content = "def test_x(): pass\n"
         target = make_test_dir(tmp_path, content)
         result = scan_testing(target)
         assert len(result.semantic_targets) == 1
         assert result.semantic_targets[0].endswith("tests/test_sample.py")
         assert result.semantic_targets[0].startswith("/")
+
+    def test_factory_helper_partial_match_across_files(self, tmp_path: Path) -> None:
+        """HEVAL-EG-009: 兩個 test 檔案，只有一個含 def make_ → factory_helper_files 只含匹配的。"""
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_with_helper.py").write_text(
+            "def make_x(): pass\ndef test_a(): pass\n", encoding="utf-8"
+        )
+        (tests_dir / "test_without_helper.py").write_text(
+            "def test_b(): assert 1 == 1\n", encoding="utf-8"
+        )
+        result = scan_testing(tmp_path)
+        helpers = result.extra["factory_helper_files"]
+        assert len(helpers) == 1
+        assert helpers[0] == "tests/test_with_helper.py"
 
 
 class TestScanTesting:

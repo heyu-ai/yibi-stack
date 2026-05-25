@@ -13,7 +13,7 @@ Sub-item definitions:
   - **Go**: package-level test data structs or table-driven `cases` / `tests` variables that centralise test inputs.
   Agent SHALL award 2 pts when the language-appropriate pattern is present. Agent SHALL award 0 pts when test data is hardcoded inline in every test method regardless of language.
   Note: `extra["factory_helper_files"]` from the mechanical scan covers Python only; for other languages the agent SHALL judge directly from test file content.
-- **Edge case coverage** (1 pt): Test suite SHALL include at least 3 distinct scenarios (success path, missing/invalid input, boundary condition) OR contain test IDs with `EG-` classification. Agent SHALL award 1 pt when this condition is met; 0 pts for happy-path-only suites.
+- **Edge case coverage** (1 pt): Test suite SHALL include at least 3 distinct scenarios (success path, missing/invalid input, boundary condition) OR contain test IDs with `EG-` classification across at least 2 distinct EG categories (single happy-path `EG-` test does not qualify). Agent SHALL award 1 pt when this condition is met; 0 pts for happy-path-only suites.
 
 #### Scenario: full score with all sub-items present
 

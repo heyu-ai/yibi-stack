@@ -86,7 +86,7 @@ rule 09 規定 factory function 命名以 `make_` 開頭（如 `make_scan_profil
 
 ### mutmut TODO 觸發門檻為 D5 < 4（總分 12）
 
-D5 < 4 表示三個機械項目全部失分或接近全失——代表測試套件結構性不足，此時 mutation testing 建議有實質意義。
+D5 < 4 表示測試套件缺乏 CI 整合或 hook-test 連結，且語意分偏低——代表驗證閉環不完整，此時 mutation testing 建議有實質意義。
 
 D5 >= 4 時加入 mutmut 建議意義不大（使用者已有基本測試基礎設施）。
 
