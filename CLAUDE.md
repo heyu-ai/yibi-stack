@@ -142,6 +142,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **agy auth 偵測用 `onboardingComplete`，不用 `installation_id`**：
   `~/.gemini/antigravity-cli/installation_id` 在 agy 首次啟動（OAuth 完成前）就存在，用它做 auth check 會 false positive。
   正確做法：檢查 `~/.gemini/antigravity-cli/cache/onboarding.json` 的 `onboardingComplete: true` 欄位。
-- **linked worktree 內 `git rev-parse --show-toplevel` 回傳 worktree 路徑，不是主 repo 路徑**：在 `.claude/worktrees/<name>/` 等 linked worktree 內呼叫 `--show-toplevel`，得到的是 worktree 自身的目錄（如 `.claude/worktrees/feat+...`），不是 repo 根目錄。
+- **linked worktree 內 `git rev-parse --show-toplevel` 回傳 worktree 路徑，不是主 repo 路徑**：
+  在 `.claude/worktrees/<name>/` 等 linked worktree 內呼叫 `--show-toplevel`，得到的是 worktree 自身的目錄（如 `.claude/worktrees/feat+...`），不是 repo 根目錄。
   需要主 repo 路徑時改用 `git rev-parse --path-format=absolute --git-common-dir`，再取 `Path(result).parent`。
   適用場景：任何在 worktree 內計算 project slug、log 路徑、transcript 目錄等依賴主 repo 位置的邏輯。
