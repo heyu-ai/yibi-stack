@@ -1,11 +1,11 @@
 ---
 globs: tasks/**/config.py
 ---
-# Config 設定載入規範
+# Config Loading Pattern
 
-## 設定檔位置
+## Config File Location
 
-所有 JSON 設定檔存放於 `.runtime/` 目錄（via `RUNTIME_DIR`），不進 git：
+All JSON config files are stored in `.runtime/` (via `RUNTIME_DIR`), not committed to git:
 
 ```python
 from tasks._paths import RUNTIME_DIR
@@ -13,9 +13,9 @@ from tasks._paths import RUNTIME_DIR
 DEFAULT_CONFIG_PATH = RUNTIME_DIR / "gmail_scan_profiles.json"
 ```
 
-## 標準函式組合
+## Standard Function Set
 
-每個 `config.py` 應包含以下函式：
+Each `config.py` should include the following functions:
 
 ```python
 def _load_env() -> None:
@@ -50,9 +50,9 @@ def generate_default_config(path: Path | None = None) -> Path:
     return config_path
 ```
 
-## 環境變數
+## Environment Variables
 
-透過 `_load_env()` 載入 `.env` 後，再用 `os.environ.get()` 存取：
+Load `.env` via `_load_env()`, then access values with `os.environ.get()`:
 
 ```python
 _load_env()
@@ -61,6 +61,6 @@ if not token:
     raise RuntimeError("環境變數 GMAIL_TOKEN 未設定")
 ```
 
-## 加密密碼存取
+## Encrypted Passwords
 
-加密 helper 的 import 延遲到 function body（`cryptography` 是重型 import）。
+Defer the encryption helper import to the function body (`cryptography` is a heavy import).

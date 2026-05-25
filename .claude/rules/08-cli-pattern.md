@@ -1,9 +1,9 @@
 ---
 globs: tasks/**/cli.py
 ---
-# Click CLI 規範
+# Click CLI Pattern
 
-## 基本結構
+## Basic Structure
 
 ```python
 """CLI 入口：<模組中文描述>。"""
@@ -21,15 +21,15 @@ def cli() -> None:
 @click.option("--days", default=7, help="掃描天數")
 def scan(profile: str, days: int) -> None:
     """執行 Gmail 掃描。"""
-    from .service import run_scan  # 延遲 import
+    from .service import run_scan  # deferred import
     ...
 ```
 
-## 輸出規範
+## Output Rules
 
-- 用 `click.echo()`，不用 `print()`
-- 互動輸入用 `click.prompt()` 和 `click.confirm()`
-- 錯誤退出用 `raise SystemExit(1)`（不用 `sys.exit(1)`）
+- Use `click.echo()`, not `print()`
+- Use `click.prompt()` and `click.confirm()` for interactive input
+- Use `raise SystemExit(1)` for error exit (not `sys.exit(1)`)
 
 ```python
 click.echo(f"✓ 掃描完成，共 {count} 筆")
@@ -37,24 +37,24 @@ click.echo(f"✗ 發生錯誤：{e}", err=True)
 raise SystemExit(1)
 ```
 
-## Import 延遲
+## Deferred Imports
 
-Service、config、db 等模組的 import 放在 command function body 內：
+Import service, config, and db modules inside command function bodies:
 
 ```python
 @cli.command()
 def import_data() -> None:
-    from .service import run_pipeline  # 在這裡 import，不在頂層
+    from .service import run_pipeline  # import here, not at top level
     from .config import load_config
     config = load_config()
     run_pipeline(config)
 ```
 
-## Help Text 語言
+## Help Text Language
 
-所有 `help=` 參數、group/command docstring 用中文。
+All `help=` parameters and group/command docstrings use Traditional Chinese.
 
-## 執行方式
+## How to Run
 
 ```bash
 uv run python -m tasks.<module> <command> [options]
