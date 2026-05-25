@@ -231,7 +231,7 @@ rm -f /tmp/pr-body.md
 ```
 
 - **無 finding** → 直接進 Step 3。
-- **有 finding** → 帶入 Step 4（Fix）與 mob review 結果一併處理。
+- **有 finding** → 帶入 Step 6（Fix）與 mob review 結果一併處理。
   `/code-review` **不修改程式碼**，finding 屬 review 意見，不需獨立 commit。
 
 ---
