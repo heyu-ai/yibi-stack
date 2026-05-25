@@ -36,60 +36,39 @@ description: >
 
 ### Step 0 — 環境與 PR 解析（只在 skill 啟動時跑一次）
 
-```bash
-if ! command -v jq >/dev/null 2>&1; then echo '[FAIL] jq not installed' >&2; exit 1; fi
-if ! command -v gh >/dev/null 2>&1; then echo '[FAIL] gh not installed' >&2; exit 1; fi
-```
+環境檢查 + 專案偵測 + SKILL_REPO 解析（prereqs check / case-free project detection / config）：
 
 ```bash
-_gcd=$(git rev-parse --git-common-dir 2>/dev/null)
-case "$_gcd" in
-    /*)
-      _dir=$(dirname "$_gcd")
-      ORIG_PROJECT=$(basename "$_dir")
-      ;;
-    ?*)
-      _top=$(git rev-parse --show-toplevel)
-      ORIG_PROJECT=$(basename "$_top")
-      ;;
-    *)
-      ORIG_PROJECT=$(basename "$PWD")
-      ;;
-esac
-unset _gcd _dir _top
+bash /Users/howie/Workspace/github/yibi-stack/plugins/pr-flow/skills/pr-retrospective/scripts/bootstrap.sh
 ```
+
+Script stdout 輸出 `KEY=VALUE`，agent 解析並記住：
+
+- `SKILL_REPO` — yibi-stack 根目錄路徑
+- `ORIG_PROJECT` — 呼叫端 git repo 名稱
+- `REAL_WORKDIR` — 目前工作目錄
+- `BRANCH` — 目前分支名稱
+
+> 其他使用者需依自己的 `skill_repo` 調整此路徑。
+
+偵測 PR 號（從 ARGUMENTS 解析 `--pr <n>` 或 fallback 到 `gh pr view`）。
+
+**無 `--pr` 引數時**（在 PR branch 上，gh 自動偵測）：
 
 ```bash
-if ! SKILL_REPO=$(jq -r .skill_repo "$HOME/.agents/config.json"); then echo '[FAIL] reading ~/.agents/config.json failed' >&2; exit 1; fi
-[ "$SKILL_REPO" = "null" ] && SKILL_REPO=""
-if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo not configured' >&2; exit 1; fi
-if [ ! -d "$SKILL_REPO" ]; then echo '[FAIL] skill_repo path not found' >&2; exit 1; fi
-REAL_WORKDIR=$(pwd)
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+bash /Users/howie/Workspace/github/yibi-stack/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh
 ```
 
-從 skill 的 `args`（即 `$ARGUMENTS`）解析 `--pr <n>`：
+**有 `--pr <n>` 引數時**（agent 把實際 PR 號附在後）：
 
 ```bash
-ARG_PR=""
-_raw_args="${ARGUMENTS:-}"
-if echo "$_raw_args" | grep -qE -- '--pr [0-9]+'; then
-  ARG_PR=$(echo "$_raw_args" | grep -oE -- '--pr [0-9]+' | grep -oE '[0-9]+')
-fi
-unset _raw_args
+bash /Users/howie/Workspace/github/yibi-stack/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh --pr 65
 ```
 
-偵測 PR 號（優先用參數，其次用 gh）：
+> 其他使用者需依自己的 `skill_repo` 調整此路徑（同上）。
 
-```bash
-PR_NUMBER="${ARG_PR:-}"
-if [ -z "$PR_NUMBER" ]; then
-  PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null || echo "")
-fi
-if [ -z "$PR_NUMBER" ]; then
-  echo '[FAIL] no PR detected; pass --pr <n> if needed' >&2; exit 1
-fi
-```
+Agent 依 ARGUMENTS 選擇對應形式。Script 用 `$*` 合併所有位置引數，支援 shell-split 傳入。
+Script stdout 輸出 `PR_NUMBER=<n>`；agent 解析並記住供後續步驟使用。
 
 檢查是否已有 retro（重跑提示）：
 
