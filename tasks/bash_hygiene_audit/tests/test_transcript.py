@@ -110,9 +110,7 @@ class TestScanProjectTranscripts:
         session_dir.mkdir(parents=True)
         transcript = session_dir / "aaaa-1111.jsonl"
         cmd = "echo 'test — em dash'"
-        lines = _make_transcript_lines(
-            [_bash_tool_use_msg(cmd), _hook_block_msg()]
-        )
+        lines = _make_transcript_lines([_bash_tool_use_msg(cmd), _hook_block_msg()])
         transcript.write_text(lines, encoding="utf-8")
 
         events = scan_project_transcripts(
@@ -142,9 +140,7 @@ class TestScanProjectTranscripts:
         session_dir = tmp_path / "-Users-howie-test-repo"
         session_dir.mkdir(parents=True)
         transcript = session_dir / "bbbb-2222.jsonl"
-        lines = _make_transcript_lines(
-            [_bash_tool_use_msg("ls"), _non_hook_error_msg()]
-        )
+        lines = _make_transcript_lines([_bash_tool_use_msg("ls"), _non_hook_error_msg()])
         transcript.write_text(lines, encoding="utf-8")
 
         events = scan_project_transcripts(
