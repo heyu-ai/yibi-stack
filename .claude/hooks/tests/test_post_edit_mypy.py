@@ -36,7 +36,7 @@ class TestEffortGate:
     def test_mypy_001_effort_low_skip(self) -> None:
         """MYPY-001: CLAUDE_EFFORT=low 時靜默跳過，exit 0，不跑 mypy。"""
         result = _run_hook(
-            _make_stdin("tasks/models.py", 500),
+            _make_stdin(duration_ms=500),
             env={"CLAUDE_EFFORT": "low"},
         )
         assert result.returncode == 0
@@ -81,7 +81,7 @@ class TestPathGuard:
 class TestDurationGate:
     def test_mypy_005_short_duration_exits_zero(self) -> None:
         """MYPY-005: duration_ms < 100 視為超短編輯，exit 0，不跑 mypy。"""
-        result = _run_hook(_make_stdin("tasks/models.py", 50))
+        result = _run_hook(_make_stdin(duration_ms=50))
         assert result.returncode == 0
         assert "mypy" not in result.stderr.lower()
 
