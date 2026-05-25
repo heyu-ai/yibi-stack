@@ -30,7 +30,9 @@
 - [ ] T-C6 `13-bash-anti-patterns.md` 英文化（~500+ 行，最大，分 3 section）
 - [ ] T-C7 PR 開 + `/pr-review-cycle-mob` 群審（翻譯正確性需多重 review）
 
-**依賴**：PR5（worktree `pr-c-rules-english` HEAD 需確認，見 issue #61）
+**前置確認**：worktree `.claude/worktrees/pr-c-rules-english` 的 HEAD 目前指向
+`docs/rule15-revert-pr-checklist` 而非 PR-C 翻譯內容，重做前需先確認翻譯是否
+需從 git reflog 救回（見 issue #61）。
 
 ## PR-D ⏳ 待啟動：plugins SKILL.md body 英文化（分 4 批）
 
