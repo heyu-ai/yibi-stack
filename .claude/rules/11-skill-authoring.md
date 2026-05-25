@@ -345,3 +345,20 @@ bash ~/.agents/skills/<skill>/scripts/<name>.sh
 1. stderr 已重導向到固定路徑的 log 檔（非 stdout）
 2. stdout 只輸出一行「完成」訊息（沒有 agent 需要讀取的診斷輸出）
 3. 在 background session 流程中執行（harness 會自動附加 log capture）
+
+## Spec and SKILL.md behavioral guards must stay in sync
+
+Any guard or exception in SKILL.md — a zero-score condition, a threshold constraint,
+a tie-breaking rule — must be reflected in the corresponding spec.md decision table.
+
+If the guard exists only in SKILL.md, the spec cannot be used to cross-check agent
+behavior during review; if it exists only in spec.md, the agent never sees it.
+
+**Pattern**: whenever you add a guard to SKILL.md, immediately update spec.md's decision
+table (and vice versa). The two documents describe the same contract from different angles:
+SKILL.md is the agent's execution interface; spec.md is the verifiable source of truth.
+
+Example from harness-eval D5 (PR #83): SKILL.md had a zero-gate rule ("existence-only
+assertions force total semantic score to 0") and an EG-* constraint ("at least 2 distinct
+EG categories required"), but spec.md's decision table did not include these conditions.
+Mob review round 4 caught the divergence; both documents needed to be updated together.
