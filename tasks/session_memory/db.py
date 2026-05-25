@@ -286,6 +286,139 @@ class AgentsDB:
         row = cur.fetchone()
         return int(row["c"]) if row else 0
 
+    def get_all_tags(self) -> list[str]:
+        """讀取所有 handover 的 tags，去重後排序回傳。
+
+        使用 Python 層聚合而非 SQL JSON 函式，以兼容 SQLite 舊版本。
+        """
+        cur = self.conn.execute("SELECT tags FROM handovers WHERE tags != '[]'")
+        seen: set[str] = set()
+        for (raw,) in cur.fetchall():
+            try:
+                tags = json.loads(raw) if isinstance(raw, str) else raw
+                seen.update(str(t) for t in tags if t)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return sorted(seen)
+
+    def get_tag_usage(self) -> list[dict[str, Any]]:
+        """回傳每個 tag 的使用次數與最近使用時間。
+
+        Returns:
+            按 count DESC 排序的清單，每筆含 tag / count / latest_at / projects。
+        """
+        cur = self.conn.execute(
+            "SELECT tags, timestamp, project FROM handovers WHERE tags != '[]' "
+            "ORDER BY timestamp DESC"
+        )
+        rows = cur.fetchall()
+
+        tag_data: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            try:
+                tags = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+            except (json.JSONDecodeError, TypeError):
+                continue
+            ts = row[1]
+            project = row[2]
+            for tag in tags:
+                tag = str(tag).strip()
+                if not tag:
+                    continue
+                if tag not in tag_data:
+                    tag_data[tag] = {"count": 0, "latest_at": None, "projects": set()}
+                tag_data[tag]["count"] += 1
+                if tag_data[tag]["latest_at"] is None or ts > tag_data[tag]["latest_at"]:
+                    tag_data[tag]["latest_at"] = ts
+                if project:
+                    tag_data[tag]["projects"].add(project)
+
+        result = []
+        for tag, data in tag_data.items():
+            result.append({
+                "tag": tag,
+                "count": data["count"],
+                "latest_at": data["latest_at"],
+                "projects": sorted(data["projects"]),
+            })
+        result.sort(key=lambda x: (-x["count"], x["tag"]))
+        return result
+
+    def rename_tag(self, old_tag: str, new_tag: str) -> int:
+        """將所有含 old_tag 的 handover 記錄中，把 old_tag 替換為 new_tag。
+
+        Args:
+            old_tag: 要更名的 tag。
+            new_tag: 新 tag 名稱（不可為空）。
+
+        Returns:
+            更新的記錄筆數。
+
+        Raises:
+            ValueError: new_tag 為空字串。
+        """
+        if not new_tag.strip():
+            raise ValueError("new_tag 不可為空字串")
+        if old_tag == new_tag:
+            return 0
+
+        cur = self.conn.execute(
+            "SELECT id, tags FROM handovers WHERE tags LIKE ?",
+            (f'%"{old_tag}"%',),
+        )
+        rows = cur.fetchall()
+        updated = 0
+        for row in rows:
+            try:
+                tags: list[str] = json.loads(row[1]) if isinstance(row[1], str) else row[1]
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if old_tag not in tags:
+                continue
+            new_tags = [new_tag if t == old_tag else t for t in tags]
+            self.conn.execute(
+                "UPDATE handovers SET tags = ? WHERE id = ?",
+                (json.dumps(new_tags, ensure_ascii=False), row[0]),
+            )
+            updated += 1
+        if updated:
+            self.conn.commit()
+        return updated
+
+    def delete_by_tag(self, tag: str) -> int:
+        """刪除所有含指定 tag 的 handover 記錄（不可逆）。
+
+        Args:
+            tag: 要刪除的 tag 名稱。
+
+        Returns:
+            刪除的記錄筆數。
+        """
+        cur = self.conn.execute(
+            "SELECT id, tags FROM handovers WHERE tags LIKE ?",
+            (f'%"{tag}"%',),
+        )
+        rows = cur.fetchall()
+        ids_to_delete: list[str] = []
+        for row in rows:
+            try:
+                tags = json.loads(row[1]) if isinstance(row[1], str) else row[1]
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if tag in tags:
+                ids_to_delete.append(row[0])
+
+        if not ids_to_delete:
+            return 0
+
+        placeholders = ",".join("?" * len(ids_to_delete))
+        self.conn.execute(
+            f"DELETE FROM handovers WHERE id IN ({placeholders})",  # nosec B608
+            ids_to_delete,
+        )
+        self.conn.commit()
+        return len(ids_to_delete)
+
     def insert_event(self, event: HandoverEvent) -> None:
         """寫入一筆 handover_event。"""
         self.conn.execute(

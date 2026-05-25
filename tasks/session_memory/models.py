@@ -157,6 +157,49 @@ class HandoverEvent(BaseModel):
         return v
 
 
+class TagEntry(BaseModel):
+    """單一 tag 統計項目。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    tag: str
+    count: int
+    latest_at: str | None = None
+    projects: list[str] = Field(default_factory=list)
+
+    @field_validator("tag")
+    @classmethod
+    def check_tag_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("tag 不可為空字串")
+        return v.strip()
+
+    @field_validator("count")
+    @classmethod
+    def check_count_positive(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("count 不可為負數")
+        return v
+
+
+class TagStats(BaseModel):
+    """全域 tag 使用統計報告。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    total_unique_tags: int = 0
+    total_handovers_with_tags: int = 0
+    entries: list[TagEntry] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def check_consistency(self) -> TagStats:
+        if self.total_unique_tags < 0:
+            raise ValueError("total_unique_tags 不可為負數")
+        if len(self.entries) > self.total_unique_tags:
+            raise ValueError("entries 數量不可超過 total_unique_tags")
+        return self
+
+
 class MetricsReport(BaseModel):
     """Auto-handover 成功率統計報告。"""
 
