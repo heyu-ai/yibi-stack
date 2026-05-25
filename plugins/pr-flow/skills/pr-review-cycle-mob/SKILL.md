@@ -14,66 +14,66 @@ description: >
   「pr-review-cycle-mob」「frontier model 群審」「找 codex + agy 一起 review」
 ---
 
-# PR Review Cycle — Mob（Multi-Agent Group Review）
+# PR Review Cycle — Mob (Multi-Agent Group Review)
 
-由多位 frontier-model agent 組成 mob 對 PR 進行群體 review 的完整流程，
-適用任何技術棧（Python / JS / Go / Flutter / 其他）的 git 專案。
+Complete workflow for multi-frontier-model mob review of a PR, applicable to any tech stack (Python / JS / Go / Flutter / others).
 
-**何時用 mob 模式**：
+**When to use mob mode**:
 
-- 中大型 PR（>200 行 diff，或跨多 module）
-- 高風險改動（auth、payment、migration、infra、security-sensitive）
-- 想在合併前壓力測試「跨家 LLM 是否一致警示」
-- 願意花 10–30 分鐘換更廣的視角覆蓋
+- Medium/large PR (>200 lines diff, or crosses multiple modules)
+- High-risk changes (auth, payment, migration, infra, security-sensitive)
+- Want to stress-test whether multiple LLM families consistently flag the same issues
+- Willing to spend 10–30 minutes for broader coverage
 
-**何時用 `/pr-review-cycle`（Claude-only）**：
+**When to use `/pr-review-cycle` (Claude-only)**:
 
-- 小型 feature / bug fix / refactor
-- 想快速合併、不想啟動多家模型
-- 沒裝 codex 且沒裝 agy（Antigravity CLI）
+- Small feature / bug fix / refactor
+- Want fast merge without spinning up multiple model families
+- Codex not installed and agy (Antigravity CLI) not installed
 
-**核心理念**：當 codex / agy 偵測得到時，把它們和 Claude 開成**同步平行**的
-reviewer 群，先各自獨立評審，再交叉看彼此意見 debate，產出 aggregated 最終報告。
-Coding agent（Claude main session）按報告修改，再開一輪 group review，循環到全員
-LGTM（含 actionable NIT）為止。最後人類花幾分鐘掃一眼所有改動，當場提出疑慮，由
-reviewer lead（Claude main）即時回應排除——比找一兩個資深工程師更快、視角也更廣。
+**Core philosophy**: when codex / agy are detected, run them alongside Claude as **synchronous
+parallel** reviewers — each reviews independently, then cross-reads each other's findings to
+debate, and produces an aggregated final report. The coding agent (Claude main session) fixes
+according to the report, then runs another round of group review, cycling until all reviewers
+LGTM (including actionable NITs). Finally, the human scans all changes in a few minutes, raises
+concerns immediately, and the reviewer lead (Claude main) responds on the spot — faster than
+finding two senior engineers, and broader in perspective.
 
-偵測不到任何外部模型 → 提示使用者退回 `/pr-review-cycle`，本 skill 終止
-（不在 mob skill 內 fallback，避免語意混淆）。
+No external models detected → prompt the user to fall back to `/pr-review-cycle`; this skill terminates (no fallback inside mob skill, to avoid semantic confusion).
 
-## 使用方式
+## Usage
 
 ```text
 /pr-review-cycle-mob
-/pr-review-cycle-mob #<PR number>   ← 已有 PR 時直接跳 Step 2
+/pr-review-cycle-mob #<PR number>   ← skip to Step 2 if PR already exists
 ```
 
 ---
 
-## Step 0 — Reviewer 偵測（決定流程模式）
+## Step 0 — Reviewer Detection (determine workflow mode)
 
-### Step 0a — 讀取偵測快取
+### Step 0a — Read detection cache
 
-先用 Read tool 嘗試讀取 `~/.claude/mob-detection-cache`：
+First use the Read tool to try reading `~/.claude/mob-detection-cache`:
 
-- **檔案存在**：回報快取內容，詢問使用者：
+- **File exists**: report cache contents and ask the user:
 
   ```text
-  [快取] 上次偵測結果（{{DATE}}）：
+  [Cache] Last detection result ({{DATE}}):
   - Codex:  ✓ / ✗
-  - Gemini（agy）: ✓ / ✗
-  - 模式: {{MODE}}
+  - Gemini (agy): ✓ / ✗
+  - Mode: {{MODE}}
 
-  使用快取直接進 Step 1？(y / n=重跑偵測)
+  Use cache and go directly to Step 1? (y / n=re-run detection)
   ```
 
-  使用者回 y → 略過 Step 0b，直接進 Step 1。
-  使用者回 n → 執行 Step 0b（重新偵測並更新快取）。
-- **檔案不存在**（Read tool 回報 error）：直接執行 Step 0b。
+  User replies y → skip Step 0b, go directly to Step 1.
+  User replies n → run Step 0b (re-detect and update cache).
+- **File does not exist** (Read tool returns error): run Step 0b directly.
 
-### Step 0b — 執行偵測
+### Step 0b — Run detection
 
-四個 bash calls 快速偵測完畢（binary 偵測與 auth 偵測分離；auth 用 if/elif/else 確保互斥輸出）：
+Four bash calls for quick detection (binary detection and auth detection separated; auth uses if/elif/else to ensure mutually exclusive output):
 
 ```bash
 # Codex CLI binary
@@ -81,7 +81,7 @@ which codex >/dev/null 2>&1 && echo "CODEX: BINARY_OK" || echo "CODEX: NOT_FOUND
 ```
 
 ```bash
-# Codex auth（KEY_SET 或 FILE_EXISTS 任一即可）
+# Codex auth (KEY_SET or FILE_EXISTS either satisfies)
 if env | grep -qE '^(CODEX_API_KEY|OPENAI_API_KEY)=[^[:space:]]'; then
   echo "CODEX_AUTH: KEY_SET"
 elif env | grep -qE '^(CODEX_API_KEY|OPENAI_API_KEY)=[[:space:]]'; then
@@ -94,12 +94,12 @@ fi
 ```
 
 ```bash
-# Antigravity CLI (agy) binary（output 保留 GEMINI: prefix 以相容 mob-detection-cache 的 GEMINI_OK key）
+# Antigravity CLI (agy) binary (output keeps GEMINI: prefix for mob-detection-cache GEMINI_OK key compatibility)
 which agy >/dev/null 2>&1 && echo "GEMINI: BINARY_OK" || echo "GEMINI: NOT_FOUND"
 ```
 
 ```bash
-# Antigravity CLI (agy) auth（onboardingComplete 為 OAuth 完成的可靠指標）
+# Antigravity CLI (agy) auth (onboardingComplete is the reliable indicator that OAuth completed)
 if python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".gemini"/"antigravity-cli"/"cache"/"onboarding.json"; sys.exit(0 if p.is_file() and json.loads(p.read_text()).get("onboardingComplete") else 1)'; then
   echo "GEMINI_AUTH: ONBOARDED"
 elif env | grep -qE '^(GEMINI_API_KEY|GOOGLE_API_KEY)=[^[:space:]]'; then
@@ -112,65 +112,67 @@ fi
 ```
 
 ```bash
-# Claude Code allow list 確認（agy 呼叫免確認框）
+# Confirm Claude Code allow list (agy calls without confirmation dialog)
 python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".claude"/"settings.json"; d=json.loads(p.read_text()) if p.is_file() else {}; allow=d.get("permissions",{}).get("allow",[]); sys.exit(0 if "Bash(agy:*)" in allow else 1)' && echo "GEMINI_ALLOW_LIST: OK" || echo "GEMINI_ALLOW_LIST: MISSING"
 ```
 
-### 模式判定
+### Mode determination
 
-外部 reviewer「可用」= binary OK + auth OK（Codex 或 Gemini）。
+An external reviewer is "available" = binary OK + auth OK (Codex or Gemini).
 
-**Gemini（agy）auth OK 狀態**：`KEY_SET`、`ONBOARDED` 均視為 auth OK（`ONBOARDED` 代表 `onboardingComplete: true`，即 OAuth 已完成）。
+**Gemini (agy) auth OK states**: `KEY_SET` and `ONBOARDED` both count as auth OK (`ONBOARDED` means `onboardingComplete: true`, i.e. OAuth completed).
 
-**`BINARY_OK + NOT_AUTHED` 的處理**：binary 找到但 auth 失敗（`NOT_AUTHED`、`KEY_WHITESPACE_PREFIX`）不算「可用」，
-且必須在 Step 0 **明確停止**，不能靜默折算成可用數少一家——否則使用者以為工具未安裝，
-而非 auth 壞掉。偵測到此狀態時，先向使用者顯示修復指令，確認修復後重跑 Step 0。
+**`BINARY_OK + NOT_AUTHED` handling**: binary found but auth failed (`NOT_AUTHED`,
+`KEY_WHITESPACE_PREFIX`) does not count as "available", and Step 0 **must explicitly stop**
+rather than silently counting this tool as one fewer available — otherwise the user assumes
+the tool is not installed, rather than that auth is broken. When this state is detected, show
+the user the fix command, and re-run Step 0 after they confirm the fix.
 
-**注意**：下方計數表格只適用於「所有 binary-OK 的工具均已通過 auth」的情況。
-任一工具出現 `BINARY_OK + NOT_AUTHED / KEY_WHITESPACE_PREFIX` → 先執行上述停止流程，不進入 count 計算。
+**Note**: the count table below only applies when all binary-OK tools have passed auth.
+If any tool shows `BINARY_OK + NOT_AUTHED / KEY_WHITESPACE_PREFIX` → run the stop procedure
+above; do not enter the count calculation.
 
-| 可用外部 reviewer | 動作 |
+| Available external reviewers | Action |
 | ---: | --- |
-| 0（全部 NOT_FOUND，無 auth 失敗） | **退回 `/pr-review-cycle`**（Claude-only 即足夠；本 skill 終止） |
-| **1**（Codex 或 Gemini） | **2-voice mob**（Claude + 1 外部，cross-model debate 已有意義） |
-| **2**（Codex + Gemini） | **3-voice full mob**（最廣覆蓋） |
+| 0 (all NOT_FOUND, no auth failures) | **Fall back to `/pr-review-cycle`** (Claude-only is sufficient; this skill terminates) |
+| **1** (Codex or Gemini) | **2-voice mob** (Claude + 1 external; cross-model debate is already meaningful) |
+| **2** (Codex + Gemini) | **3-voice full mob** (broadest coverage) |
 
-向使用者回報偵測結果與選擇的模式，等待確認再繼續：
+Report detection results to the user and wait for confirmation before continuing:
 
 ```text
-偵測結果：
-- Claude  ✓ 永遠可用（pr-review-toolkit）
-- Codex   ✓ / ✗ / ✗（auth 失敗，請執行 codex login 後重跑 Step 0）
-- Gemini（agy） ✓ / ✗ / ✗（auth 失敗：ONBOARDED 或 KEY_SET 任一即可；
-                執行 agy 完成瀏覽器 OAuth（onboardingComplete → true），或設 GEMINI_API_KEY env var）
-- Allow list: OK / MISSING（MISSING 不阻擋執行，但每次 agy 呼叫會跳確認框；
-              修復：執行 make patch-agy-allow-list 或 make install-all）
+Detection results:
+- Claude  ✓ always available (pr-review-toolkit)
+- Codex   ✓ / ✗ / ✗ (auth failed; run codex login then re-run Step 0)
+- Gemini (agy) ✓ / ✗ / ✗ (auth failed: ONBOARDED or KEY_SET either works;
+                run agy to complete browser OAuth (onboardingComplete → true), or set GEMINI_API_KEY env var)
+- Allow list: OK / MISSING (MISSING does not block execution, but every agy call will prompt for confirmation;
+              fix: run make patch-agy-allow-list or make install-all)
 
-外部 reviewer 計數：{{N}}/2
-模式：{{2-voice-mob | 3-voice-full-mob | REDIRECT}}
+External reviewer count: {{N}}/2
+Mode: {{2-voice-mob | 3-voice-full-mob | REDIRECT}}
 
-  ← 若 REDIRECT：本 skill 終止，請改執行 /pr-review-cycle
-  ← 若有 auth 失敗：請先修復 auth，再回本步驟重跑偵測
-進入 Step 1？
+  ← If REDIRECT: this skill terminates; run /pr-review-cycle instead
+  ← If auth failure: fix auth first, then re-run detection from this step
+Proceed to Step 1?
 ```
 
-偵測完成後（非 REDIRECT、非 auth 失敗），用 Write tool 將結果寫入
-`~/.claude/mob-detection-cache`（供下次 Step 0a 直接使用）：
+After detection completes (not REDIRECT, no auth failures), write the result to `~/.claude/mob-detection-cache` using the Write tool (for Step 0a reuse next time):
 
 ```text
-DATE={{今日 YYYY-MM-DD}}
-CODEX_OK={{1（可用）或 0（不可用）}}
-GEMINI_OK={{1（可用）或 0（不可用）}}
+DATE={{today YYYY-MM-DD}}
+CODEX_OK={{1 (available) or 0 (unavailable)}}
+GEMINI_OK={{1 (available) or 0 (unavailable)}}
 MODE={{3-voice-full-mob | 2-voice-mob}}
 ```
 
 ---
 
-## Workflow（mob review 模式）
+## Workflow (mob review mode)
 
-### Step 1 — 建立 PR
+### Step 1 — Create PR
 
-若尚未建立 PR，依序執行：
+If no PR exists yet, run in order:
 
 ```bash
 git branch --show-current
@@ -180,7 +182,7 @@ git branch --show-current
 git status --short
 ```
 
-確認在 feature branch 後 commit + push + 建立 PR：
+Confirm you're on a feature branch, then commit + push + create PR:
 
 ```bash
 git add <files>
@@ -194,7 +196,7 @@ git commit -m "..."
 git push -u origin HEAD
 ```
 
-PR body 用 Write tool 先寫到 `/tmp/pr-body.md`（避免 heredoc 觸發 hook），再傳入：
+Write the PR body to `/tmp/pr-body.md` with the Write tool (avoids heredoc triggering hooks), then pass it in:
 
 ```bash
 gh pr create --title "..." --body-file /tmp/pr-body.md
@@ -204,176 +206,185 @@ gh pr create --title "..." --body-file /tmp/pr-body.md
 rm -f /tmp/pr-body.md
 ```
 
-若專案有 `/commit-commands:commit-push-pr` slash command，可直接執行（自動 commit + push + PR）。
+If the project has `/commit-commands:commit-push-pr` slash command installed, run that directly (auto commit + push + PR).
 
-記下 PR number 作 `{{pr_number}}`，記下 base branch 作 `{{base_branch}}`（通常是 `main`）。
+Note the PR number as `{{pr_number}}` and the base branch as `{{base_branch}}` (usually `main`).
 
 ---
 
-### Step 2 — Code Review（缺陷偵測）
+### Step 2 — Code Review (defect detection)
 
-執行 `/code-review`，掃描 PR 全部變更的正確性 bug：
+Run `/code-review` to scan all PR changes for correctness bugs:
 
 ```text
 /code-review
 ```
 
-若需更嚴格審查，可指定 effort：
+For stricter review, specify effort:
 
 ```text
 /code-review high
 ```
 
-選用：加 `--comment` 把 finding 直接貼成 GitHub PR inline comment：
+Optional: add `--comment` to post findings directly as GitHub PR inline comments:
 
 ```text
 /code-review --comment
 ```
 
-- **無 finding** → 直接進 Step 3。
-- **有 finding** → 帶入 Step 6（Fix）與 mob review 結果一併處理。
-  `/code-review` **不修改程式碼**，finding 屬 review 意見，不需獨立 commit。
+- **No findings** → proceed to Step 3.
+- **Has findings** → bring into Step 6 (Fix) and handle together with mob review results.
+  `/code-review` **does not modify code**; findings are review comments and do not need a separate commit.
 
-> **Fallback（Claude Code < 2.1.146）**：若 `/code-review` 報 `Unknown skill: code-review`，
-> 改用 `pr-review-toolkit:code-reviewer` agent 替代（行為相同，純回報不修改程式碼）：
+> **Fallback (Claude Code < 2.1.146)**: if `/code-review` reports `Unknown skill: code-review`,
+> use `pr-review-toolkit:code-reviewer` agent instead (same behavior — report only, no code changes):
 >
 > ```text
 > Agent(subagent_type=pr-review-toolkit:code-reviewer,
->       prompt="對本 PR 的所有 diff 做 code review，回報 bug / 規範合規 / 邏輯錯誤")
+>       prompt="Code review all diffs in this PR; report bugs / convention violations / logic errors")
 > ```
 
 ---
 
-### Step 3 — Round 1：獨立平行 review
+### Step 3 — Round 1: Independent parallel review
 
-**目的**：四個 voice（Claude / Codex / Gemini / Open-weights）各自獨立評審，
-**互不參考**，避免錨定偏誤。每個 voice 把 findings 寫到 review dir（下稱 `$REVIEW_DIR`）的 `<voice>-r1.md`。
+**Goal**: each voice (Claude / Codex / Gemini) reviews independently **without seeing each
+other's findings**, to avoid anchoring bias. Each voice writes its findings to `<voice>-r1.md`
+in the review dir (referred to below as `$REVIEW_DIR`).
 
-#### 3.1 — 準備工作目錄與共用 prompt
+#### 3.1 — Prepare working directory and shared prompt
 
-把 R1/R2 中間檔案寫到 review dir（`<worktree-root>/.pr-review/`，下稱 `$REVIEW_DIR`）。
-用 worktree root 作命名空間，自然隔離並行 session；同一 worktree 重跑 review 時自然覆蓋舊輸出。
-`agy` `@file` 要求路徑在 `--add-dir` 允許列表內；本 skill 把所有中間檔放在 `<worktree-root>/.pr-review/` 並用 `--add-dir "$WT_ROOT"` 授權，避免 `/tmp/` 路徑被沙箱拒絕。
+Write all R1/R2 intermediate files to the review dir (`<worktree-root>/.pr-review/`, referred
+to as `$REVIEW_DIR`). Using the worktree root as namespace naturally isolates concurrent sessions;
+re-running review in the same worktree naturally overwrites old output.
+`agy` `@file` requires the path to be within the `--add-dir` allowlist; this skill puts all
+intermediate files in `<worktree-root>/.pr-review/` and authorizes with `--add-dir "$WT_ROOT"`,
+avoiding `/tmp/` paths being rejected by the sandbox.
 
 ```bash
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh {{base_branch}}
 ```
 
-Script 最後一行輸出 `REVIEW_DIR=<絕對路徑>` 為 informational；後續 bash call 不需要解析此輸出，
-直接從 worktree root 推導即可（`WT_ROOT=$(git rev-parse --show-toplevel); REVIEW_DIR="$WT_ROOT/.pr-review"`，
-兩者等價）。
+The script's last line outputs `REVIEW_DIR=<absolute path>` as informational; subsequent bash
+calls do not need to parse this output — derive directly from the worktree root
+(`WT_ROOT=$(git rev-parse --show-toplevel); REVIEW_DIR="$WT_ROOT/.pr-review"`, equivalent).
 
-**為什麼抽成 script**：原本的 fat bash block 違反 rule 13 AP1（過度複雜的單一指令）、
-rule 14 Quoting Rule 5（多 `"$VAR"` 展開）、rule 14 `$?` 章節（`if [ $? -ne 0 ]`），
-且寫入 `.git/info/exclude` 觸發權限確認框。Script 內部用 `set -euo pipefail` 與
-`if ! cmd; then` 取代 `$?`，並在進入 git diff 前先用 `git rev-parse --verify` 驗證 `BASE_BRANCH`
-是有效 ref（避免 typo 留 0-byte diff.patch）。
+**Why extracted to a script**: the original fat bash block violated rule 13 AP1 (overly complex
+single command), rule 14 Quoting Rule 5 (multiple `"$VAR"` expansions), rule 14 `$?` section
+(`if [ $? -ne 0 ]`), and writing to `.git/info/exclude` triggered a permission dialog.
+The script uses `set -euo pipefail` and `if ! cmd; then` instead of `$?`, and validates
+`BASE_BRANCH` with `git rev-parse --verify` before entering git diff
+(to avoid typos leaving a 0-byte diff.patch).
 
-**Allow-list pattern 注意**：`Bash()` rule 對 `~` **不展開**（rule 16「安全 pattern 範例」重點第 2 點），
-因此 `Bash(bash ~/.agents/skills/.../setup-review-dir.sh)` 寫法**不會** match runtime 字串。
-寫進 `~/.claude/settings.local.json` 永久放行時用展開後的絕對路徑：
+**Allow-list pattern note**: `Bash()` rules do **not expand** `~` (rule 16 "safe pattern
+examples", key point 2), so `Bash(bash ~/.agents/skills/.../setup-review-dir.sh)` **does not**
+match the runtime string. When permanently allowing in `~/.claude/settings.local.json`, use
+the expanded absolute path:
 
 ```text
 Bash(bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh *)
 Bash(bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage1.sh *)
 ```
 
-`<you>` 用 `whoami` 或 `echo $USER` 確認。完整絕對路徑 + trailing `*` 符合 rule 16 安全 pattern
-（script 已 review，`*` 只擴展到 branch name 引數）。
+Confirm `<you>` with `whoami` or `echo $USER`. Full absolute path + trailing `*` matches rule 16 safe pattern (script is already reviewed; `*` only expands to branch name argument).
 
-Extract prompt 路徑固定在 `~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md`（由 `make install` 建立的 symlink），不需要解析 `SKILL_REPO`。
+The extract prompt path is fixed at `~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md` (symlink created by `make install`); no need to resolve `SKILL_REPO`.
 
-用 Write tool 把 review prompt 寫到 `$REVIEW_DIR/prompt-r1.md`（`$REVIEW_DIR` 為上方推導的實際路徑，如 `/path/to/worktree/.pr-review`）。寫入前先把 `{{REVIEW_DIR}}` 替換為 `$REVIEW_DIR` 的實際值：
+Write the review prompt to `$REVIEW_DIR/prompt-r1.md` using the Write tool (`$REVIEW_DIR` is
+the actual path derived above, e.g. `/path/to/worktree/.pr-review`). Replace `{{REVIEW_DIR}}`
+with the actual `$REVIEW_DIR` value before writing:
 
 ```text
-你是資深 code reviewer。對以下 PR diff 做獨立 review。
+You are a senior code reviewer. Review the following PR diff independently.
 
 Base branch: {{base_branch}}
 PR #: {{pr_number}}
-Diff: 見 {{REVIEW_DIR}}/diff.patch
-變更檔案清單: 見 {{REVIEW_DIR}}/changed-files.txt
+Diff: see {{REVIEW_DIR}}/diff.patch
+Changed files: see {{REVIEW_DIR}}/changed-files.txt
 
-輸出格式（嚴格遵守，便於後續 aggregate）：
+Output format (strictly follow, for downstream aggregation):
 
 ## Summary
-<1-2 句總評>
+<1-2 sentence overall assessment>
 
 ## Findings
 
-### [Critical] <短標題>
+### [Critical] <short title>
 - File: <path:line>
-- Issue: <問題描述>
-- Suggested fix: <如何修>
+- Issue: <description>
+- Suggested fix: <how to fix>
 
-### [Important] <短標題>
+### [Important] <short title>
 ...
 
-### [Actionable NIT] <短標題>
-- 必須是具體可執行的小修正（命名、註解錯誤、import 順序等），非主觀偏好
+### [Actionable NIT] <short title>
+- Must be a concrete, actionable small fix (naming, comment error, import order, etc.), not subjective preference
 
 ## Verdict
 - LGTM / NEEDS_CHANGES
 
-聚焦：
-- 邏輯錯誤、race condition、security hole、silent failure、resource leak
-- 測試覆蓋缺口（critical path 未測試）
-- 文件 / comment 與實作不一致
-- 不要列「程式碼風格偏好」「主觀美學」這類 non-actionable items
+Focus on:
+- Logic errors, race conditions, security holes, silent failures, resource leaks
+- Test coverage gaps (critical paths not tested)
+- Documentation / comment inconsistency with implementation
+- Do NOT list "code style preferences" or "subjective aesthetics" — non-actionable items only
 - Be skeptical, be terse, no compliments
 ```
 
-#### 3.2 — 平行啟動 3 個 voice
+#### 3.2 — Launch 3 voices in parallel
 
-**在同一則訊息中**並行送出所有 reviewer 呼叫（只送可用的 voice）：
+**In the same message**, send all reviewer calls in parallel (only send available voices):
 
-##### Claude voice（pr-review-toolkit 4 subagents）
+##### Claude voice (pr-review-toolkit 4 subagents)
 
-平行啟動四個 Task subagent（每個產生獨立 finding，最後由 lead 合併為 Claude voice）：
+Launch four Task subagents in parallel (each produces independent findings; the lead merges them into the Claude voice):
 
-| Subagent | 聚焦 |
+| Subagent | Focus |
 | --- | --- |
-| `code-reviewer` | 規範合規、bug、邏輯錯誤 |
-| `silent-failure-hunter` | 靜默失敗、exception 吞噬 |
-| `pr-test-analyzer` | 測試覆蓋缺口 |
-| `comment-analyzer` | 文件 / comment 準確性 |
+| `code-reviewer` | Convention compliance, bugs, logic errors |
+| `silent-failure-hunter` | Silent failures, swallowed exceptions |
+| `pr-test-analyzer` | Test coverage gaps |
+| `comment-analyzer` | Documentation / comment accuracy |
 
-四個都跑完後，lead 用 Write tool 合併為 `$REVIEW_DIR/claude-r1.md`（依上述輸出格式）。
+After all four complete, the lead uses the Write tool to merge them into `$REVIEW_DIR/claude-r1.md` (following the output format above).
 
-##### Codex voice（CODEX_OK 時）
+##### Codex voice (when CODEX_OK)
 
-###### Stage 1：Native review（raw 落地，不進主 context）
+###### Stage 1: Native review (raw output lands on disk, does not enter main context)
 
 ```bash
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage1.sh {{base_branch}}
 ```
 
-`codex review` 不支援 `-C` flag，從正確 cwd 執行即可。`--base` 與 positional prompt 互斥；codex 內建 review 模式自動產生 [P1]/[P2] 分級。Raw 輸出落地到 `codex-r1-raw.md`，**不在主 context 讀取**。
+`codex review` does not support the `-C` flag; run from the correct cwd. `--base` and
+positional prompt are mutually exclusive; codex's built-in review mode automatically generates
+[P1]/[P2] grading. Raw output lands in `codex-r1-raw.md` — **do not read it in the main context**.
 
-###### Stage 2：Extract（把 raw verbose markdown 壓縮成結構化 JSON）
+###### Stage 2: Extract (compress verbose raw markdown into structured JSON)
 
 ```bash
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage2.sh
 ```
 
-###### Stage 3：Render（lead 讀 JSON → 寫 compact markdown）
+###### Stage 3: Render (lead reads JSON → writes compact markdown)
 
-Lead 用 Read tool 讀 `$REVIEW_DIR/codex-r1.json`，依以下判斷分支處理：
+Lead reads `$REVIEW_DIR/codex-r1.json` with the Read tool and branches on the result:
 
-**JSON 有效**（合法 JSON 且含 `verdict` / `summary` / `findings` 三欄）→ 用 Write tool 渲染成 `$REVIEW_DIR/codex-r1.md`（compact markdown，依 severity 排序：critical → important → actionable_nit）。
+**JSON valid** (valid JSON with `verdict` / `summary` / `findings` fields) → use the Write tool to render `$REVIEW_DIR/codex-r1.md` (compact markdown, sorted by severity: critical → important → actionable_nit).
 
-**JSON 無效**（非合法 JSON 或缺欄位）→ 立即執行 fallback，不繼續嘗試 render：
+**JSON invalid** (not valid JSON or missing fields) → immediately execute fallback, do not attempt to render:
 
-1. 用 Read tool 讀 `$REVIEW_DIR/codex-r1-raw.md`，在主 context 手動摘要
-2. 用 Write tool 寫 compact markdown 到 `$REVIEW_DIR/codex-r1.md`
-3. 在最終 final.md 標註「Codex voice 本輪走 raw form，主 context 較重」
+1. Read `$REVIEW_DIR/codex-r1-raw.md` with the Read tool and manually summarize in the main context
+2. Write compact markdown to `$REVIEW_DIR/codex-r1.md` with the Write tool
+3. Note in the final final.md: "Codex voice used raw form this round; main context load is higher"
 
-格式範例（compact markdown）：
+Format example (compact markdown):
 
 ```text
 ## Codex R1
 
 **Verdict**: NEEDS_CHANGES
-**Summary**: <summary 欄位>
+**Summary**: <summary field>
 
 ### [critical] <title>
 - File: <file>:<line_start>-<line_end>
@@ -384,55 +395,63 @@ Lead 用 Read tool 讀 `$REVIEW_DIR/codex-r1.json`，依以下判斷分支處理
 ...
 ```
 
-##### Gemini voice（GEMINI_OK 時）
+##### Gemini voice (when GEMINI_OK)
 
-agy 不接受 stdin prompt + diff path 的多檔組合，先串成單一檔：
+agy does not accept a combined stdin prompt + diff path; concatenate into a single file first:
 
-###### Stage 1：Native review（raw 落地，不進主 context）
+###### Stage 1: Native review (raw output lands on disk, does not enter main context)
 
-> **[重要] bash block 執行原則**：
+> **[Important] bash block execution rules**:
 >
-> - 逐字執行下方 bash block，**禁止在 agy 指令後加任何 `$?` 相關程式碼**
->   （包含 `echo "exit:$?"` 或額外的 `if [ $? -ne 0 ]`）——
->   Rule 5：parser 攔截 ALL `simple_expansion` 節點，`$?` 無論是否在引號內皆觸發確認框；
->   bash block 已內含 exit code 判斷，不要另加
-> - **@file 觸發 agentic 模式（PR #303 教訓）**：`agy -p "@/abs/path" > out.md` 在 redirect 模式下
->   可能讓 agy 進入 agentic tool call 模式——模型輸出 `call:read_file{...}` 文字而非實際 review 內容。
->   確認方式：若 `gemini-r1-raw.md` 開頭含 `call:` 或 `tool_use:` → 已觸發。
->   本 skill 已內嵌 `--sandbox` flag（沙箱限制 agy 工具存取，強制輸出文字避免 agentic mode）；
->   若仍觸發，改以 worktree root 為 cwd 執行並改用相對路徑（`cd "$WT_ROOT" && agy -p "@.pr-review/gemini-r1-input.md" --add-dir . --sandbox`）。
-> - **[安全性] `--sandbox` 信任邊界**：此 flag 限制 agy 的工具存取範圍，是避免 agentic mode 的必要措施。
->   若 PR diff 來自外部 fork 或不信任來源，diff 中的惡意指令可能被 agy auto-approve（prompt injection 風險）。
->   本 skill 預設 PR 來自受信任 repo；對外部 fork 執行 mob review 時，操作者需自行評估此風險。
-> **執行說明**：腳本已將 stderr 寫到 `$REVIEW_DIR/gemini-r1.stage1.log`，stdout 僅輸出
-> "agy R1 Stage 1 complete"。**直接執行即可，不要外加 `> $CLAUDE_JOB_DIR/foo.log 2>&1` 捕捉**——
-> 失敗時 Read `$REVIEW_DIR/gemini-r1.stage1.log` 即可看完整錯誤。
+> - Execute the bash block below verbatim; **do not add any `$?`-related code after the agy command**
+>   (including `echo "exit:$?"` or additional `if [ $? -ne 0 ]`) —
+>   Rule 5: the parser intercepts ALL `simple_expansion` nodes; `$?` triggers a confirmation dialog
+>   regardless of quoting; the bash block already contains exit code handling, do not add more
+> - **`@file` triggers agentic mode (PR #303 lesson)**: `agy -p "@/abs/path" > out.md` in redirect mode
+>   may cause agy to enter agentic tool call mode — the model outputs `call:read_file{...}` text
+>   instead of actual review content. How to confirm: if `gemini-r1-raw.md` starts with `call:` or
+>   `tool_use:` → agentic mode triggered.
+>   This skill embeds the `--sandbox` flag (sandbox restricts agy tool access, forces text output to
+>   avoid agentic mode); if still triggered, run with worktree root as cwd and use relative paths
+>   (`cd "$WT_ROOT" && agy -p "@.pr-review/gemini-r1-input.md" --add-dir . --sandbox`).
+> - **[Security] `--sandbox` trust boundary**: this flag restricts agy's tool access scope and is a
+>   necessary measure to avoid agentic mode. If the PR diff comes from an external fork or untrusted
+>   source, malicious instructions in the diff may be auto-approved by agy (prompt injection risk).
+>   This skill assumes the PR comes from a trusted repo; when running mob review on an external fork,
+>   the operator must evaluate this risk themselves.
+> **Execution note**: the script writes stderr to `$REVIEW_DIR/gemini-r1.stage1.log`; stdout only
+> outputs "agy R1 Stage 1 complete". **Run directly without adding `> $CLAUDE_JOB_DIR/foo.log 2>&1`
+> capture** — on failure, Read `$REVIEW_DIR/gemini-r1.stage1.log` for the full error.
 
 ```bash
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage1.sh
 ```
 
-`agy` 自動選擇最佳模型（無 `-m` flag），不需手動指定。如需固定模型，可在 `~/.gemini/antigravity-cli/settings.json` 設定 `defaultModel`。Raw 輸出落地到 `gemini-r1-raw.md`，**不在主 context 讀取**。
+`agy` automatically selects the best model (no `-m` flag needed). To pin a model, set
+`defaultModel` in `~/.gemini/antigravity-cli/settings.json`. Raw output lands in
+`gemini-r1-raw.md` — **do not read it in the main context**.
 
-###### Stage 2：Extract（agy 自動選輕量模型萃取 JSON）
+###### Stage 2: Extract (agy auto-selects lightweight model to extract JSON)
 
-> **執行說明**：腳本已將 stderr 寫到 `$REVIEW_DIR/gemini-r1.extract.log`，stdout 僅輸出
-> "agy R1 Stage 2 complete"。**直接執行即可，不要外加 `> $CLAUDE_JOB_DIR/foo.log 2>&1` 捕捉**——
-> 失敗時 Read `$REVIEW_DIR/gemini-r1.extract.log` 即可看完整錯誤。
+> **Execution note**: the script writes stderr to `$REVIEW_DIR/gemini-r1.extract.log`; stdout only
+> outputs "agy R1 Stage 2 complete". **Run directly without adding `> $CLAUDE_JOB_DIR/foo.log 2>&1`
+> capture** — on failure, Read `$REVIEW_DIR/gemini-r1.extract.log` for the full error.
 
 ```bash
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage2.sh
 ```
 
-注意：`agy` 在 extract 階段自動選擇輕量模型，避免再消耗高推理配額。
+Note: `agy` automatically selects a lightweight model in the extract stage to avoid consuming more high-reasoning quota.
 
-###### Stage 3：Render（同 Codex voice，lead 讀 JSON → 寫 compact markdown）
+###### Stage 3: Render (same as Codex voice: lead reads JSON → writes compact markdown)
 
-Lead 用 Read tool 讀 `$REVIEW_DIR/gemini-r1.json`，依以下判斷分支處理：
+Lead reads `$REVIEW_DIR/gemini-r1.json` with the Read tool and branches:
 
-**JSON 有效** → 用 Write tool 渲染成 `$REVIEW_DIR/gemini-r1.md`（格式同 Codex compact markdown）。
+**JSON valid** → use the Write tool to render `$REVIEW_DIR/gemini-r1.md` (same format as Codex compact markdown).
 
-**JSON 無效** → 用 Read tool 讀 `$REVIEW_DIR/gemini-r1-raw.md`，在主 context 手動摘要後用 Write tool 寫 compact markdown；在最終 final.md 標註「Gemini voice 本輪走 raw form」。
+**JSON invalid** → read `$REVIEW_DIR/gemini-r1-raw.md` with the Read tool, manually summarize
+in main context, write compact markdown with the Write tool; note in final.md:
+"Gemini voice used raw form this round".
 
 #### 3.3 — Sanity check
 
@@ -443,87 +462,87 @@ ls -lh "$REVIEW_DIR/codex-r1.md" "$REVIEW_DIR/codex-r1.json" 2>&1
 ls -lh "$REVIEW_DIR/gemini-r1.md" "$REVIEW_DIR/gemini-r1.json" 2>&1
 ```
 
-檢查項目：
+Check:
 
-1. `codex-r1.md` / `gemini-r1.md`（compact markdown）< 50 bytes 或不存在 → 表示 Stage 3 render 未完成，重跑
-2. `codex-r1.json` / `gemini-r1.json` 為非合法 JSON → extract 失敗，觸發 fallback（見 FAQ）
-3. `*-r1-raw.md` 若 < 200 bytes 或只有錯誤訊息 → 重跑 Stage 1（native review）
+1. `codex-r1.md` / `gemini-r1.md` (compact markdown) < 50 bytes or missing → Stage 3 render not completed; re-run
+2. `codex-r1.json` / `gemini-r1.json` is invalid JSON → extract failed; trigger fallback (see FAQ)
+3. `*-r1-raw.md` < 200 bytes or contains only error message → re-run Stage 1 (native review)
 
-連續 2 次失敗 → 把該 voice 標記為「unavailable for this PR」，記錄在最終 aggregated 報告，不阻塞流程。
+2 consecutive failures → mark that voice as "unavailable for this PR"; record in the final aggregated report; do not block the workflow.
 
-`r1-aggregate.md` 只引用 compact 版（`*-r1.md`），**不引用 raw 版（`*-r1-raw.md`）**。
+`r1-aggregate.md` only references compact versions (`*-r1.md`); **never reference raw versions (`*-r1-raw.md`)**.
 
 ---
 
-### Step 4 — Round 2：交叉 debate
+### Step 4 — Round 2: Cross-debate
 
-**目的**：每個 voice 看其他 voice 的 R1 findings，表態同意 / 反對 / 補充，
-逼出共識與爭議。
+**Goal**: each voice reads the other voices' R1 findings and takes positions (agree / disagree / supplement), forcing out consensus and disputes.
 
-#### 4.1 — 產生 R1 aggregate
+#### 4.1 — Generate R1 aggregate
 
-用 Write tool 把所有 R1 內容串成 `$REVIEW_DIR/r1-aggregate.md`（只包含有產出的 voice）。
-寫入時將 `$REVIEW_DIR` 替換為實際路徑（如 `/path/to/worktree/.pr-review`），把各 voice 的 compact markdown 完整貼入：
+Use the Write tool to concatenate all R1 content into `$REVIEW_DIR/r1-aggregate.md` (only
+include voices that produced output). Replace `$REVIEW_DIR` with the actual path
+(e.g. `/path/to/worktree/.pr-review`) and paste each voice's compact markdown in full:
 
 ```text
-# Round 1 Findings — 各 reviewer 獨立結果
+# Round 1 Findings — Independent Results per Reviewer
 
 ## Claude
-<貼 $REVIEW_DIR/claude-r1.md 內容>
+<paste $REVIEW_DIR/claude-r1.md content>
 
-## Codex（若 CODEX_OK）
-<貼 $REVIEW_DIR/codex-r1.md 內容>
+## Codex (if CODEX_OK)
+<paste $REVIEW_DIR/codex-r1.md content>
 
-## Gemini（若 GEMINI_OK）
-<貼 $REVIEW_DIR/gemini-r1.md 內容>
+## Gemini (if GEMINI_OK)
+<paste $REVIEW_DIR/gemini-r1.md content>
 ```
 
 #### 4.2 — Round 2 prompt
 
-用 Write tool 寫 `$REVIEW_DIR/prompt-r2.md`：
+Write `$REVIEW_DIR/prompt-r2.md` with the Write tool:
 
 ```text
-你剛剛在 Round 1 對這個 PR 做了 review。現在看其他 reviewer 的結果，
-重新表態：
+You just reviewed this PR in Round 1. Now read the other reviewers' results
+and take positions:
 
-## Round 1 全員結果
-<r1-aggregate 內容>
+## Round 1 Results from All Reviewers
+<r1-aggregate content>
 
-## 你的任務
-針對其他 reviewer 提出的每一個 finding：
-- AGREE: 同意，理由（可選）
-- DISAGREE: 不同意，理由（必填）
-- DUPLICATE: 與你 R1 的 X 重複
-- UPGRADE/DOWNGRADE: 嚴重度應調整為 ___，理由
+## Your task
+For each finding raised by other reviewers:
+- AGREE: agreed, reason (optional)
+- DISAGREE: disagree, reason (required)
+- DUPLICATE: duplicates your R1 finding X
+- UPGRADE/DOWNGRADE: severity should be adjusted to ___, reason
 
-額外：
-- 看完別人的 review 後，你 R1 漏掉了什麼？補上 [Critical/Important/NIT] 新項目。
-- 你 R1 哪些項目看完別人意見後想撤回？標 WITHDRAW + 理由。
+Additional:
+- After reading others' reviews, what did you miss in R1? Add new [Critical/Important/NIT] items.
+- Which R1 items do you want to withdraw after seeing others' opinions? Mark WITHDRAW + reason.
 
-輸出格式：
+Output format:
 
 ## Cross-review verdict
-<2-3 句：你對其他 reviewer 整體表現的看法>
+<2-3 sentences: your view on the other reviewers' overall performance>
 
 ## Per-finding response
-### Other reviewer's finding: <原 finding 標題>
+### Other reviewer's finding: <original finding title>
 - Verdict: AGREE/DISAGREE/DUPLICATE/UPGRADE/DOWNGRADE
 - Reason: ...
 
-## New findings (R1 漏掉的)
-### [Critical/Important/NIT] <標題>
+## New findings (missed in R1)
+### [Critical/Important/NIT] <title>
 - File / Issue / Fix
 
-## Withdrawals (R1 我撤回的)
-- <原標題>: 理由
+## Withdrawals (R1 items I'm retracting)
+- <original title>: reason
 
 ## Final verdict
 - LGTM / NEEDS_CHANGES
 ```
 
-#### 4.3 — 平行送 R2 給每個 voice
+#### 4.3 — Send R2 to each voice in parallel
 
-每個 voice 用相同模式呼叫，但這次 prompt 是 R2，input 是 r1-aggregate（不是 raw diff）：
+Each voice uses the same call pattern, but this time the prompt is R2 and the input is r1-aggregate (not the raw diff):
 
 ```bash
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r2.sh
@@ -533,74 +552,73 @@ bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r2.sh
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r2.sh
 ```
 
-> **安全注意**：`agy-r2.sh` 使用 `--sandbox`，假設 PR 來自受信任 repo。
-> 對外部 fork PR 操作者應評估 prompt injection 風險，可在 script 內移除此 flag 改用互動模式。
+> **Security note**: `agy-r2.sh` uses `--sandbox`; assumes PR comes from a trusted repo.
+> For external fork PRs, the operator should evaluate prompt injection risk and may remove this flag to use interactive mode.
 
-只送可用的 voice（CODEX_OK / GEMINI_OK）。
+Only send to available voices (CODEX_OK / GEMINI_OK).
 
-Claude voice：lead 自己讀 r1-aggregate 後寫 `$REVIEW_DIR/claude-r2.md`，不再開
-subagent（避免 4×4 = 16 次 review 太多 noise）。
+Claude voice: the lead writes `$REVIEW_DIR/claude-r2.md` after reading r1-aggregate — no subagents needed (avoid 4×4 = 16 reviews generating too much noise).
 
 ---
 
 ### Step 5 — Aggregator synthesis
 
-Lead 讀完所有 R1 + R2 後，產出 `$REVIEW_DIR/final.md`，分級：
+After the lead reads all R1 + R2, produce `$REVIEW_DIR/final.md`, graded:
 
-| 階級 | 條件 | 處置 |
+| Grade | Condition | Action |
 | --- | --- | --- |
-| **Consensus Critical** | ≥2 voice 標 Critical 且無人 DISAGREE | 必須修 |
-| **Consensus Important** | ≥2 voice 標 Important 且無人 DISAGREE | 必須修 |
-| **Disputed** | 1 voice 標 Critical/Important，其他 DISAGREE | 列出爭議點，使用者決定 |
-| **Single-voice Critical** | 1 voice 標 Critical，其他未提 | 由 lead 評估：技術合理就升 Consensus；否則列 Disputed |
-| **Actionable NIT** | 任 1 voice 標 NIT 且非主觀偏好 | **必須修**（user 強調 "all NITs cleaned up"） |
-| **Withdrawn** | R2 標 WITHDRAW | 從清單剔除 |
-| **Voice unavailable** | 該 voice R1/R2 連續 2 次失敗 | final.md 標註，不阻塞 |
+| **Consensus Critical** | ≥2 voices mark Critical with no DISAGREE | Must fix |
+| **Consensus Important** | ≥2 voices mark Important with no DISAGREE | Must fix |
+| **Disputed** | 1 voice marks Critical/Important; others DISAGREE | List the dispute; user decides |
+| **Single-voice Critical** | 1 voice marks Critical; others did not mention | Lead evaluates: technically sound → elevate to Consensus; otherwise list as Disputed |
+| **Actionable NIT** | Any 1 voice marks NIT and it's not subjective preference | **Must fix** (user emphasized "all NITs cleaned up") |
+| **Withdrawn** | Marked WITHDRAW in R2 | Remove from list |
+| **Voice unavailable** | That voice failed R1/R2 twice in a row | Note in final.md; do not block |
 
-`final.md` 格式：
+`final.md` format:
 
 ```text
 # Final Aggregated Review — PR #{{pr_number}}
 
 ## Mode
-group-review（{{N}}/3 voices active）
+group-review ({{N}}/3 voices active)
 
-## Consensus Critical（必修）
+## Consensus Critical (must fix)
 1. <finding>...
 
-## Consensus Important（必修）
+## Consensus Important (must fix)
 1. <finding>...
 
-## Actionable NIT（必修，使用者要求 all NITs cleaned up）
+## Actionable NIT (must fix — user requires all NITs cleaned up)
 1. <finding>...
 
-## Disputed（使用者決策）
-- Voice X 主張 Critical：<理由>
-- Voice Y 反對：<理由>
-- Lead 建議：<決策建議>
+## Disputed (user decides)
+- Voice X argues Critical: <reason>
+- Voice Y disagrees: <reason>
+- Lead recommendation: <decision guidance>
 
 ## Voices unavailable
-- <voice>: <原因>
+- <voice>: <reason>
 ```
 
-向使用者回報 final.md 摘要，等 Disputed 項目決策後進 Step 6。
+Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 6.
 
 ---
 
-### Step 6 — Fix（Critical → Important → NIT）
+### Step 6 — Fix (Critical → Important → NIT)
 
-依序處理：
+Process in order:
 
-1. 修改程式碼
-2. 跑本地 CI（先讀專案找 CI 指令）：
+1. Modify the code.
+2. Run local CI (read the project to find the CI command first):
 
    ```bash
    grep -E "^(ci|test|check):" Makefile 2>/dev/null | head -5
    ```
 
-   常見對應：
+   Common mappings:
 
-   | 技術棧 | 本地 CI |
+   | Stack | Local CI |
    | --- | --- |
    | Python (make) | `make ci` |
    | Python (bare) | `uv run pytest` |
@@ -608,9 +626,9 @@ group-review（{{N}}/3 voices active）
    | Go | `go test ./...` |
    | Flutter | `flutter test` |
 
-   失敗就修好再繼續，不跳過。
+   Fix before continuing if CI fails — do not skip.
 
-3. commit（描述修了什麼，不要寫 "fix review comments"）：
+3. Commit (describe what was fixed; do not write "fix review comments"):
 
    ```bash
    git commit -m "fix(...): ..."
@@ -620,15 +638,15 @@ group-review（{{N}}/3 voices active）
    git push
    ```
 
-修一批 commit 一批，方便 group re-review 看到對應 diff。
+Commit after each batch of fixes to make it easier for group re-review to see the corresponding diff.
 
 ---
 
-### Step 7 — Group re-review（直到全員 LGTM）
+### Step 7 — Group re-review (until all voices LGTM)
 
-對**本次修改的檔案**重跑 Step 3 + Step 4（R1 + R2）。
+Re-run Step 3 + Step 4 (R1 + R2) on **files modified in this round**.
 
-**7.1 刷新 diff 狀態**（必做，fix 後 diff 已變）：
+**7.1 Refresh diff state** (required — diff has changed after fixes):
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
@@ -638,117 +656,122 @@ git diff "{{base_branch}}"...HEAD > "$REVIEW_DIR/diff.patch"
 git diff "{{base_branch}}"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"
 ```
 
-**7.2 Token 節省：只跳過上一輪 LGTM 聲音的 R2 debate**（R1 仍全員跑）：
+**7.2 Token savings: only skip R2 debate for voices that were LGTM in the previous round** (R1 still runs for all):
 
-讀取每個 voice 的**最新一輪** verdict 檔案（優先 `*-r2.md`，無則 `*-r1.md`），找出 `Final verdict: NEEDS_CHANGES`（R2 格式）或 `## Verdict` 段落含 `NEEDS_CHANGES`（R1 格式）的聲音。
+Read each voice's **most recent** verdict file (prefer `*-r2.md`; fall back to `*-r1.md`) and
+find voices with `Final verdict: NEEDS_CHANGES` (R2 format) or `## Verdict` section containing
+`NEEDS_CHANGES` (R1 format).
 
-- **所有聲音**：都重跑 R1（確認新 fix 沒有引入回歸）
-- **上輪 NEEDS_CHANGES 聲音**：R1 + R2 全跑
-- **上輪 LGTM 聲音**：只跑 R1，跳過 R2 debate（省一個 API round-trip；LGTM 聲音的 R2 是對舊 findings 的 cross-check，此輪已無舊 finding 可辯論）
+- **All voices**: re-run R1 (confirm new fixes haven't introduced regressions)
+- **Previous-round NEEDS_CHANGES voices**: run R1 + R2
+- **Previous-round LGTM voices**: run R1 only; skip R2 debate (saves one API round-trip; LGTM voices' R2 is a cross-check on old findings, which no longer exist this round)
 
 ```text
-re-run 判斷邏輯（agent 執行）：
-- claude   上輪 NEEDS_CHANGES → R1 + R2
-- codex    上輪 LGTM          → R1 only（跳過 R2，省一次 codex exec）
-- gemini   上輪 NEEDS_CHANGES → R1 + R2
+Re-run decision logic (agent executes):
+- claude   previous-round NEEDS_CHANGES → R1 + R2
+- codex    previous-round LGTM          → R1 only (skip R2, save one codex exec)
+- gemini   previous-round NEEDS_CHANGES → R1 + R2
 ```
 
-新一輪的 r1 覆蓋舊 r1 檔案（全員）；r2 只覆蓋需重跑的聲音。
+New-round R1 overwrites old R1 files (all voices); R2 only overwrites voices that needed re-running.
 
-**LGTM 聲音的舊 r2 處理（重要）**：跳過 R2 的聲音，其舊 `*-r2.md` 仍留在磁碟，但本輪聚合時**不可引用舊 r2**——舊 r2 對應的是之前輪次的 diff，內容可能已過時。在執行 Step 5 聚合前，刪除 LGTM-skip 聲音的舊 r2 檔：
+**LGTM voices' old R2 handling (important)**: for voices that skip R2, their old `*-r2.md`
+still exists on disk, but **must not be referenced in this round's aggregation** — old R2
+corresponds to a previous diff and the content may be stale. Before running Step 5 aggregation,
+delete old R2 files for LGTM-skip voices:
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
-# LGTM 聲音跳過 R2：先刪舊 r2 再聚合，避免 aggregate 讀到過期結果
-# 按實際跳過的聲音替換 voice 名稱（codex / gemini / claude）
-rm -f "$REVIEW_DIR/codex-r2.md"   # 若 codex 本輪為 LGTM-skip
+# LGTM voice skipping R2: delete old r2 before aggregation to avoid stale results
+# Replace voice names with the actual voices skipping this round (codex / gemini / claude)
+rm -f "$REVIEW_DIR/codex-r2.md"   # if codex is LGTM-skip this round
 ```
 
-若 LGTM 聲音在新 R1 出現 NEEDS_CHANGES，立即補跑 R2（r2 檔已被刪，補跑後重新寫入即可）。
+If a LGTM voice shows NEEDS_CHANGES in new R1, immediately run R2 (r2 file was deleted; re-running overwrites it).
 
-#### 收斂條件
+#### Convergence condition
 
-**全員 LGTM** = 每個 active voice 在最新一輪都輸出：
+**All voices LGTM** = every active voice in the latest round outputs:
 
-- `Final verdict: LGTM`，且
-- 無新增 [Critical] / [Important] / [Actionable NIT] finding
+- `Final verdict: LGTM`, and
+- no new [Critical] / [Important] / [Actionable NIT] findings
 
-任一 voice 仍有 actionable item → 回 Step 6 修。
+Any voice still has actionable items → return to Step 6 to fix.
 
 #### Circuit breaker
 
-連續 **3 輪**仍未全員 LGTM → 停止自動重試，向使用者呈現持續未解的 findings，詢問：
+After **3 consecutive rounds** without all voices LGTM → stop automatic retries; present the user with the persistent unresolved findings:
 
 ```text
-Group review 已跑 3 輪仍未全員 LGTM，剩餘未解項目：
-1. <Voice X>: <finding> — 連續 3 輪標 Critical
-2. <Voice Y>: <finding> — 第 2 輪新提
+Group review has run 3 rounds without all voices LGTM. Remaining unresolved items:
+1. <Voice X>: <finding> — Critical for 3 consecutive rounds
+2. <Voice Y>: <finding> — raised in round 2
 
-可能原因：
-- 誤判（voice X 對 codebase context 理解不足）
-- 需要更多修改時間（這項實際是大重構）
-- 退回重新設計 PR（scope 太大）
+Possible causes:
+- False positive (Voice X lacks sufficient codebase context)
+- Needs more fix time (this is actually a large refactor)
+- Return to re-design PR (scope too large)
 
-請選擇：[誤判 / 繼續修 / 退回重設計]
+Choose: [False positive / Continue fixing / Return to redesign]
 ```
 
-等待明確指示後才繼續。
+Wait for explicit instruction before continuing.
 
-#### Gotcha：re-review 不可用舊 diff.patch
+#### Gotcha: re-review must not use stale diff.patch
 
-fix 後若需要手動觸發單一聲音重跑，input 必須用**Step 7.1 刷新後的 diff.patch**，不可沿用 setup 階段產生的舊版：
+When manually triggering a single voice re-run after fixes, the input **must use the diff.patch refreshed in Step 7.1**, not the stale version from the setup stage:
 
 ```bash
-# 正確：重跑 codex 用 codex review 原生模式（自動讀 git diff）；output 命名用輪次
+# Correct: re-run codex using codex review native mode (reads git diff automatically); use round number in output name
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
 codex review --base "{{base_branch}}" -c 'model_reasoning_effort="high"' 2>"$REVIEW_DIR/codex-rerun.log" | tee "$REVIEW_DIR/codex-r2-r1.md" > /dev/null
 
-# 錯誤 1：缺 reviewer prompt -- codex exec 不知道在做 code review
-# 錯誤 2：output 直接覆蓋 codex-r1.md -- 破壞 aggregate 歷史
+# Wrong 1: missing reviewer prompt -- codex exec doesn't know it's doing a code review
+# Wrong 2: output directly overwrites codex-r1.md -- destroys aggregate history
 # cat "$REVIEW_DIR/r1-aggregate.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-rerun-input.md"
 # codex exec -C "$WT_ROOT" -s read-only < "$REVIEW_DIR/codex-rerun-input.md" > "$REVIEW_DIR/codex-r1.md"
 
-# 錯誤 3：prompt-r1.md 是 reviewer prompt（用 diff 的），不是 aggregate；且 diff.patch 若未刷新則是舊快照
+# Wrong 3: prompt-r1.md is a reviewer prompt (for diffs), not aggregate; and diff.patch may be stale if not refreshed
 # cat "$REVIEW_DIR/prompt-r1.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-final2-input.md"
 ```
 
 ---
 
-### Step 8 — Human quick pass（人類複查）
+### Step 8 — Human quick pass
 
-全員 LGTM 後，lead 給人類一份**幾分鐘可掃完**的摘要：
+After all voices LGTM, the lead gives the human a summary **scannable in a few minutes**:
 
 ```bash
 git diff "{{base_branch}}"...HEAD --stat
 ```
 
-用 Write tool 寫 `$REVIEW_DIR/human-summary.md`：
+Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 
 ```text
 # Human Quick Pass — PR #{{pr_number}}
 
-## What changed（一頁摘要）
-- 主要功能：...
-- 改動範圍：N 檔案 +X/-Y 行
-- 新增測試：...
+## What changed (one-page summary)
+- Main functionality: ...
+- Change scope: N files +X/-Y lines
+- New tests: ...
 
-## Group review 處理過的關鍵決策
-1. <Consensus Critical 1>: 修法 = ...
-2. <Disputed 項目>: 使用者選了 ___，理由 ...
+## Key decisions handled during group review
+1. <Consensus Critical 1>: fix approach = ...
+2. <Disputed item>: user chose ___, reason ...
 
 ## Voices final verdict
 - Claude: LGTM
-- Codex: LGTM（若 CODEX_OK）/ N/A
-- Gemini: LGTM（若 GEMINI_OK）/ N/A
+- Codex: LGTM (if CODEX_OK) / N/A
+- Gemini: LGTM (if GEMINI_OK) / N/A
 
-## 改動 hotspot（最值得人類眼睛看的 3 處）
-1. <file:line> — <為何 hotspot>
+## Change hotspots (top 3 places most worth human eyes)
+1. <file:line> — <why it's a hotspot>
 2. ...
 ```
 
-向使用者展示 summary 與 hotspot，邀請質疑。先用 bash 取得實際路徑，再用 conversational reply 傳達（讓使用者可直接 cat 路徑）：
+Show the summary and hotspots to the user and invite challenges. First get the actual path with bash, then communicate via conversational reply (so the user can directly cat the path):
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
@@ -756,59 +779,58 @@ REVIEW_DIR="$WT_ROOT/.pr-review"
 echo "$REVIEW_DIR/human-summary.md"
 ```
 
-然後向使用者回覆（把上方 echo 的實際路徑帶入 `<path>`）：
+Then reply to the user (substitute the actual path from the echo above for `<path>`):
 
 ```text
-全員 LGTM。Hotspot 三處列在 <path>。
-有任何疑慮就在此 session 直接提，我（reviewer lead）即時回應。
-無疑慮就回 "ship"，進 Step 9 CI check。
+All voices LGTM. Three hotspots listed in <path>.
+Raise any concerns directly in this session; I (reviewer lead) will respond immediately.
+No concerns? Reply "ship" to proceed to Step 9 CI check.
 ```
 
-使用者提疑慮 → lead 直接回應（必要時調 R1/R2 原始 finding 佐證）；解不開的疑慮 →
-回 Step 6 修；解開後使用者回 "ship" 才進 Step 9。
+User raises a concern → lead responds directly (citing R1/R2 original findings if needed); unresolvable concern → return to Step 6 to fix; resolved → user replies "ship" before proceeding to Step 9.
 
 ---
 
 ### Step 9 — CI Check
 
-等待 GitHub Actions 全綠：
+Wait for GitHub Actions to pass:
 
 ```bash
 gh pr checks "{{pr_number}}" --watch
 ```
 
-CI 失敗：本地重現（用 Step 6 找到的 CI 指令）→ 修 → commit + push → 重等。
-本地 CI 是權威：CI 與本地不一致時以本地為準，檢查 CI 環境差異。
+CI fails: reproduce locally (using CI command from Step 6) → fix → commit + push → wait again.
+Local CI is authoritative: when CI and local differ, trust local; check for CI environment differences.
 
 ---
 
 ### Step 10 — Merge
 
-### Pre-merge 確認：版本 bump
+### Pre-merge check: version bump
 
-執行 `gh pr merge` 之前，先暫停並向使用者確認：
+Before running `gh pr merge`, pause and ask the user:
 
-> 此次變更是否需要 bump 版本？
+> Does this change require a version bump?
 >
-> - **需要** → 請先執行 [`/bump-version`](../bump-version/SKILL.md)（會在 feature branch 上 commit 版本檔 + CHANGELOG + git tag + push）。
->   完成後**回到上一步等待 CI 全綠**（新 commit 觸發新一輪 CI），再回到本步驟繼續 merge。
->   注意：`--squash` merge 後 git tag 指向 feature branch HEAD 而非 main 的 merge commit；如需 tag 指向 main，merge 後在 main 上重新 tag。
-> - **不需要** → 確認後繼續 merge。
-> - **不確定** → 簡述本次變更性質，由 agent 依下方準則建議 bump 類型，**等使用者確認後**再執行 `/bump-version` 或繼續 merge。
+> - **Yes** → run [`/bump-version`](../bump-version/SKILL.md) first (commits version files + CHANGELOG + git tag + push on the feature branch).
+>   After that, **return to the previous step and wait for CI to go green** (new commit triggers a new CI run), then come back here to continue merging.
+>   Note: after `--squash` merge the git tag points to the feature branch HEAD, not the main merge commit; if you need the tag on main, re-tag on main after merging.
+> - **No** → confirm and proceed to merge.
+> - **Unsure** → describe the change; the agent evaluates and suggests a bump type, then **waits for user confirmation** before running `/bump-version` or proceeding.
 
-判斷準則（agent 提交使用者裁決前可先評估）：
+Decision guide (agent may pre-evaluate before asking):
 
-| 變更性質 | 建議 |
+| Change type | Recommendation |
 | --------- | ------ |
-| 純內部重構、測試、CI 設定 | 通常不需要 bump |
-| Bug fix、文件修正、效能調整、相容性修正 | patch |
-| 新功能、新 API（向後相容） | minor |
-| Breaking change（API 不相容） | major |
+| Pure internal refactor, tests, CI config | Usually no bump needed |
+| Bug fix, doc fix, performance, compatibility | patch |
+| New feature, new API (backward-compatible) | minor |
+| Breaking change (API-incompatible) | major |
 
-（判斷準則僅供快速評估，完整定義見 [`/bump-version`](../bump-version/SKILL.md) Step 1）
+(This guide is for quick assessment only; full definition in [`/bump-version`](../bump-version/SKILL.md) Step 1.)
 
-使用者明確回應「不需要」或「已執行 `/bump-version`」後，才執行下一步 `gh pr merge`。
-若使用者回應「已執行 `/bump-version`」，先確認 bump commit 已推送至遠端：
+Only proceed to `gh pr merge` after the user explicitly says "no bump needed" or "I've run `/bump-version`".
+If the user says "I've run `/bump-version`", confirm the bump commit was pushed to remote:
 
 ```bash
 git fetch
@@ -818,17 +840,19 @@ git fetch
 git log --oneline -3 '@{upstream}'
 ```
 
-確認近 3 筆 commit 中有一筆訊息符合 `chore(release): v*` 格式後再繼續；若未找到，提示使用者完成 `/bump-version` Step 4（push）後再回來。
-從該 commit message 提取版本號（如 `v1.2.3`），再精確確認該版本 tag 已推送至遠端（commit push 與 tag push 是獨立操作，tag 可能靜默未推）：
+Confirm that one of the last 3 commits matches `chore(release): v*` format; if not, prompt the user to complete `/bump-version` Step 4 (push) before continuing.
+Extract the version tag from that commit message (e.g. `v1.2.3`) and confirm that tag was pushed to remote (commit push and tag push are independent operations; tags may silently not be pushed):
 
 ```bash
 git ls-remote --tags origin 'refs/tags/v<TAG_VERSION>'
 ```
 
-（例：`git ls-remote --tags origin 'refs/tags/v1.2.3'`）
-確認輸出包含精確版本 tag，而非僅有舊版 tag；若輸出為空，提示使用者執行 `git push --tags`。
+(e.g. `git ls-remote --tags origin 'refs/tags/v1.2.3'`)
+Confirm the output contains the exact version tag, not just older tags; if empty, prompt the user to run `git push --tags`.
 
-> **若目標 repo 有 tag-triggered CI/CD**（如 GitHub Release 自動發布）：git tag 在 merge 之前就已推送，可能觸發生產部署流程。評估風險後再決定是否繼續；或改為 merge 後在 main 上重新 tag。
+> **If the target repo has tag-triggered CI/CD** (e.g. automatic GitHub Release on tag push):
+> the git tag is pushed before the merge and may trigger a production deployment. Evaluate the
+> risk before continuing, or re-tag on main after merging instead.
 
 ---
 
@@ -840,135 +864,133 @@ gh pr merge "{{pr_number}}" --squash --delete-branch
 gh pr view "{{pr_number}}" --json mergeCommit -q .mergeCommit.oid
 ```
 
-記下 SHA 作 `{{merge_commit_sha}}`，回報使用者。
+Note the SHA as `{{merge_commit_sha}}` and report it to the user.
 
 ---
 
-### Step 11 — Spectra Archive + Jira Sync（收尾，選用）
+### Step 11 — Spectra Archive + Jira Sync (wrap-up, optional)
 
-兩小節均**選用**——無 spectra change 或無 Jira issue 直接跳過。
+Both sub-sections are **optional** — skip if no spectra change or no Jira issue.
 
 #### 11a — Spectra Archive
 
-未建立 spectra change → 跳過。否則：
+No spectra change created → skip. Otherwise:
 
 ```bash
 spectra list
 ```
 
-找到對應 change（名稱通常與 feature branch 相近），**先回報名稱等待使用者確認**
-（archive 不可逆，Rule 15）：
+Find the matching change (name is usually close to the feature branch), **report the name to the user and wait for confirmation before archiving** (archive is irreversible, Rule 15):
 
-> 找到疑似對應的 spectra change：`{{change_name}}`。確認執行 archive？
+> Found a likely matching spectra change: `{{change_name}}`. Confirm archive?
 
-確認後：
+After confirmation:
 
 ```bash
 spectra archive "{{change_name}}" --yes
 ```
 
-非零退出碼 → 停止回報。validation 有 Critical 錯誤 → `spectra analyze {{change_name}}`
-查問題，修正後再 archive；`--no-validate` 需使用者明確指示才用。
+Non-zero exit → stop and report. Validation has Critical errors → run `spectra analyze {{change_name}}` to find the issue, fix it, then archive; `--no-validate` requires explicit user instruction.
 
 #### 11b — Jira Sync
 
-merge 後 branch 已被 `--delete-branch` 刪除，從 PR title / body 提取 Jira key：
+Branch was deleted by `--delete-branch`; extract Jira key from PR title / body:
 
 ```bash
 gh pr view "{{pr_number}}" --json title,body -q '.title + " " + (.body // "")'
 ```
 
-輸出無 `[A-Z]{2,}-[0-9]+` 格式字串 → 詢問使用者，或跳過 11b。
+Output has no `[A-Z]{2,}-[0-9]+` format string → ask the user, or skip 11b.
 
-取得 transitions（先 sequential 再並行）：
+Get transitions (sequential, then parallel):
 
-- `mcp__claude_ai_Atlassian__getTransitionsForJiraIssue`（`issueId`：`{{jira_issue_key}}`）
+- `mcp__claude_ai_Atlassian__getTransitionsForJiraIssue` (`issueId`: `{{jira_issue_key}}`)
 
-選最接近「已完成開發並合併」的選項（常見：`Done` / `Merged` / `Released` / `Closed`）。
-不確定就詢問使用者。
+Pick the option closest to "development complete and merged" (common: `Done` / `Merged` / `Released` / `Closed`). If unsure, ask the user.
 
-確認後**並行**送出（無相依性）：
+After confirming, **send in parallel** (no dependency):
 
-- `mcp__claude_ai_Atlassian__transitionJiraIssue`：將 `{{jira_issue_key}}` 移至選定狀態
-- `mcp__claude_ai_Atlassian__addCommentToJiraIssue`：comment 內容：
-
-```text
-PR #{{pr_number}} 已 squash merge 至 main。
-Merge commit：{{merge_commit_sha}}
-Group review 模式：{{N}}/3 voices LGTM（Claude / Codex / Gemini）。
-```
-
-11a 有 archive → 一併附上：
+- `mcp__claude_ai_Atlassian__transitionJiraIssue`: move `{{jira_issue_key}}` to selected state
+- `mcp__claude_ai_Atlassian__addCommentToJiraIssue`: comment content:
 
 ```text
-Spectra change `{{change_name}}` 已 archive，spec 狀態已更新為完成。
+PR #{{pr_number}} squash-merged to main.
+Merge commit: {{merge_commit_sha}}
+Group review mode: {{N}}/3 voices LGTM (Claude / Codex / Gemini).
 ```
 
-完成後向使用者回報：spectra archive 狀態、Jira ticket 狀態。
+If 11a archived a change, append:
 
-> **下一步建議**：跑 `/pr-retro` 收尾這個 session，agent 從 PR context 推論 5 題草稿給你校準。
+```text
+Spectra change `{{change_name}}` archived; spec status updated to complete.
+```
+
+Report back to the user: spectra archive status, Jira ticket status.
+
+> **Suggested next step**: run `/pr-retro` to close out this session; the agent drafts 5 questions from the PR context for your calibration.
 
 ---
 
-## Reviewer 呼叫快速對照表
+## Reviewer Call Quick Reference
 
-| Voice | 偵測 | R1 呼叫（三段式） | R2 呼叫 | aggregate 輸入 |
+| Voice | Detection | R1 call (3-stage) | R2 call | Aggregate input |
 | --- | --- | --- | --- | --- |
-| Claude | always | Task() pr-review-toolkit 4 subagents | lead 自己寫 claude-r2.md | claude-r1.md（finding markdown） |
-| Codex | `which codex` + auth | S1: `set -o pipefail; codex review --base $BASE 2>stage1.log \| tee codex-r1-raw.md > /dev/null` / S2: `codex exec low < extract-input 2>extract.log \| tee codex-r1.json > /dev/null` / S3: lead renders codex-r1.md | `set -o pipefail; codex exec -C "$WT_ROOT" -s read-only < input.md 2>r2.log \| tee codex-r2.md > /dev/null` | codex-r1.md（compact，非 raw） |
-| Gemini/agy *(optional)* | `which agy` + auth | S1: `bash agy-r1-stage1.sh` / S2: `agy -p @.pr-review/extract-input --add-dir . --dsp > gemini-r1.json` / S3: lead renders gemini-r1.md | `bash agy-r2.sh` | gemini-r1.md（compact，非 raw） |
+| Claude | always | Task() pr-review-toolkit 4 subagents | lead writes claude-r2.md directly | claude-r1.md (finding markdown) |
+| Codex | `which codex` + auth | S1: `set -o pipefail; codex review --base $BASE 2>stage1.log \| tee codex-r1-raw.md > /dev/null` / S2: `codex exec low < extract-input 2>extract.log \| tee codex-r1.json > /dev/null` / S3: lead renders codex-r1.md | `set -o pipefail; codex exec -C "$WT_ROOT" -s read-only < input.md 2>r2.log \| tee codex-r2.md > /dev/null` | codex-r1.md (compact, not raw) |
+| Gemini/agy *(optional)* | `which agy` + auth | S1: `bash agy-r1-stage1.sh` / S2: `agy -p @.pr-review/extract-input --add-dir . --dsp > gemini-r1.json` / S3: lead renders gemini-r1.md | `bash agy-r2.sh` | gemini-r1.md (compact, not raw) |
 
-每個 voice 的 R1 / R2 都應寫到 `$REVIEW_DIR/<voice>-r{1,2}.md`（compact 版），由 lead 統一讀取 aggregate。
-Raw 版（`*-r1-raw.md`）留在磁碟供 disputed finding 查閱，但**不進入主 context**。
+Each voice's R1 / R2 should be written to `$REVIEW_DIR/<voice>-r{1,2}.md` (compact version),
+read by the lead for unified aggregation. Raw versions (`*-r1-raw.md`) stay on disk for disputed
+finding reference but **do not enter the main context**.
 
 ---
 
-## 常見問題
+## Troubleshooting
 
 <!-- KEEP IN SYNC WITH ../pr-review-cycle/SKILL.md (same FAQ row for pr-test-analyzer anti-patterns). If you update one, update both. -->
 
-| 問題 | 處理方式 |
+| Issue | How to handle |
 | --- | --- |
-| pr-test-analyzer 怎麼避開「假測試 / presence-only / no-CI」三種陷阱？ | 三個 anti-pattern 必檢：(1) **Fake test**（mutation-testing 視角的反向版）— test case 邏輯本身有 silent bug，所有 case PASS 但其中某 case 的測試動作根本沒生效（例：環境變數覆寫測試走了 unset 分支、empty 值沒實際 export，結果跟另一個 case 跑同樣 path）；「all green」掩護從未被測到的情境。修法：mutation testing intuition — 故意把 production code 改錯一行、看該 test case 是否**真的** fail；不 fail 就是 fake test。(2) **Presence test ≠ contract test** — `grep function_name` 確認函式被叫只是最弱形式；若 invariant 是「函式必須**用正確 args** 呼叫」（例：deploy script 必須以**正確的 default-context** 呼叫對應 guard helper），test 必須驗完整 contract（`function_name <expected_arg>` 配對），不能只測 function name presence。(3) **Test 沒進 CI = 半成品 test** — 提交 test file 但沒 CI / pre-commit / git-hook / `make test` target 任一觸發機制，regression 只在 operator 手跑時暴露；operator 通常不會自發跑 test。修法：是否進 CI 應跟「測什麼」「怎麼測」並列為 test 設計三要素。機制依專案技術棧選：Python repo 常用 pre-commit local hook + `files:` regex；TS/JS repo 用 husky / lefthook；Go / Rust repo 用 `make test` + CI workflow `step: run: make test`。共通要求：改 production code 觸發自動測。 |
-| Step 0 零家可用（全部 NOT_FOUND 或 auth 失敗） | 本 skill 終止，改執行 `/pr-review-cycle`（Claude-only 即足夠） |
-| Step 0 偵測到 `KEY_WHITESPACE_PREFIX` | key 值有前置空格（如從 terminal 複製帶入）；執行 `export CODEX_API_KEY="${CODEX_API_KEY# }"` 或對應 key 名去除前置空格後重跑 Step 0 |
-| `GEMINI_AUTH: NOT_AUTHED`（agy 未設定） | 執行 `agy` 完成瀏覽器 OAuth，`onboarding.json` 的 `onboardingComplete` 即變 true；或 `export GEMINI_API_KEY=...` |
-| Step 0 只偵測到 Codex（agy 無） | 進入 2-voice mob（Claude + Codex），正常流程 |
-| Step 0 只偵測到 agy（Codex 無） | 進入 2-voice mob（Claude + agy），正常流程 |
-| 偵測到 codex 但 auth 失敗 | `codex login`；或 `export OPENAI_API_KEY=...` |
-| 偵測到 agy 但 auth 失敗 | 執行 `agy` 完成 OAuth；或 `export GEMINI_API_KEY=...` |
-| agy `@file` 失敗：path not in workspace | 本 skill 已加 `--add-dir "$WT_ROOT"`；若仍見此錯誤，確認 prompt 內的絕對路徑在 `$WT_ROOT/.pr-review/` 下，不要使用 `/tmp` 路徑 |
-| agy background bash `>` redirect 輸出未更新目標檔（未驗證） | 若發生此狀況：改用同步 bash call（不加 `run_in_background`） |
-| Codex `codex review > file` 寫出 0 bytes（stderr 卻有完整 log） | Codex CLI 偵測 stdout 非 tty/非 pipe 時不輸出，file redirect 觸發此行為；本 skill 已改用 `set -o pipefail` + `\| tee file > /dev/null` 解決（`set -o pipefail` 讓 `$?` 反映管線中失敗命令的 exit code，在 bash/zsh 均可用） |
-| codex review 報 `[PROMPT] cannot be used with --base` | `--base` 與 positional prompt 互斥；移除 prompt 字串只留 `--base` |
-| codex review 跑到錯 repo | `codex review` 不支援 `-C` flag；確保從 git repo 根目錄執行（避免 gstack 等工具改變 CWD，AP3 Sub-class A） |
-| 某個 voice R1/R2 連續失敗 | 標為 unavailable，不阻塞，aggregate 報告附原因 |
-| R2 收到的 r1-aggregate 太大 voice 處理不了 | 把 raw diff 從 r1-aggregate 拿掉，只留 findings；diff 已在 r1 prompt 處理過 |
-| 連續 3 輪未全員 LGTM | 觸發 circuit breaker，向使用者報告剩餘 findings 與三選一決策 |
-| Disputed finding 使用者選 ignore | 在 PR description 補 Known Issues 段落記錄理由 |
-| 人類快速複查時提出新疑慮 | reviewer lead（Claude main）即時回應；解不開 → 回 Step 6 修；解開 → 等使用者 "ship" |
-| 想跳過 R2 只跑 R1 | 不行；R2 是 mob review 的核心價值（互相 debate）。想跳過就改用 `/pr-review-cycle`（Claude-only） |
-| Linter / type-check 失敗 | `ruff check --fix` / `eslint --fix` / `mypy follow_imports = skip` 等 |
-| Security scanner 失敗 | bandit `# nosec BXXX` 等忽略註解，PR 說明原因 |
-| spectra archive validation 失敗 | `spectra analyze {{change_name}}`，修正後再 archive；`--no-validate` 需使用者明確指示 |
-| Jira key 無法偵測 | 詢問使用者提供（`PROJECT-123` 格式），或確認無對應 ticket 後跳過 |
-| Jira transition 選項不確定 | 列出所有 transition 詢問使用者確認 |
-| Jira MCP auth 錯誤 | Atlassian MCP 需 OAuth；提示使用者在 claude.ai 完成授權 |
-| Codex extract 後 JSON parse 失敗 | 依 Stage 3 if/else 分支：用 Read tool 讀 `$REVIEW_DIR/codex-r1-raw.md`，在主 context 手動摘要成 compact markdown，Write tool 寫 `$REVIEW_DIR/codex-r1.md`；在 final.md 標註「Codex voice 本輪走 raw form，主 context 較重」（勿直接 cp raw → compact，會讓 verbose raw 進入 r1-aggregate） |
-| Gemini extract 後 JSON 不符 schema | 同上，手動摘要 `$REVIEW_DIR/gemini-r1-raw.md` → `$REVIEW_DIR/gemini-r1.md`（勿 cp） |
-| extract 步驟持續失敗（連續 2 次） | 降級至 C 路徑：Claude lead 自己讀 raw（Read tool），在主 session 內手動萃取 compact form，不再呼叫第二次 codex/agy；效率較低但流程不阻塞 |
-| extract prompt 路徑不存在（`~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md`） | 表示 skill 未安裝；在 yibi-stack 目錄執行 `make install` 建立 symlink；確認：`ls ~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md` 應回傳路徑而非 No such file |
-| 使用者跳過 bump 但事後需要版本標記 | 建立 release branch，在上面跑 [`/bump-version`](../bump-version/SKILL.md)，再開 PR merge 進 main（CI 通過 + 確認 CHANGELOG 正確即可合併，不需跑完整 review cycle；若 main 已有新 commit，CHANGELOG 可能含多餘項目，需人工確認） |
+| How to avoid the three pr-test-analyzer traps (fake test / presence-only / no-CI)? | Three anti-patterns to always check: (1) **Fake test** (inverse of mutation testing) — the test case logic has a silent bug; all cases PASS but some test action never fires (e.g. env-var override test takes the unset branch; empty value not actually exported, so it runs the same path as another case); "all green" masks a scenario never tested. Fix: mutation testing intuition — intentionally break one production line and check whether that test case **really** fails; if not, it's a fake test. (2) **Presence test ≠ contract test** — `grep function_name` confirming the function is called is the weakest form; if the invariant is "the function must be called **with the correct args**" (e.g. the deploy script must call the guard helper with the **correct default context**), the test must verify the full contract (`function_name <expected_arg>` paired), not just function name presence. (3) **Test not wired to CI = half-finished test** — submitting a test file with no CI / pre-commit / git-hook / `make test` trigger means regressions are only caught when an operator manually runs tests; operators rarely do this spontaneously. Fix: "wired to CI?" should be listed alongside "what to test" and "how to test" as the three required test-design elements. Choose the mechanism per tech stack: Python repos use pre-commit local hook + `files:` regex; TS/JS use husky / lefthook; Go / Rust use `make test` + CI workflow `step: run: make test`. Common requirement: changing production code triggers tests automatically. |
+| Step 0 zero available (all NOT_FOUND or auth failed) | This skill terminates; run `/pr-review-cycle` instead (Claude-only is sufficient) |
+| Step 0 detects `KEY_WHITESPACE_PREFIX` | Key has a leading space (e.g. copied from terminal); run `export CODEX_API_KEY="${CODEX_API_KEY# }"` or the corresponding key name to strip leading space, then re-run Step 0 |
+| `GEMINI_AUTH: NOT_AUTHED` (agy not configured) | Run `agy` to complete browser OAuth; `onboarding.json`'s `onboardingComplete` will become true; or `export GEMINI_API_KEY=...` |
+| Step 0 detects only Codex (no agy) | Enter 2-voice mob (Claude + Codex); normal workflow |
+| Step 0 detects only agy (no Codex) | Enter 2-voice mob (Claude + agy); normal workflow |
+| Codex detected but auth failed | `codex login`; or `export OPENAI_API_KEY=...` |
+| agy detected but auth failed | Run `agy` to complete OAuth; or `export GEMINI_API_KEY=...` |
+| agy `@file` error: path not in workspace | This skill already adds `--add-dir "$WT_ROOT"`; if still seeing this error, confirm the prompt's absolute path is under `$WT_ROOT/.pr-review/`; do not use `/tmp` paths |
+| agy background bash `>` redirect output not updating target file (unverified) | If this occurs: switch to synchronous bash call (without `run_in_background`) |
+| Codex `codex review > file` writes 0 bytes (stderr has full log) | Codex CLI detects stdout is not a tty/pipe and suppresses output when file redirect is used; this skill already uses `set -o pipefail` + `\| tee file > /dev/null` to fix this (`set -o pipefail` makes `$?` reflect failing command exit code in the pipeline; works in bash/zsh) |
+| codex review reports `[PROMPT] cannot be used with --base` | `--base` and positional prompt are mutually exclusive; remove the prompt string and keep only `--base` |
+| codex review runs against wrong repo | `codex review` does not support the `-C` flag; ensure execution from git repo root (avoid tools like gstack changing CWD, AP3 Sub-class A) |
+| A voice fails R1/R2 twice consecutively | Mark as unavailable; do not block; aggregate report notes the reason |
+| R2 receives r1-aggregate that is too large for voice to process | Remove raw diff from r1-aggregate; keep only findings; diff was already processed in the r1 prompt |
+| 3 consecutive rounds without all voices LGTM | Trigger circuit breaker; report remaining findings to user with three-option decision |
+| User chooses to ignore a disputed finding | Add a Known Issues section to the PR description with the reason |
+| User raises new concern during human quick pass | Reviewer lead (Claude main) responds immediately; unresolvable → return to Step 6; resolved → wait for user "ship" |
+| Want to skip R2 and run only R1 | Not allowed; R2 is the core value of mob review (mutual debate). Switch to `/pr-review-cycle` (Claude-only) if you want to skip it |
+| Linter / type-check fails | `ruff check --fix` / `eslint --fix` / `mypy follow_imports = skip` etc. |
+| Security scanner fails | bandit `# nosec BXXX` etc. ignore comments; explain reason in PR |
+| spectra archive validation fails | `spectra analyze {{change_name}}`; fix then archive; `--no-validate` requires explicit user instruction |
+| Cannot detect Jira key | Ask user to provide (format: `PROJECT-123`), or confirm no associated ticket and skip |
+| Jira transition options unclear | List all transitions and ask user to confirm |
+| Jira MCP auth error | Atlassian MCP requires OAuth; prompt user to authorize on claude.ai |
+| Codex extract returns invalid JSON | Follow Stage 3 if/else branch: Read `$REVIEW_DIR/codex-r1-raw.md`, manually summarize in main context as compact markdown, Write to `$REVIEW_DIR/codex-r1.md`; note in final.md "Codex voice used raw form this round, main context load higher" (do not cp raw → compact directly; verbose raw would enter r1-aggregate) |
+| Gemini extract JSON doesn't match schema | Same as above; manually summarize `$REVIEW_DIR/gemini-r1-raw.md` → `$REVIEW_DIR/gemini-r1.md` (do not cp) |
+| Extract step keeps failing (2 consecutive) | Fall back to path C: Claude lead reads raw with Read tool, manually extracts compact form in main session without calling codex/agy again; less efficient but workflow not blocked |
+| Extract prompt path missing (`~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md`) | Skill not installed; run `make install` in the yibi-stack directory to create the symlink; verify: `ls ~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md` should return the path, not "No such file" |
+| User skipped bump but needs a version tag later | Create a release branch, run [`/bump-version`](../bump-version/SKILL.md) on it, then open a PR to merge into main (CI pass + CHANGELOG confirmed is sufficient; no full review cycle needed; if main has new commits, CHANGELOG may include extra entries — verify manually) |
 
 ---
 
-## 與其他 PR review skill 的關係
+## Relationship to other PR review skills
 
-| Skill | 適用場景 | reviewer 組成 |
+| Skill | Use case | Reviewer composition |
 | --- | --- | --- |
-| `/pr-review-cycle` | 小型 feature / bug fix / refactor；快速合併 | Claude pr-review-toolkit 4 subagents 平行 |
-| `/pr-review-cycle-mob`（本 skill） | 中大型 PR / 高風險改動 / 跨家視角壓力測試 | Claude + Codex（必要） + agy（選用）R1 獨立 + R2 debate |
-| `/pr-review-cycle-codex` [DEPRECATED] | 只裝 codex 一家、想當硬性 gate 用 | Claude + codex（codex-only 強化版） |
+| `/pr-review-cycle` | Small feature / bug fix / refactor; fast merge | Claude pr-review-toolkit 4 subagents in parallel |
+| `/pr-review-cycle-mob` (this skill) | Medium/large PR / high-risk changes / cross-model pressure test | Claude + Codex (required) + agy (optional); R1 independent + R2 debate |
+| `/pr-review-cycle-codex` [DEPRECATED] | Only codex installed; want it as a hard gate | Claude + codex (codex-only enhanced) |
 
-本 skill 需要 ≥1 家外部 reviewer（Codex 或 agy）才啟動；0 家退回 `/pr-review-cycle`。
-agy（Antigravity CLI）為選用——只有 Codex 可用時仍跑 2-voice mob，兩者都可用時跑 3-voice full mob。
+This skill requires ≥1 external reviewer (Codex or agy) to start; with 0, falls back to `/pr-review-cycle`.
+agy (Antigravity CLI) is optional — when only Codex is available, runs 2-voice mob; when both are available, runs 3-voice full mob.
