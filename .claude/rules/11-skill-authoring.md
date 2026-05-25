@@ -362,3 +362,62 @@ Example from harness-eval D5 (PR #83): in one commit the EG-* sub-item in SKILL.
 tightened to require "at least 2 distinct EG categories" but spec.md's decision table was
 not updated to match. Mob review round 4 caught the divergence and synced spec.md to reflect
 the constraint.
+
+## MCP 呼叫的失敗閘：具體範例
+
+`~/.claude/CLAUDE.md` 通則：「每個外部呼叫（MCP tool、bash CLI）必須有明確 `[FAIL]` stop condition」。
+以下是 MCP 呼叫在 SKILL.md 中常見的缺漏 pattern 與正確寫法：
+
+```markdown
+<!-- 違規：MCP 呼叫後無失敗閘，tool error 靜默繼續 -->
+Call `mcp__claude_ai_Atlassian__getTransitionsForJiraIssue`
+(`issueId`: `{{jira_issue_key}}`) to get the transition list.
+
+Pick the option closest to "done"...
+
+<!-- 正確：每個 MCP 呼叫後立即加失敗條件 -->
+Call `mcp__claude_ai_Atlassian__getTransitionsForJiraIssue`
+(`issueId`: `{{jira_issue_key}}`) to get the transition list.
+If the call fails, stop and report the error to the user.
+
+Pick the option closest to "done"...
+```
+
+**適用範圍**：所有 MCP 工具呼叫，包含查詢類（`get*`、`list*`、`search*`）——查詢失敗不代表「無結果」，
+可能是 auth 錯誤或連線問題；無閘時 agent 用空結果繼續執行，後續步驟靜默偏移。
+
+**並行呼叫的失敗閘**：多個 MCP 呼叫同時送出時，每個呼叫的失敗必須獨立回報：
+
+```markdown
+<!-- 違規：並行送出但未說明各自失敗條件 -->
+Send in parallel:
+- `mcp__...__transitionJiraIssue`
+- `mcp__...__addCommentToJiraIssue`
+
+<!-- 正確：明確說明任一失敗都必須回報 -->
+Send in parallel (no dependency); **either failure must be reported
+and must not be silently ignored**:
+- `mcp__...__transitionJiraIssue`
+- `mcp__...__addCommentToJiraIssue`
+```
+
+## 翻譯 PR 的 MD013 line-length 驗證
+
+中文 prose 翻譯成英文後，句子通常變長（一句中文 30 字 → 英文 60+ 字），容易突破 MD013 的
+200 字元上限。翻譯 PR 特別容易有大量 MD013 違規，且這類違規在 CI 前不易察覺。
+
+**翻譯完成後、commit 前必須跑**：
+
+```bash
+uv run pre-commit run markdownlint-cli2 --files plugins/<plugin>/skills/<name>/SKILL.md
+```
+
+常見折行位置（依優先順序）：
+
+1. 句號（`.`）後
+2. 分號（`;`）或破折號（`—` / `--`）後
+3. 連接詞（`and`、`or`、`when`、`if`）前
+4. 括號說明開頭前
+
+MD013 規則中 `tables: false` 和 `code_blocks: false`——表格行和 code block 行豁免，
+只有純 prose 行需要控制在 200 字元內。
