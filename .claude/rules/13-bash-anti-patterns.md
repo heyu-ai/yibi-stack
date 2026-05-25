@@ -14,6 +14,7 @@ Complexity score (>=2 of 5 = excessive, must decompose):
 linear same-type chains (`make lint && make test`). `&&` count alone is not a criterion.
 
 Fix priority:
+
 1. Split into multiple bash calls
 2. Extract to a script file (`scripts/foo.sh`, then call `bash scripts/foo.sh`)
 3. Use the right tool (JSON → `jq`, paths → `realpath`/`basename`)
@@ -23,6 +24,7 @@ Fix priority:
 ### AP1 Sub-type: for-loop-file-list
 
 Any of these conditions requires extracting to a standalone script:
+
 - for body > 1 line
 - for body contains pipe (`|`)
 - for body contains `if`/`elif`
@@ -201,6 +203,7 @@ Scope: em dash / en dash / zero-width space / U+2300-U+23FF / U+2600-U+27BF / U+
 
 AP1 complexity detection requires reasoning; use the 5-second check. Exceptions: the following
 mechanically-detectable sub-types are covered by `bash-ap1-inline-check.sh`:
+
 - `python -c` multi-line, `osascript` heredoc
 - `grep "...\|..."` double-quote BRE alternation (Case 25)
 - `$(outer "$(inner)")` reverse-nested subshell (Case 26)
@@ -246,6 +249,7 @@ osascript scripts/check_windows.applescript
 ### `cd /abs/path && cmd` (Stateful cd)
 
 Quick lookup; see AP3 for details:
+
 - `cd ... && git <cmd>` → `git -C <path> <cmd>` (Sub-class B)
 - `cd ... && uv run` → `uv run --directory <path>` (Sub-class A)
 - `cd ... && cmd 2>/dev/null` → use absolute path, remove cd (Sub-class C)
@@ -314,6 +318,7 @@ extract the bash logic into a standalone script under `scripts/`:
 4. inline `osascript` heredoc (same)
 
 Example prompt:
+
 ```text
 Task: extract this bash to a script for scanning EdgeInsets patterns across files.
 bash:
@@ -380,6 +385,7 @@ git commit -m "chore(release): v${TAG_VERSION}"
 ```
 
 Notes:
+
 - `trap - ERR` must be cleared **before** the commit; post-commit failures need `git reset HEAD~1`.
 - `git checkout -- 'plugins/*/package.json'` glob must use single quotes (shell glob expansion timing).
 - If a step has its own `trap`, isolate with a subshell to avoid overwriting the outer `trap ERR`.

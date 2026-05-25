@@ -81,6 +81,7 @@ Note: `PATH=...` is a shell assignment, not an exec wrapper. Stripped wrappers (
 Official docs explicit warning on `Bash(curl URL ...)`:
 
 > "For more reliable URL filtering, consider:
+>
 > - **Restrict Bash network tools**: use deny rules to block `curl`, `wget`; use
 >   `WebFetch(domain:github.com)` for allowed domains
 > - **Use PreToolUse hooks**: validate URLs at runtime
@@ -115,6 +116,7 @@ General rule: **verb fixed at prefix, wildcard only at end, read-only or full ab
 | `Bash(bash /Users/<you>/.agents/skills/foo/scripts/setup.sh)` | Absolute path exact match; reviewing once = permanent trust |
 
 Key points:
+
 1. `Bash(verb)` and `Bash(verb:*)` are the only reliable forms; never use a middle wildcard.
 2. `~` does **not** expand in `Bash()` patterns (`~` expansion is only for Read/Edit rules).
    Use absolute path: `Bash(bash ~/foo.sh)` will not match `bash /Users/me/foo.sh`.
@@ -169,7 +171,9 @@ Without both sides, either unexpected commands slip through or users face endles
 
 ## Built-in `/less-permission-prompts` — Usage Warning
 
-Since Claude Code 2.1.111, the built-in `/less-permission-prompts` skill scans the current transcript for frequently used read-only Bash/MCP calls and **automatically generates a sorted allowlist suggestion**. Understand the following limitations before using it:
+Since Claude Code 2.1.111, the built-in `/less-permission-prompts` skill scans the current transcript for frequently used
+read-only Bash/MCP calls and **automatically generates a sorted allowlist suggestion**. Understand the following limitations
+before using it:
 
 ### Common Red-Flag Patterns in Automatic Suggestions
 
@@ -201,4 +205,6 @@ Rewrite examples:
 
 **Never blindly accept all suggestions from `/less-permission-prompts` with "Yes, and don't ask again".**
 The tool attempts to filter read-only calls but does so incompletely: commands with ambiguous semantics like `git reset *` or `curl *` may still appear.
-More critically: even when only genuinely read-only calls are listed, the generated pattern may be `Bash(git *)` — a verb-level wildcard covering all subcommands of the entire binary, including destructive operations. **Frequency statistics cannot guarantee pattern safety.**
+More critically: even when only genuinely read-only calls are listed, the generated pattern may be `Bash(git *)` — a
+verb-level wildcard covering all subcommands of the entire binary, including destructive operations.
+**Frequency statistics cannot guarantee pattern safety.**

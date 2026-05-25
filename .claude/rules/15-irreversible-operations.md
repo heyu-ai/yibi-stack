@@ -203,6 +203,7 @@ When creating a revert PR (to undo commits that landed on a shared branch):
 (`security(agy): replace --dangerously-skip-permissions with --sandbox`) landed
 on `origin/main`. Without rebase, the diff included 3 agy scripts. Mob review
 caught it; rebase onto `origin/main` fixed the scope back to exactly 6 rule files.
+
 ## Scope
 
 This rule applies to all Claude Code agent sessions. It does not affect commands the user
