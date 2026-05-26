@@ -358,7 +358,7 @@ behavior during review; if it exists only in spec.md, the agent never sees it.
 table (and vice versa). The two documents describe the same contract from different angles:
 SKILL.md is the agent's execution interface; spec.md is the verifiable source of truth.
 
-Example from harness-eval D5 (PR #83): SKILL.md had a zero-gate rule ("existence-only
-assertions force total semantic score to 0") and an EG-* constraint ("at least 2 distinct
-EG categories required"), but spec.md's decision table did not include these conditions.
-Mob review round 4 caught the divergence; both documents needed to be updated together.
+Example from harness-eval D5 (PR #83): in one commit the EG-* sub-item in SKILL.md was
+tightened to require "at least 2 distinct EG categories" but spec.md's decision table was
+not updated to match. Mob review round 4 caught the divergence and synced spec.md to reflect
+the constraint.

@@ -18,12 +18,13 @@ semantic_targets = [str(tf) for tf in test_files[:_SEMANTIC_TARGET_LIMIT]]
 semantic_targets = [str(tf.relative_to(target_dir)) for tf in test_files]
 ```
 
-`extra["factory_helper_files"]` is an exception — it is informational metadata reported
-to the human (not read by the agent), so relative paths are appropriate there.
+`extra["factory_helper_files"]` is an exception — the semantic agent checks only its
+non-emptiness to award factory-helper sub-item points; it does not resolve the path strings.
+Relative paths are therefore appropriate.
 
 ### `extra[...]` keys are informational metadata only
 
-Keys added to `MechanicalFinding.extra` do not affect the mechanical score (max 7 pts).
+Keys added to `MechanicalFinding.extra` do not affect the mechanical score for that dimension.
 They exist as hints for the semantic scoring agent or for human-readable output.
 The `extra` field type is `dict[str, list[str]]`; any new key must conform to this type.
 
