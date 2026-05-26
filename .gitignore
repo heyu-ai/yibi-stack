@@ -244,3 +244,4 @@ tmp/
 
 # Antigravity CLI (agy) local state
 .antigravitycli/
+.agy-review-tmp.md

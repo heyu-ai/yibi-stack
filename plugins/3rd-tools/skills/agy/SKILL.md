@@ -50,7 +50,7 @@ python3 -c 'import os,sys; sys.exit(0 if os.environ.get("GEMINI_API_KEY") or os.
 python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".claude"/"settings.json"; d=json.loads(p.read_text()) if p.is_file() else {}; allow=d.get("permissions",{}).get("allow",[]); sys.exit(0 if any("agy" in x for x in allow) else 1)' && echo "AGY_ALLOW: OK" || echo "AGY_ALLOW: MISSING"
 ```
 
-MISSING → 提示可加入 `Bash(bash ~/.agents/skills/agy/scripts/run.sh:*)` 到 allow list，但不阻斷。
+MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）自動加入正確的 allow list 項目（`Bash(agy:*)`），但不阻斷。
 
 **Step 0d: Base branch 偵測**（兩次獨立 bash call）
 
@@ -109,7 +109,7 @@ bash ~/.agents/skills/agy/scripts/run.sh "challenge" "main" "找 SQL injection"
 | `[P0]` 或 `[P1]`（無 PASS/FAIL）| 有問題 | 視同 FAIL |
 | 以上均無 | 不確定 | 呈現完整輸出，請使用者判斷 |
 
-challenge mode 不強制 PASS/FAIL，直接列出所有發現的問題。
+challenge mode：找到問題時輸出 `[P0]`/`[P1]` 列表，找不到問題時輸出 `[PASS] No critical issues found`（視同 review mode 的 PASS）。
 
 ---
 
@@ -120,6 +120,7 @@ challenge mode 不強制 PASS/FAIL，直接列出所有發現的問題。
 | `agy: command not found` | `pip install antigravity-cli`，確認 `agy` 在 PATH |
 | agy 輸出 `call:read_file{...}` 而非 review | workspace sandbox 問題；確認腳本使用 `@相對路徑` + `--add-dir .`（勿傳絕對路徑） |
 | Auth 失敗，`onboardingComplete` 為 false | 執行 `agy auth` 完成 OAuth 流程 |
-| 無 `GEMINI_API_KEY` 且 onboarding 未完成 | 在 `.env` 加入 `GEMINI_API_KEY=<your-key>` |
+| 無 API key 且 onboarding 未完成 | 在 `.env` 加入 `GEMINI_API_KEY=<your-key>` 或 `GOOGLE_API_KEY=<your-key>`（兩者均可） |
+| `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy auth` |
 | 輸出缺少 `[PASS]` / `[FAIL]` | 在 INSTRUCTION 加入「結尾必須輸出 [PASS] 或 [FAIL]」 |
-| diff 為空（無變更） | 確認已有 commit，或手動指定 base：`/agy review base=develop` |
+| diff 為空或 `origin/<base>` 不存在 | 確認已有 commit，或手動指定 base：`/agy review base=develop` |

@@ -9,8 +9,11 @@ import sys
 
 SETTINGS_PATH = pathlib.Path.home() / ".claude" / "settings.json"
 
+_AGY_SCRIPT = str(pathlib.Path.home() / ".agents" / "skills" / "agy" / "scripts" / "run.sh")
+
 ENTRIES_TO_ADD = [
     "Bash(agy:*)",
+    f"Bash(bash {_AGY_SCRIPT}:*)",
 ]
 
 
