@@ -9,7 +9,7 @@ Each task module (`tasks/<module_name>/`) must contain:
 
 ```text
 tasks/<module_name>/
-├── __init__.py      # one-line docstring only
+├── __init__.py      # one-line Traditional Chinese docstring only
 ├── __main__.py      # exactly 2 lines: import cli + call
 ├── cli.py           # Click CLI entry point
 ├── config.py        # config load/save

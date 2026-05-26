@@ -49,7 +49,7 @@ unparseable string node and pops a confirmation dialog at runtime.
 The `python3 -c` single-line form is the only one that passes both sides, but the expression
 after `-c` must be wrapped in **single quotes** (use double quotes inside Python) — the
 double-quote form `$(python3 -c "...")` is an outer-`$()` → inner-`"..."` reverse-nested
-structure that violates Rule 14 Quoting Rule 4 and triggers `Unhandled node type: string`.
+structure that violates rule 13 Quoting Rule 4 and triggers `Unhandled node type: string`.
 
 ## Frontmatter — `effort` (Optional, added 2026-05)
 
@@ -177,7 +177,7 @@ Fix commands in FAQ tables must meet three requirements:
 1. **Use real variable names**: do not use placeholder literals like `KEY`;
    write actual names like `CODEX_API_KEY` / `GEMINI_API_KEY`
 2. **Shell-hygiene-safe syntax**: use parameter expansion `"${VAR# }"` to strip leading spaces;
-   do not use `$(echo $VAR)` subshell (does not trim in zsh; also triggers Rule 14 quoting hygiene hook)
+   do not use `$(echo $VAR)` subshell (does not trim in zsh; also triggers rule 13 quoting hygiene hook)
 3. **Cross-shell compatible**: commands must work correctly in both zsh (macOS default) and bash
 
 ## Table Description Column — Single Responsibility
@@ -366,7 +366,7 @@ This pattern has recurred multiple times in this repo (PR #5, #24, #70).
 **Quick validation** (run before committing to avoid CI roundtrips):
 
 ```bash
-uv run pre-commit run markdownlint-cli2 --files skills/<name>/SKILL.md
+uv run pre-commit run markdownlint-cli2 --files plugins/<plugin>/skills/<name>/SKILL.md
 ```
 
 ## Scripts with Built-in stderr Logging Need a No-Capture Blockquote Hint
