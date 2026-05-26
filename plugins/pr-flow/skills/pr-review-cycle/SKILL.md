@@ -33,6 +33,7 @@ git branch --show-current
 # Commit all uncommitted changes
 git add <files>
 git commit -m "..."
+# Multi-line message: write to $CLAUDE_JOB_DIR/commit_msg.txt with Write tool, then git commit -F
 
 # Push and create PR
 git push -u origin HEAD

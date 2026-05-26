@@ -50,21 +50,13 @@ Check if a PR already exists:
 gh pr view 2>/dev/null && echo "PR exists" || echo "No PR"
 ```
 
-If **no PR exists**, create one:
+If **no PR exists**, create one.
+
+Write the PR body to `/tmp/pr-body.md` with the Write tool (avoids `"$(cat <<'EOF')"` triggering parser errors), then:
 
 ```bash
-gh pr create --title "<type>(<scope>): <description>" --body "$(cat <<'EOF'
-## Summary
-- <bullet points summarizing changes>
-
-## Changes
-- <list key files changed and why>
-
-## Test plan
-- [ ] `uv run pytest` passes
-- [ ] Manual verification: <describe what to verify>
-EOF
-)"
+gh pr create --title "<type>(<scope>): <description>" --body-file /tmp/pr-body.md
+rm -f /tmp/pr-body.md
 ```
 
 If **PR already exists**, update it:
