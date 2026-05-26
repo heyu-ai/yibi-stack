@@ -73,6 +73,11 @@ class LessonRecord(BaseModel):
     device: str | None = None
     agent_type: str = "claude"
 
+    @field_validator("ts")
+    @classmethod
+    def check_ts_iso(cls, v: str) -> str:
+        return _validate_iso_timestamp(v)
+
     @field_validator("key")
     @classmethod
     def check_key_format(cls, v: str) -> str:

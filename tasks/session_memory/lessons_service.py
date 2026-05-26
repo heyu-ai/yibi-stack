@@ -14,17 +14,18 @@ from typing import Any
 _SEARCH_INTERNAL_LIMIT = 500
 
 # Insight 注入保護：10 條 case-insensitive regex
+# re.DOTALL 讓 .* 跨越換行，防止 multi-line payload 繞過匹配
 INJECTION_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"ignore.*previous.*(instructions|context|rules)", re.IGNORECASE),
-    re.compile(r"you are now", re.IGNORECASE),
-    re.compile(r"always output no findings", re.IGNORECASE),
-    re.compile(r"skip.*(security|review|checks)", re.IGNORECASE),
+    re.compile(r"ignore.*previous.*(instructions|context|rules)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"you\s+are\s+now", re.IGNORECASE),
+    re.compile(r"always\s+output\s+no\s+findings", re.IGNORECASE),
+    re.compile(r"skip.*(security|review|checks)", re.IGNORECASE | re.DOTALL),
     re.compile(r"override:", re.IGNORECASE),
     re.compile(r"\bsystem\s*:", re.IGNORECASE),
     re.compile(r"\bassistant\s*:", re.IGNORECASE),
     re.compile(r"\buser\s*:", re.IGNORECASE),
-    re.compile(r"do not (report|flag|mention)", re.IGNORECASE),
-    re.compile(r"approve (all|every|this)", re.IGNORECASE),
+    re.compile(r"do\s+not\s+(report|flag|mention)", re.IGNORECASE),
+    re.compile(r"approve[\s_-]*(all|every|this)", re.IGNORECASE),
 ]
 
 
@@ -296,7 +297,7 @@ def _load_legacy_lessons(
                 continue
             result.append(
                 {
-                    "key": text[:40].replace(" ", "-").lower(),
+                    "key": f"legacy-{text[:34].replace(' ', '-').lower()}",
                     "type": "pattern",
                     "ts": ts,
                     "project": proj,
@@ -316,7 +317,7 @@ def _load_legacy_lessons(
                 continue
             result.append(
                 {
-                    "key": f"approach-{text[:36].replace(' ', '-').lower()}",
+                    "key": f"legacy-approach-{text[:29].replace(' ', '-').lower()}",
                     "type": "pattern",
                     "ts": ts,
                     "project": proj,
@@ -398,6 +399,9 @@ def show_lessons(
 
     委託 show_lessons_typed（include_legacy=True, with_decay=False, min_confidence=1）
     並映射回舊 dict 格式，保持 backward compat。
+
+    回傳 dict 的 source 欄位值域：
+    "handover"、"handover-approach"（legacy）、"insight"、"typed"（typed lessons table）。
     """
     _insights = insights_path if include_insights else None
     if include_insights and _insights is None:
@@ -498,45 +502,3 @@ def search_lessons(
                 }
             )
     return results[:limit]
-
-
-def _load_insights(
-    path: Path,
-    project: str | None,
-    limit: int,
-) -> list[dict[str, Any]]:
-    """從 insights.jsonl 載入洞察記錄。
-
-    回傳最近（尾端）N 筆；格式錯誤的行靜默跳過；
-    檔案不存在或 I/O 錯誤時回傳空 list。
-    """
-    if not path.exists():
-        return []
-
-    rows: list[dict[str, Any]] = []
-    try:
-        with path.open(encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if project and entry.get("project") != project:
-                    continue
-                rows.append(entry)
-    except OSError:
-        return []
-
-    return [
-        {
-            "source": "insight",
-            "text": r.get("insight_text", ""),
-            "timestamp": r.get("timestamp", ""),
-            "project": r.get("project", ""),
-            "context": r.get("session_id", ""),
-        }
-        for r in rows[-limit:]
-    ]

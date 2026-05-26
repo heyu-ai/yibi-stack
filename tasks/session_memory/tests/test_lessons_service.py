@@ -15,6 +15,7 @@ from tasks.session_memory.lessons_service import (
     _apply_decay,
     add_lesson,
     search_lessons,
+    search_lessons_typed,
     show_lessons,
     show_lessons_typed,
 )
@@ -690,3 +691,107 @@ class TestDecayTimezoneNaive:
         now = datetime(2026, 6, 25, tzinfo=UTC)
         result = _apply_decay(8, "observed", "2026-04-26T00:00:00", now=now)
         assert result == 6
+
+
+class TestFilterBypass:
+    """Filter-bypass 回歸測試。
+
+    確保 lesson_type / trusted_only / cross_project filter 正確阻擋 legacy 行。
+    """
+
+    def test_lsn_fb_001_lesson_type_blocks_legacy_pattern_rows(self, tmp_path: Path) -> None:
+        """LSN-FB-001: lesson_type="pitfall" 時，legacy 行（type="pattern"）全部被排除"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.insert_handover(make_record(lessons_learned=["legacy lesson about pitfalls"]))
+        db.close()
+
+        rows = show_lessons_typed(
+            project="ainization-skill",
+            lesson_type="pitfall",
+            include_legacy=True,
+            with_decay=False,
+            db_path=db_path,
+        )
+        assert all(r.get("type") == "pitfall" for r in rows), (
+            "lesson_type filter 應排除所有 type!=pitfall 的 legacy 行"
+        )
+        assert not any(r.get("_legacy") for r in rows), (
+            "legacy 行的 type 固定為 pattern，不應出現在 lesson_type=pitfall 結果中"
+        )
+
+    def test_lsn_fb_002_trusted_only_blocks_legacy(self, tmp_path: Path) -> None:
+        """LSN-FB-002: trusted_only=True → _load_legacy_lessons 回傳 [] (legacy=trusted_False)"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.insert_handover(
+            make_record(project="yibi-stack", lessons_learned=["legacy trusted bypass test"])
+        )
+        db.close()
+
+        add_lesson(
+            make_lesson_data(
+                project="yibi-stack", source=LessonSource.user_stated, key="trusted-k"
+            ),
+            db_path=db_path,
+        )
+
+        rows = show_lessons_typed(
+            project="yibi-stack",
+            trusted_only=True,
+            include_legacy=True,
+            with_decay=False,
+            db_path=db_path,
+        )
+        assert not any(r.get("_legacy") for r in rows), (
+            "trusted_only=True 應排除全部 legacy 行（legacy 永遠 trusted=False）"
+        )
+        assert any(r.get("key") == "trusted-k" for r in rows), "typed trusted 行仍應出現"
+
+    def test_lsn_fb_003_cross_project_excludes_legacy(self, tmp_path: Path) -> None:
+        """LSN-FB-003: cross_project=True 隱含 trusted_only，legacy 行被全數排除"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.insert_handover(
+            make_record(project="proj-a", lessons_learned=["cross-project legacy test"])
+        )
+        db.close()
+
+        add_lesson(
+            make_lesson_data(project="proj-b", source=LessonSource.user_stated, key="cross-k"),
+            db_path=db_path,
+        )
+
+        rows = show_lessons_typed(
+            cross_project=True,
+            include_legacy=True,
+            with_decay=False,
+            db_path=db_path,
+        )
+        assert not any(r.get("_legacy") for r in rows), (
+            "cross_project=True 應排除 legacy 行（trusted_only 暗含）"
+        )
+        assert any(r.get("key") == "cross-k" for r in rows), "跨專案 trusted typed 行仍應出現"
+
+    def test_lsn_fb_004_search_lessons_typed_basic_integration(self, tmp_path: Path) -> None:
+        """LSN-FB-004: search_lessons_typed 可找到 typed lessons table 中的記錄"""
+        db_path = tmp_path / "test.db"
+        add_lesson(
+            make_lesson_data(
+                key="search-integration-key",
+                insight="rg uses ERE not BRE; backslash-pipe is literal not alternation",
+            ),
+            db_path=db_path,
+        )
+
+        rows = search_lessons_typed(
+            query="backslash-pipe",
+            include_legacy=False,
+            with_decay=False,
+            db_path=db_path,
+        )
+        assert len(rows) >= 1, "search_lessons_typed 應找到含查詢字串的 typed lesson"
+        assert any("backslash-pipe" in r.get("insight", "") for r in rows)

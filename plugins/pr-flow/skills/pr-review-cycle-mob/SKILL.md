@@ -412,14 +412,16 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 >   may cause agy to enter agentic tool call mode — the model outputs `call:read_file{...}` text
 >   instead of actual review content. How to confirm: if `gemini-r1-raw.md` starts with `call:` or
 >   `tool_use:` → agentic mode triggered.
->   This skill embeds the `--sandbox` flag (sandbox restricts agy tool access, forces text output to
->   avoid agentic mode); if still triggered, run with worktree root as cwd and use relative paths
->   (`cd "$WT_ROOT" && agy -p "@.pr-review/gemini-r1-input.md" --add-dir . --sandbox`).
-> - **[Security] `--sandbox` trust boundary**: this flag restricts agy's tool access scope and is a
->   necessary measure to avoid agentic mode. If the PR diff comes from an external fork or untrusted
->   source, malicious instructions in the diff may be auto-approved by agy (prompt injection risk).
->   This skill assumes the PR comes from a trusted repo; when running mob review on an external fork,
->   the operator must evaluate this risk themselves.
+> - **Stage 1 uses `--dangerously-skip-permissions` (BS-001)**: `--sandbox` **blocks** `@file` reading
+>   in Stage 1 full review tasks (agy enters agentic mode, outputs `call:read_file{...}` instead of
+>   review content). Field-tested: `agy-r1-stage1.sh` with `--dangerously-skip-permissions` outputs
+>   review text correctly. **Only Stage 2 extraction can use `--sandbox`** (extraction tasks behave
+>   differently and do not trigger agentic mode).
+> - **[Security] `--dangerously-skip-permissions` trust boundary**: Stage 1 scripts remove agy tool
+>   access restrictions. If the PR diff comes from an external fork or untrusted source, malicious
+>   instructions in the diff may be auto-approved by agy (prompt injection risk). This skill assumes
+>   the PR comes from a trusted repo; when running mob review on an external fork, the operator must
+>   evaluate this risk themselves.
 > **Execution note**: the script writes stderr to `$REVIEW_DIR/gemini-r1.stage1.log`; stdout only
 > outputs "agy R1 Stage 1 complete". **Run directly without adding `> $CLAUDE_JOB_DIR/foo.log 2>&1`
 > capture** — on failure, Read `$REVIEW_DIR/gemini-r1.stage1.log` for the full error.

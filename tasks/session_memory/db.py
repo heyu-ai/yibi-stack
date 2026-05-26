@@ -401,7 +401,8 @@ class AgentsDB:
     ) -> list[dict[str, Any]]:
         """在 typed lessons 的 key、insight、files 欄位做 case-insensitive 搜尋。
 
-        filter 在搜尋後套用。
+        lesson_type、source、min_confidence、trusted_only、cross_project 等 filter
+        全部在 SQL WHERE 子句套用，不在 Python 層後處理。
         """
         if limit <= 0:
             raise ValueError("limit 必須為正整數")
@@ -410,8 +411,13 @@ class AgentsDB:
         params: list[object] = []
 
         if query:
-            like = f"%{query.lower()}%"
-            conditions.append("(LOWER(key) LIKE ? OR LOWER(insight) LIKE ? OR LOWER(files) LIKE ?)")
+            safe_query = _escape_like(query.lower())
+            like = f"%{safe_query}%"
+            conditions.append(
+                "(LOWER(key) LIKE ? ESCAPE '\\'"
+                " OR LOWER(insight) LIKE ? ESCAPE '\\'"
+                " OR LOWER(files) LIKE ? ESCAPE '\\')"
+            )
             params.extend([like, like, like])
 
         if cross_project:

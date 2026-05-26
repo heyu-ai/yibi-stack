@@ -40,7 +40,8 @@ if [ ! -d "$REVIEW_DIR" ]; then
 fi
 
 # codex outputs review to stderr; stdout is progress UI noise.
-# Use origin/<base> to get explicit remote SHA and avoid stale local ref.
+# git fetch writes the fetched SHA to FETCH_HEAD; use that instead of origin/<base>
+# to avoid stale local ref. Strip leading "origin/" if already qualified.
 # Strip leading "origin/" if already qualified to avoid "origin/origin/..." construction.
 FETCH_BRANCH="${BASE_BRANCH#origin/}"
 if ! git fetch origin "$FETCH_BRANCH" --quiet 2>/dev/null; then
