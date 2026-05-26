@@ -50,7 +50,7 @@ python3 -c 'import os,sys; sys.exit(0 if os.environ.get("GEMINI_API_KEY") or os.
 python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".claude"/"settings.json"; d=json.loads(p.read_text()) if p.is_file() else {}; allow=d.get("permissions",{}).get("allow",[]); sys.exit(0 if any("agy" in x for x in allow) else 1)' && echo "AGY_ALLOW: OK" || echo "AGY_ALLOW: MISSING"
 ```
 
-MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）自動加入正確的 allow list 項目（`Bash(agy:*)`），但不阻斷。
+MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）自動加入 `Bash(agy:*)` 與 `Bash(bash <run.sh 絕對路徑>:*)` 兩個 allow list 項目，但不阻斷。
 
 **Step 0d: Base branch 偵測**（兩次獨立 bash call）
 
