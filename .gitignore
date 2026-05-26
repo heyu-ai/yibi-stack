@@ -244,3 +244,7 @@ tmp/
 
 # Antigravity CLI (agy) local state
 .antigravitycli/
+
+# Spectra app data
+.spectra/
+openspec/.vector-search.db*
