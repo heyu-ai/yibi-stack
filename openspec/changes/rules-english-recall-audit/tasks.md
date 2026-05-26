@@ -44,16 +44,16 @@
 - [x] T-D4 `plugins/pr-flow/skills/pr-review-cycle-mob/SKILL.md` body 英文化
 - [x] T-D5 PR + `/pr-review-cycle-mob`
 
-### Batch 3
+### Batch 3 ✅ landed on main directly (62dced8)
 
-- [ ] T-D6 `plugins/bash-hygiene/skills/protect-push/SKILL.md` body 英文化
-- [ ] T-D7 PR + `/pr-review-cycle`
+- [x] T-D6 `plugins/bash-hygiene/skills/protect-push/SKILL.md` body 英文化
+- [x] T-D7 PR + `/pr-review-cycle`
 
-### Batch 4（低頻，慢做）
+### Batch 4 ✅ MERGED #89
 
-- [ ] T-D8 `plugins/sdd/skills/spectra-amplifier/SKILL.md` body 英文化
-- [ ] T-D9 `plugins/sdd/skills/qa-test-design/SKILL.md` body 英文化
-- [ ] T-D10 PR + `/pr-review-cycle`
+- [x] T-D8 `plugins/sdd/skills/spectra-amplifier/SKILL.md` body 英文化
+- [x] T-D9 `plugins/sdd/skills/qa-test-design/SKILL.md` body 英文化
+- [x] T-D10 PR + `/pr-review-cycle`
 
 ## PR-E ✅ MERGED #86 — .claude/rules/ 04-11 English translation
 
