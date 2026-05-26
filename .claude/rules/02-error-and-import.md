@@ -112,3 +112,25 @@ tmp = SETTINGS_PATH.with_name("settings.json.tmp")  # intent is clear
 ```
 
 For `.tmp` scratch files, always use `with_name(stem + ".tmp")` or `with_name("filename.tmp")`.
+
+## Type Guard at External Data Boundaries (PR #92)
+
+Validate the type of external data **before** entering business logic — especially in hooks
+and scripts that read from `json.load(sys.stdin)` or similar sources.
+
+```python
+# Wrong: command=None (JSON null) reaches _scannable() -> TypeError crash
+data = json.load(sys.stdin)
+command = data.get("tool_input", {}).get("command", "")
+m = _AP2.search(_scannable(command))  # TypeError if command is None
+
+# Correct: isinstance guard before entering business logic
+command = data.get("tool_input", {}).get("command", "")
+if not isinstance(command, str):
+    sys.exit(0)
+m = _AP2.search(_scannable(command))
+```
+
+Scope: any function that receives data from external sources (stdin JSON, API response,
+config file) where the type cannot be statically guaranteed. Even when `dict.get()` has a
+default, callers may pass explicit `None` values that override the default.

@@ -411,6 +411,27 @@ Rule: **exemption regex must precisely describe the exempted command type**; ope
 globs must become enumerations or subcommand-position constraints when the target word can
 appear in another command's arguments.
 
+## AP2 Exemption Requires Verb Prefix Lock (PR #92)
+
+When exempting a command's argument values from AP2 scanning (e.g., user data in
+`--topic`/`--summary` flags), the exemption regex must require the **verb prefix** before the
+module name — not just the module name alone.
+
+```python
+# Wrong: no verb prefix; "echo tasks.session_memory" or grep output also triggers exemption
+_SM_RE = re.compile(r"-m\s+tasks\.session_memory\b")
+
+# Correct: require python verb before -m tasks.session_memory
+_SM_RE = re.compile(r"\bpython[\w.]*\b[^;|\n&]*-m\s+tasks\.session_memory\b")
+```
+
+Without the `python` prefix, any bash command whose output or arguments happen to contain
+`-m tasks.session_memory` (e.g., `grep -r tasks.session_memory .`) would also be exempted
+from AP2 scanning — an actual AP2 evasion hole.
+
+Design principle: **exemption always requires a verb + separator** to anchor the command type.
+This is symmetric with `_GIT_COMMIT_RE` requiring `git` before `commit` (PR #23).
+
 ## Shell Script Diagnostics Must Go to stderr (PR #31)
 
 `[WARN]`, `[FAIL]`, `[SKIP]` diagnostic `echo` calls must always use `>&2` — stdout may be

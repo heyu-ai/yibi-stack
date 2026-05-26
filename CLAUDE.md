@@ -178,3 +178,5 @@ make install-all         # 等同 build-tools + install + install-project + inst
   在 `.claude/worktrees/<name>/` 等 linked worktree 內呼叫 `--show-toplevel`，得到的是 worktree 自身的目錄（如 `.claude/worktrees/feat+...`），不是 repo 根目錄。
   需要主 repo 路徑時改用 `git rev-parse --path-format=absolute --git-common-dir`，再取 `Path(result).parent`。
   適用場景：任何在 worktree 內計算 project slug、log 路徑、transcript 目錄等依賴主 repo 位置的邏輯。
+- **`pre-commit run --files` 只掃指定檔案，CI `--all-files` 掃全 repo**：本地跑 `pre-commit run --files <file>` 只檢查指定檔案，push 前若有未改動但有 pre-existing 問題的檔案（如 `settings.json` 缺 trailing newline），本地不會報錯但 CI 會失敗。
+  正確做法：push 前執行 `make ci`（內含 `pre-commit run --all-files` + pytest），而非只跑 `pre-commit run --files <file>`。
