@@ -211,6 +211,7 @@ class TestSessionMemoryAP2Exemption:
         """command 為 null JSON 值 -> 安全放行（不 crash）"""
         import json
         import subprocess
+
         payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": None}})
         result = subprocess.run(
             ["python3", str(HOOK)],
