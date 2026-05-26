@@ -8,7 +8,7 @@ description: >
   是 `agents` skill 的子 skill，整合跨 Agent / 跨帳號的 metadata。
 ---
 
-# agents insight：洞察自動收集器
+# mycelium insight：洞察自動收集器
 
 ## 設計哲學
 
@@ -121,4 +121,4 @@ jq -r '.project' ~/.agents/insight/insights.jsonl | sort | uniq -c | sort -rn
 | `insights.jsonl` 找不到 | 正常——首次收到 Insight 時才建立 |
 | 想確認 hook 是否正確安裝 | 見 Step 2 的驗證指令 |
 | 想停用但不移除 | 編輯 `~/.claude/settings.json` 手動移除對應 entry |
-| 所有記錄 account 都是 unknown | 設定 `AGENT_ACCOUNT` env var 或 `agents account set-default` |
+| 所有記錄 account 都是 unknown | 設定 `AGENT_ACCOUNT` env var 或 `mycelium account set-default` |

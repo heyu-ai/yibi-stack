@@ -8,10 +8,10 @@ description: >
   「我要換到另一台電腦繼續」、「切到 Gemini/Codex 繼續」、「context 快滿了」。
   讀取情境：用戶說「handover back」、「讀取上次進度」、「我回來了」、「上次做到哪」、
   「show handover」、「resume from handover」、「帶我回到上次的工作」。
-  是 `agents` skill 的子 skill。
+  是 `mycelium` skill 的子 skill。
 ---
 
-# agents handover：跨對話工作交班系統
+# mycelium handover：跨對話工作交班系統
 
 ## 設計哲學
 

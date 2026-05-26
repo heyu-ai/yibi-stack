@@ -327,6 +327,64 @@ class TestUninstallHook:
         removed, _ = uninstall_hook(settings_path=settings)
         assert removed is False
 
+    def test_recap_eg_041_install_idempotent_with_legacy_marker(self, tmp_path: Path) -> None:
+        """RECAP-EG-041: settings.json 已有舊版 session_memory marker 時 install 不重複新增。"""
+        settings = tmp_path / "settings.json"
+        settings.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "Stop": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": "uv run python -m tasks.session_memory recap collect",
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        is_new, _ = install_hook(settings_path=settings, hook_command="x tasks.mycelium recap collect")
+
+        assert is_new is False
+        data = json.loads(settings.read_text(encoding="utf-8"))
+        assert len(data["hooks"]["Stop"]) == 1
+
+    def test_recap_eg_042_uninstall_removes_legacy_marker(self, tmp_path: Path) -> None:
+        """RECAP-EG-042: uninstall 移除舊版 session_memory hook entry。"""
+        settings = tmp_path / "settings.json"
+        settings.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "Stop": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": "uv run python -m tasks.session_memory recap collect",
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        removed, _ = uninstall_hook(settings_path=settings)
+
+        assert removed is True
+        data = json.loads(settings.read_text(encoding="utf-8"))
+        assert data["hooks"]["Stop"] == []
+
 
 # ──────────────────────────────────────────
 # Helper function unit tests

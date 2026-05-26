@@ -12,20 +12,24 @@ def install_stop_hook(
     hook_label: str,
     settings_path: Path | None = None,
     hook_command: str = "",
+    legacy_markers: list[str] | None = None,
 ) -> tuple[bool, str]:
     """把 Stop hook 註冊到 ~/.claude/settings.json。
 
     回傳 (is_new, message)。is_new=True 表示新增；False 表示已存在跳過。
+    legacy_markers 用於相容 rename 前的舊 hook command 字串，防止重複安裝。
     """
     path = settings_path or (Path.home() / ".claude" / "settings.json")
 
+    all_markers = [marker] + (legacy_markers or [])
     settings = read_settings(path)
     hooks = settings.setdefault("hooks", {})
     stop_hooks = hooks.setdefault("Stop", [])
 
     for entry in stop_hooks:
         for h in entry.get("hooks", []):
-            if marker in h.get("command", ""):
+            cmd = h.get("command", "")
+            if any(m in cmd for m in all_markers):
                 return False, f"{hook_label} hook 已註冊，跳過"
 
     stop_hooks.append(
@@ -42,12 +46,17 @@ def uninstall_stop_hook(
     marker: str,
     hook_label: str,
     settings_path: Path | None = None,
+    legacy_markers: list[str] | None = None,
 ) -> tuple[bool, str]:
-    """移除 Stop hook；回傳 (removed, message)。"""
+    """移除 Stop hook；回傳 (removed, message)。
+
+    legacy_markers 同時移除 rename 前的舊 hook command 條目。
+    """
     path = settings_path or (Path.home() / ".claude" / "settings.json")
     if not path.exists():
         return False, f"settings.json 不存在：{path}"
 
+    all_markers = [marker] + (legacy_markers or [])
     settings = read_settings(path)
     stop_hooks = settings.get("hooks", {}).get("Stop", [])
     if not stop_hooks:
@@ -56,7 +65,9 @@ def uninstall_stop_hook(
     new_entries: list[dict[str, Any]] = []
     removed = False
     for entry in stop_hooks:
-        remaining = [h for h in entry.get("hooks", []) if marker not in h.get("command", "")]
+        remaining = [
+            h for h in entry.get("hooks", []) if not any(m in h.get("command", "") for m in all_markers)
+        ]
         if len(remaining) != len(entry.get("hooks", [])):
             removed = True
         if remaining:

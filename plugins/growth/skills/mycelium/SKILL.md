@@ -13,23 +13,23 @@ description: >
   - 四層 fallback 的 account 偵測（env var → adapter → config → unknown）
 ---
 
-# agents：Multi-Agent 工作協作中樞
+# mycelium：Multi-Agent 工作協作中樞
 
 ## 設計哲學
 
 個人 AI 工作資料目前分散在各 Agent 的獨立目錄（`~/.claude/`、`~/.codex/`、`~/.gemini/`），
 換機器、換帳號、換 Agent 時脈絡就斷了。
 
-`agents` 把所有跨 Agent / 跨帳號 / 跨機器的工作產出收斂到單一 `~/.agents/` 根目錄，
+`mycelium` 把所有跨 Agent / 跨帳號 / 跨機器的工作產出收斂到單一 `~/.agents/` 根目錄，
 用 metadata 欄位（`agent_type` / `account` / `device` / `project`）切片，不用資料夾物理分隔。
 
 子 skill：
 
 | 子 skill | 用途 |
 |---|---|
-| `handover` | 結構化交班：`agents handover write/read/search` |
-| `insight`  | 自動收集 ★ Insight 區塊（Stop hook）：`agents insight install-hook` / `collect` / `list` |
-| `recap`    | 自動收集 Claude Code away_summary（Stop hook）：`agents recap install-hook` / `collect` / `list` |
+| `handover` | 結構化交班：`mycelium handover write/read/search` |
+| `insight`  | 自動收集 ★ Insight 區塊（Stop hook）：`mycelium insight install-hook` / `collect` / `list` |
+| `recap`    | 自動收集 Claude Code away_summary（Stop hook）：`mycelium recap install-hook` / `collect` / `list` |
 | `debug-report` | 解完 bug 後主動萃取除錯知識、清理過渡產物，寫入 `debugs/*.md` 與 `~/.agents/debugs/debug-reports.jsonl` |
 
 ## 目錄結構
@@ -194,5 +194,5 @@ uv run --directory "$SKILL_REPO" python -m tasks.mycelium account set-default cl
 | `init` 後 config.json 已存在 | 用 `--force` 覆蓋，或手動編輯 `~/.agents/config.json` |
 | Stop hook 不觸發 | 確認 `~/.claude/settings.json` 有 entry；用 `insight install-hook` 重新註冊 |
 | `migrate` 跑兩次會重複嗎 | 不會，以 `id` 去重 |
-| 想讓 account 自動偵測 | 已支援：`detect_account(agent_type=...)` 自動讀取 Gemini/Codex credential；Claude 需先執行 `agents account link-claude` 建立 hash 對照 |
+| 想讓 account 自動偵測 | 已支援：`detect_account(agent_type=...)` 自動讀取 Gemini/Codex credential；Claude 需先執行 `mycelium account link-claude` 建立 hash 對照 |
 | Syncthing 衝突 | 單台機器每天寫入次數低，衝突機率極低；真的衝突會以 `.sync-conflict-*` 副本保留 |

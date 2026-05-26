@@ -187,6 +187,7 @@ def install_hook(
         hook_label="recap",
         settings_path=settings_path,
         hook_command=hook_command or _default_hook_command(),
+        legacy_markers=["tasks.session_memory recap collect"],
     )
 
 
@@ -196,8 +197,9 @@ def uninstall_hook(settings_path: Path | None = None) -> tuple[bool, str]:
 
     return uninstall_stop_hook(
         marker=_HOOK_COMMAND_MARKER,
-        hook_label="agents recap",
+        hook_label="mycelium recap",
         settings_path=settings_path,
+        legacy_markers=["tasks.session_memory recap collect"],
     )
 
 

@@ -73,6 +73,64 @@ class TestUninstallHook:
         removed, _ = uninstall_hook(settings_path=tmp_path / "nope.json")
         assert removed is False
 
+    def test_agents_eg_035_install_idempotent_with_legacy_marker(self, tmp_path: Path) -> None:
+        """AGENTS-EG-035：settings.json 已有舊版 session_memory marker 時 install 不重複新增。"""
+        settings = tmp_path / "settings.json"
+        settings.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "Stop": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": "uv run python -m tasks.session_memory insight collect",
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        is_new, _ = install_hook(settings_path=settings, hook_command="x tasks.mycelium insight collect")
+
+        assert is_new is False
+        data = json.loads(settings.read_text(encoding="utf-8"))
+        assert len(data["hooks"]["Stop"]) == 1
+
+    def test_agents_eg_036_uninstall_removes_legacy_marker(self, tmp_path: Path) -> None:
+        """AGENTS-EG-036：uninstall 移除舊版 session_memory hook entry。"""
+        settings = tmp_path / "settings.json"
+        settings.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "Stop": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": "uv run python -m tasks.session_memory insight collect",
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        removed, _ = uninstall_hook(settings_path=settings)
+
+        assert removed is True
+        data = json.loads(settings.read_text(encoding="utf-8"))
+        assert data["hooks"]["Stop"] == []
+
 
 class TestRunHook:
     def test_agents_st_040_extracts_insight_block(self, tmp_path: Path) -> None:
