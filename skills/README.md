@@ -24,7 +24,7 @@ claude plugin install growth@yibi-stack          # session-memory + learn + hand
 claude plugin install pr-flow@yibi-stack         # PR 全流程 6 skills + 5 commands
 claude plugin install sdd@yibi-stack             # spectra-amplifier + qa-test-design + /sdd:setup
 claude plugin install bash-hygiene@yibi-stack    # bash-anti-patterns + protect-push
-claude plugin install 3rd-tools@yibi-stack       # codex + verify-gemini-models + detect-ai-slop
+claude plugin install 3rd-tools@yibi-stack       # codex + agy + verify-gemini-models + detect-ai-slop
 claude plugin install tdd@yibi-stack             # tdd-kentbeck + flutter-tdd + ci-triage
 claude plugin install util@yibi-stack            # local-port-manager + debug command
 ```
@@ -49,6 +49,7 @@ claude plugin install util@yibi-stack            # local-port-manager + debug co
 | `pr-retrospective` | tool | [plugins/pr-flow/](../plugins/pr-flow/README.md) | PR 收尾五問回顧（agent 推論草稿、使用者校準），寫入 session-memory handover；依 Lesson Classifier 路由 lessons 到 `.claude/rules/` 或 CLAUDE.md，再觸發 hookify、writing-skills 等下游 skill | [pr-retrospective/SKILL.md](pr-retrospective/SKILL.md) |
 | `claude-md-prune` | tool | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 審查並精簡 CLAUDE.md：把累積的 gotcha 路由到對應的 `.claude/rules/` 子檔，刪除過期或重複內容，維持 CLAUDE.md 在 Anthropic 建議的 200 行軟上限內 | [claude-md-prune/SKILL.md](claude-md-prune/SKILL.md) |
 | `codex` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | OpenAI Codex CLI 第二意見：review（pass/fail gate）、challenge（對抗模式）、consult（詢問 codebase）；auth 確認用兩次 bash call，不觸發 if/elif 確認框 | [codex/SKILL.md](codex/SKILL.md) |
+| `agy` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | Antigravity CLI（Gemini）第二意見：review（PASS/FAIL gate）、challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 Gemini reviewer | [agy/SKILL.md](agy/SKILL.md) |
 | `verify-gemini-models` | exec | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | 驗證 Gemini 模型在 Google AI Studio 與 Vertex AI 上的實際可用性（LLM / TTS / Live），支援 Gemini 3.x global 端點 | [verify-gemini-models/SKILL.md](verify-gemini-models/SKILL.md) |
 
 #### 知識型（方法論）
