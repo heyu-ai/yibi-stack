@@ -248,3 +248,19 @@ tmp/
 # Spectra app data
 .spectra/
 openspec/.vector-search.db*
+
+# Spectra auto-generated skill directories (spectra update)
+.agent/
+.agents/
+.claude/skills/
+
+# Spectra auto-generated files (spectra update writes to all detected AI tools)
+AGENTS.md
+GEMINI.md
+skills/.gitignore
+skills/.spectra.yaml
+skills/.claude/
+skills/AGENTS.md
+skills/CLAUDE.md
+skills/GEMINI.md
+skills/openspec/
