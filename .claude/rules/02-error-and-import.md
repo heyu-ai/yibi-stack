@@ -75,6 +75,30 @@ if path.is_dir():
 
 Use `exists()` only when type doesn't matter (e.g., config files, log files).
 
+## File Read TOCTOU
+
+`path.exists()` followed by `path.read_text()` is a TOCTOU race — the file can disappear
+between the two calls. Always wrap `read_text()` in `try/except OSError`, independent of
+any prior existence check:
+
+```python
+# Wrong: exists() does not guarantee read_text() succeeds
+if settings_path.exists():
+    data = json.loads(settings_path.read_text(encoding="utf-8"))  # can still raise OSError
+
+# Correct: catch OSError at the read call
+if settings_path.exists():
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except OSError as e:
+        findings.append(f"WARN: 無法讀取：{e}")
+    except json.JSONDecodeError as e:
+        findings.append(f"WARN: 格式錯誤：{e}")
+```
+
+This applies to any file read inside a scanner or service — another process may delete
+or replace the file between the `exists()` check and the `read_text()` call.
+
 ## Pathlib Semantics
 
 `Path.with_suffix(ext)` **replaces** the last extension — it does not append:
