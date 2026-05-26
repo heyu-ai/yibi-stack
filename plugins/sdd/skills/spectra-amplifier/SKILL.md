@@ -150,7 +150,7 @@ After completing a batch of FSs, immediately use the following three techniques 
 3. **State Transition**: Does the feature have a lifecycle state (e.g., Draft → Review → Published)?
    List all valid and invalid transitions.
 
-> If there is no state transition, use a **Decision Table** (multi-condition combinations)
+> If there is no state transition, use a **Decision Table Testing** technique (multi-condition combinations)
 > instead, or note "no state, N/A".
 
 Quick-check results go into the `specs/` folder, written as GIVEN/WHEN/THEN boundary value

@@ -7,7 +7,7 @@ description: >
   Trigger contexts: user mentions "design test cases", "write test cases", "analyze test scope",
   "review AI-generated cases", "QA test design", "how to test this feature".
   Applies six core techniques: Equivalence Partitioning, Boundary Value Analysis, Decision Table,
-  State Transition, Pairwise Combinatorial Testing, and Risk-Based Testing.
+  State Transition, Pairwise / Combinatorial Testing, and Risk-Based Testing.
   Produces structured test case tables and coverage analysis.
   Also triggers when user says "help me think through how to test this",
   "what should I watch out for in this feature", "testing strategy",
@@ -285,7 +285,7 @@ After designing test cases, run through this checklist to confirm nothing is mis
 **Business**:
 
 - Are there default values? Are the defaults reasonable?
-- Downstream system side-effects
+- Upstream and downstream system cascade effects
 - Historical data compatibility
 
 ---
@@ -383,7 +383,7 @@ Before finalizing output, confirm:
 | Single field with a defined valid range | Equivalence Partitioning + Boundary Value |
 | Multi-condition rules (discounts, permissions, approvals) | Decision Table |
 | Objects with state (orders, accounts, tickets) | State Transition |
-| Cross-browser/environment/configuration compatibility | Pairwise Combinatorial |
+| Cross-browser/environment/configuration compatibility | Pairwise / Combinatorial Testing |
 | Limited time, prioritization needed | Risk-Based + other techniques |
 | Complex business system (all of the above apply) | Risk-Based first, then combine techniques per area |
 | AI-generated cases need review | Build coverage list first, then Gap Analysis |
