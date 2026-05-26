@@ -202,6 +202,25 @@ class TestSessionMemoryAP2Exemption:
         )
         assert run_hook(cmd) == 2
 
+    def test_sm_exemption_007_no_python_prefix_not_exempted(self) -> None:
+        """非 python 指令包含 -m tasks.session_memory 文字 -> 不豁免（防止 over-exemption）"""
+        cmd = 'echo "-m tasks.session_memory --topic ignored" && echo "— bad"'
+        assert run_hook(cmd) == 2
+
+    def test_sm_exemption_008_command_none_value_allowed_safely(self) -> None:
+        """command 為 null JSON 值 -> 安全放行（不 crash）"""
+        import json
+        import subprocess
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": None}})
+        result = subprocess.run(
+            ["python3", str(HOOK)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+
 
 class TestOverExemptionBug:
     """PR #23 over-exemption 回歸：git 非 commit 子命令在 -m payload 含 'commit' 詞時 emoji 誤放行。

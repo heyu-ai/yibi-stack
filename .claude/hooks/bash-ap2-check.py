@@ -91,7 +91,9 @@ _GIT_COMMIT_RE = re.compile(
 )
 
 # 豁免：python -m tasks.session_memory 呼叫後的引數值（使用者資料，不是 bash 控制結構）
-_TASKS_SM_RE = re.compile(r"-m\s+tasks\.session_memory\b")
+# 要求 python 前綴（含版本號如 python3），防止 echo/grep 等包含 "-m tasks.session_memory"
+# 文字時誤觸豁免（與 _GIT_COMMIT_RE 要求 git+commit 定位的設計對稱）。
+_TASKS_SM_RE = re.compile(r"\bpython[\w.]*\b[^;|\n&]*-m\s+tasks\.session_memory\b")
 # 匹配 --flag "value" 或 --flag 'value'（單行值，不跨 newline）
 _ARG_QUOTED_VAL_RE = re.compile(r"""(--[\w-]+)(\s+)(?:"[^"\n]*"|'[^'\n]*')""")
 
@@ -131,6 +133,9 @@ def main() -> None:
             sys.exit(0)
         command = data.get("tool_input", {}).get("command", "")
     except Exception:
+        sys.exit(0)
+
+    if not isinstance(command, str):
         sys.exit(0)
 
     m = _AP2.search(_scannable(command))
