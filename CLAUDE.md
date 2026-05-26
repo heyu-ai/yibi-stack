@@ -188,6 +188,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **`pre-commit run --files` 只掃指定檔案，CI `--all-files` 掃全 repo**：本地跑 `pre-commit run --files <file>` 只檢查指定檔案，push 前若有未改動但有 pre-existing 問題的檔案（如 `settings.json` 缺 trailing newline），本地不會報錯但 CI 會失敗。
   正確做法：push 前執行 `make ci`（內含 `pre-commit run --all-files` + pytest），而非只跑 `pre-commit run --files <file>`。
 - **`make install` 迴圈的 skip list 需四個目標同步維護**：`install`、`install-project`、`status-own`、`uninstall` 四個迴圈都掃 `skills/*/`。
-  任何工具在 `skills/` 下產生的非 skill 目錄（如 `spectra init --dir skills/openspec`）必須同步加入所有四個迴圈的 skip list，
-  否則 `make install` 遇到沒有 SKILL.md 的目錄就 exit 1 中斷安裝（字母排序後的 skill 全部裝不到）。
+  任何工具在 `skills/` 下產生的非 skill 目錄（如 `spectra init --dir skills/openspec`）必須同步加入所有四個迴圈的 skip list。
+  失敗模式不同：`install`/`install-project` 遇到缺 SKILL.md 的目錄會 **exit 1 中斷**（字母排序後的 skill 全部裝不到）；
+  `status-own` 靜默繼續（顯示空白 scope，不報錯）；`uninstall` 靜默略過（不報錯）。
 - **`.gitignore` 不等於磁碟不存在**：被 gitignore 的目錄仍存在磁碟上，shell glob、Python rglob、`make install` 等工具不知道 gitignore 的存在。防線必須加在腳本本身（skip list、SKILL.md 存在性檢查），不能依賴 gitignore 作為唯一屏障。
