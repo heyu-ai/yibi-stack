@@ -150,6 +150,74 @@ class TestHandoverAP2Patterns:
         assert run_hook(cmd) == 0
 
 
+class TestSessionMemoryAP2Exemption:
+    """python -m tasks.session_memory 資料引數豁免測試。"""
+
+    def test_sm_exemption_001_handover_write_em_dash_in_topic(self) -> None:
+        """handover write --topic 含 em dash -> 豁免（使用者資料）"""
+        cmd = (
+            'uv run --directory "$SKILL_REPO" python -m tasks.session_memory '
+            'handover write --topic "session—設計決策" --project "yibi-stack"'
+        )
+        assert run_hook(cmd) == 0
+
+    def test_sm_exemption_002_handover_write_em_dash_in_summary(self) -> None:
+        """handover write --summary 含 em dash -> 豁免（使用者資料）"""
+        cmd = (
+            'uv run --directory "$SKILL_REPO" python -m tasks.session_memory '
+            'handover write --summary "設計決策—優先使用 TypeScript" --project "yibi"'
+        )
+        assert run_hook(cmd) == 0
+
+    def test_sm_exemption_003_handover_write_emoji_in_summary(self) -> None:
+        """handover write --summary 含 emoji -> 豁免（使用者資料）"""
+        cmd = (
+            'uv run --directory "$SKILL_REPO" python -m tasks.session_memory '
+            'handover write --summary "✅ 完成 API 整合" --topic "test"'
+        )
+        assert run_hook(cmd) == 0
+
+    def test_sm_exemption_004_handover_read_no_ap2(self) -> None:
+        """handover read 無 AP2 字元 -> 放行"""
+        cmd = (
+            'uv run --directory "$SKILL_REPO" python -m tasks.session_memory '
+            'handover read --last 3 --project "yibi-stack"'
+        )
+        assert run_hook(cmd) == 0
+
+    def test_sm_exemption_005_em_dash_outside_session_memory_still_blocked(self) -> None:
+        """em dash 在非 tasks.session_memory 命令中 -> 仍攔截"""
+        assert run_hook('echo "error — please fix"') == 2
+
+    def test_sm_exemption_006_em_dash_before_session_memory_still_blocked(self) -> None:
+        """em dash 在 tasks.session_memory 呼叫之前（bash 控制結構）-> 仍攔截"""
+        cmd = (
+            'echo "— start" && '
+            'uv run --directory "$SKILL_REPO" python -m tasks.session_memory handover write --topic "ok"'
+        )
+        assert run_hook(cmd) == 2
+
+    def test_sm_exemption_007_no_python_prefix_not_exempted(self) -> None:
+        """非 python 指令包含 -m tasks.session_memory 文字 -> 不豁免（防止 over-exemption）"""
+        cmd = 'echo "-m tasks.session_memory --topic ignored" && echo "— bad"'
+        assert run_hook(cmd) == 2
+
+    def test_sm_exemption_008_command_none_value_allowed_safely(self) -> None:
+        """command 為 null JSON 值 -> 安全放行（不 crash）"""
+        import json
+        import subprocess
+
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": None}})
+        result = subprocess.run(
+            ["python3", str(HOOK)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+
+
 class TestOverExemptionBug:
     """PR #23 over-exemption 回歸：git 非 commit 子命令在 -m payload 含 'commit' 詞時 emoji 誤放行。
 
