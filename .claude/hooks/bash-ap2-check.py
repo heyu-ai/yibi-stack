@@ -14,6 +14,8 @@ Exit code:
 
 豁免範圍（不掃描）：
   - git commit -m / --message 的訊息內容（rule 13 明定 commit message 不限制）
+  - python -m tasks.session_memory 之後的 --flag "value" 引數值
+    （handover topic/summary 等為使用者資料，不是 bash 控制結構）
 
 規則來源：.claude/rules/13-bash-anti-patterns.md（Anti-Pattern 2）
 """
@@ -88,6 +90,11 @@ _GIT_COMMIT_RE = re.compile(
     r"(?:^|[;|\n]|&&|\|\|)\s*(?:\(\s*)?git\b" + _GIT_GLOBAL_FLAG + r"*\s+commit\b"
 )
 
+# 豁免：python -m tasks.session_memory 呼叫後的引數值（使用者資料，不是 bash 控制結構）
+_TASKS_SM_RE = re.compile(r"-m\s+tasks\.session_memory\b")
+# 匹配 --flag "value" 或 --flag 'value'（單行值，不跨 newline）
+_ARG_QUOTED_VAL_RE = re.compile(r"""(--[\w-]+)(\s+)(?:"[^"\n]*"|'[^'\n]*')""")
+
 _VIOLATION_MESSAGE = """\
 [AP2 VIOLATION] bash 指令含禁用 Unicode 字元（em dash / en dash / emoji / 零寬空白）。
 
@@ -102,9 +109,17 @@ _VIOLATION_MESSAGE = """\
 
 
 def _scannable(command: str) -> str:
-    """Strip git commit message payloads — commit messages are AP2-exempt per rule 13."""
+    """Strip data payloads that are AP2-exempt:
+    1. git commit message (rule 13)
+    2. python -m tasks.session_memory --flag "value" args (user data, not bash code)
+    """
     if _GIT_COMMIT_RE.search(command):
-        return _COMMIT_MSG_RE.sub("", command)
+        command = _COMMIT_MSG_RE.sub("", command)
+    m = _TASKS_SM_RE.search(command)
+    if m:
+        prefix = command[: m.end()]
+        suffix = command[m.end() :]
+        command = prefix + _ARG_QUOTED_VAL_RE.sub(r'\1\2""', suffix)
     return command
 
 
