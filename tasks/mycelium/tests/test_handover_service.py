@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 import pytest
 
-from tasks.session_memory.config import from_portable_path, to_portable_path
-from tasks.session_memory.handover_service import read_recent, search_handovers, write_handover
-from tasks.session_memory.models import SessionType
+from tasks.mycelium.config import from_portable_path, to_portable_path
+from tasks.mycelium.handover_service import read_recent, search_handovers, write_handover
+from tasks.mycelium.models import SessionType
 
 
 @pytest.fixture
@@ -75,9 +75,9 @@ class TestWriteHandover:
         """AGENTS-ST-011：未提供 device/account/project 時自動 detect 填入。"""
         monkeypatch.setenv("AGENT_ACCOUNT", "test-account")
         with (
-            patch("tasks.session_memory.handover_service.detect_device", return_value="test-dev"),
-            patch("tasks.session_memory.handover_service.detect_project", return_value="test-proj"),
-            patch("tasks.session_memory.handover_service.detect_branch", return_value="main"),
+            patch("tasks.mycelium.handover_service.detect_device", return_value="test-dev"),
+            patch("tasks.mycelium.handover_service.detect_project", return_value="test-proj"),
+            patch("tasks.mycelium.handover_service.detect_branch", return_value="main"),
         ):
             record = write_handover(
                 session_type=SessionType.discussion,
@@ -415,7 +415,7 @@ class TestReadRecent:
 class TestExpandPaths:
     def test_agents_eg_031_expand_paths_does_not_mutate_input(self) -> None:
         """AGENTS-EG-031：_expand_paths 不修改傳入的原始 dict（docstring 承諾不變動原物件）。"""
-        from tasks.session_memory.handover_service import _expand_paths
+        from tasks.mycelium.handover_service import _expand_paths
 
         original: dict[str, object] = {
             "working_dir": "~/proj",
@@ -427,7 +427,7 @@ class TestExpandPaths:
 
     def test_agents_eg_033_expand_paths_handles_null_fields(self) -> None:
         """AGENTS-EG-033：working_dir=None / last_files=None 時不拋 KeyError 或 TypeError。"""
-        from tasks.session_memory.handover_service import _expand_paths
+        from tasks.mycelium.handover_service import _expand_paths
 
         result = _expand_paths({"working_dir": None, "last_files": None})
         assert result["working_dir"] is None
@@ -439,7 +439,7 @@ class TestFromPortablePath:
         """AGENTS-CV-019：~username 形式應 raise ValueError，不可靜默回傳錯誤路徑。"""
         import pytest
 
-        from tasks.session_memory.config import from_portable_path
+        from tasks.mycelium.config import from_portable_path
 
         with pytest.raises(ValueError, match="~username"):
             from_portable_path("~otheruser/foo")

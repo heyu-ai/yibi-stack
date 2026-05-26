@@ -25,7 +25,7 @@ description: <one-line description with trigger keywords — keep in Chinese for
 A missing `scope:` field causes install to fail with exit 1 and an error message; it must be added.
 
 If a skill's implementation lives in this repo but is semantically useful cross-project
-(e.g. session-memory, local-port-manager), resolve the skill_repo path at the start of
+(e.g. mycelium, local-port-manager), resolve the skill_repo path at the start of
 the execution steps and set scope to `global`:
 
 ```bash
@@ -332,7 +332,7 @@ Correct approach (at skill design time):
 - [ ] Write to `.claude/rules/15-irreversible-operations.md` Category 3 Recovery section (git workflow recovery)
 - [ ] Write to `~/.claude/CLAUDE.md` cross-project personal preferences section
 - [ ] Write to `<repo>/CLAUDE.md` Gotchas section (repo-specific)
-- [ ] Do not document; session-memory only (one-off / non-recurring lesson)
+- [ ] Do not document; mycelium handover only (one-off / non-recurring lesson)
 ```
 
 Each option's "destination file + section" should already have been computed by the skill itself

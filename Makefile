@@ -259,10 +259,10 @@ scheduler-status: ## Show scheduler job status
 	uv run python -m tasks.scheduler status
 
 install-handover-hooks: ## 安裝 auto-handover PreCompact + SessionStart hook 到 ~/.claude/settings.json
-	uv run python -m tasks.session_memory handover install-hooks
+	uv run python -m tasks.mycelium handover install-hooks
 
 uninstall-handover-hooks: ## 移除 auto-handover PreCompact + SessionStart hook 從 ~/.claude/settings.json
-	uv run python -m tasks.session_memory handover uninstall-hooks
+	uv run python -m tasks.mycelium handover uninstall-hooks
 
 patch-pr-review-agents: ## 為 pr-review-toolkit agents 加入 git -C 指令規範（plugin 更新後重跑）
 	@bash scripts/patch-pr-review-agents.sh

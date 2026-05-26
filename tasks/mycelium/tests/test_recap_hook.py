@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tasks.session_memory.config import to_portable_path
-from tasks.session_memory.recap_hook import (
+from tasks.mycelium.config import to_portable_path
+from tasks.mycelium.recap_hook import (
     _build_record,
     _extract_away_summaries,
     _load_seen_uuids,
@@ -70,7 +70,7 @@ def make_settings_with_insight(path: Path) -> None:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "uv run python -m tasks.session_memory insight collect",
+                            "command": "uv run python -m tasks.mycelium insight collect",
                         }
                     ],
                 }
@@ -230,7 +230,7 @@ class TestRunHookEdgeCases:
     def test_recap_eg_034_install_hook_idempotent(self, tmp_path: Path) -> None:
         """RECAP-EG-034: install-hook 兩次（idempotency）。"""
         settings = tmp_path / "settings.json"
-        cmd = "uv run python -m tasks.session_memory recap collect"
+        cmd = "uv run python -m tasks.mycelium recap collect"
 
         is_new1, _ = install_hook(settings_path=settings, hook_command=cmd)
         is_new2, _ = install_hook(settings_path=settings, hook_command=cmd)
@@ -250,7 +250,7 @@ class TestRunHookEdgeCases:
 
         install_hook(
             settings_path=settings,
-            hook_command="uv run python -m tasks.session_memory recap collect",
+            hook_command="uv run python -m tasks.mycelium recap collect",
         )
 
         data = json.loads(settings.read_text(encoding="utf-8"))
@@ -268,7 +268,7 @@ class TestUninstallHook:
     def test_recap_eg_036_uninstall_removes_hook_and_writes_back(self, tmp_path: Path) -> None:
         """RECAP-EG-036: uninstall_hook 成功移除並回寫 settings.json。"""
         settings = tmp_path / "settings.json"
-        cmd = "uv run python -m tasks.session_memory recap collect"
+        cmd = "uv run python -m tasks.mycelium recap collect"
         install_hook(settings_path=settings, hook_command=cmd)
 
         removed, _ = uninstall_hook(settings_path=settings)
@@ -303,7 +303,7 @@ class TestUninstallHook:
         make_settings_with_insight(settings)
         install_hook(
             settings_path=settings,
-            hook_command="uv run python -m tasks.session_memory recap collect",
+            hook_command="uv run python -m tasks.mycelium recap collect",
         )
 
         # 確認兩個 hook 都在

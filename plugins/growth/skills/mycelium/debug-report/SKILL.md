@@ -1,5 +1,5 @@
 ---
-name: session-memory-debug-report
+name: mycelium-debug-report
 type: exec
 description: >
   解完非平凡 bug 後主動萃取除錯知識的儀式：產出 debug report Markdown、
@@ -92,7 +92,7 @@ git status
 使用者確認 diff 無誤後，將摘要持久化：
 
 ```bash
-uv run python -m tasks.session_memory debug save \
+uv run python -m tasks.mycelium debug save \
   --keyword "{{keyword}}" \
   --report-path "debugs/{{filename}}" \
   --symptom "{{symptom_one_line}}" \
@@ -113,10 +113,10 @@ uv run python -m tasks.session_memory debug save \
 
 ```bash
 # 列出最近 10 筆
-uv run python -m tasks.session_memory debug list
+uv run python -m tasks.mycelium debug list
 
 # 過濾特定 project
-uv run python -m tasks.session_memory debug list --project yibi-stack
+uv run python -m tasks.mycelium debug list --project yibi-stack
 
 # jq 跨專案搜尋
 jq -r '"\(.timestamp[:10]) [\(.keyword)] \(.root_cause)"' \
@@ -130,4 +130,4 @@ jq -r '"\(.timestamp[:10]) [\(.keyword)] \(.root_cause)"' \
 | `debugs/` 目錄不存在 | Step 1 執行 `mkdir -p debugs` |
 | keyword 不知道填什麼 | 用 bug 根因關鍵字（如 `mypy_follow_imports`、`utf8_bom_decode`） |
 | 清理誤刪正式程式碼 | Step 5 的 `git diff` 讓你檢查；不滿意就 `git checkout <file>` |
-| `~/.agents/debugs/` 不存在 | 執行 `uv run python -m tasks.session_memory init` 建立 |
+| `~/.agents/debugs/` 不存在 | 執行 `uv run python -m tasks.mycelium init` 建立 |

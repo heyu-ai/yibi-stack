@@ -13,7 +13,7 @@ if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目
 WORKDIR=$(pwd)
 PROJECT=$(basename "$WORKDIR")
 uv run --directory "$SKILL_REPO" \
-  python -m tasks.session_memory handover read --last 3 --project "$PROJECT" \
+  python -m tasks.mycelium handover read --last 3 --project "$PROJECT" \
   --exclude-tags pr-retrospective
 ```
 
@@ -29,7 +29,7 @@ if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Pat
 if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
 uv run --directory "$SKILL_REPO" \
-  python -m tasks.session_memory handover read --last 3 --exclude-tags pr-retrospective
+  python -m tasks.mycelium handover read --last 3 --exclude-tags pr-retrospective
 ```
 
 ## Step 2 — 呈現重點

@@ -29,7 +29,7 @@ INSIGHT_PATTERN = re.compile(
 )
 
 # settings.json 中用於比對冪等的特徵字串（新路徑）
-_HOOK_COMMAND_MARKER = "tasks.session_memory insight collect"
+_HOOK_COMMAND_MARKER = "tasks.mycelium insight collect"
 
 
 def run_hook(
@@ -170,7 +170,7 @@ def install_hook(
     """把 Stop hook 註冊到 ~/.claude/settings.json。
 
     回傳 (is_new, message)。is_new=True 表示新增；False 表示已存在跳過。
-    hook_command 留空時用 `uv run python -m tasks.session_memory insight collect`。
+    hook_command 留空時用 `uv run python -m tasks.mycelium insight collect`。
     """
     from ._hook_utils import install_stop_hook
 
@@ -194,9 +194,9 @@ def uninstall_hook(settings_path: Path | None = None) -> tuple[bool, str]:
 
 
 def _default_hook_command() -> str:
-    """回傳預設 hook command（tasks.session_memory insight collect）。
+    """回傳預設 hook command（tasks.mycelium insight collect）。
 
     使用 `--project` 指定 repo 根，讓 hook 不受執行當下 cwd 影響。
     """
     repo_root = Path(__file__).resolve().parents[2]
-    return f"uv run --project {repo_root} python -m tasks.session_memory insight collect"
+    return f"uv run --project {repo_root} python -m tasks.mycelium insight collect"

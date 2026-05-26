@@ -80,9 +80,9 @@ def init(device_id: str | None, default_account: str | None, force: bool) -> Non
 
     click.echo("")
     click.echo("下一步：")
-    click.echo("  1. uv run python -m tasks.session_memory insight install-hook")
-    click.echo("  2. uv run python -m tasks.session_memory migrate")
-    click.echo("  3. uv run python -m tasks.session_memory handover write ...")
+    click.echo("  1. uv run python -m tasks.mycelium insight install-hook")
+    click.echo("  2. uv run python -m tasks.mycelium migrate")
+    click.echo("  3. uv run python -m tasks.mycelium handover write ...")
 
 
 # ─── migrate ─────────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ def migrate() -> None:
         click.echo("搬遷完成。確認新資料無誤後可手動刪除舊路徑：")
         click.echo("  rm -rf ~/.handover/")
         click.echo("  rm -rf ~/.claude/insight/")
-        click.echo("  （並執行：uv run python -m tasks.session_memory insight install-hook）")
+        click.echo("  （並執行：uv run python -m tasks.mycelium insight install-hook）")
 
 
 # ─── account ─────────────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ def account_set_default(account_name: str) -> None:
     """寫入 config.json 的 default_account。"""
     config = load_agents_config()
     if config is None:
-        msg = "找不到 config.json，請先執行：uv run python -m tasks.session_memory init"
+        msg = "找不到 config.json，請先執行：uv run python -m tasks.mycelium init"
         click.echo(msg, err=True)
         raise SystemExit(1)
     config = AgentsConfig.model_validate({**config.model_dump(), "default_account": account_name})

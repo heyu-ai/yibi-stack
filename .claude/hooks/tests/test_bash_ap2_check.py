@@ -121,9 +121,7 @@ class TestHandoverAP2Patterns:
 
     def test_handover_ap2_block_002_old_warn_db(self) -> None:
         """舊模式 echo '⚠️  DB 不存在' (AP2) -> 攔截"""
-        assert (
-            run_hook('echo "⚠️  DB 不存在，請先跑 uv run python -m tasks.session_memory init"') == 2
-        )
+        assert run_hook('echo "⚠️  DB 不存在，請先跑 uv run python -m tasks.mycelium init"') == 2
 
     # 新模式：應放行
     def test_handover_ap2_allow_001_new_fail_jq(self) -> None:
@@ -132,10 +130,7 @@ class TestHandoverAP2Patterns:
 
     def test_handover_ap2_allow_002_new_warn_db(self) -> None:
         """新模式 echo '[WARN] DB 不存在' -> 放行（修復後）"""
-        assert (
-            run_hook('echo "[WARN] DB 不存在，請先跑 uv run python -m tasks.session_memory init"')
-            == 0
-        )
+        assert run_hook('echo "[WARN] DB 不存在，請先跑 uv run python -m tasks.mycelium init"') == 0
 
     def test_handover_ap2_allow_003_new_fail_skill_repo(self) -> None:
         """新模式 echo '[FAIL] skill_repo 未設定' -> 放行（修復後）"""

@@ -10,9 +10,9 @@ import pytest
 from click.testing import CliRunner
 from pydantic import ValidationError
 
-from tasks.session_memory.cli import cli
-from tasks.session_memory.debug_report_service import list_debug_reports, save_debug_report
-from tasks.session_memory.models import DebugReportRecord
+from tasks.mycelium.cli import cli
+from tasks.mycelium.debug_report_service import list_debug_reports, save_debug_report
+from tasks.mycelium.models import DebugReportRecord
 
 
 def make_report(**kwargs: object) -> DebugReportRecord:
@@ -157,7 +157,7 @@ class TestDebugCLI:
         runner = CliRunner()
         mock_record = MagicMock(id="test-id", keyword="test_bug", project="proj")
         with patch(
-            "tasks.session_memory.debug_report_service.save_debug_report",
+            "tasks.mycelium.debug_report_service.save_debug_report",
             return_value=mock_record,
         ) as mock_save:
             result = runner.invoke(
@@ -206,7 +206,7 @@ class TestDebugCLI:
         """SM-DR-032: list_debug_reports 拋 RuntimeError 時 debug list exit 1。"""
         runner = CliRunner()
         with patch(
-            "tasks.session_memory.debug_report_service.list_debug_reports",
+            "tasks.mycelium.debug_report_service.list_debug_reports",
             side_effect=RuntimeError("read failed"),
         ):
             result = runner.invoke(cli, ["debug", "list"])

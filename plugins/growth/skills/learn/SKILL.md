@@ -22,7 +22,7 @@ description: >
 
 **HARD GATE**：本 skill 不實作程式碼變更，只管理 learnings。
 
-> **執行位置**：本 skill 可從任何 cwd 觸發，底層的 `uv run python -m tasks.session_memory` 指令
+> **執行位置**：本 skill 可從任何 cwd 觸發，底層的 `uv run python -m tasks.mycelium` 指令
 > 需要在 yibi-stack repo 下執行。**skill 啟動時執行一次**（不要在每個 bash block 前重複執行）：
 >
 > ```bash
@@ -73,13 +73,13 @@ description: >
 
 ```bash
 PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.session_memory lessons show --project "$PROJECT" --last 10 2>/dev/null || echo ""
+uv run python -m tasks.mycelium lessons show --project "$PROJECT" --last 10 2>/dev/null || echo ""
 ```
 
 若無 `--project` 匹配，可改用無 project 過濾：
 
 ```bash
-uv run python -m tasks.session_memory lessons show --last 10 2>/dev/null || echo ""
+uv run python -m tasks.mycelium lessons show --last 10 2>/dev/null || echo ""
 ```
 
 ### 2. insight 洞察（可選）
@@ -88,7 +88,7 @@ uv run python -m tasks.session_memory lessons show --last 10 2>/dev/null || echo
 
 ```bash
 PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.session_memory insight list --project "$PROJECT" --last 5 2>/dev/null || echo ""
+uv run python -m tasks.mycelium insight list --project "$PROJECT" --last 5 2>/dev/null || echo ""
 ```
 
 ### 3. gstack learnings（選用，需私有工具）
@@ -112,7 +112,7 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 
 ```bash
 PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.session_memory lessons show --project "$PROJECT" --last 20
+uv run python -m tasks.mycelium lessons show --project "$PROJECT" --last 20
 ```
 
 ---
@@ -121,7 +121,7 @@ uv run python -m tasks.session_memory lessons show --project "$PROJECT" --last 2
 
 ```bash
 PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.session_memory insight list --project "$PROJECT" --last 20
+uv run python -m tasks.mycelium insight list --project "$PROJECT" --last 20
 ```
 
 ---
@@ -134,14 +134,14 @@ uv run python -m tasks.session_memory insight list --project "$PROJECT" --last 2
 
 ```bash
 PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.session_memory lessons search "USER_QUERY" --project "$PROJECT" --last 10 2>/dev/null || echo ""
+uv run python -m tasks.mycelium lessons search "USER_QUERY" --project "$PROJECT" --last 10 2>/dev/null || echo ""
 ```
 
 ### 2. insight 洞察（含 insights 旗標時）
 
 ```bash
 PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.session_memory lessons search "USER_QUERY" --project "$PROJECT" --insights --last 10 2>/dev/null || echo ""
+uv run python -m tasks.mycelium lessons search "USER_QUERY" --project "$PROJECT" --insights --last 10 2>/dev/null || echo ""
 ```
 
 ### 3. gstack learnings（選用，需私有工具）
@@ -222,7 +222,7 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 呈現 handover 教訓數量：
 
 ```bash
-uv run python -m tasks.session_memory lessons show --last 9999 --json 2>/dev/null | jq length
+uv run python -m tasks.mycelium lessons show --last 9999 --json 2>/dev/null | jq length
 ```
 
 若 gstack 可用（私有工具），也顯示 gstack learnings 統計：

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tasks.session_memory.auto_handover_hooks import install_hooks, uninstall_hooks
+from tasks.mycelium.auto_handover_hooks import install_hooks, uninstall_hooks
 
 
 class TestInstallHooks:

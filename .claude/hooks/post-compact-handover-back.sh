@@ -47,8 +47,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
     MATCHER_ENV="$MATCHER" \
     uv run python -c "
 import os
-from tasks.session_memory.metrics_service import log_event
-from tasks.session_memory.models import EventType, SourceLayer
+from tasks.mycelium.metrics_service import log_event
+from tasks.mycelium.models import EventType, SourceLayer
 log_event(
     EventType.layer3_session_start,
     session_id=os.environ.get('SESSION_ID_ENV') or None,

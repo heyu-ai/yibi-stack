@@ -1,7 +1,7 @@
 # /pr-retro -- PR Retrospective 入口
 
 跑完 `/pr-review-cycle-codex` 後收尾用：agent 從 PR context 推論 5 題答案草稿，使用者校準後
-寫入 session-memory（標 `pr-retrospective` tag，不污染 handover-back），並建議下游動作。
+寫入 mycelium（標 `pr-retrospective` tag，不污染 handover-back），並建議下游動作。
 
 ## 用法
 

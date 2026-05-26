@@ -10,15 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from tasks.session_memory.db import AgentsDB
-from tasks.session_memory.metrics_service import (
+from tasks.mycelium.db import AgentsDB
+from tasks.mycelium.metrics_service import (
     _append_jsonl,
     compute_stats,
     generate_advice,
     list_events,
     log_event,
 )
-from tasks.session_memory.models import EventType, HandoverEvent, MetricsReport, SourceLayer
+from tasks.mycelium.models import EventType, HandoverEvent, MetricsReport, SourceLayer
 
 _skip_if_root = pytest.mark.skipif(
     os.getuid() == 0,

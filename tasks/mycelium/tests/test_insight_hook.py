@@ -6,26 +6,26 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from tasks.session_memory.insight_hook import install_hook, run_hook, uninstall_hook
+from tasks.mycelium.insight_hook import install_hook, run_hook, uninstall_hook
 
 
 class TestInstallHook:
     def test_agents_st_030_install_creates_entry(self, tmp_path: Path) -> None:
         """AGENTS-ST-030：全新 settings.json 被建立，hooks.Stop 有一筆 entry。"""
         settings = tmp_path / "settings.json"
-        cmd = "/usr/bin/x tasks.session_memory insight collect"
+        cmd = "/usr/bin/x tasks.mycelium insight collect"
         is_new, _ = install_hook(settings_path=settings, hook_command=cmd)
 
         assert is_new is True
         data = json.loads(settings.read_text(encoding="utf-8"))
         assert len(data["hooks"]["Stop"]) == 1
         cmd = data["hooks"]["Stop"][0]["hooks"][0]["command"]
-        assert "tasks.session_memory insight collect" in cmd
+        assert "tasks.mycelium insight collect" in cmd
 
     def test_agents_st_031_install_idempotent(self, tmp_path: Path) -> None:
         """AGENTS-ST-031：第二次 install 應回傳 is_new=False，settings.json 不新增 entry。"""
         settings = tmp_path / "settings.json"
-        cmd = "/usr/bin/x tasks.session_memory insight collect"
+        cmd = "/usr/bin/x tasks.mycelium insight collect"
         install_hook(settings_path=settings, hook_command=cmd)
         is_new, _ = install_hook(settings_path=settings, hook_command=cmd)
 
@@ -49,19 +49,19 @@ class TestInstallHook:
             encoding="utf-8",
         )
 
-        install_hook(settings_path=settings, hook_command="x tasks.session_memory insight collect")
+        install_hook(settings_path=settings, hook_command="x tasks.mycelium insight collect")
 
         data = json.loads(settings.read_text(encoding="utf-8"))
         commands = [h["command"] for entry in data["hooks"]["Stop"] for h in entry["hooks"]]
         assert "other-tool" in commands
-        assert any("tasks.session_memory insight collect" in c for c in commands)
+        assert any("tasks.mycelium insight collect" in c for c in commands)
 
 
 class TestUninstallHook:
     def test_agents_st_033_uninstall_removes_entry(self, tmp_path: Path) -> None:
         """AGENTS-ST-033：uninstall 移除本 skill 的 hook entry。"""
         settings = tmp_path / "settings.json"
-        install_hook(settings_path=settings, hook_command="x tasks.session_memory insight collect")
+        install_hook(settings_path=settings, hook_command="x tasks.mycelium insight collect")
         removed, _ = uninstall_hook(settings_path=settings)
 
         assert removed is True
@@ -166,7 +166,7 @@ class TestRunHook:
     def test_agents_eg_032_stdin_oserror_returns_zero(self, tmp_path: Path) -> None:
         """AGENTS-EG-032：stdin OSError（broken pipe 等）靜默回傳 0，不拋例外。"""
         output = tmp_path / "insights.jsonl"
-        with patch("tasks.session_memory.insight_hook.sys") as mock_sys:
+        with patch("tasks.mycelium.insight_hook.sys") as mock_sys:
             mock_sys.stdin.read.side_effect = OSError("broken pipe")
             rc = run_hook(stdin_text=None, output_path=output)
         assert rc == 0

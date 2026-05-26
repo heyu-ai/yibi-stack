@@ -1,5 +1,5 @@
 ---
-name: session-memory-handover
+name: mycelium-handover
 type: tool
 description: >
   跨對話、跨裝置、跨 Agent 的工作交班系統。使用 SQLite + JSONL 保存工作狀態，
@@ -67,12 +67,12 @@ uv --version
 ls ~/.agents/handover/handover.db
 ```
 
-若不存在，先跑 `uv run python -m tasks.session_memory init`。
+若不存在，先跑 `uv run python -m tasks.mycelium init`。
 
 ### Step 2 — 寫入交班
 
 ```bash
-uv run python -m tasks.session_memory handover write \
+uv run python -m tasks.mycelium handover write \
   --session-type {{debug|sdd|discussion|admin}} \
   --topic "{{topic}}" \
   --summary "{{summary}}" \
@@ -94,13 +94,13 @@ uv run python -m tasks.session_memory handover write \
 ```bash
 # 自動偵測當前專案（與 handover write 的 detect_project() 一致：使用 git repo 名稱）
 PROJECT=$(basename "$PWD")
-uv run python -m tasks.session_memory handover read --last 3 --project "$PROJECT"
+uv run python -m tasks.mycelium handover read --last 3 --project "$PROJECT"
 
 # 不帶 --project 顯示所有專案的記錄（向後相容）
-uv run python -m tasks.session_memory handover read --last 4
+uv run python -m tasks.mycelium handover read --last 4
 
 # 原始 JSON
-uv run python -m tasks.session_memory handover read --last 4 --json
+uv run python -m tasks.mycelium handover read --last 4 --json
 ```
 
 讀取後，根據 `next_priorities` 提示使用者下一步是什麼。
@@ -108,10 +108,10 @@ uv run python -m tasks.session_memory handover read --last 4 --json
 ### Step 4 — 搜尋
 
 ```bash
-uv run python -m tasks.session_memory handover search --query "parser"
-uv run python -m tasks.session_memory handover search --query "bug" --type debug --limit 5
-uv run python -m tasks.session_memory handover search --project flight-mcp
-uv run python -m tasks.session_memory handover search --account claude-pro
+uv run python -m tasks.mycelium handover search --query "parser"
+uv run python -m tasks.mycelium handover search --query "bug" --type debug --limit 5
+uv run python -m tasks.mycelium handover search --project flight-mcp
+uv run python -m tasks.mycelium handover search --account claude-pro
 ```
 
 ## 交班時機建議
@@ -148,7 +148,7 @@ uv run python -m tasks.session_memory handover search --account claude-pro
 
 | 問題 | 解法 |
 |------|------|
-| 找不到 DB | 先跑 `uv run python -m tasks.session_memory init` |
+| 找不到 DB | 先跑 `uv run python -m tasks.mycelium init` |
 | session_type 無效 | 只能是 sdd / debug / discussion / admin 四選一 |
 | --completed 格式錯誤 | 必須是合法 JSON array，例：`'["a","b"]'` |
 | 跨機器看到不同內容 | 確認 Syncthing 已同步；或用 JSONL 鏡像手動 import |

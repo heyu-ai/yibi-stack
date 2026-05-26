@@ -26,7 +26,7 @@
     },
     {
       "name": "growth",
-      "description": "Session continuity and knowledge retention: session-memory, learn skill, handover/newjob slash commands for Claude Code agents.",
+      "description": "Session continuity and knowledge retention: mycelium, learn skill, handover/newjob slash commands for Claude Code agents.",
       "author": {
         "name": "Howie Yu"
       },

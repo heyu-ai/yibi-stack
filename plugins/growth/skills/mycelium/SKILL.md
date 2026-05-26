@@ -1,5 +1,5 @@
 ---
-name: session-memory
+name: mycelium
 type: tool
 scope: global
 description: >
@@ -103,7 +103,7 @@ python3 --version
 ### Step 2 — 初始化
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.session_memory init \
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium init \
   --device-id {{device_id}} \
   --default-account {{default_account}}
 ```
@@ -116,7 +116,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.session_memory init \
 ### Step 3 — 搬遷舊資料（若有）
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.session_memory migrate
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium migrate
 ```
 
 從 `~/.handover/` 與 `~/.claude/insight/` 一次性搬到 `~/.agents/`。冪等、可重跑。
@@ -124,7 +124,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.session_memory migrate
 ### Step 4 — 安裝 Stop hook
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.session_memory insight install-hook
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium insight install-hook
 ```
 
 > **延伸（PostToolUse hook 升級）**：PostToolUse hook 現在支援所有工具輸出替換
@@ -149,9 +149,9 @@ uv run --directory "$SKILL_REPO" python -m tasks.session_memory insight install-
 ### Step 5 — 驗證
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.session_memory account detect
-uv run --directory "$SKILL_REPO" python -m tasks.session_memory handover read --last 4
-uv run --directory "$SKILL_REPO" python -m tasks.session_memory insight list --last 5
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium account detect
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium handover read --last 4
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium insight list --last 5
 ```
 
 ## 子 skill
@@ -184,7 +184,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.session_memory insight list --l
 
 ```bash
 export AGENT_ACCOUNT=claude-team      # 臨時切
-uv run --directory "$SKILL_REPO" python -m tasks.session_memory account set-default claude-pro
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium account set-default claude-pro
 ```
 
 ## 常見問題

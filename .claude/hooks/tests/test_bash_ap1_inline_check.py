@@ -386,7 +386,7 @@ class TestGitCommitExemption:
 
 
 class TestHandoverAntiBashPatterns:
-    """fix-handover-skill-anti-bash：handover/session-memory 指令模式驗證。
+    """fix-handover-skill-anti-bash：handover/mycelium 指令模式驗證。
 
     舊模式（修復前）應被 hook 攔截，新模式（修復後）應放行。
     Note：jq '//' trigger 是 Claude Code 內建 checker，非本 hook 範圍——僅驗證 Rule 4。
@@ -403,7 +403,7 @@ class TestHandoverAntiBashPatterns:
         assert run_hook(cmd) == 2
 
     def test_handover_block_002_basename_git_show_toplevel_nested(self) -> None:
-        """$(basename "$(git rev-parse --show-toplevel)") Rule 4 -> 攔截（session-memory 舊模式）"""
+        """$(basename "$(git rev-parse --show-toplevel)") Rule 4 -> 攔截（mycelium 舊模式）"""
         cmd = 'ORIG=$(basename "$(git rev-parse --show-toplevel)")'
         assert run_hook(cmd) == 2
 
@@ -435,7 +435,7 @@ class TestHandoverAntiBashPatterns:
             "SKILL_REPO=$(jq -r '.skill_repo' ~/.agents/config.json)\n"
             '[ "$SKILL_REPO" = "null" ] && SKILL_REPO=""\n'
             'uv run --directory "$SKILL_REPO" \\\n'
-            "  python -m tasks.session_memory handover read --last 1"
+            "  python -m tasks.mycelium handover read --last 1"
         )
         assert run_hook(cmd) == 2
 
@@ -445,7 +445,7 @@ class TestHandoverAntiBashPatterns:
             "SKILL_REPO=$(jq -r .skill_repo ~/.agents/config.json)\n"
             '[ "$SKILL_REPO" = "null" ] && SKILL_REPO=""\n'
             'uv run --directory "$SKILL_REPO" \\\n'
-            "  python -m tasks.session_memory handover read --last 1"
+            "  python -m tasks.mycelium handover read --last 1"
         )
         assert run_hook(cmd) == 0
 
@@ -455,7 +455,7 @@ class TestHandoverAntiBashPatterns:
             f'SKILL_REPO=$(python3 -c "{_SKILL_REPO_PY}")\n'
             "[ -z \"$SKILL_REPO\" ] && { echo '[FAIL] skill_repo 未設定' >&2; exit 1; }\n"
             'uv run --directory "$SKILL_REPO" \\\n'
-            "  python -m tasks.session_memory handover read --last 1"
+            "  python -m tasks.mycelium handover read --last 1"
         )
         assert run_hook(cmd) == 0
 

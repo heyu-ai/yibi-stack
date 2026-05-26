@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from tasks.session_memory.account import detect_account, detect_agent_type, detect_project
-from tasks.session_memory.models import AgentsConfig
+from tasks.mycelium.account import detect_account, detect_agent_type, detect_project
+from tasks.mycelium.models import AgentsConfig
 
 
 def _write_config(path: Path, **overrides: object) -> Path:
@@ -34,7 +34,7 @@ class TestDetectAccount:
         """AGENTS-DT-001：env var 最優先，即使 config.json 有 default_account 也被蓋過。"""
         _write_config(tmp_path / "config.json", default_account="from-config")
         monkeypatch.setenv("AGENT_ACCOUNT", "from-env")
-        with patch("tasks.session_memory.account.load_agents_config", return_value=None):
+        with patch("tasks.mycelium.account.load_agents_config", return_value=None):
             assert detect_account() == "from-env"
 
     def test_agents_dt_002_config_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,8 +42,8 @@ class TestDetectAccount:
         monkeypatch.delenv("AGENT_ACCOUNT", raising=False)
         cfg = AgentsConfig(device_id="d", default_account="from-config")
         with (
-            patch("tasks.session_memory.account.get_adapter", return_value=None),
-            patch("tasks.session_memory.account.load_agents_config", return_value=cfg),
+            patch("tasks.mycelium.account.get_adapter", return_value=None),
+            patch("tasks.mycelium.account.load_agents_config", return_value=cfg),
         ):
             assert detect_account(warn=False) == "from-config"
 
@@ -51,8 +51,8 @@ class TestDetectAccount:
         """AGENTS-DT-003：env 未設且無 config.json，回傳 unknown。"""
         monkeypatch.delenv("AGENT_ACCOUNT", raising=False)
         with (
-            patch("tasks.session_memory.account.get_adapter", return_value=None),
-            patch("tasks.session_memory.account.load_agents_config", return_value=None),
+            patch("tasks.mycelium.account.get_adapter", return_value=None),
+            patch("tasks.mycelium.account.load_agents_config", return_value=None),
         ):
             assert detect_account(warn=False) == "unknown"
 
@@ -60,8 +60,8 @@ class TestDetectAccount:
         """AGENTS-EG-001：env 設為空字串時應 fallback（避免『有設但是空字串』的 corner case）。"""
         monkeypatch.setenv("AGENT_ACCOUNT", "   ")
         with (
-            patch("tasks.session_memory.account.get_adapter", return_value=None),
-            patch("tasks.session_memory.account.load_agents_config", return_value=None),
+            patch("tasks.mycelium.account.get_adapter", return_value=None),
+            patch("tasks.mycelium.account.load_agents_config", return_value=None),
         ):
             assert detect_account(warn=False) == "unknown"
 
@@ -70,13 +70,13 @@ class TestDetectAgentType:
     def test_agents_dt_004_env_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AGENTS-DT-004：AGENT_TYPE env var 最優先。"""
         monkeypatch.setenv("AGENT_TYPE", "gemini")
-        with patch("tasks.session_memory.account.load_agents_config", return_value=None):
+        with patch("tasks.mycelium.account.load_agents_config", return_value=None):
             assert detect_agent_type() == "gemini"
 
     def test_agents_dt_005_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AGENTS-DT-005：無 env、無 config 時回傳預設 claude。"""
         monkeypatch.delenv("AGENT_TYPE", raising=False)
-        with patch("tasks.session_memory.account.load_agents_config", return_value=None):
+        with patch("tasks.mycelium.account.load_agents_config", return_value=None):
             assert detect_agent_type() == "claude"
 
 
@@ -124,7 +124,7 @@ class TestDetectAccountWithAdapter:
         monkeypatch.setenv("AGENT_ACCOUNT", "from-env")
         mock_adapter = MagicMock()
         mock_adapter.detect.return_value = "from-adapter"
-        with patch("tasks.session_memory.account.get_adapter", return_value=mock_adapter):
+        with patch("tasks.mycelium.account.get_adapter", return_value=mock_adapter):
             result = detect_account(agent_type="gemini")
         assert result == "from-env"
         mock_adapter.detect.assert_not_called()
@@ -136,9 +136,9 @@ class TestDetectAccountWithAdapter:
         mock_adapter.detect.return_value = "from-adapter"
         cfg = AgentsConfig(device_id="d", default_account="from-config")
         with (
-            patch("tasks.session_memory.account.get_adapter", return_value=mock_adapter),
-            patch("tasks.session_memory.account.load_agents_config", return_value=cfg),
-            patch("tasks.session_memory.account.AccountRegistry"),
+            patch("tasks.mycelium.account.get_adapter", return_value=mock_adapter),
+            patch("tasks.mycelium.account.load_agents_config", return_value=cfg),
+            patch("tasks.mycelium.account.AccountRegistry"),
         ):
             result = detect_account(agent_type="gemini", warn=False)
         assert result == "from-adapter"
@@ -152,8 +152,8 @@ class TestDetectAccountWithAdapter:
         mock_adapter.detect.return_value = None
         cfg = AgentsConfig(device_id="d", default_account="from-config")
         with (
-            patch("tasks.session_memory.account.get_adapter", return_value=mock_adapter),
-            patch("tasks.session_memory.account.load_agents_config", return_value=cfg),
+            patch("tasks.mycelium.account.get_adapter", return_value=mock_adapter),
+            patch("tasks.mycelium.account.load_agents_config", return_value=cfg),
         ):
             result = detect_account(agent_type="gemini", warn=False)
         assert result == "from-config"
@@ -164,8 +164,8 @@ class TestDetectAccountWithAdapter:
         mock_adapter = MagicMock()
         mock_adapter.detect.return_value = None
         with (
-            patch("tasks.session_memory.account.get_adapter", return_value=mock_adapter),
-            patch("tasks.session_memory.account.load_agents_config", return_value=None),
+            patch("tasks.mycelium.account.get_adapter", return_value=mock_adapter),
+            patch("tasks.mycelium.account.load_agents_config", return_value=None),
         ):
             result = detect_account(agent_type="gemini", warn=False)
         assert result == "unknown"
@@ -177,13 +177,13 @@ class TestDetectAgentTypeWithCaller:
     def test_agents_dt_014_caller_used_as_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AGENTS-DT-014：caller 有值，env 未設時回傳 caller。"""
         monkeypatch.delenv("AGENT_TYPE", raising=False)
-        with patch("tasks.session_memory.account.load_agents_config", return_value=None):
+        with patch("tasks.mycelium.account.load_agents_config", return_value=None):
             assert detect_agent_type(caller="gemini") == "gemini"
 
     def test_agents_dt_015_env_overrides_caller(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AGENTS-DT-015：env var 設定時優先於 caller。"""
         monkeypatch.setenv("AGENT_TYPE", "codex")
-        with patch("tasks.session_memory.account.load_agents_config", return_value=None):
+        with patch("tasks.mycelium.account.load_agents_config", return_value=None):
             assert detect_agent_type(caller="gemini") == "codex"
 
     def test_agents_dt_016_no_caller_falls_back_to_config(
@@ -192,7 +192,7 @@ class TestDetectAgentTypeWithCaller:
         """AGENTS-DT-016：caller 未傳，config.json 有值時讀 config。"""
         monkeypatch.delenv("AGENT_TYPE", raising=False)
         cfg = AgentsConfig(device_id="d", default_agent="gemini")
-        with patch("tasks.session_memory.account.load_agents_config", return_value=cfg):
+        with patch("tasks.mycelium.account.load_agents_config", return_value=cfg):
             assert detect_agent_type() == "gemini"
 
 
@@ -250,7 +250,7 @@ class TestLoadAgentsConfigValidation:
         self, tmp_path: Path
     ) -> None:
         """AGENTS-EG-040：config.json 含不合法欄位時 load_agents_config 應 raise RuntimeError。"""
-        from tasks.session_memory.config import load_agents_config
+        from tasks.mycelium.config import load_agents_config
 
         p = tmp_path / "config.json"
         p.write_text('{"device_id": "d", "skill_repo": "relative/path"}', encoding="utf-8")

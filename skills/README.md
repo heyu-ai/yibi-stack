@@ -20,7 +20,7 @@ Global skill 已依主題分組為 plugin pack，可透過 Claude Code marketpla
 ```bash
 claude plugin marketplace add howie/yibi-stack  # 一次性註冊
 
-claude plugin install growth@yibi-stack          # session-memory + learn + handover/newjob
+claude plugin install growth@yibi-stack          # mycelium + learn + handover/newjob
 claude plugin install pr-flow@yibi-stack         # PR 全流程 6 skills + 5 commands
 claude plugin install sdd@yibi-stack             # spectra-amplifier + qa-test-design + /sdd:setup
 claude plugin install bash-hygiene@yibi-stack    # bash-anti-patterns + protect-push
@@ -39,14 +39,14 @@ claude plugin install util@yibi-stack            # local-port-manager + debug co
 
 | Skill | 類型 | 住址 | 描述 | SKILL.md |
 |-------|------|------|------|----------|
-| `session-memory` | tool | [plugins/growth/](../plugins/growth/README.md) | 跨對話工作記憶中樞：跨 Agent / 跨帳號 / 跨機器的統一 handover 交班與 insight 收集系統，所有產出收斂至 `~/.agents/` | [session-memory/SKILL.md](session-memory/SKILL.md) |
+| `mycelium` | tool | [plugins/growth/](../plugins/growth/README.md) | 跨對話工作記憶中樞：跨 Agent / 跨帳號 / 跨機器的統一 handover 交班與 insight 收集系統，所有產出收斂至 `~/.agents/` | [mycelium/SKILL.md](mycelium/SKILL.md) |
 | `learn` | tool | [plugins/growth/](../plugins/growth/README.md) | 統一教訓管理 — 整合 handover 交班教訓、insight 洞察，支援瀏覽、搜尋、修剪、匯出 | [learn/SKILL.md](learn/SKILL.md) |
 | `local-port-manager` | exec | [plugins/util/](../plugins/util/README.md) | 機器層 port 分配登錄，管理多專案服務 port 避免衝突。支援 suggest（查不寫）+ reserve（確認後登記）兩步驟工作流 | [local-port-manager/SKILL.md](local-port-manager/SKILL.md) |
 | `protect-push` | tool | [plugins/bash-hygiene/](../plugins/bash-hygiene/README.md) | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
 | `bash-hygiene-audit` | exec | [tasks/bash_hygiene_audit/](../tasks/bash_hygiene_audit/) | bash-hygiene hook audit log 管理：啟用/停用記錄、查看近期 hook 攔截事件、統計違規比例與熱點 pattern | [bash-hygiene-audit/SKILL.md](bash-hygiene-audit/SKILL.md) |
 | `harness-eval` | exec | [plugins/harness/](../plugins/harness/README.md) | Claude Code harness 就緒度評量：8 維度 0-100 分，PASS/WARN/FAIL 清單，優先改善 TODO。涵蓋 CLAUDE.md / hooks / settings / skills / testing / git / rules / security | [harness-eval/SKILL.md](harness-eval/SKILL.md) |
 | `harness-eval-focus` | know | [plugins/harness/](../plugins/harness/README.md) | 單維度深度稽核：配合 /harness-eval 使用，發現 WARN/FAIL 後針對 D1~D8 某維度精準挖掘具體修法。含 hook lifecycle 覆蓋、permission 4 層模型、CLAUDE.md signal-to-noise 等深度 rubric | [harness-eval-focus/SKILL.md](harness-eval-focus/SKILL.md) |
-| `pr-retrospective` | tool | [plugins/pr-flow/](../plugins/pr-flow/README.md) | PR 收尾五問回顧（agent 推論草稿、使用者校準），寫入 session-memory handover；依 Lesson Classifier 路由 lessons 到 `.claude/rules/` 或 CLAUDE.md，再觸發 hookify、writing-skills 等下游 skill | [pr-retrospective/SKILL.md](pr-retrospective/SKILL.md) |
+| `pr-retrospective` | tool | [plugins/pr-flow/](../plugins/pr-flow/README.md) | PR 收尾五問回顧（agent 推論草稿、使用者校準），寫入 mycelium handover；依 Lesson Classifier 路由 lessons 到 `.claude/rules/` 或 CLAUDE.md，再觸發 hookify、writing-skills 等下游 skill | [pr-retrospective/SKILL.md](pr-retrospective/SKILL.md) |
 | `claude-md-prune` | tool | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 審查並精簡 CLAUDE.md：把累積的 gotcha 路由到對應的 `.claude/rules/` 子檔，刪除過期或重複內容，維持 CLAUDE.md 在 Anthropic 建議的 200 行軟上限內 | [claude-md-prune/SKILL.md](claude-md-prune/SKILL.md) |
 | `codex` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | OpenAI Codex CLI 第二意見：review（pass/fail gate）、challenge（對抗模式）、consult（詢問 codebase）；auth 確認用兩次 bash call，不觸發 if/elif 確認框 | [codex/SKILL.md](codex/SKILL.md) |
 | `agy` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | Antigravity CLI（Gemini）第二意見：review（PASS/FAIL gate）、challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 Gemini reviewer | [agy/SKILL.md](agy/SKILL.md) |
