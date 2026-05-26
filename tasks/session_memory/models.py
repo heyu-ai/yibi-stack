@@ -94,8 +94,7 @@ class LessonRecord(BaseModel):
 
     @model_validator(mode="after")
     def _set_trusted(self) -> LessonRecord:
-        if self.source == LessonSource.user_stated:
-            self.trusted = True
+        self.trusted = self.source == LessonSource.user_stated
         return self
 
 

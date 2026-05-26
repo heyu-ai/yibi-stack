@@ -138,25 +138,35 @@ def show_lessons_typed(  # pylint: disable=too-many-arguments
 
     if include_legacy:
         _trusted_only = trusted_only or cross_project
-        results.extend(
-            _load_legacy_lessons(
-                db_path=db_path,
+        for entry in _load_legacy_lessons(
+            db_path=db_path,
+            project=project,
+            cross_project=cross_project,
+            trusted_only=_trusted_only,
+            with_decay=with_decay,
+        ):
+            if lesson_type and entry.get("type") != lesson_type:
+                continue
+            if source and entry.get("source") != source:
+                continue
+            if entry.get("effective_confidence", entry.get("confidence", 0)) < min_confidence:
+                continue
+            results.append(entry)
+        if insights_path is not None:
+            resolved = Path(insights_path)
+            for entry in _load_insights_as_typed(
+                resolved,
                 project=project,
                 cross_project=cross_project,
                 trusted_only=_trusted_only,
-                with_decay=with_decay,
-            )
-        )
-        if insights_path is not None:
-            resolved = Path(insights_path)
-            results.extend(
-                _load_insights_as_typed(
-                    resolved,
-                    project=project,
-                    cross_project=cross_project,
-                    trusted_only=_trusted_only,
-                )
-            )
+            ):
+                if lesson_type and entry.get("type") != lesson_type:
+                    continue
+                if source and entry.get("source") != source:
+                    continue
+                if entry.get("effective_confidence", entry.get("confidence", 0)) < min_confidence:
+                    continue
+                results.append(entry)
 
     deduped = _dedup_latest_winner(results)
     deduped.sort(key=lambda r: r.get("effective_confidence", r.get("confidence", 0)), reverse=True)
@@ -217,6 +227,12 @@ def search_lessons_typed(  # pylint: disable=too-many-arguments
             trusted_only=_trusted_only,
             with_decay=with_decay,
         ):
+            if lesson_type and entry.get("type") != lesson_type:
+                continue
+            if source and entry.get("source") != source:
+                continue
+            if entry.get("effective_confidence", entry.get("confidence", 0)) < min_confidence:
+                continue
             if q in entry.get("insight", "").lower() or q in entry.get("key", "").lower():
                 results.append(entry)
         if insights_path is not None:
@@ -227,6 +243,12 @@ def search_lessons_typed(  # pylint: disable=too-many-arguments
                 cross_project=cross_project,
                 trusted_only=_trusted_only,
             ):
+                if lesson_type and entry.get("type") != lesson_type:
+                    continue
+                if source and entry.get("source") != source:
+                    continue
+                if entry.get("effective_confidence", entry.get("confidence", 0)) < min_confidence:
+                    continue
                 if q in entry.get("insight", "").lower():
                     results.append(entry)
 
@@ -246,6 +268,8 @@ def _load_legacy_lessons(
     if trusted_only:
         return []  # legacy items 永遠 trusted=False，無法滿足 trusted_only 要求
 
+    import sys
+
     from .db import AgentsDB
 
     db = AgentsDB(db_path=db_path)
@@ -254,6 +278,9 @@ def _load_legacy_lessons(
         rows = db.query_lessons(
             project=None if cross_project else project, limit=_SEARCH_INTERNAL_LIMIT
         )
+    except Exception as e:
+        print(f"[WARN] legacy handover DB 讀取失敗：{e}", file=sys.stderr)
+        return []
     finally:
         db.close()
 

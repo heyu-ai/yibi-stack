@@ -540,44 +540,58 @@ class TestLessonsAddCLI:
         """LSN-ADD-001: 明確傳 --project 時正常寫入並回傳 id"""
         db_path = tmp_path / "test.db"
         runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "lessons",
-                "add",
-                "--type",
-                "pitfall",
-                "--key",
-                "test-add-key",
-                "--insight",
-                "explicit project add test insight content here",
-                "--confidence",
-                "7",
-                "--source",
-                "observed",
-                "--project",
-                "test-proj",
-            ],
-            env={"AGENTS_DB_PATH": str(db_path)},
-            catch_exceptions=False,
-        )
+        with patch(
+            "tasks.session_memory.lessons_service.add_lesson",
+            side_effect=lambda data: add_lesson(data, db_path=db_path),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "lessons",
+                    "add",
+                    "--type",
+                    "pitfall",
+                    "--key",
+                    "test-add-key",
+                    "--insight",
+                    "explicit project add test insight content here",
+                    "--confidence",
+                    "7",
+                    "--source",
+                    "observed",
+                    "--project",
+                    "test-proj",
+                ],
+                catch_exceptions=False,
+            )
         assert result.exit_code == 0, result.output
         assert "id=" in result.output
 
     def test_lsn_add_002_git_inference_success(self, tmp_path: Path) -> None:
         """LSN-ADD-002: git rev-parse 成功時 project 從 common-dir parent 推斷"""
-        db_path = tmp_path / "test.db"
-        runner = CliRunner()
-        fake_git_dir = str(tmp_path / "my-project" / ".git")
+        tmp_git_dir = str(Path("/tmp") / "my-project" / ".git")
         import subprocess as _sp
 
         fake_result = _sp.CompletedProcess(
             args=[],
             returncode=0,
-            stdout=fake_git_dir + "\n",
+            stdout=tmp_git_dir + "\n",
             stderr="",
         )
-        with patch("subprocess.run", return_value=fake_result):
+        captured: list[dict[str, object]] = []
+
+        def capture_add(data: dict[str, object]) -> dict[str, object]:
+            captured.append(data)
+            return {"id": "fake-id", "trusted": False}
+
+        runner = CliRunner()
+        with (
+            patch("subprocess.run", return_value=fake_result),
+            patch(
+                "tasks.session_memory.lessons_service.add_lesson",
+                side_effect=capture_add,
+            ),
+        ):
             result = runner.invoke(
                 cli,
                 [
@@ -594,21 +608,32 @@ class TestLessonsAddCLI:
                     "--source",
                     "observed",
                 ],
-                env={"AGENTS_DB_PATH": str(db_path)},
                 catch_exceptions=False,
             )
         assert result.exit_code == 0, result.output
+        assert captured[0]["project"] == "my-project"
 
     def test_lsn_add_003_git_inference_failure_falls_back_to_unknown(self, tmp_path: Path) -> None:
         """LSN-ADD-003: git rev-parse 失敗（returncode != 0）時 project fallback 為 unknown"""
-        db_path = tmp_path / "test.db"
-        runner = CliRunner()
         import subprocess as _sp
 
         fake_result = _sp.CompletedProcess(
             args=[], returncode=128, stdout="", stderr="not a git repo"
         )
-        with patch("subprocess.run", return_value=fake_result):
+        captured: list[dict[str, object]] = []
+
+        def capture_add(data: dict[str, object]) -> dict[str, object]:
+            captured.append(data)
+            return {"id": "fake-id", "trusted": False}
+
+        runner = CliRunner()
+        with (
+            patch("subprocess.run", return_value=fake_result),
+            patch(
+                "tasks.session_memory.lessons_service.add_lesson",
+                side_effect=capture_add,
+            ),
+        ):
             result = runner.invoke(
                 cli,
                 [
@@ -625,10 +650,10 @@ class TestLessonsAddCLI:
                     "--source",
                     "observed",
                 ],
-                env={"AGENTS_DB_PATH": str(db_path)},
                 catch_exceptions=False,
             )
         assert result.exit_code == 0, result.output
+        assert captured[0]["project"] == "unknown"
 
     def test_lsn_add_004_validation_error_bad_type(self, tmp_path: Path) -> None:
         """LSN-ADD-004: 非法 --type 值觸發 ValidationError exit 1"""

@@ -603,6 +603,11 @@ def lessons_add(
             pass
     if not resolved_project:
         resolved_project = "unknown"
+        click.echo(
+            "[WARN] 無法自動偵測 git project，教訓將以 project='unknown' 儲存。"
+            "如需關聯正確 project，請使用 --project 指定。",
+            err=True,
+        )
 
     try:
         record_data: dict[str, object] = {
