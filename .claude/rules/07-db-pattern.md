@@ -71,3 +71,21 @@ def status() -> None:
     finally:
         db.close()
 ```
+
+## Multi-Source Dedup: Isolate Key-Space Across Sources
+
+When merging records from multiple sources (e.g., typed DB + legacy text) into a
+single dedup pass, the key generation for each source must use a distinct prefix
+namespace — otherwise synthesized keys can silently overwrite authored keys.
+
+```python
+# Wrong: truncated legacy text can collide with a typed lesson key
+{"key": text[:40].replace(" ", "-").lower(), "type": "pattern"}
+
+# Correct: "legacy-" prefix isolates the namespace from typed keys
+{"key": f"legacy-{text[:34].replace(' ', '-').lower()}", "type": "pattern"}
+```
+
+Dedup-within-source is unaffected: the same input text always produces the same
+prefixed key, so identical legacy entries across multiple records still dedup.
+Typed lessons (explicitly authored keys) are isolated and cannot be overwritten.
