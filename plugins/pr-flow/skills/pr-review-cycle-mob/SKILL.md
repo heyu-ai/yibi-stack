@@ -129,8 +129,9 @@ the tool is not installed, rather than that auth is broken. When this state is d
 the user the fix command, and re-run Step 0 after they confirm the fix.
 
 **Note**: the count table below only applies when all binary-OK tools have passed auth.
-If any tool shows `BINARY_OK + NOT_AUTHED / KEY_WHITESPACE_PREFIX` → run the stop procedure
-above; do not enter the count calculation.
+If any tool shows `BINARY_OK + NOT_AUTHED / KEY_WHITESPACE_PREFIX` → do not enter the
+count calculation; show the user the fix command and wait for them to confirm the fix,
+then re-run Step 0.
 
 | Available external reviewers | Action |
 | ---: | --- |

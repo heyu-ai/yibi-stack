@@ -1,17 +1,17 @@
 ---
 globs: tasks/**/models.py
 ---
-# Pydantic Models 規範
+# Pydantic Models
 
-## 基本原則
+## Core Principles
 
-- 資料模型用 Pydantic v2 `BaseModel`
-- Parser 內部資料（`ParsedRow`、`ParseResult`）用 `dataclass`（輕量、不序列化到 JSON）
-- Config root model（如 `BillingConfig`）加入 `version: str = "1.0"` 欄位
+- Use Pydantic v2 `BaseModel` for data models
+- Parser internal data (`ParsedRow`, `ParseResult`) use `@dataclass` (lightweight, not serialized to JSON)
+- Config root models (e.g. `BillingConfig`) include a `version: str = "1.0"` field
 
-## Enum 類型
+## Enum Types
 
-一律使用 `StrEnum`，序列化後為字串：
+Always use `StrEnum`; serializes as a string:
 
 ```python
 from enum import StrEnum
@@ -22,24 +22,24 @@ class JobType(StrEnum):
     SKILL = "skill"
 ```
 
-不使用 `Enum`（需手動 `.value`）或 `IntEnum`（JSON 不友善）。
+Do not use `Enum` (requires manual `.value`) or `IntEnum` (not JSON-friendly).
 
-## Type Hint 語法
+## Type Hint Syntax
 
-用 Python 3.10+ 的 union 語法：
+Use Python 3.10+ union syntax:
 
 ```python
-# 正確
+# Correct
 profile_id: str | None = None
 tags: list[str] = Field(default_factory=list)
 
-# 錯誤
+# Wrong
 profile_id: Optional[str] = None
 ```
 
 ## Mutable Defaults
 
-所有 list/dict 欄位使用 `Field(default_factory=...)`：
+All list/dict fields use `Field(default_factory=...)`:
 
 ```python
 class ScanProfile(BaseModel):
@@ -49,9 +49,9 @@ class ScanProfile(BaseModel):
 
 ## Validators
 
-- 欄位驗證用 `@field_validator`
-- 跨欄位驗證用 `@model_validator(mode="after")`
-- validator 中的錯誤訊息用中文
+- Use `@field_validator` for field validation
+- Use `@model_validator(mode="after")` for cross-field validation
+- Error messages in validators use Traditional Chinese
 
 ```python
 @field_validator("scan_days")
@@ -62,6 +62,6 @@ def check_positive(cls, v: int) -> int:
     return v
 ```
 
-## 序列化
+## Serialization
 
-輸出 JSON 用 `model_dump_json(indent=2)`，不用 `json.dumps(model.dict())`（v1 語法）。
+Use `model_dump_json(indent=2)` for JSON output; do not use `json.dumps(model.dict())` (v1 syntax).
