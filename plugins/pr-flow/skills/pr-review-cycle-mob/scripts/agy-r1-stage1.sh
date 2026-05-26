@@ -11,7 +11,10 @@
 #   - gemini-r1-raw.md 寫到 $WT_ROOT/.pr-review/
 #   - stderr log 寫到 $WT_ROOT/.pr-review/gemini-r1.stage1.log
 #   - 暫存 gemini-r1-input.md（完成後自動刪除）
-#   - CWD 切換到 $WT_ROOT（agy @file 沙箱要求相對路徑以 WT_ROOT 為基準）
+#   - CWD 切換到 $WT_ROOT（agy @file 要求相對路徑以 WT_ROOT 為基準）
+#
+# 注意：使用 --dangerously-skip-permissions 而非 --sandbox。
+#   --sandbox 在 BS-001 試驗中確認會阻擋 @file 讀取，使 agy 進入 agentic 探索模式。
 #
 # 退出碼：0 成功；非零失敗（每種失敗都附 [FAIL] stderr 訊息）。
 
@@ -39,10 +42,12 @@ if ! cat "$REVIEW_DIR/prompt-r1.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/gemi
     exit 1
 fi
 
-# cd 到 worktree root：agy @file 沙箱只允許讀取 worktree root 下的路徑
+# cd 到 worktree root：agy @file 要求相對路徑以 WT_ROOT 為基準
+# --dangerously-skip-permissions 允許 agy 讀取 @file；--sandbox 會阻擋 @file 讀取，導致 agy
+# 進入 agentic 探索模式而非直接 review（BS-001 實測確認）。
 cd "$WT_ROOT"
 
-if ! agy -p "@.pr-review/gemini-r1-input.md" --add-dir . --sandbox \
+if ! agy -p "@.pr-review/gemini-r1-input.md" --add-dir . --dangerously-skip-permissions \
     > "$REVIEW_DIR/gemini-r1-raw.md" \
     2>"$REVIEW_DIR/gemini-r1.stage1.log"; then
     echo "[FAIL] agy review 失敗，請查看 $REVIEW_DIR/gemini-r1.stage1.log" >&2

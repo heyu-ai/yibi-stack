@@ -1,11 +1,11 @@
 ---
 globs: tasks/**/db.py
 ---
-# SQLite DB 層規範
+# SQLite DB Layer Pattern
 
-## Class 結構
+## Class Structure
 
-每個 module 一個 DB class，命名為 `<ModuleName>DB`：
+One DB class per module, named `<ModuleName>DB`:
 
 ```python
 class GmailScanDB:
@@ -42,24 +42,24 @@ class GmailScanDB:
         self.conn.commit()
 ```
 
-## 查詢規範
+## Query Rules
 
-- 永遠用 `?` 參數化（見 `03-security.md`）
-- 回傳 `dict(row)` 而非裸 `sqlite3.Row`
-- 動態 WHERE 子句加 `# nosec B608`
+- Always use `?` parameterization (see `03-security.md`)
+- Return `dict(row)` instead of bare `sqlite3.Row`
+- Dynamic WHERE clauses must have `# nosec B608`
 
-## 測試
+## Testing
 
-測試時傳入 `":memory:"` 作為 `db_path`：
+Pass `":memory:"` as `db_path` for tests:
 
 ```python
 db = GmailScanDB(db_path=":memory:")
 db.init_db()
 ```
 
-## CLI 中的 DB 生命週期
+## DB Lifecycle in CLI
 
-在 CLI command function 裡用 try/finally 確保關閉：
+Use try/finally in CLI command functions to ensure the connection is closed:
 
 ```python
 @cli.command()
@@ -71,3 +71,21 @@ def status() -> None:
     finally:
         db.close()
 ```
+
+## Multi-Source Dedup: Isolate Key-Space Across Sources
+
+When merging records from multiple sources (e.g., typed DB + legacy text) into a
+single dedup pass, the key generation for each source must use a distinct prefix
+namespace — otherwise synthesized keys can silently overwrite authored keys.
+
+```python
+# Wrong: truncated legacy text can collide with a typed lesson key
+{"key": text[:40].replace(" ", "-").lower(), "type": "pattern"}
+
+# Correct: "legacy-" prefix isolates the namespace from typed keys
+{"key": f"legacy-{text[:34].replace(' ', '-').lower()}", "type": "pattern"}
+```
+
+Dedup-within-source is unaffected: the same input text always produces the same
+prefixed key, so identical legacy entries across multiple records still dedup.
+Typed lessons (explicitly authored keys) are isolated and cannot be overwritten.

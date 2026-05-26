@@ -1,17 +1,17 @@
 ---
 globs: tasks/**/parsers/**
 ---
-# Parser 擴充規範
+# Parser Extension Pattern
 
-## 目錄結構
+## Directory Structure
 
 ```text
 parsers/
 ├── __init__.py
 ├── base.py        # Abstract base class + ParseResult dataclass
 ├── registry.py    # _REGISTRY dict + get_parser / list_parsers / detect_parser
-├── generic.py     # GenericParser（fallback）
-└── <name>.py      # 每個 parser 獨立一個檔案
+├── generic.py     # GenericParser (fallback)
+└── <name>.py      # one file per parser
 ```
 
 ## Abstract Base Class
@@ -28,7 +28,7 @@ class ParseResult:
     warnings: list[str]
 
 class BaseBillingParser(ABC):
-    name: str = ""  # 必須在子類設定
+    name: str = ""  # must be set in each subclass
 
     @abstractmethod
     def parse(self, pdf_path: Path) -> ParseResult: ...
@@ -38,11 +38,11 @@ class BaseBillingParser(ABC):
         return False
 ```
 
-## 新增 Parser
+## Adding a Parser
 
-1. 建立 `parsers/<name>.py`，繼承 base class，設定 `name` 屬性
-2. 實作 `parse()`，可選實作 `can_parse()`
-3. 在 `registry.py` 的 `_REGISTRY` 加入新 parser
+1. Create `parsers/<name>.py`, inherit from the base class, set the `name` attribute
+2. Implement `parse()`, optionally implement `can_parse()`
+3. Add the new parser to `_REGISTRY` in `registry.py`
 
 ```python
 # parsers/cathay_cc.py
@@ -50,7 +50,7 @@ class CathayCCParser(BaseBillingParser):
     name = "cathay_cc"
 
     def parse(self, pdf_path: Path) -> ParseResult:
-        import pdfplumber  # 延遲 import
+        import pdfplumber  # deferred import
         ...
 ```
 
@@ -62,13 +62,13 @@ _REGISTRY: dict[str, type[BaseBillingParser]] = {
 }
 ```
 
-## Registry API 規範
+## Registry API Rules
 
-- `get_parser(name)` — 找不到時靜默 fallback 到 `GenericParser`，不 raise
-- `list_parsers()` — 回傳所有已註冊 parser 名稱
-- `detect_parser(content)` — 依序呼叫各 parser 的 `can_parse()`，回傳第一個匹配的
+- `get_parser(name)` — silently falls back to `GenericParser` when not found; does not raise
+- `list_parsers()` — returns all registered parser names
+- `detect_parser(content)` — calls each parser's `can_parse()` in order; returns the first match
 
-## Parser 內部資料
+## Parser Internal Data
 
-用 `@dataclass`（不用 Pydantic）：輕量、不需序列化到 JSON。
-PDF 庫（`pikepdf`, `pdfplumber`, `tabula`）在 method body 內 import。
+Use `@dataclass` (not Pydantic): lightweight and does not need to serialize to JSON.
+PDF libraries (`pikepdf`, `pdfplumber`, `tabula`) are imported inside method bodies.

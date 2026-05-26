@@ -3,43 +3,47 @@ name: protect-push
 type: tool
 scope: global
 description: >
-  安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main。
-  適用於使用 EnterWorktree 或 git worktree add 的所有專案。
-  觸發情境：「安裝 push 防護」「設定 worktree hook」「protect push」「新專案初始化」
+  Install a Claude Code PreToolUse hook to prevent direct git push from a worktree branch to
+  origin/main. Applies to all projects using EnterWorktree or git worktree add.
+  Trigger contexts: "install push protection", "configure worktree hook", "protect push",
+  "new project initialization"
 ---
 
 # protect-push
 
-## 概要
+## Overview
 
-此 skill 在目標專案的 `.claude/` 目錄下安裝一個 PreToolUse hook，在每次 Claude 執行 `git push` 前自動檢查 branch tracking。
+This skill installs a PreToolUse hook in the target project's `.claude/` directory.
+The hook automatically checks branch tracking before Claude executes any `git push`.
 
-**解決的問題**：
+**Problem Statement**:
 
-- `EnterWorktree` 或 `git worktree add` 建立的 branch 預設追蹤 `origin/main`
-- 搭配 `push.default=upstream`，任何 `git push` 都會直推 main，繞過 PR 流程
-- `@{upstream}` 語法在 zsh 下因 brace expansion 靜默失效，shell 層的安全檢查不可靠
+- Branches created by `EnterWorktree` or `git worktree add` track `origin/main` by default
+- With `push.default=upstream`, any `git push` directly pushes to main, bypassing the PR workflow
+- The `@{upstream}` syntax silently fails under zsh due to brace expansion;
+  shell-level safety checks are unreliable
 
-**防護機制**：
+**Protection Mechanism**:
 
-- 攔截所有 Bash 中的 `git push` 指令
-- 用 `git config branch.X.remote` + `.merge` 查 upstream（不依賴 `@{upstream}` 語法）
-- 若追蹤 `origin/main` 或 `origin/master`，阻止並提示修復指令
+- Intercepts all `git push` commands in Bash
+- Checks the upstream using `git config branch.X.remote` + `.merge`
+  (no dependency on `@{upstream}` syntax)
+- Blocks and displays a fix command if tracking points to `origin/main` or `origin/master`
 
-## 執行步驟
+## Execution Steps
 
-### Step 1: 環境檢查
+### Step 1: Environment Check
 
-確認在 git repo 中，且 `.claude/` 目錄存在：
+Confirm you are in a git repo and `.claude/` exists:
 
 ```bash
 git rev-parse --show-toplevel
 [ -d .claude/ ] && echo "[OK] .claude/ 存在" || echo "[WARN] .claude/ 不存在，Step 2 會自動建立"
 ```
 
-### Step 2: 安裝 hook 腳本
+### Step 2: Install Hook Script
 
-確認 skill 已安裝，並複製 hook 腳本：
+Confirm the skill is installed, then copy the hook script:
 
 ```bash
 SKILL_DIR="$HOME/.agents/skills/protect-push"
@@ -57,9 +61,9 @@ echo "[OK] hook 腳本已安裝：.claude/hooks/protect-push.sh"
 echo "[OK] 路徑解析器已安裝：.claude/hooks/parse_git_dir.py"
 ```
 
-### Step 3: 設定 settings.json
+### Step 3: Configure settings.json
 
-**情況 A：settings.json 不存在** — 直接建立：
+**Case A: settings.json does not exist** — create it directly:
 
 ```bash
 cat > .claude/settings.json << 'EOF'
@@ -83,7 +87,8 @@ EOF
 echo "[OK] settings.json 已建立"
 ```
 
-**情況 B：settings.json 已存在** — 讀取現有內容，用 Python 合併 hook 設定（不覆蓋其他設定）：
+**Case B: settings.json already exists** — read existing content and merge the hook config using
+Python (does not overwrite other settings):
 
 ```bash
 if ! python3 - << 'EOF'
@@ -104,14 +109,14 @@ new_hook = {
     "matcher": "Bash"
 }
 
-# 取得或初始化 hooks.PreToolUse
+# initialize hooks.PreToolUse if not present
 hooks = settings.setdefault("hooks", {})
 if not isinstance(hooks, dict):
     print("錯誤：settings.json 中 hooks 欄位格式不正確（應為 dict）")
     sys.exit(1)
 pre_tool_use = hooks.setdefault("PreToolUse", [])
 
-# 避免重複安裝（比對完整 command 字串）
+# prevent duplicate install (compare full command string)
 HOOK_COMMAND = '"$CLAUDE_PROJECT_DIR"/.claude/hooks/protect-push.sh'
 already_installed = any(
     any(
@@ -138,9 +143,9 @@ then
 fi
 ```
 
-### Step 4: 驗證
+### Step 4: Verify
 
-確認安裝成功：
+Confirm installation succeeded:
 
 ```bash
 echo "=== 安裝驗證 ==="
@@ -161,11 +166,11 @@ echo "========================"
 echo "[DONE] 安裝完成！下次 Claude 在此專案執行 git push 時將自動檢查 branch tracking。"
 ```
 
-## 常見問題處理
+## Troubleshooting
 
-| 問題 | 處理方式 |
-|------|----------|
-| `protect-push skill 未安裝` | 在 yibi-stack repo 執行 `make install-one SKILL=protect-push` |
-| hook 阻止了合法的 push | 先執行 `git branch --unset-upstream && git push -u origin HEAD` 建立獨立 remote branch |
-| settings.json 格式損壞 | 用 `python3 -m json.tool .claude/settings.json` 驗證 JSON 格式 |
-| 想移除 hook | 從 settings.json 刪除對應的 hook 物件，並刪除 `.claude/hooks/protect-push.sh` |
+| Issue | Fix |
+|-------|-----|
+| `protect-push skill 未安裝` | Run `make install-one SKILL=protect-push` in the yibi-stack repo |
+| Hook blocked a legitimate push | Run `git branch --unset-upstream && git push -u origin HEAD` to create a dedicated remote branch |
+| settings.json format corrupted | Validate with `python3 -m json.tool .claude/settings.json` |
+| Want to remove the hook | Delete the hook object from settings.json and remove `.claude/hooks/protect-push.sh` |

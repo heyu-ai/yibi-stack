@@ -29,29 +29,43 @@
 - [x] T-C6 `13-bash-anti-patterns.md` 英文化
 - [x] T-C7 PR #77 merged + markdownlint fixup
 
-## PR-D ⏳ 待啟動：plugins SKILL.md body 英文化（分 4 批）
+## PR-D ✅ plugins SKILL.md body 英文化（分 4 批）
 
 > 策略：description 保留中文觸發詞 + 英文 body；按觸發頻率 × 風險加權排序。
-> 依賴：PR-C 完成後再啟動（先建立英文化慣例再推廣）。
 
-### Batch 1（觸發頻率最高）
+### Batch 1 ✅ MERGED #79
 
-- [ ] T-D1 `plugins/bash-hygiene/skills/bash-anti-patterns/SKILL.md` body 英文化
-- [ ] T-D2 PR + `/pr-review-cycle-mob`
+- [x] T-D1 `plugins/bash-hygiene/skills/bash-anti-patterns/SKILL.md` body 英文化
+- [x] T-D2 PR + `/pr-review-cycle-mob`
 
-### Batch 2
+### Batch 2 ✅ MERGED #84
 
-- [ ] T-D3 `plugins/pr-flow/skills/pr-review-cycle/SKILL.md` body 英文化
-- [ ] T-D4 `plugins/pr-flow/skills/pr-review-cycle-mob/SKILL.md` body 英文化
-- [ ] T-D5 PR + `/pr-review-cycle-mob`
+- [x] T-D3 `plugins/pr-flow/skills/pr-review-cycle/SKILL.md` body 英文化
+- [x] T-D4 `plugins/pr-flow/skills/pr-review-cycle-mob/SKILL.md` body 英文化
+- [x] T-D5 PR + `/pr-review-cycle-mob`
 
-### Batch 3
+### Batch 3 ✅ landed on main directly (62dced8)
 
-- [ ] T-D6 `plugins/bash-hygiene/skills/protect-push/SKILL.md` body 英文化
-- [ ] T-D7 PR + `/pr-review-cycle`
+- [x] T-D6 `plugins/bash-hygiene/skills/protect-push/SKILL.md` body 英文化
+- [x] T-D7 PR + `/pr-review-cycle`
 
-### Batch 4（低頻，慢做）
+### Batch 4 ✅ MERGED #89
 
-- [ ] T-D8 `plugins/sdd/skills/spectra-amplifier/SKILL.md` body 英文化
-- [ ] T-D9 `plugins/sdd/skills/qa-test-design/SKILL.md` body 英文化
-- [ ] T-D10 PR + `/pr-review-cycle`
+- [x] T-D8 `plugins/sdd/skills/spectra-amplifier/SKILL.md` body 英文化
+- [x] T-D9 `plugins/sdd/skills/qa-test-design/SKILL.md` body 英文化
+- [x] T-D10 PR + `/pr-review-cycle`
+
+## PR-E ✅ MERGED #86 — .claude/rules/ 04-11 English translation
+
+> Scope: PR-C only covered 01/02/03/13/15/16; rules 04-11 body was still Chinese.
+> rules/ files are high-frequency context-loaded the same as SKILL.md — same rationale applies.
+
+- [x] T-E1 `04-module-structure.md` translate to English
+- [x] T-E2 `05-pydantic-models.md` translate to English
+- [x] T-E3 `06-config-pattern.md` translate to English
+- [x] T-E4 `07-db-pattern.md` translate to English
+- [x] T-E5 `08-cli-pattern.md` translate to English
+- [x] T-E6 `09-test-conventions.md` translate to English
+- [x] T-E7 `10-parser-pattern.md` translate to English
+- [x] T-E8 `11-skill-authoring.md` translate to English
+- [x] T-E9 PR + `/pr-review-cycle`

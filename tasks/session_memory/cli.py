@@ -553,14 +553,161 @@ def lessons() -> None:
     """教訓聯合查詢：show 顯示，search 搜尋。整合 handover 教訓、試過的方案與 insight 洞察。"""
 
 
+@lessons.command("add")
+@click.option(
+    "--type",
+    "lesson_type",
+    required=True,
+    help="教訓分類（pattern/pitfall/preference/architecture/tool/operational/investigation）",
+)
+@click.option("--key", required=True, help="短識別 key（英數字、底線、連字號）")
+@click.option("--insight", required=True, help="教訓內文（至少 10 字元）")
+@click.option("--confidence", required=True, type=int, help="信心分數（1-10）")
+@click.option("--source", required=True, help="來源（observed/user-stated/inferred/cross-model）")
+@click.option("--skill", default=None, help="來源 skill 名稱（可選）")
+@click.option("--files", multiple=True, help="相關檔案路徑（可重複）")
+@click.option("--project", default=None, help="所屬專案（預設從 git common-dir 推斷）")
+@click.option("--handover-id", default=None, help="關聯 handover id（可選）")
+@click.option("--retro-pr", default=None, type=int, help="關聯 PR 號碼（可選）")
+def lessons_add(
+    lesson_type: str,
+    key: str,
+    insight: str,
+    confidence: int,
+    source: str,
+    skill: str | None,
+    files: tuple[str, ...],
+    project: str | None,
+    handover_id: str | None,
+    retro_pr: int | None,
+) -> None:
+    """寫入一筆 typed lesson 到 lessons table。"""
+    import subprocess  # nosec B404
+
+    from pydantic import ValidationError
+
+    from .lessons_service import add_lesson
+
+    resolved_project = project
+    if not resolved_project:
+        try:
+            result = subprocess.run(  # nosec B603 B607
+                ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                resolved_project = Path(result.stdout.strip()).parent.name
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+    if not resolved_project:
+        resolved_project = "unknown"
+        click.echo(
+            "[WARN] 無法自動偵測 git project，教訓將以 project='unknown' 儲存。"
+            "如需關聯正確 project，請使用 --project 指定。",
+            err=True,
+        )
+
+    try:
+        record_data: dict[str, object] = {
+            "project": resolved_project,
+            "type": lesson_type,
+            "key": key,
+            "insight": insight,
+            "confidence": confidence,
+            "source": source,
+            "skill": skill,
+            "files": list(files),
+            "handover_id": handover_id,
+            "retro_pr": retro_pr,
+        }
+        result_data = add_lesson(record_data)
+        click.echo(f"id={result_data['id']} trusted={result_data['trusted']}")
+    except ValidationError as e:
+        msgs = "; ".join(err["msg"] for err in e.errors())
+        click.echo(f"ValidationError: {msgs}", err=True)
+        raise SystemExit(1) from e
+    except Exception as e:
+        click.echo(f"錯誤：{e}", err=True)
+        raise SystemExit(1) from e
+
+
 @lessons.command("show")
 @click.option("--project", default=None, help="只顯示指定 project 的教訓（預設顯示全部）")
 @click.option("--last", default=20, type=int, help="每個來源最多顯示 N 筆")
 @click.option("--insights", "include_insights", is_flag=True, help="同時顯示 insight 洞察")
+@click.option("--type", "lesson_type", default=None, help="只顯示指定類型（pitfall/pattern/...）")
+@click.option(
+    "--source", "lesson_source", default=None, help="只顯示指定來源（observed/user-stated/...）"
+)
+@click.option(
+    "--min-confidence", default=1, type=int, help="只顯示 effective_confidence >= N 的教訓"
+)
+@click.option("--trusted-only", is_flag=True, help="只顯示 trusted=True 的教訓")
+@click.option("--cross-project", is_flag=True, help="跨專案查詢（只回傳 trusted=True）")
+@click.option(
+    "--include-legacy/--no-include-legacy",
+    default=True,
+    help="合併 legacy handovers.lessons_learned（預設 True）",
+)
 @click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
-def lessons_show(project: str | None, last: int, include_insights: bool, as_json: bool) -> None:
+def lessons_show(  # pylint: disable=too-many-arguments
+    project: str | None,
+    last: int,
+    include_insights: bool,
+    lesson_type: str | None,
+    lesson_source: str | None,
+    min_confidence: int,
+    trusted_only: bool,
+    cross_project: bool,
+    include_legacy: bool,
+    as_json: bool,
+) -> None:
     """顯示 handover 教訓與試過的方案（可選合併 insight）。"""
-    from .lessons_service import show_lessons
+    from .lessons_service import show_lessons, show_lessons_typed
+
+    _use_typed = bool(
+        lesson_type
+        or lesson_source
+        or min_confidence > 1
+        or trusted_only
+        or cross_project
+        or not include_legacy
+    )
+    if _use_typed:
+        _insights_path = None
+        if include_insights:
+            from .config import INSIGHTS_JSONL_PATH as _INSIGHTS_PATH
+
+            _insights_path = _INSIGHTS_PATH
+        rows_typed = show_lessons_typed(
+            project=project,
+            lesson_type=lesson_type,
+            source=lesson_source,
+            min_confidence=min_confidence,
+            trusted_only=trusted_only,
+            cross_project=cross_project,
+            include_legacy=include_legacy,
+            insights_path=_insights_path,
+            limit=last,
+        )
+        if as_json:
+            click.echo(json.dumps(rows_typed, ensure_ascii=False, indent=2))
+            return
+        if not rows_typed:
+            click.echo("(尚無教訓記錄)")
+            return
+        for r in rows_typed:
+            click.echo("─" * 60)
+            eff = r.get("effective_confidence", r.get("confidence", ""))
+            click.echo(
+                f"[{r.get('ts', '')[:10]}] [{r.get('type', '')}] {r.get('key', '')} (conf={eff})"
+            )
+            if r.get("project"):
+                click.echo(f"  project = {r['project']}")
+            click.echo(f"  {r.get('insight', '')}")
+        return
 
     rows = show_lessons(project=project, limit=last, include_insights=include_insights)
 
@@ -589,12 +736,77 @@ def lessons_show(project: str | None, last: int, include_insights: bool, as_json
 @click.option("--project", default=None, help="只搜尋指定 project")
 @click.option("--last", default=20, type=int, help="最多回傳 N 筆")
 @click.option("--insights", "include_insights", is_flag=True, help="同時搜尋 insight 洞察")
+@click.option("--type", "lesson_type", default=None, help="只搜尋指定類型")
+@click.option("--source", "lesson_source", default=None, help="只搜尋指定來源")
+@click.option(
+    "--min-confidence", default=1, type=int, help="只搜尋 effective_confidence >= N 的教訓"
+)
+@click.option("--trusted-only", is_flag=True, help="只搜尋 trusted=True 的教訓")
+@click.option("--cross-project", is_flag=True, help="跨專案搜尋（只回傳 trusted=True）")
+@click.option(
+    "--include-legacy/--no-include-legacy",
+    default=True,
+    help="合併 legacy handovers.lessons_learned（預設 True）",
+)
 @click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
-def lessons_search(
-    query: str, project: str | None, last: int, include_insights: bool, as_json: bool
+def lessons_search(  # pylint: disable=too-many-arguments
+    query: str,
+    project: str | None,
+    last: int,
+    include_insights: bool,
+    lesson_type: str | None,
+    lesson_source: str | None,
+    min_confidence: int,
+    trusted_only: bool,
+    cross_project: bool,
+    include_legacy: bool,
+    as_json: bool,
 ) -> None:
     """在 handover 教訓、試過的方案（與可選 insight）中搜尋關鍵字。"""
-    from .lessons_service import search_lessons
+    from .lessons_service import search_lessons, search_lessons_typed
+
+    _use_typed = bool(
+        lesson_type
+        or lesson_source
+        or min_confidence > 1
+        or trusted_only
+        or cross_project
+        or not include_legacy
+    )
+    if _use_typed:
+        _insights_path = None
+        if include_insights:
+            from .config import INSIGHTS_JSONL_PATH as _INSIGHTS_PATH
+
+            _insights_path = _INSIGHTS_PATH
+        rows_typed = search_lessons_typed(
+            query=query,
+            project=project,
+            lesson_type=lesson_type,
+            source=lesson_source,
+            min_confidence=min_confidence,
+            trusted_only=trusted_only,
+            cross_project=cross_project,
+            include_legacy=include_legacy,
+            insights_path=_insights_path,
+            limit=last,
+        )
+        if as_json:
+            click.echo(json.dumps(rows_typed, ensure_ascii=False, indent=2))
+            return
+        if not rows_typed:
+            click.echo(f"(無符合「{query}」的教訓記錄)")
+            return
+        for r in rows_typed:
+            click.echo("─" * 60)
+            eff = r.get("effective_confidence", r.get("confidence", ""))
+            click.echo(
+                f"[{r.get('ts', '')[:10]}] [{r.get('type', '')}] {r.get('key', '')} (conf={eff})"
+            )
+            if r.get("project"):
+                click.echo(f"  project = {r['project']}")
+            click.echo(f"  {r.get('insight', '')}")
+        return
 
     rows = search_lessons(
         query=query, project=project, limit=last, include_insights=include_insights

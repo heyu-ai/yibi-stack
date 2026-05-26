@@ -1,7 +1,102 @@
 {
-  "worktree": {
-    "baseRef": "fresh"
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/post-edit-mypy.sh",
+            "statusMessage": "mypy 型別檢查...",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-compact-handover.sh",
+            "statusMessage": "PreCompact handover 提醒...",
+            "timeout": 15,
+            "type": "command"
+          }
+        ],
+        "matcher": "auto"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-push.sh || exit 2",
+            "statusMessage": "檢查 git push 安全性...",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-ap2-check.py || exit 2",
+            "statusMessage": "AP2 Unicode 字元檢查...",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-commit.sh",
+            "statusMessage": "pre-commit: markdownlint + ruff format...",
+            "timeout": 30,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-ap1-inline-check.sh || exit 2",
+            "statusMessage": "AP1 inline Python / osascript 檢查...",
+            "timeout": 15,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-worktree.py || exit 2",
+            "statusMessage": "Worktree branch 安全檢查...",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|EnterWorktree"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/post-compact-handover-back.sh",
+            "statusMessage": "SessionStart handover-back 提醒...",
+            "timeout": 15,
+            "type": "command"
+          }
+        ],
+        "matcher": "compact|clear"
+      }
+    ]
   },
+  "includeGitInstructions": false,
   "permissions": {
     "allow": [],
     "deny": [
@@ -14,101 +109,7 @@
       "Bash(git filter-repo*)"
     ]
   },
-  "hooks": {
-    "PreCompact": [
-      {
-        "matcher": "auto",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-compact-handover.sh",
-            "statusMessage": "PreCompact handover 提醒...",
-            "timeout": 15
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "matcher": "compact|clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/post-compact-handover-back.sh",
-            "statusMessage": "SessionStart handover-back 提醒...",
-            "timeout": 15
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/post-edit-mypy.sh",
-            "statusMessage": "mypy 型別檢查...",
-            "async": true
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-push.sh || exit 2",
-            "type": "command",
-            "statusMessage": "檢查 git push 安全性..."
-          }
-        ],
-        "matcher": "Bash"
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-ap2-check.py || exit 2",
-            "statusMessage": "AP2 Unicode 字元檢查...",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-commit.sh",
-            "statusMessage": "pre-commit: markdownlint + ruff format...",
-            "timeout": 30
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-ap1-inline-check.sh || exit 2",
-            "statusMessage": "AP1 inline Python / osascript 檢查...",
-            "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|EnterWorktree",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-worktree.py || exit 2",
-            "statusMessage": "Worktree branch 安全檢查...",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
+  "worktree": {
+    "baseRef": "fresh"
   }
 }

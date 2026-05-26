@@ -1,9 +1,9 @@
 ---
 globs: tasks/**/tests/**
 ---
-# 測試慣例
+# Test Conventions
 
-## 命名規範
+## Naming Conventions
 
 ```text
 tasks/<module>/tests/
@@ -11,23 +11,23 @@ tasks/<module>/tests/
 ├── test_models.py
 ├── test_service.py
 ├── test_cli.py
-└── test_parsers.py    # 如有 parsers/
+└── test_parsers.py    # if parsers/ exists
 ```
 
-Class 命名：`class TestXxx:`（無繼承）
-Method 命名：`test_<scenario>` 或帶結構 ID：`test_gbill_dt_001_cathay_cc_parser`
+Class naming: `class TestXxx:` (no inheritance)
+Method naming: `test_<scenario>` or with structured ID: `test_gbill_dt_001_cathay_cc_parser`
 
-## 結構化 Test ID
+## Structured Test IDs
 
-在 docstring 內標記 ID，格式：`<MODULE>-<CATEGORY>-<NUMBER>`
+Mark the ID in the docstring, format: `<MODULE>-<CATEGORY>-<NUMBER>`
 
-| 縮寫 | 用途 |
-|------|------|
-| DT | Decision Table（分支覆蓋） |
-| ST | Service Test（整合流程） |
-| EG | Edge Case（邊界條件） |
-| CV | Conversion（格式轉換） |
-| VL | Validation（驗證規則） |
+| Abbrev | Purpose |
+|--------|---------|
+| DT | Decision Table (branch coverage) |
+| ST | Service Test (integration flow) |
+| EG | Edge Case |
+| CV | Conversion (format conversion) |
+| VL | Validation |
 
 ```python
 def test_gscan_dt_001_scan_days_controls_after_date(self) -> None:
@@ -37,7 +37,7 @@ def test_gscan_dt_001_scan_days_controls_after_date(self) -> None:
 
 ## Helper Factory Functions
 
-用 module-level helper functions 建立測試資料，不用 conftest.py：
+Use module-level helper functions to build test data; do not use conftest.py:
 
 ```python
 def make_scan_profile(**kwargs: object) -> ScanProfile:
@@ -61,52 +61,54 @@ class TestRunScan:
         ...
 ```
 
-## 資源處理
+## Resource Handling
 
-- SQLite：傳入 `":memory:"`
-- Filesystem：用 pytest 內建 `tmp_path` fixture
-- 不建立 conftest.py，不自訂 pytest fixtures
+- SQLite: pass `":memory:"`
+- Filesystem: use the pytest built-in `tmp_path` fixture
+- Do not create conftest.py or custom pytest fixtures
 
-## Import 語法
+## Import Syntax
 
-測試內一律用絕對路徑 import：
+Always use absolute-path imports in tests:
 
 ```python
 from tasks.gmail_scan.models import ScanProfile
 from tasks.gmail_scan.service import run_scan
 ```
 
-## Test Fixture Schema 必須對照真實工具 Schema
+## Test Fixture Schema Must Match the Real Tool Schema
 
-Fixture 的資料結構必須與被測工具的**真實** schema 一致，不可自創。
-測試通過只驗證「邏輯在測試資料下能跑」，不驗證「在真實環境下能跑」。
+The fixture's data structure must match the **real** schema of the tool under test; do not invent fields.
+Passing tests only verify "logic runs on test data", not "logic works in production."
 
-反例（PR #20 hooks.py）：fixture 用 `{"run": ".sh"}` 但 Claude Code 真實 schema 是
-`{"hooks": [{"type": "command", "command": ".sh"}]}`——59 tests 全過，但生產環境
-ghost hook 偵測永遠無效，直到 mob review 對照真實 `.claude/settings.json` 才發現。
+Counter-example (PR #20 hooks.py): fixture used `{"run": ".sh"}` but the real Claude Code schema is
+`{"hooks": [{"type": "command", "command": ".sh"}]}` — 59 tests passed, but ghost hook detection was
+permanently broken in production, only discovered when mob review compared against the real
+`.claude/settings.json`.
 
-正確做法：寫 fixture 前先讀真實工具的 schema 文件，或對照真實設定檔（如 `.claude/settings.json`）。
+Fix: read the tool's real schema documentation before writing fixtures, or compare against a real
+config file (e.g. `.claude/settings.json`).
 
-## Assertion 語意精確性
+## Assertion Semantic Precision
 
-Findings / output 驗證避免過寬的 substring match——目標字串若同時出現在多個合理路徑，
-assertion 就失去保護力，fallback 邏輯失效時靜默通過。
+Avoid overly broad substring matches when verifying findings/output — if the target string appears
+in multiple valid paths, the assertion loses its protection and a broken fallback silently passes.
 
 ```python
-# 違規：".claude/skills/" 也含 "skills/"，fallback 失效時仍通過
+# Wrong: ".claude/skills/" also contains "skills/", so fallback failure still passes
 assert any("skills/" in f for f in result.findings)
 
-# 正確：用語意唯一的字串鎖定預期分支
+# Correct: use a semantically unique string to lock in the expected branch
 assert any("源碼 repo 模式" in f for f in result.findings)
 ```
 
-適用場景：任何驗證「走了哪條邏輯分支」的 assertion。
+Applies to: any assertion that verifies which logical branch was taken.
 
-## Bandit `# nosec` 使用慣例
+## Bandit `# nosec` Usage Conventions
 
-測試中不應無腦加 `# nosec`；但下列兩類場景是合理例外：
+Do not blindly add `# nosec` in tests; the following two scenarios are legitimate exceptions:
 
-### B112（try_except_continue）— 串流解析跳過格式錯誤行
+### B112 (try_except_continue) — skip malformed lines in stream parsing
 
 ```python
 try:
@@ -115,17 +117,19 @@ except Exception:  # nosec B112
     continue
 ```
 
-適用場景：逐行解析 JSONL / log 檔時，格式錯誤的行應跳過而非中止整個解析流程。`continue` 是刻意設計，不是疏忽。
+Applies when: parsing JSONL / log files line by line; malformed lines should be skipped rather than
+aborting the whole parse. The `continue` is intentional, not an oversight.
 
-### F841（unused variable）— 徹底刪除，不用 `# noqa`
+### F841 (unused variable) — delete both lines; do not use `# noqa`
 
-ruff F841「local variable assigned but never used」需**同時刪除賦值行與初始化行**；只刪其中一行，另一行仍會觸發。
+ruff F841 "local variable assigned but never used" requires **deleting both the assignment line and
+the initialization line**; deleting only one leaves the other still triggering.
 
 ```python
-# 違規：刪了 loop 內的賦值，但保留了函式開頭的初始化
-prev_output_tokens = 0      # <-- 這行也要刪
+# Wrong: deleted the loop assignment but kept the function-level initialization
+prev_output_tokens = 0      # <-- delete this line too
 ...
-# prev_output_tokens = last_output_tokens  # 已刪，但上面那行仍是 F841
+# prev_output_tokens = last_output_tokens  # deleted, but the line above is still F841
 
-# 正確：兩行都刪除
+# Correct: delete both lines
 ```

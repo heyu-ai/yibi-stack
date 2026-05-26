@@ -1,29 +1,32 @@
 ---
 globs: skills/**
 ---
-# SKILL.md 撰寫規範
+# SKILL.md Authoring Guide
 
-## Frontmatter（必填）
+## Frontmatter (Required)
 
 ```yaml
 ---
-name: <skill-name>        # kebab-case，與目錄名稱一致
+name: <skill-name>        # kebab-case, must match directory name
 type: exec                # exec | tool | know
-scope: global             # global | project（必填，缺漏會讓 make install 失敗）
-description: <一行中文說明，包含觸發關鍵字>
+scope: global             # global | project (required; missing causes make install to fail)
+description: <one-line description with trigger keywords — keep in Chinese for trigger-word matching>
 ---
 ```
 
-### scope 選擇標準
+### scope Selection Guide
 
-| scope | 判斷依據 |
-|-------|---------|
-| `global` | 純方法論，或執行步驟在任何 git repo 都能跑（知識型 skill、通用工具） |
-| `project` | 步驟需要 `uv run python -m tasks.*`、`.runtime/*.json` profile、或本 repo 特定資源 |
+| scope | Criteria |
+|-------|----------|
+| `global` | Pure methodology, or steps that run in any git repo (knowledge skills, general tools) |
+| `project` | Steps require `uv run python -m tasks.*`, `.runtime/*.json` profiles, or repo-specific resources |
 
-**重要**：`make install` 預設只裝 `scope: global` 的 skill。缺少 `scope:` 欄位會讓 install 以 `exit 1` 失敗並顯示錯誤提示，必須補上。
+**Important**: `make install` only installs skills with `scope: global` by default.
+A missing `scope:` field causes install to fail with exit 1 and an error message; it must be added.
 
-若 skill 的實作住在此 repo 但語意上跨專案有用（如 session-memory、local-port-manager），在 SKILL.md 的執行步驟開頭加上 skill_repo 路徑解析後可設為 `global`：
+If a skill's implementation lives in this repo but is semantically useful cross-project
+(e.g. session-memory, local-port-manager), resolve the skill_repo path at the start of
+the execution steps and set scope to `global`:
 
 ```bash
 if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text()).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
@@ -32,319 +35,366 @@ if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目
 cd "$SKILL_REPO"
 ```
 
-**注意（錯誤處理形式）**：`cmd || { echo '[FAIL]' >&2; exit 1; }` 在 `{}` 內有 `'` quote 字元，觸發「brace with quote character」確認框。一律改 `if ! cmd; then echo '[FAIL]' >&2; exit 1; fi`（上面的 canonical form 已採用此寫法）。
+**Note (error handling form)**: `cmd || { echo '[FAIL]' >&2; exit 1; }` contains a `'` quote
+inside `{}`, triggering the "brace with quote character" confirmation dialog.
+Always use `if ! cmd; then echo '[FAIL]' >&2; exit 1; fi` instead (the canonical form above
+already uses this).
 
-**注意**：不要用 `$(jq -r '.skill_repo' …)`（單引號 filter）或 `$(jq -r .skill_repo …)`（unquoted filter）。
-前者觸發 AP1 D 類 hook（filter token 內含 leading-dot）；後者通過本地 hook 但 Claude Code 內建 parser 把 leading-dot token 視為無法解析的 string 節點，執行時跳出確認框。
+**Note**: do not use `$(jq -r '.skill_repo' …)` (single-quote filter) or
+`$(jq -r .skill_repo …)` (unquoted filter).
+The first triggers the AP1 class D hook (leading-dot token inside filter); the second passes
+the local hook but the Claude Code built-in parser treats the leading-dot token as an
+unparseable string node and pops a confirmation dialog at runtime.
 
-`python3 -c` 單行寫法是唯一兩邊都通過的形式，但 `-c` 後的表達式必須用**單引號**包（Python 內部字串改用雙引號）——雙引號版 `$(python3 -c "...")` 是「外層 `$()` → `"..."` 內層字串」的反向巢狀結構，違反 Rule 14 Quoting Rule 4，觸發 `Unhandled node type: string`。
+The `python3 -c` single-line form is the only one that passes both sides, but the expression
+after `-c` must be wrapped in **single quotes** (use double quotes inside Python) — the
+double-quote form `$(python3 -c "...")` is an outer-`$()` → inner-`"..."` reverse-nested
+structure that violates rule 13 Quoting Rule 4 and triggers `Unhandled node type: string`.
 
-## Frontmatter — `effort`（選填，2026-05 新增）
+## Frontmatter — `effort` (Optional, added 2026-05)
 
-v2.1.133+ Claude Code 支援 skill / slash command 在 frontmatter 指定 effort，**覆寫呼叫端的 model effort**：
+Claude Code v2.1.133+ supports specifying effort in skill / slash command frontmatter,
+**overriding the caller's model effort**:
 
 ```yaml
 ---
 name: <skill-name>
 type: exec
 scope: global
-effort: medium     # 選填；low | medium | high
+effort: medium     # optional; low | medium | high
 description: ...
 ---
 ```
 
-### 何時用 effort frontmatter
+### When to Use `effort` Frontmatter
 
-| 情境 | 建議 |
-|------|------|
-| skill 為「重型批次」（大量下載、長批次掃描、規格深度展開） | 釘 `effort: medium` 或 `high`，避免使用者在 low session 誤觸發長批次 |
-| skill 為「快速摘要型」 | 釘 `effort: low`，省 token |
-| skill 在不同 effort 下行為差不多 | 不填，跟隨呼叫端 |
+| Scenario | Recommendation |
+|----------|---------------|
+| Skill is a "heavy batch" (large downloads, long scans, deep spec expansion) | Pin `effort: medium` or `high` to avoid accidental triggering in a low-effort session |
+| Skill is a "quick summary" type | Pin `effort: low` to save tokens |
+| Skill behaves similarly across effort levels | Leave unset; follow the caller |
 
-### 與 SKILL.md 內 `${CLAUDE_EFFORT}` 區塊的關係
+### Relationship to the `${CLAUDE_EFFORT}` Block in SKILL.md Body
 
-frontmatter `effort` 是**覆寫**呼叫端 effort 的最終值；SKILL.md body 內的 `${CLAUDE_EFFORT}` 表格定義**該 effort 下的執行策略**。兩者搭配：
+Frontmatter `effort` is the **override** final value for the caller's effort;
+the `${CLAUDE_EFFORT}` table in the SKILL.md body defines **the execution strategy at that effort level**.
+The two work together:
 
-- 不填 frontmatter `effort` + body 有 `${CLAUDE_EFFORT}` 表格 → 跟隨呼叫端動態分流
-- 填 frontmatter `effort: medium` + body 有 `${CLAUDE_EFFORT}` 表格 → 強制走 medium 那列
+- No frontmatter `effort` + body has `${CLAUDE_EFFORT}` table → dynamically routes based on caller
+- Frontmatter `effort: medium` + body has `${CLAUDE_EFFORT}` table → always takes the medium row
 
-## Exec Skill 標準 4 步驟
+## Exec Skill Standard 4-Step Template
 
 ```markdown
-## 步驟
+## Steps
 
-### Step 1 — 環境確認
-cd 到 git repo 根目錄，確認工具可用：
-- `uv --version` ✓
-- 確認 `.env` 存在
+### Step 1 — Environment Check
+Confirm you are in the git repo root and required tools are available:
+- `uv --version` OK
+- Confirm `.env` exists
 
-### Step 2 — 設定確認
-確認 .runtime/<config>.json 存在，向使用者確認關鍵參數：
-- Profile：{{profile_name}}
+### Step 2 — Config Check
+Confirm `.runtime/<config>.json` exists; ask the user to confirm key parameters:
+- Profile: {{profile_name}}
 
-### Step 3 — 執行
+### Step 3 — Execute
 uv run python -m tasks.<module> <command> --profile {{profile_name}}
 
-### Step 4 — 結果報告
-回報執行結果：成功筆數、失敗項目、產出路徑。
+### Step 4 — Report Results
+Report: success count, failed items, output path.
 ```
 
 ## `{{value}}` Placeholder
 
-需要向使用者確認的參數用雙大括號：`{{profile_name}}`、`{{date}}`。
+Parameters that require user confirmation use double braces: `{{profile_name}}`, `{{date}}`.
 
-## FAQ 表格
+## FAQ Table
 
-每個 exec skill 末尾附 FAQ：
+Append a FAQ at the end of each exec skill:
 
 ```markdown
-## 常見問題
+## FAQ
 
-| 問題 | 解法 |
-|------|------|
-| 找不到設定檔 | 執行 `setup` 子命令建立預設設定 |
-| API 403 錯誤 | 確認 `.env` 的 token 是否過期 |
+| Issue | Fix |
+|-------|-----|
+| Config file not found | Run the `setup` subcommand to create the default config |
+| API 403 error | Check whether the token in `.env` has expired |
 ```
 
-## Knowledge Skill（type: know）
+## Knowledge Skill (type: know)
 
-- 只包含方法論指引，無 Python 執行步驟
-- 可有多個 section（如 Core Loop、Anti-patterns）
-- `description` 欄位放豐富的觸發關鍵字
+- Contains only methodology guidance; no Python execution steps
+- May have multiple sections (e.g. Core Loop, Anti-patterns)
+- Put rich trigger keywords in the `description` field
 
-## 更新索引
+## Update the Index
 
-建立或修改 skill 後，必須更新 `skills/README.md` 的索引表格。
+After creating or modifying a skill, update the index table in `skills/README.md`.
 
-`skills/README.md` 在「全域 Skill」section 下有兩張表格：「可執行/工具型（exec/tool）」和「知識型（know）」。`scope: project` 的 exec skill 屬於第三張「本 Repo 限定」表格，不在此規則範圍。
-**分類依據是 SKILL.md frontmatter 的 `type` 欄位，不是功能感覺**：
+`skills/README.md` has two tables under the "Global Skills" section:
+"Executable/Tool (exec/tool)" and "Knowledge (know)".
+`scope: project` exec skills belong to a third "Repo-Specific" table and are out of scope here.
+**Classification is based on the `type` field in the SKILL.md frontmatter, not how the skill feels**:
 
-| frontmatter `type` | 應放的表格 |
-|--------------------|-----------|
-| `exec` 或 `tool` | 可執行/工具型 |
-| `know` | 知識型（方法論）|
+| frontmatter `type` | Target table |
+|--------------------|-------------|
+| `exec` or `tool` | Executable/Tool |
+| `know` | Knowledge (methodology) |
 
-常見錯誤：`type: know` 的 skill 因「感覺可執行」而被放入工具型表格（如 `bump-version`）。
-維護 README 時，先用下列指令確認 type 再決定位置（從 repo 根目錄執行）：
+Common mistake: a `type: know` skill is placed in the tool table because it "feels executable"
+(e.g. `bump-version`).
+Before editing the README, confirm the type with (run from repo root):
 
 ```bash
 grep -m1 '^type:' skills/<name>/SKILL.md
 ```
 
-## 參考模板
+## Reference Template
 
-`skills/_template/SKILL.md.tpl` 是標準格式參考。
+`skills/_template/SKILL.md.tpl` is the canonical format reference.
 
-## 決策表與 Prose 的自洽性
+## Decision Table and Prose Consistency
 
-決策表（mode table）必須自給自足：不能只靠表格外的 prose 描述例外行為。
-agent 閱讀 SKILL.md 時按 table row 優先執行，表格外的說明段落容易被跳過。
+A decision table (mode table) must be self-contained: it cannot rely on prose outside the table
+to describe exceptional behavior.
+When an agent reads a SKILL.md, it executes by table row first; explanatory paragraphs outside
+the table are easily skipped.
 
-正確做法：
+Correct approach:
 
-- 在表格加 guard row（如「任一工具 BINARY_OK+NOT_AUTHED → 先執行停止流程，不進入 count 計算」）
-- 或在對應 row 的動作欄明確標注適用條件（如「0（全部 NOT_FOUND，無 auth 失敗）」）
+- Add a guard row to the table (e.g. "any tool BINARY_OK+NOT_AUTHED → run stop flow first,
+  do not enter count calculation")
+- Or explicitly annotate applicable conditions in the action column of the matching row
+  (e.g. "0 (all NOT_FOUND, no auth failures)")
 
-反模式：prose 說「偵測到 X 狀態時停止」，但 table 的 `count=0` row 說「redirect 終止」——agent 跟著 table 走，prose 的 intent 完全被覆蓋。
+Anti-pattern: prose says "stop when state X is detected", but the `count=0` row in the table
+says "redirect terminate" — the agent follows the table and the prose intent is completely overridden.
 
-## FAQ 修復指令格式
+## FAQ Fix Command Format
 
-FAQ 表格中的修復指令必須符合三個條件：
+Fix commands in FAQ tables must meet three requirements:
 
-1. **使用實際變數名**：不用 literal `KEY` 這類 placeholder，直接寫 `CODEX_API_KEY` / `GEMINI_API_KEY` 等實際名稱
-2. **shell-hygiene-safe 語法**：用 parameter expansion `"${VAR# }"` 去除前置空格，不用 `$(echo $VAR)` subshell（後者在 zsh 不 trim、且觸發 Rule 14 quoting hygiene hook）
-3. **跨 shell 相容**：指令在 zsh（macOS 預設）與 bash 均能正確執行
+1. **Use real variable names**: do not use placeholder literals like `KEY`;
+   write actual names like `CODEX_API_KEY` / `GEMINI_API_KEY`
+2. **Shell-hygiene-safe syntax**: use parameter expansion `"${VAR# }"` to strip leading spaces;
+   do not use `$(echo $VAR)` subshell (does not trim in zsh; also triggers rule 13 quoting hygiene hook)
+3. **Cross-shell compatible**: commands must work correctly in both zsh (macOS default) and bash
 
-## Table Description 欄單一職責
+## Table Description Column — Single Responsibility
 
-Markdown 表格的說明欄只應包含**功能描述**，不得重複其他欄位（如 Install 欄）的資訊。
+The description column of a Markdown table should contain only **functional description**;
+do not repeat information from other columns (e.g. the Install column).
 
-常見錯誤：在說明欄附加安裝路徑（如 `— no package.json, installed as global skill`）。
-Install 欄已攜帶安裝指令；說明欄重複此資訊會在安裝方法變更時造成雙重維護負擔，且與其他欄位的 pattern 不一致。
+Common mistake: appending the install path in the description column
+(e.g. `— no package.json, installed as global skill`).
+The Install column already carries the install command; duplicating it in the description creates
+a double-maintenance burden when the install method changes, and is inconsistent with other rows.
 
-## Hook 說明必須對照實際腳本驗證（PR #303 教訓）
+## Hook Descriptions Must Be Verified Against the Actual Script (PR #303 lesson)
 
-CLAUDE.md 或 SKILL.md 中描述 hook 行為時，**必須 Read hook 腳本本身**確認，不得憑記憶或舊文件撰寫。
+When describing hook behavior in CLAUDE.md or SKILL.md, **always Read the hook script itself**;
+do not write from memory or stale documentation.
 
-常見錯誤：說明寫「runs ruff format on .py files after Write/Edit」——實際腳本只覆蓋 `backend/**/*.py`，
-且還跑 `ruff check`（lint）、`tsc --noEmit`（前端）、`terraform fmt -check`（infra）。
+Common mistake: description says "runs ruff format on .py files after Write/Edit" — but the
+actual script only covers `backend/**/*.py`, and also runs `ruff check` (lint),
+`tsc --noEmit` (frontend), and `terraform fmt -check` (infra).
 
-正確做法：
+Correct approach:
 
-1. 用 Read tool 讀取 `.claude/hooks/<hook-name>.sh`（或對應腳本路徑）
-2. 對照 path guard（如 `*backend*`、`*frontend*`），確認哪些檔案類型真的受影響
-3. 列出所有工具呼叫，依實際覆蓋範圍分行說明
+1. Use the Read tool to open `.claude/hooks/<hook-name>.sh` (or the actual script path)
+2. Check the path guard (e.g. `*backend*`, `*frontend*`) to confirm which file types are actually affected
+3. List all tool invocations line by line, scoped to actual coverage
 
 ```markdown
-<!-- 違規：記憶/猜測 -->
+<!-- Wrong: written from memory / guessing -->
 **Hook side-effects** -- automatically runs `ruff format` on `.py` files
 
-<!-- 正確：對照腳本，列出完整範圍 -->
+<!-- Correct: verified against script, full coverage listed -->
 **Hook side-effects** -- `post-edit-check.sh` runs automatically after Write/Edit/MultiEdit:
 - `backend/**/*.py`: `ruff format` + `ruff check` (per-file)
 - `frontend/**/*.{ts,tsx}`: `tsc --noEmit` (project-wide type check)
 - `*.tf`: `terraform fmt -check`
 ```
 
-mob review 的 Claude voice 對照 hook 腳本後發現不一致；Gemini R1 回報「accurate（低信心）」，
-直到 R2 看到 Claude findings 才同意修正。說明準確性不能依賴 reviewer 交叉確認——撰寫時就要驗證。
+The Claude voice in mob review found the mismatch after reading the script; Gemini R1 reported
+"accurate (low confidence)" and only agreed on the fix after seeing Claude's findings in R2.
+Description accuracy cannot rely on reviewer cross-checking — verify at authoring time.
 
-## Cross-doc Cite 必須 paste 原文 quote，不靠記憶寫摘要（PR #415 教訓）
+## Cross-doc Cite Must Paste the Original Quote, Not a Summary from Memory (PR #415 lesson)
 
-當 rule / docs / SKILL.md 引用「其他規範來源」（另一個 rule 檔、另一個 repo 的文件、
-官方 API spec）時，**必須 paste 原文 quote 或精確 section reference，不能靠記憶寫摘要**。
-靠記憶會在「方向 / 主被動 / 適用範圍」三個維度出現靜默錯誤，且第一輪 review 通常抓不到，
-因為 reviewer 也只 verify「引用對象是否存在」而不 verify「引用內容是否支持論點」。
+When a rule / doc / SKILL.md cites "another authoritative source" (another rule file, another
+repo's document, an official API spec), **paste the original quote or an exact section reference;
+do not paraphrase from memory**.
+Memory paraphrases silently introduce errors in direction / active-passive voice / scope, and
+first-round reviewers typically miss them because they only verify that the cited source exists,
+not that the cited content supports the argument.
 
-典型失誤模式（yibi-mvp PR #415 實況）：
+Typical failure pattern:
 
-- yibi-stack `13-bash-anti-patterns.md` 「exec wrapper 穿透 deny rule（2026-05）」段
-  原文：「Claude Code deny rule 現在可穿透 `env` / `sudo` / `watch` ... 不要以為用
-  wrapper 就能繞過 deny rule」——意義是 **deny rule 變強，看穿 wrapper 並攔截**
-- yibi-mvp 新 rule 初版引用時寫成：「PATH= env-wrapper 模式**可穿透 deny rule**」——
-  意義變成 **wrapper 變強，繞過 deny rule**，主動 / 被動寫反，**論點與來源相反**
-- 第一輪 code-reviewer 確認「來源檔案存在 + 段落名稱對」就 pass，
-  第二輪 comment-analyzer 對照原文 quote 才抓到方向反向
+- `13-bash-anti-patterns.md` "exec wrapper penetrates deny rule (2026-05)" section
+  Original: "Claude Code deny rules now see through `env` / `sudo` / `watch` ...
+  do not assume a wrapper bypasses a deny rule" — meaning **deny rule is stronger, sees through wrapper**
+- A new rule's first draft quoted this as: "the PATH= env-wrapper pattern **can penetrate deny rules**"
+  — meaning flipped to **wrapper is stronger, bypasses deny rule**; active/passive reversed,
+  **argument is the opposite of the source**
+- First-round code-reviewer confirmed "source file exists + section name matches" and passed;
+  second-round comment-analyzer caught the reversal by comparing against the original quote
 
-避免方式：
-
-```markdown
-<!-- 違規：靠記憶寫摘要，主動 / 被動容易錯 -->
-依 yibi-stack 13-bash-anti-patterns.md 的「exec wrapper 穿透 deny rule」段，
-PATH= 也可穿透 deny rule。
-
-<!-- 正確：paste 原文 quote，方向自明 -->
-yibi-stack `.claude/rules/13-bash-anti-patterns.md` 原文：
-> Claude Code deny rule 現在可穿透 `env` / `sudo` / `watch` / `ionice` / `setsid`：
-> ... 不要以為用 wrapper 就能繞過 deny rule。
-
-由原文可知：**deny rule** 攔截 **wrapper**，wrapper 不能穿透 deny rule。
-```
-
-判斷準則（哪些引用必 paste，哪些可摘要）：
-
-| 引用類型 | paste 還是摘要？ |
-|---------|---------------|
-| 方向（X 攻擊 Y / Y 攻擊 X、誰主動 / 誰被動）| **必 paste** 原文，自己讀出方向 |
-| 條件 / 適用範圍（在 X 情況下做 Y）| **必 paste** 條件原文，避免落掉前提 |
-| 結論（結果是 Z）| 可摘要，但結論前的「因為...」前提段落必 paste |
-| 工具 / 概念簡介 | 可摘要 |
-
-cross-doc cite 必須對「兩端」分別 verify：
-
-1. **引用對象**：檔案 / section 真的存在（路徑正確、未漂移）
-2. **引用內容**：原文真的支持你的論點（方向 / 條件 / 範圍對齊）
-
-只 verify 第一端會放過 **dangling reference**（連結對但內容反向錯）。Reviewer agent
-prompt 應明確要求「每個 cross-ref 兩端都 verify」，否則 single-source 驗證的 reviewer
-會放過 inversion / mis-paraphrase 錯誤。
-
-與「Hook 說明必須對照實際腳本驗證」的關係：兩者同屬 cross-doc / cross-artifact verification
-精神——hook 規範要對照腳本，rule cite 要對照原文，rule 與 spec 的關係要對照 source spec。
-撰寫時都要 verify，不能假設 reviewer 會抓。
-
-## 跨 repo 引用：doc body 必須 self-contained，lineage 放 commit message
-
-當把某 repo 的 lesson / incident codify 成另一 repo 的 doc / skill / rule 時，**doc body 不能塞
-「來源：`<other-repo>` PR #`<N>` retro」這種 cross-repo 來源指標**。下游 reader 可能沒有來源 repo 的
-存取權，pointer 等於空指針；即使有權，跨 repo 切換 + 翻 retro 也是 ~10 倍於閱讀原文的成本。
-
-正確做法：
-
-1. **doc body**：原 incident 的可重現摘要（self-contained，含足夠 context 讓讀者不出本 repo 就能
-   理解 lesson）。
-2. **commit message**：詳述 lineage（"derived from `<repo>` PR #`<N>` retro" + handover ID + 日期）。
-3. **PR description**：同 commit message 詳述，加上「為何要把這條 lesson 跨 repo 帶過來」的動機。
-
-實證：yibi-stack PR #36（pr-test-analyzer FAQ）第一版在 FAQ row 尾巴寫「來源：openab_workspace
-PR #73 retro。」——code-reviewer NIT-1 + comment-analyzer Important #2 兩個 voice 都 flag，理由：
-yibi-stack reader 沒 openab_workspace 存取權，pointer 等於空指針。Fix pass 把來源指標從 doc body
-拿掉、移到 commit message + PR description；FAQ row 改成完全 self-contained，舉的例子改用泛型
-helper 名稱（不再綁定 openab_workspace 特有的 `require_kubectl_context`）。
-
-與「Cross-doc Cite」（上一段）的關係：兩者同屬 cross-doc 寫作衛生，但軸不同——
-Cross-doc Cite 要求**引用時 paste 原文**避免方向錯；本節要求**引用後 doc body 仍要 self-contained**
-避免 dead link。實務上兩條一起遵循：先 paste 原文 verify direction，然後把 verified 的內容自然
-融入本 repo doc 的 narrative，不留 cross-repo pointer。
-
-## Retro / lesson-routing skill 的「下一步」必須命名具體目的地
-
-任何「從 retro / review 收尾結果產生後續動作」的 skill（`/pr-retro`、各種 `*-cycle`、`*-review`），
-在「建議下一步」段落不能只寫「考慮一下」「或許可以」「之後再決定」這類**動詞模糊 + 目的地缺席**的措辭。
-
-實證：yibi-stack PR #36 retro（handover `c88c0e9e`）結束後，agent 用 4-option AskUserQuestion
-（A/B/C/D）把三個 testing-discipline lesson 路到具體目的地（每選項都對應實際 rule 檔 + section
-名），使用者選 A 後一輪內完成落地（本 PR 即落地結果）。反例：若 follow-up 只寫「考慮把 lesson
-寫進文件」，使用者選後還要再開一輪「寫哪？」對話，retro 落地率會跌一個量級。
-
-正確做法（skill 設計時）：
+How to avoid:
 
 ```markdown
-<!-- 違規：動詞模糊 + 目的地缺席 -->
-- [ ] 考慮把 lesson 寫入文件
+<!-- Wrong: paraphrased from memory; active/passive easily inverted -->
+Per yibi-stack 13-bash-anti-patterns.md "exec wrapper penetrates deny rule" section,
+PATH= can also penetrate deny rules.
 
-<!-- 正確：明確命名目的地 + 動詞 -->
-- [ ] 寫入 `.claude/rules/15-irreversible-operations.md` 類別 3 Recovery section（git 工作流復原）
-- [ ] 寫入 `~/.claude/CLAUDE.md` 跨專案個人偏好區
-- [ ] 寫入 `<repo>/CLAUDE.md` Gotchas section（repo-specific）
-- [ ] 不寫文件，僅保留在 session-memory（一次性/無重現性 lesson）
+<!-- Correct: paste original quote; direction is self-evident -->
+yibi-stack `.claude/rules/13-bash-anti-patterns.md` original:
+> Claude Code deny rules now see through `env` / `sudo` / `watch` / `ionice` / `setsid`:
+> ... do not assume a wrapper bypasses a deny rule.
+
+From the original: **deny rule** blocks **wrapper**; wrapper cannot bypass deny rule.
 ```
 
-每個選項對應的「目的地檔案 + section」應該已經被 skill 自身計算過（class 對應 routing table），
-讓使用者在 AskUserQuestion 時看到的就是 actionable 路徑，不是抽象建議。
+Criteria for when to paste vs. summarize:
 
-來源實踐：`/pr-retro` Step 5 Lesson Classifier（pr-retrospective SKILL.md）已用此 pattern。
+| Citation type | Paste or summarize? |
+|---------------|---------------------|
+| Direction (X attacks Y / Y attacks X; who is active / passive) | **Must paste** original; read direction yourself |
+| Condition / scope (do Y when X) | **Must paste** condition original; avoid dropping the premise |
+| Conclusion (result is Z) | May summarize, but the "because..." premise paragraph before the conclusion must be pasted |
+| Tool / concept introduction | May summarize |
 
-## Blockquote 之間插入新 blockquote 必須移除空行（MD028）
+Cross-doc cites must verify **both ends** independently:
 
-在現有 blockquote 區塊之後插入新的 blockquote 時，若兩者之間有空行，markdownlint 會觸發
-**MD028/no-blanks-blockquote**（空行被視為「在同一 blockquote 內出現空行」）。
+1. **Citation target**: file / section actually exists (path correct, not drifted)
+2. **Citation content**: original actually supports your argument (direction / condition / scope aligned)
+
+Verifying only the first end lets **dangling references** through
+(link is correct but content is inverted).
+Reviewer agent prompts should explicitly require "verify both ends of every cross-ref";
+otherwise a single-source reviewer will miss inversion / mis-paraphrase errors.
+
+Relationship to "Hook Descriptions Must Be Verified Against the Actual Script": both belong to
+the cross-doc / cross-artifact verification discipline — hook docs must match the script,
+rule cites must match the source, rule-to-spec relationships must match the source spec.
+Verify at authoring time; do not assume a reviewer will catch it.
+
+## Cross-Repo Citation: Doc Body Must Be Self-Contained; Lineage Goes in Commit Message
+
+When codifying a lesson / incident from another repo into a doc / skill / rule, **do not embed
+cross-repo source pointers like "Source: `<other-repo>` PR #`<N>` retro" in the doc body**.
+Downstream readers may not have access to the source repo; the pointer is a dead link.
+Even with access, switching repos and digging through retros costs ~10x more than reading the
+doc itself.
+
+Correct approach:
+
+1. **Doc body**: a reproducible summary of the original incident (self-contained, with enough
+   context that the reader can understand the lesson without leaving this repo).
+2. **Commit message**: detailed lineage ("derived from `<repo>` PR #`<N>` retro" + handover ID + date).
+3. **PR description**: same as commit message, plus motivation for why this lesson was ported cross-repo.
+
+Evidence: yibi-stack PR #36 (pr-test-analyzer FAQ) — first version appended
+"Source: openab_workspace PR #73 retro." at the end of the FAQ row.
+code-reviewer NIT-1 and comment-analyzer Important #2 both flagged it: yibi-stack readers
+have no access to openab_workspace, so the pointer is a dead link.
+The fix removed the source pointer from the doc body, moved it to commit message + PR description,
+and rewrote the FAQ row to be fully self-contained using generic helper names
+(no longer tied to openab_workspace's `require_kubectl_context`).
+
+Relationship to "Cross-doc Cite" (above): both are cross-doc writing hygiene, but on different axes —
+Cross-doc Cite requires **pasting the original when citing** to avoid direction errors;
+this section requires **the doc body to remain self-contained after citing** to avoid dead links.
+In practice, follow both: first paste the original to verify direction, then naturally integrate
+the verified content into this repo's narrative — leave no cross-repo pointers.
+
+## Retro / Lesson-Routing Skills Must Name a Concrete Destination for Next Steps
+
+Any skill that produces follow-up actions from retro / review results
+(`/pr-retro`, various `*-cycle`, `*-review` skills) must not write vague language like
+"consider", "maybe", "decide later" in the "next steps" section —
+**verb is vague + destination is absent**.
+
+Evidence: after yibi-stack PR #36 retro (handover `c88c0e9e`), the agent used a 4-option
+AskUserQuestion (A/B/C/D) to route three testing-discipline lessons to concrete destinations
+(each option mapped to an actual rule file + section name);
+the user chose A and the lesson landed within one round (this PR is that landing).
+Counter-example: if the follow-up only says "consider writing the lesson into documentation",
+the user needs another "where?" round trip — retro landing rate drops by an order of magnitude.
+
+Correct approach (at skill design time):
 
 ```markdown
-<!-- 違規：兩個 blockquote 之間有空行 -->
-> 既有說明文字。
+<!-- Wrong: vague verb + no destination -->
+- [ ] Consider writing the lesson into documentation
 
-> **新增執行說明**：...
-
-<!-- 正確：移除空行，合為一個連續 blockquote -->
-> 既有說明文字。
-> **新增執行說明**：...
+<!-- Correct: explicit destination + verb -->
+- [ ] Write to `.claude/rules/15-irreversible-operations.md` Category 3 Recovery section (git workflow recovery)
+- [ ] Write to `~/.claude/CLAUDE.md` cross-project personal preferences section
+- [ ] Write to `<repo>/CLAUDE.md` Gotchas section (repo-specific)
+- [ ] Do not document; session-memory only (one-off / non-recurring lesson)
 ```
 
-常見踩坑情境：在安全性警告 blockquote 後面插入「執行說明」blockquote，
-原本 `blockquote → 空行 → code block` 合法，但改成 `blockquote → 空行 → blockquote`
-後就違規。此 pattern 在本 repo 曾多次重複（PR #5、#24、#70）。
+Each option's "destination file + section" should already have been computed by the skill itself
+(class maps to routing table), so the user sees actionable paths in AskUserQuestion,
+not abstract suggestions.
 
-**快速驗證**（commit 前先跑，省去 CI 來回）：
+Source practice: `/pr-retro` Step 5 Lesson Classifier (pr-retrospective SKILL.md) uses this pattern.
+
+## Inserting a New Blockquote After an Existing One Requires Removing the Blank Line (MD028)
+
+When inserting a new blockquote after an existing blockquote block, if there is a blank line
+between them, markdownlint triggers **MD028/no-blanks-blockquote** (the blank line is treated
+as "a blank line inside the same blockquote").
+
+```markdown
+<!-- Wrong: blank line between two blockquotes -->
+> Existing text.
+
+> **New execution note**: ...
+
+<!-- Correct: remove blank line; merge into a single continuous blockquote -->
+> Existing text.
+> **New execution note**: ...
+```
+
+Common pitfall: inserting an "execution note" blockquote after a security warning blockquote.
+The original `blockquote → blank line → code block` is valid, but changing it to
+`blockquote → blank line → blockquote` violates MD028.
+This pattern has recurred multiple times in this repo (PR #5, #24, #70).
+
+**Quick validation** (run before committing to avoid CI roundtrips):
 
 ```bash
-uv run pre-commit run markdownlint-cli2 --files skills/<name>/SKILL.md
+uv run pre-commit run markdownlint-cli2 --files plugins/<plugin>/skills/<name>/SKILL.md
 ```
 
-## 自帶 stderr log 的 script 需加 no-capture blockquote hint
+## Scripts with Built-in stderr Logging Need a No-Capture Blockquote Hint
 
-Background session harness 設計上會自動把 `> $CLAUDE_JOB_DIR/<name>.log 2>&1` 附加到
-Bash 指令後面，用於輸出隔離與跨 compaction 持久。對**已自帶內部 stderr log**的 script
-而言，此外加 capture 是冗餘的，還會觸發 `~/.claude/` sensitive file 權限對話框
-（`$CLAUDE_JOB_DIR` 含 per-session UUID，allow-list 無法永久放行）。
+The background session harness automatically appends `> $CLAUDE_JOB_DIR/<name>.log 2>&1` to
+Bash commands for output isolation and cross-compaction persistence.
+For scripts that **already write stderr to an internal log**, this extra capture is redundant
+and triggers a `~/.claude/` sensitive file permission dialog
+(`$CLAUDE_JOB_DIR` contains a per-session UUID that cannot be permanently allow-listed).
 
-**修法**：在 bash code block 之前加 blockquote 執行說明，明確告訴 agent 不要外加 capture：
+**Fix**: add a blockquote execution note before the bash code block to explicitly tell the agent
+not to append external capture:
 
 ```markdown
-> **執行說明**：腳本已將 stderr 寫到 `$REVIEW_DIR/<name>.log`，stdout 僅輸出
-> "<完成訊息>"。**直接執行即可，不要外加 `> $CLAUDE_JOB_DIR/foo.log 2>&1` 捕捉**——
-> 失敗時 Read `$REVIEW_DIR/<name>.log` 即可看完整錯誤。
+> **Execution note**: the script writes stderr to `$REVIEW_DIR/<name>.log`; stdout outputs
+> only "<completion message>". **Run directly — do not append `> $CLAUDE_JOB_DIR/foo.log 2>&1`** —
+> Read `$REVIEW_DIR/<name>.log` on failure to see the full error.
 
 \`\`\`bash
 bash ~/.agents/skills/<skill>/scripts/<name>.sh
 \`\`\`
 ```
 
-**適用條件**：script 同時滿足以下三點時才需要此 hint：
+**Applies when** the script meets all three conditions:
 
-1. stderr 已重導向到固定路徑的 log 檔（非 stdout）
-2. stdout 只輸出一行「完成」訊息（沒有 agent 需要讀取的診斷輸出）
-3. 在 background session 流程中執行（harness 會自動附加 log capture）
+1. stderr is redirected to a fixed log file path (not stdout)
+2. stdout outputs only a single "done" message (no diagnostic output the agent needs to read)
+3. Runs in a background session flow (harness automatically appends log capture)
 
 ## Spec and SKILL.md behavioral guards must stay in sync
 
@@ -362,3 +412,66 @@ Example from harness-eval D5 (PR #83): in one commit the EG-* sub-item in SKILL.
 tightened to require "at least 2 distinct EG categories" but spec.md's decision table was
 not updated to match. Mob review round 4 caught the divergence and synced spec.md to reflect
 the constraint.
+
+## MCP Call Failure Gates: Concrete Examples
+
+General rule in `~/.claude/CLAUDE.md`: "Each external call (MCP tool, bash CLI) must have an
+explicit `[FAIL]` stop condition with a clear error message."
+The following shows the common missing-gate pattern in SKILL.md and the correct form:
+
+```markdown
+<!-- Wrong: no failure gate after MCP call; tool error silently continues -->
+Call `mcp__claude_ai_Atlassian__getTransitionsForJiraIssue`
+(`issueId`: `{{jira_issue_key}}`) to get the transition list.
+
+Pick the option closest to "done"...
+
+<!-- Correct: add failure condition immediately after each MCP call -->
+Call `mcp__claude_ai_Atlassian__getTransitionsForJiraIssue`
+(`issueId`: `{{jira_issue_key}}`) to get the transition list.
+If the call fails, stop and report the error to the user.
+
+Pick the option closest to "done"...
+```
+
+**Scope**: all MCP tool calls, including read-only queries (`get*`, `list*`, `search*`) —
+a query failure does not mean "no results"; it may be an auth error or connection issue.
+Without a gate, the agent continues with empty results and downstream steps silently drift.
+
+**Parallel call failure gates**: when multiple MCP calls are dispatched simultaneously,
+each call's failure must be reported independently:
+
+```markdown
+<!-- Wrong: dispatched in parallel with no per-call failure condition stated -->
+Send in parallel:
+- `mcp__...__transitionJiraIssue`
+- `mcp__...__addCommentToJiraIssue`
+
+<!-- Correct: explicitly state that either failure must be reported -->
+Send in parallel (no dependency); **either failure must be reported
+and must not be silently ignored**:
+- `mcp__...__transitionJiraIssue`
+- `mcp__...__addCommentToJiraIssue`
+```
+
+## MD013 Line-Length Validation for Translation PRs
+
+Chinese prose translated to English consistently produces longer lines
+(~30 CJK characters → 60+ English characters), frequently exceeding the MD013 200-character
+limit. Translation PRs tend to accumulate many MD013 violations that are invisible until CI runs.
+
+**Run this after translating, before committing**:
+
+```bash
+uv run pre-commit run markdownlint-cli2 --files plugins/<plugin>/skills/<name>/SKILL.md
+```
+
+Preferred line-break positions (in priority order):
+
+1. After a period (`.`)
+2. After a semicolon (`;`) or dash (`—` / `--`)
+3. Before a conjunction (`and`, `or`, `when`, `if`)
+4. Before an opening parenthesis
+
+MD013 exempts table rows and code block lines (`tables: false`, `code_blocks: false`) —
+only pure prose lines need to stay within 200 characters.
