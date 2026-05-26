@@ -4,6 +4,7 @@
 
 ### Features
 
+- rename `session-memory` → `mycelium`：package、skill、CLI 與所有引用全改；`~/.agents/` runtime 路徑與 DB schema 不變（向後相容）
 - add bash-hygiene audit log: per-project JSONL log with enable/disable toggle, analysis CLI (show/stats/status), and fail-safe hook instrumentation for AP1/AP2/smart-fix (#32)
 
 ## [1.2.2] - 2026-05-19

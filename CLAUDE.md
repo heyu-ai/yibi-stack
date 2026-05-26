@@ -45,7 +45,7 @@ scripts/  → CI/lint 工具腳本
 ```
 
 - **`skills/`** — Agent 的執行介面，每個 skill 有獨立的 `SKILL.md` runbook
-  - **可執行 skill**：有對應的 `tasks/` Python 實作（如 session-memory、scheduler）
+  - **可執行 skill**：有對應的 `tasks/` Python 實作（如 mycelium、scheduler）
   - **知識型 skill**：純 Markdown 方法論指引（如 tdd-kentbeck、qa-test-design）
 - **`tasks/`** — 實作細節，包含 CLI entry point、設定模型、服務邏輯；`tasks/*/skill.md` 為開發者參考文件
 - **`plugins/`** — Claude Code plugin packs（7 個）：bash-hygiene / sdd / growth / pr-flow / 3rd-tools / tdd / util

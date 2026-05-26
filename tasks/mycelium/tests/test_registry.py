@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tasks.session_memory.registry import AccountRegistry
+from tasks.mycelium.registry import AccountRegistry
 
 
 class TestAccountRegistry:

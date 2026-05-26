@@ -26,13 +26,13 @@ yibi-stack/
 │   │   ├── __main__.py
 │   │   ├── cli.py                   → uv run python -m tasks.scheduler tick
 │   │   └── prompts/                 → Claude skill 排程的 prompt 檔
-│   └── session_memory/              → 交班記錄讀寫
+│   └── mycelium/              → 交班記錄讀寫
 │       ├── __main__.py
-│       └── cli.py                   → uv run python -m tasks.session_memory
+│       └── cli.py                   → uv run python -m tasks.mycelium
 │
 ├── plugins/                         → Claude Code plugin packs（可透過 claude plugin install 安裝）
 │   ├── bash-hygiene/                → Bash 衛生工具（AP1/AP2 lint + protect-push hook）
-│   ├── growth/                      → 成長工具（session-memory、scheduler skills）
+│   ├── growth/                      → 成長工具（mycelium、scheduler skills）
 │   ├── pr-flow/                     → PR 流程工具（review cycle、mob review）
 │   ├── sdd/                         → Subagent Driven Development 方法論
 │   ├── tdd/                         → TDD 方法論（Kent Beck style）

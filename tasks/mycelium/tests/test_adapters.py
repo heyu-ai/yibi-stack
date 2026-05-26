@@ -6,10 +6,10 @@ import base64
 import json
 from pathlib import Path
 
-from tasks.session_memory.adapters.claude import ClaudeAccountAdapter
-from tasks.session_memory.adapters.codex import CodexAccountAdapter
-from tasks.session_memory.adapters.gemini import GeminiAccountAdapter
-from tasks.session_memory.registry import AccountRegistry
+from tasks.mycelium.adapters.claude import ClaudeAccountAdapter
+from tasks.mycelium.adapters.codex import CodexAccountAdapter
+from tasks.mycelium.adapters.gemini import GeminiAccountAdapter
+from tasks.mycelium.registry import AccountRegistry
 
 
 def _write_google_accounts(path: Path, active: str | None) -> None:

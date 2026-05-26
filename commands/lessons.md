@@ -44,7 +44,7 @@ fi
 
 ```bash
 uv run --directory "$SKILL_REPO" \
-  python -m tasks.session_memory lessons show \
+  python -m tasks.mycelium lessons show \
   --project "$PROJECT" --last 15 --include-legacy
 ```
 
@@ -62,7 +62,7 @@ uv run --directory "$SKILL_REPO" \
 依推斷的 filter，組合以下指令（`$KEYWORD` 替換為實際搜尋詞，可選 flag 視推斷結果加入）：
 
 ```text
-uv run --directory "$SKILL_REPO" python -m tasks.session_memory lessons search \
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons search \
   <KEYWORD> --project "$PROJECT" --last 10 --include-legacy \
   [可選：--type pitfall] [可選：--trusted-only] [可選：--cross-project]
 ```
@@ -89,7 +89,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.session_memory lessons search \
 
 ```bash
 uv run --directory "$SKILL_REPO" \
-  python -m tasks.session_memory lessons add \
+  python -m tasks.mycelium lessons add \
   --type "$TYPE" --key "$KEY" --insight "$INSIGHT" \
   --confidence "$CONFIDENCE" --source "$SOURCE" \
   --project "$PROJECT"

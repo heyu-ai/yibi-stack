@@ -7,8 +7,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from tasks.session_memory.db import AgentsDB
-from tasks.session_memory.models import (
+from tasks.mycelium.db import AgentsDB
+from tasks.mycelium.models import (
     EventType,
     HandoverEvent,
     HandoverRecord,

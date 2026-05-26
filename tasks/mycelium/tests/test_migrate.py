@@ -6,8 +6,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-from tasks.session_memory.db import AgentsDB
-from tasks.session_memory.migrate import migrate_handover, migrate_insights
+from tasks.mycelium.db import AgentsDB
+from tasks.mycelium.migrate import migrate_handover, migrate_insights
 
 
 def _create_legacy_db(path: Path) -> None:

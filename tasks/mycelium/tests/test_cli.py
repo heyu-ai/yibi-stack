@@ -7,7 +7,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from tasks.session_memory.cli import cli
+from tasks.mycelium.cli import cli
 
 
 class TestLinkClaude:

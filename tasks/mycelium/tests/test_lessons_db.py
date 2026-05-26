@@ -6,8 +6,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from tasks.session_memory.db import AgentsDB
-from tasks.session_memory.models import LessonRecord, LessonSource, LessonType
+from tasks.mycelium.db import AgentsDB
+from tasks.mycelium.models import LessonRecord, LessonSource, LessonType
 
 
 class TestLessonsTableSchema:

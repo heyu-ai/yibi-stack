@@ -20,7 +20,7 @@ from typing import Any
 from .models import RecapRecord
 
 # settings.json 中用於比對冪等的特徵字串
-_HOOK_COMMAND_MARKER = "tasks.session_memory recap collect"
+_HOOK_COMMAND_MARKER = "tasks.mycelium recap collect"
 
 
 def run_hook(
@@ -202,6 +202,6 @@ def uninstall_hook(settings_path: Path | None = None) -> tuple[bool, str]:
 
 
 def _default_hook_command() -> str:
-    """回傳預設 hook command（tasks.session_memory recap collect）。"""
+    """回傳預設 hook command（tasks.mycelium recap collect）。"""
     repo_root = Path(__file__).resolve().parents[2]
-    return f"uv run --project {repo_root} python -m tasks.session_memory recap collect"
+    return f"uv run --project {repo_root} python -m tasks.mycelium recap collect"

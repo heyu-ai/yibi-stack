@@ -66,8 +66,8 @@ if [ -f "$STATE_FILE" ]; then
                 SESSION_ID_ENV="$SESSION_ID" MATCHER_ENV="$MATCHER" \
                 uv run python -c "
 import os
-from tasks.session_memory.metrics_service import log_event
-from tasks.session_memory.models import EventType, SourceLayer
+from tasks.mycelium.metrics_service import log_event
+from tasks.mycelium.models import EventType, SourceLayer
 log_event(EventType.layer2_stale_reset, session_id=os.environ.get('SESSION_ID_ENV') or None,
     source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
 "
@@ -86,8 +86,8 @@ if [ -f "$STATE_FILE" ]; then
         SESSION_ID_ENV="$SESSION_ID" MATCHER_ENV="$MATCHER" \
         uv run python -c "
 import os
-from tasks.session_memory.metrics_service import log_event
-from tasks.session_memory.models import EventType, SourceLayer
+from tasks.mycelium.metrics_service import log_event
+from tasks.mycelium.models import EventType, SourceLayer
 log_event(EventType.layer2_passthrough, session_id=os.environ.get('SESSION_ID_ENV') or None,
     source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
 "
@@ -104,8 +104,8 @@ touch "$STATE_FILE"
     SESSION_ID_ENV="$SESSION_ID" MATCHER_ENV="$MATCHER" \
     uv run python -c "
 import os
-from tasks.session_memory.metrics_service import log_event
-from tasks.session_memory.models import EventType, SourceLayer
+from tasks.mycelium.metrics_service import log_event
+from tasks.mycelium.models import EventType, SourceLayer
 log_event(EventType.layer2_intercept, session_id=os.environ.get('SESSION_ID_ENV') or None,
     source_layer=SourceLayer.layer2, matcher=os.environ.get('MATCHER_ENV') or None)
 "

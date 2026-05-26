@@ -6,7 +6,7 @@
 
 ```bash
 git rev-parse --show-toplevel
-[ -f ~/.agents/handover/handover.db ] || echo '[WARN] DB 不存在，請先跑 uv run python -m tasks.session_memory init'
+[ -f ~/.agents/handover/handover.db ] || echo '[WARN] DB 不存在，請先跑 uv run python -m tasks.mycelium init'
 if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
 if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
@@ -36,7 +36,7 @@ if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目
 REAL_WORKDIR=$(pwd)
 PROJECT=$(basename "$REAL_WORKDIR")
 uv run --directory "$SKILL_REPO" \
-  python -m tasks.session_memory handover write \
+  python -m tasks.mycelium handover write \
   --workdir "$REAL_WORKDIR" \
   --project "$PROJECT" \
   --session-type {{session_type}} \
@@ -60,7 +60,7 @@ if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Pat
 if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
 uv run --directory "$SKILL_REPO" \
-  python -m tasks.session_memory handover read --last 1
+  python -m tasks.mycelium handover read --last 1
 ```
 
 輸出最新一筆確認寫入成功。

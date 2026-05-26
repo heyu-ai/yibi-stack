@@ -9,9 +9,9 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from tasks.session_memory.cli import cli
-from tasks.session_memory.db import AgentsDB
-from tasks.session_memory.lessons_service import (
+from tasks.mycelium.cli import cli
+from tasks.mycelium.db import AgentsDB
+from tasks.mycelium.lessons_service import (
     _apply_decay,
     add_lesson,
     search_lessons,
@@ -19,7 +19,7 @@ from tasks.session_memory.lessons_service import (
     show_lessons,
     show_lessons_typed,
 )
-from tasks.session_memory.models import HandoverRecord, LessonSource, LessonType, SessionType
+from tasks.mycelium.models import HandoverRecord, LessonSource, LessonType, SessionType
 
 
 def make_record(**overrides: object) -> HandoverRecord:
@@ -473,7 +473,7 @@ class TestLessonsCLI:
     def test_lesson_cli_dt_001_show_empty_outputs_placeholder(self) -> None:
         """LESSON-CLI-DT-001：無教訓時顯示占位訊息。"""
         runner = CliRunner()
-        with patch("tasks.session_memory.lessons_service.show_lessons", return_value=[]):
+        with patch("tasks.mycelium.lessons_service.show_lessons", return_value=[]):
             result = runner.invoke(cli, ["lessons", "show"])
         assert result.exit_code == 0
         assert "尚無教訓記錄" in result.output
@@ -490,7 +490,7 @@ class TestLessonsCLI:
             }
         ]
         runner = CliRunner()
-        with patch("tasks.session_memory.lessons_service.show_lessons", return_value=sample):
+        with patch("tasks.mycelium.lessons_service.show_lessons", return_value=sample):
             result = runner.invoke(cli, ["lessons", "show", "--json"])
         assert result.exit_code == 0
         parsed = json.loads(result.output)
@@ -500,7 +500,7 @@ class TestLessonsCLI:
     def test_lesson_cli_dt_003_search_no_match_outputs_placeholder(self) -> None:
         """LESSON-CLI-DT-003：search 無匹配時顯示占位訊息。"""
         runner = CliRunner()
-        with patch("tasks.session_memory.lessons_service.search_lessons", return_value=[]):
+        with patch("tasks.mycelium.lessons_service.search_lessons", return_value=[]):
             result = runner.invoke(cli, ["lessons", "search", "xyz"])
         assert result.exit_code == 0
         assert "無符合" in result.output
@@ -517,7 +517,7 @@ class TestLessonsCLI:
             }
         ]
         runner = CliRunner()
-        with patch("tasks.session_memory.lessons_service.search_lessons", return_value=sample):
+        with patch("tasks.mycelium.lessons_service.search_lessons", return_value=sample):
             result = runner.invoke(cli, ["lessons", "search", "nom"])
         assert result.exit_code == 0
         assert "nom 很穩" in result.output
@@ -526,9 +526,7 @@ class TestLessonsCLI:
     def test_lesson_cli_eg_001_show_with_insights_flag(self) -> None:
         """LESSON-CLI-EG-001：--insights 旗標正確傳遞 include_insights=True。"""
         runner = CliRunner()
-        with patch(
-            "tasks.session_memory.lessons_service.show_lessons", return_value=[]
-        ) as mock_show:
+        with patch("tasks.mycelium.lessons_service.show_lessons", return_value=[]) as mock_show:
             runner.invoke(cli, ["lessons", "show", "--insights"])
         mock_show.assert_called_once()
         assert mock_show.call_args.kwargs.get("include_insights") is True
@@ -542,7 +540,7 @@ class TestLessonsAddCLI:
         db_path = tmp_path / "test.db"
         runner = CliRunner()
         with patch(
-            "tasks.session_memory.lessons_service.add_lesson",
+            "tasks.mycelium.lessons_service.add_lesson",
             side_effect=lambda data: add_lesson(data, db_path=db_path),
         ):
             result = runner.invoke(
@@ -589,7 +587,7 @@ class TestLessonsAddCLI:
         with (
             patch("subprocess.run", return_value=fake_result),
             patch(
-                "tasks.session_memory.lessons_service.add_lesson",
+                "tasks.mycelium.lessons_service.add_lesson",
                 side_effect=capture_add,
             ),
         ):
@@ -631,7 +629,7 @@ class TestLessonsAddCLI:
         with (
             patch("subprocess.run", return_value=fake_result),
             patch(
-                "tasks.session_memory.lessons_service.add_lesson",
+                "tasks.mycelium.lessons_service.add_lesson",
                 side_effect=capture_add,
             ),
         ):
