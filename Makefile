@@ -66,7 +66,7 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
 		name=$$(basename $$s); \
-		if [ "$$name" = "_template" ]; then continue; fi; \
+		if [ "$$name" = "_template" ] || [ "$$name" = "openspec" ]; then continue; fi; \
 		skill_md="$(SKILL_DIR)/$$name/SKILL.md"; \
 		if [ ! -f "$$skill_md" ]; then \
 			echo "  [FAIL] $$name 缺少 SKILL.md"; exit 1; \
@@ -115,7 +115,7 @@ install-project: ## Install scope=project skills（本 repo 限定，ainization-
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
 		name=$$(basename $$s); \
-		if [ "$$name" = "_template" ]; then continue; fi; \
+		if [ "$$name" = "_template" ] || [ "$$name" = "openspec" ]; then continue; fi; \
 		skill_md="$(SKILL_DIR)/$$name/SKILL.md"; \
 		if [ ! -f "$$skill_md" ]; then \
 			echo "  [FAIL] $$name 缺少 SKILL.md"; exit 1; \
