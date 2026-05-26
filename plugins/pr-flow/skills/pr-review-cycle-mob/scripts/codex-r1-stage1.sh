@@ -13,8 +13,8 @@
 #   4. 獨立 script 只需 allow-list 一次（rule 16 安全 pattern：完整絕對路徑）
 #
 # 副作用：
-#   - codex-r1-raw.md 寫到 $WT_ROOT/.pr-review/
-#   - stderr log 寫到 $WT_ROOT/.pr-review/codex-r1.stage1.log
+#   - codex-r1-raw.md 寫到 $WT_ROOT/.pr-review/（codex 輸出走 stderr，故由 stderr 捕取）
+#   - codex-r1.stage1.log 為 raw.md 的 copy（保留相容路徑供 fallback 讀取）
 #
 # 退出碼：0 成功；非零失敗（每種失敗都附 [FAIL] stderr 訊息）。
 
@@ -39,12 +39,28 @@ if [ ! -d "$REVIEW_DIR" ]; then
     exit 1
 fi
 
-if ! codex review --base "$BASE_BRANCH" -c 'model_reasoning_effort="high"' \
-    2>"$REVIEW_DIR/codex-r1.stage1.log" \
-    | tee "$REVIEW_DIR/codex-r1-raw.md" > /dev/null; then
-    echo "[FAIL] codex review 失敗，請查看 $REVIEW_DIR/codex-r1.stage1.log" >&2
+# codex outputs review to stderr; stdout is progress UI noise.
+# git fetch writes the fetched SHA to FETCH_HEAD; use that instead of origin/<base>
+# to avoid stale local ref. Strip leading "origin/" if already qualified.
+# Strip leading "origin/" if already qualified to avoid "origin/origin/..." construction.
+FETCH_BRANCH="${BASE_BRANCH#origin/}"
+if ! git fetch origin "$FETCH_BRANCH" --quiet 2>/dev/null; then
+    echo "[FAIL] git fetch origin $FETCH_BRANCH 失敗，請確認 remote 連線" >&2
     exit 1
 fi
+if ! BASE_SHA=$(git rev-parse FETCH_HEAD 2>/dev/null); then
+    echo "[FAIL] git rev-parse FETCH_HEAD 失敗，請確認 base branch 存在" >&2
+    exit 1
+fi
+
+if ! codex review --base "$BASE_SHA" -c 'model_reasoning_effort="high"' \
+    > /dev/null \
+    2>"$REVIEW_DIR/codex-r1-raw.md"; then
+    echo "[FAIL] codex review 失敗，請查看 $REVIEW_DIR/codex-r1-raw.md" >&2
+    exit 1
+fi
+
+cp "$REVIEW_DIR/codex-r1-raw.md" "$REVIEW_DIR/codex-r1.stage1.log"
 
 if [ ! -s "$REVIEW_DIR/codex-r1-raw.md" ]; then
     echo "[FAIL] codex-r1-raw.md 空白，Stage 1 輸出異常" >&2

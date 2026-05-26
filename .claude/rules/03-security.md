@@ -71,3 +71,22 @@ findings.append(check_dangerous_commands())
 if not gitignore_ok:
     return MechanicalFinding(score=0, findings=["WARN: no .gitignore"])
 ```
+
+## Injection Pattern Regex: Use `\s+` Not Literal Space
+
+When writing regex patterns to detect injection payloads, use `\s+` instead of
+literal space between words. A literal space only matches ` ` (U+0020); `\s+`
+matches any whitespace including `\n`, `\t`, and multiple spaces — necessary to
+block multi-line payloads where words are newline-separated.
+
+```python
+# Wrong: "do not\nreport findings" bypasses this pattern
+re.compile(r"do not (report|flag|mention)", re.IGNORECASE)
+
+# Correct: \s+ matches space, tab, newline — blocks multi-line payloads
+re.compile(r"do\s+not\s+(report|flag|mention)", re.IGNORECASE)
+```
+
+Note: `re.DOTALL` only changes `.` (dot) behavior — it does **not** make literal
+spaces match newlines. Both `re.DOTALL` (for `.*`-based patterns) AND `\s+` (for
+space-separated multi-word patterns) are needed for comprehensive coverage.

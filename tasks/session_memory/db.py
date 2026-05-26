@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import HANDOVER_DB_PATH
-from .models import EventType, HandoverEvent, HandoverRecord, SessionType
+from .models import EventType, HandoverEvent, HandoverRecord, LessonRecord, SessionType
 
 _JSON_ARRAY_COLS = (
     "completed",
@@ -109,6 +109,37 @@ class AgentsDB:
               ON handover_events(session_id, timestamp);
             CREATE INDEX IF NOT EXISTS idx_events_type
               ON handover_events(event_type);
+
+            CREATE TABLE IF NOT EXISTS lessons (
+              id          TEXT PRIMARY KEY,
+              ts          TEXT NOT NULL,
+              project     TEXT NOT NULL,
+              skill       TEXT,
+              type        TEXT NOT NULL
+                          CHECK(type IN (
+                              'pattern','pitfall','preference',
+                              'architecture','tool',
+                              'operational','investigation')),
+              key         TEXT NOT NULL
+                          CHECK(key GLOB '*' AND key NOT GLOB '* *'),
+              insight     TEXT NOT NULL,
+              confidence  INTEGER NOT NULL CHECK(confidence BETWEEN 1 AND 10),
+              source      TEXT NOT NULL
+                          CHECK(source IN ('observed','user-stated','inferred','cross-model')),
+              trusted     INTEGER NOT NULL DEFAULT 0,
+              files       TEXT NOT NULL DEFAULT '[]',
+              handover_id TEXT,
+              retro_pr    INTEGER,
+              device      TEXT,
+              agent_type  TEXT NOT NULL DEFAULT 'claude'
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_lessons_proj_ts
+              ON lessons(project, ts DESC);
+            CREATE INDEX IF NOT EXISTS idx_lessons_proj_type
+              ON lessons(project, type);
+            CREATE INDEX IF NOT EXISTS idx_lessons_proj_key
+              ON lessons(project, key, type);
             """
         )
         self.conn.commit()
@@ -280,6 +311,143 @@ class AgentsDB:
             result.append(d)
         return result
 
+    def insert_lesson(self, record: LessonRecord) -> None:
+        """寫入一筆 typed lesson；`id` 衝突時 raise sqlite3.IntegrityError。"""
+        self.conn.execute(
+            """
+            INSERT INTO lessons (
+              id, ts, project, skill, type, key, insight, confidence,
+              source, trusted, files, handover_id, retro_pr, device, agent_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.id,
+                record.ts,
+                record.project,
+                record.skill,
+                record.type.value,
+                record.key,
+                record.insight,
+                record.confidence,
+                record.source.value,
+                int(record.trusted),
+                json.dumps(record.files, ensure_ascii=False),
+                record.handover_id,
+                record.retro_pr,
+                record.device,
+                record.agent_type,
+            ),
+        )
+        self.conn.commit()
+
+    def query_lessons_typed(
+        self,
+        project: str | None = None,
+        lesson_type: str | None = None,
+        source: str | None = None,
+        min_confidence: int = 1,
+        trusted_only: bool = False,
+        cross_project: bool = False,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """查詢 typed lessons table，支援 type / source / confidence / trusted 過濾。
+
+        cross_project=True 時忽略 project 限制，但只回傳 trusted=True 的記錄。
+        """
+        if limit <= 0:
+            raise ValueError("limit 必須為正整數")
+
+        conditions: list[str] = []
+        params: list[object] = []
+
+        if cross_project:
+            conditions.append("trusted = 1")
+        elif project:
+            conditions.append("project = ?")
+            params.append(project)
+
+        if lesson_type:
+            conditions.append("type = ?")
+            params.append(lesson_type)
+
+        if source:
+            conditions.append("source = ?")
+            params.append(source)
+
+        if min_confidence > 1:
+            conditions.append("confidence >= ?")
+            params.append(min_confidence)
+
+        if trusted_only:
+            conditions.append("trusted = 1")
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
+        sql = f"SELECT * FROM lessons {where} ORDER BY ts DESC LIMIT ?"  # nosec B608
+        params.append(limit)
+
+        cur = self.conn.execute(sql, params)
+        return [_decode_lesson_row(row) for row in cur.fetchall()]
+
+    def search_lessons_typed(
+        self,
+        query: str,
+        project: str | None = None,
+        lesson_type: str | None = None,
+        source: str | None = None,
+        min_confidence: int = 1,
+        trusted_only: bool = False,
+        cross_project: bool = False,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """在 typed lessons 的 key、insight、files 欄位做 case-insensitive 搜尋。
+
+        lesson_type、source、min_confidence、trusted_only、cross_project 等 filter
+        全部在 SQL WHERE 子句套用，不在 Python 層後處理。
+        """
+        if limit <= 0:
+            raise ValueError("limit 必須為正整數")
+
+        conditions: list[str] = []
+        params: list[object] = []
+
+        if query:
+            safe_query = _escape_like(query.lower())
+            like = f"%{safe_query}%"
+            conditions.append(
+                "(LOWER(key) LIKE ? ESCAPE '\\'"
+                " OR LOWER(insight) LIKE ? ESCAPE '\\'"
+                " OR LOWER(files) LIKE ? ESCAPE '\\')"
+            )
+            params.extend([like, like, like])
+
+        if cross_project:
+            conditions.append("trusted = 1")
+        elif project:
+            conditions.append("project = ?")
+            params.append(project)
+
+        if lesson_type:
+            conditions.append("type = ?")
+            params.append(lesson_type)
+
+        if source:
+            conditions.append("source = ?")
+            params.append(source)
+
+        if min_confidence > 1:
+            conditions.append("confidence >= ?")
+            params.append(min_confidence)
+
+        if trusted_only:
+            conditions.append("trusted = 1")
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
+        sql = f"SELECT * FROM lessons {where} ORDER BY ts DESC LIMIT ?"  # nosec B608
+        params.append(limit)
+
+        cur = self.conn.execute(sql, params)
+        return [_decode_lesson_row(row) for row in cur.fetchall()]
+
     def count(self) -> int:
         """回傳總筆數（migrate 驗證用）。"""
         cur = self.conn.execute("SELECT COUNT(*) AS c FROM handovers")
@@ -421,6 +589,25 @@ def _decode_row(row: sqlite3.Row) -> dict[str, Any]:
                 out[col] = json.loads(out[col])
             except json.JSONDecodeError:
                 out[col] = []
+    return out
+
+
+def _decode_lesson_row(row: sqlite3.Row) -> dict[str, Any]:
+    """把 lessons 的 sqlite3.Row 轉成 dict，files 欄位 decode 回 list。"""
+    out = dict(row)
+    raw = out.get("files", "[]")
+    if isinstance(raw, str):
+        try:
+            out["files"] = json.loads(raw)
+        except json.JSONDecodeError:
+            import sys
+
+            print(
+                f"[WARN] lesson id={out.get('id', '?')} files 欄位 JSON 損壞，reset 為 []",
+                file=sys.stderr,
+            )
+            out["files"] = []
+    out["trusted"] = bool(out.get("trusted", 0))
     return out
 
 

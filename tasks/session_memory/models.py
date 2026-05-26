@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import re
+import uuid
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -22,6 +24,83 @@ def _validate_iso_timestamp(v: str) -> str:
     except ValueError as e:
         raise ValueError(f"timestamp 必須為 ISO 8601 格式：{v!r}") from e
     return v
+
+
+class LessonType(StrEnum):
+    """教訓分類（7 值）。"""
+
+    pattern = "pattern"
+    pitfall = "pitfall"
+    preference = "preference"
+    architecture = "architecture"
+    tool = "tool"
+    operational = "operational"
+    investigation = "investigation"
+
+
+class LessonSource(StrEnum):
+    """教訓來源（4 值）；user-stated 自動設 trusted=True。"""
+
+    observed = "observed"
+    user_stated = "user-stated"
+    inferred = "inferred"
+    cross_model = "cross-model"
+
+
+_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _default_utc_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+class LessonRecord(BaseModel):
+    """單筆 typed lesson 記錄；對應 lessons SQLite table。"""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    ts: str = Field(default_factory=_default_utc_now)
+    project: str
+    skill: str | None = None
+    type: LessonType
+    key: str
+    insight: str
+    confidence: int = Field(ge=1, le=10)
+    source: LessonSource
+    trusted: bool = False
+    files: list[str] = Field(default_factory=list)
+    handover_id: str | None = None
+    retro_pr: int | None = None
+    device: str | None = None
+    agent_type: str = "claude"
+
+    @field_validator("ts")
+    @classmethod
+    def check_ts_iso(cls, v: str) -> str:
+        return _validate_iso_timestamp(v)
+
+    @field_validator("key")
+    @classmethod
+    def check_key_format(cls, v: str) -> str:
+        if not _KEY_PATTERN.match(v):
+            raise ValueError(f"key 只允許英數字、底線與連字號：{v!r}")
+        return v
+
+    @field_validator("insight")
+    @classmethod
+    def check_no_injection(cls, v: str) -> str:
+        if len(v) < 10:
+            raise ValueError("insight 至少需要 10 個字元")
+        from .lessons_service import INJECTION_PATTERNS
+
+        for pat in INJECTION_PATTERNS:
+            if pat.search(v):
+                raise ValueError(f"insight 含有禁止的注入模式：{v[:60]!r}")
+        return v
+
+    @model_validator(mode="after")
+    def _set_trusted(self) -> LessonRecord:
+        self.trusted = self.source == LessonSource.user_stated
+        return self
 
 
 class SessionType(StrEnum):
