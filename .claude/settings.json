@@ -50,6 +50,12 @@
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/post-edit-mypy.sh",
             "statusMessage": "mypy 型別檢查...",
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/post-write-markdownlint.sh",
+            "statusMessage": "markdownlint 驗證...",
+            "timeout": 30
           }
         ]
       }
