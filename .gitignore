@@ -265,3 +265,5 @@ skills/CLAUDE.md
 skills/GEMINI.md
 skills/openspec/
 experiments/
+.claude/commands/
+openspec/config.yaml
