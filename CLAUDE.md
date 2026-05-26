@@ -27,6 +27,22 @@ discuss? → propose → apply ⇄ ingest → archive
 Changes can be parked（暫存）— temporarily moved out of `openspec/changes/`. Parked changes won't appear in `spectra list` but can be found with `spectra list --parked`.
 To restore: `spectra unpark <name>`. The `/spectra-apply` and `/spectra-ingest` skills handle parked changes automatically.
 
+## Commit Message Convention
+
+執行 `/spectra-commit`（以及任何需要 multi-line commit message 的 skill）時：
+
+- **單行 message**：直接 `git commit -m "type(scope): description"`
+- **多行 message**（含空行或多段落）：先用 Write tool 寫入 `$CLAUDE_JOB_DIR/commit_msg.txt`，再執行：
+
+  ```bash
+  git commit -F "$CLAUDE_JOB_DIR/commit_msg.txt"
+  rm -f "$CLAUDE_JOB_DIR/commit_msg.txt"
+  ```
+
+**不要**用 `git commit -m "$(cat <<'EOF' ... EOF)"`：外層 `"..."` 包 `$()`
+subshell 觸發 Claude Code parser `Unhandled node type: string`（Quoting Rule 2）；
+heredoc 讓命令跨多行，`Bash(git commit:*)` allow-list prefix 無法 match，每次跳 approval prompt。
+
 <!-- SPECTRA:END -->
 
 # yibi-stack

@@ -60,23 +60,18 @@ git diff --cached --stat
 
 ```bash
 git commit -m "fix(scope): 描述修復內容"
+# Multi-line message: write to $CLAUDE_JOB_DIR/commit_msg.txt with Write tool, then git commit -F
 git branch -vv  # 確認 upstream
 git push -u origin <branch>:<branch>
 ```
 
 ## Step 6: Create PR
 
-```bash
-gh pr create --title "fix(scope): 描述" --body "$(cat <<'EOF'
-## Summary
-- Root cause: <root cause 描述>
-- Fix: <修復方式>
+用 Write tool 把 PR body 寫到 `/tmp/pr-body.md`（避免 `"$(cat <<'EOF')"` 觸發 parser 錯誤），再執行：
 
-## Test plan
-- [ ] `uv run pytest` passes
-- [ ] Manual verification: <驗證步驟>
-EOF
-)"
+```bash
+gh pr create --title "fix(scope): 描述" --body-file /tmp/pr-body.md
+rm -f /tmp/pr-body.md
 ```
 
 回報 PR URL。

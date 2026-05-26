@@ -193,6 +193,9 @@ git add <files>
 git commit -m "..."
 ```
 
+> 多行 message：用 Write tool 寫到 `$CLAUDE_JOB_DIR/commit_msg.txt`，再 `git commit -F`。
+> 不要用 `"$(cat <<'EOF')"` —— 外層 `"..."` 包 `$()` 觸發 Quoting Rule 2；heredoc 讓命令跨多行，allow-list 無法 match。
+
 ```bash
 git push -u origin HEAD
 ```
