@@ -75,7 +75,7 @@ if not gitignore_ok:
 ## Injection Pattern Regex: Use `\s+` Not Literal Space
 
 When writing regex patterns to detect injection payloads, use `\s+` instead of
-literal space between words. A literal space only matches ` ` (U+0020); `\s+`
+literal space between words. A literal space only matches `" "` (U+0020); `\s+`
 matches any whitespace including `\n`, `\t`, and multiple spaces — necessary to
 block multi-line payloads where words are newline-separated.
 
