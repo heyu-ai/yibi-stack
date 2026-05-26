@@ -46,7 +46,7 @@ def detect_account(agent_type: str = "claude", warn: bool = True) -> str:
     # 層 4：unknown
     if warn:
         print(
-            "[agents] AGENT_ACCOUNT 未設定、adapter 無法偵測、"
+            "[mycelium] AGENT_ACCOUNT 未設定、adapter 無法偵測、"
             "config.json 無 default_account，記錄為 unknown。"
             "\n  設定方式：export AGENT_ACCOUNT=<your-account>"
             "\n  或執行：uv run python -m tasks.mycelium account link-claude",

@@ -16,22 +16,32 @@ def install_stop_hook(
 ) -> tuple[bool, str]:
     """把 Stop hook 註冊到 ~/.claude/settings.json。
 
-    回傳 (is_new, message)。is_new=True 表示新增；False 表示已存在跳過。
-    legacy_markers 用於相容 rename 前的舊 hook command 字串，防止重複安裝。
+    回傳 (is_new, message)。is_new=True 表示新增或升級；False 表示已是最新版跳過。
+    legacy_markers：偵測到舊版 command 時就地升級為新版，避免 rename 後舊 hook 失效。
     """
     path = settings_path or (Path.home() / ".claude" / "settings.json")
 
-    all_markers = [marker] + (legacy_markers or [])
     settings = read_settings(path)
     hooks = settings.setdefault("hooks", {})
     stop_hooks = hooks.setdefault("Stop", [])
 
+    # 1. 已是最新 marker → 跳過
     for entry in stop_hooks:
         for h in entry.get("hooks", []):
-            cmd = h.get("command", "")
-            if any(m in cmd for m in all_markers):
+            if marker in h.get("command", ""):
                 return False, f"{hook_label} hook 已註冊，跳過"
 
+    # 2. 找到 legacy marker → 就地升級（避免舊 module path 失效）
+    if legacy_markers:
+        for entry in stop_hooks:
+            for h in entry.get("hooks", []):
+                cmd = h.get("command", "")
+                if any(m in cmd for m in legacy_markers):
+                    h["command"] = hook_command
+                    write_settings(path, settings)
+                    return True, f"{hook_label} hook 已從舊版升級：{hook_command}"
+
+    # 3. 全新安裝
     stop_hooks.append(
         {
             "matcher": "",

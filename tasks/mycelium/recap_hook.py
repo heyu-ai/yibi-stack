@@ -36,19 +36,19 @@ def run_hook(
         from .account import detect_account, detect_device
         from .config import RECAP_JSONL_PATH, to_portable_path
     except Exception as e:
-        print(f"[agents-recap] 模組載入失敗，跳過：{e}", file=sys.stderr)
+        print(f"[mycelium-recap] 模組載入失敗，跳過：{e}", file=sys.stderr)
         return 0
 
     try:
         raw = stdin_text if stdin_text is not None else sys.stdin.read()
     except OSError as e:
-        print(f"[agents-recap] 無法讀取 stdin：{e}", file=sys.stderr)
+        print(f"[mycelium-recap] 無法讀取 stdin：{e}", file=sys.stderr)
         return 0
 
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as e:
-        print(f"[agents-recap] hook payload JSON 解析失敗：{e}", file=sys.stderr)
+        print(f"[mycelium-recap] hook payload JSON 解析失敗：{e}", file=sys.stderr)
         return 0
 
     if payload.get("hook_event_name") != "Stop":
@@ -63,7 +63,7 @@ def run_hook(
     try:
         away_summaries = _extract_away_summaries(transcript_path)
     except Exception as e:
-        print(f"[agents-recap] transcript 解析失敗：{e}", file=sys.stderr)
+        print(f"[mycelium-recap] transcript 解析失敗：{e}", file=sys.stderr)
         return 0
 
     if not away_summaries:
@@ -82,7 +82,7 @@ def run_hook(
             if s.get("uuid") not in seen_uuids
         ]
     except Exception as e:
-        print(f"[agents-recap] 建立記錄失敗：{e}", file=sys.stderr)
+        print(f"[mycelium-recap] 建立記錄失敗：{e}", file=sys.stderr)
         return 0
 
     if not new_records:
@@ -94,7 +94,7 @@ def run_hook(
             for r in new_records:
                 fp.write(r.model_dump_json() + "\n")
     except Exception as e:
-        print(f"[agents-recap] 無法寫入 session-recap.jsonl：{e}", file=sys.stderr)
+        print(f"[mycelium-recap] 無法寫入 session-recap.jsonl：{e}", file=sys.stderr)
 
     return 0
 
@@ -117,7 +117,7 @@ def _extract_away_summaries(transcript_path: str) -> list[dict[str, Any]]:
                 results.append(entry)
     if decode_failures:
         print(
-            f"[agents-recap] transcript 中有 {decode_failures} 行 JSON 解析失敗",
+            f"[mycelium-recap] transcript 中有 {decode_failures} 行 JSON 解析失敗",
             file=sys.stderr,
         )
     return results

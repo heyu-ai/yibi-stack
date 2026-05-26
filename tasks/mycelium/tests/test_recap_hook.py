@@ -327,9 +327,10 @@ class TestUninstallHook:
         removed, _ = uninstall_hook(settings_path=settings)
         assert removed is False
 
-    def test_recap_eg_041_install_idempotent_with_legacy_marker(self, tmp_path: Path) -> None:
-        """RECAP-EG-041: settings.json 已有舊版 session_memory marker 時 install 不重複新增。"""
+    def test_recap_eg_041_install_upgrades_legacy_marker(self, tmp_path: Path) -> None:
+        """RECAP-EG-041: settings.json 已有舊版 session_memory marker 時，install 就地升級為新版。"""
         settings = tmp_path / "settings.json"
+        new_cmd = "x tasks.mycelium recap collect"
         settings.write_text(
             json.dumps(
                 {
@@ -350,11 +351,14 @@ class TestUninstallHook:
             ),
             encoding="utf-8",
         )
-        is_new, _ = install_hook(settings_path=settings, hook_command="x tasks.mycelium recap collect")
+        is_new, msg = install_hook(settings_path=settings, hook_command=new_cmd)
 
-        assert is_new is False
+        assert is_new is True
+        assert "升級" in msg
         data = json.loads(settings.read_text(encoding="utf-8"))
         assert len(data["hooks"]["Stop"]) == 1
+        stored_cmd = data["hooks"]["Stop"][0]["hooks"][0]["command"]
+        assert stored_cmd == new_cmd
 
     def test_recap_eg_042_uninstall_removes_legacy_marker(self, tmp_path: Path) -> None:
         """RECAP-EG-042: uninstall 移除舊版 session_memory hook entry。"""

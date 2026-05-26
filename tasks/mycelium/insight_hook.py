@@ -43,12 +43,12 @@ def run_hook(
     try:
         raw = stdin_text if stdin_text is not None else sys.stdin.read()
     except OSError as e:
-        print(f"[agents-insight] 無法讀取 stdin：{e}", file=sys.stderr)
+        print(f"[mycelium-insight] 無法讀取 stdin：{e}", file=sys.stderr)
         return 0
     try:
         hook_input = json.loads(raw)
     except json.JSONDecodeError as e:
-        print(f"[agents-insight] hook payload JSON 解析失敗：{e}", file=sys.stderr)
+        print(f"[mycelium-insight] hook payload JSON 解析失敗：{e}", file=sys.stderr)
         return 0
 
     if hook_input.get("hook_event_name") != "Stop":
@@ -58,11 +58,11 @@ def run_hook(
     transcript_path = hook_input.get("transcript_path", "")
 
     if not transcript_path:
-        print("[agents-insight] Stop 事件未包含 transcript_path，跳過。", file=sys.stderr)
+        print("[mycelium-insight] Stop 事件未包含 transcript_path，跳過。", file=sys.stderr)
         return 0
 
     if not os.path.isfile(transcript_path):
-        print(f"[agents-insight] transcript 檔案不存在：{transcript_path}", file=sys.stderr)
+        print(f"[mycelium-insight] transcript 檔案不存在：{transcript_path}", file=sys.stderr)
         return 0
 
     session_id, working_dir, branch, project, text_blocks = _read_transcript(transcript_path)
@@ -100,7 +100,7 @@ def run_hook(
                 }
                 out.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception as e:
-        print(f"[agents-insight] 無法寫入 insights.jsonl：{e}", file=sys.stderr)
+        print(f"[mycelium-insight] 無法寫入 insights.jsonl：{e}", file=sys.stderr)
         return 0
 
     return 0
@@ -146,12 +146,12 @@ def _read_transcript(transcript_path: str) -> tuple[str, str, str, str, list[str
                             if text:
                                 text_blocks.append(text)
     except (OSError, UnicodeDecodeError) as e:
-        print(f"[agents-insight] 無法讀取 transcript：{transcript_path}: {e}", file=sys.stderr)
+        print(f"[mycelium-insight] 無法讀取 transcript：{transcript_path}: {e}", file=sys.stderr)
         return session_id, working_dir, branch, project, text_blocks
 
     if total_lines > 0 and decode_failures == total_lines:
         print(
-            f"[agents-insight] transcript 全部行解析失敗，可能格式不符：{transcript_path}",
+            f"[mycelium-insight] transcript 全部行解析失敗，可能格式不符：{transcript_path}",
             file=sys.stderr,
         )
 
