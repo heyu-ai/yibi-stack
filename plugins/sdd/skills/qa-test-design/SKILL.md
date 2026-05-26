@@ -3,369 +3,388 @@ name: qa-test-design
 type: know
 scope: global
 description: >
-  資深 QA 測試設計技術，運用結構化方法產生高品質 Test Case。適用情境：
-  用戶提到「幫我設計測試案例」、「寫 test case」、「分析測試範圍」、
-  「review AI 生成的 case」、「QA 測試設計」、「如何測試這個功能」時，
-  必須啟動此 Skill。能套用等價類別、邊界值分析、決策表、狀態轉移、
-  Pairwise 組合測試、風險導向測試六大技術，
-  並輸出結構化的 Test Case 表格與覆蓋率分析。
-  即使用戶只說「幫我想想怎麼測」「這個功能要注意什麼」「測試策略」
-  「幫我 review 這些 test case」也應觸發此 Skill。
-  當用戶貼上需求規格、User Story、AC、或 API 文件要求分析測試範圍時，
-  也必須觸發。
+  Senior QA test design techniques using structured methods to produce high-quality test cases.
+  Trigger contexts: user mentions "design test cases", "write test cases", "analyze test scope",
+  "review AI-generated cases", "QA test design", "how to test this feature".
+  Applies six core techniques: Equivalence Partitioning, Boundary Value Analysis, Decision Table,
+  State Transition, Pairwise Combinatorial Testing, and Risk-Based Testing.
+  Produces structured test case tables and coverage analysis.
+  Also triggers when user says "help me think through how to test this",
+  "what should I watch out for in this feature", "testing strategy",
+  "help me review these test cases".
+  Must trigger when user pastes a requirements spec, User Story, AC, or API doc
+  and asks for test scope analysis.
 ---
 
-# QA 測試設計 Skill
+# QA Test Design Skill
 
-## 核心理念
+## Core Philosophy
 
-> **不靠直覺猜 case，用結構化方法推導。**
+> **Don't guess test cases by instinct — derive them with structured methods.**
 
-AI 能快速生成大量 test case，但容易遺漏邊界與邏輯交叉情境。
-資深 QA 的價值在於：先用技術框架建立「過濾網」，再對照 AI 產出，
-找出哪些被覆蓋、哪些關鍵路徑根本沒想到。
+AI can quickly generate large numbers of test cases, but tends to miss boundary conditions
+and cross-logic scenarios.
+The value of a senior QA engineer is: first build a "filter" using technique frameworks,
+then compare against AI output — identifying what is covered and what critical paths were
+never considered.
 
 ---
 
-## 六大測試設計技術
+## Six Core Testing Techniques
 
-### 1. 等價類別（Equivalence Partitioning）
+### 1. Equivalence Partitioning
 
-**用途**：縮減測試量，避免重複測同性質的值。
+**Purpose**: Reduce test volume by avoiding repetitive testing of values with the same
+characteristics.
 
-**步驟**：
+**Steps**:
 
-1. 找出所有輸入欄位與環境條件
-2. 依「合法／非法」將值域切分為多個群組
-3. 每群取一個代表值
-4. 特別注意：空值、null、特殊字元、極端長度也是獨立的等價類
+1. Identify all input fields and environmental conditions
+2. Divide the value domain into groups by "valid / invalid"
+3. Select one representative value from each group
+4. Pay special attention: empty values, null, special characters, and extreme lengths
+   are each their own equivalence class
 
-**輸出格式**：
+**Output Format**:
 
 ```text
-| 欄位 | 類別名稱 | 合法/非法 | 值域描述 | 代表測資 | 預期結果 |
+| Field | Category | Valid/Invalid | Value Range | Sample Value | Expected Result |
 ```
 
-**適用情境**：表單驗證、API 參數、資料匯入、搜尋篩選條件
+**Applicable Scenarios**: form validation, API parameters, data imports, search filters
 
 ---
 
-### 2. 邊界值分析（Boundary Value Analysis）
+### 2. Boundary Value Analysis
 
-**用途**：找出「差一個就錯」的邊界 bug，通常與等價類別搭配使用。
+**Purpose**: Find "off-by-one" boundary bugs; usually used together with Equivalence
+Partitioning.
 
-**固定測試點公式**：
+**Fixed Test Points Formula**:
 
-- `下邊界 - 1`（剛好不合法）
-- `下邊界`（剛好合法）
-- `上邊界`（剛好合法）
-- `上邊界 + 1`（剛好不合法）
-- 若有中間限制，也要測 `mid - 1`, `mid`, `mid + 1`
+- `lower boundary - 1` (just invalid)
+- `lower boundary` (just valid)
+- `upper boundary` (just valid)
+- `upper boundary + 1` (just invalid)
+- If there is a midpoint constraint, also test `mid - 1`, `mid`, `mid + 1`
 
-**常見盲點提醒**：
+**Common Blind Spots**:
 
-- 日期邊界：月底/月初、閏年 2/29、跨年、跨時區
-- 數量邊界：0 個、1 個、剛好滿額、超過上限
-- 字串邊界：空字串、1 字元、最大長度、最大長度 + 1
-- 金額邊界：0 元、負數、小數精度（0.001 vs 0.01）
-- 集合邊界：空列表、單一元素、分頁臨界點
+- Date boundaries: month-end/month-start, leap year 2/29, year-end crossover, timezone
+- Quantity boundaries: 0 items, 1 item, exactly at capacity, exceeding the limit
+- String boundaries: empty string, 1 character, max length, max length + 1
+- Amount boundaries: 0, negative values, decimal precision (0.001 vs 0.01)
+- Collection boundaries: empty list, single element, pagination threshold
 
-**輸出格式**：
+**Output Format**:
 
 ```text
-| 欄位 | 測試點 | 輸入值 | 預期結果 |
+| Field | Test Point | Input Value | Expected Result |
 ```
 
-**適用情境**：數字範圍、日期區間、字元長度、金額限制、分頁
+**Applicable Scenarios**: numeric ranges, date intervals, character lengths, amount limits,
+pagination
 
 ---
 
-### 3. 決策表（Decision Table Testing）
+### 3. Decision Table Testing
 
-**用途**：多條件組合的邏輯覆蓋，確保每種 IF-AND 組合都被測到。
+**Purpose**: Multi-condition combination logic coverage — ensures every IF-AND combination
+is tested.
 
-**步驟**：
+**Steps**:
 
-1. 列出所有影響結果的「條件」（Conditions）
-2. 列出所有可能的「動作/結果」（Actions）
-3. 窮舉條件組合（N 個 Y/N 條件 → 最多 2^N 種組合）
-4. 合併相同結果的欄（減少冗餘）
-5. 標記不可能的組合（用 `-` 表示）
-6. 每個有效欄位對應一個 test case
+1. List all "conditions" that affect the result
+2. List all possible "actions / results"
+3. Enumerate condition combinations (N Y/N conditions → at most 2^N combinations)
+4. Merge columns with the same result (reduce redundancy)
+5. Mark impossible combinations with `-`
+6. Each valid column corresponds to one test case
 
-**輸出格式**：
+**Output Format**:
 
 ```text
-| 條件/規則  | R1  | R2  | R3  | R4  |
-|-----------|-----|-----|-----|-----|
-| 條件 A     |  Y  |  Y  |  N  |  N  |
-| 條件 B     |  Y  |  N  |  Y  |  N  |
-| **動作**  | 結果1| 結果2| 結果3| 結果4|
+| Condition/Rule | R1  | R2  | R3  | R4  |
+|----------------|-----|-----|-----|-----|
+| Condition A    |  Y  |  Y  |  N  |  N  |
+| Condition B    |  Y  |  N  |  Y  |  N  |
+| **Action**     | Result1 | Result2 | Result3 | Result4 |
 ```
 
-**適用情境**：折扣規則、權限控制、促銷條件、複雜業務邏輯、審核規則
+**Applicable Scenarios**: discount rules, permission control, promotion conditions,
+complex business logic, approval rules
 
-**範例 — 高鐵早鳥票折扣**（條件：提前天數、名額、票種）：
+**Example — High-Speed Rail Early-Bird Discount** (conditions: advance days, quota,
+ticket type):
 
-| 條件 | R1 | R2 | R3 | R4 | R5 | R6 |
-|-----|:--:|:--:|:--:|:--:|:--:|:--:|
-| 提前 ≥ 3 天 | Y | Y | Y | Y | N | N |
-| 名額未滿 | Y | Y | N | N | - | - |
-| 全票種 | Y | N | Y | N | - | - |
-| **折扣結果** | **7折** | **8折** | **無折扣** | **無折扣** | **無折扣** | **無折扣** |
+| Condition | R1 | R2 | R3 | R4 | R5 | R6 |
+|-----------|:--:|:--:|:--:|:--:|:--:|:--:|
+| ≥ 3 days in advance | Y | Y | Y | Y | N | N |
+| Quota available | Y | Y | N | N | - | - |
+| Full-price ticket | Y | N | Y | N | - | - |
+| **Discount Result** | **30% off** | **20% off** | **No discount** | **No discount** | **No discount** | **No discount** |
 
 ---
 
-### 4. 狀態轉移（State Transition Testing）
+### 4. State Transition Testing
 
-**用途**：測試物件在生命週期中，狀態切換的合法性與完整性。
+**Purpose**: Test the validity and completeness of state transitions in an object's lifecycle.
 
-**步驟**：
+**Steps**:
 
-1. 列出所有「狀態」（State），包含初始與終止狀態
-2. 列出所有觸發轉換的「事件」（Event）
-3. 畫出狀態轉移圖或表
-4. 測試三個面向：
-   - 合法轉換 ✅ — 正確的事件觸發正確的下一狀態
-   - 非法轉換 ❌ — 不該發生的轉換是否被正確阻擋
-   - 遺漏路徑 — 每個狀態 × 每個事件的交叉是否都有定義
+1. List all "states", including initial and terminal states
+2. List all "events" that trigger transitions
+3. Draw a state transition diagram or table
+4. Test three aspects:
+   - Valid transitions ✅ — correct event triggers the correct next state
+   - Invalid transitions ❌ — transitions that should not occur are correctly blocked
+   - Missing paths — every state × every event cross-product is defined
 
-**輸出格式（State Transition Table）**：
+**Output Format (State Transition Table)**:
 
 ```text
-| 當前狀態  | 事件       | 下一狀態  | 預期結果 |
-|---------|----------|---------|---------|
-| 待付款   | 付款成功   | 已付款   | ✅ 成功 |
-| 已完成   | 重新下單   | -       | ❌ 不允許 |
+| Current State    | Event             | Next State   | Expected Result |
+|-----------------|-------------------|--------------|-----------------|
+| Awaiting Payment | Payment succeeded | Paid         | ✅ Success      |
+| Completed        | Re-order          | -            | ❌ Not allowed  |
 ```
 
-**適用情境**：訂單流程、帳號狀態、審核流程、工單系統、遊戲角色狀態
+**Applicable Scenarios**: order workflows, account status, approval flows, ticketing
+systems, game character states
 
 ---
 
-### 5. Pairwise / 組合測試（Pairwise & Combinatorial Testing）
+### 5. Pairwise / Combinatorial Testing
 
-**用途**：當參數多（≥3 個）且每個有多種取值時，全組合爆炸性增長。Pairwise 保證任意兩個參數的所有取值組合至少出現一次，用極少的 case 達到高覆蓋。
+**Purpose**: When there are many parameters (≥3) each with multiple values, full
+combinations grow explosively. Pairwise guarantees that every combination of any two
+parameters appears at least once, achieving high coverage with minimal test cases.
 
-**何時該用（而非決策表）**：
+**When to Use (instead of Decision Table)**:
 
-- 決策表適合條件少（2-4 個 Y/N 條件）且規則明確的場景
-- Pairwise 適合參數多（≥3 個）且取值多（非單純 Y/N）、缺乏明確規則的場景
-- 經驗法則：若全組合 > 30 種，考慮 Pairwise
+- Decision Table: suited for few conditions (2-4 Y/N conditions) with explicit rules
+- Pairwise: suited for many parameters (≥3) with multiple values and no clear rules
+- Rule of thumb: if full combinations > 30, consider Pairwise
 
-**步驟**：
+**Steps**:
 
-1. 列出所有參數及其可能取值
-2. 建立參數表
-3. 使用 Pairwise 演算法（如 OATS、AllPairs）生成最小覆蓋組合
-4. 對生成結果做合理性檢查：是否有不可能的組合需排除
+1. List all parameters and their possible values
+2. Build a parameter table
+3. Use a Pairwise algorithm (e.g., OATS, AllPairs) to generate the minimum covering set
+4. Sanity-check the generated result: are there any impossible combinations to exclude?
 
-**輸出格式**：
+**Output Format**:
 
 ```text
-| TC# | 參數A | 參數B | 參數C | 參數D | 預期結果 |
+| TC# | Param A | Param B | Param C | Param D | Expected Result |
 ```
 
-**範例 — 電商結帳測試**（瀏覽器 × 付款方式 × 配送 × 會員等級）：
+**Example — E-commerce Checkout Test** (Browser × Payment × Delivery × Membership):
 
-| 參數 | 取值 |
-|-----|-----|
-| 瀏覽器 | Chrome, Safari, Firefox |
-| 付款方式 | 信用卡, ATM 轉帳, 貨到付款 |
-| 配送方式 | 宅配, 超商取貨 |
-| 會員等級 | 一般, VIP |
+| Parameter | Values |
+|-----------|--------|
+| Browser | Chrome, Safari, Firefox |
+| Payment method | Credit card, ATM transfer, Cash on delivery |
+| Delivery method | Home delivery, Convenience store pickup |
+| Membership level | Regular, VIP |
 
-全組合 = 3×3×2×2 = 36 種，Pairwise 可壓縮至約 9-12 組。
+Full combinations = 3×3×2×2 = 36; Pairwise reduces to approximately 9–12 cases.
 
-**適用情境**：跨瀏覽器/裝置相容性、設定組合、環境組合、多欄位篩選
+**Applicable Scenarios**: cross-browser/device compatibility, configuration combinations,
+environment combinations, multi-field filters
 
 ---
 
-### 6. 風險導向測試（Risk-Based Testing）
+### 6. Risk-Based Testing
 
-**用途**：資源有限時，依風險高低排序測試優先順序，確保最關鍵的部分先被測到。不是獨立產出 case 的技術，而是為其他技術產出的 case 做優先排序。
+**Purpose**: When resources are limited, prioritize testing by risk level to ensure the
+most critical areas are covered first.
+This is not a standalone technique for generating test cases, but a method to rank the
+output of other techniques by priority.
 
-**步驟**：
+**Steps**:
 
-1. 列出所有功能區域或測試項目
-2. 評估兩個維度：
-   - **影響度（Impact）**：出錯會多嚴重？（資料遺失 > UI 跑版）
-   - **發生機率（Likelihood）**：多容易出錯？（新功能 > 穩定模組、複雜邏輯 > 簡單 CRUD）
-3. 計算風險值 = 影響度 × 發生機率
-4. 依風險值排序，決定測試深度：
-   - 高風險：完整測試（多種技術組合）
-   - 中風險：重點測試（等價類別 + 邊界值）
-   - 低風險：基本冒煙測試
+1. List all feature areas or test items
+2. Evaluate two dimensions:
+   - **Impact**: how severe is the failure? (data loss > UI misalignment)
+   - **Likelihood**: how likely is failure? (new feature > stable module,
+     complex logic > simple CRUD)
+3. Calculate risk score = Impact × Likelihood
+4. Sort by risk score; determine testing depth:
+   - High risk: full testing (multiple technique combinations)
+   - Medium risk: focused testing (Equivalence Partitioning + Boundary Value)
+   - Low risk: basic smoke testing
 
-**輸出格式（風險矩陣）**：
+**Output Format (Risk Matrix)**:
 
 ```text
-| 功能區域 | 影響度(1-5) | 發生機率(1-5) | 風險值 | 測試優先級 | 建議測試深度 |
+| Feature Area | Impact (1-5) | Likelihood (1-5) | Risk Score | Priority | Recommended Depth |
 ```
 
-**適用情境**：測試策略規劃、Sprint 測試範圍決定、時間壓力下的取捨
+**Applicable Scenarios**: testing strategy planning, Sprint scope decisions,
+trade-offs under time pressure
 
 ---
 
-## 技術選擇決策邏輯
+## Technique Selection Decision Logic
 
-收到需求時，按以下順序判斷，通常需要組合使用多種技術：
+When a requirement arrives, judge in this order — techniques are usually combined:
 
 ```text
-需求進來
+Requirement arrives
   │
-  ├─ 問自己：有沒有「狀態 → 事件 → 新狀態」的生命週期？
-  │   └─ Yes → 狀態轉移（骨幹），再看各狀態內的細節
+  ├─ Ask: Is there a "state → event → new state" lifecycle?
+  │   └─ Yes → State Transition (backbone); then examine details within each state
   │
-  ├─ 問自己：有多個條件交叉決定結果嗎？
-  │   ├─ 條件 ≤ 4 個，且多為 Y/N → 決策表
-  │   └─ 參數 ≥ 3 個，取值多元 → Pairwise
+  ├─ Ask: Do multiple conditions cross-determine the result?
+  │   ├─ ≤ 4 conditions, mostly Y/N → Decision Table
+  │   └─ ≥ 3 parameters, multiple values → Pairwise
   │
-  ├─ 問自己：有輸入欄位需要驗證嗎？
-  │   └─ Yes → 等價類別 + 邊界值（幾乎一定搭配使用）
+  ├─ Ask: Are there input fields that need validation?
+  │   └─ Yes → Equivalence Partitioning + Boundary Value (almost always used together)
   │
-  └─ 問自己：測試時間有限、需要排優先級嗎？
-      └─ Yes → 先做風險矩陣，再決定各區域的測試深度
+  └─ Ask: Is test time limited and prioritization needed?
+      └─ Yes → Risk matrix first; then decide testing depth per area
 ```
 
-**組合使用範例**：電商訂單系統
+**Combination Example**: E-commerce order system
 
-- 狀態轉移：訂單生命週期（建立→付款→出貨→完成→退貨）
-- 決策表：退貨條件判斷（超過天數？已拆封？特殊品類？）
-- 等價類別 + 邊界值：金額欄位、數量欄位
-- Pairwise：結帳時的環境組合（瀏覽器 × 付款 × 配送 × 裝置）
-- 風險導向：優先測付款和退貨（高風險），UI 微調最後測
-
----
-
-## 常見盲點檢查清單
-
-設計完 test case 後，用這份清單掃一遍，確認沒有遺漏：
-
-**資料面**：
-
-- 空值 / null / undefined 處理
-- 特殊字元（emoji、CJK、RTL 文字、SQL injection 字串）
-- 超長輸入、超大檔案
-- 重複資料、重複提交
-- 並發操作（兩人同時修改）
-
-**流程面**：
-
-- 中途取消 / 返回 / 重整頁面
-- 斷網後恢復
-- Session 過期時的操作
-- 權限不足時的錯誤處理
-
-**環境面**：
-
-- 時區差異
-- 語系切換（尤其中英切換後的排版）
-- 不同螢幕尺寸 / 行動裝置
-
-**業務面**：
-
-- 是否有預設值？預設值是否合理？
-- 上下游系統的連動影響
-- 歷史資料相容性
+- State Transition: order lifecycle (Create → Pay → Ship → Complete → Return)
+- Decision Table: return condition logic (over time limit? opened? special category?)
+- Equivalence Partitioning + Boundary Value: amount field, quantity field
+- Pairwise: checkout environment combinations (Browser × Payment × Delivery × Device)
+- Risk-Based: prioritize payment and returns (high risk); UI tweaks go last
 
 ---
 
-## AI 生成 Case 的 Review 工作法
+## Common Blind Spots Checklist
 
-### 完整流程
+After designing test cases, run through this checklist to confirm nothing is missed:
+
+**Data**:
+
+- Empty value / null / undefined handling
+- Special characters (emoji, CJK, RTL text, SQL injection strings)
+- Extremely long input, very large files
+- Duplicate data, duplicate submissions
+- Concurrent operations (two users modifying simultaneously)
+
+**Process**:
+
+- Cancel / go back / page refresh mid-flow
+- Recovery after network disconnection
+- Operations when session has expired
+- Error handling when permission is insufficient
+
+**Environment**:
+
+- Timezone differences
+- Language switching (especially layout after switching between Chinese and English)
+- Different screen sizes / mobile devices
+
+**Business**:
+
+- Are there default values? Are the defaults reasonable?
+- Downstream system side-effects
+- Historical data compatibility
+
+---
+
+## AI-Generated Case Review Workflow
+
+### Complete Flow
 
 ```text
-Step 1：收到需求（需求文件、User Story、AC、口頭描述皆可）
+Step 1: Receive the requirement (document, User Story, AC, or verbal description)
    ↓
-Step 2：需求釐清 — 主動問出：
-   - 輸入欄位清單與各自的值域限制
-   - 業務規則與條件組合
-   - 物件狀態流程（如有）
-   - 已知的高風險區域
+Step 2: Requirement clarification — actively ask for:
+   - Input field list and value range constraints for each
+   - Business rules and condition combinations
+   - Object state flow (if any)
+   - Known high-risk areas
    ↓
-Step 3：選擇技術組合（參考上方決策邏輯）
+Step 3: Select technique combination (refer to decision logic above)
    ↓
-Step 4：用技術框架建立「預期覆蓋清單」
-   - 這是 review 的「標準答案」，在看 AI 產出之前就要先建好
+Step 4: Build "expected coverage list" using technique frameworks
+   - This is the "answer key" for the review — must be built BEFORE seeing AI output
    ↓
-Step 5：生成 Test Case（自己產出或 review 用戶提供的 AI 產出）
+Step 5: Generate test cases (produce yourself or review user-provided AI output)
    ↓
-Step 6：Gap Analysis — 對照覆蓋清單逐項檢查：
-   ✅ 已覆蓋 — 標記對應的 case
-   ⚠️ 部分覆蓋 — 指出不足之處
-   ❌ 完全遺漏 — 補上缺失的 case
-   🔄 冗餘 — 標記可合併或刪除的重複 case
+Step 6: Gap Analysis — check against coverage list item by item:
+   ✅ Covered — mark the corresponding case
+   ⚠️ Partially covered — identify what is missing
+   ❌ Completely missing — add the missing case
+   🔄 Redundant — mark cases that can be merged or deleted
    ↓
-Step 7：套用盲點檢查清單，再掃一輪
+Step 7: Apply the blind spots checklist for one more sweep
    ↓
-Step 8：輸出最終 Test Suite + 覆蓋率報告
+Step 8: Output final Test Suite + Coverage Report
 ```
 
-### Gap Analysis 輸出格式
+### Gap Analysis Output Format
 
 ```text
-## 覆蓋率分析
+## Coverage Analysis
 
-### 已覆蓋 ✅
-| 預期覆蓋項目 | 對應 Test Case ID | 備註 |
+### Covered ✅
+| Expected Coverage Item | Corresponding TC ID | Notes |
 
-### 部分覆蓋 ⚠️
-| 預期覆蓋項目 | 缺少的面向 | 建議補充 |
+### Partially Covered ⚠️
+| Expected Coverage Item | Missing Aspect | Recommended Addition |
 
-### 完全遺漏 ❌
-| 預期覆蓋項目 | 說明 | 建議新增的 Test Case |
+### Completely Missing ❌
+| Expected Coverage Item | Description | Recommended New Test Case |
 
-### 冗餘項目 🔄
-| Test Case ID | 與哪個 Case 重複 | 建議處理方式 |
+### Redundant Items 🔄
+| Test Case ID | Duplicate of which case | Recommended Action |
 ```
 
 ---
 
-## Test Case 輸出標準
+## Test Case Output Standard
 
-### 必要欄位
+### Required Fields
 
-每個 Test Case 必須包含：
+Each test case must include:
 
-| 欄位 | 說明 |
-|------|------|
-| TC-ID | 編號規則：`[功能縮寫]-[技術縮寫]-[序號]`，如 `LOGIN-BVA-001` |
-| 測試目的 | 一句話說明在驗證什麼 |
-| 使用技術 | 標記此 case 源自哪個測試設計技術 |
-| 風險等級 | 高 / 中 / 低 |
-| 前置條件 | 測試開始前系統需要處於什麼狀態 |
-| 測試步驟 | 具體操作步驟（可執行等級，不要模糊描述） |
-| 測試資料 | 明確的輸入值（不要寫「輸入合法值」，要寫「輸入 <test@example.com>」） |
-| 預期結果 | 具體的可驗證結果（不要寫「顯示成功」，要寫「顯示綠色 toast：『儲存成功』，3 秒後消失」） |
+| Field | Description |
+|-------|-------------|
+| TC-ID | Numbering convention: `[Feature-Abbrev]-[Technique-Abbrev]-[Seq]`, e.g. `LOGIN-BVA-001` |
+| Test Purpose | One sentence describing what is being verified |
+| Technique Used | Mark which testing design technique this case comes from |
+| Risk Level | High / Medium / Low |
+| Precondition | What state the system must be in before the test begins |
+| Test Steps | Concrete executable steps (not vague descriptions) |
+| Test Data | Explicit input values (don't write "enter a valid value" — write "enter `test@example.com`") |
+| Expected Result | Concrete verifiable result (don't write "shows success" — write "shows green toast: 'Saved successfully', disappears after 3 seconds") |
 
-### 輸出模板
+### Output Template
 
 ```text
-| TC-ID | 測試目的 | 技術 | 風險 | 前置條件 | 測試步驟 | 測試資料 | 預期結果 |
-|-------|---------|------|------|---------|---------|---------|---------|
+| TC-ID | Test Purpose | Technique | Risk | Precondition | Steps | Test Data | Expected Result |
+|-------|-------------|-----------|------|-------------|-------|-----------|----------------|
 ```
 
-### 品質檢查
+### Quality Check
 
-輸出前確認：
+Before finalizing output, confirm:
 
-- 每個 case 的測試資料都是具體值，不是抽象描述
-- 預期結果是可驗證的（另一個人看得懂「通過」長什麼樣）
-- 步驟足夠具體，新人也能照著執行
-- 有標記每個 case 對應的測試技術，方便追溯設計邏輯
+- Every case's test data is a concrete value, not an abstract description
+- Expected results are verifiable (another person can tell what "pass" looks like)
+- Steps are specific enough for a newcomer to follow
+- Each case is marked with the testing technique used, for traceability
 
 ---
 
-## 快速參考
+## Quick Reference
 
-| 情境 | 建議技術 |
-|-----|---------|
-| 單一欄位有明確合法範圍 | 等價類別 + 邊界值 |
-| 折扣、權限、審核等多條件規則 | 決策表 |
-| 訂單、帳號、工單等有狀態物件 | 狀態轉移 |
-| 跨瀏覽器/環境/設定的相容性 | Pairwise 組合 |
-| 時間有限需要排序 | 風險導向 + 其他技術 |
-| 複雜業務系統（以上都有） | 先風險排序，再按區域組合技術 |
-| AI 生成的 case 需要 Review | 先建覆蓋清單，再做 Gap Analysis |
-| 用戶給了 User Story / AC | 從 AC 拆條件，選技術，產出 case |
+| Scenario | Recommended Technique |
+|----------|-----------------------|
+| Single field with a defined valid range | Equivalence Partitioning + Boundary Value |
+| Multi-condition rules (discounts, permissions, approvals) | Decision Table |
+| Objects with state (orders, accounts, tickets) | State Transition |
+| Cross-browser/environment/configuration compatibility | Pairwise Combinatorial |
+| Limited time, prioritization needed | Risk-Based + other techniques |
+| Complex business system (all of the above apply) | Risk-Based first, then combine techniques per area |
+| AI-generated cases need review | Build coverage list first, then Gap Analysis |
+| User provides User Story / AC | Extract conditions from ACs, select techniques, produce cases |
