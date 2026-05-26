@@ -83,6 +83,21 @@ The two work together:
 - No frontmatter `effort` + body has `${CLAUDE_EFFORT}` table → dynamically routes based on caller
 - Frontmatter `effort: medium` + body has `${CLAUDE_EFFORT}` table → always takes the medium row
 
+### Runtime Gotchas for `${CLAUDE_EFFORT}`
+
+- **`CLAUDE_EFFORT=normal` is the hook default**: hooks use `${CLAUDE_EFFORT:-normal}`;
+  a SKILL.md effort table's fallback note must cover both unset AND `normal`
+  (both default to full execution — "not-low" behavior, equivalent to `medium`/`high`).
+  CC 2.1.133+ makes `$CLAUDE_EFFORT` a real env var in Bash tool / hook scripts
+  (read directly; `:-normal` is for pre-2.1.133 compat).
+- **Effort fallback is risk judgment, not convention**: general tools default to `medium`;
+  spec-expansion / deep-review tools may pin `high`
+  because missing spec coverage costs more than doing extra work.
+- **`${CLAUDE_EFFORT}` does not expand in static SKILL.md**: the agent reads it
+  as a literal string. To get the actual value, use `echo "${CLAUDE_EFFORT:-normal}"`.
+  Hook scripts (bash, CC 2.1.133+) can read `$CLAUDE_EFFORT` directly as an env var
+  — no `echo` subprocess needed.
+
 ## Exec Skill Standard 4-Step Template
 
 ```markdown

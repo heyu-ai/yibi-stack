@@ -116,11 +116,6 @@ scripts/  → CI/lint 工具腳本
 
 參考 `skills/_template/SKILL.md.tpl` 取得標準格式。
 
-## Search Strategy
-
-- `rg --type py` 優先於通用 grep 搜尋 Python 程式碼
-- `rg -l` 先列出匹配檔案清單，再用 Read 讀取內容
-
 ## Dev 指令
 
 ```bash
@@ -169,10 +164,6 @@ make install-all         # 等同 build-tools + install + install-project + inst
 ## 已知 Gotcha
 
 - **protect-push 攔截 `gh pr merge`**：agent 無法自行 merge；需使用者執行 `! gh pr merge <n> --squash --delete-branch`
-- **`CLAUDE_EFFORT=normal` 是 hook 預設值**：hooks 使用 `${CLAUDE_EFFORT:-normal}`；SKILL.md effort 表格的 fallback note 必須同時涵蓋 unset 和 `normal`（兩者皆視為 medium）。
-  CC 2.1.133+ 起 `$CLAUDE_EFFORT` 在 Bash tool（含 hook script）中已是真實 env var，可直接讀取；`:-normal` fallback 是相容舊版或未設定 session 的保護
-- **Effort fallback 是風險判斷，非慣例**：一般工具 fallback 設 `medium`；規格展開／深度 review 工具（如 spectra-amplifier）可設 `high`，因規格缺漏代價高於多做
-- **`${CLAUDE_EFFORT}` 在 SKILL.md 不展開**：靜態 Markdown 中 agent 讀到的是 literal string；若需實際值，用 `echo "${CLAUDE_EFFORT:-normal}"` eval。Hook script（bash）中則可直接讀取（CC 2.1.133+），無需 eval
 - **Slash command 的 bash code block 被 agent 重寫**：commands/*.md 或 SKILL.md 中，
   agent 理解意圖後自行生成 bash 而非複製貼上，可能引入反模式（fat command、
   `if [ $? -ne 0 ]`、`||` 條件分支）。複雜 bash 邏輯移到 `commands/scripts/*.sh` 或
@@ -196,3 +187,8 @@ make install-all         # 等同 build-tools + install + install-project + inst
   適用場景：任何在 worktree 內計算 project slug、log 路徑、transcript 目錄等依賴主 repo 位置的邏輯。
 - **`pre-commit run --files` 只掃指定檔案，CI `--all-files` 掃全 repo**：本地跑 `pre-commit run --files <file>` 只檢查指定檔案，push 前若有未改動但有 pre-existing 問題的檔案（如 `settings.json` 缺 trailing newline），本地不會報錯但 CI 會失敗。
   正確做法：push 前執行 `make ci`（內含 `pre-commit run --all-files` + pytest），而非只跑 `pre-commit run --files <file>`。
+- **`make install` 迴圈的 skip list 需四個目標同步維護**：`install`、`install-project`、`status-own`、`uninstall` 四個迴圈都掃 `skills/*/`。
+  任何工具在 `skills/` 下產生的非 skill 目錄（如 `spectra init --dir skills/openspec`）必須同步加入所有四個迴圈的 skip list。
+  失敗模式不同：`install`/`install-project` 遇到缺 SKILL.md 的目錄會 **exit 1 中斷**（字母排序後的 skill 全部裝不到）；
+  `status-own` 靜默繼續（顯示空白 scope，不報錯）；`uninstall` 靜默略過（不報錯）。
+- **`.gitignore` 不等於磁碟不存在**：被 gitignore 的目錄仍存在磁碟上，shell glob、Python rglob、`make install` 等工具不知道 gitignore 的存在。防線必須加在腳本本身（skip list、SKILL.md 存在性檢查），不能依賴 gitignore 作為唯一屏障。
