@@ -151,6 +151,47 @@ openspec/changes/<feature-name>/
 
 每條 AC 對應 1-3 個 Gherkin scenarios。直接從 AC 展開，不經過 FS 散文層。
 
+#### Dispatch 決策（capability 數 N）
+
+先計算此 change 有多少個 capability（每個 User Story 群組算一個 capability）：
+
+| N | 行動 |
+|---|------|
+| N == 1 | Inline 展開（本 agent 直接寫），不 dispatch subagent |
+| 2 ≤ N ≤ 5 | 同一 message 發 N 個 `sdd:gherkin-scenario-writer` Task，平行寫入各自的 `specs/<cap>/spec.md` |
+| N > 5 | `[WARN] capability 數超過 5，建議與使用者確認是否分批` → 降回 inline sequential 展開 |
+
+**平行 dispatch 格式（N ∈ [2, 5]）**：
+
+在**同一訊息**內送出 N 個 Task tool 呼叫（不依序等待），每個傳入：
+
+```text
+subagent_type: sdd:gherkin-scenario-writer
+prompt:
+  ## Change Name
+  <change-name>
+
+  ## Capability
+  <cap-slug>
+
+  ## Effort Level
+  <low | medium | high>
+
+  ## Four-Element Extraction
+  <Step 1a 輸出>
+
+  ## User Stories + AC（僅此 capability 相關）
+  <此 capability 的 US + AC 清單>
+```
+
+**失敗處理**：N 個 subagent 中失敗 k 個時，不中斷整個 Step 1c：
+
+- 失敗的 capability 在其 `specs/<cap>/spec.md` 頭部加 `[BLOCKED: <原因>]` 標記
+- 繼續後續步驟，在 Step 2a dispatch 時跳過 `[BLOCKED]` capabilities
+- 於最終摘要列出被 blocked 的 capability 清單
+
+#### Inline 展開規則（N == 1 或 fallback）
+
 #### Scenario Anchor Slug（必填，依 ADR-0008）
 
 每個 `#### Scenario:` heading 必須帶顯式 slug：

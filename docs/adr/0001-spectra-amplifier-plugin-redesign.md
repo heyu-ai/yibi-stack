@@ -173,4 +173,37 @@ plugin 對齊此決策。
 **中性**：
 
 - yibi-mvp 自家 amplifier 可逐步對齊 plugin 版本（後續獨立決策）
-- event-storming skill 標記 `status: draft`，完整方法論後續 PR
+
+---
+
+## Addendum — Step 1c Parallel Subagent（2026-05）
+
+**設計演進**：本次（Phase A）為 Step 1c 引入 `sdd:gherkin-scenario-writer` Task subagent，
+實現多 capability feature 的 Gherkin scenarios 平行展開。
+
+**決策依據**：三軸 rubric（state sharing / side effects / parallelizability）對 Step 1c 的評估結果：
+
+- State sharing：各 capability 的 Gherkin 展開只需自身 AC + 四元素結果，不需跨 capability 狀態 — 偏 Subagent
+- Side effects：每個 capability 寫入獨立的 `specs/<cap>/spec.md` — 偏 Subagent
+- Parallelizability：N 個 capability 完全獨立，無跨 capability 依賴 — 強烈偏 Subagent
+
+三軸全偏 Subagent → 升級。
+
+**Architecture**：
+
+- N == 1：spectra-amplifier inline 展開（避免 single-invocation overhead）
+- 2 ≤ N ≤ 5：同一 message 發 N 個 Task tool，平行 dispatch
+- N > 5：降回 inline sequential 並警告使用者
+
+**新增檔案**：`plugins/sdd/agents/gherkin-scenario-writer.md`
+
+- `model: sonnet`（重複結構化生成，中等認知負擔）
+- `tools: [Read, Write]`（讀既有 spec 防衝突，寫入 spec.md）
+
+**harness-eval D9 影響**：
+
+- Phase A 後：D9 從 0/2 升到 1/2（subagent 職責清楚）
+- Phase B（qa-test-designer subagent）後：D9 達 2/2（exploration vs editing 拆開）
+
+**後續 Phase**：Phase B 為 qa-test-design 加入雙軌設計（SKILL.md 人類入口 + subagent 程式介面）；
+Phase C/D 為 Step 0/Step 3 引入獨立 subagent。

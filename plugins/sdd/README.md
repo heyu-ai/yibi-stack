@@ -35,9 +35,10 @@ claude plugin install sdd@yibi-stack
 
 | Component | Description |
 |-----------|-------------|
-| `spectra-amplifier` skill | Wave D Plugin Edition：Step 0-5 規格展開，含 BDD Gherkin scenarios、qa-test-design dispatch、docstring trace |
+| `spectra-amplifier` skill | Wave D Plugin Edition：Step 0-5 規格展開，含 BDD Gherkin scenarios（多 capability 平行展開）、qa-test-design dispatch、docstring trace |
 | `event-storming` skill | 領域發現前置 skill；amplifier Step 0 的 handoff 來源（draft：接口 + handoff artifact）|
 | `qa-test-design` skill | 測試設計框架：邊界分析、等價類劃分、決策表，生成結構化 test case |
+| `gherkin-scenario-writer` agent | Step 1c 平行 subagent：為單一 capability 撰寫 Gherkin scenarios（RFC 2119 GIVEN/WHEN/THEN）；多 capability 時由 spectra-amplifier 平行 dispatch |
 | `scripts/check_spec_coverage.py` | BDD Spec-Test Traceability Scanner（ADR-0008）；`--specs-dir`/`--tests-dir` 參數化 |
 | SessionStart hook | Detects whether `spectra` CLI is in PATH; injects a nudge when absent (silent when present) |
 | `/sdd:setup` command | Diagnose CLI installation status and print setup instructions |

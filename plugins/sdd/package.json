@@ -1,5 +1,5 @@
 {
   "name": "sdd",
   "version": "1.3.0",
-  "description": "Spec-Driven Development plugin for Claude Code: Spectra amplifier, qa-test-design, OpenSpec templates"
+  "description": "Spec-Driven Development plugin for Claude Code: Spectra amplifier, qa-test-design, gherkin-scenario-writer agent, OpenSpec templates"
 }
