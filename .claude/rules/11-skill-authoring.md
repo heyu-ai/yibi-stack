@@ -510,6 +510,7 @@ The other file must be explicitly labelled as a compressed summary — not a cop
 A maintainer following this instruction will overwrite the correct format with the wrong one.
 
 **Correct pattern**:
+
 - Owner file: defines canonical column headers, format, and technique names
 - Summary file: explicitly states "this is a condensed summary optimized for in-context use;
   when technique semantics change, re-summarize this section — do NOT copy-paste from the owner file"
