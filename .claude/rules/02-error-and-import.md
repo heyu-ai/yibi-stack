@@ -113,6 +113,25 @@ tmp = SETTINGS_PATH.with_name("settings.json.tmp")  # intent is clear
 
 For `.tmp` scratch files, always use `with_name(stem + ".tmp")` or `with_name("filename.tmp")`.
 
+## `rglob()` Does Not Follow Symlinks
+
+`pathlib.rglob()` does not enter symlinked subdirectories by default.
+If the target directory contains symlinks (e.g. `skills/` with plugin symlinks),
+use `os.walk(followlinks=True)` or Python 3.13+ `glob(follow_symlinks=True)`:
+
+```python
+# Wrong: silently misses content under symlinked subdirs
+for f in path.rglob("*.md"):
+    ...
+
+# Correct: follows symlinks
+import os
+for root, dirs, files in os.walk(path, followlinks=True):
+    for name in files:
+        if name.endswith(".md"):
+            ...
+```
+
 ## Type Guard at External Data Boundaries (PR #92)
 
 Validate the type of external data **before** entering business logic — especially in hooks

@@ -177,7 +177,6 @@ make install-all         # 等同 build-tools + install + install-project + inst
   allow-list 永久放行 pattern 用完整 script 路徑而非 fat command wildcard。
 - **make target 名稱一律逐字引用**：README/CLAUDE.md 中的 target 名稱必須從 Makefile 直接 copy，不可改寫成「可讀標籤」（例如把 `patch-pr-review-agents` 縮寫為其他名稱），否則使用者執行時 404
 - **hook 腳本在 `.claude/hooks/` 不等於已啟用**：Claude Code 只執行在 `settings.json` 的 `hooks` 命令字串中登記的 hook；評估 hook 有效性必須做「檔案存在 × settings.json 登記」雙重交叉驗證
-- **`Path.rglob()` 不追蹤 symlink**：`pathlib` 的 `rglob()` 預設不進 symlink 子目錄。若目標目錄含 symlink（如本 repo `skills/` 的 plugin symlink），改用 `os.walk(followlinks=True)` 或 Python 3.13+ 的 `glob(follow_symlinks=True)`
 - **`plugins/harness` 無 `package.json`**：`plugins/` 下並非所有子目錄都是可 `claude plugin install` 的正式 plugin。
   `plugins/harness` 是 README-only 容器，需用 `make install-one SKILL=harness-eval`；並列時必須 inline 標注例外，否則讀者繼承區塊語意靜默失敗。
 - **bootstrap script 的 `[SKIP]` 應改 `[WARN]`**：`make install-all` chain 中目標資源（如 `~/.claude/settings.json`）不存在時，靜默 `[SKIP]` + exit 0 等同問題隱藏。
@@ -196,17 +195,6 @@ make install-all         # 等同 build-tools + install + install-project + inst
   失敗模式不同：`install`/`install-project` 遇到缺 SKILL.md 的目錄會 **exit 1 中斷**（字母排序後的 skill 全部裝不到）；
   `status-own` 靜默繼續（顯示空白 scope，不報錯）；`uninstall` 靜默略過（不報錯）。
 - **`.gitignore` 不等於磁碟不存在**：被 gitignore 的目錄仍存在磁碟上，shell glob、Python rglob、`make install` 等工具不知道 gitignore 的存在。防線必須加在腳本本身（skip list、SKILL.md 存在性檢查），不能依賴 gitignore 作為唯一屏障。
-- **`$CLAUDE_JOB_DIR` 的 permission 無法用 option 2 永久放行**：
-  `$CLAUDE_JOB_DIR` 路徑格式為 `~/.claude/jobs/<UUID>/`，每個 background session 都會產生新 UUID。
-  Permission dialog 的 option 2「always allow access to `<UUID>/`」只對該次 session 有效；
-  下一個 session 的新 UUID 不匹配，prompt 會重複出現。有兩種觸發情境，修法不同：
-  (1) **Edit/Write tool** 寫入 job 目錄：在 `~/.claude/settings.local.json` 加入
-  `"Edit(/Users/howie/.claude/jobs/*)"` 與 `"Write(/Users/howie/.claude/jobs/*)"` 兩條
-  trailing-wildcard pattern（路徑前綴鎖死），一次放行所有 job 目錄。
-  (2) **Bash 指令 `>` 重導向**到 job 目錄（如 `cmd > $CLAUDE_JOB_DIR/out.json`）：
-  permission 類型是 `Bash()` 而非 `Edit()`，需針對各指令加
-  `"Bash(<command>:*)"` 到 allow list（例：`"Bash(spectra analyze:*)"`）。
-  注意 rule 16 Red Flag 5：`Bash(* > *)` 不可放行；必須以指令名稱為前綴鎖定。
 - **Python module rename 後 `settings.json` hook 命令不會自動更新**：
   重命名 task module（如 `session_memory` → `mycelium`）後，`~/.claude/settings.json` 中引用舊模組名的 hook
   命令不會同步，導致 `No module named tasks.<old_name>.__main__` 錯誤。
@@ -215,3 +203,6 @@ make install-all         # 等同 build-tools + install + install-project + inst
   `plugins/sdd/package.json` 與 `plugins/sdd/.claude-plugin/plugin.json` 兩個版本號必須手動同步 bump。
   無 CI 交叉驗證——PR #112 mob review 兩個聲部（Claude + Codex）都獨立 flag 了 1.3.0 vs 1.4.0 的 split。
   修正：bump package.json 後，同步更新 `.claude-plugin/plugin.json` 的 `"version"` 欄位。
+- **`gh pr checks --json` 可用欄位需實際驗證**：`databaseId` 在此指令不存在；可用欄位為
+  `name`/`state`/`link`/`completedAt` 等。使用新欄位前先執行 `gh pr checks --json`（不加 `-q`）
+  確認實際回傳 keys。PR #119：`failed_ci_runs()` 因此永遠回傳空清單，導致 auto-fix 從不觸發。
