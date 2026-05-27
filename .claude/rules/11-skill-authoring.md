@@ -294,6 +294,14 @@ the cross-doc / cross-artifact verification discipline — hook docs must match 
 rule cites must match the source, rule-to-spec relationships must match the source spec.
 Verify at authoring time; do not assume a reviewer will catch it.
 
+**Comment-analyzer catches direction errors that code-reviewer misses**: in PR #107, an Output
+Filter section cited Red Flag 5 as the rationale for avoiding output filter pipelines. The real
+reason is that pipeline sources vary at runtime (the source command is not fixed), making any
+allow-list pattern necessarily too broad. Code-reviewer passed the citation (source file exists,
+section name plausible); comment-analyzer caught the direction error by reading what Red Flag 5
+actually says. **Both ends of every cross-ref must be independently verified** — target path AND
+cited content alignment. Checking only the path is insufficient.
+
 ## Cross-Repo Citation: Doc Body Must Be Self-Contained; Lineage Goes in Commit Message
 
 When codifying a lesson / incident from another repo into a doc / skill / rule, **do not embed
