@@ -3,29 +3,29 @@
 from __future__ import annotations
 
 import json
-import sys
 from io import StringIO
-from pathlib import Path
-
-import pytest
 
 from tasks.mycelium.retrieval_hooks import run_precompact_hook, run_pretooluse_hook
 
 
 def _make_precompact_payload(transcript_path: str = "/nonexistent.jsonl") -> str:
-    return json.dumps({
-        "hook_event_name": "PreCompact",
-        "transcript_path": transcript_path,
-        "agent_type": "claude",
-    })
+    return json.dumps(
+        {
+            "hook_event_name": "PreCompact",
+            "transcript_path": transcript_path,
+            "agent_type": "claude",
+        }
+    )
 
 
 def _make_pretooluse_payload(command: str) -> str:
-    return json.dumps({
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
-        "tool_input": {"command": command},
-    })
+    return json.dumps(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+        }
+    )
 
 
 class TestRunPrecompactHook:
@@ -95,11 +95,13 @@ class TestRunPretoolUseHook:
 
     def test_myc_hooks_dt_010_non_bash_tool_ignored(self) -> None:
         """MYC-HOOKS-DT-010: non-Bash tool -> returns 0"""
-        payload = json.dumps({
-            "hook_event_name": "PreToolUse",
-            "tool_name": "Read",
-            "tool_input": {"file_path": "/etc/passwd"},
-        })
+        payload = json.dumps(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Read",
+                "tool_input": {"file_path": "/etc/passwd"},
+            }
+        )
         out = StringIO()
         result = run_pretooluse_hook(stdin_text=payload, output_stream=out)
         assert result == 0

@@ -1101,8 +1101,7 @@ def handover_back(global_scope: bool, last: int, token_budget: int, as_json: boo
         click.echo("─" * 60)
         eff = r.get("effective_confidence", r.get("confidence", ""))
         click.echo(
-            f"[{r.get('ts', '')[:10]}] [{r.get('type', '')}] "
-            f"{r.get('key', '')} (conf={eff})"
+            f"[{r.get('ts', '')[:10]}] [{r.get('type', '')}] {r.get('key', '')} (conf={eff})"
         )
         if r.get("project"):
             click.echo(f"  project = {r['project']}")

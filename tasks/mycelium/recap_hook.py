@@ -271,7 +271,6 @@ def _try_display_dream_digest(
     max_age_seconds: float = 86400,
 ) -> None:
     """若 ~/.agents/dreams/latest.md 存在且距今 < 24 小時，輸出 dream digest。"""
-    import os
     import time
 
     dreams_latest = Path(dreams_dir or (Path.home() / ".agents" / "dreams")) / "latest.md"

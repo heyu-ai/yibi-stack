@@ -152,9 +152,7 @@ def _dispatch_tool(
         return _error_response(req_id, -32603, f"Internal error: {type(e).__name__}")
 
 
-def _tool_search(
-    args: dict[str, Any], db_path: str | None
-) -> dict[str, Any]:
+def _tool_search(args: dict[str, Any], db_path: str | None) -> dict[str, Any]:
     """mycelium_search handler."""
     from .lessons_service import get_lessons
 
@@ -169,8 +167,7 @@ def _tool_search(
     if query:
         q = query.lower()
         rows = [
-            r for r in rows
-            if q in r.get("insight", "").lower() or q in r.get("key", "").lower()
+            r for r in rows if q in r.get("insight", "").lower() or q in r.get("key", "").lower()
         ]
 
     summaries = [
@@ -186,9 +183,7 @@ def _tool_search(
     return {"content": [{"type": "text", "text": json.dumps(summaries, ensure_ascii=False)}]}
 
 
-def _tool_get_lesson(
-    args: dict[str, Any], db_path: str | None
-) -> dict[str, Any]:
+def _tool_get_lesson(args: dict[str, Any], db_path: str | None) -> dict[str, Any]:
     """mycelium_get_lesson handler — returns null if not found."""
     from .db import AgentsDB
 
@@ -197,9 +192,7 @@ def _tool_get_lesson(
     db = AgentsDB(db_path=db_path)
     try:
         db.init_db()
-        row = db.conn.execute(
-            "SELECT * FROM lessons WHERE id = ?", (lesson_id,)
-        ).fetchone()
+        row = db.conn.execute("SELECT * FROM lessons WHERE id = ?", (lesson_id,)).fetchone()
     finally:
         db.close()
 
@@ -207,9 +200,7 @@ def _tool_get_lesson(
     return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
 
 
-def _tool_save_preference(
-    args: dict[str, Any], db_path: str | None
-) -> dict[str, Any]:
+def _tool_save_preference(args: dict[str, Any], db_path: str | None) -> dict[str, Any]:
     """mycelium_save_preference handler."""
     from .lessons_service import save_lesson
 
@@ -227,9 +218,7 @@ def _tool_save_preference(
     return {"content": [{"type": "text", "text": payload}]}
 
 
-def _tool_subscribe(
-    args: dict[str, Any], db_path: str | None
-) -> dict[str, Any]:
+def _tool_subscribe(args: dict[str, Any], db_path: str | None) -> dict[str, Any]:
     """mycelium_subscribe handler — stores subscription and returns token."""
     from .db import AgentsDB
 

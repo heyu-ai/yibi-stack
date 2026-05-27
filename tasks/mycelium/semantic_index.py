@@ -115,9 +115,7 @@ class SqliteVecIndex(MemoryIndex):
     def upsert(self, lesson_id: str, text: str, metadata: dict[str, Any] | None = None) -> None:
         """索引一筆 lesson（FTS5 + 若可用則 vector）。"""
         # FTS5: delete + insert（upsert 模式）
-        self._conn.execute(
-            "DELETE FROM lesson_fts WHERE lesson_id = ?", (lesson_id,)
-        )
+        self._conn.execute("DELETE FROM lesson_fts WHERE lesson_id = ?", (lesson_id,))
         self._conn.execute(
             "INSERT INTO lesson_fts (lesson_id, content) VALUES (?, ?)",
             (lesson_id, text),
@@ -144,12 +142,8 @@ class SqliteVecIndex(MemoryIndex):
 
     def delete(self, lesson_id: str) -> None:
         """從 FTS5 和 metadata 移除 lesson。"""
-        self._conn.execute(
-            "DELETE FROM lesson_fts WHERE lesson_id = ?", (lesson_id,)
-        )
-        self._conn.execute(
-            "DELETE FROM lesson_metadata WHERE lesson_id = ?", (lesson_id,)
-        )
+        self._conn.execute("DELETE FROM lesson_fts WHERE lesson_id = ?", (lesson_id,))
+        self._conn.execute("DELETE FROM lesson_metadata WHERE lesson_id = ?", (lesson_id,))
         self._conn.commit()
 
     def _fts5_search(self, query: str, limit: int) -> list[tuple[str, float]]:

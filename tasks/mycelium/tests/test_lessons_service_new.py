@@ -28,9 +28,7 @@ class TestSaveLesson:
         )
         db = AgentsDB(db_path=db_path)
         db.init_db()
-        row = db.conn.execute(
-            "SELECT tier FROM lessons WHERE id = ?", (result["id"],)
-        ).fetchone()
+        row = db.conn.execute("SELECT tier FROM lessons WHERE id = ?", (result["id"],)).fetchone()
         db.close()
         assert row["tier"] == "hot", "tier must be persisted, not silently dropped"
 
@@ -43,9 +41,7 @@ class TestSaveLesson:
         )
         db = AgentsDB(db_path=db_path)
         db.init_db()
-        row = db.conn.execute(
-            "SELECT tier FROM lessons WHERE id = ?", (result["id"],)
-        ).fetchone()
+        row = db.conn.execute("SELECT tier FROM lessons WHERE id = ?", (result["id"],)).fetchone()
         db.close()
         assert row["tier"] == "working"
 
@@ -61,9 +57,7 @@ class TestSaveLesson:
         )
         db = AgentsDB(db_path=db_path)
         db.init_db()
-        row = db.conn.execute(
-            "SELECT tags FROM lessons WHERE id = ?", (result["id"],)
-        ).fetchone()
+        row = db.conn.execute("SELECT tags FROM lessons WHERE id = ?", (result["id"],)).fetchone()
         db.close()
         tags = json.loads(row["tags"])
         assert "tag1" in tags

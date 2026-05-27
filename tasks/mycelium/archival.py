@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 _ARCHIVE_DIR = Path.home() / ".agents" / "archive"
 
 
@@ -56,10 +55,7 @@ def archive_lesson(
     tags_str = ", ".join(tags) if tags else "(none)"
 
     entry = (
-        f"\n## {ts[:10]} [{lesson_type}] {lesson_id}\n\n"
-        f"**Tags**: {tags_str}\n\n"
-        f"{insight}\n"
-        f"\n---\n"
+        f"\n## {ts[:10]} [{lesson_type}] {lesson_id}\n\n**Tags**: {tags_str}\n\n{insight}\n\n---\n"
     )
 
     with archive_path.open("a", encoding="utf-8") as f:

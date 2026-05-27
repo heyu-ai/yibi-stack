@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from tasks.mycelium.semantic_index import SqliteVecIndex, _rrf_merge
 
 
