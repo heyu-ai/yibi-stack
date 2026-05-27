@@ -498,3 +498,56 @@ Preferred line-break positions (in priority order):
 
 MD013 exempts table rows and code block lines (`tables: false`, `code_blocks: false`) —
 only pure prose lines need to stay within 200 characters.
+
+## Dual-Source Document Ownership (PR #112 lesson)
+
+When two files both need to reflect the same methodology content
+(e.g. a `SKILL.md` human entry and an `agent.md` programmatic entry both referencing the same technique list),
+only **one file is the owner** that defines the canonical format and column names.
+The other file must be explicitly labelled as a compressed summary — not a copy to sync.
+
+**Wrong pattern**: both files declare themselves the source of truth and instruct maintainers to "sync the inline copy."
+A maintainer following this instruction will overwrite the correct format with the wrong one.
+
+**Correct pattern**:
+
+- Owner file: defines canonical column headers, format, and technique names
+- Summary file: explicitly states "this is a condensed summary optimized for in-context use;
+  when technique semantics change, re-summarize this section — do NOT copy-paste from the owner file"
+
+**Real incident (PR #112)**: `methodology.md` defined Coverage Analysis with "Expected Coverage Item" as the first column;
+`qa-test-designer.md` (the file that actually produced output) correctly used "Scenario Slug."
+Both files claimed to be the source of truth. A mob review Critical finding caught the divergence.
+Fix: `methodology.md` was updated to use "Scenario Slug"; the sync instruction was changed to "re-summarize."
+
+## Task Subagent Failure Gates — Three Required Paths (PR #112 lesson)
+
+When a SKILL.md dispatches a Task subagent, the failure gate must cover all three paths.
+A gate that only covers path (a) silently produces garbage output on paths (b) and (c).
+
+| Path | Example | Required gate |
+|------|---------|---------------|
+| (a) Subagent not available | plugin not installed | `If sdd:subagent not available: [FAIL] Stop.` |
+| (b) Subagent ran but returned `[FAIL]` | all capabilities were `[BLOCKED]` | check output prefix before proceeding to next step |
+| (c) Platform error | timeout, context-limit exceeded | catch Task tool failure itself |
+
+**Template** (append after Task tool dispatch block):
+
+```markdown
+After receiving output from `sdd:subagent-name`:
+- If the Task tool call itself failed (error / empty output):
+  `[FAIL] sdd:subagent-name Task failed. Confirm plugin version and retry.`
+- If output starts with `[FAIL]`:
+  Stop. Surface the exact message to the user. Do not proceed to the next step.
+```
+
+Also add a pre-dispatch guard for the "all inputs filtered" case:
+
+```markdown
+If all inputs are `[BLOCKED]` (nothing to pass to the subagent):
+`[WARN] All capabilities [BLOCKED] — skipping subagent dispatch.`
+```
+
+**Real incident (PR #112)**: spectra-amplifier Step 2a only had path (a).
+When all capabilities were `[BLOCKED]`, the subagent returned `[FAIL]`,
+Step 2b executed unconditionally, and a garbage `testplan.md` was written with no user-visible error.
