@@ -200,9 +200,9 @@ make install-all         # 等同 build-tools + install + install-project + inst
   `$CLAUDE_JOB_DIR` 路徑格式為 `~/.claude/jobs/<UUID>/`，每個 background session 都會產生新 UUID。
   Permission dialog 的 option 2「always allow access to `<UUID>/`」只對該次 session 有效；
   下一個 session 的新 UUID 不匹配，prompt 會重複出現。有兩種觸發情境，修法不同：
-  (1) **Edit/Write tool** 寫入 job 目錄：在 `~/.claude/settings.local.json` 加入
-  `"Edit(/Users/howie/.claude/jobs/*)"` 與 `"Write(/Users/howie/.claude/jobs/*)"` 兩條
-  trailing-wildcard pattern（路徑前綴鎖死），一次放行所有 job 目錄。
+  (1) **Edit/Write tool** 寫入 job 目錄：在 `~/.claude/settings.json`（全域，非 project 層）加入
+  `"Edit(/Users/howie/.claude/jobs/**)"` 與 `"Write(/Users/howie/.claude/jobs/**)"` 兩條
+  遞迴 wildcard pattern（必須用 `**`；`*` 不跨 `/`，無法匹配 `jobs/<UUID>/file.txt` 的子目錄結構），一次放行所有 job 目錄。
   (2) **Bash 指令 `>` 重導向**到 job 目錄（如 `cmd > $CLAUDE_JOB_DIR/out.json`）：
   permission 類型是 `Bash()` 而非 `Edit()`，需針對各指令加
   `"Bash(<command>:*)"` 到 allow list（例：`"Bash(spectra analyze:*)"`）。
