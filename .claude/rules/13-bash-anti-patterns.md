@@ -280,6 +280,21 @@ cmd 2>&1 | grep -v "INFO"
 cmd 2>&1
 ```
 
+### `realpath` — Not Available on macOS < Ventura
+
+`realpath` is absent on macOS Monterey and earlier. Scripts using it fail with `command not found`
+(silently in some contexts), making the resolved path empty or causing exit 1.
+
+```bash
+# Wrong: realpath unavailable on macOS < Ventura
+SCRIPT_DIR=$(realpath "$(dirname "$0")")
+
+# Fix: portable form -- resolve symlinks via cd+pwd
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+```
+
+Use `cd "$(dirname "$0")" && pwd` in all shell scripts that need the script's own directory.
+
 ### `rg '...\|...'` BRE alternation in ERE tool (silent empty results)
 
 `grep` default BRE: `\|` is alternation. `rg` uses Rust ERE: `|` is alternation, `\|` is
