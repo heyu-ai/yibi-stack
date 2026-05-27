@@ -551,3 +551,37 @@ If all inputs are `[BLOCKED]` (nothing to pass to the subagent):
 **Real incident (PR #112)**: spectra-amplifier Step 2a only had path (a).
 When all capabilities were `[BLOCKED]`, the subagent returned `[FAIL]`,
 Step 2b executed unconditionally, and a garbage `testplan.md` was written with no user-visible error.
+
+## Tool Output Fields Must Be Verified Against Actual CLI Output (PR #115 lesson)
+
+When a SKILL.md step instructs the agent to check a specific field in a tool's output
+(e.g. `spectra status`, `gh pr checks`, `jq .some_field`), **verify the field exists
+in the actual CLI output before writing**. Non-existent fields cause silent failures:
+the agent finds nothing and either always-PASSes or always-FAILs with no error message.
+
+Correct approach: run the tool locally with representative input and confirm the exact
+field name appears in the output before referencing it in SKILL.md.
+
+Relationship to "Hook Descriptions Must Be Verified Against the Actual Script": both belong to
+the same verification-before-authoring discipline — hook docs must match the script,
+SKILL.md field references must match the tool's actual output schema.
+
+## Tool Exit Codes Must Be Listed in SKILL.md Branch Design (PR #115 lesson)
+
+Any SKILL.md step that calls a shell tool with multiple non-trivial exit codes must
+enumerate each exit code as a named outcome. A runbook that only defines PASS/FAIL
+collapses distinct states, causing the agent to misroute pending or tool-error conditions.
+
+Example (`gh pr checks`):
+
+```markdown
+Exit code semantics:
+
+- **exit 0** — all checks passed → PASS
+- **exit 8** — checks still pending/running → PENDING (wait and re-run; do not declare done)
+- **exit 1** + structured check data → FAIL (list failing check names)
+- **exit 1** + no check data (stderr only) → TOOL ERROR (e.g. auth failure; run `gh auth status`)
+```
+
+Before writing a SKILL.md step that calls any CLI tool, check the tool's `--help` or
+man page for the full exit code table and add a named branch for each non-zero code.
