@@ -5,9 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from check_spec_coverage import (
-    CoverageResult,
     compute_coverage,
     parse_spec_scenarios,
     parse_test_traces,
@@ -41,9 +39,7 @@ class TestParseSpecScenarios:
 
     def test_multiple_slugs(self, tmp_path: Path) -> None:
         """CSCAN-ST-002: multiple scenarios in one spec."""
-        content = (
-            "#### Scenario: slug-a -- A\n\n#### Scenario: slug-b -- B\n"
-        )
+        content = "#### Scenario: slug-a -- A\n\n#### Scenario: slug-b -- B\n"
         make_spec(tmp_path, "auth", content)
         result = parse_spec_scenarios(tmp_path / "specs")
         assert result == {"auth": ["slug-a", "slug-b"]}
@@ -57,9 +53,7 @@ class TestParseSpecScenarios:
 
     def test_duplicate_slug_exits(self, tmp_path: Path) -> None:
         """CSCAN-EG-002: duplicate slug in one spec exits with code 1."""
-        content = (
-            "#### Scenario: same-slug -- A\n\n#### Scenario: same-slug -- B\n"
-        )
+        content = "#### Scenario: same-slug -- A\n\n#### Scenario: same-slug -- B\n"
         make_spec(tmp_path, "feature", content)
         with pytest.raises(SystemExit) as exc_info:
             parse_spec_scenarios(tmp_path / "specs")
@@ -94,6 +88,13 @@ class TestParseSpecScenarios:
         specs_dir.mkdir()
         result = parse_spec_scenarios(specs_dir)
         assert result == {}
+
+    def test_uppercase_cap_dir_normalized_lowercase(self, tmp_path: Path) -> None:
+        """CSCAN-EG-010: uppercase cap directory name is normalized to lowercase."""
+        make_spec(tmp_path, "E02-child-profile", "#### Scenario: load-profile -- 載入\n")
+        result = parse_spec_scenarios(tmp_path / "specs")
+        assert "e02-child-profile" in result
+        assert "E02-child-profile" not in result
 
 
 class TestParseTestTraces:
@@ -130,7 +131,7 @@ class TestParseTestTraces:
 
     def test_no_false_positive_nospec(self, tmp_path: Path) -> None:
         """CSCAN-EG-008: 'nospec:' must not match TRACE_PATTERN."""
-        make_test(tmp_path, "misc", '# nospec: login#slug\n')
+        make_test(tmp_path, "misc", "# nospec: login#slug\n")
         result = parse_test_traces(tmp_path / "tests")
         assert result == {}
 

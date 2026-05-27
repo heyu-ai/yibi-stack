@@ -46,7 +46,7 @@ def test_password_change_requires_current_password() -> None:
 | Field | Rule | Example |
 |-------|------|---------|
 | Keyword | `spec:` at start of the first docstring line | `spec:` |
-| `<cap>` | Direct parent directory name of `spec.md` (kebab-case) | `account-settings-page` |
+| `<cap>` | Direct parent directory name of `spec.md`; scanner lowercases it | `account-settings-page`, `e02-child-profile` |
 | `<slug>` | Matches the slug in the spec heading exactly | `require-current-password` |
 | Prefix | No `scenario-` prefix | correct: `spec: login#require-password` |
 

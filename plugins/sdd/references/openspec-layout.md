@@ -2,6 +2,10 @@
 
 OpenSpec 是 Spectra CLI 使用的變更管理目錄格式，用於追蹤功能規格從提案到封存的生命週期。
 
+> **路徑前綴**：本模板使用 `docs/openspec/`（適合有 docs/ 組織的 repo）。
+> 無 docs/ 組織的 repo 可改用 `openspec/` 作為根目錄；plugin SKILL.md 預設即如此。
+> 選定一種，在 repo 內保持一致即可。
+
 ## 標準目錄結構
 
 ```text

@@ -17,7 +17,7 @@
 ### {{US-title}}（P1 - 核心路徑）
 
 **Story Goal**：{{goal}}
-**Test Criteria**：{{FS refs}} 通過
+**Test Criteria**：{{scenario slugs}} 通過
 
 - [ ] T010 [P] {{task-description}} — target: `{{file-path}}`
 - [ ] T011 [P] 撰寫測試 — target: `{{test-file-path}}`
@@ -35,4 +35,4 @@
 
 ## 追溯說明
 
-每個 task 應追溯回 proposal.md 的 US / FS 編號，確保規格與實作雙向可追蹤。
+每個 task 應追溯回 proposal.md 的 US / AC 編號與 Gherkin scenario slug，確保規格與實作雙向可追蹤。

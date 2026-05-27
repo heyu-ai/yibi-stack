@@ -63,9 +63,9 @@ def parse_spec_scenarios(spec_root: Path, cap: str | None = None) -> dict[str, l
     result: dict[str, list[str]] = {}
 
     for spec_file in sorted(spec_root.rglob("spec.md")):
-        file_cap = spec_file.parent.name
+        file_cap = spec_file.parent.name.lower()
 
-        if cap is not None and file_cap != cap:
+        if cap is not None and file_cap != cap.lower():
             continue
 
         try:
@@ -173,9 +173,9 @@ def _print_report(result: CoverageResult, cap: str | None) -> None:
     for ref in result.covered:
         print(f"  [OK]   {ref}")
     for ref in result.missing:
-        print(f"  [WARN] missing: {ref}")
+        print(f"  [WARN] missing: {ref}", file=sys.stderr)
     for ref in result.orphan:
-        print(f"  [WARN] orphan:  {ref}")
+        print(f"  [WARN] orphan:  {ref}", file=sys.stderr)
 
     total = len(result.covered) + len(result.missing)
     print(
@@ -197,7 +197,7 @@ def _resolve_roots(args: argparse.Namespace) -> tuple[Path, Path]:
     tests_dir = args.tests_dir or args.test_root
 
     if bool(specs_dir) != bool(tests_dir):
-        missing_flag = "--tests-dir" if specs_dir else "--specs-dir"
+        missing_flag = "--tests-dir/--test-root" if specs_dir else "--specs-dir/--spec-root"
         print(
             f"[FAIL] {missing_flag} is required when the other is provided",
             file=sys.stderr,
@@ -273,7 +273,7 @@ Examples:
         if args.exit_on_missing:
             sys.exit(1)
 
-    # Pass cap to parse_test_traces so it skips unrelated test files early.
+    # Pass cap so traces from other caps are filtered out at parse time.
     test_traces = parse_test_traces(test_root, cap=args.cap)
 
     result = compute_coverage(spec_scenarios, test_traces)
