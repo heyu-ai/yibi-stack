@@ -464,6 +464,29 @@ echo "  [FAIL] jq not installed; run: brew install jq" >&2
 Rule: any `echo` with `[WARN]`/`[FAIL]`/`[SKIP]` prefix must use `>&2`.
 `[OK]` goes to stdout if it is a user-visible completion summary; stderr if it is debug info.
 
+### `[SKIP]` vs `[WARN]` Semantics for Missing Resources
+
+When a bootstrap or install script silently skips a step because a required resource (file,
+config, binary) does not exist, use `[WARN]` — not `[SKIP]` — and include a repair command.
+Silent `[SKIP] + exit 0` hides the problem; the user does not know the step was incomplete.
+
+```bash
+# Wrong: silent skip — user gets no feedback; resource stays unconfigured
+if [ ! -f ~/.claude/settings.json ]; then
+  echo "  [SKIP] settings.json not found" >&2
+  exit 0
+fi
+
+# Correct: warn with repair instruction — user knows what to do next
+if [ ! -f ~/.claude/settings.json ]; then
+  echo "  [WARN] ~/.claude/settings.json not found." >&2
+  echo "         Start Claude Code once to generate it, then re-run: make patch-agy-allow-list" >&2
+  exit 0
+fi
+```
+
+Scope: `make install-all` chains and any bootstrap script whose steps have prerequisites.
+
 ## Tracking ID System Must Not Use Hardcoded Sentinels as Fallback (PR #31)
 
 Idempotency tracking (STATE_FILE, cache key) must not fall back to a hardcoded sentinel

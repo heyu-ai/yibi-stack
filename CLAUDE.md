@@ -163,55 +163,54 @@ make install-all         # 等同 build-tools + install + install-project + inst
 | `.runtime/scheduler.db` | Scheduler 執行歷史（SQLite） |
 | `.runtime/logs/` | Scheduler 每次執行的 stdout/stderr log |
 
-## 已知 Gotcha
+## Known Gotchas
 
-- **protect-push 攔截 `gh pr merge`**：agent 無法自行 merge；需使用者執行 `! gh pr merge <n> --squash --delete-branch`。
-  另：在 linked worktree 內執行 `gh pr merge` 時若主 repo 已 checkout main 也會失敗（`fatal: 'main' is already used by worktree`）——同樣需從主 repo 目錄執行
-- **plugin command source 刪除後頂層 symlink 變 dangling**：`git status` 不顯示（CI `FileNotFoundError` 才發現）。刪除 `plugins/<pack>/commands/<cmd>.md` 時，需同步 `git rm commands/<cmd>.md` 移除頂層 symlink
-- **Slash command 的 bash code block 被 agent 重寫**：commands/*.md 或 SKILL.md 中，
-  agent 理解意圖後自行生成 bash 而非複製貼上，可能引入反模式（fat command、
-  `if [ $? -ne 0 ]`、`||` 條件分支）。複雜 bash 邏輯移到 `commands/scripts/*.sh` 或
-  `skills/<name>/scripts/*.sh`，文件只保留單行 `bash <script-path>` 呼叫。範例：
-  `plugins/pr-flow/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh`
-  （PR review Step 3.1 工作目錄準備）。配合 `.claude/rules/16-allowlist-hygiene.md`，
-  allow-list 永久放行 pattern 用完整 script 路徑而非 fat command wildcard。
-- **make target 名稱一律逐字引用**：README/CLAUDE.md 中的 target 名稱必須從 Makefile 直接 copy，不可改寫成「可讀標籤」（例如把 `patch-pr-review-agents` 縮寫為其他名稱），否則使用者執行時 404
-- **hook 腳本在 `.claude/hooks/` 不等於已啟用**：Claude Code 只執行在 `settings.json` 的 `hooks` 命令字串中登記的 hook；評估 hook 有效性必須做「檔案存在 × settings.json 登記」雙重交叉驗證
-- **`Path.rglob()` 不追蹤 symlink**：`pathlib` 的 `rglob()` 預設不進 symlink 子目錄。若目標目錄含 symlink（如本 repo `skills/` 的 plugin symlink），改用 `os.walk(followlinks=True)` 或 Python 3.13+ 的 `glob(follow_symlinks=True)`
-- **`plugins/harness` 無 `package.json`**：`plugins/` 下並非所有子目錄都是可 `claude plugin install` 的正式 plugin。
-  `plugins/harness` 是 README-only 容器，需用 `make install-one SKILL=harness-eval`；並列時必須 inline 標注例外，否則讀者繼承區塊語意靜默失敗。
-- **bootstrap script 的 `[SKIP]` 應改 `[WARN]`**：`make install-all` chain 中目標資源（如 `~/.claude/settings.json`）不存在時，靜默 `[SKIP]` + exit 0 等同問題隱藏。
-  應改 `[WARN]` 並說明修復指令（例：「請先啟動 Claude Code 以產生設定檔，再重跑 `make patch-agy-allow-list`」）。
-- **agy auth 偵測用 `onboardingComplete`，不用 `installation_id`**：
-  `~/.gemini/antigravity-cli/installation_id` 在 agy 首次啟動（OAuth 完成前）就存在，用它做 auth check 會 false positive。
-  正確做法：檢查 `~/.gemini/antigravity-cli/cache/onboarding.json` 的 `onboardingComplete: true` 欄位。
-- **linked worktree 內 `git rev-parse --show-toplevel` 回傳 worktree 路徑，不是主 repo 路徑**：
-  在 `.claude/worktrees/<name>/` 等 linked worktree 內呼叫 `--show-toplevel`，得到的是 worktree 自身的目錄（如 `.claude/worktrees/feat+...`），不是 repo 根目錄。
-  需要主 repo 路徑時改用 `git rev-parse --path-format=absolute --git-common-dir`，再取 `Path(result).parent`。
-  適用場景：任何在 worktree 內計算 project slug、log 路徑、transcript 目錄等依賴主 repo 位置的邏輯。
-- **`pre-commit run --files` 只掃指定檔案，CI `--all-files` 掃全 repo**：本地跑 `pre-commit run --files <file>` 只檢查指定檔案，push 前若有未改動但有 pre-existing 問題的檔案（如 `settings.json` 缺 trailing newline），本地不會報錯但 CI 會失敗。
-  正確做法：push 前執行 `make ci`（內含 `pre-commit run --all-files` + pytest），而非只跑 `pre-commit run --files <file>`。
-- **`make install` 迴圈的 skip list 需四個目標同步維護**：`install`、`install-project`、`status-own`、`uninstall` 四個迴圈都掃 `skills/*/`。
-  任何工具在 `skills/` 下產生的非 skill 目錄（如 `spectra init --dir skills/openspec`）必須同步加入所有四個迴圈的 skip list。
-  失敗模式不同：`install`/`install-project` 遇到缺 SKILL.md 的目錄會 **exit 1 中斷**（字母排序後的 skill 全部裝不到）；
-  `status-own` 靜默繼續（顯示空白 scope，不報錯）；`uninstall` 靜默略過（不報錯）。
-- **`.gitignore` 不等於磁碟不存在**：被 gitignore 的目錄仍存在磁碟上，shell glob、Python rglob、`make install` 等工具不知道 gitignore 的存在。防線必須加在腳本本身（skip list、SKILL.md 存在性檢查），不能依賴 gitignore 作為唯一屏障。
-- **`$CLAUDE_JOB_DIR` 的 permission 無法用 option 2 永久放行**：
-  `$CLAUDE_JOB_DIR` 路徑格式為 `~/.claude/jobs/<UUID>/`，每個 background session 都會產生新 UUID。
-  Permission dialog 的 option 2「always allow access to `<UUID>/`」只對該次 session 有效；
-  下一個 session 的新 UUID 不匹配，prompt 會重複出現。有兩種觸發情境，修法不同：
-  (1) **Edit/Write tool** 寫入 job 目錄：在 `~/.claude/settings.local.json` 加入
-  `"Edit(/Users/howie/.claude/jobs/*)"` 與 `"Write(/Users/howie/.claude/jobs/*)"` 兩條
-  trailing-wildcard pattern（路徑前綴鎖死），一次放行所有 job 目錄。
-  (2) **Bash 指令 `>` 重導向**到 job 目錄（如 `cmd > $CLAUDE_JOB_DIR/out.json`）：
-  permission 類型是 `Bash()` 而非 `Edit()`，需針對各指令加
-  `"Bash(<command>:*)"` 到 allow list（例：`"Bash(spectra analyze:*)"`）。
-  注意 rule 16 Red Flag 5：`Bash(* > *)` 不可放行；必須以指令名稱為前綴鎖定。
-- **Python module rename 後 `settings.json` hook 命令不會自動更新**：
-  重命名 task module（如 `session_memory` → `mycelium`）後，`~/.claude/settings.json` 中引用舊模組名的 hook
-  命令不會同步，導致 `No module named tasks.<old_name>.__main__` 錯誤。
-  修正：每次重命名 task module 後，搜尋 `~/.claude/settings.json` 與 project `settings.json` 中所有含舊模組名稱的 hook 命令並手動更新。
-- **sdd plugin version lockstep（package.json vs plugin.json）**：
-  `plugins/sdd/package.json` 與 `plugins/sdd/.claude-plugin/plugin.json` 兩個版本號必須手動同步 bump。
-  無 CI 交叉驗證——PR #112 mob review 兩個聲部（Claude + Codex）都獨立 flag 了 1.3.0 vs 1.4.0 的 split。
-  修正：bump package.json 後，同步更新 `.claude-plugin/plugin.json` 的 `"version"` 欄位。
+- **protect-push blocks `gh pr merge`**: agent cannot merge; user must run
+  `! gh pr merge <n> --squash --delete-branch`. Also: running `gh pr merge` from a linked
+  worktree when the main repo has `main` checked out fails (`fatal: 'main' is already used by
+  worktree`) — run from the main repo directory instead.
+- **plugin command source deleted → top-level symlink becomes dangling**: `git status` does
+  not show it (CI `FileNotFoundError` catches it). When deleting `plugins/<pack>/commands/<cmd>.md`,
+  also run `git rm commands/<cmd>.md` to remove the top-level symlink.
+- **slash command bash code block rewritten by agent**: in commands/*.md or SKILL.md, the agent
+  understands intent and generates fresh bash instead of copy-pasting — may introduce anti-patterns
+  (fat command, `if [ $? -ne 0 ]`, `||` branching). Move complex bash to `commands/scripts/*.sh`
+  or `skills/<name>/scripts/*.sh`; documents keep only a single `bash <script-path>` call.
+  See rule 16: use full script paths in allow-list, not fat command wildcards.
+  Example: `plugins/pr-flow/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh`.
+- **make target names must be copied verbatim**: target names in README/CLAUDE.md must be
+  copied directly from the Makefile — never rephrase as a "readable label" (e.g., abbreviating
+  `patch-pr-review-agents`) or users get a make error.
+- **hook script in `.claude/hooks/` does not mean enabled**: Claude Code only runs hooks
+  registered in `settings.json`'s `hooks` command strings. Evaluate hook effectiveness with a
+  double check: file exists AND registered in `settings.json`.
+- **`Path.rglob()` does not follow symlinks** — see rule 02 for fix.
+- **`plugins/harness` has no `package.json`**: not all subdirectories under `plugins/` are
+  installable plugins. `plugins/harness` is a README-only container; install with
+  `make install-one SKILL=harness-eval`. Parallel listings must inline-annotate this exception,
+  otherwise readers inherit the block's semantic and silently fail.
+- **bootstrap script `[SKIP]` should be `[WARN]` for missing prerequisites** — see rule 13 for fix.
+- **agy auth detection uses `onboardingComplete`, not `installation_id`**:
+  `~/.gemini/antigravity-cli/installation_id` exists before OAuth completes (false positive).
+  Check `~/.gemini/antigravity-cli/cache/onboarding.json` for `onboardingComplete: true` instead.
+- **linked worktree `git rev-parse --show-toplevel` returns worktree path, not main repo** —
+  see rule 15 for the correct `--git-common-dir` pattern.
+- **`pre-commit run --files` only scans specified files; CI uses `--all-files`**: local
+  `pre-commit run --files <file>` misses pre-existing problems in other files. Always run
+  `make ci` before pushing (includes `--all-files` + pytest).
+- **`make install` loop skip list requires 4 targets synced**: `install`, `install-project`,
+  `status-own`, and `uninstall` all scan `skills/*/`. Any non-skill directory created under
+  `skills/` (e.g., `spectra init --dir skills/openspec`) must be added to all four skip lists.
+  Failure modes: `install`/`install-project` exit 1; `status-own` silently continues; `uninstall`
+  silently skips.
+- **`.gitignore` does not mean absent from disk** — see rule 02 for fix.
+- **`$CLAUDE_JOB_DIR` permission cannot be permanently allowed via session dialog** —
+  see rule 16 for the correct `Edit(/Users/<you>/.claude/jobs/*)` allow-list patterns.
+- **Python module rename → `settings.json` hook commands not updated automatically**: after
+  renaming a task module (e.g., `session_memory` → `mycelium`), hook commands in
+  `~/.claude/settings.json` and project `settings.json` still reference the old name, causing
+  `No module named tasks.<old_name>.__main__`. After every module rename, search both settings
+  files for the old name and update manually.
+- **sdd plugin version lockstep (package.json vs plugin.json)**: `plugins/sdd/package.json`
+  and `plugins/sdd/.claude-plugin/plugin.json` must be bumped together — no CI cross-check.
+  After bumping `package.json`, sync the `"version"` field in `.claude-plugin/plugin.json`.

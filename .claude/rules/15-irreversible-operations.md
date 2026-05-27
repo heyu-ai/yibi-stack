@@ -204,6 +204,23 @@ When creating a revert PR (to undo commits that landed on a shared branch):
 on `origin/main`. Without rebase, the diff included 3 agy scripts. Mob review
 caught it; rebase onto `origin/main` fixed the scope back to exactly 6 rule files.
 
+## Worktree Path Resolution: `--show-toplevel` vs `--git-common-dir`
+
+Inside a linked worktree (e.g., `.claude/worktrees/<name>/`), `git rev-parse --show-toplevel`
+returns the **worktree's own directory**, not the main repo root.
+
+```bash
+# Wrong: inside a linked worktree, this returns .claude/worktrees/feat+.../
+git rev-parse --show-toplevel
+
+# Correct: get the main repo root from any location (worktree or main)
+GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir)
+MAIN_REPO=$(dirname "$GIT_COMMON")
+```
+
+Applies to: any script that computes project slug, log path, transcript directory, or any path
+that depends on the main repo root — when the script may run inside a linked worktree.
+
 ## Scope
 
 This rule applies to all Claude Code agent sessions. It does not affect commands the user
