@@ -1,6 +1,6 @@
 {
   "name": "3rd-tools",
-  "description": "Third-party AI tool integrations for Claude Code agents: Codex, Gemini model verification, and AI slop detection skills.",
+  "description": "Third-party AI tool integrations for Claude Code agents: Codex and Gemini model verification skills.",
   "version": "1.2.4",
   "author": {
     "name": "Howie Yu",
@@ -12,7 +12,6 @@
     "codex",
     "gemini",
     "ai-tools",
-    "detect-ai-slop",
     "verify-gemini-models",
     "third-party"
   ]
