@@ -135,7 +135,7 @@ See [`skills/README.md`](skills/README.md) for the full index.
 | `bash-hygiene` | `claude plugin install bash-hygiene@yibi-stack` | Pre-execution bash anti-pattern detection with auto-fix guidance |
 | `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec spec-amplifier methodology + qa-test-design |
 | `growth` | `claude plugin install growth@yibi-stack` | Session continuity: mycelium, learn, handover/newjob commands |
-| `pr-flow` | `claude plugin install pr-flow@yibi-stack` | Full PR workflow: 6 skills + 5 slash commands |
+| `pr-flow` | `claude plugin install pr-flow@yibi-stack` | Full PR workflow: 5 skills + 6 slash commands |
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex, Gemini model verification, AI slop detection |
 | `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD, Flutter TDD, CI triage |
 | `util` | `claude plugin install util@yibi-stack` | Local port manager + debug command |
@@ -272,7 +272,7 @@ make status-own
 | `bash-hygiene` | `claude plugin install bash-hygiene@yibi-stack` | 執行前 bash 反模式偵測，附自動修法指引 |
 | `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec 規格展開 + qa-test-design 測試設計 |
 | `growth` | `claude plugin install growth@yibi-stack` | 跨 session 記憶：mycelium、learn、handover/newjob |
-| `pr-flow` | `claude plugin install pr-flow@yibi-stack` | 完整 PR 流程：6 個 skill + 5 個 slash command |
+| `pr-flow` | `claude plugin install pr-flow@yibi-stack` | 完整 PR 流程：5 個 skill + 6 個 slash command |
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex、Gemini 模型驗證、AI slop 偵測 |
 | `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD、Flutter TDD、CI 診斷 |
 | `util` | `claude plugin install util@yibi-stack` | 本機 port 管理 + debug command |
