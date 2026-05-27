@@ -3,7 +3,7 @@
 Claude Code plugin for Spec-Driven Development: Spectra amplifier methodology, qa-test-design framework, and OpenSpec change-management workflow.
 
 > **This plugin does NOT bundle the spectra CLI. Install Spectra.app separately (see Prerequisites).**
-> **v0.2 Upgrade note:** PR review skills (`pr-review-cycle`, `pr-review-cycle-mob`, `pr-review-cycle-codex`) have moved to `pr-flow@yibi-stack`. If upgrading from `yibi-spectra`, run:
+> **v0.2 Upgrade note:** PR review skills (`pr-review-cycle`, `pr-review-cycle-mob`) have moved to `pr-flow@yibi-stack`. If upgrading from `yibi-spectra`, run:
 > `claude plugin uninstall yibi-spectra@yibi-stack && claude plugin install sdd@yibi-stack pr-flow@yibi-stack`
 
 ## Prerequisites

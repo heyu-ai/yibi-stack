@@ -21,7 +21,7 @@ Global skill 已依主題分組為 plugin pack，可透過 Claude Code marketpla
 claude plugin marketplace add howie/yibi-stack  # 一次性註冊
 
 claude plugin install growth@yibi-stack          # mycelium + learn + handover/newjob
-claude plugin install pr-flow@yibi-stack         # PR 全流程 6 skills + 5 commands
+claude plugin install pr-flow@yibi-stack         # PR 全流程 5 skills + 6 commands
 claude plugin install sdd@yibi-stack             # spectra-amplifier + qa-test-design + /sdd:setup
 claude plugin install bash-hygiene@yibi-stack    # bash-anti-patterns + protect-push
 claude plugin install 3rd-tools@yibi-stack       # codex + agy + verify-gemini-models + detect-ai-slop
@@ -61,7 +61,6 @@ claude plugin install util@yibi-stack            # local-port-manager + debug co
 | `qa-test-design` | [plugins/sdd/](../plugins/sdd/README.md) | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |
 | `pr-review-cycle` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 完整 PR 生命週期：建立 PR → /code-review 缺陷偵測 → parallel review（Claude pr-review-toolkit 4 subagent）→ fix → re-review → CI → merge → spectra archive + Jira sync。適用小型 feature / 快速合併 | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |
 | `pr-review-cycle-mob` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | Mob review by multiple frontier-model agents：自動偵測 codex / gemini，≥1 家可用即啟動 R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM → 人類快速複查 → CI → merge | [pr-review-cycle-mob/SKILL.md](pr-review-cycle-mob/SKILL.md) |
-| `pr-review-cycle-codex` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | [DEPRECATED] codex-only 強化版；想要 mob 群審用 `/pr-review-cycle-mob`，小型 PR 用 `/pr-review-cycle` | [pr-review-cycle-codex/SKILL.md](pr-review-cycle-codex/SKILL.md) |
 | `bash-anti-patterns` | [plugins/bash-hygiene/](../plugins/bash-hygiene/README.md) | Claude Code agent 下 bash 指令三層防線：AP1 過度複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd；Rule 14 shell 引號衛生；Rule 15 不可逆操作邊界；含判斷標準、對策決策樹與可選裝 PreToolUse hook | [bash-anti-patterns/SKILL.md](bash-anti-patterns/SKILL.md) |
 | `tdd-kentbeck` | [plugins/tdd/](../plugins/tdd/README.md) | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
 | `flutter-tdd` | [plugins/tdd/](../plugins/tdd/README.md) | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |

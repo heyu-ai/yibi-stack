@@ -998,7 +998,6 @@ finding reference but **do not enter the main context**.
 | --- | --- | --- |
 | `/pr-review-cycle` | Small feature / bug fix / refactor; fast merge | Claude pr-review-toolkit 4 subagents in parallel |
 | `/pr-review-cycle-mob` (this skill) | Medium/large PR / high-risk changes / cross-model pressure test | Claude + Codex (required) + agy (optional); R1 independent + R2 debate |
-| `/pr-review-cycle-codex` [DEPRECATED] | Only codex installed; want it as a hard gate | Claude + codex (codex-only enhanced) |
 
 This skill requires ≥1 external reviewer (Codex or agy) to start; with 0, falls back to `/pr-review-cycle`.
 agy (Antigravity CLI) is optional — when only Codex is available, runs 2-voice mob; when both are available, runs 3-voice full mob.
