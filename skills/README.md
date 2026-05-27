@@ -58,7 +58,8 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 | Skill | 住址 | 描述 | SKILL.md |
 |-------|------|------|----------|
 | `bump-version` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | Project-level 版本 bump（Flutter/Python/Node.js/Go）+ CHANGELOG 生成 + git tag 發布，附帶 commit-msg hook 安裝 | [bump-version/SKILL.md](bump-version/SKILL.md) |
-| `spectra-amplifier` | [plugins/sdd/](../plugins/sdd/README.md) | Spec Kit 五層深度規格展開 + OpenSpec 變更管理框架融合方法論 | [spectra-amplifier/SKILL.md](spectra-amplifier/SKILL.md) |
+| `spectra-amplifier` | [plugins/sdd/](../plugins/sdd/README.md) | Wave D Plugin Edition：Step 0-5 規格展開（BDD Gherkin + qa-test-design dispatch + ADR-0008 docstring trace + SMK smoke tests）| [spectra-amplifier/SKILL.md](spectra-amplifier/SKILL.md) |
+| `event-storming` | [plugins/sdd/](../plugins/sdd/README.md) | 領域發現前置 skill（draft）；amplifier Step 0 的 handoff 來源；產出 Domain Events / Bounded Contexts / Aggregate Roots | [event-storming/SKILL.md](event-storming/SKILL.md) |
 | `qa-test-design` | [plugins/sdd/](../plugins/sdd/README.md) | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |
 | `pr-review-cycle` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 完整 PR 生命週期：建立 PR → /code-review 缺陷偵測 → parallel review（Claude pr-review-toolkit 4 subagent）→ fix → re-review → CI → merge → spectra archive + Jira sync。適用小型 feature / 快速合併 | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |
 | `pr-review-cycle-mob` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | Mob review by multiple frontier-model agents：自動偵測 codex / gemini，≥1 家可用即啟動 R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM → 人類快速複查 → CI → merge | [pr-review-cycle-mob/SKILL.md](pr-review-cycle-mob/SKILL.md) |
