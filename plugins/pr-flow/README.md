@@ -21,6 +21,7 @@ claude plugin install pr-flow@yibi-stack
 | `pr-retrospective` skill | PR 合併後事後檢討，提取改善點存入知識庫 |
 | `bump-version` skill | 語意化版本號遞增（semver），更新 CHANGELOG |
 | `claude-md-prune` skill | 定期清理 CLAUDE.md 過時內容，保持指引簡潔 |
+| `verify-done` skill | 宣告完成前的端對端驗證：pre-commit、CI checks、Spectra amplifier、worktree 安全性 |
 | `/pr-review-cycle` command | 完整 PR 生命週期（含建立 PR → code review → merge） |
 | `/pr-review-cycle-mob` command | Mob review 完整 PR 生命週期（多模型並行） |
 | `/pr-retro` command | 觸發 PR 事後檢討 |
