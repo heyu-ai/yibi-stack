@@ -133,3 +133,28 @@ prev_output_tokens = 0      # <-- delete this line too
 
 # Correct: delete both lines
 ```
+
+## Linter Suppression Tracking
+
+When adding any linter suppression, **open a tracking issue in the same PR**. Without it,
+suppressions accumulate and are never removed.
+
+Applies to all suppression forms:
+
+| Type | Example |
+|------|---------|
+| markdownlint inline | `<!-- markdownlint-disable MD013 -->` |
+| markdownlint config | `.markdownlint.yaml` rule set to `false` |
+| ruff | `# noqa: E501` |
+| bandit | `# nosec B603` |
+| mypy | `# type: ignore` |
+| pre-commit | new `exclude:` pattern |
+
+### Required fields in the tracking issue
+
+- **Rule/warning name** being suppressed
+- **Reason**: technical limitation / external dependency / temporary workaround
+- **Removal condition**: "remove after X is fixed" — without this the suppression can never be tracked to closure
+
+Incident (PR #5): 6 markdownlint rules suppressed at once with no tracking issue;
+nearly became permanent until a follow-up commit re-enabled them all.
