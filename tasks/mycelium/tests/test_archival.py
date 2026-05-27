@@ -106,7 +106,7 @@ class TestArchiveLesson:
 
     def test_myc_archive_dt_005_archive_by_id(self, tmp_path: Path) -> None:
         """MYC-ARCHIVE-DT-005: archive_lesson_by_id works end-to-end"""
-        import unittest.mock as mock
+        from unittest import mock
 
         import tasks.mycelium.archival as archival_mod
 

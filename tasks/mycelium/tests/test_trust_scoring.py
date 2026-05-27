@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tasks.mycelium.models import LessonRecord, LessonSource, LessonType
 from tasks.mycelium.trust_scoring import compute_bot_trust_weight
 
@@ -56,6 +58,3 @@ class TestComputeBotTrustWeight:
         lesson = _make_lesson(source_bot="claude", source=LessonSource.user_stated)
         weight = compute_bot_trust_weight(lesson, "claude", [])
         assert weight == 1.0  # user-stated, not 0.9 (same_bot)
-
-
-import pytest

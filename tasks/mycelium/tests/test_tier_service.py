@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pytest
-
 from tasks.mycelium.db import AgentsDB
 from tasks.mycelium.models import LessonRecord, LessonSource, LessonType
-from tasks.mycelium.tier_service import PromotionResult, _process_row, run_promotion_check
+from tasks.mycelium.tier_service import run_promotion_check
 
 
 def _make_db(tmp_path: Path) -> AgentsDB:
@@ -89,7 +86,7 @@ class TestRunPromotionCheck:
     def test_myc_tier_dt_004_no_change_boundary(self, tmp_path: Path) -> None:
         """MYC-TIER-DT-004: age==89 (boundary) stays in working"""
         db = _make_db(tmp_path)
-        lesson_id = _insert_lesson(db, tier="working", access_count=0, age_days=89)
+        _insert_lesson(db, tier="working", access_count=0, age_days=89)
         db.close()
 
         result = run_promotion_check(db_path=str(tmp_path / "test.db"))
@@ -131,8 +128,9 @@ class TestRunPromotionCheck:
         lesson_id = _insert_lesson(db, tier="cold", access_count=0, age_days=366)
         db.close()
 
-        with patch("tasks.mycelium.archival.archive_lesson_by_id",
-                   side_effect=RuntimeError("disk full")):
+        with patch(
+            "tasks.mycelium.archival.archive_lesson_by_id", side_effect=RuntimeError("disk full")
+        ):
             result = run_promotion_check(db_path=str(tmp_path / "test.db"))
 
         assert len(result.errors) == 1

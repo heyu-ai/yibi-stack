@@ -640,6 +640,7 @@ def get_lessons(
             r["effective_weight"] = compute_effective_weight(lesson, now, trust_w)
         except Exception as e:
             import sys as _sys
+
             print(f"[mycelium] lesson id={r.get('id', '?')} weight 計算失敗：{e}", file=_sys.stderr)
             r["effective_weight"] = float(r.get("effective_confidence", r.get("confidence", 0)))
         accessed_ids.append(str(r.get("id", "")))
@@ -674,12 +675,13 @@ def get_lessons(
             _db.close()
         except Exception as _e:
             import sys as _sys
+
             print(f"[mycelium] access_count update 失敗：{_e}", file=_sys.stderr)
 
     return final
 
 
-_TOKEN_BUDGET_ENCODING = "cl100k_base"
+_TOKEN_BUDGET_ENCODING = "cl100k_base"  # nosec B105
 
 
 def _apply_token_budget(
@@ -689,7 +691,7 @@ def _apply_token_budget(
 ) -> list[dict[str, Any]]:
     """依 token budget 截斷 rows（tiktoken cl100k_base 估算）。"""
     try:
-        import tiktoken
+        import tiktoken  # type: ignore[import-not-found]
 
         enc = tiktoken.get_encoding(_TOKEN_BUDGET_ENCODING)
 
@@ -697,6 +699,7 @@ def _apply_token_budget(
             return len(enc.encode(text))
 
     except ImportError:
+
         def count_tokens(text: str) -> int:
             return len(text) // 4  # rough estimate: 1 token ≈ 4 chars
 

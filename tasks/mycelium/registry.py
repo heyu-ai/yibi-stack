@@ -20,7 +20,7 @@ def resolve_project_slug(cwd: Path) -> str | None:
     git 失敗（非 git 目錄或無 git binary）時回傳 None。
     """
     try:
-        result = subprocess.run(  # nosec B603
+        result = subprocess.run(  # nosec B603 B607
             ["git", "-C", str(cwd), "rev-parse", "--path-format=absolute", "--git-common-dir"],
             capture_output=True,
             text=True,
@@ -34,6 +34,7 @@ def resolve_project_slug(cwd: Path) -> str | None:
         return repo_root.name or None
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None
+
 
 _DEFAULT_ACCOUNTS_PATH = REGISTRY_DIR / "accounts.json"
 

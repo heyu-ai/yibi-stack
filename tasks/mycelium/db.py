@@ -38,6 +38,7 @@ def compute_effective_weight(
     freq: float = math.log(lesson.access_count + 1)
     return float(lesson.confidence) * decay * freq * bot_trust_weight
 
+
 _JSON_ARRAY_COLS = (
     "completed",
     "decisions",
@@ -523,7 +524,7 @@ class AgentsDB:
         placeholders = ",".join("?" * len(ids))
         self.conn.execute(  # nosec B608
             f"UPDATE lessons SET access_count = access_count + 1, last_accessed_at = ? "
-            f"WHERE id IN ({placeholders})",
+            f"WHERE id IN ({placeholders})",  # nosec B608
             [now.isoformat(), *ids],
         )
         self.conn.commit()
