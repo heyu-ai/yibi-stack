@@ -50,9 +50,10 @@ plugins/          Claude Code plugin packs (installable via claude plugin instal
   sdd/            Spec-Driven Development: Spectra + OpenSpec methodology, qa-test-design
   growth/         Session continuity: mycelium, learn, handover/newjob commands
   pr-flow/        PR workflow: review cycles, retrospective, bump-version, pr commands
-  3rd-tools/      Third-party AI: Codex, Gemini model verification, AI slop detection
+  3rd-tools/      Third-party AI: Codex, Antigravity CLI (agy/Gemini), model verification
   tdd/            Test-Driven Development: Kent Beck TDD, Flutter TDD, CI triage
   util/           Utility: local port manager, debug command
+  writing/        Writing quality: AI slop detection
   harness/        Harness readiness evaluation (README only, no package.json -- skill installed via make install)
 
 skills/           Agent execution layer -- SKILL.md runbooks (installed via make install)
@@ -67,7 +68,7 @@ scripts/          CI and lint tooling
 
 ### Plugins vs Skills — what's the difference?
 
-**Plugins** (`plugins/bash-hygiene`, `plugins/sdd`, `plugins/growth`, `plugins/pr-flow`, `plugins/3rd-tools`, `plugins/tdd`, `plugins/util`)
+**Plugins** (`plugins/bash-hygiene`, `plugins/sdd`, `plugins/growth`, `plugins/pr-flow`, `plugins/3rd-tools`, `plugins/tdd`, `plugins/util`, `plugins/writing`)
 are proper Claude Code plugins with `package.json` manifests. They install hooks, rules, and bundled skills. Installable via `claude plugin install` without cloning.
 `plugins/harness` is a documentation placeholder only (no `package.json`) — its `harness-eval` skill installs via `make install-one SKILL=harness-eval` (see Plugins table).
 
@@ -85,6 +86,7 @@ claude plugin install sdd@yibi-stack
 claude plugin install growth@yibi-stack
 claude plugin install pr-flow@yibi-stack
 claude plugin install tdd@yibi-stack
+claude plugin install writing@yibi-stack
 ```
 
 Note: `harness-eval` is not installable via `claude plugin install` — clone the repo and run `make install-one SKILL=harness-eval` (or `make install-all` for a full setup).
@@ -94,7 +96,7 @@ Note: `harness-eval` is not installable via `claude plugin install` — clone th
 ```bash
 # 1. Install plugins (pre-execution hooks + rules)
 claude plugin marketplace add howie/yibi-stack
-claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack
+claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack writing@yibi-stack
 
 # 2. Clone and install skills + hooks + scheduler
 git clone https://github.com/howie/yibi-stack
@@ -124,6 +126,9 @@ make status-own
 | `ci-triage` | CI failure triage funnel (Lint -> Type -> Security -> Tests) |
 | `learn` | Browse, search, prune, and export lessons learned |
 | `pr-retrospective` | 5-question PR retro, routes lessons to `.claude/rules/` or CLAUDE.md |
+| `claude-md-prune` | Prune CLAUDE.md bloat: route gotchas to `.claude/rules/` files, stay under 200-line soft cap |
+| `agy` | Antigravity CLI (Gemini) second opinion: lightweight single-model review / challenge mode |
+| `detect-ai-slop` | Detect AI-generated text patterns with model-specific fingerprints and de-slop suggestions |
 | `harness-eval` | 8-dimension harness readiness score (0-100) with PASS/WARN/FAIL checklist and priority TODO |
 
 See [`skills/README.md`](skills/README.md) for the full index.
@@ -136,9 +141,10 @@ See [`skills/README.md`](skills/README.md) for the full index.
 | `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec spec-amplifier methodology + qa-test-design |
 | `growth` | `claude plugin install growth@yibi-stack` | Session continuity: mycelium, learn, handover/newjob commands |
 | `pr-flow` | `claude plugin install pr-flow@yibi-stack` | Full PR workflow: 5 skills + 6 slash commands |
-| `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex, Gemini model verification, AI slop detection |
+| `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex, Antigravity CLI (agy/Gemini), model verification |
 | `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD, Flutter TDD, CI triage |
 | `util` | `claude plugin install util@yibi-stack` | Local port manager + debug command |
+| `writing` | `claude plugin install writing@yibi-stack` | AI slop detection |
 | `harness` | `make install-one SKILL=harness-eval` | Harness readiness evaluation |
 
 ---
@@ -188,9 +194,10 @@ plugins/          Claude Code plugin packs（可透過 claude plugin install 安
   sdd/            Spec-Driven Development：Spectra + OpenSpec 方法論、qa-test-design
   growth/         跨 session 連續性：mycelium、learn、handover/newjob commands
   pr-flow/        PR 全流程：review cycles、retrospective、bump-version、PR commands
-  3rd-tools/      第三方 AI：Codex、Gemini 模型驗證、AI slop 偵測
+  3rd-tools/      第三方 AI：Codex、Antigravity CLI（agy/Gemini）、模型驗證
   tdd/            測試驅動開發：Kent Beck TDD、Flutter TDD、CI 診斷
   util/           工具：local port manager、debug command
+  writing/        寫作品質：AI slop 偵測
   harness/        Harness 就緒度評量（純 README，無 package.json，skill 透過 make install 安裝）
 
 skills/           Agent 執行介面層（SKILL.md runbook，透過 make install 安裝）
@@ -205,7 +212,7 @@ scripts/          CI 與 lint 工具腳本
 
 ### Plugin 與 Skill 的差別？
 
-**Plugin**（`plugins/bash-hygiene`、`plugins/sdd`、`plugins/growth`、`plugins/pr-flow`、`plugins/3rd-tools`、`plugins/tdd`、`plugins/util`）
+**Plugin**（`plugins/bash-hygiene`、`plugins/sdd`、`plugins/growth`、`plugins/pr-flow`、`plugins/3rd-tools`、`plugins/tdd`、`plugins/util`、`plugins/writing`）
 是有 `package.json` manifest 的正式 Claude Code plugin，會安裝 hook、rules 和隨附 skill，不需 clone 即可用 `claude plugin install` 安裝。
 `plugins/harness` 是純文件容器（無 `package.json`）——其 `harness-eval` skill 透過 `make install-one SKILL=harness-eval` 安裝（見下方 Plugins 表格）。
 
@@ -222,6 +229,7 @@ claude plugin install sdd@yibi-stack
 claude plugin install growth@yibi-stack
 claude plugin install pr-flow@yibi-stack
 claude plugin install tdd@yibi-stack
+claude plugin install writing@yibi-stack
 ```
 
 注意：`harness-eval` 無法透過 `claude plugin install` 安裝——需 clone 本 repo 後執行 `make install-one SKILL=harness-eval`（或 `make install-all` 一次裝齊）。
@@ -231,7 +239,7 @@ claude plugin install tdd@yibi-stack
 ```bash
 # 1. 安裝 plugin（pre-execution hook + 規則）
 claude plugin marketplace add howie/yibi-stack
-claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack
+claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack writing@yibi-stack
 
 # 2. Clone 並安裝 skill + hook + scheduler
 git clone https://github.com/howie/yibi-stack
@@ -261,6 +269,9 @@ make status-own
 | `ci-triage` | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests） |
 | `learn` | 瀏覽、搜尋、修剪、匯出教訓記錄 |
 | `pr-retrospective` | PR 收尾五問回顧，路由 lesson 到 `.claude/rules/` 或 CLAUDE.md |
+| `claude-md-prune` | CLAUDE.md 精簡：把 gotcha 路由到 `.claude/rules/` 子檔，維持 200 行軟上限 |
+| `agy` | Antigravity CLI（Gemini）第二意見：輕量單一模型 review / 對抗模式 |
+| `detect-ai-slop` | 偵測 AI 生成文字特徵，含模型指紋比對與去 AI 味建議 |
 | `harness-eval` | 8 維度 harness 就緒度評分（0-100），附 PASS/WARN/FAIL 清單與優先改善 TODO |
 
 完整索引見 [`skills/README.md`](skills/README.md)。
@@ -273,9 +284,10 @@ make status-own
 | `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec 規格展開 + qa-test-design 測試設計 |
 | `growth` | `claude plugin install growth@yibi-stack` | 跨 session 記憶：mycelium、learn、handover/newjob |
 | `pr-flow` | `claude plugin install pr-flow@yibi-stack` | 完整 PR 流程：5 個 skill + 6 個 slash command |
-| `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex、Gemini 模型驗證、AI slop 偵測 |
+| `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex、Antigravity CLI（agy/Gemini）、模型驗證 |
 | `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD、Flutter TDD、CI 診斷 |
 | `util` | `claude plugin install util@yibi-stack` | 本機 port 管理 + debug command |
+| `writing` | `claude plugin install writing@yibi-stack` | AI slop 偵測 |
 | `harness` | `make install-one SKILL=harness-eval` | Harness 就緒度評量 |
 
 ---

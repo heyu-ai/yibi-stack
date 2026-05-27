@@ -183,7 +183,7 @@ status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.age
 		done; \
 	fi; \
 	echo ""; \
-	echo "=== ~/.agents/skills/  (Cline / Warp) ==="; \
+	echo "=== ~/.agents/skills/  (agents / agy) ==="; \
 	if [ ! -d "$(INSTALL_DIR)" ] || [ -z "$$(ls -A $(INSTALL_DIR) 2>/dev/null)" ]; then \
 		echo "  (empty -- run 'make install' first)"; \
 	else \
