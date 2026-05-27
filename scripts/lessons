@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Wrapper: 自動偵測 skill_repo + project，forward args 給 tasks.mycelium lessons
+# Agent 端直接呼叫：~/.agents/bin/lessons add --type ... --key ... --insight "..." ...
+# 不需要手動偵測 SKILL_REPO 或 PROJECT，不觸發 Claude Code bash anti-pattern 確認框
+set -euo pipefail
+
+SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")')
+if [ -z "$SKILL_REPO" ]; then
+  echo "[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install" >&2
+  exit 1
+fi
+if [ ! -d "$SKILL_REPO" ]; then
+  echo "[FAIL] skill_repo 路徑不存在：$SKILL_REPO" >&2
+  exit 1
+fi
+
+# 自動偵測 project（若 caller 已用 --project 指定則跳過，避免重複）
+# token-based check 支援 --project=val 形式，避免 insight 內文含 --project 的 false positive
+has_project=0
+for arg in "$@"; do
+  case "$arg" in
+    --project|--project=*) has_project=1; break ;;
+  esac
+done
+
+if [ "$has_project" -eq 0 ]; then
+  if GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+    PROJECT=$(basename "$(dirname "$GIT_COMMON")")
+  else
+    PROJECT=$(basename "$(pwd)")
+  fi
+  exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons "$@" --project "$PROJECT"
+else
+  exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons "$@"
+fi
