@@ -1,7 +1,7 @@
 {
   "name": "sdd",
   "description": "Spec-Driven Development: Spectra amplifier methodology, qa-test-design framework, OpenSpec change-management templates, and CLI dependency check for Claude Code agents.",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "author": {
     "name": "Howie Yu",
     "email": "2318485+howie@users.noreply.github.com"

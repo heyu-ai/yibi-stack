@@ -1,5 +1,5 @@
 {
   "name": "pr-flow",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Full PR workflow plugin for Claude Code"
 }
