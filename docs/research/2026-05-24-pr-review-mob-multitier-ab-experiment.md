@@ -2,7 +2,7 @@
 
 **日期**：2026-05-24
 **Branch**：`claude/pr-review-subagent-split-19G6n`
-**狀態**：Pre-registered Protocol（執行前）
+**狀態**：HOLD — 0/16 trials executed（readout 2026-06-07）
 **作者**：本協定在執行任何測量之前敲定，所有假設、變數、決策準則 freeze 於本文件
 **Related Plan**：`/root/.claude/plans/pr-review-cycle-subagent-haiku-cached-kitten.md`
 
