@@ -5,15 +5,13 @@ from __future__ import annotations
 import os
 import re
 import uuid
-from pathlib import Path
 from typing import Any
 
 from .models import (
+    FRICTION_TO_ARTIFACT,
     ArtifactProposal,
     ArtifactType,
-    FRICTION_TO_ARTIFACT,
     FrictionCluster,
-    FrictionType,
     NightlyAgentConfig,
 )
 
@@ -41,7 +39,8 @@ You are a documentation expert for Claude Code project workflows. Your task is t
 Gotcha entry for a CLAUDE.md file that prevents a specific class of recurring errors.
 
 Format: A bullet point entry using this template:
-- **<Concise title>**: <One sentence describing the problem and when it occurs>. Fix: <Concrete action to avoid it>.
+- **<Concise title>**: <One sentence describing the problem and when it occurs>.
+  Fix: <Concrete action to avoid it>.
 
 Rules:
 - Be specific, not generic (name the exact command, file, or pattern involved)
@@ -84,7 +83,8 @@ _TARGET_FILES: dict[ArtifactType, str] = {
 
 def _cluster_user_prompt(cluster: FrictionCluster) -> str:
     snippets = "\n\n".join(
-        f"Event {i + 1} [{e.timestamp[:19]}]:\n  Description: {e.description}\n  Snippet: {e.raw_text[:300]}"
+        f"Event {i + 1} [{e.timestamp[:19]}]:\n"
+        f"  Description: {e.description}\n  Snippet: {e.raw_text[:300]}"
         for i, e in enumerate(cluster.events[:5])
     )
     return (
@@ -166,11 +166,11 @@ class ArtifactDrafter:
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        # Extract text from first content block
-        for block in response.content:
-            if hasattr(block, "text"):
-                return str(block.text).strip()
-        raise RuntimeError("Claude API 回傳空內容")
+        text_parts = [str(block.text) for block in response.content if hasattr(block, "text")]
+        if not text_parts:
+            block_types = [type(b).__name__ for b in response.content]
+            raise RuntimeError(f"Claude API 回傳空內容（blocks: {block_types}）")
+        return "".join(text_parts).strip()
 
     def _extract_title(
         self, content: str, artifact_type: ArtifactType, cluster: FrictionCluster

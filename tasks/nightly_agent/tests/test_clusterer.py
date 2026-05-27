@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from tasks.nightly_agent.clusterer import FrictionClusterer, _jaccard, _extract_keywords
+from tasks.nightly_agent.clusterer import FrictionClusterer, _extract_keywords, _jaccard
 from tasks.nightly_agent.models import FrictionEvent, FrictionType
 
 

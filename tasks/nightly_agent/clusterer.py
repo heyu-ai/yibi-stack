@@ -8,7 +8,6 @@ from collections import defaultdict
 
 from .models import FrictionCluster, FrictionEvent, FrictionType
 
-
 # Stopwords to exclude from keyword extraction
 _STOPWORDS = frozenset(
     {
@@ -116,7 +115,7 @@ class FrictionClusterer:
         cluster_events: list[list[FrictionEvent]] = []
         cluster_kws: list[frozenset[str]] = []
 
-        for event, kw_set in zip(events, kw_sets):
+        for event, kw_set in zip(events, kw_sets, strict=True):
             placed = False
             for i, ckw in enumerate(cluster_kws):
                 if _jaccard(kw_set, ckw) >= self.threshold:
@@ -130,13 +129,13 @@ class FrictionClusterer:
                 cluster_kws.append(kw_set)
 
         clusters: list[FrictionCluster] = []
-        for ev_list, ckw in zip(cluster_events, cluster_kws):
+        for ev_list, _ckw in zip(cluster_events, cluster_kws, strict=True):
             # Top 10 common keywords (by frequency across events in cluster)
             freq: dict[str, int] = {}
             for e in ev_list:
                 for k in _description_keywords(e):
                     freq[k] = freq.get(k, 0) + 1
-            top_kws = sorted(freq, key=lambda k: -freq[k])[:10]
+            top_kws = sorted(freq, key=freq.get, reverse=True)[:10]  # type: ignore[arg-type]
 
             clusters.append(
                 FrictionCluster(

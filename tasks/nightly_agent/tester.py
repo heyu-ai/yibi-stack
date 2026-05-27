@@ -2,18 +2,28 @@
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import subprocess  # nosec B404
-import tempfile
 import textwrap
-import uuid
 from pathlib import Path
 
 from tasks._paths import PROJECT_ROOT
 
-from .models import ArtifactProposal, ArtifactType, FrictionType, TestResult
+from .models import ArtifactProposal, ArtifactType, TestResult
+
+
+def _get_main_repo() -> Path:
+    """Return main repo root (handles worktree: uses --git-common-dir)."""
+    result = subprocess.run(  # nosec B603 B607
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode == 0:
+        return Path(result.stdout.strip()).parent
+    return PROJECT_ROOT
+
 
 # ---------------------------------------------------------------------------
 # Test template generators per artifact type
@@ -27,10 +37,9 @@ def _test_for_hookify_rule(proposal: ArtifactProposal) -> str:
     Passing condition (after): hook file exists and blocks the problematic pattern.
     """
     hook_path = proposal.target_file
-    # Extract a sample bad command from friction descriptions
     bad_cmd = _extract_bad_command(proposal)
-    # Sanitize for embedding in Python string
-    bad_cmd_escaped = bad_cmd.replace("\\", "\\\\").replace('"', '\\"')
+    # Use repr() to get a properly-escaped Python string literal (handles \n, quotes, etc.)
+    bad_cmd_repr = repr(bad_cmd)
 
     return textwrap.dedent(f'''\
         """
@@ -47,8 +56,14 @@ def _test_for_hookify_rule(proposal: ArtifactProposal) -> str:
 
         import pytest
 
-        HOOK_PATH = Path("{PROJECT_ROOT}") / "{hook_path}"
-        BAD_CMD = "{bad_cmd_escaped}"
+        # Resolve repo root at test execution time (not generation time)
+        _root = Path(
+            subprocess.check_output(
+                ["git", "rev-parse", "--show-toplevel"], text=True
+            ).strip()
+        )
+        HOOK_PATH = _root / "{hook_path}"
+        BAD_CMD = {bad_cmd_repr}
 
 
         def test_hook_file_exists():
@@ -109,9 +124,8 @@ def _test_for_claude_md_gotcha(proposal: ArtifactProposal) -> str:
     Failing condition (before): the gotcha text is not in CLAUDE.md.
     Passing condition (after): PR has added the text.
     """
-    # Extract a distinctive phrase from the gotcha content
     phrase = _extract_distinctive_phrase(proposal.content)
-    phrase_escaped = phrase.replace("\\", "\\\\").replace('"', '\\"')
+    phrase_repr = repr(phrase)
     target = proposal.target_file
 
     return textwrap.dedent(f'''\
@@ -123,11 +137,16 @@ def _test_for_claude_md_gotcha(proposal: ArtifactProposal) -> str:
         Failing test: gotcha text not yet present in target file.
         Passing test: PR has added it.
         """
-        import re
+        import subprocess
         from pathlib import Path
 
-        TARGET_FILE = Path("{PROJECT_ROOT}") / "{target}"
-        DISTINCTIVE_PHRASE = "{phrase_escaped}"
+        _root = Path(
+            subprocess.check_output(
+                ["git", "rev-parse", "--show-toplevel"], text=True
+            ).strip()
+        )
+        TARGET_FILE = _root / "{target}"
+        DISTINCTIVE_PHRASE = {phrase_repr}
 
 
         def test_gotcha_present_in_target():
@@ -145,7 +164,7 @@ def _test_for_claude_md_gotcha(proposal: ArtifactProposal) -> str:
 def _test_for_skill_update(proposal: ArtifactProposal) -> str:
     """Generate pytest for a SKILL.md section addition."""
     phrase = _extract_distinctive_phrase(proposal.content)
-    phrase_escaped = phrase.replace("\\", "\\\\").replace('"', '\\"')
+    phrase_repr = repr(phrase)
     target = proposal.target_file
 
     return textwrap.dedent(f'''\
@@ -154,10 +173,16 @@ def _test_for_skill_update(proposal: ArtifactProposal) -> str:
         Validates: {proposal.title}
         Artifact: {target}
         """
+        import subprocess
         from pathlib import Path
 
-        TARGET_FILE = Path("{PROJECT_ROOT}") / "{target}"
-        DISTINCTIVE_PHRASE = "{phrase_escaped}"
+        _root = Path(
+            subprocess.check_output(
+                ["git", "rev-parse", "--show-toplevel"], text=True
+            ).strip()
+        )
+        TARGET_FILE = _root / "{target}"
+        DISTINCTIVE_PHRASE = {phrase_repr}
 
 
         def test_skill_section_present():
@@ -185,11 +210,9 @@ _TEST_GENERATORS = {
 def _extract_bad_command(proposal: ArtifactProposal) -> str:
     """Try to find a real bad command from friction descriptions."""
     for desc in proposal.friction_descriptions:
-        # Look for bash command patterns
         m = re.search(r"`([^`]{5,80})`", desc)
         if m:
             return m.group(1)
-    # Fallback by friction type heuristics
     if "em_dash" in proposal.target_file or "ap2" in proposal.target_file:
         return 'echo "test — em dash"'
     if "worktree" in proposal.target_file:
@@ -199,15 +222,12 @@ def _extract_bad_command(proposal: ArtifactProposal) -> str:
 
 def _extract_distinctive_phrase(content: str) -> str:
     """Extract the most distinctive short phrase from artifact content for test assertion."""
-    # For gotchas: use the bold title
     m = re.search(r"\*\*([^*]{5,60})\*\*", content)
     if m:
         return m.group(1)
-    # For section headers: use heading text
     m = re.search(r"##\s+(.{5,60})", content)
     if m:
         return m.group(1).strip()
-    # Fallback: first non-empty line
     for line in content.splitlines():
         line = line.strip().lstrip("-# *")
         if len(line) > 10:
@@ -224,20 +244,22 @@ class TestValidator:
     """生成 test file 並驗證 failing-then-passing 語意。"""
 
     def __init__(self, generated_tests_dir: str | Path = "") -> None:
+        main_repo = _get_main_repo()
         self.generated_tests_dir = (
             Path(generated_tests_dir)
             if generated_tests_dir
-            else (PROJECT_ROOT / "tasks" / "nightly_agent" / "tests" / "generated")
+            else (main_repo / "tasks" / "nightly_agent" / "tests" / "generated")
         )
+        self._main_repo = main_repo
 
     def validate(self, proposal: ArtifactProposal) -> TestResult:
         """
         1. 生成 test content
         2. 寫入 generated_tests_dir
-        3. BEFORE：執行 test，應該 fail（artifact 尚未寫入）
-        4. 寫入 artifact
+        3. BEFORE：執行 test，必須 fail（artifact 尚未寫入）；若沒 fail 代表 friction 已修正
+        4. 寫入 artifact（暫時性，僅用於驗證）
         5. AFTER：再執行 test，應該 pass
-        6. 若 AFTER fail，rollback artifact 並回傳 failed TestResult
+        6. 無論 AFTER 結果，rollback artifact（tester 只驗證；PRCreator 才是唯一寫入者）
         """
         generator = _TEST_GENERATORS.get(proposal.artifact_type)
         if generator is None:
@@ -256,20 +278,30 @@ class TestValidator:
         test_filename = f"test_nightly_{safe_title}_{proposal.id[:8]}.py"
         test_path = self.generated_tests_dir / test_filename
 
-        # Write test file
         test_path.write_text(test_content, encoding="utf-8")
 
-        # Also write __init__.py if missing
         init_path = self.generated_tests_dir / "__init__.py"
         if not init_path.exists():
             init_path.write_text("", encoding="utf-8")
 
-        # BEFORE: run test without artifact — expect failure
+        # BEFORE: run test without artifact — must fail
         before_result = self._run_pytest(test_path)
         previously_failed = before_result.returncode != 0
 
-        # Write artifact
-        artifact_path = PROJECT_ROOT / proposal.target_file
+        if not previously_failed:
+            # Friction already fixed; do not open a PR
+            return TestResult(
+                proposal_id=proposal.id,
+                test_file=str(test_path),
+                passed=False,
+                previously_failed=False,
+                before_output=before_result.stdout[-500:] if before_result.stdout else "",
+                after_output="",
+                error="BEFORE test did not fail — friction may already be fixed; skipping PR",
+            )
+
+        # Write artifact (temporarily, for validation only)
+        artifact_path = self._main_repo / proposal.target_file
         artifact_path.parent.mkdir(parents=True, exist_ok=True)
 
         original_content: str | None = None
@@ -285,11 +317,9 @@ class TestValidator:
         after_result = self._run_pytest(test_path)
         passed = after_result.returncode == 0
 
-        if not passed:
-            # Rollback artifact
-            self._rollback_artifact(artifact_path, original_content)
+        # Always rollback: tester validates only; PRCreator is the sole writer
+        self._rollback_artifact(artifact_path, original_content)
 
-        # Store test info in proposal (mutate in place)
         proposal.test_file = str(test_path)
         proposal.test_content = test_content
 
@@ -304,21 +334,24 @@ class TestValidator:
         )
 
     def _run_pytest(self, test_path: Path) -> subprocess.CompletedProcess:  # type: ignore[type-arg]
-        return subprocess.run(  # nosec B603
-            ["uv", "run", "pytest", str(test_path), "-x", "--tb=short", "-q"],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            cwd=str(PROJECT_ROOT),
-        )
+        try:
+            return subprocess.run(  # nosec B603 B607
+                ["uv", "run", "pytest", str(test_path), "-x", "--tb=short", "-q"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=str(self._main_repo),
+            )
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="", stderr="pytest timed out after 60s"
+            )
 
     def _apply_artifact(self, proposal: ArtifactProposal, artifact_path: Path) -> None:
         if proposal.artifact_type == ArtifactType.HOOKIFY_RULE:
-            # Write as new file
             artifact_path.write_text(proposal.content, encoding="utf-8")
         elif proposal.artifact_type in (ArtifactType.CLAUDE_MD_GOTCHA, ArtifactType.SKILL_UPDATE):
             if artifact_path.exists():
-                # Append to existing file
                 existing = artifact_path.read_text(encoding="utf-8")
                 if not existing.endswith("\n"):
                     existing += "\n"
@@ -332,10 +365,12 @@ class TestValidator:
         if original is None:
             try:
                 artifact_path.unlink()
-            except OSError:
-                pass
+            except OSError as e:
+                raise RuntimeError(
+                    f"rollback 失敗（無法刪除暫存 artifact）：{artifact_path}"
+                ) from e
         else:
             try:
                 artifact_path.write_text(original, encoding="utf-8")
-            except OSError:
-                pass
+            except OSError as e:
+                raise RuntimeError(f"rollback 失敗（無法還原原始內容）：{artifact_path}") from e

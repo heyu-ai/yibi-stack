@@ -8,7 +8,7 @@ from pathlib import Path
 
 import click
 
-from tasks._paths import PROJECT_ROOT, RUNTIME_DIR
+from tasks._paths import RUNTIME_DIR
 
 
 @click.group()
@@ -82,6 +82,7 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
             prs,
             skipped,
             errors,
+            config.min_cluster_size,
         )
         return
 
@@ -98,6 +99,7 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
             prs,
             skipped,
             errors,
+            config.min_cluster_size,
         )
         return
 
@@ -138,7 +140,15 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
     click.echo(f"[6/6] 完成：{len(prs)} PRs opened, {skipped} skipped")
 
     digest_path = _write_digest(
-        DigestWriter(config.digest_dir), date_str, hours, events, all_clusters, prs, skipped, errors
+        DigestWriter(config.digest_dir),
+        date_str,
+        hours,
+        events,
+        all_clusters,
+        prs,
+        skipped,
+        errors,
+        config.min_cluster_size,
     )
     click.echo(f"      Digest: {digest_path}")
 
@@ -155,11 +165,14 @@ def analyze(hours: int, output: str) -> None:
 
     config = load_config()
     extractor = TranscriptExtractor(lookback_hours=hours)
-    sessions = extractor.extract()
+    sessions = extractor.extract(extra_paths=config.extra_transcript_paths)
     classifier = FrictionClassifier()
     events = classifier.classify(sessions)
     events += classify_mycelium_lessons(_load_mycelium_lessons(hours, config.lesson_types, []))
-    clusterer = FrictionClusterer()
+    clusterer = FrictionClusterer(
+        threshold=config.jaccard_threshold,
+        min_cluster_size=config.min_cluster_size,
+    )
     clusters = clusterer.cluster(events)
 
     report = {
@@ -223,9 +236,9 @@ def _load_mycelium_lessons(
     hours: int, lesson_types: list[str], errors: list[str]
 ) -> list[dict[str, object]]:
     """從 mycelium handover.db 讀取最近 hours 小時的 lessons。"""
-    try:
-        import sqlite3  # noqa: PLC0415
+    import sqlite3  # noqa: PLC0415
 
+    try:
         db_path = Path.home() / ".agents" / "handover" / "handover.db"
         if not db_path.exists():
             return []
@@ -248,12 +261,17 @@ def _load_mycelium_lessons(
             if d.get("type") in lesson_types:
                 result.append(d)
         return result
-    except Exception as e:
+    except (sqlite3.OperationalError, OSError) as e:
+        click.echo(f"[WARN] mycelium read error: {e}", err=True)
         errors.append(f"mycelium read error: {e}")
         return []
 
 
-def _write_digest(writer, date_str, hours, events, all_clusters, prs, skipped, errors) -> Path:  # type: ignore[no-untyped-def]
-    digest = writer.build(date_str, hours, len(events), all_clusters, prs, skipped, errors)
+def _write_digest(  # type: ignore[no-untyped-def]
+    writer, date_str, hours, events, all_clusters, prs, skipped, errors, min_cluster_size=2
+) -> Path:
+    digest = writer.build(
+        date_str, hours, len(events), all_clusters, prs, skipped, errors, min_cluster_size
+    )
     result: Path = writer.write(digest)
     return result

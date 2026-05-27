@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from .extractor import TranscriptEntry, TranscriptSession
 from .models import FrictionEvent, FrictionType
 
-
 # ---------------------------------------------------------------------------
 # Pattern definitions — each tuple is (pattern, description_template)
 # ---------------------------------------------------------------------------

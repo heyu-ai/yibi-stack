@@ -68,23 +68,30 @@ uv run python -m tasks.nightly_agent digest
 
 ## Scheduler Config（自動排程）
 
-在 `.runtime/schedules.json` 中加入：
+直接編輯 `.runtime/schedules.json`（`add-job` 指令不存在；請手動維護此檔）：
 
 ```json
 {
-  "id": "nightly-self-improvement",
-  "description": "Nightly friction clustering and PR creation",
-  "schedule": "daily",
-  "time": "03:00",
-  "command": ["uv", "run", "--directory", "PROJECT_ROOT",
-              "python", "-m", "tasks.nightly_agent", "run"],
-  "enabled": true,
-  "timeout_seconds": 600
+  "version": "1.0",
+  "jobs": [
+    {
+      "id": "nightly-self-improvement",
+      "description": "Nightly friction clustering and PR creation",
+      "schedule": "daily",
+      "time": "03:00",
+      "command": [
+        "uv", "run", "--directory", "/path/to/yibi-stack",
+        "python", "-m", "tasks.nightly_agent", "run"
+      ],
+      "enabled": true,
+      "timeout_seconds": 600
+    }
+  ]
 }
 ```
 
-用 `uv run python -m tasks.scheduler add-job` 加入排程，
-或直接編輯 `.runtime/schedules.json`。
+> **注意**：`command` 中的 `/path/to/yibi-stack` 請替換為你的本機 repo 根目錄絕對路徑。
+> 可用 `git rev-parse --show-toplevel` 確認。
 
 ## Config Keys（`.runtime/nightly_agent.json`）
 

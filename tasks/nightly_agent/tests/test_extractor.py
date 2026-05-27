@@ -6,8 +6,6 @@ import json
 import time
 from pathlib import Path
 
-import pytest
-
 from tasks.nightly_agent.extractor import TranscriptExtractor, _extract_text, _parse_entry
 
 
@@ -134,7 +132,12 @@ class TestTranscriptExtractor:
     def test_invalid_json_lines_skipped(self, tmp_path: Path) -> None:
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        content = '{"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "hi"}]}, "sessionId": "x", "timestamp": "t", "cwd": "/", "gitBranch": "main"}\nNOT_JSON_LINE\n'
+        valid = (
+            '{"type": "user", "message": {"role": "user",'
+            ' "content": [{"type": "text", "text": "hi"}]},'
+            ' "sessionId": "x", "timestamp": "t", "cwd": "/", "gitBranch": "main"}'
+        )
+        content = valid + "\nNOT_JSON_LINE\n"
         (project_dir / "mixed.jsonl").write_text(content)
         extractor = TranscriptExtractor(lookback_hours=24, projects_dir=tmp_path)
         sessions = extractor.extract()

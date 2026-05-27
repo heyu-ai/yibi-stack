@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import click
-
 from tasks._paths import PROJECT_ROOT, RUNTIME_DIR
+
 from .models import NightlyAgentConfig
 
 _CONFIG_PATH = RUNTIME_DIR / "nightly_agent.json"
@@ -41,7 +40,7 @@ def _detect_github_repo() -> str:
     import subprocess  # nosec B404
 
     try:
-        result = subprocess.run(  # nosec B603
+        result = subprocess.run(  # nosec B603 B607
             ["git", "-C", str(PROJECT_ROOT), "remote", "get-url", "origin"],
             capture_output=True,
             text=True,

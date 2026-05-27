@@ -101,7 +101,8 @@ class TestArtifactDrafter:
         config = NightlyAgentConfig()
         drafter = ArtifactDrafter(config)
         drafter._client = self._make_mock_client(
-            "- **Worktree main conflict**: Never checkout main in a linked worktree. Fix: use a feature branch."
+            "- **Worktree main conflict**: Never checkout main in a linked worktree."
+            " Fix: use a feature branch."
         )
         cluster = make_cluster(FrictionType.WORKTREE_CONFLICT)
         proposal = drafter.draft(cluster)

@@ -96,6 +96,7 @@ class PRRecord(BaseModel):
     """已建立的 PR 資訊。"""
 
     proposal_id: str
+    cluster_id: str = ""
     pr_url: str
     pr_number: int
     branch: str
