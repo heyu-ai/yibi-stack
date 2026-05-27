@@ -15,15 +15,21 @@ if [ ! -d "$SKILL_REPO" ]; then
 fi
 
 # 自動偵測 project（若 caller 已用 --project 指定則跳過，避免重複）
-if [[ " $* " == *" --project "* ]]; then
-  PROJECT_ARGS=()
-else
+# token-based check 支援 --project=val 形式，避免 insight 內文含 --project 的 false positive
+has_project=0
+for arg in "$@"; do
+  case "$arg" in
+    --project|--project=*) has_project=1; break ;;
+  esac
+done
+
+if [ "$has_project" -eq 0 ]; then
   if GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
     PROJECT=$(basename "$(dirname "$GIT_COMMON")")
   else
     PROJECT=$(basename "$(pwd)")
   fi
-  PROJECT_ARGS=(--project "$PROJECT")
+  exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons "$@" --project "$PROJECT"
+else
+  exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons "$@"
 fi
-
-exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons "$@" "${PROJECT_ARGS[@]}"
