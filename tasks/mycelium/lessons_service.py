@@ -577,7 +577,7 @@ def get_lessons(
     token_budget > 0 時以 tiktoken cl100k_base 估算累計 token，超過 budget 就停止。
     mode 對映 lesson_type filter：episodic/semantic/procedural。
     """
-    from .db import AgentsDB
+    from .db import AgentsDB, compute_effective_weight
 
     # Build effective tier filter
     if tier_filter is not None:
@@ -611,7 +611,6 @@ def get_lessons(
     import os
     from datetime import UTC, datetime
 
-    from .db import AgentsDB, compute_effective_weight
     from .models import LessonRecord, LessonSource, LessonType
     from .trust_scoring import compute_bot_trust_weight
 
@@ -669,8 +668,9 @@ def get_lessons(
             _db.init_db()
             _db.increment_access_count(returned_ids, now)
             _db.close()
-        except Exception:
-            pass  # access_count update is best-effort; never block the caller
+        except Exception as _e:
+            import sys as _sys
+            print(f"[mycelium] access_count update 失敗：{_e}", file=_sys.stderr)
 
     return final
 
