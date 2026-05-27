@@ -19,9 +19,9 @@ Legend: ✓ covered · △ partial · ✗ missing
 
 ## TC Table
 
-| TC-ID | Technique | Precondition | Steps | Expected Result | Risk | Linked Scenario |
-|-------|-----------|--------------|-------|-----------------|------|----------------|
-| LOGIN-VL-001 | BVA | User not logged in | 1. Submit empty password | Return 422 Unprocessable | High | `login#require-current-password` |
+| TC-ID | Test Purpose | Technique | Risk | Precondition | Steps | Test Data | Expected Result |
+|-------|-------------|-----------|------|-------------|-------|-----------|----------------|
+| LOGIN-VL-001 | Verify empty password rejected | BVA | High | User not logged in | 1. Submit empty password | password='' | Return 422 Unprocessable |
 
 ---
 

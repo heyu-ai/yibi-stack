@@ -2,7 +2,7 @@
 
 Single source of truth for QA test design techniques. Both `SKILL.md` (human entry) and
 `plugins/sdd/agents/qa-test-designer.md` (programmatic entry) reference this document.
-When updating methodology, update this file then sync the inline copy in `qa-test-designer.md`.
+When updating methodology, update this file then re-summarize the condensed technique section in `qa-test-designer.md` if technique semantics changed.
 
 ---
 
@@ -301,16 +301,16 @@ Step 8: Output final Test Suite + Coverage Report
 ## Coverage Analysis
 
 ### Covered
-| Expected Coverage Item | Corresponding TC ID | Notes |
+| Scenario Slug | Corresponding TC IDs | Notes |
 
 ### Partially Covered
-| Expected Coverage Item | Missing Aspect | Recommended Addition |
+| Scenario Slug | Missing Aspect | Recommended Addition |
 
 ### Completely Missing
-| Expected Coverage Item | Description | Recommended New Test Case |
+| Scenario Slug | Description | Recommended New Test Case |
 
 ### Redundant Items
-| Test Case ID | Duplicate of which case | Recommended Action |
+| TC-ID | Duplicate of which TC | Recommended Action |
 ```
 
 ---

@@ -24,7 +24,7 @@ This skill is the human-facing interface for QA test design.
 For programmatic invocation by spectra-amplifier Step 2a, use the `sdd:qa-test-designer`
 Task subagent instead.
 
-**Full methodology**: Read `plugins/sdd/skills/qa-test-design/methodology.md` for the
+**Full methodology**: Read `methodology.md` (in this skill directory) for the
 complete six-technique guide, technique selection decision logic, blind spots checklist,
 AI-generated case review workflow, and test case output standard.
 
@@ -32,9 +32,9 @@ AI-generated case review workflow, and test case output standard.
 
 ## Quick Start
 
-1. Read `plugins/sdd/skills/qa-test-design/methodology.md`
+1. Read `methodology.md` (sibling file in the same skill directory)
 2. Receive the requirement (User Story, AC, Gherkin scenarios, or verbal description)
-3. Select technique combination using the decision logic in methodology.md
+3. Select technique combination using the decision logic in `methodology.md`
 4. Build "expected coverage list" BEFORE generating test cases
 5. Generate TC table + Coverage Analysis (formats in methodology.md)
 

@@ -3,7 +3,7 @@ name: qa-test-designer
 description: >
   Pure-transformation QA test designer. Dispatched by spectra-amplifier Step 2a.
   Input: change name + effort level + Gherkin scenarios + AC list.
-  Output: TC table (TC-ID, Technique, Precondition, Steps, Test Data, Expected Result, Risk)
+  Output: TC table (TC-ID, Test Purpose, Technique, Risk, Precondition, Steps, Test Data, Expected Result)
   and Coverage Analysis (Covered / Partial / Missing / Redundant).
   Uses six techniques: Equivalence Partitioning (EP), Boundary Value Analysis (BVA),
   Decision Table (DT), State Transition (ST), Pairwise (PW), Risk-Based (RB).
@@ -29,7 +29,7 @@ The prompt from spectra-amplifier Step 2a includes:
 <all non-BLOCKED capabilities' Step 1c Scenario blocks>
 
 ## Acceptance Criteria List
-<AC list for all capabilities>
+<AC list for all non-BLOCKED capabilities>
 ```
 
 ## Output Contract
