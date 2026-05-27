@@ -40,6 +40,40 @@ Rule 3: `grep "pat\|pat2"` double-quoted BRE — use single quotes: `grep 'pat\|
 Rule 4: `$(outer "$(inner)")` reverse nesting — split into two bash calls
 Rule 5: both `"${VAR}"` and `"$VAR"` trigger false positives (expansion / simple_expansion) — add to allow list; do NOT rewrite to plain form as that also triggers
 
+## Variable Assignment Prefix — Breaks Allow-List
+
+`PATH="..." git ...` / `ENV=value cmd ...` 形式的 variable assignment prefix
+讓第一個 token 變成 `PATH=...` 而非命令本身，所有 `Bash(<verb> *)` allow-list
+pattern 都不會 match。同時 `"$PATH"` 觸發 `simple_expansion` hook，每次都跳
+permission dialog。
+
+Fix:
+
+- asdf shim 用絕對路徑：`/Users/<you>/.asdf/shims/git -C <path> ...`
+- 其他 env wrapper：先 `export VAR=value` 在前一個 bash call，再單獨呼叫命令
+
+## Multi-line Commit Message — Use `-F file` Not Inline `-m`
+
+多行 commit message 以 `-m "title\nbody..."` 形式跨多行，`Bash(git commit:*)`
+allow-list 無法 match，每次跳 approval prompt，且容易誤觸 outer-quote conflict。
+
+Fix:
+
+1. Write tool 寫入 commit message 到 `$CLAUDE_JOB_DIR/commit_msg.txt`
+2. `git commit -F "$CLAUDE_JOB_DIR/commit_msg.txt"`
+
+不要用 heredoc pipe 形式：會觸發 parser `Unhandled node type: string`，且跨多行
+allow-list 無法 prefix-match。
+
+## Output Filter Pipeline — Don't Pre-filter Output
+
+`cmd 2>&1 | tail -N`、`cmd | head -N`、`cmd | grep -v "..."` 都是 bash 端
+pre-filter，Claude 看不到完整輸出，且 `Bash(* | *)` 觸發 Red Flag 5 無法
+allow-list。
+
+Fix: 直接跑 `cmd 2>&1`，讓 Claude 接到完整輸出再判斷。需要 `wc -l` 統計、`jq`
+抽欄等真正需要管線的場合才用。
+
 ## Irreversible Operations
 
 The following must NOT be executed autonomously by the agent. Explain impact and get user confirmation first:
