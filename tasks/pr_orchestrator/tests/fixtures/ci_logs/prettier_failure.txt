@@ -1,0 +1,7 @@
+Run Prettier
+
+Checking formatting...
+[warn] src/components/Button.tsx
+[warn] src/utils/helpers.js
+Code style issues found in the above file(s). Forgot to run Prettier?
+Error: Process completed with exit code 1.

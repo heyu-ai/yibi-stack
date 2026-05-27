@@ -65,7 +65,7 @@ follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tasks", ".claude/hooks/tests", "plugins/sdd/scripts/tests", "commands/scripts/tests"]
-pythonpath = ["."]
+pythonpath = [".", "commands/scripts"]
 
 [tool.pylint.main]
 load-plugins = ["pylint.extensions.no_self_use"]

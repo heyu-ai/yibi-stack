@@ -1,0 +1,4 @@
+Run npx markdownlint-cli2 '**/*.md'
+CHANGELOG.md:42:81 MD013/line-length Line length [Expected: 200; Actual: 237]
+README.md:15:1 MD041/first-line-heading/first-line-h1 First line in a file should be a top-level heading
+Found 2 error(s) in 2 file(s).
