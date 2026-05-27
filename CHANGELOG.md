@@ -180,7 +180,6 @@
 - 修復 DBS CC parser 誤判亂碼 + 新增 card mapping 基礎
 - sync ruff version and add github_token to claude-code-action
 
-
 ## [1.2.3] - 2026-05-27
 
 ### Features
@@ -360,7 +359,6 @@
 - 回應 code review — mypy hook 加 files filter、Dialog type annotation
 - 修復 DBS CC parser 誤判亂碼 + 新增 card mapping 基礎
 - sync ruff version and add github_token to claude-code-action
-
 
 ## [Unreleased]
 
