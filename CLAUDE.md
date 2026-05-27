@@ -192,10 +192,14 @@ make install-all         # 等同 build-tools + install + install-project + inst
   失敗模式不同：`install`/`install-project` 遇到缺 SKILL.md 的目錄會 **exit 1 中斷**（字母排序後的 skill 全部裝不到）；
   `status-own` 靜默繼續（顯示空白 scope，不報錯）；`uninstall` 靜默略過（不報錯）。
 - **`.gitignore` 不等於磁碟不存在**：被 gitignore 的目錄仍存在磁碟上，shell glob、Python rglob、`make install` 等工具不知道 gitignore 的存在。防線必須加在腳本本身（skip list、SKILL.md 存在性檢查），不能依賴 gitignore 作為唯一屏障。
-- **`$CLAUDE_JOB_DIR` 的 Edit/Write permission 無法用 option 2 永久放行**：
+- **`$CLAUDE_JOB_DIR` 的 permission 無法用 option 2 永久放行**：
   `$CLAUDE_JOB_DIR` 路徑格式為 `~/.claude/jobs/<UUID>/`，每個 background session 都會產生新 UUID。
   Permission dialog 的 option 2「always allow access to `<UUID>/`」只對該次 session 有效；
-  下一個 session 的新 UUID 不匹配，prompt 會重複出現。
-  修法：在 `~/.claude/settings.local.json` 手動加入
+  下一個 session 的新 UUID 不匹配，prompt 會重複出現。有兩種觸發情境，修法不同：
+  (1) **Edit/Write tool** 寫入 job 目錄：在 `~/.claude/settings.local.json` 加入
   `"Edit(/Users/howie/.claude/jobs/*)"` 與 `"Write(/Users/howie/.claude/jobs/*)"` 兩條
-  trailing-wildcard pattern（路徑前綴鎖死），一次永久放行所有 job 目錄。
+  trailing-wildcard pattern（路徑前綴鎖死），一次放行所有 job 目錄。
+  (2) **Bash 指令 `>` 重導向**到 job 目錄（如 `cmd > $CLAUDE_JOB_DIR/out.json`）：
+  permission 類型是 `Bash()` 而非 `Edit()`，需針對各指令加
+  `"Bash(<command>:*)"` 到 allow list（例：`"Bash(spectra analyze:*)"`）。
+  注意 rule 16 Red Flag 5：`Bash(* > *)` 不可放行；必須以指令名稱為前綴鎖定。
