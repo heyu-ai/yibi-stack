@@ -228,6 +228,56 @@ uv run --directory "$SKILL_REPO" \
 
 ---
 
+### Step 4b — 寫入 typed lessons（tier promotion 用）
+
+> **執行條件**：只對通過 Step 5 Promotion Gate G1+G2+G3 的 lesson 執行。
+> 若 Step 4 handover 寫入已失敗，此步驟跳過。
+
+Classifier → `--type` 對照表：
+
+| Lesson 分類 | `--type` |
+|------------|---------|
+| Bash anti-pattern / Quoting | `pitfall` |
+| SKILL.md authoring | `pattern` |
+| Irreversible operations | `pitfall` |
+| Security / injection | `pitfall` |
+| Python / task conventions | `pattern` |
+| Repo metadata | `operational` |
+| Cross-project preference | `preference` |
+| Investigation-driven discovery | `investigation` |
+
+**先呈現 derived `--type` 給 user 確認**，再執行 `lessons add`（避免分類偏差）：
+
+確認後對每筆通過 Gate 的 lesson 執行（一次一筆）：
+
+```bash
+LESSON_KEY="{{slugified-lesson-key}}"
+LESSON_TYPE="{{pitfall|pattern|preference|architecture|tool|operational|investigation}}"
+LESSON_TEXT="{{lesson body}}"
+HANDOVER_ID="{{id from Step 4 output}}"
+```
+
+```bash
+uv run --directory "$SKILL_REPO" \
+  python -m tasks.mycelium lessons add \
+  --key "$LESSON_KEY" \
+  --type "$LESSON_TYPE" \
+  --insight "$LESSON_TEXT" \
+  --confidence 7 \
+  --source inferred \
+  --skill pr-retrospective \
+  --retro-pr "$PR_NUMBER" \
+  --handover-id "$HANDOVER_ID"
+```
+
+若呼叫失敗：停止並輸出完整指令讓使用者手動重跑。
+
+> **為什麼需要 Step 4b**：Step 4 的 handover write 把 lesson 存在 `handovers.lessons_learned` JSON 欄位。
+> `tasks/mycelium/tier_service.py` 的 `working→hot→cold→archival` promotion 只處理 typed `lessons` 表。
+> 不執行 Step 4b 的話，retro lesson 永遠不會進入 tier promotion 生命週期。
+
+---
+
 ### Step 5 — 路由建議 + 自動跑 read-only 動作
 
 #### Promotion Gate（3 條，全通過才路由到 rule 檔）

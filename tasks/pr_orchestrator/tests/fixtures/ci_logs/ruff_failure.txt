@@ -1,0 +1,5 @@
+Run uv run ruff check tasks/
+tasks/mycelium/cli.py:10:1: F401 [*] `os` imported but unused
+tasks/mycelium/cli.py:11:1: F401 [*] `sys` imported but unused
+Found 2 errors.
+[*] 2 fixable with the `--fix` option.
