@@ -24,9 +24,10 @@ claude plugin install growth@yibi-stack          # mycelium + learn + handover/n
 claude plugin install pr-flow@yibi-stack         # PR 全流程 5 skills + 6 commands
 claude plugin install sdd@yibi-stack             # spectra-amplifier + qa-test-design + /sdd:setup
 claude plugin install bash-hygiene@yibi-stack    # bash-anti-patterns + protect-push
-claude plugin install 3rd-tools@yibi-stack       # codex + agy + verify-gemini-models + detect-ai-slop
+claude plugin install 3rd-tools@yibi-stack       # codex + agy + verify-gemini-models
 claude plugin install tdd@yibi-stack             # tdd-kentbeck + flutter-tdd + ci-triage
 claude plugin install util@yibi-stack            # local-port-manager + debug command
+claude plugin install writing@yibi-stack         # detect-ai-slop
 ```
 
 ---
@@ -65,7 +66,7 @@ claude plugin install util@yibi-stack            # local-port-manager + debug co
 | `tdd-kentbeck` | [plugins/tdd/](../plugins/tdd/README.md) | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
 | `flutter-tdd` | [plugins/tdd/](../plugins/tdd/README.md) | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
 | `ci-triage` | [plugins/tdd/](../plugins/tdd/README.md) | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests），含 Python / JS / Go 工具範例 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |
-| `detect-ai-slop` | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
+| `detect-ai-slop` | [plugins/writing/](../plugins/writing/README.md) | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
 
 ---
 

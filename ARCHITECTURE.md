@@ -38,6 +38,7 @@ yibi-stack/
 │   ├── tdd/                         → TDD 方法論（Kent Beck style）
 │   ├── util/                        → 通用工具（port manager、handover）
 │   ├── 3rd-tools/                   → 第三方工具整合（Gemini、Codex）
+│   ├── writing/                     → 寫作品質工具（detect-ai-slop）
 │   └── harness/                     → Harness eval（無 package.json，用 make install-one SKILL=harness-eval）
 │
 ├── commands/                        → Claude Code slash commands（symlink 到 ~/.claude/commands/）
