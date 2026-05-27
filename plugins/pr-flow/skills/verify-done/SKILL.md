@@ -14,17 +14,26 @@ End-to-end verification checklist to run before claiming a task is complete or m
 
 ## Steps
 
-### Step 1 — Pre-commit（全量）
+### Step 1 — CI（全量）
+
+For projects with a `make ci` script (e.g. yibi-stack):
+
+```bash
+make ci
+```
+
+For projects without `make ci`, run separately:
 
 ```bash
 pre-commit run --all-files
+uv run pytest   # or: npm test / go test ./... / cargo test
 ```
 
-**PASS**: 全部 hooks 回傳 exit 0。
-**FAIL**: 列出失敗的 hook 名稱與錯誤訊息，停止不宣告完成。
+**PASS**: 所有 hooks 與 tests 回傳 exit 0。
+**FAIL**: 列出失敗的 hook 名稱或 test failure，停止不宣告完成。
 
-> 注意：`pre-commit run --files <file>` 只掃指定檔案，CI 跑 `--all-files`。
-> 只跑 `--files` 會漏掉未改動但有 pre-existing 問題的檔案，push 後 CI 才炸。
+> `make ci` 內含 `pre-commit run --all-files` + pytest，是 yibi-stack 的標準 push-gate。
+> 只跑 `pre-commit run --all-files` 會漏掉 test 失敗；只跑 `--files` 會漏掉 pre-existing 問題。
 
 ### Step 2 — PR CI Checks（若 PR 已存在）
 
@@ -34,23 +43,40 @@ If a PR is open for the current branch:
 gh pr checks
 ```
 
-**PASS**: 所有 checks 為 `pass` 或 `success`。
-**FAIL**: 列出失敗的 check 名稱，說明哪個 step 有問題。
-**SKIP**: 當前 branch 尚未建立 PR，跳過此步驟並標記。
+Exit code semantics:
+
+- **0** = all checks passed
+- **8** = checks still pending/running
+- **1** = checks failed or tool error
+
+**PASS**: exit 0，所有 checks 完成且無 fail。
+**PENDING**: exit 8 — checks 仍在執行，列出 pending check 名稱，等待完成後重新執行 Step 2。不宣告完成。
+**FAIL**: exit 1 + check data returned — 列出失敗的 check 名稱，說明哪個 step 有問題。
+**TOOL ERROR**: exit 1 + no check data (e.g. auth error on stderr) — 執行 `gh auth status` 確認認證；整體標記 FAIL（工具無法執行）。
+**SKIP**: `gh pr checks` 回傳 `no pull requests found`（PR 尚未建立），跳過並標記。
 
 ### Step 3 — Spectra Amplifier（若有 Spectra 變更）
 
-If files under `openspec/` were modified in this session:
+First, detect whether openspec changes are present in this branch:
+
+```bash
+git diff main...HEAD --name-only
+```
+
+If the output contains any path starting with `openspec/`, proceed. Otherwise **SKIP** this step.
+
+For each relevant change visible in `spectra list`:
 
 ```bash
 spectra status
 ```
 
-確認每個變更過的 change 已執行過 `/spectra-amplifier`（amplified_at 有時間戳）。
+Confirm the change shows `✓ All artifacts complete` in the output (all artifact rows marked ✓).
+If any artifact shows ✗ or is missing, `/spectra-amplifier` has not been run to completion.
 
-**PASS**: 所有相關 change 已 amplify，或本次沒有 Spectra 變更。
-**FAIL**: 列出尚未 amplify 的 change 名稱，要求先跑 `/spectra-amplifier`。
-**SKIP**: 本次工作不涉及 `openspec/` 變更。
+**PASS**: `spectra status` shows all artifacts complete (✓) for each relevant change.
+**FAIL**: Any artifact ✗ or missing — list the change name and missing artifacts. Require running `/spectra-amplifier` before proceeding.
+**SKIP**: No `openspec/` paths in the branch diff.
 
 ### Step 4 — Worktree 安全性（若要執行 merge / branch 清理）
 
@@ -60,21 +86,27 @@ Before running `gh pr merge`, `git branch -d`, or any merge operation:
 pwd
 ```
 
-Confirm output is **not** a path containing `.claude/worktrees/`.
+Also run:
 
-**PASS**: `pwd` 回傳主 repo 根目錄（e.g. `/Users/.../my-project`）。
-**FAIL**: 當前在 worktree 內，停止。提示使用者切換至主 repo 目錄後再執行 merge。
+```bash
+git rev-parse --git-dir
+git rev-parse --git-common-dir
+```
 
-> 在 linked worktree 內執行 `gh pr merge` 會因 main 已被 worktree 佔用而 fatal。
+**PASS**: `git rev-parse --git-dir` equals `git rev-parse --git-common-dir` (same `.git` directory = main repo, not a linked worktree). Execute merge from here.
+**FAIL**: The two paths differ — current session is inside a linked worktree. Stop. Ask the user to run the merge command manually from the main repo directory.
+
+> `gh pr merge` が linked worktree 內執行，若主 repo 已 checkout main，會失敗
+> （`fatal: 'main' is already used by worktree`）。需從主 repo 目錄執行。
 
 ### Step 5 — 報告結果
 
-逐項列出 PASS / FAIL / SKIP，格式如下：
+逐項列出 PASS / FAIL / PENDING / TOOL ERROR / SKIP，格式如下：
 
 ```text
 Verify Done Report
 ==================
-Step 1 — pre-commit:        PASS
+Step 1 — make ci:           PASS
 Step 2 — gh pr checks:      PASS  (PR #42)
 Step 3 — spectra amplifier: SKIP  (no openspec changes)
 Step 4 — worktree safety:   PASS  (/Users/.../project)
@@ -82,13 +114,15 @@ Step 4 — worktree safety:   PASS  (/Users/.../project)
 Overall: PASS — 可以宣告完成 / 執行 merge。
 ```
 
-若任一步驟 **FAIL**，整體結果為 FAIL，不宣告完成，列出需修復的項目。
+若任一步驟 **FAIL** 或 **PENDING**，整體結果為 FAIL，不宣告完成，列出需修復或等待的項目。
 
 ## FAQ
 
 | Issue | Fix |
 |-------|-----|
 | `pre-commit` 找不到 | `uv sync` 重裝依賴 |
-| `gh pr checks` 報 `no pull requests found` | PR 尚未建立，Step 2 標記 SKIP |
+| `make ci` 找不到 target | 改跑 `pre-commit run --all-files && uv run pytest` |
+| `gh pr checks` 回傳 `no pull requests found` | PR 尚未建立，Step 2 標記 SKIP |
+| `gh pr checks` auth error | 執行 `gh auth login` 重新認證 |
 | `spectra` command not found | 確認 `uv sync` 已完成且在 yibi-stack 目錄 |
-| worktree 內需要 merge | 切到主 repo 目錄，使用 `git -C <main-repo-path> <cmd>` |
+| worktree 內需要 merge | 切到主 repo 目錄後執行 `gh pr merge`（`gh` 指令不支援 `git -C` 代理） |
