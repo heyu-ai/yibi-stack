@@ -2,7 +2,7 @@
 
 > 版本：v1.0 | 日期：{{date}}
 
-## Layer 3 — 資料模型
+## Step 3 — 資料模型
 
 ### Entity：{{EntityName}}
 
@@ -24,7 +24,7 @@
 
 ---
 
-## Layer 3 — API Schema（內部介面）
+## Step 3 — API Schema（內部介面）
 
 ### {{InterfaceName}} 抽象介面
 

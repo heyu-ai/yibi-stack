@@ -17,7 +17,7 @@
 ### {{US-title}}（P1 - 核心路徑）
 
 **Story Goal**：{{goal}}
-**Test Criteria**：{{FS refs}} 通過
+**Test Criteria**：{{scenario slugs}} 通過
 
 - [ ] T010 [P] {{task-description}} — target: `{{file-path}}`
 - [ ] T011 [P] 撰寫測試 — target: `{{test-file-path}}`
@@ -26,12 +26,13 @@
 
 - [ ] T020 {{integration-task}} — target: `{{file-path}}`
 
-## Priority Legend
+## Task Markers
 
-- `[P]` = Priority（高優先，先做）
-- 無標記 = Normal（P1 完成後再做）
+- `[P]` = 可與其他任務平行執行（parallelizable）
+- `[USn]` = 對應 User Story 編號
+- 無標記 = 有前序依賴，須照順序執行
 - `[O]` = Optional（nice-to-have）
 
 ## 追溯說明
 
-每個 task 應追溯回 proposal.md 的 US / FS 編號，確保規格與實作雙向可追蹤。
+每個 task 應追溯回 proposal.md 的 US / AC 編號與 Gherkin scenario slug，確保規格與實作雙向可追蹤。

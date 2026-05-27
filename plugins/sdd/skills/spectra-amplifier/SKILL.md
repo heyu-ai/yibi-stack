@@ -3,589 +3,588 @@ name: spectra-amplifier
 type: know
 scope: global
 description: >
-  Methodology for merging Spec Kit's five-layer deep spec expansion with the OpenSpec/Spectra
-  change management framework. Trigger contexts: user mentions "write spec", "expand requirements",
-  "requirements specification", "proposal", "openspec", "spectra", "spec kit", "speckit",
-  "five-layer expansion", "deep spec", "change management", "delta spec", "changes folder",
-  "requirements document structure". Also applies when: user says "expand this user story into
-  a complete spec", "write requirements to a developable level", "design API spec",
-  "create a proposal", "requirements change tracking", "write AC", "write acceptance criteria".
-  Must trigger when user pastes a feature description or User Story and requests a complete
-  development specification. Even if the user only says "describe this feature more clearly",
-  "how do I define done criteria", "break down tasks", "how to write a spec", or
-  "this requirement is too vague", this skill should trigger.
+  Spec Kit 五層深度規格展開 + OpenSpec/Spectra 變更管理框架的融合方法論。
+  適用情境：用戶提到「寫 spec」「寫規格」「展開需求」「需求規格」「proposal」
+  「openspec」「spectra」「spec kit」「五層展開」「深度規格」「變更管理」
+  「delta spec」「changes folder」「需求文件結構」時必須觸發。
+  也適用於：用戶說「幫我把 user story 展開成完整規格」「把需求寫到可以開發的程度」
+  「設計 API 規格」「建立 proposal」「需求變更追蹤」「寫 AC」「寫驗收條件」等場景。
+  當用戶貼上功能描述或 User Story 要求產出完整開發規格文件時，必須觸發。
+  即使用戶只說「幫我把這個功能描述得更清楚」「怎麼定義完成條件」「拆任務」
+  「spec 怎麼寫」「這個需求太模糊了」，也應觸發此 Skill。
+
+effort: medium
 ---
 
-# Spectra Amplifier — Five-Layer Deep Spec Expansion + Change Management Framework
+# Spectra Amplifier — Wave D Plugin Edition
 
-You are a senior systems analyst specializing in expanding vague requirements into complete
-specification documents that are implementable, testable, and traceable.
-You combine Spec Kit's five-layer deep expansion methodology with OpenSpec/Spectra's change
-management framework, ensuring each spec has both sufficient technical depth and full change
-history traceability.
+你是一位資深系統分析師，專精於將模糊需求展開為可開發、可測試、可追蹤的完整規格文件。
+你融合 Teddy Chen 五尺度粒度語言、BDD Gherkin scenarios、以及 OpenSpec/Spectra 變更管理框架，
+確保每份規格既有行為精確度，又能透過 docstring trace 機制直接連結到 pytest 測試。
 
-## Core Philosophy
+## 核心理念
 
-> **Spec Kit produces the most detailed specs, but they are disposable once complete;
-> Spectra has the best change management, but specs are thin on content.**
-> The optimal strategy is not switching tools, but porting Spec Kit's "five-layer depth"
-> into Spectra's framework.
-> Depth × Traceability = Truly reliable specifications.
+> **Spec Kit 產出最厚的規格，但完成後即棄；Spectra 有最好的變更管理，但規格內容偏薄。**
+> 最佳策略不是換工具，而是把 Spec Kit 的「五層厚度」移植到 Spectra 的框架裡。
+> Gherkin scenarios 是行為規格的唯一表達；FS 散文層已移除，不再重複撰寫。
+> 深度 × 可追蹤 = 真正可靠的規格文件。
 
-## Output Structure
+---
 
-Each feature's complete specification lives at:
+## 輸出結構
 
 ```text
-docs/openspec/changes/[feature-name]/
-├── proposal.md   # Full five-layer expansion proposal (Layers 1, 2, 4, 5)
-├── design.md     # Layer 3: data model and API design
-├── tasks.md      # File-level development task breakdown (Spec Kit Phase structure)
-└── specs/        # Delta specs (GIVEN/WHEN/THEN + QA boundary values)
-    ├── [feature-name]-core.md
-    └── [feature-name]-edge.md
+openspec/changes/<feature-name>/
+├── proposal.md   # Step 1b US+AC + Step 4 假設約束 + Step 5 完工標準
+├── specs/
+│   └── <cap>/
+│       └── spec.md   # Step 1c Gherkin scenarios（#### Scenario: <slug>）
+├── testplan.md   # Step 2 TC 表格 + Coverage Analysis（NEW）
+├── design.md     # Step 3 資料模型 + API（按需）
+└── tasks.md      # Phase 結構任務拆解，含 per-US pytest -k 驗收指令
 ```
 
-> If the `docs/openspec/` directory does not exist, create it first.
-> This path is a convention and can be adjusted per project.
+> 若 `openspec/changes/` 不存在，先建立。路徑可依專案調整。
 
 ---
 
-## Effort Level Strategy
+## Convention Detection
 
-Current effort: ${CLAUDE_EFFORT}
+執行 Step 2 前，偵測 host project 的 test convention：
 
-| Effort | Execution Strategy |
-|--------|--------------------|
-| high | Full five-layer expansion; Layer 2 runs all three QA quick-checks (Equivalence Partitioning + Boundary Value + State Transition); Layer 3 conflict detection required; tasks.md includes automatic priority derivation and `[PRIORITY-REVIEW]` prompts; specs/ produces complete boundary value scenarios |
-| medium | Full five-layer expansion; Layer 2 applies 1-2 QA techniques as needed; conflict detection runs; tasks.md uses basic Phase structure |
-| low | Layers 1-2 only, producing User Stories and basic FS; skip Layer 3 API/data model and Layers 4-5 detailed content |
-
-> If `${CLAUDE_EFFORT}` is not set or is `normal`, treat it as high.
+1. 存在 `.claude/rules/09-test-conventions.md` → 使用 host convention，
+   log `[OK] Using host test convention from .claude/rules/09-test-conventions.md`
+2. 不存在 → 使用 plugin 預設 convention（`skills/spectra-amplifier/test-convention.md`），
+   log `[OK] Using sdd plugin default test convention`
+3. 永遠不覆蓋 host convention 檔案
 
 ---
 
-## Five-Layer Expansion Process
+## Effort Level 策略
 
-### Layer 1 — User Stories
+| Effort | 執行策略 |
+|--------|---------|
+| high | 完整 Step 0-5；Step 1c 寫全部 Gherkin scenarios（每個 AC 至少 2 個）；Step 2 做完整 Coverage Analysis；Step 3 必做衝突偵測；tasks.md 含優先序自動推導與 `[PRIORITY-REVIEW]` |
+| medium | 完整 Step 0-5；Step 1c 每個 US 至少 3 個 Gherkin scenarios；Step 2 基本 TC 表格 |
+| low | 只做 Step 1（US + AC + Gherkin 概要）；略過 Step 2 testplan、Step 3 詳細設計、Step 4-5 完整展開 |
 
-**Goal**: Extract actionable user stories from vague descriptions; force clarification of
-requirement boundaries.
+> 若 `${CLAUDE_EFFORT}` 未設定或為 `normal`，視為 medium。
 
-#### Step 1: Four-Element Extraction (Spec Kit Method)
+---
 
-From the requirement description, identify:
+## Step 0 — 前置檢查（Domain Discovery）
 
-| Element | Description | Example |
-|---------|-------------|---------|
-| **Actors** | Who uses this feature | General user, admin, scheduler |
-| **Actions** | What operations they can perform | Create, query, delete, export |
-| **Data** | What data entities are involved | Billing records, user profile, invoice |
-| **Constraints** | What constraints and boundary conditions exist | Can only view own data, amount must be positive |
+**目標**：確認是否有足夠的領域資訊再展開規格。
 
-After extraction, check for ambiguities and mark with `[NEEDS CLARIFICATION: description]`.
-**Limit: 3.** If more than 3, the requirement is not mature enough — return it for further
-elaboration before expanding.
+1. 讀 `openspec/changes/<name>/proposal.md`（若存在）的 ## Why 段落
+2. 若存在 `openspec/changes/<name>/event-storming.md`，讀其 Domain Events、
+   Bounded Contexts、Aggregate Roots
+3. 評估領域資訊充足度：
 
-#### Step 2: Write User Stories
+| 狀況 | 行動 |
+|------|------|
+| 有 event-storming.md 且包含 ≥ 3 domain events | 繼續 Step 1，在 Step 4 Notes 中引用 |
+| 只有 proposal.md ## Why，功能簡單（1 Actor + 1 Goal）| 繼續 Step 1，標記「無需 Event Storming」|
+| 功能涉及多 Actor 或複雜狀態，但無領域資訊 | 輸出 `[WARN] 建議先執行 /event-storming 建立領域資訊`，確認後繼續 |
+| 完全沒有需求描述 | 請使用者補充，無法展開 |
 
-**Format**:
+---
+
+## Step 1 — 行為規格層（Behavioral Specification）
+
+### Step 1a — 四元素萃取
+
+從需求描述中識別：
+
+| 元素 | 說明 | 範例 |
+|------|------|------|
+| **Actors** | 誰在使用這個功能 | 一般用戶、管理員、排程器 |
+| **Actions** | 他們能執行哪些操作 | 新增、查詢、刪除、匯出 |
+| **Data** | 涉及哪些資料實體 | 帳單記錄、用戶 profile、發票 |
+| **Constraints** | 有哪些限制與邊界條件 | 只能看自己的、金額須為正數 |
+
+歧義點以 `[NEEDS CLARIFICATION: 問題描述]` 標記，**上限 3 個**。
+超過 3 個代表需求尚未成熟，退回補充後再展開。
+
+### Step 1b — User Stories + Acceptance Criteria
+
+**格式**：
 
 ```markdown
-### US-NNN: [Story Title]
+### US-NNN：[故事標題]
 
-**Persona**: [Role description, including background and motivation]
-**Action**: [Desired operation to complete]
-**Outcome**: [Expected result and value]
+**Persona**：[角色描述，包含背景與動機]
+**Action**：[想完成的操作]
+**Outcome**：[預期的結果與價值]
 
-**Acceptance Criteria**:
-- AC-NNN-1: [Verifiable condition, using Given/When/Then format]
-- AC-NNN-2: [...]
-- AC-NNN-3: [...]
-(at least 3; each must be independently testable)
+**Acceptance Criteria**：
+- AC-NNN-1：[可驗證的條件]
+- AC-NNN-2：[...]
+- AC-NNN-3：[...]
+（最少 3 條，每條必須可獨立測試）
 ```
 
-**Anti-Speculation Rule**: Writing any "might need" features is prohibited.
-Every AC must be traceable to a clear business requirement.
-Features no Actor will use are not written into the spec.
+**防投機規則**：禁止撰寫任何「might need」功能。每條 AC 都必須能追溯到明確業務需求。
 
----
+#### 五尺度粒度自我檢查（每個 US 完成後必做）
 
-### Layer 2 — Functional Spec + Instant QA Check
+| 自我檢查問題 | 若答案為「是」 | 行動 |
+|------------|--------------|------|
+| 這個 Story 需要超過 5 天才能完成嗎？ | 這是「大」尺度（Epic/Feature）| **必須拆分** |
+| 這個 Story 在 3-5 天可以完成嗎？ | 這是「中」尺度（正確粒度）| 繼續展開 |
+| 這個 Story 在 4 小時內可以完成嗎？ | 這是「微」尺度（Task 層級）| 合併或降為 Scenario |
+| Story 涉及超過一個 Actor 嗎？ | Story 範圍太廣 | 以 Actor 為界拆分 |
+| Story 包含超過一個 Goal/Outcome 嗎？ | Story 範圍太廣 | 以 Goal 為界拆分 |
+| Story 的 AC 數量超過 7 條嗎？ | 可能是 Epic 誤判為 Story | 重新評估是否拆分 |
 
-**Goal**: Expand each AC into a complete functional spec; immediately identify test boundaries.
+**五尺度對照表**（引自 yibi-mvp ADR-0006）：
 
-#### Step 1: AC → Functional Spec Expansion
+| 尺度 | 定義 | Spectra 對應位置 |
+|------|------|----------------|
+| 需求（Requirement）| 業務目標 / 使用者痛點 | `proposal.md` ## Why |
+| 大（Epic/Feature）| 可交付的完整功能群，> 5 天 | `proposal.md` ## What Changes |
+| 中（User Story）| 單一 Actor + 一個 Goal，3-5 天 | `proposal.md` + `specs/*/spec.md` |
+| 小（Scenario）| BDD 可執行情境，1 Story 含 3-7 個 | `specs/*/spec.md` #### Scenario |
+| 微（Micro Task）| 最小實作單元，≤ 4 小時 | `tasks.md` 單一 task 行 |
 
-Each AC expands into one FS, using the format below:
+### Step 1c — Gherkin Scenarios（輸入 `specs/<cap>/spec.md`）
+
+每條 AC 對應 1-3 個 Gherkin scenarios。直接從 AC 展開，不經過 FS 散文層。
+
+#### Scenario Anchor Slug（必填，依 ADR-0008）
+
+每個 `#### Scenario:` heading 必須帶顯式 slug：
 
 ```markdown
-#### FS-NNN: [Functional Spec Title]
-
-**Traceability**: AC-MMM-X (US-MMM)
-
-1. **Input Constraints**: MUST accept ___; value range is ___; format constraint is ___
-2. **Processing Logic**: system SHALL ___; if ___ then SHALL ___
-3. **Output / Side Effects**: MUST return ___; SHALL trigger ___; database SHALL ___
-4. **What It Does Not Do**: MUST NOT ___; this spec does not handle ___ (reason: ___)
-5. **Error Handling**: if ___ then SHALL return ___ (HTTP NNN) and SHALL log ___
+#### Scenario: <slug> -- <可讀標題>
 ```
 
-Use RFC 2119 keywords to precisely describe obligation levels:
+Slug 規則：kebab-case、< 50 chars、顯式命名（不 auto-derive）、同一 spec 內唯一。
+CJK 標題另行以英文命名（如 `#### Scenario: age-4-story-gen -- 4 歲孩子生成故事`）。
 
-- `MUST` / `SHALL`: absolute requirement
-- `SHOULD`: recommended but not mandatory
-- `MAY`: optional
-- `MUST NOT`: absolutely prohibited
+#### Gherkin 格式
 
-#### Step 2: Instant QA Quick-Check (Three Techniques)
+使用 RFC 2119 關鍵字嵌進 GIVEN/WHEN/THEN 條件：
 
-After completing a batch of FSs, immediately use the following three techniques from the
-**`qa-test-design` Skill**:
+```markdown
+#### Scenario: <slug> -- <可讀標題>
 
-1. **Equivalence Partitioning**: What valid and invalid partitions exist for each input field?
-   Select one representative value from each partition.
-2. **Boundary Value Analysis**: What are the boundaries for numbers, dates, and string lengths?
-   Test `min-1, min, max, max+1`.
-3. **State Transition**: Does the feature have a lifecycle state (e.g., Draft → Review → Published)?
-   List all valid and invalid transitions.
+**GIVEN** [前置條件（Actor 的初始狀態或前提）]
+**WHEN** [觸發操作]
+**THEN** 系統 MUST [預期結果]
+  AND 系統 MUST NOT [禁止的行為]
 
-> If there is no state transition, use a **Decision Table Testing** technique (multi-condition combinations)
-> instead, or note "no state, N/A".
+**邊界值**（選填，medium/high effort）：
+- 輸入 = min-1 → THEN 系統 SHALL 回傳 422
+- 輸入 = min → THEN 系統 SHALL 接受
+```
 
-Quick-check results go into the `specs/` folder, written as GIVEN/WHEN/THEN boundary value
-scenarios.
+輸出檔案：`openspec/changes/<name>/specs/<cap>/spec.md`
 
 ---
 
-### Layer 3 — Data Model + API
+## Step 2 — 測試設計層（輸出 `testplan.md`）
 
-**Goal**: Define data structures and service interfaces; confirm no conflicts with existing specs.
+### Step 2a — Dispatch qa-test-design Skill
 
-#### Data Model (write to `design.md`)
+Invoke the `Skill` tool:
+
+```text
+skill: qa-test-design
+args: Step 1c 的所有 Gherkin scenarios + AC 清單
+```
+
+Expected output from qa-test-design:
+
+- TC table（TC-ID, Technique, Precondition, Steps, Expected Result, Risk）
+- Coverage Analysis（Covered / Partial / Missing / Redundant）
+
+If qa-test-design not available:
+`[FAIL] Stop. qa-test-design Skill 未找到。請安裝 sdd plugin。`
+
+### Step 2b — Coverage Analysis
+
+依 qa-test-design 輸出分析每個 Scenario slug 的覆蓋狀態：
+
+| 狀態 | 說明 |
+|------|------|
+| ✓ covered | 有對應 TC，且涵蓋 Scenario 的主要路徑 |
+| △ partial | 有 TC 但只涵蓋部分 AC（如缺少 error path）|
+| ✗ missing | 無對應 TC |
+| — redundant | 多個 TC 涵蓋同一 Scenario，無額外測試價值 |
+
+### Step 2c — TC-ID 分配（依 Convention）
+
+套用偵測到的 test convention（見「Convention Detection」章節）
+為每個 TC 分配正式 ID（格式：`[FEATURE]-[CATEGORY]-[NUMBER]`）。
+
+**Smoke Test 特殊命名**：Step 5 的冒煙測試使用 `SMK-NNN`（而非 `ST-NNN`）。
+`ST` 在 qa-test-design 中代表 State Transition，為避免歧義，冒煙測試統一用 `SMK`。
+
+輸出：`openspec/changes/<name>/testplan.md`（格式見 `plugins/sdd/references/testplan-template.md`）
+
+---
+
+## Step 3 — 設計輔助層（按需，輸入 `design.md`）
+
+**目標**：定義資料結構與服務介面，確認與既有規格無衝突。
+
+### 資料模型
 
 ```markdown
-## Entity: [EntityName]
+## Entity：[EntityName]
 
-| Field | Type | Constraints | Description |
-|-------|------|-------------|-------------|
-| id | UUID | PK, NOT NULL | Primary key |
-| ... | ... | ... | ... |
+| 欄位 | 型別 | 約束 | 說明 |
+|------|------|------|------|
+| id | UUID | PK, NOT NULL | 主鍵 |
 
-**Indexes**:
+**索引**：
 - UNIQUE INDEX ON (...)
-- INDEX ON (...) — query performance
 
-**Relations**:
-- `EntityA` 1:N `EntityB` (FK: entity_b.entity_a_id → entity_a.id)
+**關聯**：
+- `EntityA` 1:N `EntityB`（FK: entity_b.entity_a_id → entity_a.id）
 ```
 
-#### API Schema (write to `design.md`)
+### API Schema
 
 ````markdown
-## API: [METHOD] /[path]
+## API：[METHOD] /[path]
 
-**Request**:
-
+**Request**：
 ```json
-{
-  "field": "type and description"
-}
+{ "field": "型別與說明" }
 ```
 
-**Response 200**:
-
+**Response 200**：
 ```json
-{
-  "field": "type and description"
-}
+{ "field": "型別與說明" }
 ```
 
-**Error Cases**:
-
-| Code | Reason | Response Body |
-|------|--------|---------------|
-| 400  | Invalid input format | `{ "error": "..." }` |
-| 404  | Resource not found | `{ "error": "..." }` |
-
+**Error Cases**：
+| Code | 原因 | Response Body |
+|------|------|---------------|
+| 400 | 輸入格式錯誤 | `{ "error": "..." }` |
 ````
 
-#### Conflict Detection
+### 衝突偵測
 
-After completing Layer 3, use the **Conflict Detection Checklist** (see below) to compare
-against existing specs in `docs/openspec/specs/`, identifying naming conflicts and
-dependencies. If this is the first spec (no existing specs), note "baseline, no conflict
-check needed" and continue.
+完成 Step 3 後，對比 `openspec/specs/`（若存在）確認無命名衝突。
+若是第一份規格，標「baseline，無需衝突檢查」並繼續。
 
 ---
 
-### Layer 4 — Assumptions and Constraints
-
-**Goal**: Explicitly mark all assumptions and boundaries to prevent scope creep.
+## Step 4 — 範圍與假設（輸入 `proposal.md` 尾段）
 
 ```markdown
-## Assumptions
+## 假設
 
-| # | Assumption | Impact if False |
-|---|------------|-----------------|
-| A1 | User has completed authentication | Authentication prerequisite needed; affects API design |
-| A2 | ... | ... |
+| # | 假設內容 | 若不成立的影響 |
+|---|----------|----------------|
+| A1 | 用戶已完成身份驗證 | 需加入認證前置步驟，影響 API 設計 |
 
-## Hard Constraints
+## 硬性限制
 
-| # | Constraint | Source |
-|---|-----------|--------|
-| C1 | Response time < 500ms | Performance SLA |
-| C2 | Data retention 7 years | Regulatory requirement |
+| # | 限制 | 來源 |
+|---|------|------|
+| C1 | 回應時間 < 500ms | 效能 SLA |
 
 ## Out of Scope
 
-| Feature | Exclusion Reason | Future Consideration |
-|---------|-----------------|----------------------|
-| Batch import | Phase 1 supports single-entry only | Evaluate in Phase 2 |
-| Multi-language | Chinese only in current scope | Address during internationalization |
+| 功能 | 排除原因 | 未來考量 |
+|------|----------|----------|
+| 批次匯入 | 第一版只支援單筆 | Phase 2 評估 |
 ```
 
-Every Out of Scope item must include a reason and future consideration to prevent scope
-disputes later.
+每個 Out of Scope 項目必須附原因與未來考量，避免日後範疇爭議。
+
+若 Step 0 讀取了 `event-storming.md`，其 `## Notes for Amplifier` 的假設應搬進此章節。
 
 ---
 
-### Layer 5 — Testability
+## Step 5 — 完工標準（輸入 `proposal.md` 末段 + `tasks.md`）
 
-**Goal**: Define the boundary of "done" and ensure the spec is verifiable.
+### Done 定義
 
 ```markdown
-## Definition of Done
+## Done 定義
 
-This feature is considered "done" when:
-- [ ] All FS-NNN items are implemented
-- [ ] All smoke tests pass
-- [ ] No anomaly alerts on the monitoring dashboard
-- [ ] Code has been reviewed and merged
-
-## Smoke Test Scenarios (3–5)
-
-**ST-001: [Happy Path]**
-- GIVEN system is in normal state, and [preconditions]
-- WHEN user performs [action]
-- THEN system returns [expected result]
-
-**ST-002: [Error Path]**
-- GIVEN [abnormal precondition]
-- WHEN user performs [action]
-- THEN system returns [error message] without affecting [existing state]
-
-## Full QA Testing Recommendations
-
-Use the **`qa-test-design` Skill** for complete test design; recommended techniques:
-- High-risk paths → **Risk-Based Testing**
-- Multi-condition logic → **Decision Table Testing**
-- State machines → **State Transition Testing**
+此功能視為「完成」的條件：
+- [ ] 所有 User Stories 的 AC 均已實作
+- [ ] testplan.md 所有 TC 均有對應測試（check_spec_coverage.py 驗證）
+- [ ] 冒煙測試全數通過
+- [ ] 程式碼已 code review 並合併
 ```
+
+### 冒煙測試情境（3-5 個，使用 SMK-NNN）
+
+```markdown
+#### Scenario: smk-happy-path -- SMK-001 正常路徑
+
+**GIVEN** 系統處於正常狀態，且 [前置條件]
+**WHEN** 用戶執行 [操作]
+**THEN** 系統 MUST 回傳 [預期結果]
+
+#### Scenario: smk-error-path -- SMK-002 異常路徑
+
+**GIVEN** [異常前提]
+**WHEN** 用戶執行 [操作]
+**THEN** 系統 MUST 回傳 [錯誤訊息] 且 MUST NOT 影響 [既有狀態]
+```
+
+> **SMK-NNN** 是冒煙測試的 TC-ID 前綴（不用 `ST-NNN` 以避免與 State Transition 縮寫衝突）。
+
+### Traceability Matrix（輸入 `proposal.md` 末段）
+
+```markdown
+## Traceability Matrix
+
+| US | Gherkin Scenario slug | TC-ID | pytest docstring |
+|----|----------------------|-------|-----------------|
+| US-001 | `require-current-password` | LOGIN-VL-001 | `spec: login#require-current-password` |
+| US-001 | `smk-happy-path` | SMK-001 | `spec: login#smk-happy-path` |
+```
+
+依 `bdd-trace-convention.md` 格式，trace 欄位即為 pytest function docstring 內容。
 
 ---
 
-## tasks.md Task Breakdown Format
+## tasks.md 任務拆解格式
 
-**Goal**: Break down Layers 1–5 output into file-level executable development tasks.
+**目標**：依 Step 1-5 的輸出，拆解為檔案級的可執行開發任務。
 
-Uses **Spec Kit's Phase structure**; priority is automatically derived from Layer 1's four
-elements (adjustable afterwards).
+### 優先序自動推導規則
 
-### Automatic Priority Derivation Rules
+| 訊號 | 分級 | 範例 |
+|------|------|------|
+| Actor 涉及金流、身份驗證、法規合規 | P1 | 付款、登入、資料保留 |
+| Constraint 有 SLA 或截止日期 | P1 | 回應 < 500ms、法規要求 |
+| 核心路徑（其他 Story 以此為前提）| P1 | 建立帳戶（其他功能依賴）|
+| 中等複雜度，無阻斷性依賴 | P2 | 查詢報表、修改設定 |
+| 優化體驗、非核心功能 | P3 | UI 細節、匯出 CSV |
 
-Use the following signals to rank User Stories — no need to ask the user:
-
-| Signal | Priority | Example |
-|--------|----------|---------|
-| Actor involves payments, authentication, or regulatory compliance | P1 | Payment, login, data retention |
-| Constraint has SLA or deadline | P1 | Response < 500ms, regulatory requirement |
-| Core path (other stories depend on it) | P1 | Create account (other features depend on this) |
-| Moderate complexity, no blocking dependencies | P2 | Query reports, modify settings |
-| Experience optimization, non-core features | P3 | UI details, CSV export |
-
-After derivation, add `> [PRIORITY-REVIEW]` at the top of `tasks.md` to prompt the user
-to confirm or adjust.
-
-#### tasks.md Format
+### tasks.md 格式
 
 ```markdown
 # tasks.md — [feature-name]
 
-> [PRIORITY-REVIEW] Priority was auto-derived; confirm and remove this line when done.
-> To adjust: edit each US's (P1/P2/P3) within its Phase and re-sort.
+> [PRIORITY-REVIEW] 優先序由系統自動推導，請確認後移除此行。
 
-## Phase 1: Setup
-- [ ] T001 Set up directory structure and base configuration
+## Phase 1：Setup
+- [ ] T001 建立目錄結構與基礎設定
 
-## Phase 2: Foundational (Blocking Prerequisites)
-- [ ] T002 [P] Create Entity model — target: src/models/[name].py
-- [ ] T003 [P] Create DB migration — target: migrations/[timestamp]_[name].sql
+## Phase 2：Foundational（阻斷性前置依賴）
+- [ ] T002 [P] 建立 Entity model — target: src/models/[name].py
+- [ ] T003 [P] 建立 DB migration — target: migrations/[timestamp]_[name].sql
 
-## Phase 3: User Stories (P1 → P2 → P3)
+## Phase 3：User Stories（P1 → P2 → P3）
 
-### US-001: [Title] (P1 — Actor involves payments)
-**Story Goal**: [one-sentence description]
-**Test Criteria**: FS-001 ~ FS-003 all pass
+### US-001：[標題]（P1 — Actor 涉及金流）
+**Story Goal**：[一句話說明]
+**Test traceability**: AC-001-1~3 → TC LOGIN-VL-001~005, SMK-001
+  Verification: `pytest -k "LOGIN-VL-001 or LOGIN-VL-002 or SMK-001"`
 
-- [ ] T010 [P] [US1] Implement Service layer — target: src/services/[name]_service.py
-- [ ] T011 [US1] Implement API endpoint (depends on T010) — target: src/routes/[name].py
-- [ ] T012 [P] [US1] Write unit tests — target: tests/test_[name]_service.py
+- [ ] T010 [P] [US1] 實作 Service 層 — target: src/services/[name]_service.py
+- [ ] T011 [US1] 實作 API endpoint（依賴 T010）— target: src/routes/[name].py
+- [ ] T012 [P] [US1] 單元測試 — target: tests/unit/test_[name]_service.py
+- [ ] T013 [US1] 整合測試 — target: tests/integration/test_[name]_flow.py
 
-## Phase 4: Polish & Cross-Cutting Concerns
-- [ ] T020 [P] Add logging and monitoring instrumentation
-- [ ] T021 [P] Update API documentation
+## Phase 4：Polish
+- [ ] T020 [P] 新增 logging 埋點
+- [ ] T021 [P] 更新 API 文件
 ```
 
-**Marker Legend**:
-
-- `[P]` = can run in parallel with other `[P]` tasks
-- `[USn]` = corresponds to User Story n
-- No marker = has sequential dependencies; must wait
-- `(P1 — reason)` = derivation rationale after Story title for easy review
+**標記說明**：`[P]` = 可與其他任務平行執行（parallelizable）；`[USn]` = 對應 Story；無標記 = 有前序依賴。
 
 ---
 
-## Change Management Markers (Delta Markers)
+## 變更管理標記（Delta Markers）
 
-When modifying **existing** spec documents (not initial creation), all changes must use
-delta markers:
+當修改**已存在**的規格文件時，所有變更必須使用 delta 標記：
 
-| Marker | Purpose | When to Use |
-|--------|---------|-------------|
-| `[ADDED]` | Newly added content | New FS, new Entity field, new API |
-| `[MODIFIED]` | Modified existing content | Changed value range, updated processing logic, adjusted AC |
-| `[REMOVED]` | Deleted existing content | Keep a tombstone with the reason |
+| 標記 | 用途 |
+|------|------|
+| `[ADDED]` | 全新加入的內容 |
+| `[MODIFIED]` | 修改既有內容 |
+| `[REMOVED]` | 刪除既有內容（保留墓碑並附原因）|
 
-**Initial creation requires no markers.** From the second revision onwards, every change
-gets a corresponding marker.
+**初次建立不需標記**。從第二次修訂起每次變更加標記。
+
+---
+
+## 衝突偵測檢查表
+
+完成 Step 3 後，逐項確認：
+
+- [ ] **前置確認**：`openspec/specs/` 是否有既有 specs？若無，標「baseline，跳過」
+- [ ] **Entity 命名**：新 Entity 名稱未與既有重複或語意重疊
+- [ ] **API endpoint**：新 path 未與既有路由衝突
+- [ ] **共用資料表**：若修改既有 table，確認所有使用方均已納入考量
+- [ ] **Event / Message schema**：事件格式向後相容
+- [ ] **權限模型**：新功能存取控制與既有角色定義一致
+
+---
+
+## 輸出檔案模板
+
+### `proposal.md` 骨架
 
 ```markdown
-<!-- Example: revising FS-003 -->
+# Proposal：[feature-name]
 
-#### FS-003: Amount Validation [MODIFIED]
-<!-- Original: amount > 0 -->
-<!-- Changed to: amount > 0 and <= 1,000,000 (reason: comply with regulatory limit) -->
+> 版本：v1.0 | 日期：[YYYY-MM-DD] | 狀態：Draft
 
-1. **Input Constraints**: MUST accept positive integers; value range is 1 ~ 1,000,000 [MODIFIED]
+## Why
+[業務目標 / 使用者痛點（需求尺度）]
+
+## What Changes
+[可交付功能群概述（大尺度 / Epic）]
+
+## Step 1 — User Stories
+
+[US-001 ~ US-NNN（中尺度）]
+
+## Step 4 — 假設與約束
+
+[假設表、硬性限制表、Out of Scope 表]
+
+## Step 5 — 完工標準
+
+[Done 定義、Traceability Matrix]
 ```
 
----
-
-## Conflict Detection Checklist
-
-After completing Layer 3, verify each item:
-
-- [ ] **Pre-check**: Does `docs/openspec/specs/` contain existing specs?
-  If not, note "baseline, no conflict check needed" and skip the items below.
-- [ ] **Entity naming**: New entity names do not duplicate or semantically overlap existing entities
-- [ ] **API endpoint**: New paths do not conflict with existing routes (METHOD + path combination is unique)
-- [ ] **Shared tables**: If modifying an existing table, all users of that table have been considered
-- [ ] **Event / Message schema**: Event format is backward-compatible
-- [ ] **Permission model**: Access control for new features is consistent with existing role definitions
-
-If conflicts exist, document the resolution in the "Assumptions and Constraints" section of
-`proposal.md` under Layer 4.
-
----
-
-## Output File Templates
-
-### `proposal.md` Skeleton
+### `specs/<cap>/spec.md` 骨架
 
 ```markdown
-# Proposal: [feature-name]
+# Specs：[feature-name]
 
-> Version: v1.0 | Date: [YYYY-MM-DD] | Status: Draft / Review / Approved
+## US-001：[標題]（中尺度 / 3-5 天）
 
-## Layer 1 — User Stories
+### AC-001-1
 
-[US-001 ~ US-NNN]
+#### Scenario: <slug> -- <可讀標題>
 
-## Layer 2 — Functional Spec
+**GIVEN** [前置條件]
+**WHEN** [觸發操作]
+**THEN** 系統 MUST [預期結果]
 
-[FS-001 ~ FS-NNN]
+#### Scenario: <slug>-error -- <可讀標題>（異常路徑）
 
-<!-- FS-NNN: functional spec definitions (five-dimension expansion);
-     Layer 2 QA quick-check boundary scenarios saved separately in specs/. -->
-
-## Layer 4 — Assumptions and Constraints
-
-[Assumptions table, Hard Constraints table, Out of Scope table]
-
-## Layer 5 — Testability
-
-[Definition of Done, Smoke Tests, QA Recommendations]
+**GIVEN** [異常前提]
+**WHEN** [操作]
+**THEN** 系統 MUST 回傳 [錯誤] 且 MUST NOT [副作用]
 ```
 
-### `design.md` Skeleton
+### `testplan.md` 骨架
 
-```markdown
-# Design: [feature-name]
-
-> Version: v1.0 | Date: [YYYY-MM-DD]
-
-## Layer 3 — Data Model
-
-[Entity definitions]
-
-## Layer 3 — API Schema
-
-[API definitions]
-
-## Conflict Detection Result
-
-[Pass / Conflict items and resolutions]
-```
-
-### `specs/[feature]-core.md` Skeleton
-
-```markdown
-# Delta Specs: [feature-name]
-
-> Corresponding spec: `docs/openspec/specs/[feature].md`
-> Change type: ADDED / MODIFIED
-
-## FS-001: [Title]
-
-**GIVEN** [precondition]
-**WHEN** [triggering action]
-**THEN** [expected result]
-
-**Boundary Value Test Scenarios** (from Layer 2 QA quick-check):
-- Input = min-1 → should reject (return 400)
-- Input = min → should accept
-- Input = max → should accept
-- Input = max+1 → should reject (return 400)
-```
+見 `plugins/sdd/references/testplan-template.md`。
 
 ---
 
-## Anti-Patterns
+## 反模式
 
-| Anti-Pattern | Problem | Correct Approach |
-|--------------|---------|-----------------|
-| **Skip-layer expansion** (jump from description directly to Layer 3) | Missing functional logic; data model is designed incorrectly | Must complete Layers 1 and 2 before entering Layer 3 |
-| **Monolithic User Story** (one story covers 5+ features) | ACs cannot be independently tested; task breakdown is inaccurate | Split until each story has only 3–5 ACs |
-| **Copy-paste AC as FS** (without true expansion) | No input constraints, boundaries, or error handling | Each AC must expand into five dimensions |
-| **Skip QA quick-check** | Boundary bugs are not found until the development phase | Run the three quick-checks immediately after Layer 2 |
-| **Skip conflict detection** | New API breaks existing features | Layer 3 must compare against existing specs |
-| **Out of Scope without reason** | Future scope disputes cannot be resolved | Every Out of Scope item must include a reason + future consideration |
-| **Unmarked revisions** | Change history is lost; changes cannot be tracked | From the second revision, every change gets a delta marker |
-| **More than 3 NEEDS CLARIFICATION** | Forcing expansion before the requirement is mature | Return for requirement elaboration; do not continue with ambiguities |
-| **Spec written after code** (write code first, then document) | Spec inherits all implementation assumptions; loses independent requirement baseline | Spec must be completed before implementation; if code already exists, use the Brownfield reverse-engineering mode in the Spectra CLI Integration section |
+| 反模式 | 問題 | 正確做法 |
+|--------|------|----------|
+| **跳層展開**（直接從描述跳到 Step 3）| 缺少行為規格，資料模型設計錯誤 | 完成 Step 1 才進 Step 3 |
+| **巨型 User Story**（一個 Story 含 5+ 功能）| AC 無法獨立測試 | 拆分直到每個 Story 只有 3~5 條 AC |
+| **AC 直接當 Scenario**（沒有 GIVEN/WHEN/THEN）| 無法機器解析，trace rate 0% | 每條 AC 至少對應一個 Gherkin scenario |
+| **Scenario 缺少 slug**（無 `#### Scenario: <slug>`）| scanner 無法追蹤 | 每個 Scenario heading 加顯式 slug |
+| **略過 Step 2 qa-test-design**（只產 Gherkin 不產 TC）| Scenario 有規格沒測試設計 | Step 2 必須真正 dispatch Skill tool |
+| **Smoke Test 用 ST-NNN**（應用 SMK-NNN）| 與 qa-test-design ST=State Transition 衝突 | 冒煙測試統一用 SMK |
+| **OOS 無理由** | 日後範疇爭議無法收斂 | 每項 OOS 附原因 + 未來考量 |
+| **無標記修訂** | 變更歷史消失 | 第二次起每次加 `[ADDED/MODIFIED/REMOVED]` |
+| **事後補 spec** | spec 繼承實作假設，失去獨立需求基線 | spec 必須在實作前完成 |
+| **Story 大小不一** | 估時和測試切入點無法對齊 | 每個 Story 跑五尺度粒度自我檢查 |
 
 ---
 
-## Workflow Summary (Quick Reference)
+## 工作流程摘要（Quick Reference）
 
 ```text
-Requirement description (any format)
+需求描述
   │
-  ▼ Layer 1
-Four-element extraction (Actors / Actions / Data / Constraints)
-  + User Stories (US-NNN) + AC (≥3)
-  + [NEEDS CLARIFICATION] (≤3)
+  ▼ Step 0: Domain Discovery 前置檢查
+event-storming.md 存在且有 ≥3 domain events → 繼續
+功能簡單（1 Actor + 1 Goal）→ 繼續（標「無需 Event Storming」）
+多 Actor 複雜狀態但無領域資訊 → [WARN] 建議跑 /event-storming
   │
-  ▼ Layer 2
-AC → Functional Spec (FS-NNN) × five dimensions (RFC 2119)
-  + QA quick-check (Equivalence Partitioning / Boundary Value / State Transition)
-  → write to specs/*.md
+  ▼ Step 1a: 四元素萃取（Actors / Actions / Data / Constraints）
   │
-  ▼ Layer 3
-Data Model (Entity + Relations) + API Schema
-  + Conflict Detection (compare against existing openspec)
-  → write to design.md
+  ▼ Step 1b: User Stories + AC（≥3）+ 五尺度自我檢查
+大尺度 → 拆分 | 中尺度 → 繼續 | 微尺度 → 降為 Scenario
   │
-  ▼ Layer 4
-Assumptions + Hard Constraints + Out of Scope (with reason and future consideration)
-  → write to proposal.md
+  ▼ Step 1c: Gherkin scenarios（#### Scenario: <slug> -- <title>）
+RFC 2119 嵌入 GIVEN/WHEN/THEN
+→ 輸入 specs/<cap>/spec.md
   │
-  ▼ Layer 5
-Definition of Done + Smoke Tests + QA technique recommendations
-  → write to proposal.md
+  ▼ Step 2: Skill tool dispatch → qa-test-design
+TC 表格 + Coverage Analysis
+TC-ID 分配（依 host/plugin convention）
+SMK-NNN for smoke tests
+→ 輸入 testplan.md
   │
-  ▼ Output
-docs/openspec/changes/[feature-name]/
-├── proposal.md  (Layers 1, 2, 4, 5)
-├── design.md    (Layer 3)
-├── tasks.md     (Phase structure task breakdown)
-└── specs/       (GIVEN/WHEN/THEN + QA boundary values)
+  ▼ Step 3（按需）: 資料模型 + API Schema + 衝突偵測
+→ 輸入 design.md
+  │
+  ▼ Step 4: 假設 + 硬性限制 + Out of Scope（含原因與未來考量）
+→ 輸入 proposal.md 尾段
+  │
+  ▼ Step 5: Done 定義 + SMK 冒煙測試 + Traceability Matrix
+（US ↔ Gherkin slug ↔ TC-ID ↔ pytest docstring trace）
+→ 輸入 proposal.md 末段 + tasks.md
+  │
+  ▼ 輸出
+openspec/changes/<feature-name>/
+├── proposal.md   （Step 1b, 4, 5）
+├── specs/        （Step 1c Gherkin scenarios）
+├── testplan.md   （Step 2 TC + coverage）
+├── design.md     （Step 3 按需）
+└── tasks.md      （Phase 結構 + pytest -k 驗收）
 ```
 
-On revision: add `[ADDED]` / `[MODIFIED]` / `[REMOVED]` markers to all changed locations.
+修訂時：在所有修改處加上 `[ADDED]` / `[MODIFIED]` / `[REMOVED]` 標記。
 
 ---
 
-## Spectra CLI Integration (Optional)
+## Spectra CLI 整合（選用）
 
-If the project has the `spectra` CLI installed and uses the `spectra-propose` workflow,
-this skill acts as a post-processing amplifier for spectra-propose, filling in the spec
-depth of artifacts.
+若專案已安裝 `spectra` CLI，本 skill 可作為 spectra-propose 的後處理放大器。
 
-### Prerequisites
+### 前置條件
 
-- `spectra` CLI is installed (`spectra --version` works)
-- A change has been created via `/spectra-propose <feature>` and its artifacts exist
+- `spectra` CLI 已安裝（`spectra --version` 可執行）
+- Change 已透過 `/spectra-propose <feature>` 建立
 
-### Five-Layer Expansion ↔ Spectra Artifacts Mapping
+### 五步驟 ↔ Spectra Artifacts 映射
 
-| Five-Layer | Corresponding Spectra Artifact | Action |
-|------------|-------------------------------|--------|
-| Layer 1: User Stories | `proposal.md` Capabilities section | For each Capability, backfill Persona, complete ACs (≥3), add `[NEEDS CLARIFICATION]` ambiguity markers |
-| Layer 2: Functional Spec | `specs/*/spec.md` Requirements | Expand RFC 2119 five dimensions + `FS-NNN` traceability ID; run QA quick-checks; add boundary values to Scenarios |
-| Layer 3: Data Model | `design.md` or spec's `## Data Model` | Brownfield: reverse-engineer from ORM; Greenfield: define + `[TBD]` markers |
-| Layer 4: Assumptions and Constraints | `proposal.md` Non-Goals + spec's NFR | Add Assumptions table (with "impact if false") and Constraints table |
-| Layer 5: Testability | spec Scenarios + `tasks.md` | Strengthen boundary values; add smoke test GIVEN/WHEN/THEN; fill QA technique recommendations |
+| 步驟 | 對應 Spectra Artifact |
+|------|-----------------------|
+| Step 0 | 確認 proposal.md ## Why 已由 spectra-propose 填入 |
+| Step 1 | `proposal.md` Capabilities + `specs/*/spec.md` Scenarios |
+| Step 2 | 新增 `testplan.md`（Spectra 原生無此 artifact） |
+| Step 3 | `design.md` Data Model 區塊 |
+| Step 4 | `proposal.md` Non-Goals + NFR |
+| Step 5 | `tasks.md` DoD + `proposal.md` Traceability Matrix |
 
-### Brownfield vs. Greenfield Determination
-
-Before Layer 3 and Layer 5, determine the mode:
-
-**Brownfield** (any of the following applies):
-
-- spec has `<!-- @trace` block containing code paths, or
-- grepping the codebase for the spec's domain keywords (table names, service names) yields hits
-
-**Greenfield** (none of the above):
-
-- No existing code; spec is defined from scratch
-
-| Layer | Brownfield | Greenfield |
-|-------|-----------|------------|
-| Layer 3 Data Model | Reverse-engineer from ORM models; mark "verify intent" | Define schema; mark unknown fields `[TBD]`; batch AskUserQuestion |
-| Layer 5 Boundary Values | grep validators to confirm exact values | Mark `[boundary = TBD]`; ask in batch |
-
-### Execution Flow
+### 執行流程
 
 ```text
 /spectra-propose <feature>
-  ↓ creates proposal.md, specs, design.md, tasks.md
-  ↓ (Claude version: Step 11 triggers automatically; Gemini version: trigger manually)
-(trigger this skill: tell Claude "use spectra-amplifier skill to expand <change-name>")
-  ↓ five-layer diagnosis → mapping and filling
-  ↓ spectra analyze <name> --json  (fix Critical + Warning only)
+  ↓ 建立 proposal.md, specs, design.md, tasks.md
+（告知 Claude「請使用 spectra-amplifier skill 展開 <change-name>」）
+  ↓ Step 0-5 展開
+  ↓ spectra analyze <name> --json（只看 Critical + Warning，最多 2 次）
   ↓ spectra validate "<name>"
 /spectra-apply <change-name>
 ```
 
-### Acceptance
+### 驗收
 
 ```bash
-# after filling in
-spectra analyze <change-name> --json   # fix Critical + Warning only; max 2 iterations
-spectra validate <change-name>         # must pass before considered complete
+spectra analyze <change-name> --json
+spectra validate <change-name>
+
+# BDD trace coverage（可選）
+uv run python plugins/sdd/scripts/check_spec_coverage.py \
+  --specs-dir openspec/changes/<change-name>/specs \
+  --tests-dir tests/ --cap <feature-name>
 ```
-
-### Coexistence with Project-Level Skill
-
-This skill is installed at user-level (`~/.agents/skills/spectra-amplifier`) as a universal
-fallback:
-
-- **Projects with a project-level spectra-amplifier** (e.g., yibi-mvp): project-level takes
-  priority; this skill is inactive
-- **Projects without a project-level version**: this skill is used automatically
-
-> To activate this skill in a specific project, confirm there is no same-named skill under
-> that project's `.claude/skills/`.
