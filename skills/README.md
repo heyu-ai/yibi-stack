@@ -79,6 +79,7 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 |-------|------|------|----------|---------|
 | `scheduler` | exec | 管理 Skill Scheduler — 設定定期自動執行的排程、查看執行狀態、手動觸發 job | [scheduler/SKILL.md](scheduler/SKILL.md) | `uv`, MiniShell ACP Gateway |
 | `new-task-module` | exec | 根據本 repo 的 module 結構規範自動建立新 task module 骨架（7 個檔案）並更新索引 | [new-task-module/SKILL.md](new-task-module/SKILL.md) | -- |
+| `nightly-agent` | exec | 夜間自我改善 Agent — 讀取 24h transcript、聚類 friction events、草擬 hookify rule 或 CLAUDE.md gotcha、驗證 failing→passing test、開 PR | [nightly-agent/SKILL.md](nightly-agent/SKILL.md) | `uv`, `gh`, `ANTHROPIC_API_KEY` |
 
 ---
 
