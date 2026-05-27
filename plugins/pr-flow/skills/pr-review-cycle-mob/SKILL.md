@@ -216,6 +216,31 @@ Note the PR number as `{{pr_number}}` and the base branch as `{{base_branch}}` (
 
 ---
 
+### Step 1.5 — Parallel Pre-review Check (3 agents, same message)
+
+This step is **blocking** — do not proceed to Step 2 if any agent fails or returns no usable output.
+
+Spawn three Task agents **in a single message** to gather baseline information in parallel:
+
+| Agent | Task |
+|-------|------|
+| **diff-reviewer** | Run `gh pr diff {{pr_number}}`; summarise changed files and line counts. **Do not use local `main`** — always fetch from GitHub. If the command exits non-zero, report `[FAIL] gh pr diff: <exact error>` and stop. |
+| **ci-checker** | Run `gh pr checks {{pr_number}}`; report pass / fail / pending per check. If the list is empty, report "CI: not yet triggered". If the command exits non-zero, report `[FAIL] gh pr checks: <exact error>` and stop. |
+| **amplifier-verifier** | Check whether the PR diff touches any `openspec/changes/<name>/` path. If none → report "no spectra change". If found → check `openspec/changes/<name>/testplan.md` exists and is non-empty (written by `/spectra-amplifier`); if missing → report "amplifier not run". If the directory check errors, report `[FAIL]` and stop. |
+
+If any agent reports `[FAIL]`, stop and report the failure explicitly; do not proceed to Step 2.
+
+Once all three return successfully, write `$CLAUDE_JOB_DIR/pre-review-check.md` (distinct from `$REVIEW_DIR/final.md` used in later steps) and report inline:
+
+```text
+Pre-review Check
+- Diff: <file count> files, <line count> lines changed
+- CI: <pass / fail / pending / not yet triggered — list any failing checks by name>
+- Amplifier: <ran / not run / no spectra change>
+```
+
+---
+
 ### Step 2 — Code Review (defect detection)
 
 Run `/code-review` to scan all PR changes for correctness bugs:
