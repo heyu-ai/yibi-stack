@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # handover-back.md Step 1 — 偵測 SKILL_REPO + 讀取交班記錄
 # 用法：bash commands/scripts/handover-read.sh [--no-project]
 #   --no-project：不帶 --project 過濾，顯示所有記錄（跨專案）
@@ -16,9 +16,11 @@ fi
 
 GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
 if [ -n "$GIT_COMMON" ]; then
-  PROJECT=$(basename "$(dirname "$GIT_COMMON")")
+  GIT_ROOT=$(dirname "$GIT_COMMON")
+  PROJECT=$(basename "$GIT_ROOT")
 else
-  PROJECT=$(basename "$(pwd)")
+  PWDVAL=$(pwd)
+  PROJECT=$(basename "$PWDVAL")
 fi
 
 if [ "${1:-}" = "--no-project" ]; then

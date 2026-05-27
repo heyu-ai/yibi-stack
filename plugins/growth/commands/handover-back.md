@@ -21,7 +21,7 @@ bash $(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".
 不帶 `--project` 顯示所有記錄（跨專案）：
 
 ```bash
-bash $(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo","")+"/commands/scripts/handover-read.sh"') --no-project
+bash $(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo","")+"/commands/scripts/handover-read.sh")') --no-project
 ```
 
 ## Step 2 — 呈現重點
