@@ -208,3 +208,31 @@ The tool attempts to filter read-only calls but does so incompletely: commands w
 More critically: even when only genuinely read-only calls are listed, the generated pattern may be `Bash(git *)` — a
 verb-level wildcard covering all subcommands of the entire binary, including destructive operations.
 **Frequency statistics cannot guarantee pattern safety.**
+
+## `$CLAUDE_JOB_DIR` Cannot Be Permanently Allowed via Session Option
+
+`$CLAUDE_JOB_DIR` expands to `~/.claude/jobs/<UUID>/` — a new UUID per background session.
+The permission dialog's "Yes, and always allow access to `<UUID>/`" option locks the specific UUID;
+the next session's UUID does not match and the prompt reappears.
+
+**Two trigger scenarios require different fixes:**
+
+**(1) Edit/Write tool writes to job dir** — add trailing-wildcard patterns to `~/.claude/settings.local.json`:
+
+```json
+"Edit(/Users/<you>/.claude/jobs/*)",
+"Write(/Users/<you>/.claude/jobs/*)"
+```
+
+The path prefix is fixed; `*` covers all future UUIDs.
+
+**(2) Bash redirect `>` writes to job dir** (e.g., `cmd > $CLAUDE_JOB_DIR/out.json`) —
+permission type is `Bash()`, not `Edit()`. Add a verb-prefix pattern per command:
+
+```json
+"Bash(spectra analyze:*)",
+"Bash(uv run python -m tasks.mycelium:*)"
+```
+
+Do **not** use `Bash(* > *)` — this is Red Flag 5 (redirection wildcard); it covers arbitrary
+file writes and must never be allow-listed. Lock the verb at the prefix instead.
