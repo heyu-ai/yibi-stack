@@ -211,3 +211,8 @@ make install-all         # 等同 build-tools + install + install-project + inst
   重命名 task module（如 `session_memory` → `mycelium`）後，`~/.claude/settings.json` 中引用舊模組名的 hook
   命令不會同步，導致 `No module named tasks.<old_name>.__main__` 錯誤。
   修正：每次重命名 task module 後，搜尋 `~/.claude/settings.json` 與 project `settings.json` 中所有含舊模組名稱的 hook 命令並手動更新。
+- **多個同名 `tests/` 目錄只有一個可以有 `__init__.py`**：`pyproject.toml` testpaths 包含多個 `tests/` 子目錄（如
+  `.claude/hooks/tests/`、`commands/scripts/tests/`）時，若同時存在兩個 `__init__.py`，Python import system
+  將它們視為同一 `tests` package，導致 `ModuleNotFoundError: No module named 'tests.test_xxx'`。
+  正確做法：跟隨 `plugins/sdd/scripts/tests/`（無 `__init__.py`）的模式；只有需要 package-relative import
+  的 tests 目錄才加 `__init__.py`。

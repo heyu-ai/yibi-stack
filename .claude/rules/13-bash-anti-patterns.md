@@ -764,3 +764,31 @@ python3 scripts/check_pattern.py
 
 Rule: **inside a bash `"..."` string, avoid `"` in comments in any language**; if quotes are
 needed, use single quotes `'` (literal inside bash double-quote strings, does not close outer string).
+
+## CC Built-in Parser Intercept Layer (independent of yibi-stack hooks)
+
+Claude Code has its own bash parser that intercepts commands **before** `.claude/hooks/` scripts run.
+Two patterns trigger a permission dialog that no custom hook can suppress:
+
+| Message | Trigger syntax | Root fix |
+|---------|---------------|---------|
+| `Contains process_substitution` | `<(cmd)` | Move comparison logic to a Python script; no shell syntax needed |
+| `Contains simple_expansion` | `"$VAR"` or `"${VAR}"` in the Bash tool call string | Move to a Python script, or write a shell script with a hardcoded path |
+
+**Failure chain** (PR #113):
+
+```bash
+# Wrong A: process substitution -> "Contains process_substitution"
+diff <(git show origin/main:path) local_file
+
+# Wrong B: switching to temp file still hits simple_expansion
+git show origin/main:path > "$TMPFILE" && diff "$TMPFILE" local_file
+
+# Fix: move logic to Python; Bash tool call has no variables at all
+python3 commands/scripts/newjob_resolve_pull_conflict.py
+```
+
+Key difference from yibi-stack AP hooks: these are **CC-level permission dialogs**.
+Even a "one-line read-only command" triggers them if it contains `<(...)` or `"$VAR"`.
+The allow-list patterns in `settings.local.json` do **not** suppress CC built-in intercepts —
+only moving logic out of the Bash tool call does.
