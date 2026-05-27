@@ -211,3 +211,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   重命名 task module（如 `session_memory` → `mycelium`）後，`~/.claude/settings.json` 中引用舊模組名的 hook
   命令不會同步，導致 `No module named tasks.<old_name>.__main__` 錯誤。
   修正：每次重命名 task module 後，搜尋 `~/.claude/settings.json` 與 project `settings.json` 中所有含舊模組名稱的 hook 命令並手動更新。
+- **sdd plugin version lockstep（package.json vs plugin.json）**：
+  `plugins/sdd/package.json` 與 `plugins/sdd/.claude-plugin/plugin.json` 兩個版本號必須手動同步 bump。
+  無 CI 交叉驗證——PR #112 mob review 兩個聲部（Claude + Codex）都獨立 flag 了 1.3.0 vs 1.4.0 的 split。
+  修正：bump package.json 後，同步更新 `.claude-plugin/plugin.json` 的 `"version"` 欄位。
