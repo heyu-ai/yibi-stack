@@ -1019,5 +1019,94 @@ def debug_list(last: int, project: str | None) -> None:
             click.echo(f"  標籤：{', '.join(r.prevention_tags)}")
 
 
+# ─── memory ──────────────────────────────────────────────────────────────
+
+
+@cli.group()
+def memory() -> None:
+    """工作記憶管理：save 手動存記憶。"""
+
+
+@cli.command("serve")
+def serve() -> None:
+    """啟動 MCP stdio server（mycelium serve）。"""
+    from .mcp_server import run_server
+
+    run_server()
+
+
+@memory.command("save")
+@click.argument("content")
+@click.option("--tier", default="working", help="tier 層級（預設 working）")
+@click.option("--tag", "tags", multiple=True, help="標籤（可重複）")
+def memory_save(content: str, tier: str, tags: tuple[str, ...]) -> None:
+    """手動儲存一筆 lesson 到工作記憶。
+
+    範例：mycelium memory save --tag pitfall "never cherry-pick after squash merge"
+    """
+    import os
+
+    from .lessons_service import save_lesson
+
+    source_bot = os.environ.get("AGENT_TYPE", "claude")
+    result = save_lesson(
+        content=content,
+        tier=tier,
+        tags=list(tags),
+        source_bot=source_bot,
+    )
+    click.echo(f"✓ lesson 已儲存 (id={result['id']})")
+
+
+# ─── handover-back ───────────────────────────────────────────────────────
+
+
+@cli.command("handover-back")
+@click.option(
+    "--global",
+    "global_scope",
+    is_flag=True,
+    default=False,
+    help="跨 project 召回（不限當前 repo）",
+)
+@click.option("--last", default=10, type=int, help="最多回傳 N 筆")
+@click.option(
+    "--token-budget",
+    "token_budget",
+    default=0,
+    type=int,
+    help="token 數量上限（0 = 無限制）",
+)
+@click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
+def handover_back(global_scope: bool, last: int, token_budget: int, as_json: bool) -> None:
+    """讀取工作記憶：預設限當前 project scope，--global 跨所有 project。"""
+    from .lessons_service import get_lessons
+    from .registry import resolve_project_slug
+
+    project: str | None = None
+    if not global_scope:
+        project = resolve_project_slug(Path.cwd())
+
+    rows = get_lessons(project=project, limit=last, token_budget=token_budget)
+
+    if as_json:
+        click.echo(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+
+    if not rows:
+        click.echo("(尚無教訓記錄)")
+        return
+
+    for r in rows:
+        click.echo("─" * 60)
+        eff = r.get("effective_confidence", r.get("confidence", ""))
+        click.echo(
+            f"[{r.get('ts', '')[:10]}] [{r.get('type', '')}] {r.get('key', '')} (conf={eff})"
+        )
+        if r.get("project"):
+            click.echo(f"  project = {r['project']}")
+        click.echo(f"  {r.get('insight', '')}")
+
+
 if __name__ == "__main__":
     cli()

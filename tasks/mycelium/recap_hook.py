@@ -1,11 +1,16 @@
-"""Recap Collector — Claude Code Stop hook 入口 + install / uninstall 設定。
+"""Recap Collector — Claude Code Stop hook 入口 + SessionStart hot-lesson inject。
 
 Stop hook entry point (`run_hook`)：
   - 讀 stdin 的 hook payload（JSON）
   - 從 transcript 擷取 type=system, subtype=away_summary 條目
   - 以 entry.uuid 去重後 append 到 ~/.agents/recap/session-recap.jsonl
 
-任何錯誤都靜默退出，絕不阻斷 Claude 的 Stop 流程。
+SessionStart hook entry point (`run_session_start_hook`)：
+  - 讀取 DB 中 tier="hot" 的 lessons（top 3，依 effective_weight 降序）
+  - 格式化為「★ Recalled lessons:」區塊輸出到 stdout，供 Claude Code 注入 session context
+  - 若 ~/.agents/dreams/latest.md 存在且距今 < 24 小時，輸出 dream digest
+
+任何錯誤都靜默退出，絕不阻斷 Claude 流程。
 """
 
 from __future__ import annotations
@@ -205,3 +210,80 @@ def _default_hook_command() -> str:
     """回傳預設 hook command（tasks.mycelium recap collect）。"""
     repo_root = Path(__file__).resolve().parents[2]
     return f"uv run --project {repo_root} python -m tasks.mycelium recap collect"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# SessionStart hook — 自動注入 hot lesson
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def run_session_start_hook(
+    stdin_text: str | None = None,
+) -> int:
+    """SessionStart hook entry point。
+
+    讀取 DB 中 tier="hot" 的 lessons（top 3，依 effective_weight 降序），
+    格式化為「★ Recalled lessons:」區塊輸出到 stdout，供 Claude Code 注入 session context。
+
+    任何錯誤都靜默退出（回傳 0），絕不阻斷 SessionStart 流程。
+    """
+    try:
+        raw = stdin_text if stdin_text is not None else sys.stdin.read()
+    except OSError:
+        return 0
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return 0
+
+    if payload.get("hook_event_name") != "SessionStart":
+        return 0
+
+    try:
+        from .lessons_service import get_lessons
+
+        rows = get_lessons(tier_filter=["hot"], limit=3)
+    except Exception as e:
+        print(f"[mycelium-session] get_lessons 失敗：{e}", file=sys.stderr)
+        return 0
+
+    if not rows:
+        return 0
+
+    lines = ["★ Recalled lessons:"]
+    for r in rows:
+        insight = r.get("insight", "").strip()
+        if insight:
+            lines.append(f"- {insight}")
+
+    if len(lines) > 1:
+        print("\n".join(lines))
+
+    # Dream digest display（Phase 5 功能；依賴 dream skill 落地後啟動）
+    _try_display_dream_digest()
+
+    return 0
+
+
+def _try_display_dream_digest(
+    dreams_dir: str | None = None,
+    max_age_seconds: float = 86400,
+) -> None:
+    """若 ~/.agents/dreams/latest.md 存在且距今 < 24 小時，輸出 dream digest。"""
+    import time
+
+    dreams_latest = Path(dreams_dir or (Path.home() / ".agents" / "dreams")) / "latest.md"
+    if not dreams_latest.is_file():
+        return
+
+    try:
+        mtime = dreams_latest.stat().st_mtime
+        age = time.time() - mtime
+        if age >= max_age_seconds:
+            return
+
+        content = dreams_latest.read_text(encoding="utf-8")[:200]
+        print(f"★ Dream digest:\n{content}")
+    except OSError:
+        pass

@@ -3,12 +3,41 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from .config import HANDOVER_DB_PATH
 from .models import EventType, HandoverEvent, HandoverRecord, LessonRecord, SessionType
+
+
+def compute_effective_weight(
+    lesson: LessonRecord,
+    now: datetime,
+    bot_trust_weight: float,
+) -> float:
+    """計算 lesson 的 effective_weight（排序用浮點數）。
+
+    公式：confidence * decay(age) * log(access_count + 1) * bot_trust_weight
+    decay(age) = 0.5 ^ (age_days / 90)（90 天半衰期指數衰減）
+
+    age 使用 last_accessed_at（若有）否則使用 ts（建立時間）。
+    """
+    ts_str = lesson.last_accessed_at or lesson.ts
+    try:
+        ts = datetime.fromisoformat(ts_str)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+    except (ValueError, TypeError):
+        ts = now
+
+    age_days = max(0.0, (now - ts).total_seconds() / 86400)
+    decay: float = float(0.5 ** (age_days / 90))
+    freq: float = math.log(lesson.access_count + 1)
+    return float(lesson.confidence) * decay * freq * bot_trust_weight
+
 
 _JSON_ARRAY_COLS = (
     "completed",
@@ -76,7 +105,8 @@ class AgentsDB:
               last_files           TEXT DEFAULT '[]',
               test_status          TEXT,
               token_usage_estimate TEXT,
-              project              TEXT
+              project              TEXT,
+              source_bot           TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_handovers_timestamp
@@ -109,7 +139,31 @@ class AgentsDB:
               ON handover_events(session_id, timestamp);
             CREATE INDEX IF NOT EXISTS idx_events_type
               ON handover_events(event_type);
+            """
+        )
+        # Idempotent column migrations for existing DBs.
+        # NOTE: lessons table may not exist yet on fresh DBs (created below);
+        # "no such table" is expected and safe to ignore here — the CREATE TABLE
+        # statement already includes all these columns.
+        for _alter in (
+            "ALTER TABLE lessons ADD COLUMN source_bot TEXT",
+            "ALTER TABLE handovers ADD COLUMN source_bot TEXT",
+            "ALTER TABLE lessons ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE lessons ADD COLUMN tier TEXT NOT NULL DEFAULT 'working'",
+            "ALTER TABLE lessons ADD COLUMN last_accessed_at TEXT",
+            "ALTER TABLE lessons ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE lessons ADD COLUMN archived_path TEXT",
+        ):
+            try:
+                self.conn.execute(_alter)
+            except sqlite3.OperationalError as _e:
+                msg = str(_e).lower()
+                if "duplicate column name" not in msg and "no such table" not in msg:
+                    raise  # re-raise real DB errors (locked, read-only, syntax error)
+        self.conn.commit()
 
+        self.conn.executescript(
+            """
             CREATE TABLE IF NOT EXISTS lessons (
               id          TEXT PRIMARY KEY,
               ts          TEXT NOT NULL,
@@ -130,8 +184,14 @@ class AgentsDB:
               files       TEXT NOT NULL DEFAULT '[]',
               handover_id TEXT,
               retro_pr    INTEGER,
-              device      TEXT,
-              agent_type  TEXT NOT NULL DEFAULT 'claude'
+              device          TEXT,
+              agent_type      TEXT NOT NULL DEFAULT 'claude',
+              source_bot      TEXT,
+              tags            TEXT NOT NULL DEFAULT '[]',
+              tier            TEXT NOT NULL DEFAULT 'working',
+              last_accessed_at TEXT,
+              access_count    INTEGER NOT NULL DEFAULT 0,
+              archived_path   TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_lessons_proj_ts
@@ -153,13 +213,14 @@ class AgentsDB:
               completed, decisions, blocked, next_priorities,
               lessons_learned, attempted_approaches, tags,
               device, agent_type, subscription_account,
-              branch, working_dir, last_files, test_status, token_usage_estimate, project
+              branch, working_dir, last_files, test_status, token_usage_estimate, project,
+              source_bot
             ) VALUES (
               ?, ?, ?, ?, ?, ?,
               ?, ?, ?, ?,
               ?, ?, ?,
               ?, ?, ?,
-              ?, ?, ?, ?, ?, ?
+              ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -185,6 +246,7 @@ class AgentsDB:
                 record.test_status,
                 record.token_usage_estimate,
                 record.project,
+                record.source_bot,
             ),
         )
         self.conn.commit()
@@ -317,8 +379,9 @@ class AgentsDB:
             """
             INSERT INTO lessons (
               id, ts, project, skill, type, key, insight, confidence,
-              source, trusted, files, handover_id, retro_pr, device, agent_type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              source, trusted, files, handover_id, retro_pr, device, agent_type,
+              source_bot, tags, tier, last_accessed_at, access_count, archived_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.id,
@@ -336,6 +399,12 @@ class AgentsDB:
                 record.retro_pr,
                 record.device,
                 record.agent_type,
+                record.source_bot,
+                json.dumps(record.tags, ensure_ascii=False),
+                record.tier,
+                record.last_accessed_at,
+                record.access_count,
+                record.archived_path,
             ),
         )
         self.conn.commit()
@@ -447,6 +516,18 @@ class AgentsDB:
 
         cur = self.conn.execute(sql, params)
         return [_decode_lesson_row(row) for row in cur.fetchall()]
+
+    def increment_access_count(self, ids: list[str], now: datetime) -> None:
+        """遞增指定 lesson IDs 的 access_count 與 last_accessed_at（batch update）。"""
+        if not ids:
+            return
+        placeholders = ",".join("?" * len(ids))
+        self.conn.execute(  # nosec B608
+            f"UPDATE lessons SET access_count = access_count + 1, last_accessed_at = ? "
+            f"WHERE id IN ({placeholders})",  # nosec B608
+            [now.isoformat(), *ids],
+        )
+        self.conn.commit()
 
     def count(self) -> int:
         """回傳總筆數（migrate 驗證用）。"""
@@ -593,20 +674,21 @@ def _decode_row(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _decode_lesson_row(row: sqlite3.Row) -> dict[str, Any]:
-    """把 lessons 的 sqlite3.Row 轉成 dict，files 欄位 decode 回 list。"""
+    """把 lessons 的 sqlite3.Row 轉成 dict，files / tags 欄位 decode 回 list。"""
     out = dict(row)
-    raw = out.get("files", "[]")
-    if isinstance(raw, str):
-        try:
-            out["files"] = json.loads(raw)
-        except json.JSONDecodeError:
-            import sys
+    for col in ("files", "tags"):
+        raw = out.get(col, "[]")
+        if isinstance(raw, str):
+            try:
+                out[col] = json.loads(raw)
+            except json.JSONDecodeError:
+                import sys
 
-            print(
-                f"[WARN] lesson id={out.get('id', '?')} files 欄位 JSON 損壞，reset 為 []",
-                file=sys.stderr,
-            )
-            out["files"] = []
+                print(
+                    f"[WARN] lesson id={out.get('id', '?')} {col} 欄位 JSON 損壞，reset 為 []",
+                    file=sys.stderr,
+                )
+                out[col] = []
     out["trusted"] = bool(out.get("trusted", 0))
     return out
 
