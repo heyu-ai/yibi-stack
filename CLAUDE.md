@@ -36,8 +36,10 @@ To restore: `spectra unpark <name>`. The `/spectra-apply` and `/spectra-ingest` 
 
   ```bash
   git commit -F "$CLAUDE_JOB_DIR/commit_msg.txt"
-  rm -f "$CLAUDE_JOB_DIR/commit_msg.txt"
   ```
+
+  不需要（也不應該）之後執行 `rm -f "$CLAUDE_JOB_DIR/commit_msg.txt"`：
+  `$CLAUDE_JOB_DIR` 在 job 結束後自動清理；`rm` 是 Bash call 且 Rule 16 Red Flag 2 禁止 allow-list `Bash(rm:*)`，每次都跳 permission prompt。
 
 **不要**用 `git commit -m "$(cat <<'EOF' ... EOF)"`：外層 `"..."` 包 `$()`
 subshell 觸發 Claude Code parser `Unhandled node type: string`（Quoting Rule 2）；
