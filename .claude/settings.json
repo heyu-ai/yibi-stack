@@ -11,6 +11,16 @@
           }
         ],
         "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$CLAUDE_FILE_PATH\" == *.md ]]; then npx markdownlint-cli2 --fix \"$CLAUDE_FILE_PATH\" >&2 || true; fi",
+            "statusMessage": "markdownlint auto-fix..."
+          }
+        ],
+        "matcher": "Edit|Write"
       }
     ],
     "PreCompact": [
