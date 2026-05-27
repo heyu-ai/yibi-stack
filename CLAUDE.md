@@ -207,3 +207,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   permission 類型是 `Bash()` 而非 `Edit()`，需針對各指令加
   `"Bash(<command>:*)"` 到 allow list（例：`"Bash(spectra analyze:*)"`）。
   注意 rule 16 Red Flag 5：`Bash(* > *)` 不可放行；必須以指令名稱為前綴鎖定。
+- **Python module rename 後 `settings.json` hook 命令不會自動更新**：
+  重命名 task module（如 `session_memory` → `mycelium`）後，`~/.claude/settings.json` 中引用舊模組名的 hook
+  命令不會同步，導致 `No module named tasks.<old_name>.__main__` 錯誤。
+  修正：每次重命名 task module 後，搜尋 `~/.claude/settings.json` 與 project `settings.json` 中所有含舊模組名稱的 hook 命令並手動更新。
