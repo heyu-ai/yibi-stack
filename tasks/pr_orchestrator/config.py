@@ -106,7 +106,11 @@ def archive_state(state: OrchestratorState) -> None:
         try:
             src.unlink()
         except OSError as e:
-            print(f"[WARN] 歸檔後刪除原始 state 失敗（已成功歸檔至 {dest}）：{e}", file=sys.stderr)
+            print(
+                f"[WARN] 歸檔後刪除原始 state 失敗（已成功歸檔至 {dest}）：{e}\n"
+                f"       請手動執行：python -m tasks.pr_orchestrator gc --pr {state.pr_number}",
+                file=sys.stderr,
+            )
             return
         click.echo(f"State 已歸檔：{dest}")
 

@@ -54,8 +54,17 @@ def run(
     safety gate 1：WIP 存在時拒絕
     safety gate 2：fork PR 時拒絕（除非 allow_fork_fix=True）
     """
-    # Safety gate 1 — WIP check
-    if not _working_tree_clean(repo_root):
+    # Safety gate 1 — WIP check (git failure → BLOCKED, consistent with other gates)
+    try:
+        tree_clean = _working_tree_clean(repo_root)
+    except RuntimeError as e:
+        state = add_blocker(state, f"無法執行 git status 檢查：{e}", "確認 git 可用且路徑正確")
+        state = transition(state, PRState.BLOCKED, "git status failed")
+        persist_state(state)
+        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "git status failed")
+        return state
+
+    if not tree_clean:
         state = add_blocker(
             state, "Working tree 有未提交變更，拒絕 auto-fix", "先 stash 或 commit WIP"
         )
@@ -182,6 +191,19 @@ def run(
         )
 
     state = state.model_copy(update={"fix_attempts": [*state.fix_attempts, *new_attempts]})
+
+    # Only advance to CI_WAIT if at least one fixer actually applied a change;
+    # all-crashed → BLOCKED to prevent a silent re-poll spin
+    applied_any = any(a.result == FixResult.applied for a in new_attempts)
+    if not applied_any:
+        state = add_blocker(
+            state, "所有 fixer 均執行失敗，請查看 stderr 後手動修復", "手動修復後 push 再 resume"
+        )
+        state = transition(state, PRState.BLOCKED, "all fixers failed or no-change")
+        persist_state(state)
+        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "all fixers failed")
+        return state
+
     state = transition(state, PRState.CI_WAIT, f"iteration {iteration} applied, re-poll CI")
     persist_state(state)
     olog.append(state.pr_number, PRState.AUTO_FIX, PRState.CI_WAIT, f"iteration {iteration}")

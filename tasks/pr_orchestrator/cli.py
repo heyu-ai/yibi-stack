@@ -20,7 +20,7 @@ from .models import OrchestratorState, PRState
 
 
 def _load_state(pr_number: int) -> OrchestratorState:
-    """state file を讀取並 validate；失敗時 raise RuntimeError。"""
+    """讀取 state file 並 validate；失敗時 raise RuntimeError。"""
     p = state_path(pr_number)
     if not p.is_file():
         raise RuntimeError(f"找不到 PR #{pr_number} state 檔：{p}")
@@ -84,7 +84,14 @@ def detect(pr_number: int | None, branch: str | None) -> None:
             text=True,
             timeout=10,
         )
-        repo = r.stdout.strip()
+        if r.returncode == 0:
+            repo = r.stdout.strip()
+        else:
+            print(
+                f"[WARN] 無法取得 repo slug（gh 返回 {r.returncode}，將使用 'unknown'）："
+                f"{r.stderr.strip()}",
+                file=sys.stderr,
+            )
     except (subprocess.SubprocessError, OSError) as e:
         print(f"[WARN] 無法取得 repo slug（將使用 'unknown'）：{e}", file=sys.stderr)
 
@@ -112,11 +119,20 @@ def write_manifest(pr_number: int) -> None:
         click.echo(f"[FAIL] {e}", err=True)
         raise SystemExit(1) from None
 
-    manifest_p = write_review_manifest(state)
+    try:
+        manifest_p = write_review_manifest(state)
+    except OSError as e:
+        click.echo(f"[FAIL] manifest 寫出失敗：{e}", err=True)
+        raise SystemExit(1) from None
+
     state = state.model_copy(
         update={"artifacts": state.artifacts.model_copy(update={"spawn_manifest": str(manifest_p)})}
     )
-    persist_state(state)
+    try:
+        persist_state(state)
+    except RuntimeError as e:
+        click.echo(f"[FAIL] State 更新失敗：{e}", err=True)
+        raise SystemExit(1) from None
     click.echo(f"[ok] spawn-manifest 已寫出：{manifest_p}")
 
 
@@ -136,9 +152,18 @@ def auto_fix_cmd(pr_number: int, repo_root_str: str | None) -> None:
         click.echo(f"[FAIL] {e}", err=True)
         raise SystemExit(1) from None
 
-    cfg = load_config()
+    try:
+        cfg = load_config()
+    except RuntimeError as e:
+        click.echo(f"[FAIL] Config 讀取失敗：{e}", err=True)
+        raise SystemExit(1) from None
+
     repo_root = _Path(repo_root_str) if repo_root_str else _Path(os.getcwd())
-    state = run_auto_fix(state, cfg, repo_root)
+    try:
+        state = run_auto_fix(state, cfg, repo_root)
+    except RuntimeError as e:
+        click.echo(f"[FAIL] auto-fix 執行失敗（未預期錯誤）：{e}", err=True)
+        raise SystemExit(1) from None
     click.echo(f"[ok] auto-fix 完成，當前狀態：{state.current_state}")
 
 

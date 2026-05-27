@@ -40,7 +40,7 @@ def append(
         _LOG_BASE.mkdir(parents=True, exist_ok=True)
         with log_path(pr_number).open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except OSError as e:
+    except (OSError, ValueError) as e:
         print(f"[WARN] transition log 寫入失敗（state 已儲存）：{e}", file=sys.stderr)
 
 
