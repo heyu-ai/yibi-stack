@@ -1,4 +1,4 @@
-"""Recap Collector — Claude Code Stop hook 入口 + SessionStart hot-lesson inject + install / uninstall 設定。
+"""Recap Collector — Claude Code Stop hook 入口 + SessionStart hot-lesson inject。
 
 Stop hook entry point (`run_hook`)：
   - 讀 stdin 的 hook payload（JSON）

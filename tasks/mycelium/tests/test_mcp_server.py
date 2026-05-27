@@ -11,7 +11,9 @@ from typing import Any
 from tasks.mycelium.mcp_server import run_server
 
 
-def _call(method: str, params: dict[str, Any], tmp_path: Path, *, req_id: int = 1) -> dict[str, Any]:
+def _call(
+    method: str, params: dict[str, Any], tmp_path: Path, *, req_id: int = 1
+) -> dict[str, Any]:
     request = json.dumps({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params})
     in_stream = StringIO(request + "\n")
     out_stream = StringIO()
@@ -49,7 +51,10 @@ class TestMcpServerProtocol:
         """MYC-MCP-DT-004: mycelium_save_preference returns lesson_id"""
         resp = _call(
             "tools/call",
-            {"name": "mycelium_save_preference", "arguments": {"content": "Prefer dark mode in all UIs."}},
+            {
+                "name": "mycelium_save_preference",
+                "arguments": {"content": "Prefer dark mode in all UIs."},
+            },
             tmp_path,
         )
         assert "result" in resp

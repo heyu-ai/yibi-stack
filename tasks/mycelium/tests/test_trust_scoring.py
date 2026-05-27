@@ -6,7 +6,9 @@ from tasks.mycelium.models import LessonRecord, LessonSource, LessonType
 from tasks.mycelium.trust_scoring import compute_bot_trust_weight
 
 
-def _make_lesson(source_bot: str | None, source: LessonSource = LessonSource.observed) -> LessonRecord:
+def _make_lesson(
+    source_bot: str | None, source: LessonSource = LessonSource.observed
+) -> LessonRecord:
     return LessonRecord(
         project="test",
         type=LessonType.pattern,

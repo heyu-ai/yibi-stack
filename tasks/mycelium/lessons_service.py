@@ -534,7 +534,10 @@ def save_lesson(
         raw_key = "lesson"
     key = raw_key[:40] + "-" + str(uuid.uuid4())[:8]
 
-    lesson_type_enum = LessonType(lesson_type) if lesson_type in LessonType.__members__ else LessonType.pattern
+    if lesson_type in LessonType.__members__:
+        lesson_type_enum = LessonType(lesson_type)
+    else:
+        lesson_type_enum = LessonType.pattern
 
     record = LessonRecord(
         project=project,
@@ -572,7 +575,8 @@ def get_lessons(
     """查詢 typed lessons，回傳 effective_weight 降序清單。
 
     project=None 回傳所有 project 的 lesson。
-    tier_filter 指定允許的 tier 清單（如 ["hot"]）；None 表示 working+hot（除非 include_cold/archived）。
+    tier_filter 指定允許的 tier 清單（如 ["hot"]）；None 表示 working+hot
+    （除非 include_cold/archived）。
     include_cold=True 包含 cold tier；include_archived=True 包含 archival tier。
     token_budget > 0 時以 tiktoken cl100k_base 估算累計 token，超過 budget 就停止。
     mode 對映 lesson_type filter：episodic/semantic/procedural。

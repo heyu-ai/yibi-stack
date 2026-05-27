@@ -168,7 +168,10 @@ def _tool_search(
     # mode parameter is accepted by the schema but ignored here.
     if query:
         q = query.lower()
-        rows = [r for r in rows if q in r.get("insight", "").lower() or q in r.get("key", "").lower()]
+        rows = [
+            r for r in rows
+            if q in r.get("insight", "").lower() or q in r.get("key", "").lower()
+        ]
 
     summaries = [
         {
@@ -220,7 +223,8 @@ def _tool_save_preference(
         lesson_type="preference",
         db_path=db_path,
     )
-    return {"content": [{"type": "text", "text": json.dumps({"lesson_id": result["id"]}, ensure_ascii=False)}]}
+    payload = json.dumps({"lesson_id": result["id"]}, ensure_ascii=False)
+    return {"content": [{"type": "text", "text": payload}]}
 
 
 def _tool_subscribe(
@@ -238,7 +242,8 @@ def _tool_subscribe(
         db.init_db()
         _ensure_subscriptions_table(db)
         db.conn.execute(
-            "INSERT INTO subscriptions (token, subscriber_bot, event_type, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO subscriptions"
+            " (token, subscriber_bot, event_type, created_at) VALUES (?, ?, ?, ?)",
             (token, "unknown", event_type, now),
         )
         db.conn.commit()

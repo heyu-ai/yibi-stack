@@ -109,7 +109,9 @@ class TestRunPromotionCheck:
 
         # Either it succeeded (tier=archival) or it failed (errors non-empty, tier=cold)
         db2 = _make_db(tmp_path)
-        row = db2.conn.execute("SELECT tier, archived_path FROM lessons WHERE id = ?", (lesson_id,)).fetchone()
+        row = db2.conn.execute(
+            "SELECT tier, archived_path FROM lessons WHERE id = ?", (lesson_id,)
+        ).fetchone()
         db2.close()
 
         if result.errors:
