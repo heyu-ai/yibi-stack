@@ -191,3 +191,4 @@ Jira 範例：`ticket_pattern: "(PROJ|MYTEAM)-[0-9]+"`
 | release notes 顯示「See CHANGELOG.md」| CHANGELOG 格式需為 `## [X.Y.Z]`（Keep a Changelog 格式），git-cliff 自動生成符合此格式 |
 | 想略過測試快速發版 | `gates.sh --skip-gates`（GitHub Release notes 會加上略過測試警告） |
 | tag 已推但 GitHub Release 未建立（`gh release create` 失敗）| 直接補建：`gh release create vX.Y.Z --notes "See CHANGELOG.md"`；或刪除 tag 重跑：`git push origin :refs/tags/vX.Y.Z && release.sh` |
+| `make release` 失敗：tag vX.Y.Z 已存在 | 先執行 `git ls-remote --tags origin 'refs/tags/v*'` 確認衝突；直接再跑 `make release TYPE=patch` 會多產生一個廢棄的 `chore(release)` commit（bump 已寫入但 tag 推不上去），需 `git reset HEAD~1` 移除 |

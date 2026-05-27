@@ -163,7 +163,9 @@ make install-all         # 等同 build-tools + install + install-project + inst
 
 ## 已知 Gotcha
 
-- **protect-push 攔截 `gh pr merge`**：agent 無法自行 merge；需使用者執行 `! gh pr merge <n> --squash --delete-branch`
+- **protect-push 攔截 `gh pr merge`**：agent 無法自行 merge；需使用者執行 `! gh pr merge <n> --squash --delete-branch`。
+  另：在 linked worktree 內執行 `gh pr merge` 時若主 repo 已 checkout main 也會失敗（`fatal: 'main' is already used by worktree`）——同樣需從主 repo 目錄執行
+- **plugin command source 刪除後頂層 symlink 變 dangling**：`git status` 不顯示（CI `FileNotFoundError` 才發現）。刪除 `plugins/<pack>/commands/<cmd>.md` 時，需同步 `git rm commands/<cmd>.md` 移除頂層 symlink
 - **Slash command 的 bash code block 被 agent 重寫**：commands/*.md 或 SKILL.md 中，
   agent 理解意圖後自行生成 bash 而非複製貼上，可能引入反模式（fat command、
   `if [ $? -ne 0 ]`、`||` 條件分支）。複雜 bash 邏輯移到 `commands/scripts/*.sh` 或
