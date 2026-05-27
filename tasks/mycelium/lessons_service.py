@@ -502,3 +502,185 @@ def search_lessons(
                 }
             )
     return results[:limit]
+
+
+def save_lesson(
+    content: str,
+    tier: str = "working",
+    tags: list[str] | None = None,
+    source_bot: str | None = None,
+    lesson_type: str = "pattern",
+    project: str | None = None,
+    confidence: int = 7,
+    db_path: str | Path | None = None,
+) -> dict[str, str]:
+    """儲存一筆 lesson，自動產生 key 與 project（若未提供）。
+
+    `content` 對應 LessonRecord.insight。
+    `tier` 預設 "working"；後續 T2.1 會加 tier column 到 DB。
+    """
+    import re
+    import uuid
+
+    from .db import AgentsDB
+    from .models import LessonRecord, LessonSource, LessonType
+    from .registry import resolve_project_slug
+
+    if project is None:
+        project = resolve_project_slug(Path.cwd()) or "unknown"
+
+    # Auto-generate key from first 40 chars of content, kebab-case
+    raw_key = re.sub(r"[^a-zA-Z0-9]+", "-", content[:40]).strip("-").lower()
+    if not raw_key:
+        raw_key = "lesson"
+    key = raw_key[:40] + "-" + str(uuid.uuid4())[:8]
+
+    lesson_type_enum = LessonType(lesson_type) if lesson_type in LessonType.__members__ else LessonType.pattern
+
+    record = LessonRecord(
+        project=project,
+        type=lesson_type_enum,
+        key=key,
+        insight=content,
+        confidence=confidence,
+        source=LessonSource.observed,
+        source_bot=source_bot,
+        tags=tags or [],
+    )
+
+    db = AgentsDB(db_path=db_path)
+    try:
+        db.init_db()
+        db.insert_lesson(record)
+    finally:
+        db.close()
+
+    return {"id": record.id, "trusted": str(record.trusted)}
+
+
+def get_lessons(
+    project: str | None = None,
+    limit: int = 20,
+    tier_filter: list[str] | None = None,
+    lesson_type: str | None = None,
+    include_cold: bool = False,
+    include_archived: bool = False,
+    token_budget: int = 0,
+    mode: str | None = None,
+    db_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """查詢 typed lessons，回傳 effective_weight 降序清單。
+
+    project=None 回傳所有 project 的 lesson。
+    tier_filter 指定允許的 tier 清單（如 ["hot"]）；None 表示 working+hot（除非 include_cold/archived）。
+    include_cold=True 包含 cold tier；include_archived=True 包含 archival tier。
+    token_budget > 0 時以 tiktoken cl100k_base 估算累計 token，超過 budget 就停止。
+    mode 對映 lesson_type filter：episodic/semantic/procedural。
+    """
+    from .db import AgentsDB
+
+    # Build effective tier filter
+    if tier_filter is not None:
+        effective_tiers = set(tier_filter)
+    else:
+        effective_tiers = {"working", "hot"}
+        if include_cold:
+            effective_tiers.add("cold")
+        if include_archived:
+            effective_tiers.add("archival")
+
+    db = AgentsDB(db_path=db_path)
+    try:
+        db.init_db()
+        rows = db.query_lessons_typed(
+            project=project,
+            lesson_type=lesson_type,
+            limit=limit * 4,  # over-fetch before tier filter
+        )
+    finally:
+        db.close()
+
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        row_tier = row.get("tier", "working")
+        if row_tier not in effective_tiers:
+            continue
+        eff = _apply_decay(row["confidence"], row["source"], row["ts"])
+        results.append({**row, "effective_confidence": eff})
+
+    from datetime import UTC, datetime
+
+    from .db import compute_effective_weight
+    from .models import LessonRecord, LessonSource, LessonType
+
+    now = datetime.now(UTC)
+    for r in results:
+        try:
+            lesson = LessonRecord(
+                project=r.get("project", "unknown"),
+                type=LessonType(r.get("type", "pattern")),
+                key=r.get("key", "k"),
+                insight=r.get("insight", "x" * 10),
+                confidence=int(r.get("confidence", 5)),
+                source=LessonSource(r.get("source", "observed")),
+                access_count=int(r.get("access_count", 0)),
+                last_accessed_at=r.get("last_accessed_at"),
+                ts=r.get("ts", now.isoformat()),
+                source_bot=r.get("source_bot"),
+            )
+            r["effective_weight"] = compute_effective_weight(lesson, now, 1.0)
+        except Exception:
+            r["effective_weight"] = float(r.get("effective_confidence", r.get("confidence", 0)))
+
+    results.sort(key=lambda r: r.get("effective_weight", 0.0), reverse=True)
+
+    # Mode filter: map mode to lesson_type values
+    if mode is not None:
+        _MODE_MAP: dict[str, list[str]] = {
+            "episodic": ["handover_summary"],
+            "semantic": ["pattern", "architecture", "investigation"],
+            "procedural": ["tool", "operational"],
+        }
+        allowed_types = _MODE_MAP.get(mode)
+        if allowed_types is None:
+            raise ValueError(f"mode 必須為 episodic / semantic / procedural，收到：{mode!r}")
+        results = [r for r in results if r.get("type") in allowed_types]
+
+    # Token budget filtering
+    if token_budget > 0:
+        return _apply_token_budget(results, token_budget, limit)
+
+    return results[:limit]
+
+
+_TOKEN_BUDGET_ENCODING = "cl100k_base"
+
+
+def _apply_token_budget(
+    rows: list[dict[str, Any]],
+    budget: int,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """依 token budget 截斷 rows（tiktoken cl100k_base 估算）。"""
+    try:
+        import tiktoken
+
+        enc = tiktoken.get_encoding(_TOKEN_BUDGET_ENCODING)
+
+        def count_tokens(text: str) -> int:
+            return len(enc.encode(text))
+
+    except ImportError:
+        def count_tokens(text: str) -> int:
+            return len(text) // 4  # rough estimate: 1 token ≈ 4 chars
+
+    result: list[dict[str, Any]] = []
+    cumulative = 0
+    for row in rows[:limit]:
+        text = row.get("insight", "")
+        tokens = count_tokens(text)
+        if cumulative + tokens > budget:
+            break
+        cumulative += tokens
+        result.append(row)
+    return result

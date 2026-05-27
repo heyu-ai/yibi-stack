@@ -72,6 +72,12 @@ class LessonRecord(BaseModel):
     retro_pr: int | None = None
     device: str | None = None
     agent_type: str = "claude"
+    source_bot: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    tier: str = "working"
+    last_accessed_at: str | None = None
+    access_count: int = 0
+    archived_path: str | None = None
 
     @field_validator("ts")
     @classmethod
@@ -198,6 +204,7 @@ class HandoverRecord(BaseModel):
     test_status: str | None = None
     token_usage_estimate: str | None = None
     project: str | None = None
+    source_bot: str | None = None
 
 
 class HandoverEvent(BaseModel):

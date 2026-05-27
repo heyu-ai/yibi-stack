@@ -1,13 +1,35 @@
-"""帳號 registry 讀寫：_registry/accounts.json 的存取介面。"""
+"""帳號 registry 讀寫：_registry/accounts.json 的存取介面；以及 project slug 解析。"""
 
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import REGISTRY_DIR
+
+
+def resolve_project_slug(cwd: Path) -> str | None:
+    """由工作目錄解析 git project slug（repo name）。
+
+    呼叫 `git -C <cwd> rev-parse --show-toplevel` 取得 repo 根目錄，
+    再取最後一段路徑作為 slug。git 失敗（非 git 目錄或無 git binary）時回傳 None。
+    """
+    try:
+        result = subprocess.run(  # nosec B603
+            ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        toplevel = result.stdout.strip()
+        return Path(toplevel).name or None
+    except Exception:  # noqa: BLE001
+        return None
 
 _DEFAULT_ACCOUNTS_PATH = REGISTRY_DIR / "accounts.json"
 
