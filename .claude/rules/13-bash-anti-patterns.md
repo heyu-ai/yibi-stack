@@ -173,6 +173,36 @@ use `rg --no-ignore`.
 Use bash when you need bash-specific features (`rg --json`, `find -exec`, `wc -l`), but
 follow the AP rules above.
 
+### Codebase Research SOP
+
+When an agent needs to traverse N files for the same operation (read header, search pattern,
+check frontmatter), choose the approach by N and complexity:
+
+| Situation | Correct approach | Anti-pattern |
+|-----------|-----------------|--------------|
+| N ≤ 5 files, read first N lines | N parallel Read calls (`limit: N`) | `for f in ...; do head -N "$f"; done` |
+| N ≤ 5 files, search pattern | N parallel Grep calls | `for f in ...; do grep "pat" "$f"; done` |
+| N > 5 or complex logic | Extract to `scripts/scan_<thing>.{sh,py}` + single bash call | Inline for-loop with multiple body statements |
+| Cross-repo / cross-subtree | Spawn Explore subagent; specify "use Read/Glob/Grep, no bash for-loops" in prompt | Main-session bash multi-file traversal |
+
+**Counter-example** (the for-loop pattern that triggered AP1 + Quoting Rule 5 confirmation
+dialog when reading multiple SKILL.md files during codebase research):
+
+```bash
+# Wrong: for-loop body > 1 line + "dollar-f" appears twice
+for f in /path/a.md /path/b.md /path/c.md; do
+  echo "=== $f ==="
+  head -15 "$f"
+  echo
+done
+```
+
+Problems: (1) body has 3 statements — AP1 for-loop sub-type; (2) `"$f"` appears twice —
+Rule 5 false positive, cannot be prefix-wildcard allow-listed; (3) wrong tool: reading first
+N lines of multiple files is a Read tool operation, not a bash task.
+
+Fix: replace with N parallel Read calls (`limit: 15`), one per file.
+
 ## 5-Second Self-Check Before Writing Bash
 
 - [ ] Multi-line, heredoc, or `\` continuation?
