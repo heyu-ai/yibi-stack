@@ -62,14 +62,18 @@ Fix:
 1. Write tool 寫入 commit message 到 `$CLAUDE_JOB_DIR/commit_msg.txt`
 2. `git commit -F "$CLAUDE_JOB_DIR/commit_msg.txt"`
 
-不要用 heredoc pipe 形式：會觸發 parser `Unhandled node type: string`，且跨多行
-allow-list 無法 prefix-match。
+不需要事後 `rm -f "$CLAUDE_JOB_DIR/commit_msg.txt"`：job 結束後自動清理，且
+`Bash(rm:*)` 是 Rule 16 Red Flag 2 無法 allow-list。
+
+不要用 `git commit -m "$(cat <<'EOF'...)"` 形式：外層 `"..."` 包 `$()` 觸發
+parser `Unhandled node type: string`（Quoting Rule 2），且跨多行 allow-list 無法
+prefix-match。
 
 ## Output Filter Pipeline — Don't Pre-filter Output
 
 `cmd 2>&1 | tail -N`、`cmd | head -N`、`cmd | grep -v "..."` 都是 bash 端
-pre-filter，Claude 看不到完整輸出，且 `Bash(* | *)` 觸發 Red Flag 5 無法
-allow-list。
+pre-filter，Claude 看不到完整輸出，且無法寫出安全的 allow-list pattern（pipeline
+源命令不固定，任何能覆蓋的 pattern 都會過寬）。
 
 Fix: 直接跑 `cmd 2>&1`，讓 Claude 接到完整輸出再判斷。需要 `wc -l` 統計、`jq`
 抽欄等真正需要管線的場合才用。
