@@ -140,7 +140,10 @@ class AgentsDB:
               ON handover_events(event_type);
             """
         )
-        # Idempotent column migrations for existing DBs
+        # Idempotent column migrations for existing DBs.
+        # NOTE: lessons table may not exist yet on fresh DBs (created below);
+        # "no such table" is expected and safe to ignore here — the CREATE TABLE
+        # statement already includes all these columns.
         for _alter in (
             "ALTER TABLE lessons ADD COLUMN source_bot TEXT",
             "ALTER TABLE handovers ADD COLUMN source_bot TEXT",
@@ -152,8 +155,10 @@ class AgentsDB:
         ):
             try:
                 self.conn.execute(_alter)
-            except sqlite3.OperationalError:
-                pass  # column already exists
+            except sqlite3.OperationalError as _e:
+                msg = str(_e).lower()
+                if "duplicate column name" not in msg and "no such table" not in msg:
+                    raise  # re-raise real DB errors (locked, read-only, syntax error)
         self.conn.commit()
 
         self.conn.executescript(
@@ -510,6 +515,18 @@ class AgentsDB:
 
         cur = self.conn.execute(sql, params)
         return [_decode_lesson_row(row) for row in cur.fetchall()]
+
+    def increment_access_count(self, ids: list[str], now: datetime) -> None:
+        """遞增指定 lesson IDs 的 access_count 與 last_accessed_at（batch update）。"""
+        if not ids:
+            return
+        placeholders = ",".join("?" * len(ids))
+        self.conn.execute(  # nosec B608
+            f"UPDATE lessons SET access_count = access_count + 1, last_accessed_at = ? "
+            f"WHERE id IN ({placeholders})",
+            [now.isoformat(), *ids],
+        )
+        self.conn.commit()
 
     def count(self) -> int:
         """回傳總筆數（migrate 驗證用）。"""

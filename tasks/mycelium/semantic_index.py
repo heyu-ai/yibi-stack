@@ -104,10 +104,11 @@ class SqliteVecIndex(MemoryIndex):
         self._conn.commit()
 
     def embed(self, text: str) -> list[float]:
-        """簡易 term-frequency embedding（placeholder）。
+        """Phase 4 placeholder — 永遠回傳空 list。
 
-        生產環境應替換為真實 embedding model（如 sentence-transformers）。
-        實際 sqlite-vec 用途中，embedding 由 caller 提供。
+        實際 sqlite-vec 向量搜尋需要外部 embedding model（如 sentence-transformers）。
+        此方法在 Phase 4 embedding pipeline 落地前均回傳 []；
+        呼叫者不應依賴回傳值非空。
         """
         return []
 
@@ -176,10 +177,12 @@ class SqliteVecIndex(MemoryIndex):
         return [(row["lesson_id"], 1.0) for row in rows]
 
     def _vector_search(self, query: str, limit: int) -> list[tuple[str, float]]:
-        """向量相似度搜尋；sqlite-vec 不可用時 fallback 到 FTS5。"""
-        if not self._vec_available:
-            return self._fts5_search(query, limit)
-        # Placeholder: 實際 sqlite-vec 查詢在 embedding 生成邏輯到位後實作
+        """Phase 4 placeholder — 永遠 fallback 到 FTS5。
+
+        sqlite-vec 的向量搜尋需要 embed() 生成真實 embedding 向量，
+        目前 embed() 回傳 []，故向量搜尋尚未實作。
+        mode="vector" 與 mode="keyword" 在此版本行為相同。
+        """
         return self._fts5_search(query, limit)
 
     def _hybrid_search(self, query: str, limit: int) -> list[tuple[str, float]]:
@@ -191,7 +194,7 @@ class SqliteVecIndex(MemoryIndex):
 
     @staticmethod
     def _fts5_query(text: str) -> str:
-        """將查詢文字轉為 FTS5 query（每個 token 以 * 為 prefix）。"""
+        """將查詢文字轉為 FTS5 query（每個 token 以引號包裝做 phrase 匹配）。"""
         tokens = [t for t in text.split() if t]
         if not tokens:
             return '""'

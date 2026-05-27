@@ -517,7 +517,6 @@ def save_lesson(
     """儲存一筆 lesson，自動產生 key 與 project（若未提供）。
 
     `content` 對應 LessonRecord.insight。
-    `tier` 預設 "working"；後續 T2.1 會加 tier column 到 DB。
     """
     import re
     import uuid
@@ -546,6 +545,7 @@ def save_lesson(
         source=LessonSource.observed,
         source_bot=source_bot,
         tags=tags or [],
+        tier=tier,
     )
 
     db = AgentsDB(db_path=db_path)
@@ -608,12 +608,17 @@ def get_lessons(
         eff = _apply_decay(row["confidence"], row["source"], row["ts"])
         results.append({**row, "effective_confidence": eff})
 
+    import os
     from datetime import UTC, datetime
 
-    from .db import compute_effective_weight
+    from .db import AgentsDB, compute_effective_weight
     from .models import LessonRecord, LessonSource, LessonType
+    from .trust_scoring import compute_bot_trust_weight
 
     now = datetime.now(UTC)
+    querying_agent = os.environ.get("AGENT_TYPE", "claude")
+
+    accessed_ids: list[str] = []
     for r in results:
         try:
             lesson = LessonRecord(
@@ -628,18 +633,22 @@ def get_lessons(
                 ts=r.get("ts", now.isoformat()),
                 source_bot=r.get("source_bot"),
             )
-            r["effective_weight"] = compute_effective_weight(lesson, now, 1.0)
-        except Exception:
+            trust_w = compute_bot_trust_weight(lesson, querying_agent, [])
+            r["effective_weight"] = compute_effective_weight(lesson, now, trust_w)
+        except Exception as e:
+            import sys as _sys
+            print(f"[mycelium] lesson id={r.get('id', '?')} weight 計算失敗：{e}", file=_sys.stderr)
             r["effective_weight"] = float(r.get("effective_confidence", r.get("confidence", 0)))
+        accessed_ids.append(str(r.get("id", "")))
 
     results.sort(key=lambda r: r.get("effective_weight", 0.0), reverse=True)
 
     # Mode filter: map mode to lesson_type values
     if mode is not None:
         _MODE_MAP: dict[str, list[str]] = {
-            "episodic": ["handover_summary"],
+            "episodic": ["pitfall", "investigation"],
             "semantic": ["pattern", "architecture", "investigation"],
-            "procedural": ["tool", "operational"],
+            "procedural": ["tool", "operational", "preference"],
         }
         allowed_types = _MODE_MAP.get(mode)
         if allowed_types is None:
@@ -648,9 +657,22 @@ def get_lessons(
 
     # Token budget filtering
     if token_budget > 0:
-        return _apply_token_budget(results, token_budget, limit)
+        final = _apply_token_budget(results, token_budget, limit)
+    else:
+        final = results[:limit]
 
-    return results[:limit]
+    # Increment access_count for returned lessons (best-effort; does not block return)
+    returned_ids = [str(r.get("id", "")) for r in final if r.get("id")]
+    if returned_ids:
+        try:
+            _db = AgentsDB(db_path=db_path)
+            _db.init_db()
+            _db.increment_access_count(returned_ids, now)
+            _db.close()
+        except Exception:
+            pass  # access_count update is best-effort; never block the caller
+
+    return final
 
 
 _TOKEN_BUDGET_ENCODING = "cl100k_base"

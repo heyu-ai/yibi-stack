@@ -22,7 +22,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_DANGEROUS_PATTERNS = ("git push", "git rebase", "git reset --hard", "git force", "rm -rf")
+_DANGEROUS_COMMANDS = (
+    ("git", "push"),
+    ("git", "rebase"),
+    ("git", "reset"),
+    ("rm", "-rf"),
+    ("rm", "-fr"),
+)
+_DANGEROUS_FLAGS = ("--force", "--force-with-lease", "-f")
 
 
 def run_precompact_hook(
@@ -75,7 +82,8 @@ def run_pretooluse_hook(
 
     try:
         raw = stdin_text if stdin_text is not None else sys.stdin.read()
-    except OSError:
+    except OSError as e:
+        print(f"[mycelium-pretooluse] 無法讀取 stdin：{e}", file=sys.stderr)
         return 0
 
     try:
@@ -98,7 +106,23 @@ def run_pretooluse_hook(
     if not isinstance(command, str):
         return 0
 
-    if not any(pat in command for pat in _DANGEROUS_PATTERNS):
+    import shlex
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+
+    def _is_dangerous() -> bool:
+        for i, (cmd, sub) in enumerate(_DANGEROUS_COMMANDS):
+            if i < len(tokens) and tokens[0] == cmd:
+                if len(tokens) > 1 and tokens[1] == sub:
+                    return True
+            elif tokens and tokens[0] == cmd and sub in tokens:
+                return True
+        return any(flag in tokens for flag in _DANGEROUS_FLAGS)
+
+    if not _is_dangerous():
         return 0
 
     # Surface relevant pitfall lessons

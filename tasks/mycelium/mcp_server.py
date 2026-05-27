@@ -148,7 +148,8 @@ def _dispatch_tool(
             return _ok(req_id, _tool_subscribe(tool_input, db_path))
         return _error_response(req_id, -32602, f"Unknown tool: {tool_name}")
     except Exception as e:
-        return _error_response(req_id, -32603, f"Internal error: {e}")
+        print(f"[mycelium-mcp] tool={tool_name} 內部錯誤：{type(e).__name__}: {e}", file=sys.stderr)
+        return _error_response(req_id, -32603, f"Internal error: {type(e).__name__}")
 
 
 def _tool_search(
@@ -162,7 +163,9 @@ def _tool_search(
 
     rows = get_lessons(limit=limit, db_path=db_path)
 
-    # Filter by query text if provided
+    # TODO: Pass mode/query to get_lessons for FTS5/vector search once Phase 4 lands.
+    # Currently fetches all lessons and applies client-side substring filter.
+    # mode parameter is accepted by the schema but ignored here.
     if query:
         q = query.lower()
         rows = [r for r in rows if q in r.get("insight", "").lower() or q in r.get("key", "").lower()]

@@ -95,13 +95,25 @@ def _process_row(
 
     if tier in ("working", "hot") and access_count >= 3:
         new_tier = "hot"
-    elif tier in ("working", "hot") and access_count == 0 and age > 90:
+    elif tier in ("working", "hot") and access_count < 3 and age > 90:
         new_tier = "cold"
-    elif tier == "cold" and access_count == 0 and age > 365:
+    elif tier == "cold" and access_count < 3 and age > 365:
         new_tier = "archival"
 
     if new_tier is None or new_tier == tier:
         return
+
+    if new_tier == "archival":
+        # 先嘗試 archive；只有成功才更新 tier，避免 tier=archival + archived_path=NULL 的不一致狀態
+        archived = _try_archive(lesson_id, db, result)
+        if not archived:
+            return
+        result.demoted_to_archival += 1
+    else:
+        if new_tier == "hot":
+            result.promoted_to_hot += 1
+        elif new_tier == "cold":
+            result.demoted_to_cold += 1
 
     db.conn.execute(
         "UPDATE lessons SET tier = ? WHERE id = ?",
@@ -109,20 +121,17 @@ def _process_row(
     )
     db.conn.commit()
 
-    if new_tier == "hot":
-        result.promoted_to_hot += 1
-    elif new_tier == "cold":
-        result.demoted_to_cold += 1
-    elif new_tier == "archival":
-        result.demoted_to_archival += 1
-        _try_archive(lesson_id, db)
 
+def _try_archive(lesson_id: str, db: Any, result: PromotionResult) -> bool:
+    """嘗試把 lesson 匯出到 ~/.agents/archive/YYYY-MM.md。
 
-def _try_archive(lesson_id: str, db: Any) -> None:
-    """嘗試把 lesson 匯出到 ~/.agents/archive/YYYY-MM.md；失敗時靜默記錄。"""
+    成功回傳 True；失敗時記錄到 result.errors 並回傳 False。
+    """
     try:
         from .archival import archive_lesson_by_id
 
         archive_lesson_by_id(lesson_id, db)
-    except Exception:
-        pass
+        return True
+    except Exception as e:
+        result.errors.append(f"archive id={lesson_id}: {e}")
+        return False

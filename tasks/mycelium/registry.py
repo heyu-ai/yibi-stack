@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import subprocess  # nosec B404
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,21 +14,25 @@ from .config import REGISTRY_DIR
 def resolve_project_slug(cwd: Path) -> str | None:
     """由工作目錄解析 git project slug（repo name）。
 
-    呼叫 `git -C <cwd> rev-parse --show-toplevel` 取得 repo 根目錄，
-    再取最後一段路徑作為 slug。git 失敗（非 git 目錄或無 git binary）時回傳 None。
+    使用 `git rev-parse --path-format=absolute --git-common-dir` 取得主 repo 的
+    .git 目錄，再取其 parent.name 作為 slug。這在 linked worktree 中也能正確回傳
+    主 repo 名稱（而非 worktree 目錄名稱）。
+    git 失敗（非 git 目錄或無 git binary）時回傳 None。
     """
     try:
         result = subprocess.run(  # nosec B603
-            ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
+            ["git", "-C", str(cwd), "rev-parse", "--path-format=absolute", "--git-common-dir"],
             capture_output=True,
             text=True,
             timeout=5,
         )
         if result.returncode != 0:
             return None
-        toplevel = result.stdout.strip()
-        return Path(toplevel).name or None
-    except Exception:  # noqa: BLE001
+        git_common_dir = result.stdout.strip()
+        # git-common-dir points to the .git directory; its parent is the main repo root
+        repo_root = Path(git_common_dir).parent
+        return repo_root.name or None
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None
 
 _DEFAULT_ACCOUNTS_PATH = REGISTRY_DIR / "accounts.json"

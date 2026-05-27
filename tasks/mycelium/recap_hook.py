@@ -1,11 +1,16 @@
-"""Recap Collector — Claude Code Stop hook 入口 + install / uninstall 設定。
+"""Recap Collector — Claude Code Stop hook 入口 + SessionStart hot-lesson inject + install / uninstall 設定。
 
 Stop hook entry point (`run_hook`)：
   - 讀 stdin 的 hook payload（JSON）
   - 從 transcript 擷取 type=system, subtype=away_summary 條目
   - 以 entry.uuid 去重後 append 到 ~/.agents/recap/session-recap.jsonl
 
-任何錯誤都靜默退出，絕不阻斷 Claude 的 Stop 流程。
+SessionStart hook entry point (`run_session_start_hook`)：
+  - 讀取 DB 中 tier="hot" 的 lessons（top 3，依 effective_weight 降序）
+  - 格式化為「★ Recalled lessons:」區塊輸出到 stdout，供 Claude Code 注入 session context
+  - 若 ~/.agents/dreams/latest.md 存在且距今 < 24 小時，輸出 dream digest
+
+任何錯誤都靜默退出，絕不阻斷 Claude 流程。
 """
 
 from __future__ import annotations
@@ -217,7 +222,7 @@ def run_session_start_hook(
 ) -> int:
     """SessionStart hook entry point。
 
-    讀取 DB 中 tier="hot" 的 lessons（top 3，依 effective_confidence 降序），
+    讀取 DB 中 tier="hot" 的 lessons（top 3，依 effective_weight 降序），
     格式化為「★ Recalled lessons:」區塊輸出到 stdout，供 Claude Code 注入 session context。
 
     任何錯誤都靜默退出（回傳 0），絕不阻斷 SessionStart 流程。
