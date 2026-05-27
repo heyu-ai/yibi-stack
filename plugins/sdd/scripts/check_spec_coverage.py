@@ -11,15 +11,15 @@ Usage:
     uv run python plugins/sdd/scripts/check_spec_coverage.py \\
         --specs-dir openspec/changes/<name>/specs \\
         --tests-dir tests/ \\
-        --cap <feature-name>
+        --cap <cap-dir-name>
 
     # Full scan
     uv run python plugins/sdd/scripts/check_spec_coverage.py \\
         --specs-dir openspec/changes/<name>/specs \\
         --tests-dir tests/
 
-    # yibi-mvp compat (auto-detect repo root)
-    uv run python plugins/sdd/scripts/check_spec_coverage.py --cap account-settings-page
+Note: spec files must be named exactly spec.md and placed in a subdirectory
+whose name becomes the cap (e.g. specs/login/spec.md → cap = login).
 """
 
 from __future__ import annotations
@@ -31,15 +31,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Matches: #### Scenario: <slug> followed by " --" separator or end-of-line.
-# Lookahead prevents partial captures like "4" from "#### Scenario: 4 歲孩子".
-SCENARIO_PATTERN = re.compile(r"^#{4}\s+Scenario:\s+([a-z0-9][a-z0-9-]*)(?=\s+--|$)", re.MULTILINE)
+# slug must start and end with [a-z0-9] (no trailing hyphen).
+SCENARIO_PATTERN = re.compile(
+    r"^#{4}\s+Scenario:\s+([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?=\s+--|$)", re.MULTILINE
+)
 
 # Secondary pattern: detect any Scenario heading token for kebab-case validation.
 SCENARIO_HEADING_PATTERN = re.compile(r"^#{4}\s+Scenario:\s+(\S+)", re.MULTILINE)
 
 # Matches: spec: <cap>#<slug> anywhere in file text (docstrings, comments).
+# Negative lookbehind prevents matching "nospec: ..." false positives.
 # Cap accepts uppercase (e.g. E02-child-profile, F015-sleep-routine); slug is lowercase only.
-TRACE_PATTERN = re.compile(r"spec:\s+([A-Za-z0-9][A-Za-z0-9-]*)#([a-z0-9][a-z0-9-]*)")
+TRACE_PATTERN = re.compile(
+    r"(?<![A-Za-z])spec:\s+([A-Za-z0-9][A-Za-z0-9-]*)#([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)"
+)
 
 
 @dataclass
@@ -64,7 +69,7 @@ def parse_spec_scenarios(spec_root: Path, cap: str | None = None) -> dict[str, l
             continue
 
         try:
-            text = spec_file.read_text(encoding="utf-8")
+            text = spec_file.read_text(encoding="utf-8").replace("\r\n", "\n")
         except (OSError, UnicodeDecodeError) as exc:
             print(f"[WARN] skipping {spec_file}: {exc}", file=sys.stderr)
             continue
@@ -86,9 +91,10 @@ def parse_spec_scenarios(spec_root: Path, cap: str | None = None) -> dict[str, l
         all_headings = SCENARIO_HEADING_PATTERN.findall(text)
         for raw in all_headings:
             slug_part = raw.split("--")[0].strip()
-            if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug_part):
+            if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", slug_part):
                 print(
-                    f"[WARN] {spec_file}: Scenario slug '{slug_part}' is not kebab-case -- will not be tracked",
+                    f"[WARN] {spec_file}: Scenario slug '{slug_part}'"
+                    " is not kebab-case -- will not be tracked",
                     file=sys.stderr,
                 )
 
@@ -109,9 +115,10 @@ def parse_spec_scenarios(spec_root: Path, cap: str | None = None) -> dict[str, l
 def parse_test_traces(test_root: Path, cap: str | None = None) -> dict[str, list[str]]:
     """Scan test_root recursively for test_*.py and extract spec: <cap>#<slug> traces.
 
-    Returns {cap: [slug, ...]} grouped by cap.
+    Returns {cap: [slug, ...]} grouped by cap (sorted, deduplicated).
+    Cap names are normalized to lowercase for case-insensitive matching.
     """
-    result: dict[str, list[str]] = {}
+    result_sets: dict[str, set[str]] = {}
 
     for test_file in sorted(test_root.rglob("test_*.py")):
         try:
@@ -121,12 +128,13 @@ def parse_test_traces(test_root: Path, cap: str | None = None) -> dict[str, list
             continue
 
         for match in TRACE_PATTERN.finditer(text):
-            file_cap, slug = match.group(1), match.group(2)
+            file_cap = match.group(1).lower()
+            slug = match.group(2)
             if cap is not None and file_cap != cap:
                 continue
-            result.setdefault(file_cap, []).append(slug)
+            result_sets.setdefault(file_cap, set()).add(slug)
 
-    return result
+    return {k: sorted(v) for k, v in result_sets.items()}
 
 
 def compute_coverage(
@@ -181,27 +189,28 @@ def _resolve_roots(args: argparse.Namespace) -> tuple[Path, Path]:
     """Resolve spec_root and test_root from CLI args.
 
     Priority:
-    1. Explicit --specs-dir / --tests-dir
-    2. Legacy --spec-root / --test-root (yibi-mvp compat)
-    3. Auto-detect from __file__ (yibi-mvp compat: expects backend/ sibling)
+    1. Explicit --specs-dir / --tests-dir (both required when either is provided)
+    2. Legacy --spec-root / --test-root (both required when either is provided)
+    3. Generic fallback: cwd-relative defaults (openspec/specs and tests/)
     """
     specs_dir = args.specs_dir or args.spec_root
     tests_dir = args.tests_dir or args.test_root
 
+    if bool(specs_dir) != bool(tests_dir):
+        missing_flag = "--tests-dir" if specs_dir else "--specs-dir"
+        print(
+            f"[FAIL] {missing_flag} is required when the other is provided",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     if specs_dir and tests_dir:
         return Path(specs_dir), Path(tests_dir)
 
-    # Auto-detect repo root (yibi-mvp layout: backend/scripts/check_spec_coverage.py)
-    candidate = Path(__file__).resolve().parent.parent.parent
-    if (candidate / "backend").is_dir():
-        spec_root = Path(specs_dir) if specs_dir else candidate / "docs" / "openspec" / "specs"
-        test_root = Path(tests_dir) if tests_dir else candidate / "backend" / "tests"
-        return spec_root, test_root
-
-    # Generic fallback: try cwd-relative defaults
+    # Generic fallback: cwd-relative defaults
     cwd = Path.cwd()
-    spec_root = Path(specs_dir) if specs_dir else cwd / "openspec" / "specs"
-    test_root = Path(tests_dir) if tests_dir else cwd / "tests"
+    spec_root = cwd / "openspec" / "specs"
+    test_root = cwd / "tests"
     return spec_root, test_root
 
 
@@ -224,8 +233,8 @@ Examples:
     )
     parser.add_argument("--cap", help="Limit scan to a single capability (spec directory name)")
 
-    # New parametrized flags (preferred)
-    parser.add_argument("--specs-dir", help="Root directory containing spec.md files")
+    # Preferred flags
+    parser.add_argument("--specs-dir", help="Root directory containing specs/<cap>/spec.md")
     parser.add_argument("--tests-dir", help="Root directory containing test_*.py files")
 
     # Legacy flags (yibi-mvp compat)
@@ -241,12 +250,12 @@ Examples:
 
     spec_root, test_root = _resolve_roots(args)
 
-    if not spec_root.exists():
-        print(f"[FAIL] spec root not found: {spec_root}", file=sys.stderr)
+    if not spec_root.is_dir():
+        print(f"[FAIL] spec root not found or not a directory: {spec_root}", file=sys.stderr)
         print("Use --specs-dir to specify the spec directory.", file=sys.stderr)
         sys.exit(1)
-    if not test_root.exists():
-        print(f"[FAIL] test root not found: {test_root}", file=sys.stderr)
+    if not test_root.is_dir():
+        print(f"[FAIL] test root not found or not a directory: {test_root}", file=sys.stderr)
         print("Use --tests-dir to specify the test directory.", file=sys.stderr)
         sys.exit(1)
 
@@ -260,6 +269,9 @@ Examples:
     # Warn when no specs found globally (wrong --specs-dir or empty directory)
     if not args.cap and not spec_scenarios:
         print(f"[WARN] no Scenario slugs found under {spec_root}", file=sys.stderr)
+        print("[WARN] Check for non-kebab-case headings or wrong --specs-dir.", file=sys.stderr)
+        if args.exit_on_missing:
+            sys.exit(1)
 
     # Pass cap to parse_test_traces so it skips unrelated test files early.
     test_traces = parse_test_traces(test_root, cap=args.cap)

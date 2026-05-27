@@ -2,8 +2,6 @@
 
 此目錄記錄 yibi-stack 的架構決策。
 
-ADR 格式參考 [template.md](template.md)。
-
 ## Index
 
 | ID | Title | Status | Date |

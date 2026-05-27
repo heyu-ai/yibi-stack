@@ -26,10 +26,11 @@
 
 - [ ] T020 {{integration-task}} — target: `{{file-path}}`
 
-## Priority Legend
+## Task Markers
 
-- `[P]` = Priority（高優先，先做）
-- 無標記 = Normal（P1 完成後再做）
+- `[P]` = 可與其他任務平行執行（parallelizable）
+- `[USn]` = 對應 User Story 編號
+- 無標記 = 有前序依賴，須照順序執行
 - `[O]` = Optional（nice-to-have）
 
 ## 追溯說明

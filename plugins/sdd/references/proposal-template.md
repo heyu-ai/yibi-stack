@@ -8,7 +8,7 @@
 
 ---
 
-## Layer 1 — User Stories
+## Step 1 — User Stories
 
 ### 四元素萃取
 
@@ -34,21 +34,14 @@
 
 ---
 
-## Layer 2 — 功能規格
+## Step 1c — Gherkin Scenarios
 
-### FS-001：{{spec-title}}
-
-**追溯**：AC-001-1（US-001）
-
-1. **輸入約束**：{{輸入參數、資料來源}}
-2. **處理邏輯**：{{系統 SHALL / MUST / SHOULD 做什麼}}
-3. **輸出／副作用**：{{回傳值、狀態變更、副作用}}
-4. **不做什麼**：{{MUST NOT 的邊界}}
-5. **錯誤處理**：{{失敗時 SHALL 做什麼}}
+> Gherkin scenarios 請寫入 `specs/<cap>/spec.md`（`#### Scenario: <slug> -- <title>` 格式）。
+> 本 proposal.md 只記錄 US + AC；scenario slug 透過 Traceability Matrix 追溯。
 
 ---
 
-## Layer 4 — 假設與約束
+## Step 4 — 假設與約束
 
 ### 假設
 
@@ -70,19 +63,19 @@
 
 ---
 
-## Layer 5 — 可測試性
+## Step 5 — 完工標準
 
 ### Done 定義
 
 此功能視為「完成」的條件：
 
-- [ ] FS-001 已實作
+- [ ] US-001 的 Gherkin scenarios 全部通過
 - [ ] {{測試覆蓋條件}}
 - [ ] 向後相容驗證通過
 
 ### 冒煙測試情境
 
-### ST-001：{{scenario-title}}
+### SMK-001：{{scenario-title}}
 
 - GIVEN {{前置條件}}
 - WHEN {{操作}}

@@ -37,7 +37,8 @@ effort: medium
 openspec/changes/<feature-name>/
 ├── proposal.md   # Step 1b US+AC + Step 4 假設約束 + Step 5 完工標準
 ├── specs/
-│   └── <feature>.md  # Step 1c Gherkin scenarios（#### Scenario: <slug>）
+│   └── <cap>/
+│       └── spec.md   # Step 1c Gherkin scenarios（#### Scenario: <slug>）
 ├── testplan.md   # Step 2 TC 表格 + Coverage Analysis（NEW）
 ├── design.md     # Step 3 資料模型 + API（按需）
 └── tasks.md      # Phase 結構任務拆解，含 per-US pytest -k 驗收指令
@@ -60,8 +61,6 @@ openspec/changes/<feature-name>/
 ---
 
 ## Effort Level 策略
-
-當前 effort：${CLAUDE_EFFORT}
 
 | Effort | 執行策略 |
 |--------|---------|
@@ -148,7 +147,7 @@ openspec/changes/<feature-name>/
 | 小（Scenario）| BDD 可執行情境，1 Story 含 3-7 個 | `specs/*/spec.md` #### Scenario |
 | 微（Micro Task）| 最小實作單元，≤ 4 小時 | `tasks.md` 單一 task 行 |
 
-### Step 1c — Gherkin Scenarios（輸入 `specs/<feature>.md`）
+### Step 1c — Gherkin Scenarios（輸入 `specs/<cap>/spec.md`）
 
 每條 AC 對應 1-3 個 Gherkin scenarios。直接從 AC 展開，不經過 FS 散文層。
 
@@ -394,7 +393,7 @@ If qa-test-design not available:
 - [ ] T021 [P] 更新 API 文件
 ```
 
-**標記說明**：`[P]` = 可平行執行；`[USn]` = 對應 Story；無標記 = 有前序依賴。
+**標記說明**：`[P]` = 可與其他任務平行執行（parallelizable）；`[USn]` = 對應 Story；無標記 = 有前序依賴。
 
 ---
 
@@ -453,7 +452,7 @@ If qa-test-design not available:
 [Done 定義、Traceability Matrix]
 ```
 
-### `specs/<feature>.md` 骨架
+### `specs/<cap>/spec.md` 骨架
 
 ```markdown
 # Specs：[feature-name]
@@ -515,7 +514,7 @@ event-storming.md 存在且有 ≥3 domain events → 繼續
   │
   ▼ Step 1c: Gherkin scenarios（#### Scenario: <slug> -- <title>）
 RFC 2119 嵌入 GIVEN/WHEN/THEN
-→ 輸入 specs/<feature>.md
+→ 輸入 specs/<cap>/spec.md
   │
   ▼ Step 2: Skill tool dispatch → qa-test-design
 TC 表格 + Coverage Analysis

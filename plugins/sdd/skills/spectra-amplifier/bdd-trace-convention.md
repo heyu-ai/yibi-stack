@@ -53,7 +53,8 @@ def test_password_change_requires_current_password() -> None:
 ### Cap Naming
 
 - Cap = **direct parent directory** of `spec.md`, not the grandparent
-- Example: `docs/openspec/changes/my-feature/specs/login.md` → cap = `login`
+- Spec files must be named exactly `spec.md`; the cap is the containing directory
+- Example: `docs/openspec/changes/my-feature/specs/login/spec.md` → cap = `login`
 - Nested: `docs/openspec/specs/E12-device/F015-sleep/spec.md` → cap = `F015-sleep`
 
 ---
