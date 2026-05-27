@@ -89,3 +89,31 @@ namespace — otherwise synthesized keys can silently overwrite authored keys.
 Dedup-within-source is unaffected: the same input text always produces the same
 prefixed key, so identical legacy entries across multiple records still dedup.
 Typed lessons (explicitly authored keys) are isolated and cannot be overwritten.
+
+## Idempotent Schema Migration
+
+For adding new columns to an existing table, prefer `ALTER TABLE ADD COLUMN` with a
+default value over full migration scripts — existing rows automatically get the default,
+no backfill required:
+
+```python
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    for col, default in [
+        ("source_bot", "''"),
+        ("tier", "'working'"),
+        ("access_count", "0"),
+    ]:
+        try:
+            conn.execute(  # nosec B608
+                f"ALTER TABLE lessons ADD COLUMN {col} TEXT DEFAULT {default}"
+            )
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+    conn.commit()
+```
+
+- Safe to run multiple times (idempotent)
+- No data backfill for existing rows; SQLite fills defaults at read time
+- Scope: **column additions only** — renaming or dropping columns still requires a
+  dedicated migration with careful data preservation
