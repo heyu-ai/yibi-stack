@@ -42,7 +42,7 @@ def load_config(path: Path | None = None) -> OrchestratorConfig:
         return OrchestratorConfig()
     try:
         data = json.loads(config_path.read_text(encoding="utf-8"))
-    except OSError as e:
+    except (OSError, json.JSONDecodeError) as e:
         raise RuntimeError(f"設定檔讀取失敗：{config_path}") from e
     return OrchestratorConfig.model_validate(data)
 
@@ -77,7 +77,7 @@ def persist_state(state: OrchestratorState) -> None:
 
     _STATE_DIR.mkdir(parents=True, exist_ok=True)
     p = state_path(state.pr_number)
-    tmp = p.with_suffix(".json.tmp")
+    tmp = p.with_name(p.name + ".tmp")
     try:
         tmp.write_text(state.model_dump_json(indent=2) + "\n", encoding="utf-8")
         os.replace(tmp, p)
@@ -95,14 +95,20 @@ def archive_state(state: OrchestratorState) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     src = state_path(state.pr_number)
     if src.is_file():
-        import sys
+        import shutil as _sh
+        import sys  # noqa: PLC0415
+
         try:
-            import shutil as _sh
             _sh.copy2(str(src), str(dest))
-            src.unlink()
-            click.echo(f"State 已歸檔：{dest}")
         except OSError as e:
-            print(f"[WARN] State 歸檔失敗：{e}", file=sys.stderr)
+            print(f"[WARN] State 歸檔複製失敗：{e}", file=sys.stderr)
+            return
+        try:
+            src.unlink()
+        except OSError as e:
+            print(f"[WARN] 歸檔後刪除原始 state 失敗（已成功歸檔至 {dest}）：{e}", file=sys.stderr)
+            return
+        click.echo(f"State 已歸檔：{dest}")
 
 
 def find_latest_state() -> int | None:
@@ -110,7 +116,7 @@ def find_latest_state() -> int | None:
     import json as _json
 
     _STATE_DIR.mkdir(parents=True, exist_ok=True)
-    candidates = list(_STATE_DIR.glob("*.json"))
+    candidates = [p for p in _STATE_DIR.glob("*.json") if p.stem.isdigit()]
     if not candidates:
         return None
 

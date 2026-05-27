@@ -26,9 +26,9 @@ class TestTerminalStates:
         """PROR-DT-001: CLEANED 是 terminal state"""
         assert is_terminal(PRState.CLEANED)
 
-    def test_pror_dt_002_blocked_is_terminal(self) -> None:
-        """PROR-DT-002: BLOCKED 是 terminal state"""
-        assert is_terminal(PRState.BLOCKED)
+    def test_pror_dt_002_blocked_not_terminal(self) -> None:
+        """PROR-DT-002: BLOCKED 不是 terminal state（可 resume）"""
+        assert not is_terminal(PRState.BLOCKED)
 
     def test_pror_dt_003_failed_is_terminal(self) -> None:
         """PROR-DT-003: FAILED 是 terminal state"""
@@ -58,8 +58,12 @@ class TestAllowedTransitions:
 
     def test_pror_dt_009_terminal_has_no_outbound(self) -> None:
         """PROR-DT-009: terminal states 沒有 outbound transition"""
-        for s in (PRState.CLEANED, PRState.BLOCKED, PRState.FAILED):
+        for s in (PRState.CLEANED, PRState.FAILED):
             assert allowed_next_states(s) == frozenset()
+
+    def test_pror_dt_009b_blocked_has_resume_transition(self) -> None:
+        """PROR-DT-009b: BLOCKED -> DETECTED 合法（resume 路徑）"""
+        assert PRState.DETECTED in allowed_next_states(PRState.BLOCKED)
 
 
 class TestTransitionFunction:
@@ -118,3 +122,9 @@ class TestTransitionFunction:
             transition(state, PRState.REVIEWING)
         new_state = transition(state, PRState.BLOCKED)
         assert new_state.current_state == PRState.BLOCKED
+
+    def test_pror_dt_016_reviewing_to_conflict(self) -> None:
+        """PROR-DT-016: REVIEWING -> CONFLICT 合法（conflict-detector 回報時）"""
+        state = make_state(current_state=PRState.REVIEWING)
+        new_state = transition(state, PRState.CONFLICT)
+        assert new_state.current_state == PRState.CONFLICT

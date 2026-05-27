@@ -30,6 +30,7 @@ uv run python -m tasks.pr_orchestrator <command> [options]
 ## Fixer Extension
 
 在 `tasks/pr_orchestrator/fixers/` 新增 fixer：
+
 1. 繼承 `BaseFixer`，設定 `name`，實作 `can_fix(log_text)` 和 `run(repo_root, pr_files)`
 2. 在 `registry.py` 的 `_FIXERS` list 中加入實例
 

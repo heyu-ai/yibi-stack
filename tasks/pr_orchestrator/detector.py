@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re as _re
 import subprocess  # nosec B404
 from pathlib import Path
 
@@ -24,12 +25,18 @@ def _gh(args: list[str], cwd: Path | None = None) -> str:
 
 def pr_for_branch(branch: str) -> PRInfo:
     """回傳目前分支對應的 PR；沒有 PR 或有多筆時 raise RuntimeError。"""
-    raw = _gh([
-        "pr", "list",
-        "--head", branch,
-        "--json", "number,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,author",
-        "--limit", "5",
-    ])
+    raw = _gh(
+        [
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--json",
+            "number,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,author",
+            "--limit",
+            "5",
+        ]
+    )
     items = json.loads(raw or "[]")
     if not items:
         raise RuntimeError(f"分支 '{branch}' 沒有對應的 open PR")
@@ -52,10 +59,15 @@ def pr_for_branch(branch: str) -> PRInfo:
 
 def pr_by_number(pr_number: int) -> PRInfo:
     """以 PR 號碼取得 PRInfo。"""
-    raw = _gh([
-        "pr", "view", str(pr_number),
-        "--json", "number,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,author",
-    ])
+    raw = _gh(
+        [
+            "pr",
+            "view",
+            str(pr_number),
+            "--json",
+            "number,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,author",
+        ]
+    )
     item = json.loads(raw)
     return PRInfo(
         number=item["number"],
@@ -76,8 +88,9 @@ def current_branch() -> str:
         timeout=10,
     )
     branch = result.stdout.strip()
-    if not branch:
-        raise RuntimeError("無法取得目前分支（detached HEAD？）")
+    if result.returncode != 0 or not branch:
+        msg = result.stderr.strip() or "detached HEAD？"
+        raise RuntimeError(f"無法取得目前分支：{msg}")
     return branch
 
 
@@ -92,31 +105,48 @@ def pr_diff_files(pr_number: int) -> list[str]:
     return [line for line in raw.splitlines() if line.strip()]
 
 
-def failed_ci_runs(pr_number: int) -> list[str]:
-    """回傳 PR 目前所有失敗的 check run ID 清單。"""
-    raw = _gh([
-        "pr", "checks", str(pr_number),
-        "--json", "name,state,databaseId",
-    ])
-    checks = json.loads(raw or "[]")
-    return [
-        str(c["databaseId"])
-        for c in checks
-        if c.get("state", "").upper() in {"FAILURE", "TIMED_OUT"}
-        and c.get("databaseId")
-    ]
-
-
 def fetch_failed_check_logs(pr_number: int) -> list[CIFailure]:
-    """取得每個失敗 check run 的 log 文字。"""
-    run_ids = failed_ci_runs(pr_number)
+    """取得每個失敗 check run 的 log 文字。
+
+    使用 gh pr checks --json name,state,link，從 link URL 提取 workflow run ID，
+    再透過 gh run view <run_id> --log-failed 取得失敗 log。
+    同一 run 中的多個失敗 job 只擷取一次 log（避免重複）。
+    """
+    raw = _gh(
+        [
+            "pr",
+            "checks",
+            str(pr_number),
+            "--json",
+            "name,state,link",
+        ]
+    )
+    checks = json.loads(raw or "[]")
     failures: list[CIFailure] = []
-    for run_id in run_ids:
+    seen_run_ids: set[str] = set()
+    for c in checks:
+        if c.get("state", "").upper() not in {"FAILURE", "TIMED_OUT"}:
+            continue
+        link = c.get("link", "")
+        # Extract workflow run ID from URL: .../actions/runs/<run_id>/...
+        m = _re.search(r"/actions/runs/(\d+)", link)
+        if not m:
+            continue
+        run_id = m.group(1)
+        if run_id in seen_run_ids:
+            continue
+        seen_run_ids.add(run_id)
         try:
             log_text = _gh(["run", "view", run_id, "--log-failed"])
-        except RuntimeError:
-            log_text = ""
-        failures.append(CIFailure(run_id=run_id, job_name=run_id, log_text=log_text))
+        except RuntimeError as e:
+            log_text = f"[LOG_FETCH_ERROR: {e}]"
+        failures.append(
+            CIFailure(
+                run_id=run_id,
+                job_name=c.get("name", run_id),
+                log_text=log_text,
+            )
+        )
     return failures
 
 
@@ -126,10 +156,15 @@ def is_conflicting(pr_number: int) -> bool:
 
 
 def all_checks_passing(pr_number: int) -> bool:
-    raw = _gh([
-        "pr", "checks", str(pr_number),
-        "--json", "state",
-    ])
+    raw = _gh(
+        [
+            "pr",
+            "checks",
+            str(pr_number),
+            "--json",
+            "state",
+        ]
+    )
     checks = json.loads(raw or "[]")
     if not checks:
         return False

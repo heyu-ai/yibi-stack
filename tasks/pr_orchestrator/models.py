@@ -14,7 +14,7 @@ class PRState(StrEnum):
     REVIEW_DONE = "REVIEW_DONE"
     CI_WAIT = "CI_WAIT"
     AUTO_FIX = "AUTO_FIX"
-    CI_PASS = "CI_PASS"
+    CI_PASS = "CI_PASS"  # nosec B105
     CONFLICT = "CONFLICT"
     MERGEABLE = "MERGEABLE"
     MERGED = "MERGED"

@@ -63,8 +63,13 @@ prompt: |
 ## Instructions for /pr-cycle skill
 1. Launch all three subagents above in the SAME message (parallel dispatch).
 2. Collect all three results before advancing the state machine.
-3. On completion, run:
-   `uv run python -m tasks.pr_orchestrator transition --pr {pr} --to REVIEW_DONE`
+3. On code review + CI + conflict check all complete, run in order:
+   ```bash
+   uv run python -m tasks.pr_orchestrator transition --pr {pr} --to REVIEW_DONE \
+       --reason "review subagents completed"
+   uv run python -m tasks.pr_orchestrator transition --pr {pr} --to CI_WAIT \
+       --reason "awaiting CI"
+   ```
 """
     p = manifest_path(pr)
     p.parent.mkdir(parents=True, exist_ok=True)

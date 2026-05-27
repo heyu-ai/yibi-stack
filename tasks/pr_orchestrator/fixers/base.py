@@ -15,7 +15,9 @@ class FixOutcome(StrEnum):
 
 
 @dataclass
-class FixResult:
+class FixOutput:
+    """fixer.run() 的回傳值（與 models.FixResult StrEnum 不同，勿混淆）。"""
+
     outcome: FixOutcome
     files_changed: list[str] = field(default_factory=list)
     error: str = ""
@@ -29,5 +31,5 @@ class BaseFixer(ABC):
         """回傳 True 表示此 fixer 能處理 log_text 裡的失敗。"""
 
     @abstractmethod
-    def run(self, repo_root: Path, pr_files: list[str]) -> FixResult:
+    def run(self, repo_root: Path, pr_files: list[str]) -> FixOutput:
         """在 pr_files 範圍內執行 fix，回傳結果。"""

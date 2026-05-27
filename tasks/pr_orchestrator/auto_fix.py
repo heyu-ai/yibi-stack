@@ -9,7 +9,7 @@ from pathlib import Path
 from . import log as olog
 from .config import OrchestratorConfig, persist_state
 from .detector import current_user, fetch_failed_check_logs, pr_by_number, pr_diff_files
-from .fixers.base import FixOutcome
+from .fixers.base import FixOutcome, FixOutput
 from .fixers.registry import fixers_for
 from .models import FixAttempt, FixResult, OrchestratorState, PRState
 from .service import add_blocker, transition
@@ -36,7 +36,11 @@ def _working_tree_clean(repo_root: Path) -> bool:
 def _commit_and_push(fixer_name: str, changed_files: list[str], repo_root: Path) -> str:
     _git(["add", *changed_files], repo_root)
     _git(["commit", "-m", f"fix(ci): auto-fix via {fixer_name}"], repo_root)
-    _git(["push"], repo_root)
+    # Always push with explicit refspec to avoid accidentally pushing to origin/main
+    branch = _git(["branch", "--show-current"], repo_root)
+    if not branch:
+        raise RuntimeError("無法取得目前分支，拒絕 push")
+    _git(["push", "origin", f"{branch}:{branch}"], repo_root)
     return _git(["rev-parse", "--short", "HEAD"], repo_root)
 
 
@@ -45,7 +49,7 @@ def run(
     cfg: OrchestratorConfig,
     repo_root: Path,
 ) -> OrchestratorState:
-    """執行 auto-fix 迴圈；回傳更新後的 state（呼叫者負責 persist）。
+    """執行 auto-fix 迴圈，回傳更新後的 state（含 persist）。
 
     safety gate 1：WIP 存在時拒絕
     safety gate 2：fork PR 時拒絕（除非 allow_fork_fix=True）
@@ -60,7 +64,7 @@ def run(
         olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "WIP detected")
         return state
 
-    # Safety gate 2 — fork PR check
+    # Safety gate 2 — fork PR check (fail-closed: API failure → BLOCKED)
     if not cfg.allow_fork_fix:
         try:
             me = current_user()
@@ -76,14 +80,28 @@ def run(
                 olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "fork PR")
                 return state
         except RuntimeError as e:
-            print(f"[WARN] 無法確認 PR 作者：{e}", file=sys.stderr)
+            # Cannot verify fork status → fail closed to protect against unintended fork pushes
+            state = add_blocker(
+                state,
+                f"無法確認 PR 作者，拒絕 auto-fix（安全預防）：{e}",
+                "確認 gh 認證後重試，或設定 allow_fork_fix=true",
+            )
+            state = transition(state, PRState.BLOCKED, "fork check failed")
+            persist_state(state)
+            olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "fork check failed")
+            return state
 
-    # Fetch PR diff files once
+    # Fetch PR diff files (scope limiter — only fix files in this PR)
     try:
         pr_files = pr_diff_files(state.pr_number)
     except RuntimeError as e:
-        print(f"[WARN] 無法取得 PR diff 檔案：{e}", file=sys.stderr)
-        pr_files = []
+        state = add_blocker(
+            state, f"無法取得 PR diff 檔案：{e}", "手動確認 PR 存在並有 write access"
+        )
+        state = transition(state, PRState.BLOCKED, "pr diff fetch failed")
+        persist_state(state)
+        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "pr diff fetch failed")
+        return state
 
     # Fetch CI failure logs
     try:
@@ -96,7 +114,6 @@ def run(
         return state
 
     if not failures:
-        # No failures to fix — move on
         state = transition(state, PRState.CI_WAIT, "no CI failures found, re-poll")
         persist_state(state)
         olog.append(state.pr_number, PRState.AUTO_FIX, PRState.CI_WAIT, "no failures")
@@ -104,18 +121,9 @@ def run(
 
     combined_log = "\n".join(f.log_text for f in failures)
     applicable_fixers = fixers_for(combined_log)
-
     iteration = state.fix_iteration_count + 1
 
-    if not applicable_fixers:
-        state = add_blocker(
-            state, "CI 失敗但無對應 fixer，需人工修復", "查看 CI log 後手動 push fix"
-        )
-        state = transition(state, PRState.BLOCKED, "no applicable fixer")
-        persist_state(state)
-        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "no fixer")
-        return state
-
+    # Check iteration limit before attempting fixes (gives clearer diagnostic)
     if iteration > cfg.max_fix_iterations:
         state = add_blocker(
             state,
@@ -127,14 +135,38 @@ def run(
         olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "max iterations")
         return state
 
-    # Run each applicable fixer
+    if not applicable_fixers:
+        state = add_blocker(
+            state, "CI 失敗但無對應 fixer，需人工修復", "查看 CI log 後手動 push fix"
+        )
+        state = transition(state, PRState.BLOCKED, "no applicable fixer")
+        persist_state(state)
+        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "no fixer")
+        return state
+
+    # Run each applicable fixer; wrap each call to prevent a single crash from
+    # corrupting the state machine loop
     new_attempts: list[FixAttempt] = []
     for fixer in applicable_fixers:
-        result = fixer.run(repo_root, pr_files)
+        try:
+            fixer_output: FixOutput = fixer.run(repo_root, pr_files)
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] {fixer.name} 執行異常：{e}", file=sys.stderr)
+            new_attempts.append(
+                FixAttempt(
+                    iteration=iteration,
+                    fixer=fixer.name,
+                    commit=None,
+                    result=FixResult.failed,
+                    files_changed=[],
+                )
+            )
+            continue
+
         commit_sha: str | None = None
-        if result.outcome == FixOutcome.applied:
+        if fixer_output.outcome == FixOutcome.applied:
             try:
-                commit_sha = _commit_and_push(fixer.name, result.files_changed, repo_root)
+                commit_sha = _commit_and_push(fixer.name, fixer_output.files_changed, repo_root)
                 print(f"[auto-fix] {fixer.name} applied, commit: {commit_sha}")
             except RuntimeError as e:
                 print(f"[WARN] {fixer.name} commit/push 失敗：{e}", file=sys.stderr)
@@ -144,8 +176,8 @@ def run(
                 iteration=iteration,
                 fixer=fixer.name,
                 commit=commit_sha,
-                result=FixResult(result.outcome.value),
-                files_changed=result.files_changed,
+                result=FixResult(fixer_output.outcome.value),
+                files_changed=fixer_output.files_changed,
             )
         )
 

@@ -9,7 +9,7 @@ from .models import Blocker, OrchestratorState, PRState, Transition
 # Allowed transition table — 任何未列於此的 (from, to) 都屬非法
 _TRANSITIONS: dict[PRState, frozenset[PRState]] = {
     PRState.DETECTED: frozenset({PRState.REVIEWING, PRState.CONFLICT, PRState.BLOCKED}),
-    PRState.REVIEWING: frozenset({PRState.REVIEW_DONE, PRState.BLOCKED}),
+    PRState.REVIEWING: frozenset({PRState.REVIEW_DONE, PRState.CONFLICT, PRState.BLOCKED}),
     PRState.REVIEW_DONE: frozenset({PRState.CI_WAIT, PRState.CONFLICT}),
     PRState.CI_WAIT: frozenset(
         {PRState.CI_PASS, PRState.AUTO_FIX, PRState.CONFLICT, PRState.BLOCKED}
@@ -20,13 +20,14 @@ _TRANSITIONS: dict[PRState, frozenset[PRState]] = {
     PRState.MERGEABLE: frozenset({PRState.MERGED, PRState.BLOCKED}),
     PRState.MERGED: frozenset({PRState.RETRO_DONE, PRState.FAILED}),
     PRState.RETRO_DONE: frozenset({PRState.CLEANED}),
+    # BLOCKED is recoverable: user resolves issue then resumes from DETECTED
+    PRState.BLOCKED: frozenset({PRState.DETECTED}),
     # Terminal states have no outbound transitions
     PRState.CLEANED: frozenset(),
-    PRState.BLOCKED: frozenset(),
     PRState.FAILED: frozenset(),
 }
 
-_TERMINAL_STATES = {PRState.CLEANED, PRState.BLOCKED, PRState.FAILED}
+_TERMINAL_STATES = {PRState.CLEANED, PRState.FAILED}
 
 
 def is_terminal(state: PRState) -> bool:
@@ -49,10 +50,7 @@ def transition(
     """
     allowed = _TRANSITIONS.get(state.current_state, frozenset())
     if to not in allowed:
-        raise ValueError(
-            f"非法 transition：{state.current_state} -> {to}，"
-            f"允許：{sorted(allowed)}"
-        )
+        raise ValueError(f"非法 transition：{state.current_state} -> {to}，允許：{sorted(allowed)}")
 
     now = datetime.now(UTC).isoformat()
     t = Transition(

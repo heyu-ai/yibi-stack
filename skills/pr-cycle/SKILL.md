@@ -9,7 +9,7 @@ description: PR 生命週期自動化 orchestrator：偵測 open PR、並行 cod
 
 ## Usage
 
-```
+```text
 /pr-cycle              # 自動偵測目前分支的 open PR，從頭執行
 /pr-cycle resume       # 讀取最新 state file，從上次中斷點繼續
 /pr-cycle --pr <n>     # 明確指定 PR 號碼
@@ -73,7 +73,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status
 | `REVIEW_DONE` | 轉到 CI_WAIT（`--to CI_WAIT`），再進 Step 4 |
 | `CI_WAIT` | 輪詢 CI（Step 4） |
 | `AUTO_FIX` | 執行 auto-fix（Step 5） |
-| `CI_PASS` | 等待 user ship 確認（Step 6） |
+| `CI_PASS` | transition to MERGEABLE（`--to MERGEABLE`），再進 Step 6 |
 | `MERGEABLE` | 等待 user 確認 merge（Step 6） |
 | `MERGED` | 執行 retro（Step 7） |
 | `RETRO_DONE` | 執行 clean（Step 8） |
@@ -91,10 +91,10 @@ transition 後讀取新 state，自動循環推進，直到 BLOCKED / FAILED / C
 uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to REVIEWING --reason "spawning review subagents"
 ```
 
-dispatcher 寫出 spawn-manifest（Python CLI 自動執行）：
+寫出 spawn-manifest（用 `write-manifest` 明確觸發）：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator detect --pr {{pr_number}}
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator write-manifest --pr {{pr_number}}
 ```
 
 讀取 manifest 路徑（來自 status JSON 的 `artifacts.spawn_manifest`），然後**在同一個 message 內**用 Task tool 一次 dispatch 三個並行 subagent：
@@ -138,7 +138,11 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status --pr {{p
 
 > **注意**：auto-fix loop 由 Python CLI 內部管理（`tasks.pr_orchestrator.auto_fix.run()`），skill 只需觸發並等待結果。若 state 回到 CI_WAIT → 回到 Step 4；若 BLOCKED → 顯示 blockers 給 user。
 
-實際觸發方式：auto-fix 是透過 `detect` / `resume` 命令在 state machine 推進時自動觸發。skill 在 CI_FAIL 後 transition 到 AUTO_FIX，Python CLI 會在下次 `detect --pr <n>` 時自動執行 auto-fix logic 並寫出新 state。
+明確觸發方式（transition 到 AUTO_FIX 後執行）：
+
+```bash
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator auto-fix --pr {{pr_number}}
+```
 
 ### Step 6 — Ship Gate (MERGEABLE)
 
@@ -146,7 +150,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status --pr {{p
 
 顯示給 user：
 
-```
+```text
 PR #{{pr_number}} 已通過 code review 與 CI。
 準備 merge：gh pr merge {{pr_number}} --squash --delete-branch
 請確認後手動執行，或輸入 "ship" 確認由 skill 代為執行。
@@ -198,7 +202,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator log-view --pr {
 
 ## State Machine（速查）
 
-```
+```text
 DETECTED → REVIEWING → REVIEW_DONE → CI_WAIT → CI_PASS → MERGEABLE
                                         ↕
                                      AUTO_FIX (≤3 次)

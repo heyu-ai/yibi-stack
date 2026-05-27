@@ -6,7 +6,7 @@ import re
 import subprocess  # nosec B404
 from pathlib import Path
 
-from .base import BaseFixer, FixOutcome, FixResult
+from .base import BaseFixer, FixOutcome, FixOutput
 
 _MD_SIGNATURE = re.compile(r"MD\d{3}/|markdownlint-cli2", re.IGNORECASE)
 
@@ -17,19 +17,24 @@ class MarkdownlintFixer(BaseFixer):
     def can_fix(self, log_text: str) -> bool:
         return bool(_MD_SIGNATURE.search(log_text))
 
-    def run(self, repo_root: Path, pr_files: list[str]) -> FixResult:
-        md_files = [f for f in pr_files if f.endswith(".md")]
+    def run(self, repo_root: Path, pr_files: list[str]) -> FixOutput:
+        # Only process existing .md files (pr_diff_files may include deleted files)
+        md_files = [f for f in pr_files if f.endswith(".md") and (repo_root / f).is_file()]
         if not md_files:
-            return FixResult(outcome=FixOutcome.no_change)
+            return FixOutput(outcome=FixOutcome.no_change)
 
-        subprocess.run(  # nosec B603 B607
-            ["npx", "markdownlint-cli2", "--fix", *md_files],
+        result = subprocess.run(  # nosec B603 B607
+            ["npx", "-y", "markdownlint-cli2", "--fix", *md_files],
             capture_output=True,
             text=True,
             cwd=repo_root,
             timeout=60,
         )
-        # markdownlint-cli2 --fix exits non-zero even when fixes applied; check git diff
+        # markdownlint-cli2 --fix exits with 1 when lint errors were found and fixed,
+        # 0 when no issues exist. Exit codes > 1 indicate a tool crash.
+        if result.returncode > 1:
+            return FixOutput(outcome=FixOutcome.failed, error=result.stderr[:500])
+
         diff = subprocess.run(  # nosec B603 B607
             ["git", "diff", "--name-only", *md_files],
             capture_output=True,
@@ -39,5 +44,5 @@ class MarkdownlintFixer(BaseFixer):
         )
         changed = [f for f in diff.stdout.splitlines() if f.strip()]
         if not changed:
-            return FixResult(outcome=FixOutcome.no_change)
-        return FixResult(outcome=FixOutcome.applied, files_changed=changed)
+            return FixOutput(outcome=FixOutcome.no_change)
+        return FixOutput(outcome=FixOutcome.applied, files_changed=changed)

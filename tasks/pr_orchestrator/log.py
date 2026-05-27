@@ -16,11 +16,18 @@ def log_path(pr_number: int) -> Path:
 
 
 def append(
-    pr_number: int, from_state: str, to_state: str,
-    reason: str = "", actor: str = "orchestrator",
+    pr_number: int,
+    from_state: str,
+    to_state: str,
+    reason: str = "",
+    actor: str = "orchestrator",
 ) -> None:
-    """追加一筆 transition log（不讀、不重寫，只 append）。"""
-    _LOG_BASE.mkdir(parents=True, exist_ok=True)
+    """追加一筆 transition log（不讀、不重寫，只 append）。
+
+    log 是輔助記錄，OSError 降級為 stderr 警告，不影響 state file 的持久化。
+    """
+    import sys
+
     entry = {
         "ts": datetime.now(UTC).isoformat(),
         "pr": pr_number,
@@ -29,8 +36,12 @@ def append(
         "actor": actor,
         "reason": reason,
     }
-    with log_path(pr_number).open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    try:
+        _LOG_BASE.mkdir(parents=True, exist_ok=True)
+        with log_path(pr_number).open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as e:
+        print(f"[WARN] transition log 寫入失敗（state 已儲存）：{e}", file=sys.stderr)
 
 
 def read(pr_number: int) -> list[dict]:  # type: ignore[type-arg]
