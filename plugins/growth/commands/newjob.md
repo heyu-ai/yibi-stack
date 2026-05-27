@@ -28,9 +28,9 @@ git status --short
 確保主 repo 是最新的，然後呼叫 `EnterWorktree` 工具切換 session：
 
 ```bash
-git -C "$MAIN_REPO" fetch origin main
-git -C "$MAIN_REPO" checkout main
-git -C "$MAIN_REPO" pull origin main
+git fetch origin main
+git checkout main
+git pull origin main
 ```
 
 然後**呼叫 `EnterWorktree` 工具**，傳入推導出的 `name`（如 `feat-dashboard`）。
@@ -48,47 +48,7 @@ git -C "$MAIN_REPO" pull origin main
 `push.default=upstream` + 追蹤 `origin/main` = `git push` 直推 main，繞過 PR 流程。
 
 ```bash
-NAME=<worktree-name>
-WT=$(git rev-parse --show-toplevel)
-if [ -z "$WT" ]; then
-  echo '[FAIL] git rev-parse --show-toplevel 失敗，無法確認 worktree 路徑' >&2
-  exit 1
-fi
-
-# EnterWorktree 建立的 linked worktree 其根目錄的 .git 是 file（gitdir: 指標）；
-# 主 worktree 的 .git 是 directory。此 guard 假設使用標準 linked-worktree 佈局。
-if [ -d "$WT/.git" ]; then
-  echo '[FAIL] cwd 仍在主 repo，EnterWorktree contract 失效' >&2
-  exit 1
-fi
-
-# Git linked worktree 鎖定被 checkout 的 branch，讓主 repo 無法再 checkout 同一 branch。
-# 此 repo 預設分支為 main，故只檢查 main；若改用其他預設分支名稱，需同步更新此處。
-CURRENT_BRANCH=$(git -C "$WT" rev-parse --abbrev-ref HEAD)
-if [ -z "$CURRENT_BRANCH" ]; then
-  echo '[FAIL] 無法取得 worktree 當前 branch 名稱' >&2
-  exit 1
-fi
-if [ "$CURRENT_BRANCH" = "HEAD" ]; then
-  echo '[FAIL] worktree 處於 detached HEAD 狀態 -- 請先 git checkout <branch>' >&2
-  exit 1
-fi
-if [ "$CURRENT_BRANCH" = "main" ]; then
-  echo '[FAIL] worktree 正在 checkout main -- 請刪除此 worktree 並重新執行 /newjob' >&2
-  exit 1
-fi
-
-UPSTREAM=$(git rev-parse --abbrev-ref 'HEAD@{upstream}' 2>/dev/null)
-[ -z "$UPSTREAM" ] && UPSTREAM="none"
-if [ "$UPSTREAM" = "origin/main" ]; then
-  echo "[WARN] DANGER: branch 追蹤 origin/main，修正中..."
-  git -C "$WT" branch --unset-upstream
-  git -C "$WT" push origin "HEAD:$NAME"
-  git -C "$WT" branch -u "origin/$NAME"
-  echo "[OK] 修正完成，現在追蹤 origin/$NAME"
-else
-  echo "[OK] Push tracking OK: $UPSTREAM"
-fi
+bash ~/.claude/commands/scripts/newjob-push-guard.sh
 ```
 
 ### 2b. 複製 Gitignored 開發檔案
@@ -96,34 +56,7 @@ fi
 Worktree 建立後，從主 repo 複製被 `.gitignore` 排除但開發必需的檔案。
 
 ```bash
-# EnterWorktree 後 cwd 已切換；用 git worktree list 找主 repo 路徑
-# --porcelain 第一行格式固定為 "worktree <path>"，路徑含空格也安全
-# awk/cut 的單引號引數在 $() 內觸發 CC token scanner；改用 # prefix removal 規避
-WT_LINE=$(git worktree list --porcelain | head -1)
-MAIN_REPO=${WT_LINE#worktree }
-if [ -z "$MAIN_REPO" ] || [ "$MAIN_REPO" = "$WT_LINE" ]; then
-  echo '[FAIL] git worktree list --porcelain 輸出非預期格式，無法取得主 repo 路徑' >&2
-  exit 1
-fi
-WT=$(git rev-parse --show-toplevel)
-
-for f in .env backend/.env frontend/.env admin/.env mobile/.env; do
-  [ -f "$MAIN_REPO/$f" ] && cp "$MAIN_REPO/$f" "$WT/$f" && echo "  [OK] copied $f"
-done
-
-# 複製 .runtime/ 目錄（若存在）
-[ -d "$MAIN_REPO/.runtime" ] && cp -r "$MAIN_REPO/.runtime" "$WT/.runtime" && echo "  [OK] copied .runtime/"
-
-# 複製 .claude/settings.local.json（Claude Code allowlist，不進 git）
-# 刻意複製完整 allowlist：worktree 與主 repo 屬同一開發者，繼承所有本地授權是預期行為。
-# 含絕對路徑的 allow rule 仍指向主 repo 路徑（對 cross-repo 命令仍有效）。
-if [ "$MAIN_REPO" = "$WT" ]; then
-  echo "  [WARN] MAIN_REPO == WT，跳過複製 settings.local.json"
-elif [ -f "$MAIN_REPO/.claude/settings.local.json" ]; then
-  mkdir -p "$WT/.claude"
-  cp "$MAIN_REPO/.claude/settings.local.json" "$WT/.claude/settings.local.json"
-  echo "  [OK] copied .claude/settings.local.json"
-fi
+bash ~/.claude/commands/scripts/newjob-copy-gitignored.sh
 ```
 
 **維護提示**：在專案的 `.claude/commands/newjob.md` 覆蓋此 user-level 版本，加入專案特定內容。常見覆蓋項目：
@@ -137,35 +70,12 @@ fi
 若專案有 `docker-compose.yml`，在啟動服務前先透過 `local-port-manager` 確認 host port 不與其他 worktree 衝突。
 
 ```bash
-# BRANCH_NAME 是 port registry 的 key，必須與 git branch name 一致
-# 讓 /clean-gone 和 /clean-merged 的 release 步驟能對上
-BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-WT_LINE=$(git worktree list --porcelain | head -1)
-MAIN_REPO=${WT_LINE#worktree }
-if [ -z "$MAIN_REPO" ] || [ "$MAIN_REPO" = "$WT_LINE" ]; then
-  echo '[FAIL] git worktree list --porcelain 輸出非預期格式，無法取得主 repo 路徑' >&2
-  exit 1
-fi
-
-# 偵測 docker-compose 檔案：用相對路徑，cwd 已是 worktree 根目錄
-# 避開 "$VAR/suffix" 形式（會觸發 CC parser 確認框）
-DC_FILE=""
-[ -f docker-compose.yml ] && DC_FILE=docker-compose.yml
-[ -z "$DC_FILE" ] && [ -f docker-compose.yaml ] && DC_FILE=docker-compose.yaml
-
-# 若無 docker-compose 檔案，跳過整個 port 衝突預防步驟
-[ -z "$DC_FILE" ] && echo "  [SKIP] 無 docker-compose 檔案，跳過 port 衝突預防"
+bash ~/.claude/commands/scripts/newjob-port-setup.sh
 ```
 
-**若上方輸出 `[SKIP]`，停止執行 Step 2c 其餘所有 bash 指令，直接跳到 Step 3。**
+**若輸出包含 `[SKIP]` 或 `[WARN]`，停止執行 Step 2c 其餘步驟，直接跳到 Step 3。**
 
-**初始化 port registry（若尚未建立）：**
-
-```bash
-uv run --directory "$MAIN_REPO" python -m tasks.local_port_manager init || echo "  [WARN] port registry init 失敗 -- 跳過 port 衝突預防"
-```
-
-**若上方輸出 `[WARN]`，停止執行 Step 2c 其餘所有 bash 指令，直接跳到 Step 3。**
+腳本成功時輸出 `MAIN_REPO=`、`BRANCH_NAME=`、`DC_FILE=` 三行，記錄這些值供後續步驟使用。
 
 **對每個需要 host port 的服務執行以下流程：**
 
