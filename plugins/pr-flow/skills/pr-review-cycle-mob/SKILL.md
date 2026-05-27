@@ -216,6 +216,30 @@ Note the PR number as `{{pr_number}}` and the base branch as `{{base_branch}}` (
 
 ---
 
+### Step 1.5 — Parallel Pre-review Check (3 agents, same message)
+
+Before any code review, spawn three Task agents **in a single message** to gather baseline information in parallel:
+
+| Agent | Task |
+|-------|------|
+| **diff-reviewer** | Fetch diff via `gh pr diff {{pr_number}}`; summarise changed files and line counts. **Do not use local `main`** — always fetch from GitHub to reflect the actual PR state. |
+| **ci-checker** | Run `gh pr checks {{pr_number}}`; report pass / fail / pending per check. |
+| **amplifier-verifier** | For each spectra change associated with this PR, confirm `/spectra-amplifier` was run (check `openspec/changes/*/amplifier_output.md` exists and is non-empty). |
+
+Do **not** write to `final.md` until all three agents have returned.
+Once all three respond, aggregate their output into `$CLAUDE_JOB_DIR/final.md`:
+
+```text
+## Pre-review Check
+- Diff: <file count> files, <line count> lines changed
+- CI: <pass / fail / pending — list any failing checks by name>
+- Amplifier: <ran / not run / no spectra change>
+```
+
+If any agent errors, report the failure explicitly; do not proceed with partial results.
+
+---
+
 ### Step 2 — Code Review (defect detection)
 
 Run `/code-review` to scan all PR changes for correctness bugs:
