@@ -4,17 +4,12 @@
 
 ## Step 1 — 偵測當前專案並讀取交班
 
-使用當前工作目錄的 basename 作為 project name（通常與 `handover write` 寫入時的 `detect_project()` 結果相同；若路徑含 symlink，`detect_project()` 會先 `resolve()`，結果可能不同）：
+git repo 根目錄名稱作為 project name（與 `detect_project()` 行為一致），或 fallback 為 `pwd` 的 basename。
+
+> **執行注意**：script 內含多個 `"$VAR"` expansion，直接內嵌會觸發 CC parser `simple_expansion` 確認框，故提取為獨立 script（rule 13 Quoting Rule 5-B）。**直接呼叫 script，不要重新內嵌 bash logic。**
 
 ```bash
-if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
-if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
-if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
-WORKDIR=$(pwd)
-PROJECT=$(basename "$WORKDIR")
-uv run --directory "$SKILL_REPO" \
-  python -m tasks.mycelium handover read --last 3 --project "$PROJECT" \
-  --exclude-tags pr-retrospective
+bash commands/scripts/handover-read.sh
 ```
 
 若查無記錄，明確告知使用者所用的 project name，方便確認是否有誤：
@@ -25,11 +20,7 @@ uv run --directory "$SKILL_REPO" \
 不帶 `--project` 顯示所有記錄（跨專案）：
 
 ```bash
-if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
-if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
-if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
-uv run --directory "$SKILL_REPO" \
-  python -m tasks.mycelium handover read --last 3 --exclude-tags pr-retrospective
+bash commands/scripts/handover-read.sh --no-project
 ```
 
 ## Step 2 — 呈現重點

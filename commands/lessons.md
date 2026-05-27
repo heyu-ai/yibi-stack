@@ -30,7 +30,8 @@ if [ -n "$GIT_COMMON" ]; then
   GIT_ROOT=$(dirname "$GIT_COMMON")
   PROJECT=$(basename "$GIT_ROOT")
 else
-  PROJECT=$(basename "$(pwd)")
+  PWDVAL=$(pwd)
+  PROJECT=$(basename "$PWDVAL")
 fi
 ```
 
