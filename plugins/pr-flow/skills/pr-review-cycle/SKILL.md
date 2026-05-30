@@ -20,6 +20,64 @@ Complete workflow from PR creation to merge, for any tech stack (Python / JS / G
 
 ---
 
+## Review Severity Standard (RFC 2119)
+
+This is the **canonical** grading standard for every PR review finding — in this skill and in
+`/pr-review-cycle-mob`. It applies regardless of source: `/code-review`, the four
+`pr-review-toolkit` subagents, or external mob voices (Codex / Gemini). The grade a finding
+receives is what decides its merge consequence.
+
+Strength keywords follow [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): **MUST** / **MUST
+NOT** are absolute requirements; **SHOULD** / **SHOULD NOT** may be deviated from only with a
+documented reason; **MAY** is genuinely optional. Grade by *merge consequence*, not by how bad
+a finding subjectively feels.
+
+| RFC 2119 | Grade | Merge consequence | What belongs here |
+|----------|-------|-------------------|-------------------|
+| **MUST** fix | **Critical** | Blocks merge — cannot merge until fixed | Functional / logic errors; security vulnerabilities (injection, auth bypass); secret or PII exposure in logs; data loss or corruption; violation of an explicit team baseline (a rule in `.claude/rules/`, a CLAUDE.md hard constraint, or a documented spec) |
+| **SHOULD** fix | **Important** | Does not hard-block, but if deferred the author MUST record the reason in the PR description | Test coverage gaps on changed critical paths; maintainability defects (silent failures, swallowed exceptions, unsafe fallbacks); team-consistency violations (naming, module structure); documentation / comment rot that misleads readers |
+| **MAY** fix | **Minor** | Does not block merge — fix opportunistically | Design trade-offs with no objectively correct answer; pure style preferences; suggestions that need more context before a decision can be made |
+
+### Per-category checklist
+
+Concrete checks to run while reviewing; the strength keyword fixes each finding's grade.
+
+#### Security & data protection
+
+- Logs and error messages **MUST NOT** contain PII or secrets (tokens, passwords, keys).
+- External input **MUST** be validated before use.
+- Existing permission / authorization checks **MUST** be preserved.
+
+#### Testing
+
+- New error / failure branches **SHOULD** be covered by a test.
+- Critical flows (payment, auth, migration) **SHOULD** have the happy path and at least one
+  failure path tested.
+- Each new conditional branch **SHOULD** have a corresponding case.
+
+#### Code quality
+
+- Code **SHOULD** use idiomatic language / framework features rather than reinventing them.
+- Naming **SHOULD** stay consistent with the surrounding module.
+- Code that intentionally keeps a legacy or non-obvious approach **SHOULD** document the
+  rationale in a comment.
+
+### Not a finding (discard)
+
+The following are **never** raised — they are noise, not signal:
+
+- Subjective preference with no objectively verifiable reason ("I find X more elegant than Y").
+- Behaviour that is correct and tested but stylistically different from the reviewer's habit.
+- A vague concern with no concrete, actionable fix.
+
+### Human-in-the-loop
+
+Automated reviewers (`/code-review`, subagents, mob voices) **MAY** grade findings and propose
+fixes, but they **MUST NOT** make the final call on a **Disputed** or **MAY**-level item — the
+human author / reviewer decides. AI assists; it does not decide for the team.
+
+---
+
 ## Workflow
 
 ### Step 1 — Create PR
@@ -146,11 +204,12 @@ Launch all review agents (`pr-review-toolkit` subagents) **in the same message**
 | `pr-test-analyzer` | Test coverage gaps, untested critical paths |
 | `comment-analyzer` | Documentation accuracy, comment rot, misleading descriptions |
 
-Aggregate results, graded:
+Aggregate results and grade each finding per the
+[Review Severity Standard](#review-severity-standard-rfc-2119):
 
-- **Critical** (blocks merge)
-- **Important** (should fix)
-- **Minor** (optional)
+- **Critical** — MUST fix; blocks merge
+- **Important** — SHOULD fix; defer only with a documented reason in the PR description
+- **Minor** — MAY fix; optional
 
 ---
 

@@ -34,6 +34,12 @@
 
 ## Severity 對應規則
 
+severity 以 [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) 強度關鍵字判斷 merge 後果，而非主觀嚴重感：
+
+- `critical` = **MUST**（不修不能 merge）：功能／邏輯錯誤、安全漏洞、log 洩漏 PII 或 secret、data loss、違反明確 baseline
+- `important` = **SHOULD**（不修需在 PR 說明理由）：critical path 測試缺口、silent failure、命名／結構不一致、文件誤導
+- `actionable_nit` = **MAY**（不擋 merge）：具體可執行的小修正（命名、typo、import 順序），非主觀偏好
+
 | 原始輸出標記 | 輸出 severity |
 |-------------|---------------|
 | `[P1]`、`[ERROR]`、`[BUG]`、`Critical`、`bug`、安全漏洞、data loss | `critical` |
