@@ -59,3 +59,15 @@ All `help=` parameters and group/command docstrings use Traditional Chinese.
 ```bash
 uv run python -m tasks.<module> <command> [options]
 ```
+
+## Subcommand Dead Code Trap
+
+Writing a service function is not enough — the subcommand must also be registered on the
+CLI group with `@cli.command()`. Forgetting the decorator means the subcommand never appears
+in `--help` and is silently uncallable.
+
+Always verify after implementation:
+
+```bash
+uv run python -m tasks.<module> --help   # confirm new subcommand appears in the list
+```

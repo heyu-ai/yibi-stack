@@ -134,3 +134,30 @@ m = _AP2.search(_scannable(command))
 Scope: any function that receives data from external sources (stdin JSON, API response,
 config file) where the type cannot be statically guaranteed. Even when `dict.get()` has a
 default, callers may pass explicit `None` values that override the default.
+
+## Pathlib `rglob()` Does Not Follow Symlinks
+
+`pathlib.Path.rglob()` does not traverse into symlink subdirectories by default.
+If the target directory contains symlinks (e.g., plugin symlinks under `skills/`),
+use `os.walk(followlinks=True)` or Python 3.13+ `glob(follow_symlinks=True)` instead.
+
+## Fixer Loop Exhaustion Must Transition to BLOCKED, Not a Waiting State
+
+When a fixer loop exhausts all available fixers (every fixer raises an exception),
+transitioning back to a waiting/retry state (e.g., `CI_WAIT`) creates a silent dead loop:
+the state machine re-enters the fixer loop with the same failing fixers, cycles forever,
+and surfaces no user-visible error.
+
+The correct transition on all-fixers-failed is an explicit blocked/error state:
+
+```python
+# Wrong: re-enters the loop; silent dead cycle
+if all_fixers_failed:
+    transition(State.CI_WAIT)
+
+# Correct: stop and surface the failure
+if all_fixers_failed:
+    transition(State.BLOCKED, reason="all fixers raised exceptions")
+```
+
+Applies to any state machine with an auto-retry fixer pattern.

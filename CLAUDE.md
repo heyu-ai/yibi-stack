@@ -177,7 +177,6 @@ make install-all         # 等同 build-tools + install + install-project + inst
   allow-list 永久放行 pattern 用完整 script 路徑而非 fat command wildcard。
 - **make target 名稱一律逐字引用**：README/CLAUDE.md 中的 target 名稱必須從 Makefile 直接 copy，不可改寫成「可讀標籤」（例如把 `patch-pr-review-agents` 縮寫為其他名稱），否則使用者執行時 404
 - **hook 腳本在 `.claude/hooks/` 不等於已啟用**：Claude Code 只執行在 `settings.json` 的 `hooks` 命令字串中登記的 hook；評估 hook 有效性必須做「檔案存在 × settings.json 登記」雙重交叉驗證
-- **`Path.rglob()` 不追蹤 symlink**：`pathlib` 的 `rglob()` 預設不進 symlink 子目錄。若目標目錄含 symlink（如本 repo `skills/` 的 plugin symlink），改用 `os.walk(followlinks=True)` 或 Python 3.13+ 的 `glob(follow_symlinks=True)`
 - **`plugins/harness` 無 `package.json`**：`plugins/` 下並非所有子目錄都是可 `claude plugin install` 的正式 plugin。
   `plugins/harness` 是 README-only 容器，需用 `make install-one SKILL=harness-eval`；並列時必須 inline 標注例外，否則讀者繼承區塊語意靜默失敗。
 - **bootstrap script 的 `[SKIP]` 應改 `[WARN]`**：`make install-all` chain 中目標資源（如 `~/.claude/settings.json`）不存在時，靜默 `[SKIP]` + exit 0 等同問題隱藏。
@@ -185,12 +184,6 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **agy auth 偵測用 `onboardingComplete`，不用 `installation_id`**：
   `~/.gemini/antigravity-cli/installation_id` 在 agy 首次啟動（OAuth 完成前）就存在，用它做 auth check 會 false positive。
   正確做法：檢查 `~/.gemini/antigravity-cli/cache/onboarding.json` 的 `onboardingComplete: true` 欄位。
-- **linked worktree 內 `git rev-parse --show-toplevel` 回傳 worktree 路徑，不是主 repo 路徑**：
-  在 `.claude/worktrees/<name>/` 等 linked worktree 內呼叫 `--show-toplevel`，得到的是 worktree 自身的目錄（如 `.claude/worktrees/feat+...`），不是 repo 根目錄。
-  需要主 repo 路徑時改用 `git rev-parse --path-format=absolute --git-common-dir`，再取 `Path(result).parent`。
-  適用場景：任何在 worktree 內計算 project slug、log 路徑、transcript 目錄等依賴主 repo 位置的邏輯。
-- **`pre-commit run --files` 只掃指定檔案，CI `--all-files` 掃全 repo**：本地跑 `pre-commit run --files <file>` 只檢查指定檔案，push 前若有未改動但有 pre-existing 問題的檔案（如 `settings.json` 缺 trailing newline），本地不會報錯但 CI 會失敗。
-  正確做法：push 前執行 `make ci`（內含 `pre-commit run --all-files` + pytest），而非只跑 `pre-commit run --files <file>`。
 - **`make install` 迴圈的 skip list 需四個目標同步維護**：`install`、`install-project`、`status-own`、`uninstall` 四個迴圈都掃 `skills/*/`。
   任何工具在 `skills/` 下產生的非 skill 目錄（如 `spectra init --dir skills/openspec`）必須同步加入所有四個迴圈的 skip list。
   失敗模式不同：`install`/`install-project` 遇到缺 SKILL.md 的目錄會 **exit 1 中斷**（字母排序後的 skill 全部裝不到）；
@@ -215,3 +208,5 @@ make install-all         # 等同 build-tools + install + install-project + inst
   `plugins/sdd/package.json` 與 `plugins/sdd/.claude-plugin/plugin.json` 兩個版本號必須手動同步 bump。
   無 CI 交叉驗證——PR #112 mob review 兩個聲部（Claude + Codex）都獨立 flag 了 1.3.0 vs 1.4.0 的 split。
   修正：bump package.json 後，同步更新 `.claude-plugin/plugin.json` 的 `"version"` 欄位。
+- **`gh` CLI `--json` 欄位名必須先驗證存在**：`databaseId` 等欄位在 `gh pr checks` 不存在（部分欄位只在 `gh pr list` 等其他指令有效），傳入不存在的欄位名回傳空值，導致使用該欄位的函式永遠回傳空清單，且無任何 error 提示。
+  修正：先執行 `gh pr checks --json` 不帶欄位名，查看該指令預設回傳的 key 清單，再確認目標欄位名確實存在後才使用。
