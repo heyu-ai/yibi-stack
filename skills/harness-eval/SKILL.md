@@ -3,15 +3,16 @@ name: harness-eval
 type: exec
 scope: global
 description: >
-  評估任何 repo 的 Claude Code harness 就緒度。10 維度（D1–D10），PASS/WARN/FAIL 健康清單，
+  評估任何 repo 的 Claude Code harness 就緒度。11 維度（D1–D11），PASS/WARN/FAIL 健康清單，
   優先改善 TODO。涵蓋 CLAUDE.md / hooks / settings / skills / testing-CI / git / rules /
-  security / subagents / codebase-navigation。觸發關鍵字：harness eval、agentic readiness、
-  claude code 健診、評估 repo、harness 評分、改善 TODO、agentic posture
+  security / subagents / codebase-navigation / token-economy。觸發關鍵字：harness eval、
+  agentic readiness、claude code 健診、評估 repo、harness 評分、改善 TODO、agentic posture、
+  token economy、context budget、always-on context
 ---
 
 # Harness Eval
 
-評估任何 repo 的 Claude Code harness 成熟度，三合一報告：D1–D10 維度分（機械 + 語意，總滿分 115）、PASS/WARN/FAIL 清單、優先 TODO。
+評估任何 repo 的 Claude Code harness 成熟度，三合一報告：D1–D11 維度分（機械 + 語意，總滿分 123）、PASS/WARN/FAIL 清單、優先 TODO。
 
 發現 WARN/FAIL 後，可用 `/harness-eval-focus <維度>` 做該維度的深度稽核與具體修法。
 
@@ -125,13 +126,25 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 - map 與實際目錄一致（不是過時文件）→ 1 分
 - @-mention 真的指向關鍵檔案（不只是裝飾）→ 1 分
 
+**D11 Context / Token Economy（語意 0–4 分）**：讀 `extra["always_on_chars"]`、`extra["on_demand_chars"]`、`extra["effort_missing_skills"]` 從機械掃描輸出
+
+> 注意：D11 所有數字均為字元估計（非精準 token 計量），請以此為近似指標。
+
+| 子項 | 機械線索 | 滿分條件 | 扣分 / 無分條件 |
+|------|---------|---------|----------------|
+| always-on 比例合理 | `extra["always_on_chars"]` | < 5000 字元 → +2 分 | 5000–19999 → +0；≥ 20000 → WARN |
+| progressive-disclosure 活用 | `extra["on_demand_chars"]` / `extra["total_chars"]` | on-demand 比例 ≥ 50% → +1 分 | < 50% → +0 |
+| effort 相稱性 | `extra["effort_missing_skills"]` 為空 | 無長 skill 缺 effort: → +1 分 | 有缺少 → +0 |
+
+邊際遞減注意：機械分對超高 always-on chars（>20000）另有分數懲罰（-1 至 -3）；語意分補充整體 token economy 設計的主觀判斷。
+
 ### Step 4 -- 三合一報告輸出
 
 ```text
 # Harness Eval Report -- <target_dir>
 掃描時間：<scanned_at>
 
-## 總分：<total> / 115（百分比 <pct>%）<等級>
+## 總分：<total> / 123（百分比 <pct>%）<等級>
 
 | 維度 | 機械分 | 語意分 | 總分 | 狀態 |
 |---|---|---|---|---|
@@ -145,6 +158,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 | D8 Security & Trust | X/7 | X/5 | X/12 | ... |
 | D9 Subagents | X/4 | X/2 | X/6 | ... |
 | D10 Codebase Navigation | X/3 | X/2 | X/5 | ... |
+| D11 Context / Token Economy | X/8 | X/4 | X/12 | ... |
 
 ## Health Check 清單
 [PASS] ...
