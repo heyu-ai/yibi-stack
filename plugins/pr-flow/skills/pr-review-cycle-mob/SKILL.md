@@ -182,11 +182,11 @@ Every finding (Claude / Codex / Gemini voice) is graded with an
 |----------|-------|-------------------|
 | **MUST** | Critical | Blocks merge |
 | **SHOULD** | Important | Defer only with a documented reason in the PR |
-| **MAY** | Actionable NIT | Optional per RFC 2119 — **but this skill's convention cleans up every actionable NIT before merge** (see Step 5) |
+| **MAY** | Actionable NIT | Optional per RFC 2119 — but this skill's convention cleans up every **undisputed actionable NIT** before merge (see Step 5) |
 
 MUST = functional / security / PII-in-logs / data-loss / explicit-baseline violation.
 SHOULD = test gaps on changed critical paths, silent failures, naming / structure
-inconsistency, misleading docs. MAY = design trade-offs, style, needs-more-context.
+inconsistency, misleading docs. MAY = concrete, actionable small fixes: naming, comment typo, import order, small documentation clarification.
 Subjective preference with no verifiable reason is **not a finding** — discard it.
 
 ---

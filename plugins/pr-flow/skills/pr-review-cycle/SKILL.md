@@ -36,7 +36,7 @@ a finding subjectively feels.
 |----------|-------|-------------------|-------------------|
 | **MUST** fix | **Critical** | Blocks merge — cannot merge until fixed | Functional / logic errors; security vulnerabilities (injection, auth bypass); secret or PII exposure in logs; data loss or corruption; violation of an explicit team baseline (a rule in `.claude/rules/`, a CLAUDE.md hard constraint, or a documented spec) |
 | **SHOULD** fix | **Important** | Does not hard-block, but if deferred the author MUST record the reason in the PR description | Test coverage gaps on changed critical paths; maintainability defects (silent failures, swallowed exceptions, unsafe fallbacks); team-consistency violations (naming, module structure); documentation / comment rot that misleads readers |
-| **MAY** fix | **Minor** | Does not block merge — fix opportunistically | Design trade-offs with no objectively correct answer; pure style preferences; suggestions that need more context before a decision can be made |
+| **MAY** fix | **Actionable NIT** | Does not block merge — fix opportunistically | Concrete, low-risk cleanup with an objective fix: naming alignment, typo / comment spelling, import order, small documentation clarification; never subjective preference or a vague needs-more-context concern |
 
 ### Per-category checklist
 
@@ -69,6 +69,7 @@ The following are **never** raised — they are noise, not signal:
 - Subjective preference with no objectively verifiable reason ("I find X more elegant than Y").
 - Behaviour that is correct and tested but stylistically different from the reviewer's habit.
 - A vague concern with no concrete, actionable fix.
+- Design trade-offs with no objectively correct answer and no local consistency rule.
 
 ### Human-in-the-loop
 
@@ -209,7 +210,7 @@ Aggregate results and grade each finding per the
 
 - **Critical** — MUST fix; blocks merge
 - **Important** — SHOULD fix; defer only with a documented reason in the PR description
-- **Minor** — MAY fix; optional
+- **Actionable NIT** — MAY fix; optional
 
 ---
 
