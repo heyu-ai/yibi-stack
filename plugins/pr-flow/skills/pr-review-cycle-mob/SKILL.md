@@ -169,6 +169,28 @@ MODE={{3-voice-full-mob | 2-voice-mob}}
 
 ---
 
+## Review Severity Standard (RFC 2119)
+
+> **Owner**: `/pr-review-cycle` SKILL.md "Review Severity Standard (RFC 2119)" defines the
+> canonical grading. This is a condensed summary for in-context use — when the standard changes,
+> re-summarise from the owner; do **not** copy-paste.
+
+Every finding (Claude / Codex / Gemini voice) is graded with an
+[RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) strength keyword, by *merge consequence*:
+
+| RFC 2119 | Grade | Merge consequence |
+|----------|-------|-------------------|
+| **MUST** | Critical | Blocks merge |
+| **SHOULD** | Important | Defer only with a documented reason in the PR |
+| **MAY** | Actionable NIT | Optional per RFC 2119 — but this skill's convention cleans up every **undisputed actionable NIT** before merge (see Step 5) |
+
+MUST = functional / security / PII-in-logs / data-loss / explicit-baseline violation.
+SHOULD = test gaps on changed critical paths, silent failures, naming / structure
+inconsistency, misleading docs. MAY = concrete, actionable small fixes: naming, comment typo, import order, small documentation clarification.
+Subjective preference with no verifiable reason is **not a finding** — discard it.
+
+---
+
 ## Workflow (mob review mode)
 
 ### Step 1 — Create PR
@@ -351,6 +373,11 @@ Output format (strictly follow, for downstream aggregation):
 
 ## Verdict
 - LGTM / NEEDS_CHANGES
+
+Severity (RFC 2119 — grade by merge consequence, not by how bad it feels):
+- [Critical] = MUST fix, blocks merge: logic / functional error, security hole, secret or PII in logs, data loss, explicit baseline violation
+- [Important] = SHOULD fix (defer only with a documented reason): test gap on a changed critical path, silent failure / swallowed exception, naming / structure inconsistency, misleading doc or comment
+- [Actionable NIT] = MAY fix: a concrete, actionable small fix (naming, comment typo, import order) — never a subjective preference
 
 Focus on:
 - Logic errors, race conditions, security holes, silent failures, resource leaks
@@ -594,7 +621,11 @@ Claude voice: the lead writes `$REVIEW_DIR/claude-r2.md` after reading r1-aggreg
 
 ### Step 5 — Aggregator synthesis
 
-After the lead reads all R1 + R2, produce `$REVIEW_DIR/final.md`, graded:
+After the lead reads all R1 + R2, produce `$REVIEW_DIR/final.md`, graded per the
+[Review Severity Standard](#review-severity-standard-rfc-2119) (Critical = MUST, Important =
+SHOULD, Actionable NIT = MAY). Note the project override: although **MAY** is optional under
+RFC 2119, this skill's convention cleans up every actionable NIT before merge (see the
+Actionable NIT row).
 
 | Grade | Condition | Action |
 | --- | --- | --- |

@@ -135,11 +135,24 @@ Scope: any function that receives data from external sources (stdin JSON, API re
 config file) where the type cannot be statically guaranteed. Even when `dict.get()` has a
 default, callers may pass explicit `None` values that override the default.
 
-## Pathlib `rglob()` Does Not Follow Symlinks
+## `Path.rglob()` Does Not Follow Symlinks
 
-`pathlib.Path.rglob()` does not traverse into symlink subdirectories by default.
-If the target directory contains symlinks (e.g., plugin symlinks under `skills/`),
-use `os.walk(followlinks=True)` or Python 3.13+ `glob(follow_symlinks=True)` instead.
+`pathlib.rglob()` does not descend into symlinked subdirectories by default.
+If the target directory contains symlinks (e.g., `skills/` with plugin symlinks in this repo),
+use `os.walk(followlinks=True)` or Python 3.13+ `glob(follow_symlinks=True)`:
+
+```python
+# Wrong: rglob() silently skips symlinked subdirectories
+for f in skills_dir.rglob("SKILL.md"):
+    ...
+
+# Correct: os.walk with followlinks=True
+import os
+for root, dirs, files in os.walk(skills_dir, followlinks=True):
+    for name in files:
+        if name == "SKILL.md":
+            process(Path(root) / name)
+```
 
 ## Fixer Loop Exhaustion Must Transition to BLOCKED, Not a Waiting State
 
@@ -161,3 +174,24 @@ if all_fixers_failed:
 ```
 
 Applies to any state machine with an auto-retry fixer pattern.
+
+## `.gitignore` Does Not Mean Absent From Disk
+
+A `.gitignore`-listed directory still exists on disk. Shell globs, Python `rglob()`,
+`make install`, and similar tools do not know about `.gitignore` — they see everything.
+
+Defense must be built into scripts themselves (skip lists, `SKILL.md` existence checks),
+not delegated to `.gitignore` as the sole barrier.
+
+```python
+# Wrong: assumes gitignored dirs are invisible
+for skill_dir in skills_root.iterdir():
+    process(skill_dir / "SKILL.md")  # crashes on gitignored non-skill dirs
+
+# Correct: check for SKILL.md existence; skip dirs without it
+for skill_dir in skills_root.iterdir():
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.is_file():
+        continue
+    process(skill_md)
+```
