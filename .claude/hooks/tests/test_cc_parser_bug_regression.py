@@ -107,12 +107,19 @@ class TestCCParserBugDirectProbe:
         """Assert the CC parser bug is still present for the given repro command."""
         result = _run_claude_print(command)
         combined = result.stdout + result.stderr
-
-        bug_fixed = (
-            result.returncode == 0
-            and "Unhandled node type" not in combined
-            and "unhandled node type" not in combined.lower()
+        parser_error_present = (
+            "Unhandled node type" in combined
+            or "unhandled node type" in combined.lower()
         )
+
+        # Non-zero exit without parser error = auth/startup failure, not a parser verdict.
+        if result.returncode != 0 and not parser_error_present:
+            pytest.skip(
+                f"claude exited {result.returncode} without parser error for {pattern_id} "
+                f"— possible auth/startup failure; cannot verify bug status"
+            )
+
+        bug_fixed = result.returncode == 0 and not parser_error_present
         if bug_fixed:
             pytest.fail(
                 f"\n\nADR-0002 REMOVAL CONDITION MET for {pattern_id}:\n"
