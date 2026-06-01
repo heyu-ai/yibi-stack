@@ -214,3 +214,8 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **sdd plugin version lockstep (package.json vs plugin.json)**: `plugins/sdd/package.json`
   and `plugins/sdd/.claude-plugin/plugin.json` must be bumped together — no CI cross-check.
   After bumping `package.json`, sync the `"version"` field in `.claude-plugin/plugin.json`.
+- **`gh` CLI `--json` field names must be verified before use**: fields like `databaseId` do
+  not exist in `gh pr checks` (some fields only exist in `gh pr list` or other commands).
+  Passing a non-existent field name returns empty values silently — any function consuming that
+  field will always return an empty result with no error. Fix: run `gh pr checks --json` with no
+  field argument to see the default key list, then confirm the target field exists before using it.

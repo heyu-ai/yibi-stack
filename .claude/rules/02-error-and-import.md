@@ -154,6 +154,27 @@ for root, dirs, files in os.walk(skills_dir, followlinks=True):
             process(Path(root) / name)
 ```
 
+## Fixer Loop Exhaustion Must Transition to BLOCKED, Not a Waiting State
+
+When a fixer loop exhausts all available fixers (every fixer raises an exception),
+transitioning back to a waiting/retry state (e.g., `CI_WAIT`) creates a silent dead loop:
+the state machine re-enters the fixer loop with the same failing fixers, cycles forever,
+and surfaces no user-visible error.
+
+The correct transition on all-fixers-failed is an explicit blocked/error state:
+
+```python
+# Wrong: re-enters the loop; silent dead cycle
+if all_fixers_failed:
+    transition(State.CI_WAIT)
+
+# Correct: stop and surface the failure
+if all_fixers_failed:
+    transition(State.BLOCKED, reason="all fixers raised exceptions")
+```
+
+Applies to any state machine with an auto-retry fixer pattern.
+
 ## `.gitignore` Does Not Mean Absent From Disk
 
 A `.gitignore`-listed directory still exists on disk. Shell globs, Python `rglob()`,
