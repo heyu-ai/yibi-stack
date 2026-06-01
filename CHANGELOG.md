@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [1.3.0] - 2026-06-02
+
+### Features
+
+- add ADR-0002 documenting CC bash parser bug workaround for D3/D4/D5 hook detections
+- add regression test monitoring anthropics/claude-code#56018 via Strategy A (claude --print) and Strategy B (GitHub issue state)
+- fix D3 grep-bre-doublequote fix suggestion priority: Grep tool first, then ERE -Ei, then BRE single-quote (aligns with project best practice)
+- bump bash-hygiene plugin to v1.3.0
+- register pytest.mark.slow in pyproject.toml
+
+### Bug Fixes
+
+- fix inconclusive claude CLI exit in parser bug regression test (auth/startup failure no longer silently passes as "bug present")
+
 ## [1.2.5] - 2026-06-01
 
 ### Features
