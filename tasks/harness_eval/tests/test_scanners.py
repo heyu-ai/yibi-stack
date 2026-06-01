@@ -993,6 +993,32 @@ class TestScanTokenEconomy:
         result = scan_token_economy(target)
         assert result.score <= result.max_score
 
+    # --- TE-DT-010: mid-range always-on no WARN ---
+
+    def test_te_dt_010_midrange_always_on_no_warn(self, tmp_path: Path) -> None:
+        """TE-DT-010: always-on chars = 19999 → no WARN always-on finding (mid-range)."""
+        target = make_te_target(
+            tmp_path,
+            claude_md_chars=10000,
+            rule_files={"01-rule.md": 9999},
+        )
+        result = scan_token_economy(target)
+        assert int(result.extra["always_on_chars"][0]) == 19999
+        assert not any("WARN always-on context" in f for f in result.findings)
+
+    # --- TE-DT-011: WARN threshold boundary at 20000 ---
+
+    def test_te_dt_011_warn_threshold_at_20000(self, tmp_path: Path) -> None:
+        """TE-DT-011: always-on chars = 20000 → WARN always-on context."""
+        target = make_te_target(
+            tmp_path,
+            claude_md_chars=10000,
+            rule_files={"01-rule.md": 10000},
+        )
+        result = scan_token_economy(target)
+        assert int(result.extra["always_on_chars"][0]) == 20000
+        assert any("WARN always-on context" in f for f in result.findings)
+
     # --- SMK-001: minimal empty dir smoke test ---
 
     def test_te_smk_001_smoke_minimal_dir(self, tmp_path: Path) -> None:

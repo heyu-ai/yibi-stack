@@ -28,7 +28,7 @@ D11_MAX = 8  # 與 D1 同等重要性
 
 def scan_token_economy(target_dir: Path) -> MechanicalFinding:
     """D11：Context / Token Economy 靜態 proxy 掃描。
-    
+
     注意：所有數字為字元估計（非精準 token 計量）。
     """
     ...

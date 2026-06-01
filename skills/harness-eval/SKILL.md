@@ -130,13 +130,13 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 
 > 注意：D11 所有數字均為字元估計（非精準 token 計量），請以此為近似指標。
 
-| 子項 | 機械線索 | 滿分條件 |
-|------|---------|---------|
-| always-on 比例合理 | `extra["always_on_chars"]` | always-on proxy < 20000 字元 → +2 分；≥ 20000 → +0 |
-| progressive-disclosure 活用 | `extra["on_demand_chars"]` / `extra["total_chars"]` | on-demand 比例 ≥ 50% → +1 分 |
-| effort 相稱性 | `extra["effort_missing_skills"]` 為空 | 無長 skill 缺 effort: → +1 分 |
+| 子項 | 機械線索 | 滿分條件 | 扣分 / 無分條件 |
+|------|---------|---------|----------------|
+| always-on 比例合理 | `extra["always_on_chars"]` | < 5000 字元 → +2 分 | 5000–19999 → +0；≥ 20000 → WARN |
+| progressive-disclosure 活用 | `extra["on_demand_chars"]` / `extra["total_chars"]` | on-demand 比例 ≥ 50% → +1 分 | < 50% → +0 |
+| effort 相稱性 | `extra["effort_missing_skills"]` 為空 | 無長 skill 缺 effort: → +1 分 | 有缺少 → +0 |
 
-邊際遞減注意：機械分已對超高 always-on chars 進行扣分懲罰；語意分補充整體 token economy 設計的主觀判斷。
+邊際遞減注意：機械分對超高 always-on chars（>20000）另有分數懲罰（-1 至 -3）；語意分補充整體 token economy 設計的主觀判斷。
 
 ### Step 4 -- 三合一報告輸出
 

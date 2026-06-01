@@ -277,7 +277,7 @@ def _has_effort_frontmatter(skill_md: Path) -> bool:
     parts = "".join(lines).split("---", 2)
     if len(parts) < 3:
         return False
-    return "effort:" in parts[1]
+    return bool(re.search(r"^effort:", parts[1], re.MULTILINE))
 
 
 def _check_effort_alignment(target_dir: Path) -> list[str]:
@@ -332,6 +332,11 @@ def scan_token_economy(target_dir: Path) -> MechanicalFinding:
 
     if always_on_chars <= _ALWAYS_ON_OK_THRESHOLD:
         findings.append(f"OK always-on context: {always_on_chars} chars（{_DISCLAIMER}）")
+    elif always_on_chars < _ALWAYS_ON_WARN_THRESHOLD:
+        findings.append(
+            f"always-on context: {always_on_chars} chars "
+            f"（{_ALWAYS_ON_OK_THRESHOLD}–{_ALWAYS_ON_WARN_THRESHOLD} 範圍，{_DISCLAIMER}）"
+        )
     else:
         findings.append(
             f"WARN always-on context: {always_on_chars} chars "
