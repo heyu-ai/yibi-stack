@@ -4,6 +4,8 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
+import pytest
+
 from tasks.harness_eval.scanners.claude_md import scan_claude_md
 from tasks.harness_eval.scanners.git import scan_git
 from tasks.harness_eval.scanners.hooks import scan_hooks
@@ -14,6 +16,7 @@ from tasks.harness_eval.scanners.settings import scan_settings
 from tasks.harness_eval.scanners.skills import scan_skills
 from tasks.harness_eval.scanners.subagents import scan_subagents
 from tasks.harness_eval.scanners.testing import scan_testing
+from tasks.harness_eval.scanners.token_economy import scan_token_economy
 
 
 def make_target(tmp_path: Path, *, claude_md: str | None = None) -> Path:
@@ -719,3 +722,297 @@ class TestScanNavigation:
         # 此格式無 @-mention，僅得 tree-structure 分
         assert result.score == 1
         assert any("目錄樹" in f or "結構圖" in f for f in result.findings)
+
+
+# ---------------------------------------------------------------------------
+# D11 Token Economy Scanner Tests
+# ---------------------------------------------------------------------------
+
+_DISCLAIMER = "字元估計（非精準 token 計量）"
+_D11_MAX = 8
+
+
+def make_te_target(
+    tmp_path: Path,
+    *,
+    claude_md_chars: int = 0,
+    rule_files: dict[str, int] | None = None,
+    memory_chars: int = 0,
+    skill_bodies: dict[str, int] | None = None,
+) -> Path:
+    """建立 D11 測試用目錄的 helper factory。
+
+    - claude_md_chars: CLAUDE.md 字元數
+    - rule_files: {filename: chars} for .claude/rules/
+    - memory_chars: .claude/memory/notes.md 字元數
+    - skill_bodies: {skill_name: body_chars} for skills/<name>/SKILL.md
+    """
+    if claude_md_chars:
+        (tmp_path / "CLAUDE.md").write_text("x" * claude_md_chars, encoding="utf-8")
+    if rule_files:
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        for fname, chars in rule_files.items():
+            (rules_dir / fname).write_text("x" * chars, encoding="utf-8")
+    if memory_chars:
+        mem_dir = tmp_path / ".claude" / "memory"
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        (mem_dir / "notes.md").write_text("x" * memory_chars, encoding="utf-8")
+    if skill_bodies:
+        skills_root = tmp_path / "skills"
+        for skill_name, body_chars in skill_bodies.items():
+            skill_dir = skills_root / skill_name
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            frontmatter = "---\nname: test\ntype: exec\nscope: global\ndescription: test\n---\n"
+            (skill_dir / "SKILL.md").write_text(frontmatter + "x" * body_chars, encoding="utf-8")
+    return tmp_path
+
+
+class TestScanTokenEconomy:
+    # --- TE-DT-001: high always-on WARN ---
+
+    def test_te_dt_001_high_always_on_warn(self, tmp_path: Path) -> None:
+        """TE-DT-001: always-on chars > 20000 → WARN finding + score < max."""
+        target = make_te_target(
+            tmp_path,
+            claude_md_chars=10001,
+            rule_files={"01-rule.md": 10000},
+        )
+        result = scan_token_economy(target)
+        assert result.dimension == "D11"
+        assert any("WARN always-on context" in f for f in result.findings)
+        char_count = int(result.extra["always_on_chars"][0])
+        assert char_count == 20001
+        assert result.score < result.max_score
+
+    # --- TE-DT-002: low always-on OK ---
+
+    def test_te_dt_002_low_always_on_ok(self, tmp_path: Path) -> None:
+        """TE-DT-002: always-on chars ≤ 5000 → OK finding + score >= max - 1.
+
+        Includes sufficient on-demand content (ratio >= 0.5) so the score
+        contribution from always-on alone is not the bottleneck.
+        """
+        target = make_te_target(
+            tmp_path,
+            claude_md_chars=1000,
+            skill_bodies={"foo": 5000},  # ratio = 5000/6000 = 83% → +2 PD
+        )
+        result = scan_token_economy(target)
+        assert any("OK always-on context" in f for f in result.findings)
+        assert result.score >= result.max_score - 1
+
+    # --- TE-DT-003: score decreases with token growth ---
+
+    def test_te_dt_003_score_decreases_with_token_growth(
+        self, tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        """TE-DT-003: score(5000 chars) > score(30000 chars); 30000 → score ≤ max - 3."""
+        dir_a = make_te_target(tmp_path, claude_md_chars=5000)
+        dir_b = make_te_target(tmp_path_factory.mktemp("dir_b"), claude_md_chars=30000)
+        result_a = scan_token_economy(dir_a)
+        result_b = scan_token_economy(dir_b)
+        assert result_a.score > result_b.score
+        assert result_b.score <= result_b.max_score - 3
+
+    # --- TE-EG-001: disclaimer in findings ---
+
+    def test_te_eg_001_findings_include_disclaimer(self, tmp_path: Path) -> None:
+        """TE-EG-001: non-empty findings always include char estimate disclaimer."""
+        target = make_te_target(
+            tmp_path,
+            claude_md_chars=10001,
+            rule_files={"01-rule.md": 10000},
+        )
+        result = scan_token_economy(target)
+        assert result.findings
+        assert any(_DISCLAIMER in f for f in result.findings)
+
+    # --- TE-DT-004: low progressive-disclosure WARN ---
+
+    def test_te_dt_004_low_progressive_disclosure_warn(self, tmp_path: Path) -> None:
+        """TE-DT-004: on_demand/total < 0.3 → WARN with ratio value."""
+        target = make_te_target(tmp_path, claude_md_chars=8000)
+        result = scan_token_economy(target)
+        assert any("WARN progressive-disclosure 比例過低" in f for f in result.findings)
+        warn_f = next(f for f in result.findings if "WARN progressive-disclosure" in f)
+        assert "%" in warn_f
+
+    # --- TE-DT-005: adequate progressive-disclosure OK ---
+
+    def test_te_dt_005_adequate_progressive_disclosure_ok(self, tmp_path: Path) -> None:
+        """TE-DT-005: on_demand/total >= 0.5 → OK finding."""
+        target = make_te_target(
+            tmp_path,
+            claude_md_chars=2000,
+            skill_bodies={"foo": 4000},
+        )
+        result = scan_token_economy(target)
+        assert any("OK progressive-disclosure" in f for f in result.findings)
+
+    # --- TE-EG-002: skill body counted as on-demand ---
+
+    def test_te_eg_002_skill_body_counted_as_on_demand(self, tmp_path: Path) -> None:
+        """TE-EG-002: SKILL.md body chars go to on_demand_chars, not always_on_chars."""
+        target = make_te_target(
+            tmp_path,
+            claude_md_chars=1000,
+            skill_bodies={"foo": 3000},
+        )
+        result = scan_token_economy(target)
+        on_demand = int(result.extra["on_demand_chars"][0])
+        always_on = int(result.extra["always_on_chars"][0])
+        assert on_demand >= 3000
+        assert always_on == 1000
+
+    # --- TE-DT-006: CLAUDE.md↔rules overlap WARN ---
+
+    def test_te_dt_006_claude_md_rules_overlap_warn(self, tmp_path: Path) -> None:
+        """TE-DT-006: CLAUDE.md and rules share ≥ 3 high-freq words → WARN."""
+        # Use distinctive non-stopword tokens repeated many times
+        shared = "workflow commit branch deploy pipeline rollback versioning"
+        rule_content = (shared + " ") * 20
+        claude_content = (shared + " other content ") * 20
+        (tmp_path / "CLAUDE.md").write_text(claude_content, encoding="utf-8")
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        (rules_dir / "01-rule.md").write_text(rule_content, encoding="utf-8")
+        result = scan_token_economy(tmp_path)
+        assert any("WARN CLAUDE.md↔rules 重疊" in f for f in result.findings)
+
+    # --- TE-DT-007: no overlap OK ---
+
+    def test_te_dt_007_no_overlap_ok(self, tmp_path: Path) -> None:
+        """TE-DT-007: < 3 shared high-freq words → OK."""
+        claude_content = "alpha beta gamma delta epsilon " * 20
+        rule_content = "zeta eta theta iota kappa " * 20
+        (tmp_path / "CLAUDE.md").write_text(claude_content, encoding="utf-8")
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        (rules_dir / "01-rule.md").write_text(rule_content, encoding="utf-8")
+        result = scan_token_economy(tmp_path)
+        assert any("OK no CLAUDE.md↔rules redundancy detected" in f for f in result.findings)
+
+    # --- TE-EG-003: overlap word list bounded ---
+
+    def test_te_eg_003_overlap_word_list_bounded(self, tmp_path: Path) -> None:
+        """TE-EG-003: WARN overlap finding lists ≤ 5 words even when 10+ overlap."""
+        shared = "workflow commit branch deploy pipeline rollback versioning rebasing tagging"
+        rule_content = (shared + " ") * 20
+        claude_content = (shared + " extra ") * 20
+        (tmp_path / "CLAUDE.md").write_text(claude_content, encoding="utf-8")
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        (rules_dir / "01-rule.md").write_text(rule_content, encoding="utf-8")
+        result = scan_token_economy(tmp_path)
+        overlap_words = result.extra["overlap_words"]
+        assert len(overlap_words) <= 5
+
+    # --- TE-DT-008: long skill no effort WARN ---
+
+    def test_te_dt_008_long_skill_no_effort_warn(self, tmp_path: Path) -> None:
+        """TE-DT-008: SKILL.md body > 2000 chars + no effort: → WARN with skill name."""
+        skills_dir = tmp_path / "skills" / "slow"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        frontmatter = "---\nname: slow\ntype: exec\nscope: global\ndescription: heavy\n---\n"
+        (skills_dir / "SKILL.md").write_text(frontmatter + "x" * 2001, encoding="utf-8")
+        result = scan_token_economy(tmp_path)
+        assert any("WARN effort 未設定" in f for f in result.findings)
+        assert any("slow" in f for f in result.findings)
+
+    # --- TE-DT-009: short skill no effort OK ---
+
+    def test_te_dt_009_short_skill_no_effort_ok(self, tmp_path: Path) -> None:
+        """TE-DT-009: SKILL.md body ≤ 2000 chars + no effort: → no WARN."""
+        skills_dir = tmp_path / "skills" / "fast"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        frontmatter = "---\nname: fast\ntype: exec\nscope: global\ndescription: light\n---\n"
+        (skills_dir / "SKILL.md").write_text(frontmatter + "x" * 2000, encoding="utf-8")
+        result = scan_token_economy(tmp_path)
+        assert not any("WARN effort 未設定" in f for f in result.findings)
+
+    # --- TE-ST-002: run_scan includes D11 ---
+
+    def test_te_st_002_run_scan_includes_d11(self, tmp_path: Path) -> None:
+        """TE-ST-002: run_scan output includes D11 dimension."""
+        from tasks.harness_eval.service import run_scan
+
+        result = run_scan(tmp_path)
+        d11 = next((d for d in result.dimensions if d.dimension == "D11"), None)
+        assert d11 is not None
+        assert d11.max_score == _D11_MAX
+        assert result.total_mechanical_max >= _D11_MAX
+
+    # --- TE-ST-001: D11 effort WARN isolated (does not affect D4) ---
+
+    def test_te_st_001_effort_check_isolated_to_d11(self, tmp_path: Path) -> None:
+        """TE-ST-001: long skill effort WARN is only in D11, not in D4."""
+        from tasks.harness_eval.service import run_scan
+
+        skills_dir = tmp_path / "skills" / "heavy"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        frontmatter = "---\nname: heavy\ntype: exec\nscope: global\ndescription: heavy skill\n---\n"
+        (skills_dir / "SKILL.md").write_text(frontmatter + "x" * 2001, encoding="utf-8")
+        scan_output = run_scan(tmp_path)
+        d11 = next(d for d in scan_output.dimensions if d.dimension == "D11")
+        d4 = next(d for d in scan_output.dimensions if d.dimension == "D4")
+        assert any("WARN effort 未設定" in f for f in d11.findings)
+        assert not any("WARN effort 未設定" in f for f in d4.findings)
+
+    # --- TE-VL-001: score never negative (validation via model) ---
+
+    def test_te_vl_001_score_never_negative(self, tmp_path: Path) -> None:
+        """TE-VL-001: MechanicalFinding score cannot be negative."""
+        from pydantic import ValidationError
+
+        from tasks.harness_eval.models import MechanicalFinding
+
+        with pytest.raises(ValidationError):
+            MechanicalFinding(
+                dimension="D11",
+                label="test",
+                score=-1,
+                max_score=8,
+            )
+
+    # --- TE-VL-002: score capped at max_score ---
+
+    def test_te_vl_002_score_capped_at_max(self, tmp_path: Path) -> None:
+        """TE-VL-002: score never exceeds max_score for ideal dir."""
+        target = make_te_target(
+            tmp_path,
+            claude_md_chars=1000,
+        )
+        # Add skill with effort: set
+        skills_dir = target / "skills" / "good"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        frontmatter = (
+            "---\nname: good\ntype: exec\nscope: global\ndescription: test\neffort: low\n---\n"
+        )
+        (skills_dir / "SKILL.md").write_text(frontmatter + "x" * 500, encoding="utf-8")
+        result = scan_token_economy(target)
+        assert result.score <= result.max_score
+
+    # --- SMK-001: minimal empty dir smoke test ---
+
+    def test_te_smk_001_smoke_minimal_dir(self, tmp_path: Path) -> None:
+        """SMK-001: scan_token_economy on empty dir completes without exception."""
+        result = scan_token_economy(tmp_path)
+        assert result.dimension == "D11"
+        assert isinstance(result.score, int)
+
+    # --- TE-EG-004: timing test ---
+
+    def test_te_eg_004_scan_speed_under_100ms(self, tmp_path: Path) -> None:
+        """TE-EG-004: scan_token_economy completes in < 100ms."""
+        import time
+
+        target = make_te_target(
+            tmp_path,
+            claude_md_chars=1000,
+            rule_files={f"{i:02d}-rule.md": 5000 for i in range(1, 15)},
+        )
+        start = time.perf_counter()
+        scan_token_economy(target)
+        elapsed = time.perf_counter() - start
+        assert elapsed < 0.1, f"scan_token_economy took {elapsed:.3f}s, expected < 0.1s"

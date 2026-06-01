@@ -10,6 +10,7 @@ from .settings import scan_settings
 from .skills import scan_skills
 from .subagents import scan_subagents
 from .testing import scan_testing
+from .token_economy import scan_token_economy
 
 __all__ = [
     "scan_claude_md",
@@ -22,4 +23,5 @@ __all__ = [
     "scan_skills",
     "scan_subagents",
     "scan_testing",
+    "scan_token_economy",
 ]

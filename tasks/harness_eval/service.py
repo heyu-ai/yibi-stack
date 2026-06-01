@@ -16,6 +16,7 @@ from .scanners import (
     scan_skills,
     scan_subagents,
     scan_testing,
+    scan_token_economy,
 )
 
 
@@ -53,6 +54,7 @@ def run_scan(target_dir: Path | str) -> ScanOutput:
         _safe_scan(scan_security, target, "D8", "Security & Trust", 7),
         _safe_scan(scan_subagents, target, "D9", "Subagents（探索/編輯隔離）", 4),
         _safe_scan(scan_navigation, target, "D10", "Codebase Navigation", 3),
+        _safe_scan(scan_token_economy, target, "D11", "Context / Token Economy", 8),
     ]
     return ScanOutput(
         target_dir=str(target),
