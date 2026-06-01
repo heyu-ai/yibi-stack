@@ -66,6 +66,9 @@ follow_imports = "skip"
 [tool.pytest.ini_options]
 testpaths = ["tasks", ".claude/hooks/tests", "plugins/sdd/scripts/tests", "commands/scripts/tests"]
 pythonpath = [".", "commands/scripts"]
+markers = [
+    "slow: marks tests as slow (CI nightly / monthly, deselect with -m 'not slow')",
+]
 
 [tool.pylint.main]
 load-plugins = ["pylint.extensions.no_self_use"]
