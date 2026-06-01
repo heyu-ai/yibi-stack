@@ -34,17 +34,24 @@
 
 ## Severity 對應規則
 
+severity 以 [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) 強度關鍵字判斷 merge 後果，而非主觀嚴重感：
+
+- `critical` = **MUST**（不修不能 merge）：功能／邏輯錯誤、安全漏洞、log 洩漏 PII 或 secret、data loss、違反明確 baseline
+- `important` = **SHOULD**（不修需在 PR 說明理由）：critical path 測試缺口、silent failure、命名／結構不一致、文件誤導
+- `actionable_nit` = **MAY**（不擋 merge）：具體可執行的小修正（命名、typo、import 順序），非主觀偏好
+
 | 原始輸出標記 | 輸出 severity |
 |-------------|---------------|
 | `[P1]`、`[ERROR]`、`[BUG]`、`Critical`、`bug`、安全漏洞、data loss | `critical` |
 | `[P2]`、`[WARNING]`、`Important`、race condition、silent failure、測試覆蓋缺口 | `important` |
-| `[P3]`、`[NIT]`、`style`、命名、typo、import 順序、comment 拼字 | `actionable_nit` |
+| `[P3]`、`[NIT]`、`[Minor]`、`Actionable NIT`、具體命名修正、typo、import 順序、comment 拼字 | `actionable_nit` |
 
 **丟棄規則（不放入 findings）**：
 
 - 主觀偏好（「我覺得 X 比 Y 更優雅」但無客觀可驗證理由）
 - 行為正確但風格不同（只要通過測試且無 bug）
 - 已被 reviewer 自己標為「minor」且無具體修法
+- 需要更多 context 才能判斷、且沒有可驗證修法的建議
 - 整份 raw 中只是「整體看起來不錯」或「LGTM」的概述語句
 
 ---

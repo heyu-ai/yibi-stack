@@ -25,6 +25,7 @@
         "properties": {
           "severity": {
             "type": "string",
+            "description": "RFC 2119 強度：critical=MUST（擋 merge）／important=SHOULD（需在 PR 說明理由）／actionable_nit=MAY（不擋 merge）",
             "enum": ["critical", "important", "actionable_nit"]
           },
           "title": {
