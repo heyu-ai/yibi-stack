@@ -332,7 +332,7 @@ Store as `.claude/rules/14-shell-quoting-hygiene.md`:
 
 Rule 1: $VAR inside $(cmd $VAR) must always be quoted -> "$VAR" (prevents simple_expansion; avoid bracket form "${VAR}", see Rule 5)
 Rule 2: "$(cmd "$VAR")" same-type quote conflict -> split into separate bash call (prevents class D)
-Rule 3: grep "pat\|pat2" double-quote BRE -> grep 'pat\|pat2' (prevents class D)
+Rule 3: grep "pat\|pat2" double-quote BRE -> fix in priority order: A) Claude Code Grep tool (recommended); B) grep -Ei 'pat1|pat2' (ERE, GNU-recommended); C) grep -i 'pat1\|pat2' (BRE single-quote, valid but backslash-prone) — prevents class D
 Rule 4: $(outer "$(inner)") reverse-nested subshell -> split into two separate bash calls (prevents class D)
 Rule 5: "${VAR}" bracket form triggers expansion false positive -> use "$VAR" plain form instead
 

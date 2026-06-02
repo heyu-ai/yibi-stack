@@ -7,3 +7,4 @@
 | ID | Title | Status | Date |
 |----|-------|--------|------|
 | [0001](0001-spectra-amplifier-plugin-redesign.md) | Spectra Amplifier Plugin 重設計 — 對齊 yibi-mvp ADR-0006/0008 (Wave D) | accepted | 2026-05-27 |
+| [0002](0002-bash-parser-bug-hook-workaround.md) | CC Bash Parser Bug Workaround — PreToolUse Hook for D3/D4/D5 Patterns | accepted | 2026-06-02 |

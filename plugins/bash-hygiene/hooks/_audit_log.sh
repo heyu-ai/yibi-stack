@@ -1,7 +1,7 @@
 #!/bin/bash
 # bash-hygiene audit functions for bash-ap1-inline-check.sh.
 # Source at hook top:  source "$(dirname "$0")/_audit_log.sh"
-# Then call:          audit_block "reason-slug"  or  audit_allow
+# Then call:          audit_block "reason-slug" "rule_id"  or  audit_allow
 
 _AUDIT_CHECKED=""
 _AUDIT_ENABLED="no"

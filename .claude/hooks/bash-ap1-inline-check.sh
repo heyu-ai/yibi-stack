@@ -192,10 +192,12 @@ if [ "${GREP_BRE_MATCH:-}" = "yes" ]; then
         "grep 雙引號 pattern 內含 \| 觸發 Unhandled node type: string。" \
         "即使 AP1 score 1/5，hook 仍觸發（Case 25）。" \
         "" \
-        "修法（擇一）：" \
-        "  A) 單引號 BRE：grep -i 'pat1\|pat2'" \
-        "  B) ERE flag：  grep -Ei 'pat1|pat2'" \
-        "  C) 拆成多個 grep call"
+        "修法（依優先順序）：" \
+        "  A) 改用 Claude Code 內建 Grep tool（推薦）" \
+        "     - 零 CWD 依賴、不觸發 hook、無需手動截斷" \
+        "     - 例外：需 -exec / --json / wc -l / 搜尋 gitignored 時才改用 bash" \
+        "  B) ERE flag（GNU 推薦 portability）：grep -Ei 'pat1|pat2'" \
+        "  C) 單引號 BRE（仍合法但 backslash 較易出錯）：grep -i 'pat1\|pat2'"
 fi
 
 # ── 偵測 4：$(outer "$(inner)") 反向巢狀 subshell ─────────────────────

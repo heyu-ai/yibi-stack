@@ -156,9 +156,12 @@ if [ "${GREP_BRE_MATCH:-}" = "yes" ]; then
     block "grep-bre-doublequote" \
         "BLOCKED: grep double-quoted BRE alternation (AP1)" \
         "" \
-        "Fix: use single quotes or -E flag" \
-        "  A) grep -i 'pat1\|pat2'" \
-        "  B) grep -Ei 'pat1|pat2'"
+        "Fix (in priority order):" \
+        "  A) Use Claude Code built-in Grep tool (recommended)" \
+        "     - No CWD dependency, no hook trigger, no manual truncation" \
+        "     - Exception: use bash when -exec / --json / wc -l / searching gitignored files" \
+        "  B) ERE flag (GNU recommended for portability): grep -Ei 'pat1|pat2'" \
+        "  C) BRE single-quote (valid, but backslash-prone): grep -i 'pat1\|pat2'"
 fi
 
 # Detection 4: $(outer "$(inner)") nested subshell

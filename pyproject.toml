@@ -1,6 +1,6 @@
 [project]
 name = "ainization-skill"
-version = "1.2.5"
+version = "1.3.0"
 description = "日常瑣事自動化工具集"
 requires-python = ">=3.11"
 dependencies = [
@@ -66,6 +66,10 @@ follow_imports = "skip"
 [tool.pytest.ini_options]
 testpaths = ["tasks", ".claude/hooks/tests", "plugins/sdd/scripts/tests", "commands/scripts/tests"]
 pythonpath = [".", "commands/scripts"]
+addopts = "-m 'not slow'"
+markers = [
+    "slow: marks tests as slow (CI nightly / monthly, deselect with -m 'not slow')",
+]
 
 [tool.pylint.main]
 load-plugins = ["pylint.extensions.no_self_use"]
