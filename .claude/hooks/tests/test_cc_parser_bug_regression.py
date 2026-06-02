@@ -16,10 +16,10 @@ Skip in fast loop: pytest -m "not slow"
 """
 
 import json
-import os
 import subprocess
+import sys
+import urllib.error
 import urllib.request
-from pathlib import Path
 
 import pytest
 
@@ -32,7 +32,7 @@ GH_ISSUE_API = (
 
 # All three D-class patterns that trigger "Unhandled node type: string"
 D3_REPRO = 'grep "foo\\|bar" /dev/null'      # double-quoted BRE alternation
-D4_REPRO = 'dirname "$(git rev-parse --git-dir)"'  # reverse-nested subshell
+D4_REPRO = 'MAIN=$(dirname "$(git rev-parse --git-dir)")'  # reverse-nested subshell
 D5_REPRO = 'VAR=$(jq -r \'.key\' /dev/null)'  # single-quoted jq in subshell
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
@@ -40,12 +40,13 @@ HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
 def _claude_binary() -> str | None:
     """Return path to claude CLI, or None if not found."""
-    result = subprocess.run(
-        ["which", "claude"], capture_output=True, text=True, timeout=5
-    )
-    if result.returncode == 0:
-        return result.stdout.strip()
-    return None
+    try:
+        result = subprocess.run(
+            ["which", "claude"], capture_output=True, text=True, timeout=5
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
 
 
 def _run_claude_print(command: str) -> subprocess.CompletedProcess:
@@ -54,36 +55,57 @@ def _run_claude_print(command: str) -> subprocess.CompletedProcess:
     Uses Haiku to avoid token waste — this test only needs parser behavior,
     not reasoning capability. The parser fires before model inference.
     """
-    env = os.environ.copy()
-    return subprocess.run(
-        [
-            "claude",
-            "--print",
-            "--model",
-            HAIKU_MODEL,
-            "--input-format",
-            "text",
-        ],
-        input=command,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        env=env,
-    )
+    try:
+        return subprocess.run(
+            [
+                "claude",
+                "--print",
+                "--model",
+                HAIKU_MODEL,
+                "--input-format",
+                "text",
+            ],
+            input=command,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.skip(
+            "claude --print timed out after 30s — possible network/auth issue; "
+            "cannot verify CC parser bug status"
+        )
 
 
 def _github_issue_state() -> str | None:
-    """Return GitHub issue state ('open'/'closed') or None on failure."""
+    """Return GitHub issue state ('open'/'closed'), or None if transiently unavailable."""
+    req = urllib.request.Request(
+        GH_ISSUE_API,
+        headers={
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "yibi-stack-cc-parser-bug-monitor",
+        },
+    )
     try:
-        req = urllib.request.Request(
-            GH_ISSUE_API,
-            headers={"Accept": "application/vnd.github.v3+json"},
-        )
         with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read())
-            return data.get("state")
-    except Exception:
+            body = resp.read()
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 429):
+            print(f"[warn] GitHub API rate-limited ({e.code}): {e}", file=sys.stderr)
+            return None
+        print(f"[warn] GitHub API HTTP {e.code}: {e}", file=sys.stderr)
         return None
+    except (urllib.error.URLError, OSError) as e:
+        print(f"[warn] GitHub API network error: {e}", file=sys.stderr)
+        return None
+
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        print(f"[warn] GitHub API non-JSON response: {body[:200]!r}", file=sys.stderr)
+        return None
+
+    return data.get("state")
 
 
 # ── Strategy A: direct parser probe ───────────────────────────────────────

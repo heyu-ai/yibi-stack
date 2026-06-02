@@ -66,6 +66,7 @@ follow_imports = "skip"
 [tool.pytest.ini_options]
 testpaths = ["tasks", ".claude/hooks/tests", "plugins/sdd/scripts/tests", "commands/scripts/tests"]
 pythonpath = [".", "commands/scripts"]
+addopts = "-m 'not slow'"
 markers = [
     "slow: marks tests as slow (CI nightly / monthly, deselect with -m 'not slow')",
 ]

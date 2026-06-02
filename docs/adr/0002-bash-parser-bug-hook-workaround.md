@@ -11,7 +11,7 @@ related:
     title: "Unhandled node type: string — bash parser rejects valid grep BRE / nested subshell / jq single-quote patterns"
     posted: 2026-05-04
     cc_version: "2.1.118"
-  pr: TBD
+  pr: 130
 ---
 
 ## Context
@@ -45,14 +45,15 @@ Claude Code's parser sees the command. The hook:
 
 1. Prints a fix suggestion with priority ordering (Grep tool > ERE > BRE single-quote)
 2. Exits with code 2 (block), preventing the parser error
-3. Records a JSONL audit event to `.runtime/logs/bash-hygiene-audit.jsonl`
+3. Optionally records a JSONL audit event to `.runtime/logs/bash-hygiene-audit.jsonl`
+   (requires `"audit_enabled": true` in `~/.agents/bash-hygiene.json`)
 
 The hook runs in the detection path before the bash parser, so the parser error never surfaces.
 
 ### Fix Suggestion Priority (D3)
 
 The D3 fix suggestion is ordered to align with project best practice
-(`rules-context.md` § Prefer Built-in Tools Over Bash for Code Search):
+(`.claude/rules/13-bash-anti-patterns.md` § Prefer Built-in Tools Over Bash for Code Search):
 
 1. **A) Claude Code built-in Grep tool** — zero CWD dependency, no hook trigger, no manual truncation
 2. **B) `grep -Ei 'pat1|pat2'`** — ERE flag, GNU-recommended for portability (per GNU grep manual)
@@ -66,12 +67,14 @@ D6 (`rg-bre-misuse`) already uses Grep tool as option A; D3 now follows the same
 - Parser errors no longer disrupt agent workflow for D3/D4/D5 patterns
 - Fix suggestions guide the agent toward best practice rather than just unblocking
 - Audit log provides visibility into how often each pattern is intercepted
+  (opt-in via `~/.agents/bash-hygiene.json`)
 
 **Negative / Trade-offs:**
 - Maintenance cost: each new CC parser-bug pattern requires a new Python regex in the hook
 - False negatives: regex-based detection cannot cover all quoting variants (deeply nested,
   heredoc-wrapped, or dynamically assembled commands may slip through)
-- Runtime cost: Python subprocess invoked on every Bash tool call (~3ms overhead, negligible)
+- Runtime cost: 7 `python3` subprocesses invoked per Bash tool call; typical overhead
+  ~300–500ms on macOS. Acceptable for PreToolUse hooks but not negligible.
 
 **Rejected alternatives:**
 - *Train the agent to avoid the patterns* — unreliable; the patterns are idiomatic and agents

@@ -6,13 +6,15 @@
 
 - add ADR-0002 documenting CC bash parser bug workaround for D3/D4/D5 hook detections
 - add regression test monitoring anthropics/claude-code#56018 via Strategy A (claude --print) and Strategy B (GitHub issue state)
-- fix D3 grep-bre-doublequote fix suggestion priority: Grep tool first, then ERE -Ei, then BRE single-quote (aligns with project best practice)
+- register pytest.mark.slow in pyproject.toml; addopts excludes slow tests from default run
 - bump bash-hygiene plugin to v1.3.0
-- register pytest.mark.slow in pyproject.toml
 
 ### Bug Fixes
 
+- fix D3 grep-bre-doublequote fix suggestion priority: Grep tool first, then ERE -Ei, then BRE single-quote (was: BRE first, contradicting project best practice)
 - fix inconclusive claude CLI exit in parser bug regression test (auth/startup failure no longer silently passes as "bug present")
+- fix D4 repro constant to include outer `$()` wrapper (was missing the actual nested subshell pattern)
+- fix TimeoutExpired and bare except Exception in regression test helpers
 
 ## [1.2.5] - 2026-06-01
 
