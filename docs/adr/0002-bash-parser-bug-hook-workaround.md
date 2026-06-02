@@ -32,6 +32,7 @@ parser, not in the commands themselves.
 ### Why Not Just Avoid the Patterns?
 
 All three patterns appear naturally in agent-generated bash:
+
 - D3: BRE alternation is a standard grep idiom for multi-term search
 - D4: Nested subshell for path computation is the idiomatic alternative to `cd &&`
 - D5: jq single-quoted filter is the canonical form in every jq tutorial
@@ -64,12 +65,14 @@ D6 (`rg-bre-misuse`) already uses Grep tool as option A; D3 now follows the same
 ## Consequences
 
 **Positive:**
+
 - Parser errors no longer disrupt agent workflow for D3/D4/D5 patterns
 - Fix suggestions guide the agent toward best practice rather than just unblocking
 - Audit log provides visibility into how often each pattern is intercepted
   (opt-in via `~/.agents/bash-hygiene.json`)
 
 **Negative / Trade-offs:**
+
 - Maintenance cost: each new CC parser-bug pattern requires a new Python regex in the hook
 - False negatives: regex-based detection cannot cover all quoting variants (deeply nested,
   heredoc-wrapped, or dynamically assembled commands may slip through)
@@ -77,6 +80,7 @@ D6 (`rg-bre-misuse`) already uses Grep tool as option A; D3 now follows the same
   ~300–500ms on macOS. Acceptable for PreToolUse hooks but not negligible.
 
 **Rejected alternatives:**
+
 - *Train the agent to avoid the patterns* — unreliable; the patterns are idiomatic and agents
   forget per-session rules under context pressure
 - *Patch CC directly* — anthropics/claude-code#56018 posted 2026-05-04; not yet fixed;

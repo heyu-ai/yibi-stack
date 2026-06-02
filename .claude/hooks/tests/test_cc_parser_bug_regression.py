@@ -26,14 +26,12 @@ import pytest
 # ── shared helpers ─────────────────────────────────────────────────────────
 
 ADR_URL = "https://github.com/anthropics/claude-code/issues/56018"
-GH_ISSUE_API = (
-    "https://api.github.com/repos/anthropics/claude-code/issues/56018"
-)
+GH_ISSUE_API = "https://api.github.com/repos/anthropics/claude-code/issues/56018"
 
 # All three D-class patterns that trigger "Unhandled node type: string"
-D3_REPRO = 'grep "foo\\|bar" /dev/null'      # double-quoted BRE alternation
+D3_REPRO = 'grep "foo\\|bar" /dev/null'  # double-quoted BRE alternation
 D4_REPRO = 'MAIN=$(dirname "$(git rev-parse --git-dir)")'  # reverse-nested subshell
-D5_REPRO = 'VAR=$(jq -r \'.key\' /dev/null)'  # single-quoted jq in subshell
+D5_REPRO = "VAR=$(jq -r '.key' /dev/null)"  # single-quoted jq in subshell
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
@@ -41,9 +39,7 @@ HAIKU_MODEL = "claude-haiku-4-5-20251001"
 def _claude_binary() -> str | None:
     """Return path to claude CLI, or None if not found."""
     try:
-        result = subprocess.run(
-            ["which", "claude"], capture_output=True, text=True, timeout=5
-        )
+        result = subprocess.run(["which", "claude"], capture_output=True, text=True, timeout=5)
     except (subprocess.TimeoutExpired, OSError):
         return None
     return result.stdout.strip() if result.returncode == 0 else None
@@ -130,8 +126,7 @@ class TestCCParserBugDirectProbe:
         result = _run_claude_print(command)
         combined = result.stdout + result.stderr
         parser_error_present = (
-            "Unhandled node type" in combined
-            or "unhandled node type" in combined.lower()
+            "Unhandled node type" in combined or "unhandled node type" in combined.lower()
         )
 
         # Non-zero exit without parser error = auth/startup failure, not a parser verdict.
@@ -192,8 +187,7 @@ class TestCCParserBugIssueMonitor:
 
         if state is None:
             pytest.skip(
-                "GitHub API unavailable (network issue or rate limit); "
-                "skipping issue state check"
+                "GitHub API unavailable (network issue or rate limit); skipping issue state check"
             )
 
         if state != "open":
