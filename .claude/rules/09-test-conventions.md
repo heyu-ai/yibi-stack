@@ -158,3 +158,55 @@ Applies to all suppression forms:
 
 Incident (PR #5): 6 markdownlint rules suppressed at once with no tracking issue;
 nearly became permanent until a follow-up commit re-enabled them all.
+
+## Bug-Monitoring Tests Must Have Three Explicit Outcomes
+
+When a test monitors for an upstream bug's continued existence, three outcomes are required:
+
+1. **pass** — bug is still present (expected state; monitoring is working)
+2. **fail** — bug is fixed, removal condition met (the desired detection signal)
+3. **skip** — tool unavailable or exit was inconclusive (not a verdict)
+
+Without the skip branch: if the monitored CLI exits non-zero due to auth failure or startup
+crash (not the expected error), the test silently "passes" as "bug still present" — giving
+false confidence that monitoring is working when it is not.
+
+```python
+def _assert_bug_still_present(self, command: str, pattern_id: str):
+    result = _run_cli(command)
+    combined = result.stdout + result.stderr
+    error_present = "Expected error text" in combined
+
+    # inconclusive: non-zero exit but target error not in output
+    if result.returncode != 0 and not error_present:
+        pytest.skip(f"CLI exited {result.returncode} without expected error for {pattern_id} "
+                    f"— possible auth/startup failure; cannot verify bug status")
+
+    bug_fixed = result.returncode == 0 and not error_present
+    if bug_fixed:
+        pytest.fail(f"REMOVAL CONDITION MET for {pattern_id}: bug appears fixed")
+```
+
+Source: PR #130 regression test for anthropics/claude-code#56018.
+
+## Bug Repro Constants Must Trigger the Complete Pattern
+
+A repro constant that does not actually trigger the target bug is worse than no repro:
+it creates false confidence that the monitoring suite is working.
+
+```python
+# Wrong: missing outer $() — does NOT trigger reverse-nested subshell parser bug
+D4_REPRO = 'dirname "$(git rev-parse --git-dir)"'
+
+# Correct: outer $() is what makes the parser see a nested subshell
+D4_REPRO = 'MAIN=$(dirname "$(git rev-parse --git-dir)")'
+```
+
+Rule: after writing a repro constant, verify it triggers the target bug in isolation
+before adding it to a monitoring test suite.
+
+This is distinct from "Test Fixture Schema Must Match Real Tool Schema" (fixture schema
+ensures mock data structure accuracy; repro completeness ensures the repro actually exercises
+the target code path).
+
+Source: PR #130, D4_REPRO fix in commit `7326cf3`.
