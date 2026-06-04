@@ -172,7 +172,7 @@ crash (not the expected error), the test silently "passes" as "bug still present
 false confidence that monitoring is working when it is not.
 
 ```python
-def _assert_bug_still_present(self, command: str, pattern_id: str):
+def _assert_bug_still_present(self, command: str, pattern_id: str) -> None:
     result = _run_cli(command)
     combined = result.stdout + result.stderr
     error_present = "Expected error text" in combined
