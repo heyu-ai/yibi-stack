@@ -195,3 +195,49 @@ for skill_dir in skills_root.iterdir():
         continue
     process(skill_md)
 ```
+
+## Catching and Logging Exceptions in CI/Network Helpers
+
+Network and subprocess helpers used in CI must catch specific exception types and log
+each failure mode to `stderr`. Bare `except Exception` swallows distinct failure modes
+(auth error, rate limit, network unreachable, JSON decode error) into a single silent
+`None` return, making CI failures undiagnosable.
+
+```python
+# Wrong: all failure modes become silent None returns
+def _fetch_state() -> str | None:
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+        return data.get("state")
+    except Exception:
+        return None  # auth error? rate limit? network down? impossible to tell
+
+# Correct: each failure mode logged to stderr with its code/message
+def _fetch_state() -> str | None:
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read()
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 429):
+            print(f"[warn] rate-limited ({e.code}): {e}", file=sys.stderr)
+        else:
+            print(f"[warn] HTTP {e.code}: {e}", file=sys.stderr)
+        return None
+    except (urllib.error.URLError, OSError) as e:
+        print(f"[warn] network error: {e}", file=sys.stderr)
+        return None
+    try:
+        return json.loads(body).get("state")
+    except json.JSONDecodeError:
+        print(f"[warn] non-JSON response: {body[:200]!r}", file=sys.stderr)
+        return None
+```
+
+Scope: any helper that calls external services (REST API, subprocess, file system) and
+returns `None` on failure, especially in CI contexts where failures must be diagnosable.
+
+This is distinct from "Exception Type Selection" (which describes what to *raise*); this
+section covers what to *catch and log* in infrastructure helpers.
+
+Source: PR #130, `_github_issue_state()` fix in commit `7326cf3`.
