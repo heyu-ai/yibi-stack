@@ -1108,5 +1108,191 @@ def handover_back(global_scope: bool, last: int, token_budget: int, as_json: boo
         click.echo(f"  {r.get('insight', '')}")
 
 
+# ─── control-log ─────────────────────────────────────────────────────────
+
+
+def _ctl_db_path() -> Path | None:
+    """讀取 MYCELIUM_DB_OVERRIDE env（測試注入用），無設定時回傳 None（用預設 path）。"""
+    import os
+
+    override = os.environ.get("MYCELIUM_DB_OVERRIDE")
+    return Path(override) if override else None
+
+
+@cli.group("control-log")
+def control_log() -> None:
+    """AI 開發行為審計 control log：add / show / stats / advice。"""
+
+
+@control_log.command("add")
+@click.option("--pr", "pr_number", required=True, type=int, help="PR 號碼")
+@click.option(
+    "--category",
+    required=True,
+    type=click.Choice(
+        [
+            c.value
+            for c in __import__(
+                "tasks.mycelium.models", fromlist=["ControlLogCategory"]
+            ).ControlLogCategory
+        ]
+    ),
+    help="entry 類別",
+)
+@click.option("--summary", required=True, help="事件摘要")
+@click.option(
+    "--user-requested",
+    "user_requested",
+    required=True,
+    type=int,
+    help="是否為使用者明確要求（0 或 1）",
+)
+@click.option("--evidence", default=None, help="佐證（可選）")
+@click.option(
+    "--severity", default=None, type=click.Choice(["low", "medium", "high"]), help="嚴重度"
+)
+@click.option(
+    "--files", "files_json", default=None, help="相關檔案（JSON array 字串，如 '[\"foo.py\"]'）"
+)
+@click.option(
+    "--verification-status", default=None, type=click.Choice(["verified", "partial", "unverified"])
+)
+@click.option(
+    "--test-type",
+    default=None,
+    type=click.Choice(["mock", "unit", "integration", "live_smoke", "prod_verified"]),
+)
+@click.option("--handover-id", default=None, help="關聯 handover id")
+@click.option("--project", default="", help="所屬 project（預設空字串）")
+def control_log_add(  # pylint: disable=too-many-arguments
+    pr_number: int,
+    category: str,
+    summary: str,
+    user_requested: int,
+    evidence: str | None,
+    severity: str | None,
+    files_json: str | None,
+    verification_status: str | None,
+    test_type: str | None,
+    handover_id: str | None,
+    project: str,
+) -> None:
+    """寫入一筆 control log entry。"""
+    from .control_log_service import write_control_log
+    from .models import ControlLogCategory, ControlLogEntry
+
+    files: list[str] = []
+    if files_json:
+        try:
+            parsed = json.loads(files_json)
+            if isinstance(parsed, list):
+                files = [str(f) for f in parsed]
+        except json.JSONDecodeError as exc:
+            click.echo("✗ --files 必須為合法的 JSON array 字串", err=True)
+            raise SystemExit(1) from exc
+
+    try:
+        entry = ControlLogEntry(
+            pr_number=pr_number,
+            category=ControlLogCategory(category),
+            summary=summary,
+            user_requested=user_requested,
+            evidence=evidence,
+            severity=severity,
+            files=files,
+            verification_status=verification_status,
+            test_type=test_type,
+            handover_id=handover_id,
+            project=project,
+        )
+    except ValueError as e:
+        click.echo(f"✗ 欄位驗證失敗：{e}", err=True)
+        raise SystemExit(1) from e
+
+    new_id = write_control_log(entry, db_path=_ctl_db_path())
+    click.echo(f"✓ 已寫入 control log entry (id={new_id})")
+
+
+@control_log.command("show")
+@click.option("--pr", "pr_number", required=True, type=int, help="PR 號碼")
+@click.option("--project", default=None, help="過濾 project（可選）")
+def control_log_show(pr_number: int, project: str | None) -> None:
+    """列印指定 PR 的所有 entries 表格。"""
+    from .control_log_service import read_control_log
+
+    rows = read_control_log(pr_number, project=project, db_path=_ctl_db_path())
+    if not rows:
+        click.echo(f"(PR #{pr_number} 無 entries)")
+        return
+
+    col_w = {"id": 4, "category": 20, "summary": 40, "severity": 8, "user_req": 4}
+    header = (
+        f"{'ID':<{col_w['id']}}  "
+        f"{'category':<{col_w['category']}}  "
+        f"{'summary':<{col_w['summary']}}  "
+        f"{'severity':<{col_w['severity']}}  "
+        f"{'usr_req':<{col_w['user_req']}}"
+    )
+    click.echo(header)
+    click.echo("-" * len(header))
+    for r in rows:
+        summary_trunc = (r["summary"] or "")[: col_w["summary"]]
+        click.echo(
+            f"{r['id']!s:<{col_w['id']}}  "
+            f"{(r['category'] or ''):<{col_w['category']}}  "
+            f"{summary_trunc:<{col_w['summary']}}  "
+            f"{(r['severity'] or 'N/A'):<{col_w['severity']}}  "
+            f"{r['user_requested']!s:<{col_w['user_req']}}"
+        )
+
+
+@control_log.command("stats")
+@click.option("--since-days", default=30, type=int, help="統計窗口（N 天前）")
+@click.option("--by", default=None, type=click.Choice(["category", "project"]), help="分組維度")
+@click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
+def control_log_stats(since_days: int, by: str | None, as_json: bool) -> None:
+    """跨 session 統計 autonomy_ratio / deviation_ratio 等四個指標。"""
+    from .control_log_service import compute_grouped_stats, compute_stats
+
+    if by:
+        groups = compute_grouped_stats(since_days=since_days, by=by, db_path=_ctl_db_path())
+        if as_json:
+            click.echo(json.dumps(groups, ensure_ascii=False))
+            return
+        if not groups:
+            click.echo("(no data)")
+            return
+        click.echo(f"{'group':<30}  count")
+        click.echo("-" * 40)
+        for g in groups:
+            click.echo(f"{g['group']:<30}  {g['count']}")
+        return
+
+    stats = compute_stats(since_days=since_days, db_path=_ctl_db_path())
+
+    def _fmt(v: float | None) -> str:
+        return "N/A" if v is None else f"{v:.1%}"
+
+    if as_json:
+        click.echo(json.dumps(stats, ensure_ascii=False))
+        return
+
+    click.echo(f"autonomy_ratio     : {_fmt(stats['autonomy_ratio'])}")
+    click.echo(f"deviation_ratio    : {_fmt(stats['deviation_ratio'])}")
+    click.echo(f"irreversible_ops   : {stats['irreversible_op_count']}")
+    click.echo(f"verification_score : {_fmt(stats['verification_score'])}")
+    click.echo(f"total_entries      : {stats['total_entries']}")
+
+
+@control_log.command("advice")
+@click.option("--since-days", default=30, type=int, help="統計窗口（N 天前）")
+def control_log_advice(since_days: int) -> None:
+    """依閾值產生 AI 行為改善建議。"""
+    from .control_log_service import generate_advice
+
+    for line in generate_advice(since_days=since_days, db_path=_ctl_db_path()):
+        click.echo(line)
+
+
 if __name__ == "__main__":
     cli()

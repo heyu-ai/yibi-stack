@@ -359,3 +359,81 @@ class DebugReportRecord(BaseModel):
     @classmethod
     def check_timestamp_iso(cls, v: str) -> str:
         return _validate_iso_timestamp(v)
+
+
+class ControlLogCategory(StrEnum):
+    """Control log entry 類別（7 值）。"""
+
+    assumption = "assumption"
+    autonomous_decision = "autonomous_decision"
+    spec_deviation = "spec_deviation"
+    tradeoff = "tradeoff"
+    irreversible_op = "irreversible_op"
+    verification = "verification"
+    rollback = "rollback"
+
+
+_VALID_SEVERITIES = frozenset(("low", "medium", "high"))
+_VALID_VERIFICATION_STATUSES = frozenset(("verified", "partial", "unverified"))
+_VALID_TEST_TYPES = frozenset(("mock", "unit", "integration", "live_smoke", "prod_verified"))
+
+
+class ControlLogEntry(BaseModel):
+    """單筆 control log entry；對應 control_log_entries SQLite table。"""
+
+    id: int | None = None
+    created_at: str = Field(default_factory=_default_utc_now)
+    session_id: str | None = None
+    pr_number: int
+    project: str = ""
+    category: ControlLogCategory
+    summary: str
+    evidence: str | None = None
+    user_requested: int = 0
+    severity: str | None = None
+    files: list[str] = Field(default_factory=list)
+    verification_status: str | None = None
+    test_type: str | None = None
+    handover_id: str | None = None
+
+    @field_validator("user_requested")
+    @classmethod
+    def check_user_requested(cls, v: int) -> int:
+        if v not in (0, 1):
+            raise ValueError("user_requested 必須為 0 或 1")
+        return v
+
+    @field_validator("severity")
+    @classmethod
+    def check_severity(cls, v: str | None) -> str | None:
+        if v is not None and v not in _VALID_SEVERITIES:
+            raise ValueError(f"severity 必須為 {sorted(_VALID_SEVERITIES)}")
+        return v
+
+    @field_validator("verification_status")
+    @classmethod
+    def check_verification_status(cls, v: str | None) -> str | None:
+        if v is not None and v not in _VALID_VERIFICATION_STATUSES:
+            raise ValueError(f"verification_status 必須為 {sorted(_VALID_VERIFICATION_STATUSES)}")
+        return v
+
+    @field_validator("test_type")
+    @classmethod
+    def check_test_type(cls, v: str | None) -> str | None:
+        if v is not None and v not in _VALID_TEST_TYPES:
+            raise ValueError(f"test_type 必須為 {sorted(_VALID_TEST_TYPES)}")
+        return v
+
+
+class ControlLogSession(BaseModel):
+    """Control log session 統計；對應 control_log_sessions SQLite table。"""
+
+    id: int | None = None
+    created_at: str = Field(default_factory=_default_utc_now)
+    pr_number: int
+    project: str = ""
+    autonomy_ratio: float | None = None
+    deviation_ratio: float | None = None
+    irreversible_op_count: int | None = None
+    verification_score: float | None = None
+    total_entries: int | None = None
