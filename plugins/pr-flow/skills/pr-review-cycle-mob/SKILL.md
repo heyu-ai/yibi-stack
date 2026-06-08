@@ -479,7 +479,7 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 >   evaluate this risk themselves.
 > **Execution note**: the script writes stderr to `$REVIEW_DIR/gemini-r1.stage1.log`; stdout only
 > outputs "agy R1 Stage 1 complete". **Run directly — do not append `> $CLAUDE_JOB_DIR/foo.log 2>&1`**
-> (harness auto-capture is redundant here; see rule 16 for job-dir allow-list patterns) —
+> (harness auto-capture is redundant here; see rule 16 Scenario 2 for `Bash(verb:*)` allow-list patterns) —
 > on failure, Read `$REVIEW_DIR/gemini-r1.stage1.log` for the full error.
 
 ```bash
@@ -494,7 +494,7 @@ bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage1.sh
 
 > **Execution note**: the script writes stderr to `$REVIEW_DIR/gemini-r1.extract.log`; stdout only
 > outputs "agy R1 Stage 2 complete". **Run directly — do not append `> $CLAUDE_JOB_DIR/foo.log 2>&1`**
-> (harness auto-capture is redundant here; see rule 16 for job-dir allow-list patterns) —
+> (harness auto-capture is redundant here; see rule 16 Scenario 2 for `Bash(verb:*)` allow-list patterns) —
 > on failure, Read `$REVIEW_DIR/gemini-r1.extract.log` for the full error.
 
 ```bash
