@@ -398,7 +398,9 @@ The background session harness automatically appends `> $CLAUDE_JOB_DIR/<name>.l
 Bash commands for output isolation and cross-compaction persistence.
 For scripts that **already write stderr to an internal log**, this extra capture is redundant
 and triggers a `~/.claude/` sensitive file permission dialog
-(`$CLAUDE_JOB_DIR` contains a per-session UUID that cannot be permanently allow-listed).
+(`$CLAUDE_JOB_DIR` expands to a per-session UUID path; the session-dialog "always allow" option
+locks that specific UUID and the prompt reappears next session — see rule 16 for
+permanent `Edit(/Users/<you>/.claude/jobs/*)` / `Write(.../jobs/*)` allow-list patterns).
 
 **Fix**: add a blockquote execution note before the bash code block to explicitly tell the agent
 not to append external capture:
