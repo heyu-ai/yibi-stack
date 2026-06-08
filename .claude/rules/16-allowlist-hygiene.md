@@ -209,11 +209,13 @@ More critically: even when only genuinely read-only calls are listed, the genera
 verb-level wildcard covering all subcommands of the entire binary, including destructive operations.
 **Frequency statistics cannot guarantee pattern safety.**
 
-## `$CLAUDE_JOB_DIR` Cannot Be Permanently Allowed via Session Option
+## Session-Dialog "Always Allow" Cannot Permanently Permit `$CLAUDE_JOB_DIR` — Use `settings.local.json` Instead
 
 `$CLAUDE_JOB_DIR` expands to `~/.claude/jobs/<UUID>/` — a new UUID per background session.
-The permission dialog's "Yes, and always allow access to `<UUID>/`" option locks the specific UUID;
+The permission dialog's "Yes, and always allow access to `<UUID>/`" option locks that specific UUID;
 the next session's UUID does not match and the prompt reappears.
+**Permanently allowing job-dir access requires wildcard patterns in `~/.claude/settings.local.json`**
+(see the two scenarios below) — not the session dialog.
 
 **Two trigger scenarios require different fixes:**
 

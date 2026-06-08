@@ -478,8 +478,9 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 >   the PR comes from a trusted repo; when running mob review on an external fork, the operator must
 >   evaluate this risk themselves.
 > **Execution note**: the script writes stderr to `$REVIEW_DIR/gemini-r1.stage1.log`; stdout only
-> outputs "agy R1 Stage 1 complete". **Run directly without adding `> $CLAUDE_JOB_DIR/foo.log 2>&1`
-> capture** — on failure, Read `$REVIEW_DIR/gemini-r1.stage1.log` for the full error.
+> outputs "agy R1 Stage 1 complete". **Run directly — do not append `> $CLAUDE_JOB_DIR/foo.log 2>&1`**
+> (harness auto-capture is redundant here; see rule 16 **(2) Bash redirect `>`** for `Bash(verb:*)` allow-list patterns) —
+> on failure, Read `$REVIEW_DIR/gemini-r1.stage1.log` for the full error.
 
 ```bash
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage1.sh
@@ -492,8 +493,9 @@ bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage1.sh
 ###### Stage 2: Extract (agy auto-selects lightweight model to extract JSON)
 
 > **Execution note**: the script writes stderr to `$REVIEW_DIR/gemini-r1.extract.log`; stdout only
-> outputs "agy R1 Stage 2 complete". **Run directly without adding `> $CLAUDE_JOB_DIR/foo.log 2>&1`
-> capture** — on failure, Read `$REVIEW_DIR/gemini-r1.extract.log` for the full error.
+> outputs "agy R1 Stage 2 complete". **Run directly — do not append `> $CLAUDE_JOB_DIR/foo.log 2>&1`**
+> (harness auto-capture is redundant here; see rule 16 **(2) Bash redirect `>`** for `Bash(verb:*)` allow-list patterns) —
+> on failure, Read `$REVIEW_DIR/gemini-r1.extract.log` for the full error.
 
 ```bash
 bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage2.sh

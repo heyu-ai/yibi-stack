@@ -398,14 +398,18 @@ The background session harness automatically appends `> $CLAUDE_JOB_DIR/<name>.l
 Bash commands for output isolation and cross-compaction persistence.
 For scripts that **already write stderr to an internal log**, this extra capture is redundant
 and triggers a `~/.claude/` sensitive file permission dialog
-(`$CLAUDE_JOB_DIR` contains a per-session UUID that cannot be permanently allow-listed).
+(`$CLAUDE_JOB_DIR` expands to a per-session UUID path; the session-dialog "always allow" option
+locks that specific UUID and the prompt reappears next session — see rule 16 **(2) Bash redirect `>`** for `Bash(verb:*)` allow-list patterns,
+or **(1) Edit/Write tool** for `Edit(/Users/<you>/.claude/jobs/*)` / `Write(...)` patterns).
 
 **Fix**: add a blockquote execution note before the bash code block to explicitly tell the agent
 not to append external capture:
 
 ```markdown
 > **Execution note**: the script writes stderr to `$REVIEW_DIR/<name>.log`; stdout outputs
-> only "<completion message>". **Run directly — do not append `> $CLAUDE_JOB_DIR/foo.log 2>&1`** —
+> only "<completion message>". **Run directly — do not append `> $CLAUDE_JOB_DIR/foo.log 2>&1`**
+> (harness auto-capture is redundant here; see rule 16 **(2) Bash redirect `>`** for `Bash(verb:*)`
+> allow-list patterns if the prompt reappears) —
 > Read `$REVIEW_DIR/<name>.log` on failure to see the full error.
 
 \`\`\`bash
