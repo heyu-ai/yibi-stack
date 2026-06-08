@@ -113,7 +113,7 @@ class TestWriteReadControlLog:
 
 class TestComputeStats:
     def test_ctl_st_014_autonomy_ratio_calculation(self, tmp_path: Path) -> None:
-        """CTL-ST-014: autonomy_ratio = autonomous_decision / (autonomous_decision + user_requested=1)。"""
+        """CTL-ST-014: autonomy_ratio = autonomous / (autonomous + user_requested=1)。"""
         db = tmp_path / "t.db"
         for _ in range(2):
             make_entry(db, category=ControlLogCategory.autonomous_decision, user_requested=0)
@@ -209,7 +209,9 @@ class TestGenerateAdvice:
         """CTL-DT-008: verification_score < 0.60 觸發 R4。"""
         db = tmp_path / "t.db"
         for _ in range(5):
-            make_entry(db, category=ControlLogCategory.verification, verification_status="unverified")
+            make_entry(
+                db, category=ControlLogCategory.verification, verification_status="unverified"
+            )
         for _ in range(5):
             make_entry(db, category=ControlLogCategory.verification, verification_status="verified")
         advice = generate_advice(since_days=30, db_path=db)

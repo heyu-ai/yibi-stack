@@ -49,8 +49,6 @@
 
 ---
 
-<!-- [ADDED] by spectra-amplifier -->
-
 ## User Stories
 
 ### US-001：Entry 推論與寫入

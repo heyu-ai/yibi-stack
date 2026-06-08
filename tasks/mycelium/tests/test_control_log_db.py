@@ -1,7 +1,7 @@
 """Control log DB 層測試（CTL-DB-001~004）。"""
 
 from tasks.mycelium.db import AgentsDB
-from tasks.mycelium.models import ControlLogCategory, ControlLogEntry, ControlLogSession
+from tasks.mycelium.models import ControlLogCategory, ControlLogEntry
 
 
 def make_entry(**kwargs: object) -> ControlLogEntry:
@@ -33,7 +33,8 @@ class TestControlLogDB:
         db.init_db()
         db.init_db()
         cur = db.conn.execute(
-            "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='control_log_entries'"
+            "SELECT COUNT(*) AS c FROM sqlite_master"
+            " WHERE type='table' AND name='control_log_entries'"
         )
         assert cur.fetchone()["c"] == 1
         db.close()

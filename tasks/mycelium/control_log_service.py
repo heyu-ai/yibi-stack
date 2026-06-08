@@ -63,15 +63,21 @@ def compute_stats(
         db.close()
 
     total = len(rows)
-    autonomous_count = sum(1 for r in rows if r["category"] == ControlLogCategory.autonomous_decision)
+    autonomous_count = sum(
+        1 for r in rows if r["category"] == ControlLogCategory.autonomous_decision
+    )
     user_requested_count = sum(1 for r in rows if r["user_requested"] == 1)
-    spec_deviation_count = sum(1 for r in rows if r["category"] == ControlLogCategory.spec_deviation)
+    spec_deviation_count = sum(
+        1 for r in rows if r["category"] == ControlLogCategory.spec_deviation
+    )
     irreversible_count = sum(1 for r in rows if r["category"] == ControlLogCategory.irreversible_op)
 
     verification_entries = [
         r for r in rows if r.get("verification_status") in ("verified", "partial", "unverified")
     ]
-    verified_count = sum(1 for r in verification_entries if r.get("verification_status") == "verified")
+    verified_count = sum(
+        1 for r in verification_entries if r.get("verification_status") == "verified"
+    )
 
     auto_denom = autonomous_count + user_requested_count
     autonomy_ratio: float | None = autonomous_count / auto_denom if auto_denom > 0 else None
@@ -155,7 +161,8 @@ def generate_advice(
     verification = stats["verification_score"]
     if verification is not None and verification < 0.60:
         advice.append(
-            f"R4：驗證強度不足（{verification:.0%}），建議在 retro 加 verify-before-completion gate。"
+            "R4：驗證強度不足"
+            f"（{verification:.0%}），建議在 retro 加 verify-before-completion gate。"
         )
 
     return advice if advice else ["目前無建議"]
