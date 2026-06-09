@@ -732,9 +732,12 @@ class AgentsDB:
         pr_number: int | None = None,
         project: str | None = None,
         since_iso: str | None = None,
-        limit: int = 500,
+        limit: int | None = 500,
     ) -> list[dict[str, Any]]:
-        """查詢 control log entries，可依 pr_number / project / since 過濾。"""
+        """查詢 control log entries，可依 pr_number / project / since 過濾。
+
+        limit=None 時不加 LIMIT 子句，用於 analytics 全量掃描。
+        """
         conditions: list[str] = []
         params: list[object] = []
         if pr_number is not None:
@@ -747,11 +750,11 @@ class AgentsDB:
             conditions.append("created_at >= ?")
             params.append(since_iso)
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
-        sql = (
-            f"SELECT * FROM control_log_entries {where} "  # nosec B608
-            "ORDER BY created_at ASC LIMIT ?"
-        )
-        params.append(limit)
+        if limit is not None:
+            sql = f"SELECT * FROM control_log_entries {where} ORDER BY created_at ASC LIMIT ?"  # nosec B608
+            params.append(limit)
+        else:
+            sql = f"SELECT * FROM control_log_entries {where} ORDER BY created_at ASC"  # nosec B608
         cur = self.conn.execute(sql, params)
         return [_decode_control_entry_row(row) for row in cur.fetchall()]
 
@@ -837,7 +840,7 @@ def _decode_event_row(row: sqlite3.Row) -> dict[str, Any]:
 def _decode_control_entry_row(row: sqlite3.Row) -> dict[str, Any]:
     """把 control_log_entries 的 sqlite3.Row 轉成 dict，files_json decode 為 list。"""
     out = dict(row)
-    raw = out.get("files_json")
+    raw = out.pop("files_json", None)
     if isinstance(raw, str):
         try:
             out["files"] = json.loads(raw)

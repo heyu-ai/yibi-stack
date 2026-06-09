@@ -408,6 +408,13 @@ class ControlLogEntry(BaseModel):
     test_type: str | None = None
     handover_id: str | None = None
 
+    @field_validator("summary")
+    @classmethod
+    def check_summary_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("summary 不可為空字串")
+        return v
+
     @field_validator("user_requested")
     @classmethod
     def check_user_requested(cls, v: int) -> int:

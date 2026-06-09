@@ -53,12 +53,12 @@ def compute_stats(
                         verification_score, total_entries
     """
     cutoff = datetime.now(UTC) - timedelta(days=since_days)
-    since_iso = cutoff.astimezone().replace(microsecond=0).isoformat()
+    since_iso = cutoff.replace(microsecond=0).isoformat()
 
     db = AgentsDB(db_path or HANDOVER_DB_PATH)
     try:
         db.init_db()
-        rows = db.query_control_log_entries(since_iso=since_iso)
+        rows = db.query_control_log_entries(since_iso=since_iso, limit=None)
     finally:
         db.close()
 
@@ -110,12 +110,12 @@ def compute_grouped_stats(
         list of dicts with keys: group (str), count (int)
     """
     cutoff = datetime.now(UTC) - timedelta(days=since_days)
-    since_iso = cutoff.astimezone().replace(microsecond=0).isoformat()
+    since_iso = cutoff.replace(microsecond=0).isoformat()
 
     db = AgentsDB(db_path or HANDOVER_DB_PATH)
     try:
         db.init_db()
-        rows = db.query_control_log_entries(since_iso=since_iso)
+        rows = db.query_control_log_entries(since_iso=since_iso, limit=None)
     finally:
         db.close()
 
@@ -171,12 +171,12 @@ def generate_advice(
 def _check_r3(since_days: int, db_path: Path | None) -> bool:
     """判斷是否有相同 irreversible_op summary 模式出現 >= 3 次。"""
     cutoff = datetime.now(UTC) - timedelta(days=since_days)
-    since_iso = cutoff.astimezone().replace(microsecond=0).isoformat()
+    since_iso = cutoff.replace(microsecond=0).isoformat()
 
     db = AgentsDB(db_path or HANDOVER_DB_PATH)
     try:
         db.init_db()
-        rows = db.query_control_log_entries(since_iso=since_iso)
+        rows = db.query_control_log_entries(since_iso=since_iso, limit=None)
     finally:
         db.close()
 

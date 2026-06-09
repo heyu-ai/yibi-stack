@@ -1131,10 +1131,13 @@ def control_log() -> None:
     required=True,
     type=click.Choice(
         [
-            c.value
-            for c in __import__(
-                "tasks.mycelium.models", fromlist=["ControlLogCategory"]
-            ).ControlLogCategory
+            "assumption",
+            "autonomous_decision",
+            "spec_deviation",
+            "tradeoff",
+            "irreversible_op",
+            "verification",
+            "rollback",
         ]
     ),
     help="entry 類別",
