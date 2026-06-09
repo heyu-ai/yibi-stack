@@ -10,6 +10,20 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+# re.DOTALL 讓 .* 跨越換行，防止 multi-line payload 繞過匹配
+_INJECTION_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"ignore.*previous.*(instructions|context|rules)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"you\s+are\s+now", re.IGNORECASE),
+    re.compile(r"always\s+output\s+no\s+findings", re.IGNORECASE),
+    re.compile(r"skip.*(security|review|checks)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"override:", re.IGNORECASE),
+    re.compile(r"\bsystem\s*:", re.IGNORECASE),
+    re.compile(r"\bassistant\s*:", re.IGNORECASE),
+    re.compile(r"\buser\s*:", re.IGNORECASE),
+    re.compile(r"do\s+not\s+(report|flag|mention)", re.IGNORECASE),
+    re.compile(r"approve[\s_-]*(all|every|this)", re.IGNORECASE),
+]
+
 
 def _validate_non_empty(v: str) -> str:
     stripped = v.strip()
@@ -96,9 +110,7 @@ class LessonRecord(BaseModel):
     def check_no_injection(cls, v: str) -> str:
         if len(v) < 10:
             raise ValueError("insight 至少需要 10 個字元")
-        from .lessons_service import INJECTION_PATTERNS
-
-        for pat in INJECTION_PATTERNS:
+        for pat in _INJECTION_PATTERNS:
             if pat.search(v):
                 raise ValueError(f"insight 含有禁止的注入模式：{v[:60]!r}")
         return v

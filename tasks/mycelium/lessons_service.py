@@ -13,21 +13,6 @@ from typing import Any
 # 確保 limit 語意為「回傳教訓條目數」而非「掃描 handover 記錄數」
 _SEARCH_INTERNAL_LIMIT = 500
 
-# Insight 注入保護：10 條 case-insensitive regex
-# re.DOTALL 讓 .* 跨越換行，防止 multi-line payload 繞過匹配
-INJECTION_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"ignore.*previous.*(instructions|context|rules)", re.IGNORECASE | re.DOTALL),
-    re.compile(r"you\s+are\s+now", re.IGNORECASE),
-    re.compile(r"always\s+output\s+no\s+findings", re.IGNORECASE),
-    re.compile(r"skip.*(security|review|checks)", re.IGNORECASE | re.DOTALL),
-    re.compile(r"override:", re.IGNORECASE),
-    re.compile(r"\bsystem\s*:", re.IGNORECASE),
-    re.compile(r"\bassistant\s*:", re.IGNORECASE),
-    re.compile(r"\buser\s*:", re.IGNORECASE),
-    re.compile(r"do\s+not\s+(report|flag|mention)", re.IGNORECASE),
-    re.compile(r"approve[\s_-]*(all|every|this)", re.IGNORECASE),
-]
-
 
 def add_lesson(
     record_data: dict[str, Any],
@@ -518,7 +503,6 @@ def save_lesson(
 
     `content` 對應 LessonRecord.insight。
     """
-    import re
     import uuid
 
     from .db import AgentsDB
