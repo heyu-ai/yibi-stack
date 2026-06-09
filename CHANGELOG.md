@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [1.3.1] - 2026-06-09
+
+### Added
+
+- `control-log` CLI group (`add`, `show`, `stats`, `advice`) for auditing AI development decisions — record what choices were made autonomously vs. user-requested, spec deviations, and irreversible ops
+- `pr-control-log` skill for the pr-flow plugin: bootstraps a control log session per PR and generates an analytics report with R1–R4 advice thresholds
+- `pr-retrospective` SKILL.md updated to include control log evidence in the Q5 step
+- `INJECTION_PATTERNS` moved to `models.py` (was in `lessons_service.py`) to eliminate a cyclic import; `ControlLogEntry.summary` now validates non-empty
+
+### Fixed
+
+- `query_control_log_entries` now accepts `limit=None` for analytics full-table scans — previously silently truncated at 500 rows
+- UTC timezone mismatch in time-window queries (`since_iso` no longer calls `.astimezone()`, preventing lexicographic comparison errors for users outside UTC)
+- `_decode_control_entry_row` now removes `files_json` raw key from returned dicts (`pop` instead of `get`)
+- pylint 4.x config: `max-instance-attributes` → `max-attributes` (renamed option); removed duplicate cyclic-import chain (`config → models → lessons_service`)
+
 ## [1.3.0] - 2026-06-02
 
 ### Features

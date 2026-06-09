@@ -144,6 +144,7 @@ gh pr diff "$PR_NUMBER" --name-only 2>/dev/null | head -30
 - [ ] 寫入規則文件（lesson N 是可重用規則）-> 依 Step 5 Lesson Classifier 路由到對應層
 - [ ] 新增 hook（lesson N 是應該被自動阻擋的 pattern）-> hookify:hookify
 - [ ] 查歷史 lesson（驗證是否重複犯）-> /recall "<keyword>"
+- [ ] 產生 control log（記錄本 PR 的 AI 行為審計 entries）-> /pr-control-log
 
 請回覆：
 - "OK" -- 全部採用
@@ -156,6 +157,8 @@ gh pr diff "$PR_NUMBER" --name-only 2>/dev/null | head -30
 - 每題必附「引用依據」，不能憑空編造
 - 草稿語氣是 draft，留校準空間
 - Q5 的勾選由 agent 依 Q4 訊號決定
+- 若 `control_log_entries` table 已存在 PR 相關記錄，可作為 Q4 lessons 的補充 evidence：
+  `uv run python -m tasks.mycelium control-log show --pr $PR_NUMBER 2>/dev/null || true`
 
 ---
 
@@ -337,6 +340,7 @@ metadata / preference 類 lesson 本就適合 CLAUDE.md；若整體已過長，
 | 新增 hook | 輸出建議文字：「執行 `hookify:hookify`，建議的 trigger：`<draft>`」|
 | 建立 skill | 輸出建議文字：「執行 `superpowers:writing-skills`，問題定義：`<Q4 lesson>`」|
 | 找 automation | 輸出建議文字：「執行 `/claude-code-setup:claude-automation-recommender`」|
+| 產生 control log | 執行 `Skill(skill="pr-control-log")` 紀錄本 PR 的 AI 行為審計 entries |
 
 寫檔動作**只建議**，由使用者決定是否執行。
 

@@ -220,6 +220,7 @@ skills/.claude/settings.local.json
 
 # Runtime（設定檔 + DB 統一放 .runtime/）
 .runtime/
+# .runtime/control-logs/ - AI 行為審計 artifact（已由 .runtime/ 涵蓋，不 commit）
 
 # Mob review artifacts（per-worktree，寫到 worktree root 下）
 .pr-review/

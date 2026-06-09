@@ -10,7 +10,15 @@ from pathlib import Path
 from typing import Any
 
 from .config import HANDOVER_DB_PATH
-from .models import EventType, HandoverEvent, HandoverRecord, LessonRecord, SessionType
+from .models import (
+    ControlLogEntry,
+    ControlLogSession,
+    EventType,
+    HandoverEvent,
+    HandoverRecord,
+    LessonRecord,
+    SessionType,
+)
 
 
 def compute_effective_weight(
@@ -160,6 +168,45 @@ class AgentsDB:
                 msg = str(_e).lower()
                 if "duplicate column name" not in msg and "no such table" not in msg:
                     raise  # re-raise real DB errors (locked, read-only, syntax error)
+        self.conn.commit()
+
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS control_log_entries (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              created_at TEXT NOT NULL,
+              session_id TEXT,
+              pr_number INTEGER NOT NULL,
+              project TEXT NOT NULL DEFAULT '',
+              category TEXT NOT NULL,
+              summary TEXT NOT NULL,
+              evidence TEXT,
+              user_requested INTEGER NOT NULL DEFAULT 0,
+              severity TEXT,
+              files_json TEXT,
+              verification_status TEXT,
+              test_type TEXT,
+              handover_id TEXT
+            );
+            CREATE TABLE IF NOT EXISTS control_log_sessions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              created_at TEXT NOT NULL,
+              pr_number INTEGER NOT NULL,
+              project TEXT NOT NULL DEFAULT '',
+              autonomy_ratio REAL,
+              deviation_ratio REAL,
+              irreversible_op_count INTEGER,
+              verification_score REAL,
+              total_entries INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_ctl_entries_pr
+              ON control_log_entries(pr_number);
+            CREATE INDEX IF NOT EXISTS idx_ctl_entries_created_at
+              ON control_log_entries(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_ctl_entries_category
+              ON control_log_entries(category);
+            """
+        )
         self.conn.commit()
 
         self.conn.executescript(
@@ -651,6 +698,88 @@ class AgentsDB:
             )
         return {k: int(row[k]) for k in row.keys()}  # noqa: SIM118  sqlite3.Row 非 dict
 
+    def insert_control_log_entry(self, entry: ControlLogEntry) -> int:
+        """寫入一筆 control log entry，回傳自動產生的 id。"""
+        cur = self.conn.execute(
+            """
+            INSERT INTO control_log_entries (
+              created_at, session_id, pr_number, project, category, summary,
+              evidence, user_requested, severity, files_json,
+              verification_status, test_type, handover_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entry.created_at,
+                entry.session_id,
+                entry.pr_number,
+                entry.project,
+                entry.category.value,
+                entry.summary,
+                entry.evidence,
+                entry.user_requested,
+                entry.severity,
+                json.dumps(entry.files, ensure_ascii=False) if entry.files else None,
+                entry.verification_status,
+                entry.test_type,
+                entry.handover_id,
+            ),
+        )
+        self.conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+
+    def query_control_log_entries(
+        self,
+        pr_number: int | None = None,
+        project: str | None = None,
+        since_iso: str | None = None,
+        limit: int | None = 500,
+    ) -> list[dict[str, Any]]:
+        """查詢 control log entries，可依 pr_number / project / since 過濾。
+
+        limit=None 時不加 LIMIT 子句，用於 analytics 全量掃描。
+        """
+        conditions: list[str] = []
+        params: list[object] = []
+        if pr_number is not None:
+            conditions.append("pr_number = ?")
+            params.append(pr_number)
+        if project is not None:
+            conditions.append("project = ?")
+            params.append(project)
+        if since_iso is not None:
+            conditions.append("created_at >= ?")
+            params.append(since_iso)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
+        sql = f"SELECT * FROM control_log_entries {where} ORDER BY created_at ASC"  # nosec B608
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        cur = self.conn.execute(sql, params)
+        return [_decode_control_entry_row(row) for row in cur.fetchall()]
+
+    def insert_control_log_session(self, session: ControlLogSession) -> int:
+        """寫入一筆 control log session 統計，回傳自動產生的 id。"""
+        cur = self.conn.execute(
+            """
+            INSERT INTO control_log_sessions (
+              created_at, pr_number, project, autonomy_ratio, deviation_ratio,
+              irreversible_op_count, verification_score, total_entries
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session.created_at,
+                session.pr_number,
+                session.project,
+                session.autonomy_ratio,
+                session.deviation_ratio,
+                session.irreversible_op_count,
+                session.verification_score,
+                session.total_entries,
+            ),
+        )
+        self.conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+
 
 def _escape_like(value: str, escape_char: str = "\\") -> str:
     """逸出 SQLite LIKE 萬用字元（%、_）和 escape 字元本身。"""
@@ -704,4 +833,18 @@ def _decode_event_row(row: sqlite3.Row) -> dict[str, Any]:
             out["extra"] = {}
     else:
         out["extra"] = {}
+    return out
+
+
+def _decode_control_entry_row(row: sqlite3.Row) -> dict[str, Any]:
+    """把 control_log_entries 的 sqlite3.Row 轉成 dict，files_json decode 為 list。"""
+    out = dict(row)
+    raw = out.pop("files_json", None)
+    if isinstance(raw, str):
+        try:
+            out["files"] = json.loads(raw)
+        except json.JSONDecodeError:
+            out["files"] = []
+    else:
+        out["files"] = []
     return out
