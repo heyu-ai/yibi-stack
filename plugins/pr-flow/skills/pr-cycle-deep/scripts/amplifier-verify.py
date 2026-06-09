@@ -3,8 +3,9 @@
 
 Exit codes:
   0 — no spectra change in this PR (nothing to check)
-  0 — all TCs have trace or only INFO-level gaps (non-blocking)
-  1 — MUST/SHOULD findings found (blocks merge on MUST; documents reason on SHOULD)
+  0 — all TCs traced (only INFO gaps; non-blocking)
+  1 — MUST findings (missing spec: trace on test that targets a TC) — blocks merge
+  1 — SHOULD findings only (coverage gap; printed as [WARN]; document reason before deferring)
   2 — fatal error (testplan.md missing, unparseable, or gh pr diff failed)
 """
 
@@ -12,7 +13,7 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
+import subprocess  # nosec B404
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -66,8 +67,8 @@ _COVERAGE_TABLE_HEADER_RE = re.compile(r"\|\s*Scenario\s+Slug\s*\|.*Status", re.
 _TABLE_ROW_RE = re.compile(r"^\|(.+)\|$")
 _SEPARATOR_RE = re.compile(r"^\|[-:\s|]+\|$")
 
-# TC-ID format: UPPER_ALPHA_NUM-CATEGORY-NUMBER
-_TC_ID_RE = re.compile(r"\b[A-Z][A-Z0-9]*-[A-Z]{2,}-\d{3}\b")
+# TC-ID format: UPPER_ALPHA_NUM-CATEGORY-NUMBER (2-4 digit sequence number)
+_TC_ID_RE = re.compile(r"\b[A-Z][A-Z0-9]*-[A-Z]{2,}-\d{2,4}\b")
 
 _MISSING_STATUS_TERMS = {"missing", "partial"}
 
@@ -104,7 +105,8 @@ def parse_tc_table(testplan_text: str) -> list[TCRow]:
                 if not m:
                     continue
                 tc_id = m.group(0)
-                slug = cells[1] if len(cells) > 1 else ""
+                # Strip backtick formatting from testplan.md cells (e.g. `slug-name` → slug-name)
+                slug = cells[1].strip("`").strip() if len(cells) > 1 else ""
                 tc_rows.append(TCRow(tc_id=tc_id, slug=slug, raw_line=line))
             break
     return tc_rows
@@ -119,7 +121,7 @@ def parse_coverage_table(testplan_text: str) -> list[CoverageRow]:
             for cells in _parse_table_rows(lines, i):
                 if len(cells) < 2:
                     continue
-                slug = cells[0]
+                slug = cells[0].strip("`").strip()
                 # Status is typically column 1 or 2; look for known terms
                 status_raw = cells[1] if len(cells) > 1 else ""
                 # Normalise: strip markdown markers like tick/cross
@@ -159,21 +161,21 @@ def parse_diff_test_functions(diff_text: str) -> list[TestFunction]:
         fm = _TEST_FUNC_RE.match(line)
         if fm:
             func_name = fm.group(1)
-            # Collect docstring (next few lines)
+            # Collect docstring — scan up to 50 lines after def to handle blank/setup lines
             docstring_lines: list[str] = []
             j = i + 1
             in_doc = False
-            while j < min(i + 10, len(lines)):
+            while j < min(i + 50, len(lines)):
                 dl = lines[j]
                 if _DOCSTRING_START_RE.match(dl):
                     in_doc = True
                 if in_doc:
                     docstring_lines.append(dl.lstrip("+").strip())
-                    # End of docstring
+                    # End of docstring: closing """ on same line or on subsequent line
                     if dl.count('"""') >= 2 or (len(docstring_lines) > 1 and '"""' in dl):
                         break
-                elif dl.startswith("+"):
-                    docstring_lines.append(dl.lstrip("+").strip())
+                elif _TEST_FUNC_RE.match(dl):
+                    # Hit the next def — stop scanning this function's docstring
                     break
                 j += 1
             docstring = " ".join(docstring_lines)
@@ -229,7 +231,10 @@ def analyze(
             matched_slug = next(
                 (s for s in slug_set_lower if s.replace("-", "_") in name_lower), None
             )
-            if matched_slug or any(tc.tc_id.lower()[:6] in name_lower for tc in tc_rows):
+            tc_prefix_match = any(
+                tc.tc_id.lower().replace("-", "_") in name_lower for tc in tc_rows
+            )
+            if matched_slug or tc_prefix_match:
                 findings.must.append(
                     f"{fn.filepath}::{fn.name} appears to target a TC"
                     f" but its docstring is missing a `spec: <cap>#<slug>` traceability marker"
@@ -248,17 +253,23 @@ def analyze(
 # ---------------------------------------------------------------------------
 
 
-def _run(args: list[str]) -> str:
+def _run(args: list[str], timeout: int = 180) -> str:
     """Run a shell command and return stdout; exit 2 on failure."""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603
             args,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=timeout,
         )
     except FileNotFoundError as e:
         print(f"[FAIL] command not found: {args[0]}: {e}", file=sys.stderr)
+        sys.exit(2)
+    except subprocess.TimeoutExpired:
+        print(
+            f"[FAIL] {' '.join(args)} timed out after {timeout}s",
+            file=sys.stderr,
+        )
         sys.exit(2)
     if result.returncode != 0:
         print(
@@ -294,10 +305,12 @@ def main() -> None:
     print(f"[OK]   spectra change detected: {change_name}")
 
     # Step 2 — locate testplan.md
-    # Search from repo root (cwd) or well-known paths
+    # Resolve repo root to avoid CWD-relative failures when running from a worktree subdir
+    git_common = _run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"]).strip()
+    repo_root = Path(git_common).parent
     candidates = [
-        Path(f"openspec/changes/{change_name}/testplan.md"),
-        Path(f"docs/openspec/changes/{change_name}/testplan.md"),
+        repo_root / f"openspec/changes/{change_name}/testplan.md",
+        repo_root / f"docs/openspec/changes/{change_name}/testplan.md",
     ]
     testplan_path: Path | None = None
     for c in candidates:
@@ -360,6 +373,7 @@ def main() -> None:
     if findings.should:
         print()
         print("[WARN] SHOULD findings present — document reason in PR description if deferring.")
+        sys.exit(1)
 
     sys.exit(0)
 

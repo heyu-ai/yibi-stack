@@ -16,6 +16,9 @@
 set -euo pipefail
 
 EXTRACT_PROMPT=~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md
+# Ensure temp files are cleaned even on unexpected exit (set -e early exit, signal, etc.)
+_STAGE2_CLEANUP() { rm -f "${REVIEW_DIR:-/dev/null}/gemini-extract-input.md" "${TMP_JSON:-/dev/null}"; }
+trap _STAGE2_CLEANUP EXIT
 
 if [ ! -f "$EXTRACT_PROMPT" ]; then
     echo "[FAIL] extract prompt 不存在；請執行 make install" >&2

@@ -137,7 +137,7 @@ This step is **informational** and does not block the workflow. If DRIFT DETECTE
 
 ---
 
-### Step 1.6 — Parallel Pre-review Check (3 agents, same message)
+### Step 1.5 — Parallel Pre-review Check (2 agents, same message)
 
 > Unlike Step 1.5, this step is **blocking** — do not proceed to Step 2 if any agent fails or returns no usable output.
 
@@ -332,17 +332,11 @@ Confirm the output contains the exact version tag, not just older tags; if empty
 
 ---
 
-After CI is fully green, squash merge and capture the merge commit SHA (needed for Step 8b Jira comment):
+After CI is fully green, squash merge:
 
 ```bash
 gh pr merge {{pr_number}} --squash --delete-branch
 ```
-
-```bash
-gh pr view {{pr_number}} --json mergeCommit -q .mergeCommit.oid
-```
-
-Note the output SHA as `{{merge_commit_sha}}` and report it to the user.
 
 ---
 

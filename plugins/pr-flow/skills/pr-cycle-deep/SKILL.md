@@ -248,7 +248,7 @@ Spawn three Task agents **in a single message** to gather baseline information i
 |-------|------|
 | **diff-reviewer** | Run `gh pr diff {{pr_number}}`; summarise changed files and line counts. **Do not use local `main`** — always fetch from GitHub. If the command exits non-zero, report `[FAIL] gh pr diff: <exact error>` and stop. |
 | **ci-checker** | Run `gh pr checks {{pr_number}}`; report pass / fail / pending per check. If the list is empty, report "CI: not yet triggered". If the command exits non-zero, report `[FAIL] gh pr checks: <exact error>` and stop. |
-| **amplifier-verifier** | Run TC coverage + docstring traceability check: `python3 ~/.agents/skills/pr-cycle-deep/scripts/amplifier-verify.py --pr {{pr_number}}`. Exit 0 = no spectra change or all TCs traced; exit 1 = MUST/SHOULD findings; exit 2 = fatal error (missing testplan, parse failure, gh error). Report the full stdout. On exit 2, stop with `[FAIL]`. On exit 1, **do not stop** — collect findings for Step 6 (Fix). |
+| **amplifier-verifier** | Run TC coverage + docstring traceability check: `python3 ~/.agents/skills/pr-cycle-deep/scripts/amplifier-verify.py --pr {{pr_number}}`. Exit 0 = no spectra change or all TCs traced; exit 1 = MUST or SHOULD findings present; exit 2 = fatal error (missing testplan, parse failure, gh error). Report the full stdout. On exit 2, stop with `[FAIL]`. On exit 1, **do not stop** — write MUST findings to `$REVIEW_DIR/final.md` Critical section and SHOULD findings to Important section, then continue to Step 2. |
 
 If any agent reports `[FAIL]` (exit 2 or explicit `[FAIL]` in output), stop and report the failure explicitly; do not proceed to Step 2.
 
@@ -260,8 +260,6 @@ Pre-review Check
 - CI: <pass / fail / pending / not yet triggered — list any failing checks by name>
 - Amplifier: <MUST: N findings / SHOULD: N findings / OK: all TCs traced / no spectra change>
 ```
-
-If amplifier-verifier reported MUST findings, they must appear in `$REVIEW_DIR/final.md` under the **Critical** section before Step 6 (Fix).
 
 ---
 
@@ -1005,7 +1003,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | --- | --- | --- | --- | --- |
 | Claude | always | Task() pr-review-toolkit 4 subagents | lead writes claude-r2.md directly | claude-r1.md (finding markdown) |
 | Codex | `which codex` + auth | S1: `set -o pipefail; codex review --base $BASE 2>stage1.log \| tee codex-r1-raw.md > /dev/null` / S2: `codex exec low < extract-input 2>extract.log \| tee codex-r1.json > /dev/null` / S3: lead renders codex-r1.md | `set -o pipefail; codex exec -C "$WT_ROOT" -s read-only < input.md 2>r2.log \| tee codex-r2.md > /dev/null` | codex-r1.md (compact, not raw) |
-| Gemini/agy *(optional)* | `which agy` + auth | S1: `bash agy-r1-stage1.sh` / S2: `agy -p @.pr-review/extract-input --add-dir . --dsp > gemini-r1.json` / S3: lead renders gemini-r1.md | `bash agy-r2.sh` | gemini-r1.md (compact, not raw) |
+| Gemini/agy *(optional)* | `which agy` + auth | S1: `bash agy-r1-stage1.sh` / S2: `agy -p @.pr-review/extract-input --add-dir . --sandbox > gemini-r1.json` / S3: lead renders gemini-r1.md | `bash agy-r2.sh` | gemini-r1.md (compact, not raw) |
 
 Each voice's R1 / R2 should be written to `$REVIEW_DIR/<voice>-r{1,2}.md` (compact version),
 read by the lead for unified aggregation. Raw versions (`*-r1-raw.md`) stay on disk for disputed
