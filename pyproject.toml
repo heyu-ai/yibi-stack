@@ -114,7 +114,7 @@ max-args = 10
 max-locals = 40       # parser 函式天生需要大量區域變數
 max-branches = 35     # PDF 解析分支多
 max-statements = 120  # parser parse() 方法長
-max-instance-attributes = 12
+max-attributes = 12
 
 [tool.pylint.basic]
 # 允許 SCREAMING_SNAKE_CASE 私有常數（如 _TYPE_TO_FORMAT）

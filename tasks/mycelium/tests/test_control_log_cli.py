@@ -9,9 +9,9 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from tasks.mycelium.cli import cli
+from tasks.mycelium.control_log_service import write_control_log
 from tasks.mycelium.db import AgentsDB
 from tasks.mycelium.models import ControlLogCategory, ControlLogEntry
-from tasks.mycelium.control_log_service import write_control_log
 
 
 def _seed(db_path: Path, pr: int = 1, count: int = 1, **kwargs: object) -> None:
@@ -37,10 +37,14 @@ class TestControlLogCLI:
             [
                 "control-log",
                 "add",
-                "--pr", "42",
-                "--category", "autonomous_decision",
-                "--summary", "Chose SQLite WAL mode",
-                "--user-requested", "0",
+                "--pr",
+                "42",
+                "--category",
+                "autonomous_decision",
+                "--summary",
+                "Chose SQLite WAL mode",
+                "--user-requested",
+                "0",
             ],
             env=env,
             catch_exceptions=False,
