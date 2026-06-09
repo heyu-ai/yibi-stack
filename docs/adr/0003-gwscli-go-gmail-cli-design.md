@@ -1,4 +1,10 @@
-# gwscli — Go Native Gmail CLI 設計
+---
+id: "0003"
+title: "gwscli -- Go Native Gmail CLI"
+status: accepted
+date: 2026-04-14
+deciders: [howie]
+---
 
 ## 背景
 

@@ -205,7 +205,9 @@ make install-all         # 等同 build-tools + install + install-project + inst
   silently skips.
 - **`.gitignore` does not mean absent from disk** — see rule 02 for fix.
 - **`$CLAUDE_JOB_DIR` permission cannot be permanently allowed via session dialog** —
-  see rule 16 for the correct `Edit(/Users/<you>/.claude/jobs/*)` allow-list patterns.
+  see rule 16: Scenario 1 needs `Edit(/Users/<you>/.claude/jobs/*)` + `Write(/Users/<you>/.claude/jobs/*)`
+  (Edit/Write tool writes); Scenario 2 needs `Bash(verb:*)` patterns (Bash redirect `>`).
+  Using the wrong pattern type silently fails to match.
 - **Python module rename → `settings.json` hook commands not updated automatically**: after
   renaming a task module (e.g., `session_memory` → `mycelium`), hook commands in
   `~/.claude/settings.json` and project `settings.json` still reference the old name, causing
