@@ -750,15 +750,10 @@ class AgentsDB:
             conditions.append("created_at >= ?")
             params.append(since_iso)
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
+        sql = f"SELECT * FROM control_log_entries {where} ORDER BY created_at ASC"  # nosec B608
         if limit is not None:
-            sql = (
-                f"SELECT * FROM control_log_entries {where} ORDER BY created_at ASC LIMIT ?"  # nosec B608
-            )
+            sql += " LIMIT ?"
             params.append(limit)
-        else:
-            sql = (
-                f"SELECT * FROM control_log_entries {where} ORDER BY created_at ASC"  # nosec B608
-            )
         cur = self.conn.execute(sql, params)
         return [_decode_control_entry_row(row) for row in cur.fetchall()]
 
