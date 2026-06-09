@@ -1,7 +1,7 @@
 # /pr-review-cycle — 完整 PR 生命週期
 
 完整 PR 生命週期：建立 PR → code review → parallel review → fix → CI → merge → spectra archive + Jira sync。
-適用小型 feature / 快速合併；中大型 PR 或多模型壓力測試請改用 `/pr-review-cycle-mob`。
+適用任何專案純 PR review（不含 SDD spectra 流程）；中大型 PR 或多模型壓力測試請改用 `/pr-cycle-deep`。
 
 ## 用法
 

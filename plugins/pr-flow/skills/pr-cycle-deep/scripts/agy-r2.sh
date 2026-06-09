@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# pr-review-cycle-mob Step 4.3 — agy R2：Cross-model debate（Round 2）
+# pr-cycle-deep Step 4.3 — agy R2：Cross-model debate（Round 2）
 #
 # 用法（在 worktree 目錄執行）：
-#   bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r2.sh
+#   bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r2.sh
 #
 # agy 自動選擇最佳模型（無 -m flag）。
 # 若需固定模型，在 ~/.gemini/antigravity-cli/settings.json 設定 defaultModel。

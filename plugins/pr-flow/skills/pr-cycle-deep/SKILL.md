@@ -1,5 +1,5 @@
 ---
-name: pr-review-cycle-mob
+name: pr-cycle-deep
 type: know
 scope: global
 description: >
@@ -7,14 +7,15 @@ description: >
   group review：自動偵測 codex / agy，≥1 家即啟動
   R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM（含
   actionable NIT）→ 人類快速複查 → CI → merge → spectra archive + Jira sync。
-  適用中大型 PR / 高風險改動 / 跨家視角壓力測試。小型 feature 或本地快速 review
-  請改用 `/pr-review-cycle`（Claude-only，4 個 pr-review-toolkit subagent 平行）。
+  適用中大型 PR / 高風險改動 / 跨家視角壓力測試 / SDD 專案。小型 PR 或快速 lifecycle
+  請改用 `/pr-cycle-fast`（Claude-only state machine）。純 PR review 不需完整 lifecycle
+  請改用 `/pr-review-cycle`（4 個 pr-review-toolkit subagent 平行）。
   偵測不到任何外部模型時提示使用者退回 `/pr-review-cycle`。
   觸發情境：「mob review」「group review」「multi-model PR review」「跨家 LLM review」
-  「pr-review-cycle-mob」「frontier model 群審」「找 codex + agy 一起 review」
+  「pr-cycle-deep」「frontier model 群審」「找 codex + agy 一起 review」「deep review」
 ---
 
-# PR Review Cycle — Mob (Multi-Agent Group Review)
+# PR Cycle — Deep (Multi-Agent Mob Review)
 
 Complete workflow for multi-frontier-model mob review of a PR, applicable to any tech stack (Python / JS / Go / Flutter / others).
 
@@ -25,11 +26,10 @@ Complete workflow for multi-frontier-model mob review of a PR, applicable to any
 - Want to stress-test whether multiple LLM families consistently flag the same issues
 - Willing to spend 10–30 minutes for broader coverage
 
-**When to use `/pr-review-cycle` (Claude-only)**:
+**When to use `/pr-cycle-fast` or `/pr-review-cycle`**:
 
-- Small feature / bug fix / refactor
-- Want fast merge without spinning up multiple model families
-- Codex not installed and agy (Antigravity CLI) not installed
+- Small feature / bug fix / refactor: use `/pr-cycle-fast` (full lifecycle) or `/pr-review-cycle` (review only)
+- Codex not installed and agy (Antigravity CLI) not installed: use `/pr-review-cycle`
 
 **Core philosophy**: when codex / agy are detected, run them alongside Claude as **synchronous
 parallel** reviewers — each reviews independently, then cross-reads each other's findings to
@@ -39,13 +39,13 @@ LGTM (including actionable NITs). Finally, the human scans all changes in a few 
 concerns immediately, and the reviewer lead (Claude main) responds on the spot — faster than
 finding two senior engineers, and broader in perspective.
 
-No external models detected → prompt the user to fall back to `/pr-review-cycle`; this skill terminates (no fallback inside mob skill, to avoid semantic confusion).
+No external models detected → prompt the user to fall back to `/pr-review-cycle`; this skill terminates (no fallback inside `/pr-cycle-deep`, to avoid semantic confusion).
 
 ## Usage
 
 ```text
-/pr-review-cycle-mob
-/pr-review-cycle-mob #<PR number>   ← skip to Step 2 if PR already exists
+/pr-cycle-deep
+/pr-cycle-deep #<PR number>   ← skip to Step 2 if PR already exists
 ```
 
 ---
@@ -248,9 +248,9 @@ Spawn three Task agents **in a single message** to gather baseline information i
 |-------|------|
 | **diff-reviewer** | Run `gh pr diff {{pr_number}}`; summarise changed files and line counts. **Do not use local `main`** — always fetch from GitHub. If the command exits non-zero, report `[FAIL] gh pr diff: <exact error>` and stop. |
 | **ci-checker** | Run `gh pr checks {{pr_number}}`; report pass / fail / pending per check. If the list is empty, report "CI: not yet triggered". If the command exits non-zero, report `[FAIL] gh pr checks: <exact error>` and stop. |
-| **amplifier-verifier** | Check whether the PR diff touches any `openspec/changes/<name>/` path. If none → report "no spectra change". If found → check `openspec/changes/<name>/testplan.md` exists and is non-empty (written by `/spectra-amplifier`); if missing → report "amplifier not run". If the directory check errors, report `[FAIL]` and stop. |
+| **amplifier-verifier** | Run TC coverage + docstring traceability check: `python3 ~/.agents/skills/pr-cycle-deep/scripts/amplifier-verify.py --pr {{pr_number}}`. Exit 0 = no spectra change or all TCs traced; exit 1 = MUST/SHOULD findings; exit 2 = fatal error (missing testplan, parse failure, gh error). Report the full stdout. On exit 2, stop with `[FAIL]`. On exit 1, **do not stop** — collect findings for Step 6 (Fix). |
 
-If any agent reports `[FAIL]`, stop and report the failure explicitly; do not proceed to Step 2.
+If any agent reports `[FAIL]` (exit 2 or explicit `[FAIL]` in output), stop and report the failure explicitly; do not proceed to Step 2.
 
 Once all three return successfully, write `$CLAUDE_JOB_DIR/pre-review-check.md` (distinct from `$REVIEW_DIR/final.md` used in later steps) and report inline:
 
@@ -258,8 +258,10 @@ Once all three return successfully, write `$CLAUDE_JOB_DIR/pre-review-check.md` 
 Pre-review Check
 - Diff: <file count> files, <line count> lines changed
 - CI: <pass / fail / pending / not yet triggered — list any failing checks by name>
-- Amplifier: <ran / not run / no spectra change>
+- Amplifier: <MUST: N findings / SHOULD: N findings / OK: all TCs traced / no spectra change>
 ```
+
+If amplifier-verifier reported MUST findings, they must appear in `$REVIEW_DIR/final.md` under the **Critical** section before Step 6 (Fix).
 
 ---
 
@@ -313,7 +315,7 @@ intermediate files in `<worktree-root>/.pr-review/` and authorizes with `--add-d
 avoiding `/tmp/` paths being rejected by the sandbox.
 
 ```bash
-bash ~/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh {{base_branch}}
+bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 ```
 
 The script's last line outputs `REVIEW_DIR=<absolute path>` as informational; subsequent bash
@@ -333,13 +335,13 @@ match the runtime string. When permanently allowing in `~/.claude/settings.local
 the expanded absolute path:
 
 ```text
-Bash(bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh *)
-Bash(bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage1.sh *)
+Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh *)
+Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh *)
 ```
 
 Confirm `<you>` with `whoami` or `echo $USER`. Full absolute path + trailing `*` matches rule 16 safe pattern (script is already reviewed; `*` only expands to branch name argument).
 
-The extract prompt path is fixed at `~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md` (symlink created by `make install`); no need to resolve `SKILL_REPO`.
+The extract prompt path is fixed at `~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` (symlink created by `make install`); no need to resolve `SKILL_REPO`.
 
 Write the review prompt to `$REVIEW_DIR/prompt-r1.md` using the Write tool (`$REVIEW_DIR` is
 the actual path derived above, e.g. `/path/to/worktree/.pr-review`). Replace `{{REVIEW_DIR}}`
@@ -409,7 +411,7 @@ After all four complete, the lead uses the Write tool to merge them into `$REVIE
 ###### Stage 1: Native review (raw output lands on disk, does not enter main context)
 
 ```bash
-bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage1.sh {{base_branch}}
+bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh {{base_branch}}
 ```
 
 `codex review` does not support the `-C` flag; run from the correct cwd. `--base` and
@@ -419,7 +421,7 @@ positional prompt are mutually exclusive; codex's built-in review mode automatic
 ###### Stage 2: Extract (compress verbose raw markdown into structured JSON)
 
 ```bash
-bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage2.sh
+bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage2.sh
 ```
 
 ###### Stage 3: Render (lead reads JSON → writes compact markdown)
@@ -483,7 +485,7 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 > on failure, Read `$REVIEW_DIR/gemini-r1.stage1.log` for the full error.
 
 ```bash
-bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage1.sh
+bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh
 ```
 
 `agy` automatically selects the best model (no `-m` flag needed). To pin a model, set
@@ -498,7 +500,7 @@ bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage1.sh
 > on failure, Read `$REVIEW_DIR/gemini-r1.extract.log` for the full error.
 
 ```bash
-bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage2.sh
+bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh
 ```
 
 Note: `agy` automatically selects a lightweight model in the extract stage to avoid consuming more high-reasoning quota.
@@ -605,11 +607,11 @@ Output format:
 Each voice uses the same call pattern, but this time the prompt is R2 and the input is r1-aggregate (not the raw diff):
 
 ```bash
-bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r2.sh
+bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r2.sh
 ```
 
 ```bash
-bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r2.sh
+bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r2.sh
 ```
 
 > **Security note**: `agy-r2.sh` uses `--sandbox`; assumes PR comes from a trusted repo.
@@ -1045,7 +1047,7 @@ finding reference but **do not enter the main context**.
 | Codex extract returns invalid JSON | Follow Stage 3 if/else branch: Read `$REVIEW_DIR/codex-r1-raw.md`, manually summarize in main context as compact markdown, Write to `$REVIEW_DIR/codex-r1.md`; note in final.md "Codex voice used raw form this round, main context load higher" (do not cp raw → compact directly; verbose raw would enter r1-aggregate) |
 | Gemini extract JSON doesn't match schema | Same as above; manually summarize `$REVIEW_DIR/gemini-r1-raw.md` → `$REVIEW_DIR/gemini-r1.md` (do not cp) |
 | Extract step keeps failing (2 consecutive) | Fall back to path C: Claude lead reads raw with Read tool, manually extracts compact form in main session without calling codex/agy again; less efficient but workflow not blocked |
-| Extract prompt path missing (`~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md`) | Skill not installed; run `make install` in the yibi-stack directory to create the symlink; verify: `ls ~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md` should return the path, not "No such file" |
+| Extract prompt path missing (`~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md`) | Skill not installed; run `make install` in the yibi-stack directory to create the symlink; verify: `ls ~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` should return the path, not "No such file" |
 | User skipped bump but needs a version tag later | Create a release branch, run [`/bump-version`](../bump-version/SKILL.md) on it, then open a PR to merge into main (CI pass + CHANGELOG confirmed is sufficient; no full review cycle needed; if main has new commits, CHANGELOG may include extra entries — verify manually) |
 
 ---
@@ -1055,7 +1057,7 @@ finding reference but **do not enter the main context**.
 | Skill | Use case | Reviewer composition |
 | --- | --- | --- |
 | `/pr-review-cycle` | Small feature / bug fix / refactor; fast merge | Claude pr-review-toolkit 4 subagents in parallel |
-| `/pr-review-cycle-mob` (this skill) | Medium/large PR / high-risk changes / cross-model pressure test | Claude + Codex (required) + agy (optional); R1 independent + R2 debate |
+| `/pr-cycle-deep` (this skill) | Medium/large PR / high-risk changes / cross-model pressure test | Claude + Codex (required) + agy (optional); R1 independent + R2 debate |
 
 This skill requires ≥1 external reviewer (Codex or agy) to start; with 0, falls back to `/pr-review-cycle`.
 agy (Antigravity CLI) is optional — when only Codex is available, runs 2-voice mob; when both are available, runs 3-voice full mob.

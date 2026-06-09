@@ -18,7 +18,7 @@ description: >
 
 ## 適用情境
 
-- 剛完成 `/pr-review-cycle` 或 `/pr-review-cycle-mob` 流程，PR 已 merge（或即將 merge）
+- 剛完成 `/pr-review-cycle`、`/pr-cycle-fast` 或 `/pr-cycle-deep` 流程，PR 已 merge（或即將 merge）
 - 想為這個 PR session 留下結構化學習記錄
 - 想讓 agent 幫你從 PR context 提煉「我們解決了什麼問題、學到了什麼」
 

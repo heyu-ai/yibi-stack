@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# pr-review-cycle-mob Step 4.3 — Codex R2：Cross-model debate
+# pr-cycle-deep Step 4.3 — Codex R2：Cross-model debate
 #
 # 用法：
-#   bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r2.sh
+#   bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r2.sh
 #
 # 副作用：
 #   - codex-r2.md 寫到 $WT_ROOT/.pr-review/

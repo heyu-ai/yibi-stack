@@ -1,19 +1,19 @@
 ---
-name: pr-cycle
+name: pr-cycle-fast
 type: exec
 scope: global
-description: PR 生命週期自動化 orchestrator：偵測 open PR、並行 code review + CI monitor + conflict detect、auto-fix markdownlint/CI、merge 後自動觸發 /pr-retro 寫 mycelium、最後 /clean-merged。支援中斷後 resume。
+description: PR 生命週期自動化 orchestrator（快速版）：偵測 open PR、並行 code review + CI monitor + conflict detect、auto-fix markdownlint/CI、merge 後自動觸發 /pr-retro 寫 mycelium、最後 /clean-merged。支援中斷後 resume。小型 PR 或追求快速 lifecycle 首選；大型 PR 或 SDD 專案請改用 /pr-cycle-deep。
 ---
 
-# /pr-cycle — PR Lifecycle Orchestrator
+# /pr-cycle-fast — PR Lifecycle Orchestrator (Fast)
 
 ## Usage
 
 ```text
-/pr-cycle              # 自動偵測目前分支的 open PR，從頭執行
-/pr-cycle resume       # 讀取最新 state file，從上次中斷點繼續
-/pr-cycle --pr <n>     # 明確指定 PR 號碼
-/pr-cycle status       # 顯示目前 state
+/pr-cycle-fast              # 自動偵測目前分支的 open PR，從頭執行
+/pr-cycle-fast resume       # 讀取最新 state file，從上次中斷點繼續
+/pr-cycle-fast --pr <n>     # 明確指定 PR 號碼
+/pr-cycle-fast status       # 顯示目前 state
 ```
 
 ## Steps
@@ -78,7 +78,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status
 | `MERGED` | 執行 retro（Step 7） |
 | `RETRO_DONE` | 執行 clean（Step 8） |
 | `CLEANED` | 完成，報告給 user |
-| `BLOCKED` | 顯示所有 blockers，等待 user 解除後 `/pr-cycle resume` |
+| `BLOCKED` | 顯示所有 blockers，等待 user 解除後 `/pr-cycle-fast resume` |
 | `FAILED` | 顯示錯誤，等待人工介入 |
 
 transition 後讀取新 state，自動循環推進，直到 BLOCKED / FAILED / CLEANED / MERGEABLE 停下等待 user。
@@ -214,7 +214,7 @@ FAILED（terminal）
 ## Interrupt & Resume
 
 任何時候 session 中斷，state file 保留在 `.runtime/pr_orchestrator/<pr>.json`。
-重新開 session 後執行 `/pr-cycle resume` 即可從上次 state 接續。
+重新開 session 後執行 `/pr-cycle-fast resume` 即可從上次 state 接續。
 
 ## 注意事項
 
@@ -229,6 +229,6 @@ FAILED（terminal）
 | `[FAIL] skill_repo 未設定` | 在 yibi-stack 目錄執行 `make install` |
 | `分支沒有對應的 open PR` | 先 `gh pr create` 建立 PR |
 | `多個 PR 對應同分支` | 加 `--pr <n>` 明確指定 |
-| State 停在 BLOCKED | 看 blockers 訊息，解除後跑 `/pr-cycle resume` |
-| auto-fix 超過 3 次上限 | 手動修 CI 失敗後 push，再跑 `/pr-cycle resume` |
+| State 停在 BLOCKED | 看 blockers 訊息，解除後跑 `/pr-cycle-fast resume` |
+| auto-fix 超過 3 次上限 | 手動修 CI 失敗後 push，再跑 `/pr-cycle-fast resume` |
 | merge 後找不到 state | 查 `~/.claude/pr_orchestrator/<repo>/` 歸檔 |

@@ -1,6 +1,6 @@
 # /pr-retro -- PR Retrospective 入口
 
-PR merge 後收尾用（搭配 `/pr-review-cycle` 或 `/pr-review-cycle-mob`）：agent 從 PR context 推論 5 題答案草稿，使用者校準後
+PR merge 後收尾用（搭配 `/pr-review-cycle`、`/pr-cycle-fast` 或 `/pr-cycle-deep`）：agent 從 PR context 推論 5 題答案草稿，使用者校準後
 寫入 mycelium（標 `pr-retrospective` tag，不污染 handover-back），並建議下游動作。
 
 ## 用法

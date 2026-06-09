@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# pr-review-cycle-mob Step 3.2 — agy R1 Stage 2：Extract（raw → JSON）
+# pr-cycle-deep Step 3.2 — agy R1 Stage 2：Extract（raw → JSON）
 #
 # 用法：
-#   bash ~/.agents/skills/pr-review-cycle-mob/scripts/agy-r1-stage2.sh
+#   bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh
 #
 # agy 自動選擇輕量模型做 extract，避免再消耗高推理配額。
 #
@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-EXTRACT_PROMPT=~/.agents/skills/pr-review-cycle-mob/prompts/extract-r1.md
+EXTRACT_PROMPT=~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md
 
 if [ ! -f "$EXTRACT_PROMPT" ]; then
     echo "[FAIL] extract prompt 不存在；請執行 make install" >&2

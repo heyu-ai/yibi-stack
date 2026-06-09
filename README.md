@@ -37,7 +37,7 @@ yibi-stack layers three forms of enforcement on top of Claude Code:
 |---------|-----------|
 | Safer shell execution | `bash-hygiene` plugin intercepts 3 anti-pattern categories (AP1: overcomplex single commands / AP2: unicode in shell strings / AP3: stateful `cd`) via PreToolUse hooks — before they cause silent failures |
 | Spec-first development | `sdd` plugin + `spectra-amplifier` skill expands thin requirements into 5-layer specs (Context → Behavior → Data → Constraints → Acceptance Criteria), compatible with OpenSpec change management |
-| Multi-model PR review | `pr-review-cycle-mob` orchestrates Claude + Codex + Gemini in parallel independent review → cross-model debate → aggregate, catching issues no single model would flag |
+| Multi-model PR review | `pr-cycle-deep` orchestrates Claude + Codex + Gemini in parallel independent review → cross-model debate → aggregate, catching issues no single model would flag |
 | Persistent work memory | `mycelium` skill auto-handovers before context compression and restores on next session start — no more losing track of multi-day work |
 | Release discipline | `bump-version`, `protect-push`, and `ci-triage` skills codify release workflow so Claude doesn't push to main without explicit intent |
 | Test methodology | `tdd-kentbeck` (Kent Beck Red→Green→Refactor) and `qa-test-design` (6 test design techniques) embed testing discipline into daily work |
@@ -115,8 +115,9 @@ make status-own
 | Skill | What it does |
 |-------|-------------|
 | `spectra-amplifier` | 5-layer spec expansion via `sdd` plugin |
-| `pr-review-cycle` | Full PR lifecycle: create -> parallel review -> fix -> CI -> merge |
-| `pr-review-cycle-mob` | Multi-model mob review (Claude + Codex + Gemini) |
+| `pr-review-cycle` | Full PR lifecycle: create -> parallel review (4 subagents) -> fix -> CI -> merge |
+| `pr-cycle-fast` | Fast lifecycle orchestrator: Python state machine, 1 reviewer, resumable |
+| `pr-cycle-deep` | Deep lifecycle: mob review (Claude + Codex + Gemini) + SDD amplifier-verifier |
 | `bash-anti-patterns` | AP1/AP2/AP3 detection guide + shell quoting hygiene reference |
 | `tdd-kentbeck` | Kent Beck TDD + Tidy First methodology |
 | `qa-test-design` | 6 test design techniques (equivalence, boundary, decision table...) |
@@ -181,7 +182,7 @@ yibi-stack 在 Claude Code 之上疊加三層約束：
 |------|------|
 | 更安全的 shell 執行 | `bash-hygiene` plugin 透過 PreToolUse hook，在執行前攔截三類反模式（AP1 過複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd），避免靜默失敗 |
 | 規格先行的開發 | `sdd` plugin + `spectra-amplifier` skill 把薄需求展開為五層規格（情境→行為→資料→約束→驗收條件），兼容 OpenSpec 變更管理框架 |
-| 多模型 PR 審閱 | `pr-review-cycle-mob` 讓 Claude + Codex + Gemini 並行獨立審閱再交叉辯論，捕捉單一模型漏掉的問題 |
+| 多模型 PR 審閱 | `pr-cycle-deep` 讓 Claude + Codex + Gemini 並行獨立審閱再交叉辯論，捕捉單一模型漏掉的問題 |
 | 持久化工作記憶 | `mycelium` skill 在對話壓縮前自動交班，下次 session 開啟時自動恢復工作上下文，多日開發不斷線 |
 | 發版紀律 | `bump-version` + `protect-push` + `ci-triage` 讓 Claude 不會在沒有明確意圖的情況下推上 main |
 | 測試方法論 | `tdd-kentbeck`（Kent Beck Red→Green→Refactor）和 `qa-test-design`（六大測試設計技術）把測試紀律內建到日常工作中 |
@@ -258,8 +259,9 @@ make status-own
 | Skill | 功能 |
 |-------|------|
 | `spectra-amplifier` | 五層規格展開（透過 `sdd` plugin） |
-| `pr-review-cycle` | 完整 PR 生命週期：建立 → 並行 review → 修正 → CI → merge |
-| `pr-review-cycle-mob` | 多模型群審（Claude + Codex + Gemini） |
+| `pr-review-cycle` | 完整 PR 生命週期：建立 → 並行 review（4 subagent）→ 修正 → CI → merge |
+| `pr-cycle-fast` | 快速 lifecycle orchestrator：Python state machine，可中斷 resume |
+| `pr-cycle-deep` | 深度 lifecycle：mob review（Claude + Codex + Gemini）+ SDD amplifier-verifier |
 | `bash-anti-patterns` | AP1/AP2/AP3 偵測指南 + shell 引號衛生參考 |
 | `tdd-kentbeck` | Kent Beck TDD + Tidy First 方法論 |
 | `qa-test-design` | 六大測試設計技術（等價類別、邊界值、決策表……） |

@@ -177,7 +177,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   (fat command, `if [ $? -ne 0 ]`, `||` branching). Move complex bash to `commands/scripts/*.sh`
   or `skills/<name>/scripts/*.sh`; documents keep only a single `bash <script-path>` call.
   See rule 16: use full script paths in allow-list, not fat command wildcards.
-  Example: `plugins/pr-flow/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh`.
+  Example: `plugins/pr-flow/skills/pr-cycle-deep/scripts/setup-review-dir.sh`.
 - **make target names must be copied verbatim**: target names in README/CLAUDE.md must be
   copied directly from the Makefile — never rephrase as a "readable label" (e.g., abbreviating
   `patch-pr-review-agents`) or users get a make error.

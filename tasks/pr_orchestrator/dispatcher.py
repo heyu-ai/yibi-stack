@@ -1,4 +1,4 @@
-"""Spawn-manifest writer：讓 /pr-cycle skill 知道要 dispatch 哪些 subagent。"""
+"""Spawn-manifest writer：讓 /pr-cycle-fast skill 知道要 dispatch 哪些 subagent。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def manifest_path(pr_number: int) -> Path:
 def write_review_manifest(state: OrchestratorState) -> Path:
     """為 REVIEWING 狀態寫出 spawn-manifest.md。
 
-    /pr-cycle skill 讀取此檔後在同一個 message 內 dispatch 三個並行 subagent。
+    /pr-cycle-fast skill 讀取此檔後在同一個 message 內 dispatch 三個並行 subagent。
     """
     pr = state.pr_number
     branch = state.branch
@@ -60,7 +60,7 @@ prompt: |
   If mergeable == "CONFLICTING", write "CONFLICT" to stdout and exit.
   Otherwise write "OK" and exit.
 
-## Instructions for /pr-cycle skill
+## Instructions for /pr-cycle-fast skill
 1. Launch all three subagents above in the SAME message (parallel dispatch).
 2. Collect all three results before advancing the state machine.
 3. On code review + CI + conflict check all complete, run in order:

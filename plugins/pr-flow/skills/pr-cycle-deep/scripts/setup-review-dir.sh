@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# pr-review-cycle-mob Step 3.1 — 準備工作目錄
+# pr-cycle-deep Step 3.1 — 準備工作目錄
 #
 # 用法（從 SKILL.md 呼叫時 agent 會替換 {{base_branch}}；手動執行時自填）：
-#   bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh main
+#   bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh main
 #
 # $1 = base branch（必填）
 #

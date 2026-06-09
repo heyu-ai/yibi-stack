@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# pr-review-cycle-mob Step 3.2 — Codex R1 Stage 1：Native review
+# pr-cycle-deep Step 3.2 — Codex R1 Stage 1：Native review
 #
 # 用法：
-#   bash ~/.agents/skills/pr-review-cycle-mob/scripts/codex-r1-stage1.sh main
+#   bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh main
 #
 # $1 = base branch（必填）
 #
