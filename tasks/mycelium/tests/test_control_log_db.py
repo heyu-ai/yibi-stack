@@ -1,7 +1,7 @@
 """Control log DB 層測試（CTL-DB-001~004）。"""
 
 from tasks.mycelium.db import AgentsDB
-from tasks.mycelium.models import ControlLogCategory, ControlLogEntry
+from tasks.mycelium.models import ControlLogCategory, ControlLogEntry, ControlLogSession
 
 
 def make_entry(**kwargs: object) -> ControlLogEntry:
@@ -66,4 +66,19 @@ class TestControlLogDB:
         assert "idx_ctl_entries_pr" in names
         assert "idx_ctl_entries_created_at" in names
         assert "idx_ctl_entries_category" in names
+        db.close()
+
+    def test_ctl_db_005_insert_control_log_session(self) -> None:
+        """CTL-DB-005: insert_control_log_session 寫入並回傳正整數 id。"""
+        db = AgentsDB(":memory:")
+        db.init_db()
+        session = ControlLogSession(pr_number=10, autonomy_ratio=0.5, total_entries=3)
+        new_id = db.insert_control_log_session(session)
+        assert isinstance(new_id, int)
+        assert new_id > 0
+        cur = db.conn.execute("SELECT * FROM control_log_sessions WHERE id = ?", (new_id,))
+        row = cur.fetchone()
+        assert row["pr_number"] == 10
+        assert row["autonomy_ratio"] == 0.5
+        assert row["total_entries"] == 3
         db.close()
