@@ -7,6 +7,7 @@ Exit codes:
   1 — MUST/SHOULD findings found (blocks merge on MUST; documents reason on SHOULD)
   2 — fatal error (testplan.md missing, unparseable, or gh pr diff failed)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -60,12 +61,8 @@ class Findings:
 # Markdown table parsers
 # ---------------------------------------------------------------------------
 
-_TC_TABLE_HEADER_RE = re.compile(
-    r"\|\s*TC-ID\s*\|", re.IGNORECASE
-)
-_COVERAGE_TABLE_HEADER_RE = re.compile(
-    r"\|\s*Scenario\s+Slug\s*\|.*Status", re.IGNORECASE
-)
+_TC_TABLE_HEADER_RE = re.compile(r"\|\s*TC-ID\s*\|", re.IGNORECASE)
+_COVERAGE_TABLE_HEADER_RE = re.compile(r"\|\s*Scenario\s+Slug\s*\|.*Status", re.IGNORECASE)
 _TABLE_ROW_RE = re.compile(r"^\|(.+)\|$")
 _SEPARATOR_RE = re.compile(r"^\|[-:\s|]+\|$")
 
@@ -127,9 +124,7 @@ def parse_coverage_table(testplan_text: str) -> list[CoverageRow]:
                 status_raw = cells[1] if len(cells) > 1 else ""
                 # Normalise: strip markdown markers like tick/cross
                 status_clean = re.sub(r"[^a-zA-Z]", "", status_raw).lower()
-                coverage_rows.append(
-                    CoverageRow(slug=slug, status=status_clean, raw_line=line)
-                )
+                coverage_rows.append(CoverageRow(slug=slug, status=status_clean, raw_line=line))
             break
     return coverage_rows
 
@@ -175,9 +170,7 @@ def parse_diff_test_functions(diff_text: str) -> list[TestFunction]:
                 if in_doc:
                     docstring_lines.append(dl.lstrip("+").strip())
                     # End of docstring
-                    if dl.count('"""') >= 2 or (
-                        len(docstring_lines) > 1 and '"""' in dl
-                    ):
+                    if dl.count('"""') >= 2 or (len(docstring_lines) > 1 and '"""' in dl):
                         break
                 elif dl.startswith("+"):
                     docstring_lines.append(dl.lstrip("+").strip())
@@ -236,9 +229,7 @@ def analyze(
             matched_slug = next(
                 (s for s in slug_set_lower if s.replace("-", "_") in name_lower), None
             )
-            if matched_slug or any(
-                tc.tc_id.lower()[:6] in name_lower for tc in tc_rows
-            ):
+            if matched_slug or any(tc.tc_id.lower()[:6] in name_lower for tc in tc_rows):
                 findings.must.append(
                     f"{fn.filepath}::{fn.name} appears to target a TC"
                     f" but its docstring is missing a `spec: <cap>#<slug>` traceability marker"
@@ -247,9 +238,7 @@ def analyze(
     # Info: coverage map summary
     total_tcs = len(tc_rows)
     traced = sum(1 for fn in test_functions if fn.spec_trace is not None)
-    findings.info.append(
-        f"Coverage map: {traced}/{total_tcs} TCs have `spec:` trace in this PR"
-    )
+    findings.info.append(f"Coverage map: {traced}/{total_tcs} TCs have `spec:` trace in this PR")
 
     return findings
 
@@ -370,10 +359,7 @@ def main() -> None:
 
     if findings.should:
         print()
-        print(
-            "[WARN] SHOULD findings present — document reason in PR description"
-            " if deferring."
-        )
+        print("[WARN] SHOULD findings present — document reason in PR description if deferring.")
 
     sys.exit(0)
 
