@@ -3,8 +3,10 @@ name: pr-review-cycle
 type: know
 scope: global
 description: >
-  完整 PR 生命週期：從建立 PR 到 code-review → parallel review → fix → re-review → CI → merge → spectra archive + Jira sync。
-  觸發情境：「跑 PR cycle」「review 這個 PR」「pr-review-cycle」「完整 PR 流程」「jira sync」「spectra archive」
+  完整 PR 生命週期（通用版，任何專案皆可用）：從建立 PR 到 code-review → parallel review（4 個 pr-review-toolkit subagent）
+  → fix → re-review → CI → merge。無 SDD/spectra 依賴。
+  SDD 專案（需要 spectra archive + Jira sync + amplifier-verifier）請改用 /pr-cycle-deep。
+  觸發情境：「跑 PR cycle」「review 這個 PR」「pr-review-cycle」「完整 PR 流程」「parallel review」
 ---
 
 # PR Review Cycle
@@ -23,7 +25,7 @@ Complete workflow from PR creation to merge, for any tech stack (Python / JS / G
 ## Review Severity Standard (RFC 2119)
 
 This is the **canonical** grading standard for every PR review finding — in this skill and in
-`/pr-review-cycle-mob`. It applies regardless of source: `/code-review`, the four
+`/pr-cycle-deep`. It applies regardless of source: `/code-review`, the four
 `pr-review-toolkit` subagents, or external mob voices (Codex / Gemini). The grade a finding
 receives is what decides its merge consequence.
 
@@ -135,7 +137,7 @@ This step is **informational** and does not block the workflow. If DRIFT DETECTE
 
 ---
 
-### Step 1.6 — Parallel Pre-review Check (3 agents, same message)
+### Step 1.5 — Parallel Pre-review Check (2 agents, same message)
 
 > Unlike Step 1.5, this step is **blocking** — do not proceed to Step 2 if any agent fails or returns no usable output.
 
@@ -145,17 +147,15 @@ Spawn three Task agents **in a single message** to gather baseline information i
 |-------|------|
 | **diff-reviewer** | Run `gh pr diff {{pr_number}}`; summarise changed files and line counts. **Do not use local `main`** — always fetch from GitHub. If the command exits non-zero, report `[FAIL] gh pr diff: <exact error>` and stop. |
 | **ci-checker** | Run `gh pr checks {{pr_number}}`; report pass / fail / pending per check. If the list is empty, report "CI: not yet triggered". If the command exits non-zero, report `[FAIL] gh pr checks: <exact error>` and stop. |
-| **amplifier-verifier** | Check whether the PR diff touches any `openspec/changes/<name>/` path. If none → report "no spectra change". If found → check `openspec/changes/<name>/testplan.md` exists and is non-empty (written by `/spectra-amplifier`); if missing → report "amplifier not run". If the directory check errors, report `[FAIL]` and stop. |
 
 If any agent reports `[FAIL]`, stop and report the failure explicitly; do not proceed to Step 2.
 
-Once all three return successfully, report the pre-review summary inline:
+Once both return successfully, report the pre-review summary inline:
 
 ```text
 Pre-review Check
 - Diff: <file count> files, <line count> lines changed
 - CI: <pass / fail / pending / not yet triggered — list any failing checks by name>
-- Amplifier: <ran / not run / no spectra change>
 ```
 
 ---
@@ -332,95 +332,17 @@ Confirm the output contains the exact version tag, not just older tags; if empty
 
 ---
 
-After CI is fully green, squash merge and capture the merge commit SHA (needed for Step 8b Jira comment):
+After CI is fully green, squash merge:
 
 ```bash
 gh pr merge {{pr_number}} --squash --delete-branch
 ```
 
-```bash
-gh pr view {{pr_number}} --json mergeCommit -q .mergeCommit.oid
-```
-
-Note the output SHA as `{{merge_commit_sha}}` and report it to the user.
-
----
-
-### Step 8 — Spectra Archive + Jira Sync (wrap-up)
-
-After the PR merges, sync spec state and Jira ticket to close the development cycle. Both sub-sections are **optional** — skip if no spectra change or no Jira issue.
-
-#### 8a — Spectra Archive
-
-If no spectra change was created for this dev cycle, skip Step 8a.
-
-Otherwise, list in-progress changes and confirm whether one matches this PR (change name is usually close to the feature branch name):
-
-```bash
-spectra list
-```
-
-If the command fails, stop and report the error to the user; do not continue.
-
-If a matching change is found, **report the change name to the user and wait for confirmation before archiving** (archive is irreversible):
-
-> Found a likely matching spectra change: `{{change_name}}`. Confirm archive?
-
-After confirmation:
-
-```bash
-spectra archive {{change_name}} --yes
-```
-
-If the command exits non-zero, stop and report the error. If validation has Critical errors,
-run `spectra analyze {{change_name}}` to identify the issue, fix it, then archive again; only
-use `--no-validate` if the user explicitly instructs it (the agent must not decide to skip
-validation on its own).
-
----
-
-#### 8b — Jira Sync
-
-**Detect the Jira Issue Key**:
-
-The branch was deleted by `--delete-branch`; extract the key from PR title / body instead:
-
-```bash
-gh pr view {{pr_number}} --json title,body -q '.title + " " + (.body // "")'
-```
-
-If the command itself exits non-zero, stop and report the error; ask the user to provide the key manually.
-If the command succeeds but the output contains no string matching `[A-Z]{2,}-[0-9]+` (e.g. `ABC-123`), ask the user to provide the key or skip Step 8b.
-
-**Get transitions (sequential), then run transition + comment in parallel**:
-
-Call `mcp__claude_ai_Atlassian__getTransitionsForJiraIssue` (`issueId`: `{{jira_issue_key}}`) to get the transition list. If the call fails, stop and report the error.
-
-Pick the option closest in meaning to "development complete and merged" (common options: `Done`, `Merged`, `Released`, `Closed`). If unsure, ask the user before proceeding.
-
-After confirming the transition, the following two MCP calls **can be sent simultaneously** (no dependency); either failure must be reported and must not be silently ignored:
-
-- `mcp__claude_ai_Atlassian__transitionJiraIssue`: move `{{jira_issue_key}}` to the selected state
-- `mcp__claude_ai_Atlassian__addCommentToJiraIssue`: add a comment in this format:
-
-```text
-PR #{{pr_number}} squash-merged to main.
-Merge commit: {{merge_commit_sha}}
-```
-
-If Step 8a archived a spectra change, append:
-
-```text
-Spectra change `{{change_name}}` archived; spec status updated to complete.
-```
-
-Report back to the user: spectra archive status (archived / skipped), Jira ticket status (transitioned to `{{selected_state}}` + comment written / skipped / failure reason).
-
 ---
 
 ## Troubleshooting
 
-<!-- KEEP IN SYNC WITH ../pr-review-cycle-mob/SKILL.md (same FAQ row for pr-test-analyzer anti-patterns). If you update one, update both. -->
+<!-- KEEP IN SYNC WITH ../pr-cycle-deep/SKILL.md (same FAQ row for pr-test-analyzer anti-patterns). If you update one, update both. -->
 
 | Issue | How to handle |
 |-------|---------------|
@@ -433,8 +355,5 @@ Report back to the user: spectra archive status (archived / skipped), Jira ticke
 | Re-review finds new issues | Return to Step 4; do not merge directly |
 | CI and local results differ | Trust local CI; compare tool versions and env vars between CI and local |
 | Want to skip a review agent | Allowed, but explain the reason |
-| spectra archive validation fails | Run `spectra analyze {{change_name}}` to view Critical errors, fix them, then archive; `--no-validate` requires explicit user instruction |
-| Cannot detect Jira key from branch / PR | Ask the user to provide the key (format: `PROJECT-123`), or confirm this PR has no associated Jira issue and skip |
-| Jira transition options unclear | Call `getTransitionsForJiraIssue` to list all options and ask the user to confirm |
-| Jira MCP requires authentication | Atlassian MCP requires OAuth; if the tool returns an auth error, prompt the user to authorize on claude.ai |
+| SDD project needs spectra archive + Jira sync | Use `/pr-cycle-deep` instead, which includes post-merge spectra archive and Jira sync steps |
 | User skipped bump but needs a version tag later | Create a release branch, run [`/bump-version`](../bump-version/SKILL.md) on it, then open a PR to merge into main (CI pass + CHANGELOG confirmed is sufficient; no full review cycle needed; if main has new commits, CHANGELOG may include extra entries — verify manually) |

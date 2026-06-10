@@ -42,4 +42,4 @@ uv run python -m tasks.pr_orchestrator <command> [options]
 
 ## Agent Interface
 
-見 `skills/pr-cycle/SKILL.md`。
+見 `skills/pr-cycle-fast/SKILL.md`。

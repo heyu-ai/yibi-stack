@@ -150,7 +150,7 @@ Example (`<abs-path-to-git>`: run `which git`; typical: `/opt/homebrew/bin/git`,
 +    "Bash(<abs-path-to-git> diff:*)",
 +    "Bash(<abs-path-to-git> rev-parse:*)",
 +    "Bash(<abs-path-to-git> fetch:*)",
-+    "Bash(bash /Users/<you>/.agents/skills/pr-review-cycle-mob/scripts/setup-review-dir.sh)"
++    "Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh)"
    ]
  }
 ```
