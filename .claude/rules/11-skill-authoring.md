@@ -440,6 +440,20 @@ tightened to require "at least 2 distinct EG categories" but spec.md's decision 
 not updated to match. Mob review round 4 caught the divergence and synced spec.md to reflect
 the constraint.
 
+The same discipline applies to **script exit-code contracts**: when a SKILL.md documents a
+helper script's exit codes (e.g. "exit 1 = MUST/SHOULD findings"), the script's actual exit
+paths must match. In PR #150 the SKILL.md row and `amplifier-verify.py` were written in the
+same commit yet drifted immediately -- the script exited 0 on SHOULD-only findings. Mob review
+caught it; the fix aligned the script to the documented contract. After writing doc + code
+together, cross-check both directions: every behavior the doc claims exists in code, and
+every exit path in code is documented.
+
+When **deleting** a step or section, grep the document (and its command wrapper) for
+references to it before committing. PR #150 removed Step 8a/8b from pr-review-cycle and left
+three dangling references in one pass: a "needed for Step 8b" rationale in Step 7, a
+"(3 agents)" heading over a 2-row table, and a command description still advertising the
+deleted feature.
+
 ## MCP Call Failure Gates: Concrete Examples
 
 General rule in `~/.claude/CLAUDE.md`: "Each external call (MCP tool, bash CLI) must have an

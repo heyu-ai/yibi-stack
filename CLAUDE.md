@@ -171,7 +171,11 @@ make install-all         # 等同 build-tools + install + install-project + inst
   worktree`) — run from the main repo directory instead.
 - **plugin command source deleted → top-level symlink becomes dangling**: `git status` does
   not show it (CI `FileNotFoundError` catches it). When deleting `plugins/<pack>/commands/<cmd>.md`,
-  also run `git rm commands/<cmd>.md` to remove the top-level symlink.
+  also run `git rm commands/<cmd>.md` to remove the top-level symlink. When creating or
+  verifying any symlink, always dereference it (`ls <link>/` with trailing slash) —
+  `ls -la <link>` only shows the link itself and always succeeds; relative targets count
+  parent levels from the symlink's own directory, so one extra `..` silently escapes the
+  repo root (PR #150 C1).
 - **slash command bash code block rewritten by agent**: in commands/*.md or SKILL.md, the agent
   understands intent and generates fresh bash instead of copy-pasting — may introduce anti-patterns
   (fat command, `if [ $? -ne 0 ]`, `||` branching). Move complex bash to `commands/scripts/*.sh`
