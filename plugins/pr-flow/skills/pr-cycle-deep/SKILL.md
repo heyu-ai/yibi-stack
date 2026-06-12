@@ -670,7 +670,7 @@ group-review ({{N}}/3 voices active)
 - <voice>: <reason>
 ```
 
-Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 6.
+Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 5b.
 
 ---
 
@@ -680,19 +680,19 @@ Post the aggregated review consensus to the PR as a comment, **before** fixes st
 review's decision trail is permanently recorded on the PR for anyone reading it later. This is
 a pre-fix snapshot of consensus; the subsequent fix commits show what was changed in response.
 
-Resolve the review dir (same form as earlier steps) and confirm `final.md` exists:
+Resolve the review dir and post in a **single self-contained block** — each Bash call is a fresh
+shell, so `REVIEW_DIR` must be recomputed in the same block that runs `gh pr comment` (do not rely
+on a variable assigned in an earlier block, or the `--body-file` path expands empty). If `final.md`
+is missing, skip without blocking the flow:
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
-test -f "$REVIEW_DIR/final.md" && echo "[OK] final.md ready" || echo "[WARN] final.md missing -- skip posting; complete Step 5 first"
-```
-
-If `[WARN] final.md missing`, skip this step (do not block the flow) and continue to Step 6.
-Otherwise post the comment:
-
-```bash
-gh pr comment "{{pr_number}}" --body-file "$REVIEW_DIR/final.md"
+if [ ! -f "$REVIEW_DIR/final.md" ]; then
+  echo "[WARN] final.md missing -- skip posting; complete Step 5 first, then continue to Step 6"
+else
+  gh pr comment "{{pr_number}}" --body-file "$REVIEW_DIR/final.md"
+fi
 ```
 
 `gh pr comment` exit code semantics:

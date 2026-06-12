@@ -220,9 +220,12 @@ Post the aggregated findings to the PR as a comment, **before** fixes start, so 
 decision trail is permanently recorded on the PR for anyone reading it later. This is a pre-fix
 snapshot; the subsequent fix commits show what was changed in response.
 
-The parallel-review results live only in conversation context, so first compose the summary with
-the **Write tool** to `$CLAUDE_JOB_DIR/pr-review-summary.md` (multi-line content via Write, not a
-heredoc), mirroring this structure:
+The parallel-review results live only in conversation context, so first resolve the repo root
+(`git rev-parse --show-toplevel`) and compose the summary with the **Write tool** to
+`<repo-root>/.pr-review/pr-review-summary.md` (multi-line content via Write, not a heredoc).
+`.pr-review/` is gitignored, so the file is never committed; a stable repo path (rather than the
+ephemeral agent job dir) also keeps it available if the user retries the post manually. Mirror
+this structure:
 
 ```text
 # PR Review Summary — PR #{{pr_number}}
@@ -243,10 +246,12 @@ code-reviewer / silent-failure-hunter / pr-test-analyzer / comment-analyzer
 <APPROVE / NEEDS_CHANGES + one-line summary>
 ```
 
-Then post it:
+Then post it in a **single self-contained block** (each Bash call is a fresh shell — recompute the
+path in the same block; do not rely on a variable assigned in an earlier block):
 
 ```bash
-gh pr comment "{{pr_number}}" --body-file "$CLAUDE_JOB_DIR/pr-review-summary.md"
+WT_ROOT=$(git rev-parse --show-toplevel)
+gh pr comment "{{pr_number}}" --body-file "$WT_ROOT/.pr-review/pr-review-summary.md"
 ```
 
 `gh pr comment` exit code semantics:
@@ -258,7 +263,8 @@ gh pr comment "{{pr_number}}" --body-file "$CLAUDE_JOB_DIR/pr-review-summary.md"
 
 > First-time `gh pr comment` use in this skill: if the agent is prompted for permission each run,
 > add `Bash(gh pr comment:*)` to `settings.local.json` (rule 16 safe form — verb locked at prefix).
-> `$CLAUDE_JOB_DIR` is auto-cleaned when the job ends; no `rm` needed.
+> The summary lives under gitignored `.pr-review/`, so it is not committed and stays available for
+> the user to re-run the exact command above if the post fails.
 
 ---
 
