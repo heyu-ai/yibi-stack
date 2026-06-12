@@ -7,7 +7,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from agy_validate import (
+    _NARRATION_PREFIXES,
+    _TOOLCALL_PREFIXES,
     check_agentic_narration,
     check_changed_files,
     check_timeout,
@@ -86,15 +89,60 @@ class TestRescueBrainArtifact:
         assert rescued is None
         assert content == GOOD_REVIEW
 
+    def test_agyv_eg_007_pointer_outside_brain_dir_ignored(self, tmp_path: Path) -> None:
+        """AGYV-EG-007: a /brain/ path outside ~/.gemini/.../brain is NOT read.
+
+        Hardening: never read an arbitrary absolute path the model printed, even
+        if it exists and is readable.
+        """
+        outside = tmp_path / "evil" / "brain" / "abcdef12" / "x.md"
+        outside.parent.mkdir(parents=True, exist_ok=True)
+        outside.write_text(GOOD_REVIEW, encoding="utf-8")
+        text = f"done -> {outside}"
+        content, rescued = rescue_brain_artifact(text, home=tmp_path / "home")
+        assert rescued is None
+        assert content == text
+
+    def test_agyv_eg_008_present_but_unreadable_raises(self, tmp_path: Path) -> None:
+        """AGYV-EG-008: an artifact that exists but can't be read propagates OSError.
+
+        A directory at the artifact path makes read_text raise IsADirectoryError
+        (an OSError, not FileNotFoundError) — the present-but-blocked condition
+        that must surface loudly rather than silently validate the pointer text.
+        """
+        home = tmp_path / "home"
+        artifact = home / ".gemini/antigravity-cli/brain/abcdef12/result.md"
+        artifact.mkdir(parents=True, exist_ok=True)  # a directory, not a file
+        text = "I have written it to ~/.gemini/antigravity-cli/brain/abcdef12/result.md"
+        with pytest.raises(OSError):
+            rescue_brain_artifact(text, home=home)
+
 
 class TestCheckTimeout:
     def test_agyv_dt_006_detects_timeout_marker(self) -> None:
-        """AGYV-DT-006: timeout marker is flagged."""
+        """AGYV-DT-006: timeout marker leading a line is flagged."""
         assert check_timeout("Error: timed out waiting for response") is not None
 
     def test_agyv_dt_007_clean_output_passes(self) -> None:
         """AGYV-DT-007: clean output has no timeout error."""
         assert check_timeout(GOOD_REVIEW) is None
+
+    def test_agyv_dt_016_second_marker_standalone_line(self) -> None:
+        """AGYV-DT-016: the bare 'timed out waiting...' marker is also flagged."""
+        assert check_timeout("...\ntimed out waiting for response\n") is not None
+
+    def test_agyv_eg_005_body_mention_is_not_a_timeout(self) -> None:
+        """AGYV-EG-005: a review whose body quotes the marker mid-line is NOT a timeout.
+
+        Line-anchored: only a line that *starts* with the marker counts, so a
+        finding about timeout-handling code does not falsely fail the voice.
+        """
+        text = (
+            "## Verdict\nNEEDS_CHANGES\n"
+            "### [important] race in tasks/foo/service.py\n"
+            "The call returns Error: timed out waiting for response on slow links."
+        )
+        assert check_timeout(text) is None
 
 
 class TestCheckAgenticNarration:
@@ -115,6 +163,20 @@ class TestCheckAgenticNarration:
         """AGYV-EG-003: leading blank lines do not hide narration."""
         text = "\n\n   \nI'm going to look for the diff."
         assert check_agentic_narration(text) is not None
+
+    def test_agyv_dt_017_detects_brain_pointer_opener(self) -> None:
+        """AGYV-DT-017: 'I have written' (canonical brain-pointer opener) is flagged."""
+        text = "I have written my analysis to ~/.gemini/.../brain/abcdef12/x.md"
+        assert check_agentic_narration(text) is not None
+
+    @pytest.mark.parametrize("prefix", _NARRATION_PREFIXES + _TOOLCALL_PREFIXES)
+    def test_agyv_dt_018_every_marker_detected(self, prefix: str) -> None:
+        """AGYV-DT-018: each narration/tool-call marker triggers detection.
+
+        A typo in any literal would silently disable that detector; this guards
+        the whole tuple, including 'tool_use:' which had no dedicated case.
+        """
+        assert check_agentic_narration(prefix + "something") is not None
 
 
 class TestCheckVerdict:
@@ -138,7 +200,7 @@ class TestCheckChangedFiles:
         assert check_changed_files(text, ["tasks/foo/service.py"]) is None
 
     def test_agyv_dt_015_no_match_fails_wrong_target(self) -> None:
-        """AGYV-DT-015: mentioning none of the changed files = wrong target."""
+        """AGYV-DT-015: citing other files but none of ours = wrong target."""
         text = "## Verdict\nLGTM\nReviewed src/unrelated/other.ts thoroughly."
         err = check_changed_files(text, ["tasks/foo/service.py"])
         assert err is not None
@@ -148,11 +210,27 @@ class TestCheckChangedFiles:
         """AGYV-EG-004: an empty changed-files list does not block."""
         assert check_changed_files("anything", []) is None
 
+    def test_agyv_dt_019_clean_lgtm_without_file_refs_passes(self) -> None:
+        """AGYV-DT-019: a terse clean LGTM (no file references) is NOT wrong-target.
+
+        Resolves the Codex finding: requiring a changed-file mention would
+        falsely fail legitimate no-findings reviews (esp. R2 over r1-aggregate).
+        """
+        text = "## Verdict\nLGTM\n## Summary\nNo issues found; the change is sound."
+        assert check_changed_files(text, ["tasks/foo/service.py"]) is None
+
+    def test_agyv_eg_006_other_file_refs_only_fails(self) -> None:
+        """AGYV-EG-006: a review citing only foreign paths is wrong-target."""
+        text = "## Verdict\nNEEDS_CHANGES\nBug in lib/other/handler.go at line 5."
+        assert check_changed_files(text, ["tasks/foo/service.py"]) is not None
+
 
 class TestValidateAggregation:
     def test_agyv_vl_001_aggregates_multiple_errors(self) -> None:
         """AGYV-VL-001: timeout + missing verdict + wrong target all reported."""
-        text = "Error: timed out waiting for response"
+        # Needs a file reference (other/wrong.py) so the wrong-target check fires;
+        # the timeout marker must lead a line so the line-anchored check catches it.
+        text = "Error: timed out waiting for response\nReviewed other/wrong.py instead."
         errors = validate(
             text,
             require_verdict=True,
@@ -242,3 +320,23 @@ class TestMain:
         raw.write_text("Error: timed out waiting for response", encoding="utf-8")
         rc = main(["--raw", str(raw)])
         assert rc == 1
+
+    def test_agyv_st_006_missing_changed_files_returns_two(self, tmp_path: Path) -> None:
+        """AGYV-ST-006: an unreadable --changed-files is a usage error (exit 2)."""
+        raw = tmp_path / "raw.md"
+        raw.write_text(GOOD_REVIEW, encoding="utf-8")
+        rc = main(["--raw", str(raw), "--changed-files", str(tmp_path / "nope.txt")])
+        assert rc == 2
+
+    def test_agyv_st_007_unreadable_brain_artifact_returns_two(self, tmp_path: Path) -> None:
+        """AGYV-ST-007: a present-but-unreadable brain artifact exits 2 (loud)."""
+        home = tmp_path / "home"
+        artifact = home / ".gemini/antigravity-cli/brain/abcdef12/analysis_results.md"
+        artifact.mkdir(parents=True, exist_ok=True)  # directory -> IsADirectoryError
+        raw = tmp_path / "raw.md"
+        raw.write_text(
+            "I have written it to ~/.gemini/antigravity-cli/brain/abcdef12/analysis_results.md",
+            encoding="utf-8",
+        )
+        rc = main(["--raw", str(raw), "--home", str(home)])
+        assert rc == 2

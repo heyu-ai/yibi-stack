@@ -39,14 +39,19 @@ import sys
 from pathlib import Path
 
 # Brain-artifact pointer: agy in agentic mode writes the real review to
-# ~/.gemini/antigravity-cli/brain/<uuid>/<name>.md and prints only a pointer.
-# Match a "~"- or "/"-anchored path containing /brain/<hexish>/ ending in .md.
+# ~/.gemini/antigravity-cli/brain/<uuid-ish>/<name>.md and prints only a pointer.
+# Match a "~"- or "/"-anchored path containing /brain/<hex-or-dash run>/ ending in
+# .md. The dir segment is intentionally lenient (not a strict UUID) so the tests
+# can use short ids like "abcdef12"; the real source dir is constrained at rescue
+# time to live under ~/.gemini/antigravity-cli/brain (see rescue_brain_artifact).
 _BRAIN_POINTER = re.compile(
     r"""(?P<path>[~/][^\s"'`<>]*?/brain/[0-9a-fA-F-]{6,}/[^\s"'`<>]+?\.md)"""
 )
 
 # agy agentic-narration markers: output whose first non-blank line starts with
 # one of these is the model "thinking out loud" / searching, not a review.
+# "i have written/finished" are the canonical brain-pointer openers (agy narrates
+# "I have written my analysis to <brain artifact>") — see issue #153 mode 2.
 _NARRATION_PREFIXES = (
     "i will ",
     "i'll ",
@@ -54,6 +59,11 @@ _NARRATION_PREFIXES = (
     "i'm going to ",
     "i am waiting",
     "i'm waiting",
+    "i have written",
+    "i've written",
+    "i have finished",
+    "i've finished",
+    "i have completed",
     "let me ",
     "first, i ",
     "searching for ",
@@ -66,6 +76,16 @@ _TOOLCALL_PREFIXES = ("call:", "tool_use:")
 _TIMEOUT_MARKERS = (
     "error: timed out",
     "timed out waiting for response",
+)
+
+# A source-file reference inside review prose: either a path with a directory
+# separator and an extension, or a bare filename with a known source extension.
+# Used by check_changed_files to tell "clean review with no file refs" (pass)
+# apart from "review that discusses files, none of them ours" (wrong target).
+_FILE_REF = re.compile(
+    r"""[\w.\-/]+/[\w.\-/]+\.\w{1,5}\b"""  # a/b/c.ext (has a slash)
+    r"""|\b[\w\-]+\.(?:py|ts|tsx|js|jsx|go|rs|java|rb|md|sh|ya?ml|json|sql|toml|c|h|cpp|hpp|kt|swift|dart|php|cs)\b""",
+    re.IGNORECASE,
 )
 
 
@@ -83,35 +103,59 @@ def _expand_home(path: str, home: Path) -> Path:
     return Path(path)
 
 
+def _under_brain_dir(artifact: Path, home: Path) -> bool:
+    """True if ``artifact`` resolves under ~/.gemini/antigravity-cli/brain."""
+    brain_root = (home / ".gemini" / "antigravity-cli" / "brain").resolve()
+    resolved = artifact.resolve()
+    return brain_root == resolved or brain_root in resolved.parents
+
+
 def rescue_brain_artifact(text: str, home: Path) -> tuple[str, str | None]:
     """Resolve a brain-artifact pointer to its real content.
 
-    Returns ``(content, rescued_from_path)``. When no pointer is found, or the
-    artifact is missing / empty / unreadable, returns ``(text, None)`` so the
-    caller falls through to the normal fail-loud checks on the original text.
+    Returns ``(content, rescued_from_path)``. When no pointer is found, the
+    pointer resolves outside the legitimate brain dir, the artifact is missing
+    (dangling pointer), or it is empty, returns ``(text, None)`` so the caller
+    falls through to the normal fail-loud checks on the original text.
+
+    Raises ``OSError`` when the artifact *exists* but cannot be read (e.g. a
+    permission error): that is an artifact-present-but-blocked condition the
+    caller must surface loudly (exit 2), not silently validate the pointer text.
     """
     pointer = find_brain_pointer(text)
     if pointer is None:
         return text, None
     artifact = _expand_home(pointer, home)
+    # Only trust pointers under the real brain dir — never read an arbitrary
+    # absolute path the model happened to print.
+    if not _under_brain_dir(artifact, home):
+        return text, None
     try:
         content = artifact.read_text(encoding="utf-8")
-    except OSError:
-        return text, None
+    except FileNotFoundError:
+        return text, None  # dangling pointer: fall through to fail-loud checks
+    # any other OSError (PermissionError, IsADirectoryError, ...) propagates
     if not content.strip():
         return text, None
     return content, pointer
 
 
 def check_timeout(text: str) -> str | None:
-    """Flag agentic-search timeouts."""
-    low = text.lower()
-    for marker in _TIMEOUT_MARKERS:
-        if marker in low:
-            return (
-                f"output contains timeout marker ({marker!r}) — agentic search "
-                "exceeded --print-timeout"
-            )
+    """Flag agentic-search timeouts.
+
+    Anchored to line starts (like check_agentic_narration) so a legitimate
+    review whose *body* quotes "Error: timed out ..." is not mistaken for an
+    actual timeout — agy's real timeout output is the marker as a standalone
+    leading/trailing line.
+    """
+    for line in text.splitlines():
+        stripped = line.strip().lower()
+        for marker in _TIMEOUT_MARKERS:
+            if stripped.startswith(marker):
+                return (
+                    f"output line starts with timeout marker ({marker!r}) — "
+                    "agentic search exceeded --print-timeout"
+                )
     return None
 
 
@@ -154,24 +198,37 @@ def load_changed_files(path: Path) -> list[str]:
 
 
 def check_changed_files(text: str, changed: list[str]) -> str | None:
-    """Content sanity: the review must mention at least one changed path.
+    """Content sanity: detect a review that targeted the WRONG files.
 
-    Guards against the wrong-target failure mode (agy reviewed a stale input
-    from a different repo and returned valid-looking output). An empty list is
-    treated as "nothing to check" and never blocks.
+    Defence-in-depth against the wrong-target failure mode (agy reviewed a stale
+    input from a previous session). The check is deliberately biased toward NOT
+    blocking legitimate reviews — it fails only when the review *references files*
+    yet none of them are the changed paths:
+
+    - references a changed path (full path) or basename  -> pass (right target)
+    - references no file at all (e.g. a terse clean LGTM) -> pass (cannot be
+      wrong-target; nothing file-specific to be wrong about)
+    - references file paths but none are ours             -> fail (wrong target)
+
+    An empty changed list is treated as "nothing to check" and never blocks.
+    Residual gap (accepted, defence-in-depth): a stale review of a *different*
+    module in the *same* repo that cites only a generic shared basename
+    (``service.py``) still passes — the primary defences (inline prompt + scratch
+    hygiene) prevent that input from reaching the model in the first place.
     """
     if not changed:
         return None
-    for path in changed:
-        if path in text:
-            return None
-        base = path.rsplit("/", 1)[-1]
-        if base and base in text:
-            return None
-    sample = ", ".join(changed[:3])
+    if any(path in text for path in changed):
+        return None
+    basenames = {path.rsplit("/", 1)[-1] for path in changed if path}
+    if any(base and base in text for base in basenames):
+        return None
+    if not _FILE_REF.search(text):
+        return None  # no file references at all -> not a wrong-target review
+    sample = ", ".join(sorted(changed)[:3])
     return (
-        f"output mentions none of the {len(changed)} changed files "
-        f"(e.g. {sample}) — likely reviewed the WRONG target"
+        f"output references files but none of the {len(changed)} changed paths "
+        f"({sample}) — likely reviewed the WRONG target"
     )
 
 
@@ -243,7 +300,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[FAIL] {args.label}: cannot read {args.raw}: {e}", file=sys.stderr)
         return 2
 
-    content, rescued_from = rescue_brain_artifact(text, home)
+    try:
+        content, rescued_from = rescue_brain_artifact(text, home)
+    except OSError as e:
+        print(
+            f"[FAIL] {args.label}: brain artifact present but unreadable: {e}",
+            file=sys.stderr,
+        )
+        return 2
     if rescued_from is not None:
         try:
             args.raw.write_text(content, encoding="utf-8")

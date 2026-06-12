@@ -27,8 +27,9 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # issue #153 fix 2：清掉殘留的 agy scratch input，避免 agentic 檔案搜尋撈到上個 session
-# 的 stale input 而 review 錯誤 target。-f 確保無檔案時不報錯。
-rm -f "$HOME"/.gemini/antigravity-cli/scratch/gemini-*-input.md 2>/dev/null || true
+# 的 stale input 而 review 錯誤 target。-f 確保無檔案（含 glob 不展開）時不報錯；不吞掉
+# 真實失敗（如權限錯誤）——清理失敗代表 stale-input 防線失效，必須讓使用者看到 [WARN]。
+rm -f "$HOME"/.gemini/antigravity-cli/scratch/gemini-*-input.md || echo "[WARN] agy scratch cleanup failed; stale-input vector not cleared" >&2
 
 if ! WT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
     echo "[FAIL] 當前目錄不在 git repo 內（請在 worktree 目錄執行此 script）" >&2
@@ -62,6 +63,8 @@ cd "$WT_ROOT"
 
 # issue #153 fix 1：inline prompt 取代 @file。nested worktree 下 @file 解析失敗會讓 agy
 # 進入 agentic 探索；改成把 prompt+diff 內容直接餵進 -p，agy 不需讀檔即無 agentic 觸發點。
+# 256000B 上限：macOS ARG_MAX 約 1 MiB（單一 arg 與 env 共用該預算），256KB 留足 headroom；
+# 實測一次 mob review 輸入約 63KB，遠低於此。調高前先確認不會逼近 getconf ARG_MAX。
 INPUT_BYTES=$(wc -c < "$REVIEW_DIR/gemini-r1-input.md")
 if [ "$INPUT_BYTES" -gt 256000 ]; then
     echo "[FAIL] review 輸入 ${INPUT_BYTES}B 超過 256000B inline 上限，diff 過大不適合 agy inline 模式" >&2

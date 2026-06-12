@@ -19,7 +19,8 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 EXTRACT_PROMPT=~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md
 
 # issue #153 fix 2：清掉殘留的 agy scratch input，避免 agentic 檔案搜尋撈到 stale input。
-rm -f "$HOME"/.gemini/antigravity-cli/scratch/gemini-*-input.md 2>/dev/null || true
+# 不吞掉真實失敗（如權限錯誤）——清理失敗代表 stale-input 防線失效，須讓使用者看到 [WARN]。
+rm -f "$HOME"/.gemini/antigravity-cli/scratch/gemini-*-input.md || echo "[WARN] agy scratch cleanup failed; stale-input vector not cleared" >&2
 
 # Ensure temp files are cleaned even on unexpected exit (set -e early exit, signal, etc.)
 _STAGE2_CLEANUP() { rm -f "${REVIEW_DIR:-/dev/null}/gemini-extract-input.md" "${TMP_JSON:-/dev/null}"; }
@@ -40,6 +41,11 @@ REVIEW_DIR="$WT_ROOT/.pr-review"
 
 if [ ! -f "$REVIEW_DIR/gemini-r1-raw.md" ]; then
     echo "[FAIL] gemini-r1-raw.md 不存在；請確認 Stage 1 已成功完成" >&2
+    exit 1
+fi
+
+if [ ! -f "$REVIEW_DIR/changed-files.txt" ]; then
+    echo "[FAIL] changed-files.txt 不存在，請重跑 Step 3.1 setup block（fail-loud 驗證需要）" >&2
     exit 1
 fi
 
@@ -68,12 +74,14 @@ if ! agy -p "$EXTRACT_CONTENT" \
     exit 1
 fi
 
-# issue #153 fix 4：brain-artifact rescue。萃取若進入 agentic 模式，真正輸出會寫到 brain
-# artifact，TMP_JSON 只剩 narration+pointer。validator 就地把 TMP_JSON 還原成真正內容，
-# 後續 JSON 萃取才找得到 JSON。此處不檢 Verdict / changed-file（萃取輸出為 JSON，schema
-# 由下方 Python 把關），只做 rescue + timeout + narration。
+# issue #153 fix 3+4：brain-artifact rescue + fail-loud 驗證。萃取若進入 agentic 模式，
+# 真正輸出會寫到 brain artifact，TMP_JSON 只剩 narration+pointer——validator 就地還原。
+# 不檢 Verdict（萃取輸出為 JSON，verdict 由下方 schema 把關），但帶 --changed-files：
+# content-sanity 只在「引用了檔案卻沒有一個是 changed path」時 fail，乾淨 JSON
+# （空 findings / 引用我們的檔案）皆放行，可擋住 agentic 亂引他檔的 wrong-target JSON。
 if ! python3 "$SCRIPT_DIR/agy_validate.py" \
     --raw "$TMP_JSON" \
+    --changed-files "$REVIEW_DIR/changed-files.txt" \
     --label "agy R1 Stage 2"; then
     echo "[FAIL] agy R1 Stage 2 萃取輸出未通過 fail-loud 驗證（見上方 [FAIL] 訊息）" >&2
     rm -f "$REVIEW_DIR/gemini-extract-input.md" "$TMP_JSON"

@@ -15,8 +15,8 @@
 #   - 暫存 gemini-r2-input.md（完成後自動刪除）
 #   - CWD 切換到 $WT_ROOT（--add-dir . 以 WT_ROOT 為 context 基準）
 #
-# issue #153：nested worktree 下 agy 無法解析 @file，靜默進入 agentic 模式（R2 實測為
-# timeout）。修法同 stage1：inline prompt 取代 @file、開頭清 scratch、跑 agy_validate.py。
+# issue #153：nested worktree 下 agy 無法解析 @file，靜默進入 agentic 模式（R2 實測觀察到
+# timeout 這個結局）。修法同 stage1：inline prompt 取代 @file、開頭清 scratch、跑 agy_validate.py。
 #
 # 退出碼：0 成功；非零失敗（每種失敗都附 [FAIL] stderr 訊息）。
 
@@ -25,7 +25,8 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # issue #153 fix 2：清掉殘留的 agy scratch input，避免 agentic 檔案搜尋撈到 stale input。
-rm -f "$HOME"/.gemini/antigravity-cli/scratch/gemini-*-input.md 2>/dev/null || true
+# 不吞掉真實失敗（如權限錯誤）——清理失敗代表 stale-input 防線失效，須讓使用者看到 [WARN]。
+rm -f "$HOME"/.gemini/antigravity-cli/scratch/gemini-*-input.md || echo "[WARN] agy scratch cleanup failed; stale-input vector not cleared" >&2
 
 if ! WT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
     echo "[FAIL] 當前目錄不在 git repo 內（請在 worktree 目錄執行此 script）" >&2
@@ -50,6 +51,7 @@ fi
 cd "$WT_ROOT"
 
 # issue #153 fix 1：inline prompt 取代 @file，移除 agentic 觸發點。
+# 256000B 上限：macOS ARG_MAX 約 1 MiB（單一 arg 與 env 共用該預算），256KB 留足 headroom。
 INPUT_BYTES=$(wc -c < "$REVIEW_DIR/gemini-r2-input.md")
 if [ "$INPUT_BYTES" -gt 256000 ]; then
     echo "[FAIL] R2 輸入 ${INPUT_BYTES}B 超過 256000B inline 上限" >&2

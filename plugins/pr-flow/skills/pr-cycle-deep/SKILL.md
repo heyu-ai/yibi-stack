@@ -308,9 +308,10 @@ in the review dir (referred to below as `$REVIEW_DIR`).
 Write all R1/R2 intermediate files to the review dir (`<worktree-root>/.pr-review/`, referred
 to as `$REVIEW_DIR`). Using the worktree root as namespace naturally isolates concurrent sessions;
 re-running review in the same worktree naturally overwrites old output.
-`agy` `@file` requires the path to be within the `--add-dir` allowlist; this skill puts all
-intermediate files in `<worktree-root>/.pr-review/` and authorizes with `--add-dir "$WT_ROOT"`,
-avoiding `/tmp/` paths being rejected by the sandbox.
+The agy scripts **inline** this content into `agy -p "$CONTENT"` rather than referencing it with
+`@file` (issue #153: `@file` fails to resolve in nested worktrees and triggers agentic mode);
+`--add-dir "$WT_ROOT"` is still passed so agy can look up surrounding code for context, and the
+worktree-root namespace keeps files off `/tmp/` (which the sandbox rejects).
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
