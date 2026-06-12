@@ -5,6 +5,7 @@ Covers the issue #153 fail-loud validation + brain-artifact rescue layer.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -223,6 +224,19 @@ class TestCheckChangedFiles:
         """AGYV-EG-006: a review citing only foreign paths is wrong-target."""
         text = "## Verdict\nNEEDS_CHANGES\nBug in lib/other/handler.go at line 5."
         assert check_changed_files(text, ["tasks/foo/service.py"]) is not None
+
+    def test_agyv_eg_009_no_redos_on_long_slash_run(self) -> None:
+        """AGYV-EG-009: _FILE_REF is linear on a long slash-run (ReDoS regression).
+
+        The earlier `[\\w.\\-/]+/[\\w.\\-/]+` form took >7s at ~1500 slashes; the
+        separator-anchored form must finish near-instantly on a much larger input.
+        """
+        payload = ("a/" * 5000) + "!"  # long slash-run, no terminal extension
+        start = time.perf_counter()
+        result = check_changed_files(payload, ["tasks/foo/service.py"])
+        elapsed = time.perf_counter() - start
+        assert elapsed < 2.0, f"check_changed_files took {elapsed:.2f}s (possible ReDoS)"
+        assert result is None  # no real file reference -> not wrong-target
 
 
 class TestValidateAggregation:

@@ -55,14 +55,23 @@ class TestInlinePromptContract:
         """AGYS-DT-003: --print-timeout is raised to 10m."""
         assert "--print-timeout 10m" in script.read_text(encoding="utf-8")
 
+    @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
+    def test_agys_dt_007_inline_size_guard_present(self, script: Path) -> None:
+        """AGYS-DT-007: every inlining script guards the 256000-byte argv limit.
+
+        Stage 2 was missing this guard (Codex R2 P2) while stage1/R2 had it — a
+        verbose R1 raw could otherwise hit 'argument list too long'.
+        """
+        src = script.read_text(encoding="utf-8")
+        assert "256000" in src
+        assert "wc -c <" in src
+
 
 class TestValidatorFlagContract:
     """The per-stage validator arg contract (pr-test-analyzer finding)."""
 
     @pytest.mark.parametrize("script", [STAGE1, R2])
-    def test_agys_dt_004_full_review_requires_verdict_and_changed(
-        self, script: Path
-    ) -> None:
+    def test_agys_dt_004_full_review_requires_verdict_and_changed(self, script: Path) -> None:
         """AGYS-DT-004: stage1 / R2 validate with --require-verdict + --changed-files."""
         src = script.read_text(encoding="utf-8")
         assert "agy_validate.py" in src
@@ -182,9 +191,7 @@ def _run_stage1(env_info: dict[str, object]) -> subprocess.CompletedProcess[str]
 
 
 class TestStage1Behavioral:
-    def test_agys_st_001_happy_path_inlines_and_passes(
-        self, stage1_env: dict[str, object]
-    ) -> None:
+    def test_agys_st_001_happy_path_inlines_and_passes(self, stage1_env: dict[str, object]) -> None:
         """AGYS-ST-001: a good review passes; agy receives inline content, not @file."""
         Path(str(stage1_env["out_file"])).write_text(GOOD_REVIEW, encoding="utf-8")
         result = _run_stage1(stage1_env)
@@ -199,20 +206,14 @@ class TestStage1Behavioral:
         assert "REVIEW PROMPT MARKER" in argv
         assert "@.pr-review" not in argv
 
-    def test_agys_st_002_wrong_target_review_fails(
-        self, stage1_env: dict[str, object]
-    ) -> None:
+    def test_agys_st_002_wrong_target_review_fails(self, stage1_env: dict[str, object]) -> None:
         """AGYS-ST-002: a review citing only foreign files is rejected (exit 1)."""
-        Path(str(stage1_env["out_file"])).write_text(
-            WRONG_TARGET_REVIEW, encoding="utf-8"
-        )
+        Path(str(stage1_env["out_file"])).write_text(WRONG_TARGET_REVIEW, encoding="utf-8")
         result = _run_stage1(stage1_env)
         assert result.returncode != 0
         assert "WRONG target" in result.stderr
 
-    def test_agys_st_003_oversize_input_fails_loud(
-        self, stage1_env: dict[str, object]
-    ) -> None:
+    def test_agys_st_003_oversize_input_fails_loud(self, stage1_env: dict[str, object]) -> None:
         """AGYS-ST-003: input over the 256000-byte inline guard fails before calling agy."""
         review = Path(str(stage1_env["review"]))
         (review / "diff.patch").write_text("x" * 300_000, encoding="utf-8")

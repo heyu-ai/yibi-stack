@@ -82,9 +82,18 @@ _TIMEOUT_MARKERS = (
 # separator and an extension, or a bare filename with a known source extension.
 # Used by check_changed_files to tell "clean review with no file refs" (pass)
 # apart from "review that discusses files, none of them ours" (wrong target).
+#
+# The path branch uses ``[\w.\-]+(?:/[\w.\-]+)+`` — ``/`` appears ONLY as the
+# explicit separator, never inside an adjacent char class. The earlier form
+# ``[\w.\-/]+/[\w.\-/]+`` let two quantifiers both consume ``/``, giving
+# super-linear backtracking on long slash-runs (a ReDoS on model-controlled
+# review text up to the 256KB cap). This form backtracks linearly.
+_SRC_EXT = (
+    "py|ts|tsx|js|jsx|go|rs|java|rb|md|sh|ya?ml|json|sql|toml|c|h|cpp|hpp|kt|swift|dart|php|cs"
+)
 _FILE_REF = re.compile(
-    r"""[\w.\-/]+/[\w.\-/]+\.\w{1,5}\b"""  # a/b/c.ext (has a slash)
-    r"""|\b[\w\-]+\.(?:py|ts|tsx|js|jsx|go|rs|java|rb|md|sh|ya?ml|json|sql|toml|c|h|cpp|hpp|kt|swift|dart|php|cs)\b""",
+    r"[\w.\-]+(?:/[\w.\-]+)+\.\w{1,5}\b"  # a path: seg(/seg)+.ext
+    rf"|\b[\w\-]+\.(?:{_SRC_EXT})\b",  # a bare filename with a known extension
     re.IGNORECASE,
 )
 

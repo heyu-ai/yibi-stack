@@ -61,7 +61,13 @@ cd "$WT_ROOT"
 
 # issue #153 fix 1：inline prompt 取代 @file。萃取任務只需 raw 文字，--sandbox 即足夠
 # （extraction 不需讀周邊程式碼，sandbox 更安全）。inline 後 agy 無需讀檔即無 agentic 觸發點。
+# 256000B 上限：與 stage1/r2 一致，避免 verbose R1 raw 讓 inline arg 逼近 macOS ARG_MAX。
 TMP_JSON="$REVIEW_DIR/gemini-r1.json.tmp"
+EXTRACT_BYTES=$(wc -c < "$REVIEW_DIR/gemini-extract-input.md")
+if [ "$EXTRACT_BYTES" -gt 256000 ]; then
+    echo "[FAIL] extract 輸入 ${EXTRACT_BYTES}B 超過 256000B inline 上限，R1 raw 過大不適合 inline 萃取" >&2
+    exit 1
+fi
 EXTRACT_CONTENT=$(cat "$REVIEW_DIR/gemini-extract-input.md")
 if ! agy -p "$EXTRACT_CONTENT" \
     --add-dir . \
