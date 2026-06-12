@@ -47,4 +47,12 @@ fi
 } > "$TMP"
 
 cd "$REPO_ROOT"
-agy -p "@.agy-review-tmp.md" --add-dir . --sandbox
+
+# stdin 餵入 prompt 取代 @file：nested worktree（.claude/worktrees/<name>/）下 agy 解析
+# @file 失敗會靜默進入 agentic 探索模式（review 錯 target / brain-artifact / timeout），與
+# pr-cycle-deep issue #153 同根因。改用 stdin 一次根治三點：
+#   (1) agy 不讀 @file 即無 agentic 觸發點；
+#   (2) 內容走 stdin 不佔 ARG_MAX 參數預算，無單一 arg 長度上限（免 256KB inline guard）；
+#   (3) 內容不經 -p 參數解析，開頭即使是 '@' 也不會被誤判成檔案路徑而重觸發本 bug。
+# --sandbox 保持不變（standalone 為輕量第二意見，維持較嚴格的 sandbox security posture）。
+agy --print --add-dir . --sandbox < "$TMP"
