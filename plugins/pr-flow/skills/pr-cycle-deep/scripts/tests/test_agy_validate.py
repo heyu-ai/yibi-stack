@@ -42,10 +42,7 @@ class TestFindBrainPointer:
     def test_agyv_dt_002_finds_tilde_pointer(self) -> None:
         """AGYV-DT-002: ~-anchored brain path is extracted."""
         text = "See `~/.gemini/antigravity-cli/brain/abcdef12/result.md` for details."
-        assert (
-            find_brain_pointer(text)
-            == "~/.gemini/antigravity-cli/brain/abcdef12/result.md"
-        )
+        assert find_brain_pointer(text) == "~/.gemini/antigravity-cli/brain/abcdef12/result.md"
 
     def test_agyv_dt_003_none_for_normal_review(self) -> None:
         """AGYV-DT-003: a real review has no brain pointer."""
@@ -68,18 +65,14 @@ class TestRescueBrainArtifact:
         assert rescued == pointer
         assert content == GOOD_REVIEW
 
-    def test_agyv_eg_001_missing_artifact_returns_original(
-        self, tmp_path: Path
-    ) -> None:
+    def test_agyv_eg_001_missing_artifact_returns_original(self, tmp_path: Path) -> None:
         """AGYV-EG-001: a dangling pointer leaves the original text untouched."""
         text = "Output at ~/.gemini/antigravity-cli/brain/deadbeef/missing.md"
         content, rescued = rescue_brain_artifact(text, home=tmp_path)
         assert rescued is None
         assert content == text
 
-    def test_agyv_eg_002_empty_artifact_returns_original(
-        self, tmp_path: Path
-    ) -> None:
+    def test_agyv_eg_002_empty_artifact_returns_original(self, tmp_path: Path) -> None:
         """AGYV-EG-002: an empty artifact is not a valid rescue."""
         pointer = self._write_brain(tmp_path, "   \n")
         text = f"done -> {pointer}"
@@ -201,9 +194,7 @@ class TestMain:
     def test_agyv_st_002_wrong_target_returns_one(self, tmp_path: Path) -> None:
         """AGYV-ST-002: wrong-target review fails (exit 1)."""
         raw = tmp_path / "raw.md"
-        raw.write_text(
-            "## Verdict\nLGTM\nReviewed src/other/unrelated.ts.", encoding="utf-8"
-        )
+        raw.write_text("## Verdict\nLGTM\nReviewed src/other/unrelated.ts.", encoding="utf-8")
         changed = tmp_path / "changed.txt"
         changed.write_text("tasks/foo/service.py\n", encoding="utf-8")
         rc = main(["--raw", str(raw), "--changed-files", str(changed)])
@@ -212,9 +203,7 @@ class TestMain:
     def test_agyv_st_003_brain_rescue_rewrites_raw(self, tmp_path: Path) -> None:
         """AGYV-ST-003: a brain pointer is rescued, raw file rewritten, then validated."""
         home = tmp_path / "home"
-        artifact = (
-            home / ".gemini/antigravity-cli/brain/abcdef12/analysis_results.md"
-        )
+        artifact = home / ".gemini/antigravity-cli/brain/abcdef12/analysis_results.md"
         artifact.parent.mkdir(parents=True, exist_ok=True)
         artifact.write_text(GOOD_REVIEW, encoding="utf-8")
 

@@ -249,8 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             args.raw.write_text(content, encoding="utf-8")
         except OSError as e:
             print(
-                f"[FAIL] {args.label}: brain rescue read OK but rewrite of "
-                f"{args.raw} failed: {e}",
+                f"[FAIL] {args.label}: brain rescue read OK but rewrite of {args.raw} failed: {e}",
                 file=sys.stderr,
             )
             return 2
@@ -265,8 +264,7 @@ def main(argv: list[str] | None = None) -> int:
             changed = load_changed_files(args.changed_files)
         except OSError as e:
             print(
-                f"[FAIL] {args.label}: cannot read changed-files "
-                f"{args.changed_files}: {e}",
+                f"[FAIL] {args.label}: cannot read changed-files {args.changed_files}: {e}",
                 file=sys.stderr,
             )
             return 2
