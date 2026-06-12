@@ -463,15 +463,18 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 >   (including `echo "exit:$?"` or additional `if [ $? -ne 0 ]`) —
 >   Rule 5: the parser intercepts ALL `simple_expansion` nodes; `$?` triggers a confirmation dialog
 >   regardless of quoting; the bash block already contains exit code handling, do not add more
-> - **`@file` triggers agentic mode (PR #303 lesson)**: `agy -p "@/abs/path" > out.md` in redirect mode
->   may cause agy to enter agentic tool call mode — the model outputs `call:read_file{...}` text
->   instead of actual review content. How to confirm: if `gemini-r1-raw.md` starts with `call:` or
->   `tool_use:` → agentic mode triggered.
-> - **Stage 1 uses `--dangerously-skip-permissions` (BS-001)**: `--sandbox` **blocks** `@file` reading
->   in Stage 1 full review tasks (agy enters agentic mode, outputs `call:read_file{...}` instead of
->   review content). Field-tested: `agy-r1-stage1.sh` with `--dangerously-skip-permissions` outputs
->   review text correctly. **Only Stage 2 extraction can use `--sandbox`** (extraction tasks behave
->   differently and do not trigger agentic mode).
+> - **issue #153: `@file` fails in nested worktrees → inline prompt (current approach)**: inside a
+>   nested worktree (`.claude/worktrees/<name>/`) agy cannot resolve `@.pr-review/<file>` and silently
+>   enters agentic file-search mode — three endings: wrong-target review (reads a stale scratch input
+>   from a previous session), brain-artifact detour (real review lands in `~/.gemini/.../brain/<uuid>/`,
+>   stdout is only a pointer), or `Error: timed out`. The scripts now **inline** the prompt+diff into
+>   `agy -p "$CONTENT"` (no `@file`), removing the agentic trigger; they also clear stale scratch input
+>   at start and run `agy_validate.py` (fail-loud + brain-artifact rescue). How to confirm a regression:
+>   if `gemini-r1-raw.md` starts with `call:` or `tool_use:`, agentic mode fired — `agy_validate.py`
+>   exits non-zero and the voice is correctly marked failed.
+> - **Stage 1 keeps `--dangerously-skip-permissions` for `--add-dir` context**: the diff alone lacks
+>   surrounding-code context; `--add-dir .` lets agy look up neighbouring code, which `--sandbox` would
+>   block. Stage 2 extraction needs no code context, so it stays on `--sandbox` (more secure).
 > - **[Security] `--dangerously-skip-permissions` trust boundary**: Stage 1 scripts remove agy tool
 >   access restrictions. If the PR diff comes from an external fork or untrusted source, malicious
 >   instructions in the diff may be auto-approved by agy (prompt injection risk). This skill assumes
@@ -612,8 +615,9 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r2.sh
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r2.sh
 ```
 
-> **Security note**: `agy-r2.sh` uses `--sandbox`; assumes PR comes from a trusted repo.
-> For external fork PRs, the operator should evaluate prompt injection risk and may remove this flag to use interactive mode.
+> **Security note**: `agy-r2.sh` uses `--dangerously-skip-permissions` (for `--add-dir` context, same as
+> Stage 1) and inlines the prompt (issue #153); it assumes the PR comes from a trusted repo.
+> For external-fork PRs, the operator should evaluate prompt-injection risk before running mob review.
 
 Only send to available voices (CODEX_OK / GEMINI_OK).
 
@@ -1003,7 +1007,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | --- | --- | --- | --- | --- |
 | Claude | always | Task() pr-review-toolkit 4 subagents | lead writes claude-r2.md directly | claude-r1.md (finding markdown) |
 | Codex | `which codex` + auth | S1: `set -o pipefail; codex review --base $BASE 2>stage1.log \| tee codex-r1-raw.md > /dev/null` / S2: `codex exec low < extract-input 2>extract.log \| tee codex-r1.json > /dev/null` / S3: lead renders codex-r1.md | `set -o pipefail; codex exec -C "$WT_ROOT" -s read-only < input.md 2>r2.log \| tee codex-r2.md > /dev/null` | codex-r1.md (compact, not raw) |
-| Gemini/agy *(optional)* | `which agy` + auth | S1: `bash agy-r1-stage1.sh` / S2: `agy -p @.pr-review/extract-input --add-dir . --sandbox > gemini-r1.json` / S3: lead renders gemini-r1.md | `bash agy-r2.sh` | gemini-r1.md (compact, not raw) |
+| Gemini/agy *(optional)* | `which agy` + auth | S1: `bash agy-r1-stage1.sh` / S2: `bash agy-r1-stage2.sh` (inlines prompt, `--sandbox`, extracts gemini-r1.json) / S3: lead renders gemini-r1.md | `bash agy-r2.sh` | gemini-r1.md (compact, not raw) |
 
 Each voice's R1 / R2 should be written to `$REVIEW_DIR/<voice>-r{1,2}.md` (compact version),
 read by the lead for unified aggregation. Raw versions (`*-r1-raw.md`) stay on disk for disputed
@@ -1025,7 +1029,7 @@ finding reference but **do not enter the main context**.
 | Step 0 detects only agy (no Codex) | Enter 2-voice mob (Claude + agy); normal workflow |
 | Codex detected but auth failed | `codex login`; or `export OPENAI_API_KEY=...` |
 | agy detected but auth failed | Run `agy` to complete OAuth; or `export GEMINI_API_KEY=...` |
-| agy `@file` error: path not in workspace | This skill already adds `--add-dir "$WT_ROOT"`; if still seeing this error, confirm the prompt's absolute path is under `$WT_ROOT/.pr-review/`; do not use `/tmp` paths |
+| agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | issue #153: agy could not resolve `@file` and entered agentic file-search. The agy scripts now **inline** the prompt (no `@file`), clear stale `~/.gemini/antigravity-cli/scratch/gemini-*-input.md` at start, and run `agy_validate.py` (fail-loud: timeout / agentic narration / missing Verdict / mentions no changed file = wrong target; a `brain/<uuid>/*.md` pointer is auto-rescued into the raw file). If `agy_validate.py` exits non-zero the voice is correctly marked failed — read the `[FAIL]` message for the reason |
 | agy background bash `>` redirect output not updating target file (unverified) | If this occurs: switch to synchronous bash call (without `run_in_background`) |
 | Codex `codex review > file` writes 0 bytes (stderr has full log) | Codex CLI detects stdout is not a tty/pipe and suppresses output when file redirect is used; this skill already uses `set -o pipefail` + `\| tee file > /dev/null` to fix this (`set -o pipefail` makes `$?` reflect failing command exit code in the pipeline; works in bash/zsh) |
 | codex review reports `[PROMPT] cannot be used with --base` | `--base` and positional prompt are mutually exclusive; remove the prompt string and keep only `--base` |
