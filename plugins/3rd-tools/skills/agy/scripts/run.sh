@@ -21,8 +21,6 @@ if ! command -v agy >/dev/null 2>&1; then
 fi
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-TMP="$REPO_ROOT/.agy-review-tmp.md"
-trap 'rm -f "$TMP"' EXIT
 
 # Get diff; fallback to HEAD~1 when no upstream tracking
 DIFF=$(git diff "origin/${BASE}...HEAD" 2>/dev/null || git diff HEAD~1 2>/dev/null || true)
@@ -37,6 +35,16 @@ else
   HEADER="你是資深程式碼審查員，審查以下 PR diff。評估：正確性、安全性、可讀性、邊界條件。嚴重問題標記 [P0]（production 致命）或 [P1]（嚴重）。結尾必須輸出 [PASS]（無 P0/P1 問題）或 [FAIL]（有 P0/P1 問題），後接一行中文 summary。"
 fi
 
+cd "$REPO_ROOT"
+
+# 直接 pipe prompt 進 agy stdin，取代 @file（nested worktree（.claude/worktrees/<name>/）下
+# @file 解析失敗會讓 agy 靜默進入 agentic 探索模式：review 錯 target / brain-artifact / timeout，
+# 與 pr-cycle-deep issue #153 同根因）。pipe 一次根治四點：
+#   (1) agy 不讀 @file 即無 agentic 觸發點；
+#   (2) 內容走 stdin 不佔 ARG_MAX 參數預算，無單一 arg 長度上限；
+#   (3) 內容不經 -p 參數解析，開頭即使是 '@' 也不會被誤判成檔案路徑而重觸發本 bug；
+#   (4) 不落地暫存檔，免去並行 review 互相覆寫與 SIGKILL 繞過 EXIT trap 殘留 untracked 檔。
+# --sandbox 保持不變（standalone 為輕量第二意見，維持較嚴格的 sandbox security posture）。
 {
   printf '%s\n\n' "$HEADER"
   if [ -n "$INSTRUCTION" ]; then
@@ -44,7 +52,4 @@ fi
   fi
   printf 'Base branch: %s\n\n' "$BASE"
   printf '```diff\n%s\n```\n' "$DIFF"
-} > "$TMP"
-
-cd "$REPO_ROOT"
-agy -p "@.agy-review-tmp.md" --add-dir . --sandbox
+} | agy --print --add-dir . --sandbox
