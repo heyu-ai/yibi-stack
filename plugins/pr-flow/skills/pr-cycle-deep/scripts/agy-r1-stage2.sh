@@ -15,7 +15,13 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 EXTRACT_PROMPT=~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md
+
+# issue #153 fix 2：清掉殘留的 agy scratch input，避免 agentic 檔案搜尋撈到 stale input。
+# 不吞掉真實失敗（如權限錯誤）——清理失敗代表 stale-input 防線失效，須讓使用者看到 [WARN]。
+rm -f "$HOME"/.gemini/antigravity-cli/scratch/gemini-*-input.md || echo "[WARN] agy scratch cleanup failed; stale-input vector not cleared" >&2
+
 # Ensure temp files are cleaned even on unexpected exit (set -e early exit, signal, etc.)
 _STAGE2_CLEANUP() { rm -f "${REVIEW_DIR:-/dev/null}/gemini-extract-input.md" "${TMP_JSON:-/dev/null}"; }
 trap _STAGE2_CLEANUP EXIT
@@ -38,6 +44,11 @@ if [ ! -f "$REVIEW_DIR/gemini-r1-raw.md" ]; then
     exit 1
 fi
 
+if [ ! -f "$REVIEW_DIR/changed-files.txt" ]; then
+    echo "[FAIL] changed-files.txt 不存在，請重跑 Step 3.1 setup block（fail-loud 驗證需要）" >&2
+    exit 1
+fi
+
 if ! cat "$EXTRACT_PROMPT" "$REVIEW_DIR/gemini-r1-raw.md" > "$REVIEW_DIR/gemini-extract-input.md"; then
     echo "[FAIL] cat 串接失敗" >&2
     exit 1
@@ -45,17 +56,40 @@ fi
 
 printf '\n---END RAW OUTPUT---\n' >> "$REVIEW_DIR/gemini-extract-input.md"
 
-# cd 到 worktree root：agy @file 沙箱只允許讀取 worktree root 下的相對路徑
+# cd 到 worktree root：--add-dir . 以 WT_ROOT 為 context 基準。
 cd "$WT_ROOT"
 
-# 先寫入暫存檔，再用 Python 萃取純 JSON
+# issue #153 fix 1：inline prompt 取代 @file。萃取任務只需 raw 文字，--sandbox 即足夠
+# （extraction 不需讀周邊程式碼，sandbox 更安全）。inline 後 agy 無需讀檔即無 agentic 觸發點。
+# 256000B 上限：與 stage1/r2 一致，避免 verbose R1 raw 讓 inline arg 逼近 macOS ARG_MAX。
 TMP_JSON="$REVIEW_DIR/gemini-r1.json.tmp"
-if ! agy -p "@.pr-review/gemini-extract-input.md" \
+EXTRACT_BYTES=$(wc -c < "$REVIEW_DIR/gemini-extract-input.md")
+if [ "$EXTRACT_BYTES" -gt 256000 ]; then
+    echo "[FAIL] extract 輸入 ${EXTRACT_BYTES}B 超過 256000B inline 上限，R1 raw 過大不適合 inline 萃取" >&2
+    exit 1
+fi
+EXTRACT_CONTENT=$(cat "$REVIEW_DIR/gemini-extract-input.md")
+if ! agy -p "$EXTRACT_CONTENT" \
     --add-dir . \
     --sandbox \
+    --print-timeout 10m \
     > "$TMP_JSON" \
     2>"$REVIEW_DIR/gemini-r1.extract.log"; then
     echo "[FAIL] agy extract 失敗，請查看 $REVIEW_DIR/gemini-r1.extract.log" >&2
+    rm -f "$REVIEW_DIR/gemini-extract-input.md" "$TMP_JSON"
+    exit 1
+fi
+
+# issue #153 fix 3+4：brain-artifact rescue + fail-loud 驗證。萃取若進入 agentic 模式，
+# 真正輸出會寫到 brain artifact，TMP_JSON 只剩 narration+pointer——validator 就地還原。
+# 不檢 Verdict（萃取輸出為 JSON，verdict 由下方 schema 把關），但帶 --changed-files：
+# content-sanity 只在「引用了檔案卻沒有一個是 changed path」時 fail，乾淨 JSON
+# （空 findings / 引用我們的檔案）皆放行，可擋住 agentic 亂引他檔的 wrong-target JSON。
+if ! python3 "$SCRIPT_DIR/agy_validate.py" \
+    --raw "$TMP_JSON" \
+    --changed-files "$REVIEW_DIR/changed-files.txt" \
+    --label "agy R1 Stage 2"; then
+    echo "[FAIL] agy R1 Stage 2 萃取輸出未通過 fail-loud 驗證（見上方 [FAIL] 訊息）" >&2
     rm -f "$REVIEW_DIR/gemini-extract-input.md" "$TMP_JSON"
     exit 1
 fi
