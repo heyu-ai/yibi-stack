@@ -670,7 +670,43 @@ group-review ({{N}}/3 voices active)
 - <voice>: <reason>
 ```
 
-Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 6.
+Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 5b.
+
+---
+
+### Step 5b — Post review summary to PR
+
+Post the aggregated review consensus to the PR as a comment, **before** fixes start, so the
+review's decision trail is permanently recorded on the PR for anyone reading it later. This is
+a pre-fix snapshot of consensus; the subsequent fix commits show what was changed in response.
+
+Resolve the review dir and post in a **single self-contained block** — each Bash call is a fresh
+shell, so `REVIEW_DIR` must be recomputed in the same block that runs `gh pr comment` (do not rely
+on a variable assigned in an earlier block, or the `--body-file` path expands empty). If `final.md`
+is missing, skip without blocking the flow:
+
+```bash
+WT_ROOT=$(git rev-parse --show-toplevel)
+REVIEW_DIR="$WT_ROOT/.pr-review"
+if [ ! -f "$REVIEW_DIR/final.md" ]; then
+  echo "[WARN] final.md missing -- skip posting; complete Step 5 first, then continue to Step 6"
+else
+  gh pr comment "{{pr_number}}" --body-file "$REVIEW_DIR/final.md"
+fi
+```
+
+`gh pr comment` exit code semantics:
+
+- **exit 0** — comment posted; report the comment URL to the user.
+- **non-zero** (auth / network / PR not found) — `[WARN] 無法貼 review summary 到 PR`; show the
+  user the manual command above to run themselves, then **continue to Step 6** (posting is a
+  provenance nicety and must not block fixes).
+
+> First-time `gh pr comment` use in this skill: if the agent is prompted for permission each run,
+> add `Bash(gh pr comment:*)` to `settings.local.json` (rule 16 safe form — verb locked at prefix).
+
+MVP posts one comment here. If Step 7 re-review later produces materially new consensus findings,
+post an updated comment then; otherwise this single snapshot is sufficient.
 
 ---
 
