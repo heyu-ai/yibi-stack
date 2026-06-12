@@ -214,6 +214,54 @@ Aggregate results and grade each finding per the
 
 ---
 
+### Step 3b — Post review summary to PR
+
+Post the aggregated findings to the PR as a comment, **before** fixes start, so the review's
+decision trail is permanently recorded on the PR for anyone reading it later. This is a pre-fix
+snapshot; the subsequent fix commits show what was changed in response.
+
+The parallel-review results live only in conversation context, so first compose the summary with
+the **Write tool** to `$CLAUDE_JOB_DIR/pr-review-summary.md` (multi-line content via Write, not a
+heredoc), mirroring this structure:
+
+```text
+# PR Review Summary — PR #{{pr_number}}
+
+## Reviewed by
+code-reviewer / silent-failure-hunter / pr-test-analyzer / comment-analyzer
+
+## Critical (MUST fix)
+1. <finding> — <file:line>
+
+## Important (SHOULD fix)
+1. <finding> — <file:line>
+
+## Actionable NIT (MAY fix)
+1. <finding> — <file:line>
+
+## Verdict
+<APPROVE / NEEDS_CHANGES + one-line summary>
+```
+
+Then post it:
+
+```bash
+gh pr comment "{{pr_number}}" --body-file "$CLAUDE_JOB_DIR/pr-review-summary.md"
+```
+
+`gh pr comment` exit code semantics:
+
+- **exit 0** — comment posted; report the comment URL to the user.
+- **non-zero** (auth / network / PR not found) — `[WARN] 無法貼 review summary 到 PR`; show the
+  user the manual command above to run themselves, then **continue to Step 4** (posting is a
+  provenance nicety and must not block fixes).
+
+> First-time `gh pr comment` use in this skill: if the agent is prompted for permission each run,
+> add `Bash(gh pr comment:*)` to `settings.local.json` (rule 16 safe form — verb locked at prefix).
+> `$CLAUDE_JOB_DIR` is auto-cleaned when the job ends; no `rm` needed.
+
+---
+
 ### Step 4 — Fix
 
 Process **Critical** → **Important** in order:

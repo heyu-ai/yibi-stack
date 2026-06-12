@@ -674,6 +674,42 @@ Report the final.md summary to the user and wait for Disputed item decisions bef
 
 ---
 
+### Step 5b — Post review summary to PR
+
+Post the aggregated review consensus to the PR as a comment, **before** fixes start, so the
+review's decision trail is permanently recorded on the PR for anyone reading it later. This is
+a pre-fix snapshot of consensus; the subsequent fix commits show what was changed in response.
+
+Resolve the review dir (same form as earlier steps) and confirm `final.md` exists:
+
+```bash
+WT_ROOT=$(git rev-parse --show-toplevel)
+REVIEW_DIR="$WT_ROOT/.pr-review"
+test -f "$REVIEW_DIR/final.md" && echo "[OK] final.md ready" || echo "[WARN] final.md missing -- skip posting; complete Step 5 first"
+```
+
+If `[WARN] final.md missing`, skip this step (do not block the flow) and continue to Step 6.
+Otherwise post the comment:
+
+```bash
+gh pr comment "{{pr_number}}" --body-file "$REVIEW_DIR/final.md"
+```
+
+`gh pr comment` exit code semantics:
+
+- **exit 0** — comment posted; report the comment URL to the user.
+- **non-zero** (auth / network / PR not found) — `[WARN] 無法貼 review summary 到 PR`; show the
+  user the manual command above to run themselves, then **continue to Step 6** (posting is a
+  provenance nicety and must not block fixes).
+
+> First-time `gh pr comment` use in this skill: if the agent is prompted for permission each run,
+> add `Bash(gh pr comment:*)` to `settings.local.json` (rule 16 safe form — verb locked at prefix).
+
+MVP posts one comment here. If Step 7 re-review later produces materially new consensus findings,
+post an updated comment then; otherwise this single snapshot is sufficient.
+
+---
+
 ### Step 6 — Fix (Critical → Important → NIT)
 
 Process in order:
