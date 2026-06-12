@@ -241,3 +241,41 @@ This is distinct from "Exception Type Selection" (which describes what to *raise
 section covers what to *catch and log* in infrastructure helpers.
 
 Source: PR #130, `_github_issue_state()` fix in commit `7326cf3`.
+
+## Pylint Detects Cyclic Imports Through Deferred (Method-Body) Imports
+
+Python runtime can avoid circular import errors by deferring `from .foo import Bar`
+inside a method body — the import only executes at call time, not at module load time.
+However, **pylint's static analysis builds a full import graph and detects the cycle
+regardless** of whether the import is at the module level or inside a function.
+
+```python
+# models.py — deferred import inside a validator
+class LessonRecord(BaseModel):
+    @field_validator("insight")
+    @classmethod
+    def check_no_injection(cls, v: str) -> str:
+        from .lessons_service import INJECTION_PATTERNS  # deferred — runtime OK
+        ...
+
+# lessons_service.py — imports from models at top level
+from .models import LessonRecord  # top-level
+
+# Result: pylint reports R0401 Cyclic import (lessons_service -> models)
+# even though Python itself never raises ImportError at runtime.
+```
+
+**Fix:** move the shared constant to the module that actually uses it (the import
+direction becomes one-way). In the example above, `INJECTION_PATTERNS` only needed
+by `models.py` — move it there and remove the deferred import entirely.
+
+```python
+# models.py — no longer imports from lessons_service
+_INJECTION_PATTERNS: list[re.Pattern[str]] = [...]  # defined here, used here
+
+# lessons_service.py — one-way dependency, no cycle
+from .models import LessonRecord  # still fine; models doesn't import back
+```
+
+The rule: **if a constant or helper is only used in module A, define it in module A**,
+even if it was originally written alongside related logic in module B.

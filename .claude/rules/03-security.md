@@ -90,3 +90,32 @@ re.compile(r"do\s+not\s+(report|flag|mention)", re.IGNORECASE)
 Note: `re.DOTALL` only changes `.` (dot) behavior — it does **not** make literal
 spaces match newlines. Both `re.DOTALL` (for `.*`-based patterns) AND `\s+` (for
 space-separated multi-word patterns) are needed for comprehensive coverage.
+
+## bandit `# nosec` Must Be on the Flagged Line
+
+`# nosec B608` (or any bandit B-code) must appear on the **same line** that bandit
+actually scans — not on a wrapping parenthesis or assignment line.
+
+```python
+# Wrong: nosec on the paren line; bandit flags the f-string line (line below)
+sql = (  # nosec B608
+    f"SELECT * FROM foo WHERE {where} ORDER BY created_at ASC LIMIT ?"
+)
+
+# Correct: nosec on the f-string line itself
+sql = (
+    f"SELECT * FROM foo WHERE {where} ORDER BY created_at ASC LIMIT ?"  # nosec B608
+)
+```
+
+**ruff format interaction:** ruff may want to inline a parenthesized expression.
+Before fighting ruff with parens, first measure the inline form:
+if `len(indent) + len(expression) + len("  # nosec B608")` ≤ `max-line-length`,
+accept ruff's inline format — it is both shorter and correctly suppresses bandit:
+
+```python
+# ruff inline form (97 chars, within 100 limit) — correct and bandit-clean
+sql = f"SELECT * FROM foo WHERE {where} ORDER BY created_at ASC"  # nosec B608
+if limit is not None:
+    sql += " LIMIT ?"
+```

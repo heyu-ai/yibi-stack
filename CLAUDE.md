@@ -225,3 +225,9 @@ make install-all         # 等同 build-tools + install + install-project + inst
   Passing a non-existent field name returns empty values silently — any function consuming that
   field will always return an empty result with no error. Fix: run `gh pr checks --json` with no
   field argument to see the default key list, then confirm the target field exists before using it.
+- **pylint 4.x renamed `max-instance-attributes` to `max-attributes`**: `[tool.pylint.design]`
+  in `pyproject.toml` must use `max-attributes = N` (not `max-instance-attributes`). The old
+  name triggers `E0015: Unrecognized option found: max-instance-attributes` in pylint 4.0+.
+  Local environments with older pylint pass silently; CI with a newer version catches it.
+  After upgrading pylint, always run `uv run pylint --generate-toml-config | grep max-` to
+  verify the current option names.
