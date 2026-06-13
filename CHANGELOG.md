@@ -1,9 +1,10 @@
 # CHANGELOG
 
-## [1.3.1] - 2026-06-09
+## [1.3.1] - 2026-06-13
 
 ### Added
 
+- `pr-cycle-deep` / `pr-review-cycle`: post the aggregated review summary and consensus to the PR as a comment before fixes, so the review decision trail is recorded on the PR (#158)
 - `control-log` CLI group (`add`, `show`, `stats`, `advice`) for auditing AI development decisions — record what choices were made autonomously vs. user-requested, spec deviations, and irreversible ops
 - `pr-control-log` skill for the pr-flow plugin: bootstraps a control log session per PR and generates an analytics report with R1–R4 advice thresholds
 - `pr-retrospective` SKILL.md updated to include control log evidence in the Q5 step
