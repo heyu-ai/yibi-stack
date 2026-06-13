@@ -145,6 +145,8 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 掃描時間：<scanned_at>
 
 ## 總分：<total> / 123（百分比 <pct>%）<等級>
+## 規模調整分（size_adjusted）：<size_adjusted_score>  [provisional：未校準，見 #143]
+   D_repo = <d_repo>（<d_repo_components>）
 
 | 維度 | 機械分 | 語意分 | 總分 | 狀態 |
 |---|---|---|---|---|
@@ -172,6 +174,12 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 ## 深度稽核
 發現 WARN/FAIL 的維度，可執行：/harness-eval-focus D2
 ```
+
+**規模調整分（size_adjusted_score，issue #136）**：機械總分除以 repo 複雜度因子
+`D_repo`（由 source LOC、skill 數、hook 數、rule 數的 log 縮放算出，恆 ≥ 1），用來抵銷
+「artifact 越多分越高」的加總式膨脹，讓不同規模的 repo 可橫向比較相對成熟度。
+此分數為 **provisional（未經 outcome 校準）**——真正的權重校準需要實證資料，見 issue #143
+（R²/MAE 驗證協定）。在校準前，size_adjusted 僅供相對比較，不可當作絕對門檻。
 
 **D5 mutmut TODO 觸發規則**：計算 D5 總分（機械分 + 語意分）。當 D5 總分 < 4 時，在「優先改善 TODO」清單加入以下條目（D5 >= 4 時不加入）：
 
