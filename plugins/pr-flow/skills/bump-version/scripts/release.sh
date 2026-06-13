@@ -69,7 +69,7 @@ fi
 
 git tag "$TAG"
 git push origin "$TAG"
-echo "[OK] tag 已推：$TAG（GitHub Actions CI 應已觸發）"
+echo "[OK] tag 已推：${TAG}（GitHub Actions CI 應已觸發）"
 
 # 3. extract release notes
 NOTES_FILE="/tmp/release_notes_${TAG_VERSION}.md"
