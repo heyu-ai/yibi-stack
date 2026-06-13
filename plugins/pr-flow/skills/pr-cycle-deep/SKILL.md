@@ -639,10 +639,17 @@ Actionable NIT row).
 | **Consensus Critical** | ≥2 voices mark Critical with no DISAGREE | Must fix |
 | **Consensus Important** | ≥2 voices mark Important with no DISAGREE | Must fix |
 | **Disputed** | 1 voice marks Critical/Important; others DISAGREE | List the dispute; user decides |
-| **Single-voice Critical** | 1 voice marks Critical; others did not mention | Lead evaluates: technically sound → elevate to Consensus; otherwise list as Disputed |
+| **Single-voice Critical** | 1 voice marks Critical; others did not mention | Lead **empirically refutes or confirms** (run a minimal repro), not judge-by-reasoning → confirmed: elevate to Consensus; refuted: drop with the evidence noted; can't test: list as Disputed |
 | **Actionable NIT** | Any 1 voice marks NIT and it's not subjective preference | **Must fix** (user emphasized "all NITs cleaned up") |
 | **Withdrawn** | Marked WITHDRAW in R2 | Remove from list |
 | **Voice unavailable** | That voice failed R1/R2 twice in a row | Note in final.md; do not block |
+
+> **Single-voice [P0] / [Critical] → verify before acting**: a lone Critical finding (especially
+> a CLI flag-parsing or runtime claim) often reasons from a plausible-but-wrong model. Construct a
+> minimal repro and run it before changing code. Real incident (PR #157): agy flagged `[P0]
+> --print eats --add-dir, disabling --sandbox`; `printf 'reply ALPHA' | agy --print --add-dir .
+> --sandbox` returned `ALPHA`, refuting the whole chain — acting blindly would have cargo-culted a
+> wrong `@-` fix that re-introduces the `@` agentic trigger.
 
 `final.md` format:
 

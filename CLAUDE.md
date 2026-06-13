@@ -197,6 +197,11 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **agy auth detection uses `onboardingComplete`, not `installation_id`**:
   `~/.gemini/antigravity-cli/installation_id` exists before OAuth completes (false positive).
   Check `~/.gemini/antigravity-cli/cache/onboarding.json` for `onboardingComplete: true` instead.
+- **installed skills go stale when local `main` is behind `origin/main`**: `make install` copies
+  skill scripts to `~/.agents/skills/`; if you don't pull main + re-run `make install`, those
+  copies keep an old version. Concretely, the pr-cycle-deep agy scripts stay on the pre-fix
+  `@file` form and go agentic inside worktrees (live-reproduced in PR #157's own mob review).
+  Fix: `git pull` on main, then `make install`.
 - **linked worktree `git rev-parse --show-toplevel` returns worktree path, not main repo** —
   see rule 15 for the correct `--git-common-dir` pattern.
 - **`pre-commit run --files` only scans specified files; CI uses `--all-files`**: local
