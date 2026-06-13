@@ -779,18 +779,28 @@ rm -f "$WT_ROOT/gemini-input.md"
 
 Do not use `~/.gemini/tmp/` — requires manual cleanup and may persist across sessions.
 
-Same restriction applies to **Antigravity CLI (agy)**: `agy -p "@/abs/path"` triggers agentic
-mode (model outputs `call:read_file{...}` instead of actual review). Fix: `cd "$WT_ROOT"` then
-use `@.pr-review/relative-path` with `--add-dir .`.
+**Antigravity CLI (agy)** — `@<path>` triggers agentic mode (model outputs `call:read_file{...}`
+/ brain-artifact narration / timeout instead of a review). In a **nested worktree** even a
+worktree-relative `@.pr-review/...` fails the same way — agy cannot resolve the `@file` inside
+the sandbox and silently goes agentic. Relative `@path` is **not** a reliable fix; **feed the
+prompt via stdin — never `@file`**:
 
 ```bash
-# Wrong: agy absolute path -> agentic mode
-agy -p "@$REVIEW_DIR/input.md" --add-dir . --dangerously-skip-permissions
+# Wrong: any @file (absolute OR worktree-relative) -> agentic mode in a nested worktree
+agy -p "@$REVIEW_DIR/input.md" --add-dir . --sandbox
+agy -p "@.pr-review/input.md" --add-dir . --sandbox
 
-# Fix: cd to worktree root first, then use relative path
+# Fix: pipe / redirect the prompt to stdin; agy reads no file, so there is no agentic trigger
 cd "$WT_ROOT"
-agy -p "@.pr-review/input.md" --add-dir . --dangerously-skip-permissions
+{ printf '%s\n' "$PROMPT_AND_DIFF"; } | agy --print --add-dir . --sandbox
+agy --print --add-dir . --sandbox < "$WT_ROOT/.pr-review/input.md"   # equivalent
 ```
+
+stdin also sidesteps two adjacent traps: ARG_MAX (a huge diff as a CLI arg) and a leading-`@` in
+the content being re-parsed as a file path. `--print` is boolean (reads stdin when given no
+positional prompt) — verified: `printf 'reply ALPHA' | agy --print --add-dir . --sandbox` returns
+`ALPHA`, confirming `--add-dir` / `--sandbox` are still parsed as flags. (Source: PR #156
+pr-cycle-deep inline migration, PR #157 standalone stdin migration.)
 
 ## Quoting Rule 6: Python Comment with `"` Truncates Outer Shell Double-Quote (PR #23)
 
