@@ -34,6 +34,13 @@ run_git_cliff() {
 run_git_log_fallback() {
   echo "[OK] 使用 git log fallback 生成 CHANGELOG..."
 
+  # 若 CHANGELOG 已有此版本段落（多為手寫，優於 git log dump），保留現有內容、略過自動生成，
+  # 避免 prepend 出第二個同版本段落。grep -F：[ ] 為 fixed string，不當 regex。
+  if [ -f "$CHANGELOG_FILE" ] && grep -qF "## [${NEW_VERSION}]" "$CHANGELOG_FILE"; then
+    echo "[WARN] CHANGELOG 已有 [${NEW_VERSION}] 段落，保留現有內容、略過自動生成" >&2
+    return 0
+  fi
+
   local latest_tag
   latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
@@ -94,7 +101,7 @@ run_git_log_fallback() {
         cat "$CHANGELOG_FILE"
       fi
     fi
-  } > "$tmpfile"
+  } | cat -s > "$tmpfile"  # cat -s：壓掉相鄰空行，避免新段落與舊內容銜接處出現連續空行（MD012）
 
   mv "$tmpfile" "$CHANGELOG_FILE"
   trap - EXIT
