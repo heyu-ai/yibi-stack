@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess  # nosec B404
 import sys
 
@@ -17,6 +18,37 @@ from .config import (
     state_path,
 )
 from .models import OrchestratorState, PRState
+
+
+def _resolve_repo_slug() -> str:
+    """Resolve the target repo slug (owner/name); empty string on failure.
+
+    `gh repo view` with no positional arg IGNORES the GH_REPO env var and
+    resolves the repo from the cwd git remote. When this runs under
+    `uv run --directory <skill_repo>` the cwd is the skill repo, not the target
+    repo, so the slug would be recorded wrong. Honor GH_REPO explicitly first;
+    only fall back to cwd-based detection when it is unset.
+    """
+    repo = os.environ.get("GH_REPO", "").strip()
+    if repo:
+        return repo
+    try:
+        r = subprocess.run(  # nosec B603 B607
+            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode == 0:
+            return r.stdout.strip()
+        print(
+            f"[WARN] 無法取得 repo slug（gh 返回 {r.returncode}，將使用 'unknown'）："
+            f"{r.stderr.strip()}",
+            file=sys.stderr,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        print(f"[WARN] 無法取得 repo slug（將使用 'unknown'）：{e}", file=sys.stderr)
+    return ""
 
 
 def _load_state(pr_number: int) -> OrchestratorState:
@@ -75,25 +107,8 @@ def detect(pr_number: int | None, branch: str | None) -> None:
         click.echo(f"PR #{pr_info.number} 已有 state：{data.get('current_state')}（跳過初始化）")
         return
 
-    # Resolve repo slug (best-effort — failure is non-fatal)
-    repo = ""
-    try:
-        r = subprocess.run(  # nosec B603 B607
-            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if r.returncode == 0:
-            repo = r.stdout.strip()
-        else:
-            print(
-                f"[WARN] 無法取得 repo slug（gh 返回 {r.returncode}，將使用 'unknown'）："
-                f"{r.stderr.strip()}",
-                file=sys.stderr,
-            )
-    except (subprocess.SubprocessError, OSError) as e:
-        print(f"[WARN] 無法取得 repo slug（將使用 'unknown'）：{e}", file=sys.stderr)
+    # Resolve repo slug (best-effort — failure is non-fatal).
+    repo = _resolve_repo_slug()
 
     state = OrchestratorState(
         pr_number=pr_info.number,
