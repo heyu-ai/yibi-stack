@@ -51,6 +51,40 @@ after `-c` must be wrapped in **single quotes** (use double quotes inside Python
 double-quote form `$(python3 -c "...")` is an outer-`$()` → inner-`"..."` reverse-nested
 structure that violates rule 13 Quoting Rule 4 and triggers `Unhandled node type: string`.
 
+### Skill scope 與 plugin agent 依賴一致性
+
+This repo distributes capabilities through two independent channels:
+
+- **`make install`** symlinks every repo-root `skills/*/SKILL.md` whose frontmatter is
+  `scope: global` into `~/.agents/skills/` — globally, across all projects. It carries the
+  **SKILL.md only**, never the plugin's `agents/`.
+- **`claude plugin install <name>@<marketplace>`** carries the whole plugin: skills **and**
+  agents **and** commands.
+
+A `scope: global` skill that dispatches a **same-repo plugin agent** (e.g.
+`subagent_type: sdd:qa-test-designer`) therefore breaks in any project that has the skill
+(via `make install`) but not the plugin: the agent is simply absent, and the skill either
+hard-stops or silently degrades.
+
+**Rule**: a `scope: global` skill MUST NOT dispatch an agent owned by one of this repo's own
+plugins. Such a skill must be **plugin-only** — remove its repo-root `skills/<name>` symlink
+and set `scope: project`, so it ships through `claude plugin install` together with its agents.
+`scripts/lint_skill_scope.py` enforces this at commit time: it reads the own-plugin names from
+`.claude-plugin/marketplace.json` and fails when a `scope: global` skill dispatches one of them
+(detection keys on the `subagent_type:` / `subagent_type=` token, so prose mentions do not fire).
+
+**External plugin agents are exempt.** When a global skill dispatches an agent from an *external*
+plugin (e.g. `pr-review-toolkit:code-reviewer` from `claude-plugins-official`), demotion cannot
+make that external plugin travel with the skill. Keep the skill `scope: global` but add a runtime
+not-available gate (`[WARN]` + a fallback such as the built-in `/code-review` skill) and document
+the plugin install requirement in the SKILL.md. The lint exempts external namespaces for this reason.
+
+**Incident**: `spectra-amplifier` (a `scope: global` knowledge skill) dispatched `sdd:*` agents in
+Step 1c/2a. Run in a project without the sdd plugin, the agents were absent and the skill silently
+degraded to inline generation. Fix: demoted to plugin-only (symlink removed, `scope: project`) and
+gave its `[FAIL] Stop` gates the explicit
+`claude plugin install sdd@yibi-stack` install command.
+
 ## Frontmatter — `effort` (Optional, added 2026-05)
 
 Claude Code v2.1.133+ supports specifying effort in skill / slash command frontmatter,

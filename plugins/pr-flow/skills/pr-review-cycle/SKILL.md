@@ -198,6 +198,11 @@ Optional: add `--comment` to post findings directly as GitHub PR inline comments
 
 Launch all review agents (`pr-review-toolkit` subagents) **in the same message**:
 
+> **If `pr-review-toolkit` subagents are not available** (the external `pr-review-toolkit` plugin
+> is not installed in this project): `[WARN]` fall back to the built-in `/code-review` skill
+> (report-only) and prompt the user to install for the full 4-agent review:
+> `claude plugin marketplace add anthropics/claude-plugins-official && claude plugin install pr-review-toolkit@claude-plugins-official`
+
 | Agent | Focus |
 |-------|-------|
 | `code-reviewer` | Convention compliance, potential bugs, logic errors |

@@ -1,7 +1,7 @@
 ---
 name: spectra-amplifier
 type: know
-scope: global
+scope: project
 description: >
   Spec Kit 五層深度規格展開 + OpenSpec/Spectra 變更管理框架的融合方法論。
   適用情境：用戶提到「寫 spec」「寫規格」「展開需求」「需求規格」「proposal」
@@ -161,6 +161,10 @@ openspec/changes/<feature-name>/
 | 2 ≤ N ≤ 5 | 同一 message 發 N 個 `sdd:gherkin-scenario-writer` Task，平行寫入各自的 `specs/<cap>/spec.md` |
 | N > 5 | `[WARN] capability 數超過 5，建議與使用者確認是否分批` → 降回 inline sequential 展開 |
 
+**前置檢查（2 ≤ N ≤ 5，dispatch 前必做）**：確認 `sdd:gherkin-scenario-writer` subagent 可用。
+若未找到：`[FAIL] Stop. sdd:gherkin-scenario-writer subagent 未找到。本專案需安裝 sdd plugin：claude plugin marketplace add howie/yibi-stack && claude plugin install sdd@yibi-stack（安裝後重新執行 spectra-amplifier）。`
+（不降級成 inline——確保 Gherkin 品質；與 Step 2a 的 not-available gate 對稱。）
+
 **平行 dispatch 格式（N ∈ [2, 5]）**：
 
 在**同一訊息**內送出 N 個 Task tool 呼叫（不依序等待），每個傳入：
@@ -258,7 +262,7 @@ Expected output from sdd:qa-test-designer:
 - Coverage Analysis（Covered / Partial / Missing / Redundant）
 
 If sdd:qa-test-designer not available:
-`[FAIL] Stop. sdd:qa-test-designer subagent 未找到。請更新 sdd plugin。`
+`[FAIL] Stop. sdd:qa-test-designer subagent 未找到。本專案需安裝 sdd plugin：claude plugin marketplace add howie/yibi-stack && claude plugin install sdd@yibi-stack（安裝後重新執行 spectra-amplifier）。`
 
 若 subagent 回傳內容以 `[FAIL]` 開頭，或 Task tool 本身執行失敗（timeout/error）：
 Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
