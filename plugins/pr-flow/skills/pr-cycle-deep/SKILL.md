@@ -143,7 +143,7 @@ Report detection results to the user and wait for confirmation before continuing
 
 ```text
 Detection results:
-- Claude  ✓ always available (pr-review-toolkit)
+- Claude  ✓ (pr-review-toolkit; if that plugin is not installed → /code-review fallback)
 - Codex   ✓ / ✗ / ✗ (auth failed; run codex login then re-run Step 0)
 - Gemini (agy) ✓ / ✗ / ✗ (auth failed: ONBOARDED or KEY_SET either works;
                 run agy to complete browser OAuth (onboardingComplete → true), or set GEMINI_API_KEY env var)
@@ -395,6 +395,12 @@ Focus on:
 ##### Claude voice (pr-review-toolkit 4 subagents)
 
 Launch four Task subagents in parallel (each produces independent findings; the lead merges them into the Claude voice):
+
+> **If the `pr-review-toolkit` subagents are not available** (the external `pr-review-toolkit`
+> plugin is not installed in this project): `[WARN]` the Claude voice falls back to the built-in
+> `/code-review` skill (report-only) for this round; prompt the user to install for the full
+> 4-subagent Claude voice:
+> `claude plugin marketplace add anthropics/claude-plugins-official && claude plugin install pr-review-toolkit@claude-plugins-official`
 
 | Subagent | Focus |
 | --- | --- |

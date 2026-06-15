@@ -105,6 +105,12 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator write-manifest 
 2. **ci-monitor subagent**（`general-purpose`）：`gh pr checks {{pr_number}} --watch`，完成後回傳 CI_PASS 或 CI_FAIL
 3. **conflict-detector subagent**（`general-purpose`）：`gh pr view {{pr_number}} --json mergeable,mergeStateStatus`，回傳 OK 或 CONFLICT
 
+> **若 `pr-review-toolkit:code-reviewer` 不可用**（本專案未安裝外部 pr-review-toolkit plugin）：
+> `[WARN]` 改用內建 `/code-review` skill（或 `general-purpose` subagent）執行 report-only code review，
+> 並提示使用者安裝以取得完整 review：
+> `claude plugin marketplace add anthropics/claude-plugins-official && claude plugin install pr-review-toolkit@claude-plugins-official`。
+> ci-monitor / conflict-detector 用內建 `general-purpose`，不受影響。
+
 等待所有三個 subagent 完成後：
 
 - 若有 CONFLICT → transition `CONFLICT` → `BLOCKED`（等人工解）

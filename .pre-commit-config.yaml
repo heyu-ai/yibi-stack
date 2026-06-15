@@ -48,6 +48,13 @@ repos:
         pass_filenames: false
         files: ^(commands|skills|plugins|\.claude/commands)/.*\.md$
 
+      - id: lint-skill-scope
+        name: lint-skill-scope
+        entry: python3 scripts/lint_skill_scope.py
+        language: system
+        pass_filenames: false
+        files: ^(skills/.*/SKILL\.md|\.claude-plugin/marketplace\.json)$
+
       - id: check-blank-proposal
         name: check-blank-proposal
         entry: python3 scripts/check_blank_proposal.py

@@ -60,7 +60,6 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 | Skill | 住址 | 描述 | SKILL.md |
 |-------|------|------|----------|
 | `bump-version` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | Project-level 版本 bump（Flutter/Python/Node.js/Go）+ CHANGELOG 生成 + git tag 發布，附帶 commit-msg hook 安裝 | [bump-version/SKILL.md](bump-version/SKILL.md) |
-| `spectra-amplifier` | [plugins/sdd/](../plugins/sdd/README.md) | Wave D Plugin Edition：Step 0-5 規格展開（BDD Gherkin + qa-test-design dispatch + ADR-0008 docstring trace + SMK smoke tests）| [spectra-amplifier/SKILL.md](spectra-amplifier/SKILL.md) |
 | `event-storming` | [plugins/sdd/](../plugins/sdd/README.md) | 領域發現前置 skill（draft）；amplifier Step 0 的 handoff 來源；產出 Domain Events / Bounded Contexts / Aggregate Roots | [event-storming/SKILL.md](event-storming/SKILL.md) |
 | `qa-test-design` | [plugins/sdd/](../plugins/sdd/README.md) | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |
 | `verify-done` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 宣告完成前端對端驗證：make ci / pre-commit、gh pr checks（含 PENDING/TOOL ERROR 狀態）、Spectra artifact 完整性、worktree merge 安全性 | [verify-done/SKILL.md](verify-done/SKILL.md) |
@@ -71,6 +70,17 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 | `flutter-tdd` | [plugins/tdd/](../plugins/tdd/README.md) | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
 | `ci-triage` | [plugins/tdd/](../plugins/tdd/README.md) | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests），含 Python / JS / Go 工具範例 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |
 | `detect-ai-slop` | [plugins/writing/](../plugins/writing/README.md) | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
+
+---
+
+### Plugin-only Skill（dispatch 同 repo plugin subagent，僅經 `claude plugin install` 取得）
+
+這類 skill 會 dispatch 同 repo plugin 的 subagent（如 `sdd:*`），必須與 agents 同管道分發，因此**不走 `make install` 全域安裝**——只在裝了對應 plugin 的專案可用（見 Plugin Pack 安裝）。
+詳見 `.claude/rules/11-skill-authoring.md` 的「Skill scope 與 plugin agent 依賴一致性」。
+
+| Skill | 住址 | 描述 | SKILL.md |
+|-------|------|------|----------|
+| `spectra-amplifier` | [plugins/sdd/](../plugins/sdd/README.md)（`claude plugin install sdd@yibi-stack`）| Wave D Plugin Edition：Step 0-5 規格展開（BDD Gherkin + qa-test-design dispatch + ADR-0008 docstring trace + SMK smoke tests）| [../plugins/sdd/skills/spectra-amplifier/SKILL.md](../plugins/sdd/skills/spectra-amplifier/SKILL.md) |
 
 ---
 

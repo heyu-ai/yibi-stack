@@ -64,7 +64,7 @@ ignore_missing_imports = true
 follow_imports = "skip"
 
 [tool.pytest.ini_options]
-testpaths = ["tasks", ".claude/hooks/tests", "plugins/sdd/scripts/tests", "plugins/pr-flow/skills/pr-cycle-deep/scripts/tests", "commands/scripts/tests"]
+testpaths = ["tasks", ".claude/hooks/tests", "plugins/sdd/scripts/tests", "plugins/pr-flow/skills/pr-cycle-deep/scripts/tests", "commands/scripts/tests", "scripts/tests"]
 pythonpath = [".", "commands/scripts"]
 addopts = "-m 'not slow'"
 markers = [
