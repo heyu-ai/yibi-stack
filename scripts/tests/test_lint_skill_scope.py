@@ -81,9 +81,7 @@ class TestMainEndToEnd:
         d.mkdir()
         (d / "SKILL.md").write_text(make_skill(scope, body), encoding="utf-8")
 
-    def test_lintscope_st_002_violation_exits_1(
-        self, tmp_path: Path, monkeypatch: object
-    ) -> None:
+    def test_lintscope_st_002_violation_exits_1(self, tmp_path: Path, monkeypatch: object) -> None:
         """LINTSCOPE-ST-002: global skill dispatch 本 repo plugin agent → main() 回 1"""
         skills = tmp_path / "skills"
         skills.mkdir()
@@ -97,9 +95,7 @@ class TestMainEndToEnd:
         """LINTSCOPE-ST-003: 外部 dispatch 的 global + project scope skill → main() 回 0"""
         skills = tmp_path / "skills"
         skills.mkdir()
-        self._write_skill(
-            skills, "ext", "global", "subagent_type=pr-review-toolkit:code-reviewer"
-        )
+        self._write_skill(skills, "ext", "global", "subagent_type=pr-review-toolkit:code-reviewer")
         self._write_skill(skills, "proj", "project", "subagent_type: sdd:qa-test-designer")
         monkeypatch.setattr(lint_skill_scope, "SKILLS_DIR", skills)  # type: ignore[attr-defined]
         assert lint_skill_scope.main() == 0
