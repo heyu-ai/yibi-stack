@@ -81,9 +81,12 @@ Use the Read tool to try reading `~/.claude/mob-detection-cache`:
 > silent reuse — the only reason to stop is a real auth failure. The static auth check here
 > confirms the token is still *present*; a present-but-expired token that slips past it is caught
 > at use-time by the R1 review stage (fail-loud via `agy_validate.py` / codex error), which marks
-> that voice unavailable and prompts re-auth. To force a full re-detection (e.g. you just
-> configured a new voice that the cache predates), delete `~/.claude/mob-detection-cache` and
-> re-run.
+> that voice unavailable for this PR and notes it in `final.md` — the mob proceeds with the
+> remaining voices and does **not** block (re-auth then happens on the next Step 0 run). The warm
+> path re-verifies only auth, **not** `GEMINI_ALLOW_LIST` — a stale allow-list never blocks
+> execution (it only adds a per-call confirmation prompt), so it is left for the next full Step 0b.
+> To force a full re-detection (e.g. you just configured a new voice that the cache predates),
+> delete `~/.claude/mob-detection-cache` and re-run.
 
 ### Step 0b — Run detection
 
