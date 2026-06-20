@@ -1,5 +1,10 @@
 # yibi-stack
 
+[![CI](https://github.com/heyu-ai/yibi-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/heyu-ai/yibi-stack/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/heyu-ai/yibi-stack)](https://github.com/heyu-ai/yibi-stack/releases)
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
 > [English](#english) | [繁體中文](#繁體中文)
 
 ---
