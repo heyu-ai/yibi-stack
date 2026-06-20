@@ -52,24 +52,38 @@ No external models detected → prompt the user to fall back to `/pr-review-cycl
 
 ## Step 0 — Reviewer Detection (determine workflow mode)
 
-### Step 0a — Read detection cache
+### Step 0a — Read detection cache & auto-verify auth
 
-First use the Read tool to try reading `~/.claude/mob-detection-cache`:
+Use the Read tool to try reading `~/.claude/mob-detection-cache`:
 
-- **File exists**: report cache contents and ask the user:
+- **File exists** (warm path): **do not ask whether to use the cache** — the default is silent
+  reuse. Trust the cached binary detection + mode, but **re-verify the auth tokens** for the
+  cached-available voices (auth can go stale even when the binary is unchanged). Run only the auth
+  detection checks from Step 0b for each voice the cache marks available (`CODEX_OK=1` /
+  `GEMINI_OK=1`):
+  - the `CODEX_AUTH:` bash block (Codex)
+  - the `GEMINI_AUTH:` bash block (agy)
 
-  ```text
-  [Cache] Last detection result ({{DATE}}):
-  - Codex:  ✓ / ✗
-  - Gemini (agy): ✓ / ✗
-  - Mode: {{MODE}}
+  Then branch on the result:
+  - **All cached-available voices still auth OK** → report one line and **go directly to Step 1**:
 
-  Use cache and go directly to Step 1? (y / n=re-run detection)
-  ```
+    ```text
+    [Cache] Reusing detection ({{DATE}}): Mode={{MODE}} — auth re-verified OK, proceeding.
+    ```
 
-  User replies y → skip Step 0b, go directly to Step 1.
-  User replies n → run Step 0b (re-detect and update cache).
+  - **Any cached-available voice now `NOT_AUTHED` / `KEY_WHITESPACE_PREFIX`** → that token expired
+    or broke. Do **not** proceed and do **not** silently drop the voice. Show the fix command for
+    that voice (see the Step 0b report block / Troubleshooting), wait for the user to
+    re-authenticate, then re-run Step 0 from **0b** (full re-detect + refresh cache).
 - **File does not exist** (Read tool returns error): run Step 0b directly.
+
+> **Why re-verify instead of asking**: a still-valid auth is the common case, so the default is
+> silent reuse — the only reason to stop is a real auth failure. The static auth check here
+> confirms the token is still *present*; a present-but-expired token that slips past it is caught
+> at use-time by the R1 review stage (fail-loud via `agy_validate.py` / codex error), which marks
+> that voice unavailable and prompts re-auth. To force a full re-detection (e.g. you just
+> configured a new voice that the cache predates), delete `~/.claude/mob-detection-cache` and
+> re-run.
 
 ### Step 0b — Run detection
 
@@ -1072,6 +1086,8 @@ finding reference but **do not enter the main context**.
 | Issue | How to handle |
 | --- | --- |
 | How to avoid the three pr-test-analyzer traps (fake test / presence-only / no-CI)? | Three anti-patterns to always check: (1) **Fake test** (inverse of mutation testing) — the test case logic has a silent bug; all cases PASS but some test action never fires (e.g. env-var override test takes the unset branch; empty value not actually exported, so it runs the same path as another case); "all green" masks a scenario never tested. Fix: mutation testing intuition — intentionally break one production line and check whether that test case **really** fails; if not, it's a fake test. (2) **Presence test ≠ contract test** — `grep function_name` confirming the function is called is the weakest form; if the invariant is "the function must be called **with the correct args**" (e.g. the deploy script must call the guard helper with the **correct default context**), the test must verify the full contract (`function_name <expected_arg>` paired), not just function name presence. (3) **Test not wired to CI = half-finished test** — submitting a test file with no CI / pre-commit / git-hook / `make test` trigger means regressions are only caught when an operator manually runs tests; operators rarely do this spontaneously. Fix: "wired to CI?" should be listed alongside "what to test" and "how to test" as the three required test-design elements. Choose the mechanism per tech stack: Python repos use pre-commit local hook + `files:` regex; TS/JS use husky / lefthook; Go / Rust use `make test` + CI workflow `step: run: make test`. Common requirement: changing production code triggers tests automatically. |
+| Cache hit but a cached-available voice's auth now fails | Step 0a re-verifies auth on every warm-path run; on `NOT_AUTHED` / `KEY_WHITESPACE_PREFIX` it stops and shows the fix command — re-auth, then re-run Step 0b (refreshes the cache). The static check cannot see a present-but-expired token; that case is caught at use-time by the R1 fail-loud (`agy_validate.py` / codex error) |
+| Want to force full re-detection (new voice configured, cache predates it) | Delete `~/.claude/mob-detection-cache` and re-run — Step 0a falls through to full Step 0b detection |
 | Step 0 zero available (all NOT_FOUND or auth failed) | This skill terminates; run `/pr-review-cycle` instead (Claude-only is sufficient) |
 | Step 0 detects `KEY_WHITESPACE_PREFIX` | Key has a leading space (e.g. copied from terminal); run `export CODEX_API_KEY="${CODEX_API_KEY# }"` or the corresponding key name to strip leading space, then re-run Step 0 |
 | `GEMINI_AUTH: NOT_AUTHED` (agy not configured) | Run `agy` to complete browser OAuth; `onboarding.json`'s `onboardingComplete` will become true; or `export GEMINI_API_KEY=...` |
