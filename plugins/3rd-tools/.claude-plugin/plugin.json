@@ -1,7 +1,7 @@
 {
   "name": "3rd-tools",
   "description": "Third-party AI tool integrations for Claude Code agents: Codex and Gemini model verification skills.",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "author": {
     "name": "Howie Yu",
     "email": "2318485+howie@users.noreply.github.com"
