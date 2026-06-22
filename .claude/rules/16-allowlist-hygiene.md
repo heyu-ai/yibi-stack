@@ -43,7 +43,7 @@ apply to **any** tool, not just Bash, and are useful for `deny` rules in particu
 | Syntax | Meaning | Example |
 |--------|---------|---------|
 | `Tool(param:value)` | Match a tool by an input-parameter value; `*` wildcard allowed in the value (v2.1.178) | `Agent(model:opus)` matches an Agent/subagent call whose `model` is `opus` |
-| Tool-name glob in the rule's tool position | `*` in the tool-name slot matches tool names; `"*"` matches every tool (Week 24) | `deny: "*"` denies all tools; `deny: "mcp__*"` denies all MCP tools |
+| Tool-name glob in the rule's tool position | `*` in the tool-name slot matches tool names; `"*"` matches every tool | `deny: "*"` denies all tools; `deny: "mcp__*"` denies all MCP tools |
 | `WebFetch(domain:*.example.com)` | Subdomain wildcard for WebFetch domains (v2.1.172 fix made `*.` actually match subdomains) | matches `api.example.com`, `cdn.example.com` |
 
 Practical uses:
@@ -61,8 +61,9 @@ Constrain the value as tightly as the use case allows.
 > (shell-quoting-hygiene). That file no longer exists — its content was merged into
 > `13-bash-anti-patterns.md`. Permission-rule syntax lives here in rule 16.
 >
-> **This repo today**: `.claude/settings.local.json` lists `WebFetch(domain:...)` rules as fixed
-> hosts (no `*.`). Consolidating them into `*.domain` form is optional, not required.
+> **Applying it here**: if `.claude/settings.local.json` accumulates several hosts under one
+> parent domain, consolidating them into `*.domain` form is optional, not required — check the
+> current entries before assuming the form.
 
 ## Red Flags — Choose One-Time Approval If Any Match
 

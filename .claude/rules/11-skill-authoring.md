@@ -661,9 +661,13 @@ the ACP Gateway) or by a webhook MUST be authored so that:
    digest file / handover) and stops, rather than taking an irreversible action unattended.
 
 **Primary applicable skill in this repo**: `skills/nightly-agent/SKILL.md`. It runs at 03:00
-and can auto-commit / push / `gh pr create`. It currently relies on a test-gate plus `--dry-run`
-rather than an explicit "read-only default" contract; the SKILL.md must state the four rules
-above so an unattended auto-mode run cannot perform unrequested writes.
+and can auto-commit / push / `gh pr create`. Note the scope split: the contract above governs the
+**skill / agent-invoked path** (ACP Gateway `skill:`/`claude:` job, webhook, auto mode). Its
+currently-documented scheduler entry is a **`command` job** — a plain non-interactive subprocess
+(`python -m tasks.nightly_agent run`), which is not an agent turn and side-steps the approval
+mechanism by design (its safety comes from being non-interactive plus a failing→passing test
+gate). The SKILL.md must still state the four rules above so that an unattended **agent-invoked**
+run cannot perform unrequested writes.
 
 **Nested `.claude/skills` naming collisions**: since v2.1.178 a nested `.claude/skills`
 directory auto-loads when you work in that subtree, and a name that collides with a top-level
