@@ -120,6 +120,10 @@ scripts/  → CI/lint 工具腳本
 
 ## Dev 指令
 
+> **小技巧**：`/config key=value` 可即時改設定，省去開 `/config` 選單
+> （如 `/config thinking=false`）；在 interactive、`-p` headless、Remote Control 皆可用。
+> `/config --help` 列出所有 shorthand key。（Claude Code v2.1.181+）
+
 ```bash
 # Python 開發
 uv sync                  # 安裝依賴
@@ -165,6 +169,14 @@ make install-all         # 等同 build-tools + install + install-project + inst
 
 ## Known Gotchas
 
+- **suspect a hook/skill/rule is interfering → `claude --safe-mode` first**: this repo carries
+  many hooks and rules (protect-push, bash-ap2-check, bash-ap1-inline-check, protect-worktree,
+  pre-commit, plus 14 rule files). When something behaves unexpectedly and you suspect the
+  customization layer, launch `claude --safe-mode` (or set `CLAUDE_CODE_SAFE_MODE=1`): it
+  disables all CLAUDE.md / skills / plugins / hooks / MCP / custom commands & agents, while
+  authentication, model, built-in tools, and permissions still work. If the problem disappears
+  in safe mode, the culprit is in the customization layer — bisect from there. (Claude Code
+  v2.1.169+)
 - **protect-push blocks `gh pr merge`**: agent cannot merge; user must run
   `! gh pr merge <n> --squash --delete-branch`. Also: running `gh pr merge` from a linked
   worktree when the main repo has `main` checked out fails (`fatal: 'main' is already used by

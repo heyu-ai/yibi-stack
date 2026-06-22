@@ -48,6 +48,7 @@ psql -c "DELETE FROM sessions"   # no WHERE clause
 |-----------|------|----------------------|
 | `kubectl apply` to prod namespace | Directly changes production workload | Run `kubectl diff` or verify in staging first; let user apply |
 | `terraform apply` (any form, including `-target`) | Directly changes cloud infrastructure; `-target` can still delete or recreate resources | Run `terraform plan`; let user review before executing |
+| `terraform destroy` / `pulumi destroy` / `cdk destroy` | Tears down provisioned infrastructure; data on destroyed resources is gone | Describe the stack and scope; let user run manually unless they named the specific stack |
 | `gh release create` | Publishes a package version; cannot be deleted (NPM 72h limit, PyPI permanent) | Confirm version, CHANGELOG, and tag; let user run |
 | `npm publish` | Same as above | Run `npm pack` to inspect package contents first |
 | `uv publish` | Same as above | Verify `dist/` contents and version first |
@@ -56,10 +57,17 @@ psql -c "DELETE FROM sessions"   # no WHERE clause
 # Agent must not run autonomously:
 kubectl apply -f k8s/prod/
 terraform apply
+terraform destroy
+pulumi destroy
+cdk destroy
 gh release create v1.2.3
 npm publish
 uv publish
 ```
+
+**Native auto-mode interception (Claude Code v2.1.183+)**: auto mode now natively blocks
+`terraform destroy` / `pulumi destroy` / `cdk destroy` unless you named the specific stack.
+This is defense-in-depth on top of this doc-layer rule — see the note at the end of Category 3.
 
 ## Category 3: Git Destructive
 
@@ -67,6 +75,10 @@ uv publish
 |-----------|------|----------------------|
 | `git push --force` / `git push -f` | Overwrites remote commit history; affects all collaborators | Explain why force push is needed; let user run; confirm it is a personal branch |
 | `git reset --hard <ref>` | Discards local uncommitted and committed changes | Run `git status` + `git log` to show scope; let user confirm |
+| `git checkout -- .` / `git checkout -- <path>` | Discards uncommitted working-tree changes; not recoverable from VCS | Run `git status` to show what would be lost; let user confirm |
+| `git clean -fd` | Permanently deletes untracked files and directories (no Trash) | Run `git clean -nd` (dry-run) to list affected paths first; let user confirm |
+| `git stash drop` / `git stash clear` | Discards stashed changes; not in commit history | Run `git stash list` + `git stash show -p` to show scope; let user confirm |
+| `git commit --amend` (commit not authored by the agent this session) | Rewrites an existing commit's content/message; loses the original | Confirm the commit is yours to amend; otherwise create a new commit instead |
 | `git rebase` on a shared branch | Rewrites shared history; others must force-pull | Confirm whether branch is personal; use merge instead of rebase on shared branches |
 | `git filter-branch` / `git filter-repo` | Rewrites entire repository history | Almost always requires explicit user authorization; describe and let user run |
 
@@ -75,12 +87,32 @@ uv publish
 git push --force origin main
 git push -f
 git reset --hard HEAD~3
+git checkout -- .
+git clean -fd
+git stash drop
+git commit --amend          # when the target commit was not authored by the agent this session
 git filter-branch --env-filter '...'
 ```
 
 **Exception**: `git reset --hard` on a personal worktree branch that affects only local un-pushed
 changes has limited blast radius and may proceed after explanation.
 Criterion: whether the branch has been pushed to remote.
+
+### Defense in Depth: Native Auto-Mode Interception (v2.1.183+)
+
+Claude Code v2.1.183+ auto mode now **natively intercepts** these destructive commands unless
+you explicitly request them: `git reset --hard`, `git checkout -- .`, `git clean -fd`,
+`git stash drop`, `git commit --amend` (when the commit was not authored by the agent this
+session), and `terraform/pulumi/cdk destroy` (unless the specific stack is named).
+
+This is a runtime safety net layered **on top of** this doc-layer rule, not a replacement:
+
+- **This rule remains the primary line of defense.** It applies in every permission mode (not
+  only auto mode), defines the STOP/Impact/Rollback reporting format, and lists operations the
+  native interceptor does not cover (e.g. `find ... -delete`, `aws s3 rm --recursive`).
+- **Do not relax doc-layer judgment because "auto mode will block it."** The native list is
+  fixed and version-dependent; an operation outside it (or a user on an older version, or a
+  non-auto mode) gets no native guard. Always apply the Agent Standard Behavior above first.
 
 ### Recovery: Rescuing a Commit Accidentally Made on Main (Only if Not Yet Pushed)
 

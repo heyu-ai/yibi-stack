@@ -637,3 +637,36 @@ Exit code semantics:
 
 Before writing a SKILL.md step that calls any CLI tool, check the tool's `--help` or
 man page for the full exit code table and add a named branch for each non-zero code.
+
+## Scheduled Skills Must Be Zero-Interaction and Read-Only by Default (Claude Code v2.1.183)
+
+Since Claude Code v2.1.183, deliveries triggered by a **schedule or webhook** are classified as
+a **task notification**, not keyboard input. In auto mode a task-notification turn therefore
+**cannot approve a pending action and cannot set the session title**. A scheduled skill that
+relies on an interactive `approve`/`confirm` step will silently stall (the prompt is never
+answerable) or, worse, proceed past an unanswered gate.
+
+Any skill that can be invoked by the scheduler (`.runtime/schedules.json` `skill:` jobs, run via
+the ACP Gateway) or by a webhook MUST be authored so that:
+
+1. **Read-only by default.** The default code path performs only reads/analysis and produces a
+   report. No mutation happens unless explicitly requested.
+2. **Writes are opt-in per task.** Any write — MCP `send`/`post`/`create`/`update`/`delete`,
+   file writes, `git push`, `gh pr create`, journal append — runs only when the task definition
+   (or the prompt that invoked the skill) explicitly asks for it. Gate writes behind an explicit
+   flag/parameter, never behind an interactive confirmation.
+3. **No interactive confirmation steps.** Do not use `AskUserQuestion`, `click.confirm`, or any
+   "wait for the user to approve" pattern in a scheduled path — there is no one to answer.
+4. **Report is the fallback.** When in doubt, the skill emits its findings as a report (log /
+   digest file / handover) and stops, rather than taking an irreversible action unattended.
+
+**Primary applicable skill in this repo**: `skills/nightly-agent/SKILL.md`. It runs at 03:00
+and can auto-commit / push / `gh pr create`. It currently relies on a test-gate plus `--dry-run`
+rather than an explicit "read-only default" contract; the SKILL.md must state the four rules
+above so an unattended auto-mode run cannot perform unrequested writes.
+
+**Nested `.claude/skills` naming collisions**: since v2.1.178 a nested `.claude/skills`
+directory auto-loads when you work in that subtree, and a name that collides with a top-level
+skill is surfaced as `<dir>:<name>` (both coexist). When authoring a `description` (the trigger
+field), keep trigger keywords distinct enough that a nested-skill collision does not steal or
+duplicate the intended trigger.
