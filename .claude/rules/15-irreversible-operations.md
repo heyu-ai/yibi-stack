@@ -90,6 +90,7 @@ git reset --hard HEAD~3
 git checkout -- .
 git clean -fd
 git stash drop
+git stash clear
 git commit --amend          # when the target commit was not authored by the agent this session
 git filter-branch --env-filter '...'
 ```

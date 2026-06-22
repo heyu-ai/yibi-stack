@@ -121,8 +121,8 @@ scripts/  → CI/lint 工具腳本
 ## Dev 指令
 
 > **小技巧**：`/config key=value` 可即時改設定，省去開 `/config` 選單
-> （如 `/config thinking=false`）；在 interactive、`-p` headless、Remote Control 皆可用。
-> `/config --help` 列出所有 shorthand key。（Claude Code v2.1.181+）
+> （如 `/config thinking=false`）；在 interactive、`-p` headless、Remote Control 皆可用
+> （Claude Code v2.1.181+）。`/config --help` 列出所有 shorthand key（v2.1.183+）。
 
 ```bash
 # Python 開發
