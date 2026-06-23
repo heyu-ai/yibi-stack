@@ -88,6 +88,18 @@ class SchedulerDB:
         ).fetchone()
         return dict(row) if row else None
 
+    def get_last_run(self, job_id: str) -> dict[str, Any] | None:
+        """取得最近一次執行記錄（任何狀態：success / failed / running）。
+
+        用於 is_due 的「同一排程週期內是否已嘗試過」判斷——以最後一次*嘗試*為準，
+        而非僅最後一次*成功*，避免失敗 job 在排程窗口內每個 tick 重試（retry-storm）。
+        """
+        row = self.conn.execute(
+            "SELECT * FROM job_runs WHERE job_id=? ORDER BY started_at DESC LIMIT 1",
+            (job_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
     def get_run_history(self, job_id: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
         """查詢執行歷史。"""
         if job_id:
