@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 from agy_validate import (
+    _AGENTIC_SEARCH_PREFIXES,
+    _BRAIN_POINTER_PREFIXES,
     _NARRATION_PREFIXES,
     _TOOLCALL_PREFIXES,
     check_agentic_narration,
@@ -17,6 +19,7 @@ from agy_validate import (
     check_timeout,
     check_verdict,
     find_brain_pointer,
+    has_review_body,
     main,
     rescue_brain_artifact,
     validate,
@@ -176,8 +179,58 @@ class TestCheckAgenticNarration:
 
         A typo in any literal would silently disable that detector; this guards
         the whole tuple, including 'tool_use:' which had no dedicated case.
+
+        Bare ``prefix + "something"`` has no review-structure heading, so even the
+        agentic-search prefixes (which are now downgradable) still fail here.
         """
         assert check_agentic_narration(prefix + "something") is not None
+
+    @pytest.mark.parametrize("prefix", _AGENTIC_SEARCH_PREFIXES)
+    def test_agyv_dt_020_search_preamble_with_review_body_passes(self, prefix: str) -> None:
+        """AGYV-DT-020: agentic-search preamble followed by a real review passes.
+
+        The issue #153 false reject: agy narrates one line then returns a full
+        review. A review-structure heading downgrades the narration to harmless.
+        """
+        text = prefix + "look at the diff first.\n\n" + GOOD_REVIEW
+        assert check_agentic_narration(text) is None
+
+    @pytest.mark.parametrize("prefix", _BRAIN_POINTER_PREFIXES)
+    def test_agyv_dt_021_brain_pointer_still_fails_despite_body(self, prefix: str) -> None:
+        """AGYV-DT-021: a brain-pointer opener is a hard fail even if a heading follows.
+
+        The real review is in a brain artifact (or nowhere after a failed rescue);
+        a ## Verdict heading on stdout does not make the stdout body a review.
+        """
+        text = prefix + " my analysis elsewhere.\n\n" + GOOD_REVIEW
+        assert check_agentic_narration(text) is not None
+
+    def test_agyv_dt_022_search_preamble_without_body_fails(self) -> None:
+        """AGYV-DT-022: agentic-search preamble with no review body still fails."""
+        text = "I will search the repo.\n\nStill looking, no review produced."
+        assert check_agentic_narration(text) is not None
+
+
+class TestHasReviewBody:
+    @pytest.mark.parametrize(
+        "heading",
+        [
+            "## Verdict",
+            "## Summary",
+            "## Findings",
+            "### Findings",
+            "## Cross-review verdict",  # R2 format
+            "## New findings",  # R2 format
+            "## Final verdict",  # R2 format
+        ],
+    )
+    def test_agyv_dt_023_review_headings_detected(self, heading: str) -> None:
+        """AGYV-DT-023: R1 and R2 review-structure headings count as a review body."""
+        assert has_review_body(heading + "\nbody text") is True
+
+    def test_agyv_eg_010_verdict_in_prose_is_not_a_body(self) -> None:
+        """AGYV-EG-010: 'verdict' in plain prose (no heading) is not a review body."""
+        assert has_review_body("I will determine the verdict shortly.") is False
 
 
 class TestCheckVerdict:

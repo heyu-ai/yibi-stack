@@ -48,30 +48,54 @@ _BRAIN_POINTER = re.compile(
     r"""(?P<path>[~/][^\s"'`<>]*?/brain/[0-9a-fA-F-]{6,}/[^\s"'`<>]+?\.md)"""
 )
 
-# agy agentic-narration markers: output whose first non-blank line starts with
-# one of these is the model "thinking out loud" / searching, not a review.
-# "i have written/finished" are the canonical brain-pointer openers (agy narrates
-# "I have written my analysis to <brain artifact>") — see issue #153 mode 2.
-_NARRATION_PREFIXES = (
+# agy agentic-narration markers, split by what the prefix actually means:
+#
+#   _AGENTIC_SEARCH_PREFIXES — the model is "thinking out loud" / searching before
+#   it reviews. This is HARMLESS PREAMBLE when a real review body follows. agy
+#   often narrates one line ("I will look at the diff") and then returns a full
+#   review; the legacy check looked only at the first line and rejected the whole
+#   output, a false reject (issue #153). check_agentic_narration now downgrades
+#   these to a pass when a review-structure heading (## Verdict / ## Summary /
+#   ## Findings) is present, and lets the verdict / changed-files checks decide.
+#
+#   _BRAIN_POINTER_PREFIXES — the canonical openers for the brain-artifact detour
+#   (issue #153 mode 2): agy narrates "I have written my analysis to <brain
+#   artifact>" and the real review is NOT on stdout. rescue_brain_artifact (run
+#   before validate) already recovers the real content when the pointer resolves;
+#   if it could not, the stdout body is a pointer + narration, never a review, so
+#   these stay a HARD FAIL regardless of any heading that happens to appear later.
+_AGENTIC_SEARCH_PREFIXES = (
     "i will ",
     "i'll ",
     "i am going to ",
     "i'm going to ",
     "i am waiting",
     "i'm waiting",
-    "i have written",
-    "i've written",
-    "i have finished",
-    "i've finished",
-    "i have completed",
     "let me ",
     "first, i ",
     "searching for ",
     "looking for ",
 )
+_BRAIN_POINTER_PREFIXES = (
+    "i have written",
+    "i've written",
+    "i have finished",
+    "i've finished",
+    "i have completed",
+)
+# Preserved union for callers/tests that iterate the full marker set.
+_NARRATION_PREFIXES = _AGENTIC_SEARCH_PREFIXES + _BRAIN_POINTER_PREFIXES
 
 # Agentic tool-call markers (PR #303 signature).
 _TOOLCALL_PREFIXES = ("call:", "tool_use:")
+
+# A review-structure heading anywhere in the output: the signal that a real review
+# followed the leading narration. Requires a markdown ATX heading line whose text
+# mentions verdict / summary / findings (matches both the R1 format — ## Summary /
+# ## Findings / ## Verdict — and the R2 format — ## Cross-review verdict / ## New
+# findings / ## Final verdict). A bare substring is intentionally NOT enough, so
+# prose like "I will determine the verdict" cannot fake a review body.
+_REVIEW_BODY = re.compile(r"(?mi)^[ \t]{0,3}#{1,6}[ \t].*\b(?:verdict|summary|findings?)\b")
 
 _TIMEOUT_MARKERS = (
     "error: timed out",
@@ -175,21 +199,44 @@ def first_nonblank_line(text: str) -> str:
     return ""
 
 
+def has_review_body(text: str) -> bool:
+    """True if ``text`` contains a review-structure heading (## Verdict/Summary/Findings)."""
+    return _REVIEW_BODY.search(text) is not None
+
+
 def check_agentic_narration(text: str) -> str | None:
-    """Flag output that begins with agentic narration or tool-call markers."""
+    """Flag output that is agentic narration, a tool-call, or a brain-pointer detour.
+
+    Tool-call and brain-pointer openers are a hard fail: the real review is
+    elsewhere (or nowhere), so a heading appearing later cannot redeem them.
+
+    An agentic-search opener ("I will ...", "Let me ...") fails only when NO
+    review body follows. agy often narrates a one-line preamble and then returns
+    a complete review (issue #153 false reject); when a ## Verdict / ## Summary /
+    ## Findings heading is present the preamble is harmless, so this returns None
+    and the verdict / changed-files checks decide the outcome.
+    """
     first = first_nonblank_line(text)
     low = first.lower()
-    for prefix in _NARRATION_PREFIXES:
-        if low.startswith(prefix):
-            return (
-                f"output starts with agentic narration ({first[:60]!r}) — model "
-                "entered file-search mode instead of reviewing"
-            )
     for prefix in _TOOLCALL_PREFIXES:
         if low.startswith(prefix):
             return (
                 f"output starts with agentic tool-call marker ({first[:60]!r}) "
                 "— agentic mode triggered"
+            )
+    for prefix in _BRAIN_POINTER_PREFIXES:
+        if low.startswith(prefix):
+            return (
+                f"output starts with brain-artifact narration ({first[:60]!r}) — "
+                "real review is in a brain artifact, not on stdout (rescue failed)"
+            )
+    for prefix in _AGENTIC_SEARCH_PREFIXES:
+        if low.startswith(prefix):
+            if has_review_body(text):
+                return None  # narration was harmless preamble; a review followed
+            return (
+                f"output starts with agentic narration ({first[:60]!r}) — model "
+                "entered file-search mode instead of reviewing"
             )
     return None
 
