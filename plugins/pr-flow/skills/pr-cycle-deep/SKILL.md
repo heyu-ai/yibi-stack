@@ -366,6 +366,10 @@ with the actual `$REVIEW_DIR` value before writing:
 ```text
 You are a senior code reviewer. Review the following PR diff independently.
 
+Output ONLY the review in the format below. Do not narrate your actions or write any
+preamble (no "I will...", "Let me...", "I'm going to...", "I have written..."), and do
+not announce file reads. Your first line must be the "## Summary" heading.
+
 Base branch: {{base_branch}}
 PR #: {{pr_number}}
 Diff: see {{REVIEW_DIR}}/diff.patch
@@ -591,6 +595,10 @@ Write `$REVIEW_DIR/prompt-r2.md` with the Write tool:
 ```text
 You just reviewed this PR in Round 1. Now read the other reviewers' results
 and take positions:
+
+Output ONLY the response in the format below. Do not narrate your actions or write any
+preamble (no "I will...", "Let me...", "I'm going to...", "I have written..."), and do
+not announce file reads. Your first line must be the "## Cross-review verdict" heading.
 
 ## Round 1 Results from All Reviewers
 <r1-aggregate content>
