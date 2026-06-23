@@ -21,8 +21,11 @@ residual silent failure into a loud one. It post-processes the raw output file
   - brain-artifact rescue (fix 4): if the output is a pointer to a
     ``brain/<uuid>/*.md`` artifact, read that file and replace the output with
     its real content.
-  - fail-loud checks (fix 3): timeout marker, agentic-narration prefix, missing
-    Verdict section, and content sanity (must mention >=1 changed file path).
+  - fail-loud checks (fix 3): timeout marker; agentic narration (tool-call and
+    brain-pointer openers always fail; an agentic-search opener fails only when no
+    review-structure heading follows — see check_agentic_narration); missing
+    Verdict section; and content sanity (fails only when the review references file
+    paths yet none are the changed paths — a review with no file refs passes).
 
 Exit codes:
   0 — output passed all enabled checks (after any rescue)
@@ -96,6 +99,14 @@ _TOOLCALL_PREFIXES = ("call:", "tool_use:")
 # findings / ## Final verdict). A bare substring is intentionally NOT enough, so
 # prose like "I will determine the verdict" cannot fake a review body.
 _REVIEW_BODY = re.compile(r"(?mi)^[ \t]{0,3}#{1,6}[ \t].*\b(?:verdict|summary|findings?)\b")
+
+# Fenced code blocks are stripped before the heading search: the review prompt
+# template itself contains "## Summary" / "## Findings" / "## Verdict" headings,
+# so agy echoing a prompt/diff fragment inside a ``` (or ~~~) fence must NOT be
+# read as a real review heading (it would let agentic-search narration + an echoed
+# fenced heading falsely pass). A real review's headings are top-level markdown,
+# never fenced, so stripping fences cannot hide a genuine review body.
+_FENCE_BLOCK = re.compile(r"(?ms)^[ \t]{0,3}(`{3,}|~{3,}).*?^[ \t]{0,3}\1[ \t]*$")
 
 _TIMEOUT_MARKERS = (
     "error: timed out",
@@ -200,8 +211,13 @@ def first_nonblank_line(text: str) -> str:
 
 
 def has_review_body(text: str) -> bool:
-    """True if ``text`` contains a review-structure heading (## Verdict/Summary/Findings)."""
-    return _REVIEW_BODY.search(text) is not None
+    """True if ``text`` has a review-structure heading (## Verdict/Summary/Findings).
+
+    Fenced code blocks are stripped first so a heading echoed inside a ``` fence
+    (the prompt template contains these exact headings) does not count as a real
+    review body.
+    """
+    return _REVIEW_BODY.search(_FENCE_BLOCK.sub("", text)) is not None
 
 
 def check_agentic_narration(text: str) -> str | None:

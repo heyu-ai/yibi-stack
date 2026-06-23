@@ -232,6 +232,47 @@ class TestHasReviewBody:
         """AGYV-EG-010: 'verdict' in plain prose (no heading) is not a review body."""
         assert has_review_body("I will determine the verdict shortly.") is False
 
+    def test_agyv_eg_011_fenced_heading_is_not_a_body(self) -> None:
+        """AGYV-EG-011: a '## Verdict' heading inside a code fence is not a review body.
+
+        agy echoing a prompt/diff fragment (which contains these headings) inside a
+        fence must not be read as a real review heading.
+        """
+        text = "I will scan.\n\n```\n## Verdict\n```\nstill searching, no review"
+        assert has_review_body(text) is False
+
+    def test_agyv_eg_012_tilde_fenced_heading_is_not_a_body(self) -> None:
+        """AGYV-EG-012: ~~~-fenced heading is also stripped before the body search."""
+        text = "~~~\n## Summary\nLGTM\n~~~"
+        assert has_review_body(text) is False
+
+    def test_agyv_eg_013_real_heading_outside_fence_still_detected(self) -> None:
+        """AGYV-EG-013: a real heading outside a fence is still a body even with a fence present."""
+        text = "## Verdict\nLGTM\n\n```\ncode sample\n```\n"
+        assert has_review_body(text) is True
+
+    def test_agyv_st_008_narration_with_fenced_heading_fails(self, tmp_path: Path) -> None:
+        """AGYV-ST-008: agentic narration + a fenced heading (no real review) fails validate."""
+        raw = tmp_path / "raw.md"
+        raw.write_text(
+            "I will scan.\n\n```\n## Verdict\n```\nstill searching",
+            encoding="utf-8",
+        )
+        changed = tmp_path / "changed.txt"
+        changed.write_text("tasks/foo/service.py\n", encoding="utf-8")
+        rc = main(
+            [
+                "--raw",
+                str(raw),
+                "--changed-files",
+                str(changed),
+                "--require-verdict",
+                "--home",
+                str(tmp_path),
+            ]
+        )
+        assert rc == 1
+
 
 class TestCheckVerdict:
     def test_agyv_dt_011_present_passes(self) -> None:
