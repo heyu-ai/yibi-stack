@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [1.3.3] - 2026-06-23
+
+### Bug Fixes
+
+- stop agy_validate false-rejecting narrated reviews (#168)
+
 ## [1.3.2] - 2026-06-20
 
 ### Features
