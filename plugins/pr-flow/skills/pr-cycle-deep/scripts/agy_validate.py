@@ -21,9 +21,10 @@ residual silent failure into a loud one. It post-processes the raw output file
   - brain-artifact rescue (fix 4): if the output is a pointer to a
     ``brain/<uuid>/*.md`` artifact, read that file and replace the output with
     its real content.
-  - fail-loud checks (fix 3): timeout marker; agentic narration (tool-call and
-    brain-pointer openers always fail; an agentic-search opener fails only when no
-    review-structure heading follows — see check_agentic_narration); missing
+  - fail-loud checks (fix 3): timeout marker; agentic narration (tool-call openers
+    always fail; a brain-pointer opener fails only when a brain-artifact path is
+    present; an agentic-search or pointer-less brain-phrase opener fails only when
+    no review-structure heading follows — see check_agentic_narration); missing
     Verdict section; and content sanity (fails only when the review references file
     paths yet none are the changed paths — a review with no file refs passes).
 
@@ -63,10 +64,13 @@ _BRAIN_POINTER = re.compile(
 #
 #   _BRAIN_POINTER_PREFIXES — the canonical openers for the brain-artifact detour
 #   (issue #153 mode 2): agy narrates "I have written my analysis to <brain
-#   artifact>" and the real review is NOT on stdout. rescue_brain_artifact (run
-#   before validate) already recovers the real content when the pointer resolves;
-#   if it could not, the stdout body is a pointer + narration, never a review, so
-#   these stay a HARD FAIL regardless of any heading that happens to appear later.
+#   artifact>" and the real review is NOT on stdout. These hard-fail ONLY when an
+#   actual brain-artifact path is present in the text (rescue_brain_artifact, run
+#   before validate, recovers the content when the pointer resolves; if it could
+#   not, the stdout body is a pointer + narration, never a review). Without a
+#   pointer path, the same phrases ("I have finished reviewing ...") are ordinary
+#   completion-phrase openers on a real review, so check_agentic_narration treats
+#   them like an agentic-search preamble — downgradable when a review body follows.
 _AGENTIC_SEARCH_PREFIXES = (
     "i will ",
     "i'll ",
@@ -98,7 +102,9 @@ _TOOLCALL_PREFIXES = ("call:", "tool_use:")
 # ## Findings / ## Verdict — and the R2 format — ## Cross-review verdict / ## New
 # findings / ## Final verdict). A bare substring is intentionally NOT enough, so
 # prose like "I will determine the verdict" cannot fake a review body.
-_REVIEW_BODY = re.compile(r"(?mi)^[ \t]{0,3}#{1,6}[ \t].*\b(?:verdict|summary|findings?)\b")
+_REVIEW_BODY = re.compile(
+    r"(?mi)^[ \t]{0,3}#{1,6}[ \t].*\b(?:verdicts?|summar(?:y|ies)|findings?)\b"
+)
 
 # Fenced code blocks are stripped before the heading search: the review prompt
 # template itself contains "## Summary" / "## Findings" / "## Verdict" headings,
@@ -223,14 +229,18 @@ def has_review_body(text: str) -> bool:
 def check_agentic_narration(text: str) -> str | None:
     """Flag output that is agentic narration, a tool-call, or a brain-pointer detour.
 
-    Tool-call and brain-pointer openers are a hard fail: the real review is
-    elsewhere (or nowhere), so a heading appearing later cannot redeem them.
+    Tool-call openers are always a hard fail. A brain-pointer opener is a hard
+    fail only when an actual brain-artifact path is present (the real review is in
+    the artifact, not on stdout, and rescue could not recover it); without a
+    pointer path it is an ordinary completion-phrase opener, handled like the
+    agentic-search case below.
 
-    An agentic-search opener ("I will ...", "Let me ...") fails only when NO
-    review body follows. agy often narrates a one-line preamble and then returns
-    a complete review (issue #153 false reject); when a ## Verdict / ## Summary /
-    ## Findings heading is present the preamble is harmless, so this returns None
-    and the verdict / changed-files checks decide the outcome.
+    An agentic-search opener ("I will ...", "Let me ...") — and a pointer-less
+    brain-phrase opener — fails only when NO review body follows. agy often
+    narrates a one-line preamble and then returns a complete review (issue #153
+    false reject); when a ## Verdict / ## Summary / ## Findings heading is present
+    the preamble is harmless, so this returns None and the verdict / changed-files
+    checks decide the outcome.
     """
     first = first_nonblank_line(text)
     low = first.lower()
@@ -240,20 +250,21 @@ def check_agentic_narration(text: str) -> str | None:
                 f"output starts with agentic tool-call marker ({first[:60]!r}) "
                 "— agentic mode triggered"
             )
-    for prefix in _BRAIN_POINTER_PREFIXES:
-        if low.startswith(prefix):
-            return (
-                f"output starts with brain-artifact narration ({first[:60]!r}) — "
-                "real review is in a brain artifact, not on stdout (rescue failed)"
-            )
-    for prefix in _AGENTIC_SEARCH_PREFIXES:
-        if low.startswith(prefix):
-            if has_review_body(text):
-                return None  # narration was harmless preamble; a review followed
-            return (
-                f"output starts with agentic narration ({first[:60]!r}) — model "
-                "entered file-search mode instead of reviewing"
-            )
+    is_brain_opener = any(low.startswith(p) for p in _BRAIN_POINTER_PREFIXES)
+    if is_brain_opener and find_brain_pointer(text) is not None:
+        return (
+            f"output starts with brain-artifact narration ({first[:60]!r}) — "
+            "real review is in a brain artifact, not on stdout (rescue failed)"
+        )
+    # agentic-search opener, or a pointer-less brain-phrase opener: downgrade to a
+    # pass when a real review body follows the preamble.
+    if any(low.startswith(p) for p in _NARRATION_PREFIXES):
+        if has_review_body(text):
+            return None  # narration was harmless preamble; a review followed
+        return (
+            f"output starts with agentic narration ({first[:60]!r}) — model "
+            "entered file-search mode instead of reviewing"
+        )
     return None
 
 

@@ -196,14 +196,25 @@ class TestCheckAgenticNarration:
         assert check_agentic_narration(text) is None
 
     @pytest.mark.parametrize("prefix", _BRAIN_POINTER_PREFIXES)
-    def test_agyv_dt_021_brain_pointer_still_fails_despite_body(self, prefix: str) -> None:
-        """AGYV-DT-021: a brain-pointer opener is a hard fail even if a heading follows.
+    def test_agyv_dt_021_brain_pointer_with_path_fails_despite_body(self, prefix: str) -> None:
+        """AGYV-DT-021: a brain-pointer opener WITH a brain path hard-fails despite a heading.
 
-        The real review is in a brain artifact (or nowhere after a failed rescue);
-        a ## Verdict heading on stdout does not make the stdout body a review.
+        The real review is in a brain artifact (rescue could not recover it); a
+        ## Verdict heading on stdout does not make the stdout body a review.
         """
-        text = prefix + " my analysis elsewhere.\n\n" + GOOD_REVIEW
+        text = prefix + " to ~/.gemini/antigravity-cli/brain/abcdef12/x.md\n\n" + GOOD_REVIEW
         assert check_agentic_narration(text) is not None
+
+    @pytest.mark.parametrize("prefix", _BRAIN_POINTER_PREFIXES)
+    def test_agyv_dt_024_pointerless_brain_opener_with_body_passes(self, prefix: str) -> None:
+        """AGYV-DT-024: a brain-phrase opener with NO brain path + a review body passes.
+
+        "I have finished reviewing ..." with no brain-artifact path is an ordinary
+        completion-phrase preamble, not the brain detour — the issue #153 false
+        reject this fix targets. A review body downgrades it to harmless.
+        """
+        text = prefix + " reviewing the diff.\n\n" + GOOD_REVIEW
+        assert check_agentic_narration(text) is None
 
     def test_agyv_dt_022_search_preamble_without_body_fails(self) -> None:
         """AGYV-DT-022: agentic-search preamble with no review body still fails."""
@@ -222,10 +233,12 @@ class TestHasReviewBody:
             "## Cross-review verdict",  # R2 format
             "## New findings",  # R2 format
             "## Final verdict",  # R2 format
+            "## Verdicts",  # plural variant
+            "## Summaries",  # plural variant
         ],
     )
     def test_agyv_dt_023_review_headings_detected(self, heading: str) -> None:
-        """AGYV-DT-023: R1 and R2 review-structure headings count as a review body."""
+        """AGYV-DT-023: R1/R2 review-structure headings (incl. plural variants) count as a body."""
         assert has_review_body(heading + "\nbody text") is True
 
     def test_agyv_eg_010_verdict_in_prose_is_not_a_body(self) -> None:
