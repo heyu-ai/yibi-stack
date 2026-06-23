@@ -28,6 +28,18 @@ residual silent failure into a loud one. It post-processes the raw output file
     Verdict section; and content sanity (fails only when the review references file
     paths yet none are the changed paths — a review with no file refs passes).
 
+Known limitation (accepted, defence-in-depth): the review-body heading is a *weak
+proxy* for "a real review followed the preamble". After an agentic-search preamble,
+a non-review that merely *contains* review-format headings can still pass — e.g. an
+unfenced echo of the prompt (the prompt template carries ## Summary / ## Findings /
+## Verdict), or a bare "## Verdict\nLGTM" with no file references. This cannot be
+closed mechanically without re-introducing the issue #153 false reject for a
+legitimate terse "LGTM, no issues" review that opens with a preamble. It is bounded
+by: (1) the primary fix is the inline prompt (no @file), which removes the agentic
+trigger; (2) tool-call / brain-pointer / timeout / wrong-target outputs still
+hard-fail; (3) in mob mode two other independent voices review the same diff, so a
+single false LGTM here cannot merge a bug alone.
+
 Exit codes:
   0 — output passed all enabled checks (after any rescue)
   1 — a check failed (message on stderr); the caller must treat the review as
