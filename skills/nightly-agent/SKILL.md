@@ -11,6 +11,31 @@ description: 夜間自我改善 Agent — 讀取 transcript/mycelium friction ev
 找出反覆出現的 friction patterns（AP2 blocks、worktree conflicts 等），
 草擬預防性 artifacts，並在通過 failing→passing test 後開 PR。
 
+## 自動排程執行守則（零互動、預設唯讀）
+
+本 skill 有兩條觸發路徑，零互動契約只套用其中一條：
+
+- **`command` job（直接 CLI subprocess）**：本檔 Scheduler Config 範例註冊的就是這條——
+  scheduler 直接跑 `python -m tasks.nightly_agent run`，**不是 agent turn**，刻意非互動 +
+  failing→passing test gate 把關，full `run`（含 `git push` + `gh pr create`）是其設計行為，
+  不受下列契約限制。
+- **skill / agent-invoked path（ACP Gateway `skill:`/`claude:` job、webhook、auto mode）**：
+  屬於 Claude Code v2.1.183 起的 **task notification** 情境——auto mode 下**無法 approve
+  待確認動作、不能設 session 標題**（見 `.claude/rules/11-skill-authoring.md`「Scheduled Skills
+  Must Be Zero-Interaction and Read-Only by Default」）。**以下四條契約套用此路徑**：
+
+1. **預設唯讀**：task 未明確要求開 PR 時，只執行 read-only 路徑（Step 4 `analyze`，或 Step 3
+   加 `--dry-run`），輸出報告/digest 後停止。
+2. **write 為 opt-in**：完整 `run`（會 `git push` + `gh pr create`）只在 task 定義或呼叫
+   prompt **明確要求**「draft + 開 PR」時才執行；以明確 flag/參數 gate，不得以互動確認作 gate。
+3. **不使用互動確認**：排程路徑中不得出現 `AskUserQuestion` / `click.confirm` 等等待使用者
+   回答的步驟（無人可回答）。
+4. **報告為 fallback**：不確定時 emit 報告（log / digest / handover）後停止，而非在無人值守下
+   執行不可逆動作。
+
+> **safety net ≠ 唯讀預設**：Python CLI 內建的 failing→passing test gate 是正確性防線，
+> 但**不等於**「唯讀預設」——唯讀預設由上述契約與呼叫方的明確 write 請求共同保證。
+
 ## Steps
 
 ### Step 1 — Environment Check
