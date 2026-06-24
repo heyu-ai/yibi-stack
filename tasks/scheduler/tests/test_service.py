@@ -30,6 +30,10 @@ def _last_run(dt: str) -> dict[str, object]:
     return {"started_at": dt, "status": "success"}
 
 
+def _failed_run(dt: str) -> dict[str, object]:
+    return {"started_at": dt, "status": "failed"}
+
+
 class TestIsDue:
     # ── DAILY ──────────────────────────────────────────────────
 
@@ -182,3 +186,33 @@ class TestGetDueJobs:
         last_runs: dict[str, dict[str, object] | None] = {"enabled": None, "disabled": None}
         due = get_due_jobs(config, last_runs, now)
         assert [j.id for j in due] == ["enabled"]
+
+
+class TestIsDueRetryStorm:
+    """Regression: a FAILED attempt counts as 'attempted this period' so a failing job
+    does not re-run every tick (retry-storm). See db.get_last_run + is_due semantics."""
+
+    def test_daily_failed_today_not_due(self) -> None:
+        # 同一天已失敗過 → 不應再 due（避免每 tick 重試）
+        job = _job(schedule=Schedule.daily, time="07:00")
+        now = datetime(2026, 4, 7, 7, 5)
+        assert is_due(job, now, _failed_run("2026-04-07T07:00:00")) is False
+
+    def test_daily_failed_yesterday_due(self) -> None:
+        # 昨天失敗、今天到時間 → 下一個排程週期應重跑
+        job = _job(schedule=Schedule.daily, time="07:00")
+        now = datetime(2026, 4, 7, 7, 5)
+        assert is_due(job, now, _failed_run("2026-04-06T07:00:00")) is True
+
+    def test_weekly_failed_today_not_due(self) -> None:
+        # 2026-04-07 是週二；同日已失敗 → 不再 due
+        job = _job(schedule=Schedule.weekly, time="07:00", day_of_week=Weekday.tuesday)
+        now = datetime(2026, 4, 7, 7, 5)
+        assert is_due(job, now, _failed_run("2026-04-07T07:00:00")) is False
+
+    def test_running_today_not_due(self) -> None:
+        # 仍在執行中（status=running）也算已嘗試 → 不重複啟動
+        job = _job(schedule=Schedule.daily, time="07:00")
+        now = datetime(2026, 4, 7, 7, 5)
+        running = {"started_at": "2026-04-07T07:00:00", "status": "running"}
+        assert is_due(job, now, running) is False

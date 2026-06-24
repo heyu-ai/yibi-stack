@@ -50,6 +50,25 @@ class TestSchedulerDB:
         last = db.get_last_successful_run("job-b")
         assert last is None
 
+    def test_get_last_run_none_when_no_runs(self, db: SchedulerDB) -> None:
+        assert db.get_last_run("nonexistent") is None
+
+    def test_get_last_run_returns_latest_regardless_of_status(self, db: SchedulerDB) -> None:
+        # 先成功，後失敗 → get_last_run 應回傳最新（失敗）那筆
+        ok = db.record_start("job-c", "2026-04-06T07:00:00")
+        db.record_finish(ok, JobRunStatus.success, "2026-04-06T07:01:00", exit_code=0)
+        bad = db.record_start("job-c", "2026-04-07T07:00:00")
+        db.record_finish(bad, JobRunStatus.failed, "2026-04-07T07:01:00", exit_code=1)
+
+        last = db.get_last_run("job-c")
+        assert last is not None
+        assert last["started_at"] == "2026-04-07T07:00:00"
+        assert last["status"] == JobRunStatus.failed
+        # 對照：get_last_successful_run 仍只回傳成功那筆
+        ok_last = db.get_last_successful_run("job-c")
+        assert ok_last is not None
+        assert ok_last["started_at"] == "2026-04-06T07:00:00"
+
     def test_get_run_history_all_jobs(self, db: SchedulerDB) -> None:
         for job_id in ["job-a", "job-b"]:
             run_id = db.record_start(job_id, "2026-04-07T07:00:00")

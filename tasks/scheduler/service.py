@@ -9,11 +9,15 @@ from typing import Any
 from .models import JobConfig, Schedule, ScheduleConfig
 
 
-def is_due(job: JobConfig, now: datetime, last_success: dict[str, Any] | None) -> bool:
+def is_due(job: JobConfig, now: datetime, last_run: dict[str, Any] | None) -> bool:
     """判斷 job 是否到了執行時間。
 
-    設計原則：比較日期而非精確時間，支援 Mac 睡眠後補跑。
-    例如設定 07:00，但 Mac 10:00 才醒來 → 今天尚未跑過 → 判為 due。
+    設計原則：
+    - 比較日期而非精確時間，支援 Mac 睡眠後補跑（設定 07:00，10:00 才醒來且今天尚未
+      *嘗試*過 → 判為 due）。
+    - 以最後一次*嘗試*（任何狀態：success / failed / running）為準，而非僅最後一次
+      *成功*。同一排程週期內已嘗試過就不再 due，避免失敗 job 每個 tick 重試
+      （retry-storm）；失敗的 job 會等到下一個排程週期才重跑。
     """
     hour, minute = job.time_tuple
     scheduled_time = time(hour, minute)
@@ -23,16 +27,16 @@ def is_due(job: JobConfig, now: datetime, last_success: dict[str, Any] | None) -
     if now_time < scheduled_time:
         return False
 
-    # 解析上次成功時間
-    last_success_dt: datetime | None = None
-    if last_success:
-        last_success_dt = datetime.fromisoformat(last_success["started_at"])
+    # 解析上次嘗試時間（任何狀態）
+    last_run_dt: datetime | None = None
+    if last_run:
+        last_run_dt = datetime.fromisoformat(last_run["started_at"])
 
     match job.schedule:
         case Schedule.daily:
-            if last_success_dt is None:
+            if last_run_dt is None:
                 return True
-            return last_success_dt.date() < now.date()
+            return last_run_dt.date() < now.date()
 
         case Schedule.weekly:
             if job.day_of_week is None:
@@ -40,9 +44,9 @@ def is_due(job: JobConfig, now: datetime, last_success: dict[str, Any] | None) -
             target_weekday = job.day_of_week.to_weekday_int()
             if now.weekday() != target_weekday:
                 return False
-            if last_success_dt is None:
+            if last_run_dt is None:
                 return True
-            return last_success_dt.date() < now.date()
+            return last_run_dt.date() < now.date()
 
         case Schedule.monthly | Schedule.bimonthly | Schedule.quarterly:
             if job.months is None or job.day_of_month is None:
@@ -51,13 +55,13 @@ def is_due(job: JobConfig, now: datetime, last_success: dict[str, Any] | None) -
                 return False
             if now.day != job.day_of_month:
                 return False
-            if last_success_dt is None:
+            if last_run_dt is None:
                 return True
-            # 同月同日已跑過
+            # 同月同日已嘗試過
             return not (
-                last_success_dt.year == now.year
-                and last_success_dt.month == now.month
-                and last_success_dt.day == now.day
+                last_run_dt.year == now.year
+                and last_run_dt.month == now.month
+                and last_run_dt.day == now.day
             )
 
     return False  # pragma: no cover

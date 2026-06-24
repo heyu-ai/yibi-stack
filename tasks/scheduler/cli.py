@@ -63,7 +63,7 @@ def tick(dry_run: bool) -> None:
     db.cleanup_stale_runs()
 
     now = datetime.now()
-    last_runs = {j.id: db.get_last_successful_run(j.id) for j in config.jobs if j.enabled}
+    last_runs = {j.id: db.get_last_run(j.id) for j in config.jobs if j.enabled}
     due_jobs = get_due_jobs(config, last_runs, now)
 
     if not due_jobs:
