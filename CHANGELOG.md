@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [1.4.0] - 2026-06-24
+
+### Features
+
+- add mob-code-review-only skill (review others' PRs, suggestions only)
+
+### Bug Fixes
+
+- address mob review findings on mob-code-review-only
+
 ## [1.3.3] - 2026-06-23
 
 ### Bug Fixes
