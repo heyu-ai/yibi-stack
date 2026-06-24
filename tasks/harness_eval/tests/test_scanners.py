@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tasks.harness_eval.models import MechanicalFinding, ScanOutput
 from tasks.harness_eval.scanners.claude_md import scan_claude_md
 from tasks.harness_eval.scanners.git import scan_git
 from tasks.harness_eval.scanners.hooks import scan_hooks
@@ -17,6 +18,7 @@ from tasks.harness_eval.scanners.skills import scan_skills
 from tasks.harness_eval.scanners.subagents import scan_subagents
 from tasks.harness_eval.scanners.testing import scan_testing
 from tasks.harness_eval.scanners.token_economy import scan_token_economy
+from tasks.harness_eval.service import run_scan
 
 
 def make_target(tmp_path: Path, *, claude_md: str | None = None) -> Path:
@@ -1042,3 +1044,135 @@ class TestScanTokenEconomy:
         scan_token_economy(target)
         elapsed = time.perf_counter() - start
         assert elapsed < 0.1, f"scan_token_economy took {elapsed:.3f}s, expected < 0.1s"
+
+
+# ---------------------------------------------------------------------------
+# Task-demand normalization (D_repo / size_adjusted_score) -- issue #136
+# ---------------------------------------------------------------------------
+
+
+def _rule_files(n: int, chars: int = 100) -> dict[str, int]:
+    return {f"{i:02d}-rule.md": chars for i in range(1, n + 1)}
+
+
+class TestTaskDemandNormalization:
+    """task-demand-normalization capability 測試（issue #136）。"""
+
+    def test_tdn_dt_001_scan_output_has_adjusted_score(self, tmp_path: Path) -> None:
+        """TDN-DT-001: ScanOutput 帶 d_repo>=1.0 與 size_adjusted_score>=0。
+
+        spec: task-demand-normalization#scan-output-has-adjusted-score
+        """
+        result = run_scan(tmp_path)
+        assert result.d_repo >= 1.0
+        assert result.size_adjusted_score >= 0
+
+    def test_tdn_dt_002_adjusted_score_formula(self, tmp_path: Path) -> None:
+        """TDN-DT-002: size_adjusted == round(total / d_repo, 1)。
+
+        spec: task-demand-normalization#adjusted-score-formula
+        """
+        target = make_te_target(tmp_path, rule_files=_rule_files(5))
+        result = run_scan(target)
+        assert result.size_adjusted_score == round(result.total_mechanical / result.d_repo, 1)
+
+    def test_tdn_dt_003_output_marks_provisional(self, tmp_path: Path) -> None:
+        """TDN-DT-003: text 與 json 輸出皆標示 provisional。
+
+        spec: task-demand-normalization#output-marks-provisional
+        """
+        result = run_scan(tmp_path)
+        assert "provisional" in result.size_adjusted_note
+        assert "provisional" in result.model_dump_json()
+
+    def test_tdn_dt_004_minimal_repo_drepo_one(self, tmp_path: Path) -> None:
+        """TDN-DT-004: 無 artifact 的 repo d_repo==1.0 且 size_adjusted==total。
+
+        spec: task-demand-normalization#minimal-repo-drepo-one
+        """
+        result = run_scan(tmp_path)
+        assert result.d_repo == 1.0
+        assert result.size_adjusted_score == result.total_mechanical
+
+    def test_tdn_dt_005_drepo_monotonic(self, tmp_path: Path) -> None:
+        """TDN-DT-005: 複雜度越大 d_repo 越大。
+
+        spec: task-demand-normalization#drepo-monotonic
+        """
+        small_dir = tmp_path / "small"
+        small_dir.mkdir()
+        big_dir = tmp_path / "big"
+        big_dir.mkdir()
+        small = run_scan(small_dir)
+        big = run_scan(make_te_target(big_dir, rule_files=_rule_files(14)))
+        assert big.d_repo > small.d_repo
+
+    def test_tdn_dt_006_drepo_components_exposed(self, tmp_path: Path) -> None:
+        """TDN-DT-006: 輸出含 loc=/skills=/hooks=/rules= 四項組成。
+
+        spec: task-demand-normalization#drepo-components-exposed
+        """
+        joined = " ".join(run_scan(tmp_path).d_repo_components)
+        assert "loc=" in joined
+        assert "skills=" in joined
+        assert "hooks=" in joined
+        assert "rules=" in joined
+
+    def test_tdn_dt_007_cross_repo_gap_narrows(self) -> None:
+        """TDN-DT-007: 大 repo 的 size_adjusted 差距小於 raw 差距。
+
+        以受控的 ScanOutput 直接驗證正規化的「縮小差距」數學性質：
+        B 僅因 artifact 多而 raw 較高（20 vs 10），其 d_repo 也較大（3.0 vs 1.0），
+        故 size_adjusted 差距（10 vs 6.7 = 3.3）小於 raw 差距（10）。
+
+        spec: task-demand-normalization#cross-repo-gap-narrows
+        """
+        small = ScanOutput(
+            target_dir="a",
+            scanned_at="t",
+            dimensions=[MechanicalFinding(dimension="D1", label="x", score=10, max_score=10)],
+            d_repo=1.0,
+        )
+        big = ScanOutput(
+            target_dir="b",
+            scanned_at="t",
+            dimensions=[MechanicalFinding(dimension="D1", label="x", score=20, max_score=20)],
+            d_repo=3.0,
+        )
+        raw_gap = abs(small.total_mechanical - big.total_mechanical)
+        adj_gap = abs(small.size_adjusted_score - big.size_adjusted_score)
+        assert raw_gap > 0
+        assert adj_gap < raw_gap
+
+    def test_tdn_dt_008_drepo_deterministic(self, tmp_path: Path) -> None:
+        """TDN-DT-008: 相同輸入相同 d_repo。
+
+        spec: task-demand-normalization#drepo-deterministic
+        """
+        target = make_te_target(tmp_path, rule_files=_rule_files(5))
+        assert run_scan(target).d_repo == run_scan(target).d_repo
+
+    def test_tdn_smk_001_minimal_repo(self, tmp_path: Path) -> None:
+        """SMK-001: 最小 repo d_repo=1.0 且 size_adjusted==total。
+
+        spec: task-demand-normalization#smk-minimal-repo-drepo-one
+        """
+        result = run_scan(tmp_path)
+        assert result.d_repo == 1.0
+        assert result.size_adjusted_score == result.total_mechanical
+
+    def test_tdn_smk_002_large_repo_dampens(self, tmp_path: Path) -> None:
+        """SMK-002: 大 repo d_repo>1 且 size_adjusted<total。
+
+        spec: task-demand-normalization#smk-large-repo-dampens
+        """
+        result = run_scan(make_te_target(tmp_path, rule_files=_rule_files(14)))
+        assert result.d_repo > 1.0
+        assert result.size_adjusted_score < result.total_mechanical
+
+    def test_tdn_smk_003_provisional_marker(self, tmp_path: Path) -> None:
+        """SMK-003: json 輸出含 provisional 標示。
+
+        spec: task-demand-normalization#smk-provisional-marker
+        """
+        assert "provisional" in run_scan(tmp_path).model_dump_json()

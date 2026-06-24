@@ -42,6 +42,9 @@ def scan(target_dir: str | None, output_format: str) -> None:
     else:
         click.echo(f"Harness Eval -- {target}")
         click.echo(f"Mech score: {result.total_mechanical} / {result.total_mechanical_max}")
+        components = " ".join(result.d_repo_components)
+        click.echo(f"Size-adjusted: {result.size_adjusted_score} [{result.size_adjusted_note}]")
+        click.echo(f"  D_repo = {result.d_repo}  ({components})")
         click.echo()
         for dim in result.dimensions:
             pct = dim.score / dim.max_score if dim.max_score else 0

@@ -41,7 +41,16 @@ class ScanOutput(BaseModel):
     dimensions: list[MechanicalFinding] = Field(default_factory=list)
     total_mechanical: int = 0
     total_mechanical_max: int = 0
+    # 規模調整分數（task-demand 正規化，issue #136）。
+    # d_repo 為 repo 複雜度因子（>=1），抵銷「artifact 越多分越高」的膨脹。
+    d_repo: float = 1.0
+    d_repo_components: list[str] = Field(default_factory=list)
+    size_adjusted_score: float = 0.0
+    # provisional：未經 outcome 校準，僅供相對規模比較；真正校準見 issue #143。
+    size_adjusted_note: str = "provisional（未校準，見 #143）"
 
     def model_post_init(self, __context: object) -> None:
         self.total_mechanical = sum(d.score for d in self.dimensions)
         self.total_mechanical_max = sum(d.max_score for d in self.dimensions)
+        d_repo = self.d_repo if self.d_repo >= 1.0 else 1.0
+        self.size_adjusted_score = round(self.total_mechanical / d_repo, 1)
