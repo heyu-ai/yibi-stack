@@ -116,23 +116,28 @@ Report the detected mode and wait for the user to confirm before continuing.
 ## Step 3 — Run the mob review engine (produce the report)
 
 Execute **`/pr-cycle-deep` Steps 1.5 → 5 exactly as written**, using the **same scripts, the same
-R1/R2 prompts, the same sanity checks, and the same aggregation severity table**. The base branch
-for `setup-review-dir.sh` is the PR's `{{base_branch}}` from Step 1b; use `origin/{{base_branch}}`
-if the local base ref is stale or absent:
+R1/R2 prompts, the same sanity checks, and the same aggregation severity table**.
 
 | Engine step (owned by `/pr-cycle-deep`) | What runs |
 | --- | --- |
 | **Step 1.5** Parallel pre-review check | 3 Task agents in one message: `gh pr diff` / `gh pr checks` / `amplifier-verify.py --pr {{pr_number}}` |
 | **Step 2** Code review | `/code-review` (report-only) for defect detection |
-| **Step 3** Round 1 | `setup-review-dir.sh {{base_branch}}` → each voice reviews independently → `<voice>-r1.md` |
+| **Step 3** Round 1 | `setup-review-dir.sh origin/{{base_branch}}` → each voice reviews independently → `<voice>-r1.md` |
 | **Step 4** Round 2 | Build `r1-aggregate.md` → each voice cross-debates → `<voice>-r2.md` |
 | **Step 5** Aggregation | Lead synthesizes `final.md` per the RFC 2119 severity table |
 
 The script invocations are the same installed paths (shared with `/pr-cycle-deep`):
 
 ```bash
-bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
+bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh origin/{{base_branch}}
 ```
+
+> **Use `origin/{{base_branch}}`, not the bare name.** Reviewing someone else's PR means
+> `gh pr checkout` brought the head branch but the **local base ref is frequently stale or absent**,
+> so `setup-review-dir.sh {{base_branch}}` would hit the script's `git rev-parse --verify` `[FAIL]`.
+> `origin/{{base_branch}}` is the reliable form here (the bare local name is only correct if you
+> happen to have an up-to-date local base branch — the uncommon case for this skill). Run
+> `git fetch origin {{base_branch}}` first if `origin/{{base_branch}}` itself is stale.
 
 then per available voice: `codex-r1-stage1.sh` / `codex-r1-stage2.sh` (Codex), `agy-r1-stage1.sh` /
 `agy-r1-stage2.sh` (agy), the 4 `pr-review-toolkit` subagents (Claude), and for R2
@@ -148,9 +153,12 @@ exactly as `/pr-cycle-deep` specifies.
 
 **Review-only reframing — the only behavioral change to the engine:**
 
-- The `final.md` severity grades (Consensus Critical / Important / Actionable NIT / Disputed) are
-  **the author's to-do list, not yours.** Phrase every item as an actionable *suggestion* with a
-  concrete fix the author can apply — never as a change you will make.
+- The `final.md` severity grades are **the author's to-do list, not yours.** Note that the engine's
+  `final.md` template uses self-directed, imperative section headers (`## Consensus Critical (must
+  fix)`, `## Actionable NIT (must fix — user requires all NITs cleaned up)`) — those belong to
+  *your own* PR lifecycle and are presumptuous on a contributor's PR. **Do not post `final.md`
+  verbatim**; Step 4 rewrites it into author-facing suggestion language before posting (see Step 4a).
+  Internally `final.md` is still graded normally; only the *delivered* wording softens.
 - **Do NOT** run `/pr-cycle-deep` Step 6 (Fix), Step 7 (re-review loop), Step 8 (human pass to ship),
   Step 9 (CI watch), Step 10 (merge), or Step 11 (archive / Jira). The engine stops at `final.md`.
 - There is **no convergence loop**: this is a single R1 + R2 + aggregate pass. You are not waiting
@@ -167,17 +175,39 @@ the author's PR.
 Posting a comment to someone else's PR is an **outward-facing action** — get explicit user
 confirmation before posting (the user may want to edit tone or drop disputed items first).
 
-### 4a — Show the report and confirm
+### 4a — Build the author-facing comment (rewrite `final.md` headers)
 
-Show the user the `final.md` content (or its path) and ask:
+Do **not** post `final.md` verbatim — its `must fix` / `user requires all NITs cleaned up` headers
+are self-directed and presumptuous on a contributor's PR. Use the Write tool to produce
+`$REVIEW_DIR/review-comment.md` from `final.md`, keeping every finding's content and file:line
+intact but rewriting the section headers into suggestion language:
+
+| `final.md` header (engine) | `review-comment.md` header (this skill) |
+| --- | --- |
+| `## Consensus Critical (must fix)` | `## Blocking concerns (strongly recommend addressing before merge)` |
+| `## Consensus Important (must fix)` | `## Important suggestions` |
+| `## Actionable NIT (must fix — user requires all NITs cleaned up)` | `## Minor suggestions (nits)` |
+| `## Disputed (user decides)` | `## Points the reviewers disagreed on (your call)` |
+| `## Voices unavailable` | `## Voices unavailable` (unchanged) |
+
+Also add a one-line lead-in at the top so the author knows these are suggestions, e.g.:
 
 ```text
-Mob review complete ({{N}}/3 voices). Report: <REVIEW_DIR>/final.md
+Mob review by {{N}} independent LLM reviewers (Claude / Codex / agy). These are suggestions —
+the call on what to apply is yours.
+```
+
+### 4b — Show the report and confirm
+
+Show the user the `review-comment.md` content (or its path) and ask:
+
+```text
+Mob review complete ({{N}}/3 voices). Report: <REVIEW_DIR>/review-comment.md
 Post this as a review comment on PR #{{pr_number}} (by {{author}})?
   [Post as one summary comment / Post as inline comments / Don't post — I'll handle it]
 ```
 
-### 4b — Post (after confirmation)
+### 4c — Post (after confirmation)
 
 **Option A — single summary comment** (default; recompute `REVIEW_DIR` in the same block, since each
 Bash call is a fresh shell):
@@ -185,10 +215,10 @@ Bash call is a fresh shell):
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
-if [ ! -f "$REVIEW_DIR/final.md" ]; then
-  echo "[WARN] final.md missing -- complete Step 3 first, then re-run this block" >&2
+if [ ! -f "$REVIEW_DIR/review-comment.md" ]; then
+  echo "[WARN] review-comment.md missing -- complete Step 4a first, then re-run this block" >&2
 else
-  gh pr comment "{{pr_number}}" --body-file "$REVIEW_DIR/final.md"
+  gh pr comment "{{pr_number}}" --body-file "$REVIEW_DIR/review-comment.md"
 fi
 ```
 
@@ -200,11 +230,11 @@ report path so the user can post it themselves.
 > `settings.local.json` (rule 16 safe form — verb locked at prefix).
 
 **Option B — inline comments**: re-run Step 2's `/code-review --comment` to post defect findings as
-GitHub inline comments, then post `final.md` as the summary comment (Option A) for the mob consensus.
+GitHub inline comments, then post `review-comment.md` as the summary comment (Option A) for the mob consensus.
 
-**Option C — don't post**: report the `final.md` path to the user and stop.
+**Option C — don't post**: report the `review-comment.md` path to the user and stop.
 
-### 4c — Wrap up
+### 4d — Wrap up
 
 Report to the user: voices active, headline counts (Consensus Critical / Important / NIT / Disputed),
 the verdict per voice, and the comment URL (if posted). **Do not** offer to fix, merge, or archive —
@@ -233,10 +263,10 @@ switch to `/pr-cycle-deep` — that skill owns the fix → re-review → merge l
 | Engine scripts missing (`~/.agents/skills/pr-cycle-deep/scripts/...` not found) | `/pr-cycle-deep` is not installed. Run `make install` in the yibi-stack repo, or `claude plugin install pr-flow@yibi-stack`. Verify: `ls ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh` returns the path |
 | `git status --short` shows uncommitted changes | Do not `gh pr checkout` over a dirty tree; commit/stash, or re-run inside a fresh worktree |
 | `gh pr checkout` fails with local branch name collision | The PR's head branch name already exists locally; `gh pr checkout {{pr_number}} -b mob-review-{{pr_number}}` to use an alternate local name |
-| `setup-review-dir.sh` reports base ref invalid | Use `origin/{{base_branch}}` instead of the bare name (the local base ref may be stale or absent after checkout) |
+| `setup-review-dir.sh origin/{{base_branch}}` reports base ref invalid | `origin/{{base_branch}}` itself is stale/absent; run `git fetch origin {{base_branch}}` first, then re-run (Step 3 already uses the `origin/` form as default) |
 | 0 external reviewers detected | This skill terminates; run `/pr-review-cycle` (Claude-only review, also review-only) |
 | A voice flags a single Critical the others missed | Empirically verify with a minimal repro **before** writing it into the report — a wrong Critical on someone else's PR is a public false accusation (Step 3) |
-| `gh pr comment` fails (auth / network) | `[WARN]`; show the manual command and report the `final.md` path so the user can post it themselves; do not block |
+| `gh pr comment` fails (auth / network) | `[WARN]`; show the manual command and report the `review-comment.md` path so the user can post it themselves; do not block |
 | User wants me to also fix the issues | Out of scope by design — this skill is review-only. Switch to `/pr-cycle-deep` if the PR becomes yours to fix |
 | All other engine issues (JSON extract fails, agy went agentic, voice failed twice, etc.) | Handled identically to `/pr-cycle-deep` — see its Troubleshooting table (engine owner) |
 
