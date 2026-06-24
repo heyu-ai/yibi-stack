@@ -1,11 +1,12 @@
-"""Artifact 草稿生成器：呼叫 Claude API 為 friction cluster 生成預防性規則。"""
+"""Artifact 草稿生成器：透過 Claude Code CLI 為 friction cluster 生成預防性規則。"""
 
 from __future__ import annotations
 
 import os
 import re
+import shutil
+import subprocess  # nosec B404
 import uuid
-from typing import Any
 
 from .models import (
     FRICTION_TO_ARTIFACT,
@@ -14,6 +15,9 @@ from .models import (
     FrictionCluster,
     NightlyAgentConfig,
 )
+
+# 單次草擬的 subprocess 逾時（秒）；多個 cluster 串行呼叫，須遠低於 job timeout。
+_DRAFT_TIMEOUT_SECONDS = 180
 
 # ---------------------------------------------------------------------------
 # System prompts per artifact type
@@ -115,21 +119,19 @@ def _resolve_target_file(artifact_type: ArtifactType, cluster: FrictionCluster) 
 
 
 class ArtifactDrafter:
-    """呼叫 Claude API 草擬預防性 artifacts。"""
+    """透過 Claude Code CLI（headless）草擬預防性 artifacts，使用本機訂閱。"""
 
     def __init__(self, config: NightlyAgentConfig) -> None:
         self.config = config
-        self._client: Any = None
 
-    def _get_client(self) -> Any:
-        if self._client is None:
-            import anthropic  # deferred import
-
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-            if not api_key:
-                raise RuntimeError("環境變數 ANTHROPIC_API_KEY 未設定，無法草擬 artifacts")
-            self._client = anthropic.Anthropic(api_key=api_key)
-        return self._client
+    def _resolve_claude_bin(self) -> str:
+        """解析 claude CLI 路徑；launchd PATH 精簡，不能假設它在 PATH。"""
+        claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
+        if not os.path.isfile(claude_bin):
+            raise RuntimeError(
+                f"找不到 claude CLI（{claude_bin}）；nightly-agent 草擬需要 Claude Code（訂閱）"
+            )
+        return claude_bin
 
     def draft(self, cluster: FrictionCluster) -> ArtifactProposal:
         """為單一 cluster 草擬 ArtifactProposal。"""
@@ -159,18 +161,35 @@ class ArtifactDrafter:
         )
 
     def _call_api(self, system: str, user: str) -> str:
-        client = self._get_client()
-        response = client.messages.create(
-            model=self.config.draft_model,
-            max_tokens=self.config.draft_max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        text_parts = [str(block.text) for block in response.content if hasattr(block, "text")]
-        if not text_parts:
-            block_types = [type(b).__name__ for b in response.content]
-            raise RuntimeError(f"Claude API 回傳空內容（blocks: {block_types}）")
-        return "".join(text_parts).strip()
+        """以 Claude Code CLI（headless `--print`）草擬，使用訂閱而非 ANTHROPIC_API_KEY。"""
+        claude_bin = self._resolve_claude_bin()
+        try:
+            result = subprocess.run(  # nosec B603
+                [
+                    claude_bin,
+                    "--print",
+                    "--model",
+                    self.config.draft_model,
+                    "--system-prompt",
+                    system,
+                    user,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=_DRAFT_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(f"claude CLI 草擬逾時（{_DRAFT_TIMEOUT_SECONDS}s）") from e
+        except OSError as e:
+            raise RuntimeError(f"claude CLI 執行失敗：{e}") from e
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"claude CLI 回傳非零（exit {result.returncode}）：{result.stderr.strip()[:300]}"
+            )
+        content = result.stdout.strip()
+        if not content:
+            raise RuntimeError("claude CLI 回傳空 stdout")
+        return content
 
     def _extract_title(
         self, content: str, artifact_type: ArtifactType, cluster: FrictionCluster

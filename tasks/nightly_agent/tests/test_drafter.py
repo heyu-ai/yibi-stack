@@ -1,4 +1,4 @@
-"""NIGHTLY-drafter tests (mock Claude API)."""
+"""NIGHTLY-drafter tests (mock claude CLI subprocess)."""
 
 from __future__ import annotations
 
@@ -77,64 +77,86 @@ class TestClusterUserPrompt:
 
 
 class TestArtifactDrafter:
-    def _make_mock_client(self, text_response: str) -> MagicMock:
-        mock_block = MagicMock()
-        mock_block.text = text_response
-        mock_response = MagicMock()
-        mock_response.content = [mock_block]
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = mock_response
-        return mock_client
+    @staticmethod
+    def _completed(stdout: str, returncode: int = 0, stderr: str = "") -> MagicMock:
+        """模擬 subprocess.run 回傳的 CompletedProcess。"""
+        result = MagicMock()
+        result.stdout = stdout
+        result.stderr = stderr
+        result.returncode = returncode
+        return result
 
-    def test_draft_ap2_produces_hookify_rule(self) -> None:
-        config = NightlyAgentConfig()
-        drafter = ArtifactDrafter(config)
-        drafter._client = self._make_mock_client(
+    @patch.object(ArtifactDrafter, "_resolve_claude_bin", return_value="/fake/bin/claude")
+    @patch("tasks.nightly_agent.drafter.subprocess.run")
+    def test_draft_ap2_produces_hookify_rule(
+        self, mock_run: MagicMock, _mock_bin: MagicMock
+    ) -> None:
+        mock_run.return_value = self._completed(
             "#!/usr/bin/env python3\nimport sys, json\ndata = json.load(sys.stdin)\nsys.exit(0)\n"
         )
-        cluster = make_cluster(FrictionType.AP2_BLOCK)
-        proposal = drafter.draft(cluster)
+        drafter = ArtifactDrafter(NightlyAgentConfig())
+        proposal = drafter.draft(make_cluster(FrictionType.AP2_BLOCK))
         assert proposal.artifact_type == ArtifactType.HOOKIFY_RULE
         assert proposal.content.startswith("#!")
 
-    def test_draft_worktree_produces_gotcha(self) -> None:
-        config = NightlyAgentConfig()
-        drafter = ArtifactDrafter(config)
-        drafter._client = self._make_mock_client(
+    @patch.object(ArtifactDrafter, "_resolve_claude_bin", return_value="/fake/bin/claude")
+    @patch("tasks.nightly_agent.drafter.subprocess.run")
+    def test_draft_invokes_claude_print_with_model(
+        self, mock_run: MagicMock, _mock_bin: MagicMock
+    ) -> None:
+        mock_run.return_value = self._completed("- **X**: y. Fix: z.")
+        drafter = ArtifactDrafter(NightlyAgentConfig(draft_model="claude-sonnet-4-6"))
+        drafter.draft(make_cluster(FrictionType.WORKTREE_CONFLICT))
+        argv = mock_run.call_args.args[0]
+        assert argv[0] == "/fake/bin/claude"
+        assert "--print" in argv
+        assert "--model" in argv and "claude-sonnet-4-6" in argv
+        assert "--system-prompt" in argv
+
+    @patch.object(ArtifactDrafter, "_resolve_claude_bin", return_value="/fake/bin/claude")
+    @patch("tasks.nightly_agent.drafter.subprocess.run")
+    def test_draft_worktree_produces_gotcha(
+        self, mock_run: MagicMock, _mock_bin: MagicMock
+    ) -> None:
+        mock_run.return_value = self._completed(
             "- **Worktree main conflict**: Never checkout main in a linked worktree."
             " Fix: use a feature branch."
         )
-        cluster = make_cluster(FrictionType.WORKTREE_CONFLICT)
-        proposal = drafter.draft(cluster)
+        drafter = ArtifactDrafter(NightlyAgentConfig())
+        proposal = drafter.draft(make_cluster(FrictionType.WORKTREE_CONFLICT))
         assert proposal.artifact_type == ArtifactType.CLAUDE_MD_GOTCHA
 
-    def test_draft_fills_source_session_ids(self) -> None:
-        config = NightlyAgentConfig()
-        drafter = ArtifactDrafter(config)
-        drafter._client = self._make_mock_client("- **Test**: some gotcha text. Fix: do better.")
-        cluster = make_cluster(count=2)
-        proposal = drafter.draft(cluster)
+    @patch.object(ArtifactDrafter, "_resolve_claude_bin", return_value="/fake/bin/claude")
+    @patch("tasks.nightly_agent.drafter.subprocess.run")
+    def test_draft_fills_source_session_ids(
+        self, mock_run: MagicMock, _mock_bin: MagicMock
+    ) -> None:
+        mock_run.return_value = self._completed("- **Test**: some gotcha text. Fix: do better.")
+        drafter = ArtifactDrafter(NightlyAgentConfig())
+        proposal = drafter.draft(make_cluster(count=2))
         assert len(proposal.source_session_ids) == 2
 
-    def test_draft_raises_on_empty_api_response(self) -> None:
-        config = NightlyAgentConfig()
-        drafter = ArtifactDrafter(config)
-        mock_response = MagicMock()
-        mock_response.content = []  # empty
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = mock_response
-        drafter._client = mock_client
-        cluster = make_cluster()
+    @patch.object(ArtifactDrafter, "_resolve_claude_bin", return_value="/fake/bin/claude")
+    @patch("tasks.nightly_agent.drafter.subprocess.run")
+    def test_draft_raises_on_empty_stdout(self, mock_run: MagicMock, _mock_bin: MagicMock) -> None:
+        mock_run.return_value = self._completed("")  # empty stdout
+        drafter = ArtifactDrafter(NightlyAgentConfig())
         with pytest.raises(RuntimeError, match="草擬 artifact 失敗"):
-            drafter.draft(cluster)
+            drafter.draft(make_cluster())
 
-    def test_no_api_key_raises(self) -> None:
-        config = NightlyAgentConfig()
-        drafter = ArtifactDrafter(config)
-        with patch.dict("os.environ", {}, clear=True):
-            # Remove ANTHROPIC_API_KEY if set
-            import os
+    @patch.object(ArtifactDrafter, "_resolve_claude_bin", return_value="/fake/bin/claude")
+    @patch("tasks.nightly_agent.drafter.subprocess.run")
+    def test_draft_raises_on_nonzero_exit(self, mock_run: MagicMock, _mock_bin: MagicMock) -> None:
+        mock_run.return_value = self._completed("", returncode=1, stderr="boom")
+        drafter = ArtifactDrafter(NightlyAgentConfig())
+        with pytest.raises(RuntimeError, match="草擬 artifact 失敗"):
+            drafter.draft(make_cluster())
 
-            os.environ.pop("ANTHROPIC_API_KEY", None)
-            with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
-                drafter._get_client()
+    @patch("tasks.nightly_agent.drafter.os.path.isfile", return_value=False)
+    @patch("tasks.nightly_agent.drafter.shutil.which", return_value=None)
+    def test_missing_claude_binary_raises(
+        self, _mock_which: MagicMock, _mock_isfile: MagicMock
+    ) -> None:
+        drafter = ArtifactDrafter(NightlyAgentConfig())
+        with pytest.raises(RuntimeError, match="claude CLI"):
+            drafter._resolve_claude_bin()
