@@ -67,8 +67,12 @@ _COVERAGE_TABLE_HEADER_RE = re.compile(r"\|\s*Scenario\s+Slug\s*\|.*Status", re.
 _TABLE_ROW_RE = re.compile(r"^\|(.+)\|$")
 _SEPARATOR_RE = re.compile(r"^\|[-:\s|]+\|$")
 
-# TC-ID format: UPPER_ALPHA_NUM-CATEGORY-NUMBER (2-4 digit sequence number)
-_TC_ID_RE = re.compile(r"\b[A-Z][A-Z0-9]*-[A-Z]{2,}-\d{2,4}\b")
+# TC-ID format. Accepts both conventions seen in the wild:
+#   3-part  PREFIX-CATEGORY-NUMBER   e.g. YIBI-NFC-001, FBAUTH-UNIT-01
+#   2-part  PREFIX-CAT+NUMBER        e.g. FBAUTH-U01, FBAUTH-I12, SMK-001
+# The middle CATEGORY-dash segment is optional; the trailing segment is an
+# optional letter run fused with a 2-4 digit sequence number.
+_TC_ID_RE = re.compile(r"\b[A-Z][A-Z0-9]*-(?:[A-Z]{2,}-)?[A-Z]*\d{2,4}\b")
 
 _MISSING_STATUS_TERMS = {"missing", "partial"}
 
@@ -305,9 +309,12 @@ def main() -> None:
     print(f"[OK]   spectra change detected: {change_name}")
 
     # Step 2 — locate testplan.md
-    # Resolve repo root to avoid CWD-relative failures when running from a worktree subdir
-    git_common = _run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"]).strip()
-    repo_root = Path(git_common).parent
+    # Resolve the CURRENT checkout's root with --show-toplevel (not --git-common-dir,
+    # whose parent is the MAIN repo). The change under review is committed on the PR
+    # branch, which is checked out in the worktree we are running from; an unmerged
+    # change's testplan does not yet exist in the main checkout. --show-toplevel also
+    # handles being invoked from a subdir, returning the worktree (or repo) root.
+    repo_root = Path(_run(["git", "rev-parse", "--show-toplevel"]).strip())
     candidates = [
         repo_root / f"openspec/changes/{change_name}/testplan.md",
         repo_root / f"docs/openspec/changes/{change_name}/testplan.md",
