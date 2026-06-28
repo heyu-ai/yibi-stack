@@ -5,14 +5,18 @@
 - **periodic nudge**：只在「累積了 watermark 之後的新教訓」時，才把反覆出現的 cluster
   升為 skill candidate。沒有新證據就回傳空清單，避免每次重跑都重複 surface 同一批。
 - **autonomous skill creation 的前置**：CLI 只負責機械式收割與聚類，產出 candidate；
-  「要不要變成 skill / rule、以及怎麼寫」由下游 knowledge-distill skill（人類 gate）決定。
+  「要不要變成 skill / rule、以及怎麼寫」由下游 `knowledge-distill` skill（人類 gate）決定。
+  注意：該下游 skill 住在另一個 repo（`ainization-skill` 的 `skills/knowledge-distill/`），
+  本 CLI 的 entrypoint 是 `uv run python -m tasks.mycelium distill run`。
 
 clustering 目前用**確定性 token 相似度（lexical）**：ASCII word + CJK bigram 的 Jaccard，
 搭配 type 與 key 領域前綴。`semantic_index.SqliteVecIndex.embed()` 在 Phase 4 embedding
 pipeline 落地前永遠回傳 []（語意向量尚未可用），故 `_similarity()` 暫以 lexical 實作；
 等真正的 embedding 落地後可在 `_similarity()` 換成向量距離以提升語意聚類品質。
 
-唯讀原則：本 service 對 lessons table 只讀不寫；唯一寫入是 watermark state.json 與 digest 輸出。
+唯讀原則：本 service **只讀 lessons 資料列**，不寫入任何 lesson row（不 insert/update/delete）。
+唯一的 DB 寫入是 harvest 的 `init_db()`（`CREATE TABLE IF NOT EXISTS`，schema 層、冪等），
+其餘寫入只發生在 watermark state.json 與 digest 輸出檔。
 """
 
 from __future__ import annotations
@@ -21,11 +25,22 @@ import hashlib
 import json
 import re
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from .models import DigestReport, DistilledCluster, SkillCandidate
+
+
+@dataclass
+class HarvestResult:
+    """harvest 輸出：視窗內 lessons + 可觀測性指標（讓 silent drop / 截斷不再隱形）。"""
+
+    lessons: list[dict[str, Any]] = field(default_factory=list)
+    dropped_unparseable_ts: int = 0  # ts 無法解析而被跳過的筆數
+    truncated: bool = False  # 是否撞到 _HARVEST_SCAN_LIMIT（視窗可能含更舊但未掃到的 lesson）
+
 
 # ─── 門檻常數（保守預設；跑幾輪後依 false-positive 率調整）──────────────────
 DEFAULT_SINCE_DAYS = 90
@@ -34,6 +49,9 @@ MIN_DISTINCT_PRS = 2  # 至少跨 N 個不同 retro_pr（= 反覆出現，非一
 MIN_AVG_CONFIDENCE = 7.0  # cluster 平均 confidence 門檻
 CANDIDATE_TYPES = ("pattern", "operational", "tool")  # procedural 型（對映 Hermes「長程序」）
 SIMILARITY_THRESHOLD = 0.34  # Jaccard 相似度門檻
+# 同 key 領域前綴時放寬到此較低門檻（prefix 只「降低」門檻，不無條件併團，
+# 避免所有 bash-* 因共用前綴卻零 token 重疊就塌成一個 grab-bag mega-cluster）
+PREFIX_SIMILARITY_FLOOR = 0.15
 _HARVEST_SCAN_LIMIT = 2000  # 單次掃描的 lesson 上限（O(n^2) 聚類的安全上界）
 
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9]+")
@@ -104,10 +122,11 @@ def harvest(
     project: str | None = None,
     db_path: str | Path | None = None,
     now: datetime | None = None,
-) -> list[dict[str, Any]]:
-    """讀取 since 視窗內的 typed lessons（唯讀）。
+) -> HarvestResult:
+    """讀取 since 視窗內的 typed lessons（只讀 lesson 資料列）。
 
     復用 AgentsDB.query_lessons_typed（SELECT * FROM lessons），再以 ts 在 Python 端過濾。
+    回傳 HarvestResult，含 dropped_unparseable_ts 與 truncated 兩個可觀測性指標。
     """
     from .db import AgentsDB
 
@@ -122,12 +141,20 @@ def harvest(
         db.close()
 
     out: list[dict[str, Any]] = []
+    dropped = 0
     for row in rows:
         ts = _parse_ts(row.get("ts", ""))
-        if ts is None or ts < cutoff:
+        if ts is None:
+            dropped += 1  # ts 解析失敗：與「視窗外」分開計數，避免靜默丟失
+            continue
+        if ts < cutoff:
             continue
         out.append(row)
-    return out
+    return HarvestResult(
+        lessons=out,
+        dropped_unparseable_ts=dropped,
+        truncated=len(rows) >= _HARVEST_SCAN_LIMIT,
+    )
 
 
 class _UnionFind:
@@ -208,8 +235,11 @@ def cluster(
         for j in range(i + 1, n):
             if types[i] != types[j]:
                 continue
+            sim = _similarity(toks[i], toks[j])
             same_prefix = bool(prefixes[i]) and prefixes[i] == prefixes[j]
-            if same_prefix or _similarity(toks[i], toks[j]) >= threshold:
+            # prefix 只降低門檻，仍要求最低 token 重疊；否則純靠相似度門檻
+            effective = PREFIX_SIMILARITY_FLOOR if same_prefix else threshold
+            if sim >= effective:
                 uf.union(i, j)
 
     groups: dict[int, list[dict[str, Any]]] = defaultdict(list)
@@ -223,16 +253,18 @@ def _slug_title(cluster_obj: DistilledCluster) -> str:
     """從 member keys 推一個 candidate 標題（取最常見的領域前綴 + 代表 key）。"""
     prefixes = [_key_prefix(k) for k in cluster_obj.member_keys]
     prefixes = [p for p in prefixes if p]
+    head = cluster_obj.member_keys[0] if cluster_obj.member_keys else cluster_obj.cluster_id
     if prefixes:
         top = max(set(prefixes), key=prefixes.count)
-        return f"{top}-{cluster_obj.member_keys[0]}"[:60]
-    return (cluster_obj.member_keys[0] if cluster_obj.member_keys else cluster_obj.cluster_id)[:60]
+        # 避免雙前綴（member_keys[0] 已以 top 開頭時不再前綴，如 bash-bash-cd）
+        title = head if head.startswith(f"{top}-") else f"{top}-{head}"
+        return title[:60]
+    return head[:60]
 
 
 def score(
     clusters: list[DistilledCluster],
     watermark: str | None = None,
-    now: datetime | None = None,
     min_cluster: int = MIN_CLUSTER_SIZE,
 ) -> list[SkillCandidate]:
     """依門檻把 cluster 篩成 skill candidate。
@@ -281,7 +313,11 @@ def score(
 
 
 def load_watermark(path: str | Path | None) -> str | None:
-    """讀取 watermark state.json 的 last_run；不存在或損壞回 None。"""
+    """讀取 watermark state.json 的 last_run；不存在回 None。
+
+    **損壞**（JSON 解析失敗）與**缺失**語意不同：損壞會被當成首跑而 re-flood，
+    且隨後被覆寫抹除證據，故損壞時印 stderr 警告再回 None，讓異常可見。
+    """
     if not path:
         return None
     p = Path(path)
@@ -289,7 +325,10 @@ def load_watermark(path: str | Path | None) -> str | None:
         return None
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as e:
+        import sys
+
+        print(f"[WARN] watermark state.json 損壞，本次視為首跑：{p}（{e}）", file=sys.stderr)
         return None
     last_run = data.get("last_run")
     return str(last_run) if last_run else None
@@ -316,16 +355,18 @@ def run_distill(  # noqa: PLR0913
     _now = now if now is not None else datetime.now(UTC)
     wm = load_watermark(watermark_path)
 
-    lessons = harvest(since=since, project=project, db_path=db_path, now=_now)
-    clusters = cluster(lessons)
-    candidates = score(clusters, watermark=wm, now=_now, min_cluster=min_cluster)
+    harvested = harvest(since=since, project=project, db_path=db_path, now=_now)
+    clusters = cluster(harvested.lessons)
+    candidates = score(clusters, watermark=wm, min_cluster=min_cluster)
 
     report = DigestReport(
         generated_at=_now.isoformat(),
         since=since,
         project=project,
         watermark=wm,
-        total_lessons_scanned=len(lessons),
+        total_lessons_scanned=len(harvested.lessons),
+        dropped_unparseable_ts=harvested.dropped_unparseable_ts,
+        truncated=harvested.truncated,
         candidate_count=len(candidates),
         candidates=candidates,
     )

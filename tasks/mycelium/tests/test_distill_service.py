@@ -128,9 +128,12 @@ class TestPrimitives:
         with pytest.raises(ValueError, match="--since 格式錯誤"):
             _parse_since("garbage", NOW)
 
-    def test_myc_distill_eg_001_jaccard_disjoint(self) -> None:
-        """MYC-DISTILL-EG-001: 無交集 Jaccard 為 0"""
+    def test_myc_distill_eg_001_jaccard_ratios(self) -> None:
+        """MYC-DISTILL-EG-001: Jaccard 交集/聯集比例（disjoint / partial / identical / empty）"""
         assert _jaccard({"a", "b"}, {"c", "d"}) == 0.0
+        assert _jaccard({"a", "b", "c"}, {"a", "b", "d"}) == 0.5  # 2 交集 / 4 聯集
+        assert _jaccard({"a", "b"}, {"a", "b"}) == 1.0
+        assert _jaccard(set(), {"a"}) == 0.0  # 空集合早退
 
     def test_myc_distill_eg_002_key_prefix_generic(self) -> None:
         """MYC-DISTILL-EG-002: 泛用前綴回空字串"""
@@ -156,26 +159,62 @@ class TestHarvest:
         _insert(db, key="bash-old", insight="old bash lesson here too", confidence=8, age_days=200)
         db.close()
 
-        rows = harvest(since="90d", db_path=str(tmp_path / "test.db"), now=NOW)
+        result = harvest(since="90d", db_path=str(tmp_path / "test.db"), now=NOW)
 
-        keys = {r["key"] for r in rows}
+        keys = {r["key"] for r in result.lessons}
         assert "bash-recent" in keys
         assert "bash-old" not in keys
+        assert result.dropped_unparseable_ts == 0
+        assert result.truncated is False
+
+    def test_myc_distill_eg_003_unparseable_ts_counted(self, tmp_path: Path) -> None:
+        """MYC-DISTILL-EG-003: ts 無法解析的 lesson 被計入 dropped，不靜默丟失"""
+        db = _make_db(tmp_path)
+        _insert(db, key="bash-ok", insight="parseable ts lesson here", confidence=8, age_days=2)
+        # 直接寫一筆壞 ts 繞過 model 驗證（模擬跨來源髒資料）
+        db.conn.execute("UPDATE lessons SET ts = ? WHERE key = ?", ("not-a-timestamp", "bash-ok"))
+        _insert(db, key="bash-ok2", insight="another good lesson row", confidence=8, age_days=2)
+        db.close()
+
+        result = harvest(since="90d", db_path=str(tmp_path / "test.db"), now=NOW)
+        assert result.dropped_unparseable_ts == 1
+        assert {r["key"] for r in result.lessons} == {"bash-ok2"}
 
 
 # ─── cluster ────────────────────────────────────────────────────────────────
 
 
 class TestCluster:
-    def test_myc_distill_dt_002_same_prefix_groups(self) -> None:
-        """MYC-DISTILL-DT-002: 同 type + 同領域前綴併為一團"""
+    def test_myc_distill_dt_002_same_prefix_with_overlap_groups(self) -> None:
+        """MYC-DISTILL-DT-002: 同 type + 同前綴 + 有 token 重疊（>=floor）併為一團"""
         lessons = [
             _lesson("a", key="bash-cd-git", insight="use git -C path instead of cd"),
-            _lesson("b", key="bash-heredoc", insight="avoid heredoc pipe in commands"),
+            _lesson("b", key="bash-cd-hook", insight="use git -C to avoid cd breaking hook path"),
         ]
         clusters = cluster(lessons)
         assert len(clusters) == 1
         assert set(clusters[0].lesson_ids) == {"a", "b"}
+
+    def test_myc_distill_dt_002b_same_prefix_zero_overlap_not_grouped(self) -> None:
+        """MYC-DISTILL-DT-002b: 同前綴但 token 零重疊不併（避免 grab-bag mega-cluster）"""
+        lessons = [
+            _lesson("a", key="bash-cd-git", insight="alpha beta gamma delta epsilon"),
+            _lesson("b", key="bash-heredoc", insight="omega sigma tau upsilon phi"),
+        ]
+        clusters = cluster(lessons)
+        assert len(clusters) == 2
+
+    def test_myc_distill_dt_005_union_find_transitive(self) -> None:
+        """MYC-DISTILL-DT-005: A~B、B~C、A 與 C 不直接相似 -> union-find 仍併為一團"""
+        # a~b 與 b~c 各 >=0.34；a~c 僅共享 "common"(0.11) 不直接相似 -> 需靠 union-find 遞移
+        lessons = [
+            _lesson("a", key="x-1", insight="alpha beta gamma shared common"),
+            _lesson("b", key="y-2", insight="gamma shared common delta epsilon"),
+            _lesson("c", key="z-3", insight="delta epsilon common zeta eta"),
+        ]
+        clusters = cluster(lessons)
+        assert len(clusters) == 1
+        assert set(clusters[0].lesson_ids) == {"a", "b", "c"}
 
     def test_myc_distill_dt_003_similar_insight_groups(self) -> None:
         """MYC-DISTILL-DT-003: 不同前綴但 token 高度相似仍併團"""
@@ -203,40 +242,74 @@ class TestScore:
     def test_myc_distill_dt_010_passes_all_gates(self) -> None:
         """MYC-DISTILL-DT-010: 全門檻通過 -> 1 candidate"""
         c = _cluster_of(3, prs=[101, 102], avg_confidence=7.5, types=["pattern"])
-        cands = score([c], watermark=None, now=NOW)
+        cands = score([c], watermark=None)
         assert len(cands) == 1
         assert cands[0].recurrence_pr_count == 2
 
     def test_myc_distill_dt_011_too_small(self) -> None:
         """MYC-DISTILL-DT-011: cluster size < 3 -> 0"""
         c = _cluster_of(2, prs=[101, 102], avg_confidence=8.0, types=["pattern"])
-        assert score([c], watermark=None, now=NOW) == []
+        assert score([c], watermark=None) == []
 
     def test_myc_distill_dt_012_single_pr(self) -> None:
         """MYC-DISTILL-DT-012: 只跨 1 個 PR（非反覆）-> 0"""
         c = _cluster_of(3, prs=[101], avg_confidence=8.0, types=["pattern"])
-        assert score([c], watermark=None, now=NOW) == []
+        assert score([c], watermark=None) == []
 
     def test_myc_distill_dt_013_low_confidence(self) -> None:
         """MYC-DISTILL-DT-013: avg_confidence < 7 -> 0"""
         c = _cluster_of(3, prs=[101, 102], avg_confidence=6.0, types=["pattern"])
-        assert score([c], watermark=None, now=NOW) == []
+        assert score([c], watermark=None) == []
+
+    def test_myc_distill_bva_001_confidence_exactly_7(self) -> None:
+        """MYC-DISTILL-BVA-001: avg_confidence 剛好等於門檻 7.0 -> 通過（>= 邊界）"""
+        c = _cluster_of(3, prs=[101, 102], avg_confidence=7.0, types=["pattern"])
+        assert len(score([c], watermark=None)) == 1
 
     def test_myc_distill_dt_014_non_procedural_type(self) -> None:
         """MYC-DISTILL-DT-014: type 非 procedural（pitfall）-> 0"""
         c = _cluster_of(3, prs=[101, 102], avg_confidence=8.0, types=["pitfall"])
-        assert score([c], watermark=None, now=NOW) == []
+        assert score([c], watermark=None) == []
 
     def test_myc_distill_dt_015_no_new_evidence(self) -> None:
         """MYC-DISTILL-DT-015: 全部成員 ts <= watermark（無新證據）-> 0"""
         c = _cluster_of(3, prs=[101, 102], avg_confidence=8.0, types=["pattern"], newest_age_days=5)
         watermark = (NOW - timedelta(days=1)).isoformat()  # 比所有成員都新
-        assert score([c], watermark=watermark, now=NOW) == []
+        assert score([c], watermark=watermark) == []
+
+    def test_myc_distill_dt_017_new_evidence_resurfaces(self) -> None:
+        """MYC-DISTILL-DT-017: watermark 非空 + 至少一條成員比 watermark 新 -> candidate 浮現
+
+        這是 periodic-nudge 的**正向路徑**（先前測試只證明壓制，未證明復現）。
+        """
+        c = _cluster_of(3, prs=[101, 102], avg_confidence=8.0, types=["pattern"], newest_age_days=2)
+        watermark = (NOW - timedelta(days=4)).isoformat()  # 比成員(age 2d)舊 -> 成員算「新證據」
+        cands = score([c], watermark=watermark)
+        assert len(cands) == 1
+        assert cands[0].has_new_evidence is True
+
+    def test_myc_distill_dt_018_mixed_membership_one_new(self) -> None:
+        """MYC-DISTILL-DT-018: 混合成員，只要一條比 watermark 新即浮現"""
+        members = [
+            {"id": "old1", "ts": (NOW - timedelta(days=10)).isoformat()},
+            {"id": "old2", "ts": (NOW - timedelta(days=9)).isoformat()},
+            {"id": "fresh", "ts": (NOW - timedelta(days=1)).isoformat()},  # 唯一的新證據
+        ]
+        c = DistilledCluster(
+            cluster_id="cl-mixed",
+            lesson_ids=["old1", "old2", "fresh"],
+            types=["pattern"],
+            retro_prs=[101, 102],
+            avg_confidence=8.0,
+            member_lessons=members,
+        )
+        watermark = (NOW - timedelta(days=5)).isoformat()  # old1/old2 舊、fresh 新
+        assert len(score([c], watermark=watermark)) == 1
 
     def test_myc_distill_dt_016_min_cluster_override(self) -> None:
         """MYC-DISTILL-DT-016: min_cluster 覆寫門檻"""
         c = _cluster_of(2, prs=[101, 102], avg_confidence=8.0, types=["pattern"])
-        assert len(score([c], watermark=None, now=NOW, min_cluster=2)) == 1
+        assert len(score([c], watermark=None, min_cluster=2)) == 1
 
 
 # ─── run_distill 整合 + watermark 冪等 ──────────────────────────────────────
@@ -345,3 +418,24 @@ class TestRunDistill:
 
         assert again.candidate_count == 1
         assert load_watermark(state) is None
+
+    def test_myc_distill_eg_004_corrupt_watermark_treated_as_first_run(
+        self, tmp_path: Path
+    ) -> None:
+        """MYC-DISTILL-EG-004: 損壞的 watermark 視為首跑（load 回 None），不靜默吞成既有水位"""
+        state = tmp_path / "state.json"
+        state.write_text("{not valid json", encoding="utf-8")
+        assert load_watermark(state) is None
+
+        db = _make_db(tmp_path)
+        self._seed_candidate(db)
+        db.close()
+        report = run_distill(
+            since="90d",
+            db_path=str(tmp_path / "test.db"),
+            watermark_path=str(state),
+            out_path=str(tmp_path / "d.json"),
+            now=NOW,
+        )
+        # 損壞 watermark -> 視為首跑 -> candidate 正常浮現（而非被當成已處理而靜默歸零）
+        assert report.candidate_count == 1

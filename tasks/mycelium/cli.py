@@ -1327,7 +1327,7 @@ def distill_run(
     out_path: str | None,
     no_watermark: bool,
 ) -> None:
-    """收割 → 聚類 → 篩 candidate，寫出 digest（唯讀 lessons table）。"""
+    """收割 → 聚類 → 篩 candidate，寫出 digest（只讀 lessons 資料列）。"""
     from datetime import UTC, datetime
 
     from .distill_service import MIN_CLUSTER_SIZE, run_distill
@@ -1351,6 +1351,17 @@ def distill_run(
         f"✓ 掃描 {report.total_lessons_scanned} 條 lessons，"
         f"產出 {report.candidate_count} 個 skill candidate"
     )
+    if report.dropped_unparseable_ts:
+        click.echo(
+            f"[WARN] {report.dropped_unparseable_ts} 條 lesson 因 ts 無法解析被跳過",
+            err=True,
+        )
+    if report.truncated:
+        click.echo(
+            "[WARN] 撞到掃描上限，視窗內可能有更舊的 lesson 未掃到；"
+            "recurrence 可能被低估，建議縮小 --since",
+            err=True,
+        )
     for cand in report.candidates:
         prs = ",".join(str(p) for p in cand.cluster.retro_prs)
         click.echo(

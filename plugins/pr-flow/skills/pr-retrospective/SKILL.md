@@ -256,6 +256,9 @@ Classifier → `--type` 對照表：
 > - **`--confidence` 必須差異化，不可一律寫 7**。依來源與校準給分：
 >   `user-stated` 且使用者校準過 → 8–9；`cross-model`（codex/claude 兩家都提同一點）→ 8；
 >   純 `inferred`（agent 單方推論）→ 5–6。**若 Step 5 Q5 查歷史發現此教訓重複犯（recurrence）→ 在原分數上 +1**（封頂 10），重複犯是「值得變 skill」的最強訊號。
+> - **`--source` 必須與上面的 confidence 依據一致，不可一律 `inferred`**：使用者校準過填 `user-stated`、
+>   兩家模型都提填 `cross-model`、agent 單方推論才填 `inferred`。source 不只是標籤——
+>   `inferred`/`observed` 會隨時間 decay，`user-stated`/`cross-model` 不衰減；填錯會讓高信心教訓被錯誤衰減。
 > - **`--skill` 填「教訓的主題 skill」而非 `pr-retrospective`**（產生者）。例：教訓是關於 `gmail-billing` 的 parser → 填 `gmail-billing`；關於 bash/quoting 等泛用主題 → **留空**（`--skill` 省略），讓蒸餾以 type + 語意聚類。
 > - **`--key` slug 加領域前綴**（`bash-`、`pydantic-`、`gmail-billing-`、`cli-` …），讓同類教訓跨 PR 的 key 前綴一致，提升 dedup 與 cluster 收斂。
 
@@ -265,7 +268,8 @@ Classifier → `--type` 對照表：
 LESSON_KEY="{{domain-prefixed-slug}}"
 LESSON_TYPE="{{pitfall|pattern|preference|architecture|tool|operational|investigation}}"
 LESSON_TEXT="{{lesson body}}"
-LESSON_CONFIDENCE="{{5-9 依來源差異化；recurrence +1}}"
+LESSON_CONFIDENCE="{{5-10 依來源差異化；recurrence +1，封頂 10}}"
+LESSON_SOURCE="{{user-stated|cross-model|inferred；與 confidence 依據一致}}"
 LESSON_SUBJECT_SKILL="{{主題 skill 名；泛用教訓留空字串}}"
 HANDOVER_ID="{{id from Step 4 output}}"
 ```
@@ -284,7 +288,7 @@ uv run --directory "$SKILL_REPO" \
   --type "$LESSON_TYPE" \
   --insight "$LESSON_TEXT" \
   --confidence "$LESSON_CONFIDENCE" \
-  --source inferred \
+  --source "$LESSON_SOURCE" \
   $SKILL_FLAG \
   --retro-pr "$PR_NUMBER" \
   --handover-id "$HANDOVER_ID"

@@ -464,7 +464,7 @@ class ControlLogSession(BaseModel):
 # 對映 NousResearch/hermes-agent Skills System 的 periodic-nudge + autonomous
 # skill creation：定期收割 typed lessons → 聚類反覆出現的模式 → 輸出 skill candidate。
 # 這三個 model 是 distill_service 的輸出結構，序列化為 ~/.agents/distill/digest-*.json
-# 供下游 knowledge-distill skill 讀取。
+# 供下游 knowledge-distill skill 讀取（該 skill 住在 ainization-skill repo，非本 repo）。
 
 
 class DistilledCluster(BaseModel):
@@ -502,5 +502,8 @@ class DigestReport(BaseModel):
     project: str | None = None
     watermark: str | None = None
     total_lessons_scanned: int = 0
+    # 可觀測性：讓「0 candidate」可診斷——是真的沒新累積，還是 ts 全解析失敗 / 撞掃描上限
+    dropped_unparseable_ts: int = 0
+    truncated: bool = False
     candidate_count: int = 0
     candidates: list[SkillCandidate] = Field(default_factory=list)
