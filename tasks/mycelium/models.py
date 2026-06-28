@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -456,3 +457,50 @@ class ControlLogSession(BaseModel):
     irreversible_op_count: int | None = None
     verification_score: float | None = None
     total_entries: int | None = None
+
+
+# ─── 知識蒸餾（distill）────────────────────────────────────────────────────
+#
+# 對映 NousResearch/hermes-agent Skills System 的 periodic-nudge + autonomous
+# skill creation：定期收割 typed lessons → 聚類反覆出現的模式 → 輸出 skill candidate。
+# 這三個 model 是 distill_service 的輸出結構，序列化為 ~/.agents/distill/digest-*.json
+# 供下游 knowledge-distill skill 讀取。
+
+
+class DistilledCluster(BaseModel):
+    """一團語意/詞彙相近、跨多次 PR 反覆出現的 lessons。"""
+
+    cluster_id: str
+    lesson_ids: list[str] = Field(default_factory=list)
+    member_keys: list[str] = Field(default_factory=list)
+    types: list[str] = Field(default_factory=list)
+    retro_prs: list[int] = Field(default_factory=list)
+    subject_skills: list[str] = Field(default_factory=list)
+    avg_confidence: float = 0.0
+    representative_insight: str = ""
+    # 完整 member lesson dict（id/key/type/insight/confidence/retro_pr/skill/project/ts），
+    # 供下游 skill 用 retro_pr rehydrate 上下文，無需回查 DB。
+    member_lessons: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SkillCandidate(BaseModel):
+    """通過門檻、值得人類 review 是否升為 skill / rule 的 cluster。"""
+
+    candidate_id: str
+    title: str
+    recurrence_pr_count: int = 0
+    has_new_evidence: bool = True
+    cluster: DistilledCluster
+
+
+class DigestReport(BaseModel):
+    """單次 distill run 的輸出報告（root model，含 version）。"""
+
+    version: str = "1.0"
+    generated_at: str
+    since: str
+    project: str | None = None
+    watermark: str | None = None
+    total_lessons_scanned: int = 0
+    candidate_count: int = 0
+    candidates: list[SkillCandidate] = Field(default_factory=list)

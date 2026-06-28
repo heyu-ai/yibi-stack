@@ -26,6 +26,8 @@ DEBUG_REPORTS_JSONL_PATH = DEBUGS_DIR / "debug-reports.jsonl"
 REGISTRY_DIR = AGENTS_HOME / "_registry"
 INBOX_DIR = AGENTS_HOME / "inbox"
 STIGNORE_PATH = AGENTS_HOME / ".stignore"
+DISTILL_DIR = AGENTS_HOME / "distill"
+DISTILL_STATE_PATH = DISTILL_DIR / "state.json"
 
 
 def load_agents_config(path: Path | None = None) -> AgentsConfig | None:

@@ -11,6 +11,8 @@ import click
 from .config import (
     AGENTS_CONFIG_PATH,
     DEBUG_REPORTS_JSONL_PATH,
+    DISTILL_DIR,
+    DISTILL_STATE_PATH,
     INSIGHTS_JSONL_PATH,
     RECAP_JSONL_PATH,
     REGISTRY_DIR,
@@ -1295,6 +1297,85 @@ def control_log_advice(since_days: int) -> None:
 
     for line in generate_advice(since_days=since_days, db_path=_ctl_db_path()):
         click.echo(line)
+
+
+# ─── distill（知識蒸餾）────────────────────────────────────────────────────
+
+
+@cli.group()
+def distill() -> None:
+    """知識蒸餾：收割反覆出現的 typed lessons，輸出 skill candidate digest 供下游合成。"""
+
+
+@distill.command("run")
+@click.option("--since", default="90d", help="收割視窗：'<N>d' 相對天數或 ISO 時間（預設 90d）")
+@click.option("--project", default=None, help="只收割指定 project（預設全部）")
+@click.option("--min-cluster", default=None, type=int, help="覆寫 cluster 最小成員數門檻")
+@click.option(
+    "--out",
+    "out_path",
+    default=None,
+    help="digest JSON 輸出路徑（預設 distill/digest-<date>.json）",
+)
+@click.option(
+    "--no-watermark", is_flag=True, help="不更新 watermark（dry-run；不影響下次收割範圍）"
+)
+def distill_run(
+    since: str,
+    project: str | None,
+    min_cluster: int | None,
+    out_path: str | None,
+    no_watermark: bool,
+) -> None:
+    """收割 → 聚類 → 篩 candidate，寫出 digest（唯讀 lessons table）。"""
+    from datetime import UTC, datetime
+
+    from .distill_service import MIN_CLUSTER_SIZE, run_distill
+    from .models import DigestReport
+
+    if out_path is None:
+        DISTILL_DIR.mkdir(parents=True, exist_ok=True)
+        date_tag = datetime.now(UTC).date().isoformat()
+        out_path = str(DISTILL_DIR / f"digest-{date_tag}.json")
+
+    report: DigestReport = run_distill(
+        since=since,
+        project=project,
+        watermark_path=DISTILL_STATE_PATH,
+        out_path=out_path,
+        update_watermark=not no_watermark,
+        min_cluster=min_cluster if min_cluster is not None else MIN_CLUSTER_SIZE,
+    )
+
+    click.echo(
+        f"✓ 掃描 {report.total_lessons_scanned} 條 lessons，"
+        f"產出 {report.candidate_count} 個 skill candidate"
+    )
+    for cand in report.candidates:
+        prs = ",".join(str(p) for p in cand.cluster.retro_prs)
+        click.echo(
+            f"  - {cand.title}（{len(cand.cluster.lesson_ids)} 條 / {cand.recurrence_pr_count} PR"
+            f" [{prs}] / avg_conf {cand.cluster.avg_confidence}）"
+        )
+    click.echo(f"digest 已寫入：{out_path}")
+    if no_watermark:
+        click.echo("（--no-watermark：未更新收割水位）")
+
+
+@distill.command("promote-tiers")
+@click.option("--project", default=None, help="（保留參數，目前 tier promotion 為全域掃描）")
+def distill_promote_tiers(project: str | None) -> None:  # noqa: ARG001
+    """執行 lessons tier 升降級（working→hot→cold→archival）。供每日排程呼叫。"""
+    from .tier_service import run_promotion_check
+
+    result = run_promotion_check()
+    click.echo(
+        "✓ tier promotion："
+        f"→hot {result.promoted_to_hot}、→cold {result.demoted_to_cold}、"
+        f"→archival {result.demoted_to_archival}"
+    )
+    for err in result.errors:
+        click.echo(f"✗ {err}", err=True)
 
 
 if __name__ == "__main__":
