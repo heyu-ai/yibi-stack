@@ -134,10 +134,10 @@ gh pr diff "$PR_NUMBER" --name-only 2>/dev/null | head -30
 - 引用依據：<files changed>，看起來是 <UX-impacting / infra-only>
 
 ### Q4 Lessons（從 codex/claude review comments + commits 推論）
-這個 session 學到的 3 點：
+這個 session 學到的可重用教訓（**0–5 條，寧缺勿濫**；只收真正能重用的，沒有就誠實寫 0，不要為湊數編低訊號項）：
 1. **<lesson 1>** -- 來源：codex review comment "..."
 2. **<lesson 2>** -- 來源：commit "<sha>" 的 fix 行為
-3. **<lesson 3>** -- 來源：本次對話中提到的 pattern
+（依實際有幾條可重用教訓增減；下游 `/knowledge-distill` 蒸餾會聚合多 PR 的同類教訓，湊數項只會稀釋 cluster）
 
 ### Q5 Improvement Actions（依 Q4 lessons 路由）
 建議下一步動作：
@@ -251,13 +251,34 @@ Classifier → `--type` 對照表：
 
 **先呈現 derived `--type` 給 user 確認**，再執行 `lessons add`（避免分類偏差）：
 
+> **下游蒸餾品質要求**（`/knowledge-distill` 依賴這些訊號聚合多 PR 教訓，不可壓平）：
+>
+> - **`--confidence` 必須差異化，不可一律寫 7**。依來源與校準給分：
+>   `user-stated` 且使用者校準過 → 8–9；`cross-model`（codex/claude 兩家都提同一點）→ 8；
+>   純 `inferred`（agent 單方推論）→ 5–6。**若 Step 5 Q5 查歷史發現此教訓重複犯（recurrence）→ 在原分數上 +1**（封頂 10），重複犯是「值得變 skill」的最強訊號。
+> - **`--source` 必須與上面的 confidence 依據一致，不可一律 `inferred`**：使用者校準過填 `user-stated`、
+>   兩家模型都提填 `cross-model`、agent 單方推論才填 `inferred`。source 不只是標籤——
+>   `inferred`/`observed` 會隨時間 decay，`user-stated`/`cross-model` 不衰減；填錯會讓高信心教訓被錯誤衰減。
+> - **`--skill` 填「教訓的主題 skill」而非 `pr-retrospective`**（產生者）。例：教訓是關於 `gmail-billing` 的 parser → 填 `gmail-billing`；關於 bash/quoting 等泛用主題 → **留空**（`--skill` 省略），讓蒸餾以 type + 語意聚類。
+> - **`--key` slug 加領域前綴**（`bash-`、`pydantic-`、`gmail-billing-`、`cli-` …），讓同類教訓跨 PR 的 key 前綴一致，提升 dedup 與 cluster 收斂。
+
 確認後對每筆通過 Gate 的 lesson 執行（一次一筆）：
 
 ```bash
-LESSON_KEY="{{slugified-lesson-key}}"
+LESSON_KEY="{{domain-prefixed-slug}}"
 LESSON_TYPE="{{pitfall|pattern|preference|architecture|tool|operational|investigation}}"
 LESSON_TEXT="{{lesson body}}"
+LESSON_CONFIDENCE="{{5-10 依來源差異化；recurrence +1，封頂 10}}"
+LESSON_SOURCE="{{user-stated|cross-model|inferred；與 confidence 依據一致}}"
+LESSON_SUBJECT_SKILL="{{主題 skill 名；泛用教訓留空字串}}"
 HANDOVER_ID="{{id from Step 4 output}}"
+```
+
+主題 skill 為空時省略 `--skill`（避免把產生者誤記成主題）：
+
+```bash
+SKILL_FLAG=""
+[ -n "$LESSON_SUBJECT_SKILL" ] && SKILL_FLAG="--skill $LESSON_SUBJECT_SKILL"
 ```
 
 ```bash
@@ -266,9 +287,9 @@ uv run --directory "$SKILL_REPO" \
   --key "$LESSON_KEY" \
   --type "$LESSON_TYPE" \
   --insight "$LESSON_TEXT" \
-  --confidence 7 \
-  --source inferred \
-  --skill pr-retrospective \
+  --confidence "$LESSON_CONFIDENCE" \
+  --source "$LESSON_SOURCE" \
+  $SKILL_FLAG \
   --retro-pr "$PR_NUMBER" \
   --handover-id "$HANDOVER_ID"
 ```
