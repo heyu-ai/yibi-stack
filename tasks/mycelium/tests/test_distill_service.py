@@ -304,7 +304,9 @@ class TestScore:
             member_lessons=members,
         )
         watermark = (NOW - timedelta(days=5)).isoformat()  # old1/old2 舊、fresh 新
-        assert len(score([c], watermark=watermark)) == 1
+        cands = score([c], watermark=watermark)
+        assert len(cands) == 1
+        assert cands[0].has_new_evidence is True
 
     def test_myc_distill_dt_016_min_cluster_override(self) -> None:
         """MYC-DISTILL-DT-016: min_cluster 覆寫門檻"""

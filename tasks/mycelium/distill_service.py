@@ -323,12 +323,16 @@ def load_watermark(path: str | Path | None) -> str | None:
     p = Path(path)
     if not p.exists():
         return None
+    import sys
+
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
-        import sys
-
         print(f"[WARN] watermark state.json 損壞，本次視為首跑：{p}（{e}）", file=sys.stderr)
+        return None
+    # 合法 JSON 但非 object（如 `[1,2]` / `"x"`）也算損壞，不可讓 .get 噴 AttributeError
+    if not isinstance(data, dict):
+        print(f"[WARN] watermark state.json 非物件格式，本次視為首跑：{p}", file=sys.stderr)
         return None
     last_run = data.get("last_run")
     return str(last_run) if last_run else None
@@ -351,7 +355,12 @@ def run_distill(  # noqa: PLR0913
     update_watermark: bool = True,
     min_cluster: int = MIN_CLUSTER_SIZE,
 ) -> DigestReport:
-    """完整 distill 流程：harvest → cluster → score → 輸出 digest + 更新 watermark。"""
+    """完整 distill 流程：harvest → cluster → score → 輸出 digest + 更新 watermark。
+
+    已知限制（視窗內 >_HARVEST_SCAN_LIMIT 條時）：harvest 只取最新 N 條，watermark 又前進到 _now，
+    被截斷的較舊 lesson 之後 ts < watermark 永遠不再算「新證據」。此時 harvested.truncated=True，
+    CLI 會 WARN 提示縮小 --since。目前 lessons 總量遠低於上限，故不做 SQL 分頁的重設計。
+    """
     _now = now if now is not None else datetime.now(UTC)
     wm = load_watermark(watermark_path)
 
