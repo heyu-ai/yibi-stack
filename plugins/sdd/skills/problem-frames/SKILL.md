@@ -105,7 +105,7 @@ amplifier Step 0.5 會讀此 artifact：
 | R 裡寫機器實作 | 需求綁死實作 | R 只描述世界狀態，做法留 S |
 | W 留白 | AI 自行補假設、每次不同 | 顯式列每條 W + 「若不成立的後果」|
 | 跳過 frame 分類直接萃取四元素 | 不知該補哪段 concern | 先分類 frame，照 frame concern 填空 |
-| W 在 problem-frame 與 Step 4 各寫一份 | 兩處漂移 | W 以 problem-frame.md 為單一來源 |
+| W 在 problem-frame 與 Step 4 假設表各寫一份 | 兩處漂移 | W 以 problem-frame.md 為單一來源 |
 
 ---
 

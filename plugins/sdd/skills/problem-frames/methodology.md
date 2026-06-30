@@ -221,4 +221,4 @@ DBC 對應**經 Gherkin／AC 間接影響** Step 2 qa-test-designer 設計 Decis
 | W 留白 | AI 自行補假設、每次不同 → 不可重現 | 顯式列出每條 W，並標「若不成立的後果」|
 | 跳過 frame 分類 | 不知道該補哪段 concern，論證有洞 | 先分類 frame，再照其 frame concern 填空 |
 | 多 frame 共享現象矛盾 | 同份資料兩個 frame 假設打架 | 組合後檢查 shared phenomena 一致性 |
-| 假設在 problem-frame 與 Step 4 各寫一份 | W 兩處漂移 | W 以 problem-frame.md 為單一來源，Step 4 衍生／引用 |
+| W 在 problem-frame 與 Step 4 假設表各寫一份 | W 兩處漂移 | W 以 problem-frame.md 為單一來源，Step 4 衍生／引用 |
