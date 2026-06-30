@@ -61,6 +61,7 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 |-------|------|------|----------|
 | `bump-version` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | Project-level 版本 bump（Flutter/Python/Node.js/Go）+ CHANGELOG 生成 + git tag 發布，附帶 commit-msg hook 安裝 | [bump-version/SKILL.md](bump-version/SKILL.md) |
 | `event-storming` | [plugins/sdd/](../plugins/sdd/README.md) | 領域發現前置 skill（draft）；amplifier Step 0 的 handoff 來源；產出 Domain Events / Bounded Contexts / Aggregate Roots | [event-storming/SKILL.md](event-storming/SKILL.md) |
+| `problem-frames` | [plugins/sdd/](../plugins/sdd/README.md) | Jackson Problem Frames 方法論；event-storming 之後、amplifier Step 0.5 之前；把需求拆成 R/S/W 並證明 S∧W⟹R，將領域假設前置顯式化 | [problem-frames/SKILL.md](problem-frames/SKILL.md) |
 | `qa-test-design` | [plugins/sdd/](../plugins/sdd/README.md) | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |
 | `verify-done` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 宣告完成前端對端驗證：make ci / pre-commit、gh pr checks（含 PENDING/TOOL ERROR 狀態）、Spectra artifact 完整性、worktree merge 安全性 | [verify-done/SKILL.md](verify-done/SKILL.md) |
 | `pr-review-cycle` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 完整 PR 生命週期：建立 PR → /code-review 缺陷偵測 → parallel review（Claude pr-review-toolkit 4 subagent）→ fix → re-review → CI → merge → spectra archive + Jira sync。適用小型 feature / 快速合併 | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |

@@ -1,5 +1,5 @@
 {
   "name": "sdd",
-  "version": "1.4.0",
-  "description": "Spec-Driven Development plugin for Claude Code: Spectra amplifier, gherkin-scenario-writer agent, qa-test-designer subagent (model: opus), qa-test-design skill, OpenSpec templates"
+  "version": "1.5.0",
+  "description": "Spec-Driven Development plugin for Claude Code: Spectra amplifier, problem-frames methodology skill, gherkin-scenario-writer agent, qa-test-designer subagent (model: opus), qa-test-design skill, OpenSpec templates"
 }
