@@ -175,8 +175,8 @@ DBC 對應**經 Gherkin／AC 間接影響** Step 2 qa-test-designer 設計 Decis
 ## 輸出檔案模板（`problem-frame.md` 骨架，owner）
 
 獨立執行本 skill 時，依此骨架產出 `openspec/changes/<name>/problem-frame.md`。
-本節是此骨架的單一真實來源；spectra-amplifier「輸出檔案模板」中的同名區塊為消費端引用，
-語意以此處為準。
+本節是此骨架的**單一真實來源（owner）**；spectra-amplifier Step 0.5 亦依此骨架產出，
+不另行內嵌副本（避免兩處漂移）。
 
 ```markdown
 # Problem Frame：[feature-name]

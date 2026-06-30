@@ -34,7 +34,7 @@ effort: medium
 ## 輸出結構
 
 ```text
-openspec/changes/<feature-name>/
+openspec/changes/<name>/
 ├── problem-frame.md  # Step 0.5 frame 型別 + R/S/W + S∧W⟹R 論證（NEW）
 ├── proposal.md   # Step 1b US+AC + Step 4 假設約束 + Step 5 完工標準
 ├── specs/
@@ -84,7 +84,7 @@ openspec/changes/<feature-name>/
 
 | 狀況 | 行動 |
 |------|------|
-| 有 event-storming.md 且包含 ≥ 3 domain events | 繼續（其 Notes 假設依 effort 匯入：medium/high → Step 0.5 的 W；low → 直接進 Step 4 假設表）|
+| 有 event-storming.md 且包含 ≥ 3 domain events | 繼續（medium/high：其 Notes 假設於 Step 0.5 匯入 W；low effort 僅做 Step 1，不展開 Step 4 假設表，故不正式匯入假設）|
 | 只有 proposal.md ## Why，功能簡單（1 Actor + 1 Goal）| 繼續，標記「無需 Event Storming」|
 | 功能涉及多 Actor 或複雜狀態，但無領域資訊 | 輸出 `[WARN] 建議先執行 /event-storming 建立領域資訊`，確認後繼續 |
 | 完全沒有需求描述 | 請使用者補充，無法展開 |
@@ -103,6 +103,7 @@ openspec/changes/<feature-name>/
 
 1. 若已存在 `openspec/changes/<name>/problem-frame.md`，讀取並沿用；否則新建。
 2. 套用 `problem-frames` 方法論：
+   - 若 Step 0 讀取了 `event-storming.md`，先將其 `## Notes for Amplifier` 假設併入 W（領域假設）的初始清單
    - 用 frame 分類決策表選出主導 frame（必要時組合多個）
    - 拆 R / S / W，每條 W 標明「若不成立的後果」
    - 寫 S ∧ W ⟹ R 正確性論證
@@ -123,7 +124,7 @@ openspec/changes/<feature-name>/
 > **W 的單一來源**：此處產出的 W 是後續 Step 4 假設表的唯一來源；
 > Step 4 只能**衍生／引用** W，不得另行重編（避免兩處漂移）。
 
-`problem-frame.md` 骨架見本檔末「輸出檔案模板」。
+`problem-frame.md` 骨架由 `problem-frames` skill 的 `methodology.md`「輸出檔案模板」一節維護（owner）。
 
 ---
 
@@ -401,12 +402,11 @@ Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
 
 **假設表的單一來源是 Step 0.5 的 W**：本章節的「假設」表須**衍生自 / 引用**
 `problem-frame.md` 的 W（領域假設），不得另行重編一份，避免 W 在兩處漂移。
-每條假設沿用 W 的「若不成立的影響」欄。若 Step 0.5 被略過（effort = low），
-才退回從需求描述——以及 `event-storming.md` 的 `## Notes for Amplifier`（若有）——
-直接整理假設（無 W 中介層）。
+每條假設沿用 W 的「若不成立的影響」欄。（Step 4 僅在 medium / high effort 執行，
+此時 Step 0.5 必已產出 W；low effort 只做 Step 1，不展開本假設表。）
 
-若 Step 0 讀取了 `event-storming.md` 且 effort = medium / high，其 `## Notes for Amplifier`
-的假設先匯入 Step 0.5 的 W，再由 W 衍生至此（而非直接搬進本章節）。
+若 Step 0 讀取了 `event-storming.md`，其 `## Notes for Amplifier` 的假設已於 Step 0.5
+併入 W，故此處由 W 衍生即可（而非直接搬進本章節）。
 
 ---
 
@@ -537,41 +537,9 @@ Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
 
 ### `problem-frame.md` 骨架（Step 0.5）
 
-> 此骨架為消費端引用；owner（單一真實來源）是 `problem-frames` skill 的
-> `methodology.md`「輸出檔案模板」一節。骨架語意改變時於該處修訂，再同步此處。
-
-```markdown
-# Problem Frame：[feature-name]
-
-## Frame 型別
-主導：[Required Behaviour | Commanded Behaviour | Information Display | Simple Workpieces | Transformation]
-（組合：[次要 frame，若有]）
-
-## R — 需求（世界狀態）
-[只描述世界該成立什麼，不含機器怎麼做]
-
-## S — 規格（機器在介面的可觀察行為）
-[機器在「機器↔世界介面」上 MUST / MUST NOT 的行為]
-
-## W — 領域假設
-| # | 假設內容 | 若不成立的影響 |
-|---|----------|----------------|
-| W1 | [世界既有、非機器保證的前提] | [後果] |
-
-## 正確性論證（S ∧ W ⟹ R）
-[逐條說明 S 加上 W 如何推導出 R 成立]
-
-## Frame Concern 檢查表
-- [ ] 通用：R 只描述世界 / S 只描述介面行為 / W 每條標後果 / S∧W⟹R 成立
-- [ ] [該 frame 的額外 concern 項目]
-
-## DBC 對應（選填，文件化）
-| 合約 | 來源 | 對應 Pydantic validator / 測試 |
-|------|------|------------------------------|
-| require | GIVEN / W | `@field_validator` ... |
-| ensure  | THEN / R  | 後置斷言 + TC ... |
-| invariant | Workpieces concern | `@model_validator(mode="after")` ... |
-```
+`problem-frame.md` 的骨架由 `problem-frames` skill 的 `methodology.md`「輸出檔案模板」一節
+single-source 維護（owner）。Step 0.5 產出 `problem-frame.md` 時依該骨架填寫；
+本檔不再內嵌副本，以免兩處漂移。
 
 ### `proposal.md` 骨架
 
@@ -687,7 +655,7 @@ SMK-NNN for smoke tests
 → 輸入 proposal.md 末段 + tasks.md
   │
   ▼ 輸出
-openspec/changes/<feature-name>/
+openspec/changes/<name>/
 ├── problem-frame.md （Step 0.5 frame + R/S/W + S∧W⟹R）
 ├── proposal.md   （Step 1b, 4, 5）
 ├── specs/        （Step 1c Gherkin scenarios）
