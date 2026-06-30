@@ -21,7 +21,7 @@ effort: medium
 
 **完整方法論**：讀本目錄的 `methodology.md`（owner，單一真實來源）——
 含 5 種 frame 型別與各自 frame concern、R/S/W 拆解、S ∧ W ⟹ R 論證模板、
-frame concern 檢查表、Design by Contract 對應，以及完整 worked example。
+frame concern 檢查表、Design by Contract 對應、`problem-frame.md` 輸出骨架，以及完整 worked example。
 本 SKILL.md 僅為壓縮摘要，語意以 `methodology.md` 為準。
 
 ---
@@ -79,9 +79,10 @@ Problem Frame artifact 已產出：
 
 下一步：執行 /spectra-amplifier 展開完整規格。
 amplifier Step 0.5 會讀此 artifact：
-  - W（領域假設）→ 直接成為 Step 4 假設表的單一來源
+  - W（領域假設）→ 直接成為 Step 4 假設表的單一來源（唯一直接傳遞的 leg）
   - R / S    → 成為 Step 1 User Story 與 Gherkin scenario 骨架
-  - DBC 對應  → 成為 Step 2 qa-test-designer 的 Decision Table 輸入
+  - DBC 對應  → 經 Gherkin / AC 間接影響 Step 2 qa-test-designer 的 Decision Table
+               （qa-test-designer 只收 Gherkin / AC，不直接收 problem-frame.md）
 ```
 
 ---
@@ -114,5 +115,5 @@ amplifier Step 0.5 會讀此 artifact：
 |-------|-----|
 | 分不清 R 和 S | 問「這句話拿掉機器還成立嗎？」成立→R（世界）；只在介面才有意義→S |
 | 不知道選哪個 frame | 多數功能是組合；先選最主導的那個立骨架，其餘當子問題 |
-| 需求太小要不要做 framing | 單一 Actor + 單一 Goal、無隱含領域假設，可直接跑 spectra-amplifier |
+| 需求太小要不要做 framing | 單一 Actor + 單一 Goal、無隱含領域假設：可略過本「獨立」problem-frames skill，直接跑 spectra-amplifier。注意 amplifier Step 0.5（medium/high）仍會執行框架步驟，但對無隱含 W 的需求會 trivially 通過——並非「跳過 Step 0.5」 |
 | W 寫不出來 | 問「這功能要對，世界必須先成立哪些事且不是機器保證的？」 |

@@ -84,7 +84,7 @@ openspec/changes/<feature-name>/
 
 | 狀況 | 行動 |
 |------|------|
-| 有 event-storming.md 且包含 ≥ 3 domain events | 繼續（其 Notes 假設於 Step 0.5 匯入 W）|
+| 有 event-storming.md 且包含 ≥ 3 domain events | 繼續（其 Notes 假設依 effort 匯入：medium/high → Step 0.5 的 W；low → 直接進 Step 4 假設表）|
 | 只有 proposal.md ## Why，功能簡單（1 Actor + 1 Goal）| 繼續，標記「無需 Event Storming」|
 | 功能涉及多 Actor 或複雜狀態，但無領域資訊 | 輸出 `[WARN] 建議先執行 /event-storming 建立領域資訊`，確認後繼續 |
 | 完全沒有需求描述 | 請使用者補充，無法展開 |
@@ -118,7 +118,7 @@ openspec/changes/<feature-name>/
 | frame concern 檢查表全數勾選（含通用四項）| 繼續 Step 1a |
 | frame concern 有未補齊項，且 effort = medium | `[WARN] frame concern 未補齊：<清單>`，確認後繼續 |
 | frame concern 有未補齊項，且 effort = high | `[FAIL] Stop. frame concern 未補齊：<清單>。補齊後重跑。` |
-| 找不到 `problem-frames` skill 方法論 | `[WARN] problem-frames skill 未安裝，改用本 Step 內速查表 inline 展開（深度較淺）` |
+| `problem-frames` 方法論（`methodology.md`）缺失或不可讀取 | `[FAIL] Stop. problem-frames 方法論不可用。sdd plugin 應同時提供 spectra-amplifier 與 problem-frames，請還原 sdd plugin 後重跑。` |
 
 > **W 的單一來源**：此處產出的 W 是後續 Step 4 假設表的唯一來源；
 > Step 4 只能**衍生／引用** W，不得另行重編（避免兩處漂移）。
@@ -402,10 +402,11 @@ Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
 **假設表的單一來源是 Step 0.5 的 W**：本章節的「假設」表須**衍生自 / 引用**
 `problem-frame.md` 的 W（領域假設），不得另行重編一份，避免 W 在兩處漂移。
 每條假設沿用 W 的「若不成立的影響」欄。若 Step 0.5 被略過（effort = low），
-才退回從需求描述直接整理假設。
+才退回從需求描述——以及 `event-storming.md` 的 `## Notes for Amplifier`（若有）——
+直接整理假設（無 W 中介層）。
 
-若 Step 0 讀取了 `event-storming.md`，其 `## Notes for Amplifier` 的假設先匯入
-Step 0.5 的 W，再由 W 衍生至此（而非直接搬進本章節）。
+若 Step 0 讀取了 `event-storming.md` 且 effort = medium / high，其 `## Notes for Amplifier`
+的假設先匯入 Step 0.5 的 W，再由 W 衍生至此（而非直接搬進本章節）。
 
 ---
 
@@ -535,6 +536,9 @@ Step 0.5 的 W，再由 W 衍生至此（而非直接搬進本章節）。
 ## 輸出檔案模板
 
 ### `problem-frame.md` 骨架（Step 0.5）
+
+> 此骨架為消費端引用；owner（單一真實來源）是 `problem-frames` skill 的
+> `methodology.md`「輸出檔案模板」一節。骨架語意改變時於該處修訂，再同步此處。
 
 ```markdown
 # Problem Frame：[feature-name]
