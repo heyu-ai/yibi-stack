@@ -34,7 +34,8 @@ effort: medium
 ## 輸出結構
 
 ```text
-openspec/changes/<feature-name>/
+openspec/changes/<name>/
+├── problem-frame.md  # Step 0.5 frame 型別 + R/S/W + S∧W⟹R 論證（NEW）
 ├── proposal.md   # Step 1b US+AC + Step 4 假設約束 + Step 5 完工標準
 ├── specs/
 │   └── <cap>/
@@ -64,9 +65,9 @@ openspec/changes/<feature-name>/
 
 | Effort | 執行策略 |
 |--------|---------|
-| high | 完整 Step 0-5；Step 1c 寫全部 Gherkin scenarios（每個 AC 至少 2 個）；Step 2 做完整 Coverage Analysis；Step 3 必做衝突偵測；tasks.md 含優先序自動推導與 `[PRIORITY-REVIEW]` |
-| medium | 完整 Step 0-5；Step 1c 每個 US 至少 3 個 Gherkin scenarios；Step 2 基本 TC 表格 |
-| low | 只做 Step 1（US + AC + Gherkin 概要）；略過 Step 2 testplan、Step 3 詳細設計、Step 4-5 完整展開 |
+| high | 完整 Step 0-5；Step 0.5 必做且 frame concern 未補齊時 `[FAIL] Stop`；Step 1c 寫全部 Gherkin scenarios（每個 AC 至少 2 個）；Step 2 做完整 Coverage Analysis；Step 3 必做衝突偵測；tasks.md 含優先序自動推導與 `[PRIORITY-REVIEW]` |
+| medium | 完整 Step 0-5；Step 0.5 必做，frame concern 未補齊時 `[WARN]`；Step 1c 每個 US 至少 3 個 Gherkin scenarios；Step 2 基本 TC 表格 |
+| low | 略過 Step 0.5；只做 Step 1（US + AC + Gherkin 概要）；略過 Step 2 testplan、Step 3 詳細設計、Step 4-5 完整展開 |
 
 > 若 `${CLAUDE_EFFORT}` 未設定或為 `normal`，視為 medium。
 
@@ -83,10 +84,47 @@ openspec/changes/<feature-name>/
 
 | 狀況 | 行動 |
 |------|------|
-| 有 event-storming.md 且包含 ≥ 3 domain events | 繼續 Step 1，在 Step 4 Notes 中引用 |
-| 只有 proposal.md ## Why，功能簡單（1 Actor + 1 Goal）| 繼續 Step 1，標記「無需 Event Storming」|
+| 有 event-storming.md 且包含 ≥ 3 domain events | 繼續（medium/high：其 Notes 假設於 Step 0.5 匯入 W；low effort 僅做 Step 1，不展開 Step 4 假設表，故不正式匯入假設）|
+| 只有 proposal.md ## Why，功能簡單（1 Actor + 1 Goal）| 繼續，標記「無需 Event Storming」|
 | 功能涉及多 Actor 或複雜狀態，但無領域資訊 | 輸出 `[WARN] 建議先執行 /event-storming 建立領域資訊`，確認後繼續 |
 | 完全沒有需求描述 | 請使用者補充，無法展開 |
+
+> 後續：medium / high effort 進 Step 0.5（Problem Framing）；low effort 直接進 Step 1a。
+
+---
+
+## Step 0.5 — 問題框架（Problem Framing）
+
+**目標**：在萃取四元素前，先把問題「框」起來——拆成 R（需求）/ S（規格）/ W（領域假設），
+並證明 S ∧ W ⟹ R。核心價值是把領域假設 **W 前置顯式化**，降低後續 AI 採樣自由度。
+完整方法論見 `problem-frames` skill 的 `methodology.md`（Jackson Problem Frames）。
+
+**Effort 適用**：low 略過此步；medium / high 必做。
+
+1. 若已存在 `openspec/changes/<name>/problem-frame.md`，讀取並沿用；否則新建。
+2. 套用 `problem-frames` 方法論：
+   - 若 Step 0 讀取了 `event-storming.md`，先將其 `## Notes for Amplifier` 假設併入 W（領域假設）的初始清單
+   - 用 frame 分類決策表選出主導 frame（必要時組合多個）
+   - 拆 R / S / W，每條 W 標明「若不成立的後果」
+   - 寫 S ∧ W ⟹ R 正確性論證
+   - 逐項勾選該 frame 的 frame concern 檢查表
+   - （選填）標出 require / ensure / invariant 將對應到哪個 Pydantic validator / 測試
+3. 產出 `openspec/changes/<name>/problem-frame.md`。
+
+**Frame Concern Guard（決策表自含）**：
+
+| 狀況 | 行動 |
+|------|------|
+| effort = low | 略過 Step 0.5，直接進 Step 1a |
+| frame concern 檢查表全數勾選（含通用四項）| 繼續 Step 1a |
+| frame concern 有未補齊項，且 effort = medium | `[WARN] frame concern 未補齊：<清單>`，確認後繼續 |
+| frame concern 有未補齊項，且 effort = high | `[FAIL] Stop. frame concern 未補齊：<清單>。補齊後重跑。` |
+| `problem-frames` 方法論（`methodology.md`）缺失或不可讀取 | `[FAIL] Stop. problem-frames 方法論不可用。sdd plugin 應同時提供 spectra-amplifier 與 problem-frames，請還原 sdd plugin 後重跑。` |
+
+> **W 的單一來源**：此處產出的 W 是後續 Step 4 假設表的唯一來源；
+> Step 4 只能**衍生／引用** W，不得另行重編（避免兩處漂移）。
+
+`problem-frame.md` 骨架由 `problem-frames` skill 的 `methodology.md`「輸出檔案模板」一節維護（owner）。
 
 ---
 
@@ -362,7 +400,13 @@ Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
 
 每個 Out of Scope 項目必須附原因與未來考量，避免日後範疇爭議。
 
-若 Step 0 讀取了 `event-storming.md`，其 `## Notes for Amplifier` 的假設應搬進此章節。
+**假設表的單一來源是 Step 0.5 的 W**：本章節的「假設」表須**衍生自 / 引用**
+`problem-frame.md` 的 W（領域假設），不得另行重編一份，避免 W 在兩處漂移。
+每條假設沿用 W 的「若不成立的影響」欄。（Step 4 僅在 medium / high effort 執行，
+此時 Step 0.5 必已產出 W；low effort 只做 Step 1，不展開本假設表。）
+
+若 Step 0 讀取了 `event-storming.md`，其 `## Notes for Amplifier` 的假設已於 Step 0.5
+併入 W，故此處由 W 衍生即可（而非直接搬進本章節）。
 
 ---
 
@@ -491,6 +535,12 @@ Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
 
 ## 輸出檔案模板
 
+### `problem-frame.md` 骨架（Step 0.5）
+
+`problem-frame.md` 的骨架由 `problem-frames` skill 的 `methodology.md`「輸出檔案模板」一節
+single-source 維護（owner）。Step 0.5 產出 `problem-frame.md` 時依該骨架填寫；
+本檔不再內嵌副本，以免兩處漂移。
+
 ### `proposal.md` 骨架
 
 ```markdown
@@ -549,6 +599,8 @@ Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
 
 | 反模式 | 問題 | 正確做法 |
 |--------|------|----------|
+| **跳過 framing**（直接從描述萃取四元素，不分 R/S/W）| 領域假設 W 留白，AI 每次自行補不同假設 → 規格不可重現 | medium/high effort 先做 Step 0.5，把 W 顯式化 |
+| **W 在 problem-frame 與 Step 4 假設表各寫一份** | 兩處漂移 | Step 4 假設表衍生自 problem-frame.md 的 W，單一來源 |
 | **跳層展開**（直接從描述跳到 Step 3）| 缺少行為規格，資料模型設計錯誤 | 完成 Step 1 才進 Step 3 |
 | **巨型 User Story**（一個 Story 含 5+ 功能）| AC 無法獨立測試 | 拆分直到每個 Story 只有 3~5 條 AC |
 | **AC 直接當 Scenario**（沒有 GIVEN/WHEN/THEN）| 無法機器解析，trace rate 0% | 每條 AC 至少對應一個 Gherkin scenario |
@@ -571,6 +623,11 @@ Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
 event-storming.md 存在且有 ≥3 domain events → 繼續
 功能簡單（1 Actor + 1 Goal）→ 繼續（標「無需 Event Storming」）
 多 Actor 複雜狀態但無領域資訊 → [WARN] 建議跑 /event-storming
+  │
+  ▼ Step 0.5: Problem Framing（medium/high；low 略過）
+frame 分類 → R/S/W 拆解 → S∧W⟹R 論證 → frame concern 檢查表
+frame concern 未補齊 → [WARN]（medium）/ [FAIL]（high）
+→ 輸入 problem-frame.md（W 為 Step 4 假設表單一來源）
   │
   ▼ Step 1a: 四元素萃取（Actors / Actions / Data / Constraints）
   │
@@ -598,7 +655,8 @@ SMK-NNN for smoke tests
 → 輸入 proposal.md 末段 + tasks.md
   │
   ▼ 輸出
-openspec/changes/<feature-name>/
+openspec/changes/<name>/
+├── problem-frame.md （Step 0.5 frame + R/S/W + S∧W⟹R）
 ├── proposal.md   （Step 1b, 4, 5）
 ├── specs/        （Step 1c Gherkin scenarios）
 ├── testplan.md   （Step 2 TC + coverage）
