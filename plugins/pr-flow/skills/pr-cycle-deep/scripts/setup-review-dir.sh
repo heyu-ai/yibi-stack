@@ -35,13 +35,18 @@ if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
     exit 1
 fi
 
-# 在進入 mkdir / git diff 之前先驗證 BASE_BRANCH 是有效 git ref，
-# 避免 typo（如 'mian'）或只有遠端的 branch 留下 0-byte diff.patch 後才失敗。
-# 注意：`git fetch origin <branch>` 只更新 `origin/<branch>` ref，**不會**建立 local
-# branch；若需要 local `main` 對應 remote，要 `git fetch origin main:main` 或直接用
-# `BASE_BRANCH=origin/main` 作為值。
-if ! git rev-parse --verify "$BASE_BRANCH" >/dev/null 2>&1; then
-    echo "[FAIL] '$BASE_BRANCH' 不是有效的 git ref（請確認本地有此 branch，或改用 'origin/${BASE_BRANCH}'）" >&2
+# 一律 fetch 後用 FETCH_HEAD 當 diff base，不信任本地 branch ref（PR #22 mob review
+# 教訓：本地 main 落後 origin/main 時，`git rev-parse --verify main` 仍會通過驗證，
+# 但 diff 會混入已經合併到 origin/main、本地卻還沒同步的舊 commit 內容，導致 reviewer
+# 拿到不相關的 diff）。比照 codex-r1-stage1.sh 的作法：strip 掉可能已有的 "origin/"
+# 前綴，永遠對 origin 重新 fetch，用 FETCH_HEAD 取代呼叫端傳入的 branch 名稱本身。
+FETCH_BRANCH="${BASE_BRANCH#origin/}"
+if ! git fetch origin "$FETCH_BRANCH" --quiet; then
+    echo "[FAIL] git fetch origin $FETCH_BRANCH 失敗，請確認 remote 連線與 branch 名稱是否正確" >&2
+    exit 1
+fi
+if ! BASE_SHA=$(git rev-parse FETCH_HEAD 2>/dev/null); then
+    echo "[FAIL] git rev-parse FETCH_HEAD 失敗，請確認 base branch 存在" >&2
     exit 1
 fi
 
@@ -68,8 +73,8 @@ if ! grep -qF '.pr-review/' "$GIT_DIR/info/exclude" 2>/dev/null; then
     echo '.pr-review/' >> "$GIT_DIR/info/exclude"
 fi
 
-git diff "$BASE_BRANCH"...HEAD > "$REVIEW_DIR/diff.patch"
-git diff "$BASE_BRANCH"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"
+git diff "$BASE_SHA"...HEAD > "$REVIEW_DIR/diff.patch"
+git diff "$BASE_SHA"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"
 
 # Informational：呼叫端可選擇解析此行或自行 git rev-parse --show-toplevel 推導。
 echo "REVIEW_DIR=$REVIEW_DIR"
