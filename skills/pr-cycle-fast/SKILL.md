@@ -27,6 +27,18 @@ if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Pat
 if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定' >&2; exit 1; fi
 ```
 
+擷取**目標 repo** 的 checkout 路徑（即目前 session 的 cwd，如 yibi-mvp）：
+
+```bash
+REPO_ROOT="$PWD"
+```
+
+> **為什麼需要 `REPO_ROOT`**：Step 1 用 `uv run --directory "$SKILL_REPO"` 才能 import
+> `tasks.pr_orchestrator`（module 只在 skill repo），但 `--directory` 會把子行程 cwd 換成
+> **skill repo**。orchestrator 內的 `git branch --show-current` 只認 cwd 底下的 checkout，
+> 也不吃 `GH_REPO`（那是 gh 的遠端 slug，不是本地路徑），若不傳 `--repo-root` 就會誤讀成
+> skill repo 的分支。務必用 `--repo-root "$REPO_ROOT"` 明確指向目標 repo。
+
 確認 `gh`、`git`、`uv` 可用：
 
 ```bash
@@ -41,7 +53,14 @@ uv --version
 **auto-detect（無引數）**：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator detect
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator detect --repo-root "$REPO_ROOT"
+```
+
+`--repo-root "$REPO_ROOT"` 讓 branch/gh 偵測回到目標 repo（見 Step 0 說明）。
+明確指定 PR 時同樣帶上：
+
+```bash
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator detect --pr {{pr_number}} --repo-root "$REPO_ROOT"
 ```
 
 若失敗（多 PR 同分支）：停止，告訴 user 加 `--pr <n>` 重跑。

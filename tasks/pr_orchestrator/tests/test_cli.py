@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from tasks.pr_orchestrator.cli import _resolve_repo_slug
+from click.testing import CliRunner
+
+from tasks.pr_orchestrator.cli import _resolve_repo_slug, cli
+from tasks.pr_orchestrator.models import PRInfo
 
 
 class TestResolveRepoSlug:
@@ -37,3 +41,53 @@ class TestResolveRepoSlug:
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="not a repo")
         with patch.dict("os.environ", {}, clear=True):
             assert _resolve_repo_slug() == ""
+
+    @patch("tasks.pr_orchestrator.cli.subprocess.run")
+    def test_pror_st_024_slug_fallback_uses_repo_root_cwd(self, mock_run: MagicMock) -> None:
+        """PROR-ST-024: GH_REPO 未設時，slug fallback 的 gh 須在 repo_root 執行"""
+        mock_run.return_value = MagicMock(returncode=0, stdout="owner/target\n", stderr="")
+        target = Path("/repos/yibi-mvp")
+        with patch.dict("os.environ", {}, clear=True):
+            assert _resolve_repo_slug(repo_root=target) == "owner/target"
+        assert mock_run.call_args.kwargs["cwd"] == target
+
+
+class TestDetectRepoRoot:
+    """PROR-ST-03N：detect 的 `--repo-root` 端到端串接。"""
+
+    @patch("tasks.pr_orchestrator.cli.olog.append")
+    @patch("tasks.pr_orchestrator.cli.persist_state")
+    @patch("tasks.pr_orchestrator.cli._resolve_repo_slug", return_value="owner/target")
+    @patch("tasks.pr_orchestrator.cli.state_path")
+    @patch("tasks.pr_orchestrator.detector.pr_for_branch")
+    @patch("tasks.pr_orchestrator.detector.current_branch")
+    def test_pror_st_034_detect_threads_repo_root(
+        self,
+        mock_branch: MagicMock,
+        mock_pr_for_branch: MagicMock,
+        mock_state_path: MagicMock,
+        mock_slug: MagicMock,
+        mock_persist: MagicMock,
+        mock_log: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """PROR-ST-034: detect --repo-root 把路徑傳給 current_branch 與 pr_for_branch 的 cwd"""
+        mock_branch.return_value = "feat-x"
+        mock_pr_for_branch.return_value = PRInfo(
+            number=42, head_ref_name="feat-x", head_ref_oid="deadbeef", base_ref_name="main"
+        )
+        no_state = MagicMock()
+        no_state.is_file.return_value = False
+        mock_state_path.return_value = no_state
+
+        result = CliRunner().invoke(cli, ["detect", "--repo-root", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        assert mock_branch.call_args.kwargs["cwd"] == tmp_path
+        assert mock_pr_for_branch.call_args.kwargs["cwd"] == tmp_path
+
+    def test_pror_st_035_detect_rejects_nonexistent_repo_root(self) -> None:
+        """PROR-ST-035: --repo-root 指向不存在的目錄時 fail-loud"""
+        result = CliRunner().invoke(cli, ["detect", "--repo-root", "/no/such/dir/xyz"])
+        assert result.exit_code == 1
+        assert "--repo-root 不是目錄" in result.output
