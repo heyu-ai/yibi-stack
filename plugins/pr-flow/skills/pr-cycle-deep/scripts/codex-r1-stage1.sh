@@ -41,14 +41,28 @@ fi
 
 # codex outputs review to stderr; stdout is progress UI noise.
 # git fetch writes the fetched SHA to FETCH_HEAD; use that instead of origin/<base>
-# to avoid stale local ref. Strip leading "origin/" if already qualified.
-# Strip leading "origin/" if already qualified to avoid "origin/origin/..." construction.
+# to avoid stale local ref. Strip leading "origin/" if already qualified, to avoid
+# "origin/origin/..." construction. This block is a deliberate twin of
+# setup-review-dir.sh's fetch+FETCH_HEAD block -- keep both in sync when editing either.
+#
+# PR #175 mob review lesson (security + correctness, found via this exact pattern in
+# setup-review-dir.sh's sibling copy -- applies here too since the code was identical):
+#   1. An empty FETCH_BRANCH (e.g. BASE_BRANCH="origin/") makes `git fetch origin ""`
+#      silently fall back to the remote's default branch instead of failing -- diff base
+#      ends up wrong with no failure signal. Guarded below.
+#   2. Passing $FETCH_BRANCH to `git fetch` without a "--" separator lets a value
+#      starting with "-" be parsed as a git option instead of a ref name (verified
+#      command-injection risk via `git fetch origin --upload-pack=<cmd>`). Guarded via "--".
 FETCH_BRANCH="${BASE_BRANCH#origin/}"
-if ! git fetch origin "$FETCH_BRANCH" --quiet 2>/dev/null; then
-    echo "[FAIL] git fetch origin $FETCH_BRANCH 失敗，請確認 remote 連線" >&2
+if [ -z "$FETCH_BRANCH" ]; then
+    echo "[FAIL] '$BASE_BRANCH' 解析後為空字串，不是有效的 branch 名稱" >&2
     exit 1
 fi
-if ! BASE_SHA=$(git rev-parse FETCH_HEAD 2>/dev/null); then
+if ! git fetch origin --quiet -- "$FETCH_BRANCH"; then
+    echo "[FAIL] git fetch origin $FETCH_BRANCH 失敗，請確認 '$FETCH_BRANCH' 已存在於 origin（此 script 一律以 origin 上的版本為 base，本地未 push 的 branch 或離線環境不適用）" >&2
+    exit 1
+fi
+if ! BASE_SHA=$(git rev-parse FETCH_HEAD); then
     echo "[FAIL] git rev-parse FETCH_HEAD 失敗，請確認 base branch 存在" >&2
     exit 1
 fi
