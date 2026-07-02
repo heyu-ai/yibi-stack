@@ -341,9 +341,12 @@ calls do not need to parse this output — derive directly from the worktree roo
 **Why extracted to a script**: the original fat bash block violated rule 13 AP1 (overly complex
 single command), rule 14 Quoting Rule 5 (multiple `"$VAR"` expansions), rule 14 `$?` section
 (`if [ $? -ne 0 ]`), and writing to `.git/info/exclude` triggered a permission dialog.
-The script uses `set -euo pipefail` and `if ! cmd; then` instead of `$?`, and validates
-`BASE_BRANCH` with `git rev-parse --verify` before entering git diff
-(to avoid typos leaving a 0-byte diff.patch).
+The script uses `set -euo pipefail` and `if ! cmd; then` instead of `$?`, and resolves
+`BASE_BRANCH` by always `git fetch origin`-ing it fresh and diffing against `FETCH_HEAD`
+(not a bare `git rev-parse --verify` — a stale local branch ref would otherwise pass that
+check and silently produce a diff against the wrong base; see the script's own header comment
+for the PR that motivated this). A typo'd or nonexistent branch name now surfaces as a
+`git fetch` failure, not a `rev-parse --verify` failure.
 
 **Allow-list pattern note**: `Bash()` rules do **not expand** `~` (rule 16 "safe pattern
 examples", key point 2), so `Bash(bash ~/.agents/skills/.../setup-review-dir.sh)` **does not**
