@@ -1,5 +1,6 @@
 ---
 description: Diagnose spectra CLI installation status and show setup instructions
+model: sonnet
 ---
 <!-- markdownlint-disable-file MD041 -->
 
