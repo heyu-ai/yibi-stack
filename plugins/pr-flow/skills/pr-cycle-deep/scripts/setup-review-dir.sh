@@ -47,6 +47,12 @@ fi
 # "origin/" 前綴；若呼叫端傳入其他 remote（如 "upstream/main"），fetch 會直接對
 # origin 失敗並印出下方 [FAIL] 訊息（不會靜默用錯 remote）。
 #
+# 已知限制（Codex round-3 finding）："origin/" 一律視為 remote-tracking 記法並剝除，
+# 不支援字面上就叫 "origin/<name>" 的 branch（此為 mob-code-review-only/SKILL.md
+# 既有呼叫慣例本身的語意：呼叫端傳 "origin/{{base_branch}}" 就是要用 origin 上的
+# 版本，非要求保留這個字面 branch 名稱）。此工具的呼叫端一律是 gh pr view 取得的
+# 單純 PR base branch 名稱（如 "main"），不會出現這種罕見的 branch 命名衝突。
+#
 # PR #175 mob review 教訓（安全性 + 正確性）：
 #   1. BASE_BRANCH 若解析成空字串（如呼叫端傳入 "origin/"），`git fetch origin ""`
 #      不會報錯，而是靜默 fallback 抓 remote 的預設 branch，導致 diff 對到錯的 base

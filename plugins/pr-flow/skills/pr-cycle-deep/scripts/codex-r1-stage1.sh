@@ -53,6 +53,13 @@ fi
 #   2. Passing $FETCH_BRANCH to `git fetch` without a "--" separator lets a value
 #      starting with "-" be parsed as a git option instead of a ref name (verified
 #      command-injection risk via `git fetch origin --upload-pack=<cmd>`). Guarded via "--".
+#
+# Known limitation (Codex round-3 finding): "origin/" is always treated as
+# remote-tracking notation and stripped -- a branch literally named "origin/<name>"
+# isn't supported (matches this tool's own calling convention: callers passing
+# "origin/{{base_branch}}" mean "use origin's version", not "keep this literal name").
+# Callers here are always a plain PR base branch name from `gh pr view`, so this
+# naming collision doesn't occur in practice.
 FETCH_BRANCH="${BASE_BRANCH#origin/}"
 if [ -z "$FETCH_BRANCH" ]; then
     echo "[FAIL] '$BASE_BRANCH' 解析後為空字串，不是有效的 branch 名稱" >&2
