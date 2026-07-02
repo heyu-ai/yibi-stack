@@ -111,23 +111,28 @@ def current_branch(cwd: Path | None = None) -> str:
     return branch
 
 
-def current_user() -> str:
-    raw = _gh(["api", "user", "-q", ".login"])
+def current_user(cwd: Path | None = None) -> str:
+    raw = _gh(["api", "user", "-q", ".login"], cwd=cwd)
     return raw.strip()
 
 
-def pr_diff_files(pr_number: int) -> list[str]:
-    """取得 PR diff 涉及的所有檔案路徑（`gh pr diff --name-only`）。"""
-    raw = _gh(["pr", "diff", str(pr_number), "--name-only"])
+def pr_diff_files(pr_number: int, cwd: Path | None = None) -> list[str]:
+    """取得 PR diff 涉及的所有檔案路徑（`gh pr diff --name-only`）。
+
+    `cwd` 指向目標 repo 的 checkout（見 `pr_for_branch` 說明）。
+    """
+    raw = _gh(["pr", "diff", str(pr_number), "--name-only"], cwd=cwd)
     return [line for line in raw.splitlines() if line.strip()]
 
 
-def fetch_failed_check_logs(pr_number: int) -> list[CIFailure]:
+def fetch_failed_check_logs(pr_number: int, cwd: Path | None = None) -> list[CIFailure]:
     """取得每個失敗 check run 的 log 文字。
 
     使用 gh pr checks --json name,state,link，從 link URL 提取 workflow run ID，
     再透過 gh run view <run_id> --log-failed 取得失敗 log。
     同一 run 中的多個失敗 job 只擷取一次 log（避免重複）。
+
+    `cwd` 指向目標 repo 的 checkout（見 `pr_for_branch` 說明）。
     """
     raw = _gh(
         [
@@ -136,7 +141,8 @@ def fetch_failed_check_logs(pr_number: int) -> list[CIFailure]:
             str(pr_number),
             "--json",
             "name,state,link",
-        ]
+        ],
+        cwd=cwd,
     )
     checks = json.loads(raw or "[]")
     failures: list[CIFailure] = []
@@ -154,7 +160,7 @@ def fetch_failed_check_logs(pr_number: int) -> list[CIFailure]:
             continue
         seen_run_ids.add(run_id)
         try:
-            log_text = _gh(["run", "view", run_id, "--log-failed"])
+            log_text = _gh(["run", "view", run_id, "--log-failed"], cwd=cwd)
         except RuntimeError as e:
             log_text = f"[LOG_FETCH_ERROR: {e}]"
         failures.append(

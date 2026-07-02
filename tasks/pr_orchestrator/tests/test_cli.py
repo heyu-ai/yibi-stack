@@ -91,3 +91,42 @@ class TestDetectRepoRoot:
         result = CliRunner().invoke(cli, ["detect", "--repo-root", "/no/such/dir/xyz"])
         assert result.exit_code == 1
         assert "--repo-root 不是目錄" in result.output
+
+    @patch("tasks.pr_orchestrator.cli.olog.append")
+    @patch("tasks.pr_orchestrator.cli.persist_state")
+    @patch("tasks.pr_orchestrator.cli._resolve_repo_slug", return_value="owner/target")
+    @patch("tasks.pr_orchestrator.cli.state_path")
+    @patch("tasks.pr_orchestrator.detector.current_branch")
+    @patch("tasks.pr_orchestrator.detector.pr_by_number")
+    def test_pror_st_036_detect_pr_threads_repo_root_and_skips_branch(
+        self,
+        mock_pr_by_number: MagicMock,
+        mock_branch: MagicMock,
+        mock_state_path: MagicMock,
+        mock_slug: MagicMock,
+        mock_persist: MagicMock,
+        mock_log: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """PROR-ST-036: detect --pr N 把 cwd 傳給 pr_by_number，且完全不呼叫 current_branch"""
+        mock_pr_by_number.return_value = PRInfo(
+            number=88, head_ref_name="feat-y", head_ref_oid="c0ffee", base_ref_name="main"
+        )
+        no_state = MagicMock()
+        no_state.is_file.return_value = False
+        mock_state_path.return_value = no_state
+
+        result = CliRunner().invoke(cli, ["detect", "--pr", "88", "--repo-root", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        assert mock_pr_by_number.call_args.kwargs["cwd"] == tmp_path
+        mock_branch.assert_not_called()
+
+
+class TestResolveRepoSlugEnvPrecedence:
+    @patch("tasks.pr_orchestrator.cli.subprocess.run")
+    def test_pror_st_037_gh_repo_set_skips_repo_root_subprocess(self, mock_run: MagicMock) -> None:
+        """PROR-ST-037: GH_REPO 設定時直接回傳，不因 repo_root 而 spawn gh subprocess"""
+        with patch.dict("os.environ", {"GH_REPO": "owner/target"}, clear=False):
+            assert _resolve_repo_slug(repo_root=Path("/repos/yibi-mvp")) == "owner/target"
+        mock_run.assert_not_called()

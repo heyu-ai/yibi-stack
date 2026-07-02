@@ -214,6 +214,55 @@ class TestAutoFixSafetyGates:
         assert any("無法取得 CI log" in b.reason for b in result.blockers)
 
 
+class TestAutoFixRepoRootThreading:
+    """PROR-ST-04N：auto-fix 的 gh 呼叫必須用目標 repo 的 repo_root 當 cwd。
+
+    根因與 detect 同源：SKILL 在 `uv run --directory <skill_repo>` 下觸發，子行程 cwd 是
+    skill repo。`_git` 已吃 repo_root，但 gh 偵測呼叫若不帶 cwd，會讀錯 repo 的 PR
+    （fork 檢查與 diff 範圍全部作用在 skill repo），比 detect 更危險。
+    """
+
+    @patch("tasks.pr_orchestrator.auto_fix.persist_state")
+    @patch("tasks.pr_orchestrator.log.append")
+    @patch("tasks.pr_orchestrator.auto_fix.fetch_failed_check_logs", return_value=[])
+    @patch("tasks.pr_orchestrator.auto_fix.pr_diff_files", return_value=[])
+    @patch("tasks.pr_orchestrator.auto_fix.pr_by_number")
+    @patch("tasks.pr_orchestrator.auto_fix.current_user", return_value="alice")
+    @patch("tasks.pr_orchestrator.auto_fix._working_tree_clean", return_value=True)
+    def test_pror_st_040_gh_calls_receive_repo_root_cwd(
+        self,
+        mock_clean: MagicMock,
+        mock_user: MagicMock,
+        mock_pr: MagicMock,
+        mock_diff: MagicMock,
+        mock_failures: MagicMock,
+        mock_log: MagicMock,
+        mock_persist: MagicMock,
+    ) -> None:
+        """PROR-ST-040: 四個 gh 偵測呼叫皆帶 cwd=repo_root"""
+        from tasks.pr_orchestrator import auto_fix
+        from tasks.pr_orchestrator.models import PRInfo
+
+        # author == me → 通過 fork gate，繼續走到 diff/CI-log 擷取
+        mock_pr.return_value = PRInfo(
+            number=42,
+            head_ref_name="feat-auto-fix",
+            head_ref_oid="cafebabe",
+            base_ref_name="main",
+            author_login="alice",
+        )
+        repo_root = Path("/repos/yibi-mvp")
+        state = make_state()
+        cfg = make_config(allow_fork_fix=False)
+
+        auto_fix.run(state, cfg, repo_root)
+
+        assert mock_user.call_args.kwargs["cwd"] == repo_root
+        assert mock_pr.call_args.kwargs["cwd"] == repo_root
+        assert mock_diff.call_args.kwargs["cwd"] == repo_root
+        assert mock_failures.call_args.kwargs["cwd"] == repo_root
+
+
 class TestFixerDetection:
     def test_pror_st_005_markdownlint_fixture_detected(self) -> None:
         """PROR-ST-005: markdownlint fixture log 被 MarkdownlintFixer 偵測到"""

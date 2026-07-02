@@ -166,8 +166,13 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status --pr {{p
 明確觸發方式（transition 到 AUTO_FIX 後執行）：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator auto-fix --pr {{pr_number}}
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator auto-fix --pr {{pr_number}} --repo-root "$REPO_ROOT"
 ```
+
+> **務必帶 `--repo-root "$REPO_ROOT"`**：省略時 `auto-fix` 會 fallback 到 `os.getcwd()`
+> ＝ skill repo（因 `--directory` 換了子行程 cwd），auto-fix 的 `git add/commit/push`
+> 與 fork 安全檢查、diff 範圍都會作用在 skill repo 而非目標 repo——這是比 detect 更危險的
+> wrong-repo `git push`。與 Step 1 同源。
 
 ### Step 6 — Ship Gate (MERGEABLE)
 

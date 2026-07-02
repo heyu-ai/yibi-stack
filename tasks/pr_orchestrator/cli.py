@@ -92,7 +92,9 @@ def detect(pr_number: int | None, branch: str | None, repo_root_str: str | None)
         click.echo(f"[FAIL] --repo-root 不是目錄：{repo_root}", err=True)
         raise SystemExit(1)
 
-    if branch is None:
+    # 只有在需要靠分支反查 PR 時才偵測分支；有 --pr 時分支用不到，
+    # 略過可避免目標 repo 處於 detached HEAD 時無謂地 exit(1)。
+    if branch is None and pr_number is None:
         try:
             branch = current_branch(cwd=repo_root)
         except RuntimeError as e:
@@ -106,6 +108,10 @@ def detect(pr_number: int | None, branch: str | None, repo_root_str: str | None)
             click.echo(f"[FAIL] {e}", err=True)
             raise SystemExit(1) from None
     else:
+        # pr_number is None → 上方 guard 必已解出 branch；防禦性收斂供型別檢查與保險。
+        if branch is None:
+            click.echo("[FAIL] 無法決定分支（請提供 --branch 或 --pr）", err=True)
+            raise SystemExit(1)
         try:
             pr_info = pr_for_branch(branch, cwd=repo_root)
         except RuntimeError as e:
