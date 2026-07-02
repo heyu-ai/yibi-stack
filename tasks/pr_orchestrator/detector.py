@@ -23,8 +23,12 @@ def _gh(args: list[str], cwd: Path | None = None) -> str:
     return result.stdout.strip()
 
 
-def pr_for_branch(branch: str) -> PRInfo:
-    """回傳目前分支對應的 PR；沒有 PR 或有多筆時 raise RuntimeError。"""
+def pr_for_branch(branch: str, cwd: Path | None = None) -> PRInfo:
+    """回傳目前分支對應的 PR；沒有 PR 或有多筆時 raise RuntimeError。
+
+    `cwd` 指向目標 repo 的 checkout；在 `uv run --directory <skill_repo>` 之下
+    子行程 cwd 是 skill repo，必須明確傳入目標 repo 路徑，gh 才會解析到正確的 repo。
+    """
     raw = _gh(
         [
             "pr",
@@ -35,7 +39,8 @@ def pr_for_branch(branch: str) -> PRInfo:
             "number,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,author",
             "--limit",
             "5",
-        ]
+        ],
+        cwd=cwd,
     )
     items = json.loads(raw or "[]")
     if not items:
@@ -57,8 +62,11 @@ def pr_for_branch(branch: str) -> PRInfo:
     )
 
 
-def pr_by_number(pr_number: int) -> PRInfo:
-    """以 PR 號碼取得 PRInfo。"""
+def pr_by_number(pr_number: int, cwd: Path | None = None) -> PRInfo:
+    """以 PR 號碼取得 PRInfo。
+
+    `cwd` 指向目標 repo 的 checkout（見 `pr_for_branch` 說明）。
+    """
     raw = _gh(
         [
             "pr",
@@ -66,7 +74,8 @@ def pr_by_number(pr_number: int) -> PRInfo:
             str(pr_number),
             "--json",
             "number,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,author",
-        ]
+        ],
+        cwd=cwd,
     )
     item = json.loads(raw)
     return PRInfo(
@@ -80,12 +89,20 @@ def pr_by_number(pr_number: int) -> PRInfo:
     )
 
 
-def current_branch() -> str:
+def current_branch(cwd: Path | None = None) -> str:
+    """讀取目前分支。
+
+    `cwd` 指向目標 repo 的 checkout。`git branch --show-current` 只認 cwd 底下的
+    checkout，且不吃 `GH_REPO`（那是 gh 的遠端 slug，不是本地路徑）；在
+    `uv run --directory <skill_repo>` 之下子行程 cwd 是 skill repo，若不明確傳入
+    目標 repo 路徑，會誤讀成 skill repo 的分支。
+    """
     result = subprocess.run(  # nosec B603 B607
         ["git", "branch", "--show-current"],
         capture_output=True,
         text=True,
         timeout=10,
+        cwd=cwd,
     )
     branch = result.stdout.strip()
     if result.returncode != 0 or not branch:
@@ -94,23 +111,28 @@ def current_branch() -> str:
     return branch
 
 
-def current_user() -> str:
-    raw = _gh(["api", "user", "-q", ".login"])
+def current_user(cwd: Path | None = None) -> str:
+    raw = _gh(["api", "user", "-q", ".login"], cwd=cwd)
     return raw.strip()
 
 
-def pr_diff_files(pr_number: int) -> list[str]:
-    """取得 PR diff 涉及的所有檔案路徑（`gh pr diff --name-only`）。"""
-    raw = _gh(["pr", "diff", str(pr_number), "--name-only"])
+def pr_diff_files(pr_number: int, cwd: Path | None = None) -> list[str]:
+    """取得 PR diff 涉及的所有檔案路徑（`gh pr diff --name-only`）。
+
+    `cwd` 指向目標 repo 的 checkout（見 `pr_for_branch` 說明）。
+    """
+    raw = _gh(["pr", "diff", str(pr_number), "--name-only"], cwd=cwd)
     return [line for line in raw.splitlines() if line.strip()]
 
 
-def fetch_failed_check_logs(pr_number: int) -> list[CIFailure]:
+def fetch_failed_check_logs(pr_number: int, cwd: Path | None = None) -> list[CIFailure]:
     """取得每個失敗 check run 的 log 文字。
 
     使用 gh pr checks --json name,state,link，從 link URL 提取 workflow run ID，
     再透過 gh run view <run_id> --log-failed 取得失敗 log。
     同一 run 中的多個失敗 job 只擷取一次 log（避免重複）。
+
+    `cwd` 指向目標 repo 的 checkout（見 `pr_for_branch` 說明）。
     """
     raw = _gh(
         [
@@ -119,7 +141,8 @@ def fetch_failed_check_logs(pr_number: int) -> list[CIFailure]:
             str(pr_number),
             "--json",
             "name,state,link",
-        ]
+        ],
+        cwd=cwd,
     )
     checks = json.loads(raw or "[]")
     failures: list[CIFailure] = []
@@ -137,7 +160,7 @@ def fetch_failed_check_logs(pr_number: int) -> list[CIFailure]:
             continue
         seen_run_ids.add(run_id)
         try:
-            log_text = _gh(["run", "view", run_id, "--log-failed"])
+            log_text = _gh(["run", "view", run_id, "--log-failed"], cwd=cwd)
         except RuntimeError as e:
             log_text = f"[LOG_FETCH_ERROR: {e}]"
         failures.append(

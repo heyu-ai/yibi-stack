@@ -6,6 +6,7 @@ import json
 import os
 import subprocess  # nosec B404
 import sys
+from pathlib import Path
 
 import click
 
@@ -20,14 +21,15 @@ from .config import (
 from .models import OrchestratorState, PRState
 
 
-def _resolve_repo_slug() -> str:
+def _resolve_repo_slug(repo_root: Path | None = None) -> str:
     """Resolve the target repo slug (owner/name); empty string on failure.
 
     `gh repo view` with no positional arg IGNORES the GH_REPO env var and
     resolves the repo from the cwd git remote. When this runs under
     `uv run --directory <skill_repo>` the cwd is the skill repo, not the target
     repo, so the slug would be recorded wrong. Honor GH_REPO explicitly first;
-    only fall back to cwd-based detection when it is unset.
+    when it is unset, fall back to `gh repo view` run inside `repo_root` (the
+    target repo checkout) so the cwd-based detection resolves the right repo.
     """
     repo = os.environ.get("GH_REPO", "").strip()
     if repo:
@@ -38,6 +40,7 @@ def _resolve_repo_slug() -> str:
             capture_output=True,
             text=True,
             timeout=10,
+            cwd=repo_root,
         )
         if r.returncode == 0:
             return r.stdout.strip()
@@ -73,26 +76,44 @@ def cli() -> None:
 @cli.command()
 @click.option("--pr", "pr_number", default=None, type=int, help="PR 號碼（留空時自動偵測）")
 @click.option("--branch", default=None, help="分支名稱（留空時從 git 讀取）")
-def detect(pr_number: int | None, branch: str | None) -> None:
+@click.option(
+    "--repo-root",
+    "repo_root_str",
+    default=None,
+    help="目標 repo 的 checkout 路徑（留空用 cwd）。"
+    "在 `uv run --directory <skill_repo>` 下必須指定，否則 git/gh 會誤判成 skill repo。",
+)
+def detect(pr_number: int | None, branch: str | None, repo_root_str: str | None) -> None:
     """偵測目前分支的 open PR，建立初始 state file。"""
     from .detector import current_branch, pr_by_number, pr_for_branch
 
-    if branch is None:
+    repo_root = Path(repo_root_str) if repo_root_str else None
+    if repo_root is not None and not repo_root.is_dir():
+        click.echo(f"[FAIL] --repo-root 不是目錄：{repo_root}", err=True)
+        raise SystemExit(1)
+
+    # 只有在需要靠分支反查 PR 時才偵測分支；有 --pr 時分支用不到，
+    # 略過可避免目標 repo 處於 detached HEAD 時無謂地 exit(1)。
+    if branch is None and pr_number is None:
         try:
-            branch = current_branch()
+            branch = current_branch(cwd=repo_root)
         except RuntimeError as e:
             click.echo(f"[FAIL] {e}", err=True)
             raise SystemExit(1) from None
 
     if pr_number is not None:
         try:
-            pr_info = pr_by_number(pr_number)
+            pr_info = pr_by_number(pr_number, cwd=repo_root)
         except RuntimeError as e:
             click.echo(f"[FAIL] {e}", err=True)
             raise SystemExit(1) from None
     else:
+        # pr_number is None → 上方 guard 必已解出 branch；防禦性收斂供型別檢查與保險。
+        if branch is None:
+            click.echo("[FAIL] 無法決定分支（請提供 --branch 或 --pr）", err=True)
+            raise SystemExit(1)
         try:
-            pr_info = pr_for_branch(branch)
+            pr_info = pr_for_branch(branch, cwd=repo_root)
         except RuntimeError as e:
             click.echo(f"[FAIL] {e}", err=True)
             raise SystemExit(1) from None
@@ -108,7 +129,7 @@ def detect(pr_number: int | None, branch: str | None) -> None:
         return
 
     # Resolve repo slug (best-effort — failure is non-fatal).
-    repo = _resolve_repo_slug()
+    repo = _resolve_repo_slug(repo_root=repo_root)
 
     state = OrchestratorState(
         pr_number=pr_info.number,

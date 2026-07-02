@@ -76,8 +76,8 @@ def run(
     # Safety gate 2 — fork PR check (fail-closed: API failure → BLOCKED)
     if not cfg.allow_fork_fix:
         try:
-            me = current_user()
-            pr_info = pr_by_number(state.pr_number)
+            me = current_user(cwd=repo_root)
+            pr_info = pr_by_number(state.pr_number, cwd=repo_root)
             if pr_info.author_login and pr_info.author_login != me:
                 state = add_blocker(
                     state,
@@ -102,7 +102,7 @@ def run(
 
     # Fetch PR diff files (scope limiter — only fix files in this PR)
     try:
-        pr_files = pr_diff_files(state.pr_number)
+        pr_files = pr_diff_files(state.pr_number, cwd=repo_root)
     except RuntimeError as e:
         state = add_blocker(
             state, f"無法取得 PR diff 檔案：{e}", "手動確認 PR 存在並有 write access"
@@ -114,7 +114,7 @@ def run(
 
     # Fetch CI failure logs
     try:
-        failures = fetch_failed_check_logs(state.pr_number)
+        failures = fetch_failed_check_logs(state.pr_number, cwd=repo_root)
     except RuntimeError as e:
         state = add_blocker(state, f"無法取得 CI log：{e}", "手動查看 GitHub Actions")
         state = transition(state, PRState.BLOCKED, "ci log fetch failed")
