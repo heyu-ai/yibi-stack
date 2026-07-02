@@ -135,35 +135,85 @@ def _run_setup(repo: Path, base_branch: str) -> subprocess.CompletedProcess[str]
 
 
 class TestSetupReviewDirBehavioral:
-    def test_srd_st_001_stale_local_base_uses_origin_tip_not_local(
-        self, origin_and_clone: dict[str, Path]
-    ) -> None:
-        """SRD-ST-001: local `main` is behind `origin/main` (another commit landed
-        on origin after `repo` was cloned, without `repo` re-fetching). The diff
-        base must be origin's tip, not the stale local ref -- the PR #22 bug.
-        """
-        origin, repo, seed = origin_and_clone["origin"], origin_and_clone["repo"], origin_and_clone["seed"]
+    def test_srd_st_001_stale_local_base_uses_origin_tip_not_local(self, tmp_path: Path) -> None:
+        """SRD-ST-001: reproduces the actual PR #22 bug shape. `git diff A...B` is
+        computed against the merge-base of A and B, not A directly -- so if the
+        stale local `main` is simply an ancestor of both origin/main and `feature`,
+        using it as the diff base gives the SAME result as using fresh origin/main
+        (merge-base is identical either way), and a naive test would pass against
+        both a correct and a buggy script. The real bug only surfaces when
+        `feature` already contains commits that also landed on origin/main (e.g.
+        other PRs merged after `feature` branched, then squash-merged into main
+        with new SHAs) while the *local* `main` ref never advanced past those
+        commits -- so `merge-base(stale_local_main, feature)` is OLDER than
+        `merge-base(fresh_origin_main, feature)`, and diffing against the stale
+        ref pulls in those already-landed commits' content as if it were new.
 
-        # Land a new commit on origin's main via the seed clone, simulating a
-        # merge that happened elsewhere -- `repo`'s local `main` never sees it.
-        (seed / "upstream-change.txt").write_text("landed on origin after repo cloned\n", encoding="utf-8")
+        Reproduce that precisely: build main = A -> B -> C, branch `feature` off
+        C (so C is already an ancestor of feature, mirroring "PR branch created
+        after other PRs already merged"), then force the *local* `main` branch
+        ref (and the local `origin/main` remote-tracking ref, simulating "haven't
+        fetched in a while") back to A. A correct script re-fetches origin fresh
+        (bypassing both stale local refs) and gets C as the diff base -- excluding
+        B and C's content. A script trusting the local ref would diff from A,
+        incorrectly including B and C's content alongside feature's own commit.
+        """
+        origin = tmp_path / "origin.git"
+        origin.mkdir()
+        _git(origin, "init", "-q", "--bare", "-b", "main")
+
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        _git(seed, "init", "-q", "-b", "main")
+        _git(seed, "config", "user.email", "t@t")
+        _git(seed, "config", "user.name", "t")
+        (seed / "README.md").write_text("seed\n", encoding="utf-8")
         _git(seed, "add", ".")
-        _git(seed, "commit", "-qm", "unrelated upstream commit")
+        _git(seed, "commit", "-qm", "A: seed")
+        _git(seed, "remote", "add", "origin", str(origin))
         _git(seed, "push", "-q", "origin", "main")
+        sha_a = _git(seed, "rev-parse", "main").stdout.strip()
+
+        (seed / "other-pr-1.txt").write_text("landed via another PR\n", encoding="utf-8")
+        _git(seed, "add", ".")
+        _git(seed, "commit", "-qm", "B: other PR 1")
+        (seed / "other-pr-2.txt").write_text("landed via another PR too\n", encoding="utf-8")
+        _git(seed, "add", ".")
+        _git(seed, "commit", "-qm", "C: other PR 2")
+        _git(seed, "push", "-q", "origin", "main")
+        sha_c = _git(seed, "rev-parse", "main").stdout.strip()
+        assert sha_a != sha_c
+
+        # `repo` clones at C (matches origin exactly), branches `feature` off C --
+        # feature's ancestry already includes B and C, like a PR branch created
+        # after other PRs merged.
+        repo = tmp_path / "repo"
+        _git(tmp_path, "clone", "-q", str(origin), str(repo))
+        _git(repo, "config", "user.email", "t@t")
+        _git(repo, "config", "user.name", "t")
+        _git(repo, "checkout", "-q", "-b", "feature")
+        (repo / "feature.txt").write_text("feature work\n", encoding="utf-8")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-qm", "D: feature commit")
+
+        # Now simulate staleness: force *local* main (and the local origin/main
+        # tracking ref, as if `fetch` hasn't run recently) back to A, without
+        # touching the origin bare repo itself (still at C).
+        _git(repo, "branch", "-f", "main", sha_a)
+        _git(repo, "update-ref", "refs/remotes/origin/main", sha_a)
+        assert _git(repo, "rev-parse", "main").stdout.strip() == sha_a
+        assert _git(repo, "rev-parse", "origin/main").stdout.strip() == sha_a
 
         result = _run_setup(repo, "main")
         assert result.returncode == 0, result.stderr
 
-        origin_main_sha = _git(seed, "rev-parse", "main").stdout.strip()
-        local_main_sha = _git(repo, "rev-parse", "main").stdout.strip()
-        assert origin_main_sha != local_main_sha, "test setup invariant: local main must be stale"
-
         changed = (repo / ".pr-review" / "changed-files.txt").read_text(encoding="utf-8")
         assert "feature.txt" in changed
-        assert "upstream-change.txt" not in changed, (
-            "diff must be against origin/main's tip, not the stale local main -- "
-            "an upstream-only file leaking in means the script diffed against the wrong base"
+        assert "other-pr-1.txt" not in changed, (
+            "diff must be against origin's fresh tip (C), not the stale local main (A) -- "
+            "B/C's content leaking in means the script diffed against the wrong, stale base"
         )
+        assert "other-pr-2.txt" not in changed
 
     def test_srd_st_002_nonexistent_branch_fails_loud(self, origin_and_clone: dict[str, Path]) -> None:
         """SRD-ST-002: a branch that doesn't exist on origin fails with [FAIL], not
