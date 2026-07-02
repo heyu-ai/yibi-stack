@@ -1,3 +1,8 @@
+---
+model: sonnet
+---
+<!-- markdownlint-disable-file MD041 -->
+
 # Handover Back — 讀取上次工作進度
 
 回到上次工作時執行此命令，自動偵測當前專案並讀取對應的 handover 記錄。

@@ -1,5 +1,6 @@
 ---
 description: Enhanced version - Clean branches marked as [gone] AND optionally all merged branches with PRs
+model: sonnet
 ---
 <!-- markdownlint-disable-file MD041 -->
 

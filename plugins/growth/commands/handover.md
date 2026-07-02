@@ -1,3 +1,8 @@
+---
+model: sonnet
+---
+<!-- markdownlint-disable-file MD041 -->
+
 # Handover — 寫入工作交班記錄
 
 結束本次工作階段前，將目前進度、決策、下一步寫入 handover 記錄，供下次（或其他 Agent）接手。

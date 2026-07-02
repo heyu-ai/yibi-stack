@@ -1,3 +1,8 @@
+---
+model: sonnet
+---
+<!-- markdownlint-disable-file MD041 -->
+
 # New Job — 開啟新工作前準備（Worktree-First）
 
 開始新 feature 或 fix 之前，執行此結構化流程確保環境乾淨並建立隔離工作空間。
