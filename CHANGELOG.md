@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [1.5.0] - 2026-07-03
+
+### Features
+
+- add problem-frames methodology skill for R/S/W framing (#174)
+- add distill subcommand + harden pr-retro capture quality (#173)
+- draft via Claude Code CLI (subscription) instead of API key (#169)
+- add mob-code-review-only skill (review others' PRs, suggestions only) (#171)
+
+### Bug Fixes
+
+- thread --repo-root so branch detection targets the right repo (#177)
+- use git fetch + FETCH_HEAD for setup-review-dir.sh base branch (#175)
+- amplifier-verify reads worktree testplan + accepts 2-part TC-IDs (#172)
+- gate is_due on last attempt, not last success (stop retry-storm) (#170)
+
 ## [1.4.0] - 2026-06-24
 
 ### Features

@@ -1,7 +1,7 @@
 {
   "name": "tdd",
   "description": "Test-Driven Development methodology for Claude Code agents: Kent Beck TDD, Flutter TDD, and CI triage skills.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "author": {
     "name": "Howie Yu",
     "email": "2318485+howie@users.noreply.github.com"
