@@ -132,6 +132,46 @@ The two work together:
   Hook scripts (bash, CC 2.1.133+) can read `$CLAUDE_EFFORT` directly as an env var
   — no `echo` subprocess needed.
 
+## Frontmatter — Additional Keys (Optional, Claude Code v2.1.186)
+
+Claude Code v2.1.186 added several usable frontmatter keys and made key names
+**case- and separator-insensitive** (`display-name`, `display_name`, and `displayName` are
+all equivalent; kebab / snake / camel all work):
+
+```yaml
+---
+name: <skill-name>
+type: exec
+scope: global
+display-name: Gmail Billing Scan     # override the display name (defaults to name)
+default-enabled: false               # skill not enabled by default; loads only on explicit call / schedule
+fallback: <skill-name-or-behavior>   # fallback when the primary skill is unavailable
+metadata:                            # arbitrary metadata; readable by the agent
+  owner: howie
+  domain: finance
+description: ...
+---
+```
+
+| Key | Purpose |
+|-----|---------|
+| `display-name` | Overrides the skill's display name in UI / lists (does not affect `name` trigger matching) |
+| `default-enabled` | `false` keeps the skill disabled by default, avoiding accidental long-batch triggering in a high-effort session |
+| `fallback` | Fallback (skill name or behavior) when the primary skill is unavailable |
+| `metadata.*` | Any custom key/value, for the agent to read or classify by |
+
+**Broken frontmatter no longer disappears silently** (v2.1.186): when the YAML frontmatter is
+malformed, the skill **body is still loaded** (metadata treated as empty) for easier debugging,
+instead of the whole skill vanishing from the list. When a skill triggers but misbehaves
+(description trigger words stop working, `effort` not applied), check the frontmatter for a
+YAML syntax error first.
+
+**Adopting `default-enabled: false` requires confirming the local version semantics first**:
+it changes whether a skill loads by default — a behavior change, not just display. Before
+applying it to heavy scheduled skills (`gmail-billing`, `icf-global-news-digest`, etc.),
+confirm the local build is ≥ v2.1.186 via `claude --version` and verify empirically that the
+skill still loads on schedule / explicit call.
+
 ## Exec Skill Standard 4-Step Template
 
 ```markdown

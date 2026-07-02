@@ -248,3 +248,16 @@ make install-all         # 等同 build-tools + install + install-project + inst
   Local environments with older pylint pass silently; CI with a newer version catches it.
   After upgrading pylint, always run `uv run pylint --generate-toml-config | grep max-` to
   verify the current option names.
+- **unattended/scheduled retries use `CLAUDE_CODE_RETRY_WATCHDOG`, not a large
+  `CLAUDE_CODE_MAX_RETRIES`**: since Claude Code v2.1.186, `CLAUDE_CODE_MAX_RETRIES` is capped
+  at 15, so a scheduled or batch task can no longer get "long auto-retry" by setting it high —
+  use the retry watchdog instead. Affects `nightly-self-improvement` (the only `enabled: true`
+  job in `.runtime/schedules.json`) and any future ACP Gateway `skill:` job. Setting
+  `CLAUDE_CODE_MAX_RETRIES` above 15 silently clamps to 15, not an error.
+- **`!` bash command output now auto-triggers a Claude response** (v2.1.186): a `!`-prefixed
+  bash command's output used to be context-only; it now makes Claude respond to that output by
+  default. To restore the old "context only, no response" behavior, set
+  `"respondToBashCommands": false` in `settings.json`. This does not change the protect-push
+  gotcha's conclusion (the agent still cannot merge; the user runs `! gh pr merge <n>` manually)
+  — but the agent will now speak to the merge output rather than staying silent, so expect a
+  follow-up message after a manual `!` command.
