@@ -73,7 +73,9 @@ class TestBaseResolutionContract:
         a valid local-only unpushed branch now fails here by design.
         """
         src = script.read_text(encoding="utf-8")
-        assert "已存在於 origin" in src, f"{script.name}: fetch-failure message must name the origin constraint"
+        assert "已存在於 origin" in src, (
+            f"{script.name}: fetch-failure message must name the origin constraint"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -81,14 +83,21 @@ class TestBaseResolutionContract:
 # --------------------------------------------------------------------------- #
 
 
-def _git(repo: Path, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _git(
+    repo: Path, *args: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # nosec B603 B607
         ["git", *args],
         cwd=repo,
         check=True,
         capture_output=True,
         text=True,
-        env={**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", **(env or {})},
+        env={
+            **os.environ,
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            **(env or {}),
+        },
     )
 
 
@@ -215,7 +224,9 @@ class TestSetupReviewDirBehavioral:
         )
         assert "other-pr-2.txt" not in changed
 
-    def test_srd_st_002_nonexistent_branch_fails_loud(self, origin_and_clone: dict[str, Path]) -> None:
+    def test_srd_st_002_nonexistent_branch_fails_loud(
+        self, origin_and_clone: dict[str, Path]
+    ) -> None:
         """SRD-ST-002: a branch that doesn't exist on origin fails with [FAIL], not
         a silently-wrong diff.
         """
