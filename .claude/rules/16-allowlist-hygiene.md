@@ -65,6 +65,29 @@ Constrain the value as tightly as the use case allows.
 > parent domain, consolidating them into `*.domain` form is optional, not required — check the
 > current entries before assuming the form.
 
+## Hook Matcher Hygiene (settings.json `hooks`, v2.1.186 / v2.1.191 / v2.1.195)
+
+Hook `matcher` strings in `settings.json` are a **separate mechanism** from the permission
+allow-list above (which uses `Bash(...)` command prefixes), but they share the same
+"be precise, not accidentally broad" discipline. Three recent behavior changes matter:
+
+1. **Comma-separated matchers silently never fired** before v2.1.191 fixed it. A matcher like
+   `"Bash,PowerShell"` did not fire at all on older versions. **Always use `|` alternation**
+   (`"Bash|PowerShell"`), never commas — this is the reliable form on every version.
+2. **Hyphenated identifiers now match exactly, not as substrings** (v2.1.195). Agent names
+   (e.g. `code-reviewer`) and MCP server names (e.g. `mcp__brave-search`) are no longer
+   substring-matched. To match all tools of a hyphenated MCP server, write the explicit suffix:
+   `mcp__brave-search__.*`.
+3. **`Agent(type)` deny rules and `Agent(x,y)` allow-lists now apply to named subagent spawns**
+   (v2.1.186). Previously a named subagent spawn escaped these rules; now they are enforced,
+   so `Agent(...)` rules can reliably constrain which subagent types are spawnable — on the same
+   axis as the `Agent(model:opus)` example in the Advanced Rule Syntax section above.
+
+**This repo's matchers are already compliant** — `settings.json` uses only `|` alternation
+(`Edit|Write`, `Bash`, `Bash|EnterWorktree`, `compact|clear`) and no hyphenated-substring or
+comma matchers. This section is preventive: keep new matchers in `|` form, and use the `__.*`
+suffix if you ever add a hook keyed on a hyphenated MCP server.
+
 ## Red Flags — Choose One-Time Approval If Any Match
 
 ### Red Flag 1: Wildcard in the Middle (Most Dangerous)

@@ -119,3 +119,38 @@ sql = f"SELECT * FROM foo WHERE {where} ORDER BY created_at ASC"  # nosec B608
 if limit is not None:
     sql += " LIMIT ?"
 ```
+
+## OTEL Logs the Full Assistant Response — Disable It for Sensitive-Output Environments
+
+Claude Code (v2.1.193) added a `claude_code.assistant_response` OpenTelemetry log event
+containing the model's reply text. It is gated by `OTEL_LOG_ASSISTANT_RESPONSES`, but **when
+that variable is unset it falls back to `OTEL_LOG_USER_PROMPTS`** — meaning a deployment that
+already logs prompt content will automatically start logging reply content after upgrading.
+This is on the same axis as the existing "never `echo $VAR` a key into the transcript" rule,
+but stealthier: no command is needed; a plain version upgrade activates it.
+
+Any skill environment that handles decrypted billing data, account numbers, or keys
+(`gmail-billing`, `ledger-import`, `saas-*`) must explicitly set
+`OTEL_LOG_ASSISTANT_RESPONSES=0` when OTEL is enabled, so sensitive content in the reply is
+not recorded:
+
+```bash
+# On a prompt-logging environment, keep logging prompts but never replies
+export OTEL_LOG_ASSISTANT_RESPONSES=0
+```
+
+**This repo does not currently enable OTEL** — this is a preventive guard: the moment anyone
+turns on OTEL telemetry in CI or locally, the rule applies.
+
+## `sandbox.credentials`: Do Not Enable Globally (Financial Skills Need Their Keys)
+
+The `sandbox.credentials` setting (v2.1.187) blocks sandboxed commands from reading credential
+files and secret environment variables. It is double-edged: it prevents a sandboxed bash
+command from leaking secrets, but it also blocks flows that **legitimately need keys** — this
+repo's `gmail-*` / `ledger-import` / `saas-*` skills require secret env vars such as
+`GMAIL_TOKEN` and `ENCRYPT_KEY` to function.
+
+**Decision: do not enable `sandbox.credentials` globally.** This trade-off is recorded
+explicitly so nobody enables it in the name of "hardening" and silently breaks every financial
+skill's key access. If a real need arises, evaluate it per-flow for sandboxed flows that never
+touch secrets, rather than applying it globally.
