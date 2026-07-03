@@ -37,6 +37,7 @@ effort: medium
 openspec/changes/<name>/
 ├── problem-frame.md  # Step 0.5 frame 型別 + R/S/W + S∧W⟹R 論證（NEW）
 ├── proposal.md   # Step 1b US+AC + Step 4 假設約束 + Step 5 完工標準
+├── design/       # figma-design-sync 產出（選用；design-context.md + manifest + assets）
 ├── specs/
 │   └── <cap>/
 │       └── spec.md   # Step 1c Gherkin scenarios（#### Scenario: <slug>）
@@ -87,6 +88,8 @@ openspec/changes/<name>/
 | 有 event-storming.md 且包含 ≥ 3 domain events | 繼續（medium/high：其 Notes 假設於 Step 0.5 匯入 W；low effort 僅做 Step 1，不展開 Step 4 假設表，故不正式匯入假設）|
 | 只有 proposal.md ## Why，功能簡單（1 Actor + 1 Goal）| 繼續，標記「無需 Event Storming」|
 | 功能涉及多 Actor 或複雜狀態，但無領域資訊 | 輸出 `[WARN] 建議先執行 /event-storming 建立領域資訊`，確認後繼續 |
+| 需求含 figma.com URL（或使用者提及設計稿），且 `openspec/changes/<name>/design/` 不存在 | 先執行 `figma-design-sync` skill（extract 模式）落地設計；完成後其 design-context.md 作為 Step 1a 輸入之一。若 Figma MCP 工具不可用：`[WARN] Figma MCP 未連接，略過設計擷取；建議連接後執行 figma-design-sync`，繼續既有流程 |
+| `openspec/changes/<name>/design/figma-manifest.json` 已存在 | 先執行 `figma-design-sync` skill（sync 模式）確認設計未過期；`[OK]` 或使用者確認忽略變更後，讀 design-context.md 繼續 |
 | 完全沒有需求描述 | 請使用者補充，無法展開 |
 
 > 後續：medium / high effort 進 Step 0.5（Problem Framing）；low effort 直接進 Step 1a。
@@ -143,6 +146,13 @@ openspec/changes/<name>/
 
 歧義點以 `[NEEDS CLARIFICATION: 問題描述]` 標記，**上限 3 個**。
 超過 3 個代表需求尚未成熟，退回補充後再展開。
+
+**設計上下文輸入**：若 `openspec/changes/<name>/design/design-context.md` 存在
+（figma-design-sync 產出），萃取時必須一併讀取——
+畫面清單與互動流程 → Actions 線索；UI 元件與狀態 → Data 與 Constraints 線索；
+文案表 → 名詞一致性參照；「Edge Cases 與設計缺口」的 `[DESIGN GAP]` 項目 →
+轉為 `[NEEDS CLARIFICATION]`（計入上限 3）或 Step 0.5 的 W（領域假設）。
+design/ 不存在時本段不適用，流程與原本相同。
 
 ### Step 1b — User Stories + Acceptance Criteria
 
@@ -368,6 +378,23 @@ Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
 |------|------|---------------|
 | 400 | 輸入格式錯誤 | `{ "error": "..." }` |
 ````
+
+### UI 對應（design/ 存在時）
+
+若 `openspec/changes/<name>/design/` 存在（figma-design-sync 產出），design.md 以
+**相對路徑引用**設計上下文，不複製內容（single source：`design/` 由 figma-design-sync
+擁有並維護；design.md 手動複製的段落會在下次 sync 後過期）：
+
+```markdown
+## UI 對應
+
+畫面與元件規格見 [design-context.md](../design/design-context.md)
+（截圖於 `../design/assets/`，不入 git，缺圖時執行 figma-design-sync 補抓）。
+
+| Entity / API | 對應畫面（design-context.md 章節 1 的 slug） |
+|--------------|---------------------------------------------|
+| `Order` | `checkout-cart`、`checkout-confirm` |
+```
 
 ### 衝突偵測
 
@@ -658,6 +685,7 @@ SMK-NNN for smoke tests
 openspec/changes/<name>/
 ├── problem-frame.md （Step 0.5 frame + R/S/W + S∧W⟹R）
 ├── proposal.md   （Step 1b, 4, 5）
+├── design/       （figma-design-sync 產出，選用）
 ├── specs/        （Step 1c Gherkin scenarios）
 ├── testplan.md   （Step 2 TC + coverage）
 ├── design.md     （Step 3 按需）
