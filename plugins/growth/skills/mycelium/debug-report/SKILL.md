@@ -1,6 +1,7 @@
 ---
 name: mycelium-debug-report
 type: exec
+scope: global
 description: >
   解完非平凡 bug 後主動萃取除錯知識的儀式：產出 debug report Markdown、
   清理本次留下的過渡產物（註解舊碼、散落 console.log）、封存未採用的實驗方案、
@@ -89,10 +90,20 @@ git status
 
 ### Step 6 — 歸檔並提醒 /clear
 
+> **執行位置**：Step 1–5 在呼叫端專案的 cwd 操作（`debugs/`、`git diff` 都屬於該專案）；
+> 只有 `uv run python -m tasks.mycelium` 需要在 yibi-stack repo 執行——先解析 `SKILL_REPO`
+> 再帶 `--directory "$SKILL_REPO"`：
+
+```bash
+if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
+if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
+```
+
 使用者確認 diff 無誤後，將摘要持久化：
 
 ```bash
-uv run python -m tasks.mycelium debug save \
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium debug save \
   --keyword "{{keyword}}" \
   --report-path "debugs/{{filename}}" \
   --symptom "{{symptom_one_line}}" \
@@ -113,10 +124,10 @@ uv run python -m tasks.mycelium debug save \
 
 ```bash
 # 列出最近 10 筆
-uv run python -m tasks.mycelium debug list
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium debug list
 
 # 過濾特定 project
-uv run python -m tasks.mycelium debug list --project yibi-stack
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium debug list --project yibi-stack
 
 # jq 跨專案搜尋
 jq -r '"\(.timestamp[:10]) [\(.keyword)] \(.root_cause)"' \
@@ -130,4 +141,4 @@ jq -r '"\(.timestamp[:10]) [\(.keyword)] \(.root_cause)"' \
 | `debugs/` 目錄不存在 | Step 1 執行 `mkdir -p debugs` |
 | keyword 不知道填什麼 | 用 bug 根因關鍵字（如 `mypy_follow_imports`、`utf8_bom_decode`） |
 | 清理誤刪正式程式碼 | Step 5 的 `git diff` 讓你檢查；不滿意就 `git checkout <file>` |
-| `~/.agents/debugs/` 不存在 | 執行 `uv run python -m tasks.mycelium init` 建立 |
+| `~/.agents/debugs/` 不存在 | 執行 `uv run --directory "$SKILL_REPO" python -m tasks.mycelium init` 建立 |
