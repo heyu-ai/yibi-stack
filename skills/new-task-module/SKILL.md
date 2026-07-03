@@ -133,10 +133,10 @@ mkdir -p skills/{{skill_name}}
 
 ### Step 5：更新索引
 
-在 `skills/README.md` 的索引表格新增一行：
+在 `skills/README.md`「本 Repo 限定 Skill」表格（欄位：Skill｜類型｜描述｜SKILL.md｜相依工具）新增一行：
 
 ```markdown
-| `{{skill_name}}` | {{description}} | [SKILL.md]({{skill_name}}/SKILL.md) | `exec` |
+| `{{skill_name}}` | exec | {{description}} | [{{skill_name}}/SKILL.md]({{skill_name}}/SKILL.md) | `uv` |
 ```
 
 ## 常見問題

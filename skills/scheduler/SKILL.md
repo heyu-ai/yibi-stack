@@ -59,8 +59,8 @@ uv run python -m tasks.scheduler status
 # 查看執行歷史
 uv run python -m tasks.scheduler history
 
-# 查看特定 job 歷史
-uv run python -m tasks.scheduler history --job-id newsletter-digest --limit 10
+# 查看特定 job 歷史（job id 以 .runtime/schedules.json 現行清單為準）
+uv run python -m tasks.scheduler history --job-id nightly-self-improvement --limit 10
 
 # 查看 LaunchAgent log
 tail -f /tmp/ainization-scheduler.log
@@ -74,9 +74,9 @@ tail -f /tmp/ainization-scheduler.err
 ### 適用情境：測試、補跑、除錯
 
 ```bash
-# 強制執行特定 job（忽略 is_due 判斷）
-uv run python -m tasks.scheduler run-job newsletter-extract
-uv run python -m tasks.scheduler run-job newsletter-digest
+# 強制執行特定 job（忽略 is_due 判斷；job id 以 .runtime/schedules.json 現行清單為準）
+uv run python -m tasks.scheduler run-job nightly-self-improvement
+uv run python -m tasks.scheduler run-job billing-import
 
 # Dry-run tick（只列出 due jobs，不實際執行）
 uv run python -m tasks.scheduler tick --dry-run
@@ -106,10 +106,11 @@ uv run python -m tasks.scheduler uninstall
 
 ### Claude job 前提：MiniShell ACP Gateway 必須正在運行
 
+以 MiniShell 專案的**絕對路徑**啟動 Gateway（`<minishell_repo>` 換成實際 clone 位置；
+不要用相對路徑 `cd`——依呼叫時 cwd 而異且污染 session CWD）：
+
 ```bash
-# 在 MiniShell 專案啟動 Gateway
-cd ../side-project/MiniShell
-bash scripts/start-acp-gateway.sh
+bash <minishell_repo>/scripts/start-acp-gateway.sh
 ```
 
 ---
@@ -118,9 +119,14 @@ bash scripts/start-acp-gateway.sh
 
 Scheduled job 在 Claude Code 環境中執行時，`$CLAUDE_CODE_SESSION_ID` 可用於將 log 與對應的 Claude Code session 關聯，方便事後追蹤：
 
+> **注意**：此變數只在 Claude Code session 內有值。LaunchAgent 直接 spawn 的
+> `command` 型 job 子行程**沒有**這個環境變數（值為空）——只有經 ACP Gateway
+> 執行的 `claude:` / `skill:` job 才會帶到。
+
 ```bash
-# 在 job script 中記錄 session ID
-echo "job_start: $(date -Iseconds) session=$CLAUDE_CODE_SESSION_ID" >> /tmp/ainization-scheduler.log
+# 在 job script 中記錄 session ID（拆兩步，避免 $() 包在外層雙引號內）
+TS=$(date -Iseconds)
+echo "job_start: $TS session=$CLAUDE_CODE_SESSION_ID" >> /tmp/ainization-scheduler.log
 ```
 
 也可以在 `command` 類型的 job 中直接使用環境變數：
