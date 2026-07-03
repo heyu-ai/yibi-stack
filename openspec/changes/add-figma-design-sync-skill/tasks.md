@@ -13,7 +13,8 @@
 ## 2. Skill 檔案（figma-design-sync）
 
 - [ ] 2.1 撰寫 `plugins/sdd/skills/figma-design-sync/SKILL.md`：frontmatter（type: tool, scope: project,
-      effort: medium）、模式決策表（含 MCP 不可用 guard 列與壞損 manifest 列）、extract Step 0-6、
+      effort: medium）、模式決策表（含 MCP 不可用 guard 列與壞損 manifest 列）、
+      extract Step 0-6（含 INSTANCE 盤點、元件完整性 gate、library 範圍契約）、
       sync S1-S4（含 assets restore、截斷完整性 gate 與非結構變更盲點記載）、反模式表、FAQ 表 [US1][US2]
       驗證：spec.md 全部 20 個 scenario 在 SKILL.md 中有對應決策表列或步驟；
       `uv run pre-commit run markdownlint-cli2 --files plugins/sdd/skills/figma-design-sync/SKILL.md`

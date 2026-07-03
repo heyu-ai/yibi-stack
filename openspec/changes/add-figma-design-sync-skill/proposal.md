@@ -54,6 +54,7 @@
 - AC-001-2：GIVEN Figma MCP 未連接或 auth 失敗 WHEN 執行 extract THEN 以 `[FAIL]` 停止並給出修復指引，不產出殘缺檔案
 - AC-001-3：GIVEN file 內 screens 數量超過範圍上限 WHEN 執行 extract THEN 依 guard 決策表警告或要求縮小範圍，不得靜默全抓
 - AC-001-4：GIVEN 某個 screen node 的 MCP 呼叫失敗 WHEN 其他 screens 擷取成功 THEN 失敗的 screen 標 `[BLOCKED]` 且不中斷整批，最終摘要列出 blocked 清單
+- AC-001-5：GIVEN 掃描範圍含引用外部 library 元件的 INSTANCE WHEN 執行 extract THEN 每個 instance 記入 manifest `componentRef`，且「被引用但定義未盤點」的元件以 `[WARN]` 清單列出（不靜默略過）；skill 明文記載只讀當前 file 引用足跡、不枚舉外部 library 全目錄
 
 ### US-002：只有必要時才 sync
 
@@ -122,6 +123,8 @@ design.md 以引用方式連到 design/，全程 single source
 | `download_assets` 下載 icon/插圖資產 | 截圖已足夠視覺參照；icon 屬實作期資源 | 實作期有需求時以選用步驟開啟 |
 | Figma prototype 互動細節（動畫、transition） | get_design_context 不穩定提供；flows 以推斷 + `inferred` 標記表達 | Figma MCP 能力擴充後再評估 |
 | design tokens 自動轉 code（CSS variables 等） | 本 skill 職責是落地資訊，不是 design-to-code | 屬另一個 skill 的範疇 |
+| 枚舉外部 published library 的完整元件/token 目錄 | Figma MCP 未提供 list-library-components 類工具；本 skill 只讀當前 file 的引用足跡（instance 記入 componentRef，完整性 gate 標示未落地者） | 對 library file URL 另跑 extract 當獨立 design source；或 MCP 擴充 library endpoint 後再評估 |
+| Component variant 完整盤點 | 預設只抓代表性 states 以控制 context window；full-variant 覆蓋為未定調成本的可選旗標 | 手動指定 COMPONENT_SET node-id 全抓；或加 opt-in 旗標（待定範圍） |
 
 ---
 
@@ -168,6 +171,7 @@ design.md 以引用方式連到 design/，全程 single source
 | US-001 | `extract-auth-probe-fail` | FDS-DT-002 | walkthrough |
 | US-001 | `extract-scope-guard-warn` | FDS-DT-003 | walkthrough |
 | US-001 | `extract-partial-failure-blocked` | FDS-EG-001 | walkthrough |
+| US-001 | `extract-instance-inventory-and-component-completeness` | FDS-ST-004 | E2E / walkthrough |
 | US-001 | `assets-not-tracked-by-git` | FDS-VL-001 | `git check-ignore` |
 | US-002 | `sync-no-change-early-exit` | FDS-DT-004 | E2E sync 或 walkthrough |
 | US-002 | `sync-assets-restore` | FDS-DT-005 | E2E 刪圖再 sync |

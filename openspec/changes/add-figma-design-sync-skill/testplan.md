@@ -21,6 +21,7 @@
 | `extract-outputs-complete` | ✓ | ST | FDS-ST-001 | E2E happy path |
 | `extract-scope-guard-warn` | ✓ | BVA | FDS-DT-003 | 邊界 15 / 40 |
 | `extract-partial-failure-blocked` | ✓ | EG | FDS-EG-001 | 部分失敗 |
+| `extract-instance-inventory-and-component-completeness` | ✓ | ST | FDS-ST-004 | 元件實例盤點 + 完整性 gate |
 | `assets-not-tracked-by-git` | ✓ | VL | FDS-VL-001 | git check-ignore |
 | `sync-no-change-early-exit` | ✓ | DT | FDS-DT-004 | warm path |
 | `sync-assets-restore` | ✓ | DT | FDS-DT-005 | 補圖路徑 |
@@ -61,6 +62,7 @@ Legend: ✓ covered · △ partial · ✗ missing
 | FDS-ST-001 | extract 完整產出 | ST | High | 合法 URL + 認證有效 | 1. E2E 跑 extract 全流程 | 2-3 screens 的真 file | 三類產物齊全；design-context.md 頂部有補抓註記 |
 | FDS-ST-002 | spec 影響提示 | ST | Med | sync 有 changed screens | 1. walkthrough sync S4 | specs/ 內含 slug 引用 | 列出受影響 scenario；無命中時註明人工確認 |
 | FDS-ST-003 | Step 1a 吸收設計上下文 | ST | Med | design-context.md 存在 | 1. walkthrough amplifier Step 1a 新段 | 含 `[DESIGN GAP]` 的樣例 | GAP 轉 NEEDS CLARIFICATION 或 W |
+| FDS-ST-004 | 元件實例盤點 + 完整性 gate | ST | High | 掃描範圍含引用外部 library 元件的 INSTANCE | 1. E2E/walkthrough：extract 後檢查 manifest componentRef 與 `[WARN]` 清單 | 含外部 library instance 的 file | 每個 instance 有 componentRef；被引用但未盤點的元件列入 `[WARN]`；不靜默略過 |
 | FDS-VL-001 | assets 不進 git | VL | High | extract 已寫入 PNG | 1. `git check-ignore openspec/changes/x/design/assets/a.png` | — | exit 0（被 ignore） |
 | FDS-VL-002 | amplifier 向後相容 | VL | High | 無 design/、無 URL | 1. walkthrough amplifier 全流程 | — | 與掛接前行為相同；無 figma 字樣輸出 |
 
@@ -87,6 +89,7 @@ Legend: ✓ covered · △ partial · ✗ missing
 | US-001 | `extract-auth-probe-fail` | FDS-DT-002 | walkthrough |
 | US-001 | `extract-scope-guard-warn` | FDS-DT-003 | walkthrough（BVA） |
 | US-001 | `extract-partial-failure-blocked` | FDS-EG-001 | walkthrough |
+| US-001 | `extract-instance-inventory-and-component-completeness` | FDS-ST-004 | E2E / walkthrough |
 | US-001 | `assets-not-tracked-by-git` | FDS-VL-001 | `git check-ignore` |
 | US-001 | `mode-extract-when-no-manifest` | FDS-DT-008 | walkthrough |
 | US-001 | `mode-filekey-mismatch-confirm` | FDS-DT-010 | walkthrough |

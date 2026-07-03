@@ -66,6 +66,16 @@ Every MCP call MUST be followed by an explicit failure gate.
 - **AND** 每個成功擷取的 screen MUST 有對應的 `assets/<screen-slug>.png`
 - **AND** design-context.md 頂部 MUST 註記「截圖不入 git；缺圖時執行 sync 補抓」
 
+#### Scenario: extract-instance-inventory-and-component-completeness -- 元件實例盤點與完整性 gate
+
+- **GIVEN** 掃描範圍內存在引用某 main component 的 `INSTANCE` 節點（含外部 library 元件）
+- **WHEN** extract 完成盤點
+- **THEN** 每個 instance MUST 記入 manifest `nodes[].componentRef`（main component 名稱 + 是否外部 library）
+- **AND** 系統 MUST 比對「被引用的 main component」與「已盤點的 component 定義」，
+  被引用但定義未落地者 MUST 以 `[WARN]` 清單列出（不得靜默略過）
+- **AND** 系統 MUST 記載本 skill 只讀當前 file 的引用足跡、不枚舉外部 library 完整目錄
+  （需完整落地 library 時對 library file URL 另跑 extract）
+
 #### Scenario: extract-scope-guard-warn -- screens 數量超限時警告或必縮
 
 - **GIVEN** node inventory 判定的 screens 數量為 N

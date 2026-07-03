@@ -98,9 +98,20 @@ If the call fails, stop and report the error to the user.
 | Node | 分類 |
 |------|------|
 | page / section 直屬子節點且 type=FRAME | **screen**（進 Step 2 逐一擷取） |
-| type=COMPONENT / COMPONENT_SET | **component**（記入 inventory；Step 2 只對代表性 states 擷取 design context，不逐 variant 截圖） |
+| type=COMPONENT / COMPONENT_SET（**掃描整棵樹，不限 page 直屬層**） | **component**（記入 inventory；Step 2 只對代表性 states 擷取 design context，不逐 variant 截圖——variant 完整盤點見下方註記） |
+| type=INSTANCE（引用某 main component 的實例，含外部 library 元件） | **instance**：記入 manifest `nodes[].componentRef`（main component 名稱 + 是否來自外部 library），供 Step 6 元件完整性 gate 比對；不另抓截圖（已含於所在 screen） |
 | type=SECTION | 展開其子 FRAME 為 screens |
 | 隱藏層、標註層、name 以 `_` 或 `.` 開頭 | 略過，記入 manifest 的 `skippedNodes` |
+
+> **Library 範圍契約（誠實記載，避免漏元件）**：本 skill 只讀**當前 file** 的 node 樹，
+> 即「設計的引用足跡」。設計系統的元件與 variables 常定義在**另一個 published library 檔**，
+> 在當前 file 只以 `INSTANCE` 出現——本 skill **不枚舉外部 library 的完整元件/token 目錄**
+> （Figma MCP 未提供 list-library-components 類工具，屬能力邊界）。若需完整落地設計系統本身，
+> 對該 **library file 的 URL 另外跑一次 extract**（把 library 當成獨立 design source）。
+>
+> **Variant 覆蓋**：預設只抓每個 component 的代表性 states（default + 最重要 variant）以控制 context；
+> 完整 variant 盤點為未來可選旗標（尚未實作）——目前需逐一 variant 時，以手動指定該 COMPONENT_SET
+> 的 node-id 縮小範圍後全抓。
 
 **範圍 guard**（防止 design context 撐爆 context window）：
 
@@ -168,11 +179,16 @@ edge cases 與設計缺口、給 Step 1a 的四元素提示。
 
 依 `manifest-schema.md` 寫入（用 Write tool）：file 級欄位（fileKey/version/lastModified）、
 每個 node 的指紋欄位（name/type/width/height/childCount/descendantSummary）、
-screenshot 路徑、status、skippedNodes、assets 統計。
+screenshot 路徑、status、instance 的 `componentRef`（引用的 main component 名稱 + 是否外部 library）、
+skippedNodes、assets 統計。
 
 ### Step 6 — 回報
 
-- 擷取結果：N screens（blocked 清單若有）、M components、tokens 有/無、assets 總大小
+- 擷取結果：N screens（blocked 清單若有）、M components、K instances、tokens 有/無、assets 總大小
+- **元件完整性 gate**：比對所有 instance 的 `componentRef`（被引用的 main component）與已盤點的
+  component inventory；列出「被引用但定義未盤點」的元件（多半來自外部 library）。有缺 →
+  `[WARN] 以下元件只在畫面中被引用、定義未落地（多半來自外部 library）：<清單>；
+  需要完整元件規格時對 library file URL 另跑一次 extract。` 讓漏掉的元件成為可見輸出，而非靜默略過。
 - `git status` 確認：design-context.md 與 manifest 為新增待 commit；assets/ 不在 untracked 清單。
   **若 assets/ 下的檔案出現在 untracked 清單** → `[FAIL]` 停止、不得 commit，提示檢查
   `.gitignore` 是否含 `openspec/changes/*/design/assets/`（避免截圖洩漏進 git，違反儲存契約）。
@@ -264,6 +280,8 @@ design token（`get_variable_defs`）也不在指紋內，同屬此盲點；full
 | Figma MCP auth 錯誤 | 在 claude.ai 連接器設定完成 Figma OAuth 後重跑（Step 0 whoami probe 會再驗證） |
 | URL 解析不出 node-id | 在 Figma 中選取 frame → 右鍵 Copy link to selection，貼含 `?node-id=` 的完整 URL |
 | screens 太多 / context 太肥 | 提供 section 或 page 的 node-id 縮小範圍；或確認只抓 key screens |
+| 設計系統元件 / Library 沒被完整讀進來 | 本 skill 只讀當前 file 的引用足跡；外部 published library 的完整元件/token 目錄需**對 library file URL 另跑一次 extract**。Step 6 元件完整性 gate 會 `[WARN]` 列出「被引用但定義未落地」的元件供你補抓 |
+| 只抓到 default，缺 hover/error 等 variant | 預設只抓代表性 states 控 context；需完整 variant 時手動指定該 COMPONENT_SET 的 node-id 縮小範圍後全抓 |
 | fresh clone 後 design-context.md 的圖全破 | 執行本 skill（sync 模式），assets restore 會補抓全部缺圖 |
 | sync 回報結構無變更，但我知道文案/顏色/樣式/token 改了 | 非結構變更不改變 metadata 結構指紋、且 get_metadata 無 file 版本可偵測（已知盲點）；明確要求 full re-extract（模式決策表最後一列）重建 |
 | manifest 壞掉 / 想強制全量重抓 | 刪除 `design/figma-manifest.json` 重跑（自動走 extract） |
