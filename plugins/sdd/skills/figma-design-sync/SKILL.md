@@ -45,13 +45,22 @@ openspec/changes/<change-name>/design/
 
 ---
 
+## 工具命名約定
+
+> 本文件以 `mcp__Figma__<tool>` 代稱 Figma MCP 工具，但 **namespace 前綴依連接器註冊名而定**
+> （常見為 `mcp__figma__`、`mcp__plugin_figma_figma__`、`mcp__Figma__` 等，大小寫與前綴皆可能不同）。
+> 偵測與呼叫一律以**工具 base name** 為準：`whoami`、`get_metadata`、`get_design_context`、
+> `get_screenshot`、`get_variable_defs`。判斷「Figma MCP 是否連接」時，比對 session tool 清單中
+> 是否存在以這些 base name 結尾的工具（如 `*__get_design_context`），**不得只比對某個固定前綴**，
+> 否則在前綴不同的環境會誤判為未連接。
+
 ## 模式決策表
 
 依下表決定執行模式（`manifest` 指 `openspec/changes/<change-name>/design/figma-manifest.json`）：
 
 | 狀況 | 模式 |
 |------|------|
-| 目前 session 的 tool 清單中沒有任何 `mcp__Figma__*` 工具 | `[FAIL] Stop. Figma MCP 未連接。請在 claude.ai 連接器設定或 claude mcp 加入 Figma 後重跑。` 不產出任何檔案 |
+| session tool 清單中沒有任何 Figma MCP 工具（無任何以 `get_design_context`/`get_metadata` 等 base name 結尾的工具） | `[FAIL] Stop. Figma MCP 未連接。請在 claude.ai 連接器設定或 claude mcp 加入 Figma 後重跑。` 不產出任何檔案 |
 | manifest 不存在 | **extract** |
 | manifest 存在且可解析、使用者未給 URL 或 URL 的 fileKey 與 manifest 相同 | **sync** |
 | manifest 存在、URL 的 fileKey 與 manifest 不同 | 回報兩個 fileKey 與各自的 fileName，徵求使用者確認換 file 的意圖；確認後 **extract**（覆蓋，先提醒 design/ 將重建）；未確認前不得覆蓋 |
@@ -81,14 +90,28 @@ openspec/changes/<change-name>/design/
 取得 node 樹與 file 版本資訊。
 If the call fails, stop and report the error to the user.
 
-記錄 file 的 `version` 與 `lastModified`（寫入 manifest 用），然後依下表分類 nodes：
+記錄整個 node 樹的**結構指紋**（每個 node 的 name/type/width/height/childCount/descendantSummary，
+寫入 manifest 供 sync 比對）。若 metadata 回應中恰好含 file 級 `version`/`lastModified` 則一併記錄，
+但**僅供人類參考、非 sync 比對依據**——`get_metadata` 不保證回傳此欄位（見 `manifest-schema.md`
+「兩層比對機制」）。然後依下表分類 nodes：
 
 | Node | 分類 |
 |------|------|
 | page / section 直屬子節點且 type=FRAME | **screen**（進 Step 2 逐一擷取） |
-| type=COMPONENT / COMPONENT_SET | **component**（記入 inventory；Step 2 只對代表性 states 擷取 design context，不逐 variant 截圖） |
+| type=COMPONENT / COMPONENT_SET（**掃描整棵樹，不限 page 直屬層**） | **component**（記入 inventory；Step 2 只對代表性 states 擷取 design context，不逐 variant 截圖——variant 完整盤點見下方註記） |
+| type=INSTANCE（引用某 main component 的實例，含外部 library 元件） | **instance**：記入 manifest `nodes[].componentRef`（main component 名稱 + 是否來自外部 library），供 Step 6 元件完整性 gate 比對；不另抓截圖（已含於所在 screen） |
 | type=SECTION | 展開其子 FRAME 為 screens |
 | 隱藏層、標註層、name 以 `_` 或 `.` 開頭 | 略過，記入 manifest 的 `skippedNodes` |
+
+> **Library 範圍契約（誠實記載，避免漏元件）**：本 skill 只讀**當前 file** 的 node 樹，
+> 即「設計的引用足跡」。設計系統的元件與 variables 常定義在**另一個 published library 檔**，
+> 在當前 file 只以 `INSTANCE` 出現——本 skill **不枚舉外部 library 的完整元件/token 目錄**
+> （Figma MCP 未提供 list-library-components 類工具，屬能力邊界）。若需完整落地設計系統本身，
+> 對該 **library file 的 URL 另外跑一次 extract**（把 library 當成獨立 design source）。
+>
+> **Variant 覆蓋**：預設只抓每個 component 的代表性 states（default + 最重要 variant）以控制 context；
+> 完整 variant 盤點為未來可選旗標（尚未實作）——目前需逐一 variant 時，以手動指定該 COMPONENT_SET
+> 的 node-id 縮小範圍後全抓。
 
 **範圍 guard**（防止 design context 撐爆 context window）：
 
@@ -106,28 +129,40 @@ CJK 名稱另取英文 slug（如 `checkout-cart`），對照關係記入 manife
 對每個 screen node **並行**送出兩個無依賴呼叫（可同一訊息送出）；
 **任一失敗均須回報，不得靜默繼續**：
 
-- `mcp__Figma__get_design_context`（fileKey: `{{file_key}}`, nodeId: `{{node_id}}`）
-  — layout、樣式、文字內容、變數引用
-- `mcp__Figma__get_screenshot`（fileKey: `{{file_key}}`, nodeId: `{{node_id}}`）
-  — 截圖存為 `design/assets/{{screen_slug}}.png`
+- `mcp__Figma__get_design_context`（fileKey: `{{file_key}}`, nodeId: `{{node_id}}`,
+  **excludeScreenshot: true**）— layout、樣式、文字內容、變數引用。
+  （`get_design_context` 預設會附一張截圖；此處設 `excludeScreenshot: true` 避免與下方
+  專用的 `get_screenshot` 重複 render、浪費 context。）
+- `mcp__Figma__get_screenshot`（fileKey: `{{file_key}}`, nodeId: `{{node_id}}`）取得截圖。
+  **注意 `get_screenshot` 不會直接寫檔**——它預設回傳一個短效 URL 加 curl 指令
+  （或在 `enableBase64Response: true` 時附 base64）。取得後**必須實際下載**：以回傳的 URL
+  用 `curl` 下載，或解碼 base64 bytes，落地為 `design/assets/{{screen_slug}}.png`。
+  未完成下載步驟則 assets/ 不會有檔案，design-context.md 的圖片連結將指向不存在的檔。
 
 **部分失敗處理**：單一 node 失敗不中斷整批——
 該 screen 在 design-context.md 對應章節標 `[BLOCKED: <原因>]`，
 manifest 中該 node 記 `"status": "blocked"`，其餘 screens 繼續；
 最終摘要必須列出 blocked 清單。
 
-**截圖大小 guard**：單檔 > 2MB 時以較低 scale 重抓一次；仍超過則保留並在摘要標注
+**截圖大小 guard**：單檔 > 2MB 時以較小的 `maxDimension` 參數（`get_screenshot` 的較長邊像素上限，
+預設 1024）重抓一次；仍超過則保留並在摘要標注
 （截圖不進 git，僅防單檔過大拖慢下載與補抓）。
 
 Component nodes：只對代表性 states（default 與最重要的 variant）呼叫
-`get_design_context`，狀態差異記入 design-context.md 第 4 章。
+`get_design_context`，狀態差異記入 design-context.md **第 3 章（UI 元件與狀態）**。
 
 ### Step 3 — Design Tokens
 
-呼叫 `mcp__Figma__get_variable_defs`（fileKey: `{{file_key}}`）取得 variables / design tokens。
+呼叫 `mcp__Figma__get_variable_defs`（fileKey: `{{file_key}}`, **nodeId: `{{node_id}}`**）取得
+variables / design tokens。**`get_variable_defs` 是 node-scoped 工具，`nodeId` 為必填**
+（schema `required: ["nodeId","fileKey"]`，「requires a concrete node target」）——不可只帶 fileKey，
+否則呼叫必定失敗。
+傳入範圍根節點（`{{node_id}}`，即 manifest `rootNodeId` 或 Step 1 的 inventory 根）；
+若原始 URL 未含 node-id：對 Step 1 分類出的各 screen node 分別呼叫並合併去重，
+或請使用者提供含 node-id 的 URL 縮小範圍。
 If the call fails, stop and report the error to the user.
-若回傳為空（file 未使用 variables），design-context.md 的 tokens 章節記：
-「此 file 未定義 variables；以下為從 design context 彙整的 inline style 摘要」。
+若回傳為空（該範圍未使用 variables），design-context.md 的 tokens 章節記：
+「此範圍未定義 variables；以下為從 design context 彙整的 inline style 摘要」。
 
 ### Step 4 — 產出 design-context.md
 
@@ -135,7 +170,8 @@ If the call fails, stop and report the error to the user.
 加上 7 個章節——畫面清單、互動流程、UI 元件與狀態、design tokens、文案表、
 edge cases 與設計缺口、給 Step 1a 的四元素提示。
 
-- 頂部必須含固定註記：「截圖不入 git；本機無圖時執行 figma-design-sync（sync 模式）自動補抓」。
+- 頂部必須含固定註記：「截圖不入 git；本機無圖時執行 figma-design-sync（sync 模式）自動補抓
+  （補抓需 Figma 連線與該 file 的存取權；無存取權者僅能使用文字上下文，此為預期行為）」。
 - 缺失的狀態稿（error/loading/empty…）統一標 `[DESIGN GAP: 描述]`。
 - 由版面順序推斷（而非 prototype 連結）的 flow 標 `inferred`。
 
@@ -143,12 +179,19 @@ edge cases 與設計缺口、給 Step 1a 的四元素提示。
 
 依 `manifest-schema.md` 寫入（用 Write tool）：file 級欄位（fileKey/version/lastModified）、
 每個 node 的指紋欄位（name/type/width/height/childCount/descendantSummary）、
-screenshot 路徑、status、skippedNodes、assets 統計。
+screenshot 路徑、status、instance 的 `componentRef`（引用的 main component 名稱 + 是否外部 library）、
+skippedNodes、assets 統計。
 
 ### Step 6 — 回報
 
-- 擷取結果：N screens（blocked 清單若有）、M components、tokens 有/無、assets 總大小
-- `git status` 確認：design-context.md 與 manifest 為新增待 commit；assets/ 不在 untracked 清單
+- 擷取結果：N screens（blocked 清單若有）、M components、K instances、tokens 有/無、assets 總大小
+- **元件完整性 gate**：比對所有 instance 的 `componentRef`（被引用的 main component）與已盤點的
+  component inventory；列出「被引用但定義未盤點」的元件（多半來自外部 library）。有缺 →
+  `[WARN] 以下元件只在畫面中被引用、定義未落地（多半來自外部 library）：<清單>；
+  需要完整元件規格時對 library file URL 另跑一次 extract。` 讓漏掉的元件成為可見輸出，而非靜默略過。
+- `git status` 確認：design-context.md 與 manifest 為新增待 commit；assets/ 不在 untracked 清單。
+  **若 assets/ 下的檔案出現在 untracked 清單** → `[FAIL]` 停止、不得 commit，提示檢查
+  `.gitignore` 是否含 `openspec/changes/*/design/assets/`（避免截圖洩漏進 git，違反儲存契約）。
 - 下一步提示：「執行 spectra-amplifier 展開 `{{change_name}}`，Step 1a 將自動讀取 design-context.md」
 
 ---
@@ -164,13 +207,26 @@ screenshot 路徑、status、skippedNodes、assets 統計。
 
 ### Step S2 — 變更判定決策表
 
+以 S1 的 `get_metadata` 回應對每個 tracked node 重算**結構指紋**
+（`name + type + width + height + childCount + descendantSummary`），與 manifest 逐 node 比對。
+`get_metadata` 不回傳 file 級 version，故**結構指紋是唯一比對依據**（見 `manifest-schema.md`）。
+
+**完整性前置檢查**：若新 metadata 樹中缺失的 tracked node 超過總數的一半
+（疑似 rate-limit / 分頁 / 截斷的不完整回應，而非真的大量刪除）→
+`[WARN] metadata 回應可能不完整（N/M tracked nodes 消失），為避免誤標大量 [REMOVED]，
+請確認後再繼續或重跑。` **不得在未確認前自行寫入墓碑**。
+
 | 狀況 | 行動 |
 |------|------|
-| `version` 與 `lastModified` 均與 manifest 相同，且 manifest `nodes[].screenshot` 記錄的檔案在本地全部存在 | `[OK] 設計無變更（version {{version}}），design/ 為最新。` **早退，不做任何寫入** |
-| `version` 與 `lastModified` 相同，但 manifest 記錄的截圖有 N 張本地缺失（fresh clone / 換機器） | **assets restore**：只對缺失的 nodes 重抓 `get_screenshot` 補圖；不改 design-context.md 與 manifest 的 version 欄位；回報「補抓 N 張缺圖」而非設計變更 |
-| `version` 已變，且 node 指紋比對（規則見 `manifest-schema.md`）出 changed / added nodes | 進 S3，**只重抓 changed + added** 的 nodes |
-| `version` 已變，但所有 tracked nodes 指紋相同 | `[WARN] file version 已變但結構指紋無差異——可能是文案或樣式層級變更（metadata 不可見）。` 提供三選項交使用者：(a) 對全部 screens 重抓 get_design_context（不重抓截圖）；(b) full re-extract；(c) 忽略本次變更。**不得自行選擇** |
-| manifest 內 node 在新 metadata 樹中消失 | 標記 removed，進 S3（design-context.md 對應章節加 `[REMOVED]` 墓碑與原因；本地截圖檔保留，摘要提示可刪） |
+| 所有 `status="ok"` tracked node 的結構指紋與 manifest 相同，且其截圖在本地全部存在 | `[OK] 設計結構無變更，design/ 為最新。` **早退，不做任何寫入** |
+| 結構指紋全相同，但有 `status="ok"` node 的截圖 N 張本地缺失（fresh clone / 換機器） | **assets restore**：只對缺失且 `status="ok"` 的 nodes 重抓 `get_screenshot` 補圖（**跳過 `status="blocked"` node**——其截圖本就不存在，否則每次 sync 都會對它做無用重抓）；**任一補抓失敗須列出缺補清單回報**，不得靜默宣稱已補齊；不改 design-context.md 與 manifest；回報「補抓 N 張缺圖」而非設計變更 |
+| node 指紋比對（規則見 `manifest-schema.md`）出 changed / added nodes | 進 S3，**只重抓 changed + added** 的 nodes |
+| manifest 內 node 在新 metadata 樹中消失（且已通過上方完整性前置檢查） | 標記 removed，進 S3（design-context.md 對應章節加 `[REMOVED]` 墓碑與原因；本地截圖檔保留，摘要提示可刪） |
+
+**已知盲點（誠實記載）**：純文案 / 顏色 / 內層樣式 / design token 變更**不改變結構指紋**，
+且 `get_metadata` 不提供 file 版本可資偵測——此類**非結構變更 sync 無法偵測、會結構性早退略過**。
+使用者若已知設計有非結構變更，須明確要求 **full re-extract**（模式決策表最後一列）重建。
+design token（`get_variable_defs`）也不在指紋內，同屬此盲點；full re-extract 會一併重抓 tokens。
 
 ### Step S3 — 增量更新
 
@@ -178,7 +234,8 @@ screenshot 路徑、status、skippedNodes、assets 統計。
 2. 更新 design-context.md：**第二次修訂起必標 delta markers**——
    `[ADDED]`（新 screen/元件）、`[MODIFIED]`（變更處）、`[REMOVED]`（墓碑），
    與 spectra-amplifier 的 delta marker 慣例一致。
-3. 更新 manifest：新的 version / lastModified / extractedAt（mode: `"sync"`）與受影響 nodes 的指紋。
+3. 更新 manifest：新的 extractedAt（mode: `"sync"`）與受影響 nodes 的結構指紋；
+   若 metadata 恰有 file `version` / `lastModified` 則一併更新（best-effort，非比對依據）。
 
 ### Step S4 — Diff 摘要與 spec 影響提示
 
@@ -195,10 +252,11 @@ screenshot 路徑、status、skippedNodes、assets 統計。
 
 - amplifier Step 0 決策表偵測 figma.com URL 或既有 manifest 時會先執行本 skill
   （見 spectra-amplifier SKILL.md Step 0）。
-- design-context.md 章節 1/3/6/7（畫面、元件狀態、edge cases、四元素提示）
-  是 amplifier Step 1a 四元素萃取的直接輸入；`[DESIGN GAP]` 項目由 amplifier
+- design-context.md 章節 1、2、3、5、6、7（畫面、互動流程、元件狀態、文案表、edge cases、
+  四元素提示）是 amplifier Step 1a 四元素萃取的直接輸入；`[DESIGN GAP]` 項目由 amplifier
   轉為 `[NEEDS CLARIFICATION]` 或 Step 0.5 的 W。
-- amplifier Step 3 的 design.md 以相對路徑引用 `../design/`，不複製內容
+- amplifier Step 3 的 design.md 位於 change 根目錄，與 `design/` 為同層兄弟，故以相對路徑
+  `design/design-context.md`（**不是** `../design/`——那會逃出 change 目錄）引用，不複製內容
   （single source：`design/` 由本 skill 擁有）。
 
 ---
@@ -222,8 +280,10 @@ screenshot 路徑、status、skippedNodes、assets 統計。
 | Figma MCP auth 錯誤 | 在 claude.ai 連接器設定完成 Figma OAuth 後重跑（Step 0 whoami probe 會再驗證） |
 | URL 解析不出 node-id | 在 Figma 中選取 frame → 右鍵 Copy link to selection，貼含 `?node-id=` 的完整 URL |
 | screens 太多 / context 太肥 | 提供 section 或 page 的 node-id 縮小範圍；或確認只抓 key screens |
+| 設計系統元件 / Library 沒被完整讀進來 | 本 skill 只讀當前 file 的引用足跡；外部 published library 的完整元件/token 目錄需**對 library file URL 另跑一次 extract**。Step 6 元件完整性 gate 會 `[WARN]` 列出「被引用但定義未落地」的元件供你補抓 |
+| 只抓到 default，缺 hover/error 等 variant | 預設只抓代表性 states 控 context；需完整 variant 時手動指定該 COMPONENT_SET 的 node-id 縮小範圍後全抓 |
 | fresh clone 後 design-context.md 的圖全破 | 執行本 skill（sync 模式），assets restore 會補抓全部缺圖 |
-| sync 顯示 version 變了但 diff 為空 | 文案/樣式變更 metadata 不可見（已知盲點）；依 S2 三選項選 full re-extract 或全量 design context 重抓 |
+| sync 回報結構無變更，但我知道文案/顏色/樣式/token 改了 | 非結構變更不改變 metadata 結構指紋、且 get_metadata 無 file 版本可偵測（已知盲點）；明確要求 full re-extract（模式決策表最後一列）重建 |
 | manifest 壞掉 / 想強制全量重抓 | 刪除 `design/figma-manifest.json` 重跑（自動走 extract） |
 | 換了新的 Figma file | 貼新 URL，skill 偵測 fileKey 不同會確認後覆蓋重建 |
 | change 目錄還不存在 | 先 `/spectra-propose <change-name>` 建立 change；或確認後由本 skill 僅建立 design/ 子目錄 |

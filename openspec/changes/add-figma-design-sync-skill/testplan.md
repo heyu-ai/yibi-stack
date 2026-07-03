@@ -10,8 +10,8 @@
 
 ## Coverage Analysis
 
-| Scenario slug | Covered | Technique | TC-ID(s) | Notes |
-|--------------|---------|-----------|---------|-------|
+| Scenario slug | Status | Technique | TC-ID(s) | Notes |
+|--------------|--------|-----------|---------|-------|
 | `mode-extract-when-no-manifest` | ✓ | DT | FDS-DT-008 | 模式決策表列 1 |
 | `mode-sync-when-manifest-matches` | ✓ | DT | FDS-DT-009 | 模式決策表列 2 |
 | `mode-filekey-mismatch-confirm` | ✓ | DT | FDS-DT-010 | 模式決策表列 3 |
@@ -21,12 +21,13 @@
 | `extract-outputs-complete` | ✓ | ST | FDS-ST-001 | E2E happy path |
 | `extract-scope-guard-warn` | ✓ | BVA | FDS-DT-003 | 邊界 15 / 40 |
 | `extract-partial-failure-blocked` | ✓ | EG | FDS-EG-001 | 部分失敗 |
+| `extract-instance-inventory-and-component-completeness` | ✓ | ST | FDS-ST-004 | 元件實例盤點 + 完整性 gate |
 | `assets-not-tracked-by-git` | ✓ | VL | FDS-VL-001 | git check-ignore |
 | `sync-no-change-early-exit` | ✓ | DT | FDS-DT-004 | warm path |
 | `sync-assets-restore` | ✓ | DT | FDS-DT-005 | 補圖路徑 |
-| `sync-incremental-delta-markers` | ✓ | DT | FDS-DT-006 | 增量更新 |
+| `sync-incremental-delta-markers` | ✓ | DT | FDS-DT-006, FDS-DT-012 | 增量更新 + 指紋欄位敏感度 |
 | `sync-fingerprint-blind-spot-warn` | ✓ | EG | FDS-EG-002 | 已知盲點 |
-| `sync-node-removed-tombstone` | ✓ | EG | FDS-EG-004 | 墓碑標記 |
+| `sync-node-removed-tombstone` | ✓ | EG | FDS-EG-004, FDS-EG-005 | 墓碑標記 + 截斷完整性 gate |
 | `sync-spec-impact-hint` | ✓ | ST | FDS-ST-002 | spec 影響提示 |
 | `amplifier-step0-figma-url-detected` | ✓ | DT | FDS-DT-007 | 掛接列 1 |
 | `amplifier-step0-manifest-exists-sync` | ✓ | DT | FDS-DT-011 | 掛接列 2 |
@@ -41,24 +42,27 @@ Legend: ✓ covered · △ partial · ✗ missing
 
 | TC-ID | Test Purpose | Technique | Risk | Precondition | Steps | Test Data | Expected Result |
 |-------|-------------|-----------|------|-------------|-------|-----------|----------------|
-| FDS-DT-001 | MCP 不可用時硬停 | DT | High | session 無 mcp__Figma__* 工具 | 1. 依 SKILL.md 模式決策表 walkthrough guard 列 | — | `[FAIL] Stop.` 且零檔案產出 |
+| FDS-DT-001 | MCP 不可用時硬停 | DT | High | session 無任何 Figma MCP 工具（無以 get_metadata/get_design_context 等 base name 結尾的工具） | 1. 依 SKILL.md 模式決策表 walkthrough guard 列 | — | `[FAIL] Stop.` 且零檔案產出 |
 | FDS-DT-002 | auth probe 失敗即停 | DT | High | whoami 回傳 auth 錯誤 | 1. walkthrough extract Step 0 | — | `[FAIL]` + OAuth 指引，不呼叫後續工具 |
 | FDS-DT-003 | screens 範圍 guard | BVA | Med | inventory screens = 15/16/40/41 | 1. walkthrough Step 1 guard 決策表四個邊界值 | N ∈ {15,16,40,41} | 15 過、16 WARN、40 WARN、41 必縮不得全抓 |
-| FDS-DT-004 | sync 無變更早退 | DT | High | manifest version 相同、截圖齊全 | 1. E2E：extract 後立刻 sync | 小型真 Figma file | `[OK] 設計無變更` 且零寫入 |
-| FDS-DT-005 | assets restore 補圖 | DT | Med | version 相同、本地刪除 1 張 PNG | 1. E2E：刪圖後 sync | 同上 | 只補抓缺圖；design-context.md 與 manifest version 不變 |
-| FDS-DT-006 | 增量更新 + delta markers | DT | High | Figma 內改一個 frame 尺寸 | 1. E2E：改設計後 sync | 同上 | 只重抓該 node；`[MODIFIED]` 標記；manifest 更新 |
+| FDS-DT-004 | sync 結構無變更早退（組合） | DT | High | 所有 status="ok" node 結構指紋 == manifest | 1. E2E：extract 後立刻 sync；2. 走查決策表：指紋相同×截圖齊→早退、指紋相同×缺圖→restore、指紋不同→S3 | 指紋 × 截圖狀態組合 | 指紋全同且截圖齊 → `[OK] 設計結構無變更` 零寫入；其餘組合走對應分支（不再依賴 file version） |
+| FDS-DT-005 | assets restore 補圖（跳過 blocked） | DT | Med | 結構指紋相同、本地刪除 1 張 status="ok" node 的 PNG | 1. E2E：刪圖後 sync；2. 確認 status="blocked" node 不被重抓 | 同上 | 只補抓缺圖且跳過 blocked node；補抓失敗會列缺補清單；design-context.md 與 manifest 不變 |
+| FDS-DT-006 | 增量更新 + [ADDED]/[MODIFIED] | DT | High | Figma 內改一個 frame 尺寸 **並新增一個 frame** | 1. E2E：改+增設計後 sync | 同上 | 只重抓 changed+added nodes；改動處 `[MODIFIED]`、新增處 `[ADDED]`；manifest 更新受影響 node 指紋 |
 | FDS-DT-007 | amplifier Step 0 掛接（URL） | DT | Med | 需求含 figma.com URL、無 design/ | 1. walkthrough amplifier Step 0 決策表新列 | — | 先跑 extract；MCP 不可用時 `[WARN]` 略過 |
 | FDS-DT-008 | 模式選擇：extract | DT | Med | 無 manifest | 1. walkthrough 模式決策表列 1 | — | 進 extract |
 | FDS-DT-009 | 模式選擇：sync | DT | Med | manifest 存在、fileKey 相同或無 URL | 1. walkthrough 模式決策表列 2 | — | 進 sync |
 | FDS-DT-010 | fileKey 不同須確認 | DT | Med | manifest fileKey ≠ URL fileKey | 1. walkthrough 模式決策表列 3 | — | 回報兩個 fileKey、確認前不覆蓋 |
 | FDS-DT-011 | amplifier Step 0 掛接（manifest） | DT | Med | manifest 已存在 | 1. walkthrough amplifier Step 0 決策表新列 | — | 先跑 sync 再讀 design-context.md |
 | FDS-EG-001 | 單 node 失敗不中斷 | EG | Med | 某 node MCP 呼叫失敗 | 1. walkthrough extract Step 2 部分失敗分支 | — | `[BLOCKED]` 標記；其餘繼續；摘要列 blocked 清單 |
-| FDS-EG-002 | 指紋盲點交使用者 | EG | High | version 變但指紋全同 | 1. walkthrough sync S2 第四列 | — | `[WARN]` + 三選項；不得自行選擇 |
+| FDS-EG-002 | 非結構變更盲點 | EG | High | 僅文案/樣式/token 變更（結構指紋全同） | 1. walkthrough sync S2 盲點段 | — | 結構性早退略過；盲點於 SKILL.md/manifest-schema.md 明文記載；導向 full re-extract |
 | FDS-EG-003 | manifest 壞損重建 | EG | Low | manifest JSON 無法解析 | 1. walkthrough 模式決策表壞損列 | 壞 JSON | 提示刪除後 extract 重建 |
-| FDS-EG-004 | node 消失標墓碑 | EG | Low | manifest node 不在新樹中 | 1. walkthrough sync S2 消失列 | — | `[REMOVED]` 墓碑 + 原因；截圖保留但提示可刪 |
+| FDS-EG-004 | node 消失標墓碑（缺失未過半） | EG | Low | manifest node 不在新樹中，且缺失比例 < 半數 | 1. walkthrough sync S2 消失列 | — | `[REMOVED]` 墓碑 + 原因；截圖保留但提示可刪 |
+| FDS-EG-005 | 截斷 metadata 完整性 gate | EG | High | 新 metadata 樹缺失 tracked node 超過半數（疑似截斷/rate-limit） | 1. walkthrough sync S2 完整性前置檢查 | 缺失 > 50% 的 metadata | `[WARN]` 疑似不完整、要求確認；不得直接大量標 `[REMOVED]` |
+| FDS-DT-012 | 結構指紋欄位敏感度 | DT | Med | 分別改變 childCount（新增子節點、bbox 不變）與 descendantSummary | 1. walkthrough/E2E：各改一欄位觸發 changed | childCount / descendantSummary 變更 | 每個指紋欄位變更皆能被偵測為 changed（非只 width/height） |
 | FDS-ST-001 | extract 完整產出 | ST | High | 合法 URL + 認證有效 | 1. E2E 跑 extract 全流程 | 2-3 screens 的真 file | 三類產物齊全；design-context.md 頂部有補抓註記 |
 | FDS-ST-002 | spec 影響提示 | ST | Med | sync 有 changed screens | 1. walkthrough sync S4 | specs/ 內含 slug 引用 | 列出受影響 scenario；無命中時註明人工確認 |
 | FDS-ST-003 | Step 1a 吸收設計上下文 | ST | Med | design-context.md 存在 | 1. walkthrough amplifier Step 1a 新段 | 含 `[DESIGN GAP]` 的樣例 | GAP 轉 NEEDS CLARIFICATION 或 W |
+| FDS-ST-004 | 元件實例盤點 + 完整性 gate | ST | High | 掃描範圍含引用外部 library 元件的 INSTANCE | 1. E2E/walkthrough：extract 後檢查 manifest componentRef 與 `[WARN]` 清單 | 含外部 library instance 的 file | 每個 instance 有 componentRef；被引用但未盤點的元件列入 `[WARN]`；不靜默略過 |
 | FDS-VL-001 | assets 不進 git | VL | High | extract 已寫入 PNG | 1. `git check-ignore openspec/changes/x/design/assets/a.png` | — | exit 0（被 ignore） |
 | FDS-VL-002 | amplifier 向後相容 | VL | High | 無 design/、無 URL | 1. walkthrough amplifier 全流程 | — | 與掛接前行為相同；無 figma 字樣輸出 |
 
@@ -85,6 +89,7 @@ Legend: ✓ covered · △ partial · ✗ missing
 | US-001 | `extract-auth-probe-fail` | FDS-DT-002 | walkthrough |
 | US-001 | `extract-scope-guard-warn` | FDS-DT-003 | walkthrough（BVA） |
 | US-001 | `extract-partial-failure-blocked` | FDS-EG-001 | walkthrough |
+| US-001 | `extract-instance-inventory-and-component-completeness` | FDS-ST-004 | E2E / walkthrough |
 | US-001 | `assets-not-tracked-by-git` | FDS-VL-001 | `git check-ignore` |
 | US-001 | `mode-extract-when-no-manifest` | FDS-DT-008 | walkthrough |
 | US-001 | `mode-filekey-mismatch-confirm` | FDS-DT-010 | walkthrough |
@@ -93,8 +98,10 @@ Legend: ✓ covered · △ partial · ✗ missing
 | US-002 | `sync-no-change-early-exit` | FDS-DT-004 | E2E |
 | US-002 | `sync-assets-restore` | FDS-DT-005 | E2E |
 | US-002 | `sync-incremental-delta-markers` | FDS-DT-006 | E2E |
+| US-002 | `sync-incremental-delta-markers` | FDS-DT-012 | walkthrough（指紋欄位敏感度） |
 | US-002 | `sync-fingerprint-blind-spot-warn` | FDS-EG-002 | walkthrough |
 | US-002 | `sync-node-removed-tombstone` | FDS-EG-004 | walkthrough |
+| US-002 | `sync-node-removed-tombstone` | FDS-EG-005 | walkthrough（截斷完整性 gate） |
 | US-002 | `sync-spec-impact-hint` | FDS-ST-002 | walkthrough |
 | US-003 | `amplifier-step0-figma-url-detected` | FDS-DT-007 | walkthrough |
 | US-003 | `amplifier-step0-manifest-exists-sync` | FDS-DT-011 | walkthrough |

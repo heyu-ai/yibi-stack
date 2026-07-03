@@ -36,7 +36,7 @@ Figma MCP tools are unavailable.
 
 #### Scenario: mcp-unavailable-fail-stop -- Figma MCP 不可用時硬停
 
-- **GIVEN** 目前 session 的 tool 清單中沒有任何 `mcp__Figma__*` 工具
+- **GIVEN** 目前 session 的 tool 清單中沒有任何 Figma MCP 工具（無任何以 `get_design_context`/`get_metadata` 等 base name 結尾的工具；namespace 前綴依連接器註冊名而定）
 - **WHEN** 執行 figma-design-sync（任一模式）
 - **THEN** 系統 MUST 以 `[FAIL] Stop.` 停止並提示連接 Figma MCP
 - **AND** 系統 MUST NOT 產出任何檔案
@@ -66,6 +66,16 @@ Every MCP call MUST be followed by an explicit failure gate.
 - **AND** 每個成功擷取的 screen MUST 有對應的 `assets/<screen-slug>.png`
 - **AND** design-context.md 頂部 MUST 註記「截圖不入 git；缺圖時執行 sync 補抓」
 
+#### Scenario: extract-instance-inventory-and-component-completeness -- 元件實例盤點與完整性 gate
+
+- **GIVEN** 掃描範圍內存在引用某 main component 的 `INSTANCE` 節點（含外部 library 元件）
+- **WHEN** extract 完成盤點
+- **THEN** 每個 instance MUST 記入 manifest `nodes[].componentRef`（main component 名稱 + 是否外部 library）
+- **AND** 系統 MUST 比對「被引用的 main component」與「已盤點的 component 定義」，
+  被引用但定義未落地者 MUST 以 `[WARN]` 清單列出（不得靜默略過）
+- **AND** 系統 MUST 記載本 skill 只讀當前 file 的引用足跡、不枚舉外部 library 完整目錄
+  （需完整落地 library 時對 library file URL 另跑 extract）
+
 #### Scenario: extract-scope-guard-warn -- screens 數量超限時警告或必縮
 
 - **GIVEN** node inventory 判定的 screens 數量為 N
@@ -93,61 +103,70 @@ Every MCP call MUST be followed by an explicit failure gate.
 ### Requirement: Sync exits early when design is unchanged
 
 In sync mode the skill SHALL determine change status with a single
-`get_metadata` call. When the file-level `version` and `lastModified` match the
-manifest and all local screenshots exist, it MUST report no change and exit with
-zero writes. When screenshots recorded in the manifest are missing locally, it
-MUST re-download only those screenshots without treating it as a design change.
+`get_metadata` call, comparing each tracked node's structural fingerprint
+(`name + type + width + height + childCount + descendantSummary`) against the
+manifest. `get_metadata` does not return a file-level version, so the structural
+fingerprint is the sole comparison basis. When all `status="ok"` node fingerprints
+match the manifest and all local screenshots exist, it MUST report no change and
+exit with zero writes. When screenshots recorded in the manifest are missing
+locally, it MUST re-download only those (`status="ok"` nodes only), report any
+restore-fetch failures, and MUST NOT treat it as a design change.
 
-#### Scenario: sync-no-change-early-exit -- 無變更時零寫入早退
+#### Scenario: sync-no-change-early-exit -- 結構無變更時零寫入早退
 
-- **GIVEN** manifest 的 version 與 lastModified 與 `get_metadata` 回傳值相同
+- **GIVEN** 所有 `status="ok"` tracked node 的結構指紋與 manifest 相同
 - **AND** manifest `nodes[].screenshot` 記錄的所有檔案在本地存在
 - **WHEN** 執行 sync
-- **THEN** 系統 MUST 回報 `[OK] 設計無變更（version <version>）`
+- **THEN** 系統 MUST 回報 `[OK] 設計結構無變更`
 - **AND** 系統 MUST NOT 寫入或修改任何檔案
 
 #### Scenario: sync-assets-restore -- fresh clone 後補抓缺圖
 
-- **GIVEN** version 與 lastModified 與 manifest 相同
+- **GIVEN** 所有 tracked node 結構指紋與 manifest 相同
 - **AND** manifest 記錄的截圖中有 N 張在本地缺失（fresh clone 或換機器）
 - **WHEN** 執行 sync
-- **THEN** 系統 MUST 只對缺失的 N 個 nodes 重抓 `get_screenshot`
-- **AND** 系統 MUST NOT 修改 design-context.md 與 manifest 的 version 欄位
+- **THEN** 系統 MUST 只對缺失且 `status="ok"` 的 nodes 重抓 `get_screenshot`（跳過 `status="blocked"`）
+- **AND** 任一補抓失敗 MUST 列出缺補清單回報，MUST NOT 靜默宣稱已補齊
+- **AND** 系統 MUST NOT 修改 design-context.md 與 manifest
 - **AND** 回報 MUST 註明「補抓 N 張缺圖」而非設計變更
 
 ---
 
 ### Requirement: Sync applies incremental updates with delta markers
 
-When the file version changes, the skill SHALL compare per-node fingerprints
-(`name + type + width + height + childCount + descendantSummary`) against the
-manifest, re-fetch only changed and added nodes, and mark every touched section
-in `design-context.md` with `[ADDED]` / `[MODIFIED]` / `[REMOVED]` delta markers.
-The fingerprint blind spot (copy or style changes invisible to metadata) MUST be
-escalated to the user, never silently resolved.
+When per-node structural fingerprints differ from the manifest, the skill SHALL
+re-fetch only changed and added nodes, and mark every touched section in
+`design-context.md` with `[ADDED]` / `[MODIFIED]` / `[REMOVED]` delta markers.
+Before writing `[REMOVED]` tombstones the skill MUST apply a completeness gate (a
+`get_metadata` response missing a large fraction of tracked nodes is treated as
+possibly truncated, not mass deletion). Non-structural changes (copy / style /
+token) are invisible to metadata fingerprints and, absent a file version signal,
+cannot be detected by sync; this blind spot MUST be documented and the user
+directed to a full re-extract when they know content changed.
 
 #### Scenario: sync-incremental-delta-markers -- 只重抓變更 nodes 並標 delta markers
 
-- **GIVEN** version 已變且指紋比對出 changed 與 added nodes
+- **GIVEN** 指紋比對出 changed 與 added nodes（既有 node 尺寸/結構改變，且另有新增 node）
 - **WHEN** 執行 sync
 - **THEN** 系統 MUST 只對 changed/added nodes 重跑 design context 與截圖擷取
-- **AND** design-context.md 更新處 MUST 帶 `[ADDED]` 或 `[MODIFIED]` 標記
-- **AND** manifest MUST 更新為新的 version、lastModified、extractedAt 與 node 指紋
+- **AND** design-context.md 修改處 MUST 帶 `[MODIFIED]` 標記、新增處 MUST 帶 `[ADDED]` 標記
+- **AND** manifest MUST 更新為新的 extractedAt 與受影響 node 的結構指紋（file version 為 best-effort）
 
-#### Scenario: sync-fingerprint-blind-spot-warn -- 指紋盲點交使用者決定
+#### Scenario: sync-fingerprint-blind-spot-warn -- 非結構變更盲點，導向 full re-extract
 
-- **GIVEN** version 已變但所有 tracked nodes 的指紋均相同
+- **GIVEN** 設計僅有文案/顏色/樣式/token 變更，所有 tracked nodes 的結構指紋均相同
 - **WHEN** 執行 sync
-- **THEN** 系統 MUST 輸出 `[WARN]` 說明可能是文案/樣式層級變更（metadata 不可見）
-- **AND** 系統 MUST 提供三個選項（全量 design context 重抓 / full re-extract / 忽略）交使用者
-- **AND** 系統 MUST NOT 自行選擇任一選項
+- **THEN** 系統判定結構無變更並早退（`get_metadata` 無 file 版本可偵測此類變更，為已記載盲點）
+- **AND** SKILL.md 與 manifest-schema.md MUST 明文記載此盲點，MUST NOT 假裝能偵測
+- **AND** 使用者已知有非結構變更時 MUST 能以 full re-extract 重建
 
 #### Scenario: sync-node-removed-tombstone -- 消失的 node 標墓碑
 
-- **GIVEN** manifest 中某 node 在新的 metadata 樹中不存在
+- **GIVEN** manifest 中某 node 在新的 metadata 樹中不存在（且缺失比例未觸發完整性 gate）
 - **WHEN** 執行 sync
 - **THEN** design-context.md 對應章節 MUST 加 `[REMOVED]` 墓碑與原因
 - **AND** 本地截圖檔 MAY 保留，但摘要 MUST 提示可刪
+- **AND** 若缺失的 tracked node 超過總數一半，系統 MUST 先輸出 `[WARN]`（疑似 metadata 回應不完整）並要求確認，MUST NOT 直接寫入大量墓碑
 
 #### Scenario: sync-spec-impact-hint -- diff 摘要附 spec 影響提示
 

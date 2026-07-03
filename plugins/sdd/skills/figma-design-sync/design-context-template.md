@@ -99,4 +99,4 @@ spectra-amplifier 與 design.md 只**引用**本產出物，不複製內容；
 | 6 edge cases | 沒有稿也要列出情境本身（✗ + `[DESIGN GAP]`），讓缺口顯式化 |
 | 7 四元素提示 | 只列「畫面上看得到證據」的候選；不腦補業務邏輯 |
 
-章節 1/3/6/7 是 spectra-amplifier Step 1a 的直接輸入。
+章節 1、2、3、5、6、7 是 spectra-amplifier Step 1a 的直接輸入。
