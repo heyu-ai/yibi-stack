@@ -36,7 +36,7 @@
 |------|------|
 | **Actors** | 規格撰寫者（跑 amplifier 的人）、後續開發者（讀 design/ 的人）、spectra-amplifier skill、Figma MCP server |
 | **Actions** | extract（首次擷取）、sync（增量同步）、assets restore（補抓缺圖）、amplifier 讀取 design-context.md |
-| **Data** | design-context.md、figma-manifest.json、assets/*.png、Figma file metadata（version/lastModified/node 樹） |
+| **Data** | design-context.md、figma-manifest.json、assets/*.png、Figma node 樹 metadata（結構指紋來源；get_metadata 不含 file 版本，version/lastModified 為 best-effort） |
 | **Constraints** | 截圖不進 git；Figma MCP 無 per-node 版本（指紋比對有盲點）；screens >40 必須縮小範圍；design/ 不存在時 amplifier 行為不變 |
 
 ---
@@ -64,11 +64,12 @@
 
 **Acceptance Criteria**：
 
-- AC-002-1：GIVEN manifest 的 version/lastModified 與 Figma 現況相同且本地截圖齊全 WHEN 執行 sync THEN 回報 `[OK] 設計無變更` 並零寫入早退
-- AC-002-2：GIVEN version 相同但本地截圖缺失 WHEN 執行 sync THEN 只補抓缺失截圖（assets restore），不改動 design-context.md 與 manifest 的 version 欄位
-- AC-002-3：GIVEN version 已變且 node 指紋比對出差異 WHEN 執行 sync THEN 只重抓 changed/added nodes，design-context.md 更新處帶 `[ADDED]`/`[MODIFIED]`/`[REMOVED]` delta markers
-- AC-002-4：GIVEN version 已變但所有 node 指紋相同 WHEN 執行 sync THEN 以 `[WARN]` 說明 metadata 不可見的變更層級，提供三選項交使用者決定，不得自行選擇
+- AC-002-1：GIVEN 所有 status="ok" node 的結構指紋與 manifest 相同且本地截圖齊全 WHEN 執行 sync THEN 回報 `[OK] 設計結構無變更` 並零寫入早退
+- AC-002-2：GIVEN 結構指紋全相同但本地截圖缺失 WHEN 執行 sync THEN 只對 status="ok" 缺圖 node 補抓（assets restore、跳過 blocked、補抓失敗須回報缺補清單），不改動 design-context.md 與 manifest
+- AC-002-3：GIVEN node 結構指紋比對出 changed 與 added nodes WHEN 執行 sync THEN 只重抓 changed/added nodes，design-context.md 修改處帶 `[MODIFIED]`、新增處帶 `[ADDED]` delta markers
+- AC-002-4：GIVEN 設計僅有文案/樣式/token 等非結構變更（結構指紋全同） WHEN 執行 sync THEN 系統結構性早退（get_metadata 無 file 版本可偵測此類變更），此盲點於 SKILL.md/manifest-schema.md 明文記載，使用者以 full re-extract 兜底
 - AC-002-5：GIVEN sync 偵測到 changed screens WHEN 產出 diff 摘要 THEN 以 screen slug 檢索 specs/ 並列出可能受影響的 `#### Scenario:` 清單
+- AC-002-6：GIVEN manifest 中某 node 在新 metadata 樹消失且缺失比例未觸發完整性 gate WHEN 執行 sync THEN design-context.md 加 `[REMOVED]` 墓碑；缺失超過半數時系統先 `[WARN]` 要求確認，不得直接大量標墓碑
 
 ### US-003：融入 spectra-amplifier 展開流程
 
@@ -82,6 +83,7 @@ design.md 以引用方式連到 design/，全程 single source
 - AC-003-1：GIVEN 需求含 figma.com URL 且 design/ 不存在 WHEN 執行 amplifier Step 0 THEN 依決策表先執行 figma-design-sync extract；Figma MCP 不可用時 `[WARN]` 略過並繼續既有流程
 - AC-003-2：GIVEN design/design-context.md 存在 WHEN 執行 amplifier Step 1a THEN 必須讀取設計上下文，`[DESIGN GAP]` 項目轉為 `[NEEDS CLARIFICATION]`（計入上限 3）或 Step 0.5 的 W
 - AC-003-3：GIVEN design/ 不存在且需求無 Figma URL WHEN 執行 amplifier THEN 行為與掛接前完全相同（向後相容）
+- AC-003-4：GIVEN design/figma-manifest.json 已存在 WHEN 執行 amplifier Step 0 THEN 先執行 figma-design-sync（sync 模式）確認設計未過期，`[OK]` 或使用者確認忽略後才讀 design-context.md 繼續
 
 ---
 
@@ -98,7 +100,7 @@ design.md 以引用方式連到 design/，全程 single source
 
 | # | 假設內容 | 若不成立的影響 |
 |---|----------|----------------|
-| A1 | Figma MCP 的 `get_metadata` 回傳 file 級 `version` 與 `lastModified` | sync 第一層早退失效，退化為每次都做 node 指紋比對（仍可運作，成本升高） |
+| A1 | ~~Figma MCP `get_metadata` 回傳 file 級 `version`/`lastModified`~~ **已驗證不成立**（get_metadata 只回傳 node 樹，schema：「only includes node IDs, layer types, names, positions and sizes」）。設計改採 **node 結構指紋為唯一比對依據**（原「退化路徑」轉為主路徑），成本結構不變（cheap metadata 一呼 + 選擇性昂貴重抓） | 非結構變更（文案/樣式/token）不改變指紋、亦無 file 版本可偵測，成為已記載盲點，以 full re-extract 兜底 |
 | A2 | node 的 `name/type/width/height/childCount/descendantSummary` 足以偵測結構層級變更 | 指紋誤判率升高；由 S2 `[WARN]` 三選項與 full re-extract 兜底 |
 | A3 | 截圖對開發者是輔助參照，文字上下文才是餵 spec 的主體 | 若截圖成為必要品，gitignore 策略需重新評估（見 Out of Scope） |
 | A4 | 使用者會在 change 目錄已存在的前提下執行 extract | change 不存在時 skill 詢問使用者，不自行產 proposal.md |
@@ -108,7 +110,7 @@ design.md 以引用方式連到 design/，全程 single source
 | # | 限制 | 來源 |
 |---|------|------|
 | C1 | assets/*.png 不得進 git | 使用者指示：截圖留本地給人看，repo 不承受 binary 膨脹 |
-| C2 | Figma MCP 不提供 per-node 版本 | Figma MCP API 能力邊界；純文案/樣式變更對 metadata 指紋不可見 |
+| C2 | Figma MCP `get_metadata` 不提供 file 版本，也不提供 per-node 版本 | Figma MCP API 能力邊界；sync 以結構指紋比對，純文案/樣式/token 變更對指紋不可見 |
 | C3 | design/ 不存在時 spectra-amplifier 行為必須與掛接前完全相同 | 向後相容；amplifier 是 sdd plugin 核心，不得破壞既有流程 |
 | C4 | screens > 40 必須縮小範圍後才能 extract | 防止 design context 撐爆 agent context window |
 
@@ -147,9 +149,9 @@ design.md 以引用方式連到 design/，全程 single source
 
 #### Scenario: smk-sync-early-exit -- SMK-002 sync 無變更早退
 
-**GIVEN** manifest 與 Figma 現況 version 相同、本地截圖齊全
+**GIVEN** manifest 與 Figma 現況結構指紋相同、本地截圖齊全
 **WHEN** 執行 figma-design-sync sync
-**THEN** 系統 MUST 回報 `[OK] 設計無變更` 且 MUST NOT 寫入任何檔案
+**THEN** 系統 MUST 回報 `[OK] 設計結構無變更` 且 MUST NOT 寫入任何檔案
 
 #### Scenario: smk-amplifier-backward-compat -- SMK-003 amplifier 向後相容
 
@@ -171,8 +173,10 @@ design.md 以引用方式連到 design/，全程 single source
 | US-002 | `sync-assets-restore` | FDS-DT-005 | E2E 刪圖再 sync |
 | US-002 | `sync-incremental-delta-markers` | FDS-DT-006 | E2E 改設計再 sync |
 | US-002 | `sync-fingerprint-blind-spot-warn` | FDS-EG-002 | walkthrough |
+| US-002 | `sync-node-removed-tombstone` | FDS-EG-004 | walkthrough |
 | US-002 | `sync-spec-impact-hint` | FDS-ST-002 | walkthrough |
 | US-003 | `amplifier-step0-figma-url-detected` | FDS-DT-007 | walkthrough |
+| US-003 | `amplifier-step0-manifest-exists-sync` | FDS-DT-011 | walkthrough |
 | US-003 | `amplifier-step1a-reads-design-context` | FDS-ST-003 | walkthrough |
 | US-003 | `amplifier-backward-compatible` | FDS-VL-002 | walkthrough |
 
