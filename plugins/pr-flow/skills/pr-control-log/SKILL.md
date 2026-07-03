@@ -33,11 +33,23 @@ description: >
 
 ### Step 0 — 環境與 PR 偵測
 
+先解析 `SKILL_REPO`（bootstrap script 住在 yibi-stack repo，必須先定位才能呼叫——
+不能反過來用 bootstrap 的輸出定義 `SKILL_REPO`）：
+
+```bash
+if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
+if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
+```
+
+再執行 bootstrap：
+
 ```bash
 bash "$SKILL_REPO/plugins/pr-flow/skills/pr-control-log/scripts/bootstrap.sh"
 ```
 
-解析 stdout 的 `SKILL_REPO` / `ORIG_PROJECT` / `REAL_WORKDIR` / `BRANCH`。
+解析 stdout 的 `ORIG_PROJECT` / `REAL_WORKDIR` / `BRANCH`（script 也會回報它自己解析的
+`SKILL_REPO`，應與上方一致）。
 如果 script 輸出 `[FAIL]`，停止並回報錯誤。
 
 然後偵測 PR 號：
