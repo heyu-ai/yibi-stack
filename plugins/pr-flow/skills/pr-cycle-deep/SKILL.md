@@ -239,14 +239,12 @@ git commit -m "..."
 git push -u origin HEAD
 ```
 
-Write the PR body to `/tmp/pr-body.md` with the Write tool (avoids heredoc triggering hooks), then pass it in:
+Write the PR body to `$CLAUDE_JOB_DIR/pr-body.md` with the Write tool
+(avoids heredoc triggering hooks; the job dir is auto-cleaned and not shared
+across parallel sessions, so no `rm` is needed), then pass it in:
 
 ```bash
-gh pr create --title "..." --body-file /tmp/pr-body.md
-```
-
-```bash
-rm -f /tmp/pr-body.md
+gh pr create --title "..." --body-file "$CLAUDE_JOB_DIR/pr-body.md"
 ```
 
 If the project has `/commit-commands:commit-push-pr` slash command installed, run that directly (auto commit + push + PR).
@@ -1005,6 +1003,12 @@ Confirm the output contains the exact version tag, not just older tags; if empty
 ```bash
 gh pr merge "{{pr_number}}" --squash --delete-branch
 ```
+
+> **If a protect-push (or similar) PreToolUse hook blocks `gh pr merge`**: the agent cannot
+> merge in such repos. Ask the user to run it themselves:
+> `! gh pr merge {{pr_number}} --squash --delete-branch` — and from the **main repo
+> directory**, not a linked worktree (worktree merge fails with
+> `'main' is already used by worktree`).
 
 ```bash
 gh pr view "{{pr_number}}" --json mergeCommit -q .mergeCommit.oid

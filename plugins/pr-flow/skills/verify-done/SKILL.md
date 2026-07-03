@@ -96,7 +96,7 @@ git rev-parse --git-common-dir
 **PASS**: `git rev-parse --git-dir` equals `git rev-parse --git-common-dir` (same `.git` directory = main repo, not a linked worktree). Execute merge from here.
 **FAIL**: The two paths differ — current session is inside a linked worktree. Stop. Ask the user to run the merge command manually from the main repo directory.
 
-> `gh pr merge` が linked worktree 內執行，若主 repo 已 checkout main，會失敗
+> `gh pr merge` 在 linked worktree 內執行，若主 repo 已 checkout main，會失敗
 > （`fatal: 'main' is already used by worktree`）。需從主 repo 目錄執行。
 
 ### Step 5 — 報告結果

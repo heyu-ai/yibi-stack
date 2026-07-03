@@ -98,9 +98,9 @@ git commit -m "..."
 
 # Push and create PR
 git push -u origin HEAD
-# Write PR body with Write tool to /tmp/pr-body.md, then pass it in (avoids hook intercepting markdown headers)
-gh pr create --title "..." --body-file /tmp/pr-body.md
-rm -f /tmp/pr-body.md
+# Write PR body with Write tool to $CLAUDE_JOB_DIR/pr-body.md, then pass it in
+# (avoids hook intercepting markdown headers; job dir is auto-cleaned, no rm needed)
+gh pr create --title "..." --body-file "$CLAUDE_JOB_DIR/pr-body.md"
 ```
 
 If the project has `/commit-commands:commit-push-pr` installed, run that directly (auto commit + push + PR).
@@ -137,11 +137,11 @@ This step is **informational** and does not block the workflow. If DRIFT DETECTE
 
 ---
 
-### Step 1.5 — Parallel Pre-review Check (2 agents, same message)
+### Step 1.6 — Parallel Pre-review Check (2 agents, same message)
 
 > Unlike Step 1.5, this step is **blocking** — do not proceed to Step 2 if any agent fails or returns no usable output.
 
-Spawn three Task agents **in a single message** to gather baseline information in parallel:
+Spawn two Task agents **in a single message** to gather baseline information in parallel:
 
 | Agent | Task |
 |-------|------|
@@ -279,10 +279,10 @@ Process **Critical** → **Important** in order:
 2. After each batch of fixes, run local CI. First read the project root to find the actual CI command:
 
    ```bash
-   # Find CI entry point (check in order)
-   cat Makefile 2>/dev/null | grep -E "^ci:|^test:|^check:" | head -5
-   cat package.json 2>/dev/null | python3 -c "import json,sys; s=json.load(sys.stdin).get('scripts',{}); [print(k,':',v) for k,v in s.items() if k in ('test','ci','check')]"
-   cat pyproject.toml 2>/dev/null | grep -A2 "\[tool.pytest\|testpaths"
+   # Find CI entry point (check in order; each file may be absent -- that is fine)
+   grep -E '^(ci|test|check):' Makefile
+   python3 -c "import json; s=json.load(open('package.json')).get('scripts',{}); [print(k,':',v) for k,v in s.items() if k in ('test','ci','check')]"
+   grep -A2 -E '\[tool\.pytest|testpaths' pyproject.toml
    ```
 
    Common CI commands by stack:
@@ -404,6 +404,7 @@ gh pr merge {{pr_number}} --squash --delete-branch
 |-------|---------------|
 | How to avoid the three pr-test-analyzer traps (fake test / presence-only / no-CI)? | Three anti-patterns to always check: (1) **Fake test** (inverse of mutation testing) — the test case logic has a silent bug; all cases PASS but some test action never fires (e.g. env-var override test takes the unset branch; empty value not actually exported, so it runs the same path as another case); "all green" masks a scenario never tested. Fix: mutation testing intuition — intentionally break one production line and check whether that test case **really** fails; if not, it's a fake test. (2) **Presence test ≠ contract test** — `grep function_name` confirming the function is called is the weakest form; if the invariant is "the function must be called **with the correct args**" (e.g. the deploy script must call the guard helper with the **correct default context**), the test must verify the full contract (`function_name <expected_arg>` paired), not just function name presence. (3) **Test not wired to CI = half-finished test** — submitting a test file with no CI / pre-commit / git-hook / `make test` trigger means regressions are only caught when an operator manually runs tests; operators rarely do this spontaneously. Fix: "wired to CI?" should be listed alongside "what to test" and "how to test" as the three required test-design elements. Choose the mechanism per tech stack: Python repos use pre-commit local hook + `files:` regex; TS/JS use husky / lefthook; Go / Rust use `make test` + CI workflow `step: run: make test`. Common requirement: changing production code triggers tests automatically. |
 | Step 3 agents have no git diff to read | Run Step 1 to create a branch/PR first |
+| Step 7 `gh pr merge` blocked by a protect-push (or similar) PreToolUse hook | The agent cannot merge in repos with a merge-blocking hook. Ask the user to run it themselves: `! gh pr merge {{pr_number}} --squash --delete-branch`. Also run it from the main repo directory, not a linked worktree (worktree merge fails with `'main' is already used by worktree`) |
 | Cannot find local CI command | Read `Makefile` / `package.json` / `pyproject.toml`, or ask the user |
 | Linter fails | Check the tool's `--fix` option (ruff: `ruff check --fix`; eslint: `--fix`; gofmt: auto-format) |
 | Type checker fails | Check untyped third-party lib config (mypy: `follow_imports = skip`; tsc: add `@types/<pkg>` or set `skipLibCheck: true`) |
