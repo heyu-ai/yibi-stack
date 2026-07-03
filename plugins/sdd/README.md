@@ -1,6 +1,8 @@
 # sdd
 
-Claude Code plugin for Spec-Driven Development: Spectra amplifier methodology, problem-frames (R/S/W) methodology, qa-test-design framework, and OpenSpec change-management workflow.
+Claude Code plugin for Spec-Driven Development: Spectra amplifier methodology, problem-frames (R/S/W) methodology,
+figma-design-sync (Figma design context extraction + incremental sync), qa-test-design framework,
+and OpenSpec change-management workflow.
 
 > **This plugin does NOT bundle the spectra CLI. Install Spectra.app separately (see Prerequisites).**
 > **v0.2 Upgrade note:** PR review skills (`pr-review-cycle`, `pr-cycle-fast`, `pr-cycle-deep`) have moved to `pr-flow@yibi-stack`. If upgrading from `yibi-spectra`, run:
@@ -39,6 +41,7 @@ claude plugin install sdd@yibi-stack
 | `event-storming` skill | 領域發現前置 skill；amplifier Step 0 的 handoff 來源（draft：接口 + handoff artifact）|
 | `problem-frames` skill | Jackson Problem Frames 方法論；於 event-storming 之後、amplifier 展開規格之前執行，產出 `problem-frame.md` 供 amplifier Step 0.5 沿用；把需求拆成 R/S/W 並證明 S∧W⟹R，將領域假設前置顯式化；方法論詳見 `methodology.md` |
 | `qa-test-design` skill | 測試設計框架（人類入口）：六大技術方法論，生成結構化 test case；方法論詳見 `methodology.md` |
+| `figma-design-sync` skill | Figma 設計擷取（extract）與增量同步（sync）：把設計上下文落地到 `openspec/changes/<name>/design/`（文字進 git、截圖留本地），供 amplifier Step 1a 引用；schema 與模板詳見 `manifest-schema.md`、`design-context-template.md` |
 | `qa-test-designer` agent | Step 2a 自動 subagent：由 spectra-amplifier 平行 dispatch，model: opus，pure-transformation TC 生成 |
 | `gherkin-scenario-writer` agent | Step 1c 平行 subagent：為單一 capability 撰寫 Gherkin scenarios（RFC 2119 GIVEN/WHEN/THEN）；多 capability 時由 spectra-amplifier 平行 dispatch |
 | `scripts/check_spec_coverage.py` | BDD Spec-Test Traceability Scanner（ADR-0008）；`--specs-dir`/`--tests-dir` 參數化 |

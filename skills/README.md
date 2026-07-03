@@ -22,7 +22,7 @@ claude plugin marketplace add howie/yibi-stack  # 一次性註冊
 
 claude plugin install growth@yibi-stack          # mycelium + learn + handover/newjob
 claude plugin install pr-flow@yibi-stack         # PR 全流程 5 skills + 6 commands
-claude plugin install sdd@yibi-stack             # spectra-amplifier + qa-test-design + /sdd:setup
+claude plugin install sdd@yibi-stack             # spectra-amplifier + figma-design-sync + qa-test-design + /sdd:setup
 claude plugin install bash-hygiene@yibi-stack    # bash-anti-patterns + protect-push
 claude plugin install 3rd-tools@yibi-stack       # codex + agy + verify-gemini-models
 claude plugin install tdd@yibi-stack             # tdd-kentbeck + flutter-tdd + ci-triage
@@ -83,6 +83,7 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 | Skill | 住址 | 描述 | SKILL.md |
 |-------|------|------|----------|
 | `spectra-amplifier` | [plugins/sdd/](../plugins/sdd/README.md)（`claude plugin install sdd@yibi-stack`）| Wave D Plugin Edition：Step 0-5 規格展開（BDD Gherkin + qa-test-design dispatch + ADR-0008 docstring trace + SMK smoke tests）| [../plugins/sdd/skills/spectra-amplifier/SKILL.md](../plugins/sdd/skills/spectra-amplifier/SKILL.md) |
+| `figma-design-sync` | [plugins/sdd/](../plugins/sdd/README.md)（`claude plugin install sdd@yibi-stack`）| Figma 設計擷取（extract）與增量同步（sync）：設計上下文落地到 `openspec/changes/<name>/design/`（文字進 git、截圖留本地不入 git），供 amplifier Step 1a 引用（不 dispatch agent；plugin-only 原因是與 spectra-amplifier/openspec 生態耦合）| [../plugins/sdd/skills/figma-design-sync/SKILL.md](../plugins/sdd/skills/figma-design-sync/SKILL.md) |
 
 ---
 

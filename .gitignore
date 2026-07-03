@@ -268,3 +268,6 @@ skills/openspec/
 experiments/
 .claude/commands/
 openspec/config.yaml
+
+# figma-design-sync screenshots (local-only visual reference; text context is git-tracked)
+openspec/changes/*/design/assets/
