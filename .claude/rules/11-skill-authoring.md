@@ -85,6 +85,50 @@ degraded to inline generation. Fix: demoted to plugin-only (symlink removed, `sc
 gave its `[FAIL] Stop` gates the explicit
 `claude plugin install sdd@yibi-stack` install command.
 
+### Trigger Coverage: direct / indirect / negative
+
+The `description` field is the only trigger surface a skill has. Authors reliably test that it
+fires on the obvious phrasing (`direct`) but rarely check the other two axes — and the missing
+one, `negative`, is exactly what causes over-triggering (a skill hijacking a prompt that belongs
+to a sibling). Before finalizing any `description`, self-check all three prompt classes:
+
+| Class | Question the author must answer | What it protects |
+|-------|--------------------------------|------------------|
+| **direct** | Does a prompt using the literal trigger keywords fire this skill? | baseline recall |
+| **indirect** | Does a paraphrase / synonym of the intent still fire it (without naming the keyword)? | recall breadth — catches under-triggering |
+| **negative** | Is there a nearby prompt that must NOT fire this skill — especially one owned by a **sibling skill**? | precision — catches over-triggering |
+
+The `negative` axis is the one this repo has never required, and it is the most valuable: it
+forces the author to name the sibling skill whose territory they must not invade, and to keep
+the two `description` fields from colliding.
+
+**Worked example — the known over-trigger families.** These clusters share heavy keyword overlap,
+so each member's `description` must carry an explicit negative boundary against its siblings:
+
+- **PR lifecycle** — `pr-cycle-deep` / `pr-cycle-fast` / `pr-review-cycle`. This family already
+  models the fix: each `description` ends by redirecting the out-of-scope prompt to the right
+  sibling (e.g. pr-cycle-deep's `小型 PR 或快速 lifecycle 請改用 /pr-cycle-fast`;
+  `純 PR review 不需完整 lifecycle 請改用 /pr-review-cycle`). That redirect clause **is** a
+  negative-trigger declaration — copy this pattern.
+- **Retro** — `pr-retrospective` plus the thin `/pr-retro` command wrapper (same trigger surface,
+  much thinner frontmatter). A prompt about a *single* lesson should route here, not into a PR
+  lifecycle skill.
+- **Harness** — `harness-eval` (full 11-dimension sweep) vs `harness-eval-focus` (deep-dive on one
+  dimension). "評估 repo" → the former; "D2 hook 問題" → the latter. Neither should steal the other.
+- **TDD** — `tdd-kentbeck`'s `description` ends with `即使用戶只說「幫我寫這個功能」…也應觸發`,
+  which widens its trigger to *any* "build this feature" phrasing. That sentence is a **cautionary
+  example**: it is precisely the kind of unbounded clause a `negative` self-check should flag,
+  because it makes the skill claim prompts that belong to plain implementation work. `flutter-tdd`
+  (Flutter-specific) and `ci-triage` (CI failure diagnosis, not test authorship) are adjacent
+  skills whose boundaries against `tdd-kentbeck` must stay explicit.
+
+**Quantified detection is planned, not yet available.** A `scripts/lint_skill_overlap.py` that
+measures pairwise `description` keyword overlap and flags over-trigger risk is tracked under
+issue #186 (path B) and does **not** exist yet — do not cite it as an existing gate. Until it
+lands, this three-class self-check is a manual authoring discipline. When it is built, model it on
+`scripts/lint_skill_scope.py`: docstring-as-spec with an exit-code table, regex-based frontmatter
+parsing (no YAML dependency), and a `[FAIL]`/`[OK]` message that points back to this section.
+
 ## Frontmatter — `effort` (Optional, added 2026-05)
 
 Claude Code v2.1.133+ supports specifying effort in skill / slash command frontmatter,
