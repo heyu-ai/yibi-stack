@@ -339,6 +339,30 @@ Q4 每個 lesson 先按下表分類再決定目的地。**CLAUDE.md 是最後 fa
 
 > **rules/ 存在性**：`.claude/rules/` 只存在於採用 path-scoped rules 架構的 repo。在其他 repo 執行 `/pr-retro` 時，若目標 rule 檔不存在，改路由到 `<repo>/CLAUDE.md` 作為 fallback。
 
+#### 最小相容修改階梯（Patch-Surface Ladder）
+
+前兩層已決定 lesson 的**去留**與**目的地**：Promotion Gate（3 條）決定「能不能寫進 rule 檔」，
+Lesson Classifier 決定「寫到哪個檔」。本階梯是第三軸——決定**改動面多大**。原則是**優先選最輕、
+相容性最高的修改面，只有上層擋不住才往下爬**：改 frontmatter 一行 < 加流程 gate < append rule <
+寫 script < 建 eval < 動 skill 邊界。每往下一階，token cost 與維護負擔就升一級。
+
+先確認 Promotion Gate 通過、Classifier 已選定目的地，再對照下表挑最上層可行的修改面：
+
+| 修改面 | 何時選（訊號）| 成本 / 相容性 |
+|--------|--------------|----------------|
+| `no-change` | 一次性 / 環境問題，Promotion Gate 已擋下 | 零 |
+| `description` | 觸發不準（over/under-trigger）；見 rule 11「Trigger Coverage」 | 極低；只改 frontmatter 觸發詞 |
+| `workflow gate` | 流程缺一步驗證（`[FAIL]` gate / 前置檢查 / 失敗停止條件）| 低；SKILL.md 加 gate 行 |
+| `reference rule` | 跨 session 通則、day-1 新人也會踩 | 中；append `.claude/rules/` 對應子檔 |
+| `script helper` | 可機械化的重複檢查（lint / 掃描）| 中高；寫 `scripts/*.py` 或 `scripts/*.sh` |
+| `eval` | 有評分資料、需回歸保護 | 高；建 eval / regression gate（issue #186，尚未落地）|
+| `merge / split` | skill 職責過寬或過窄，邊界本身錯了 | 高；動 skill 邊界 + 更新 `skills/README.md` |
+| `deprecate / retire` | skill 已被取代，或長期 over-trigger 無法靠上層修好 | 最高；移除 symlink + 更新 index |
+
+> **與 Lesson Classifier 的關係**：Classifier 選「哪個 rule 檔」，本階梯選「用多重的手段」。
+> 例：一個觸發不準的 lesson，Classifier 指向 `11-skill-authoring.md`，但本階梯會先問——這其實
+> 只需改該 skill 的 `description`（`description` 階）就好，不必真的 append 一條新 rule。
+
 #### CLAUDE.md 行數檢查（路由到任何 CLAUDE.md 時才執行）
 
 若 Lesson Classifier 結果是 `<repo>/CLAUDE.md` 或 `~/.claude/CLAUDE.md`，先確認**目標**行數：
