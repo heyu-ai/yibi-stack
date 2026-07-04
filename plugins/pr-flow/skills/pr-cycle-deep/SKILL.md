@@ -843,6 +843,24 @@ If a LGTM voice shows NEEDS_CHANGES in new R1, immediately run R2 (r2 file was d
 
 Any voice still has actionable items → return to Step 6 to fix.
 
+**LGTM-with-trickle-NITs (lead judgment call)**: a distinct pattern from
+persistent NEEDS_CHANGES — every voice's *verdict* is already LGTM, but one
+voice emits a small number of new, progressively-more-trivial actionable NITs
+each round (each fixed same-round), so the strict "no new NITs" condition never
+quite closes. The lead MAY declare convergence without another full round when
+ALL of the following hold:
+
+1. every active voice's verdict has been LGTM for **2+ consecutive rounds**;
+2. every actionable NIT raised in those rounds was **fixed in the same round**
+   (none deferred, none disputed);
+3. the latest unreviewed delta is **comment/doc-only** (no runtime surface).
+
+Record the judgment explicitly in `final.md` / `human-summary.md` (which voice
+was still trickling, what the last item was, why the loop was closed). If the
+trickle items are code-bearing rather than cosmetic, do NOT use this shortcut —
+run the next round. (Origin: openspectra PR #35 rounds 4–7, where one voice
+emitted one shrinking NIT per round down to a docstring reflow.)
+
 #### Circuit breaker
 
 After **3 consecutive rounds** without all voices LGTM → stop automatic retries; present the user with the persistent unresolved findings:
