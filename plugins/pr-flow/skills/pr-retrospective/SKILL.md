@@ -36,36 +36,40 @@ description: >
 
 ### Step 0 — 環境與 PR 解析（只在 skill 啟動時跑一次）
 
-環境檢查 + 專案偵測 + SKILL_REPO 解析（prereqs check / case-free project detection / config）：
+先解析 `SKILL_REPO`（script 住在 yibi-stack repo，必須先定位才能呼叫）：
 
 ```bash
-bash /Users/howie/Workspace/github/yibi-stack/plugins/pr-flow/skills/pr-retrospective/scripts/bootstrap.sh
+if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
+if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
+```
+
+再執行環境檢查 + 專案偵測（prereqs check / case-free project detection / config）：
+
+```bash
+bash "$SKILL_REPO/plugins/pr-flow/skills/pr-retrospective/scripts/bootstrap.sh"
 ```
 
 Script stdout 輸出 `KEY=VALUE`，agent 解析並記住：
 
-- `SKILL_REPO` — yibi-stack 根目錄路徑
+- `SKILL_REPO` — yibi-stack 根目錄路徑（應與上方解析結果一致）
 - `ORIG_PROJECT` — 呼叫端 git repo 名稱
 - `REAL_WORKDIR` — 目前工作目錄
 - `BRANCH` — 目前分支名稱
-
-> 其他使用者需依自己的 `skill_repo` 調整此路徑。
 
 偵測 PR 號（從 ARGUMENTS 解析 `--pr <n>` 或 fallback 到 `gh pr view`）。
 
 **無 `--pr` 引數時**（在 PR branch 上，gh 自動偵測）：
 
 ```bash
-bash /Users/howie/Workspace/github/yibi-stack/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh
+bash "$SKILL_REPO/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh"
 ```
 
 **有 `--pr <n>` 引數時**（agent 把實際 PR 號附在後）：
 
 ```bash
-bash /Users/howie/Workspace/github/yibi-stack/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh --pr 65
+bash "$SKILL_REPO/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh" --pr 65
 ```
-
-> 其他使用者需依自己的 `skill_repo` 調整此路徑（同上）。
 
 Agent 依 ARGUMENTS 選擇對應形式。Script 用 `$*` 合併所有位置引數，支援 shell-split 傳入。
 Script stdout 輸出 `PR_NUMBER=<n>`；agent 解析並記住供後續步驟使用。

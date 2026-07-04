@@ -50,16 +50,16 @@ description: >
 ```bash
 # Vertex AI -- Application Default Credentials
 ls ~/.config/gcloud/application_default_credentials.json
-echo $GCP_PROJECT_ID
+test -n "$GCP_PROJECT_ID" && echo "GCP_PROJECT: SET" || echo "GCP_PROJECT: MISSING"
 # 若缺少：gcloud auth application-default login && export GCP_PROJECT_ID=<project>
 
-# Google AI Studio -- API key
-echo $GEMINI_API_KEY
-# 或從 yibi-stack repo 的 .env 讀取：
+# Google AI Studio -- API key（絕不 echo key 值本身，只驗證存在性）
+test -n "$GEMINI_API_KEY" && echo "GEMINI_KEY: SET" || echo "GEMINI_KEY: MISSING"
+# 或從 yibi-stack repo 的 .env 確認 key 存在：
 if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
 if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
-grep GEMINI_API_KEY "$SKILL_REPO/.env" 2>/dev/null
+grep -q GEMINI_API_KEY "$SKILL_REPO/.env" 2>/dev/null && echo "ENV_KEY: PRESENT" || echo "ENV_KEY: ABSENT"
 ```
 
 若憑證缺少，停下來告知使用者需要執行哪個指令，等待確認後再繼續。

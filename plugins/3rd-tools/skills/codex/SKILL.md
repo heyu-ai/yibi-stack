@@ -148,10 +148,17 @@ Review the changes on this branch against the base branch. Run `git diff origin/
 若使用者指定重點（如 `challenge security`），在 prompt 末尾加：`Focus specifically on: <重點>`
 
 執行（`<repo_root>` 替換為上一步輸出的路徑）。
-**注意**：若 prompt 含 backtick 字元（如 `` `git diff` ``），必須先用 Write tool 將 prompt 存至 `/tmp/codex-prompt.txt`，再用 `"$(cat /tmp/codex-prompt.txt)"` 傳入，避免 shell 提前評估：
+**注意**：若 prompt 含 backtick 字元（如 `` `git diff` ``），必須先用 Write tool 將 prompt 存至 `$CLAUDE_JOB_DIR/codex-prompt.txt`，
+再以 stdin redirect 傳入（省略 positional prompt 時 codex 從 stdin 讀取；
+**禁用** `"$(cat ...)"` 外層雙引號包 subshell——rule 13 Quoting Rule 2 違規）：
 
 ```bash
 timeout 600 codex exec "<prompt>" -C <repo_root> -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null
+```
+
+```bash
+# prompt 含 backtick 時改用：
+timeout 600 codex exec -C <repo_root> -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-prompt.txt"
 ```
 
 **輸出格式**：
@@ -184,10 +191,15 @@ IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claud
 ```
 
 執行（`<repo_root>` 替換為上一步輸出的路徑）。
-**注意**：若使用者問題含 backtick，先用 Write tool 存至 `/tmp/codex-prompt.txt`，再以 `"$(cat /tmp/codex-prompt.txt)"` 傳入：
+**注意**：若使用者問題含 backtick，先用 Write tool 存至 `$CLAUDE_JOB_DIR/codex-prompt.txt`，再以 stdin redirect 傳入（同 Step 2B 的注意事項）：
 
 ```bash
 timeout 300 codex exec "<prompt>" -C <repo_root> -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < /dev/null
+```
+
+```bash
+# 問題含 backtick 時改用：
+timeout 300 codex exec -C <repo_root> -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-prompt.txt"
 ```
 
 呈現完整輸出，不截斷、不摘要。

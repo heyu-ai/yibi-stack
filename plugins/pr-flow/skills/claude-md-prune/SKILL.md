@@ -53,7 +53,7 @@ wc -l CLAUDE.md
 | 段落特徵 | 分類 | 目的地 |
 |---------|------|--------|
 | Bash anti-pattern / AP1/AP2/AP3 細節 | bash | `.claude/rules/13-bash-anti-patterns.md` |
-| Shell quoting / simple_expansion | quoting | `.claude/rules/14-shell-quoting-hygiene.md` |
+| Shell quoting / simple_expansion | quoting | `.claude/rules/13-bash-anti-patterns.md`（Shell Quoting Hygiene 章節；原 rule 14 已併入） |
 | SKILL.md 格式 / frontmatter / placeholder | skill-authoring | `.claude/rules/11-skill-authoring.md` |
 | 不可逆操作 / 危險指令邊界 | irreversible | `.claude/rules/15-irreversible-operations.md` |
 | 安全性 / injection / sanitize | security | `.claude/rules/03-security.md` |
@@ -144,7 +144,7 @@ wc -l CLAUDE.md
 
 | 問題 | 處理方式 |
 |------|----------|
-| 不確定某段落歸哪個 rule | 看「動詞 / 操作對象」：bash 指令相關一律 rule 13/14；SKILL.md 格式 rule 11；危險操作 rule 15 |
+| 不確定某段落歸哪個 rule | 看「動詞 / 操作對象」：bash 指令與 shell quoting 相關一律 rule 13（原 rule 14 已併入）；SKILL.md 格式 rule 11；危險操作 rule 15 |
 | 已有相同內容在 rules/ | 直接刪除 CLAUDE.md 的重複段落（rule 是正本，不需保留副本）|
 | 遷移後 rules/ 太長 | rules/ 沒有 200 行限制（path-scoped，不是全域載入），不需擔心 |
 | 想同時 prune 兩個 CLAUDE.md | Step 2-5 對兩個檔案分別執行一次 |

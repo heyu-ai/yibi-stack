@@ -192,6 +192,11 @@ PR #{{pr_number}} 已通過 code review 與 CI。
 gh pr merge {{pr_number}} --squash --delete-branch
 ```
 
+> **若 repo 裝有 protect-push 等 PreToolUse hook 擋下 `gh pr merge`**：skill 無法代跑，
+> 請 user 自行執行 `! gh pr merge {{pr_number}} --squash --delete-branch`，
+> 且需從**主 repo 目錄**執行（linked worktree 內會 `'main' is already used by worktree` 失敗）。
+> user 手動 merge 完成後，繼續執行下方 transition。
+
 若成功，transition MERGEABLE → MERGED：
 
 ```bash
