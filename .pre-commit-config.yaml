@@ -55,6 +55,13 @@ repos:
         pass_filenames: false
         files: ^(skills/.*/SKILL\.md|\.claude-plugin/marketplace\.json)$
 
+      - id: lint-skill-overlap
+        name: lint-skill-overlap
+        entry: python3 scripts/lint_skill_overlap.py
+        language: system
+        pass_filenames: false
+        files: ^(skills/.*/SKILL\.md|scripts/lint_skill_overlap\.py)$
+
       - id: check-blank-proposal
         name: check-blank-proposal
         entry: python3 scripts/check_blank_proposal.py

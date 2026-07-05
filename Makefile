@@ -7,9 +7,10 @@ help: ## Show this help
 
 # ─── Development ─────────────────────────────────────────────────────────────
 
-lint: ## Run ruff linter + markdown bash anti-pattern check
+lint: ## Run ruff linter + markdown bash anti-pattern check + skill overlap check
 	uv run ruff check tasks/ .claude/hooks/
 	python3 scripts/lint_skill_bash.py
+	python3 scripts/lint_skill_overlap.py
 
 lint-md: ## Check bash anti-patterns in SKILL.md / commands markdown files
 	python3 scripts/lint_skill_bash.py
@@ -23,12 +24,13 @@ typecheck: ## Run mypy type checker
 test: ## Run pytest
 	uv run pytest
 
-check: ## Run all checks (lint + format check + typecheck + test + markdown bash lint)
+check: ## Run all checks (lint + format check + typecheck + test + markdown bash lint + skill overlap check)
 	uv run ruff check tasks/ .claude/hooks/
 	uv run ruff format --check tasks/ .claude/hooks/
 	uv run mypy tasks/
 	uv run pytest
 	python3 scripts/lint_skill_bash.py
+	python3 scripts/lint_skill_overlap.py
 
 ci: ## 本地 CI fallback（pre-commit + tests；AgentShield security-scan 略過）
 	@echo "━━━ [1/2] pre-commit（lint / format / type / security）━━━"
