@@ -4,10 +4,9 @@
 scripts/ 非 package，故以 importlib 依路徑載入模組，不污染 pythonpath。
 """
 
+import importlib.util
 import sys
 from pathlib import Path
-
-import importlib.util
 
 _MOD_PATH = Path(__file__).resolve().parent.parent / "lint_skill_overlap.py"
 _spec = importlib.util.spec_from_file_location("lint_skill_overlap", _MOD_PATH)
@@ -21,13 +20,18 @@ def make_skill(description: str, block: bool = False) -> str:
     if block:
         indented = "\n".join(f"  {line}" for line in description.splitlines())
         return f"---\nname: demo\ntype: know\nscope: global\ndescription: >\n{indented}\n---\n\n# Demo\n"
-    return f"---\nname: demo\ntype: know\nscope: global\ndescription: {description}\n---\n\n# Demo\n"
+    return (
+        f"---\nname: demo\ntype: know\nscope: global\ndescription: {description}\n---\n\n# Demo\n"
+    )
 
 
 class TestParseDescription:
     def test_lintoverlap_vl_001_reads_single_line(self) -> None:
         """LINTOVERLAP-VL-001: 單行 description 直接讀出"""
-        assert lint_skill_overlap.parse_description(make_skill("PR review 自動化")) == "PR review 自動化"
+        assert (
+            lint_skill_overlap.parse_description(make_skill("PR review 自動化"))
+            == "PR review 自動化"
+        )
 
     def test_lintoverlap_vl_002_reads_folded_block(self) -> None:
         """LINTOVERLAP-VL-002: `>` folded block 拼回單行"""
@@ -168,7 +172,9 @@ class TestMainEndToEnd:
     ) -> None:
         """LINTOVERLAP-EG-005: skills 目錄不存在 -> main() 回 2"""
         monkeypatch.setattr(
-            lint_skill_overlap, "SKILLS_DIR", tmp_path / "does-not-exist"  # type: ignore[attr-defined]
+            lint_skill_overlap,
+            "SKILLS_DIR",
+            tmp_path / "does-not-exist",  # type: ignore[attr-defined]
         )
         monkeypatch.setattr(sys, "argv", ["lint_skill_overlap.py"])
         assert lint_skill_overlap.main() == 2
