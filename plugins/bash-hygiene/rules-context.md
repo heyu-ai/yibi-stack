@@ -47,14 +47,16 @@ Rule 5: both `"${VAR}"` and `"$VAR"` trigger false positives (expansion / simple
 pattern 都不會 match，於是 Claude Code 內建 bash 分析器（**不是** plugin hook）
 退回 ask，每次都跳 permission dialog。
 
-注意：真正的觸發點是「命令開頭是賦值前綴、動詞不在第一個 token」，**不是** `$VAR` 本身。
-動詞在第一個 token 時（`grep` / `python3` / `git -C <path>`），`Bash(<verb>:*)` 規則已
-涵蓋後面含 `$VAR` 的參數，實測不跳框。
+注意：`$VAR` 本身**不是**觸發點，命令結構（pipe / 多語句）也不是。動詞在第一個 token 時
+（`grep` / `python3` / `git -C <path>`），`Bash(<verb>:*)` 規則已涵蓋後面含 `$VAR` 的參數，
+實測即使有 pipe、多語句也不跳框。跳框與否取決於**該 verb 有沒有 `Bash(<verb>:*)` allow
+entry**（隨核准累積），不是命令結構。上面的 `PATH=` 會跳，正是因為賦值前綴讓第一個 token
+不是 verb、比對不到任何 `Bash(<verb>:*)`。
 
 Fix（唯讀一次性命令最簡）：
 
 - **首選**：動詞在前 + literal 絕對路徑直接寫進命令（`grep -o "pat" /abs/path`），命中
-  `Bash(<verb>:*)`，即使有 pipe 或外部 `$VAR` 也不跳框。
+  `Bash(<verb>:*)`，即使有 pipe / 多語句 / 外部 `$VAR` 也不跳框。
 - asdf shim 用絕對路徑：`/Users/<you>/.asdf/shims/git -C <path> ...`
 - 其他 env wrapper：先 `export VAR=value` 在前一個 bash call，再單獨呼叫命令
 
