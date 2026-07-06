@@ -7,9 +7,16 @@
 超門檻的 pair 印出來讓作者人工複查是否需要補 negative-trigger 文字或收斂觸發詞。
 
 **掃描範圍**：`skills/*/SKILL.md`（repo-root，含 symlink 到 plugin 的全域 skill）
-與 `plugins/*/skills/*/SKILL.md`（plugin-only、未 symlink 到 `skills/` 的
-project-scope skill），依 realpath 去重——一份實體檔案只算一次，不會因為
-同時被 `skills/` symlink 與 plugin 真實路徑各命中一次而重複計分。
+與 `plugins/<plugin>/skills/` 底下任意深度的 SKILL.md（含巢狀 sub-skill，
+plugin-only、未 symlink 到 `skills/` 的 project-scope skill），依 realpath 去重——
+一份實體檔案只算一次，不會因為同時被 `skills/` symlink、plugin 真實路徑，或
+plugin 內部另一個 symlink 命中而重複計分。
+
+**已知限制（暫不修，MVP 範圍內尚未實際發生）**：輸出用的 skill 名稱只取目錄的
+leaf name（如 `recap`），不含 plugin/路徑前綴。若未來出現兩個不同 plugin 底下
+剛好同名的 skill 目錄，`[WARN]` 訊息會印出如 `recap <-> recap` 而無法從名稱本身
+分辨是哪兩個檔案——目前 repo 內經驗證無此碰撞（見 mob review 討論）。真的發生時
+再改成印相對路徑，不在此 MVP 提前處理。
 
 **演算法**（無 CJK 斷詞依賴，純 regex）：
 - ASCII 詞：`[A-Za-z][A-Za-z0-9_-]+`，小寫化後整詞當關鍵字（如 PR、CI、LGTM、codex）。
@@ -194,9 +201,11 @@ def iter_global_skill_files(skills_dir: Path, plugins_dir: Path) -> list[tuple[s
 
     if plugins_dir.is_dir():
         for skill_md in sorted(plugins_dir.glob("*/skills/**/SKILL.md")):
-            if skill_md.resolve() in seen_real:
-                continue  # 已透過 skills/ symlink 掃過同一份實體檔案
+            real = skill_md.resolve()
+            if real in seen_real:
+                continue  # 已透過 skills/ symlink，或另一條 plugins/ glob 路徑掃過同一份實體檔案
             found.append((skill_md.parent.name, skill_md))
+            seen_real.add(real)
 
     return found
 

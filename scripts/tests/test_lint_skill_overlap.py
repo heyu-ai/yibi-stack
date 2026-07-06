@@ -303,6 +303,24 @@ class TestIterGlobalSkillFiles:
         found = lint_skill_overlap.iter_global_skill_files(skills, plugins)
         assert found == [("sub", nested / "SKILL.md")]
 
+    def test_lintoverlap_eg_029_plugin_side_internal_symlink_not_double_counted(
+        self, tmp_path: Path
+    ) -> None:
+        """LINTOVERLAP-EG-029: 兩條 plugins/ glob 路徑若 resolve 到同一份實體檔案
+        （如 plugin 內部有 symlink），也只計一次——plugin 分支自己 accept 的路徑
+        也要寫回 seen_real，不只靠 skills/ 分支預先填好的集合。
+        """
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        plugins = tmp_path / "plugins"
+        real = plugins / "pack" / "skills" / "real-skill"
+        real.mkdir(parents=True)
+        (real / "SKILL.md").write_text("x", encoding="utf-8")
+        # 同一個 plugin 內部再放一個 symlink 指到同一個 skill 目錄
+        (plugins / "pack" / "skills" / "alias-skill").symlink_to(real, target_is_directory=True)
+        found = lint_skill_overlap.iter_global_skill_files(skills, plugins)
+        assert len(found) == 1
+
     def test_lintoverlap_eg_026_missing_plugins_dir_no_crash(self, tmp_path: Path) -> None:
         """LINTOVERLAP-EG-026: plugins 目錄不存在時，只回傳 skills/ 的結果，不崩潰"""
         skills = tmp_path / "skills"
