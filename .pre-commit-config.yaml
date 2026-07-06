@@ -60,7 +60,8 @@ repos:
         entry: python3 scripts/lint_skill_overlap.py
         language: system
         pass_filenames: false
-        files: ^(skills/.*/SKILL\.md|scripts/lint_skill_overlap\.py)$
+        files: ^(skills/.*/SKILL\.md|plugins/.*/skills/.*/SKILL\.md|scripts/lint_skill_overlap\.py)$
+        verbose: true
 
       - id: check-blank-proposal
         name: check-blank-proposal
