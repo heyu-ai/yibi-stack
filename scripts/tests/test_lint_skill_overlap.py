@@ -290,6 +290,19 @@ class TestIterGlobalSkillFiles:
         assert len(found) == 1
         assert found[0][0] == "bar"
 
+    def test_lintoverlap_eg_028_nested_plugin_sub_skill_included(self, tmp_path: Path) -> None:
+        """LINTOVERLAP-EG-028: plugins/<plugin>/skills/<name>/<sub>/SKILL.md（巢狀 sub-skill，
+        如 plugins/growth/skills/mycelium/recap/SKILL.md）也會被掃到，不會被單層 glob 漏掉。
+        """
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        plugins = tmp_path / "plugins"
+        nested = plugins / "pack" / "skills" / "parent" / "sub"
+        nested.mkdir(parents=True)
+        (nested / "SKILL.md").write_text("x", encoding="utf-8")
+        found = lint_skill_overlap.iter_global_skill_files(skills, plugins)
+        assert found == [("sub", nested / "SKILL.md")]
+
     def test_lintoverlap_eg_026_missing_plugins_dir_no_crash(self, tmp_path: Path) -> None:
         """LINTOVERLAP-EG-026: plugins 目錄不存在時，只回傳 skills/ 的結果，不崩潰"""
         skills = tmp_path / "skills"

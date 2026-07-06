@@ -167,9 +167,13 @@ def jaccard(a: set[str], b: set[str]) -> float:
 
 
 def iter_global_skill_files(skills_dir: Path, plugins_dir: Path) -> list[tuple[str, Path]]:
-    """列出 skills/*/SKILL.md（follow symlink dir）與 plugins/*/skills/*/SKILL.md，
+    """列出 skills/*/SKILL.md（follow symlink dir）與 plugins/<plugin>/skills/ 底下任意深度
+    的 SKILL.md（含巢狀 sub-skill，如 plugins/growth/skills/mycelium/recap/SKILL.md），
     依 realpath 去重——symlink 到 plugin 的 skill 只算一次，避免與其 plugin 真實路徑
     重複計分。回傳的第一個元素永遠是各 skill 自己的目錄名稱。
+
+    plugins 端用 `**`（遞迴、可跨任意層 `/`）而非 `*`（只吃一層）：pathlib glob 的 `*`
+    不像 regex 的 `.*` 會跨越路徑分隔符，只用 `*` 會漏掉巢狀 sub-skill。
     """
     found: list[tuple[str, Path]] = []
     seen_real: set[Path] = set()
@@ -189,7 +193,7 @@ def iter_global_skill_files(skills_dir: Path, plugins_dir: Path) -> list[tuple[s
             seen_real.add(skill_md.resolve())
 
     if plugins_dir.is_dir():
-        for skill_md in sorted(plugins_dir.glob("*/skills/*/SKILL.md")):
+        for skill_md in sorted(plugins_dir.glob("*/skills/**/SKILL.md")):
             if skill_md.resolve() in seen_real:
                 continue  # 已透過 skills/ symlink 掃過同一份實體檔案
             found.append((skill_md.parent.name, skill_md))
