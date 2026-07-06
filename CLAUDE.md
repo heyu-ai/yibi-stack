@@ -103,21 +103,6 @@ scripts/  → CI/lint 工具腳本
 2. 照 runbook 的步驟依序執行
 3. 每個 SKILL.md 都包含：環境檢查 → 設定確認 → 執行指令 → 結果報告
 
-## 新增 Skill 慣例
-
-**知識型 skill（純 Markdown）：**
-
-1. 在 `skills/<skill-name>/SKILL.md` 建立 agent 執行介面
-2. 更新 `skills/README.md` 的索引表格
-
-**可執行 skill（有 Python 實作）：**
-
-1. 在 `tasks/<task_name>/` 建立 Python 實作
-2. 在 `skills/<skill-name>/SKILL.md` 建立 agent 執行介面
-3. 更新 `skills/README.md` 的索引表格
-
-參考 `skills/_template/SKILL.md.tpl` 取得標準格式。
-
 ## Dev 指令
 
 > **小技巧**：`/config key=value` 可即時改設定，省去開 `/config` 選單
@@ -201,6 +186,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   registered in `settings.json`'s `hooks` command strings. Evaluate hook effectiveness with a
   double check: file exists AND registered in `settings.json`.
 - **`Path.rglob()` does not follow symlinks** — see rule 02 for fix.
+- **`Path.glob("*/x/*")` doesn't cross `/` like regex `.*` does** — see rule 02 for fix.
 - **`plugins/harness` has no `package.json`**: not all subdirectories under `plugins/` are
   installable plugins. `plugins/harness` is a README-only container; install with
   `make install-one SKILL=harness-eval`. Parallel listings must inline-annotate this exception,
@@ -219,6 +205,16 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **`pre-commit run --files` only scans specified files; CI uses `--all-files`**: local
   `pre-commit run --files <file>` misses pre-existing problems in other files. Always run
   `make ci` before pushing (includes `--all-files` + pytest).
+- **widening a pre-commit hook's `files:` regex doesn't guarantee the underlying tool
+  actually scans those paths**: verify the tool's own implementation covers the same
+  scope, or you get a "green hook" that runs and passes without checking the changed
+  content (incident: PR #190, `lint-skill-overlap`'s regex matched plugin-only skills
+  before the scanner itself was extended to cover them).
+- **warn-only pre-commit hooks need `verbose: true` to show output**: pre-commit
+  hides stdout/stderr for any hook that exits 0 by default, so a warn-only tool's
+  `[WARN]` messages are invisible in `make ci` / CI without it. Also: a stale local
+  `~/.cache/pre-commit` can report clean when a fresh environment would catch a real
+  issue — run `pre-commit clean` before trusting a green local run (incident: PR #190).
 - **`make install` loop skip list requires 4 targets synced**: `install`, `install-project`,
   `status-own`, and `uninstall` all scan `skills/*/`. Any non-skill directory created under
   `skills/` (e.g., `spectra init --dir skills/openspec`) must be added to all four skip lists.

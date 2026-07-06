@@ -154,6 +154,27 @@ for root, dirs, files in os.walk(skills_dir, followlinks=True):
             process(Path(root) / name)
 ```
 
+## `Path.glob()`'s `*` Does Not Cross `/` (Unlike Regex `.*`)
+
+`pathlib.Path.glob("*/skills/*/SKILL.md")`'s `*` only matches **one** path segment,
+unlike regex `.*` which crosses `/` freely. Nested structures (e.g.,
+`plugins/growth/skills/mycelium/recap/SKILL.md`) need `**`
+(`plugins_dir.glob("*/skills/**/SKILL.md")`), or nested items are silently excluded
+with no error:
+
+```python
+# Wrong: only matches one level, misses mycelium/recap and similar nested sub-skills
+plugins_dir.glob("*/skills/*/SKILL.md")
+
+# Correct: ** recursively matches any depth
+plugins_dir.glob("*/skills/**/SKILL.md")
+```
+
+This is the mirror-image gotcha of the `Path.rglob()` symlink issue above: both are cases
+where pathlib's traversal semantics differ from what a regex-trained intuition would expect.
+(Incident: PR #190 — Codex mob review found 4 `plugins/growth/skills/mycelium/*` nested
+sub-skills excluded from a lint tool's scan with zero diagnostic.)
+
 ## Fixer Loop Exhaustion Must Transition to BLOCKED, Not a Waiting State
 
 When a fixer loop exhausts all available fixers (every fixer raises an exception),
