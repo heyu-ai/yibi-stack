@@ -34,7 +34,7 @@ Replacements: [SKIP] / [OK] / [WARN] / [FAIL] / -- / -
 
 ## Shell Quoting Hygiene
 
-Rule 1: `$(cmd $VAR)` — always quote: `"$VAR"` (prevents simple_expansion)
+Rule 1: `$(cmd $VAR)` — always quote: `"$VAR"` (prevents word-splitting/globbing; does NOT prevent the simple_expansion prompt — see Rule 5)
 Rule 2: `"$(cmd "$VAR")"` same-type quote conflict — split into separate bash calls
 Rule 3: `grep "pat\|pat2"` double-quoted BRE — use single quotes: `grep 'pat\|pat2'`
 Rule 4: `$(outer "$(inner)")` reverse nesting — split into two bash calls
@@ -44,11 +44,19 @@ Rule 5: both `"${VAR}"` and `"$VAR"` trigger false positives (expansion / simple
 
 `PATH="..." git ...` / `ENV=value cmd ...` 形式的 variable assignment prefix
 讓第一個 token 變成 `PATH=...` 而非命令本身，所有 `Bash(<verb> *)` allow-list
-pattern 都不會 match。同時 `"$PATH"` 觸發 `simple_expansion` hook，每次都跳
-permission dialog。
+pattern 都不會 match，於是 Claude Code 內建 bash 分析器（**不是** plugin hook）
+退回 ask，每次都跳 permission dialog。
 
-Fix:
+注意：`$VAR` 本身**不是**觸發點，命令結構（pipe / 多語句）也不是。動詞在第一個 token 時
+（`grep` / `python3` / `git -C <path>`），`Bash(<verb>:*)` 規則已涵蓋後面含 `$VAR` 的參數，
+實測即使有 pipe、多語句也不跳框。跳框與否取決於**該 verb 有沒有 `Bash(<verb>:*)` allow
+entry**（隨核准累積），不是命令結構。上面的 `PATH=` 會跳，正是因為賦值前綴讓第一個 token
+不是 verb、比對不到任何 `Bash(<verb>:*)`。
 
+Fix（唯讀一次性命令最簡）：
+
+- **首選**：動詞在前 + literal 絕對路徑直接寫進命令（`grep -o "pat" /abs/path`），命中
+  `Bash(<verb>:*)`，即使有 pipe / 多語句 / 外部 `$VAR` 也不跳框。
 - asdf shim 用絕對路徑：`/Users/<you>/.asdf/shims/git -C <path> ...`
 - 其他 env wrapper：先 `export VAR=value` 在前一個 bash call，再單獨呼叫命令
 
