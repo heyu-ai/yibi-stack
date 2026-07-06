@@ -6,9 +6,10 @@
 本 lint 是確定性靜態偵測器：抽取每個 skill description 的觸發關鍵字，兩兩算重疊分數，
 超門檻的 pair 印出來讓作者人工複查是否需要補 negative-trigger 文字或收斂觸發詞。
 
-**MVP 範圍**：只掃 repo-root `skills/*/SKILL.md`（本 repo 全域可用的 skill；plugin-only、
-未 symlink 到 `skills/` 的 project-scope skill 不在此 MVP 掃描範圍內，理由見
-issue #186 B1——先驗證偵測邏輯本身，plugin-wide 掃描留給後續視需要擴充）。
+**掃描範圍**：`skills/*/SKILL.md`（repo-root，含 symlink 到 plugin 的全域 skill）
+與 `plugins/*/skills/*/SKILL.md`（plugin-only、未 symlink 到 `skills/` 的
+project-scope skill），依 realpath 去重——一份實體檔案只算一次，不會因為
+同時被 `skills/` symlink 與 plugin 真實路徑各命中一次而重複計分。
 
 **演算法**（無 CJK 斷詞依賴，純 regex）：
 - ASCII 詞：`[A-Za-z][A-Za-z0-9_-]+`，小寫化後整詞當關鍵字（如 PR、CI、LGTM、codex）。
@@ -38,6 +39,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_DIR = REPO_ROOT / "skills"
+PLUGINS_DIR = REPO_ROOT / "plugins"
 
 DEFAULT_THRESHOLD = 0.12
 MAX_SHARED_KEYWORDS_SHOWN = 12
@@ -51,6 +53,10 @@ _BLOCK_SCALAR_RE = re.compile(r"^[|>][+\-1-9]*$")
 # 常見「樣板虛詞」bigram：幾乎每份 SKILL.md description 都會出現，不濾會讓所有 pair
 # 都顯得重疊、訊號消失。清單刻意保守（只濾語法性虛詞/描述觸發機制本身的用語），
 # 不濾領域詞彙（如「審查」「重複」等）。
+#
+# 注意：_CJK_RUN_RE 只吃 CJK Unified Ideographs，全形標點（如「」）會截斷連續字元，
+# 所以任何「跨標點」的 bigram（如 說「、」時）永遠不會被 extract_keywords 產生——
+# 加進這份清單也是死條目，不要加。
 _CJK_STOPWORDS = frozenset(
     {
         "觸發",
@@ -92,14 +98,26 @@ _CJK_STOPWORDS = frozenset(
         "用戶",
         "用者",
         "者說",
-        "說「",
-        "」時",
     }
 )
 
 
+def _collect_indented_continuation(lines: list[str], start: int) -> list[str]:
+    """從 start 開始收集後續縮排行（略過空行），遇到未縮排行則停止。"""
+    collected: list[str] = []
+    for follow in lines[start:]:
+        if follow.strip() == "":
+            continue
+        if follow.startswith((" ", "\t")):
+            collected.append(follow.strip())
+        else:
+            break
+    return collected
+
+
 def parse_description(text: str) -> str | None:
-    """取 SKILL.md frontmatter 的 description 值；支援單行與 `>`/`|` block scalar。
+    """取 SKILL.md frontmatter 的 description 值；支援單行、`>`/`|` block scalar，
+    以及 plain scalar 的多行 folding（YAML 語意：後續縮排行會摺進同一個值）。
 
     frontmatter 缺結尾 `---`（格式錯誤）視為解析失敗，回傳 None——不 fallback 到整份
     文件內容，避免 body 裡剛好有一行 `description:` 開頭的文字被誤判為 frontmatter 值。
@@ -118,16 +136,12 @@ def parse_description(text: str) -> str | None:
             continue
         rest = m.group(1).strip()
         if _BLOCK_SCALAR_RE.match(rest):
-            collected = []
-            for follow in lines[i + 1 :]:
-                if follow.strip() == "":
-                    continue
-                if follow.startswith((" ", "\t")):
-                    collected.append(follow.strip())
-                else:
-                    break
+            collected = _collect_indented_continuation(lines, i + 1)
             return " ".join(collected) or None
-        return rest or None
+        # plain（無引號）scalar：YAML 會把後續縮排的延續行摺進同一個值，
+        # 例如 `description: foo\n  bar` 語意上是 "foo bar"，不是只有 "foo"。
+        collected = ([rest] if rest else []) + _collect_indented_continuation(lines, i + 1)
+        return " ".join(collected) or None
     return None
 
 
@@ -152,9 +166,14 @@ def jaccard(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(a | b)
 
 
-def iter_global_skill_files(skills_dir: Path) -> list[tuple[str, Path]]:
-    """列出 repo-root skills/*/SKILL.md（follow symlink dir）。"""
+def iter_global_skill_files(skills_dir: Path, plugins_dir: Path) -> list[tuple[str, Path]]:
+    """列出 skills/*/SKILL.md（follow symlink dir）與 plugins/*/skills/*/SKILL.md，
+    依 realpath 去重——symlink 到 plugin 的 skill 只算一次，避免與其 plugin 真實路徑
+    重複計分。回傳的第一個元素永遠是各 skill 自己的目錄名稱。
+    """
     found: list[tuple[str, Path]] = []
+    seen_real: set[Path] = set()
+
     for entry in sorted(skills_dir.iterdir()):
         if entry.is_symlink() and not entry.exists():
             print(
@@ -167,6 +186,14 @@ def iter_global_skill_files(skills_dir: Path) -> list[tuple[str, Path]]:
         skill_md = entry / "SKILL.md"
         if skill_md.is_file():
             found.append((entry.name, skill_md))
+            seen_real.add(skill_md.resolve())
+
+    if plugins_dir.is_dir():
+        for skill_md in sorted(plugins_dir.glob("*/skills/*/SKILL.md")):
+            if skill_md.resolve() in seen_real:
+                continue  # 已透過 skills/ symlink 掃過同一份實體檔案
+            found.append((skill_md.parent.name, skill_md))
+
     return found
 
 
@@ -208,15 +235,19 @@ def main() -> int:
 
     skills: list[tuple[str, set[str]]] = []
     checked = 0
-    for skill_name, skill_md in iter_global_skill_files(SKILLS_DIR):
+    for skill_name, skill_md in iter_global_skill_files(SKILLS_DIR, PLUGINS_DIR):
+        try:
+            rel_path = skill_md.relative_to(REPO_ROOT)
+        except ValueError:
+            rel_path = skill_md  # SKILLS_DIR/PLUGINS_DIR 被覆寫成非 REPO_ROOT 底下的路徑時
         try:
             text = skill_md.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:
-            print(f"[WARN] 無法讀取 skills/{skill_name}/SKILL.md：{e}", file=sys.stderr)
+            print(f"[WARN] 無法讀取 {rel_path}：{e}", file=sys.stderr)
             continue
         description = parse_description(text)
         if description is None:
-            print(f"[WARN] skills/{skill_name}/SKILL.md 找不到 description 欄位", file=sys.stderr)
+            print(f"[WARN] {rel_path} 找不到 description 欄位", file=sys.stderr)
             continue
         checked += 1
         skills.append((skill_name, extract_keywords(description)))

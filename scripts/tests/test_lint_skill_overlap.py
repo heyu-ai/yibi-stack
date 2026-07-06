@@ -76,6 +76,21 @@ class TestParseDescription:
         text = make_skill("PR review", block=True, block_indicator=indicator)
         assert lint_skill_overlap.parse_description(text) == "PR review"
 
+    def test_lintoverlap_eg_022_plain_scalar_multiline_folds_continuation(self) -> None:
+        """LINTOVERLAP-EG-022: 無引號 plain scalar 的後續縮排行會摺進同一個值（YAML 語意），
+        不會被靜默截斷成只剩第一行。
+        """
+        text = (
+            "---\nname: demo\ntype: know\nscope: global\n"
+            "description: this is a\n  continued second line\n---\n\n# Demo\n"
+        )
+        assert lint_skill_overlap.parse_description(text) == "this is a continued second line"
+
+    def test_lintoverlap_eg_023_plain_scalar_stops_at_next_key(self) -> None:
+        """LINTOVERLAP-EG-023: plain scalar 延續行遇到未縮排的下一個 key 就停止收集"""
+        text = "---\nname: demo\ndescription: foo\ntype: know\nscope: global\n---\n\n# Demo\n"
+        assert lint_skill_overlap.parse_description(text) == "foo"
+
 
 class TestExtractKeywords:
     def test_lintoverlap_dt_001_ascii_words_lowercased(self) -> None:
@@ -108,12 +123,24 @@ class TestExtractKeywords:
         """LINTOVERLAP-EG-009: 「使用者」產生的 bigram 是「使用」「用者」，兩者都應被濾掉
 
         （回歸測試：先前 stopword 清單誤植「使者」——bigram 滑動視窗永遠不會產生這個
-        字串，是死條目；真正該濾的是「用者」。見 PR #190 mob review。）
+        字串，是死條目；真正該濾的是「用者」。）
         """
         kw = lint_skill_overlap.extract_keywords("本 skill 給使用者操作")
         assert "使用" not in kw
         assert "用者" not in kw
         assert "使者" not in kw  # 死條目本來就不該出現，順便鎖住
+
+    def test_lintoverlap_eg_024_punctuation_crossing_bigrams_impossible(self) -> None:
+        """LINTOVERLAP-EG-024: CJK run 在全形標點處斷開，跨標點的 bigram 永遠不會產生
+
+        （回歸測試：先前 stopword 清單含「說「」「」時」兩個死條目——CJK_RUN_RE 只吃
+        CJK Unified Ideographs，全形括號會截斷連續字元，這兩個 bigram 不可能被產生。）
+        """
+        kw = lint_skill_overlap.extract_keywords("當用戶說「幫我寫」時應觸發")
+        assert "說「" not in kw
+        assert "」時" not in kw
+        assert "戶說" in kw  # 標點前的正常 bigram 仍應存在
+        assert "時應" in kw  # 標點後的正常 bigram 仍應存在
 
 
 class TestJaccard:
@@ -186,7 +213,7 @@ class TestIterGlobalSkillFiles:
         skills.mkdir()
         (skills / "foo").mkdir()
         (skills / "foo" / "SKILL.md").write_text("x", encoding="utf-8")
-        found = lint_skill_overlap.iter_global_skill_files(skills)
+        found = lint_skill_overlap.iter_global_skill_files(skills, tmp_path / "no-plugins")
         assert found == [("foo", skills / "foo" / "SKILL.md")]
 
     def test_lintoverlap_eg_011_non_directory_entry_skipped(self, tmp_path: Path) -> None:
@@ -194,14 +221,14 @@ class TestIterGlobalSkillFiles:
         skills = tmp_path / "skills"
         skills.mkdir()
         (skills / "README.md").write_text("x", encoding="utf-8")
-        assert lint_skill_overlap.iter_global_skill_files(skills) == []
+        assert lint_skill_overlap.iter_global_skill_files(skills, tmp_path / "no-plugins") == []
 
     def test_lintoverlap_eg_012_directory_missing_skill_md_skipped(self, tmp_path: Path) -> None:
         """LINTOVERLAP-EG-012: 目錄存在但缺 SKILL.md 被排除"""
         skills = tmp_path / "skills"
         skills.mkdir()
         (skills / "empty-dir").mkdir()
-        assert lint_skill_overlap.iter_global_skill_files(skills) == []
+        assert lint_skill_overlap.iter_global_skill_files(skills, tmp_path / "no-plugins") == []
 
     def test_lintoverlap_st_006_follows_symlink_to_real_skill_dir(self, tmp_path: Path) -> None:
         """LINTOVERLAP-ST-006: symlink 指向真實 skill 目錄時會被跟隨並列出"""
@@ -211,7 +238,7 @@ class TestIterGlobalSkillFiles:
         real.mkdir(parents=True)
         (real / "SKILL.md").write_text("x", encoding="utf-8")
         (skills / "bar").symlink_to(real, target_is_directory=True)
-        found = lint_skill_overlap.iter_global_skill_files(skills)
+        found = lint_skill_overlap.iter_global_skill_files(skills, tmp_path / "no-plugins")
         assert found == [("bar", skills / "bar" / "SKILL.md")]
 
     def test_lintoverlap_eg_013_broken_symlink_warns_and_excluded(
@@ -221,25 +248,67 @@ class TestIterGlobalSkillFiles:
         skills = tmp_path / "skills"
         skills.mkdir()
         (skills / "dangling").symlink_to(tmp_path / "does-not-exist", target_is_directory=True)
-        found = lint_skill_overlap.iter_global_skill_files(skills)
+        found = lint_skill_overlap.iter_global_skill_files(skills, tmp_path / "no-plugins")
         assert found == []
         assert "[WARN]" in capsys.readouterr().err
 
     def test_lintoverlap_st_007_sorted_by_name(self, tmp_path: Path) -> None:
-        """LINTOVERLAP-ST-007: 回傳結果依名稱排序"""
+        """LINTOVERLAP-ST-007: skills/ 底下的結果依名稱排序"""
         skills = tmp_path / "skills"
         skills.mkdir()
         for name in ["zeta", "alpha", "mid"]:
             (skills / name).mkdir()
             (skills / name / "SKILL.md").write_text("x", encoding="utf-8")
-        found = lint_skill_overlap.iter_global_skill_files(skills)
+        found = lint_skill_overlap.iter_global_skill_files(skills, tmp_path / "no-plugins")
         assert [name for name, _ in found] == ["alpha", "mid", "zeta"]
+
+    def test_lintoverlap_st_008_plugin_only_skill_included(self, tmp_path: Path) -> None:
+        """LINTOVERLAP-ST-008: plugins/*/skills/*/SKILL.md 沒有對應 skills/ symlink 時也會被掃到"""
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        plugins = tmp_path / "plugins"
+        plugin_skill = plugins / "pack" / "skills" / "plugin-only"
+        plugin_skill.mkdir(parents=True)
+        (plugin_skill / "SKILL.md").write_text("x", encoding="utf-8")
+        found = lint_skill_overlap.iter_global_skill_files(skills, plugins)
+        assert found == [("plugin-only", plugin_skill / "SKILL.md")]
+
+    def test_lintoverlap_eg_025_symlinked_plugin_skill_not_double_counted(
+        self, tmp_path: Path
+    ) -> None:
+        """LINTOVERLAP-EG-025: 同一份實體檔案透過 skills/ symlink 與 plugins/ 真實路徑
+        都命中時，只計一次（依 realpath 去重）。
+        """
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        plugins = tmp_path / "plugins"
+        real = plugins / "pack" / "skills" / "bar"
+        real.mkdir(parents=True)
+        (real / "SKILL.md").write_text("x", encoding="utf-8")
+        (skills / "bar").symlink_to(real, target_is_directory=True)
+        found = lint_skill_overlap.iter_global_skill_files(skills, plugins)
+        assert len(found) == 1
+        assert found[0][0] == "bar"
+
+    def test_lintoverlap_eg_026_missing_plugins_dir_no_crash(self, tmp_path: Path) -> None:
+        """LINTOVERLAP-EG-026: plugins 目錄不存在時，只回傳 skills/ 的結果，不崩潰"""
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        (skills / "foo").mkdir()
+        (skills / "foo" / "SKILL.md").write_text("x", encoding="utf-8")
+        found = lint_skill_overlap.iter_global_skill_files(skills, tmp_path / "does-not-exist")
+        assert found == [("foo", skills / "foo" / "SKILL.md")]
 
 
 class TestMainEndToEnd:
+    @pytest.fixture(autouse=True)
+    def _no_real_plugins_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """預設不給 PLUGINS_DIR，避免測試意外掃到本機真實 repo 的 plugins/。"""
+        monkeypatch.setattr(lint_skill_overlap, "PLUGINS_DIR", tmp_path / "no-plugins")
+
     def _write_skill(self, root: Path, name: str, description: str) -> None:
         d = root / name
-        d.mkdir()
+        d.mkdir(parents=True)
         (d / "SKILL.md").write_text(make_skill(description), encoding="utf-8")
 
     def test_lintoverlap_st_002_warn_only_default_exits_0(
@@ -365,3 +434,22 @@ class TestMainEndToEnd:
         monkeypatch.setattr(sys, "argv", ["lint_skill_overlap.py"])
         assert lint_skill_overlap.main() == 0
         assert "[WARN]" in capsys.readouterr().err
+
+    def test_lintoverlap_eg_027_plugin_only_skill_scanned_end_to_end(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """LINTOVERLAP-EG-027: plugin-only skill（無 skills/ symlink）也會被 main() 實際掃到，
+        而不只是觸發 pre-commit hook 卻沒被檢查（見 PR #190 mob review 的 hook-scope
+        vs scan-scope 落差發現）。
+        """
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        plugins = tmp_path / "plugins"
+        self._write_skill(plugins / "pack" / "skills", "plugin-only", "掃描 Gmail 帳單附件")
+        self._write_skill(skills, "sibling", "部署 Kubernetes 叢集")
+        monkeypatch.setattr(lint_skill_overlap, "SKILLS_DIR", skills)
+        monkeypatch.setattr(lint_skill_overlap, "PLUGINS_DIR", plugins)
+        monkeypatch.setattr(sys, "argv", ["lint_skill_overlap.py"])
+        assert lint_skill_overlap.main() == 0
+        captured = capsys.readouterr()
+        assert "已檢查 2 個 skill" in captured.out
