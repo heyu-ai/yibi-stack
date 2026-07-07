@@ -784,6 +784,26 @@ Process in order:
 
 Commit after each batch of fixes to make it easier for group re-review to see the corresponding diff.
 
+**Recheck PR status before looping back into re-review.** A group re-review (Step 7) is
+expensive — do not spend it on a PR that is no longer open or mergeable. After pushing, re-query
+the live PR state:
+
+```bash
+gh pr view "{{pr_number}}" --json state,mergeable,mergeStateStatus -q '.state + " / " + .mergeable + " / " + .mergeStateStatus'
+```
+
+Route by the result. The decision table is authoritative — do not proceed on a row that says STOP:
+
+| `state` | `mergeStateStatus` / `mergeable` | Meaning | Action |
+| --- | --- | --- | --- |
+| `MERGED` | any | Someone merged the PR out-of-band | **STOP the cycle** — skip re-review; go straight to Step 9 (archive / retro). Do not push more. |
+| `CLOSED` | any | PR closed without merging | **STOP** — surface to the user and wait; do not continue. |
+| `OPEN` | `DIRTY` / `mergeable=CONFLICTING` | Fixes (or a base advance) created merge conflicts | Resolve conflicts against `{{base_branch}}`, commit, push, then re-run this recheck before Step 7. |
+| `OPEN` | `BEHIND` | Base branch advanced since this branch forked | Update the branch from `{{base_branch}}` (merge or rebase per repo convention) and push, so Step 7 R1/R2 review against the current base — otherwise findings are computed against a stale base. |
+| `OPEN` | `CLEAN` / `BLOCKED` / `UNSTABLE` / `HAS_HOOKS` / `UNKNOWN` | Open and not conflicting (may still await CI/approvals) | Continue to Step 7. |
+
+If `gh pr view` itself errors (auth / network), stop and report — an empty result is not "OPEN".
+
 ---
 
 ### Step 7 — Group re-review (until all voices LGTM)
