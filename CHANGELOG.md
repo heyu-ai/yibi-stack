@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [1.5.1] - 2026-07-08
+
+### Features
+
+- recheck PR status in Step 6 before group re-review (#193)
+- add lint_skill_overlap.py over-trigger detector (B1 MVP) (#190)
+- add figma-design-sync skill for Figma-to-OpenSpec design handoff (#180)
+
+### Bug Fixes
+
+- drive Codex R1 through codex exec so the skill-hijack guard works (#195)
+- correct two inaccurate simple_expansion claims in rules-context (#192)
+- repo-wide skill audit fixes (3 Critical / 12 Important / NITs) (#183)
+- correct figma-design-sync Figma MCP contract (follow-up to #180) (#181)
+
 ## [1.5.0] - 2026-07-03
 
 ### Features
