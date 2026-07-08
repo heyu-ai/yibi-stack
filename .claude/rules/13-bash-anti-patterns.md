@@ -865,3 +865,19 @@ content*). The AP2 section's "CJK text ... are all fine" is about AP2 detection,
 variable-adjacency — CJK text is fine as literal content but not immediately abutting a bare `$VAR`.
 Empirically confirmed on PR #198 (`BASE_REMOTE\xef: unbound variable`), and an independent mob
 reviewer (agy) found a second latent instance in the same file's mkdir-failure branch.
+
+**Family — `set -u` "unbound variable" traps.** This is one of a recurring cluster where a
+line dies with `unbound variable` even though the author believed the variable was set. The
+same symptom shows up from:
+
+- **non-ASCII adjacency** (this rule): `$VAR（` resolves to a *different*, unset name.
+- **empty-array expansion**: under `set -u`, `"${ARR[@]}"` on an empty array crashes on macOS
+  system bash 3.2 (homebrew bash 5.x is fine); write `${ARR[@]+"${ARR[@]}"}` or split into
+  explicit non-array branches.
+- **positional after `shift`**: `--flag) VAL="$2"; shift` crashes on `$2` when the caller omits
+  the value; guard `[ "$#" -lt 2 ] && { echo '[FAIL] ...' >&2; exit 2; }` before dereferencing.
+
+Common cure: never expand a name/positional/array under `set -u` without first making it
+unfoldable (`${VAR}`), bounded (`$#` check), or defaulted (`${x:-}` / `${ARR[@]+...}`). When a
+`set -u` script aborts with `<name>: unbound variable` and the name *looks* assigned, suspect one
+of these three before assuming a real logic bug.
