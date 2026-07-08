@@ -55,10 +55,10 @@ class TestCodexGuardContract:
         input file that is redirected into `codex exec` on stdin.
         """
         src = STAGE1.read_text(encoding="utf-8")
-        assert 'printf \'%s\\n\\n\' "$CODEX_GUARD"' in src, (
+        assert "printf '%s\\n\\n' \"$CODEX_GUARD\"" in src, (
             "guard must be printed as the leading line of the codex exec stdin prompt"
         )
-        assert "< \"$REVIEW_DIR/codex-r1-input.md\"" in src, (
+        assert '< "$REVIEW_DIR/codex-r1-input.md"' in src, (
             "codex exec must read the assembled guard+prompt+diff from stdin"
         )
 
@@ -76,6 +76,6 @@ class TestCodexGuardContract:
         file that codex-r1-stage2.sh reads; a regression here silently breaks extraction.
         """
         src = STAGE1.read_text(encoding="utf-8")
-        assert "> \"$REVIEW_DIR/codex-r1-raw.md\"" in src, (
+        assert '> "$REVIEW_DIR/codex-r1-raw.md"' in src, (
             "codex exec stdout must be redirected to codex-r1-raw.md"
         )
