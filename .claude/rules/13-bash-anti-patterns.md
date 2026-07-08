@@ -828,12 +828,26 @@ python3 scripts/check_pattern.py
 Rule: **inside a bash `"..."` string, avoid `"` in comments in any language**; if quotes are
 needed, use single quotes `'` (literal inside bash double-quote strings, does not close outer string).
 
-## Quoting Rule 7: Bare `$VAR` Immediately Followed by a Non-ASCII Char Folds Into the Name (PR #198)
+## Quoting Rule 7: Bare `$VAR` Immediately Followed by a Non-ASCII Char Can Fold Into the Name (PR #198)
 
-A bare `$VAR` (no braces) directly followed by a **non-ASCII byte** — a full-width paren `（`,
-CJK ideograph, full-width colon `：`, etc. — makes bash greedily read the following high byte(s)
-as part of the variable name. The result is a **different, unset** variable, so under `set -u`
-the line aborts with `<VAR><bytes>: unbound variable` **even though `$VAR` itself is set**.
+A bare `$VAR` (no braces) directly followed by a non-ASCII character — a full-width paren `（`,
+CJK ideograph, full-width colon `：`, Cyrillic, Greek, accented Latin, etc. — can be folded into
+the variable name by bash. bash classifies name characters via the current locale's `isalnum()`,
+and **in a UTF-8 / multibyte locale** (the macOS / Linux interactive and CI default) most high
+bytes count as "alphanumeric" and are read as part of the name. The result is a **different,
+unset** variable, so under `set -u` the line aborts with `<VAR><bytes>: unbound variable` **even
+though `$VAR` itself is set**.
+
+Two scope caveats (verified on macOS system bash 3.2 — the "any non-ASCII" phrasing above is the
+practical guidance, not a literal universal):
+
+- **Locale-dependent**: the fold only fires in a UTF-8 / multibyte locale. Under `LC_ALL=C` the
+  high byte is not alnum, the name terminates, and the same line prints fine — so a reader
+  reproducing under `LC_ALL=C` will not see the crash and may wrongly mistrust the rule.
+- **Not literally every non-ASCII char**: the fold follows `isalnum()`, which is script- and
+  libc-dependent. CJK, full-width punctuation, Cyrillic, Greek, and accented Latin all fold on
+  macOS; **Hebrew (e.g. `א`) does not**. The boundary is not easily predictable, so the practical
+  rule below (always brace) is the safe superset — do not rely on a particular script being "safe".
 
 This bites hardest in `[FAIL]` / `[INFO]` diagnostic `echo`s whose Chinese message text opens
 with a full-width paren right after the variable — the failure branch crashes with a confusing
@@ -854,10 +868,15 @@ Rule: **whenever a `$VAR` is immediately followed by a CJK / full-width / any no
 (no intervening space or ASCII punctuation), brace it `${VAR}`.** A space or ASCII char after the
 name (`$VAR 失敗`, `$VAR/info`, `$VAR...HEAD`) is safe — the name terminates on its own.
 
-Detection (scan a committed `.sh` before trusting its error paths):
+Detection (scan a committed `.sh` before trusting its error paths). This catches the **non-ASCII
+adjacency** class only — a bare `$VAR` abutting an *ASCII* identifier char (`$VARfoo`) is a
+different "wrong variable" bug, not covered here. **Use `rg`, not `grep -P`**: BSD `grep` on macOS
+(the default) rejects `-P` with `invalid option -- P` and exits non-zero with no output — itself a
+silent-failure trap (see the `realpath` macOS-portability note above). `rg`'s Rust regex needs no
+`-P` flag:
 
 ```bash
-grep -nP '\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f{]' script.sh   # bare $VAR + non-ASCII (comments are false positives)
+rg -n '\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f]' script.sh   # bare $VAR + non-ASCII (comments are false positives)
 ```
 
 Note: this is orthogonal to AP2 (which only bans emoji / em-dash / zero-width in the *string
@@ -874,10 +893,11 @@ same symptom shows up from:
 - **empty-array expansion**: under `set -u`, `"${ARR[@]}"` on an empty array crashes on macOS
   system bash 3.2 (homebrew bash 5.x is fine); write `${ARR[@]+"${ARR[@]}"}` or split into
   explicit non-array branches.
-- **positional after `shift`**: `--flag) VAL="$2"; shift` crashes on `$2` when the caller omits
-  the value; guard `[ "$#" -lt 2 ] && { echo '[FAIL] ...' >&2; exit 2; }` before dereferencing.
+- **unchecked positional before `shift`**: the `--flag) VAL="$2"; shift` idiom dereferences `$2`
+  *before* shifting, so it crashes on `$2` when the caller omits the value; guard
+  `[ "$#" -lt 2 ] && { echo '[FAIL] ...' >&2; exit 2; }` before dereferencing.
 
 Common cure: never expand a name/positional/array under `set -u` without first making it
-unfoldable (`${VAR}`), bounded (`$#` check), or defaulted (`${x:-}` / `${ARR[@]+...}`). When a
-`set -u` script aborts with `<name>: unbound variable` and the name *looks* assigned, suspect one
-of these three before assuming a real logic bug.
+boundary-explicit (`${VAR}`), bounded (`$#` check), or defaulted (`${x:-}` / `${ARR[@]+...}`).
+When a `set -u` script aborts with `<name>: unbound variable` and the name *looks* assigned,
+suspect one of these three before assuming a real logic bug.
