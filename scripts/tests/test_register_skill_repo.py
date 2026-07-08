@@ -112,3 +112,27 @@ class TestRegister:
         stored = _read(cfg)["skill_repos"]["yibi-stack"]
         assert Path(stored).is_absolute()
         assert stored.endswith("some/relative/dir")
+
+    def test_regskill_dt_005_migrates_legacy_into_existing_empty_map(self, tmp_path: Path) -> None:
+        """REGSKILL-DT-005: skill_repos 已為 {} 但 legacy 未搬入時，仍遷移 legacy（idempotent 解耦）。"""
+        cfg = tmp_path / "config.json"
+        cfg.write_text(
+            json.dumps({"skill_repos": {}, "skill_repo": "/home/u/ainization-skill"}) + "\n",
+            encoding="utf-8",
+        )
+        register("/home/u/yibi-stack", cfg, repo_name="yibi-stack")
+        data = _read(cfg)
+        assert data["skill_repos"] == {
+            "ainization-skill": "/home/u/ainization-skill",
+            "yibi-stack": "/home/u/yibi-stack",
+        }
+
+    def test_regskill_dt_006_falsy_top_level_replaced(self, tmp_path: Path) -> None:
+        """REGSKILL-DT-006: 頂層 skill_repo 為 falsy（""/null）時補上當前路徑（setdefault 做不到）。"""
+        cfg = tmp_path / "config.json"
+        cfg.write_text(
+            json.dumps({"skill_repo": ""}) + "\n",
+            encoding="utf-8",
+        )
+        register("/home/u/yibi-stack", cfg, repo_name="yibi-stack")
+        assert _read(cfg)["skill_repo"] == "/home/u/yibi-stack"

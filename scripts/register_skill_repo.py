@@ -4,8 +4,11 @@
 yibi-stack 與 ainization-skill 兩個 repo 的 `make install` 都會把它覆寫成自己，
 誰最後安裝誰贏，形成乒乓球式 config drift。
 
-根治：改寫 `skill_repos["<repo-name>"]`（key = repo 目錄名），讓 N 個 skill repo
-共存、互不覆寫；頂層 `skill_repo` 只保留為 legacy fallback（過渡期向下相容），
+根治：改寫 `skill_repos["<repo-name>"]`，讓 N 個 skill repo 共存、互不覆寫。map key 是
+安裝端顯式提供的 **canonical repo 識別名**（Makefile 傳 `SKILL_REPO_KEY`，例如 "yibi-stack"），
+與 reader 端硬編碼查詢的 key 一致；**不可**用 checkout 目錄 basename，否則在 worktree /
+改名 / fork clone 下 key 會漂掉、reader 永遠 miss（issue #199）。未顯式指定時才退回目錄
+basename（legacy / 手動呼叫）。頂層 `skill_repo` 只保留為 legacy fallback（過渡期向下相容），
 **不再覆寫**——僅在完全缺席時以 setdefault 補一份，供尚未升級的舊 reader 使用。
 """
 
@@ -47,17 +50,21 @@ def register(repo_path: str, config_path: pathlib.Path, repo_name: str | None = 
 
     skill_repos = c.get("skill_repos")
     if not isinstance(skill_repos, dict):
-        # 第一次以新版 register 安裝：把現有頂層 legacy 值搬進 map，再建立本 repo 的 entry。
         skill_repos = {}
-        legacy = c.get("skill_repo")
-        if isinstance(legacy, str) and legacy:
-            skill_repos[pathlib.Path(legacy).name] = legacy
+
+    # 遷移現有頂層 legacy skill_repo 進 map（idempotent：以 basename 為 key，只在缺席時補；
+    # 與 map 是否已存在解耦，避免「skill_repos 已被建成 {} 但 legacy 尚未搬入」的漏遷）。
+    legacy = c.get("skill_repo")
+    if isinstance(legacy, str) and legacy:
+        skill_repos.setdefault(pathlib.Path(legacy).name, legacy)
 
     skill_repos[repo_name] = repo_path
     c["skill_repos"] = skill_repos
 
-    # 不覆寫頂層 skill_repo（避免多 repo 互搶）；僅在缺席時補一份給舊 reader 過渡。
-    c.setdefault("skill_repo", repo_path)
+    # 不覆寫「有效」的頂層 skill_repo（避免多 repo 互搶）；但當它 falsy（缺席 / "" / null）時
+    # 補一份當前路徑給尚未升級、只讀頂層的舊 reader（setdefault 無法處理已存在的 falsy 值）。
+    if not c.get("skill_repo"):
+        c["skill_repo"] = repo_path
 
     try:
         config_path.parent.mkdir(parents=True, exist_ok=True)
