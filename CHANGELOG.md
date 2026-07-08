@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [1.5.2] - 2026-07-09
+
+### Bug Fixes
+
+- per-repo skill_repos map to end skill_repo drift (#197) (#199)
+- resolve review base from upstream remote for fork PRs (#196) (#198)
+
 ## [1.5.1] - 2026-07-08
 
 ### Features
