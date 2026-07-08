@@ -295,6 +295,7 @@ body-file 路徑用 Step 7 解析的 `$OUT`。**shell state 不跨 bash call**�
 ```bash
 if ! TOP=$(git rev-parse --show-toplevel); then echo "[FAIL] 不在 git repo" >&2; exit 1; fi
 OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
+mkdir -p "$OUT"
 gh issue comment <n> --body-file "$OUT/close-<n>.md"
 ```
 
@@ -308,6 +309,7 @@ gh issue close <n> --reason completed
 ```bash
 if ! TOP=$(git rev-parse --show-toplevel); then echo "[FAIL] 不在 git repo" >&2; exit 1; fi
 OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
+mkdir -p "$OUT"
 gh issue comment <n> --body-file "$OUT/update-<n>.md"
 ```
 
@@ -330,6 +332,7 @@ gh issue edit <n> --add-label "<label>" --remove-label "<label>"
 ```bash
 if ! TOP=$(git rev-parse --show-toplevel); then echo "[FAIL] 不在 git repo" >&2; exit 1; fi
 OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
+mkdir -p "$OUT"
 gh issue comment <b> --body-file "$OUT/merge-<b>.md"
 ```
 
