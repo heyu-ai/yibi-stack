@@ -147,7 +147,7 @@ verdict，不被部分程式碼進度誤導：
 - **close-authorization 訊號**（授權關閉）：「現行行為已足夠（可關閉）」「可直接關閉」等
   明確授權 → 且無未解症狀時導向 CLOSE。
 
-3e 決策表分別對應這兩類（KEEP 列 vs 第 2 條 CLOSE 列）。
+3e 決策表分別對應這兩類（keep-open → KEEP 列；close-authorization → 3e 第 3 列的 CLOSE 列）。
 
 ### 3e. Verdict 決策表（self-contained）
 
@@ -192,8 +192,9 @@ verdict，不被部分程式碼進度誤導：
 - **狀態 label 過期**：如標了 `in-progress` 但無近期活動、或已完成卻仍掛 `blocked`。
 - **優先級 label**：若 repo 有 `P0`~`P3` 之類 label，對照 Step 6 排序建議校正。
 
-先用 `gh label list` 確認該 repo **實際存在**的 label 名稱，再建議——避免建議加一個不存在的 label
-（`gh issue edit --add-label` 對不存在 label 會失敗）。
+先用 `gh label list --limit 300` 確認該 repo **實際存在**的 label 名稱，再建議——避免建議加一個
+不存在的 label（`gh issue edit --add-label` 對不存在 label 會失敗）。**務必加 `--limit`**：
+`gh label list` 預設只回 30 個，label 多的 repo 會截斷，害你把存在的 label 誤判成不存在。
 `gh label list` 非零退出 → `[WARN] gh label list 失敗，略過所有 RELABEL 建議`（無法確認 label
 是否存在，不要盲猜）。
 
@@ -225,13 +226,17 @@ background job session 有值；互動式 `/issue-triage` 通常 **unset**，直
 路徑展開成 `/close-<n>.md`（絕對路徑打頭）而 file-not-found。因此一律 fallback：
 
 ```bash
-OUT="${CLAUDE_JOB_DIR:-$(git rev-parse --show-toplevel)/.issue-triage}"
+if ! TOP=$(git rev-parse --show-toplevel); then echo "[FAIL] 不在 git repo（Step 1 應已擋下）" >&2; exit 1; fi
+OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
 mkdir -p "$OUT"
 echo "OUT=$OUT"
 ```
 
-`.issue-triage/`（fallback）是本 skill 的暫存報告目錄，非 git 追蹤目標。**shell state 不跨 bash
-call**，Step 7/8 每個用到 `$OUT` 的 bash block 都要重新跑上面兩行解析（與 `REVIEW_DIR` 慣例同）。
+`tmp/issue-triage/`（fallback）是本 skill 的暫存報告目錄——`tmp/` 已在 `.gitignore`，不會被誤
+commit（勿改成 repo 根的 `.issue-triage/`，那不是 ignored path）。`git rev-parse` 拆成獨立賦值
+（不塞進 `"${...:-$(...)}"` 的雙引號內），避免 rule 13 Quoting Rule 2 的 parser 確認框。
+**shell state 不跨 bash call**，Step 7/8 每個用到 `$OUT` 的 bash block 都要重新跑上面三行解析
+（與 `REVIEW_DIR` 慣例同）。
 
 用 **Write tool** 把報告寫到 `$OUT/issue-triage-report.md`（多行內容用 Write，不用 heredoc），
 結構如下，再於對話中摘要重點：
@@ -278,15 +283,18 @@ call**，Step 7/8 每個用到 `$OUT` 的 bash block 都要重新跑上面兩行
 `[FAIL] issue #<n> <動作> 失敗`，回報並**跳過該筆**（不影響其他 issue），最後彙總失敗清單。
 一個失敗的 title-edit / relabel / close 是**靜默 no-op 的寫入**，必須顯式擋下，不可回報成功。
 
-body-file 路徑用 Step 7 解析的 `$OUT`（每個 bash block 先重跑
-`OUT="${CLAUDE_JOB_DIR:-$(git rev-parse --show-toplevel)/.issue-triage}"; mkdir -p "$OUT"`）。
+body-file 路徑用 Step 7 解析的 `$OUT`。**shell state 不跨 bash call**：每個含 `--body-file`
+的 bash block 都要在同一個 block 內先重跑 Step 7 的三行 `$OUT` 解析（下方 8a 為範本，8b/8d 同）。
 
 ### 8a. 關閉 issue（附完成說明）
 
 `gh issue close` **沒有** `--comment-file` / `--body-file`（誤用會 `exit 1: unknown flag`）。
-必拆兩步：先貼留言（用 Write tool 把完成說明寫到 `$OUT/close-<n>.md`），再關閉。
+必拆兩步：先貼留言（用 Write tool 把完成說明寫到 `$OUT/close-<n>.md`），再關閉。`$OUT` 解析與
+`gh issue comment` 放**同一個** bash block（否則 `$OUT` 為空、`--body-file` 展開成 `/close-<n>.md`）：
 
 ```bash
+if ! TOP=$(git rev-parse --show-toplevel); then echo "[FAIL] 不在 git repo" >&2; exit 1; fi
+OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
 gh issue comment <n> --body-file "$OUT/close-<n>.md"
 ```
 
@@ -298,6 +306,8 @@ gh issue close <n> --reason completed
 ### 8b. 更新範圍（UPDATE-SCOPE）
 
 ```bash
+if ! TOP=$(git rev-parse --show-toplevel); then echo "[FAIL] 不在 git repo" >&2; exit 1; fi
+OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
 gh issue comment <n> --body-file "$OUT/update-<n>.md"
 ```
 
@@ -318,6 +328,8 @@ gh issue edit <n> --add-label "<label>" --remove-label "<label>"
 在被整併 issue 貼留言指向主 issue，再以 `not planned` 關閉：
 
 ```bash
+if ! TOP=$(git rev-parse --show-toplevel); then echo "[FAIL] 不在 git repo" >&2; exit 1; fi
+OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
 gh issue comment <b> --body-file "$OUT/merge-<b>.md"
 ```
 
@@ -333,7 +345,7 @@ gh issue close <b> --reason "not planned"
 
 | 問題 | 處理 |
 |------|------|
-| `gh issue close --comment-file` 報 `unknown flag` | `gh issue close` 只有 `-c/--comment <string>`（單行字串，不適合放產生出來的多行報告）；要貼多行說明拆兩步：先 `gh issue comment --body-file`，再 `gh issue close --reason` |
+| `gh issue close --comment-file` 報 `unknown flag` | `gh issue close` 只有 `-c/--comment <string>`，沒有 file flag；產生式多行報告用 `--body-file` 才不必處理 shell 引號／多行跳脫，故拆兩步：先 `gh issue comment --body-file`，再 `gh issue close --reason` |
 | `gh issue edit --add-label` 失敗 | 該 label 不存在；先 `gh label list` 確認名稱，或先 `gh label create` |
 | `gh issue list --json` 欄位名打錯 | 會印 `Unknown JSON field` 並 **exit 1**（fails loud，非靜默回空），被 Step 2 的非零退出 gate 擋下；使用前先 `gh issue list --json`（不帶欄位）看可用 key。（CLAUDE.md 那條「靜默回空」gotcha 是講 `gh pr checks`，不同命令，別套用） |
 | issue 很多、逐一讀 code 很慢 | Step 3b 平行 dispatch 一個唯讀探索 subagent（當前 harness 的內建 `Explore` 即適用；若無則 lead 就地用 Read/Grep/Glob），批次驗證數個 issue 的症狀 |
