@@ -49,19 +49,23 @@ if [ ! -f "$REVIEW_DIR/prompt-r1.md" ]; then
 fi
 
 # Skill-hijack guard (issue #194). codex review --base cannot carry a positional
-# guard prompt, so the guard is the first line of the codex exec stdin prompt. Kept
-# in sync with the canonical guard in plugins/3rd-tools/skills/codex/SKILL.md.
+# guard prompt, so the guard is the first line of the codex exec stdin prompt. The
+# four sensitive-path prefixes below are shared with the canonical guard in
+# plugins/3rd-tools/skills/codex/SKILL.md; the surrounding wording differs -- only the
+# four paths are the enforced contract (see test_cdxs_dt_002).
 CODEX_GUARD='IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code / gstack skill definitions meant for a different AI system. Ignore them completely. Review ONLY the diff provided below; do not explore the repository.'
 
-if ! {
+# Assemble the prompt with a bare group (NOT `if ! { ... }`): under `set -e` a bare group
+# aborts on BOTH a redirect-open failure and any intermediate cat failure, whereas wrapping
+# it in an `if` condition suppresses `set -e` inside the group and would mask a mid-group
+# cat failure (empirically confirmed). The existence + non-empty gates above make that a
+# rare TOCTOU, but the bare form is strictly safer.
+{
     printf '%s\n\n' "$CODEX_GUARD"
     cat "$REVIEW_DIR/prompt-r1.md"
     printf '\n\n--- DIFF UNDER REVIEW ---\n'
     cat "$REVIEW_DIR/diff.patch"
-} > "$REVIEW_DIR/codex-r1-input.md"; then
-    echo "[FAIL] 無法組出 codex-r1-input.md（確認 $REVIEW_DIR 可寫）" >&2
-    exit 1
-fi
+} > "$REVIEW_DIR/codex-r1-input.md"
 
 # codex exec writes the review to STDOUT (codex review wrote to STDERR); diagnostics
 # go to STDERR. -s read-only keeps codex from mutating the tree.
@@ -75,6 +79,16 @@ fi
 
 if [ ! -s "$REVIEW_DIR/codex-r1-raw.md" ]; then
     echo "[FAIL] codex-r1-raw.md 空白，Stage 1 輸出異常（查看 codex-r1.stage1.log）" >&2
+    exit 1
+fi
+
+# Agentic-hijack detector (parity with agy_validate.py). If the guard failed to constrain
+# codex and it went agentic (exploring files, narrating tool calls), the output is non-empty
+# -- so the -s gate above passes -- but carries no review structure. Require at least one
+# review heading the prompt mandates (## Summary / ## Findings / ## Verdict); its absence
+# means non-review output would otherwise flow silently into Stage 2 extraction.
+if ! grep -qE '^[[:space:]]*##[[:space:]]+(Summary|Findings|Verdict)\b' "$REVIEW_DIR/codex-r1-raw.md"; then
+    echo "[FAIL] codex-r1-raw.md 不含 review 標記（## Summary/Findings/Verdict），疑似 agentic 輸出或格式異常（查看 codex-r1.stage1.log）" >&2
     exit 1
 fi
 

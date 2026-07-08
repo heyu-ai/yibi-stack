@@ -822,12 +822,13 @@ Re-run Step 3 + Step 4 (R1 + R2) on **files modified in this round**.
 
 **7.1 Refresh diff state** (required — diff has changed after fixes):
 
+Re-run `setup-review-dir.sh` — it is the sole owner of the safe base resolution
+(`git fetch origin` + `FETCH_HEAD`, so a stale local base can't silently poison the diff,
+PR #22 lesson) and rewrites both `diff.patch` and `changed-files.txt`. Do **not** hand-roll
+`git diff "{{base_branch}}"...HEAD` here — that uses the local ref and bypasses the fetch.
+
 ```bash
-WT_ROOT=$(git rev-parse --show-toplevel)
-REVIEW_DIR="$WT_ROOT/.pr-review"
-mkdir -p "$REVIEW_DIR"
-git diff "{{base_branch}}"...HEAD > "$REVIEW_DIR/diff.patch"
-git diff "{{base_branch}}"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"
+bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 ```
 
 **7.2 Token savings: only skip R2 debate for voices that were LGTM in the previous round** (R1 still runs for all):
@@ -915,16 +916,17 @@ Wait for explicit instruction before continuing.
 When manually triggering a single voice re-run after fixes, the input **must use the diff.patch refreshed in Step 7.1**, not the stale version from the setup stage:
 
 ```bash
-# Correct: refresh the shared diff (Step 7.1), then re-run the stage-1 script -- it reviews
-# $REVIEW_DIR/diff.patch via codex exec and re-writes codex-r1-raw.md for this round.
-WT_ROOT=$(git rev-parse --show-toplevel)
-REVIEW_DIR="$WT_ROOT/.pr-review"
-git diff "{{base_branch}}"...HEAD > "$REVIEW_DIR/diff.patch"
+# Correct: refresh the shared diff via setup-review-dir.sh (sole owner of the safe
+# fetch+FETCH_HEAD base), then re-run the stage-1 script -- it reviews $REVIEW_DIR/diff.patch
+# via codex exec and re-writes codex-r1-raw.md for this round.
+bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh
 
-# Wrong 1: hand-rolling `codex review --base ...` -- rejects the guard prompt (issue #194)
+# Wrong 1: hand-rolling `git diff "{{base_branch}}"...HEAD > diff.patch` -- uses the local ref
+#          and bypasses setup-review-dir.sh's fetch, silently reviewing a stale base (PR #22).
+# Wrong 2: hand-rolling `codex review --base ...` -- rejects the guard prompt (issue #194)
 #          and re-opens the skill-hijack hole; always go through the stage-1 script.
-# Wrong 2: overwriting codex-r1.md (the compact render) directly destroys aggregate history;
+# Wrong 3: overwriting codex-r1.md (the compact render) directly destroys aggregate history;
 #          let Stage 2 (extract) + Stage 3 (render) produce it from codex-r1-raw.md.
 
 # Wrong 3: prompt-r1.md is a reviewer prompt (for diffs), not aggregate; and diff.patch may be stale if not refreshed
@@ -1138,7 +1140,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Voice | Detection | R1 call (3-stage) | R2 call | Aggregate input |
 | --- | --- | --- | --- | --- |
 | Claude | always | Task() pr-review-toolkit 4 subagents | lead writes claude-r2.md directly | claude-r1.md (finding markdown) |
-| Codex | `which codex` + auth | S1: `codex exec -s read-only < codex-r1-input.md(guard+prompt-r1+diff.patch) > codex-r1-raw.md 2>stage1.log` / S2: `codex exec low < extract-input 2>extract.log \| tee codex-r1.json > /dev/null` / S3: lead renders codex-r1.md | `set -o pipefail; codex exec -C "$WT_ROOT" -s read-only < input.md 2>r2.log \| tee codex-r2.md > /dev/null` | codex-r1.md (compact, not raw) |
+| Codex | `which codex` + auth | S1: `codex exec -C "$WT_ROOT" -s read-only < codex-r1-input.md(guard+prompt-r1+diff.patch) > codex-r1-raw.md 2>codex-r1.stage1.log` / S2: `codex exec low < extract-input 2>extract.log \| tee codex-r1.json > /dev/null` / S3: lead renders codex-r1.md | `set -o pipefail; codex exec -C "$WT_ROOT" -s read-only < input.md 2>r2.log \| tee codex-r2.md > /dev/null` | codex-r1.md (compact, not raw) |
 | Gemini/agy *(optional)* | `which agy` + auth | S1: `bash agy-r1-stage1.sh` / S2: `bash agy-r1-stage2.sh` (inlines prompt, `--sandbox`, extracts gemini-r1.json) / S3: lead renders gemini-r1.md | `bash agy-r2.sh` | gemini-r1.md (compact, not raw) |
 
 Each voice's R1 / R2 should be written to `$REVIEW_DIR/<voice>-r{1,2}.md` (compact version),
