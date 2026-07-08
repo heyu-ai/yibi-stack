@@ -340,11 +340,13 @@ calls do not need to parse this output — derive directly from the worktree roo
 single command), rule 14 Quoting Rule 5 (multiple `"$VAR"` expansions), rule 14 `$?` section
 (`if [ $? -ne 0 ]`), and writing to `.git/info/exclude` triggered a permission dialog.
 The script uses `set -euo pipefail` and `if ! cmd; then` instead of `$?`, and resolves
-`BASE_BRANCH` by always `git fetch origin`-ing it fresh and diffing against `FETCH_HEAD`
-(not a bare `git rev-parse --verify` — a stale local branch ref would otherwise pass that
-check and silently produce a diff against the wrong base; see the script's own header comment
-for the PR that motivated this). A typo'd or nonexistent branch name now surfaces as a
-`git fetch` failure, not a `rev-parse --verify` failure.
+`BASE_BRANCH` by always `git fetch`-ing it fresh from the base remote and diffing against
+`FETCH_HEAD` (not a bare `git rev-parse --verify` — a stale local branch ref would otherwise
+pass that check and silently produce a diff against the wrong base; see the script's own header
+comment for the PR that motivated this). The base remote is `upstream` when that remote exists,
+else `origin` (issue #196: reviewing from a personal fork whose `main` lags the real base repo
+would otherwise resolve a stale merge-base and balloon the diff). A typo'd or nonexistent branch
+name now surfaces as a `git fetch` failure, not a `rev-parse --verify` failure.
 
 **Allow-list pattern note**: `Bash()` rules do **not expand** `~` (rule 16 "safe pattern
 examples", key point 2), so `Bash(bash ~/.agents/skills/.../setup-review-dir.sh)` **does not**
@@ -823,9 +825,10 @@ Re-run Step 3 + Step 4 (R1 + R2) on **files modified in this round**.
 **7.1 Refresh diff state** (required — diff has changed after fixes):
 
 Re-run `setup-review-dir.sh` — it is the sole owner of the safe base resolution
-(`git fetch origin` + `FETCH_HEAD`, so a stale local base can't silently poison the diff,
-PR #22 lesson) and rewrites both `diff.patch` and `changed-files.txt`. Do **not** hand-roll
-`git diff "{{base_branch}}"...HEAD` here — that uses the local ref and bypasses the fetch.
+(`git fetch` from the base remote — `upstream` if present, else `origin`, issue #196 — plus
+`FETCH_HEAD`, so neither a stale local base nor a stale fork `origin` can silently poison the
+diff; PR #22 + #196 lessons) and rewrites both `diff.patch` and `changed-files.txt`. Do **not**
+hand-roll `git diff "{{base_branch}}"...HEAD` here — that uses the local ref and bypasses the fetch.
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}

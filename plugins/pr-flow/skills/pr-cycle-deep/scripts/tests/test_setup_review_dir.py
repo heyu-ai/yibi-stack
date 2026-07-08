@@ -49,11 +49,13 @@ class TestBaseResolutionContract:
     def test_srd_dt_002_fetch_uses_end_of_options_separator(self, script: Path) -> None:
         """SRD-DT-002: `git fetch` must terminate options with "--" before the
         caller-derived ref, or a branch name starting with "-" is parsed as a git
-        flag (verified command-injection risk, e.g. --upload-pack=<cmd>).
+        flag (verified command-injection risk, e.g. --upload-pack=<cmd>). The remote
+        is now selected into $BASE_REMOTE (issue #196), so the invariant is the "--"
+        separator, not a hardcoded `origin`.
         """
         src = script.read_text(encoding="utf-8")
-        assert 'git fetch origin --quiet -- "$FETCH_BRANCH"' in src, (
-            f"{script.name}: git fetch must use -- before $FETCH_BRANCH"
+        assert 'git fetch "$BASE_REMOTE" --quiet -- "$FETCH_BRANCH"' in src, (
+            f"{script.name}: git fetch must use -- before $FETCH_BRANCH via $BASE_REMOTE"
         )
 
     @pytest.mark.parametrize("script", FETCH_SCRIPTS)
@@ -66,14 +68,50 @@ class TestBaseResolutionContract:
         assert '[ -z "$FETCH_BRANCH" ]' in src, f"{script.name}: must guard empty FETCH_BRANCH"
 
     @pytest.mark.parametrize("script", FETCH_SCRIPTS)
-    def test_srd_dt_004_fetch_failure_message_names_origin_constraint(self, script: Path) -> None:
+    def test_srd_dt_004_fetch_failure_message_names_remote_constraint(self, script: Path) -> None:
         """SRD-DT-004: the fetch-failure message must name the actual new
-        constraint (branch must exist on origin), not just "check your network" --
-        a valid local-only unpushed branch now fails here by design.
+        constraint (branch must exist on the selected base remote), not just "check
+        your network" -- a valid local-only unpushed branch now fails here by design.
+        The remote is $BASE_REMOTE (issue #196), so the message interpolates it.
         """
         src = script.read_text(encoding="utf-8")
-        assert "已存在於 origin" in src, (
-            f"{script.name}: fetch-failure message must name the origin constraint"
+        assert "已存在於 ${BASE_REMOTE}" in src, (
+            f"{script.name}: fetch-failure message must name the $BASE_REMOTE constraint"
+        )
+
+    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
+    def test_srd_dt_005_prefers_upstream_remote_when_present(self, script: Path) -> None:
+        """SRD-DT-005: base remote resolution must prefer an `upstream` remote over
+        `origin` when one exists (issue #196: origin may be a personal fork whose
+        default branch lags the real base repo). Guards against a regression to an
+        unconditional `git fetch origin`.
+        """
+        src = script.read_text(encoding="utf-8")
+        assert "BASE_REMOTE=origin" in src, f"{script.name}: must default BASE_REMOTE to origin"
+        assert "git remote get-url upstream" in src, (
+            f"{script.name}: must probe for an upstream remote"
+        )
+        assert "BASE_REMOTE=upstream" in src, (
+            f"{script.name}: must prefer upstream when the probe succeeds"
+        )
+        # Ordering guard (PR #198 review): substring presence alone can't catch a reset-after-if
+        # or inverted probe -- pin the resolution order default -> probe -> override.
+        assert (
+            src.index("BASE_REMOTE=origin")
+            < src.index("git remote get-url upstream")
+            < src.index("BASE_REMOTE=upstream")
+        ), f"{script.name}: remote resolution must be default -> probe -> override"
+
+    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
+    def test_srd_dt_006_emits_chosen_base_remote_to_stderr(self, script: Path) -> None:
+        """SRD-DT-006 (PR #198): the script must announce the selected base remote on
+        stderr. The name-based heuristic has two residual silent surfaces (a mis-selected
+        unrelated upstream, and the origin-only fork no-op); a stderr breadcrumb turns an
+        otherwise-silent mis-selection into a diagnosable line.
+        """
+        src = script.read_text(encoding="utf-8")
+        assert "[INFO] base remote = ${BASE_REMOTE}" in src, (
+            f"{script.name}: must echo the chosen base remote to stderr"
         )
 
 
@@ -246,6 +284,181 @@ class TestSetupReviewDirBehavioral:
         assert result.returncode != 0
         assert "[FAIL]" in result.stderr
         assert "空字串" in result.stderr
+
+    def test_srd_st_005_fork_origin_uses_upstream_base_not_stale_fork(self, tmp_path: Path) -> None:
+        """SRD-ST-005: reproduces issue #196. When `origin` is a personal fork whose
+        `main` lags the real base repo, and an `upstream` remote points at the true
+        base repo, the review diff must resolve against upstream's fresh tip -- not
+        the fork's stale main, which would balloon the diff with already-landed
+        commits' content.
+
+        Build the true base (upstream) main = A -> B -> C. The fork's main is frozen
+        at A (forked before B/C landed). The PR branch `feature` is based off C (as a
+        real PR would be), plus its own commit D. A script that fetched base from the
+        fork `origin` (A) would compute merge-base(A, feature) = A and pull B and C's
+        content into the diff; the fix fetches from `upstream` (C) and gets only D.
+        """
+        upstream = tmp_path / "upstream.git"
+        upstream.mkdir()
+        _git(upstream, "init", "-q", "--bare", "-b", "main")
+
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        _git(seed, "init", "-q", "-b", "main")
+        _git(seed, "config", "user.email", "t@t")
+        _git(seed, "config", "user.name", "t")
+        (seed / "README.md").write_text("seed\n", encoding="utf-8")
+        _git(seed, "add", ".")
+        _git(seed, "commit", "-qm", "A: seed")
+        _git(seed, "remote", "add", "upstream", str(upstream))
+        _git(seed, "push", "-q", "upstream", "main")
+        sha_a = _git(seed, "rev-parse", "main").stdout.strip()
+
+        # The fork (origin) is created off A, before B/C land upstream.
+        fork = tmp_path / "fork.git"
+        fork.mkdir()
+        _git(fork, "init", "-q", "--bare", "-b", "main")
+        _git(seed, "remote", "add", "fork", str(fork))
+        _git(seed, "push", "-q", "fork", "main")  # fork/main = A (frozen)
+
+        # B and C land on upstream only.
+        (seed / "other-pr-1.txt").write_text("landed via another PR\n", encoding="utf-8")
+        _git(seed, "add", ".")
+        _git(seed, "commit", "-qm", "B: other PR 1")
+        (seed / "other-pr-2.txt").write_text("landed via another PR too\n", encoding="utf-8")
+        _git(seed, "add", ".")
+        _git(seed, "commit", "-qm", "C: other PR 2")
+        _git(seed, "push", "-q", "upstream", "main")
+        sha_c = _git(seed, "rev-parse", "main").stdout.strip()
+        assert sha_a != sha_c
+
+        # Working checkout: origin = fork (stale A), upstream = true base (C).
+        # feature branches off C and adds D.
+        repo = tmp_path / "repo"
+        _git(tmp_path, "clone", "-q", "--origin", "origin", str(fork), str(repo))
+        _git(repo, "config", "user.email", "t@t")
+        _git(repo, "config", "user.name", "t")
+        _git(repo, "remote", "add", "upstream", str(upstream))
+        _git(repo, "fetch", "-q", "upstream")
+        _git(repo, "checkout", "-q", "-b", "feature", sha_c)
+        (repo / "feature.txt").write_text("feature work\n", encoding="utf-8")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-qm", "D: feature commit")
+
+        # Sanity: origin/main is the stale A, upstream/main is the fresh C.
+        assert _git(repo, "rev-parse", "origin/main").stdout.strip() == sha_a
+        assert _git(repo, "rev-parse", "upstream/main").stdout.strip() == sha_c
+
+        result = _run_setup(repo, "main")
+        assert result.returncode == 0, result.stderr
+        # PR #198: the chosen remote is announced on stderr for diagnosability.
+        assert "[INFO] base remote = upstream" in result.stderr
+
+        changed = (repo / ".pr-review" / "changed-files.txt").read_text(encoding="utf-8")
+        assert "feature.txt" in changed
+        assert "other-pr-1.txt" not in changed, (
+            "diff must resolve against upstream's fresh tip (C), not the fork origin's "
+            "stale main (A) -- B/C content leaking in is exactly issue #196"
+        )
+        assert "other-pr-2.txt" not in changed
+
+    def test_srd_st_006_upstream_present_branch_only_on_origin_fails_loud(
+        self, tmp_path: Path
+    ) -> None:
+        """SRD-ST-006 (PR #198): locks the owner-ratified name-based-heuristic trade-off.
+        When an `upstream` remote exists but the base branch lives only on `origin`, the
+        script selects upstream, the fetch fails, and it must exit [FAIL] naming the
+        remote -- it must NOT silently fall back to origin's copy of the branch. Pins the
+        documented fail-loud behavior so a future refactor can't quietly change it to a
+        wrong-base resolution.
+        """
+        # upstream repo has only `main`; origin (a second repo) additionally has `release`.
+        upstream = tmp_path / "upstream.git"
+        upstream.mkdir()
+        _git(upstream, "init", "-q", "--bare", "-b", "main")
+        origin = tmp_path / "origin.git"
+        origin.mkdir()
+        _git(origin, "init", "-q", "--bare", "-b", "main")
+
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        _git(seed, "init", "-q", "-b", "main")
+        _git(seed, "config", "user.email", "t@t")
+        _git(seed, "config", "user.name", "t")
+        (seed / "README.md").write_text("seed\n", encoding="utf-8")
+        _git(seed, "add", ".")
+        _git(seed, "commit", "-qm", "seed")
+        _git(seed, "remote", "add", "upstream", str(upstream))
+        _git(seed, "remote", "add", "origin", str(origin))
+        _git(seed, "push", "-q", "upstream", "main")
+        _git(seed, "push", "-q", "origin", "main")
+        # `release` exists ONLY on origin, not upstream.
+        _git(seed, "checkout", "-q", "-b", "release")
+        _git(seed, "push", "-q", "origin", "release")
+
+        repo = tmp_path / "repo"
+        _git(tmp_path, "clone", "-q", "--origin", "origin", str(origin), str(repo))
+        _git(repo, "config", "user.email", "t@t")
+        _git(repo, "config", "user.name", "t")
+        _git(repo, "remote", "add", "upstream", str(upstream))
+        _git(repo, "fetch", "-q", "upstream")
+        _git(repo, "checkout", "-q", "-b", "feature")
+        (repo / "feature.txt").write_text("feature work\n", encoding="utf-8")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-qm", "feature commit")
+
+        # `release` exists on origin but NOT upstream; the script picks upstream and fails loud.
+        result = _run_setup(repo, "release")
+        assert result.returncode != 0
+        assert "[FAIL]" in result.stderr
+        assert "upstream" in result.stderr, "failure message must name the selected remote"
+        assert not (repo / ".pr-review" / "diff.patch").exists(), (
+            "must not silently fall back to origin's copy of the branch"
+        )
+
+    def test_srd_st_007_upstream_prefix_routes_to_upstream_base(self, tmp_path: Path) -> None:
+        """SRD-ST-007 (PR #198): behavioral coverage for the new `upstream/` prefix strip.
+        Passing `upstream/main` (with an upstream remote present) must resolve to `main`
+        fetched from upstream and diff against it -- symmetric with the `origin/` handling
+        that SRD-ST-003 covers only for the empty case.
+        """
+        upstream = tmp_path / "upstream.git"
+        upstream.mkdir()
+        _git(upstream, "init", "-q", "--bare", "-b", "main")
+        origin = tmp_path / "origin.git"
+        origin.mkdir()
+        _git(origin, "init", "-q", "--bare", "-b", "main")
+
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        _git(seed, "init", "-q", "-b", "main")
+        _git(seed, "config", "user.email", "t@t")
+        _git(seed, "config", "user.name", "t")
+        (seed / "README.md").write_text("seed\n", encoding="utf-8")
+        _git(seed, "add", ".")
+        _git(seed, "commit", "-qm", "seed")
+        _git(seed, "remote", "add", "upstream", str(upstream))
+        _git(seed, "remote", "add", "origin", str(origin))
+        _git(seed, "push", "-q", "upstream", "main")
+        _git(seed, "push", "-q", "origin", "main")
+
+        repo = tmp_path / "repo"
+        _git(tmp_path, "clone", "-q", "--origin", "origin", str(origin), str(repo))
+        _git(repo, "config", "user.email", "t@t")
+        _git(repo, "config", "user.name", "t")
+        _git(repo, "remote", "add", "upstream", str(upstream))
+        _git(repo, "fetch", "-q", "upstream")
+        _git(repo, "checkout", "-q", "-b", "feature")
+        (repo / "feature.txt").write_text("feature work\n", encoding="utf-8")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-qm", "feature commit")
+
+        # `upstream/main` must strip to `main` and fetch from the upstream remote.
+        result = _run_setup(repo, "upstream/main")
+        assert result.returncode == 0, result.stderr
+        assert "[INFO] base remote = upstream" in result.stderr
+        changed = (repo / ".pr-review" / "changed-files.txt").read_text(encoding="utf-8")
+        assert "feature.txt" in changed
 
     def test_srd_st_004_dash_prefixed_branch_does_not_execute_as_flag(
         self, origin_and_clone: dict[str, Path]

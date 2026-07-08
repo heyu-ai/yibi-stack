@@ -133,13 +133,16 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh origin/{{base_br
 ```
 
 > **Either `{{base_branch}}` or `origin/{{base_branch}}` works — the script normalizes both.**
-> `setup-review-dir.sh` always `git fetch origin`s the branch fresh and diffs against
-> `FETCH_HEAD`; it strips a leading `origin/` prefix if present, so a stale or absent
-> **local** base ref (the common case after `gh pr checkout` when reviewing someone else's PR)
-> no longer matters either way. If `origin/{{base_branch}}` itself is stale (rare — the fetch
-> re-syncs your local `origin/*` tracking ref as a side effect), that's a remote-side staleness
-> issue, not something either form of this flag fixes; confirm with `git fetch origin {{base_branch}}`
-> directly if you suspect it.
+> `setup-review-dir.sh` `git fetch`es the base branch fresh and diffs against `FETCH_HEAD`; it
+> strips a leading `origin/` or `upstream/` prefix, so a stale or absent **local** base ref (the
+> common case after `gh pr checkout` when reviewing someone else's PR) no longer matters either way.
+> **Base remote (issue #196):** when an `upstream` remote exists the script fetches base from it,
+> otherwise from `origin`. This matters here because reviewing someone else's PR often means your
+> local `origin` is a **personal fork** whose `main` lags the real base repo; fetching base from the
+> fork would resolve a stale merge-base and balloon the review diff to hundreds of unrelated files
+> silently. Set up the fork clone as `origin` + base repo as `upstream` (the conventional layout)
+> and the script picks the right base automatically. If you suspect remote-side staleness, confirm
+> with `git fetch upstream {{base_branch}}` (or `origin` if no upstream) directly.
 
 then per available voice: `codex-r1-stage1.sh` / `codex-r1-stage2.sh` (Codex), `agy-r1-stage1.sh` /
 `agy-r1-stage2.sh` (agy), the 4 `pr-review-toolkit` subagents (Claude), and for R2
@@ -265,7 +268,7 @@ switch to `/pr-cycle-deep` — that skill owns the fix → re-review → merge l
 | Engine scripts missing (`~/.agents/skills/pr-cycle-deep/scripts/...` not found) | `/pr-cycle-deep` is not installed. Run `make install` in the yibi-stack repo, or `claude plugin install pr-flow@yibi-stack`. Verify: `ls ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh` returns the path |
 | `git status --short` shows uncommitted changes | Do not `gh pr checkout` over a dirty tree; commit/stash, or re-run inside a fresh worktree |
 | `gh pr checkout` fails with local branch name collision | The PR's head branch name already exists locally; `gh pr checkout {{pr_number}} -b mob-review-{{pr_number}}` to use an alternate local name |
-| `setup-review-dir.sh` fails with `[FAIL] git fetch origin ... 失敗` | `{{base_branch}}` doesn't exist on `origin` (typo, or a local-only/unpushed branch — the script always fetches from `origin` and no longer falls back to a local ref); confirm the branch name and that it's pushed, then re-run |
+| `setup-review-dir.sh` fails with `[FAIL] git fetch <remote> ... 失敗` | `{{base_branch}}` doesn't exist on the selected base remote (`upstream` if that remote exists, else `origin`); a typo, or a local-only/unpushed branch (the script fetches from the remote and no longer falls back to a local ref). Confirm the branch name and that it's pushed to that remote, then re-run |
 | 0 external reviewers detected | This skill terminates; run `/pr-review-cycle` (Claude-only review, also review-only) |
 | A voice flags a single Critical the others missed | Empirically verify with a minimal repro **before** writing it into the report — a wrong Critical on someone else's PR is a public false accusation (Step 3) |
 | `gh pr comment` fails (auth / network) | `[WARN]`; show the manual command and report the `review-comment.md` path so the user can post it themselves; do not block |
