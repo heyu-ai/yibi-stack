@@ -29,11 +29,18 @@ If a skill's implementation lives in this repo but is semantically useful cross-
 the execution steps and set scope to `global`:
 
 ```bash
-if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text()).get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
+if ! SKILL_REPO=$(python3 -c 'import json,pathlib; c=json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")); print((c.get("skill_repos") or {}).get("yibi-stack") or c.get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
 if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
 cd "$SKILL_REPO"
 ```
+
+**Map-first resolution (issue #197)**: the resolver reads `skill_repos["yibi-stack"]`
+first, falling back to the legacy top-level `skill_repo` only on a miss. This is because
+`~/.agents/config.json` is shared across multiple skill repos (yibi-stack, ainization-skill),
+whose `make install` runs would otherwise each clobber a single `skill_repo` field. New
+readers MUST use this map-first form; the `yibi-stack` key is hardcoded because these
+resolvers physically live in the yibi-stack repo and always want its checkout.
 
 **Note (error handling form)**: `cmd || { echo '[FAIL]' >&2; exit 1; }` contains a `'` quote
 inside `{}`, triggering the "brace with quote character" confirmation dialog.

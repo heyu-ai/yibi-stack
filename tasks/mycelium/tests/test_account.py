@@ -217,6 +217,40 @@ class TestAgentsConfigSkillRepo:
         with pytest.raises(ValidationError):
             AgentsConfig(device_id="d", skill_repo="")
 
+    def test_agents_vl_015_skill_repos_relative_raises(self) -> None:
+        """AGENTS-VL-015：skill_repos 值為相對路徑時應 raise ValidationError。"""
+        with pytest.raises(ValidationError):
+            AgentsConfig(device_id="d", skill_repos={"yibi-stack": "relative/path"})
+
+    def test_agents_vl_016_skill_repos_empty_value_raises(self) -> None:
+        """AGENTS-VL-016：skill_repos 值為空字串時應 raise ValidationError。"""
+        with pytest.raises(ValidationError):
+            AgentsConfig(device_id="d", skill_repos={"yibi-stack": ""})
+
+    def test_agents_vl_017_skill_repos_empty_key_raises(self) -> None:
+        """AGENTS-VL-017：skill_repos 的 key 為空字串時應 raise ValidationError。"""
+        with pytest.raises(ValidationError):
+            AgentsConfig(device_id="d", skill_repos={"": "/abs/path"})
+
+    def test_agents_dt_001_resolve_prefers_map(self) -> None:
+        """AGENTS-DT-001：resolve_skill_repo map-first——map 命中時忽略被覆寫的頂層 skill_repo。"""
+        cfg = AgentsConfig(
+            device_id="d",
+            skill_repo="/wrong/ainization-skill",
+            skill_repos={"yibi-stack": "/right/yibi-stack"},
+        )
+        assert cfg.resolve_skill_repo("yibi-stack") == "/right/yibi-stack"
+
+    def test_agents_dt_002_resolve_falls_back_to_legacy(self) -> None:
+        """AGENTS-DT-002：map miss 時 fallback 頂層 skill_repo（legacy 過渡）。"""
+        cfg = AgentsConfig(device_id="d", skill_repo="/legacy/yibi-stack")
+        assert cfg.resolve_skill_repo("yibi-stack") == "/legacy/yibi-stack"
+
+    def test_agents_dt_003_resolve_none_when_absent(self) -> None:
+        """AGENTS-DT-003：map 與 legacy 皆無時回傳 None。"""
+        cfg = AgentsConfig(device_id="d")
+        assert cfg.resolve_skill_repo("yibi-stack") is None
+
 
 class TestAgentsConfigDeviceId:
     def test_agents_vl_020_non_empty_device_id_accepted(self) -> None:

@@ -17,7 +17,8 @@ Usage (from the skill directory):
     SKILL_DIR="$(python3 -c "
         import json, pathlib
         cfg = pathlib.Path.home() / '.agents' / 'config.json'
-        print(json.loads(cfg.read_text()).get('skill_repo', ''))
+        c = json.loads(cfg.read_text(encoding='utf-8'))
+        print((c.get('skill_repos') or {}).get('yibi-stack') or c.get('skill_repo') or '')
     ")/skills/verify-gemini-models"
     uv run --project "$SKILL_DIR" python "$SKILL_DIR/scripts/check_models.py" \\
         --models "gemini-2.5-flash,gemini-3.1-flash-tts-preview" \\

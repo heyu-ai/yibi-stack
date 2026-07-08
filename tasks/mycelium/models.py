@@ -165,7 +165,12 @@ class AgentsConfig(BaseModel):
     operator: str = "howie"
     # make install 時寫入；供跨機器 command 找到 uv 專案。
     # 機器本地絕對路徑，不套用 to_portable_path（不應跨機器同步）。
+    # legacy fallback 欄位：多個 skill repo 會互相覆寫此單一欄位（issue #197），
+    # 讀取端應優先查 skill_repos[<repo>]，miss 時才 fallback 此欄位。
     skill_repo: str | None = None
+    # per-repo skill repo map（key = repo 目錄名，如 "yibi-stack"）；根治多 repo
+    # make install 互相覆寫單一 skill_repo 的 config drift。見 issue #197。
+    skill_repos: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("device_id")
     @classmethod
@@ -187,6 +192,27 @@ class AgentsConfig(BaseModel):
         if not Path(v).is_absolute():
             raise ValueError("skill_repo 必須為絕對路徑")
         return v
+
+    @field_validator("skill_repos")
+    @classmethod
+    def check_repos_absolute(cls, v: dict[str, str]) -> dict[str, str]:
+        """skill_repos 的每個 key（repo 識別名）非空，且每個路徑值為非空絕對路徑。"""
+        for name, path in v.items():
+            if not name:
+                raise ValueError("skill_repos 的 key（repo 識別名）不可為空")
+            if not path:
+                raise ValueError(f"skill_repos[{name}] 不可為空字串")
+            if not Path(path).is_absolute():
+                raise ValueError(f"skill_repos[{name}] 必須為絕對路徑")
+        return v
+
+    def resolve_skill_repo(self, repo_name: str) -> str | None:
+        """map-first 解析：優先查 skill_repos[repo_name]，miss 時 fallback 頂層 skill_repo。
+
+        這是 bash / SKILL.md reader 中 inline one-liner 的 Python 對應版本，
+        統一 issue #197 的解析契約。
+        """
+        return self.skill_repos.get(repo_name) or self.skill_repo
 
 
 class HandoverRecord(BaseModel):
