@@ -41,8 +41,9 @@ fi
 # 一律 fetch 後用 FETCH_HEAD 當 diff base，不信任本地 branch ref（PR #22 mob review
 # 教訓：本地 main 落後 origin/main 時，`git rev-parse --verify main` 仍會通過驗證，
 # 但 diff 會混入已經合併到 origin/main、本地卻還沒同步的舊 commit 內容，導致 reviewer
-# 拿到不相關的 diff）。比照 codex-r1-stage1.sh 的作法（兩份 fetch+FETCH_HEAD 邏輯是
-# 刻意保持一致的雙胞胎，修改其一請同步修改另一）：strip 掉可能已有的 "origin/" 前綴，
+# 拿到不相關的 diff）。此 script 是 fetch+FETCH_HEAD 邏輯的唯一擁有者，產出的
+# diff.patch 由所有 voice 共用（issue #194 起 codex-r1-stage1.sh 改用 codex exec
+# review 這份 diff.patch，不再自行 fetch）：strip 掉可能已有的 "origin/" 前綴，
 # 永遠對 origin 重新 fetch，用 FETCH_HEAD 取代呼叫端傳入的 branch 名稱本身。只認得
 # "origin/" 前綴；若呼叫端傳入其他 remote（如 "upstream/main"），fetch 會直接對
 # origin 失敗並印出下方 [FAIL] 訊息（不會靜默用錯 remote）。

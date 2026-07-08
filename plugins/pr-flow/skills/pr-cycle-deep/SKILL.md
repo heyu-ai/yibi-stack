@@ -353,10 +353,12 @@ the expanded absolute path:
 
 ```text
 Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh *)
-Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh *)
+Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh)
 ```
 
-Confirm `<you>` with `whoami` or `echo $USER`. Full absolute path + trailing `*` matches rule 16 safe pattern (script is already reviewed; `*` only expands to branch name argument).
+Confirm `<you>` with `whoami` or `echo $USER`. Full absolute path matches rule 16 safe pattern
+(scripts are already reviewed). `setup-review-dir.sh` keeps a trailing `*` for its base-branch
+argument; `codex-r1-stage1.sh` takes no argument, so it is an exact match (tighter, no wildcard).
 
 The extract prompt path is fixed at `~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` (symlink created by `make install`); no need to resolve `SKILL_REPO`.
 
@@ -435,15 +437,23 @@ After all four complete, the lead uses the Write tool to merge them into `$REVIE
 
 ##### Codex voice (when CODEX_OK)
 
-###### Stage 1: Native review (raw output lands on disk, does not enter main context)
+###### Stage 1: Guarded review via `codex exec` (raw output lands on disk, does not enter main context)
+
+> **Execution note**: `codex review --base` rejects a positional prompt (codex-cli 0.142.5:
+> `the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`), so a skill-hijack guard
+> cannot ride on it (issue #194). The script instead feeds guard + `prompt-r1.md` + the shared
+> `diff.patch` to `codex exec` via stdin (same channel as `codex-r2.sh`). The review lands on
+> **stdout** → `codex-r1-raw.md`; stderr → `codex-r1.stage1.log`. **Run directly — do not append
+> `> $CLAUDE_JOB_DIR/foo.log 2>&1`** (see rule 16 **(2) Bash redirect `>`**) — on failure, Read
+> `$REVIEW_DIR/codex-r1.stage1.log` for the full error.
 
 ```bash
-bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh {{base_branch}}
+bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh
 ```
 
-`codex review` does not support the `-C` flag; run from the correct cwd. `--base` and
-positional prompt are mutually exclusive; codex's built-in review mode automatically generates
-[P1]/[P2] grading. Raw output lands in `codex-r1-raw.md` — **do not read it in the main context**.
+The script takes no base-branch argument — it reviews the shared `$REVIEW_DIR/diff.patch` that
+Step 3.1 already produced, so all three voices review the identical diff. Raw output lands in
+`codex-r1-raw.md` — **do not read it in the main context**.
 
 ###### Stage 2: Extract (compress verbose raw markdown into structured JSON)
 
@@ -812,12 +822,13 @@ Re-run Step 3 + Step 4 (R1 + R2) on **files modified in this round**.
 
 **7.1 Refresh diff state** (required — diff has changed after fixes):
 
+Re-run `setup-review-dir.sh` — it is the sole owner of the safe base resolution
+(`git fetch origin` + `FETCH_HEAD`, so a stale local base can't silently poison the diff,
+PR #22 lesson) and rewrites both `diff.patch` and `changed-files.txt`. Do **not** hand-roll
+`git diff "{{base_branch}}"...HEAD` here — that uses the local ref and bypasses the fetch.
+
 ```bash
-WT_ROOT=$(git rev-parse --show-toplevel)
-REVIEW_DIR="$WT_ROOT/.pr-review"
-mkdir -p "$REVIEW_DIR"
-git diff "{{base_branch}}"...HEAD > "$REVIEW_DIR/diff.patch"
-git diff "{{base_branch}}"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"
+bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 ```
 
 **7.2 Token savings: only skip R2 debate for voices that were LGTM in the previous round** (R1 still runs for all):
@@ -905,18 +916,18 @@ Wait for explicit instruction before continuing.
 When manually triggering a single voice re-run after fixes, the input **must use the diff.patch refreshed in Step 7.1**, not the stale version from the setup stage:
 
 ```bash
-# Correct: re-run codex using codex review native mode (reads git diff automatically); use round number in output name
-WT_ROOT=$(git rev-parse --show-toplevel)
-REVIEW_DIR="$WT_ROOT/.pr-review"
-codex review --base "{{base_branch}}" -c 'model_reasoning_effort="high"' 2>"$REVIEW_DIR/codex-rerun.log" | tee "$REVIEW_DIR/codex-r2-r1.md" > /dev/null
+# Correct: refresh the shared diff via setup-review-dir.sh (sole owner of the safe
+# fetch+FETCH_HEAD base), then re-run the stage-1 script -- it reviews $REVIEW_DIR/diff.patch
+# via codex exec and re-writes codex-r1-raw.md for this round.
+bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
+bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh
 
-# Wrong 1: missing reviewer prompt -- codex exec doesn't know it's doing a code review
-# Wrong 2: output directly overwrites codex-r1.md -- destroys aggregate history
-# cat "$REVIEW_DIR/r1-aggregate.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-rerun-input.md"
-# codex exec -C "$WT_ROOT" -s read-only < "$REVIEW_DIR/codex-rerun-input.md" > "$REVIEW_DIR/codex-r1.md"
-
-# Wrong 3: prompt-r1.md is a reviewer prompt (for diffs), not aggregate; and diff.patch may be stale if not refreshed
-# cat "$REVIEW_DIR/prompt-r1.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-final2-input.md"
+# Wrong 1: hand-rolling `git diff "{{base_branch}}"...HEAD > diff.patch` -- uses the local ref
+#          and bypasses setup-review-dir.sh's fetch, silently reviewing a stale base (PR #22).
+# Wrong 2: hand-rolling `codex review --base ...` -- rejects the guard prompt (issue #194)
+#          and re-opens the skill-hijack hole; always go through the stage-1 script.
+# Wrong 3: overwriting codex-r1.md (the compact render) directly destroys aggregate history;
+#          let Stage 2 (extract) + Stage 3 (render) produce it from codex-r1-raw.md.
 ```
 
 ---
@@ -1126,7 +1137,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Voice | Detection | R1 call (3-stage) | R2 call | Aggregate input |
 | --- | --- | --- | --- | --- |
 | Claude | always | Task() pr-review-toolkit 4 subagents | lead writes claude-r2.md directly | claude-r1.md (finding markdown) |
-| Codex | `which codex` + auth | S1: `set -o pipefail; codex review --base $BASE 2>stage1.log \| tee codex-r1-raw.md > /dev/null` / S2: `codex exec low < extract-input 2>extract.log \| tee codex-r1.json > /dev/null` / S3: lead renders codex-r1.md | `set -o pipefail; codex exec -C "$WT_ROOT" -s read-only < input.md 2>r2.log \| tee codex-r2.md > /dev/null` | codex-r1.md (compact, not raw) |
+| Codex | `which codex` + auth | S1: `codex exec -C "$WT_ROOT" -s read-only < codex-r1-input.md(guard+prompt-r1+diff.patch) > codex-r1-raw.md 2>codex-r1.stage1.log` / S2: `codex exec low < extract-input 2>extract.log \| tee codex-r1.json > /dev/null` / S3: lead renders codex-r1.md | `set -o pipefail; codex exec -C "$WT_ROOT" -s read-only < input.md 2>r2.log \| tee codex-r2.md > /dev/null` | codex-r1.md (compact, not raw) |
 | Gemini/agy *(optional)* | `which agy` + auth | S1: `bash agy-r1-stage1.sh` / S2: `bash agy-r1-stage2.sh` (inlines prompt, `--sandbox`, extracts gemini-r1.json) / S3: lead renders gemini-r1.md | `bash agy-r2.sh` | gemini-r1.md (compact, not raw) |
 
 Each voice's R1 / R2 should be written to `$REVIEW_DIR/<voice>-r{1,2}.md` (compact version),
@@ -1153,9 +1164,9 @@ finding reference but **do not enter the main context**.
 | agy detected but auth failed | Run `agy` to complete OAuth; or `export GEMINI_API_KEY=...` |
 | agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | issue #153: agy could not resolve `@file` and entered agentic file-search. The agy scripts now **inline** the prompt (no `@file`), clear stale `~/.gemini/antigravity-cli/scratch/gemini-*-input.md` at start, and run `agy_validate.py` (fail-loud: timeout / agentic narration / missing Verdict / mentions no changed file = wrong target; a `brain/<uuid>/*.md` pointer is auto-rescued into the raw file). If `agy_validate.py` exits non-zero the voice is correctly marked failed — read the `[FAIL]` message for the reason |
 | agy background bash `>` redirect output not updating target file (unverified) | If this occurs: switch to synchronous bash call (without `run_in_background`) |
-| Codex `codex review > file` writes 0 bytes (stderr has full log) | Codex CLI detects stdout is not a tty/pipe and suppresses output when file redirect is used; this skill already uses `set -o pipefail` + `\| tee file > /dev/null` to fix this (`set -o pipefail` makes `$?` reflect failing command exit code in the pipeline; works in bash/zsh) |
-| codex review reports `[PROMPT] cannot be used with --base` | `--base` and positional prompt are mutually exclusive; remove the prompt string and keep only `--base` |
-| codex review runs against wrong repo | `codex review` does not support the `-C` flag; ensure execution from git repo root (avoid tools like gstack changing CWD, AP3 Sub-class A) |
+| Codex Stage 1 `codex-r1-raw.md` is empty (review missing) | Stage 1 now uses `codex exec ... > codex-r1-raw.md` (stdout); read `$REVIEW_DIR/codex-r1.stage1.log` (stderr) for the error. For the `codex exec \| tee` stages (Stage 2 / R2), `set -o pipefail` keeps `$?` reflecting the failing command in the pipeline (bash/zsh) |
+| Why Stage 1 uses `codex exec`, not `codex review --base` + a guard prompt | `codex review --base` and a positional `[PROMPT]` are mutually exclusive (codex-cli 0.142.5: `the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`), so the skill-hijack guard cannot ride on `codex review`. Stage 1 drives the review through `codex exec` with the guard on stdin instead (issue #194). Do not "fix" it back to `codex review --base` |
+| codex Stage 1 runs against wrong repo | The stage-1 script passes `codex exec -C "$WT_ROOT"`, pinning the repo root; ensure you run the script from inside the worktree (avoid tools like gstack changing CWD, AP3 Sub-class A) |
 | A voice fails R1/R2 twice consecutively | Mark as unavailable; do not block; aggregate report notes the reason |
 | R2 receives r1-aggregate that is too large for voice to process | Remove raw diff from r1-aggregate; keep only findings; diff was already processed in the r1 prompt |
 | 3 consecutive rounds without all voices LGTM | Trigger circuit breaker; report remaining findings to user with three-option decision |

@@ -1,5 +1,4 @@
-"""Tests for setup-review-dir.sh's base-branch resolution (and its twin block in
-codex-r1-stage1.sh).
+"""Tests for setup-review-dir.sh's base-branch resolution.
 
 Two layers, mirroring test_agy_scripts.py's convention:
   * Static contract tests -- read each script's source and assert the PR #175
@@ -22,11 +21,11 @@ import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 SETUP_SCRIPT = SCRIPTS_DIR / "setup-review-dir.sh"
-CODEX_STAGE1 = SCRIPTS_DIR / "codex-r1-stage1.sh"
 
-# Both scripts share the identical fetch+FETCH_HEAD base-resolution block by design
-# (see the "deliberate twin" comment in each) -- contract tests apply to both.
-FETCH_TWINS = [SETUP_SCRIPT, CODEX_STAGE1]
+# codex-r1-stage1.sh no longer does its own fetch (issue #194: it now reviews the shared
+# $REVIEW_DIR/diff.patch via codex exec), so only setup-review-dir.sh still carries the
+# fetch+FETCH_HEAD base-resolution block these PR #175 contract tests protect.
+FETCH_SCRIPTS = [SETUP_SCRIPT]
 
 
 # --------------------------------------------------------------------------- #
@@ -35,7 +34,7 @@ FETCH_TWINS = [SETUP_SCRIPT, CODEX_STAGE1]
 
 
 class TestBaseResolutionContract:
-    @pytest.mark.parametrize("script", FETCH_TWINS)
+    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
     def test_srd_dt_001_no_bare_rev_parse_verify_on_base_branch(self, script: Path) -> None:
         """SRD-DT-001: the caller-supplied branch is never validated with a bare
         `git rev-parse --verify "$BASE_BRANCH"` -- that only checks local-ref
@@ -46,7 +45,7 @@ class TestBaseResolutionContract:
             f"{script.name}: must not re-introduce local-ref-only validation of BASE_BRANCH"
         )
 
-    @pytest.mark.parametrize("script", FETCH_TWINS)
+    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
     def test_srd_dt_002_fetch_uses_end_of_options_separator(self, script: Path) -> None:
         """SRD-DT-002: `git fetch` must terminate options with "--" before the
         caller-derived ref, or a branch name starting with "-" is parsed as a git
@@ -57,7 +56,7 @@ class TestBaseResolutionContract:
             f"{script.name}: git fetch must use -- before $FETCH_BRANCH"
         )
 
-    @pytest.mark.parametrize("script", FETCH_TWINS)
+    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
     def test_srd_dt_003_empty_fetch_branch_guarded(self, script: Path) -> None:
         """SRD-DT-003: an empty FETCH_BRANCH (e.g. BASE_BRANCH="origin/") must be
         rejected before `git fetch` -- otherwise `git fetch origin ""` silently
@@ -66,7 +65,7 @@ class TestBaseResolutionContract:
         src = script.read_text(encoding="utf-8")
         assert '[ -z "$FETCH_BRANCH" ]' in src, f"{script.name}: must guard empty FETCH_BRANCH"
 
-    @pytest.mark.parametrize("script", FETCH_TWINS)
+    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
     def test_srd_dt_004_fetch_failure_message_names_origin_constraint(self, script: Path) -> None:
         """SRD-DT-004: the fetch-failure message must name the actual new
         constraint (branch must exist on origin), not just "check your network" --
