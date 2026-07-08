@@ -928,9 +928,6 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh
 #          and re-opens the skill-hijack hole; always go through the stage-1 script.
 # Wrong 3: overwriting codex-r1.md (the compact render) directly destroys aggregate history;
 #          let Stage 2 (extract) + Stage 3 (render) produce it from codex-r1-raw.md.
-
-# Wrong 3: prompt-r1.md is a reviewer prompt (for diffs), not aggregate; and diff.patch may be stale if not refreshed
-# cat "$REVIEW_DIR/prompt-r1.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/codex-final2-input.md"
 ```
 
 ---

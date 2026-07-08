@@ -108,14 +108,19 @@ class TestCodexGuardContract:
         assert '-C "$WT_ROOT"' in src, "codex exec must pin the repo root with -C"
 
     def test_cdxs_dt_007_stage1_does_not_fetch(self) -> None:
-        """CDXS-DT-007: stage1 consumes the shared diff.patch and never re-fetches (issue #194).
+        """CDXS-DT-007: stage1 executes no git fetch (issue #194).
 
         setup-review-dir.sh is the sole owner of the fetch+FETCH_HEAD base resolution;
         re-adding a fetch here would re-introduce the exact duplication #194 removed.
+        Comment lines are skipped so an explanatory mention of `git fetch` in a comment
+        doesn't fail the contract (parity with DT-001's comment-aware scan).
         """
-        assert "git fetch" not in STAGE1.read_text(encoding="utf-8"), (
-            "stage1 must not fetch; setup-review-dir.sh owns base resolution"
-        )
+        for line in STAGE1.read_text(encoding="utf-8").splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            assert "git fetch" not in line, (
+                f"stage1 must not fetch; setup-review-dir.sh owns base resolution: {line!r}"
+            )
 
     def test_cdxs_dt_008_stderr_captured_to_stage1_log(self) -> None:
         """CDXS-DT-008: codex exec stderr is captured to codex-r1.stage1.log (the crux of
@@ -171,7 +176,12 @@ def stage1_repo(tmp_path: Path) -> dict[str, Path]:
     bindir.mkdir()
     codex = bindir / "codex"
     codex.write_text(
-        '#!/usr/bin/env bash\ncat > "$CODEX_STDIN_CAPTURE"\ncat "$CODEX_STDOUT_BODY"\n',
+        (
+            "#!/usr/bin/env bash\n"
+            'cat > "$CODEX_STDIN_CAPTURE"\n'
+            'cat "$CODEX_STDOUT_BODY"\n'
+            'exit "${CODEX_EXIT:-0}"\n'
+        ),
         encoding="utf-8",
     )
     codex.chmod(0o755)
@@ -243,3 +253,81 @@ class TestStage1Behavioral:
         )
         assert res.returncode != 0, "agentic output (no review heading) must fail loud"
         assert "[FAIL]" in res.stderr
+
+    def _valid_body(self, stage1_repo: dict[str, Path]) -> Path:
+        body = stage1_repo["tmp"] / "body.md"
+        body.write_text("## Summary\nok\n## Verdict\nLGTM\n", encoding="utf-8")
+        return body
+
+    def test_cdxs_st_004_codex_nonzero_exit_fails_loud(self, stage1_repo: dict[str, Path]) -> None:
+        """CDXS-ST-004: a non-zero `codex exec` exit is caught and reported (primary
+        external-call failure mode)."""
+        res = _run_stage1(
+            {
+                "CODEX_STDIN_CAPTURE": str(stage1_repo["tmp"] / "s.txt"),
+                "CODEX_STDOUT_BODY": str(self._valid_body(stage1_repo)),
+                "CODEX_EXIT": "1",
+            },
+            stage1_repo["repo"],
+            stage1_repo["bindir"],
+        )
+        assert res.returncode != 0
+        assert "[FAIL]" in res.stderr and "codex exec" in res.stderr
+
+    def test_cdxs_st_005_missing_prompt_fails_loud(self, stage1_repo: dict[str, Path]) -> None:
+        """CDXS-ST-005: a missing prompt-r1.md aborts before codex runs (symmetric with ST-002)."""
+        (stage1_repo["review"] / "prompt-r1.md").unlink()
+        res = _run_stage1(
+            {
+                "CODEX_STDIN_CAPTURE": str(stage1_repo["tmp"] / "s.txt"),
+                "CODEX_STDOUT_BODY": str(self._valid_body(stage1_repo)),
+            },
+            stage1_repo["repo"],
+            stage1_repo["bindir"],
+        )
+        assert res.returncode != 0
+        assert "[FAIL]" in res.stderr and "prompt-r1.md" in res.stderr
+
+    def test_cdxs_st_006_empty_prompt_fails_loud(self, stage1_repo: dict[str, Path]) -> None:
+        """CDXS-ST-006: an empty prompt-r1.md fails with its own message, not the agentic
+        gate's -- the operator sees the real cause (SFH NIT1)."""
+        (stage1_repo["review"] / "prompt-r1.md").write_text("", encoding="utf-8")
+        res = _run_stage1(
+            {
+                "CODEX_STDIN_CAPTURE": str(stage1_repo["tmp"] / "s.txt"),
+                "CODEX_STDOUT_BODY": str(self._valid_body(stage1_repo)),
+            },
+            stage1_repo["repo"],
+            stage1_repo["bindir"],
+        )
+        assert res.returncode != 0
+        assert "prompt-r1.md" in res.stderr and "空白" in res.stderr
+
+    def test_cdxs_st_007_empty_diff_fails_loud(self, stage1_repo: dict[str, Path]) -> None:
+        """CDXS-ST-007: an empty diff.patch fails the non-empty gate before codex runs."""
+        (stage1_repo["review"] / "diff.patch").write_text("", encoding="utf-8")
+        res = _run_stage1(
+            {
+                "CODEX_STDIN_CAPTURE": str(stage1_repo["tmp"] / "s.txt"),
+                "CODEX_STDOUT_BODY": str(self._valid_body(stage1_repo)),
+            },
+            stage1_repo["repo"],
+            stage1_repo["bindir"],
+        )
+        assert res.returncode != 0
+        assert "diff.patch" in res.stderr
+
+    def test_cdxs_st_008_empty_review_output_fails_loud(self, stage1_repo: dict[str, Path]) -> None:
+        """CDXS-ST-008: an empty codex-r1-raw.md (codex produced nothing) fails the -s gate."""
+        empty = stage1_repo["tmp"] / "empty.md"
+        empty.write_text("", encoding="utf-8")
+        res = _run_stage1(
+            {
+                "CODEX_STDIN_CAPTURE": str(stage1_repo["tmp"] / "s.txt"),
+                "CODEX_STDOUT_BODY": str(empty),
+            },
+            stage1_repo["repo"],
+            stage1_repo["bindir"],
+        )
+        assert res.returncode != 0
+        assert "[FAIL]" in res.stderr and "codex-r1-raw.md" in res.stderr
