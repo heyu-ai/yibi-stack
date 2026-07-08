@@ -107,10 +107,10 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 		$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(CMD_DIR)/scripts" "$(CLAUDE_CMD_DIR)/scripts" || exit 1; \
 	fi
 	@echo ""
-	@echo "  Registering skill_repo in ~/.agents/config.json"
+	@echo "  Registering skill_repos[$(notdir $(CURDIR))] in ~/.agents/config.json"
 	@python3 scripts/register_skill_repo.py '$(CURDIR)' \
 	|| { echo "  [FAIL] 無法更新 ~/.agents/config.json（見上方錯誤）"; exit 1; }
-	@echo "  [OK] skill_repo = $(CURDIR)"
+	@echo "  [OK] skill_repos[$(notdir $(CURDIR))] = $(CURDIR)"
 	@mkdir -p "$$HOME/.agents/bin"
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/lessons" "$$HOME/.agents/bin/lessons"
 

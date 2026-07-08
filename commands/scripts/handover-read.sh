@@ -4,7 +4,7 @@
 #   --no-project：不帶 --project 過濾，顯示所有記錄（跨專案）
 set -euo pipefail
 
-if ! SKILL_REPO=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")).get("skill_repo") or "")'); then
+if ! SKILL_REPO=$(python3 -c 'import json,pathlib; c=json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")); print((c.get("skill_repos") or {}).get("yibi-stack") or c.get("skill_repo") or "")'); then
   echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1
 fi
 if [ -z "$SKILL_REPO" ]; then

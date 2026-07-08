@@ -80,7 +80,7 @@ yibi-stack/
 └── logs/            → 每次執行的 stdout/stderr log
 
 ~/.agents/
-├── config.json      → skill_repo 路徑（make install 後自動寫入）
+├── config.json      → skill_repos map + legacy skill_repo 路徑（make install 後自動寫入）
 ├── ports.json       → Local Port Manager port 登記
 └── skills/          → 已安裝 skill 的 symlink
 ```
