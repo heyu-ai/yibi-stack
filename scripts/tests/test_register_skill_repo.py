@@ -34,9 +34,7 @@ class TestRegister:
     def test_regskill_st_002_migrates_legacy_top_level(self, tmp_path: Path) -> None:
         """REGSKILL-ST-002: 首次新版 register 把現有頂層 skill_repo 搬進 map。"""
         cfg = tmp_path / "config.json"
-        cfg.write_text(
-            json.dumps({"skill_repo": "/home/u/yibi-stack"}) + "\n", encoding="utf-8"
-        )
+        cfg.write_text(json.dumps({"skill_repo": "/home/u/yibi-stack"}) + "\n", encoding="utf-8")
         # 另一個 repo 先以新版 register 安裝，仍應保留 yibi-stack 的 legacy entry。
         register("/home/u/ainization-skill", cfg)
         data = _read(cfg)
@@ -85,8 +83,7 @@ class TestRegister:
         """REGSKILL-EG-002: skill_repos 非 dict（損毀）時重建並遷移 legacy。"""
         cfg = tmp_path / "config.json"
         cfg.write_text(
-            json.dumps({"skill_repos": "oops", "skill_repo": "/home/u/yibi-stack"})
-            + "\n",
+            json.dumps({"skill_repos": "oops", "skill_repo": "/home/u/yibi-stack"}) + "\n",
             encoding="utf-8",
         )
         register("/home/u/ainization-skill", cfg)
