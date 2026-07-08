@@ -227,6 +227,11 @@ class TestAgentsConfigSkillRepo:
         with pytest.raises(ValidationError):
             AgentsConfig(device_id="d", skill_repos={"yibi-stack": ""})
 
+    def test_agents_vl_017_skill_repos_empty_key_raises(self) -> None:
+        """AGENTS-VL-017：skill_repos 的 key 為空字串時應 raise ValidationError。"""
+        with pytest.raises(ValidationError):
+            AgentsConfig(device_id="d", skill_repos={"": "/abs/path"})
+
     def test_agents_dt_001_resolve_prefers_map(self) -> None:
         """AGENTS-DT-001：resolve_skill_repo map-first——map 命中時忽略被覆寫的頂層 skill_repo。"""
         cfg = AgentsConfig(

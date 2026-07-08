@@ -196,8 +196,10 @@ class AgentsConfig(BaseModel):
     @field_validator("skill_repos")
     @classmethod
     def check_repos_absolute(cls, v: dict[str, str]) -> dict[str, str]:
-        """skill_repos 的每個路徑值必須為非空絕對路徑。"""
+        """skill_repos 的每個 key（repo 識別名）非空，且每個路徑值為非空絕對路徑。"""
         for name, path in v.items():
+            if not name:
+                raise ValueError("skill_repos 的 key（repo 識別名）不可為空")
             if not path:
                 raise ValueError(f"skill_repos[{name}] 不可為空字串")
             if not Path(path).is_absolute():
