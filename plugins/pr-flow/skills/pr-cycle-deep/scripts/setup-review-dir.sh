@@ -76,6 +76,10 @@ BASE_REMOTE=origin
 if git remote get-url upstream >/dev/null 2>&1; then
     BASE_REMOTE=upstream
 fi
+# 印出選定的 base remote（stderr breadcrumb）：name-based 啟發式的兩個殘留靜默面——選錯
+# 不相關的 upstream、或只有 origin（fork）時的 no-op——都以 exit 0 收場、不提示用了哪個
+# remote。這行讓誤選變成可診斷的一行，而非靜默（mob review #198 silent-failure voice）。
+echo "[INFO] base remote = ${BASE_REMOTE}" >&2
 
 # strip 掉可能已有的 remote 前綴（呼叫端慣例傳 "origin/{{base_branch}}" 表示「用 base
 # repo 上的版本」，非要求保留字面 branch 名稱）。同時剝除 "origin/" 與 "upstream/"，
@@ -99,7 +103,7 @@ WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
 
 if ! mkdir -p "$REVIEW_DIR"; then
-    echo "[FAIL] 無法建立 review 目錄：$REVIEW_DIR（請確認 worktree 目錄有寫入權限）" >&2
+    echo "[FAIL] 無法建立 review 目錄：${REVIEW_DIR}（請確認 worktree 目錄有寫入權限）" >&2
     exit 1
 fi
 
@@ -118,8 +122,17 @@ if ! grep -qF '.pr-review/' "$GIT_DIR/info/exclude" 2>/dev/null; then
     echo '.pr-review/' >> "$GIT_DIR/info/exclude"
 fi
 
-git diff "$BASE_SHA"...HEAD > "$REVIEW_DIR/diff.patch"
-git diff "$BASE_SHA"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"
+# 三點 diff 需要 BASE_SHA 與 HEAD 有共同祖先；若選到的 base remote 與 HEAD 完全無關
+# （罕見：不相關的 upstream），`git diff A...HEAD` 會以 `fatal: no merge base` 非零退出，
+# set -e 會直接中止但不附 [FAIL]，違反 header 的「每種失敗都附 [FAIL]」契約。故明確包起。
+if ! git diff "$BASE_SHA"...HEAD > "$REVIEW_DIR/diff.patch"; then
+    echo "[FAIL] git diff ${BASE_SHA}...HEAD 失敗（base 與 HEAD 可能無共同祖先，請確認 base remote 選取正確——見上方 [INFO] base remote 行）" >&2
+    exit 1
+fi
+if ! git diff "$BASE_SHA"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"; then
+    echo "[FAIL] git diff --name-only ${BASE_SHA}...HEAD 失敗（同上，base 與 HEAD 可能無共同祖先）" >&2
+    exit 1
+fi
 
 # Informational：呼叫端可選擇解析此行或自行 git rev-parse --show-toplevel 推導。
 echo "REVIEW_DIR=$REVIEW_DIR"
