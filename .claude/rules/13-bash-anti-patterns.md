@@ -827,3 +827,41 @@ python3 scripts/check_pattern.py
 
 Rule: **inside a bash `"..."` string, avoid `"` in comments in any language**; if quotes are
 needed, use single quotes `'` (literal inside bash double-quote strings, does not close outer string).
+
+## Quoting Rule 7: Bare `$VAR` Immediately Followed by a Non-ASCII Char Folds Into the Name (PR #198)
+
+A bare `$VAR` (no braces) directly followed by a **non-ASCII byte** — a full-width paren `（`,
+CJK ideograph, full-width colon `：`, etc. — makes bash greedily read the following high byte(s)
+as part of the variable name. The result is a **different, unset** variable, so under `set -u`
+the line aborts with `<VAR><bytes>: unbound variable` **even though `$VAR` itself is set**.
+
+This bites hardest in `[FAIL]` / `[INFO]` diagnostic `echo`s whose Chinese message text opens
+with a full-width paren right after the variable — the failure branch crashes with a confusing
+`unbound variable` instead of printing its intended message, defeating the fail-loud contract.
+
+```bash
+set -u
+REVIEW_DIR=/tmp/x
+# Wrong: 全形括號（ folds into the name -> bash looks up $REVIEW_DIR（... = unset
+echo "[FAIL] 無法建立目錄：$REVIEW_DIR（請確認權限）" >&2
+#   -> line N: REVIEW_DIR<0xef...>: unbound variable   (REVIEW_DIR is set, but this name isn't)
+
+# Fix: brace the variable so its name terminates explicitly before the CJK char
+echo "[FAIL] 無法建立目錄：${REVIEW_DIR}（請確認權限）" >&2
+```
+
+Rule: **whenever a `$VAR` is immediately followed by a CJK / full-width / any non-ASCII character
+(no intervening space or ASCII punctuation), brace it `${VAR}`.** A space or ASCII char after the
+name (`$VAR 失敗`, `$VAR/info`, `$VAR...HEAD`) is safe — the name terminates on its own.
+
+Detection (scan a committed `.sh` before trusting its error paths):
+
+```bash
+grep -nP '\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f{]' script.sh   # bare $VAR + non-ASCII (comments are false positives)
+```
+
+Note: this is orthogonal to AP2 (which only bans emoji / em-dash / zero-width in the *string
+content*). The AP2 section's "CJK text ... are all fine" is about AP2 detection, **not** about
+variable-adjacency — CJK text is fine as literal content but not immediately abutting a bare `$VAR`.
+Empirically confirmed on PR #198 (`BASE_REMOTE\xef: unbound variable`), and an independent mob
+reviewer (agy) found a second latent instance in the same file's mkdir-failure branch.
