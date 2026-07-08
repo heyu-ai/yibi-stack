@@ -833,21 +833,25 @@ needed, use single quotes `'` (literal inside bash double-quote strings, does no
 A bare `$VAR` (no braces) directly followed by a non-ASCII character — a full-width paren `（`,
 CJK ideograph, full-width colon `：`, Cyrillic, Greek, accented Latin, etc. — can be folded into
 the variable name by bash. bash classifies name characters via the current locale's `isalnum()`,
-and **in a UTF-8 / multibyte locale** (the macOS / Linux interactive and CI default) most high
-bytes count as "alphanumeric" and are read as part of the name. The result is a **different,
-unset** variable, so under `set -u` the line aborts with `<VAR><bytes>: unbound variable` **even
-though `$VAR` itself is set**.
+and **in a UTF-8 / multibyte locale** most high bytes count as "alphanumeric" and are read as part
+of the name. The result is a **different, unset** variable, so under `set -u` the line aborts with
+`<VAR><bytes>: unbound variable` **even though `$VAR` itself is set**.
 
-Two scope caveats (verified on macOS system bash 3.2 — the "any non-ASCII" phrasing above is the
-practical guidance, not a literal universal):
+Three scope caveats (the "any non-ASCII" phrasing above is the practical guidance, not a literal
+universal). All folding behavior below was **verified on macOS system bash 3.2**; the exact set of
+folding bytes is locale-, libc-, and bash-version-dependent, so treat other UTF-8 environments
+(e.g. Linux/glibc, other bash versions) as "likely affected, exact boundary unverified" rather than
+assuming identical behavior:
 
 - **Locale-dependent**: the fold only fires in a UTF-8 / multibyte locale. Under `LC_ALL=C` the
   high byte is not alnum, the name terminates, and the same line prints fine — so a reader
   reproducing under `LC_ALL=C` will not see the crash and may wrongly mistrust the rule.
 - **Not literally every non-ASCII char**: the fold follows `isalnum()`, which is script- and
-  libc-dependent. CJK, full-width punctuation, Cyrillic, Greek, and accented Latin all fold on
-  macOS; **Hebrew (e.g. `א`) does not**. The boundary is not easily predictable, so the practical
+  libc-dependent. On macOS, CJK, full-width punctuation, Cyrillic, Greek, and accented Latin all
+  fold; **Hebrew (e.g. `א`) does not**. The boundary is not easily predictable, so the practical
   rule below (always brace) is the safe superset — do not rely on a particular script being "safe".
+- **Environment-dependent**: because it hinges on the runtime locale + libc, the same script can
+  fold on one machine and not another. Bracing removes the dependency entirely.
 
 This bites hardest in `[FAIL]` / `[INFO]` diagnostic `echo`s whose Chinese message text opens
 with a full-width paren right after the variable — the failure branch crashes with a confusing
@@ -873,10 +877,12 @@ adjacency** class only — a bare `$VAR` abutting an *ASCII* identifier char (`$
 different "wrong variable" bug, not covered here. **Use `rg`, not `grep -P`**: BSD `grep` on macOS
 (the default) rejects `-P` with `invalid option -- P` and exits non-zero with no output — itself a
 silent-failure trap (see the `realpath` macOS-portability note above). `rg`'s Rust regex needs no
-`-P` flag:
+`-P` flag. The pattern is purely lexical, so it also matches `$VAR` in **non-expanding literal
+contexts** (comments, single-quoted strings, escaped `\$`, here-doc bodies) — those are false
+positives; inspect each match rather than trusting the count:
 
 ```bash
-rg -n '\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f]' script.sh   # bare $VAR + non-ASCII (comments are false positives)
+rg -n '\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f]' script.sh   # bare $VAR + non-ASCII; verify each hit is an expanding context
 ```
 
 Note: this is orthogonal to AP2 (which only bans emoji / em-dash / zero-width in the *string
