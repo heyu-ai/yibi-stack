@@ -69,11 +69,14 @@ gh auth status
 若 `gh auth status` 非零退出（未登入）→ `[FAIL] gh 未登入，請先 gh auth login` 並停止。
 
 ```bash
-gh repo view --json nameWithOwner -q .nameWithOwner
+gh repo view --json nameWithOwner
 ```
 
 若非零退出（非 git repo 或無 GitHub remote）→ `[FAIL] 目前目錄不是 GitHub repo` 並停止。
-記下 repo slug 供報告使用。
+從回傳 JSON 的 `nameWithOwner` 欄位取 repo slug 供報告使用。
+
+（不用 `-q .nameWithOwner`：inline bash 的 leading-dot jq token `.nameWithOwner` 會被 Claude Code
+內建 parser 當成不可解析的 string node 而彈確認框——見 rule 11；欄位少直接讀 JSON 即可。）
 
 ---
 
@@ -90,8 +93,11 @@ gh issue list --state open --limit 300 --json number,title,labels,body,createdAt
 - 非零退出 → `[FAIL] gh issue list 失敗`，回報錯誤並停止。
 - 空清單（`[]`）→ 回報「目前無 open issue」並結束（正常結果，非錯誤）。
 
-> **欄位驗證**：使用任何 `--json` 欄位前先確認存在（`gh issue list --json` 不帶欄位會列出
-> 可用 key）。傳不存在的欄位會**靜默回空值**，不報錯——見 CLAUDE.md「gh CLI --json 欄位」gotcha。
+> **欄位驗證**：使用任何 `--json` 欄位前先確認存在——`gh issue list --json` 不帶欄位會列出
+> 可用 key。打錯欄位名時 `gh issue list --json <bad>` 會印 `Unknown JSON field` 並 **exit 1**
+> （fails loud，不是靜默回空），因此上面的「非零退出 → `[FAIL]`」gate 會擋下。
+> （CLAUDE.md「gh CLI --json 欄位」gotcha 講的是 `gh pr checks`——該命令對某些欄位回空值；
+> 兩者行為不同，勿混用。本命令用到的 `comments` 等欄位皆已驗證為有效、會回完整內容。）
 
 ---
 
@@ -106,13 +112,16 @@ gh issue list --state open --limit 300 --json number,title,labels,body,createdAt
 - 每個 bug 症狀 / 每個 checklist 項目 / 每條 AC = 一個獨立主張。
 - 標題若含 `+` 或「與」「及」串接多件事，視為多個主張。
 
-### 3b. 蒐集程式碼證據（平行 Explore）
+### 3b. 蒐集程式碼證據（平行探索）
 
-issue 數量多時，**平行 dispatch 內建 `Explore` subagent**（唯讀，不寫檔），一個 agent
-批次驗證數個 issue 的症狀是否已在現有程式碼解決。這是內建 agent，global skill 可用
-（不違反 rule 11「global skill 不得 dispatch 本 repo 自有 plugin agent」）。
+issue 數量多時，**平行 dispatch 一個唯讀探索 subagent**（不寫檔），一個 agent 批次驗證數個
+issue 的症狀是否已在現有程式碼解決——當前 Claude Code 的內建 `Explore` agent 即適用（唯讀、
+內建、非本 repo 自有 plugin agent，故不違反 rule 11「global skill 不得 dispatch 本 repo 自有
+plugin agent」）。**若當前 harness 沒有可用的內建探索 agent**（agent 名稱因版本而異），改為
+lead 就地用 Read/Grep/Glob 驗證即可，不要 dispatch 本 repo 自有的 plugin agent（會破壞 global
+可攜性）。
 
-Explore agent prompt 要求：
+探索 prompt 要求：
 
 - 對每個主張回傳 `DONE / NOT DONE / UNCLEAR` + 一行證據（檔案路徑、函式名、或其不存在）。
 - 用 Read/Grep/Glob，**不要**用 bash for-loop 遍歷（見 rule 13 Codebase Research SOP）。
@@ -122,35 +131,45 @@ Explore agent prompt 要求：
 
 若 issue body 或標題提到某 openspec/spectra change（`openspec/changes/<name>/`）：
 
-```bash
-cat openspec/changes/<name>/tasks.md
-```
+用 **Read tool** 讀 `openspec/changes/<name>/tasks.md`（單檔內容讀取用 Read tool，不用 `cat`——
+見 rule 13「Prefer Claude Built-in Tools」）。
 
 以 checkbox 狀態為完成度 ground truth：全 `[x]` → 該 change 完成；有 `[ ]`/`[~]` → 未完成。
-（找不到檔案時可能已 archive，改查 `openspec/changes/archive/` 或 `docs/openspec/changes/`。）
+找不到檔案時可能已 archive，改查 `openspec/changes/archive/` 或 `docs/openspec/changes/`；
+**若本體與 archive 皆讀不到 tasks.md，視該綁定 change 為「未完成」，不得 CLOSE**（寧可 KEEP）。
 
-### 3d. 檢查 keep-open 訊號（P3）
+### 3d. 檢查留言意圖訊號（P3）
 
-掃該 issue 的 comments：有「backlog」「deferred」「低優先」「保留」「現行行為已足夠」
-「可直接關閉」等語意時，以留言意圖決定 verdict，不被部分程式碼進度誤導。
+掃該 issue 的 comments，把留言意圖分成**兩類互斥訊號**（別混為一談）——以留言意圖決定
+verdict，不被部分程式碼進度誤導：
+
+- **keep-open 訊號**（傾向不關）：「backlog」「deferred」「低優先」「保留」等 → 導向 KEEP。
+- **close-authorization 訊號**（授權關閉）：「現行行為已足夠（可關閉）」「可直接關閉」等
+  明確授權 → 且無未解症狀時導向 CLOSE。
+
+3e 決策表分別對應這兩類（KEEP 列 vs 第 2 條 CLOSE 列）。
 
 ### 3e. Verdict 決策表（self-contained）
 
-依 3a–3d 結果，每個 issue 落到**唯一**一列：
+**先判斷 guard，再依主狀態選唯一一列。** 主狀態（CLOSE / UPDATE-SCOPE / KEEP / MERGE）互斥、
+每個 issue 只落一列；**RELABEL 是正交的附加建議**，可疊加在任何主狀態上（例如 UPDATE-SCOPE
+的 issue 同時建議補 type label），不佔主狀態列。多主狀態同時成立時的優先序：
+**MERGE > CLOSE > UPDATE-SCOPE > KEEP**（先看是否該整併，再看能否關閉，再看是否收斂範圍）。
 
-| 條件 | Verdict | 行動 |
-|------|---------|------|
-| 所有症狀 DONE，且（若綁 change）tasks.md 全 `[x]`，且無 keep-open 反對 | **CLOSE** | 建議 `gh issue comment`（列完成證據）+ `gh issue close --reason completed` |
-| issue 留言明確說「現行行為已足夠 / 可關閉」且無未解症狀 | **CLOSE** | 同上，留言引用該 keep-open→close 授權 |
-| 部分症狀 DONE、部分 NOT DONE（打包多件事） | **UPDATE-SCOPE** | 留言標明「哪半做了、哪半沒做」，並收斂標題到剩餘範圍（`gh issue edit --title`），**保持開啟** |
-| 全部症狀 NOT DONE | **KEEP** | 不動作（或僅補一行現況確認留言） |
-| 與另一 open issue 覆蓋同一主題（見 Step 4） | **MERGE** | 建議合併方向：留一主 issue，另一 `--reason "not planned"` 關閉並在留言指向主 issue |
-| 缺 type label / label 過期 / 狀態不符（見 Step 5） | **RELABEL** | 建議 `gh issue edit --add-label / --remove-label` |
-| 症狀無法從 repo 內部驗證（需外部環境 / 他人操作 / 純研究） | **KEEP (external)** | 留言說明程式碼面已就緒但驗證在 repo 外，維持開啟 |
-| 任一 gh 呼叫失敗 | **STOP** | 先回報錯誤，不進 count 判斷 |
+| # | 條件 | Verdict | 行動 |
+|---|------|---------|------|
+| **guard** | **任一前置 gh 呼叫失敗** | **STOP** | **先判斷**：回報錯誤並停止，不繼續產出任何 verdict |
+| **guard** | **任一症狀 = UNCLEAR（無法從 repo 確認）** | **視同 NOT DONE** | 該 issue 不得 CLOSE；落 KEEP 或 UPDATE-SCOPE，並在留言標明待人工確認的主張 |
+| 1 | 與另一 open issue 覆蓋同一主題（見 Step 4） | **MERGE** | 建議合併方向：留一主 issue，另一 `--reason "not planned"` 關閉並在留言指向主 issue |
+| 2 | 所有症狀 DONE，且（若綁 change）tasks.md 全 `[x]`，且無 keep-open 反對 | **CLOSE** | 建議 `gh issue comment`（列完成證據）+ `gh issue close --reason completed` |
+| 3 | issue 留言有 close-authorization 訊號（「可直接關閉 / 現行行為已足夠」）且無未解症狀 | **CLOSE** | 同上，留言引用該 close-authorization 授權 |
+| 4 | 部分症狀 DONE、部分 NOT DONE（打包多件事） | **UPDATE-SCOPE** | 留言標明「哪半做了、哪半沒做」，並收斂標題到剩餘範圍（`gh issue edit --title`），**保持開啟** |
+| 5 | 全部症狀 NOT DONE | **KEEP** | 不動作（或僅補一行現況確認留言） |
+| 6 | 症狀無法從 repo 內部驗證（需外部環境 / 他人操作 / 純研究） | **KEEP (external)** | 留言說明程式碼面已就緒但驗證在 repo 外，維持開啟 |
+| +附加 | 缺 type label / label 過期 / 狀態不符（見 Step 5） | **RELABEL**（正交） | 疊加建議 `gh issue edit --add-label / --remove-label`，不改主狀態 |
 
-> UPDATE-SCOPE 與 KEEP 的差別是**存疑傾向**：只要有任一症狀 NOT DONE 就**不能** CLOSE
-> 整個 issue（P1）。CLOSE 只保留給「全數 DONE」的乾淨情況。
+> UPDATE-SCOPE 與 KEEP 的差別是**存疑傾向**：只要有任一症狀 NOT DONE 或 UNCLEAR 就**不能**
+> CLOSE 整個 issue（P1）。CLOSE 只保留給「全數 DONE」的乾淨情況。
 
 ---
 
@@ -175,6 +194,8 @@ cat openspec/changes/<name>/tasks.md
 
 先用 `gh label list` 確認該 repo **實際存在**的 label 名稱，再建議——避免建議加一個不存在的 label
 （`gh issue edit --add-label` 對不存在 label 會失敗）。
+`gh label list` 非零退出 → `[WARN] gh label list 失敗，略過所有 RELABEL 建議`（無法確認 label
+是否存在，不要盲猜）。
 
 ---
 
@@ -199,8 +220,21 @@ cat openspec/changes/<name>/tasks.md
 
 ## Step 7 — Report（唯讀輸出，預設終點）
 
-用 **Write tool** 把報告寫到 `$CLAUDE_JOB_DIR/issue-triage-report.md`（多行內容用 Write，
-不用 heredoc），結構如下，再於對話中摘要重點：
+**先解析輸出目錄 `$OUT`**（報告與 Step 8 的 body-file 都寫這裡）。`$CLAUDE_JOB_DIR` 只在
+background job session 有值；互動式 `/issue-triage` 通常 **unset**，直接用會讓 `--body-file`
+路徑展開成 `/close-<n>.md`（絕對路徑打頭）而 file-not-found。因此一律 fallback：
+
+```bash
+OUT="${CLAUDE_JOB_DIR:-$(git rev-parse --show-toplevel)/.issue-triage}"
+mkdir -p "$OUT"
+echo "OUT=$OUT"
+```
+
+`.issue-triage/`（fallback）是本 skill 的暫存報告目錄，非 git 追蹤目標。**shell state 不跨 bash
+call**，Step 7/8 每個用到 `$OUT` 的 bash block 都要重新跑上面兩行解析（與 `REVIEW_DIR` 慣例同）。
+
+用 **Write tool** 把報告寫到 `$OUT/issue-triage-report.md`（多行內容用 Write，不用 heredoc），
+結構如下，再於對話中摘要重點：
 
 ```text
 # Issue Triage — <repo slug> (<date>)
@@ -226,8 +260,8 @@ cat openspec/changes/<name>/tasks.md
 - P2：#<n>, ...
 ```
 
-`$CLAUDE_JOB_DIR` 是 agent job dir，使用者的 shell 讀不到——回報時把重點**貼進對話**，
-不要只丟一個 `$CLAUDE_JOB_DIR/...` 路徑給使用者。
+若 `$OUT` 落在 `$CLAUDE_JOB_DIR`（background job dir），使用者的 shell 讀不到——回報時把重點
+**貼進對話**，不要只丟一個 `$CLAUDE_JOB_DIR/...` 路徑給使用者。
 
 **不帶 `--apply` 時，到此為止。**
 
@@ -237,27 +271,34 @@ cat openspec/changes/<name>/tasks.md
 
 僅在使用者帶 `--apply` 或明確同意某幾筆時執行。**逐一 issue 執行並回報結果**。
 
+**無互動確認者（排程 / webhook）即使帶 `--apply` 也不執行寫入**——停在 Step 7 報告並註明
+`--apply` 已忽略（rule 11 scheduled skill 唯讀契約：排程 turn 無人回答確認）。
+
+**失敗 gate（適用 8a–8d 每一個 `gh` 寫入呼叫）**：任一 `gh` 呼叫非零退出 →
+`[FAIL] issue #<n> <動作> 失敗`，回報並**跳過該筆**（不影響其他 issue），最後彙總失敗清單。
+一個失敗的 title-edit / relabel / close 是**靜默 no-op 的寫入**，必須顯式擋下，不可回報成功。
+
+body-file 路徑用 Step 7 解析的 `$OUT`（每個 bash block 先重跑
+`OUT="${CLAUDE_JOB_DIR:-$(git rev-parse --show-toplevel)/.issue-triage}"; mkdir -p "$OUT"`）。
+
 ### 8a. 關閉 issue（附完成說明）
 
 `gh issue close` **沒有** `--comment-file` / `--body-file`（誤用會 `exit 1: unknown flag`）。
-必拆兩步：先貼留言，再關閉。
+必拆兩步：先貼留言（用 Write tool 把完成說明寫到 `$OUT/close-<n>.md`），再關閉。
 
 ```bash
-# 1) 用 Write tool 把完成說明寫到 $CLAUDE_JOB_DIR/close-<n>.md，再貼留言
-gh issue comment <n> --body-file "$CLAUDE_JOB_DIR/close-<n>.md"
+gh issue comment <n> --body-file "$OUT/close-<n>.md"
 ```
 
 ```bash
-# 2) 關閉（completed = 真的做完；not planned = 整併/不做了）
+# completed = 真的做完；not planned = 整併/不做了
 gh issue close <n> --reason completed
 ```
-
-每步非零退出 → `[FAIL] issue #<n> <動作> 失敗`，回報並跳過該 issue（不影響其他筆）。
 
 ### 8b. 更新範圍（UPDATE-SCOPE）
 
 ```bash
-gh issue comment <n> --body-file "$CLAUDE_JOB_DIR/update-<n>.md"
+gh issue comment <n> --body-file "$OUT/update-<n>.md"
 ```
 
 ```bash
@@ -277,7 +318,7 @@ gh issue edit <n> --add-label "<label>" --remove-label "<label>"
 在被整併 issue 貼留言指向主 issue，再以 `not planned` 關閉：
 
 ```bash
-gh issue comment <b> --body-file "$CLAUDE_JOB_DIR/merge-<b>.md"
+gh issue comment <b> --body-file "$OUT/merge-<b>.md"
 ```
 
 ```bash
@@ -292,10 +333,10 @@ gh issue close <b> --reason "not planned"
 
 | 問題 | 處理 |
 |------|------|
-| `gh issue close --comment-file` 報 `unknown flag` | `gh issue close` 只有 `-c/--comment <string>`；要貼多行說明拆兩步：先 `gh issue comment --body-file`，再 `gh issue close --reason` |
+| `gh issue close --comment-file` 報 `unknown flag` | `gh issue close` 只有 `-c/--comment <string>`（單行字串，不適合放產生出來的多行報告）；要貼多行說明拆兩步：先 `gh issue comment --body-file`，再 `gh issue close --reason` |
 | `gh issue edit --add-label` 失敗 | 該 label 不存在；先 `gh label list` 確認名稱，或先 `gh label create` |
-| `--json` 欄位回空值不報錯 | 欄位名打錯會靜默回空；先 `gh issue list --json`（不帶欄位）看可用 key |
-| issue 很多、逐一讀 code 很慢 | Step 3b 平行 dispatch 內建 `Explore` agent，一個 agent 批次驗證數個 issue 的症狀 |
+| `gh issue list --json` 欄位名打錯 | 會印 `Unknown JSON field` 並 **exit 1**（fails loud，非靜默回空），被 Step 2 的非零退出 gate 擋下；使用前先 `gh issue list --json`（不帶欄位）看可用 key。（CLAUDE.md 那條「靜默回空」gotcha 是講 `gh pr checks`，不同命令，別套用） |
+| issue 很多、逐一讀 code 很慢 | Step 3b 平行 dispatch 一個唯讀探索 subagent（當前 harness 的內建 `Explore` 即適用；若無則 lead 就地用 Read/Grep/Glob），批次驗證數個 issue 的症狀 |
 | 綁的 openspec change 找不到 tasks.md | 可能已 archive → 查 `openspec/changes/archive/` 或 `docs/openspec/changes/` |
 | 該不該 close-as-stale | 長期無活動但症狀仍成立 → KEEP 並降優先，不要純因「舊」就關；close-as-stale 需使用者確認 |
 | 排程情境無人確認 | 停在 Step 7 報告，不進 Step 8（rule 11 scheduled skill 唯讀契約） |
