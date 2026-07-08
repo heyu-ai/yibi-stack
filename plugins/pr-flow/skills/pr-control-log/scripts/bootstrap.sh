@@ -33,7 +33,7 @@ if [ ! -f "$CONFIG" ]; then
   echo '[FAIL] ~/.agents/config.json not found' >&2
   exit 1
 fi
-if ! SKILL_REPO=$(jq -r '.skill_repos["yibi-stack"] // .skill_repo' "$CONFIG"); then
+if ! SKILL_REPO=$(jq -r '.skill_repos["yibi-stack"] // .skill_repo // empty' "$CONFIG"); then
   echo '[FAIL] ~/.agents/config.json is not valid JSON -- run: jq . ~/.agents/config.json' >&2
   exit 1
 fi

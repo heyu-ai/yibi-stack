@@ -17,6 +17,8 @@ _spec.loader.exec_module(register_skill_repo)
 
 register = register_skill_repo.register
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _read(cfg: Path) -> dict:
     return json.loads(cfg.read_text(encoding="utf-8"))
@@ -129,10 +131,31 @@ class TestRegister:
 
     def test_regskill_dt_006_falsy_top_level_replaced(self, tmp_path: Path) -> None:
         """REGSKILL-DT-006: 頂層 skill_repo 為 falsy（""/null）時補上當前路徑（setdefault 做不到）。"""
-        cfg = tmp_path / "config.json"
-        cfg.write_text(
-            json.dumps({"skill_repo": ""}) + "\n",
-            encoding="utf-8",
-        )
-        register("/home/u/yibi-stack", cfg, repo_name="yibi-stack")
-        assert _read(cfg)["skill_repo"] == "/home/u/yibi-stack"
+        for tag, falsy in (("empty", ""), ("null", None)):
+            cfg = tmp_path / f"config_{tag}.json"
+            cfg.write_text(json.dumps({"skill_repo": falsy}) + "\n", encoding="utf-8")
+            register("/home/u/yibi-stack", cfg, repo_name="yibi-stack")
+            assert _read(cfg)["skill_repo"] == "/home/u/yibi-stack"
+
+
+class TestMakefileContract:
+    """防回歸：make install 必須把 canonical key 傳給 register，否則 worktree 安裝 key 會漂掉。
+
+    對應 issue #199 mob review：register() unit test 只驗給定 key 的行為，無法擋 Makefile
+    自身退回 `register '$(CURDIR)'`（漏傳 key）的回歸——那會讓 register 用 dir basename。
+    """
+
+    def _makefile_text(self) -> str:
+        return (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+
+    def test_regskill_dt_007_makefile_defines_canonical_key(self) -> None:
+        """REGSKILL-DT-007: Makefile 定義 SKILL_REPO_KEY := yibi-stack。"""
+        assert "SKILL_REPO_KEY := yibi-stack" in self._makefile_text()
+
+    def test_regskill_dt_008_makefile_passes_key_to_register(self) -> None:
+        """REGSKILL-DT-008: register_skill_repo.py 呼叫必帶 $(SKILL_REPO_KEY) 第二引數。"""
+        text = self._makefile_text()
+        assert "register_skill_repo.py '$(CURDIR)' '$(SKILL_REPO_KEY)'" in text
+        # 若有人退回只傳 CURDIR（漏 key），此斷言失敗。
+        assert "register_skill_repo.py '$(CURDIR)'\n" not in text
+        assert "register_skill_repo.py '$(CURDIR)' \\\n" not in text

@@ -806,6 +806,11 @@ SKILL_REPO=$(python3 -c "import json,pathlib; c=json.loads((pathlib.Path.home()/
 [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 ```
 
+> **範例 repo 說明**：此 Pattern C 片段以 **ainization-skill** 為例（見 `[FAIL]` 訊息與
+> `.get('ainization-skill')` map key 一致）。**yibi-stack 端的 reader 必須查 `'yibi-stack'`**——
+> map key = 各 repo 自身的 canonical 識別名（issue #197 / #199）。yibi-stack 的 canonical
+> 形式見 `.claude/rules/11-skill-authoring.md`；請勿把本片段的 key 直接複製進 yibi-stack reader。
+
 **為什麼 Pattern C 安全**：外層 `$()`、內層 `"..."`、再內層 `'...'` 三層異型引號交替，
 無 same-type 衝突；`python3 -c` 單行（無換行）不觸發 AP1 multi-line 偵測；
 純 ASCII 不觸發 AP2；已在 `skills/session-memory/SKILL.md` 和 `skills/verify-gemini-models/SKILL.md` 實戰驗證。
