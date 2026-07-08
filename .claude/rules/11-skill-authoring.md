@@ -723,6 +723,33 @@ Relationship to "Hook Descriptions Must Be Verified Against the Actual Script": 
 the same verification-before-authoring discipline — hook docs must match the script,
 SKILL.md field references must match the tool's actual output schema.
 
+## Blanket Claims and Reader-Run Commands Must Be Empirically Probed Before Authoring (PR #200 lesson)
+
+Two authoring habits that a self-review will miss but a reader (or a reviewer) will hit:
+
+1. **A generalization ("any X", "always", "every") must be checked against its counter-examples,
+   not just the one case you observed.** Writing a rule from a single reproduction tempts you to
+   state the widest claim; the real boundary is usually narrower and environment-dependent. Before
+   writing "any X does Y", spend one command testing the X's you did *not* observe — the boundary
+   you find is the rule.
+2. **A command the doc tells the reader to run must itself be run on the doc's target platform.**
+   A detection/verification snippet that fails on the reader's default toolchain is a silent-failure
+   trap: they see no output, conclude "clean", and the helper actually errored.
+
+**Real incident (PR #200)**: a new rule stated a bare `$VAR` followed by "any non-ASCII char"
+folds into the variable name under `set -u`. Cross-model mob review (Codex + agy) flagged it as
+overgeneralized; a one-loop `bash -c` probe confirmed the truth is narrower — it is UTF-8-locale
+*and* `isalnum()`-classification dependent (CJK / full-width / Cyrillic / Greek / accented Latin
+fold on macOS, **Hebrew does not**, `LC_ALL=C` folds nothing). The same PR's detection helper was
+written as `grep -nP`, which fails on macOS BSD grep (`invalid option -- P`) — inside a rule about
+bash portability. Both were caught only because the claim was probed, not read.
+
+Relationship to "Hook Descriptions / Tool Output Fields Must Be Verified": same
+verification-before-authoring discipline, extended from "match the artifact you cite" to "probe the
+boundary of any claim you generalize, and run any command you tell the reader to run." When a doc
+makes a universal claim or ships a runnable snippet, the author — not a downstream reviewer — owns
+proving it.
+
 ## Tool Exit Codes Must Be Listed in SKILL.md Branch Design (PR #115 lesson)
 
 Any SKILL.md step that calls a shell tool with multiple non-trivial exit codes must
