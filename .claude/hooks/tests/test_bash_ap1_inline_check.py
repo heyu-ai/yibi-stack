@@ -17,7 +17,7 @@ HOOK = Path(__file__).parent.parent / "bash-ap1-inline-check.sh"
 _SKILL_REPO_PY = (
     "import json,pathlib; "
     "c=json.loads("
-    "(pathlib.Path.home()/'.agents'/'config.json').read_text()"
+    "(pathlib.Path.home()/'.agents'/'config.json').read_text(encoding='utf-8')"
     "); print((c.get('skill_repos') or {}).get('yibi-stack') "
     "or c.get('skill_repo') or '')"
 )

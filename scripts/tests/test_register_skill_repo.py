@@ -92,3 +92,23 @@ class TestRegister:
             "yibi-stack": "/home/u/yibi-stack",
             "ainization-skill": "/home/u/ainization-skill",
         }
+
+    def test_regskill_dt_004_explicit_key_overrides_basename(self, tmp_path: Path) -> None:
+        """REGSKILL-DT-004: 顯式 repo_name 蓋過 dir basename——從 worktree 目錄安裝也用 canonical key。
+
+        對應 issue #199 mob review Critical：writer 的 key 必須與 reader 硬編碼的 "yibi-stack"
+        一致，不因 checkout 目錄改名 / worktree 而漂掉。
+        """
+        cfg = tmp_path / "config.json"
+        register("/home/u/.claude/worktrees/fix-197", cfg, repo_name="yibi-stack")
+        data = _read(cfg)
+        assert data["skill_repos"] == {"yibi-stack": "/home/u/.claude/worktrees/fix-197"}
+        assert "fix-197" not in data["skill_repos"]
+
+    def test_regskill_eg_003_relative_path_normalized_absolute(self, tmp_path: Path) -> None:
+        """REGSKILL-EG-003: 相對路徑被 anchor 成絕對路徑（避免寫入相對路徑後 Pydantic 驗證失敗）。"""
+        cfg = tmp_path / "config.json"
+        register("some/relative/dir", cfg, repo_name="yibi-stack")
+        stored = _read(cfg)["skill_repos"]["yibi-stack"]
+        assert Path(stored).is_absolute()
+        assert stored.endswith("some/relative/dir")

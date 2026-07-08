@@ -57,6 +57,10 @@ build-tools: ## Build all CLI binaries (Go)
 
 # ─── Skill Management ───────────────────────────────────────────────────────
 
+# Canonical key for this repo's entry in ~/.agents/config.json skill_repos map.
+# Readers hardcode this exact key, so the writer must use it too — NOT the checkout
+# dir basename, which drifts under worktrees / renamed clones (issue #199 mob review).
+SKILL_REPO_KEY := yibi-stack
 SKILL_DIR := skills
 CLAUDE_SKILL_DIR := $(HOME)/.claude/skills
 INSTALL_DIR := $(HOME)/.agents/skills
@@ -107,10 +111,10 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 		$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(CMD_DIR)/scripts" "$(CLAUDE_CMD_DIR)/scripts" || exit 1; \
 	fi
 	@echo ""
-	@echo "  Registering skill_repos[$(notdir $(CURDIR))] in ~/.agents/config.json"
-	@python3 scripts/register_skill_repo.py '$(CURDIR)' \
+	@echo "  Registering skill_repos[$(SKILL_REPO_KEY)] in ~/.agents/config.json"
+	@python3 scripts/register_skill_repo.py '$(CURDIR)' '$(SKILL_REPO_KEY)' \
 	|| { echo "  [FAIL] 無法更新 ~/.agents/config.json（見上方錯誤）"; exit 1; }
-	@echo "  [OK] skill_repos[$(notdir $(CURDIR))] = $(CURDIR)"
+	@echo "  [OK] skill_repos[$(SKILL_REPO_KEY)] = $(CURDIR)"
 	@mkdir -p "$$HOME/.agents/bin"
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/lessons" "$$HOME/.agents/bin/lessons"
 

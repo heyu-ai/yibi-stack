@@ -801,7 +801,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.session_memory handover read --
 
 ```bash
 # 修法 A（最優先）：捨棄 jq，改 python3 -c 單行（map-first 解析，見 issue #197）
-SKILL_REPO=$(python3 -c "import json,pathlib; c=json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text()); print((c.get('skill_repos') or {}).get('yibi-stack') or c.get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
+SKILL_REPO=$(python3 -c "import json,pathlib; c=json.loads((pathlib.Path.home()/'.agents'/'config.json').read_text(encoding='utf-8')); print((c.get('skill_repos') or {}).get('ainization-skill') or c.get('skill_repo') or '')") || { echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; }
 [ -z "$SKILL_REPO" ] && { echo '[FAIL] skill_repo 未設定，請在 ainization-skill 目錄執行 make install' >&2; exit 1; }
 [ -d "$SKILL_REPO" ] || { echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; }
 ```
