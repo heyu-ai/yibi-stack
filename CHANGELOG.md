@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [1.6.0] - 2026-07-09
+
+### Features
+
+- add issue-triage skill for periodic GitHub issue governance (#202)
+
 ## [1.5.2] - 2026-07-09
 
 ### Bug Fixes
