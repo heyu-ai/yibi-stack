@@ -24,6 +24,7 @@ claude plugin install pr-flow@yibi-stack
 | `bump-version` skill | 語意化版本號遞增（semver），更新 CHANGELOG |
 | `claude-md-prune` skill | 定期清理 CLAUDE.md 過時內容，保持指引簡潔 |
 | `verify-done` skill | 宣告完成前的端對端驗證：pre-commit、CI checks、Spectra amplifier、worktree 安全性 |
+| `issue-triage` skill | GitHub Issue 定期盤點治理（唯讀優先）：逐 issue 研判 close / 更新範圍 / 整併 / label / 優先排序 |
 | `/pr-review-cycle` command | 完整 PR 生命週期（含建立 PR → code review → merge） |
 | `/pr-cycle-fast` command | PR 生命週期快速版（含 resume） |
 | `/pr-cycle-deep` command | PR 生命週期深度版（mob review + SDD） |
