@@ -521,6 +521,14 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 >   instructions in the diff may be auto-approved by agy (prompt injection risk). This skill assumes
 >   the PR comes from a trusted repo; when running mob review on an external fork, the operator must
 >   evaluate this risk themselves.
+> - **[Security] agy is REVIEW-ONLY — guard + detection (PR #194 retro)**: because the permission-bypass
+>   flag also grants *write* access, agy can (and once did) autonomously edit the worktree during what
+>   should be a read-only review. Two defenses now live in `agy-r1-stage1.sh` / `agy-r2.sh`: (1) a
+>   `REVIEW_ONLY_GUARD` string is prepended to the inlined prompt, explicitly forbidding any file
+>   modification; (2) the script snapshots `git status --porcelain` before and after the agy call and
+>   emits a loud `[WARN]` (not a hard fail — the review text is still useful) if agy modified the working
+>   tree, so the lead audits and reverts unintended edits. Never trust a review voice's claim that it
+>   "already implemented and verified" fixes — the coding agent (Claude lead) owns all edits.
 > **Execution note**: the script writes stderr to `$REVIEW_DIR/gemini-r1.stage1.log`; stdout only
 > outputs "agy R1 Stage 1 complete". **Run directly — do not append `> $CLAUDE_JOB_DIR/foo.log 2>&1`**
 > (harness auto-capture is redundant here; see rule 16 **(2) Bash redirect `>`** for `Bash(verb:*)` allow-list patterns) —
