@@ -66,6 +66,25 @@ class TestInlinePromptContract:
         assert "256000" in src
         assert "wc -c <" in src
 
+    @pytest.mark.parametrize("script", [STAGE1, R2])
+    def test_agys_dt_008_review_only_guard_and_edit_detection(self, script: Path) -> None:
+        """AGYS-DT-008: write-capable scripts prepend a REVIEW-ONLY guard and detect
+        out-of-band worktree edits (PR #194 retro: agy autonomously edited 6 files).
+
+        Stage 1 / R2 run agy with the permission-bypass flag (needed for --add-dir
+        read context), which also grants write access. The guard string + the
+        PRE/POST git-status diff are the two defenses against a review voice editing
+        the branch. A revert of either would silently reopen that hole.
+        """
+        src = script.read_text(encoding="utf-8")
+        assert "REVIEW_ONLY_GUARD=" in src
+        assert 'INPUT_CONTENT="$REVIEW_ONLY_GUARD' in src, (
+            "guard must be prepended to the inlined prompt"
+        )
+        assert "PRE_TREE=$(git status --porcelain)" in src
+        assert "POST_TREE=$(git status --porcelain)" in src
+        assert 'if [ "$PRE_TREE" != "$POST_TREE" ]' in src
+
 
 class TestValidatorFlagContract:
     """The per-stage validator arg contract (pr-test-analyzer finding)."""
@@ -104,6 +123,14 @@ class TestValidatorFlagContract:
 _FAKE_AGY = """#!/usr/bin/env bash
 # Fake agy: record argv, then emit the canned review on stdout.
 printf '%s\\n' "$@" > "$AGY_FAKE_ARGV"
+cat "$AGY_FAKE_OUTPUT"
+"""
+
+_ROGUE_AGY = """#!/usr/bin/env bash
+# Fake agy that ALSO edits a tracked file mid-review (simulates the PR #194
+# incident where agy autonomously modified the worktree during review).
+printf '%s\\n' "$@" > "$AGY_FAKE_ARGV"
+echo "rogue edit" >> seed.txt
 cat "$AGY_FAKE_OUTPUT"
 """
 
@@ -177,6 +204,7 @@ def stage1_env(tmp_path: Path) -> dict[str, object]:
         "env": env,
         "argv_capture": argv_capture,
         "out_file": out_file,
+        "fake_agy": fake_agy,
     }
 
 
@@ -223,3 +251,26 @@ class TestStage1Behavioral:
         assert "256000" in result.stderr
         # agy must NOT have been invoked (guard fires first)
         assert not Path(str(stage1_env["argv_capture"])).exists()
+
+    def test_agys_st_004_out_of_band_edit_warns(self, stage1_env: dict[str, object]) -> None:
+        """AGYS-ST-004: if agy edits a tracked file during review, stage1 emits a
+        loud [WARN] but does NOT hard-fail (the review text is still useful).
+
+        This is the PR #194 regression guard: with a rogue agy that mutates a
+        tracked file, the PRE/POST git-status diff must detect it. Removing that
+        detection from the script makes this test fail.
+        """
+        Path(str(stage1_env["fake_agy"])).write_text(_ROGUE_AGY, encoding="utf-8")
+        Path(str(stage1_env["fake_agy"])).chmod(0o755)
+        Path(str(stage1_env["out_file"])).write_text(GOOD_REVIEW, encoding="utf-8")
+
+        result = _run_stage1(stage1_env)
+
+        # review succeeded (WARN, not FAIL) and the detection fired
+        assert result.returncode == 0, result.stderr
+        assert "[WARN]" in result.stderr
+        assert "seed.txt" in result.stderr
+        # the rogue edit really landed (sanity: the fake agy did mutate the tree)
+        assert "rogue edit" in (Path(str(stage1_env["repo"])) / "seed.txt").read_text(
+            encoding="utf-8"
+        )
