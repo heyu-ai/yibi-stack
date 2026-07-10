@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -336,3 +337,93 @@ class TestAggregateSuccessCounts:
         db.insert_event(make_event(id="e1", session_id=None, event_type=EventType.layer2_intercept))
         result = db.aggregate_success_counts()
         assert result["sessions_observed"] == 0
+
+
+# ── token usage 欄位（models.py TokenUsageSource 對應）───────────────────────
+
+
+class TestTokenUsageColumns:
+    def test_agents_tok_st_001_roundtrip(self, db: AgentsDB) -> None:
+        """AGENTS-TOK-ST-001：token 用量欄位寫入後可原樣讀回。"""
+        db.insert_handover(
+            make_record(
+                id="tok-1",
+                token_input_tokens=1000,
+                token_output_tokens=200,
+                token_cache_read_tokens=50000,
+                token_cache_creation_tokens=3000,
+                token_total_cost_usd=1.2345,
+                token_cost_by_model=[{"model": "claude-sonnet-5", "cost_usd": 1.2345}],
+                session_effort="high",
+                token_optimization_notes=["[best-effort] 測試建議"],
+                token_usage_source="computed",
+            )
+        )
+        rows = db.read_recent(last=1)
+        row = rows[0]
+        assert row["token_input_tokens"] == 1000
+        assert row["token_output_tokens"] == 200
+        assert row["token_total_cost_usd"] == 1.2345
+        assert row["token_cost_by_model"] == [{"model": "claude-sonnet-5", "cost_usd": 1.2345}]
+        assert row["session_effort"] == "high"
+        assert row["token_optimization_notes"] == ["[best-effort] 測試建議"]
+        assert row["token_usage_source"] == "computed"
+
+    def test_agents_tok_st_002_defaults_are_none_or_empty(self, db: AgentsDB) -> None:
+        """AGENTS-TOK-ST-002：未帶 token 欄位時，數值為 None、JSON 陣列為空 list。"""
+        db.insert_handover(make_record(id="tok-2"))
+        rows = db.read_recent(last=1)
+        row = rows[0]
+        assert row["token_input_tokens"] is None
+        assert row["token_total_cost_usd"] is None
+        assert row["token_cost_by_model"] == []
+        assert row["token_optimization_notes"] == []
+        assert row["token_usage_source"] is None
+
+    def test_agents_tok_eg_001_migration_on_pre_existing_db(self, tmp_path: Path) -> None:
+        """AGENTS-TOK-EG-001：舊 schema（無 token 欄位）DB 執行 init_db() 後可正常寫入新欄位。
+
+        比照 idempotent ALTER TABLE 慣例：手動建一個沒有 token_* 欄位的舊版
+        handovers table，確認 init_db() 的 migration 補上欄位後不會出錯。
+        """
+        import sqlite3
+
+        db_path = tmp_path / "old.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.executescript(
+            """
+            CREATE TABLE handovers (
+              id TEXT PRIMARY KEY,
+              timestamp TEXT NOT NULL,
+              operator TEXT NOT NULL DEFAULT 'howie',
+              session_type TEXT NOT NULL,
+              topic TEXT NOT NULL,
+              conversation_summary TEXT NOT NULL,
+              completed TEXT NOT NULL DEFAULT '[]',
+              decisions TEXT NOT NULL DEFAULT '[]',
+              blocked TEXT NOT NULL DEFAULT '[]',
+              next_priorities TEXT NOT NULL DEFAULT '[]',
+              lessons_learned TEXT NOT NULL DEFAULT '[]',
+              attempted_approaches TEXT NOT NULL DEFAULT '[]',
+              tags TEXT NOT NULL DEFAULT '[]',
+              device TEXT,
+              agent_type TEXT DEFAULT 'claude',
+              subscription_account TEXT,
+              branch TEXT,
+              working_dir TEXT,
+              last_files TEXT DEFAULT '[]',
+              test_status TEXT,
+              token_usage_estimate TEXT,
+              project TEXT,
+              source_bot TEXT
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        instance = AgentsDB(str(db_path))
+        instance.init_db()  # 不應拋出例外
+        instance.insert_handover(make_record(id="tok-migrated", token_input_tokens=42))
+        rows = instance.read_recent(last=1)
+        assert rows[0]["token_input_tokens"] == 42

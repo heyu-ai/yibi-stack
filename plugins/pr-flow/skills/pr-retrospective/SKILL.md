@@ -213,6 +213,20 @@ TAGS=$(jq -nc \
   '["pr-retrospective",$br,$pr] + $extra')
 ```
 
+先顯示這次工作的 token 用量與成本估算給使用者看（best-effort，範圍是整個 session）：
+
+```bash
+uv run --directory "$SKILL_REPO" python -m tasks.mycelium token-usage report \
+  --workdir "$REAL_WORKDIR" --project "$ORIG_PROJECT" || true
+```
+
+> **Exit code 分支**：`0` = 正常顯示（`computed`/`computed_partial`，partial 時輸出會
+> 自帶 `[WARN]` 標示哪些 model 沒定價）；`2` = 找不到 transcript；`3` = 偵測到可能有
+> 並行 session，無法判斷是哪一個。**`2`/`3` 都只是 `[WARN]`，不阻擋接下來的 handover
+> write 步驟**——把這段輸出原樣呈現給使用者看（token 數、估算成本、model 拆分、
+> 優化建議），再繼續往下走。數字是整個 session 的估算值，若同一 session 裡混雜了
+> 其他不相關的工作，數字會偏高。
+
 ```bash
 uv run --directory "$SKILL_REPO" \
   python -m tasks.mycelium handover write \
@@ -222,7 +236,8 @@ uv run --directory "$SKILL_REPO" \
   --completed "$COMPLETED" --decisions "$DECISIONS" \
   --blocked '[]' --next "$Q5_NEXT_JSON" \
   --lessons "$Q4_LESSONS_JSON" --approaches '[]' \
-  --tags "$TAGS"
+  --tags "$TAGS" \
+  --auto-tokens
 ```
 
 **Discriminator**（讓 handover-back 能辨識）：
@@ -466,3 +481,5 @@ PostToolUse hook 現在支援所有工具輸出替換（`hookSpecificOutput.upda
 | 如何只看 PR retro？ | `/lessons find pr-retrospective` 或 `/lessons find "pr-<n>"`|
 | Agent 推論總是抓不到重點？ | iteration > 3 次後切換「請使用者直接給答案」模式 |
 | 想改寫已存在的 retro | append-only；建議寫新一筆並在 tags 加 `revised`；舊 retro 留存 |
+| token/cost 數字看起來偏高或偏低 | 計算範圍是整個 session（從開始到呼叫 `/pr-retro` 為止），若同一 session 混雜了其他不相關的工作，數字會失真；這是已知限制 |
+| token-usage report 印出 `[WARN]` 找不到 transcript 或偵測到並行 session | best-effort 啟發式無法保證找到，屬正常情況；不影響 handover 寫入，繼續往下走即可 |

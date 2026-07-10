@@ -131,6 +131,15 @@ class SessionType(StrEnum):
     admin = "admin"
 
 
+class TokenUsageSource(StrEnum):
+    """token usage 欄位的計算結果狀態。"""
+
+    computed = "computed"
+    computed_partial = "computed_partial"  # 有數字，但部分 model 沒有定價表對應
+    ambiguous = "ambiguous"
+    unavailable = "unavailable"
+
+
 class EventType(StrEnum):
     """Handover 事件類型。用於量測 auto-handover 成功率與三層防護的實際觸發效果。"""
 
@@ -242,6 +251,19 @@ class HandoverRecord(BaseModel):
     last_files: list[str] = Field(default_factory=list)
     test_status: str | None = None
     token_usage_estimate: str | None = None
+    # 以下由 --auto-tokens 觸發的 best-effort 自動計算填入（見 token_usage_service）；
+    # None/[] 代表未嘗試計算，不代表用量為零。
+    token_input_tokens: int | None = None
+    token_output_tokens: int | None = None
+    token_cache_read_tokens: int | None = None
+    token_cache_creation_tokens: int | None = None
+    token_total_cost_usd: float | None = None
+    # 每個 model 的用量/成本快照；不做嚴格 schema 驗證，供下游直接讀取。
+    # 沿用 DigestReport.member_lessons 的既有慣例（見本檔案下方）。
+    token_cost_by_model: list[dict[str, Any]] = Field(default_factory=list)
+    session_effort: str | None = None  # 主 session 的 $CLAUDE_EFFORT；subagent 層級無法取得
+    token_optimization_notes: list[str] = Field(default_factory=list)
+    token_usage_source: TokenUsageSource | None = None  # None = 未嘗試計算
     project: str | None = None
     source_bot: str | None = None
 

@@ -56,6 +56,8 @@ _JSON_ARRAY_COLS = (
     "attempted_approaches",
     "tags",
     "last_files",
+    "token_cost_by_model",
+    "token_optimization_notes",
 )
 
 
@@ -113,6 +115,15 @@ class AgentsDB:
               last_files           TEXT DEFAULT '[]',
               test_status          TEXT,
               token_usage_estimate TEXT,
+              token_input_tokens   INTEGER,
+              token_output_tokens  INTEGER,
+              token_cache_read_tokens     INTEGER,
+              token_cache_creation_tokens INTEGER,
+              token_total_cost_usd REAL,
+              token_cost_by_model  TEXT NOT NULL DEFAULT '[]',
+              session_effort       TEXT,
+              token_optimization_notes TEXT NOT NULL DEFAULT '[]',
+              token_usage_source   TEXT,
               project              TEXT,
               source_bot           TEXT
             );
@@ -161,6 +172,15 @@ class AgentsDB:
             "ALTER TABLE lessons ADD COLUMN last_accessed_at TEXT",
             "ALTER TABLE lessons ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE lessons ADD COLUMN archived_path TEXT",
+            "ALTER TABLE handovers ADD COLUMN token_input_tokens INTEGER",
+            "ALTER TABLE handovers ADD COLUMN token_output_tokens INTEGER",
+            "ALTER TABLE handovers ADD COLUMN token_cache_read_tokens INTEGER",
+            "ALTER TABLE handovers ADD COLUMN token_cache_creation_tokens INTEGER",
+            "ALTER TABLE handovers ADD COLUMN token_total_cost_usd REAL",
+            "ALTER TABLE handovers ADD COLUMN token_cost_by_model TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE handovers ADD COLUMN session_effort TEXT",
+            "ALTER TABLE handovers ADD COLUMN token_optimization_notes TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE handovers ADD COLUMN token_usage_source TEXT",
         ):
             try:
                 self.conn.execute(_alter)
@@ -260,14 +280,21 @@ class AgentsDB:
               completed, decisions, blocked, next_priorities,
               lessons_learned, attempted_approaches, tags,
               device, agent_type, subscription_account,
-              branch, working_dir, last_files, test_status, token_usage_estimate, project,
-              source_bot
+              branch, working_dir, last_files, test_status, token_usage_estimate,
+              token_input_tokens, token_output_tokens, token_cache_read_tokens,
+              token_cache_creation_tokens, token_total_cost_usd, token_cost_by_model,
+              session_effort, token_optimization_notes, token_usage_source,
+              project, source_bot
             ) VALUES (
               ?, ?, ?, ?, ?, ?,
               ?, ?, ?, ?,
               ?, ?, ?,
               ?, ?, ?,
-              ?, ?, ?, ?, ?, ?, ?
+              ?, ?, ?, ?, ?,
+              ?, ?, ?,
+              ?, ?, ?,
+              ?, ?, ?,
+              ?, ?
             )
             """,
             (
@@ -292,6 +319,15 @@ class AgentsDB:
                 json.dumps(record.last_files, ensure_ascii=False),
                 record.test_status,
                 record.token_usage_estimate,
+                record.token_input_tokens,
+                record.token_output_tokens,
+                record.token_cache_read_tokens,
+                record.token_cache_creation_tokens,
+                record.token_total_cost_usd,
+                json.dumps(record.token_cost_by_model, ensure_ascii=False),
+                record.session_effort,
+                json.dumps(record.token_optimization_notes, ensure_ascii=False),
+                record.token_usage_source.value if record.token_usage_source else None,
                 record.project,
                 record.source_bot,
             ),

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import textwrap
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -245,6 +246,11 @@ def _parse_json_list(value: str | None, field: str) -> list[str]:
 @click.option("--files", default=None, help="最後處理的檔案（JSON array）")
 @click.option("--test-status", default=None, help="測試狀態摘要")
 @click.option("--tokens", default=None, help="token 使用量估計")
+@click.option(
+    "--auto-tokens",
+    is_flag=True,
+    help="自動從 session transcript 計算 token 用量與成本（best-effort，失敗時靜默略過）",
+)
 @click.option("--device", default=None, help="覆蓋自動偵測的 device")
 @click.option("--agent", default=None, help="覆蓋自動偵測的 agent_type")
 @click.option("--account", "account_opt", default=None, help="覆蓋自動偵測的 account")
@@ -266,6 +272,7 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
     files: str | None,
     test_status: str | None,
     tokens: str | None,
+    auto_tokens: bool,
     device: str | None,
     agent: str | None,
     account_opt: str | None,
@@ -291,6 +298,7 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
         last_files=_parse_json_list(files, "--files"),
         test_status=test_status,
         token_usage_estimate=tokens,
+        auto_token_usage=auto_tokens,
         device=device,
         agent_type=agent,
         account=account_opt,
@@ -945,6 +953,85 @@ def metrics_advice(since_days: int, project: str | None, as_json: bool) -> None:
     click.echo("")
     for idx, msg in enumerate(suggestions, 1):
         click.echo(f"[{idx}] {msg}")
+
+
+# ─── token-usage ─────────────────────────────────────────────────────────
+
+
+@cli.group("token-usage")
+def token_usage() -> None:
+    """Session token 用量與成本估算（best-effort，來源=session transcript）。"""
+
+
+@token_usage.command("report")
+@click.option("--workdir", default=None, help="覆蓋自動偵測的 working_dir（預設為目前目錄）")
+@click.option("--project", default=None, help="僅用於顯示標題，不影響計算範圍")
+@click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
+def token_usage_report(workdir: str | None, project: str | None, as_json: bool) -> None:
+    """計算目前 session（含所有 subagent）的 token 用量與估算成本。
+
+    Exit code：0 = 已計算（computed / computed_partial）；
+    2 = 找不到 transcript（unavailable）；
+    3 = 偵測到可能有並行 session，無法判斷是哪一個（ambiguous）。
+    """
+    import dataclasses
+
+    from .token_usage_service import compute_token_usage_report
+
+    target_dir = Path(workdir).resolve() if workdir else Path.cwd().resolve()
+    report = compute_token_usage_report(target_dir)
+
+    if as_json:
+        click.echo(json.dumps(dataclasses.asdict(report), ensure_ascii=False, indent=2))
+    else:
+        _echo_token_usage_report(report, project=project)
+
+    if report.status == "unavailable":
+        raise SystemExit(2)
+    if report.status == "ambiguous":
+        raise SystemExit(3)
+
+
+def _echo_token_usage_report(report: Any, *, project: str | None) -> None:
+    """把 TokenUsageReport 印成人類可讀摘要。"""
+    if report.status in ("unavailable", "ambiguous"):
+        click.echo(f"[WARN] {report.warning}", err=True)
+        return
+
+    click.echo("── Token 用量與成本估算（best-effort，範圍=整個 session）──")
+    if project:
+        click.echo(f"  project              = {project}")
+    click.echo(f"  input_tokens         = {report.total_input_tokens:,}")
+    click.echo(f"  output_tokens        = {report.total_output_tokens:,}")
+    click.echo(f"  cache_read_tokens    = {report.total_cache_read_tokens:,}")
+    click.echo(f"  cache_creation_tokens= {report.total_cache_creation_tokens:,}")
+    if report.total_cost_usd is not None:
+        click.echo(f"  estimated_cost_usd   = ${report.total_cost_usd:.4f}")
+    else:
+        click.echo("  estimated_cost_usd   = (無法估算，所有 model 均無定價資料)")
+    if report.session_effort:
+        click.echo(f"  session_effort       = {report.session_effort}")
+
+    if report.by_model:
+        click.echo("")
+        click.echo("  per-model 拆分：")
+        for row in report.by_model:
+            cost = f"${row['cost_usd']:.4f}" if row["cost_usd"] is not None else "(無定價)"
+            click.echo(
+                f"    {row['model']:<30} input={row['input_tokens']:,} "
+                f"output={row['output_tokens']:,} cache_read={row['cache_read_tokens']:,} "
+                f"cost={cost}"
+            )
+
+    if report.optimization_notes:
+        click.echo("")
+        click.echo("  優化建議：")
+        for note in report.optimization_notes:
+            click.echo(f"    - {note}")
+
+    if report.warning:
+        click.echo("")
+        click.echo(f"  [WARN] {report.warning}")
 
 
 # ─── debug ───────────────────────────────────────────────────────────────

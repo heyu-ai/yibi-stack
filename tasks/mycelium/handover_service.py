@@ -35,6 +35,7 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
     last_files: list[str] | None = None,
     test_status: str | None = None,
     token_usage_estimate: str | None = None,
+    auto_token_usage: bool = False,
     working_dir: str | None = None,
     # 以下若未提供則自動偵測
     device: str | None = None,
@@ -53,6 +54,8 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
 
     # 統一計算有效工作目錄，確保 working_dir 與 project 來自同一路徑
     effective_dir = Path(working_dir).resolve() if working_dir else Path.cwd().resolve()
+
+    token_fields = _compute_auto_token_fields(effective_dir, auto_token_usage)
 
     record = HandoverRecord(
         id=str(uuid.uuid4()),
@@ -78,6 +81,7 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
         test_status=test_status,
         token_usage_estimate=token_usage_estimate,
         project=project or detect_project(effective_dir),
+        **token_fields,
     )
 
     db = AgentsDB(db_path or HANDOVER_DB_PATH)
@@ -94,6 +98,36 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
     _append_jsonl(record, jsonl_path or HANDOVER_JSONL_PATH)
     _emit_handover_written_event(record, db_path=db_path)
     return record
+
+
+def _compute_auto_token_fields(effective_dir: Path, auto_token_usage: bool) -> dict[str, Any]:
+    """Best-effort 計算 token 用量欄位；任何失敗都回傳空 dict，不影響主寫入流程。"""
+    if not auto_token_usage:
+        return {}
+
+    import warnings
+
+    try:
+        from .token_usage_service import compute_token_usage_report
+
+        report = compute_token_usage_report(effective_dir)
+    except Exception as e:  # noqa: BLE001  token 用量計算失敗不可影響 handover 寫入
+        warnings.warn(f"token 用量自動計算失敗：{e}", stacklevel=2)
+        return {}
+
+    fields: dict[str, Any] = {"token_usage_source": report.status}
+    if report.status in ("computed", "computed_partial"):
+        fields.update(
+            token_input_tokens=report.total_input_tokens,
+            token_output_tokens=report.total_output_tokens,
+            token_cache_read_tokens=report.total_cache_read_tokens,
+            token_cache_creation_tokens=report.total_cache_creation_tokens,
+            token_total_cost_usd=report.total_cost_usd,
+            token_cost_by_model=report.by_model,
+            session_effort=report.session_effort,
+            token_optimization_notes=report.optimization_notes,
+        )
+    return fields
 
 
 def _emit_handover_written_event(record: HandoverRecord, *, db_path: Path | None) -> None:
