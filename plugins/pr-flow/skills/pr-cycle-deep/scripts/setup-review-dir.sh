@@ -14,7 +14,8 @@
 #
 # 副作用：
 #   1. 建立 $WT_ROOT/.pr-review/ 目錄
-#   2. 把 .pr-review/ 加進 worktree-local $GIT_DIR/info/exclude（不污染主 repo .gitignore）
+#   2. 把 .pr-review/ 加進 git exclude（路徑用 `git rev-parse --git-path info/exclude` 解析，
+#      worktree 下正確落在 common dir，不污染 committed .gitignore）
 #   3. 產生 .pr-review/diff.patch 與 .pr-review/changed-files.txt
 #   4. 執行 `git fetch <base-remote> <branch>`（每次執行都會發出網路請求；base remote
 #      存在 upstream 時優先用它、否則 origin，一律以該 remote 上的版本為 base，本地未
@@ -107,19 +108,25 @@ if ! mkdir -p "$REVIEW_DIR"; then
     exit 1
 fi
 
-GIT_DIR=$(git rev-parse --git-dir)
+# info/exclude 的路徑用 --git-path 解析，不要用 --git-dir 自行拼。
+# linked worktree 下 --git-dir 回 per-worktree 目錄（.git/worktrees/<name>），但 git status
+# 讀的 info/exclude 在 common dir（.git/info/exclude）；寫到 --git-dir 拼出的位置會被 git
+# 忽略、靜默失效（PR #203 review 實機發現）。--git-path 會自動解到 git 真正讀取的位置，
+# 在主 worktree 與 linked worktree 下都正確。
+EXCLUDE_FILE=$(git rev-parse --git-path info/exclude)
+EXCLUDE_DIR=$(dirname "$EXCLUDE_FILE")
 
-if ! mkdir -p "$GIT_DIR/info"; then
-    echo "[FAIL] 無法建立 $GIT_DIR/info（請確認 .git 目錄可寫）" >&2
+if ! mkdir -p "$EXCLUDE_DIR"; then
+    echo "[FAIL] 無法建立 ${EXCLUDE_DIR}（請確認 .git 目錄可寫）" >&2
     exit 1
 fi
 
-# 把 .pr-review/ 加進 git exclude（worktree-local，不污染 .gitignore）。
+# 把 .pr-review/ 加進 git exclude（不污染 committed .gitignore）。
 # 用 if-then 而非 ||：避免 rule 14 Quoting Rule 5 與 `||` 條件分支觸發 AP1 計分。
 # grep 退出碼 1（not found）與 2（read error）都走 then-branch；read error 情境下
 # 後續 echo >> 會因 set -e 失敗並停止——可接受（exotic case，不值得額外 case 分支）。
-if ! grep -qF '.pr-review/' "$GIT_DIR/info/exclude" 2>/dev/null; then
-    echo '.pr-review/' >> "$GIT_DIR/info/exclude"
+if ! grep -qF '.pr-review/' "$EXCLUDE_FILE" 2>/dev/null; then
+    echo '.pr-review/' >> "$EXCLUDE_FILE"
 fi
 
 # 三點 diff 需要 BASE_SHA 與 HEAD 有共同祖先；若選到的 base remote 與 HEAD 完全無關

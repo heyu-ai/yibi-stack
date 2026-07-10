@@ -181,6 +181,32 @@ def _run_setup(repo: Path, base_branch: str) -> subprocess.CompletedProcess[str]
 
 
 class TestSetupReviewDirBehavioral:
+    def test_srd_st_008_worktree_exclude_lands_where_git_reads(
+        self, origin_and_clone: dict[str, Path], tmp_path: Path
+    ) -> None:
+        """SRD-ST-008: in a linked worktree the .pr-review/ exclude must land where git
+        actually reads it (common dir's info/exclude), not the per-worktree git dir that
+        `git rev-parse --git-dir` returns.
+
+        Regression guard for the PR #203 review finding: `--git-dir` in a worktree points
+        at .git/worktrees/<name>, whose info/exclude git status never consults, so the
+        append silently no-ops. The fix uses `git rev-parse --git-path info/exclude`.
+        Reverting to the --git-dir form makes this test fail: setup writes .pr-review/
+        (diff.patch etc.) and, without a working exclude, `git status` in the worktree
+        surfaces `?? .pr-review/`.
+        """
+        repo = origin_and_clone["repo"]
+        wt = tmp_path / "linked-wt"
+        _git(repo, "worktree", "add", "-q", "-b", "wt-feature", str(wt), "feature")
+
+        result = _run_setup(wt, "main")
+        assert result.returncode == 0, result.stderr
+
+        status = _git(wt, "status", "--porcelain").stdout
+        assert ".pr-review" not in status, (
+            f"exclude did not take effect in the worktree; git status shows:\n{status}"
+        )
+
     def test_srd_st_001_stale_local_base_uses_origin_tip_not_local(self, tmp_path: Path) -> None:
         """SRD-ST-001: reproduces the actual PR #22 bug shape. `git diff A...B` is
         computed against the merge-base of A and B, not A directly -- so if the
