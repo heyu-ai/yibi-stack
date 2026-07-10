@@ -233,6 +233,10 @@ class TestStage1Behavioral:
         # the -p value is the inlined prompt content, not an @file reference
         assert "REVIEW PROMPT MARKER" in argv
         assert "@.pr-review" not in argv
+        # negative control (pairs with AGYS-ST-004): a read-only agy must NOT trip the
+        # out-of-band-edit detection. Locks specificity — git collapses the fully-untracked
+        # .pr-review/ dir to one line, identical in PRE/POST, so no spurious WARN.
+        assert "[WARN]" not in result.stderr
 
     def test_agys_st_002_wrong_target_review_fails(self, stage1_env: dict[str, object]) -> None:
         """AGYS-ST-002: a review citing only foreign files is rejected (exit 1)."""

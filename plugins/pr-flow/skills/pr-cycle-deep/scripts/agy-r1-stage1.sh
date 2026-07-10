@@ -63,13 +63,16 @@ cd "$WT_ROOT"
 
 # 防越界編輯（PR #194 retro）：agy 以權限繞過旗標執行，具 worktree 寫入權；review 階段
 # 應為唯讀。快照 agy 執行前的 git 狀態，執行後比對，若工作樹被改動則 fail-loud [WARN]。
-# （.pr-review/ 已列入 .git/info/exclude，不會誤報 review 產物。）
+# review 產物不誤報：.pr-review/ 全部未追蹤，git status --porcelain 把它摺疊成單行
+# `?? .pr-review/`（不列個別檔），PRE/POST 相同——只有 agy 改動「已追蹤」檔才會觸發。
 PRE_TREE=$(git status --porcelain)
 
 # issue #153 fix 1：inline prompt 取代 @file。nested worktree 下 @file 解析失敗會讓 agy
 # 進入 agentic 探索；改成把 prompt+diff 內容直接餵進 -p，agy 不需讀檔即無 agentic 觸發點。
 # 256000B 上限：macOS ARG_MAX 約 1 MiB（單一 arg 與 env 共用該預算），256KB 留足 headroom；
 # 實測一次 mob review 輸入約 63KB，遠低於此。調高前先確認不會逼近 getconf ARG_MAX。
+# 註：此處量的是 prepend REVIEW_ONLY_GUARD 前的 input；guard 為固定字串（~400B），
+# 相對 256KB→ARG_MAX 的數倍 headroom 可忽略，不改變此檢查的保護語意。
 INPUT_BYTES=$(wc -c < "$REVIEW_DIR/gemini-r1-input.md")
 if [ "$INPUT_BYTES" -gt 256000 ]; then
     echo "[FAIL] review 輸入 ${INPUT_BYTES}B 超過 256000B inline 上限，diff 過大不適合 agy inline 模式" >&2
