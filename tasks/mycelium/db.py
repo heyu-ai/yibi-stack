@@ -70,8 +70,13 @@ _RETRO_JSON_ARRAY_COLS = (
 )
 
 
-class AgentsDB:
-    """Handover SQLite：lazy connect、WAL 模式、自動建表。"""
+class AgentsDB:  # pylint: disable=too-many-public-methods
+    """Handover SQLite：lazy connect、WAL 模式、自動建表。
+
+    跨多張 table（handovers/retrospectives/lessons/events/control_log）的 facade，
+    公開方法數量因此超出 pylint 預設門檻——用 class 層級 disable 取代全域門檻調整，
+    避免影響其他 class 的檢查範圍。
+    """
 
     def __init__(self, db_path: str | Path | None = None) -> None:
         self._db_path = str(db_path or HANDOVER_DB_PATH)

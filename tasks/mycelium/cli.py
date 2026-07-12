@@ -427,7 +427,8 @@ def retro() -> None:
 @click.option(
     "--auto-tokens",
     is_flag=True,
-    help="自動從 session transcript 計算 token 用量與成本（best-effort，失敗時靜默略過）",
+    help="自動從 session transcript 計算 token 用量與成本"
+    "（best-effort，失敗不擋寫入，token_usage_source 記為 unavailable）",
 )
 @click.option("--device", default=None, help="覆蓋自動偵測的 device")
 @click.option("--agent", default=None, help="覆蓋自動偵測的 agent_type")
@@ -1116,7 +1117,8 @@ def token_usage_report(workdir: str | None, project: str | None, as_json: bool) 
     """計算目前 session（含所有 subagent）的 token 用量與估算成本。
 
     Exit code：0 = 已計算（computed / computed_partial）；
-    2 = 找不到 transcript（unavailable）；
+    2 = 無法取得 token 用量（unavailable：transcript 找不到、定位失敗或計算失敗，
+    詳見 WARN 訊息）；
     3 = 偵測到可能有並行 session，無法判斷是哪一個（ambiguous）。
     """
     import dataclasses

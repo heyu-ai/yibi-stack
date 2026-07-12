@@ -222,7 +222,8 @@ uv run --directory "$SKILL_REPO" python -m tasks.mycelium token-usage report \
 ```
 
 > **Exit code 分支**：`0` = 正常顯示（`computed`/`computed_partial`，partial 時輸出會
-> 自帶 `[WARN]` 標示哪些 model 沒定價）；`2` = 找不到 transcript；`3` = 偵測到可能有
+> 自帶 `[WARN]` 標示哪些 model 沒定價）；`2` = 無法取得 token 用量（transcript
+> 找不到、定位失敗或計算失敗，詳見 `[WARN]` 訊息）；`3` = 偵測到可能有
 > 並行 session，無法判斷是哪一個。**`2`/`3` 都只是 `[WARN]`，不阻擋接下來的 retro
 > write 步驟**——把這段輸出原樣呈現給使用者看（token 數、估算成本、model 拆分、
 > 優化建議），再繼續往下走。數字是整個 session 的估算值，若同一 session 裡混雜了

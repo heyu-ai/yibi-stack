@@ -487,8 +487,10 @@ def compute_token_usage_report(
 
     if lookup.status != "found" or lookup.path is None:
         # TranscriptLookupResult 用 "not_found"；TokenUsageReport/TokenUsageSource
-        # 統一用 "unavailable"（"ambiguous" 兩邊共用，直接 passthrough）。
-        status = "unavailable" if lookup.status == "not_found" else lookup.status
+        # 統一用 "unavailable"（"ambiguous" 兩邊共用）。白名單而非 else passthrough，
+        # 避免未來 TranscriptLookupResult.status 新增其他值時，洩漏成非法的
+        # TokenUsageSource 導致下游 RetrospectiveRecord 建構時 ValidationError。
+        status = "ambiguous" if lookup.status == "ambiguous" else "unavailable"
         return TokenUsageReport(status=status, warning=lookup.warning)
 
     try:
@@ -498,7 +500,11 @@ def compute_token_usage_report(
 
 
 def compute_auto_token_fields(effective_dir: Path, enabled: bool) -> dict[str, Any]:
-    """Best-effort 計算 token 用量欄位；任何失敗都回傳空 dict，不影響呼叫端主流程。
+    """Best-effort 計算 token 用量欄位，不影響呼叫端主流程。
+
+    `enabled=False` 時回傳空 dict（未啟用追蹤）；`enabled=True` 但內部計算 raise
+    例外時，回傳 `{"token_usage_source": "unavailable"}`（啟用了但算不出來，
+    與「根本沒啟用」明確區分，不靜默吞成同一種空結果）。
 
     供 retrospective_service.write_retrospective() 等寫入端呼叫，回傳的 dict
     可直接以 `**fields` 合併進對應 Pydantic record 的建構參數。
