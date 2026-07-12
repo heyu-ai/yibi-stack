@@ -34,9 +34,7 @@ def discover_fixtures(skills_dir: Path | None = None) -> list[str]:
     root = skills_dir or SKILLS_DIR
     if not root.is_dir():
         return []
-    return sorted(
-        entry.name for entry in root.iterdir() if (entry / "trigger_eval.json").is_file()
-    )
+    return sorted(entry.name for entry in root.iterdir() if (entry / "trigger_eval.json").is_file())
 
 
 def load_baseline(path: Path | None = None) -> dict[str, dict[str, float]]:
@@ -55,7 +53,5 @@ def save_baseline(baseline: dict[str, dict[str, float]], path: Path | None = Non
     """寫入 baseline 檔並回傳路徑。"""
     p = path or BASELINE_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(
-        json.dumps(baseline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    p.write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return p

@@ -60,9 +60,16 @@ def _read_judgments(path: Path) -> list[bool]:
 @click.option("--skill", "-s", multiple=True, help="要評測的 skill（可多次）")
 @click.option("--all", "all_skills", is_flag=True, help="評測所有含 fixture 的 skill")
 @click.option("--emit-manifest", is_flag=True, help="只印判斷任務 manifest（供 agent 判斷）")
-@click.option("--judgments", "judgments_file", type=click.Path(path_type=Path), help="judgments JSON（布林陣列）")
+@click.option(
+    "--judgments",
+    "judgments_file",
+    type=click.Path(path_type=Path),
+    help="judgments JSON（布林陣列）",
+)
 @click.option("--tolerance", default=None, type=float, help="回歸容忍門檻（預設 0.1）")
-@click.option("--baseline", "baseline_file", type=click.Path(path_type=Path), help="baseline 檔路徑")
+@click.option(
+    "--baseline", "baseline_file", type=click.Path(path_type=Path), help="baseline 檔路徑"
+)
 @click.option("--skills-dir", type=click.Path(path_type=Path), help="skills 目錄（測試用）")
 # 注意：此處 eval 是 spec 要求的 CLI subcommand 名稱（Click 以函式名為指令名），
 # 與 Python 內建 eval() 無關，不執行任意程式碼。
@@ -119,8 +126,16 @@ def eval(  # noqa: A001 — 對映 spec「eval subcommand」命名
 @cli.command()
 @click.option("--skill", "-s", multiple=True, help="要寫入 baseline 的 skill（可多次）")
 @click.option("--all", "all_skills", is_flag=True, help="所有含 fixture 的 skill")
-@click.option("--judgments", "judgments_file", required=True, type=click.Path(path_type=Path), help="judgments JSON（布林陣列）")
-@click.option("--baseline", "baseline_file", type=click.Path(path_type=Path), help="baseline 檔路徑")
+@click.option(
+    "--judgments",
+    "judgments_file",
+    required=True,
+    type=click.Path(path_type=Path),
+    help="judgments JSON（布林陣列）",
+)
+@click.option(
+    "--baseline", "baseline_file", type=click.Path(path_type=Path), help="baseline 檔路徑"
+)
 @click.option("--skills-dir", type=click.Path(path_type=Path), help="skills 目錄（測試用）")
 def baseline(
     skill: tuple[str, ...],

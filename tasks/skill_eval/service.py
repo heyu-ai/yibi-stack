@@ -62,9 +62,7 @@ def score_verdicts(verdicts: list[PromptVerdict]) -> list[SkillEvalResult]:
                     passed=sum(1 for v in cls_verdicts if v.passed),
                 )
             )
-        results.append(
-            SkillEvalResult(skill=skill, scores=scores, verdicts=skill_verdicts)
-        )
+        results.append(SkillEvalResult(skill=skill, scores=scores, verdicts=skill_verdicts))
     return results
 
 

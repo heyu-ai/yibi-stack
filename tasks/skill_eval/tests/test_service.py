@@ -106,14 +106,18 @@ class TestScoresThroughInterface:
 class TestCompareBaseline:
     def test_seval_dt_003_regression_below_tolerance(self) -> None:
         """SEVAL-DT-003: pass rate 低於 baseline-tolerance -> 回歸。"""
-        results = score_verdicts(verdicts(make_fixture(), [True, True, True, False]))  # negative 0.5
+        results = score_verdicts(
+            verdicts(make_fixture(), [True, True, True, False])
+        )  # negative 0.5
         regs = compare_baseline(results, {"demo": {"negative": 1.0}}, tolerance=0.1)
         assert len(regs) == 1
         assert regs[0].cls == TriggerPromptClass.NEGATIVE
 
     def test_seval_dt_004_within_tolerance_no_regression(self) -> None:
         """SEVAL-DT-004: 在容忍門檻內 -> 無回歸。"""
-        results = score_verdicts(verdicts(make_fixture(), [True, True, False, False]))  # negative 1.0
+        results = score_verdicts(
+            verdicts(make_fixture(), [True, True, False, False])
+        )  # negative 1.0
         regs = compare_baseline(results, {"demo": {"negative": 1.0}}, tolerance=0.1)
         assert regs == []
 
@@ -159,9 +163,7 @@ class TestFixtureLoading:
         tasks = build_tasks([fx])
         assert tasks, "示範 fixture 應產出至少一個評測任務"
         # 全部答對時 pass rate 皆為 1.0
-        verdicts = AgentJudge().score(
-            build_tasks([fx]), [t.expect_trigger for t in tasks]
-        )
+        verdicts = AgentJudge().score(build_tasks([fx]), [t.expect_trigger for t in tasks])
         results = score_verdicts(verdicts)
         assert all(s.pass_rate == 1.0 for s in results[0].scores)
 

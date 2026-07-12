@@ -19,9 +19,7 @@ class Judge(ABC):
         """從評測任務建構要送去判斷的 manifest（可重排/批次；order 需穩定）。"""
 
     @abstractmethod
-    def score(
-        self, manifest: list[JudgeTask], judgments: list[bool]
-    ) -> list[PromptVerdict]:
+    def score(self, manifest: list[JudgeTask], judgments: list[bool]) -> list[PromptVerdict]:
         """把回饋的 judgments（每個 task 是否觸發）映為 PromptVerdict。
 
         judgments 數與 manifest 不符時必須抛 RuntimeError，不得補零或截斷。
@@ -36,9 +34,7 @@ def verdicts_from_judgments(
     供各 backend 的 score() 重用——長度驗證是所有 backend 的共同契約。
     """
     if len(judgments) != len(manifest):
-        raise RuntimeError(
-            f"judgments 數（{len(judgments)}）與 manifest 數（{len(manifest)}）不符"
-        )
+        raise RuntimeError(f"judgments 數（{len(judgments)}）與 manifest 數（{len(manifest)}）不符")
     return [
         PromptVerdict(
             skill=task.skill,

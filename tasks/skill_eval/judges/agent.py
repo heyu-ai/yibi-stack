@@ -18,7 +18,5 @@ class AgentJudge(Judge):
         """agent backend 不重排，直接回傳原任務清單（index 已是穩定順序）。"""
         return list(tasks)
 
-    def score(
-        self, manifest: list[JudgeTask], judgments: list[bool]
-    ) -> list[PromptVerdict]:
+    def score(self, manifest: list[JudgeTask], judgments: list[bool]) -> list[PromptVerdict]:
         return verdicts_from_judgments(manifest, judgments)
