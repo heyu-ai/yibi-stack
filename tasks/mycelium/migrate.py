@@ -10,6 +10,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .config import HANDOVER_DB_PATH, HANDOVER_JSONL_PATH, INSIGHTS_JSONL_PATH, RETRO_JSONL_PATH
 from .db import AgentsDB
@@ -236,13 +237,25 @@ def migrate_retrospectives_from_handovers(
 
 
 def _extract_pr_number(tags: list[str], topic: str) -> int | None:
-    """優先從 `pr-<n>` 形式的 tag 解析；找不到再從 topic 的 `PR #<n>` 字樣解析。"""
+    """優先從 topic 的 `PR #<n>` 字樣解析；找不到再從 `pr-<n>` 形式的 tag 解析。
+
+    **不可**先掃 tags：舊版 `/pr-retro` 寫入的 tags 順序是
+    `["pr-retrospective", <branch>, "pr-<n>", ...extra]`，如果 branch 名稱本身
+    剛好符合 `^pr-(\\d+)$`（常見慣例，例如 `gh pr checkout 42` 建立的分支字面上
+    就叫 `pr-42`），照順序掃會先命中 branch 那個 tag、回傳錯誤的 PR 號碼，且完全
+    不會報錯——遷移出來的記錄會被悄悄歸到錯的 PR 底下。topic 的格式穩定為
+    `"Retro: PR #<n> - <problem>"`（`TOPIC` 建構邏輯自 SKILL.md 第一個 commit 起
+    未變），`PR #<n>` 固定出現在字串開頭，即使 `<problem>` 內文提到其他 PR 編號，
+    `.search()` 找到的第一個匹配仍然是正確的那個。
+    """
+    m = _PR_NUMBER_TOPIC_RE.search(topic)
+    if m:
+        return int(m.group(1))
     for tag in tags:
         m = _PR_NUMBER_TAG_RE.match(tag)
         if m:
             return int(m.group(1))
-    m = _PR_NUMBER_TOPIC_RE.search(topic)
-    return int(m.group(1)) if m else None
+    return None
 
 
 def _decode_json_list(raw: object) -> list[str]:
@@ -256,11 +269,27 @@ def _decode_json_list(raw: object) -> list[str]:
     return []
 
 
+def _decode_json_dict_list(raw: object) -> list[dict[str, Any]]:
+    if isinstance(raw, str):
+        try:
+            decoded = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        if isinstance(decoded, list):
+            return [x for x in decoded if isinstance(x, dict)]
+    return []
+
+
 def _handover_row_to_retro_record(row: sqlite3.Row) -> RetrospectiveRecord | None:
     """把帶 `pr-retrospective` tag 的 `handovers` row 轉成 RetrospectiveRecord。
 
     無法解析出 pr_number 時回傳 None（呼叫端視為跳過，因為 pr_number 在新
     schema 裡是 NOT NULL）。
+
+    也搬 token 用量欄位——舊版 `/pr-retro`（PR #205 這條分支上，`retrospectives`
+    table 出現之前）短暫把 `--auto-tokens` 寫進 `handovers` 過；即使目前的
+    `handovers` CREATE TABLE 已經不再定義這 9 個欄位，既有的實體 DB 檔案不會被
+    追溯刪欄位，`data.get(...)` 在欄位不存在時安全回傳 None，新舊 DB 都能正確處理。
     """
     data = dict(row)
     tags = _decode_json_list(data.get("tags"))
@@ -287,6 +316,15 @@ def _handover_row_to_retro_record(row: sqlite3.Row) -> RetrospectiveRecord | Non
         working_dir=data.get("working_dir"),
         project=data.get("project"),
         source_bot=data.get("source_bot"),
+        token_input_tokens=data.get("token_input_tokens"),
+        token_output_tokens=data.get("token_output_tokens"),
+        token_cache_read_tokens=data.get("token_cache_read_tokens"),
+        token_cache_creation_tokens=data.get("token_cache_creation_tokens"),
+        token_total_cost_usd=data.get("token_total_cost_usd"),
+        token_cost_by_model=_decode_json_dict_list(data.get("token_cost_by_model")),
+        session_effort=data.get("session_effort"),
+        token_optimization_notes=_decode_json_list(data.get("token_optimization_notes")),
+        token_usage_source=data.get("token_usage_source"),
     )
 
 

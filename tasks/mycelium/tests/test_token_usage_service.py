@@ -466,6 +466,36 @@ class TestComputeTokenUsageReport:
         assert report.warning is None
         assert {row["model"] for row in report.by_model} == {"claude-sonnet-5"}
 
+    def test_toksvc_eg_008_zero_usage_non_synthetic_model_not_swallowed(
+        self, tmp_path: Path
+    ) -> None:
+        """TOKSVC-EG-008：全零用量但 model 名稱不是 `<synthetic>` 時不可被濾掉。
+
+        這是 `_is_synthetic_marker` 只鎖定 model 名稱字面等於 `<synthetic>`
+        （而非任何全零用量）的存在理由：一個真正未定價、剛好全零用量的 model
+        代表值得回報的異常（例如 SDK 回應被截斷），必須讓 unpriced_models
+        檢查看到它、觸發 computed_partial，不能被靜默吞掉。
+        """
+        working_dir = (tmp_path / "repo").resolve()
+        projects_dir = tmp_path / "projects"
+        slug = _slug_for(working_dir)
+        _write_jsonl(
+            projects_dir / slug / "session-a.jsonl",
+            [
+                _assistant_message("claude-sonnet-5", input_tokens=10, cwd=str(working_dir)),
+                _assistant_message("claude-unknown-9000", input_tokens=0, output_tokens=0),
+            ],
+        )
+
+        report = compute_token_usage_report(working_dir, projects_dir=projects_dir)
+        assert report.status == "computed_partial"
+        assert report.warning is not None
+        assert "claude-unknown-9000" in report.warning
+        assert {row["model"] for row in report.by_model} == {
+            "claude-sonnet-5",
+            "claude-unknown-9000",
+        }
+
     def test_toksvc_dt_009_unpriced_model_marks_computed_partial(self, tmp_path: Path) -> None:
         """TOKSVC-DT-009：出現定價表沒有的 model 時，status=computed_partial + warning。"""
         working_dir = (tmp_path / "repo").resolve()

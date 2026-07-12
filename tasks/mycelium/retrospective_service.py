@@ -54,6 +54,7 @@ def write_retrospective(  # pylint: disable=too-many-arguments,too-many-locals
     effective_dir = Path(working_dir).resolve() if working_dir else Path.cwd().resolve()
 
     token_fields = compute_auto_token_fields(effective_dir, auto_token_usage)
+    resolved_agent_type = agent_type or detect_agent_type()
 
     record = RetrospectiveRecord(
         id=str(uuid.uuid4()),
@@ -68,9 +69,8 @@ def write_retrospective(  # pylint: disable=too-many-arguments,too-many-locals
         lessons_learned=lessons_learned or [],
         tags=tags or [],
         device=device or detect_device(),
-        agent_type=agent_type or detect_agent_type(),
-        subscription_account=account
-        or detect_account(agent_type=agent_type or "claude", warn=False),
+        agent_type=resolved_agent_type,
+        subscription_account=account or detect_account(agent_type=resolved_agent_type, warn=False),
         branch=branch if branch is not None else detect_branch(),
         working_dir=to_portable_path(str(effective_dir)),
         project=project or detect_project(effective_dir),

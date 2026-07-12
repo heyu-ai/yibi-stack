@@ -321,8 +321,19 @@ def _count_tool_uses(agent_path: Path) -> dict[str, int]:
     return counts
 
 
-def _is_zero_usage(acc: UsageAccumulator) -> bool:
-    """判斷是否為全零用量（如 Claude Code 內部的 `<synthetic>` 標記記錄）。"""
+_SYNTHETIC_MODEL_MARKER = "<synthetic>"
+
+
+def _is_synthetic_marker(model: str, acc: UsageAccumulator) -> bool:
+    """判斷是否為 Claude Code 內部的 `<synthetic>` 零用量標記記錄（非真實 API 呼叫）。
+
+    **只鎖定 model 名稱字面等於 `<synthetic>` 且全零用量**——不可只看「全零用量」
+    就濾掉：一個真正未定價的 model（如 `claude-unknown-9000`）若剛好出現全零用量
+    （例如 SDK 回應被截斷、usage 沒填），代表的是一個值得回報的異常，濾掉會讓
+    `computed_partial` 的 WARN 永遠不會觸發，回報看起來乾淨但其實漏掉了異常訊號。
+    """
+    if model != _SYNTHETIC_MODEL_MARKER:
+        return False
     return (
         acc.input_tokens == 0
         and acc.output_tokens == 0
@@ -420,10 +431,13 @@ def _compute_report_for_transcript(main_transcript: Path) -> TokenUsageReport:
         )
 
     # Claude Code 會在 transcript 中插入 model="<synthetic>"、usage 全 0 的內部標記
-    # 記錄（非真實 API 呼叫）；濾掉零用量的 model，避免它被誤判成「未定價」而觸發
-    # 不必要的 computed_partial/WARN，也不汙染 by_model 輸出。
+    # 記錄（非真實 API 呼叫）；只濾掉這個特定標記，避免它被誤判成「未定價」而觸發
+    # 不必要的 computed_partial/WARN。其他 model 即使剛好全零用量也保留，讓
+    # unpriced_models 檢查有機會抓到真正的異常（見 _is_synthetic_marker docstring）。
     breakdowns = [
-        _model_cost(model, acc) for model, acc in per_model.items() if not _is_zero_usage(acc)
+        _model_cost(model, acc)
+        for model, acc in per_model.items()
+        if not _is_synthetic_marker(model, acc)
     ]
 
     priced_costs = [b.cost_usd for b in breakdowns if b.priced and b.cost_usd is not None]
