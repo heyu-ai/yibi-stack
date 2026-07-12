@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from click.testing import CliRunner
 
@@ -43,3 +44,190 @@ class TestLinkClaude:
             },
         )
         assert result.exit_code == 1
+
+
+class TestTokenUsageReportCli:
+    def test_tuc_dt_001_computed_exits_zero(self, tmp_path: Path, monkeypatch) -> None:
+        """TUC-DT-001：status=computed 時 exit code 0，輸出含成本估算。"""
+        from tasks.mycelium.token_usage_service import TokenUsageReport
+
+        report = TokenUsageReport(
+            status="computed",
+            total_input_tokens=1000,
+            total_output_tokens=200,
+            total_cost_usd=0.05,
+            by_model=[
+                {
+                    "model": "claude-sonnet-5",
+                    "input_tokens": 1000,
+                    "output_tokens": 200,
+                    "cache_read_tokens": 0,
+                    "cache_creation_tokens": 0,
+                    "cost_usd": 0.05,
+                    "priced": True,
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            "tasks.mycelium.token_usage_service.compute_token_usage_report",
+            lambda *a, **k: report,
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["token-usage", "report", "--workdir", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "estimated_cost_usd" in result.output
+
+    def test_tuc_dt_002_unavailable_exits_two(self, tmp_path: Path, monkeypatch) -> None:
+        """TUC-DT-002：status=unavailable 時 exit code 2，輸出 [WARN]。"""
+        from tasks.mycelium.token_usage_service import TokenUsageReport
+
+        report = TokenUsageReport(status="unavailable", warning="找不到 transcript")
+        monkeypatch.setattr(
+            "tasks.mycelium.token_usage_service.compute_token_usage_report",
+            lambda *a, **k: report,
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["token-usage", "report", "--workdir", str(tmp_path)])
+        assert result.exit_code == 2
+        assert "[WARN]" in result.output
+
+    def test_tuc_dt_003_ambiguous_exits_three(self, tmp_path: Path, monkeypatch) -> None:
+        """TUC-DT-003：status=ambiguous 時 exit code 3。"""
+        from tasks.mycelium.token_usage_service import TokenUsageReport
+
+        report = TokenUsageReport(status="ambiguous", warning="偵測到並行 session")
+        monkeypatch.setattr(
+            "tasks.mycelium.token_usage_service.compute_token_usage_report",
+            lambda *a, **k: report,
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["token-usage", "report", "--workdir", str(tmp_path)])
+        assert result.exit_code == 3
+
+    def test_tuc_st_001_json_flag_outputs_valid_json(self, tmp_path: Path, monkeypatch) -> None:
+        """TUC-ST-001：--json 輸出合法 JSON，欄位與 report 一致。"""
+        from tasks.mycelium.token_usage_service import TokenUsageReport
+
+        report = TokenUsageReport(status="computed", total_input_tokens=42)
+        monkeypatch.setattr(
+            "tasks.mycelium.token_usage_service.compute_token_usage_report",
+            lambda *a, **k: report,
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["token-usage", "report", "--workdir", str(tmp_path), "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["total_input_tokens"] == 42
+
+
+def _make_fake_write_retrospective(captured: dict[str, object]):
+    """建立一個記錄 kwargs 並回傳假 record 的 write_retrospective 替身。"""
+
+    def _fake_write_retrospective(*args: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace(
+            id="fake-id",
+            pr_number=kwargs.get("pr_number"),
+            topic=kwargs.get("topic"),
+            device="fake-device",
+            subscription_account="fake-account",
+            project="fake-project",
+        )
+
+    return _fake_write_retrospective
+
+
+class TestRetroWriteCli:
+    def test_rwc_st_001_auto_tokens_flag_passed_through(self, tmp_path: Path, monkeypatch) -> None:
+        """RWC-ST-001：--auto-tokens 會傳入 write_retrospective(auto_token_usage=True)。"""
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            "tasks.mycelium.retrospective_service.write_retrospective",
+            _make_fake_write_retrospective(captured),
+        )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "retro",
+                "write",
+                "--pr-number",
+                "205",
+                "--topic",
+                "t",
+                "--summary",
+                "s",
+                "--auto-tokens",
+            ],
+        )
+        assert result.exit_code == 0
+        assert captured.get("auto_token_usage") is True
+        assert captured.get("pr_number") == 205
+
+    def test_rwc_st_002_without_flag_defaults_false(self, tmp_path: Path, monkeypatch) -> None:
+        """RWC-ST-002：未帶 --auto-tokens 時 auto_token_usage 預設 False。"""
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            "tasks.mycelium.retrospective_service.write_retrospective",
+            _make_fake_write_retrospective(captured),
+        )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "retro",
+                "write",
+                "--pr-number",
+                "205",
+                "--topic",
+                "t",
+                "--summary",
+                "s",
+            ],
+        )
+        assert result.exit_code == 0
+        assert captured.get("auto_token_usage") is False
+
+
+class TestRetroReadSearchCli:
+    def test_rrc_st_001_read_json_flag(self, tmp_path: Path, monkeypatch) -> None:
+        """RRC-ST-001：retro read --json 輸出 read_recent_retrospectives 的結果。"""
+        monkeypatch.setattr(
+            "tasks.mycelium.retrospective_service.read_recent_retrospectives",
+            lambda *a, **k: [{"id": "r1", "pr_number": 205}],
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["retro", "read", "--last", "1", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data == [{"id": "r1", "pr_number": 205}]
+
+    def test_rsc_st_001_search_pr_number_passthrough(self, tmp_path: Path, monkeypatch) -> None:
+        """RSC-ST-001：retro search --pr-number 正確傳給 search_retrospectives。"""
+        captured: dict[str, object] = {}
+
+        def _fake_search(*args: object, **kwargs: object) -> list[dict[str, object]]:
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(
+            "tasks.mycelium.retrospective_service.search_retrospectives", _fake_search
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["retro", "search", "--pr-number", "205"])
+        assert result.exit_code == 0
+        assert captured.get("pr_number") == 205
+
+
+class TestRetroMigrateCli:
+    def test_rmc_st_001_reports_counts(self, tmp_path: Path, monkeypatch) -> None:
+        """RMC-ST-001：retro migrate-from-handovers 印出 migrate.py 回傳的統計。"""
+        monkeypatch.setattr(
+            "tasks.mycelium.migrate.migrate_retrospectives_from_handovers",
+            lambda *a, **k: (3, 1),
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["retro", "migrate-from-handovers"])
+        assert result.exit_code == 0
+        assert "3" in result.output
+        assert "1" in result.output

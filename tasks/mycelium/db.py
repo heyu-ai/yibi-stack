@@ -17,6 +17,7 @@ from .models import (
     HandoverEvent,
     HandoverRecord,
     LessonRecord,
+    RetrospectiveRecord,
     SessionType,
 )
 
@@ -58,9 +59,24 @@ _JSON_ARRAY_COLS = (
     "last_files",
 )
 
+_RETRO_JSON_ARRAY_COLS = (
+    "completed",
+    "decisions",
+    "next_priorities",
+    "lessons_learned",
+    "tags",
+    "token_cost_by_model",
+    "token_optimization_notes",
+)
 
-class AgentsDB:
-    """Handover SQLite：lazy connect、WAL 模式、自動建表。"""
+
+class AgentsDB:  # pylint: disable=too-many-public-methods
+    """Handover SQLite：lazy connect、WAL 模式、自動建表。
+
+    跨多張 table（handovers/retrospectives/lessons/events/control_log）的 facade，
+    公開方法數量因此超出 pylint 預設門檻——用 class 層級 disable 取代全域門檻調整，
+    避免影響其他 class 的檢查範圍。
+    """
 
     def __init__(self, db_path: str | Path | None = None) -> None:
         self._db_path = str(db_path or HANDOVER_DB_PATH)
@@ -128,6 +144,43 @@ class AgentsDB:
             CREATE INDEX IF NOT EXISTS idx_handovers_account
               ON handovers(subscription_account);
 
+            CREATE TABLE IF NOT EXISTS retrospectives (
+              id                   TEXT PRIMARY KEY,
+              timestamp            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
+              operator             TEXT NOT NULL DEFAULT 'howie',
+              pr_number            INTEGER NOT NULL,
+              topic                TEXT NOT NULL,
+              conversation_summary TEXT NOT NULL,
+              completed            TEXT NOT NULL DEFAULT '[]',
+              decisions            TEXT NOT NULL DEFAULT '[]',
+              next_priorities      TEXT NOT NULL DEFAULT '[]',
+              lessons_learned      TEXT NOT NULL DEFAULT '[]',
+              tags                 TEXT NOT NULL DEFAULT '[]',
+              device               TEXT,
+              agent_type           TEXT DEFAULT 'claude',
+              subscription_account TEXT,
+              branch               TEXT,
+              working_dir          TEXT,
+              project              TEXT,
+              source_bot           TEXT,
+              token_input_tokens   INTEGER,
+              token_output_tokens  INTEGER,
+              token_cache_read_tokens     INTEGER,
+              token_cache_creation_tokens INTEGER,
+              token_total_cost_usd REAL,
+              token_cost_by_model  TEXT NOT NULL DEFAULT '[]',
+              session_effort       TEXT,
+              token_optimization_notes TEXT NOT NULL DEFAULT '[]',
+              token_usage_source   TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_retrospectives_pr_number
+              ON retrospectives(pr_number);
+            CREATE INDEX IF NOT EXISTS idx_retrospectives_timestamp
+              ON retrospectives(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_retrospectives_project
+              ON retrospectives(project);
+
             CREATE TABLE IF NOT EXISTS handover_events (
               id            TEXT PRIMARY KEY,
               timestamp     TEXT NOT NULL,
@@ -161,6 +214,7 @@ class AgentsDB:
             "ALTER TABLE lessons ADD COLUMN last_accessed_at TEXT",
             "ALTER TABLE lessons ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE lessons ADD COLUMN archived_path TEXT",
+            "ALTER TABLE lessons ADD COLUMN retrospective_id TEXT",
         ):
             try:
                 self.conn.execute(_alter)
@@ -230,6 +284,7 @@ class AgentsDB:
               trusted     INTEGER NOT NULL DEFAULT 0,
               files       TEXT NOT NULL DEFAULT '[]',
               handover_id TEXT,
+              retrospective_id TEXT,
               retro_pr    INTEGER,
               device          TEXT,
               agent_type      TEXT NOT NULL DEFAULT 'claude',
@@ -297,6 +352,130 @@ class AgentsDB:
             ),
         )
         self.conn.commit()
+
+    def insert_retrospective(self, record: RetrospectiveRecord) -> None:
+        """寫入一筆 retrospective；`id` 衝突時 raise sqlite3.IntegrityError（呼叫端處理）。"""
+        self.conn.execute(
+            """
+            INSERT INTO retrospectives (
+              id, timestamp, operator, pr_number, topic, conversation_summary,
+              completed, decisions, next_priorities, lessons_learned, tags,
+              device, agent_type, subscription_account, branch, working_dir,
+              project, source_bot,
+              token_input_tokens, token_output_tokens, token_cache_read_tokens,
+              token_cache_creation_tokens, token_total_cost_usd, token_cost_by_model,
+              session_effort, token_optimization_notes, token_usage_source
+            ) VALUES (
+              ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?,
+              ?, ?,
+              ?, ?, ?,
+              ?, ?, ?,
+              ?, ?, ?
+            )
+            """,
+            (
+                record.id,
+                record.timestamp,
+                record.operator,
+                record.pr_number,
+                record.topic,
+                record.conversation_summary,
+                json.dumps(record.completed, ensure_ascii=False),
+                json.dumps(record.decisions, ensure_ascii=False),
+                json.dumps(record.next_priorities, ensure_ascii=False),
+                json.dumps(record.lessons_learned, ensure_ascii=False),
+                json.dumps(record.tags, ensure_ascii=False),
+                record.device,
+                record.agent_type,
+                record.subscription_account,
+                record.branch,
+                record.working_dir,
+                record.project,
+                record.source_bot,
+                record.token_input_tokens,
+                record.token_output_tokens,
+                record.token_cache_read_tokens,
+                record.token_cache_creation_tokens,
+                record.token_total_cost_usd,
+                json.dumps(record.token_cost_by_model, ensure_ascii=False),
+                record.session_effort,
+                json.dumps(record.token_optimization_notes, ensure_ascii=False),
+                record.token_usage_source.value if record.token_usage_source else None,
+            ),
+        )
+        self.conn.commit()
+
+    def upsert_retrospective(self, record: RetrospectiveRecord) -> None:
+        """寫入或更新（migrate 用：同 id 視為相同記錄，跳過）。"""
+        try:
+            self.insert_retrospective(record)
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed: retrospectives.id" not in str(e):
+                raise  # 非重複 id 的 IntegrityError（如 NOT NULL、CHECK），照常拋出
+
+    def read_recent_retrospectives(
+        self,
+        last: int = 4,
+        project: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """取最近 N 筆 retrospective，回傳 dict list（JSON array 欄位已 decode）。"""
+        if last <= 0:
+            raise ValueError("last 必須為正整數")
+        conditions: list[str] = []
+        params: list[object] = []
+        if project:
+            conditions.append("project = ?")
+            params.append(project)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
+        sql = f"SELECT * FROM retrospectives {where} ORDER BY timestamp DESC LIMIT ?"  # nosec B608
+        params.append(last)
+        cur = self.conn.execute(sql, params)
+        return [_decode_retro_row(row) for row in cur.fetchall()]
+
+    def search_retrospectives(
+        self,
+        query: str | None = None,
+        pr_number: int | None = None,
+        project: str | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """搜尋 retrospective 記錄；`pr_number` 為精確匹配。"""
+        if limit <= 0:
+            raise ValueError("limit 必須為正整數")
+
+        conditions: list[str] = []
+        params: list[object] = []
+
+        if query:
+            safe_query = _escape_like(query.lower())
+            like = f"%{safe_query}%"
+            conditions.append(
+                "(LOWER(topic) LIKE ? ESCAPE '\\'"
+                " OR LOWER(conversation_summary) LIKE ? ESCAPE '\\'"
+                " OR LOWER(tags) LIKE ? ESCAPE '\\'"
+                " OR LOWER(lessons_learned) LIKE ? ESCAPE '\\')"
+            )
+            params.extend([like, like, like, like])
+
+        if pr_number is not None:
+            conditions.append("pr_number = ?")
+            params.append(pr_number)
+
+        if project:
+            conditions.append("project = ?")
+            params.append(project)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
+        sql = (
+            f"SELECT * FROM retrospectives {where} "  # nosec B608
+            "ORDER BY timestamp DESC LIMIT ?"
+        )
+        params.append(limit)
+
+        cur = self.conn.execute(sql, params)
+        return [_decode_retro_row(row) for row in cur.fetchall()]
 
     def upsert_handover(self, record: HandoverRecord) -> None:
         """寫入或更新（migrate 用：同 id 視為相同記錄，跳過）。"""
@@ -426,9 +605,10 @@ class AgentsDB:
             """
             INSERT INTO lessons (
               id, ts, project, skill, type, key, insight, confidence,
-              source, trusted, files, handover_id, retro_pr, device, agent_type,
+              source, trusted, files, handover_id, retrospective_id, retro_pr,
+              device, agent_type,
               source_bot, tags, tier, last_accessed_at, access_count, archived_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.id,
@@ -443,6 +623,7 @@ class AgentsDB:
                 int(record.trusted),
                 json.dumps(record.files, ensure_ascii=False),
                 record.handover_id,
+                record.retrospective_id,
                 record.retro_pr,
                 record.device,
                 record.agent_type,
@@ -794,6 +975,18 @@ def _decode_row(row: sqlite3.Row) -> dict[str, Any]:
     """把 sqlite3.Row 轉成 dict，並把 JSON array 欄位 decode 回 list。"""
     out = dict(row)
     for col in _JSON_ARRAY_COLS:
+        if col in out and isinstance(out[col], str):
+            try:
+                out[col] = json.loads(out[col])
+            except json.JSONDecodeError:
+                out[col] = []
+    return out
+
+
+def _decode_retro_row(row: sqlite3.Row) -> dict[str, Any]:
+    """把 retrospectives 的 sqlite3.Row 轉成 dict，並把 JSON array 欄位 decode 回 list。"""
+    out = dict(row)
+    for col in _RETRO_JSON_ARRAY_COLS:
         if col in out and isinstance(out[col], str):
             try:
                 out[col] = json.loads(out[col])
