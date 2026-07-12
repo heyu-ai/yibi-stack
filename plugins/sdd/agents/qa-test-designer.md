@@ -9,6 +9,7 @@ description: >
   Decision Table (DT), State Transition (ST), Pairwise (PW), Risk-Based (RB).
   No file I/O -- pure in-context transformation.
 model: opus
+effort: high
 tools: []
 ---
 
