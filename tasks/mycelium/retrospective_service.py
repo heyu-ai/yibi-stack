@@ -71,7 +71,7 @@ def write_retrospective(  # pylint: disable=too-many-arguments,too-many-locals
         device=device or detect_device(),
         agent_type=resolved_agent_type,
         subscription_account=account or detect_account(agent_type=resolved_agent_type, warn=False),
-        branch=branch if branch is not None else detect_branch(),
+        branch=branch if branch is not None else detect_branch(effective_dir),
         working_dir=to_portable_path(str(effective_dir)),
         project=project or detect_project(effective_dir),
         **token_fields,

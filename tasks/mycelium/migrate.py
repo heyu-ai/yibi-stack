@@ -8,9 +8,12 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from pydantic import ValidationError
 
 from .config import HANDOVER_DB_PATH, HANDOVER_JSONL_PATH, INSIGHTS_JSONL_PATH, RETRO_JSONL_PATH
 from .db import AgentsDB
@@ -223,7 +226,17 @@ def migrate_retrospectives_from_handovers(
         migrated = 0
         skipped = 0
         for row in cur.fetchall():
-            record = _handover_row_to_retro_record(row)
+            try:
+                record = _handover_row_to_retro_record(row)
+            except ValidationError as e:
+                # 單筆舊資料損毀（如欄位型別不符）不可讓整批遷移中途崩潰——
+                # 378 筆真實資料裡任何一筆壞掉，都不該擋住後面所有筆的遷移。
+                print(
+                    f"[WARN] 跳過無法轉換的 handover row id={row['id']!r}：{e}",
+                    file=sys.stderr,
+                )
+                skipped += 1
+                continue
             if record is None or record.id in existing_ids:
                 skipped += 1
                 continue

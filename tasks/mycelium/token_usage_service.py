@@ -512,7 +512,7 @@ def compute_auto_token_fields(effective_dir: Path, enabled: bool) -> dict[str, A
         report = compute_token_usage_report(effective_dir)
     except Exception as e:  # noqa: BLE001  token 用量計算失敗不可影響呼叫端主寫入流程
         warnings.warn(f"token 用量自動計算失敗：{e}", stacklevel=2)
-        return {}
+        return {"token_usage_source": "unavailable"}
 
     fields: dict[str, Any] = {"token_usage_source": report.status}
     if report.status in ("computed", "computed_partial"):

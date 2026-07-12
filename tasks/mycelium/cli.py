@@ -1165,7 +1165,7 @@ def _echo_token_usage_report(report: Any, *, project: str | None) -> None:
             click.echo(
                 f"    {row['model']:<30} input={row['input_tokens']:,} "
                 f"output={row['output_tokens']:,} cache_read={row['cache_read_tokens']:,} "
-                f"cost={cost}"
+                f"cache_creation={row['cache_creation_tokens']:,} cost={cost}"
             )
 
     if report.optimization_notes:

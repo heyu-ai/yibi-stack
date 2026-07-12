@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tasks.mycelium.models import TokenUsageSource
 from tasks.mycelium.retrospective_service import (
     read_recent_retrospectives,
     search_retrospectives,
@@ -112,6 +113,32 @@ class TestWriteRetrospective:
         assert record.project == "override-proj"
         assert record.branch == "override-branch"
 
+    def test_retro_st_006_branch_detected_from_working_dir_not_process_cwd(
+        self, paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        """RETRO-ST-006：detect_branch 要用 `--workdir` 解析出的目錄，不是行程當下的 cwd。
+
+        SKILL.md 的 Step 4 用 `uv run --directory "$SKILL_REPO"` 執行（子行程 cwd
+        變成 SKILL_REPO），同時傳 `--workdir "$REAL_WORKDIR"`（實際要回顧的 PR
+        worktree）——如果 detect_branch() 沒有明確傳入 effective_dir，會偵測到
+        SKILL_REPO 當下所在的 branch，不是 REAL_WORKDIR 的 branch。
+        """
+        fake_workdir = tmp_path / "some-other-worktree"
+        fake_workdir.mkdir()
+
+        with patch("tasks.mycelium.retrospective_service.detect_branch") as mock_detect_branch:
+            mock_detect_branch.return_value = "feature-branch"
+            write_retrospective(
+                pr_number=1,
+                topic="t",
+                summary="s",
+                working_dir=str(fake_workdir),
+                db_path=paths["db"],
+                jsonl_path=paths["jsonl"],
+            )
+
+        mock_detect_branch.assert_called_once_with(fake_workdir.resolve())
+
 
 class TestAutoTokenUsage:
     """write_retrospective(auto_token_usage=True) 在三種 compute 狀態下都不能 raise。"""
@@ -188,7 +215,7 @@ class TestAutoTokenUsage:
                 jsonl_path=paths["jsonl"],
             )
 
-        assert record.token_usage_source is None
+        assert record.token_usage_source == TokenUsageSource.unavailable
         rows = read_recent_retrospectives(last=1, db_path=paths["db"])
         assert rows[0]["id"] == record.id
 

@@ -405,3 +405,66 @@ class TestMigrateRetrospectivesFromHandovers:
         assert rows[0]["token_cost_by_model"] == [{"model": "claude-sonnet-5", "cost_usd": 1.2345}]
         assert rows[0]["session_effort"] == "high"
         assert rows[0]["token_usage_source"] == "computed"
+
+    def test_retro_mig_eg_003_one_malformed_row_does_not_crash_the_batch(
+        self, tmp_path: Path
+    ) -> None:
+        """RETRO-MIG-EG-003：一筆損毀的 handover row（Pydantic 驗證失敗）不可讓整批
+        遷移中途崩潰——同一批次裡其他合法的 row 仍要被正確遷移。
+
+        用一個不合法的 `token_usage_source` 值（不在 TokenUsageSource enum 裡）
+        觸發 RetrospectiveRecord 建構時的 ValidationError。
+        """
+        import json
+        import sqlite3
+
+        db_path = tmp_path / "shared.db"
+        jsonl_path = tmp_path / "retrospectives.jsonl"
+
+        db = AgentsDB(db_path)
+        try:
+            db.init_db()
+            db.insert_handover(
+                _make_retro_tagged_handover(id="valid-row", topic="Retro: PR #1 - a")
+            )
+        finally:
+            db.close()
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("ALTER TABLE handovers ADD COLUMN token_usage_source TEXT")  # nosec B608
+        conn.execute(
+            """
+            INSERT INTO handovers (
+              id, timestamp, operator, session_type, topic, conversation_summary, tags,
+              token_usage_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "malformed-row",
+                "2026-04-11T00:00:00+00:00",
+                "howie",
+                "discussion",
+                "Retro: PR #2 - b",
+                "summary",
+                json.dumps(["pr-retrospective", "main", "pr-2"]),
+                "not-a-valid-enum-value",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        migrated, skipped = migrate_retrospectives_from_handovers(
+            handover_db_path=db_path, retro_jsonl_path=jsonl_path
+        )
+
+        # 壞掉那筆被跳過，好的那筆仍然成功遷移——不是整批 raise。
+        assert migrated == 1
+        assert skipped == 1
+
+        db = AgentsDB(db_path)
+        try:
+            rows = db.search_retrospectives(pr_number=1)
+        finally:
+            db.close()
+        assert len(rows) == 1
+        assert rows[0]["id"] == "valid-row"

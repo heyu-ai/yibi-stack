@@ -274,8 +274,8 @@ class TestAccumulateUsageByModel:
         result = _accumulate_usage_by_model(path)
         assert set(result) == {"claude-sonnet-5", "claude-opus-4-8"}
 
-    def test_toksvc_eg_002_legacy_flat_cache_creation_folds_into_5m(self, tmp_path: Path) -> None:
-        """TOKSVC-EG-002：舊格式的攤平 cache_creation_input_tokens 保守歸入 5m 分桶。"""
+    def test_toksvc_eg_009_legacy_flat_cache_creation_folds_into_5m(self, tmp_path: Path) -> None:
+        """TOKSVC-EG-009：舊格式的攤平 cache_creation_input_tokens 保守歸入 5m 分桶。"""
         path = tmp_path / "t.jsonl"
         _write_jsonl(
             path,
@@ -331,8 +331,8 @@ class TestModelCost:
         assert breakdown.cost_usd is not None
         assert abs(breakdown.cost_usd - expected) < 1e-9
 
-    def test_toksvc_dt_005_unpriced_model_returns_none_cost(self) -> None:
-        """TOKSVC-DT-005：定價表沒有的 model，cost_usd=None、priced=False。"""
+    def test_toksvc_dt_011_unpriced_model_returns_none_cost(self) -> None:
+        """TOKSVC-DT-011：定價表沒有的 model，cost_usd=None、priced=False。"""
         breakdown = _model_cost("claude-unknown-9000", UsageAccumulator(input_tokens=100))
         assert breakdown.priced is False
         assert breakdown.cost_usd is None
@@ -366,8 +366,8 @@ class TestFindSubagentTranscripts:
 
 
 class TestGenerateOptimizationNotes:
-    def test_toksvc_dt_006_flags_expensive_model_with_zero_mutating(self) -> None:
-        """TOKSVC-DT-006：昂貴 model + 零 mutating tool call → 產生 best-effort 建議。"""
+    def test_toksvc_dt_012_flags_expensive_model_with_zero_mutating(self) -> None:
+        """TOKSVC-DT-012：昂貴 model + 零 mutating tool call → 產生 best-effort 建議。"""
         notes = _generate_optimization_notes(
             [
                 {
@@ -572,13 +572,13 @@ class TestComputeAutoTokenFields:
         fields = compute_auto_token_fields(tmp_path, True)
         assert fields == {"token_usage_source": "ambiguous"}
 
-    def test_toksvc_eg_007_internal_exception_returns_empty_dict(
+    def test_toksvc_eg_010_internal_exception_returns_unavailable(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        """TOKSVC-EG-007：compute_token_usage_report 本身 raise 時回傳空 dict，不往外拋。"""
+        """TOKSVC-EG-010：內部 raise 時回傳 unavailable，不往外拋也不靜默吞掉。"""
 
         def _raise(*a: object, **k: object) -> None:
             raise RuntimeError("boom")
 
         monkeypatch.setattr("tasks.mycelium.token_usage_service.compute_token_usage_report", _raise)
-        assert compute_auto_token_fields(tmp_path, True) == {}
+        assert compute_auto_token_fields(tmp_path, True) == {"token_usage_source": "unavailable"}
