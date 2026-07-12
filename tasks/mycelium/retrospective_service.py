@@ -7,6 +7,7 @@ handoff 狀態）分開，不共用 handovers table，也不需要 tag/topic 前
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import uuid
@@ -135,10 +136,8 @@ def _expand_paths(row: dict[str, Any]) -> dict[str, Any]:
     """
     result = dict(row)
     if result.get("working_dir"):
-        try:
+        with contextlib.suppress(ValueError):  # 保留原值，向後相容舊 DB 格式
             result["working_dir"] = from_portable_path(result["working_dir"])
-        except ValueError:
-            pass  # 保留原值，向後相容舊 DB 格式
     return result
 
 

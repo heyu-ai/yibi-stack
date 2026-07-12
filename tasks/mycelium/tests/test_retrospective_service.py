@@ -78,9 +78,7 @@ class TestWriteRetrospective:
         monkeypatch.setenv("AGENT_ACCOUNT", "test-account")
         with (
             patch("tasks.mycelium.retrospective_service.detect_device", return_value="test-dev"),
-            patch(
-                "tasks.mycelium.retrospective_service.detect_project", return_value="test-proj"
-            ),
+            patch("tasks.mycelium.retrospective_service.detect_project", return_value="test-proj"),
             patch("tasks.mycelium.retrospective_service.detect_branch", return_value="main"),
         ):
             record = write_retrospective(
@@ -196,9 +194,7 @@ class TestAutoTokenUsage:
 
     def test_retro_tok_st_003_flag_off_skips_computation(self, paths: dict[str, Path]) -> None:
         """RETRO-TOK-ST-003：auto_token_usage=False（預設）時完全不呼叫計算函式。"""
-        with patch(
-            "tasks.mycelium.token_usage_service.compute_token_usage_report"
-        ) as mock_compute:
+        with patch("tasks.mycelium.token_usage_service.compute_token_usage_report") as mock_compute:
             record = write_retrospective(
                 pr_number=1,
                 topic="t",
@@ -225,9 +221,7 @@ class TestSearchRetrospectives:
         assert len(rows) == 1
         assert rows[0]["pr_number"] == 205
 
-    def test_retro_st_005_search_returns_empty_when_no_match(
-        self, paths: dict[str, Path]
-    ) -> None:
+    def test_retro_st_005_search_returns_empty_when_no_match(self, paths: dict[str, Path]) -> None:
         """RETRO-ST-005：找不到對應 pr_number 時回傳空 list（不 raise）。"""
         rows = search_retrospectives(pr_number=999, db_path=paths["db"])
         assert rows == []
