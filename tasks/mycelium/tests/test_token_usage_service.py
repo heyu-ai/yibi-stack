@@ -1,9 +1,9 @@
 """測試 token_usage_service：transcript 定位、usage 加總、成本計算、optimization notes。
 
-測試環境的 tmp_path 不是 git repo，_project_slug_for_cwd() 會在 `git -C <dir>
-rev-parse` 失敗時 fallback 成「escape 該目錄路徑本身」——這個 fallback 行為是
-確定性的，測試直接用同一條轉換規則建構假的 `~/.claude/projects/<slug>/` 目錄，
-不需要 mock subprocess。
+_project_slug_for_cwd() 直接把字面 cwd 路徑的 `/` 和 `.` 都換成 `-`，不解析 git
+repo 根目錄（實測驗證跟 Claude Code 真實的 `~/.claude/projects/<slug>/` 命名一致，
+見 TestProjectSlugForCwd）。測試直接用同一條轉換規則建構假的
+`~/.claude/projects/<slug>/` 目錄。
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from tasks.mycelium.token_usage_service import (
     _generate_optimization_notes,
     _model_cost,
     _normalize_model_id,
+    _project_slug_for_cwd,
     compute_auto_token_fields,
     compute_token_usage_report,
     find_current_transcript,
@@ -29,8 +30,8 @@ from tasks.mycelium.token_usage_service import (
 
 
 def _slug_for(cwd: Path) -> str:
-    """跟 _project_slug_for_cwd() 在非 git 目錄下的 fallback 行為一致（測試用）。"""
-    return re.sub(r"[/\\]", "-", str(cwd))
+    """跟 _project_slug_for_cwd() 的轉換規則一致（測試用）。"""
+    return re.sub(r"[/\\.]", "-", str(cwd))
 
 
 def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
@@ -100,6 +101,79 @@ class TestNormalizeModelId:
         assert _normalize_model_id("claude-unknown-9000") == "claude-unknown-9000"
 
 
+class TestProjectSlugForCwd:
+    """回歸測試：linked worktree 的 slug 不可收斂到主 repo 根目錄，`.` 也要換成 `-`。
+
+    這兩個規則都是實測 `~/.claude/projects/` 目錄命名反推出來的（不是文件記載的
+    官方行為）：Claude Code 用「目前所在的字面 cwd」當 slug 來源，
+    `/.claude/` 會變成 `--claude-`（`.` 也被換成 `-`，不是只換 `/`）。
+    """
+
+    def test_toksvc_dt_005_slash_and_dot_both_replaced(self) -> None:
+        """TOKSVC-DT-005：`.` 和 `/` 都要換成 `-`，不是只換 `/`。"""
+        cwd = Path("/Users/howie/Workspace/github/yibi-stack/.claude/worktrees/my-feature")
+        assert _project_slug_for_cwd(cwd) == (
+            "-Users-howie-Workspace-github-yibi-stack--claude-worktrees-my-feature"
+        )
+
+    def test_toksvc_dt_006_real_git_worktree_slug_does_not_collapse_to_main_repo(
+        self, tmp_path: Path
+    ) -> None:
+        """TOKSVC-DT-006：對一個真實的 git worktree 呼叫，slug 不可收斂成主 repo 根目錄的 slug。
+
+        用真的 `git init` + `git worktree add` 建構，確保這個測試真正踩過
+        `git -C <path> rev-parse --git-common-dir` 會成功解析的那條路徑——如果日後
+        有人不小心把 git-common-dir 解析邏輯加回來，這裡會失敗（純假路徑測試不會，
+        因為假路徑會讓 git 指令失敗、直接落到「用 cwd 本身」的 fallback，跟修好後的
+        正確行為表面上一樣，蓋不住這個 bug class）。
+
+        這是這個函式最核心的正確性要求：如果 worktree 被錯誤收斂成主 repo 的 slug，
+        `find_current_transcript` 會去錯的 `~/.claude/projects/<slug>/` 目錄找，
+        永遠找不到（或更糟，找到主 repo 裡其他不相關 session 的舊 transcript）。
+        """
+        import os
+        import subprocess  # nosec B404
+
+        git_env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t",
+        }
+        main_repo = tmp_path / "main-repo"
+        main_repo.mkdir()
+        subprocess.run(  # nosec B603 B607
+            ["git", "init", "-q", str(main_repo)], check=True, timeout=10
+        )
+        subprocess.run(  # nosec B603 B607
+            ["git", "-C", str(main_repo), "commit", "-q", "--allow-empty", "-m", "init"],
+            check=True,
+            timeout=10,
+            env=git_env,
+        )
+        worktree = tmp_path / "worktrees" / "my-feature"
+        worktree.parent.mkdir()
+        subprocess.run(  # nosec B603 B607
+            [
+                "git",
+                "-C",
+                str(main_repo),
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "my-feature",
+                str(worktree),
+            ],
+            check=True,
+            timeout=10,
+        )
+
+        assert _project_slug_for_cwd(worktree) != _project_slug_for_cwd(main_repo)
+        assert _project_slug_for_cwd(worktree) == _slug_for(worktree)
+
+
 class TestFindCurrentTranscript:
     def test_toksvc_st_001_found_single_match(self, tmp_path: Path) -> None:
         """TOKSVC-ST-001：cwd 相符且唯一時回傳 found。"""
@@ -135,6 +209,27 @@ class TestFindCurrentTranscript:
 
         result = find_current_transcript(working_dir, projects_dir=projects_dir)
         assert result.status == "not_found"
+
+    def test_toksvc_eg_002_matches_on_last_cwd_not_first(self, tmp_path: Path) -> None:
+        """TOKSVC-EG-002：session 中途換過 cwd（如呼叫 EnterWorktree）時，要比對
+        最後一筆記錄的 cwd，不是第一筆——否則正在使用中的 worktree session 會被
+        排除在候選之外（真實踩過的 bug：這個 repo 自己的 session transcript 第一筆
+        cwd 是 EnterWorktree 前的主 repo根目錄，但呼叫這個函式當下 cwd 早已是
+        worktree 路徑）。"""
+        old_dir = (tmp_path / "main-repo").resolve()
+        new_dir = (tmp_path / "main-repo" / ".claude" / "worktrees" / "my-feature").resolve()
+        projects_dir = tmp_path / "projects"
+        slug = _slug_for(new_dir)
+        _write_jsonl(
+            projects_dir / slug / "session-a.jsonl",
+            [
+                _assistant_message("claude-sonnet-5", cwd=str(old_dir)),
+                _assistant_message("claude-sonnet-5", cwd=str(new_dir)),
+            ],
+        )
+
+        result = find_current_transcript(new_dir, projects_dir=projects_dir)
+        assert result.status == "found"
 
     def test_toksvc_eg_001_ambiguous_when_mtimes_close(self, tmp_path: Path) -> None:
         """TOKSVC-EG-001：兩個候選檔案 mtime 太接近時回傳 ambiguous，不硬猜。"""

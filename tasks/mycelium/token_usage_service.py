@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess  # nosec B404
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -112,32 +111,43 @@ def _normalize_model_id(model: str) -> str:
 
 
 def _project_slug_for_cwd(cwd: Path) -> str:
-    """把 git repo 根目錄路徑轉成 `~/.claude/projects/<slug>` 的目錄名稱。
+    """把工作目錄路徑轉成 `~/.claude/projects/<slug>` 的目錄名稱。
 
-    沿用 `bash_hygiene_audit/cli.py` 的轉換邏輯。**不可**改用
-    `registry.resolve_project_slug()`——那個回傳的是 handover 用的純 repo 名稱
-    （如 "yibi-stack"），不是這裡要的 transcript 目錄 slug
-    （如 "-Users-howie-Workspace-github-yibi-stack"）。
+    Claude Code 用「目前所在的字面 cwd」（不是 git repo 根目錄）當 project slug
+    的來源，把 `/` 和 `.` 都換成 `-`；linked worktree 因此有自己獨立的 slug 目錄，
+    跟主 repo 的 slug 目錄是分開的（實測驗證：`.claude/worktrees/<name>/` 這種路徑，
+    `/.claude/` 會變成 `--claude-`，不是 `-.claude-`，證實 `.` 也會被替換）。
+    這個 slug 不是 session 啟動時就固定寫死——`EnterWorktree` 中途切換工作目錄後，
+    同一個 session 的 transcript 會接著寫進新 cwd 對應的 slug 目錄（呼叫端需自行
+    傳入「目前」cwd，見 `_last_record_cwd`）。
+
+    **不可**解析到 git repo 根目錄（例如透過 `git rev-parse --git-common-dir`）——
+    那是 `bash_hygiene_audit/cli.py` 的邏輯，用途是「聚合同一個 repo 所有 worktree 的
+    hook-block 稽核」，把所有 worktree 收斂到主 repo slug 是它要的行為；這裡要找的是
+    「這個 session 自己的 transcript」，語意相反：把 cwd 解析成主 repo 根目錄，會讓
+    worktree session 永遠找錯 project 目錄（找到主 repo 的 slug，裡面沒有這個 worktree
+    session 的 transcript，或更糟——裡面剛好有其他不相關 session 的舊 transcript，
+    被誤判成「找到了」但其實是完全無關的資料）。
+
+    也**不可**改用 `registry.resolve_project_slug()`——那個回傳的是 handover 用的純
+    repo 名稱（如 "yibi-stack"），不是這裡要的 transcript 目錄 slug。
     """
-    try:
-        result = subprocess.run(  # nosec B603 B607
-            ["git", "-C", str(cwd), "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        repo_root = Path(result.stdout.strip()).parent if result.returncode == 0 else cwd
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        repo_root = cwd
-    return re.sub(r"[/\\]", "-", str(repo_root))
+    return re.sub(r"[/\\.]", "-", str(cwd))
 
 
-def _first_record_cwd(path: Path) -> str | None:
-    """讀取 transcript 第一筆有 `cwd` 欄位的記錄。
+def _last_record_cwd(path: Path) -> str | None:
+    """讀取 transcript 最後一筆有 `cwd` 欄位的記錄，反映目前實際所在的工作目錄。
 
-    Session 的 cwd 在建立時就固定（repo 慣例避免 stateful cd），讀第一筆即可，
-    不需要掃完整個 transcript。
+    **不可只讀第一筆**：session 的 cwd 並非在建立時就固定——這個 repo 自己的
+    background-session 慣例會呼叫 `EnterWorktree` 把 session 中途切換進
+    worktree，切換前後的記錄 `cwd` 欄位不同（切換前是主 repo 根目錄，切換後是
+    worktree 路徑）。只讀第一筆會抓到「切換前」那個已經不代表目前狀態的舊值，
+    導致 `find_current_transcript` 用錯誤的 cwd 去比對候選檔案，把真正屬於目前
+    worktree 的 transcript 排除在候選之外（實測驗證：本檔案自己這次的 session
+    transcript 第一筆 cwd 是主 repo 根目錄，但整個 session 絕大部分時間、包括呼叫
+    這個函式當下，實際 cwd 都是 worktree 路徑）。
     """
+    last_cwd: str | None = None
     try:
         with path.open("r", encoding="utf-8", errors="replace") as f:
             for raw in f:
@@ -150,10 +160,10 @@ def _first_record_cwd(path: Path) -> str | None:
                     continue
                 cwd = obj.get("cwd")
                 if isinstance(cwd, str) and cwd:
-                    return cwd
+                    last_cwd = cwd
     except OSError:
         return None
-    return None
+    return last_cwd
 
 
 def find_current_transcript(
@@ -164,7 +174,10 @@ def find_current_transcript(
 ) -> TranscriptLookupResult:
     """在 `~/.claude/projects/<slug>/` 下找「屬於目前工作目錄、最新」的 transcript。
 
-    啟發式：篩出「第一筆記錄的 cwd 等於 working_dir」的候選檔案，取 mtime 最新者。
+    啟發式：篩出「最後一筆記錄的 cwd 等於 working_dir」的候選檔案，取 mtime 最新者。
+    用最後一筆而非第一筆，是因為 session 中途可能呼叫 `EnterWorktree` 切換工作目錄
+    （這個 repo 自己的 background-session 慣例），第一筆記錄的 cwd 在那之後就不再
+    代表目前狀態（見 `_last_record_cwd` docstring）。
     若最新與次新的候選 mtime 差距小於 `ambiguity_window_seconds`（代表可能有另一個
     Claude Code session 同時在同一目錄工作），回傳 ambiguous 而不硬猜。
     """
@@ -180,7 +193,7 @@ def find_current_transcript(
     target = str(working_dir.resolve())
     candidates: list[tuple[float, Path]] = []
     for jsonl_path in project_dir.glob("*.jsonl"):
-        if _first_record_cwd(jsonl_path) != target:
+        if _last_record_cwd(jsonl_path) != target:
             continue
         try:
             mtime = jsonl_path.stat().st_mtime
