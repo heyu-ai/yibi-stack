@@ -63,3 +63,65 @@ def test_parse_tc_table_three_part_ids():
 """
     rows = amplifier_verify.parse_tc_table(testplan)
     assert [r.tc_id for r in rows] == ["YIBI-NFC-001"]
+
+
+# ---------------------------------------------------------------------------
+# detect_change_from_diff — a spectra change must come from a diff FILE HEADER,
+# not from prose that merely mentions an openspec/changes/<...>/ path.
+#
+# Regression: a spectra-INIT PR vendors generated skill docs whose example paths
+# read `openspec/changes/<name>/proposal.md`. The old whole-text regex captured
+# the literal `<name>` placeholder as a change slug, so amplifier-verify exited 2
+# with "testplan.md not found for change '<name>'" on a PR that has no change at all.
+# ---------------------------------------------------------------------------
+
+
+def test_detect_change_from_real_diff_header():
+    diff = """\
+diff --git a/openspec/changes/add-login/testplan.md b/openspec/changes/add-login/testplan.md
+new file mode 100644
+--- /dev/null
++++ b/openspec/changes/add-login/testplan.md
+@@ -0,0 +1,2 @@
++# testplan
+"""
+    assert amplifier_verify.detect_change_from_diff(diff) == "add-login"
+
+
+def test_detect_change_from_docs_openspec_layout_header():
+    diff = """\
+diff --git a/docs/openspec/changes/add-login/proposal.md b/docs/openspec/changes/add-login/proposal.md
+--- a/docs/openspec/changes/add-login/proposal.md
++++ b/docs/openspec/changes/add-login/proposal.md
+@@ -1 +1 @@
+-old
++new
+"""
+    assert amplifier_verify.detect_change_from_diff(diff) == "add-login"
+
+
+def test_detect_change_ignores_placeholder_in_generated_docs():
+    # Mimics a spectra-init PR: added content mentions the <name> placeholder path,
+    # but no file under openspec/changes/<slug>/ is actually added or edited.
+    diff = """\
+diff --git a/.claude/skills/spectra-commit/SKILL.md b/.claude/skills/spectra-commit/SKILL.md
+new file mode 100644
+--- /dev/null
++++ b/.claude/skills/spectra-commit/SKILL.md
+@@ -0,0 +1,2 @@
++   Filter files under `docs/openspec/changes/<name>/`. These are the change's files.
++   - M  openspec/changes/<name>/proposal.md
+"""
+    assert amplifier_verify.detect_change_from_diff(diff) == ""
+
+
+def test_detect_change_returns_empty_when_no_spectra_path():
+    diff = """\
+diff --git a/src/app.py b/src/app.py
+--- a/src/app.py
++++ b/src/app.py
+@@ -1 +1 @@
+-x = 1
++x = 2
+"""
+    assert amplifier_verify.detect_change_from_diff(diff) == ""
