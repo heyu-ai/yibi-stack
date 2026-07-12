@@ -259,7 +259,7 @@ def _load_mycelium_lessons(
             # 變成寫入路徑，在唯讀掛載或被其他 mycelium 指令鎖住時會讓整批 lessons 讀取失敗，
             # 比原本缺欄位的問題更糟。改用 PRAGMA table_info（唯讀）偵測欄位是否存在，
             # 缺欄位時退回 NULL AS retrospective_id。
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(lessons)")}
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(lessons)")}
             # 兩條完整靜態 SQL 字串（而非用 f-string 插入欄位片段），避免動態組字串
             # 觸發 bandit B608 誤判，也讓兩種 schema 各自的查詢一目瞭然。
             if "retrospective_id" in columns:
