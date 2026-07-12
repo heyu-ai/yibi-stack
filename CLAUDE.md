@@ -200,6 +200,18 @@ make install-all         # 等同 build-tools + install + install-project + inst
   copies keep an old version. Concretely, the pr-cycle-deep agy scripts stay on the pre-fix
   `@file` form and go agentic inside worktrees (live-reproduced in PR #157's own mob review).
   Fix: `git pull` on main, then `make install`.
+  **A second, distinct failure mode**: some skills (e.g. `pr-retrospective`) are not copied at
+  all — `~/.claude/skills/<name>` and `~/.agents/skills/<name>` are symlinks straight into
+  `<main-repo-checkout>/skills/<name>` (itself a symlink into `plugins/<pack>/skills/<name>`).
+  For these, `make install` does nothing to freshen content — the SKILL.md body is only as
+  fresh as the **local `main` checkout's working tree**. Running `/pr-retro` right after merging
+  a PR that rewrote that very skill (e.g. PR #205's `handovers`→`retrospectives` migration) can
+  load pre-merge instructions straight from a stale local `main`, silently reintroducing the
+  exact anti-pattern the merged PR just removed. Fix here is `git pull` on the **main repo
+  checkout** (not `make install` — there is no copy to refresh); check `git log -1` /
+  `git status` on the resolved `SKILL_REPO` before trusting a freshly-loaded symlinked skill
+  body, especially right after merging a PR that touches that skill (PR #205 retro, `/pr-retro`
+  on itself).
 - **linked worktree `git rev-parse --show-toplevel` returns worktree path, not main repo** —
   see rule 15 for the correct `--git-common-dir` pattern.
 - **`pre-commit run --files` only scans specified files; CI uses `--all-files`**: local
