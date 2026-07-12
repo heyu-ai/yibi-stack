@@ -90,14 +90,14 @@ new file mode 100644
 
 def test_detect_change_from_docs_openspec_layout_header():
     diff = """\
-diff --git a/docs/openspec/changes/add-login/proposal.md b/docs/openspec/changes/add-login/proposal.md
---- a/docs/openspec/changes/add-login/proposal.md
-+++ b/docs/openspec/changes/add-login/proposal.md
+diff --git a/docs/openspec/changes/auth/proposal.md b/docs/openspec/changes/auth/proposal.md
+--- a/docs/openspec/changes/auth/proposal.md
++++ b/docs/openspec/changes/auth/proposal.md
 @@ -1 +1 @@
 -old
 +new
 """
-    assert amplifier_verify.detect_change_from_diff(diff) == "add-login"
+    assert amplifier_verify.detect_change_from_diff(diff) == "auth"
 
 
 def test_detect_change_ignores_placeholder_in_generated_docs():

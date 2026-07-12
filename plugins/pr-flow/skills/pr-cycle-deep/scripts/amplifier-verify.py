@@ -165,9 +165,7 @@ def detect_change_from_diff(diff_text: str) -> str:
     """
     for line in diff_text.splitlines():
         if not (
-            line.startswith("diff --git ")
-            or line.startswith("+++ ")
-            or line.startswith("--- ")
+            line.startswith("diff --git ") or line.startswith("+++ ") or line.startswith("--- ")
         ):
             continue
         m = _CHANGE_DIR_RE.search(line)
