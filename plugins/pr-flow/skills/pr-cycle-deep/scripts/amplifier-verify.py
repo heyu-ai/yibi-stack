@@ -168,6 +168,9 @@ def detect_change_from_diff(diff_text: str) -> str:
             line.startswith("diff --git ") or line.startswith("+++ ") or line.startswith("--- ")
         ):
             continue
+        # First path wins: on a `diff --git a/…old/… b/…new/…` change-dir rename this
+        # returns the old slug. Renaming a spectra change dir mid-review is rare and the
+        # worst case is looking for testplan.md under the stale slug (a clear failure).
         m = _CHANGE_DIR_RE.search(line)
         if m and _VALID_CHANGE_SLUG_RE.match(m.group(1)):
             return m.group(1)

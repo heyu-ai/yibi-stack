@@ -115,6 +115,22 @@ new file mode 100644
     assert amplifier_verify.detect_change_from_diff(diff) == ""
 
 
+def test_detect_change_ignores_valid_slug_in_content_line():
+    # A *valid* slug that appears ONLY in a content line (single `+`), never in a
+    # file header. This isolates the header-line restriction: slug validation alone
+    # would accept "add-login", so this test fails if the header filter is dropped
+    # (or against the old whole-text regex, which returns "add-login").
+    diff = """\
+diff --git a/.claude/skills/spectra-ask/SKILL.md b/.claude/skills/spectra-ask/SKILL.md
+--- a/.claude/skills/spectra-ask/SKILL.md
++++ b/.claude/skills/spectra-ask/SKILL.md
+@@ -1 +1,2 @@
+ existing
++  See `openspec/changes/add-login/proposal.md` for the worked example.
+"""
+    assert amplifier_verify.detect_change_from_diff(diff) == ""
+
+
 def test_detect_change_returns_empty_when_no_spectra_path():
     diff = """\
 diff --git a/src/app.py b/src/app.py
