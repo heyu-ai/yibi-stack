@@ -144,6 +144,38 @@ _TEST_FUNC_RE = re.compile(r"^\+\s*def\s+(test_\w+)\s*\(")
 _DOCSTRING_START_RE = re.compile(r'^\+\s*"""')
 _FILE_HEADER_RE = re.compile(r"^\+\+\+\s+b/(.+)$")
 
+# Spectra change directory detected from a PR diff. Only diff *file-header* lines
+# (`diff --git`, `+++ `, `--- `) count — a real change adds/edits files under
+# openspec/changes/<slug>/, which appear as headers. Content lines that merely
+# mention such a path (e.g. the `<name>` placeholder examples inside generated
+# skill docs) must NOT be treated as a change, or a spectra-init PR that only
+# vendors those docs fails spuriously with "testplan.md not found for change
+# '<name>'". The slug is also validated to reject placeholder-looking matches.
+_CHANGE_DIR_RE = re.compile(r"[ab]/(?:docs/)?openspec/changes/([^/\n]+)/")
+_VALID_CHANGE_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def detect_change_from_diff(diff_text: str) -> str:
+    """Return the spectra change slug from a PR diff, or "" if none.
+
+    Scans only git file-header lines so a real changed file under
+    openspec/changes/<slug>/ is required; a placeholder-looking slug (angle
+    brackets or other non-slug chars, e.g. the literal ``<name>`` in generated
+    skill docs) is rejected as defense-in-depth.
+    """
+    for line in diff_text.splitlines():
+        if not (
+            line.startswith("diff --git ") or line.startswith("+++ ") or line.startswith("--- ")
+        ):
+            continue
+        # First path wins: on a `diff --git a/…old/… b/…new/…` change-dir rename this
+        # returns the old slug. Renaming a spectra change dir mid-review is rare and the
+        # worst case is looking for testplan.md under the stale slug (a clear failure).
+        m = _CHANGE_DIR_RE.search(line)
+        if m and _VALID_CHANGE_SLUG_RE.match(m.group(1)):
+            return m.group(1)
+    return ""
+
 
 def parse_diff_test_functions(diff_text: str) -> list[TestFunction]:
     """Extract new/modified test functions and their spec traces from a PR diff."""
@@ -300,11 +332,10 @@ def main() -> None:
 
     change_name = opts.change
     if not change_name:
-        m = re.search(r"openspec/changes/([^/\n]+)/", diff_text)
-        if not m:
+        change_name = detect_change_from_diff(diff_text)
+        if not change_name:
             print("no spectra change")
             sys.exit(0)
-        change_name = m.group(1)
 
     print(f"[OK]   spectra change detected: {change_name}")
 
