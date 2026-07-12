@@ -103,7 +103,7 @@ uv run python -m tasks.nightly_agent digest
       "id": "nightly-self-improvement",
       "description": "Nightly friction clustering and PR creation",
       "schedule": "daily",
-      "time": "03:00",
+      "time": "21:00",
       "command": [
         "uv", "run", "--directory", "/path/to/yibi-stack",
         "python", "-m", "tasks.nightly_agent", "run"

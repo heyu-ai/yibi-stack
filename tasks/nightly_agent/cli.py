@@ -252,6 +252,17 @@ def _load_mycelium_lessons(
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
         try:
+            # retrospective_id 是後補的 migration 欄位（見 tasks/mycelium/db.py 的
+            # ALTER TABLE），只透過 AgentsDB.init_db() 套用。這裡不引入 tasks.mycelium
+            # 依賴，改用冪等 ALTER TABLE 自行補欄位（與 rule 07 Idempotent Schema
+            # Migration 慣例一致），避免舊的 handover.db 缺欄位時整批 lessons 被
+            # OperationalError 靜默吞掉。
+            try:
+                conn.execute("ALTER TABLE lessons ADD COLUMN retrospective_id TEXT")
+                conn.commit()
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
             # SQLite datetime arithmetic: last N hours
             rows = conn.execute(  # nosec B608
                 "SELECT id, ts, project, type, key, insight, confidence, source, "
