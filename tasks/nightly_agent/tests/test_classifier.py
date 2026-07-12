@@ -137,8 +137,11 @@ class TestClassifyMyceliumLessons:
             ("h1", None, "mycelium-handover-h1"),
             (None, "r1", "mycelium-retro-r1"),
             (None, None, "mycelium-lesson-lesson-x"),
-            # 空字串視同缺席（不落回 'unknown'，也不當成有效 handover_id）
+            # 空字串視同缺席（不落回 'unknown'，也不當成有效 id）
             ("", None, "mycelium-lesson-lesson-x"),
+            (None, "", "mycelium-lesson-lesson-x"),
+            # 兩者皆有值時，handover_id 優先（鎖定優先序，非僅測試單一分支）
+            ("h1", "r1", "mycelium-handover-h1"),
         ],
     )
     def test_pitfall_lesson_session_id_precedence(
