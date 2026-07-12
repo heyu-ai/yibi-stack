@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "skill": "pr-cycle-fast",
+  "direct": [
+    { "prompt": "跑 pr-cycle-fast 把這個小 PR 收掉", "expect_trigger": true },
+    { "prompt": "用快速版 PR lifecycle 自動化：review + CI + merge", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "這個小改動幫我一路帶到 merge，越快越好", "expect_trigger": true },
+    { "prompt": "自動偵測 open PR，跑 code review 跟 CI，過了就 merge", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "找 codex 跟 agy 一起 mob review 這個高風險 PR", "expect_trigger": false },
+    { "prompt": "只幫我 review 這個 PR 給建議，不要動手改也不要 merge", "expect_trigger": false },
+    { "prompt": "這個 PR merge 完了，幫我做收尾回顧寫下教訓", "expect_trigger": false }
+  ]
+}
