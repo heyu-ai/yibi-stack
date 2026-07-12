@@ -260,18 +260,26 @@ def _load_mycelium_lessons(
             # 比原本缺欄位的問題更糟。改用 PRAGMA table_info（唯讀）偵測欄位是否存在，
             # 缺欄位時退回 NULL AS retrospective_id。
             columns = {row[1] for row in conn.execute("PRAGMA table_info(lessons)")}
-            retro_col = (
-                "retrospective_id" if "retrospective_id" in columns else "NULL AS retrospective_id"
-            )
+            # 兩條完整靜態 SQL 字串（而非用 f-string 插入欄位片段），避免動態組字串
+            # 觸發 bandit B608 誤判，也讓兩種 schema 各自的查詢一目瞭然。
+            if "retrospective_id" in columns:
+                select_sql = (
+                    "SELECT id, ts, project, type, key, insight, confidence, source, "
+                    "handover_id, retrospective_id "
+                    "FROM lessons "
+                    "WHERE ts >= datetime('now', ? || ' hours') "
+                    "ORDER BY ts DESC LIMIT 200"
+                )
+            else:
+                select_sql = (
+                    "SELECT id, ts, project, type, key, insight, confidence, source, "
+                    "handover_id, NULL AS retrospective_id "
+                    "FROM lessons "
+                    "WHERE ts >= datetime('now', ? || ' hours') "
+                    "ORDER BY ts DESC LIMIT 200"
+                )
             # SQLite datetime arithmetic: last N hours
-            rows = conn.execute(
-                "SELECT id, ts, project, type, key, insight, confidence, source, "  # nosec B608
-                f"handover_id, {retro_col} "
-                "FROM lessons "
-                "WHERE ts >= datetime('now', ? || ' hours') "
-                "ORDER BY ts DESC LIMIT 200",
-                (f"-{hours}",),
-            ).fetchall()
+            rows = conn.execute(select_sql, (f"-{hours}",)).fetchall()
         finally:
             conn.close()
         result = []
