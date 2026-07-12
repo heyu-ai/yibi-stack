@@ -176,6 +176,19 @@ class FrictionClassifier:
         return events
 
 
+def _lesson_session_id(lesson: dict[str, object]) -> str:
+    """lessons 已與 handover 分家：一筆 lesson 可能來自 handover、retrospective（PR retro），
+    或透過 `/lessons add` 獨立寫入（兩者皆無）。依實際存在的關聯欄位挑選來源，
+    不可假設 handover_id 必存在。"""
+    handover_id = lesson.get("handover_id")
+    if handover_id:
+        return f"mycelium-handover-{handover_id}"
+    retrospective_id = lesson.get("retrospective_id")
+    if retrospective_id:
+        return f"mycelium-retro-{retrospective_id}"
+    return f"mycelium-lesson-{lesson.get('id', 'unknown')}"
+
+
 def classify_mycelium_lessons(
     lessons: list[dict[str, object]],
 ) -> list[FrictionEvent]:
@@ -195,13 +208,13 @@ def classify_mycelium_lessons(
                     events.append(
                         FrictionEvent(
                             id=f"lesson-{lesson.get('id', uuid.uuid4())}",
-                            session_id=f"mycelium-{lesson.get('handover_id', 'unknown')}",
+                            session_id=_lesson_session_id(lesson),
                             timestamp=str(lesson.get("ts", "")),
                             project=str(lesson.get("project", "")),
                             friction_type=group.friction_type,
                             description=f"Lesson[{lesson_type}]: {description}",
                             raw_text=insight,
-                            source_file="mycelium:handover.db",
+                            source_file="mycelium:lessons",
                             line_number=0,
                         )
                     )

@@ -235,7 +235,14 @@ def setup() -> None:
 def _load_mycelium_lessons(
     hours: int, lesson_types: list[str], errors: list[str]
 ) -> list[dict[str, object]]:
-    """從 mycelium handover.db 讀取最近 hours 小時的 lessons。"""
+    """從 mycelium 的 lessons table 讀取最近 hours 小時的 typed lessons。
+
+    lessons 已與 handover 分家：一筆 lesson 可能來自 `/handover`（handover_id）、
+    `/pr-retro`（retrospective_id），或透過 `/lessons add` 獨立寫入（兩者皆空）。
+    三者仍共用同一實體檔案 `~/.agents/handover/handover.db`（見
+    `tasks/mycelium/config.py` 的 `HANDOVER_DB_PATH`），但 `lessons` 是與 `handovers`/
+    `retrospectives` 平行的獨立 table，故 SELECT 需一併帶出 `retrospective_id`。
+    """
     import sqlite3  # noqa: PLC0415
 
     try:
@@ -247,7 +254,8 @@ def _load_mycelium_lessons(
         try:
             # SQLite datetime arithmetic: last N hours
             rows = conn.execute(  # nosec B608
-                "SELECT id, ts, project, type, key, insight, confidence, source, handover_id "
+                "SELECT id, ts, project, type, key, insight, confidence, source, "
+                "handover_id, retrospective_id "
                 "FROM lessons "
                 "WHERE ts >= datetime('now', ? || ' hours') "
                 "ORDER BY ts DESC LIMIT 200",

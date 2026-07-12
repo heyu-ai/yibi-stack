@@ -143,7 +143,43 @@ class TestClassifyMyceliumLessons:
         events = classify_mycelium_lessons(lessons)
         assert len(events) == 1
         assert events[0].friction_type == FrictionType.WORKTREE_CONFLICT
-        assert "mycelium" in events[0].session_id
+        assert events[0].session_id == "mycelium-handover-h1"
+
+    def test_pitfall_lesson_from_retrospective_not_labeled_unknown(self) -> None:
+        """lessons 已與 handover 分家：來自 /pr-retro 的 lesson 沒有 handover_id，
+        必須用 retrospective_id 溯源，不能落回 'unknown'。"""
+        lessons: list[dict[str, object]] = [
+            {
+                "id": "lesson-2",
+                "type": "pitfall",
+                "ts": "2026-05-27T03:00:00",
+                "project": "yibi-stack",
+                "insight": "Worktree conflict: already used by worktree at path",
+                "handover_id": None,
+                "retrospective_id": "r1",
+            }
+        ]
+        events = classify_mycelium_lessons(lessons)
+        assert len(events) == 1
+        assert events[0].session_id == "mycelium-retro-r1"
+
+    def test_pitfall_lesson_standalone_falls_back_to_lesson_id(self) -> None:
+        """透過 /lessons add 獨立寫入的 lesson 兩者皆無，仍需可溯源（用 lesson id），
+        不能直接標成 'unknown'。"""
+        lessons: list[dict[str, object]] = [
+            {
+                "id": "lesson-3",
+                "type": "pitfall",
+                "ts": "2026-05-27T03:00:00",
+                "project": "yibi-stack",
+                "insight": "Worktree conflict: already used by worktree at path",
+                "handover_id": None,
+                "retrospective_id": None,
+            }
+        ]
+        events = classify_mycelium_lessons(lessons)
+        assert len(events) == 1
+        assert events[0].session_id == "mycelium-lesson-lesson-3"
 
     def test_non_pitfall_lesson_skipped(self) -> None:
         lessons: list[dict[str, object]] = [
