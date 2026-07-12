@@ -253,20 +253,19 @@ def _load_mycelium_lessons(
         conn.row_factory = sqlite3.Row
         try:
             # retrospective_id 是後補的 migration 欄位（見 tasks/mycelium/db.py 的
-            # ALTER TABLE），只透過 AgentsDB.init_db() 套用。這裡不引入 tasks.mycelium
-            # 依賴，改用冪等 ALTER TABLE 自行補欄位（與 rule 07 Idempotent Schema
-            # Migration 慣例一致），避免舊的 handover.db 缺欄位時整批 lessons 被
-            # OperationalError 靜默吞掉。
-            try:
-                conn.execute("ALTER TABLE lessons ADD COLUMN retrospective_id TEXT")
-                conn.commit()
-            except sqlite3.OperationalError as e:
-                if "duplicate column" not in str(e).lower():
-                    raise
+            # ALTER TABLE），只透過 AgentsDB.init_db() 套用；舊的 handover.db 可能還沒有
+            # 這個欄位。這裡刻意保持唯讀（不對 handover.db 執行 ALTER TABLE）：把讀取路徑
+            # 變成寫入路徑，在唯讀掛載或被其他 mycelium 指令鎖住時會讓整批 lessons 讀取失敗，
+            # 比原本缺欄位的問題更糟。改用 PRAGMA table_info（唯讀）偵測欄位是否存在，
+            # 缺欄位時退回 NULL AS retrospective_id。
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(lessons)")}
+            retro_col = (
+                "retrospective_id" if "retrospective_id" in columns else "NULL AS retrospective_id"
+            )
             # SQLite datetime arithmetic: last N hours
-            rows = conn.execute(  # nosec B608
-                "SELECT id, ts, project, type, key, insight, confidence, source, "
-                "handover_id, retrospective_id "
+            rows = conn.execute(
+                "SELECT id, ts, project, type, key, insight, confidence, source, "  # nosec B608
+                f"handover_id, {retro_col} "
                 "FROM lessons "
                 "WHERE ts >= datetime('now', ? || ' hours') "
                 "ORDER BY ts DESC LIMIT 200",
