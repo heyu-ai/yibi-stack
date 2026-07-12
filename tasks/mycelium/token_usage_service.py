@@ -468,3 +468,35 @@ def compute_token_usage_report(
         return _compute_report_for_transcript(lookup.path)
     except Exception as e:  # noqa: BLE001
         return TokenUsageReport(status="unavailable", warning=f"token 用量計算失敗：{e}")
+
+
+def compute_auto_token_fields(effective_dir: Path, enabled: bool) -> dict[str, Any]:
+    """Best-effort 計算 token 用量欄位；任何失敗都回傳空 dict，不影響呼叫端主流程。
+
+    供 retrospective_service.write_retrospective() 等寫入端呼叫，回傳的 dict
+    可直接以 `**fields` 合併進對應 Pydantic record 的建構參數。
+    """
+    if not enabled:
+        return {}
+
+    import warnings
+
+    try:
+        report = compute_token_usage_report(effective_dir)
+    except Exception as e:  # noqa: BLE001  token 用量計算失敗不可影響呼叫端主寫入流程
+        warnings.warn(f"token 用量自動計算失敗：{e}", stacklevel=2)
+        return {}
+
+    fields: dict[str, Any] = {"token_usage_source": report.status}
+    if report.status in ("computed", "computed_partial"):
+        fields.update(
+            token_input_tokens=report.total_input_tokens,
+            token_output_tokens=report.total_output_tokens,
+            token_cache_read_tokens=report.total_cache_read_tokens,
+            token_cache_creation_tokens=report.total_cache_creation_tokens,
+            token_total_cost_usd=report.total_cost_usd,
+            token_cost_by_model=report.by_model,
+            session_effort=report.session_effort,
+            token_optimization_notes=report.optimization_notes,
+        )
+    return fields

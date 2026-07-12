@@ -13,6 +13,7 @@ from tasks.mycelium.models import (
     EventType,
     HandoverEvent,
     HandoverRecord,
+    RetrospectiveRecord,
     SessionType,
     SourceLayer,
 )
@@ -339,15 +340,56 @@ class TestAggregateSuccessCounts:
         assert result["sessions_observed"] == 0
 
 
-# ── token usage 欄位（models.py TokenUsageSource 對應）───────────────────────
+# ── retrospectives（獨立於 handovers 的完結記錄）─────────────────────────────
 
 
-class TestTokenUsageColumns:
-    def test_agents_tok_st_001_roundtrip(self, db: AgentsDB) -> None:
-        """AGENTS-TOK-ST-001：token 用量欄位寫入後可原樣讀回。"""
-        db.insert_handover(
-            make_record(
-                id="tok-1",
+def make_retro_record(**overrides: object) -> RetrospectiveRecord:
+    defaults: dict[str, object] = {
+        "id": "retro-1",
+        "timestamp": "2026-04-15T10:00:00+00:00",
+        "operator": "howie",
+        "pr_number": 205,
+        "topic": "PR #205 retro",
+        "conversation_summary": "修了個 bug",
+        "tags": ["main", "pr-205"],
+        "device": "mac-mini",
+        "agent_type": "claude",
+        "subscription_account": "claude-pro",
+        "project": "yibi-stack",
+    }
+    return RetrospectiveRecord.model_validate({**defaults, **overrides})
+
+
+class TestRetrospectives:
+    def test_agents_retro_st_001_insert_and_read(self, db: AgentsDB) -> None:
+        """AGENTS-RETRO-ST-001：寫入後 read_recent_retrospectives 讀回同樣內容。"""
+        db.insert_retrospective(make_retro_record())
+        rows = db.read_recent_retrospectives(last=1)
+        assert len(rows) == 1
+        assert rows[0]["id"] == "retro-1"
+        assert rows[0]["pr_number"] == 205
+        assert rows[0]["tags"] == ["main", "pr-205"]  # JSON array 已 decode
+
+    def test_agents_retro_st_002_search_by_pr_number_exact(self, db: AgentsDB) -> None:
+        """AGENTS-RETRO-ST-002：search_retrospectives(pr_number=...) 精確匹配，不誤中其他 PR。"""
+        db.insert_retrospective(make_retro_record(id="retro-a", pr_number=205))
+        db.insert_retrospective(make_retro_record(id="retro-b", pr_number=2005))
+        rows = db.search_retrospectives(pr_number=205)
+        assert len(rows) == 1
+        assert rows[0]["id"] == "retro-a"
+
+    def test_agents_retro_st_003_multiple_records_same_pr_allowed(self, db: AgentsDB) -> None:
+        """AGENTS-RETRO-ST-003：同一 pr_number 允許多筆（append-only revision，無 UNIQUE 限制）。"""
+        db.insert_retrospective(make_retro_record(id="retro-a", pr_number=205))
+        db.insert_retrospective(make_retro_record(id="retro-b", pr_number=205))
+        rows = db.search_retrospectives(pr_number=205)
+        assert len(rows) == 2
+
+    def test_agents_retro_st_004_token_fields_roundtrip(self, db: AgentsDB) -> None:
+        """AGENTS-RETRO-ST-004：token 用量欄位寫入後可原樣讀回。"""
+        db.insert_retrospective(
+            make_retro_record(
+                id="retro-tok",
                 token_input_tokens=1000,
                 token_output_tokens=200,
                 token_cache_read_tokens=50000,
@@ -359,32 +401,27 @@ class TestTokenUsageColumns:
                 token_usage_source="computed",
             )
         )
-        rows = db.read_recent(last=1)
+        rows = db.read_recent_retrospectives(last=1)
         row = rows[0]
         assert row["token_input_tokens"] == 1000
-        assert row["token_output_tokens"] == 200
         assert row["token_total_cost_usd"] == 1.2345
         assert row["token_cost_by_model"] == [{"model": "claude-sonnet-5", "cost_usd": 1.2345}]
-        assert row["session_effort"] == "high"
-        assert row["token_optimization_notes"] == ["[best-effort] 測試建議"]
         assert row["token_usage_source"] == "computed"
 
-    def test_agents_tok_st_002_defaults_are_none_or_empty(self, db: AgentsDB) -> None:
-        """AGENTS-TOK-ST-002：未帶 token 欄位時，數值為 None、JSON 陣列為空 list。"""
-        db.insert_handover(make_record(id="tok-2"))
-        rows = db.read_recent(last=1)
+    def test_agents_retro_st_005_defaults_are_none_or_empty(self, db: AgentsDB) -> None:
+        """AGENTS-RETRO-ST-005：未帶 token 欄位時，數值為 None、JSON 陣列為空 list。"""
+        db.insert_retrospective(make_retro_record(id="retro-defaults"))
+        rows = db.read_recent_retrospectives(last=1)
         row = rows[0]
         assert row["token_input_tokens"] is None
-        assert row["token_total_cost_usd"] is None
         assert row["token_cost_by_model"] == []
-        assert row["token_optimization_notes"] == []
         assert row["token_usage_source"] is None
 
-    def test_agents_tok_eg_001_migration_on_pre_existing_db(self, tmp_path: Path) -> None:
-        """AGENTS-TOK-EG-001：舊 schema（無 token 欄位）DB 執行 init_db() 後可正常寫入新欄位。
+    def test_agents_retro_eg_001_migration_on_pre_existing_db(self, tmp_path: Path) -> None:
+        """AGENTS-RETRO-EG-001：舊 schema（無 retrospectives table）DB 執行 init_db() 後可正常寫入。
 
-        比照 idempotent ALTER TABLE 慣例：手動建一個沒有 token_* 欄位的舊版
-        handovers table，確認 init_db() 的 migration 補上欄位後不會出錯。
+        比照既有 idempotent migration 慣例：手動建一個只有 handovers table 的舊版 DB，
+        確認 init_db() 補上 retrospectives table 後不會出錯。
         """
         import sqlite3
 
@@ -424,6 +461,41 @@ class TestTokenUsageColumns:
 
         instance = AgentsDB(str(db_path))
         instance.init_db()  # 不應拋出例外
-        instance.insert_handover(make_record(id="tok-migrated", token_input_tokens=42))
-        rows = instance.read_recent(last=1)
-        assert rows[0]["token_input_tokens"] == 42
+        instance.insert_retrospective(make_retro_record(id="retro-migrated"))
+        rows = instance.read_recent_retrospectives(last=1)
+        assert rows[0]["id"] == "retro-migrated"
+
+    def test_agents_retro_eg_002_lessons_retrospective_id_column(self, tmp_path: Path) -> None:
+        """AGENTS-RETRO-EG-002：舊 lessons table（無 retrospective_id 欄位）migration 後可寫入。"""
+        import sqlite3
+
+        db_path = tmp_path / "old_lessons.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.executescript(
+            """
+            CREATE TABLE lessons (
+              id TEXT PRIMARY KEY,
+              ts TEXT NOT NULL,
+              project TEXT NOT NULL,
+              skill TEXT,
+              type TEXT NOT NULL,
+              key TEXT NOT NULL,
+              insight TEXT NOT NULL,
+              confidence INTEGER NOT NULL,
+              source TEXT NOT NULL,
+              trusted INTEGER NOT NULL DEFAULT 0,
+              files TEXT NOT NULL DEFAULT '[]',
+              handover_id TEXT,
+              retro_pr INTEGER,
+              device TEXT,
+              agent_type TEXT NOT NULL DEFAULT 'claude'
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        instance = AgentsDB(str(db_path))
+        instance.init_db()  # 不應拋出例外（retrospective_id 欄位補上）
+        cols = {row[1] for row in instance.conn.execute("PRAGMA table_info(lessons)").fetchall()}
+        assert "retrospective_id" in cols

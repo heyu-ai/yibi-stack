@@ -246,11 +246,6 @@ def _parse_json_list(value: str | None, field: str) -> list[str]:
 @click.option("--files", default=None, help="最後處理的檔案（JSON array）")
 @click.option("--test-status", default=None, help="測試狀態摘要")
 @click.option("--tokens", default=None, help="token 使用量估計")
-@click.option(
-    "--auto-tokens",
-    is_flag=True,
-    help="自動從 session transcript 計算 token 用量與成本（best-effort，失敗時靜默略過）",
-)
 @click.option("--device", default=None, help="覆蓋自動偵測的 device")
 @click.option("--agent", default=None, help="覆蓋自動偵測的 agent_type")
 @click.option("--account", "account_opt", default=None, help="覆蓋自動偵測的 account")
@@ -272,7 +267,6 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
     files: str | None,
     test_status: str | None,
     tokens: str | None,
-    auto_tokens: bool,
     device: str | None,
     agent: str | None,
     account_opt: str | None,
@@ -298,7 +292,6 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
         last_files=_parse_json_list(files, "--files"),
         test_status=test_status,
         token_usage_estimate=tokens,
-        auto_token_usage=auto_tokens,
         device=device,
         agent_type=agent,
         account=account_opt,
@@ -411,6 +404,155 @@ def handover_search(
         click.echo("─" * 60)
         click.echo(f"[{r['timestamp']}] {r['session_type']} — {r['topic']}")
         click.echo(f"  {r['conversation_summary'][:120]}")
+
+
+# ─── retro ───────────────────────────────────────────────────────────────
+
+
+@cli.group()
+def retro() -> None:
+    """PR retrospective 完結記錄：寫入 / 讀取 / 搜尋（獨立於 handover，不需要 discriminator）。"""
+
+
+@retro.command("write")
+@click.option("--pr-number", required=True, type=int, help="關聯的 PR 號碼")
+@click.option("--topic", required=True, help="這次回顧的主題")
+@click.option("--summary", required=True, help="回顧重點摘要")
+@click.option("--operator", default="howie", help="操作者")
+@click.option("--completed", default=None, help="完成的事項（JSON array）")
+@click.option("--decisions", default=None, help="決策（JSON array）")
+@click.option("--next", "next_priorities", default=None, help="下一步（JSON array）")
+@click.option("--lessons", default=None, help="學到的事（JSON array）")
+@click.option("--tags", default=None, help="自由標籤（JSON array）")
+@click.option(
+    "--auto-tokens",
+    is_flag=True,
+    help="自動從 session transcript 計算 token 用量與成本（best-effort，失敗時靜默略過）",
+)
+@click.option("--device", default=None, help="覆蓋自動偵測的 device")
+@click.option("--agent", default=None, help="覆蓋自動偵測的 agent_type")
+@click.option("--account", "account_opt", default=None, help="覆蓋自動偵測的 account")
+@click.option("--branch", default=None, help="覆蓋自動偵測的 git branch")
+@click.option("--project", default=None, help="覆蓋自動偵測的 project")
+@click.option("--workdir", default=None, help="覆蓋自動偵測的 working_dir")
+def retro_write(  # pylint: disable=too-many-arguments,too-many-locals
+    pr_number: int,
+    topic: str,
+    summary: str,
+    operator: str,
+    completed: str | None,
+    decisions: str | None,
+    next_priorities: str | None,
+    lessons: str | None,
+    tags: str | None,
+    auto_tokens: bool,
+    device: str | None,
+    agent: str | None,
+    account_opt: str | None,
+    branch: str | None,
+    project: str | None,
+    workdir: str | None,
+) -> None:
+    """寫入一筆 retrospective。"""
+    from .retrospective_service import write_retrospective
+
+    record = write_retrospective(
+        pr_number=pr_number,
+        topic=topic,
+        summary=summary,
+        operator=operator,
+        completed=_parse_json_list(completed, "--completed"),
+        decisions=_parse_json_list(decisions, "--decisions"),
+        next_priorities=_parse_json_list(next_priorities, "--next"),
+        lessons_learned=_parse_json_list(lessons, "--lessons"),
+        tags=_parse_json_list(tags, "--tags"),
+        auto_token_usage=auto_tokens,
+        device=device,
+        agent_type=agent,
+        account=account_opt,
+        branch=branch,
+        project=project,
+        working_dir=workdir,
+    )
+
+    click.echo(f"✓ retro 已寫入：{record.id}")
+    click.echo(f"  pr_number = {record.pr_number}")
+    click.echo(f"  topic     = {record.topic}")
+    click.echo(f"  device    = {record.device}")
+    click.echo(f"  account   = {record.subscription_account}")
+    click.echo(f"  project   = {record.project}")
+
+
+@retro.command("read")
+@click.option("--last", default=4, type=int, help="讀取最近 N 筆")
+@click.option("--project", default=None, help="只顯示指定 project 的記錄（預設顯示全部）")
+@click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
+def retro_read(last: int, project: str | None, as_json: bool) -> None:
+    """讀取最近 N 筆 retrospective，可依 project 過濾。"""
+    from .retrospective_service import read_recent_retrospectives
+
+    rows = read_recent_retrospectives(last=last, project=project)
+    if as_json:
+        click.echo(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+
+    if not rows:
+        click.echo("(尚無 retrospective 記錄)")
+        return
+
+    for r in rows:
+        click.echo("─" * 60)
+        click.echo(f"[{r['timestamp']}] PR #{r['pr_number']} — {r['topic']}")
+        click.echo(f"  {r['conversation_summary'][:120]}")
+
+
+@retro.command("search")
+@click.option("--query", default=None, help="在 topic / summary / tags / lessons 內 LIKE 搜尋")
+@click.option("--pr-number", default=None, type=int, help="精確匹配 PR 號碼")
+@click.option("--project", default=None)
+@click.option("--limit", default=10, type=int)
+@click.option("--json", "as_json", is_flag=True)
+def retro_search(
+    query: str | None,
+    pr_number: int | None,
+    project: str | None,
+    limit: int,
+    as_json: bool,
+) -> None:
+    """搜尋 retrospective 記錄。"""
+    from .retrospective_service import search_retrospectives
+
+    rows = search_retrospectives(
+        query=query,
+        pr_number=pr_number,
+        project=project,
+        limit=limit,
+    )
+
+    if as_json:
+        click.echo(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+
+    if not rows:
+        click.echo("(無符合記錄)")
+        return
+
+    for r in rows:
+        click.echo("─" * 60)
+        click.echo(f"[{r['timestamp']}] PR #{r['pr_number']} — {r['topic']}")
+        click.echo(f"  {r['conversation_summary'][:120]}")
+
+
+@retro.command("migrate-from-handovers")
+def retro_migrate_from_handovers() -> None:
+    """一次性遷移：把 handovers 裡帶 pr-retrospective tag 的舊記錄搬進 retrospectives。
+
+    冪等（依 id 去重，可重複執行）；不刪除來源 handovers 資料。
+    """
+    from .migrate import migrate_retrospectives_from_handovers
+
+    migrated, skipped = migrate_retrospectives_from_handovers()
+    click.echo(f"搬遷 {migrated} 筆，跳過 {skipped} 筆（已存在）")
 
 
 # ─── insight ─────────────────────────────────────────────────────────────
@@ -578,8 +720,9 @@ def lessons() -> None:
 @click.option("--files", multiple=True, help="相關檔案路徑（可重複）")
 @click.option("--project", default=None, help="所屬專案（預設從 git common-dir 推斷）")
 @click.option("--handover-id", default=None, help="關聯 handover id（可選）")
+@click.option("--retrospective-id", default=None, help="關聯 retrospective id（可選）")
 @click.option("--retro-pr", default=None, type=int, help="關聯 PR 號碼（可選）")
-def lessons_add(
+def lessons_add(  # pylint: disable=too-many-arguments
     lesson_type: str,
     key: str,
     insight: str,
@@ -589,6 +732,7 @@ def lessons_add(
     files: tuple[str, ...],
     project: str | None,
     handover_id: str | None,
+    retrospective_id: str | None,
     retro_pr: int | None,
 ) -> None:
     """寫入一筆 typed lesson 到 lessons table。"""
@@ -630,6 +774,7 @@ def lessons_add(
             "skill": skill,
             "files": list(files),
             "handover_id": handover_id,
+            "retrospective_id": retrospective_id,
             "retro_pr": retro_pr,
         }
         result_data = add_lesson(record_data)

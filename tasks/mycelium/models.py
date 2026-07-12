@@ -84,6 +84,7 @@ class LessonRecord(BaseModel):
     trusted: bool = False
     files: list[str] = Field(default_factory=list)
     handover_id: str | None = None
+    retrospective_id: str | None = None
     retro_pr: int | None = None
     device: str | None = None
     agent_type: str = "claude"
@@ -251,6 +252,37 @@ class HandoverRecord(BaseModel):
     last_files: list[str] = Field(default_factory=list)
     test_status: str | None = None
     token_usage_estimate: str | None = None
+    project: str | None = None
+    source_bot: str | None = None
+
+
+class RetrospectiveRecord(BaseModel):
+    """PR retrospective 完結記錄：一次已完成 PR/session 的最終回顧報告。
+
+    與 HandoverRecord（工作中途的暫存 handoff 狀態）語意上是分開的概念，
+    不共用同一張 table，也不需要 tag/topic 前綴 discriminator。
+    """
+
+    id: str
+    timestamp: str
+    operator: str = "howie"
+    pr_number: int
+    topic: str
+    conversation_summary: str
+    completed: list[str] = Field(default_factory=list)
+    decisions: list[str] = Field(default_factory=list)
+    next_priorities: list[str] = Field(default_factory=list)
+    lessons_learned: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+
+    device: str | None = None
+    agent_type: str = "claude"
+    subscription_account: str | None = None
+    branch: str | None = None
+    working_dir: str | None = None
+    project: str | None = None
+    source_bot: str | None = None
+
     # 以下由 --auto-tokens 觸發的 best-effort 自動計算填入（見 token_usage_service）；
     # None/[] 代表未嘗試計算，不代表用量為零。
     token_input_tokens: int | None = None
@@ -264,8 +296,6 @@ class HandoverRecord(BaseModel):
     session_effort: str | None = None  # 主 session 的 $CLAUDE_EFFORT；subagent 層級無法取得
     token_optimization_notes: list[str] = Field(default_factory=list)
     token_usage_source: TokenUsageSource | None = None  # None = 未嘗試計算
-    project: str | None = None
-    source_bot: str | None = None
 
 
 class HandoverEvent(BaseModel):

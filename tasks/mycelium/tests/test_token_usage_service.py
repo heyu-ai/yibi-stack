@@ -22,6 +22,7 @@ from tasks.mycelium.token_usage_service import (
     _generate_optimization_notes,
     _model_cost,
     _normalize_model_id,
+    compute_auto_token_fields,
     compute_token_usage_report,
     find_current_transcript,
 )
@@ -224,9 +225,13 @@ class TestModelCost:
         )
         # claude-sonnet-5: input=3.00, output=15.00 ($/1M)
         breakdown = _model_cost("claude-sonnet-5", acc)
-        expected = 3.00 + (1_000_000 * 3.00 * 1.25) / 1_000_000 + (
-            1_000_000 * 3.00 * 2.0
-        ) / 1_000_000 + (1_000_000 * 3.00 * 0.1) / 1_000_000 + 15.00
+        expected = (
+            3.00
+            + (1_000_000 * 3.00 * 1.25) / 1_000_000
+            + (1_000_000 * 3.00 * 2.0) / 1_000_000
+            + (1_000_000 * 3.00 * 0.1) / 1_000_000
+            + 15.00
+        )
         assert breakdown.priced is True
         assert breakdown.cost_usd is not None
         assert abs(breakdown.cost_usd - expected) < 1e-9
@@ -389,9 +394,7 @@ class TestComputeTokenUsageReport:
         assert report.status == "unavailable"
         assert isinstance(report, TokenUsageReport)
 
-    def test_toksvc_eg_006_session_effort_from_env(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_toksvc_eg_006_session_effort_from_env(self, tmp_path: Path, monkeypatch) -> None:
         """TOKSVC-EG-006：session_effort 讀取 $CLAUDE_EFFORT 環境變數。"""
         monkeypatch.setenv("CLAUDE_EFFORT", "high")
         working_dir = (tmp_path / "repo").resolve()
@@ -404,3 +407,53 @@ class TestComputeTokenUsageReport:
 
         report = compute_token_usage_report(working_dir, projects_dir=projects_dir)
         assert report.session_effort == "high"
+
+
+class TestComputeAutoTokenFields:
+    def test_toksvc_dt_010_disabled_returns_empty_dict(self, tmp_path: Path) -> None:
+        """TOKSVC-DT-010：enabled=False 時直接回傳空 dict，不呼叫任何計算。"""
+        assert compute_auto_token_fields(tmp_path, False) == {}
+
+    def test_toksvc_st_011_computed_returns_all_fields(self, tmp_path: Path, monkeypatch) -> None:
+        """TOKSVC-ST-011：status=computed 時回傳完整的 8 個欄位 + token_usage_source。"""
+        report = TokenUsageReport(
+            status="computed",
+            total_input_tokens=10,
+            total_output_tokens=2,
+            total_cache_read_tokens=1,
+            total_cache_creation_tokens=1,
+            total_cost_usd=0.001,
+            by_model=[{"model": "claude-sonnet-5"}],
+            session_effort="high",
+            optimization_notes=["note"],
+        )
+        monkeypatch.setattr(
+            "tasks.mycelium.token_usage_service.compute_token_usage_report",
+            lambda *a, **k: report,
+        )
+        fields = compute_auto_token_fields(tmp_path, True)
+        assert fields["token_usage_source"] == "computed"
+        assert fields["token_input_tokens"] == 10
+        assert fields["token_total_cost_usd"] == 0.001
+        assert fields["session_effort"] == "high"
+
+    def test_toksvc_st_012_ambiguous_returns_only_source(self, tmp_path: Path, monkeypatch) -> None:
+        """TOKSVC-ST-012：status=ambiguous/unavailable 時只回傳 token_usage_source。"""
+        report = TokenUsageReport(status="ambiguous", warning="並行 session")
+        monkeypatch.setattr(
+            "tasks.mycelium.token_usage_service.compute_token_usage_report",
+            lambda *a, **k: report,
+        )
+        fields = compute_auto_token_fields(tmp_path, True)
+        assert fields == {"token_usage_source": "ambiguous"}
+
+    def test_toksvc_eg_007_internal_exception_returns_empty_dict(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """TOKSVC-EG-007：compute_token_usage_report 本身 raise 時回傳空 dict，不往外拋。"""
+
+        def _raise(*a: object, **k: object) -> None:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr("tasks.mycelium.token_usage_service.compute_token_usage_report", _raise)
+        assert compute_auto_token_fields(tmp_path, True) == {}

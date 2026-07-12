@@ -120,39 +120,39 @@ class TestTokenUsageReportCli:
         assert data["total_input_tokens"] == 42
 
 
-def _make_fake_write_handover(captured: dict[str, object]):
-    """建立一個記錄 kwargs 並回傳假 record 的 write_handover 替身。"""
+def _make_fake_write_retrospective(captured: dict[str, object]):
+    """建立一個記錄 kwargs 並回傳假 record 的 write_retrospective 替身。"""
 
-    def _fake_write_handover(*args: object, **kwargs: object) -> object:
+    def _fake_write_retrospective(*args: object, **kwargs: object) -> object:
         captured.update(kwargs)
         return SimpleNamespace(
             id="fake-id",
+            pr_number=kwargs.get("pr_number"),
             topic=kwargs.get("topic"),
-            session_type=kwargs.get("session_type"),
             device="fake-device",
             subscription_account="fake-account",
             project="fake-project",
         )
 
-    return _fake_write_handover
+    return _fake_write_retrospective
 
 
-class TestHandoverWriteAutoTokensCli:
-    def test_hwc_st_001_auto_tokens_flag_passed_through(self, tmp_path: Path, monkeypatch) -> None:
-        """HWC-ST-001：--auto-tokens 會傳入 write_handover(auto_token_usage=True)。"""
+class TestRetroWriteCli:
+    def test_rwc_st_001_auto_tokens_flag_passed_through(self, tmp_path: Path, monkeypatch) -> None:
+        """RWC-ST-001：--auto-tokens 會傳入 write_retrospective(auto_token_usage=True)。"""
         captured: dict[str, object] = {}
         monkeypatch.setattr(
-            "tasks.mycelium.handover_service.write_handover",
-            _make_fake_write_handover(captured),
+            "tasks.mycelium.retrospective_service.write_retrospective",
+            _make_fake_write_retrospective(captured),
         )
         runner = CliRunner()
         result = runner.invoke(
             cli,
             [
-                "handover",
+                "retro",
                 "write",
-                "--session-type",
-                "discussion",
+                "--pr-number",
+                "205",
                 "--topic",
                 "t",
                 "--summary",
@@ -162,22 +162,23 @@ class TestHandoverWriteAutoTokensCli:
         )
         assert result.exit_code == 0
         assert captured.get("auto_token_usage") is True
+        assert captured.get("pr_number") == 205
 
-    def test_hwc_st_002_without_flag_defaults_false(self, tmp_path: Path, monkeypatch) -> None:
-        """HWC-ST-002：未帶 --auto-tokens 時 auto_token_usage 預設 False。"""
+    def test_rwc_st_002_without_flag_defaults_false(self, tmp_path: Path, monkeypatch) -> None:
+        """RWC-ST-002：未帶 --auto-tokens 時 auto_token_usage 預設 False。"""
         captured: dict[str, object] = {}
         monkeypatch.setattr(
-            "tasks.mycelium.handover_service.write_handover",
-            _make_fake_write_handover(captured),
+            "tasks.mycelium.retrospective_service.write_retrospective",
+            _make_fake_write_retrospective(captured),
         )
         runner = CliRunner()
         result = runner.invoke(
             cli,
             [
-                "handover",
+                "retro",
                 "write",
-                "--session-type",
-                "discussion",
+                "--pr-number",
+                "205",
                 "--topic",
                 "t",
                 "--summary",
@@ -186,3 +187,47 @@ class TestHandoverWriteAutoTokensCli:
         )
         assert result.exit_code == 0
         assert captured.get("auto_token_usage") is False
+
+
+class TestRetroReadSearchCli:
+    def test_rrc_st_001_read_json_flag(self, tmp_path: Path, monkeypatch) -> None:
+        """RRC-ST-001：retro read --json 輸出 read_recent_retrospectives 的結果。"""
+        monkeypatch.setattr(
+            "tasks.mycelium.retrospective_service.read_recent_retrospectives",
+            lambda *a, **k: [{"id": "r1", "pr_number": 205}],
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["retro", "read", "--last", "1", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data == [{"id": "r1", "pr_number": 205}]
+
+    def test_rsc_st_001_search_pr_number_passthrough(self, tmp_path: Path, monkeypatch) -> None:
+        """RSC-ST-001：retro search --pr-number 正確傳給 search_retrospectives。"""
+        captured: dict[str, object] = {}
+
+        def _fake_search(*args: object, **kwargs: object) -> list[dict[str, object]]:
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(
+            "tasks.mycelium.retrospective_service.search_retrospectives", _fake_search
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["retro", "search", "--pr-number", "205"])
+        assert result.exit_code == 0
+        assert captured.get("pr_number") == 205
+
+
+class TestRetroMigrateCli:
+    def test_rmc_st_001_reports_counts(self, tmp_path: Path, monkeypatch) -> None:
+        """RMC-ST-001：retro migrate-from-handovers 印出 migrate.py 回傳的統計。"""
+        monkeypatch.setattr(
+            "tasks.mycelium.migrate.migrate_retrospectives_from_handovers",
+            lambda *a, **k: (3, 1),
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["retro", "migrate-from-handovers"])
+        assert result.exit_code == 0
+        assert "3" in result.output
+        assert "1" in result.output

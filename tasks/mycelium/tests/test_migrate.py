@@ -7,7 +7,12 @@ import sqlite3
 from pathlib import Path
 
 from tasks.mycelium.db import AgentsDB
-from tasks.mycelium.migrate import migrate_handover, migrate_insights
+from tasks.mycelium.migrate import (
+    migrate_handover,
+    migrate_insights,
+    migrate_retrospectives_from_handovers,
+)
+from tasks.mycelium.models import HandoverRecord, SessionType
 
 
 def _create_legacy_db(path: Path) -> None:
@@ -158,3 +163,127 @@ class TestMigrateInsights:
         assert migrated == 0
         assert skipped == 0
         assert source is None
+
+
+def _make_retro_tagged_handover(**overrides: object) -> HandoverRecord:
+    """建立一筆帶 pr-retrospective tag 的舊版 handover 記錄（搬家前的寫入格式）。"""
+    defaults: dict[str, object] = {
+        "id": "old-retro-1",
+        "timestamp": "2026-04-10T00:00:00+00:00",
+        "session_type": SessionType.discussion,
+        "topic": "Retro: PR #205 - fix bug",
+        "conversation_summary": "Problem: bug. Value: fixed. Experience: smooth.",
+        "decisions": ["Value: fixed", "Experience: smooth"],
+        "completed": ["PR #205 merged"],
+        "lessons_learned": ["always test edge cases"],
+        "tags": ["pr-retrospective", "main", "pr-205"],
+        "device": "mac-mini",
+        "project": "yibi-stack",
+    }
+    return HandoverRecord.model_validate({**defaults, **overrides})
+
+
+class TestMigrateRetrospectivesFromHandovers:
+    def test_retro_mig_st_001_migrates_tagged_rows(self, tmp_path: Path) -> None:
+        """RETRO-MIG-ST-001：帶 pr-retrospective tag 的 handover 被搬進 retrospectives。"""
+        db_path = tmp_path / "shared.db"
+        jsonl_path = tmp_path / "retrospectives.jsonl"
+
+        db = AgentsDB(db_path)
+        try:
+            db.init_db()
+            db.insert_handover(_make_retro_tagged_handover())
+        finally:
+            db.close()
+
+        migrated, skipped = migrate_retrospectives_from_handovers(
+            handover_db_path=db_path, retro_jsonl_path=jsonl_path
+        )
+        assert migrated == 1
+        assert skipped == 0
+
+        db = AgentsDB(db_path)
+        try:
+            rows = db.read_recent_retrospectives(last=10)
+        finally:
+            db.close()
+        assert len(rows) == 1
+        assert rows[0]["id"] == "old-retro-1"
+        assert rows[0]["pr_number"] == 205
+        assert rows[0]["topic"] == "PR #205 - fix bug"  # "Retro: " 前綴已剝除
+        assert "pr-retrospective" not in rows[0]["tags"]  # discriminator tag 已剝除
+
+        lines = jsonl_path.read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 1
+
+    def test_retro_mig_st_002_idempotent(self, tmp_path: Path) -> None:
+        """RETRO-MIG-ST-002：再跑一次，同 id 的記錄被 skip，不重複寫入。"""
+        db_path = tmp_path / "shared.db"
+        jsonl_path = tmp_path / "retrospectives.jsonl"
+
+        db = AgentsDB(db_path)
+        try:
+            db.init_db()
+            db.insert_handover(_make_retro_tagged_handover())
+        finally:
+            db.close()
+
+        migrate_retrospectives_from_handovers(handover_db_path=db_path, retro_jsonl_path=jsonl_path)
+        migrated, skipped = migrate_retrospectives_from_handovers(
+            handover_db_path=db_path, retro_jsonl_path=jsonl_path
+        )
+        assert migrated == 0
+        assert skipped == 1
+
+    def test_retro_mig_st_003_untagged_handovers_ignored(self, tmp_path: Path) -> None:
+        """RETRO-MIG-ST-003：沒有 pr-retrospective tag 的一般 handover 不被搬遷。"""
+        db_path = tmp_path / "shared.db"
+        jsonl_path = tmp_path / "retrospectives.jsonl"
+
+        db = AgentsDB(db_path)
+        try:
+            db.init_db()
+            db.insert_handover(
+                HandoverRecord.model_validate(
+                    {
+                        "id": "normal-1",
+                        "timestamp": "2026-04-10T00:00:00+00:00",
+                        "session_type": SessionType.debug,
+                        "topic": "mid-work handoff",
+                        "conversation_summary": "still working on it",
+                        "tags": ["main"],
+                    }
+                )
+            )
+        finally:
+            db.close()
+
+        migrated, skipped = migrate_retrospectives_from_handovers(
+            handover_db_path=db_path, retro_jsonl_path=jsonl_path
+        )
+        assert migrated == 0
+        assert skipped == 0
+
+    def test_retro_mig_eg_001_unparseable_pr_number_skipped(self, tmp_path: Path) -> None:
+        """RETRO-MIG-EG-001：tag/topic 都解析不出 pr_number 時該筆被跳過（不 raise）。"""
+        db_path = tmp_path / "shared.db"
+        jsonl_path = tmp_path / "retrospectives.jsonl"
+
+        db = AgentsDB(db_path)
+        try:
+            db.init_db()
+            db.insert_handover(
+                _make_retro_tagged_handover(
+                    id="no-pr-number",
+                    topic="Retro: no PR reference here",
+                    tags=["pr-retrospective", "main"],
+                )
+            )
+        finally:
+            db.close()
+
+        migrated, skipped = migrate_retrospectives_from_handovers(
+            handover_db_path=db_path, retro_jsonl_path=jsonl_path
+        )
+        assert migrated == 0
+        assert skipped == 1
