@@ -2,7 +2,7 @@
 name: nightly-agent
 type: exec
 scope: project
-description: 夜間自我改善 Agent — 讀取 transcript/mycelium friction events、聚類後草擬 hookify rule 或 CLAUDE.md gotcha、驗證 failing→passing test、開 PR。每日 03:00 自動執行。
+description: 夜間自我改善 Agent — 讀取 transcript/mycelium friction events、聚類後草擬 hookify rule 或 CLAUDE.md gotcha、驗證 failing→passing test、開 PR。每日 21:00 自動執行。
 ---
 
 # Nightly Self-Improvement Agent
@@ -103,7 +103,7 @@ uv run python -m tasks.nightly_agent digest
       "id": "nightly-self-improvement",
       "description": "Nightly friction clustering and PR creation",
       "schedule": "daily",
-      "time": "03:00",
+      "time": "21:00",
       "command": [
         "uv", "run", "--directory", "/path/to/yibi-stack",
         "python", "-m", "tasks.nightly_agent", "run"

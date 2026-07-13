@@ -235,7 +235,15 @@ def setup() -> None:
 def _load_mycelium_lessons(
     hours: int, lesson_types: list[str], errors: list[str]
 ) -> list[dict[str, object]]:
-    """從 mycelium handover.db 讀取最近 hours 小時的 lessons。"""
+    """從 mycelium 的 lessons table 讀取最近 hours 小時的 typed lessons。
+
+    lessons 已與 handover 分家：schema 支援 handover_id（`/handover`，Phase B 尚未串接，
+    見 `commands/lessons.md`「Skill integration contract」）與 retrospective_id
+    （`/pr-retro`，已在用），或透過 `/lessons add` 獨立寫入（兩者皆空）。
+    三者仍共用同一實體檔案 `~/.agents/handover/handover.db`（見
+    `tasks/mycelium/config.py` 的 `HANDOVER_DB_PATH`），但 `lessons` 是與 `handovers`/
+    `retrospectives` 平行的獨立 table，故 SELECT 需一併帶出 `retrospective_id`。
+    """
     import sqlite3  # noqa: PLC0415
 
     try:
@@ -245,14 +253,33 @@ def _load_mycelium_lessons(
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
         try:
+            # retrospective_id 是後補的 migration 欄位（見 tasks/mycelium/db.py 的
+            # ALTER TABLE），只透過 AgentsDB.init_db() 套用；舊的 handover.db 可能還沒有
+            # 這個欄位。這裡刻意保持唯讀（不對 handover.db 執行 ALTER TABLE）：把讀取路徑
+            # 變成寫入路徑，在唯讀掛載或被其他 mycelium 指令鎖住時會讓整批 lessons 讀取失敗，
+            # 比原本缺欄位的問題更糟。改用 PRAGMA table_info（唯讀）偵測欄位是否存在，
+            # 缺欄位時退回 NULL AS retrospective_id。
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(lessons)")}
+            # 兩條完整靜態 SQL 字串（而非用 f-string 插入欄位片段），避免動態組字串
+            # 觸發 bandit B608 誤判，也讓兩種 schema 各自的查詢一目瞭然。
+            if "retrospective_id" in columns:
+                select_sql = (
+                    "SELECT id, ts, project, type, key, insight, confidence, source, "
+                    "handover_id, retrospective_id "
+                    "FROM lessons "
+                    "WHERE ts >= datetime('now', ? || ' hours') "
+                    "ORDER BY ts DESC LIMIT 200"
+                )
+            else:
+                select_sql = (
+                    "SELECT id, ts, project, type, key, insight, confidence, source, "
+                    "handover_id, NULL AS retrospective_id "
+                    "FROM lessons "
+                    "WHERE ts >= datetime('now', ? || ' hours') "
+                    "ORDER BY ts DESC LIMIT 200"
+                )
             # SQLite datetime arithmetic: last N hours
-            rows = conn.execute(  # nosec B608
-                "SELECT id, ts, project, type, key, insight, confidence, source, handover_id "
-                "FROM lessons "
-                "WHERE ts >= datetime('now', ? || ' hours') "
-                "ORDER BY ts DESC LIMIT 200",
-                (f"-{hours}",),
-            ).fetchall()
+            rows = conn.execute(select_sql, (f"-{hours}",)).fetchall()
         finally:
             conn.close()
         result = []
