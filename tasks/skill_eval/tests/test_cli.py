@@ -110,7 +110,7 @@ class TestEval:
 
     def test_seval_cli_007_empty_fixture_fails(self, tmp_path: Path) -> None:
         """SEVAL-CLI-007: fixture 三類皆空 -> [FAIL] exit 1（不 vacuous pass）。
-        spec: skill-trigger-eval#absent-fixture-fails-loud"""
+        spec: skill-trigger-eval#empty-fixture-fails-loud"""
         write_fixture(tmp_path, skill="empty", direct=[], indirect=[], negative=[])
         judgments = tmp_path / "j.json"
         judgments.write_text(json.dumps([]), encoding="utf-8")
@@ -131,7 +131,7 @@ class TestEval:
 
     def test_seval_cli_008_manifest_mismatch_fails(self, tmp_path: Path) -> None:
         """SEVAL-CLI-008: fixture 在 emit-manifest 後變動 -> --manifest 核對失敗 exit 1。
-        spec: skill-trigger-eval#verdict-count-mismatch-surfaced"""
+        spec: skill-trigger-eval#manifest-binding-drift-fails"""
         write_fixture(tmp_path)
         emit = CliRunner().invoke(
             cli, ["eval", "--skill", "demo", "--skills-dir", str(tmp_path), "--emit-manifest"]
@@ -161,7 +161,7 @@ class TestEval:
 
     def test_seval_cli_009_manifest_match_proceeds(self, tmp_path: Path) -> None:
         """SEVAL-CLI-009: fixture 未變動 -> --manifest 核對通過並正常評測。
-        spec: skill-trigger-eval#core-scores-via-interface"""
+        spec: skill-trigger-eval#manifest-binding-drift-fails"""
         write_fixture(tmp_path)
         emit = CliRunner().invoke(
             cli, ["eval", "--skill", "demo", "--skills-dir", str(tmp_path), "--emit-manifest"]
@@ -219,7 +219,7 @@ class TestBaseline:
 class TestOrphanDiscovery:
     def test_seval_eg_004_plugin_only_fixture_flagged_as_orphan(self, tmp_path: Path) -> None:
         """SEVAL-EG-004: plugins/ 未 symlink 的 fixture 被列為 orphan（--all 漏評防護）。
-        spec: skill-trigger-eval#eval-baseline-discoverable"""
+        spec: skill-trigger-eval#orphan-plugin-fixture-warned"""
         skills_dir = tmp_path / "skills"
         plugins_dir = tmp_path / "plugins"
         # skills/ 有一個一般 fixture（非 orphan）
@@ -235,3 +235,105 @@ class TestOrphanDiscovery:
         assert len(orphans) == 1
         assert orphans[0].name == "trigger_eval.json"
         assert "hidden" in str(orphans[0])
+
+    def test_seval_eg_005_symlinked_plugin_fixture_not_orphan(self, tmp_path: Path) -> None:
+        """SEVAL-EG-005: 已 symlink 到 skills/ 的 plugin fixture 不算 orphan（正向路徑）。
+        spec: skill-trigger-eval#orphan-plugin-fixture-warned"""
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir(parents=True)
+        plugins_dir = tmp_path / "plugins"
+        real = plugins_dir / "pack" / "skills" / "linked"
+        real.mkdir(parents=True)
+        (real / "trigger_eval.json").write_text(
+            json.dumps({"skill": "linked", "direct": [], "indirect": [], "negative": []}),
+            encoding="utf-8",
+        )
+        (skills_dir / "linked").symlink_to(real)
+        assert orphan_plugin_fixtures(skills_dir=skills_dir, plugins_dir=plugins_dir) == []
+
+
+class TestAllScope:
+    def test_seval_cli_010_all_warns_orphan_plugin_fixture(self, tmp_path: Path) -> None:
+        """SEVAL-CLI-010: eval --all 對 sibling plugins/ 的未涵蓋 fixture 印 [WARN]。
+        spec: skill-trigger-eval#orphan-plugin-fixture-warned"""
+        skills_dir = tmp_path / "skills"
+        write_fixture(skills_dir, skill="covered")
+        hidden = tmp_path / "plugins" / "pack" / "skills" / "hidden"
+        hidden.mkdir(parents=True)
+        (hidden / "trigger_eval.json").write_text(
+            json.dumps({"skill": "hidden", "direct": [], "indirect": [], "negative": []}),
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(
+            cli, ["eval", "--all", "--skills-dir", str(skills_dir), "--emit-manifest"]
+        )
+        assert result.exit_code == 0
+        assert "[WARN]" in result.output
+        assert "hidden" in result.output
+
+    def test_seval_cli_011_all_empty_skill_fails_not_vacuous(self, tmp_path: Path) -> None:
+        """SEVAL-CLI-011: --all 夾帶一個空 fixture -> [FAIL] 指名該 skill（非 vacuous [OK]）。
+        spec: skill-trigger-eval#empty-fixture-fails-loud"""
+        skills_dir = tmp_path / "skills"
+        write_fixture(skills_dir, skill="good")
+        write_fixture(skills_dir, skill="empty", direct=[], indirect=[], negative=[])
+        judgments = tmp_path / "j.json"
+        judgments.write_text(json.dumps([True, True, False]), encoding="utf-8")
+        result = CliRunner().invoke(
+            cli,
+            ["eval", "--all", "--skills-dir", str(skills_dir), "--judgments", str(judgments)],
+        )
+        assert result.exit_code == 1
+        assert "empty" in result.output
+
+
+class TestManifestErrorBranches:
+    def test_seval_eg_006_manifest_unreadable_fails(self, tmp_path: Path) -> None:
+        """SEVAL-EG-006: --manifest 檔非合法 JSON -> [FAIL] 讀取失敗 exit 1。
+        spec: skill-trigger-eval#manifest-binding-drift-fails"""
+        write_fixture(tmp_path)
+        bad = tmp_path / "manifest.json"
+        bad.write_text("{not json", encoding="utf-8")
+        judgments = tmp_path / "j.json"
+        judgments.write_text(json.dumps([True, True, False]), encoding="utf-8")
+        result = CliRunner().invoke(
+            cli,
+            [
+                "eval",
+                "--skill",
+                "demo",
+                "--skills-dir",
+                str(tmp_path),
+                "--manifest",
+                str(bad),
+                "--judgments",
+                str(judgments),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "讀取 manifest 失敗" in result.output
+
+    def test_seval_eg_007_manifest_non_list_fails(self, tmp_path: Path) -> None:
+        """SEVAL-EG-007: --manifest 檔非陣列 -> [FAIL] 格式錯誤 exit 1。
+        spec: skill-trigger-eval#manifest-binding-drift-fails"""
+        write_fixture(tmp_path)
+        bad = tmp_path / "manifest.json"
+        bad.write_text(json.dumps({"not": "a list"}), encoding="utf-8")
+        judgments = tmp_path / "j.json"
+        judgments.write_text(json.dumps([True, True, False]), encoding="utf-8")
+        result = CliRunner().invoke(
+            cli,
+            [
+                "eval",
+                "--skill",
+                "demo",
+                "--skills-dir",
+                str(tmp_path),
+                "--manifest",
+                str(bad),
+                "--judgments",
+                str(judgments),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "manifest 檔格式錯誤" in result.output

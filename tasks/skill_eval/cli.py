@@ -14,18 +14,46 @@ def cli() -> None:
 
 
 def _warn_orphan_fixtures(skills_dir: Path | None) -> None:
-    """--all 時顯式警告 plugins/ 底下未被涵蓋的 fixture，避免靜默漏評。"""
+    """--all 時顯式警告 plugins/ 底下未被涵蓋的 fixture，避免靜默漏評。
+
+    custom skills_dir（測試/非預設佈局）比對其 sibling `plugins/`，不誤報 repo 全域
+    plugins；預設佈局（skills_dir=None）比對 repo 的 PLUGINS_DIR。輸出相對路徑。
+    """
+    from tasks._paths import PROJECT_ROOT
+
     from .config import orphan_plugin_fixtures
 
-    orphans = orphan_plugin_fixtures(skills_dir)
-    if orphans:
+    plugins_dir = (skills_dir.parent / "plugins") if skills_dir is not None else None
+    orphans = orphan_plugin_fixtures(skills_dir, plugins_dir)
+    if not orphans:
+        return
+    base = skills_dir.parent if skills_dir is not None else PROJECT_ROOT
+    click.echo(
+        f"[WARN] --all 只涵蓋 skills/ 底下的 fixture；下列 {len(orphans)} 個 plugin-only "
+        "fixture 未被評測（未 symlink 到 skills/）：",
+        err=True,
+    )
+    for path in orphans:
+        try:
+            shown: Path = path.relative_to(base)
+        except ValueError:
+            shown = path
+        click.echo(f"  {shown}", err=True)
+
+
+def _assert_nonempty_fixtures(fixtures: list[TriggerEvalFixture]) -> None:
+    """每個 fixture 至少要有一個 prompt；否則 [FAIL]。
+
+    per-skill 檢查（非 aggregate）：--all 下某個被清空的 fixture 不會靜默地從
+    regression gate 消失（score_verdicts/compare_baseline 只走有 verdict 的 skill）。
+    """
+    empty = [fx.skill for fx in fixtures if not (fx.direct or fx.indirect or fx.negative)]
+    if empty:
         click.echo(
-            f"[WARN] --all 只涵蓋 skills/ 底下的 fixture；下列 {len(orphans)} 個 plugin-only "
-            "fixture 未被評測（未 symlink 到 skills/）：",
+            f"[FAIL] 下列 skill 的 fixture 三類皆空，無可評測項目：{', '.join(empty)}",
             err=True,
         )
-        for path in orphans:
-            click.echo(f"  {path}", err=True)
+        raise SystemExit(1)
 
 
 def _resolve_skills(skill: tuple[str, ...], all_skills: bool, skills_dir: Path | None) -> list[str]:
@@ -81,13 +109,12 @@ def _check_manifest_binding(manifest_file: Path, tasks: list[JudgeTask]) -> None
     except (OSError, json.JSONDecodeError) as e:
         click.echo(f"[FAIL] 讀取 manifest 失敗：{manifest_file}", err=True)
         raise SystemExit(1) from e
-    if not isinstance(saved, list):
+    if not isinstance(saved, list) or not all(isinstance(t, dict) for t in saved):
         click.echo("[FAIL] manifest 檔格式錯誤（應為 emit-manifest 產出的任務陣列）", err=True)
         raise SystemExit(1)
     saved_sig = [
         [t.get("index"), t.get("skill"), t.get("cls"), t.get("prompt"), t.get("expect_trigger")]
         for t in saved
-        if isinstance(t, dict)
     ]
     if saved_sig != manifest_signature(tasks):
         click.echo(
@@ -138,11 +165,8 @@ def eval(  # noqa: A001 — 對映 spec「eval subcommand」命名
 
     names = _resolve_skills(skill, all_skills, skills_dir)
     fixtures = _load_fixtures(names, skills_dir)
+    _assert_nonempty_fixtures(fixtures)
     tasks = build_tasks(fixtures)
-
-    if not tasks:
-        click.echo("[FAIL] 選定的 skill 無任何 prompt（fixture 三類皆空），無可評測項目", err=True)
-        raise SystemExit(1)
 
     if emit_manifest:
         click.echo(json.dumps([t.model_dump() for t in tasks], ensure_ascii=False, indent=2))
@@ -154,6 +178,10 @@ def eval(  # noqa: A001 — 對映 spec「eval subcommand」命名
 
     if manifest_file is not None:
         _check_manifest_binding(manifest_file, tasks)
+    else:
+        click.echo(
+            "[WARN] 未提供 --manifest；跳過 fixture 漂移核對（同數量重排不會被偵測）", err=True
+        )
 
     judgments = _read_judgments(judgments_file)
     judge = AgentJudge()
@@ -207,6 +235,7 @@ def baseline(
 
     names = _resolve_skills(skill, all_skills, skills_dir)
     fixtures = _load_fixtures(names, skills_dir)
+    _assert_nonempty_fixtures(fixtures)
     tasks = build_tasks(fixtures)
     judgments = _read_judgments(judgments_file)
 

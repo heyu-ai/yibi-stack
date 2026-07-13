@@ -68,7 +68,7 @@ class FixedJudge(Judge):
 class TestBuildTasks:
     def test_seval_dt_005_stable_order_and_index(self) -> None:
         """SEVAL-DT-005: build_tasks 依 direct/indirect/negative 展平、index 連續。
-        spec: skill-trigger-eval#verdict-count-mismatch-surfaced"""
+        spec: skill-trigger-eval#manifest-binding-drift-fails"""
         tasks = build_tasks([make_fixture()])
         assert [t.cls for t in tasks] == [
             TriggerPromptClass.DIRECT,
@@ -80,7 +80,7 @@ class TestBuildTasks:
 
     def test_seval_cv_002_manifest_signature_tracks_fixture(self) -> None:
         """SEVAL-CV-002: manifest_signature 隨 fixture prompt 變動而改變（綁定基礎）。
-        spec: skill-trigger-eval#verdict-count-mismatch-surfaced"""
+        spec: skill-trigger-eval#manifest-binding-drift-fails"""
         base = manifest_signature(build_tasks([make_fixture()]))
         changed = TriggerEvalFixture(
             skill="demo",

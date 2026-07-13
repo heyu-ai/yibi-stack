@@ -88,3 +88,36 @@ When an evaluation targets a skill whose `trigger_eval.json` does not exist, the
 **WHEN** `eval` 以該 skill 為目標
 **THEN** 系統 MUST 印出指明該 skill 的失敗訊息並以非零狀態結束
   AND 系統 MUST NOT 將缺檔視為通過
+
+### Requirement: Empty fixture is surfaced
+
+When a targeted skill's `trigger_eval.json` exists but contributes no prompts in any class, the system SHALL surface an explicit per-skill failure and SHALL NOT report a vacuous pass — including under `--all`, where one emptied fixture MUST NOT silently drop out of the regression gate.
+
+#### Scenario: empty-fixture-fails-loud -- 空 fixture 明確失敗
+
+**GIVEN** 一個 `trigger_eval.json` 存在但 direct/indirect/negative 三類皆空的 skill
+**WHEN** `eval` 以該 skill 為目標（含 `--all` 中夾帶此 skill）
+**THEN** 系統 MUST 印出指明該 skill 的失敗訊息並以非零狀態結束
+  AND 系統 MUST NOT 回報 `[OK]` 無回歸
+
+### Requirement: Manifest binding guards fixture drift
+
+When a prior `--emit-manifest` output is passed back via `--manifest`, the system SHALL recompute the manifest signature from the current fixtures and SHALL fail loudly when it differs, so judgments produced for a since-changed fixture cannot be scored against misaligned prompts.
+
+#### Scenario: manifest-binding-drift-fails -- fixture 漂移即失敗
+
+**GIVEN** 一份先前 `--emit-manifest` 的 manifest，且其後 fixture 的 prompt 內容已變動
+**WHEN** `eval --manifest <該 manifest> --judgments <...>` 執行
+**THEN** 系統 MUST 偵測簽章不符並以非零狀態結束
+  AND 系統 MUST NOT 以錯位的 prompt↔judgment 對算出 pass rate
+
+### Requirement: Plugin-only fixtures are surfaced under --all
+
+When `eval --all` enumerates fixtures, the system SHALL warn about `trigger_eval.json` files under `plugins/` that are not reachable through `skills/`, so silently-skipped plugin-only fixtures are visible rather than dropped without notice.
+
+#### Scenario: orphan-plugin-fixture-warned -- plugin-only fixture 顯式警告
+
+**GIVEN** 一個位於 `plugins/` 底下、未 symlink 到 `skills/` 的 `trigger_eval.json`
+**WHEN** `eval --all` 列舉 fixture
+**THEN** 系統 MUST 於 stderr 印出 `[WARN]` 並列出該未涵蓋的 fixture
+  AND 系統 MUST NOT 靜默地將其排除在評測範圍外
