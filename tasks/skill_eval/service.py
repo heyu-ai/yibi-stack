@@ -40,6 +40,15 @@ def build_tasks(fixtures: list[TriggerEvalFixture]) -> list[JudgeTask]:
     return tasks
 
 
+def manifest_signature(tasks: list[JudgeTask]) -> list[list[object]]:
+    """任務清單的穩定簽章（index+skill+cls+prompt+expect_trigger）。
+
+    用來把 emit-manifest 當下的 fixture 狀態綁到 score 當下：兩次 build_tasks 之間若
+    fixture 變動（W4 假設失效），簽章不符即可攔截 index 對位錯亂造成的靜默錯誤結果。
+    """
+    return [[t.index, t.skill, str(t.cls), t.prompt, t.expect_trigger] for t in tasks]
+
+
 def score_verdicts(verdicts: list[PromptVerdict]) -> list[SkillEvalResult]:
     """把 verdict 依 skill 分組、逐類算 pass rate。direct/indirect pass=觸發，
     negative pass=未觸發（由 PromptVerdict.passed 推導，此處只彙總）。"""

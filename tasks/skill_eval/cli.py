@@ -5,12 +5,27 @@ from pathlib import Path
 
 import click
 
-from .models import TriggerEvalFixture
+from .models import JudgeTask, TriggerEvalFixture
 
 
 @click.group()
 def cli() -> None:
     """skill 觸發準確度評測（trigger-eval runner + regression gate）。"""
+
+
+def _warn_orphan_fixtures(skills_dir: Path | None) -> None:
+    """--all 時顯式警告 plugins/ 底下未被涵蓋的 fixture，避免靜默漏評。"""
+    from .config import orphan_plugin_fixtures
+
+    orphans = orphan_plugin_fixtures(skills_dir)
+    if orphans:
+        click.echo(
+            f"[WARN] --all 只涵蓋 skills/ 底下的 fixture；下列 {len(orphans)} 個 plugin-only "
+            "fixture 未被評測（未 symlink 到 skills/）：",
+            err=True,
+        )
+        for path in orphans:
+            click.echo(f"  {path}", err=True)
 
 
 def _resolve_skills(skill: tuple[str, ...], all_skills: bool, skills_dir: Path | None) -> list[str]:
@@ -22,6 +37,7 @@ def _resolve_skills(skill: tuple[str, ...], all_skills: bool, skills_dir: Path |
         if not names:
             click.echo("[FAIL] 找不到任何含 trigger_eval.json 的 skill", err=True)
             raise SystemExit(1)
+        _warn_orphan_fixtures(skills_dir)
         return names
     if skill:
         return list(skill)
@@ -56,6 +72,32 @@ def _read_judgments(path: Path) -> list[bool]:
     return data
 
 
+def _check_manifest_binding(manifest_file: Path, tasks: list[JudgeTask]) -> None:
+    """核對先前 emit 的 manifest 與當前 build_tasks；不符即 fixture 已變動，攔截靜默錯位。"""
+    from .service import manifest_signature
+
+    try:
+        saved = json.loads(manifest_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        click.echo(f"[FAIL] 讀取 manifest 失敗：{manifest_file}", err=True)
+        raise SystemExit(1) from e
+    if not isinstance(saved, list):
+        click.echo("[FAIL] manifest 檔格式錯誤（應為 emit-manifest 產出的任務陣列）", err=True)
+        raise SystemExit(1)
+    saved_sig = [
+        [t.get("index"), t.get("skill"), t.get("cls"), t.get("prompt"), t.get("expect_trigger")]
+        for t in saved
+        if isinstance(t, dict)
+    ]
+    if saved_sig != manifest_signature(tasks):
+        click.echo(
+            "[FAIL] manifest 與當前 fixture 不符（fixture 可能在 emit-manifest 後變動）；"
+            "請重新 --emit-manifest 並重判 judgments",
+            err=True,
+        )
+        raise SystemExit(1)
+
+
 @cli.command()
 @click.option("--skill", "-s", multiple=True, help="要評測的 skill（可多次）")
 @click.option("--all", "all_skills", is_flag=True, help="評測所有含 fixture 的 skill")
@@ -65,6 +107,12 @@ def _read_judgments(path: Path) -> list[bool]:
     "judgments_file",
     type=click.Path(path_type=Path),
     help="judgments JSON（布林陣列）",
+)
+@click.option(
+    "--manifest",
+    "manifest_file",
+    type=click.Path(path_type=Path),
+    help="先前 --emit-manifest 的輸出；提供時核對 fixture 未在其間變動",
 )
 @click.option("--tolerance", default=None, type=float, help="回歸容忍門檻（預設 0.1）")
 @click.option(
@@ -78,6 +126,7 @@ def eval(  # noqa: A001 — 對映 spec「eval subcommand」命名
     all_skills: bool,
     emit_manifest: bool,
     judgments_file: Path | None,
+    manifest_file: Path | None,
     tolerance: float | None,
     baseline_file: Path | None,
     skills_dir: Path | None,
@@ -91,6 +140,10 @@ def eval(  # noqa: A001 — 對映 spec「eval subcommand」命名
     fixtures = _load_fixtures(names, skills_dir)
     tasks = build_tasks(fixtures)
 
+    if not tasks:
+        click.echo("[FAIL] 選定的 skill 無任何 prompt（fixture 三類皆空），無可評測項目", err=True)
+        raise SystemExit(1)
+
     if emit_manifest:
         click.echo(json.dumps([t.model_dump() for t in tasks], ensure_ascii=False, indent=2))
         return
@@ -98,6 +151,9 @@ def eval(  # noqa: A001 — 對映 spec「eval subcommand」命名
     if judgments_file is None:
         click.echo("[FAIL] 請提供 --judgments <file> 或改用 --emit-manifest 產生任務清單", err=True)
         raise SystemExit(1)
+
+    if manifest_file is not None:
+        _check_manifest_binding(manifest_file, tasks)
 
     judgments = _read_judgments(judgments_file)
     judge = AgentJudge()

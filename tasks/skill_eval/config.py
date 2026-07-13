@@ -8,6 +8,7 @@ from tasks._paths import PROJECT_ROOT, RUNTIME_DIR
 from .models import TriggerEvalFixture
 
 SKILLS_DIR = PROJECT_ROOT / "skills"
+PLUGINS_DIR = PROJECT_ROOT / "plugins"
 BASELINE_PATH = RUNTIME_DIR / "skill_eval_baseline.json"
 
 
@@ -30,11 +31,42 @@ def load_fixture(skill: str, skills_dir: Path | None = None) -> TriggerEvalFixtu
 
 
 def discover_fixtures(skills_dir: Path | None = None) -> list[str]:
-    """列出所有含 trigger_eval.json 的 skill 名稱（依名稱排序）。"""
+    """列出 skills/ 底下所有含 trigger_eval.json 的 skill 名稱（依名稱排序）。
+
+    只涵蓋 skills/<name>/（含 symlink 到 plugin 的全域 skill），與 load_fixture 的
+    name-based 解析一致。**未** symlink 到 skills/ 的 plugin-only fixture 不在此列——
+    用 orphan_plugin_fixtures() 偵測那些會被漏掉的檔案，由 CLI 以 [WARN] 顯式回報，
+    避免 --all 靜默漏評（見 lint_skill_overlap.py 的 plugins/** 掃描先例）。
+    """
     root = skills_dir or SKILLS_DIR
     if not root.is_dir():
         return []
     return sorted(entry.name for entry in root.iterdir() if (entry / "trigger_eval.json").is_file())
+
+
+def orphan_plugin_fixtures(
+    skills_dir: Path | None = None, plugins_dir: Path | None = None
+) -> list[Path]:
+    """列出 plugins/ 底下未經 skills/ symlink 觸及的 trigger_eval.json（--all 會漏掉的）。
+
+    以 realpath 判斷是否已被 skills/ 的某個 entry（含 symlink）涵蓋；未涵蓋者即 orphan。
+    plugins glob 用 `**`（rule 02：`*` 不跨 `/`，會漏巢狀 sub-skill）。
+    """
+    root = skills_dir or SKILLS_DIR
+    pdir = plugins_dir or PLUGINS_DIR
+    reachable: set[Path] = set()
+    if root.is_dir():
+        for entry in root.iterdir():
+            fixture = entry / "trigger_eval.json"
+            if fixture.is_file():
+                reachable.add(fixture.resolve())
+    if not pdir.is_dir():
+        return []
+    orphans: list[Path] = []
+    for fixture in sorted(pdir.glob("*/skills/**/trigger_eval.json")):
+        if fixture.resolve() not in reachable:
+            orphans.append(fixture)
+    return orphans
 
 
 def load_baseline(path: Path | None = None) -> dict[str, dict[str, float]]:

@@ -52,11 +52,13 @@ uv run python -m tasks.skill_eval eval --skill {{skill_name}} --emit-manifest > 
 ### Step 4 — 計分並比對 baseline
 
 ```bash
-uv run python -m tasks.skill_eval eval --skill {{skill_name}} --judgments "$CLAUDE_JOB_DIR/judgments.json"
+uv run python -m tasks.skill_eval eval --skill {{skill_name}} --manifest "$CLAUDE_JOB_DIR/manifest.json" --judgments "$CLAUDE_JOB_DIR/judgments.json"
 ```
 
-輸出各類 pass rate。若某類低於 baseline 減容忍門檻（預設 0.1），指令 exit 1 並列出回歸的
-skill 與類別。首次評測（baseline 尚無此 skill）不會誤報回歸。
+傳 `--manifest` 讓指令核對 fixture 未在 Step 2 之後變動——若 fixture 已改（judgments 依
+index 對位失效），指令會 `[FAIL]` 中止而非算出靜默錯誤的 pass rate。輸出各類 pass rate。
+若某類低於 baseline 減容忍門檻（預設 0.1），指令 exit 1 並列出回歸的 skill 與類別。
+首次評測（baseline 尚無此 skill）不會誤報回歸。
 
 ### Step 5 — （選用）更新 baseline
 
