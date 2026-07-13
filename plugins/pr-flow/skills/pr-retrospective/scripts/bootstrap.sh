@@ -28,21 +28,19 @@ else
 fi
 unset _gcd _dir _top
 
-CONFIG="$HOME/.agents/config.json"
-if [ ! -f "$CONFIG" ]; then
-  echo '[FAIL] ~/.agents/config.json not found' >&2
+# SKILL_REPO：從本腳本自身位置解析，不依賴 ~/.agents/config.json 的 skill_repo。
+# 該 key 是多 repo 共寫的單一值，會被最後一個 make install 覆寫指向錯 repo；
+# 只驗目錄存在（[ -d ]）的舊 gate 會讓錯 repo 靜默通過（見 rule 11 / 18）。
+# 本腳本實體住在 yibi-stack，用 git rev-parse 從腳本所在目錄推導 repo 根最可靠；
+# pwd -P 解析 symlink（skill 常以 symlink 掛到 ~/.claude/skills）。
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+if ! SKILL_REPO=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null); then
+  echo "[FAIL] 無法從腳本位置解析 SKILL_REPO（非 git repo？）: $SCRIPT_DIR" >&2
   exit 1
 fi
-if ! SKILL_REPO=$(jq -r '.skill_repos["yibi-stack"] // .skill_repo // empty' "$CONFIG"); then
-  echo '[FAIL] ~/.agents/config.json is not valid JSON — run: jq . ~/.agents/config.json' >&2
-  exit 1
-fi
-if [ "$SKILL_REPO" = "null" ] || [ -z "$SKILL_REPO" ]; then
-  echo '[FAIL] skill_repo not configured in ~/.agents/config.json' >&2
-  exit 1
-fi
-if [ ! -d "$SKILL_REPO" ]; then
-  echo "[FAIL] skill_repo path not found: $SKILL_REPO" >&2
+# 驗 resolved 目標確實含 pr-retrospective 依賴的 tasks/mycelium，而非只驗目錄存在
+if [ ! -d "$SKILL_REPO/tasks/mycelium" ]; then
+  echo "[FAIL] resolved SKILL_REPO 不含 tasks/mycelium（指向錯 repo？）: $SKILL_REPO" >&2
   exit 1
 fi
 
