@@ -13,7 +13,7 @@ description: >
   即使用戶只說「幫我把這個功能描述得更清楚」「怎麼定義完成條件」「拆任務」
   「spec 怎麼寫」「這個需求太模糊了」，也應觸發此 Skill。
 
-effort: medium
+effort: high
 ---
 
 # Spectra Amplifier — Wave D Plugin Edition
