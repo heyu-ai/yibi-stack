@@ -493,7 +493,7 @@ class TestAllScope:
 class TestToleranceValidation:
     def test_seval_vl_009_tolerance_nan_rejected(self, tmp_path: Path) -> None:
         """SEVAL-VL-009: --tolerance nan -> [FAIL]（否則所有比較恆 False，等同關閉 gate）。
-        spec: skill-trigger-eval#regression-below-tolerance-exits-nonzero"""
+        spec: skill-trigger-eval#tolerance-out-of-domain-rejected"""
         write_fixture(tmp_path)
         manifest = emit_manifest(tmp_path)
         judgments = tmp_path / "j.json"
@@ -523,7 +523,7 @@ class TestToleranceValidation:
 
     def test_seval_vl_010_tolerance_ge_one_rejected(self, tmp_path: Path) -> None:
         """SEVAL-VL-010: --tolerance >= 1.0 -> [FAIL]（門檻寬到永不觸發即等同關閉 gate）。
-        spec: skill-trigger-eval#regression-below-tolerance-exits-nonzero"""
+        spec: skill-trigger-eval#tolerance-out-of-domain-rejected"""
         write_fixture(tmp_path)
         manifest = emit_manifest(tmp_path)
         judgments = tmp_path / "j.json"
@@ -553,7 +553,7 @@ class TestBaselineValidation:
         """SEVAL-VL-011: baseline 含 null -> [FAIL]，不得與「無此類 baseline」同路徑。
 
         未驗證時 null 走 `if base is None: continue`，讓 0.00 的 pass rate 靜默回報無回歸。
-        spec: skill-trigger-eval#regression-below-tolerance-exits-nonzero"""
+        spec: skill-trigger-eval#corrupt-baseline-rejected"""
         write_fixture(tmp_path)
         manifest = emit_manifest(tmp_path)
         judgments = tmp_path / "j.json"
@@ -649,7 +649,7 @@ class TestBaselineValidation:
 
     def test_seval_vl_012_baseline_wrong_shape_fails_loud(self, tmp_path: Path) -> None:
         """SEVAL-VL-012: baseline 為 list -> [FAIL]，不得拋 raw traceback。
-        spec: skill-trigger-eval#regression-below-tolerance-exits-nonzero"""
+        spec: skill-trigger-eval#corrupt-baseline-rejected"""
         write_fixture(tmp_path)
         manifest = emit_manifest(tmp_path)
         judgments = tmp_path / "j.json"

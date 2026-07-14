@@ -94,8 +94,9 @@ def load_baseline(path: Path | None = None) -> dict[str, dict[str, float]]:
     baseline」走同一條 `if base is None: continue`，讓 0.00 的 pass rate 靜默回報無回歸；
     非 dict 形狀則會在 compare_baseline 拋出 raw traceback 而非 [FAIL]。
 
-    回傳的 key 是 TriggerPromptClass（StrEnum），與其字串值同 hash，故 compare_baseline
-    的 `skill_base.get(str(score.cls))` 查找不受影響。
+    驗證後的 class key 是 TriggerPromptClass；下方轉回 str 以符合回傳型別（dict key 不可
+    協變，mypy 會擋）。轉換純為型別對齊，非行為所需：StrEnum 與其字串值同 hash，
+    compare_baseline 的 `skill_base.get(str(score.cls))` 兩種型別都查得到。
     """
     p = path or BASELINE_PATH
     if not p.is_file():

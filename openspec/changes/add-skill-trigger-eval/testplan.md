@@ -26,7 +26,7 @@
 | `manifest-binding-required` | ✓ | DT | SEVAL-CLI-012/013, SEVAL-CLI-015 | 缺 manifest [FAIL]；eval 有 `--no-manifest-check` 顯式豁免，baseline 無 |
 | `orphan-plugin-fixture-warned` | ✓ | EG | SEVAL-EG-004/005/008, SEVAL-CLI-010, SEVAL-CLI-016/017 | 含巢狀 sub-skill（釘 `**` glob）、skills/ 全空仍先 [WARN]、預設佈局分支 |
 | `tolerance-out-of-domain-rejected` | ✓ | VL | SEVAL-VL-009, SEVAL-VL-010 | nan 與 >= 1.0 皆 [FAIL]（兩者都讓比較恆 False） |
-| `corrupt-baseline-rejected` | ✓ | VL | SEVAL-VL-011/012/013 | null 值、非 dict 形狀、未知 class key 皆 [FAIL] |
+| `corrupt-baseline-rejected` | ✓ | VL | SEVAL-VL-011/012/013/014 | null 值、非 dict 形狀、未知 class key、值域外 rate 皆 [FAIL] |
 
 Legend: ✓ covered · △ partial · ✗ missing
 
@@ -34,7 +34,7 @@ Legend: ✓ covered · △ partial · ✗ missing
 > 實作落地時採用了以模組分區的命名（`test_seval_cli_*`／`test_seval_vl_*`／`test_seval_eg_*`），
 > 兩套編號自 #211 起即未對齊——本表與 Traceability Matrix 引用的是**規劃**編號，
 > pytest docstring 內的 `SEVAL-*` 則是**實作**編號。全面對帳屬 #211 遺留，非本 PR 範圍。
-> 新增 TC（SEVAL-CLI-007..017、SEVAL-EG-004..008、SEVAL-CV-002、SEVAL-VL-009..013）
+> 新增 TC（SEVAL-CLI-007..017、SEVAL-EG-004..008、SEVAL-CV-002、SEVAL-VL-009..014）
 > 一律使用實作編號。
 
 ---
