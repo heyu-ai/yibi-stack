@@ -56,7 +56,7 @@ The scoring core SHALL depend only on a Judge interface, not on any concrete LLM
 
 The system SHALL persist a baseline of per-class pass rates per skill, and SHALL compare a current evaluation against that baseline using a configurable tolerance. When any class pass rate falls below its baseline minus the tolerance, the system SHALL report a regression and exit with a non-zero status, listing each regressed skill and class.
 
-The tolerance SHALL be constrained to a finite value in `[0.0, 1.0)`, and the baseline file SHALL be validated on load -- both its pass-rate values (finite, in `[0.0, 1.0]`) and its class keys (a member of direct/indirect/negative). Values or keys outside those domains SHALL fail loudly rather than be treated as "no baseline for this class": every such input reaches the same `base is None` skip that silently disarms the gate for that class, so accepting them turns a corrupt file into a green run.
+The tolerance SHALL be constrained to a value in `[0.0, 1.0)`, and the baseline file SHALL be validated on load -- both its pass-rate values (in `[0.0, 1.0]`, which excludes nan and the infinities) and its class keys (a member of direct/indirect/negative). Values or keys outside those domains SHALL fail loudly rather than be silently tolerated: each disarms the gate for its class by a different route -- a `null` value or an unknown key resolves to no baseline and takes the `base is None` skip, while an out-of-domain number resolves fine and instead makes the `pass_rate < base - tolerance` comparison unconditionally False -- but every route ends the same way, turning a corrupt file into a green run over a 0.00 pass rate.
 
 #### Scenario: tolerance-out-of-domain-rejected -- 容忍門檻值域外即失敗
 

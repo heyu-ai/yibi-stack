@@ -90,8 +90,9 @@ def load_baseline(path: Path | None = None) -> dict[str, dict[str, float]]:
     """載入 baseline（skill -> class -> pass_rate）；檔案不存在回傳空 dict。
 
     載入後強制驗證形狀與 class key（rule 05：本模組其他 config 皆走 model_validate）。
-    未驗證時，`null` 值、值域外的數字、以及錯字的 class key（`negatve`）都會與「該類別無
-    baseline」走同一條 `if base is None: continue`，讓 0.00 的 pass rate 靜默回報無回歸；
+    未驗證時有三條路殊途同歸，都讓 0.00 的 pass rate 靜默回報無回歸：
+    `null` 值與錯字的 class key（`negatve`）查表得 None，走 `if base is None: continue`；
+    值域外的數字（如 -1.0）查得到、不是 None，改讓 `pass_rate < base - tol` 恆為 False。
     非 dict 形狀則會在 compare_baseline 拋出 raw traceback 而非 [FAIL]。
 
     驗證後的 class key 是 TriggerPromptClass；下方轉回 str 以符合回傳型別（dict key 不可
