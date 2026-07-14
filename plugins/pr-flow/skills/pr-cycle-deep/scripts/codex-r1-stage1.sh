@@ -79,7 +79,13 @@ trap - ERR
 
 # codex exec writes the review to STDOUT (codex review wrote to STDERR); diagnostics
 # go to STDERR. -s read-only keeps codex from mutating the tree.
-if ! codex exec -C "$WT_ROOT" -s read-only -c 'model_reasoning_effort="high"' \
+#
+# -m pins the model rather than inheriting ~/.codex/config.toml: this skill ships via the
+# pr-flow plugin, so a reviewer's local config must not silently decide which model reviews
+# the PR. gpt-5.6-sol is the frontier tier (models_cache.json priority 1, "Latest frontier
+# agentic coding model"); requires codex-cli >= 0.144 -- older builds fail the request with
+# "requires a newer version of Codex".
+if ! codex exec -C "$WT_ROOT" -s read-only -m gpt-5.6-sol -c 'model_reasoning_effort="high"' \
     < "$REVIEW_DIR/codex-r1-input.md" \
     > "$REVIEW_DIR/codex-r1-raw.md" \
     2>"$REVIEW_DIR/codex-r1.stage1.log"; then

@@ -4,8 +4,8 @@
 # 用法（在 worktree 目錄執行）：
 #   bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r2.sh
 #
-# agy 自動選擇最佳模型（無 -m flag）。
-# 若需固定模型，在 ~/.gemini/antigravity-cli/settings.json 設定 defaultModel。
+# 模型以 --model 固定為 Gemini 3.1 Pro (High)，與 agy-r1-stage1.sh 同一等級（該檔有完整理由）。
+# R2 是跨家 debate，若 auto-select 挑到清單裡的 Claude 模型，「跨家」前提會靜默失效。
 #
 # 前置條件：$WT_ROOT/.pr-review/prompt-r2.md 與 r1-aggregate.md 已存在。
 #
@@ -71,7 +71,7 @@ INPUT_CONTENT="$REVIEW_ONLY_GUARD
 
 $(cat "$REVIEW_DIR/gemini-r2-input.md")"
 
-if ! agy -p "$INPUT_CONTENT" --add-dir . --dangerously-skip-permissions --print-timeout 10m \
+if ! agy -p "$INPUT_CONTENT" --model 'Gemini 3.1 Pro (High)' --add-dir . --dangerously-skip-permissions --print-timeout 10m \
     > "$REVIEW_DIR/gemini-r2.md" \
     2>"$REVIEW_DIR/gemini-r2.log"; then
     echo "[FAIL] agy R2 失敗，請查看 $REVIEW_DIR/gemini-r2.log" >&2

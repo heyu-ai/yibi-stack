@@ -24,6 +24,12 @@ import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 STAGE1 = SCRIPTS_DIR / "codex-r1-stage1.sh"
+R2 = SCRIPTS_DIR / "codex-r2.sh"
+
+# The frontier model slug both review stages must pin. Sourced from ~/.codex/models_cache.json
+# (priority 1, "Latest frontier agentic coding model"), not from developers.openai.com/codex,
+# whose docs still listed gpt-5.5 as top days after the GPT-5.6 release.
+_FRONTIER_MODEL = "gpt-5.6-sol"
 
 # The sensitive path prefixes the guard prompt must name (mirrors the canonical guard in
 # plugins/3rd-tools/skills/codex/SKILL.md). `agents/` is asserted separately as a standalone
@@ -106,6 +112,33 @@ class TestCodexGuardContract:
         src = STAGE1.read_text(encoding="utf-8")
         assert "-s read-only" in src, "codex exec must run -s read-only"
         assert '-C "$WT_ROOT"' in src, "codex exec must pin the repo root with -C"
+
+    @pytest.mark.parametrize("script", [STAGE1, R2])
+    def test_cdxs_dt_010_frontier_model_pinned(self, script: Path) -> None:
+        """CDXS-DT-010: both review stages pin -m gpt-5.6-sol.
+
+        Without -m, codex inherits the reviewer's ~/.codex/config.toml, so which model
+        reviews the PR silently depends on local config -- a skill shipped via the pr-flow
+        plugin must not vary that way. Dropping the flag produces no error, just a quieter
+        model, which is exactly the class of regression these contract tests exist to catch.
+        """
+        src = script.read_text(encoding="utf-8")
+        assert f"-m {_FRONTIER_MODEL}" in src, (
+            f"{script.name}: codex exec must pin -m {_FRONTIER_MODEL}"
+        )
+
+    def test_cdxs_dt_011_extract_stage_is_not_pinned_to_frontier(self) -> None:
+        """CDXS-DT-011: the extract stage does NOT pin the frontier model.
+
+        Stage 2 only reshapes stage 1's raw markdown into JSON -- no reasoning. Pinning the
+        frontier tier there would burn the expensive model on a mechanical transform. This
+        asserts the asymmetry is deliberate, so a later "make it consistent" refactor has to
+        confront the intent rather than silently upgrading the cheap stage.
+        """
+        src = (SCRIPTS_DIR / "codex-r1-stage2.sh").read_text(encoding="utf-8")
+        assert f"-m {_FRONTIER_MODEL}" not in src, (
+            "extract stage must not pin the frontier model; it is a mechanical transform"
+        )
 
     def test_cdxs_dt_007_stage1_does_not_fetch(self) -> None:
         """CDXS-DT-007: stage1 executes no git fetch (issue #194).
