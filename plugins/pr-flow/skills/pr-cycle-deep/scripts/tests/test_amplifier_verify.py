@@ -133,14 +133,19 @@ def test_parse_tc_table_slug_empty_when_no_slug_column():
     assert rows[0].slug == ""
 
 
-def test_parse_tc_table_skips_coverage_table():
-    """Coverage tables carry a TC-ID column too; they must not be read as TC rows.
+def test_coverage_table_rows_dedupe_against_the_real_definitions():
+    """The parser deliberately over-collects; de-dup keeps the count honest.
 
-    The coverage table below cites ACME-ST-002, a TC that is planned but not yet in
-    any TC table (a normal state: Coverage Analysis is where gaps get recorded).
-    Without the explicit skip it would be counted as a real TC, inflating total_tcs
-    and inventing a TC the plan does not define. Note the TC-ID must differ from the
-    TC table's, or de-duplication alone would mask the bug.
+    A coverage table carries a TC-ID column, so it IS read as a TC table. That is the
+    design: classifying a markdown table's role by its header text failed in both
+    directions (too loose swallowed real TC tables, too tight dropped them), always
+    silently. Since this gate's defining bug is silent UNDER-reporting, over-collection
+    is the safe direction -- it is visible in the count, and reconcile_unparsed_tc_ids
+    reports whatever is still missed.
+
+    A TC listed in the coverage table and defined in a TC table appears once. A TC-ID
+    that appears ONLY in the coverage table is a plan that references a TC it never
+    defined -- surfacing it is correct, not a phantom.
     """
     testplan = """\
 ## Test Cases
@@ -157,8 +162,15 @@ def test_parse_tc_table_skips_coverage_table():
 | deferred-scenario | missing | ACME-ST-002 | blocked on telemetry |
 """
     rows = amplifier_verify.parse_tc_table(testplan)
-    assert [r.tc_id for r in rows] == ["ACME-EP-001"]
-    assert "ACME-ST-002" not in [r.tc_id for r in rows]
+    # ACME-EP-001 is defined once even though it appears in both tables.
+    assert [r.tc_id for r in rows] == ["ACME-EP-001", "ACME-ST-002"]
+    assert rows[0].slug == "pairing-code-valid"
+    # ...and the coverage parser still owns the coverage table.
+    cov = amplifier_verify.parse_coverage_table(testplan)
+    assert [(c.slug, c.status) for c in cov] == [
+        ("pairing-code-valid", "covered"),
+        ("deferred-scenario", "missing"),
+    ]
 
 
 def test_parse_tc_table_dedupes_repeated_tc_ids():
@@ -204,33 +216,56 @@ def test_tc_table_with_a_status_column_is_not_mistaken_for_a_coverage_table():
     assert rows[0].slug == "pairing-code-valid"
 
 
-def test_parse_tc_table_ignores_non_defining_tables_with_a_tc_id_column():
-    """Duplicate-disposition and traceability tables carry TC-ID but define nothing.
+def test_no_tc_table_vanishes_because_of_its_header_vocabulary():
+    """No table may be dropped for not using an expected header word.
 
-    Both header shapes below are real. Reading them as TC definitions invents TCs the
-    plan never declared and inflates the reported total.
+    Regression for the second attempt at table discrimination: requiring a keyword-y
+    "TC-definition" column (test purpose / expected / steps / ...) silently dropped
+    every table below. That is the same silent-blindness class as the `break` this PR
+    set out to remove, re-spelled -- and a mixed plan (one keyword table + one of
+    these) parsed a fraction and still printed [OK].
+
+    A table is a TC table if it has an ID column. Full stop.
     """
+    for header, row in [
+        ("| TC-ID | Scenario Slug | Assertion |", "| ACME-EP-001 | s | asserts x |"),
+        ("| TC-ID | What it checks | Result |", "| ACME-EP-001 | checks x | ok |"),
+        ("| TC-ID | Case | Outcome |", "| ACME-EP-001 | c | o |"),
+        ("| TC-ID | 測項 | 結果 |", "| ACME-EP-001 | m | r |"),
+        ("| TC-ID | Scenario Slug | Given | When | Then |", "| ACME-EP-001 | s | g | w | t |"),
+    ]:
+        testplan = f"{header}\n|---|---|---|---|---|\n{row}\n"
+        rows = amplifier_verify.parse_tc_table(testplan)
+        assert [r.tc_id for r in rows] == ["ACME-EP-001"], f"vanished: {header}"
+
+
+def test_non_tc_id_prefixes_are_parsed():
+    """A real plan heads its smoke table `| SMK-ID | ... |`; a TC-ID-only gate dropped
+    all 5 of its slug-bearing TCs silently."""
     testplan = """\
-## Test Cases
-
-| TC-ID | Test Purpose | Scenario Slug |
-|-------|-------------|---------------|
-| ACME-EP-001 | real tc | real-slug |
-
-## Redundant items
-
-| TC-ID | Duplicate of which TC | Recommended Action |
-|-------|----------------------|--------------------|
-| ACME-EP-999 | ACME-EP-001 | drop |
-
-## Traceability matrix
-
-| TC-ID | Spec trace (docstring) | Planned test file |
-|-------|----------------------|-------------------|
-| ACME-EP-998 | cap#real-slug | tests/test_x.py |
+| SMK-ID | Scenario Slug | Purpose | Steps | Expected |
+|--------|---------------|---------|-------|----------|
+| SMK-001 | smk-exchange-happy-path | alive | GET | 200 |
 """
     rows = amplifier_verify.parse_tc_table(testplan)
-    assert [r.tc_id for r in rows] == ["ACME-EP-001"]
+    assert [(r.tc_id, r.slug) for r in rows] == [("SMK-001", "smk-exchange-happy-path")]
+
+
+def test_reconcile_reports_tc_ids_the_parser_missed():
+    """The only check that fails loudly on causes nobody has enumerated yet."""
+    testplan = """\
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| ACME-EP-001 | parsed fine | real-slug |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert amplifier_verify.reconcile_unparsed_tc_ids(testplan, rows) == []
+
+    # A table the parser cannot enter (no separator row) must be reported, not hidden.
+    broken = testplan + "\n| TC-ID | Test Purpose |\n| ACME-EP-777 | never parsed |\n"
+    rows = amplifier_verify.parse_tc_table(broken)
+    assert "ACME-EP-777" not in [r.tc_id for r in rows]
+    assert amplifier_verify.reconcile_unparsed_tc_ids(broken, rows) == ["ACME-EP-777"]
 
 
 def test_slug_bearing_row_wins_over_slugless_restatement_either_order():
@@ -301,10 +336,25 @@ def test_conflicting_slugs_for_one_tc_id_are_surfaced_not_swallowed():
 |-------|-------------|---------------|
 | ACME-EP-001 | restated | slug-two |
 """
-    rows = amplifier_verify.parse_tc_table(testplan)
+    conflicts: list[tuple[str, str, str]] = []
+    rows = amplifier_verify.parse_tc_table(testplan, conflicts_out=conflicts)
     assert [(r.tc_id, r.slug) for r in rows] == [("ACME-EP-001", "slug-one")]
-    findings = amplifier_verify.analyze(rows, [], [])
+    assert conflicts == [("ACME-EP-001", "slug-one", "slug-two")]
+    findings = amplifier_verify.analyze(rows, [], [], slug_conflicts=conflicts)
     assert any("two different Scenario Slugs" in s for s in findings.should)
+
+
+def test_conflicts_are_passed_in_not_read_from_module_state():
+    """analyze() must not depend on a global mutated by a previous parse.
+
+    _slug_conflicts used to be module-level state: parse_tc_table(A) followed by
+    analyze(rows_from_B) reported A's conflicts against B's rows. main() happens to
+    call them in order, so it was not a live bug — but an invisible ordering
+    dependency is exactly the class of coupling this file keeps getting caught by.
+    """
+    assert not hasattr(amplifier_verify, "_slug_conflicts")
+    rows = [amplifier_verify.TCRow(tc_id="ACME-EP-001", slug="s", raw_line="")]
+    assert amplifier_verify.analyze(rows, [], []).should == []
 
 
 def test_escaped_pipe_does_not_shift_the_slug_column():
@@ -353,11 +403,14 @@ def test_ragged_row_is_skipped_without_dropping_the_rest_of_the_table():
     assert [r.tc_id for r in rows] == ["ACME-EP-001", "ACME-EP-002"]
 
 
-def test_slugless_plan_reports_that_check_2_is_unverified():
-    """The gate must say when it is structurally unable to check.
+def test_slugless_plan_reports_unverified_as_info_not_should():
+    """The gate must say when it is structurally unable to check — as INFO.
 
-    On the most common table shape (no Scenario Slug column) Check 2 can never fire.
-    Reporting only "0/N traced" reads as "nothing to do" rather than "not verified".
+    On the most common table shape (no Scenario Slug column) Check 2 can never fire,
+    so reporting only "0/N traced" reads as "nothing to do" rather than "not
+    verified". But this describes the PLAN's shape, not a defect in the PR: as a
+    SHOULD it would attach an Important finding to every such plan no matter how clean
+    the change is — alarm fatigue on the gate's own signal.
     """
     testplan = """\
 | TC-ID | Test Purpose | Technique | Risk | Precondition | Steps | Expected Result |
@@ -367,8 +420,8 @@ def test_slugless_plan_reports_that_check_2_is_unverified():
 """
     rows = amplifier_verify.parse_tc_table(testplan)
     findings = amplifier_verify.analyze(rows, [], [])
-    assert any("UNVERIFIED" in s for s in findings.should)
-    assert any("2/2" in s for s in findings.should)
+    assert any("UNVERIFIED" in s and "2/2" in s for s in findings.info)
+    assert not any("UNVERIFIED" in s for s in findings.should)
 
 
 # ---------------------------------------------------------------------------
