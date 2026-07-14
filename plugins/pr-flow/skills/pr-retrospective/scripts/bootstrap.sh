@@ -40,11 +40,13 @@ unset _gcd _dir _top
 # mycelium DB 位於 ~/.agents（見 tasks/mycelium/config.py 的 HANDOVER_DB_PATH），與
 # checkout 無關，故不同 checkout 不會分岔 retro 資料。
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-# 單次呼叫：成功時變數是 toplevel，失敗時 2>&1 讓它帶回 git 原始錯誤。
-# 保留原始錯誤：非 git repo 只是其一，dubious ownership / 權限問題訊息不同。
-if ! SKILL_REPO=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>&1); then
+# 成功路徑丟掉 stderr：git 成功時仍可能輸出 warning（如讀不到 ~/.gitconfig），
+# 用 2>&1 取值會把 warning 併進 SKILL_REPO，導致後續 tasks/mycelium 檢查誤報。
+# 只在失敗分支才第二次呼叫抓 stderr 當診斷（2>&1 >/dev/null 順序不可調換）。
+if ! SKILL_REPO=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null); then
+  GIT_ERR=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>&1 >/dev/null || true)
   echo "[FAIL] 無法從腳本位置解析 SKILL_REPO: $SCRIPT_DIR" >&2
-  echo "[FAIL] git: $SKILL_REPO" >&2
+  echo "[FAIL] git: $GIT_ERR" >&2
   exit 1
 fi
 # 驗 resolved 目標確實含 pr-retrospective 依賴的 tasks/mycelium，而非只驗目錄存在

@@ -23,7 +23,7 @@ description: >
 ### Step 1 -- 環境確認 + Target 決定
 
 ```bash
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 ```
 
 ```bash
@@ -201,7 +201,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 
 | 問題 | 解法 |
 |---|---|
-| `[FAIL] skill_repo 未設定` | 在 yibi-stack 執行 `make install` |
+| `[FAIL] 無法從腳本位置解析 skill repo` | `~/.agents/bin/resolve-skill-repo` 不存在或不在 checkout 內；在 yibi-stack 執行 `make install` |
 | target 不存在 | 確認路徑；預設為 `$PWD` |
 | Python 掃描失敗 | `uv sync` 後重試 |
 | 掃描其他 repo | `/harness-eval --target /path/to/repo` |

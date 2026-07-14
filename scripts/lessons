@@ -4,14 +4,7 @@
 # 不需要手動偵測 SKILL_REPO 或 PROJECT，不觸發 Claude Code bash anti-pattern 確認框
 set -euo pipefail
 
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
-  echo "[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install" >&2
-  exit 1
-fi
-if [ ! -d "$SKILL_REPO" ]; then
-  echo "[FAIL] skill_repo 路徑不存在：$SKILL_REPO" >&2
-  exit 1
-fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 
 # 自動偵測 project（若 caller 已用 --project 指定則跳過，避免重複）
 # token-based check 支援 --project=val 形式，避免 insight 內文含 --project 的 false positive

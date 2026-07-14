@@ -4,12 +4,7 @@
 #   --no-project：不帶 --project 過濾，顯示所有記錄（跨專案）
 set -euo pipefail
 
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
-  echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1
-fi
-if [ ! -d "$SKILL_REPO" ]; then
-  echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1
-fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 
 GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
 if [ -n "$GIT_COMMON" ]; then

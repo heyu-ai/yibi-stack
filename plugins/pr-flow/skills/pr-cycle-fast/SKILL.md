@@ -23,7 +23,7 @@ description: PR 生命週期自動化 orchestrator（快速版）：偵測 open 
 確認 SKILL_REPO 與工具可用：
 
 ```bash
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 ```
 
 擷取**目標 repo** 的 checkout 路徑（即目前 session 的 cwd，如 yibi-mvp）：
@@ -260,7 +260,7 @@ FAILED（terminal）
 
 | 問題 | 修復方式 |
 |------|---------|
-| `[FAIL] skill_repo 未設定` | 在 yibi-stack 目錄執行 `make install` |
+| `[FAIL] 無法從腳本位置解析 skill repo` | `~/.agents/bin/resolve-skill-repo` 不存在或不在 checkout 內；在 yibi-stack 目錄執行 `make install` |
 | `分支沒有對應的 open PR` | 先 `gh pr create` 建立 PR |
 | `多個 PR 對應同分支` | 加 `--pr <n>` 明確指定 |
 | State 停在 BLOCKED | 看 blockers 訊息，解除後跑 `/pr-cycle-fast resume` |

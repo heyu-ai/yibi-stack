@@ -12,7 +12,7 @@ model: sonnet
 ```bash
 git rev-parse --show-toplevel
 [ -f ~/.agents/handover/handover.db ] || echo '[WARN] DB 不存在，請先跑 uv run python -m tasks.mycelium init'
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 ```
 
 ## Step 2 — 從對話萃取摘要
@@ -33,7 +33,7 @@ if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
 ## Step 3 — 寫入交班
 
 ```bash
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 REAL_WORKDIR=$(pwd)
 PROJECT=$(basename "$REAL_WORKDIR")
 uv run --directory "$SKILL_REPO" \
@@ -57,7 +57,7 @@ uv run --directory "$SKILL_REPO" \
 ## Step 4 — 確認寫入
 
 ```bash
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 uv run --directory "$SKILL_REPO" \
   python -m tasks.mycelium handover read --last 1
 ```

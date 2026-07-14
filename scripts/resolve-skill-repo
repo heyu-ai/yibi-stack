@@ -5,7 +5,7 @@
 # exit 1: 無法解析，或解析結果不是本 repo
 #
 # 用法（SKILL.md / command 的 inline bash）：
-#   if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+#   if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 #
 # 為何不讀 ~/.agents/config.json 的 skill_repo：
 # 該 key 是多個 skill repo 的 make install 共寫的「單一值」，會被最後一個安裝者
@@ -35,11 +35,16 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR=$(cd -P "$(dirname "$SOURCE")" && pwd)
 
-# 單次呼叫：成功時 stdout 是 toplevel，失敗時 2>&1 讓變數帶回 git 原始錯誤。
-# 保留原始訊息——非 git repo 只是其一，dubious ownership / 權限問題訊息不同。
-if ! SKILL_REPO=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>&1); then
+# 成功路徑必須把 stderr 丟掉，不能用 2>&1 取值：git 在成功時仍可能輸出 warning
+# （例如讀不到 ~/.gitconfig），2>&1 會把該 warning 併進變數，讓 SKILL_REPO 變成
+# "warning: ...\n/real/path"，接著 -d 檢查失敗並誤報「指向錯 repo」。
+# 只在失敗分支才第二次呼叫，用 2>&1 >/dev/null 單獨抓 stderr 當診斷訊息
+# （順序不可調換：先把 stderr 導到當前 stdout，再把 stdout 丟棄）。
+# 保留 git 原始訊息——非 git repo 只是其一，dubious ownership / 權限問題訊息不同。
+if ! SKILL_REPO=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null); then
+  GIT_ERR=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>&1 >/dev/null || true)
   echo "[FAIL] 無法從腳本位置解析 skill repo：$SCRIPT_DIR" >&2
-  echo "[FAIL] git: $SKILL_REPO" >&2
+  echo "[FAIL] git: $GIT_ERR" >&2
   exit 1
 fi
 

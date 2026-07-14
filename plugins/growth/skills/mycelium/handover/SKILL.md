@@ -82,7 +82,7 @@ case "$_gcd" in
       ORIG_PROJECT=$(basename "$PWD") ;;
 esac
 unset _gcd
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 
 uv --version
 ls ~/.agents/handover/handover.db

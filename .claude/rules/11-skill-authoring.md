@@ -29,14 +29,20 @@ If a skill's implementation lives in this repo but is semantically useful cross-
 the execution steps and set scope to `global`:
 
 ```bash
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 ```
 
 `scripts/resolve-skill-repo` (symlinked to `~/.agents/bin/resolve-skill-repo` by
 `make install`) prints the repo's absolute path on stdout and a `[FAIL]` diagnostic on
-stderr. It needs no argument, and the caller needs no gate of its own — the script already
-fails loudly on both "cannot resolve" and "resolved to the wrong repo", so `if ! ...; then
-exit 1; fi` is the complete call site.
+stderr. It takes no argument.
+
+The caller does **not** re-validate the path — the script already fails loudly on both
+"cannot resolve" and "resolved to the wrong repo", so a `-z` / `-d` gate at the call site is
+dead code (and a `-d` gate re-asserts the very existence-only check this rule forbids).
+The caller's one `echo` covers a different case the script cannot report on its own: when
+the **script itself is missing** (`make install` never ran) the shell fails with a bare
+`No such file or directory` and there is no resolver alive to print guidance. Keep that
+`[FAIL]` line so the failure names its own fix.
 
 ### Never locate this repo via `~/.agents/config.json`
 

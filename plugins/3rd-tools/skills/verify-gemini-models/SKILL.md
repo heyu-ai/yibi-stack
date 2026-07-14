@@ -56,7 +56,7 @@ test -n "$GCP_PROJECT_ID" && echo "GCP_PROJECT: SET" || echo "GCP_PROJECT: MISSI
 # Google AI Studio -- API key（絕不 echo key 值本身，只驗證存在性）
 test -n "$GEMINI_API_KEY" && echo "GEMINI_KEY: SET" || echo "GEMINI_KEY: MISSING"
 # 或從 yibi-stack repo 的 .env 確認 key 存在：
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 grep -q GEMINI_API_KEY "$SKILL_REPO/.env" 2>/dev/null && echo "ENV_KEY: PRESENT" || echo "ENV_KEY: ABSENT"
 ```
 
@@ -75,7 +75,7 @@ grep -q GEMINI_API_KEY "$SKILL_REPO/.env" 2>/dev/null && echo "ENV_KEY: PRESENT"
 腳本有獨立的 `pyproject.toml`，從 skill 目錄執行：
 
 ```bash
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 SKILL_DIR="$SKILL_REPO/skills/verify-gemini-models"
 
 uv run --project "$SKILL_DIR" python "$SKILL_DIR/scripts/check_models.py" \

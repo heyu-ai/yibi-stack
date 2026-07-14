@@ -95,7 +95,7 @@ git status
 > 再帶 `--directory "$SKILL_REPO"`：
 
 ```bash
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 ```
 
 使用者確認 diff 無誤後，將摘要持久化：
