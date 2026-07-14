@@ -457,6 +457,14 @@ The script takes no base-branch argument — it reviews the shared `$REVIEW_DIR/
 Step 3.1 already produced, so all three voices review the identical diff. Raw output lands in
 `codex-r1-raw.md` — **do not read it in the main context**.
 
+The script pins `-m gpt-5.6-sol` rather than inheriting `~/.codex/config.toml`, so a reviewer's
+local config cannot silently decide which model reviews the PR. **This requires codex-cli
+>= 0.144**; on an older build the request fails with `The 'gpt-5.6-sol' model requires a newer
+version of Codex` (visible in `codex-r1.stage1.log`) — run `codex update` to fix. To confirm the
+current frontier slug on your build, read `~/.codex/models_cache.json` (`priority` ascending;
+`gpt-5.6-sol` is priority 1, "Latest frontier agentic coding model") — do not trust
+`developers.openai.com/codex/models`, which lagged the GPT-5.6 release by at least five days.
+
 ###### Stage 2: Extract (compress verbose raw markdown into structured JSON)
 
 ```bash
@@ -538,9 +546,12 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh
 ```
 
-`agy` automatically selects the best model (no `-m` flag needed). To pin a model, set
-`defaultModel` in `~/.gemini/antigravity-cli/settings.json`. Raw output lands in
-`gemini-r1-raw.md` — **do not read it in the main context**.
+The script pins `--model 'Gemini 3.1 Pro (High)'`. Do not remove the flag: `agy`'s auto-select
+resolves to Gemini 3.5 Flash, and its model list also contains Claude Sonnet/Opus — an
+auto-selected Claude would silently collapse this voice into the same family as the Claude lead,
+defeating the cross-family premise with no warning. `agy models` lists the valid display names;
+an invalid value fails loud and prints the list. Raw output lands in `gemini-r1-raw.md` —
+**do not read it in the main context**.
 
 ###### Stage 2: Extract (agy auto-selects lightweight model to extract JSON)
 

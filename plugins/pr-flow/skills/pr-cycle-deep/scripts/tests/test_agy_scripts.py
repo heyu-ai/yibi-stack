@@ -55,6 +55,36 @@ class TestInlinePromptContract:
         """AGYS-DT-003: --print-timeout is raised to 10m."""
         assert "--print-timeout 10m" in script.read_text(encoding="utf-8")
 
+    @pytest.mark.parametrize("script", [STAGE1, R2])
+    def test_agys_dt_008_review_model_pinned_to_gemini_pro(self, script: Path) -> None:
+        """AGYS-DT-008: the review stages pin --model to a Gemini Pro tier.
+
+        Two failure modes if the flag is dropped. (1) agy's auto-select resolves to
+        Gemini 3.5 Flash, silently downgrading review depth. (2) `agy models` also offers
+        Claude Sonnet/Opus -- an auto-selected Claude would put this voice in the same
+        family as the Claude lead, collapsing the cross-family premise the whole mob review
+        rests on, with no warning anywhere. Asserting the Gemini prefix (not the full string)
+        keeps a Low/High effort swap from failing the test while still catching a
+        cross-family drift.
+        """
+        src = script.read_text(encoding="utf-8")
+        assert "--model 'Gemini" in src, (
+            f"{script.name}: agy must pin --model to a Gemini tier "
+            "(auto-select can pick Claude and break cross-family review)"
+        )
+
+    def test_agys_dt_009_extract_stage_not_pinned(self) -> None:
+        """AGYS-DT-009: the extract stage does NOT pin a model.
+
+        Stage 2 turns stage 1's raw markdown into JSON -- no reasoning -- and the script's
+        own comment says agy auto-picks a lightweight model there to preserve
+        high-reasoning quota. Pinning Pro here would spend that quota on a mechanical
+        transform; this test makes the asymmetry explicit rather than incidental.
+        """
+        assert "--model" not in STAGE2.read_text(encoding="utf-8"), (
+            "extract stage must leave model auto-selection alone (lightweight by design)"
+        )
+
     @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
     def test_agys_dt_007_inline_size_guard_present(self, script: Path) -> None:
         """AGYS-DT-007: every inlining script guards the 256000-byte argv limit.

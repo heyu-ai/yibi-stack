@@ -4,8 +4,11 @@
 # 用法（在 worktree 目錄執行）：
 #   bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh
 #
-# agy 自動選擇最佳模型（無 -m flag）。
-# 若需固定模型，在 ~/.gemini/antigravity-cli/settings.json 設定 defaultModel。
+# 模型以 --model 固定為 Gemini 3.1 Pro (High)：agy 的自動選型實測會挑 Gemini 3.5 Flash，
+# 且可選清單含 Claude Sonnet/Opus——auto-select 挑到 Claude 會讓「跨家 review」退化成與主
+# session 同源，且不會有任何警告。3.1 Pro 是清單中唯一的 Pro 等級（無 3.5 Pro），Google 文件
+# 定位為 "complex tasks and advanced reasoning"，對應 review 需要的推理深度。
+# 值必須用 `agy models` 的完整 display name；無效值會 fail-loud 並列出可用清單。
 #
 # 副作用：
 #   - gemini-r1-raw.md 寫到 $WT_ROOT/.pr-review/
@@ -85,7 +88,7 @@ INPUT_CONTENT="$REVIEW_ONLY_GUARD
 
 $(cat "$REVIEW_DIR/gemini-r1-input.md")"
 
-if ! agy -p "$INPUT_CONTENT" --add-dir . --dangerously-skip-permissions --print-timeout 10m \
+if ! agy -p "$INPUT_CONTENT" --model 'Gemini 3.1 Pro (High)' --add-dir . --dangerously-skip-permissions --print-timeout 10m \
     > "$REVIEW_DIR/gemini-r1-raw.md" \
     2>"$REVIEW_DIR/gemini-r1.stage1.log"; then
     echo "[FAIL] agy review 失敗，請查看 $REVIEW_DIR/gemini-r1.stage1.log" >&2
