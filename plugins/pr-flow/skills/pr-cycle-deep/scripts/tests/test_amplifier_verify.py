@@ -66,6 +66,162 @@ def test_parse_tc_table_three_part_ids():
 
 
 # ---------------------------------------------------------------------------
+# Multi-table testplans, slug column position, and the empty-slug interaction.
+#
+# Regression: parse_tc_table() used to `break` after the FIRST TC table and read
+# the slug from a hardcoded cells[1]. Real testplans group TCs into one table per
+# requirement area and put the slug column wherever they like. Measured across every
+# testplan.md in a downstream consumer repo: the slug column appears at index 0, 1,
+# 3, 5, 6, or not at all, and the single most common TC-table shape (the
+# `sdd:qa-test-designer` output) has NO slug column. Consequences before the fix, on
+# two real plans: 3 of 101 TCs parsed, and 16 of 57 — while the gate reported [OK]
+# and exit 0 both times. A silent no-op, not a loud failure.
+# ---------------------------------------------------------------------------
+
+
+def test_parse_tc_table_reads_every_table_not_just_the_first():
+    """A testplan with one TC table per requirement area must be fully parsed."""
+    testplan = """\
+## Test Cases
+
+### 1. Pairing
+
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| ACME-EP-001 | code accepted | pairing-code-valid |
+
+### 2. Unbind
+
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| ACME-EP-002 | token revoked | unbind-revokes-auth |
+
+### 3. Greeting
+
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| ACME-ST-003 | greeting plays once | greeting-first-activation |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert [r.tc_id for r in rows] == ["ACME-EP-001", "ACME-EP-002", "ACME-ST-003"]
+    assert rows[1].slug == "unbind-revokes-auth"
+
+
+def test_parse_tc_table_finds_slug_column_by_header_not_by_index():
+    """Slug lives in the last column here; cells[1] would wrongly yield 'Test Purpose'."""
+    testplan = """\
+| TC-ID | Test Purpose | Technique | Risk | Test Data | Expected | Scenario Slug |
+|-------|-------------|-----------|------|-----------|----------|---------------|
+| ACME-EP-001 | valid profile | EP | P0 | name ok | 201 | submit-valid-basic-profile |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert len(rows) == 1
+    assert rows[0].slug == "submit-valid-basic-profile"
+    assert rows[0].slug != "valid profile"
+
+
+def test_parse_tc_table_slug_empty_when_no_slug_column():
+    """The most common real shape (qa-test-designer output) has no slug column."""
+    testplan = """\
+| TC-ID | Test Purpose | Technique | Risk | Precondition | Steps | Test Data | Expected Result |
+|-------|-------------|-----------|------|--------------|-------|-----------|-----------------|
+| SMK-001 | endpoint alive | EP | P0 | deployed | GET /health | n/a | 200 |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert [r.tc_id for r in rows] == ["SMK-001"]
+    # Must be empty, NOT the "Test Purpose" text that a hardcoded cells[1] would grab.
+    assert rows[0].slug == ""
+
+
+def test_parse_tc_table_skips_coverage_table():
+    """Coverage tables carry a TC-ID column too; they must not be read as TC rows.
+
+    The coverage table below cites ACME-ST-002, a TC that is planned but not yet in
+    any TC table (a normal state: Coverage Analysis is where gaps get recorded).
+    Without the explicit skip it would be counted as a real TC, inflating total_tcs
+    and inventing a TC the plan does not define. Note the TC-ID must differ from the
+    TC table's, or de-duplication alone would mask the bug.
+    """
+    testplan = """\
+## Test Cases
+
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| ACME-EP-001 | code accepted | pairing-code-valid |
+
+## Coverage Analysis
+
+| Scenario Slug | Status | TC-ID | Notes |
+|---------------|--------|-------|-------|
+| pairing-code-valid | covered | ACME-EP-001 | - |
+| deferred-scenario | missing | ACME-ST-002 | blocked on telemetry |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert [r.tc_id for r in rows] == ["ACME-EP-001"]
+    assert "ACME-ST-002" not in [r.tc_id for r in rows]
+
+
+def test_parse_tc_table_dedupes_repeated_tc_ids():
+    testplan = """\
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| ACME-EP-001 | first | pairing-code-valid |
+
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| ACME-EP-001 | restated | pairing-code-valid |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert [r.tc_id for r in rows] == ["ACME-EP-001"]
+
+
+def test_empty_slug_does_not_flag_every_test_function():
+    """An empty slug must not act as a match-anything wildcard in Check 2.
+
+    A TC table with no Scenario Slug column yields slug == "", and `"" in name_lower`
+    is vacuously True. Without the `s and ...` guard, every untraced test function in
+    the PR becomes a MUST finding and the merge is blocked on nothing.
+    """
+    tc_rows = [amplifier_verify.TCRow(tc_id="SMK-001", slug="", raw_line="")]
+    test_functions = [
+        amplifier_verify.TestFunction(
+            name="test_totally_unrelated_thing",
+            docstring="no trace here",
+            filepath="tests/test_x.py",
+            spec_trace=None,
+        )
+    ]
+    findings = amplifier_verify.analyze(tc_rows, [], test_functions)
+    assert findings.must == []
+
+
+def test_empty_slug_does_not_shadow_a_real_slug_match():
+    """An empty slug must not suppress a genuine slug match (false negative).
+
+    Check 2 used `next(s for s in slugs if s.replace(...) in name)`. Because ""
+    satisfies that condition unconditionally, it could be returned ahead of a real
+    slug — and being falsy, it then suppressed the MUST finding the real slug should
+    have raised. Set iteration over strings is hash-randomised, so the suppression
+    was non-deterministic. `any(s and ...)` makes it order-independent.
+    """
+    tc_rows = [
+        amplifier_verify.TCRow(tc_id="SMK-001", slug="", raw_line=""),
+        amplifier_verify.TCRow(tc_id="ACME-EP-001", slug="pairing-code-valid", raw_line=""),
+    ]
+    test_functions = [
+        amplifier_verify.TestFunction(
+            name="test_pairing_code_valid",
+            docstring="no spec trace here",
+            filepath="tests/test_pairing.py",
+            spec_trace=None,
+        )
+    ]
+    findings = amplifier_verify.analyze(tc_rows, [], test_functions)
+    assert len(findings.must) == 1
+    assert "test_pairing_code_valid" in findings.must[0]
+
+
+# ---------------------------------------------------------------------------
 # detect_change_from_diff — a spectra change must come from a diff FILE HEADER,
 # not from prose that merely mentions an openspec/changes/<...>/ path.
 #

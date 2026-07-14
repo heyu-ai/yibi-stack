@@ -74,6 +74,14 @@ _SEPARATOR_RE = re.compile(r"^\|[-:\s|]+\|$")
 # optional letter run fused with a 2-4 digit sequence number.
 _TC_ID_RE = re.compile(r"\b[A-Z][A-Z0-9]*-(?:[A-Z]{2,}-)?[A-Z]*\d{2,4}\b")
 
+# Column headers are located BY NAME, never by fixed index: real testplans put the
+# TC-ID and Scenario Slug columns in different positions, and many have no slug
+# column at all. Surveying every testplan.md in a downstream consumer repo found the
+# slug column at index 0, 1, 3, 5, 6, or absent — and the single most common TC table
+# shape (the `sdd:qa-test-designer` output) has no slug column whatsoever.
+_TC_ID_COL_RE = re.compile(r"^\s*TC[-_ ]?ID\s*$", re.IGNORECASE)
+_SLUG_COL_RE = re.compile(r"scenario\s*slug|^\s*slug\s*$", re.IGNORECASE)
+
 _MISSING_STATUS_TERMS = {"missing", "partial"}
 
 
@@ -95,24 +103,62 @@ def _parse_table_rows(lines: list[str], start: int) -> list[list[str]]:
     return rows
 
 
+def _find_col(header_cells: list[str], pattern: re.Pattern[str]) -> int | None:
+    """Return the index of the first header cell matching pattern, else None."""
+    for idx, cell in enumerate(header_cells):
+        if pattern.search(cell):
+            return idx
+    return None
+
+
 def parse_tc_table(testplan_text: str) -> list[TCRow]:
-    """Extract TC rows from testplan.md TC table."""
+    """Extract TC rows from EVERY TC table in testplan.md.
+
+    Real testplans group TCs into one table per requirement / feature area, so a
+    parser that stops at the first table sees only a fraction of the plan and then
+    reports success — a silent no-op. Observed before this was fixed on two real
+    downstream plans: 3 of 101 TCs parsed, and 16 of 57 on the plan that established
+    the testplan convention in the first place. The gate passed both times.
+
+    Coverage-analysis tables are skipped here: their header also contains a TC-ID
+    column, so they would otherwise be swept in as TC rows and double-count the
+    total. parse_coverage_table() owns them.
+
+    TC rows are de-duplicated by TC-ID (first occurrence wins), so a TC restated
+    across tables counts once.
+    """
     lines = testplan_text.splitlines()
     tc_rows: list[TCRow] = []
+    seen_tc_ids: set[str] = set()
     for i, line in enumerate(lines):
-        if _TC_TABLE_HEADER_RE.search(line):
-            for cells in _parse_table_rows(lines, i):
-                if not cells:
-                    continue
-                raw = cells[0]
-                m = _TC_ID_RE.search(raw)
-                if not m:
-                    continue
-                tc_id = m.group(0)
-                # Strip backtick formatting from testplan.md cells (e.g. `slug-name` → slug-name)
-                slug = cells[1].strip("`").strip() if len(cells) > 1 else ""
-                tc_rows.append(TCRow(tc_id=tc_id, slug=slug, raw_line=line))
-            break
+        if not _TC_TABLE_HEADER_RE.search(line):
+            continue
+        if _COVERAGE_TABLE_HEADER_RE.search(line):
+            continue  # coverage table, owned by parse_coverage_table()
+        header_match = _TABLE_ROW_RE.match(line.strip())
+        if not header_match:
+            continue
+        header_cells = [c.strip() for c in header_match.group(1).split("|")]
+        # Locate columns by header name. Absent slug column -> slug stays "".
+        tc_col = _find_col(header_cells, _TC_ID_COL_RE)
+        if tc_col is None:
+            tc_col = 0
+        slug_col = _find_col(header_cells, _SLUG_COL_RE)
+        for cells in _parse_table_rows(lines, i):
+            if len(cells) <= tc_col:
+                continue
+            m = _TC_ID_RE.search(cells[tc_col])
+            if not m:
+                continue
+            tc_id = m.group(0)
+            if tc_id in seen_tc_ids:
+                continue
+            seen_tc_ids.add(tc_id)
+            slug = ""
+            if slug_col is not None and len(cells) > slug_col:
+                # Strip backtick formatting from testplan.md cells (e.g. `slug-name` -> slug-name)
+                slug = cells[slug_col].strip("`").strip()
+            tc_rows.append(TCRow(tc_id=tc_id, slug=slug, raw_line=line))
     return tc_rows
 
 
@@ -264,8 +310,17 @@ def analyze(
         if fn.spec_trace is None:
             # Check if name contains a slug keyword (heuristic)
             name_lower = fn.name.lower()
-            matched_slug = next(
-                (s for s in slug_set_lower if s.replace("-", "_") in name_lower), None
+            # `s and ...` is load-bearing: a TC table with no Scenario Slug column
+            # yields slug == "", and `"" in name_lower` is vacuously True. Without
+            # the guard an empty slug matches every function name.
+            # `any` (not `next`) keeps this order-independent: `next` returns the
+            # FIRST match, and since "" always satisfies the condition it could be
+            # returned ahead of a genuine slug — and being falsy, it would then
+            # suppress the very finding the genuine slug should have raised. Set
+            # iteration order over strings is hash-randomised, so that suppression
+            # was non-deterministic across runs.
+            matched_slug = any(
+                s and s.replace("-", "_") in name_lower for s in slug_set_lower
             )
             tc_prefix_match = any(
                 tc.tc_id.lower().replace("-", "_") in name_lower for tc in tc_rows
