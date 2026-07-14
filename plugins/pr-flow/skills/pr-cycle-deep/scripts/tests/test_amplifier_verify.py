@@ -175,6 +175,240 @@ def test_parse_tc_table_dedupes_repeated_tc_ids():
     assert [r.tc_id for r in rows] == ["ACME-EP-001"]
 
 
+# ---------------------------------------------------------------------------
+# Table discrimination by COLUMN SCHEMA, not header shape.
+#
+# A TC-ID column alone does not make a table authoritative. Measured across every
+# testplan.md in a downstream consumer repo: requiring one canonical TC-definition
+# column keeps 66 tables and rejects 23, and all 23 are genuinely summary / trace /
+# coverage tables. The fixtures below are real observed header shapes, not invented.
+# ---------------------------------------------------------------------------
+
+
+def test_tc_table_with_a_status_column_is_not_mistaken_for_a_coverage_table():
+    """Regression: the coverage-skip regex `.*Status` is unanchored.
+
+    Coupling parse_tc_table to _COVERAGE_TABLE_HEADER_RE made any TC table carrying
+    both a Scenario Slug column and an "Expected Status Code" column vanish entirely
+    — the same silent-drop class the multi-table fix exists to remove, reintroduced.
+    Discriminating by column schema removes the coupling instead of tightening it.
+    """
+    testplan = """\
+| TC-ID | Test Purpose | Scenario Slug | Expected Status Code |
+|-------|-------------|---------------|----------------------|
+| ACME-EP-001 | valid pairing | pairing-code-valid | 201 |
+| ACME-EP-002 | expired code | pairing-code-expired | 410 |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert [r.tc_id for r in rows] == ["ACME-EP-001", "ACME-EP-002"]
+    assert rows[0].slug == "pairing-code-valid"
+
+
+def test_parse_tc_table_ignores_non_defining_tables_with_a_tc_id_column():
+    """Duplicate-disposition and traceability tables carry TC-ID but define nothing.
+
+    Both header shapes below are real. Reading them as TC definitions invents TCs the
+    plan never declared and inflates the reported total.
+    """
+    testplan = """\
+## Test Cases
+
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| ACME-EP-001 | real tc | real-slug |
+
+## Redundant items
+
+| TC-ID | Duplicate of which TC | Recommended Action |
+|-------|----------------------|--------------------|
+| ACME-EP-999 | ACME-EP-001 | drop |
+
+## Traceability matrix
+
+| TC-ID | Spec trace (docstring) | Planned test file |
+|-------|----------------------|-------------------|
+| ACME-EP-998 | cap#real-slug | tests/test_x.py |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert [r.tc_id for r in rows] == ["ACME-EP-001"]
+
+
+def test_slug_bearing_row_wins_over_slugless_restatement_either_order():
+    """De-dup must not let a slug-less table displace the real slug.
+
+    The most common TC-table shape has no Scenario Slug column, so under
+    first-occurrence-wins a slug-less summary table appearing FIRST silently
+    discarded the real slug — and a TC with no slug is invisible to Check 2, so the
+    gate went quiet on exactly the test it should block.
+    """
+    slugless_first = """\
+| TC-ID | Test Purpose | Technique | Steps | Expected Result |
+|-------|-------------|-----------|-------|-----------------|
+| SMK-001 | endpoint alive | EP | GET /health | 200 |
+
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| SMK-001 | endpoint alive | health-endpoint-alive |
+"""
+    rows = amplifier_verify.parse_tc_table(slugless_first)
+    assert [(r.tc_id, r.slug) for r in rows] == [("SMK-001", "health-endpoint-alive")]
+
+    # ... and the reverse order must not regress it either.
+    slug_first = """\
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| SMK-001 | endpoint alive | health-endpoint-alive |
+
+| TC-ID | Test Purpose | Technique | Steps | Expected Result |
+|-------|-------------|-----------|-------|-----------------|
+| SMK-001 | endpoint alive | EP | GET /health | 200 |
+"""
+    rows = amplifier_verify.parse_tc_table(slug_first)
+    assert [(r.tc_id, r.slug) for r in rows] == [("SMK-001", "health-endpoint-alive")]
+
+
+def test_slugless_displacement_no_longer_silences_check_2():
+    """End-to-end companion to the above: the MUST finding must actually fire."""
+    testplan = """\
+| TC-ID | Test Purpose | Technique | Steps | Expected Result |
+|-------|-------------|-----------|-------|-----------------|
+| SMK-001 | endpoint alive | EP | GET /health | 200 |
+
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| SMK-001 | endpoint alive | health-endpoint-alive |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    fn = amplifier_verify.TestFunction(
+        name="test_health_endpoint_alive",
+        docstring="no trace here",
+        filepath="tests/test_health.py",
+        spec_trace=None,
+    )
+    findings = amplifier_verify.analyze(rows, [], [fn])
+    assert len(findings.must) == 1
+    assert "test_health_endpoint_alive" in findings.must[0]
+
+
+def test_conflicting_slugs_for_one_tc_id_are_surfaced_not_swallowed():
+    """Two different non-empty slugs for one TC-ID is an authoring error."""
+    testplan = """\
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| ACME-EP-001 | first | slug-one |
+
+| TC-ID | Test Purpose | Scenario Slug |
+|-------|-------------|---------------|
+| ACME-EP-001 | restated | slug-two |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert [(r.tc_id, r.slug) for r in rows] == [("ACME-EP-001", "slug-one")]
+    findings = amplifier_verify.analyze(rows, [], [])
+    assert any("two different Scenario Slugs" in s for s in findings.should)
+
+
+def test_escaped_pipe_does_not_shift_the_slug_column():
+    """Markdown escapes a literal pipe as `\\|`; splitting on a bare | shifts columns.
+
+    The old code read cells[1], upstream of free-text cells. Reading the slug from a
+    far-right column (index 5-6 in real plans, after Steps / Test Data) makes this
+    latent bug live: the slug became 'b', which is truthy garbage that matches nearly
+    every test-function name, flipping Check 2 to mass FALSE MUST findings.
+    """
+    testplan = """\
+| TC-ID | Test Purpose | Steps | Scenario Slug |
+|-------|-------------|-------|---------------|
+| ACME-EP-001 | alternation | run a \\| b | pairing-code-valid |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert rows[0].slug == "pairing-code-valid"
+    assert rows[0].slug != "b"
+
+
+def test_tc_id_column_is_located_by_header_not_assumed_at_index_zero():
+    """The TC-ID half of "locate columns by header name" needs its own coverage.
+
+    Every other fixture puts TC-ID at index 0, so a broken _TC_ID_COL_RE would be
+    rescued by position and go unnoticed.
+    """
+    testplan = """\
+| Scenario Slug | TC-ID | Test Purpose |
+|---------------|-------|--------------|
+| pairing-code-valid | ACME-EP-001 | valid pairing |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert [(r.tc_id, r.slug) for r in rows] == [("ACME-EP-001", "pairing-code-valid")]
+
+
+def test_ragged_row_is_skipped_without_dropping_the_rest_of_the_table():
+    """A row shorter than the header must not crash or truncate the table."""
+    testplan = """\
+| Scenario Slug | TC-ID | Test Purpose |
+|---------------|-------|--------------|
+| slug-one | ACME-EP-001 | first |
+| oops-short-row |
+| slug-two | ACME-EP-002 | third |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert [r.tc_id for r in rows] == ["ACME-EP-001", "ACME-EP-002"]
+
+
+def test_slugless_plan_reports_that_check_2_is_unverified():
+    """The gate must say when it is structurally unable to check.
+
+    On the most common table shape (no Scenario Slug column) Check 2 can never fire.
+    Reporting only "0/N traced" reads as "nothing to do" rather than "not verified".
+    """
+    testplan = """\
+| TC-ID | Test Purpose | Technique | Risk | Precondition | Steps | Expected Result |
+|-------|-------------|-----------|------|--------------|-------|-----------------|
+| TC-001 | login succeeds | EP | H | user exists | do it | ok |
+| TC-002 | login fails | BVA | H | no user | do it | err |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    findings = amplifier_verify.analyze(rows, [], [])
+    assert any("UNVERIFIED" in s for s in findings.should)
+    assert any("2/2" in s for s in findings.should)
+
+
+# ---------------------------------------------------------------------------
+# parse_coverage_table — the twin of parse_tc_table, which carried the same two
+# defects (stop after the first table; read columns by hardcoded index). Fixing
+# only one of a duplicated pair is how the bug survived its first review.
+# ---------------------------------------------------------------------------
+
+
+def test_parse_coverage_table_reads_every_table_not_just_the_first():
+    testplan = """\
+## Coverage Analysis
+
+| Scenario Slug | Status | Notes |
+|---------------|--------|-------|
+| slug-one | Covered | - |
+
+### Second area
+
+| Scenario Slug | Status | Notes |
+|---------------|--------|-------|
+| slug-two | Missing | - |
+"""
+    rows = amplifier_verify.parse_coverage_table(testplan)
+    assert [(r.slug, r.status) for r in rows] == [("slug-one", "covered"), ("slug-two", "missing")]
+
+
+def test_parse_coverage_table_finds_status_column_by_header_not_index():
+    """Hardcoded cells[1] read 'ACME-EP-001' as the status, so 'Missing' never fired."""
+    testplan = """\
+| Scenario Slug | TC-ID | Status |
+|---------------|-------|--------|
+| slug-one | ACME-EP-001 | Missing |
+"""
+    rows = amplifier_verify.parse_coverage_table(testplan)
+    assert [(r.slug, r.status) for r in rows] == [("slug-one", "missing")]
+    findings = amplifier_verify.analyze([], rows, [])
+    assert any("slug-one" in s for s in findings.should)
+
+
 def test_empty_slug_does_not_flag_every_test_function():
     """An empty slug must not act as a match-anything wildcard in Check 2.
 
@@ -199,10 +433,12 @@ def test_empty_slug_does_not_shadow_a_real_slug_match():
     """An empty slug must not suppress a genuine slug match (false negative).
 
     Check 2 used `next(s for s in slugs if s.replace(...) in name)`. Because ""
-    satisfies that condition unconditionally, it could be returned ahead of a real
+    satisfies that condition unconditionally, and CPython special-cases
+    `hash("") == 0` so "" always iterates first, `next` returned "" ahead of any real
     slug — and being falsy, it then suppressed the MUST finding the real slug should
-    have raised. Set iteration over strings is hash-randomised, so the suppression
-    was non-deterministic. `any(s and ...)` makes it order-independent.
+    have raised. Deterministically, on every run. The `s and ...` guard fixes it.
+    (This test is reliable rather than 50/50 flaky precisely because the ordering is
+    deterministic — do not "fix" the fixture on the assumption that it is random.)
     """
     tc_rows = [
         amplifier_verify.TCRow(tc_id="SMK-001", slug="", raw_line=""),

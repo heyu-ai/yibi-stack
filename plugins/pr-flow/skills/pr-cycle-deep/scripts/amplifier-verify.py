@@ -62,10 +62,15 @@ class Findings:
 # Markdown table parsers
 # ---------------------------------------------------------------------------
 
-_TC_TABLE_HEADER_RE = re.compile(r"\|\s*TC-ID\s*\|", re.IGNORECASE)
+_TC_TABLE_HEADER_RE = re.compile(r"\|\s*TC[-_ ]?ID\s*\|", re.IGNORECASE)
 _COVERAGE_TABLE_HEADER_RE = re.compile(r"\|\s*Scenario\s+Slug\s*\|.*Status", re.IGNORECASE)
 _TABLE_ROW_RE = re.compile(r"^\|(.+)\|$")
 _SEPARATOR_RE = re.compile(r"^\|[-:\s|]+\|$")
+
+# Markdown escapes a literal pipe inside a cell as `\|`. Splitting on a bare "|"
+# injects a phantom cell and shifts every column to its right, so a slug read from
+# a far-right column silently becomes garbage from the middle of a Steps cell.
+_CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
 
 # TC-ID format. Accepts both conventions seen in the wild:
 #   3-part  PREFIX-CATEGORY-NUMBER   e.g. YIBI-NFC-001, FBAUTH-UNIT-01
@@ -81,8 +86,45 @@ _TC_ID_RE = re.compile(r"\b[A-Z][A-Z0-9]*-(?:[A-Z]{2,}-)?[A-Z]*\d{2,4}\b")
 # shape (the `sdd:qa-test-designer` output) has no slug column whatsoever.
 _TC_ID_COL_RE = re.compile(r"^\s*TC[-_ ]?ID\s*$", re.IGNORECASE)
 _SLUG_COL_RE = re.compile(r"scenario\s*slug|^\s*slug\s*$", re.IGNORECASE)
+_STATUS_COL_RE = re.compile(r"^\s*status\s*$", re.IGNORECASE)
+
+# A TC-ID column alone does NOT make a table authoritative. Testplans routinely carry
+# TC-ID columns in tables that DEFINE nothing: coverage analyses, traceability
+# matrices, duplicate/overlap dispositions, docstring-trace indexes. Reading those as
+# TC definitions invents TCs the plan never declared and inflates the reported total.
+#
+# The discriminator is the COLUMN SCHEMA, not the header shape and not the enclosing
+# `##` heading. Measured against every testplan.md in a downstream consumer repo:
+# requiring one canonical TC-definition column keeps 66 tables and rejects 23, and
+# every one of the 23 is genuinely a summary/trace/coverage table. Heading names do
+# NOT work for this — TC tables live under arbitrary headings ("tc table",
+# "test cases", "1.1 backend — service tests", and, misleadingly, "redundant items"
+# and "traceability matrix").
+#
+# This also subsumes the coverage-table exclusion: a coverage table has no canonical
+# TC-definition column, so it is rejected here without parse_tc_table needing to know
+# _COVERAGE_TABLE_HEADER_RE exists. That coupling was itself a bug — the regex's
+# unanchored `.*Status` matched any TC table carrying e.g. an "Expected Status Code"
+# column, silently dropping it.
+_TC_DEFINITION_COL_RE = re.compile(
+    r"test\s*purpose|expected|steps|technique|precondition|purpose|描述|期望|前置",
+    re.IGNORECASE,
+)
 
 _MISSING_STATUS_TERMS = {"missing", "partial"}
+
+
+def _split_cells(row_body: str) -> list[str]:
+    """Split a markdown table row body into cells, honouring escaped pipes."""
+    return [c.strip().replace("\\|", "|") for c in _CELL_SPLIT_RE.split(row_body)]
+
+
+def _header_cells(line: str) -> list[str] | None:
+    """Return the header row's cells, or None if the line is not a table row."""
+    m = _TABLE_ROW_RE.match(line.strip())
+    if not m:
+        return None
+    return _split_cells(m.group(1))
 
 
 def _parse_table_rows(lines: list[str], start: int) -> list[list[str]]:
@@ -98,8 +140,7 @@ def _parse_table_rows(lines: list[str], start: int) -> list[list[str]]:
         m = _TABLE_ROW_RE.match(line)
         if not m:
             break
-        cells = [c.strip() for c in m.group(1).split("|")]
-        rows.append(cells)
+        rows.append(_split_cells(m.group(1)))
     return rows
 
 
@@ -120,29 +161,38 @@ def parse_tc_table(testplan_text: str) -> list[TCRow]:
     downstream plans: 3 of 101 TCs parsed, and 16 of 57 on the plan that established
     the testplan convention in the first place. The gate passed both times.
 
-    Coverage-analysis tables are skipped here: their header also contains a TC-ID
-    column, so they would otherwise be swept in as TC rows and double-count the
-    total. parse_coverage_table() owns them.
+    A table is authoritative only if it DEFINES TCs -- see _TC_DEFINITION_COL_RE. A
+    TC-ID column alone is not enough: coverage analyses, traceability matrices and
+    duplicate-disposition tables all carry one, and reading them here would invent
+    TCs the plan never declared.
 
-    TC rows are de-duplicated by TC-ID (first occurrence wins), so a TC restated
-    across tables counts once.
+    De-duplication is by TC-ID, but a slug-bearing row always wins over a slug-less
+    one regardless of order: the most common table shape has no slug column, so
+    first-occurrence-wins would let a slug-less summary table displace the real slug
+    and silently blind Check 2 to that TC. A TC-ID restated with two DIFFERENT
+    non-empty slugs is an authoring error, reported via tc_slug_conflicts().
     """
     lines = testplan_text.splitlines()
-    tc_rows: list[TCRow] = []
-    seen_tc_ids: set[str] = set()
+    by_tc_id: dict[str, TCRow] = {}
+    order: list[str] = []
+    _slug_conflicts.clear()
     for i, line in enumerate(lines):
         if not _TC_TABLE_HEADER_RE.search(line):
             continue
-        if _COVERAGE_TABLE_HEADER_RE.search(line):
-            continue  # coverage table, owned by parse_coverage_table()
-        header_match = _TABLE_ROW_RE.match(line.strip())
-        if not header_match:
+        header_cells = _header_cells(line)
+        if header_cells is None:
             continue
-        header_cells = [c.strip() for c in header_match.group(1).split("|")]
+        if not any(_TC_DEFINITION_COL_RE.search(c) for c in header_cells):
+            continue  # not a TC-defining table (coverage / traceability / dedup / ...)
         # Locate columns by header name. Absent slug column -> slug stays "".
         tc_col = _find_col(header_cells, _TC_ID_COL_RE)
         if tc_col is None:
-            tc_col = 0
+            # Unreachable by construction: _TC_TABLE_HEADER_RE only matches a line
+            # containing a cell whose content is exactly TC-ID, which _TC_ID_COL_RE
+            # then always finds. Kept as fail-safe rather than the previous
+            # `tc_col = 0`, so that loosening the outer gate later degrades to
+            # skipping the table rather than silently reading the wrong column.
+            continue  # pragma: no cover
         slug_col = _find_col(header_cells, _SLUG_COL_RE)
         for cells in _parse_table_rows(lines, i):
             if len(cells) <= tc_col:
@@ -151,33 +201,62 @@ def parse_tc_table(testplan_text: str) -> list[TCRow]:
             if not m:
                 continue
             tc_id = m.group(0)
-            if tc_id in seen_tc_ids:
-                continue
-            seen_tc_ids.add(tc_id)
             slug = ""
             if slug_col is not None and len(cells) > slug_col:
                 # Strip backtick formatting from testplan.md cells (e.g. `slug-name` -> slug-name)
                 slug = cells[slug_col].strip("`").strip()
-            tc_rows.append(TCRow(tc_id=tc_id, slug=slug, raw_line=line))
-    return tc_rows
+            prev = by_tc_id.get(tc_id)
+            if prev is None:
+                by_tc_id[tc_id] = TCRow(tc_id=tc_id, slug=slug, raw_line=line)
+                order.append(tc_id)
+                continue
+            if not slug or slug == prev.slug:
+                continue  # nothing new to learn
+            if not prev.slug:
+                by_tc_id[tc_id] = TCRow(tc_id=tc_id, slug=slug, raw_line=line)
+                continue  # a real slug beats a slug-less restatement
+            _slug_conflicts.append((tc_id, prev.slug, slug))
+    return [by_tc_id[t] for t in order]
+
+
+# Populated by parse_tc_table(); read by analyze() to surface authoring errors that
+# de-duplication would otherwise swallow.
+_slug_conflicts: list[tuple[str, str, str]] = []
+
+
+def tc_slug_conflicts() -> list[tuple[str, str, str]]:
+    """Return (tc_id, kept_slug, dropped_slug) for TC-IDs defined with two slugs."""
+    return list(_slug_conflicts)
 
 
 def parse_coverage_table(testplan_text: str) -> list[CoverageRow]:
-    """Extract Coverage Analysis rows from testplan.md."""
+    """Extract Coverage Analysis rows from EVERY coverage table in testplan.md.
+
+    Mirrors parse_tc_table deliberately. This function carried the same two defects
+    -- stop after the first table, and read columns by hardcoded index -- and fixing
+    only its twin is how those defects survived their first review: Check 1 (SHOULD)
+    is driven entirely by these rows, so a `missing` row in a second coverage table
+    produced no finding at all.
+    """
     lines = testplan_text.splitlines()
     coverage_rows: list[CoverageRow] = []
     for i, line in enumerate(lines):
-        if _COVERAGE_TABLE_HEADER_RE.search(line):
-            for cells in _parse_table_rows(lines, i):
-                if len(cells) < 2:
-                    continue
-                slug = cells[0].strip("`").strip()
-                # Status is typically column 1 or 2; look for known terms
-                status_raw = cells[1] if len(cells) > 1 else ""
-                # Normalise: strip markdown markers like tick/cross
-                status_clean = re.sub(r"[^a-zA-Z]", "", status_raw).lower()
-                coverage_rows.append(CoverageRow(slug=slug, status=status_clean, raw_line=line))
-            break
+        if not _COVERAGE_TABLE_HEADER_RE.search(line):
+            continue
+        header_cells = _header_cells(line)
+        if header_cells is None:
+            continue
+        slug_col = _find_col(header_cells, _SLUG_COL_RE)
+        status_col = _find_col(header_cells, _STATUS_COL_RE)
+        if slug_col is None or status_col is None:
+            continue  # not a coverage table we can read; do not guess at indexes
+        for cells in _parse_table_rows(lines, i):
+            if len(cells) <= max(slug_col, status_col):
+                continue
+            slug = cells[slug_col].strip("`").strip()
+            # Normalise: strip markdown markers like tick/cross
+            status_clean = re.sub(r"[^a-zA-Z]", "", cells[status_col]).lower()
+            coverage_rows.append(CoverageRow(slug=slug, status=status_clean, raw_line=line))
     return coverage_rows
 
 
@@ -310,15 +389,20 @@ def analyze(
         if fn.spec_trace is None:
             # Check if name contains a slug keyword (heuristic)
             name_lower = fn.name.lower()
-            # `s and ...` is load-bearing: a TC table with no Scenario Slug column
-            # yields slug == "", and `"" in name_lower` is vacuously True. Without
-            # the guard an empty slug matches every function name.
-            # `any` (not `next`) keeps this order-independent: `next` returns the
-            # FIRST match, and since "" always satisfies the condition it could be
-            # returned ahead of a genuine slug — and being falsy, it would then
-            # suppress the very finding the genuine slug should have raised. Set
-            # iteration order over strings is hash-randomised, so that suppression
-            # was non-deterministic across runs.
+            # `s and ...` is load-bearing. A TC table with no Scenario Slug column
+            # yields slug == "", and `"" in name_lower` is vacuously True, so an
+            # unguarded empty slug matches every function name.
+            #
+            # Before the guard this was a DETERMINISTIC gate bypass, not a flake:
+            # the old code used `next(...)`, which returns the first match, and
+            # CPython special-cases `hash("") == 0` (verified across PYTHONHASHSEED
+            # 0/1/42/9999/random), so "" always lands in slot 0 and is always iterated
+            # first. `next` therefore returned "" ahead of any genuine slug, and ""
+            # being falsy then suppressed the finding that slug should have raised --
+            # on every run, for any plan containing one slug-less TC.
+            #
+            # `any` is used over `next` because existence is what this asks; with the
+            # guard in place the two are behaviourally identical.
             matched_slug = any(s and s.replace("-", "_") in name_lower for s in slug_set_lower)
             tc_prefix_match = any(
                 tc.tc_id.lower().replace("-", "_") in name_lower for tc in tc_rows
@@ -328,6 +412,27 @@ def analyze(
                     f"{fn.filepath}::{fn.name} appears to target a TC"
                     f" but its docstring is missing a `spec: <cap>#<slug>` traceability marker"
                 )
+
+    # Check 3 (SHOULD): a TC-ID defined twice with two different slugs is an authoring
+    # error. De-duplication keeps one; without this the other vanishes silently.
+    for tc_id, kept, dropped in tc_slug_conflicts():
+        findings.should.append(
+            f"{tc_id} is defined with two different Scenario Slugs"
+            f" ('{kept}' and '{dropped}'); only '{kept}' is used for traceability"
+        )
+
+    # Check 4 (SHOULD): say so when the gate is structurally unable to check.
+    # Check 2 matches tests to TCs by slug, so a TC with no slug can never be matched.
+    # The most common table shape in the wild has no Scenario Slug column at all --
+    # on those plans Check 2 cannot fire, and reporting only "0/N traced" reads as
+    # "nothing to do" rather than "not verified".
+    slugless = sum(1 for tc in tc_rows if not tc.slug)
+    if slugless:
+        findings.should.append(
+            f"{slugless}/{len(tc_rows)} TCs have no Scenario Slug; Check 2 cannot match"
+            f" tests to them by name, so their traceability is UNVERIFIED (not clean)."
+            f" Add a Scenario Slug column to those TC tables."
+        )
 
     # Info: coverage map summary
     total_tcs = len(tc_rows)
