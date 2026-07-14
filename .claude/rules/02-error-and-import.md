@@ -135,6 +135,23 @@ Scope: any function that receives data from external sources (stdin JSON, API re
 config file) where the type cannot be statically guaranteed. Even when `dict.get()` has a
 default, callers may pass explicit `None` values that override the default.
 
+`dict.get(key, default)`'s `default` only fires when `key` is **absent** — if `key` is
+present with an explicit `None` value, `.get()` still returns `None`, silently bypassing
+the fallback:
+
+```python
+# Wrong: lesson["id"] present but None -> returns None, not "unknown"
+session_id = f"mycelium-{lesson.get('id', 'unknown')}"
+
+# Correct: `or` catches both "key absent" and "key present but falsy/None"
+session_id = f"mycelium-{lesson.get('id') or 'unknown'}"
+```
+
+Prefer the `or` form (or an explicit `is None` check when `0`/`""`/`[]` are valid non-null
+values that must not be treated as missing) over relying on `.get()`'s second argument
+whenever the source dict comes from external data (DB rows, JSON) where a key can
+legitimately hold `None`. (Source: yibi-stack PR #210.)
+
 ## `Path.rglob()` Does Not Follow Symlinks
 
 `pathlib.rglob()` does not descend into symlinked subdirectories by default.

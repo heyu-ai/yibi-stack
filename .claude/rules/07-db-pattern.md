@@ -117,3 +117,42 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
 - No data backfill for existing rows; SQLite fills defaults at read time
 - Scope: **column additions only** — renaming or dropping columns still requires a
   dedicated migration with careful data preservation
+
+## Read-Only Consumers Must Not Self-Migrate via `ALTER TABLE`
+
+The `ALTER TABLE ADD COLUMN` pattern above is for the module that **owns** the DB
+(its own `db.py`, called via `init_db()`). A different module that only **reads**
+someone else's DB file directly (bypassing the owning module's service layer) must
+not apply the same self-healing migration on that read path — doing so turns a
+read into a write, which fails on a read-only mount or a DB locked by a concurrent
+writer (another process holding the file via WAL/rollback-journal locking):
+
+```python
+# Wrong: a "read" function that ALTERs someone else's shared DB file
+def _load_external_lessons(...) -> list[dict]:
+    conn = sqlite3.connect(str(EXTERNAL_DB_PATH))
+    conn.execute("ALTER TABLE lessons ADD COLUMN retrospective_id TEXT")  # write!
+    conn.commit()
+    rows = conn.execute("SELECT ... retrospective_id ... FROM lessons").fetchall()
+    ...
+
+# Correct: PRAGMA table_info is read-only; fall back to NULL when the column
+# predates the migration, instead of mutating the caller's DB
+columns = {row["name"] for row in conn.execute("PRAGMA table_info(lessons)")}
+select_sql = (
+    "SELECT id, retrospective_id FROM lessons ..."
+    if "retrospective_id" in columns
+    else "SELECT id, NULL AS retrospective_id FROM lessons ..."
+)
+```
+
+Build the SELECT as complete static strings per branch (not an f-string splicing a
+column-name fragment into the query) — bandit's B608 heuristic flags dynamic SQL
+construction even when the interpolated value is one of a small fixed set of
+literals; two static strings sidestep both the false positive and the need for a
+`# nosec` comment.
+
+(Source: yibi-stack PR #210 — `tasks/nightly_agent/cli.py`'s `_load_mycelium_lessons`
+read directly from mycelium's `handover.db` without going through `AgentsDB`; the
+first fix attempt ran the owning module's own migration pattern on that foreign read
+path, flagged independently by two review voices.)

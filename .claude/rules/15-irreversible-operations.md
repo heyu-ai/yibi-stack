@@ -69,6 +69,41 @@ uv publish
 `terraform destroy` / `pulumi destroy` / `cdk destroy` unless you named the specific stack.
 This is defense-in-depth on top of this doc-layer rule — see the note at the end of Category 3.
 
+### Release Operations Must Not Run in a Shared Checkout Without a Fresh-State Check
+
+`bump.sh` / `changelog.sh` / `git tag` / `git push origin <tag>` / `gh release create`
+mutate the **main checkout directory directly** (not a PR branch) — they cannot run inside
+an isolated worktree without producing a release on the wrong branch. But the main checkout
+is also the one directory every concurrent session/user on the same machine shares. If two
+release flows interleave in that directory — e.g. one session runs the individual
+`bump-version` scripts step by step while another runs the full `make release` target — the
+second flow's `bump.sh` silently reads the **first flow's already-written** version bump
+(the file on disk, not the version you last checked), computes a further bump on top of it,
+and commits a spurious, doubly-bumped `chore(release)` commit. The first flow may have
+already tagged and pushed a real release by the time this happens — so the corrupted commit
+sits, unpushed, on top of a real release with no error at any step.
+
+```bash
+# Wrong: assumes you are the only process touching the shared main checkout
+(cd "$MAIN_REPO" && ~/.claude/skills/bump-version/scripts/bump.sh minor)
+# ... proceeds straight to commit/tag without re-checking origin/main
+
+# Correct: fetch and compare immediately before AND after any multi-step release flow
+git -C "$MAIN_REPO" fetch origin main
+git -C "$MAIN_REPO" rev-parse main origin/main   # must match before starting
+# ... run bump/changelog/gates/commit ...
+git -C "$MAIN_REPO" fetch origin main
+git -C "$MAIN_REPO" log origin/main..main --oneline   # review before pushing/tagging
+```
+
+If the pre-push check shows more than the commit(s) you just made, another process already
+completed a release — `git reset --hard origin/main` to discard your local-only commits
+(safe: they were never pushed) rather than pushing on top of an already-completed release.
+(Source: yibi-stack PR #210 retro — `bump.sh` read a `pyproject.toml` version that had
+already been bumped moments earlier by a concurrent `make release` run in the same shared
+main checkout, producing a phantom `v1.8.0` commit stacked on the real, already-tagged and
+already-released `v1.7.0`.)
+
 ## Category 3: Git Destructive
 
 | Operation | Risk | Recommended approach |
