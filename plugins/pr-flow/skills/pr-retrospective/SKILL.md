@@ -37,39 +37,50 @@ description: >
 
 ### Step 0 — 環境與 PR 解析（只在 skill 啟動時跑一次）
 
-先解析 `SKILL_REPO`（script 住在 yibi-stack repo，必須先定位才能呼叫）：
+先定位 bootstrap.sh。**不要用 `~/.agents/config.json` 的 `skill_repo` 來找它**：該 key 是多個
+repo 的 `make install` 共寫的單一值，會被最後一個安裝者覆寫而指向錯 repo，而只驗 `[ -d ]`
+的 gate 擋不住（錯 repo 也「存在」），結果 `bash "$SKILL_REPO/plugins/.../bootstrap.sh"` 直接
+死在 No such file——bootstrap 一行都跑不到。
+
+改用 `make install` 建立的 symlink 定位。**本 skill 需要一份真實的 yibi-stack checkout**
+（要跑 `tasks/mycelium`），而 `~/.claude/skills/pr-retrospective` symlink 正好指向它；
+純 plugin 安裝（`~/.claude/plugins/cache/...`）是非 git 的解壓目錄且不含 `tasks/`，無法支撐
+本 skill，故不走 `CLAUDE_PLUGIN_ROOT`（實測該變數在 Bash tool 環境未設定）：
 
 ```bash
-if ! SKILL_REPO=$(python3 -c 'import json,pathlib; c=json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")); print((c.get("skill_repos") or {}).get("yibi-stack") or c.get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
-if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
-if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
+RETRO_ROOT="$HOME/.claude/skills/pr-retrospective"
+if [ ! -r "$RETRO_ROOT/scripts/bootstrap.sh" ]; then echo "[FAIL] 讀不到 bootstrap.sh：$RETRO_ROOT/scripts/bootstrap.sh（請在 yibi-stack 執行 make install）" >&2; exit 1; fi
 ```
 
 再執行環境檢查 + 專案偵測（prereqs check / case-free project detection / config）：
 
 ```bash
-bash "$SKILL_REPO/plugins/pr-flow/skills/pr-retrospective/scripts/bootstrap.sh"
+bash "$RETRO_ROOT/scripts/bootstrap.sh"
 ```
 
-Script stdout 輸出 `KEY=VALUE`，agent 解析並記住：
+Script stdout 輸出 `KEY=VALUE`，agent 解析並記住。**`SKILL_REPO` 以此輸出為唯一來源**
+（bootstrap 從自身位置 self-locate，與 config 無關；後續所有步驟都用這個值）：
 
-- `SKILL_REPO` — yibi-stack 根目錄路徑（應與上方解析結果一致）
+- `SKILL_REPO` — 這份 skill 腳本所屬的 yibi-stack checkout 根目錄
 - `ORIG_PROJECT` — 呼叫端 git repo 名稱
 - `REAL_WORKDIR` — 目前工作目錄
 - `BRANCH` — 目前分支名稱
 
 偵測 PR 號（從 ARGUMENTS 解析 `--pr <n>` 或 fallback 到 `gh pr view`）。
 
+`detect-pr.sh` 是 `bootstrap.sh` 的同目錄 sibling，一律用 `$RETRO_ROOT` 定址（與上方同一個
+idiom，不要再從 `$SKILL_REPO` 重推 `plugins/pr-flow/...` 佈局路徑）。
+
 **無 `--pr` 引數時**（在 PR branch 上，gh 自動偵測）：
 
 ```bash
-bash "$SKILL_REPO/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh"
+bash "$RETRO_ROOT/scripts/detect-pr.sh"
 ```
 
 **有 `--pr <n>` 引數時**（agent 把實際 PR 號附在後）：
 
 ```bash
-bash "$SKILL_REPO/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh" --pr 65
+bash "$RETRO_ROOT/scripts/detect-pr.sh" --pr 65
 ```
 
 Agent 依 ARGUMENTS 選擇對應形式。Script 用 `$*` 合併所有位置引數，支援 shell-split 傳入。
