@@ -185,3 +185,47 @@ class TestSafeSymlink:
         result = _run(["bash", str(SAFE_SYMLINK), *args])
         assert result.returncode == 1
         assert "required" in result.stderr
+
+    def test_ssl_dt_003_force_replaces_real_directory(self, tmp_path: Path) -> None:
+        """SSL-DT-003: --force 會把 dst 的實體目錄換成 symlink。"""
+        src = tmp_path / "src.sh"
+        src.write_text("x", encoding="utf-8")
+        dst = tmp_path / "bin" / "src.sh"
+        dst.mkdir(parents=True)
+        (dst / "leftover.txt").write_text("old", encoding="utf-8")
+
+        result = _run(["bash", str(SAFE_SYMLINK), "--force", str(src), str(dst)])
+        assert result.returncode == 0, result.stderr
+        assert dst.is_symlink()
+        assert Path(os.readlink(dst)) == src
+
+    def test_ssl_dt_004_without_force_keeps_real_path_and_warns_on_stderr(
+        self, tmp_path: Path
+    ) -> None:
+        """SSL-DT-004: 無 --force 時保留實體路徑，且警告走 stderr 不污染 stdout。
+
+        make install 的 stdout 可能被解析或重導；診斷訊息混進去會讓下游靜默失敗
+        （rule 13「Shell Script Diagnostics Must Go to stderr」）。
+        """
+        src = tmp_path / "src.sh"
+        src.write_text("x", encoding="utf-8")
+        dst = tmp_path / "bin" / "src.sh"
+        dst.mkdir(parents=True)
+
+        result = _run(["bash", str(SAFE_SYMLINK), str(src), str(dst)])
+        assert result.returncode == 0
+        assert not dst.is_symlink(), "無 --force 不應覆蓋實體路徑"
+        assert "skipping" in result.stderr
+        assert "skipping" not in result.stdout
+
+    def test_ssl_eg_002_failure_diagnostics_go_to_stderr(self, tmp_path: Path) -> None:
+        """SSL-EG-002: ln 失敗時的 [FAIL] 訊息必須在 stderr，且 exit 1。"""
+        src = tmp_path / "src.sh"
+        src.write_text("x", encoding="utf-8")
+        # 父目錄不存在 -> ln 失敗
+        dst = tmp_path / "no_such_dir" / "src.sh"
+
+        result = _run(["bash", str(SAFE_SYMLINK), str(src), str(dst)])
+        assert result.returncode == 1
+        assert "FAILED" in result.stderr
+        assert "FAILED" not in result.stdout

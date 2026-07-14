@@ -23,7 +23,7 @@ dir=$(dirname "$dst")
 if [ -L "$dst" ] && [ ! -e "$dst" ]; then
     rm -f "$dst" && ln -sf "$src" "$dst" \
         && echo "  ⚠ $name → relinked ($dir)" \
-        || { echo "  ✗ $name → relink FAILED in $dir"; exit 1; }
+        || { echo "  ✗ $name → relink FAILED in $dir" >&2; exit 1; }
 elif [ -L "$dst" ]; then
     # 既有且有效的 symlink：必須比對目標，不能無條件當作 no-op。
     # 舊版直接印 ↻ 略過，導致 checkout 搬移或換一份 checkout 重跑 make install 時
@@ -35,7 +35,7 @@ elif [ -L "$dst" ]; then
     else
         rm -f "$dst" && ln -sf "$src" "$dst" \
             && echo "  ⚠ $name → repointed ($dir): $current → $src" \
-            || { echo "  ✗ $name → repoint FAILED in $dir"; exit 1; }
+            || { echo "  ✗ $name → repoint FAILED in $dir" >&2; exit 1; }
     fi
 elif [ -e "$dst" ]; then
     if [ "$FORCE" = "1" ]; then
@@ -44,12 +44,12 @@ elif [ -e "$dst" ]; then
         fi
         rm -rf "$dst" && ln -sf "$src" "$dst" \
             && echo "  ✓ $name → $dir (forced)" \
-            || { echo "  ✗ $name → force FAILED in $dir"; exit 1; }
+            || { echo "  ✗ $name → force FAILED in $dir" >&2; exit 1; }
     else
-        echo "  ⚠ $name (real path exists, skipping $dir)"
+        echo "  ⚠ $name (real path exists, skipping $dir)" >&2
     fi
 else
     ln -sf "$src" "$dst" \
         && echo "  ✓ $name → $dir" \
-        || { echo "  ✗ $name → $dir FAILED"; exit 1; }
+        || { echo "  ✗ $name → $dir FAILED" >&2; exit 1; }
 fi

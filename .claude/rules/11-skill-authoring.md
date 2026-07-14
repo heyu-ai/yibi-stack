@@ -44,6 +44,22 @@ the **script itself is missing** (`make install` never ran) the shell fails with
 `No such file or directory` and there is no resolver alive to print guidance. Keep that
 `[FAIL]` line so the failure names its own fix.
 
+**Bootstrapping dependency — `make install` is required after pulling this repo.** Because
+every call site goes through `~/.agents/bin/resolve-skill-repo`, a checkout that is pulled but
+not re-installed has skills calling a resolver that does not exist yet, and they fail until
+`make install` runs. This is a deliberate, accepted trade-off, decided when the resolver landed:
+
+- The failure is **loud and self-describing** (`[FAIL] ... 請在 yibi-stack 目錄執行 make install`),
+  never a silent wrong answer — which is the whole point of retiring the config.json lookup, where
+  the *failure mode was silence*.
+- The alternative — giving each in-repo script its own fallback copy of the symlink-resolution
+  preamble — would re-scatter the exact logic this rule consolidates into one implementation, and
+  every copy is a place for the file-symlink trap below to be re-introduced.
+
+"pull → `make install`" is already the standing requirement for this repo's skills (see the
+CLAUDE.md gotcha on installed skills going stale); the resolver makes it enforced rather than
+merely advisable.
+
 ### Never locate this repo via `~/.agents/config.json`
 
 **Do not read `skill_repo` (or `skill_repos[...]`) from `~/.agents/config.json` to find this
