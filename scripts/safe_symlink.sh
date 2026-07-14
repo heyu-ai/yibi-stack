@@ -25,7 +25,18 @@ if [ -L "$dst" ] && [ ! -e "$dst" ]; then
         && echo "  ⚠ $name → relinked ($dir)" \
         || { echo "  ✗ $name → relink FAILED in $dir"; exit 1; }
 elif [ -L "$dst" ]; then
-    echo "  ↻ $name ($dir)"
+    # 既有且有效的 symlink：必須比對目標，不能無條件當作 no-op。
+    # 舊版直接印 ↻ 略過，導致 checkout 搬移或換一份 checkout 重跑 make install 時
+    # symlink 仍指向舊 checkout，之後所有經此連結執行的腳本都靜默跑在錯的 repo 上
+    # （self-locate 解析出的正是這個舊路徑）。此處目標不符即重指。
+    current=$(readlink "$dst")
+    if [ "$current" = "$src" ]; then
+        echo "  ↻ $name ($dir)"
+    else
+        rm -f "$dst" && ln -sf "$src" "$dst" \
+            && echo "  ⚠ $name → repointed ($dir): $current → $src" \
+            || { echo "  ✗ $name → repoint FAILED in $dir"; exit 1; }
+    fi
 elif [ -e "$dst" ]; then
     if [ "$FORCE" = "1" ]; then
         if [ ! -e "$src" ] && [ ! -L "$src" ]; then

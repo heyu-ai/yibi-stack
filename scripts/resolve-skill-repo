@@ -24,8 +24,16 @@ set -euo pipefail
 # 而 `cd "$(dirname "$0")" && pwd -P` 只穿透「路徑中的目錄」symlink，穿不透「檔案本身」
 # 的 symlink——透過 bin symlink 執行時它會回傳 ~/.agents/bin，靜默解錯且不報錯。
 # macOS 無 readlink -f，故手動逐段 readlink。
+# 深度上限：循環 symlink（a -> b -> a）會讓此迴圈永遠掛住，且無任何輸出，
+# 比明確報錯更難診斷。40 遠高於任何正常安裝（實際最多 2 段：bin -> skills -> plugins）。
 SOURCE="${BASH_SOURCE[0]}"
+_depth=0
 while [ -L "$SOURCE" ]; do
+  _depth=$((_depth + 1))
+  if [ "$_depth" -gt 40 ]; then
+    echo "[FAIL] symlink 層數超過 40，疑似循環連結：$SOURCE" >&2
+    exit 1
+  fi
   _link_dir=$(cd -P "$(dirname "$SOURCE")" && pwd)
   SOURCE=$(readlink "$SOURCE")
   case "$SOURCE" in
