@@ -119,8 +119,8 @@ yibi-stack 有 per-skill 觸發準確度的驗證缺口：B1（`scripts/lint_ski
 |----|----------------------|-------|-----------------|
 | US-001 | `valid-fixture-loads` | SEVAL-EP-001 | `spec: skill-trigger-eval#valid-fixture-loads` |
 | US-001 | `negative-expect-trigger-true-rejected` | SEVAL-VL-001 | `spec: skill-trigger-eval#negative-expect-trigger-true-rejected` |
-| US-001 | `negative-not-triggered-passes` | SEVAL-DT-005 | `spec: skill-trigger-eval#negative-not-triggered-passes` |
-| US-001 | `core-scores-via-interface` | SEVAL-ST-001 | `spec: skill-trigger-eval#core-scores-via-interface` |
+| US-001 | `negative-not-triggered-passes` | SEVAL-DT-001/002（實作編號）| `spec: skill-trigger-eval#negative-not-triggered-passes` |
+| US-001 | `core-scores-via-interface` | SEVAL-ST-004（實作編號）| `spec: skill-trigger-eval#core-scores-via-interface` |
 | US-001 | `verdict-count-mismatch-surfaced` | SEVAL-BVA-002 | `spec: skill-trigger-eval#verdict-count-mismatch-surfaced` |
 | US-001 | `absent-fixture-fails-loud` | SEVAL-ST-002 | `spec: skill-trigger-eval#absent-fixture-fails-loud` |
 | US-001 | `eval-baseline-discoverable`（SMK-001）| SEVAL-SMK-001 | `spec: skill-trigger-eval#eval-baseline-discoverable` |

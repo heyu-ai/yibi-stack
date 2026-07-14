@@ -2,13 +2,31 @@
 
 import json
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import Field, RootModel, ValidationError
 
 from tasks._paths import PROJECT_ROOT, RUNTIME_DIR
 
-from .models import TriggerEvalFixture
+from .models import TriggerEvalFixture, TriggerPromptClass
 
 SKILLS_DIR = PROJECT_ROOT / "skills"
+PLUGINS_DIR = PROJECT_ROOT / "plugins"
 BASELINE_PATH = RUNTIME_DIR / "skill_eval_baseline.json"
+
+
+class _BaselineFile(RootModel[dict[str, dict[TriggerPromptClass, float]]]):
+    """baseline 檔的形狀驗證：skill -> class -> pass_rate（0.0~1.0）。
+
+    **class key 綁 TriggerPromptClass 而非裸 str**：compare_baseline 以
+    `skill_base.get(str(score.cls))` 查表，查無即 `if base is None: continue`——所以一個
+    錯字 key（`negatve`）會讓該類靜默離開 gate，方向比值域錯誤更危險（靜默放行 vs 報錯）。
+    手改壞的檔案正是錯字的來源，故 key 也必須驗。
+
+    pass_rate 是比率，值域外（負數、>1）代表檔案已損壞或被手改壞，不應被當成有效基準。
+    """
+
+    root: dict[str, dict[TriggerPromptClass, Annotated[float, Field(ge=0.0, le=1.0)]]]
 
 
 def fixture_path(skill: str, skills_dir: Path | None = None) -> Path:
@@ -30,23 +48,74 @@ def load_fixture(skill: str, skills_dir: Path | None = None) -> TriggerEvalFixtu
 
 
 def discover_fixtures(skills_dir: Path | None = None) -> list[str]:
-    """列出所有含 trigger_eval.json 的 skill 名稱（依名稱排序）。"""
+    """列出 skills/ 底下所有含 trigger_eval.json 的 skill 名稱（依名稱排序）。
+
+    只涵蓋 skills/<name>/（含 symlink 到 plugin 的全域 skill），與 load_fixture 的
+    name-based 解析一致。**未** symlink 到 skills/ 的 plugin-only fixture 不在此列——
+    用 orphan_plugin_fixtures() 偵測那些會被漏掉的檔案，由 CLI 以 [WARN] 顯式回報，
+    避免 --all 靜默漏評（見 lint_skill_overlap.py 的 plugins/** 掃描先例）。
+    """
     root = skills_dir or SKILLS_DIR
     if not root.is_dir():
         return []
     return sorted(entry.name for entry in root.iterdir() if (entry / "trigger_eval.json").is_file())
 
 
+def orphan_plugin_fixtures(
+    skills_dir: Path | None = None, plugins_dir: Path | None = None
+) -> list[Path]:
+    """列出 plugins/ 底下未經 skills/ symlink 觸及的 trigger_eval.json（--all 會漏掉的）。
+
+    以 realpath 判斷是否已被 skills/ 的某個 entry（含 symlink）涵蓋；未涵蓋者即 orphan。
+    plugins glob 用 `**`（rule 02：`*` 不跨 `/`，會漏巢狀 sub-skill）。
+    """
+    root = skills_dir or SKILLS_DIR
+    pdir = plugins_dir or PLUGINS_DIR
+    reachable: set[Path] = set()
+    if root.is_dir():
+        for entry in root.iterdir():
+            fixture = entry / "trigger_eval.json"
+            if fixture.is_file():
+                reachable.add(fixture.resolve())
+    if not pdir.is_dir():
+        return []
+    orphans: list[Path] = []
+    for fixture in sorted(pdir.glob("*/skills/**/trigger_eval.json")):
+        if fixture.resolve() not in reachable:
+            orphans.append(fixture)
+    return orphans
+
+
 def load_baseline(path: Path | None = None) -> dict[str, dict[str, float]]:
-    """載入 baseline（skill -> class -> pass_rate）；檔案不存在回傳空 dict。"""
+    """載入 baseline（skill -> class -> pass_rate）；檔案不存在回傳空 dict。
+
+    載入後強制驗證形狀與 class key（rule 05：本模組其他 config 皆走 model_validate）。
+    未驗證時有三條路殊途同歸，都讓 0.00 的 pass rate 靜默回報無回歸：
+    `null` 值與錯字的 class key（`negatve`）查表得 None，走 `if base is None: continue`；
+    值域外的數字（如 -1.0）查得到、不是 None，改讓 `pass_rate < base - tol` 恆為 False。
+    非 dict 形狀則會在 compare_baseline 拋出 raw traceback 而非 [FAIL]。
+
+    驗證後的 class key 是 TriggerPromptClass；下方轉回 str 以符合回傳型別（dict key 不可
+    協變，mypy 會擋）。轉換純為型別對齊，非行為所需：StrEnum 與其字串值同 hash，
+    compare_baseline 的 `skill_base.get(str(score.cls))` 兩種型別都查得到。
+    """
     p = path or BASELINE_PATH
     if not p.is_file():
         return {}
     try:
-        data: dict[str, dict[str, float]] = json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
         raise RuntimeError(f"讀取 baseline 失敗：{p}") from e
-    return data
+    try:
+        validated = _BaselineFile(root=data).root
+    except ValidationError as e:
+        raise RuntimeError(
+            f"baseline 格式錯誤：{p}（應為 skill -> direct/indirect/negative -> 0.0~1.0 浮點數）"
+        ) from e
+    return {
+        skill: {str(cls): rate for cls, rate in scores.items()}
+        for skill, scores in validated.items()
+    }
 
 
 def save_baseline(baseline: dict[str, dict[str, float]], path: Path | None = None) -> Path:
