@@ -117,6 +117,7 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 	@echo "  [OK] skill_repos[$(SKILL_REPO_KEY)] = $(CURDIR)"
 	@mkdir -p "$$HOME/.agents/bin"
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/lessons" "$$HOME/.agents/bin/lessons"
+	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/resolve-skill-repo" "$$HOME/.agents/bin/resolve-skill-repo"
 
 install-project: ## Install scope=project skills（本 repo 限定，ainization-skill 開發用）
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }

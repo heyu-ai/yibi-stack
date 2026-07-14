@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# 解析本 repo（yibi-stack）checkout 的絕對路徑。
+# stdout: repo 絕對路徑（單行，成功時）
+# stderr: [FAIL] 診斷訊息
+# exit 1: 無法解析，或解析結果不是本 repo
+#
+# 用法（SKILL.md / command 的 inline bash）：
+#   if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
+#
+# 為何不讀 ~/.agents/config.json 的 skill_repo：
+# 該 key 是多個 skill repo 的 make install 共寫的「單一值」，會被最後一個安裝者
+# 覆寫而指向別的 repo；而只驗目錄存在（[ -d ]）的 gate 擋不住——錯的 repo 也「存在」。
+# 實測（PR #221 follow-up）：本機 config.json 的 skill_repo 指向 ainization-skill，
+# [ -d ] 照樣通過，但該處沒有 tasks/，於是所有 uv run --directory "$SKILL_REPO"
+# 的呼叫端全部靜默解析到錯 repo。config.json 的 skill_repos map 亦非必然存在
+# （本機就沒有），故 map-first 寫法無法作為保證。
+#
+# 改用 self-locate：程式碼隨腳本走，解析結果必然是「安裝這支腳本的那份 checkout」，
+# 不受任何共享狀態影響。
+set -euo pipefail
+
+# 逐段解析 symlink 鏈至實體檔案。
+# 本腳本經 make install 以 ~/.agents/bin/resolve-skill-repo（檔案層 symlink）對外提供，
+# 而 `cd "$(dirname "$0")" && pwd -P` 只穿透「路徑中的目錄」symlink，穿不透「檔案本身」
+# 的 symlink——透過 bin symlink 執行時它會回傳 ~/.agents/bin，靜默解錯且不報錯。
+# macOS 無 readlink -f，故手動逐段 readlink。
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  _link_dir=$(cd -P "$(dirname "$SOURCE")" && pwd)
+  SOURCE=$(readlink "$SOURCE")
+  case "$SOURCE" in
+    /*) ;;
+    *) SOURCE="$_link_dir/$SOURCE" ;;
+  esac
+done
+SCRIPT_DIR=$(cd -P "$(dirname "$SOURCE")" && pwd)
+
+# 單次呼叫：成功時 stdout 是 toplevel，失敗時 2>&1 讓變數帶回 git 原始錯誤。
+# 保留原始訊息——非 git repo 只是其一，dubious ownership / 權限問題訊息不同。
+if ! SKILL_REPO=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>&1); then
+  echo "[FAIL] 無法從腳本位置解析 skill repo：$SCRIPT_DIR" >&2
+  echo "[FAIL] git: $SKILL_REPO" >&2
+  exit 1
+fi
+
+# 驗身分而非僅驗存在：確認解析結果真的是本 repo（含 tasks/ 實作層），
+# 而不是任何「剛好存在」的目錄。
+if [ ! -d "$SKILL_REPO/tasks" ]; then
+  echo "[FAIL] 解析到的 repo 不含 tasks/（指向錯 repo？）：$SKILL_REPO" >&2
+  exit 1
+fi
+
+echo "$SKILL_REPO"

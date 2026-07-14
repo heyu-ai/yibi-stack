@@ -39,7 +39,7 @@ description: >
 >     *)  ORIG_PROJECT=$(basename "$PWD") ;;
 > esac
 > unset _gcd
-> if ! SKILL_REPO=$(python3 -c 'import json,pathlib; c=json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")); print((c.get("skill_repos") or {}).get("yibi-stack") or c.get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
+> if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then exit 1; fi
 > if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 > if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
 > cd "$SKILL_REPO"
