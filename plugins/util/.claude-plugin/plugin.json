@@ -1,7 +1,7 @@
 {
   "name": "util",
   "description": "Utility tools for Claude Code agents: local port manager and debug slash command.",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "author": {
     "name": "Howie Yu",
     "email": "2318485+howie@users.noreply.github.com"

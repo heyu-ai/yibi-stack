@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [1.8.0] - 2026-07-14
+
+### Features
+
+- skip PyPI hint when pyproject has no [build-system]; fix CHANGELOG MD033 (<name> -> backtick) (#216)
+
+### Bug Fixes
+
+- address post-merge review findings (#211 follow-up) (#214)
+- 套用 #215 的 self-locate 修法（同一 root cause） (#221)
+- bootstrap 自我定位 SKILL_REPO，不再信任共享 config key (#215)
+
 ## [1.7.0] - 2026-07-13
 
 ### Features
