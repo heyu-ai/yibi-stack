@@ -40,13 +40,16 @@ description: >
 先定位 bootstrap.sh。**不要用 `~/.agents/config.json` 的 `skill_repo` 來找它**：該 key 是多個
 repo 的 `make install` 共寫的單一值，會被最後一個安裝者覆寫而指向錯 repo，而只驗 `[ -d ]`
 的 gate 擋不住（錯 repo 也「存在」），結果 `bash "$SKILL_REPO/plugins/.../bootstrap.sh"` 直接
-死在 No such file——bootstrap 一行都跑不到。改用安裝路徑定位（plugin 安裝時 Claude Code 會設
-`CLAUDE_PLUGIN_ROOT`；symlink 安裝走 `~/.claude/skills`）：
+死在 No such file——bootstrap 一行都跑不到。
+
+改用 `make install` 建立的 symlink 定位。**本 skill 需要一份真實的 yibi-stack checkout**
+（要跑 `tasks/mycelium`），而 `~/.claude/skills/pr-retrospective` symlink 正好指向它；
+純 plugin 安裝（`~/.claude/plugins/cache/...`）是非 git 的解壓目錄且不含 `tasks/`，無法支撐
+本 skill，故不走 `CLAUDE_PLUGIN_ROOT`（該變數在 Bash tool 環境亦未設定，只在 hook 環境有）：
 
 ```bash
-RETRO_ROOT="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/pr-retrospective}"
-RETRO_ROOT="${RETRO_ROOT:-$HOME/.claude/skills/pr-retrospective}"
-if [ ! -f "$RETRO_ROOT/scripts/bootstrap.sh" ]; then echo "[FAIL] 找不到 bootstrap.sh：$RETRO_ROOT/scripts/bootstrap.sh（請在 yibi-stack 執行 make install）" >&2; exit 1; fi
+RETRO_ROOT="$HOME/.claude/skills/pr-retrospective"
+if [ ! -r "$RETRO_ROOT/scripts/bootstrap.sh" ]; then echo "[FAIL] 讀不到 bootstrap.sh：$RETRO_ROOT/scripts/bootstrap.sh（請在 yibi-stack 執行 make install）" >&2; exit 1; fi
 ```
 
 再執行環境檢查 + 專案偵測（prereqs check / case-free project detection / config）：
@@ -65,16 +68,19 @@ Script stdout 輸出 `KEY=VALUE`，agent 解析並記住。**`SKILL_REPO` 以此
 
 偵測 PR 號（從 ARGUMENTS 解析 `--pr <n>` 或 fallback 到 `gh pr view`）。
 
+`detect-pr.sh` 是 `bootstrap.sh` 的同目錄 sibling，一律用 `$RETRO_ROOT` 定址（與上方同一個
+idiom，不要再從 `$SKILL_REPO` 重推 `plugins/pr-flow/...` 佈局路徑）。
+
 **無 `--pr` 引數時**（在 PR branch 上，gh 自動偵測）：
 
 ```bash
-bash "$SKILL_REPO/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh"
+bash "$RETRO_ROOT/scripts/detect-pr.sh"
 ```
 
 **有 `--pr <n>` 引數時**（agent 把實際 PR 號附在後）：
 
 ```bash
-bash "$SKILL_REPO/plugins/pr-flow/skills/pr-retrospective/scripts/detect-pr.sh" --pr 65
+bash "$RETRO_ROOT/scripts/detect-pr.sh" --pr 65
 ```
 
 Agent 依 ARGUMENTS 選擇對應形式。Script 用 `$*` 合併所有位置引數，支援 shell-split 傳入。

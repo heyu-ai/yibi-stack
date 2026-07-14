@@ -34,10 +34,11 @@ unset _gcd _dir _top
 #
 # 語意（刻意設計）：SKILL_REPO = 「這份腳本副本所屬的 checkout」，程式碼隨腳本走。
 # 好處是腳本與其呼叫的 tasks/mycelium 版本必然一致（不會新腳本配舊模組）。
-# 經 plugin 安裝執行時會解析到該 plugin clone；經 ~/.claude/skills symlink 執行時
-# pwd -P 會穿透 symlink 解析到 dev checkout——兩者皆為預期。mycelium DB 位於
-# ~/.agents（見 tasks/mycelium/config.py 的 HANDOVER_DB_PATH），與 checkout 無關，
-# 故不同 checkout 不會分岔 retro 資料。
+# 實務上經 make install 的 ~/.claude/skills symlink 執行，pwd -P 穿透 symlink 解析到
+# 該 checkout。注意純 plugin 安裝（~/.claude/plugins/cache/...）是非 git 的解壓目錄且
+# 不含 tasks/，本腳本會在此 fail-loud（符合預期：無 checkout 就無法跑 mycelium）。
+# mycelium DB 位於 ~/.agents（見 tasks/mycelium/config.py 的 HANDOVER_DB_PATH），與
+# checkout 無關，故不同 checkout 不會分岔 retro 資料。
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 if ! GIT_ERR=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>&1 >/dev/null); then
   # 保留 git 原始錯誤：非 git repo 只是其一，dubious ownership / 權限問題訊息不同
