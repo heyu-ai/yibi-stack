@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [1.7.0] - 2026-07-13
+
+### Features
+
+- skill-trigger-eval module (issue #186 B2 Phase 1) (#211)
+- token/cost tracking + dedicated retrospectives table for /pr-retro (#205)
+
+### Bug Fixes
+
+- lessons 已與 handover 分家，修正 session_id 溯源 (#210)
+- stop amplifier-verify misdetecting `<name>` placeholder as a spectra change (#207)
+- write .pr-review exclude via --git-path so it works in worktrees (#204)
+- make agy review REVIEW-ONLY with guard + edit detection (#203)
+
 ## [1.6.0] - 2026-07-09
 
 ### Features

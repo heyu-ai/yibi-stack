@@ -176,6 +176,22 @@ class FrictionClassifier:
         return events
 
 
+def _lesson_session_id(lesson: dict[str, object]) -> str:
+    """lessons 已與 handover 分家：schema 支援 handover_id（`/handover`，Phase B 尚未串接，
+    見 `commands/lessons.md`）與 retrospective_id（`/pr-retro`，已在用）兩種關聯欄位，
+    或透過 `/lessons add` 獨立寫入（皆無）。依實際存在的欄位挑選來源，
+    不可假設 handover_id 必存在。"""
+    handover_id = lesson.get("handover_id")
+    if handover_id:
+        return f"mycelium-handover-{handover_id}"
+    retrospective_id = lesson.get("retrospective_id")
+    if retrospective_id:
+        return f"mycelium-retro-{retrospective_id}"
+    # dict.get(key, default) 只在 key 缺席時才用 default；lesson["id"] 明確為 None 時
+    # 仍會回傳 None，故用 `or` 確保空值也能落回 'unknown'。
+    return f"mycelium-lesson-{lesson.get('id') or 'unknown'}"
+
+
 def classify_mycelium_lessons(
     lessons: list[dict[str, object]],
 ) -> list[FrictionEvent]:
@@ -194,14 +210,14 @@ def classify_mycelium_lessons(
                 if pattern.search(insight):
                     events.append(
                         FrictionEvent(
-                            id=f"lesson-{lesson.get('id', uuid.uuid4())}",
-                            session_id=f"mycelium-{lesson.get('handover_id', 'unknown')}",
+                            id=f"lesson-{lesson.get('id') or uuid.uuid4()}",
+                            session_id=_lesson_session_id(lesson),
                             timestamp=str(lesson.get("ts", "")),
                             project=str(lesson.get("project", "")),
                             friction_type=group.friction_type,
                             description=f"Lesson[{lesson_type}]: {description}",
                             raw_text=insight,
-                            source_file="mycelium:handover.db",
+                            source_file="mycelium:lessons",
                             line_number=0,
                         )
                     )

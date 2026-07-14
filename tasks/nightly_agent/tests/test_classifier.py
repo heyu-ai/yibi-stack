@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tasks.nightly_agent.classifier import FrictionClassifier, classify_mycelium_lessons
 from tasks.nightly_agent.extractor import TranscriptEntry, TranscriptSession
 from tasks.nightly_agent.models import FrictionType
@@ -129,21 +131,44 @@ class TestFrictionClassifier:
 
 
 class TestClassifyMyceliumLessons:
-    def test_pitfall_lesson_classified(self) -> None:
+    @pytest.mark.parametrize(
+        ("handover_id", "retrospective_id", "expected_session_id"),
+        [
+            ("h1", None, "mycelium-handover-h1"),
+            (None, "r1", "mycelium-retro-r1"),
+            (None, None, "mycelium-lesson-lesson-x"),
+            # 空字串視同缺席（不落回 'unknown'，也不當成有效 id）
+            ("", None, "mycelium-lesson-lesson-x"),
+            (None, "", "mycelium-lesson-lesson-x"),
+            # 兩者皆有值時，handover_id 優先（鎖定優先序，非僅測試單一分支）
+            ("h1", "r1", "mycelium-handover-h1"),
+        ],
+    )
+    def test_pitfall_lesson_session_id_precedence(
+        self,
+        handover_id: str | None,
+        retrospective_id: str | None,
+        expected_session_id: str,
+    ) -> None:
+        """lessons 已與 handover 分家：session_id 依 handover_id -> retrospective_id
+        -> lesson id 優先序挑選（來源可能是 /handover、/pr-retro，或 /lessons add
+        獨立寫入），不可假設 handover_id 必存在，也不能落回 'unknown'。"""
         lessons: list[dict[str, object]] = [
             {
-                "id": "lesson-1",
+                "id": "lesson-x",
                 "type": "pitfall",
                 "ts": "2026-05-27T03:00:00",
                 "project": "yibi-stack",
                 "insight": "Worktree conflict: already used by worktree at path",
-                "handover_id": "h1",
+                "handover_id": handover_id,
+                "retrospective_id": retrospective_id,
             }
         ]
         events = classify_mycelium_lessons(lessons)
         assert len(events) == 1
         assert events[0].friction_type == FrictionType.WORKTREE_CONFLICT
-        assert "mycelium" in events[0].session_id
+        assert events[0].session_id == expected_session_id
+        assert events[0].source_file == "mycelium:lessons"
 
     def test_non_pitfall_lesson_skipped(self) -> None:
         lessons: list[dict[str, object]] = [

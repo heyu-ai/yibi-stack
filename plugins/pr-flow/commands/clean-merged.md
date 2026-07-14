@@ -1,6 +1,7 @@
 ---
 description: Clean up all local git branches that have been merged (including squash/rebase merged branches with corresponding merged PRs)
 model: sonnet
+effort: medium
 ---
 <!-- markdownlint-disable-file MD041 -->
 
