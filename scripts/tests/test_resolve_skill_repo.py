@@ -9,6 +9,7 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 """
 
 import os
+import shutil
 import subprocess  # nosec B404
 from pathlib import Path
 
@@ -108,18 +109,39 @@ class TestResolveSkillRepo:
         """RSR-EG-003: git 在成功時輸出的 warning 不得混進 stdout。
 
         成功路徑若用 2>&1 取值，SKILL_REPO 會變成 "warning: ...\\n/path"，
-        後續 -d 檢查失敗並誤報「指向錯 repo」。
+        後續 tasks/mycelium 檢查失敗並誤報「指向錯 repo」。
+
+        本測試必須真的讓 git 在「成功時」輸出 stderr，否則它形同虛設——
+        第一版用 GIT_CONFIG_GLOBAL 指向不存在的檔案，git 根本不會 warn，
+        於是把 resolver 改回 2>&1 時測試照樣通過（假測試）。
+        改用會 warn 再委派給真 git 的 shim，讓 warning 路徑必然被走到。
         """
         script = _make_fake_repo(tmp_path / "repo_a")
-        # 指向不存在的 gitconfig，促使 git 走 stderr 提示路徑；即使不觸發 warning，
-        # stdout 也必須是乾淨的單行路徑。
-        env = {**os.environ, "GIT_CONFIG_GLOBAL": str(tmp_path / "nope.gitconfig")}
+        real_git = shutil.which("git")
+        assert real_git, "git 不在 PATH，無法建立 shim"
+
+        shim_dir = tmp_path / "shim"
+        shim_dir.mkdir()
+        shim = shim_dir / "git"
+        shim.write_text(
+            "#!/usr/bin/env bash\n"
+            'echo "warning: simulated git warning on success" >&2\n'
+            f'exec {real_git} "$@"\n',
+            encoding="utf-8",
+        )
+        shim.chmod(0o755)
+
+        env = {**os.environ, "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}"}
         result = _run(["bash", str(script)], env=env)
+
         assert result.returncode == 0, result.stderr
         out = result.stdout.strip()
-        assert "\n" not in out
-        assert "warning" not in out.lower()
+        assert "\n" not in out, f"stdout 混入多行（warning 洩漏）：{out!r}"
+        assert "warning" not in out.lower(), f"stdout 混入 warning：{out!r}"
         assert Path(out).resolve() == (tmp_path / "repo_a").resolve()
+        # 註：不斷言 warning 出現在 result.stderr——resolver 成功路徑刻意把 git 的
+        # stderr 丟到 /dev/null，故它不會冒出來。本測試的有效性由 mutation 保證：
+        # 把 resolver 改回 2>&1 取值，stdout 就會混入 shim 的 warning 而使本測試失敗。
 
 
 class TestSafeSymlink:

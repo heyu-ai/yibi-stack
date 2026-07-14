@@ -118,6 +118,19 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 	@mkdir -p "$$HOME/.agents/bin"
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/lessons" "$$HOME/.agents/bin/lessons"
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/resolve-skill-repo" "$$HOME/.agents/bin/resolve-skill-repo"
+	@# 安裝後驗收：safe_symlink.sh 遇到 dst 是「實體檔案」時只警告並 exit 0（不覆蓋），
+	@# 於是 make install 會成功結束卻留下一個任意檔案在 resolver 的位置，之後所有
+	@# 呼叫端都會執行它。resolver 是所有 skill 定位本 repo 的唯一入口，不能靠運氣。
+	@# 直接執行它並比對輸出，涵蓋「非 symlink」「指向舊 checkout」「不可執行」等所有情況。
+	@resolved=$$("$$HOME/.agents/bin/resolve-skill-repo" 2>/dev/null) \
+		|| { echo "  [FAIL] resolve-skill-repo 安裝後無法執行：$$HOME/.agents/bin/resolve-skill-repo" >&2; \
+		     echo "         若該路徑是實體檔案，請先移除再重跑 make install" >&2; exit 1; }; \
+	if [ "$$resolved" != "$(CURDIR)" ]; then \
+		echo "  [FAIL] resolve-skill-repo 解析到 $${resolved}，預期 $(CURDIR)" >&2; \
+		echo "         $$HOME/.agents/bin/resolve-skill-repo 可能是實體檔案或指向別的 checkout" >&2; \
+		exit 1; \
+	fi; \
+	echo "  [OK] resolve-skill-repo -> $$resolved"
 
 install-project: ## Install scope=project skills（本 repo 限定，ainization-skill 開發用）
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }
