@@ -56,6 +56,22 @@ The scoring core SHALL depend only on a Judge interface, not on any concrete LLM
 
 The system SHALL persist a baseline of per-class pass rates per skill, and SHALL compare a current evaluation against that baseline using a configurable tolerance. When any class pass rate falls below its baseline minus the tolerance, the system SHALL report a regression and exit with a non-zero status, listing each regressed skill and class.
 
+The tolerance SHALL be constrained to a finite value in `[0.0, 1.0)`, and the baseline file SHALL be validated on load -- both its pass-rate values (finite, in `[0.0, 1.0]`) and its class keys (a member of direct/indirect/negative). Values or keys outside those domains SHALL fail loudly rather than be treated as "no baseline for this class": every such input reaches the same `base is None` skip that silently disarms the gate for that class, so accepting them turns a corrupt file into a green run.
+
+#### Scenario: tolerance-out-of-domain-rejected -- 容忍門檻值域外即失敗
+
+**GIVEN** `--tolerance` 給定 `nan` 或 `>= 1.0` 的值
+**WHEN** `eval` 執行比對
+**THEN** 系統 MUST 以非零狀態結束並指明合法值域
+  AND 系統 MUST NOT 逕行比對（該門檻會讓回歸偵測恆不觸發，等同關閉 gate）
+
+#### Scenario: corrupt-baseline-rejected -- 損壞的 baseline 即失敗
+
+**GIVEN** 一份 baseline 檔，其某項 pass rate 為 `null`／值域外，或其 class key 非 direct/indirect/negative（如錯字 `negatve`）
+**WHEN** `eval` 載入該 baseline
+**THEN** 系統 MUST 以非零狀態結束並指明格式錯誤
+  AND 系統 MUST NOT 將該項視為「無此類基準」而略過比對
+
 #### Scenario: regression-below-tolerance-exits-nonzero -- 低於容忍門檻即回歸
 
 **GIVEN** 某 skill 的 `negative` pass rate 為 0.6、baseline 為 1.0、容忍門檻為 0.1

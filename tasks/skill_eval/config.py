@@ -8,20 +8,25 @@ from pydantic import Field, RootModel, ValidationError
 
 from tasks._paths import PROJECT_ROOT, RUNTIME_DIR
 
-from .models import TriggerEvalFixture
+from .models import TriggerEvalFixture, TriggerPromptClass
 
 SKILLS_DIR = PROJECT_ROOT / "skills"
 PLUGINS_DIR = PROJECT_ROOT / "plugins"
 BASELINE_PATH = RUNTIME_DIR / "skill_eval_baseline.json"
 
 
-class _BaselineFile(RootModel[dict[str, dict[str, float]]]):
+class _BaselineFile(RootModel[dict[str, dict[TriggerPromptClass, float]]]):
     """baseline 檔的形狀驗證：skill -> class -> pass_rate（0.0~1.0）。
+
+    **class key 綁 TriggerPromptClass 而非裸 str**：compare_baseline 以
+    `skill_base.get(str(score.cls))` 查表，查無即 `if base is None: continue`——所以一個
+    錯字 key（`negatve`）會讓該類靜默離開 gate，方向比值域錯誤更危險（靜默放行 vs 報錯）。
+    手改壞的檔案正是錯字的來源，故 key 也必須驗。
 
     pass_rate 是比率，值域外（負數、>1）代表檔案已損壞或被手改壞，不應被當成有效基準。
     """
 
-    root: dict[str, dict[str, Annotated[float, Field(ge=0.0, le=1.0)]]]
+    root: dict[str, dict[TriggerPromptClass, Annotated[float, Field(ge=0.0, le=1.0)]]]
 
 
 def fixture_path(skill: str, skills_dir: Path | None = None) -> Path:
@@ -84,10 +89,13 @@ def orphan_plugin_fixtures(
 def load_baseline(path: Path | None = None) -> dict[str, dict[str, float]]:
     """載入 baseline（skill -> class -> pass_rate）；檔案不存在回傳空 dict。
 
-    載入後強制驗證形狀（rule 05：本模組其他 config 皆走 model_validate）。未驗證時
-    `null` 值會與「該類別無 baseline」走同一條 `if base is None: continue`，讓 0.00 的
-    pass rate 靜默回報無回歸；非 dict 形狀則會在 compare_baseline 拋出 raw traceback
-    而非 [FAIL]。
+    載入後強制驗證形狀與 class key（rule 05：本模組其他 config 皆走 model_validate）。
+    未驗證時，`null` 值、值域外的數字、以及錯字的 class key（`negatve`）都會與「該類別無
+    baseline」走同一條 `if base is None: continue`，讓 0.00 的 pass rate 靜默回報無回歸；
+    非 dict 形狀則會在 compare_baseline 拋出 raw traceback 而非 [FAIL]。
+
+    回傳的 key 是 TriggerPromptClass（StrEnum），與其字串值同 hash，故 compare_baseline
+    的 `skill_base.get(str(score.cls))` 查找不受影響。
     """
     p = path or BASELINE_PATH
     if not p.is_file():
@@ -97,11 +105,15 @@ def load_baseline(path: Path | None = None) -> dict[str, dict[str, float]]:
     except (OSError, json.JSONDecodeError) as e:
         raise RuntimeError(f"讀取 baseline 失敗：{p}") from e
     try:
-        return _BaselineFile(root=data).root
+        validated = _BaselineFile(root=data).root
     except ValidationError as e:
         raise RuntimeError(
-            f"baseline 格式錯誤：{p}（應為 skill -> class -> 0.0~1.0 浮點數）"
+            f"baseline 格式錯誤：{p}（應為 skill -> direct/indirect/negative -> 0.0~1.0 浮點數）"
         ) from e
+    return {
+        skill: {str(cls): rate for cls, rate in scores.items()}
+        for skill, scores in validated.items()
+    }
 
 
 def save_baseline(baseline: dict[str, dict[str, float]], path: Path | None = None) -> Path:

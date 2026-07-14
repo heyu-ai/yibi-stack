@@ -24,7 +24,9 @@
 | `empty-fixture-fails-loud` | ✓ | EG | SEVAL-CLI-007, SEVAL-CLI-011 | 三類皆空 [FAIL] 指名該 skill；`--all` 夾帶亦然 |
 | `manifest-binding-drift-fails` | ✓ | DT/EG | SEVAL-CLI-008/009, SEVAL-CV-002, SEVAL-CLI-014, SEVAL-EG-006/007 | eval 與 baseline 兩路皆擋；CV-002 維持同 task 數以隔離 prompt 變數 |
 | `manifest-binding-required` | ✓ | DT | SEVAL-CLI-012/013, SEVAL-CLI-015 | 缺 manifest [FAIL]；eval 有 `--no-manifest-check` 顯式豁免，baseline 無 |
-| `orphan-plugin-fixture-warned` | ✓ | EG | SEVAL-EG-004/005/008, SEVAL-CLI-010, SEVAL-CLI-016 | 含巢狀 sub-skill（釘 `**` glob）與 skills/ 全空仍先 [WARN] |
+| `orphan-plugin-fixture-warned` | ✓ | EG | SEVAL-EG-004/005/008, SEVAL-CLI-010, SEVAL-CLI-016/017 | 含巢狀 sub-skill（釘 `**` glob）、skills/ 全空仍先 [WARN]、預設佈局分支 |
+| `tolerance-out-of-domain-rejected` | ✓ | VL | SEVAL-VL-009, SEVAL-VL-010 | nan 與 >= 1.0 皆 [FAIL]（兩者都讓比較恆 False） |
+| `corrupt-baseline-rejected` | ✓ | VL | SEVAL-VL-011/012/013 | null 值、非 dict 形狀、未知 class key 皆 [FAIL] |
 
 Legend: ✓ covered · △ partial · ✗ missing
 
@@ -32,7 +34,7 @@ Legend: ✓ covered · △ partial · ✗ missing
 > 實作落地時採用了以模組分區的命名（`test_seval_cli_*`／`test_seval_vl_*`／`test_seval_eg_*`），
 > 兩套編號自 #211 起即未對齊——本表與 Traceability Matrix 引用的是**規劃**編號，
 > pytest docstring 內的 `SEVAL-*` 則是**實作**編號。全面對帳屬 #211 遺留，非本 PR 範圍。
-> 新增 TC（SEVAL-CLI-007..016、SEVAL-EG-004..008、SEVAL-CV-002、SEVAL-VL-009..012）
+> 新增 TC（SEVAL-CLI-007..017、SEVAL-EG-004..008、SEVAL-CV-002、SEVAL-VL-009..013）
 > 一律使用實作編號。
 
 ---
@@ -82,9 +84,10 @@ Legend: ✓ covered · △ partial · ✗ missing
 - **baseline 未進版控**（issue #220）：baseline 存於 gitignore 的 `.runtime/`，CI／新 clone
   上 `load_baseline` 取得 `{}`，gate 無條件通過。需先決定 baseline 落點才有測試意義。
 
-> 上述為 Phase 1 之後的測試強化清單。核心 9 個 Scenario 加本 PR 新增的 4 個
+> 上述為 Phase 1 之後的測試強化清單。核心 9 個 Scenario 加本 PR 新增的 6 個
 > （`empty-fixture-fails-loud`／`manifest-binding-drift-fails`／`manifest-binding-required`／
-> `orphan-plugin-fixture-warned`）共 13 個 Scenario 均已 Covered。
+> `orphan-plugin-fixture-warned`／`tolerance-out-of-domain-rejected`／
+> `corrupt-baseline-rejected`）共 15 個 Scenario 均已 Covered。
 
 ---
 

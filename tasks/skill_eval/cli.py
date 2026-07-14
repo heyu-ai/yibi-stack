@@ -1,7 +1,6 @@
 """CLI 入口：skill 觸發準確度評測。"""
 
 import json
-import math
 from pathlib import Path
 
 import click
@@ -65,14 +64,17 @@ def _assert_nonempty_fixtures(fixtures: list[TriggerEvalFixture]) -> None:
 
 
 def _validate_tolerance(tolerance: float) -> float:
-    """容忍門檻須為 [0.0, 1.0) 的有限數；否則 [FAIL]。
+    """容忍門檻須落在 [0.0, 1.0)；否則 [FAIL]。
 
     nan 會讓所有 `pass_rate < base - tol` 比較恆為 False，>= 1.0 則讓門檻寬到永遠不觸發——
     兩者都是「gate 靜默失效」而非「gate 較寬鬆」，故不接受。
+
+    單一值域比較即可涵蓋 nan 與 ±inf，無須另加 math.isfinite()：nan 的所有比較皆為 False，
+    故 `0.0 <= nan` 為 False；inf 則卡在 `< 1.0`。額外的 isfinite() 是永不改變結果的死碼。
     """
-    if not math.isfinite(tolerance) or not 0.0 <= tolerance < 1.0:
+    if not 0.0 <= tolerance < 1.0:
         click.echo(
-            f"[FAIL] --tolerance 須為 0.0 <= t < 1.0 的有限數，收到：{tolerance}"
+            f"[FAIL] --tolerance 須落在 0.0 <= t < 1.0，收到：{tolerance}"
             "（nan 或 >= 1.0 會讓回歸偵測恆不觸發，等同關閉 gate）",
             err=True,
         )

@@ -434,7 +434,11 @@ class TestAllScope:
         )
         assert result.exit_code == 0
         assert "[WARN]" in result.output
-        assert "hidden" in result.output
+        assert "pack/skills/hidden/trigger_eval.json" in result.output
+        # 關鍵斷言：絕對路徑「不得」出現。custom skills_dir 下 base=skills_dir.parent，
+        # 相對化應該成功。只斷言相對路徑存在是不夠的——絕對路徑本身就含該子字串，
+        # 故 base 恆用 PROJECT_ROOT 時（相對化失敗、改印絕對路徑）測試照樣會過。
+        assert str(hidden / "trigger_eval.json") not in result.output
 
     def test_seval_cli_017_default_layout_warns_orphan(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -515,7 +519,7 @@ class TestToleranceValidation:
             ],
         )
         assert result.exit_code == 1
-        assert "--tolerance 須為" in result.output
+        assert "--tolerance 須落在" in result.output
 
     def test_seval_vl_010_tolerance_ge_one_rejected(self, tmp_path: Path) -> None:
         """SEVAL-VL-010: --tolerance >= 1.0 -> [FAIL]（門檻寬到永不觸發即等同關閉 gate）。
@@ -541,7 +545,7 @@ class TestToleranceValidation:
             ],
         )
         assert result.exit_code == 1
-        assert "--tolerance 須為" in result.output
+        assert "--tolerance 須落在" in result.output
 
 
 class TestBaselineValidation:
@@ -556,6 +560,74 @@ class TestBaselineValidation:
         judgments.write_text(json.dumps([False, False, True]), encoding="utf-8")
         baseline = tmp_path / "b.json"
         baseline.write_text(json.dumps({"demo": {"direct": None}}), encoding="utf-8")
+        result = CliRunner().invoke(
+            cli,
+            [
+                "eval",
+                "--skill",
+                "demo",
+                "--skills-dir",
+                str(tmp_path),
+                "--manifest",
+                str(manifest),
+                "--judgments",
+                str(judgments),
+                "--baseline",
+                str(baseline),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "baseline 格式錯誤" in result.output
+
+    def test_seval_vl_013_baseline_unknown_class_key_rejected(self, tmp_path: Path) -> None:
+        """SEVAL-VL-013: baseline 含未知 class key（錯字）-> [FAIL]，不得靜默關閉該類 gate。
+
+        compare_baseline 以 `skill_base.get(str(score.cls))` 查表，查無即
+        `if base is None: continue`——所以 `negatve` 這種一字之差會讓該類靜默離開 gate，
+        方向比值域錯誤更危險（靜默放行 vs 報錯）。手改壞的檔案正是錯字的來源。
+        spec: skill-trigger-eval#corrupt-baseline-rejected"""
+        write_fixture(tmp_path)
+        manifest = emit_manifest(tmp_path)
+        judgments = tmp_path / "j.json"
+        # negative 被誤觸發 -> negative pass rate 0.00，對 baseline 1.0 必須判回歸
+        judgments.write_text(json.dumps([True, True, True]), encoding="utf-8")
+        baseline = tmp_path / "b.json"
+        baseline.write_text(json.dumps({"demo": {"negatve": 1.0}}), encoding="utf-8")
+        result = CliRunner().invoke(
+            cli,
+            [
+                "eval",
+                "--skill",
+                "demo",
+                "--skills-dir",
+                str(tmp_path),
+                "--manifest",
+                str(manifest),
+                "--judgments",
+                str(judgments),
+                "--baseline",
+                str(baseline),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "baseline 格式錯誤" in result.output, (
+            "錯字 key 必須 [FAIL]，不得當成「無此類基準」略過"
+        )
+
+    def test_seval_vl_014_baseline_out_of_range_rate_rejected(self, tmp_path: Path) -> None:
+        """SEVAL-VL-014: baseline pass rate 值域外（負數）-> [FAIL]，不得靜默關閉 gate。
+
+        負數 baseline 讓 `pass_rate < base - tol` 恆為 False，效果與 nan（VL-009）、
+        >= 1.0（VL-010）相同：0% 通過率照樣回報綠燈。此測試釘住 _BaselineFile 的
+        ge/le 值域約束——沒有它，拿掉該約束不會有任何測試失敗。
+        spec: skill-trigger-eval#corrupt-baseline-rejected"""
+        write_fixture(tmp_path)
+        manifest = emit_manifest(tmp_path)
+        judgments = tmp_path / "j.json"
+        # 全部答錯 -> direct 0.00，對任何合法 baseline 都該判回歸
+        judgments.write_text(json.dumps([False, False, True]), encoding="utf-8")
+        baseline = tmp_path / "b.json"
+        baseline.write_text(json.dumps({"demo": {"direct": -1.0}}), encoding="utf-8")
         result = CliRunner().invoke(
             cli,
             [
