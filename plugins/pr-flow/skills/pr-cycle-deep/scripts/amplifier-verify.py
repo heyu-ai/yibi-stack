@@ -319,9 +319,7 @@ def analyze(
             # suppress the very finding the genuine slug should have raised. Set
             # iteration order over strings is hash-randomised, so that suppression
             # was non-deterministic across runs.
-            matched_slug = any(
-                s and s.replace("-", "_") in name_lower for s in slug_set_lower
-            )
+            matched_slug = any(s and s.replace("-", "_") in name_lower for s in slug_set_lower)
             tc_prefix_match = any(
                 tc.tc_id.lower().replace("-", "_") in name_lower for tc in tc_rows
             )
