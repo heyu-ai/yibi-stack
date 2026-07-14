@@ -56,10 +56,14 @@ if ! SKILL_REPO=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null); t
   exit 1
 fi
 
-# 驗身分而非僅驗存在：確認解析結果真的是本 repo（含 tasks/ 實作層），
-# 而不是任何「剛好存在」的目錄。
-if [ ! -d "$SKILL_REPO/tasks" ]; then
-  echo "[FAIL] 解析到的 repo 不含 tasks/（指向錯 repo？）：$SKILL_REPO" >&2
+# 驗身分而非僅驗存在。標記選擇經實測：與本 repo 共寫 ~/.agents/config.json 的
+# ainization-skill 同樣有 tasks/ 與 tasks/_paths.py 與 .claude-plugin/marketplace.json，
+# 全都無法區分；pyproject.toml 的 name 也不行（兩個 repo 都宣告 "ainization-skill"）。
+# tasks/mycelium 是實測唯一能區分的標記，故沿用 #221 的選擇。
+# 註：這是「身分標記」不是「依賴宣告」——非 mycelium 的呼叫端（harness-eval 等）
+# 同樣靠它確認自己站在 yibi-stack 上。若日後 mycelium 更名，此處必須同步更新。
+if [ ! -d "$SKILL_REPO/tasks/mycelium" ]; then
+  echo "[FAIL] 解析到的 repo 不含 tasks/mycelium（指向錯 repo？）：$SKILL_REPO" >&2
   exit 1
 fi
 

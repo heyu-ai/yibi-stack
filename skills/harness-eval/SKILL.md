@@ -201,7 +201,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 
 | 問題 | 解法 |
 |---|---|
-| `[FAIL] 無法從腳本位置解析 skill repo` | `~/.agents/bin/resolve-skill-repo` 不存在或不在 checkout 內；在 yibi-stack 執行 `make install` |
+| `[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install` | `~/.agents/bin/resolve-skill-repo` 不存在或不在 checkout 內；在 yibi-stack 執行 `make install` |
 | target 不存在 | 確認路徑；預設為 `$PWD` |
 | Python 掃描失敗 | `uv sync` 後重試 |
 | 掃描其他 repo | `/harness-eval --target /path/to/repo` |

@@ -30,7 +30,7 @@ def _make_fake_repo(root: Path, marker: bool = True) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     _run(["git", "init", "-q", str(root)])
     if marker:
-        (root / "tasks").mkdir()
+        (root / "tasks" / "mycelium").mkdir(parents=True)
     scripts_dir = root / "scripts"
     scripts_dir.mkdir()
     dst = scripts_dir / "resolve-skill-repo"
@@ -86,7 +86,7 @@ class TestResolveSkillRepo:
         script = _make_fake_repo(tmp_path / "wrong_repo", marker=False)
         result = _run(["bash", str(script)])
         assert result.returncode == 1
-        assert "tasks/" in result.stderr
+        assert "tasks/mycelium" in result.stderr
         assert result.stdout.strip() == ""
 
     def test_rsr_eg_002_fails_outside_any_git_repo(self, tmp_path: Path) -> None:
