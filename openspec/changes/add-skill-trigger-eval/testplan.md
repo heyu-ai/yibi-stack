@@ -14,15 +14,26 @@
 |--------------|---------|-----------|---------|-------|
 | `valid-fixture-loads` | ✓ | EP | SEVAL-EP-001 | 三類可存取 |
 | `negative-expect-trigger-true-rejected` | ✓ | EP | SEVAL-VL-001 | fail-loud，不靜默丟棄 |
-| `negative-not-triggered-passes` | ✓ | DT | SEVAL-DT-003, SEVAL-DT-005 | DT-005 覆蓋 2/2、2/3、1/2 範例矩陣 |
-| `core-scores-via-interface` | ✓ | ST | SEVAL-ST-001, SEVAL-DT-001..004 | 無 LLM import 斷言 + 介面計分 |
+| `negative-not-triggered-passes` | ✓ | DT | SEVAL-DT-001/002（實作編號）| 逐類 pass rate；negative 被誤觸發即降 rate |
+| `core-scores-via-interface` | ✓ | ST | SEVAL-ST-004, SEVAL-DT-008（實作編號）| stub judge 經介面計分（無 LLM）+ build_tasks 展平順序 |
 | `verdict-count-mismatch-surfaced` | ✓ | BVA | SEVAL-BVA-002, SEVAL-BVA-003, SEVAL-BVA-004 | N-1 / N+1 / 0 皆 raise |
 | `regression-below-tolerance-exits-nonzero` | ✓ | ST/BVA | SEVAL-ST-004, SEVAL-BVA-006 | 0.6 vs 1.0/0.1 + just-below 邊界 |
 | `within-tolerance-passes` | ✓ | EP/BVA | SEVAL-EP-002, SEVAL-BVA-005 | 全通過 + 恰好門檻邊界 |
 | `eval-baseline-discoverable` | ✓ | ST | SEVAL-SMK-001 | --help 列出兩個 subcommand |
 | `absent-fixture-fails-loud` | ✓ | ST | SEVAL-ST-002 | 非零退出 + 明確訊息 |
+| `empty-fixture-fails-loud` | ✓ | EG | SEVAL-CLI-007, SEVAL-CLI-011 | 三類皆空 [FAIL] 指名該 skill；`--all` 夾帶亦然 |
+| `manifest-binding-drift-fails` | ✓ | DT/EG | SEVAL-CLI-008/009, SEVAL-CV-002, SEVAL-CLI-014, SEVAL-EG-006/007 | eval 與 baseline 兩路皆擋；CV-002 維持同 task 數以隔離 prompt 變數 |
+| `manifest-binding-required` | ✓ | DT | SEVAL-CLI-012/013, SEVAL-CLI-015 | 缺 manifest [FAIL]；eval 有 `--no-manifest-check` 顯式豁免，baseline 無 |
+| `orphan-plugin-fixture-warned` | ✓ | EG | SEVAL-EG-004/005/008, SEVAL-CLI-010, SEVAL-CLI-016 | 含巢狀 sub-skill（釘 `**` glob）與 skills/ 全空仍先 [WARN] |
 
 Legend: ✓ covered · △ partial · ✗ missing
+
+> **TC-ID 命名說明**：下方 TC Table 是 Phase 1 的**規劃**編號（SEVAL-EP-*／SEVAL-ST-* 等），
+> 實作落地時採用了以模組分區的命名（`test_seval_cli_*`／`test_seval_vl_*`／`test_seval_eg_*`），
+> 兩套編號自 #211 起即未對齊——本表與 Traceability Matrix 引用的是**規劃**編號，
+> pytest docstring 內的 `SEVAL-*` 則是**實作**編號。全面對帳屬 #211 遺留，非本 PR 範圍。
+> 新增 TC（SEVAL-CLI-007..016、SEVAL-EG-004..008、SEVAL-CV-002、SEVAL-VL-009..012）
+> 一律使用實作編號。
 
 ---
 
@@ -65,7 +76,15 @@ Legend: ✓ covered · △ partial · ✗ missing
 - **Judge backend 中途失敗**：pluggable backend 於執行中回傳畸形 verdict／抛錯時，核心應把錯誤浮現而非強制計為 pass（建議 SEVAL-EG-002）。
 - **fixture 缺整個必填類別鍵**（如無 `negative` key）的載入錯誤訊息（建議 SEVAL-EG-001）。
 
-> 上述為 Phase 1 之後的測試強化清單；核心 9 個 Scenario 均已 Covered。
+- **Regression gate 可靜默停止把關**（issue #219）：單一類別被清空、skill 退出評測範圍、
+  `baseline --skill <one>` 整檔覆寫——三者皆讓 `compare_baseline` 不再比對該項而仍回報
+  `[OK] 無回歸`。修法為 `compare_baseline` 改走 baseline ∪ current，屬結構性變更，另案處理。
+- **baseline 未進版控**（issue #220）：baseline 存於 gitignore 的 `.runtime/`，CI／新 clone
+  上 `load_baseline` 取得 `{}`，gate 無條件通過。需先決定 baseline 落點才有測試意義。
+
+> 上述為 Phase 1 之後的測試強化清單。核心 9 個 Scenario 加本 PR 新增的 4 個
+> （`empty-fixture-fails-loud`／`manifest-binding-drift-fails`／`manifest-binding-required`／
+> `orphan-plugin-fixture-warned`）共 13 個 Scenario 均已 Covered。
 
 ---
 

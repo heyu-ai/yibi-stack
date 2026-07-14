@@ -66,9 +66,12 @@ class FixedJudge(Judge):
 
 
 class TestBuildTasks:
-    def test_seval_dt_005_stable_order_and_index(self) -> None:
-        """SEVAL-DT-005: build_tasks 依 direct/indirect/negative 展平、index 連續。
-        spec: skill-trigger-eval#manifest-binding-drift-fails"""
+    def test_seval_dt_008_stable_order_and_index(self) -> None:
+        """SEVAL-DT-008: build_tasks 依 direct/indirect/negative 展平、index 連續。
+
+        DT-008 為新配號：testplan 的 DT-001..007 皆已配給，ST-001 亦另有所屬
+        （「計分路徑不 import/呼叫 LLM client」，由 ST-004 實作）。
+        spec: skill-trigger-eval#core-scores-via-interface"""
         tasks = build_tasks([make_fixture()])
         assert [t.cls for t in tasks] == [
             TriggerPromptClass.DIRECT,
@@ -79,14 +82,19 @@ class TestBuildTasks:
         assert [t.index for t in tasks] == [0, 1, 2, 3]
 
     def test_seval_cv_002_manifest_signature_tracks_fixture(self) -> None:
-        """SEVAL-CV-002: manifest_signature 隨 fixture prompt 變動而改變（綁定基礎）。
+        """SEVAL-CV-002: manifest_signature 隨 fixture prompt 文字變動而改變（綁定基礎）。
+
+        必須維持 task 數不變、只改 prompt 文字：若改動同時變了數量，`base != changed` 會被
+        長度差滿足，簽章即使對 prompt 全盲也照樣通過——測不到它宣稱要釘的不變量。
         spec: skill-trigger-eval#manifest-binding-drift-fails"""
-        base = manifest_signature(build_tasks([make_fixture()]))
-        changed = TriggerEvalFixture(
-            skill="demo",
-            direct=[TriggerPrompt(prompt="run demo CHANGED", expect_trigger=True)],
+        base_fx = make_fixture()
+        changed = base_fx.model_copy(
+            update={"direct": [TriggerPrompt(prompt="run demo CHANGED", expect_trigger=True)]}
         )
-        assert base != manifest_signature(build_tasks([changed]))
+        base = manifest_signature(build_tasks([base_fx]))
+        mutated = manifest_signature(build_tasks([changed]))
+        assert len(base) == len(mutated), "task 數須相同，才能隔離出 prompt 為唯一變數"
+        assert base != mutated
 
 
 class TestScoreVerdicts:
@@ -140,7 +148,12 @@ class TestCompareBaseline:
 
     def test_seval_eg_001_no_baseline_no_regression(self) -> None:
         """SEVAL-EG-001: baseline 無此 skill -> 首評不誤報回歸。
-        spec: skill-trigger-eval#within-tolerance-passes"""
+
+        不掛 `within-tolerance-passes`：該 scenario 的 GIVEN 是「每一類 pass rate 皆不低於
+        其 baseline 減容忍門檻」，本測試的 rate 全為 0 且**沒有** baseline，前提並不成立。
+        這條走的是「無基準即不比對」的獨立分支，目前無對應 scenario（見 issue #220 對
+        baseline 落點的討論）。
+        """
         results = score_verdicts(verdicts(make_fixture(), [False, False, True, True]))  # 全爛
         assert compare_baseline(results, {}, tolerance=0.1) == []
 

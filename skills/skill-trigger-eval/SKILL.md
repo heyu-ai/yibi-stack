@@ -55,18 +55,30 @@ uv run python -m tasks.skill_eval eval --skill {{skill_name}} --emit-manifest > 
 uv run python -m tasks.skill_eval eval --skill {{skill_name}} --manifest "$CLAUDE_JOB_DIR/manifest.json" --judgments "$CLAUDE_JOB_DIR/judgments.json"
 ```
 
-傳 `--manifest` 讓指令核對 fixture 未在 Step 2 之後變動——若 fixture 已改（judgments 依
-index 對位失效），指令會 `[FAIL]` 中止而非算出靜默錯誤的 pass rate。輸出各類 pass rate。
+`--manifest` 為必要：judgments 依 index 對位，fixture 在 Step 2 之後只要改動就會靜默錯位。
+指令會核對簽章，不符即 `[FAIL]` 中止，而非算出靜默錯誤的 pass rate。輸出各類 pass rate。
 若某類低於 baseline 減容忍門檻（預設 0.1），指令 exit 1 並列出回歸的 skill 與類別。
 首次評測（baseline 尚無此 skill）不會誤報回歸。
 
+若確有理由跳過核對，須顯式加 `--no-manifest-check`（會印 `[WARN]`）——讓「跳過」成為一個
+被記錄的決定，而非預設行為。
+
 ### Step 5 — （選用）更新 baseline
 
-確認當前 pass rate 為期望基準後，寫入 baseline（`.runtime/skill_eval_baseline.json`）：
+確認當前 pass rate 為期望基準後，寫入 baseline（`.runtime/skill_eval_baseline.json`）。
+**須傳與 Step 4 相同的 `--manifest`**：
 
 ```bash
-uv run python -m tasks.skill_eval baseline --skill {{skill_name}} --judgments "$CLAUDE_JOB_DIR/judgments.json"
+uv run python -m tasks.skill_eval baseline --skill {{skill_name}} --manifest "$CLAUDE_JOB_DIR/manifest.json" --judgments "$CLAUDE_JOB_DIR/judgments.json"
 ```
+
+`baseline` 的 `--manifest` 沒有跳過選項（`eval` 才有 `--no-manifest-check`）：`eval` 算錯只是
+一次性輸出，`baseline` 卻會把錯位的 pass rate 寫成往後每次 gate 的比較基準，污染是持久的。
+
+> **已知限制**：`baseline --skill <name>` 目前會整檔覆寫，抹掉其他 skill 的既有基準
+> （issue #219）；在該問題修復前，若 baseline 已含多個 skill，請改用 `--all` 一次寫入。
+> 另外 baseline 存於 gitignore 的 `.runtime/`，未進版控，故在 CI／新 clone 上此 gate
+> 目前不會實際把關（issue #220）。
 
 ## FAQ
 
@@ -76,3 +88,9 @@ uv run python -m tasks.skill_eval baseline --skill {{skill_name}} --judgments "$
 | judgments 數與 manifest 不符 | subagent 輸出的布林陣列長度需等於 manifest；重跑 Step 3 對齊 index |
 | 首評就報回歸 | 不會——baseline 無此 skill 時視為無基準，先用 Step 5 建立 baseline |
 | 想一次評測全部 | 用 `--all` 取代 `--skill <name>`（會評所有具 fixture 的 skill） |
+| `[FAIL] 請提供 --manifest` | Step 4/5 須傳 Step 2 產出的 `manifest.json`；judgments 必然來自先前的 `--emit-manifest`，故一定有檔可傳 |
+| `[FAIL] manifest 與當前 fixture 不符` | fixture 在 Step 2 後變動（或 `--skill`/`--all` 選擇與 emit 當下不同）。重跑 Step 2 產生新 manifest，再重跑 Step 3 重判 judgments |
+| `[FAIL] 下列 skill 的 fixture 三類皆空` | 該 fixture 沒有任何 prompt，不會被當作通過。補齊 direct/indirect/negative 至少一筆 |
+| `[FAIL] --tolerance 須為 0.0 <= t < 1.0` | `nan` 或 `>= 1.0` 會讓回歸偵測恆不觸發（等同關閉 gate），故被拒 |
+| `[FAIL] baseline 格式錯誤` | baseline 檔須為 `skill -> class -> 0.0~1.0` 浮點數；`null` 或其他形狀代表檔案已損壞，不會被當成「無基準」略過 |
+| `[WARN] --all 只涵蓋 skills/ 第一層` | 該 fixture 在 `plugins/` 底下但 `skills/` 搆不到（未 symlink，或是巢狀 sub-skill）。用 `--skill <name>` 個別評測，或建立 symlink |

@@ -107,17 +107,31 @@ When a prior `--emit-manifest` output is passed back via `--manifest`, the syste
 #### Scenario: manifest-binding-drift-fails -- fixture 漂移即失敗
 
 **GIVEN** 一份先前 `--emit-manifest` 的 manifest，且其後 fixture 的 prompt 內容已變動
-**WHEN** `eval --manifest <該 manifest> --judgments <...>` 執行
+**WHEN** `eval --manifest <該 manifest> --judgments <...>` 或 `baseline --manifest <該 manifest> --judgments <...>` 執行
 **THEN** 系統 MUST 偵測簽章不符並以非零狀態結束
   AND 系統 MUST NOT 以錯位的 prompt↔judgment 對算出 pass rate
+  AND `baseline` MUST NOT 寫出該 baseline 檔
+
+### Requirement: Manifest binding is required on both judgment-consuming paths
+
+Any command that consumes an index-aligned `--judgments` array SHALL require the corresponding `--manifest`, because judgments cannot exist without a prior `--emit-manifest` and the length check alone cannot detect same-count drift. `eval` MAY expose an explicit opt-out flag so that skipping is a recorded decision rather than the default; `baseline` SHALL NOT, because it persists the reference every subsequent gate compares against and its corruption therefore outlives the run.
+
+#### Scenario: manifest-binding-required -- 缺 manifest 即失敗
+
+**GIVEN** 一份 judgments 檔
+**WHEN** `eval --judgments <...>` 或 `baseline --judgments <...>` 未帶 `--manifest` 執行
+**THEN** 系統 MUST 以非零狀態結束並指明需提供 `--manifest`
+  AND 系統 MUST NOT 逕行計分或寫出 baseline
+  AND `eval --judgments <...> --no-manifest-check` MUST 印出 `[WARN]` 後續跑（顯式豁免）
 
 ### Requirement: Plugin-only fixtures are surfaced under --all
 
-When `eval --all` enumerates fixtures, the system SHALL warn about `trigger_eval.json` files under `plugins/` that are not reachable through `skills/`, so silently-skipped plugin-only fixtures are visible rather than dropped without notice.
+When `eval --all` enumerates fixtures, the system SHALL warn about `trigger_eval.json` files under `plugins/` that are not reachable through `skills/`, so silently-skipped plugin-only fixtures are visible rather than dropped without notice. The warning SHALL be emitted before any "no fixtures found" failure, so that the case where *every* fixture is plugin-only -- the maximal instance of the silent drop this requirement targets -- is the one it covers rather than the one it misses.
 
 #### Scenario: orphan-plugin-fixture-warned -- plugin-only fixture 顯式警告
 
-**GIVEN** 一個位於 `plugins/` 底下、未 symlink 到 `skills/` 的 `trigger_eval.json`
-**WHEN** `eval --all` 列舉 fixture
+**GIVEN** 一個位於 `plugins/` 底下、未經 `skills/` 第一層觸及的 `trigger_eval.json`
+**WHEN** `eval --all` 列舉 fixture（含 `skills/` 完全無 fixture 的情況）
 **THEN** 系統 MUST 於 stderr 印出 `[WARN]` 並列出該未涵蓋的 fixture
   AND 系統 MUST NOT 靜默地將其排除在評測範圍外
+  AND 即使隨後因 `skills/` 無 fixture 而 `[FAIL]`，該 `[WARN]` MUST 仍先被印出

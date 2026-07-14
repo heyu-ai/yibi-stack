@@ -2,6 +2,9 @@
 
 import json
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import Field, RootModel, ValidationError
 
 from tasks._paths import PROJECT_ROOT, RUNTIME_DIR
 
@@ -10,6 +13,15 @@ from .models import TriggerEvalFixture
 SKILLS_DIR = PROJECT_ROOT / "skills"
 PLUGINS_DIR = PROJECT_ROOT / "plugins"
 BASELINE_PATH = RUNTIME_DIR / "skill_eval_baseline.json"
+
+
+class _BaselineFile(RootModel[dict[str, dict[str, float]]]):
+    """baseline 檔的形狀驗證：skill -> class -> pass_rate（0.0~1.0）。
+
+    pass_rate 是比率，值域外（負數、>1）代表檔案已損壞或被手改壞，不應被當成有效基準。
+    """
+
+    root: dict[str, dict[str, Annotated[float, Field(ge=0.0, le=1.0)]]]
 
 
 def fixture_path(skill: str, skills_dir: Path | None = None) -> Path:
@@ -70,15 +82,26 @@ def orphan_plugin_fixtures(
 
 
 def load_baseline(path: Path | None = None) -> dict[str, dict[str, float]]:
-    """載入 baseline（skill -> class -> pass_rate）；檔案不存在回傳空 dict。"""
+    """載入 baseline（skill -> class -> pass_rate）；檔案不存在回傳空 dict。
+
+    載入後強制驗證形狀（rule 05：本模組其他 config 皆走 model_validate）。未驗證時
+    `null` 值會與「該類別無 baseline」走同一條 `if base is None: continue`，讓 0.00 的
+    pass rate 靜默回報無回歸；非 dict 形狀則會在 compare_baseline 拋出 raw traceback
+    而非 [FAIL]。
+    """
     p = path or BASELINE_PATH
     if not p.is_file():
         return {}
     try:
-        data: dict[str, dict[str, float]] = json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
         raise RuntimeError(f"讀取 baseline 失敗：{p}") from e
-    return data
+    try:
+        return _BaselineFile(root=data).root
+    except ValidationError as e:
+        raise RuntimeError(
+            f"baseline 格式錯誤：{p}（應為 skill -> class -> 0.0~1.0 浮點數）"
+        ) from e
 
 
 def save_baseline(baseline: dict[str, dict[str, float]], path: Path | None = None) -> Path:

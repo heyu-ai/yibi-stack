@@ -80,11 +80,16 @@ class TestPromptVerdict:
 
 class TestClassScore:
     def test_seval_vl_007_pass_rate(self) -> None:
-        """SEVAL-VL-007: pass_rate = passed/total。
-        spec: skill-trigger-eval#negative-not-triggered-passes"""
+        """SEVAL-VL-007: pass_rate = passed/total（純算術，不繫於任一 scenario）。"""
         assert ClassScore(cls=TriggerPromptClass.DIRECT, total=4, passed=3).pass_rate == 0.75
 
     def test_seval_vl_008_empty_class_is_vacuously_one(self) -> None:
-        """SEVAL-VL-008: 類別無 prompt 時 pass_rate=1.0，不除以零。
-        spec: skill-trigger-eval#negative-not-triggered-passes"""
+        """SEVAL-VL-008: total=0 時 pass_rate=1.0，不除以零（僅釘算術邊界）。
+
+        刻意不掛 spec: 標記。此處的 1.0 是防除零的算術產物，與
+        `empty-fixture-fails-loud`「MUST NOT 回報 vacuous pass」是相反方向的宣稱——
+        掛上去會讓 traceability 宣稱一個測試支持它其實反證的 scenario。真正防 vacuous
+        pass 的是 CLI 層的 _assert_nonempty_fixtures（SEVAL-CLI-007/011）；此路徑在
+        score_verdicts 的 `if not cls_verdicts: continue` 下實際不可達（見 issue #219）。
+        """
         assert ClassScore(cls=TriggerPromptClass.DIRECT, total=0, passed=0).pass_rate == 1.0
