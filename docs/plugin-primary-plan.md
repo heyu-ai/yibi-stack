@@ -1,141 +1,136 @@
-# Plugin-Primary Delivery — Implementation Plan (issue #222)
+# Plan: Plugin-Primary 交付（issue #222）
 
-Decision and rationale: [ADR-0004](adr/0004-plugin-primary-packaging.md).
-This document is the execution plan only.
+決策與理由見 [ADR-0004](adr/0004-plugin-primary-packaging.md)。本文件只談執行。
 
-**Shape:** 5 PRs, each independently shippable and independently revertable. Phase 0 carries no
-architecture dependency and lands first. Phase 1 is a deliberate low-risk canary that proves the
-packaging skeleton before anything valuable moves.
+**形狀**：5 個 PR，每個都可獨立出貨、獨立 revert。Phase 0 不依賴任何架構裁決，最先落地。
+Phase 1 是刻意挑選的低風險白老鼠，用來在任何有價值的東西搬動之前，先證明打包骨架可行。
 
-| Phase | PR | Scope | Risk | Blocked by |
+| Phase | PR | 範圍 | 風險 | 前置 |
 |---|---|---|---|---|
-| 0 | Gap B + housekeeping | locator fix, broken symlink, marketplace drift | low | — |
-| 1 | Packaging skeleton (canary) | pyproject, dep purge, `portman` | low | — |
-| 2 | mycelium → `mycelium` | 4 of 6 skills | medium | 1 |
-| 3 | pr_orchestrator → `pr-orchestrator` | 6 of 6 skills | medium | 1 |
-| 4 | Cleanup + honest tracks | delete SKILL_REPO layer, README, scope | low | 2, 3 |
+| 0 | Gap B + 清理 | locator 修復、marketplace 漂移 | 低 | — |
+| 1 | 打包骨架（白老鼠） | pyproject、砍死依賴、`portman` | 低 | — |
+| 2 | mycelium → `mycelium` | 6 個 skill 中的 4 個 | 中 | 1 |
+| 3 | pr_orchestrator → `pr-orchestrator` | 第 6 個 skill | 中 | 1 |
+| 4 | 收尾 + 誠實雙軌 | 刪 SKILL_REPO 層、README、scope | 低 | 2, 3 |
 
-Phases 2 and 3 are independent of each other and may run in parallel once 1 lands.
+Phase 2 與 Phase 3 彼此獨立，Phase 1 落地後可並行。
 
 ---
 
-## Phase 0 — Gap B and housekeeping
+## Phase 0 — Gap B 與清理（PR #230，已完成）
 
-No dependency on the Gap A ruling. Fixes real, currently-broken behavior.
+不依賴 Gap A 裁決。修的是目前真實壞掉的行為。
 
-### 0.1 spectra-amplifier resource locator
+### 0.1 spectra-amplifier 資源定位
 
-`plugins/sdd/skills/spectra-amplifier/SKILL.md:86,757` is dead code:
-`SDD_ROOT="${CLAUDE_PLUGIN_ROOT:-plugins/sdd}"`. The variable is never set in skill bash, so it
-always falls back to a host-nonexistent repo-relative path.
+`plugins/sdd/skills/spectra-amplifier/SKILL.md:86,757` 是死碼：
+`SDD_ROOT="${CLAUDE_PLUGIN_ROOT:-plugins/sdd}"`。該變數在 skill bash 恆為 unset，所以永遠
+fallback 到 host 專案不存在的 repo 相對路徑——**靜默錯誤，從不報錯**。
 
-Replace with an ordered chain, **each candidate gated on a capability check** — the presence of
-the file actually needed, not mere directory existence. This is the lesson already encoded in
-`bootstrap.sh:33` (rule 11/18, PR #215): a directory-existence gate lets a wrong root pass
-silently.
+改成有序候選鏈，且**每個候選都用「能力檢查」把關**——驗真正需要的那個檔案讀不讀得到，而非
+只驗目錄存在。這正是 `bootstrap.sh:33` 已經記下的教訓（rule 11/18、PR #215）：只驗目錄存在
+會讓錯的 root 靜默通過。
 
-Resolution order:
+| # | 候選 | 何時命中 |
+|---|------|---------|
+| 1 | `$CLAUDE_PLUGIN_ROOT` | 目前恆不命中；保留在首位，Claude Code 未來若補上即自動生效 |
+| 2 | `installed_plugins.json` 的 `installPath` | **plugin 安裝的正常路徑**，記錄「目前生效版本」 |
+| 3 | `plugins/sdd` | 在 yibi-stack 源碼 repo 內開發時 |
 
-1. `$CLAUDE_PLUGIN_ROOT` — kept first so the skill self-heals if Claude Code ever sets it.
-2. The **active** version from `~/.claude/plugins/installed_plugins.json` — authoritative for
-   which version is live. Multiple versions legitimately coexist in the cache
-   (sdd has 1.2.5 / 1.3.1 / 1.6.0), so this must not guess.
-3. `plugins/sdd` — repo-relative, for developing inside the yibi-stack checkout.
+三者皆未命中即 fail-loud 並印出安裝指令。
 
-Fail loud with the install command if all candidates miss.
+> **不要**用 `cache/yibi-stack/sdd/*/` glob 取版本：cache 內多版本並存（實測 1.2.5 / 1.3.1 /
+> 1.6.0），而 glob 是字典序，`1.10.0` 會排在 `1.9.0` 之前——選到錯版本且不報錯。
+> `installed_plugins.json` 才是「哪個版本生效」的單一真相來源。依
+> `.claude/rules/13-bash-anti-patterns.md`，單行 `python3 -c` 是 SKILL.md 讀 JSON 的既定寫法
+> （已有 4 份 SKILL.md 先例），而 `ls | head -1` 是明文禁止的。
 
-> **Do not** version-sort the cache dir with a glob. `cache/yibi-stack/sdd/*/` sorts lexically,
-> where `1.10.0 < 1.9.0` — a latent wrong-version bug. `installed_plugins.json` is the single
-> source of truth for the active version; read it. Per
-> `.claude/rules/13-bash-anti-patterns.md`, a single-line `python3 -c` is the accepted form for
-> JSON reads in SKILL.md (precedent: 4 existing SKILL.md files), and `ls | head -1` is banned.
+**先有雞先有蛋的限制**：這段 locator **不能**抽成獨立腳本——因為「定位那支腳本」正是要解的
+問題本身。它必須留在 inline bash。整份 SKILL.md 只定義一次 resolver 區塊，兩個呼叫點
+（:86 與 :757）共用。
 
-**Chicken-and-egg constraint:** the locator cannot be extracted into a shipped script, because
-locating that script is the very problem. It must stay inline bash. Keep it to one resolver block,
-defined once and reused at both call sites (:86 and :757).
+### 0.2 spectra-amplifier 斷掉的 symlink — 本機殘留，**repo 不需改動**
 
-### 0.2 The broken `spectra-amplifier` symlink — local cruft, **no repo change**
+`~/.claude/skills/spectra-amplifier` → `yibi-stack/skills/spectra-amplifier`，目標已不存在
+（symlink 日期 5/26，早於該 skill 遷入 `plugins/sdd/skills/`）。
 
-`~/.claude/skills/spectra-amplifier` → `yibi-stack/skills/spectra-amplifier`, a target that no
-longer exists (dated May 26, predating the skill's migration into `plugins/sdd/skills/`).
+**看似顯然的修法是錯的。** 補上
+`skills/spectra-amplifier -> ../plugins/sdd/skills/spectra-amplifier` 從 sibling 類比看很合理，
+但實測說了別的話：
 
-**The obvious fix is wrong.** Adding `skills/spectra-amplifier -> ../plugins/sdd/skills/spectra-amplifier`
-looks right by analogy with its siblings, but measurement says otherwise:
-
-| sdd skill | scope | `skills/` symlink? |
+| sdd skill | scope | `skills/` 有 symlink？ |
 |---|---|---|
-| event-storming, problem-frames, qa-test-design | `global` | yes |
-| **figma-design-sync, spectra-amplifier** | `project` | **no** |
+| event-storming、problem-frames、qa-test-design | `global` | 有 |
+| **figma-design-sync、spectra-amplifier** | `project` | **沒有** |
 
-The absence is **consistent and deliberate**: the two `scope: project` sdd skills are intentionally
-not symlinked. And the sdd plugin already ships spectra-amplifier — verified at
-`~/.claude/plugins/cache/yibi-stack/sdd/1.6.0/skills/spectra-amplifier`. Adding the symlink would
-**double-register** the skill (once from the plugin, once from `~/.claude/skills`).
+這個缺席是**一致且刻意的**：兩個 `scope: project` 的 sdd skill 本來就不建 symlink。而且 sdd
+plugin 已經出貨 spectra-amplifier——實測
+`~/.claude/plugins/cache/yibi-stack/sdd/1.6.0/skills/spectra-amplifier` 存在。補 symlink 會讓
+該 skill **被重複註冊**（plugin 一次、`~/.claude/skills` 一次）。
 
-So there is nothing to fix in the repo. The stale symlink is **local machine cruft** from before
-the migration, and no repo change can remove a symlink on a user's machine. Fix it locally and
-move on:
+所以 repo 沒有東西要修。那個斷掉的 symlink 是遷移前留下的**本機殘留**，而且**任何 repo 改動
+都無法移除使用者機器上的 symlink**。本機處理掉即可：
 
 ```bash
-rm ~/.claude/skills/spectra-amplifier   # broken symlink; skill now ships via the sdd plugin
+rm ~/.claude/skills/spectra-amplifier   # 斷掉的 symlink；該 skill 現由 sdd plugin 提供
 ```
 
-Recorded here because the issue listed it under 附帶發現 and the intuitive fix is actively harmful.
+記錄於此，是因為 issue 把它列在「附帶發現」，而直覺修法反而有害。
 
-### 0.3 marketplace / README drift
+### 0.3 marketplace / README 漂移
 
-`plugins/writing/` has both `plugin.json` and `package.json` at v1.7.0 but is **absent from
-`.claude-plugin/marketplace.json`** (which lists 7 plugins). README instructs
-`claude plugin install writing@yibi-stack` at 6 places (`:94, :104, :153, :238, :248, :297`) — a
-command that cannot resolve. Confirmed downstream: `writing` is in neither the plugin cache nor
-`installed_plugins.json`.
+`plugins/writing/` 有 `plugin.json` 與 `package.json`（v1.8.0），但**不在
+`.claude-plugin/marketplace.json`**（只列 7 個）。README 卻在 6 處
+（`:94, :104, :153, :238, :248, :297`）叫人執行 `claude plugin install writing@yibi-stack`
+——一道無法解析的指令。下游實測佐證：`writing` 不在 plugin cache，也不在
+`installed_plugins.json`。
 
-Add `writing` to `marketplace.json`. (Removing it from README is the alternative, but the plugin
-is complete — `plugin.json` v1.8.0 + a working `detect-ai-slop` skill — and is currently reachable
-only via the full-install track while being advertised on the plugin-only track.)
+已把 `writing` 加進 `marketplace.json`。（替代方案是從 README 拿掉，但該 plugin 是完整的——
+`plugin.json` v1.8.0 加一個可用的 `detect-ai-slop` skill——且目前只能經 full-install 取得，
+卻被廣告在 plugin-only 軌上。）
 
-While here: `3rd-tools`'s marketplace description claimed "AI slop detection", but `detect-ai-slop`
-lives in `writing` and exists nowhere else. `3rd-tools` actually ships agy / codex /
-verify-gemini-models. Description corrected to match reality — same doc-vs-code drift class as the
-`writing` omission, found by verifying the claim instead of copying it forward.
+順手修正：`3rd-tools` 的 marketplace 描述宣稱有「AI slop detection」，但 `detect-ai-slop` 住在
+`writing`，且全 repo 別無他處。`3rd-tools` 實際出貨的是 agy / codex / verify-gemini-models，
+描述已改為與現實相符——與 `writing` 缺席同屬 doc-vs-code 漂移，靠查證而非照抄才發現。
 
-### 0.4 ~~Remove checked-in `__pycache__`~~ — **not a real problem**
+### 0.4 ~~移除被 commit 的 `__pycache__`~~ — **不是真問題**
 
-Investigated and dropped. `plugins/sdd/scripts/__pycache__/` and
-`plugins/3rd-tools/skills/verify-gemini-models/.venv/` are both **untracked and already
-gitignored** (`.gitignore:2`, `:140`); `git ls-files plugins/sdd/scripts/` returns only the 4
-real source files. They are local build noise, not committed artifacts.
+查證後撤銷。`plugins/sdd/scripts/__pycache__/` 與
+`plugins/3rd-tools/skills/verify-gemini-models/.venv/` **兩者皆未被追蹤且已 gitignore**
+（`.gitignore:2`、`:140`）；`git ls-files plugins/sdd/scripts/` 只回傳 4 個真正的原始檔。
+它們是本機建置雜訊，不是被 commit 的產物。
 
-Kept as a struck-through entry deliberately: an early draft of this plan asserted they were
-committed, and that claim is wrong. `[tool.hatch.build.targets.wheel].packages = ["tasks"]`
-in Phase 1 remains the correct guard for wheel scope regardless.
+刻意以刪除線保留此條目：本計畫的早期草稿曾斷言它們被 commit，那是錯的。Phase 1 的
+`[tool.hatch.build.targets.wheel].packages = ["tasks"]` 仍是控制 wheel 範圍的正確做法，與此無關。
 
-### Phase 0 verification
+### Phase 0 驗證（已完成）
 
-- Simulate a host project: from a directory that is **not** the yibi-stack checkout, run the
-  resolver block and confirm it resolves to the cache and finds `check_spec_coverage.py`.
-- Mutation-test the capability gate: point the chain at a directory lacking the script and confirm
-  it fails loud rather than proceeding. Per `.claude/rules/09-test-conventions.md`, a guard that no
-  test drives is zero-coverage; verify the gate by breaking it, not by reading it.
-- Confirm `spectra-amplifier` symlink resolves after `make install`.
+- 模擬 host 專案：在**非** yibi-stack checkout 的目錄執行 resolver，確認解析到 cache 並找到
+  `check_spec_coverage.py`。
+- **Mutation 測試能力閘門**：依 `.claude/rules/09-test-conventions.md`，沒有測試驅動的 guard
+  等於零覆蓋——要靠「弄壞它」而非「讀它」來驗證。實測 5/5 通過：
+  - 無任何候選命中 → 回傳空值（呼叫端 fail-loud）
+  - 目錄存在但缺少腳本 → **被拒絕**（能力閘門，非存在閘門）
+  - 舊碼在同一 cwd 解析到不可讀的 `plugins/sdd`——重現了原始 bug
+- `pre-commit --all-files` 全綠（含 `lint-skill-bash`），1393 個測試通過。
 
 ---
 
-## Phase 1 — Packaging skeleton (canary: `local_port_manager`)
+## Phase 1 — 打包骨架（白老鼠：`local_port_manager`）
 
-`local_port_manager` is the canary by design: 443 LOC, zero cross-module imports, `click` +
-`pydantic` only, no subprocess, and **already home-anchored** at `~/.agents/ports.json` with
-injectable paths throughout. It exercises the full packaging path while risking the least.
+`local_port_manager` 是刻意挑的白老鼠：443 LOC、零跨模組 import、只用 `click` + `pydantic`、
+無 subprocess，且**已經 home-anchored** 在 `~/.agents/ports.json`、全程路徑可注入。它能走完
+完整打包路徑，卻承擔最小風險。
 
 ### 1.1 pyproject
 
 ```toml
 [project]
-name = "yibi-stack"        # was "ainization-skill" — stale fork identity
+name = "yibi-stack"        # 原為 "ainization-skill" — fork 遺留的過期身分
 dependencies = ["click>=8.1", "pydantic>=2.0"]
 
 [project.optional-dependencies]
-tokens = ["tiktoken>=0.7"]   # mycelium token budgeting; degrades to len/4 without it
+tokens = ["tiktoken>=0.7"]   # mycelium token 預算；缺少時自動退化為 len/4
 
 [build-system]
 requires = ["hatchling"]
@@ -145,152 +140,143 @@ build-backend = "hatchling.build"
 portman = "tasks.local_port_manager.cli:cli"
 
 [tool.hatch.build.targets.wheel]
-packages = ["tasks"]         # excludes scripts/, plugins/, committed .venv trees
+packages = ["tasks"]         # 排除 scripts/、plugins/、本機 .venv
 ```
 
-**Dependency purge — drop 9 with zero imports:** playwright, python-dotenv, pikepdf, cryptography,
-tabula-py, pillow, pytesseract, markdownify. This removes a Java runtime requirement (tabula-py)
-and a browser download (playwright) from every `uv sync`.
+**砍掉 9 個零 import 的依賴**：playwright、python-dotenv、pikepdf、cryptography、tabula-py、
+pillow、pytesseract、markdownify。這一刀同時移除 Java runtime 需求（tabula-py）與瀏覽器下載
+（playwright）。
 
-**`scripts/` is the blocker for the rest.** anthropic, sqlalchemy, psycopg2-binary, requests, and
-pdfplumber are used *only* by `scripts/` — a personal ledger toolkit hardcoded to
-`localhost:5435/ledgerone`. It must not ship in a public wheel (`packages = ["tasks"]` handles
-that), but it still needs its deps for local use. Move them to
-`[project.optional-dependencies].ledger`, and **add `pandas` explicitly**: `scripts/compare_billing.py:10`
-imports it directly while it is currently satisfied only as a tabula-py transitive — dropping
-tabula-py without declaring pandas silently breaks those scripts.
+**`scripts/` 是其餘依賴的唯一持有者。** anthropic、sqlalchemy、psycopg2-binary、requests、
+pdfplumber **只**被 `scripts/` 使用——那是硬編碼到 `localhost:5435/ledgerone` 的個人帳務工具。
+它不該進公開 wheel（`packages = ["tasks"]` 已處理），但本機使用仍需要依賴，故移入
+`[project.optional-dependencies].ledger`，並**明確補上 `pandas`**：
+`scripts/compare_billing.py:10` 直接 import 它，目前卻只靠 tabula-py 的 transitive 滿足——
+砍掉 tabula-py 而不宣告 pandas 會靜默弄壞那些腳本。
 
-`tiktoken` is used at `tasks/mycelium/lessons_service.py:678` but declared nowhere and absent from
-`uv.lock`. It already has an `ImportError` fallback, so it belongs in an extra, not in core.
+`tiktoken` 在 `tasks/mycelium/lessons_service.py:678` 被使用，卻**未在任何地方宣告**、也不在
+`uv.lock` 裡。它已有 `ImportError` fallback，故應放 extra 而非 core。
 
-Regenerate `uv.lock` after the rename (its root package still reads `ainization-skill`).
+改名後重跑 `uv lock`（目前 lock 的 root package 仍寫 `ainization-skill`）。
 
-### 1.2 Wire the canary
+### 1.2 接上白老鼠
 
-- Add the `portman` entry point.
-- Rewrite `plugins/util/skills/local-port-manager/SKILL.md:19-22` — delete the config.json resolver
-  and `cd "$SKILL_REPO"`; call `portman ...` at all 9 sites.
-- Add a fail-loud preflight: `command -v portman` → if absent, print the `uv tool install`
-  command and stop.
-- Move `service.py:31-46` `BOOTSTRAP_ENTRIES` (hardcodes personal projects `yibi-mvp`,
-  `voice-lab`, `coachly`, `coaching365`) out of a to-be-published tool — into config, or drop.
+- 加 `portman` entry point。
+- 改寫 `plugins/util/skills/local-port-manager/SKILL.md:19-22`：刪掉 config.json resolver 與
+  `cd "$SKILL_REPO"`，9 個呼叫點全改為 `portman ...`。
+- 加 fail-loud preflight：`command -v portman`，缺少時印出 `uv tool install` 指令並停止。
+- 把 `service.py:31-46` 的 `BOOTSTRAP_ENTRIES`（硬編碼個人專案 `yibi-mvp`、`voice-lab`、
+  `coachly`、`coaching365`）移出即將發佈的工具——改進設定或直接拿掉。
 
-### Phase 1 verification (the decision gate of ADR-0004)
+### Phase 1 驗證（ADR-0004 的決策閘門）
 
-1. `uv build` produces a wheel; inspect it contains `tasks/` and **not** `scripts/` or any `.venv`.
-2. On a clean path, `uv tool install git+https://github.com/heyu-ai/yibi-stack` → `portman --help`
-   works with no clone present.
-3. `make ci` green (full `--all-files`, per CLAUDE.md — not `--files`).
-4. Existing 307 LOC of LPM tests still pass unchanged (import path is untouched).
+1. `uv build` 產出 wheel；檢查內含 `tasks/`，且**不含** `scripts/` 或任何 `.venv`。
+2. 在乾淨路徑執行 `uv tool install git+https://github.com/heyu-ai/yibi-stack` → 在**沒有任何
+   clone** 的情況下 `portman --help` 可用。
+3. `make ci` 全綠（完整 `--all-files`，依 CLAUDE.md——不是 `--files`）。
+4. 既有 307 LOC 的 LPM 測試原封不動通過（import path 未改）。
 
-**If step 2 fails on a clean machine, stop and revisit ADR-0004 before Phase 2.**
+**若第 2 步在乾淨機器上失敗，停止，並在 Phase 2 之前重新檢視 ADR-0004。**
 
 ---
 
 ## Phase 2 — mycelium
 
-Covers 4 of 6 skills: `growth/mycelium`, `growth/learn`, `pr-flow/pr-control-log`,
-`pr-flow/pr-retrospective`.
+涵蓋 6 個 skill 中的 4 個：`growth/mycelium`、`growth/learn`、`pr-flow/pr-control-log`、
+`pr-flow/pr-retrospective`。
 
-- Add `mycelium = "tasks.mycelium.cli:cli"`. **The import path does not change** — all 26 test
-  modules and the 12 hardcoded `python -m tasks.mycelium` string literals
-  (`insight_hook.py:202`, `recap_hook.py:212`, `cli.py:86-88,125,160`, `account.py:52`,
-  `distill_service.py:10`, `insight_hook.py:32`, `recap_hook.py:28`) keep working. Those strings
-  should still be rewritten to `mycelium ...` for correctness in generated hook commands, but that
-  is cosmetic, not blocking.
-- Rewrite the 4 SKILL.md files to call `mycelium ...` directly.
-- **Delete both `bootstrap.sh` scripts** and their SKILL.md call sites. This is the end state that
-  PRs #215 and #221 anticipated — those were correct local optima under the old architecture.
-- Add a version-capability gate (see Cross-cutting below).
-- `semantic_index.py:68` loads the `sqlite_vec` SQLite extension at runtime with an FTS5 fallback
-  (`:64-65`). Confirm that fallback holds under a pip-installed interpreter — it is not a Python
-  import and won't be carried by the wheel.
-- `.claude/hooks/{pre-compact-handover,post-compact-handover-back}.sh` import `tasks.mycelium`
-  in-process after `cd "$REPO_ROOT"`. These are dev-only, live outside all plugin dirs, and never
-  shipped — leave them checkout-bound. Note it explicitly in the PR so it isn't mistaken for an
-  oversight.
+- 加 `mycelium = "tasks.mycelium.cli:cli"`。**import path 不變**——26 個測試模組與 12 處硬編碼
+  的 `python -m tasks.mycelium` 字串（`insight_hook.py:202`、`recap_hook.py:212`、
+  `cli.py:86-88,125,160`、`account.py:52`、`distill_service.py:10`、`insight_hook.py:32`、
+  `recap_hook.py:28`）全部繼續運作。那些字串仍應改寫為 `mycelium ...` 以求正確（它們會被寫進
+  生成的 hook 指令），但屬美觀問題，不擋路。
+- 改寫 4 份 SKILL.md，直接呼叫 `mycelium ...`。
+- **刪除兩支 `bootstrap.sh`** 及其 SKILL.md 呼叫點。這正是 PR #215 / #221 所預期的終局——它們
+  在舊架構下是正確的局部最優。
+- 加版本能力閘門（見下方「跨階段議題」）。
+- `semantic_index.py:68` 在 runtime 載入 `sqlite_vec` SQLite extension，並有 FTS5 fallback
+  （`:64-65`）。確認該 fallback 在 pip 安裝的直譯器下仍成立——它不是 Python import，wheel 不會
+  帶它。
+- `.claude/hooks/{pre-compact-handover,post-compact-handover-back}.sh` 在 `cd "$REPO_ROOT"` 後
+  in-process import `tasks.mycelium`。它們是開發專用、位於所有 plugin 目錄之外、從不出貨——
+  維持綁 checkout。**在 PR 說明中明講**，以免被誤認為疏漏。
 
 ---
 
 ## Phase 3 — pr_orchestrator
 
-Covers the 6th skill: `pr-flow/pr-cycle-fast` (15 call sites).
+涵蓋第 6 個 skill：`pr-flow/pr-cycle-fast`（15 個呼叫點）。
 
-- **Re-anchor state.** `tasks/_paths.py`'s `PROJECT_ROOT = Path(__file__).resolve().parents[1]` →
-  `RUNTIME_DIR` resolves into site-packages under pip install. Three consumers:
-  `config.py:12,17-19`, `log.py:9,11`, `dispatcher.py:7,10`. Move to `~/.agents/pr_orchestrator/`
-  — the pattern `local_port_manager` already uses and which `config.py:18`'s
-  `_ARCHIVE_BASE = Path.home()/".claude"/"pr_orchestrator"` already half-adopts.
-- Add `pr-orchestrator = "tasks.pr_orchestrator.cli:cli"`.
-- **`dispatcher.py` (77 LOC)** emits Claude-Code subagent spawn manifests containing
-  `uv run python -m tasks.pr_orchestrator transition ...` (`:39, :68-71`). Rewrite to the console
-  script.
-- Rewrite `plugins/pr-flow/skills/pr-cycle-fast/SKILL.md` — all 15 `uv run --directory` sites.
-- **Preserve `--repo-root` threading.** `cli.py:177,197` and the tests PROR-ST-030/032/033/034/036/040
-  pin `cwd == repo_root` for every git/gh call. Under a console script, cwd is the user's shell —
-  a *different* wrong-cwd hazard than the `uv run --directory` one those tests were written for.
-  Re-verify by mutation: break the `cwd=` pass-through and confirm a test fails.
-
----
-
-## Phase 4 — Cleanup and honest tracks
-
-- Delete the `~/.agents/config.json` `skill_repo` / `skill_repos` **readers**:
-  `tasks/mycelium/models.py:179-225` (schema + `resolve_skill_repo()`),
-  `commands/scripts/handover-read.sh:7`,
-  `plugins/3rd-tools/skills/verify-gemini-models/scripts/check_models.py:21`.
-  Then retire the writer, `scripts/register_skill_repo.py` (`Makefile:115`).
-  Sequence readers-before-writer so no intermediate commit leaves a reader without its key.
-- `scope: global` on the 6 skills is now **true**. Verify against README's definition rather than
-  assuming.
-- README: make the two tracks honest. Plugin-only now works for all 6 skills **given
-  `uv tool install`** — document that prerequisite at the point of use, not only in README.
-- Consider a `yibi-plugin-root <plugin>` console script to replace Phase 0's inline locator. Now
-  viable since the CLI is installed anyway, but it would couple sdd (today pure markdown + a
-  `uv run python` script) to the Python install. Evaluate; do not assume.
+- **狀態重新錨定。** `tasks/_paths.py` 的 `PROJECT_ROOT = Path(__file__).resolve().parents[1]`
+  使 `RUNTIME_DIR` 在 pip 安裝下解析進 site-packages。三個消費端：`config.py:12,17-19`、
+  `log.py:9,11`、`dispatcher.py:7,10`。改為 `~/.agents/pr_orchestrator/`——`local_port_manager`
+  已在用的模式，且 `config.py:18` 的
+  `_ARCHIVE_BASE = Path.home()/".claude"/"pr_orchestrator"` 也已半採用。
+- 加 `pr-orchestrator = "tasks.pr_orchestrator.cli:cli"`。
+- **`dispatcher.py`（77 LOC）** 產生的 Claude Code subagent spawn manifest 內含
+  `uv run python -m tasks.pr_orchestrator transition ...`（`:39, :68-71`），改寫為 console script。
+- 改寫 `plugins/pr-flow/skills/pr-cycle-fast/SKILL.md` 的全部 15 個 `uv run --directory` 呼叫點。
+- **保住 `--repo-root` 貫穿。** `cli.py:177,197` 與測試
+  PROR-ST-030/032/033/034/036/040 釘住每個 git/gh 呼叫的 `cwd == repo_root`。在 console script
+  下 cwd 是使用者的 shell——這是**與當初那些測試所針對的 `uv run --directory` 不同**的錯誤 cwd
+  風險。用 mutation 反證：弄壞 `cwd=` 的傳遞，確認有測試會 fail。
 
 ---
 
-## Cross-cutting concerns
+## Phase 4 — 收尾與誠實雙軌
 
-### Version skew is the new failure mode
+- 刪除 `~/.agents/config.json` 的 `skill_repo` / `skill_repos` **reader**：
+  `tasks/mycelium/models.py:179-225`（schema + `resolve_skill_repo()`）、
+  `commands/scripts/handover-read.sh:7`、
+  `plugins/3rd-tools/skills/verify-gemini-models/scripts/check_models.py:21`。
+  再退役 writer `scripts/register_skill_repo.py`（`Makefile:115`）。
+  **順序必須 reader 先於 writer**，避免任何中間 commit 留下「reader 拿不到 key」的狀態。
+- 那 6 個 skill 的 `scope: global` 此時**成為事實**。對照 README 的定義查核，不要用假設的。
+- README：讓雙軌誠實。Plugin-only 現在對 6 個 skill 都成立，**前提是 `uv tool install`**——
+  該前提要寫在使用當下，不能只寫在 README。
+- 評估用 `yibi-plugin-root <plugin>` console script 取代 Phase 0 的 inline locator。CLI 反正已
+  安裝，所以現在可行；但它會讓 sdd（今天是純 markdown + 一支 `uv run python` 腳本）綁上 Python
+  安裝。**評估，不要假設。**
 
-Path skew becomes version skew: an installed CLI can lag the plugin's SKILL.md. Every migrated
-skill needs a preflight that fails loud, in this shape:
+---
 
+## 跨階段議題
+
+### 版本落差是新的失敗模式
+
+路徑落差變成版本落差：安裝的 CLI 可能落後 plugin 的 SKILL.md。每個遷移過的 skill 都需要
+fail-loud 的 preflight：
+
+```text
+command -v mycelium  → 不存在？印出 `uv tool install git+https://github.com/heyu-ai/yibi-stack`，停止
+mycelium --version   → 低於此 SKILL.md 所需最低版本？印出 `uv tool upgrade`，停止
 ```
-command -v mycelium  → absent? print `uv tool install git+https://github.com/heyu-ai/yibi-stack`, stop
-mycelium --version   → below the minimum this SKILL.md needs? print `uv tool upgrade`, stop
-```
 
-This requires the CLI to **expose a version**, which today's `pyproject` version (1.8.0, currently
-release-tag-driven) does not surface per-command. Add `--version` in Phase 1 alongside `portman`,
-so the pattern is proven on the canary rather than retrofitted across 6 skills.
+這要求 CLI **能報出版本**，而今天的 `pyproject` version（1.8.0，由 release tag 驅動）並未在
+各指令暴露。**在 Phase 1 隨 `portman` 一起加上 `--version`**，讓這個模式先在白老鼠上被證明，
+而不是事後補丁式地套到 6 個 skill 上。
 
-This is the single most important cross-cutting item: without it, Phase 2/3 trade a loud
-path failure for a *silent* behavioral mismatch — strictly worse than today.
+這是最重要的一條跨階段議題：少了它，Phase 2/3 等於把大聲的路徑失敗換成**安靜的行為不一致**
+——嚴格來說比現狀更糟。
 
-### Single-source-of-truth exposure
+### 單一真相來源的暴露面
 
-Per `.claude/rules/18-single-source-of-truth.md`, each phase creates a doc/code contract that
-drifts silently:
+依 `.claude/rules/18-single-source-of-truth.md`，每個階段都製造出會靜默漂移的 doc/code 契約：
 
-- SKILL.md's documented minimum version vs. the CLI's actual `--version` → the preflight gate *is*
-  the regression test; assert it.
-- README's install instructions vs. `marketplace.json` → already drifted once (`writing`). After
-  Phase 0, add a check that every plugin README advertises is present in `marketplace.json`.
-- `pyproject` version vs. `uv.lock` → bump both in the same commit (existing CLAUDE.md rule).
+- SKILL.md 記載的最低版本 vs. CLI 實際的 `--version` → 那道 preflight 閘門**本身就是** regression
+  test，要斷言它。
+- README 的安裝指令 vs. `marketplace.json` → 已經漂移過一次（`writing`）。Phase 0 之後，加一道
+  檢查：README 廣告的每個 plugin 都必須存在於 `marketplace.json`。
+- `pyproject` version vs. `uv.lock` → 同 commit 一起 bump（既有 CLAUDE.md 規則）。
 
-### Search hygiene
+### 搜尋衛生
 
-`.claude/worktrees/` holds ~4 stale copies of every file touched here. Repo-wide greps will be ~5×
-noisy and can manufacture false "many call sites" impressions. Scope every grep to the main
-checkout.
+`.claude/worktrees/` 內有本次觸及檔案的約 4 份陳舊副本。全 repo grep 會有約 5 倍雜訊，可能製造
+「呼叫點很多」的假象。**所有 grep 都限定在主 checkout。**
 
-### Out of scope (worth separate issues)
+### 不在此範圍（值得另開 issue）
 
-- **`scripts/` is a separate application.** A personal ledger toolkit (HSBC import, billing
-  compare, Claude-based categorization) hardcoded to one machine's Postgres, sharing this repo by
-  accident of the fork. It holds 5 of the remaining deps. It should probably leave this repo
-  entirely; Phase 1 only quarantines it behind an extra.
-- **`harness-eval` is not plugin-installable** (README:96) and stays checkout-only.
+- **`scripts/` 是另一個應用程式。** 個人帳務工具（HSBC 匯入、帳單比對、Claude 分類），硬編碼到
+  單一機器的 Postgres，因 fork 而意外同居本 repo。它持有剩下 5 個依賴。它大概應該整個離開本
+  repo；Phase 1 只是把它隔離在 extra 之後。
+- **`harness-eval` 不可經 plugin 安裝**（README:96），維持 checkout-only。
