@@ -782,25 +782,38 @@ Do not use `~/.gemini/tmp/` — requires manual cleanup and may persist across s
 **Antigravity CLI (agy)** — `@<path>` triggers agentic mode (model outputs `call:read_file{...}`
 / brain-artifact narration / timeout instead of a review). In a **nested worktree** even a
 worktree-relative `@.pr-review/...` fails the same way — agy cannot resolve the `@file` inside
-the sandbox and silently goes agentic. Relative `@path` is **not** a reliable fix; **feed the
-prompt via stdin — never `@file`**:
+the sandbox and silently goes agentic. Relative `@path` is **not** a reliable fix; **inline the
+prompt as the `-p` value — never `@file`**:
 
 ```bash
 # Wrong: any @file (absolute OR worktree-relative) -> agentic mode in a nested worktree
 agy -p "@$REVIEW_DIR/input.md" --add-dir . --sandbox
 agy -p "@.pr-review/input.md" --add-dir . --sandbox
 
-# Fix: pipe / redirect the prompt to stdin; agy reads no file, so there is no agentic trigger
-cd "$WT_ROOT"
+# Also wrong (agy >= 1.1.2): -p/--print takes the prompt AS ITS VALUE, so these forms make it
+# swallow the NEXT FLAG as the prompt. agy then answers a question about `--add-dir` instead of
+# reviewing, and the piped stdin is never read. Silent -- no error.
 { printf '%s\n' "$PROMPT_AND_DIFF"; } | agy --print --add-dir . --sandbox
-agy --print --add-dir . --sandbox < "$WT_ROOT/.pr-review/input.md"   # equivalent
+agy --print --add-dir . --sandbox < "$WT_ROOT/.pr-review/input.md"
+
+# Fix: inline the whole prompt as -p's value; agy reads no file, so there is no agentic trigger
+cd "$WT_ROOT"
+agy -p "$PROMPT_AND_DIFF" --add-dir . --sandbox
 ```
 
-stdin also sidesteps two adjacent traps: ARG_MAX (a huge diff as a CLI arg) and a leading-`@` in
-the content being re-parsed as a file path. `--print` is boolean (reads stdin when given no
-positional prompt) — verified: `printf 'reply ALPHA' | agy --print --add-dir . --sandbox` returns
-`ALPHA`, confirming `--add-dir` / `--sandbox` are still parsed as flags. (Source: PR #156
-pr-cycle-deep inline migration, PR #157 standalone stdin migration.)
+**`-p` / `--print` is NOT boolean and agy has no stdin prompt channel** (verified on **agy
+1.1.2**: `printf 'x' | agy --print` exits with `flag needs an argument: -print`; `--prompt` being
+documented as an alias for `--print` is the tell). Two consequences: (1) any `--print <flag>`
+form silently mis-parses, since the flag name becomes the prompt; (2) the ARG_MAX trap that
+stdin would have sidestepped must instead be handled by an explicit size guard before the call —
+`pr-cycle-deep`'s agy scripts assert the inlined content is under 256000 bytes and `[FAIL]` above
+it. The leading-`@` trap is handled by prepending guard text, so the content never starts with `@`.
+
+> **Probe-rot note**: PR #156/#157 recorded the stdin form as "verified", and it may well have
+> worked on the agy of that era; it does not on 1.1.2. A `verified` annotation is a claim about a
+> version, not a permanent fact — stamp the tool version next to it (as above), and re-run the
+> probe before trusting an old one after a CLI upgrade. See rule 11's verify-before-authoring
+> family. (Source: PR #156/#157 original migration; falsified and corrected in PR #229 retro.)
 
 ## Quoting Rule 6: Python Comment with `"` Truncates Outer Shell Double-Quote (PR #23)
 
