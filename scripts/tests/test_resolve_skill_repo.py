@@ -90,6 +90,33 @@ class TestResolveSkillRepo:
         assert "tasks/mycelium" in result.stderr
         assert result.stdout.strip() == ""
 
+    def test_rsr_eg_004_ignores_inherited_git_dir_env(self, tmp_path: Path) -> None:
+        """RSR-EG-004: 繼承來的 GIT_DIR/GIT_WORK_TREE 不得凌駕 self-location。
+
+        GIT_DIR 的優先權高於 `git -C`：一旦被設定，git 回報那個 repo 而無視 -C，
+        resolver 於是靜默回傳「別的 checkout」——直接打穿本設計的核心保證。
+        這不是假想情境：git hook 執行期間本來就會設 GIT_DIR，而本 repo 大量使用
+        pre-commit hook，任何從 hook 情境觸發的 skill 都會中招。
+
+        另一個 checkout 刻意做成「合法的」（含 tasks/mycelium），確保身分 gate 擋不住它，
+        逼本測試真的去驗 env 清除，而不是靠 gate 順手擋掉。
+        """
+        script = _make_fake_repo(tmp_path / "repo_a")
+        other = _make_fake_repo(tmp_path / "other_checkout").parent.parent
+
+        env = {
+            **os.environ,
+            "GIT_DIR": str(other / ".git"),
+            "GIT_WORK_TREE": str(other),
+        }
+        result = _run(["bash", str(script)], env=env)
+
+        assert result.returncode == 0, result.stderr
+        resolved = Path(result.stdout.strip()).resolve()
+        assert resolved == (tmp_path / "repo_a").resolve(), (
+            f"GIT_DIR 凌駕了 self-location：解析到 {resolved}"
+        )
+
     def test_rsr_eg_002_fails_outside_any_git_repo(self, tmp_path: Path) -> None:
         """RSR-EG-002: 不在 git repo 內時 fail loud，並帶回 git 原始錯誤。"""
         plain = tmp_path / "plain"

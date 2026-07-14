@@ -39,8 +39,13 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 # 成功路徑丟掉 stderr：git 成功時仍可能輸出 warning（如讀不到 ~/.gitconfig），
 # 用 2>&1 取值會把 warning 併進 SKILL_REPO，導致後續 tasks/mycelium 檢查誤報。
 # 只在失敗分支才第二次呼叫抓 stderr 當診斷（2>&1 >/dev/null 順序不可調換）。
-if ! SKILL_REPO=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null); then
-  GIT_ERR=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>&1 >/dev/null || true)
+# 清掉繼承的 git 環境變數：GIT_DIR / GIT_WORK_TREE 優先權高於 `git -C`，被設定時
+# git 會回報那個 repo 而無視 -C，self-locate 於是靜默解析到別的 checkout。
+# git hook 執行期間本來就會設 GIT_DIR，本 repo 大量使用 pre-commit hook。實測見 PR #224。
+# 注意：上方 ORIG_PROJECT 的偵測「不」清除——它要的正是呼叫端所在的 repo。
+_GIT="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git"
+if ! SKILL_REPO=$($_GIT -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null); then
+  GIT_ERR=$($_GIT -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>&1 >/dev/null || true)
   echo "[FAIL] 無法從腳本位置解析 SKILL_REPO: $SCRIPT_DIR" >&2
   echo "[FAIL] git: $GIT_ERR" >&2
   exit 1
