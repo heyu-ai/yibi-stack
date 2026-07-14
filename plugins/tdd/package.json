@@ -1,5 +1,5 @@
 {
   "name": "tdd",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Test-Driven Development methodology plugin for Claude Code"
 }

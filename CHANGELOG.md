@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [1.9.0] - 2026-07-14
+
+### Features
+
+- pin frontier models for codex and agy review voices (#229)
+
 ## [1.8.0] - 2026-07-14
 
 ### Features
