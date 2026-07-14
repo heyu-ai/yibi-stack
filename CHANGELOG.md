@@ -10,7 +10,7 @@
 ### Bug Fixes
 
 - lessons 已與 handover 分家，修正 session_id 溯源 (#210)
-- stop amplifier-verify misdetecting <name> placeholder as a spectra change (#207)
+- stop amplifier-verify misdetecting `<name>` placeholder as a spectra change (#207)
 - write .pr-review exclude via --git-path so it works in worktrees (#204)
 - make agy review REVIEW-ONLY with guard + edit detection (#203)
 
