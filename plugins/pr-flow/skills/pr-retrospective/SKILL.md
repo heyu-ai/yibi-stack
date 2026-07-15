@@ -297,12 +297,20 @@ Classifier → `--type` 對照表：
 持續，所有通過 Gate 的 lesson 都寫進**同一個** `$CLAUDE_JOB_DIR/tmp/retro_lessons.sh`（用一個
 shell function 包住重複邏輯，每筆 lesson 呼叫一次該 function），用單一 bash call 執行：
 
+> **`--project "$ORIG_PROJECT"` 不可省略**（issue #243）。`lessons add` 的 `--project` 預設是
+> 「從 git common-dir 推斷」，但 `uv run --directory "$SKILL_REPO"` 已經把子行程 cwd 換成
+> **skill repo**——省略時每一條 retro lesson 都會被記到 `yibi-stack` 名下，不論這個 retro 實際
+> 是哪個 repo 的 PR。此坑靜默：retro 照樣顯示成功、`handover read` 也查得到（Step 4 有顯式傳
+> `--project`，scope 是對的），只有 lessons 悄悄跑到別的 project，於是各 repo 用 `/lessons`
+> 查不到自己的教訓。實際影響：修復前已有 287 條 lesson 誤記（2026-05-28 起約 7 週）。
+
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 SKILL_REPO="<from Step 0>"
 PR_NUMBER="<from Step 0>"
+ORIG_PROJECT="<from Step 0>"
 RETRO_ID="<id from Step 4 output>"
 
 add_lesson() {
@@ -318,6 +326,7 @@ add_lesson() {
     --insight "$insight" \
     --confidence "$confidence" \
     --source "$source" \
+    --project "$ORIG_PROJECT" \
     ${skill_flag[@]+"${skill_flag[@]}"} \
     --retro-pr "$PR_NUMBER" \
     --retrospective-id "$RETRO_ID"
