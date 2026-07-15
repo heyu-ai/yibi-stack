@@ -141,9 +141,23 @@ check that the condition it names is actually single. This one bit twice, one le
    already doomed — precisely what the gate exists to catch. Measured, not theorised:
    `rm -rf <main>/.git/worktrees/<name>` and `mv <main> <elsewhere>` both reproduce it.
 
-The disambiguator is the filesystem, not the message: the legitimate case (unpacked zip) has **no
-`.git` at all**, so the gate forgives only `not a git repository` **and** `[ ! -e "$DIR/.git" ]`.
-A `.git` that exists while git denies the repo means broken, not absent — block it.
+   The disambiguator is the filesystem, not the message: the legitimate case (unpacked zip) has
+   **no `.git` at all**. A `.git` that exists while git denies the repo means broken, not absent.
+3. `[ ! -e "$DIR/.git" ]` then looked exact, and was not either: **`-e` follows symlinks**, so a
+   *dangling* `.git` symlink (link present, target gone) satisfies `! -e` and fail-opened again.
+   Reproduced on a real worktree whose `.git` was replaced by a dangling link. The predicate has
+   to be `[ ! -e "$DIR/.git" ] && [ ! -L "$DIR/.git" ]` — `-L` is what asks "does the entry
+   itself exist".
+
+Three rounds, one shape: **each time the fail-open was narrowed, the new condition still covered
+more than its name suggested.** When you write a fail-open, do not stop at naming the condition —
+enumerate the states that satisfy the predicate you actually typed, and probe each. Reading it as
+prose is how all three survived review.
+
+State the residual explicitly rather than implying the discriminator is total: a worktree whose
+`.git` has been **deleted outright** still passes, because at that point it is byte-identical to
+an unpacked zip. That is a deliberate limit of the criterion, not an oversight — say so in the
+header, or the next reader will trust `.git`-presence further than it deserves.
 
 Because git localises its messages, any such match must pin `LC_ALL=C`, or it silently misses on
 a non-English machine and starts blocking legitimate installs instead.
@@ -182,6 +196,12 @@ measured on this repo during PR #234's review:
 Its first `worktree` entry is authoritative. The common dir's parent is not necessarily the main
 work tree (`git clone --separate-git-dir`, submodules), so `dirname` can print a `cd` target that
 does not exist — an error message that misdirects is worse than a terse one.
+
+**And when the authoritative lookup fails, print no recommendation at all** — do not fall back to
+the guess you just rejected. The guard originally kept `dirname` as a fallback under exactly the
+comment explaining why `dirname` is wrong; a reviewer caught it by holding the code to the
+sentence above. A fallback that re-introduces the defect its own comment documents is worse than
+having no fallback: say "could not determine the main repo" and let the operator look.
 
 **Any new `git` call added to the resolver family must clear inherited git env vars.** This
 is a shared trap, not a per-script detail: `GIT_DIR` / `GIT_WORK_TREE` / `GIT_COMMON_DIR`

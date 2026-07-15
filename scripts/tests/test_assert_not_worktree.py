@@ -111,6 +111,73 @@ class TestAssertNotWorktree:
         assert result.stdout == ""
         assert "[FAIL]" in result.stderr
 
+    def test_anw_dt_011_dangling_git_symlink_is_blocked(self, tmp_path: Path) -> None:
+        """ANW-DT-011: .git 是 dangling symlink 的 worktree 仍須擋下。
+
+        `-e` 會**跟隨** symlink，所以 dangling 的 .git（連結還在、目標沒了）會讓
+        `[ ! -e ]` 為真而走進 fail-open。實測（修法前 exit 0，由 mob review 的
+        codex voice 指出）：把真 worktree 的 .git 換成 dangling symlink 後遭放行。
+
+        `-L` 測的是「連結本身存在」，與 -e 聯用才等於「真的沒有 .git 項目」。
+        本測試經突變驗證：拿掉 `[ ! -L ]` 會讓它失敗。
+        """
+        repo = _make_repo(tmp_path / "repo")
+        wt = tmp_path / "wt"
+        _git(repo, "worktree", "add", "-q", "-b", "feat", str(wt))
+        (wt / ".git").unlink()
+        (wt / ".git").symlink_to(repo / ".git" / "worktrees" / "gone")
+
+        assert (wt / ".git").is_symlink(), "測試前提不成立：.git 應為 symlink"
+        assert not (wt / ".git").exists(), "測試前提不成立：symlink 應為 dangling"
+
+        result = _run(["bash", str(GUARD), str(wt), "install"])
+        assert result.returncode == 1, (
+            f"dangling .git symlink 遭放行（fail-open）：{result.stderr!r}"
+        )
+        assert "[FAIL]" in result.stderr
+
+    @pytest.mark.parametrize(
+        "env_var",
+        [
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_COMMON_DIR",
+            "GIT_INDEX_FILE",
+            "GIT_CEILING_DIRECTORIES",
+        ],
+    )
+    def test_anw_eg_010_git_env_cannot_defeat_guard_from_subdir(
+        self, tmp_path: Path, env_var: str
+    ) -> None:
+        """ANW-EG-010: 從 worktree 的「子目錄」呼叫時，git 環境變數同樣不得擊穿 gate。
+
+        GIT_CEILING_DIRECTORIES 是實測唯一在此路徑會擊穿的變數（由 mob review 的
+        silent-failure-hunter 指出）：設成 worktree 路徑時，從子目錄呼叫會讓 git
+        停止向上尋找而回報非 repo -> exit 0。
+
+        目前 7 個 Makefile 呼叫點都傳 $(CURDIR)（repo 根），走不到這條路徑，但
+        清掉是零成本，且這是最後一個 env 操控的缺口。
+        """
+        repo = _make_repo(tmp_path / "repo")
+        wt = tmp_path / "wt"
+        _git(repo, "worktree", "add", "-q", "-b", "feat", str(wt))
+        sub = wt / "sub"
+        sub.mkdir()
+
+        env = dict(os.environ)
+        env[env_var] = str(wt) if env_var == "GIT_CEILING_DIRECTORIES" else str(repo / ".git")
+        result = subprocess.run(  # nosec B603
+            ["bash", str(GUARD), str(sub), "install"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            env=env,
+        )
+        assert result.returncode == 1, (
+            f"{env_var} 從子目錄擊穿 gate（fail-open）：{result.stdout!r} {result.stderr!r}"
+        )
+
     @pytest.mark.parametrize(
         "env_var", ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"]
     )
@@ -245,8 +312,11 @@ class TestAssertNotWorktree:
         # 關鍵：訊息必須存在，不能是空白的靜默死亡
         assert "[FAIL]" in result.stderr
         assert "worktree" in result.stderr
-        # fallback 必須真的算出主 repo 路徑
-        assert str(repo.resolve()) in result.stderr
+        # 問不出主 repo 時**不得**印出 cd 建議：dirname 猜測在 --separate-git-dir
+        # 等佈局下會指到不存在或無關的目錄，而誤導的訊息比簡短的更糟（rule 11）。
+        # 由 mob review 的 codex voice 以本 PR 自己寫下的原則反過來檢驗而發現。
+        assert "無法從 git 問出主 repo 路徑" in result.stderr
+        assert "cd " not in result.stderr
 
     def test_anw_dt_007_pruned_worktree_is_still_blocked(self, tmp_path: Path) -> None:
         """ANW-DT-007: admin dir 被 prune 的殘留 worktree 仍須擋下。
@@ -294,6 +364,47 @@ class TestAssertNotWorktree:
             f"主 repo 搬走後的殘留 worktree 遭放行（fail-open）：{result.stderr!r}"
         )
         assert "[FAIL]" in result.stderr
+
+    def test_anw_st_005_separate_git_dir_main_repo_passes(self, tmp_path: Path) -> None:
+        """ANW-ST-005: --separate-git-dir 的主 repo 必須放行。
+
+        該情境下 .git 是「檔案」而非目錄。這是 `[ ! -e "$DIR/.git" ]` 區分依據的
+        風險面：若判斷寫錯，合法的主 repo 會因為「有 .git」被誤擋。實際上 git
+        能正常解析它，根本走不到 fail-open 分支。
+        """
+        sep = tmp_path / "sep"
+        sep_git = tmp_path / "sepgit"
+        sep.mkdir()
+        _run(["git", "init", "-q", "-b", "main", f"--separate-git-dir={sep_git}", str(sep)])
+        _git(sep, "config", "user.email", "t@e.com")
+        _git(sep, "config", "user.name", "t")
+        (sep / "README.md").write_text("x\n", encoding="utf-8")
+        _git(sep, "add", "README.md")
+        _git(sep, "commit", "-qm", "init")
+
+        assert (sep / ".git").is_file(), "測試前提不成立：.git 應為檔案"
+        result = _run(["bash", str(GUARD), str(sep), "install"])
+        assert result.returncode == 0, f"separate-git-dir 主 repo 被誤擋：{result.stderr!r}"
+
+    def test_anw_dt_010_worktree_of_separate_git_dir_main_is_blocked(self, tmp_path: Path) -> None:
+        """ANW-DT-010: --separate-git-dir 主 repo 的 worktree 仍須擋下。"""
+        sep = tmp_path / "sep"
+        sep_git = tmp_path / "sepgit"
+        sep.mkdir()
+        _run(["git", "init", "-q", "-b", "main", f"--separate-git-dir={sep_git}", str(sep)])
+        _git(sep, "config", "user.email", "t@e.com")
+        _git(sep, "config", "user.name", "t")
+        (sep / "README.md").write_text("x\n", encoding="utf-8")
+        _git(sep, "add", "README.md")
+        _git(sep, "commit", "-qm", "init")
+
+        wt = tmp_path / "wt"
+        added = _git(sep, "worktree", "add", "-q", "-b", "feat", str(wt))
+        assert added.returncode == 0, added.stderr
+
+        result = _run(["bash", str(GUARD), str(wt), "install"])
+        assert result.returncode == 1, "separate-git-dir 主 repo 的 worktree 未被擋下"
+        assert "worktree" in result.stderr
 
     def test_anw_eg_009_cdpath_cannot_pollute_path_normalization(self, tmp_path: Path) -> None:
         """ANW-EG-009: CDPATH 不得污染路徑正規化。

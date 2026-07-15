@@ -22,6 +22,13 @@
 # 為何不改用 --git-common-dir 自動推導主 repo 路徑（issue #232 的另一個選項）：
 # 那會讓使用者以為裝了眼前 worktree 的程式碼，實際裝的是主 repo 的（可能是舊
 # commit 或別的分支）——即「安靜地做了別的事」，正是 issue #232 要消滅的問題類型。
+#
+# 已知殘留（設計上的極限，非疏漏）：
+# 一個「.git 已被整個刪除、但仍登記在主 repo」的 worktree 會被放行。此時該目錄
+# 與解壓出來的 zip 在位元層面無法區分——本 gate 的 fail-open 判準就是「沒有 .git」。
+# 要堵住得去掃描任意 repo 的 worktree admin dir，代價與收益不成比例。
+# 註：.git 是 dangling symlink 的情況**有**被擋下（-L 測連結本身，見下方）；
+# 只有「.git 完全不存在」這一種是真的無從辨識。
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
@@ -46,7 +53,13 @@ fi
 #
 # LC_ALL=C 是下方「not a git repository」訊息比對的前提：git 會依語系翻譯錯誤訊息，
 # 不鎖定語系的話，非英文環境下比對必定落空而誤判成「非預期錯誤」。
-_GIT="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE LC_ALL=C git"
+# GIT_CEILING_DIRECTORIES / GIT_DISCOVERY_ACROSS_FILESYSTEM 同屬「操控 git 找 repo」
+# 的變數，一併清掉。實測（由 mob review 的 silent-failure-hunter 指出）：
+# GIT_CEILING_DIRECTORIES=<worktree> 時，從該 worktree 的**子目錄**呼叫會讓 gate
+# 回 exit 0。目前 7 個 Makefile 呼叫點都傳 $(CURDIR)（repo 根），走不到這條路徑，
+# 但清掉是零成本，且這是最後一個 env 操控的缺口。
+_GIT="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+  -u GIT_CEILING_DIRECTORIES -u GIT_DISCOVERY_ACROSS_FILESYSTEM LC_ALL=C git"
 
 # CDPATH 必須清掉：下方 _abs_git_path 用 cd 正規化路徑，而 POSIX 規定 cd 的目標
 # 若首段不是 . 或 ..（例如 git 回傳的 ".git"），就會去搜尋 CDPATH，命中時還會把
@@ -97,7 +110,9 @@ _abs_git_path() {
   # 此時 GIT_ERR 裝的是「成功的」rev-parse 的 stderr（通常為空，偶爾是無關的 git
   # warning）。丟掉的話呼叫端 `cat "$GIT_ERR"` 印出空白；附加的話那個無關 warning
   # 會被當成錯誤原因呈現。截斷後只留 cd 自己的錯誤（ELOOP、權限、目錄被競態刪除）。
-  (cd "$1" && cd "$raw" && pwd -P) 2>"$GIT_ERR" || return 1
+  # cd -- 分隔選項與運算元：路徑以 "-" 開頭時（如 -foo）cd 會當成 flag。
+  # $(CURDIR) 一定是絕對路徑不會中招，但這是通用工具腳本，不該賭呼叫端。
+  (cd -- "$1" && cd -- "$raw" && pwd -P) 2>"$GIT_ERR" || return 1
 }
 
 # fail-open 只允許一種情況：git 明確說「這不是 git repo」**且**該目錄真的沒有 .git。
@@ -113,17 +128,24 @@ _abs_git_path() {
 # 兩者的 worktree 目錄裡 .git 檔案都還在，明確是 worktree，卻會被訊息比對放行
 # ——而且正是「陳舊且注定消失」的目錄，即本 gate 存在的理由本身。
 #
-# 區分依據：合法的 fail-open 情境（解壓 zip 安裝）**根本沒有 .git**。
+# 區分依據：合法的 fail-open 情境（解壓 zip 安裝）**根本沒有 .git 這個項目**。
 # .git 存在卻被 git 判定為非 repo = 這個 repo 壞了，不是不存在 -> 擋下。
+#
+# 必須同時測 -e 與 -L：-e 會**跟隨** symlink，所以 dangling 的 .git symlink
+# （連結還在、目標沒了）會讓 `! -e` 為真而走進 fail-open。實測（由 mob review 的
+# codex voice 指出）：把真 worktree 的 .git 換成 dangling symlink 後 gate 回 exit 0。
+# -L 測的是「連結本身存在」，兩者聯用才等於「這個目錄真的沒有 .git 項目」。
 if ! $_GIT -C "$DIR" rev-parse --git-dir >/dev/null 2>"$GIT_ERR"; then
-  if grep -qi "not a git repository" "$GIT_ERR" && [ ! -e "$DIR/.git" ]; then
+  if grep -qi "not a git repository" "$GIT_ERR" \
+    && [ ! -e "$DIR/.git" ] && [ ! -L "$DIR/.git" ]; then
     exit 0
   fi
   echo "[FAIL] git 無法判定 ${DIR} 是否為 worktree，拒絕安裝：" >&2
   cat "$GIT_ERR" >&2
-  if [ -e "$DIR/.git" ]; then
-    echo "         （該目錄有 .git 但 git 判定為非 repo：可能是 admin dir 已被 prune，" >&2
-    echo "           或主 repo 已被搬移／重新 clone 的殘留 worktree）" >&2
+  if [ -e "$DIR/.git" ] || [ -L "$DIR/.git" ]; then
+    echo "         （該目錄有 .git 但 git 判定為非 repo，代表這個 repo 壞了而非不存在。" >&2
+    echo "           常見成因：worktree 的 admin dir 已被 prune、主 repo 已被搬移或" >&2
+    echo "           重新 clone、或該 .git 本身不完整。請確認來源後再安裝。）" >&2
   fi
   exit 1
 fi
@@ -163,9 +185,6 @@ if ! MAIN_REPO=$($_GIT -C "$DIR" worktree list --porcelain 2>/dev/null \
   | awk '/^worktree / && !seen {print substr($0, 10); seen = 1}'); then
   MAIN_REPO=""
 fi
-if [ -z "$MAIN_REPO" ]; then
-  MAIN_REPO=$(dirname "$GIT_COMMON_PATH")
-fi
 # 不直接印 $DIR：呼叫端可能傳相對路徑（"."），診斷訊息印出來對讀者無意義。
 # 讓 git 回報 worktree 的絕對路徑；--show-toplevel 在 worktree 內正是回傳
 # worktree 自身路徑（見 rule 15），這裡要的就是它。
@@ -183,9 +202,20 @@ echo "  [FAIL] 偵測到目前在 git worktree 內，不可執行 make ${TARGET}
 echo "         ${WORKTREE_PATH}" >&2
 echo "         worktree 會在分支合併後被刪除，屆時 ~/.claude/skills/、~/.agents/" >&2
 echo "         的 symlink 會指向不存在的路徑，所有 skill 失效。" >&2
-echo "         請改到主 repo 目錄執行：" >&2
-# install-one / install-force-one 需要 SKILL=<name>，只印 target 名會給出一條
-# 照抄就失敗的指令。呼叫端把完整 make 引數（含 SKILL=）當作 $TARGET 傳進來時，
-# 這裡原樣輸出即可。
-echo "           cd $(_shell_quote "$MAIN_REPO") && make ${TARGET}" >&2
+
+# 只有在能從 git 權威 metadata 問出主 repo 時才給 cd 建議。
+# 問不出來就明說問不出來，不用 dirname("$GIT_COMMON_PATH") 猜——那在
+# --separate-git-dir / submodule 佈局下會指到一個不存在或無關的目錄，而
+# 「誤導的訊息比簡短的訊息更糟」（rule 11；本點由 mob review 的 codex voice
+# 以本 PR 自己寫下的原則反過來檢驗而發現）。
+if [ -n "$MAIN_REPO" ]; then
+  echo "         請改到主 repo 目錄執行：" >&2
+  # install-one / install-force-one 需要 SKILL=<name>，只印 target 名會給出一條
+  # 照抄就失敗的指令。呼叫端把完整 make 引數（含 SKILL=）當作 $TARGET 傳進來時，
+  # 這裡原樣輸出即可。
+  echo "           cd $(_shell_quote "$MAIN_REPO") && make ${TARGET}" >&2
+else
+  echo "         （無法從 git 問出主 repo 路徑，請自行切到主 repo 目錄後執行" >&2
+  echo "           make ${TARGET}）" >&2
+fi
 exit 1
