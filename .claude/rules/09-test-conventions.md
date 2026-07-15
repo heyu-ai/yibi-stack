@@ -92,7 +92,7 @@ _run(["git", "init", "-q", str(root)])
 _run(["git", "-C", str(root), "symbolic-ref", "HEAD", "refs/heads/main"])
 ```
 
-Rule: when a test's purpose is compatibility with an old//minimal environment, audit **every**
+Rule: when a test's purpose is compatibility with an old/minimal environment, audit **every**
 call in its fixture against that environment's floor — not just the code under test. Ask "if I ran
 this whole test on the oldest supported toolchain, what is the first line that breaks?"
 

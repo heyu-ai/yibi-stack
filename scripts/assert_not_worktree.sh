@@ -8,6 +8,12 @@
 #         此為刻意的 fail-closed：判不出來就不准裝，總比裝到一個注定消失的
 #         checkout 上、之後所有 skill 靜默失效好。
 #
+# git 版本下限：2.7（2016，`git worktree list --porcelain` 問世）。
+# 本腳本刻意避開 `--path-format=absolute`（2.31 / 2021）以支援舊 macOS 工具鏈，
+# 但登記檢查依賴 `worktree list --porcelain`，且該查詢失敗時是 fail-closed，
+# 故 2.7 以下連主 repo 都會被擋。這是自覺的取捨：2.7 遠低於任何仍在服役的
+# macOS（Big Sur 就內建 2.24），而把「查不到就放行」留著等於讓那條唯一防線消失。
+#
 # 為何需要這個 gate：
 # make install 會把 $(CURDIR) 的路徑寫進 ~/.claude/skills/、~/.agents/skills/、
 # ~/.agents/bin/ 的 symlink。在 worktree 裡跑，寫進去的就是 worktree 路徑，
@@ -254,28 +260,47 @@ if [ "$GIT_DIR_PATH" = "$GIT_COMMON_PATH" ]; then
   # `git worktree prune` 只移除 admin entry 不動目錄，/clean-merged 與 /clean-gone
   # 也沒有刪 worktree 目錄的邏輯。故危害鏈未閉合。但與其用文字論證它安全，
   # 不如直接問 git：只要這個路徑仍登記為 linked worktree 就擋下。
-  if REGISTERED=$($_GIT -C "$DIR" worktree list --porcelain 2>/dev/null \
-    | awk '/^worktree /{print substr($0, 10)}'); then
-    _main_seen=0
-    while IFS= read -r wt; do
-      [ -z "$wt" ] && continue
-      # 第一筆必為主 worktree，跳過；其餘皆為 linked worktree。
-      if [ "$_main_seen" -eq 0 ]; then
-        _main_seen=1
-        continue
-      fi
-      wt_abs=$(cd -- "$wt" 2>/dev/null && pwd -P) || continue
-      if [ "$DIR" = "$wt_abs" ]; then
-        echo "  [FAIL] ${DIR} 仍登記為 git worktree（其 .git 已遺失），不可執行 make ${TARGET}：" >&2
+  # 這個查詢是「.git 被刪的巢狀 worktree」唯一剩下的防線，所以它**失敗時必須
+  # fail-closed**。用 `if REGISTERED=$(...); then ... fi` 會在查詢失敗時整段跳過
+  # 而落到 exit 0——正是本 PR 反覆修掉的同一個 fail-open 形狀，實測確認
+  # （由 mob review 的 codex voice 指出）。
+  if ! REGISTERED=$($_GIT -C "$DIR" worktree list --porcelain 2>"$GIT_ERR"); then
+    echo "  [FAIL] 無法查詢 git worktree list，不足以判定 ${DIR} 是否為已登記的 worktree，" >&2
+    echo "         拒絕執行 make ${TARGET}：" >&2
+    cat "$GIT_ERR" >&2
+    exit 1
+  fi
+
+  _main_seen=0
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*) ;;
+      *) continue ;;
+    esac
+    wt=${line#worktree }
+    # 第一筆必為主 worktree，跳過；其餘皆為 linked worktree。
+    if [ "$_main_seen" -eq 0 ]; then
+      _main_seen=1
+      continue
+    fi
+    wt_abs=$(cd -- "$wt" 2>/dev/null && pwd -P) || continue
+    # 必須用 containment 而非 equality：$DIR 可能是該 worktree 的**子目錄**，
+    # 只比對相等會讓子目錄漏網。這與 _find_broken_git_ancestor 當初漏掉子目錄
+    # 是同一個 class——本 PR 在 round 4 修好那裡，卻在此處重新引入，兩個 voice
+    # （codex 與 agy）各自獨立指出。
+    case "$DIR" in
+      "$wt_abs" | "$wt_abs"/*)
+        echo "  [FAIL] ${DIR} 位於仍登記的 git worktree 內（其 .git 已遺失），不可執行 make ${TARGET}：" >&2
+        echo "         worktree 根：${wt_abs}" >&2
         echo "         git 會把它解析成主 repo，但 git worktree list 仍將它列為 worktree。" >&2
         echo "         在此安裝會把全域 symlink 指向一個狀態不明的目錄。" >&2
         echo "         請先在主 repo 執行 git worktree prune 或移除此目錄後再安裝。" >&2
         exit 1
-      fi
-    done <<EOF
+        ;;
+    esac
+  done <<EOF
 $REGISTERED
 EOF
-  fi
   exit 0
 fi
 

@@ -168,6 +168,21 @@ more than its name suggested.** When you write a fail-open, do not stop at namin
 enumerate the states that satisfy the predicate you actually typed, and probe each. Reading it as
 prose is how all four survived review.
 
+**Then the fix for the fail-open grew its own fail-opens — twice, in shapes already fixed
+elsewhere in the same file.** Round 5 added a "is this path a registered worktree?" check on the
+pass path; round 6 found it (a) skipped itself entirely when `git worktree list` failed, because
+it was written as `if REGISTERED=$(...); then …; fi` with `exit 0` below, and (b) compared `$DIR`
+by **equality** with each worktree root, so a **subdirectory** walked straight past it. Both are
+verbatim repeats: (a) is the round-1 "command failed → pass" shape, (b) is the round-4 "the
+marker is at the root, not at `$DIR`" shape that the ancestor walk twelve lines away exists to
+solve. Two reviewers named the repeat explicitly.
+
+The generalizable rule: **after fixing a class of bug, grep your own new code for that class
+before shipping it.** Recency does not inoculate — the round-5 code was written *by the author
+of the round-4 fix, hours later*. Fixing a bug creates new code, and new code is where the same
+bug goes next. Concretely, for a gate: every new `if cmd; then check; fi` needs "what happens
+when `cmd` fails?", and every new path comparison needs "what if the input is *under* this path?"
+
 **The documented residual is a claim too, and it decays with each fix.** State the limit
 explicitly — but re-probe it every time the predicate changes, because a stale residual note is
 worse than none: it tells the next reader (and reviewer) that a hole is known and accepted when

@@ -526,6 +526,83 @@ class TestAssertNotWorktree:
         assert result.returncode == 1, f"仍登記的 worktree（.git 已刪）遭放行：{result.stderr!r}"
         assert "worktree" in result.stderr
 
+    def _make_registered_broken_nested(self, tmp_path: Path) -> tuple[Path, Path]:
+        """建一個「仍登記但 .git 已刪」的巢狀 worktree，回傳 (主 repo, worktree 根)。"""
+        repo = _make_repo(tmp_path / "repo")
+        nested = repo / ".claude" / "worktrees" / "wt1"
+        nested.parent.mkdir(parents=True)
+        _git(repo, "worktree", "add", "-q", "-b", "feat1", str(nested))
+        (nested / ".git").unlink()
+        return repo, nested
+
+    def test_anw_dt_015_registered_broken_worktree_subdir_is_blocked(self, tmp_path: Path) -> None:
+        """ANW-DT-015: 仍登記、.git 已刪的 worktree 的「子目錄」也須擋下。
+
+        登記檢查原本只比對 $DIR 與 worktree 根「完全相等」，子目錄因此不匹配而放行。
+        codex 與 agy 在 R6 各自獨立指出，且 agy 點名這是**本 PR 在 round 4 已經修好
+        的同一個 class**（_find_broken_git_ancestor 當初也只看 $DIR 自己），卻在
+        round 5 的新程式碼裡重新引入。
+
+        修法：用 containment（case "$DIR" in "$wt_abs" | "$wt_abs"/*）而非 equality。
+        本測試經突變驗證：改回只比對相等會讓它失敗。
+        """
+        _repo, nested = self._make_registered_broken_nested(tmp_path)
+        sub = nested / "sub"
+        sub.mkdir()
+
+        result = _run(["bash", str(GUARD), str(sub), "install"])
+        assert result.returncode == 1, (
+            f"仍登記 worktree 的子目錄遭放行（fail-open）：{result.stderr!r}"
+        )
+        assert "worktree" in result.stderr
+        # 訊息要指出 worktree 根，使用者才知道問題出在哪一層
+        assert str(nested.resolve()) in result.stderr
+
+    def test_anw_eg_015_worktree_list_failure_on_recovery_path_fails_closed(
+        self, tmp_path: Path
+    ) -> None:
+        """ANW-EG-015: 登記檢查查詢失敗時必須 fail-closed，不可跳過整段檢查。
+
+        `if REGISTERED=$(git worktree list ...); then ... fi` 在查詢失敗時會整段跳過
+        而落到 exit 0。對「.git 已刪的巢狀 worktree」而言，這個查詢是**唯一剩下的
+        防線**——跳過它等於完全沒防護（由 mob review 的 codex voice 指出）。
+
+        注意這與 ANW-EG-008 不同：那條走的是「路徑不相等」的一般 worktree 分支，
+        worktree list 只用來美化訊息；這條走的是 recovery 分支，它是防線本身。
+        """
+        _repo, nested = self._make_registered_broken_nested(tmp_path)
+
+        shim = tmp_path / "shim"
+        shim.mkdir()
+        real_git = shutil.which("git")
+        (shim / "git").write_text(
+            "#!/bin/bash\n"
+            'for a in "$@"; do\n'
+            '  if [ "$a" = "worktree" ]; then\n'
+            '    echo "fatal: simulated worktree list failure" >&2\n'
+            "    exit 128\n"
+            "  fi\n"
+            "done\n"
+            f'exec {real_git} "$@"\n',
+            encoding="utf-8",
+        )
+        (shim / "git").chmod(0o755)
+
+        env = dict(os.environ)
+        env["PATH"] = f"{shim}:{env['PATH']}"
+        result = subprocess.run(  # nosec B603
+            ["bash", str(GUARD), str(nested), "install"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            env=env,
+        )
+        assert result.returncode == 1, (
+            f"worktree list 失敗讓唯一防線被跳過（fail-open）：{result.stdout!r}"
+        )
+        assert "[FAIL]" in result.stderr
+
     def test_anw_eg_014_cdpath_cannot_redirect_relative_dir(self, tmp_path: Path) -> None:
         """ANW-EG-014: CDPATH 不得讓相對路徑的 $DIR 被導向別的目錄。
 
