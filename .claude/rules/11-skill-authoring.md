@@ -86,7 +86,52 @@ does not close it.
 `resolve-skill-repo` closes it by **self-locating**: it derives the repo from its own file
 location (`BASH_SOURCE` → resolve symlink chain → `git rev-parse --show-toplevel`), so the
 answer is always "the checkout that installed this script" — no shared mutable state is
-consulted. It then verifies **identity, not mere existence** (`tasks/` must be present).
+consulted. It then verifies **identity, not mere existence** (`tasks/mycelium` must be
+present; plain `tasks/` does not discriminate — the sibling repo has one too).
+
+### `make install` must run from the main repo, never from a worktree
+
+Self-locating is what makes a worktree install dangerous, and the danger is a direct
+consequence of the property that makes the resolver correct: it faithfully resolves to
+**the checkout that installed it**. Install from `.claude/worktrees/<name>/` and every
+global symlink points into that worktree; once the branch merges and `/clean-merged`
+removes it, the symlinks dangle and every skill dies.
+
+Nothing in the resolver can detect this — by construction:
+
+- The identity gate passes: a worktree is a **complete checkout**, so `tasks/mycelium` is there.
+- The Makefile's post-install gate (`resolved == $(CURDIR)`) passes: inside a worktree those
+  two **are** equal. That gate catches "points at another checkout"; it cannot catch "points at
+  a checkout that is about to be deleted".
+
+This is also a **regression risk introduced by retiring config.json**, and it must not be
+re-litigated as "the old way was safer": the old lookup was rewritten by `register_skill_repo.py`
+on *every* `make install`, so a moved or deleted checkout self-corrected on the next run. A
+symlink does not self-correct. The resolver traded a silent-wrong-answer failure mode for one
+that needs an explicit up-front gate — which is `scripts/assert_not_worktree.sh`, wired as the
+**first recipe line** of `install`, `install-project`, `install-one`, and `install-force-one`
+(first, because those targets write global symlinks before they reach the resolver step —
+failing late leaves `~/.claude/skills/` already polluted).
+
+Detection is `--git-dir != --git-common-dir` (in a worktree the former is
+`<main>/.git/worktrees/<name>`, the latter `<main>/.git`; in the main repo they are equal).
+Do **not** substring-match `.claude/worktrees` — a worktree may be created at any path.
+
+**Any new `git` call added to the resolver family must clear inherited git env vars.** This
+is a shared trap, not a per-script detail: `GIT_DIR` / `GIT_WORK_TREE` / `GIT_COMMON_DIR`
+outrank `git -C`, so git answers about *that* repo and ignores the `-C` directory entirely.
+Both `resolve-skill-repo` (PR #233) and `assert_not_worktree.sh` therefore route every call
+through `env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git`. Measured
+on the guard before it was hardened: with `GIT_DIR=<main>/.git` set, it flipped from `exit 1`
+to `exit 0` inside a worktree — the gate silently ceased to exist. This path is routine, not
+exotic: git sets `GIT_DIR` while running hooks, and this repo leans heavily on pre-commit.
+
+The guard **fails loud rather than auto-deriving** the main repo via `--git-common-dir`, even
+though that would "just work" for the user. Auto-deriving would install the *main repo's*
+checkout while the user is looking at their worktree's code — possibly a different branch or
+an older commit. That is a silent wrong answer, the exact failure class this whole resolver
+design exists to eliminate. A non-git directory (an unpacked zip) is passed through, not
+blocked: it cannot be a worktree, so blocking it would be a pure regression.
 
 `scripts/resolve-skill-repo` is the single implementation — do not inline a copy of its
 logic into a SKILL.md. If you need this in a script that already lives in the repo, that

@@ -68,6 +68,9 @@ CMD_DIR := commands
 CLAUDE_CMD_DIR := $(HOME)/.claude/commands
 
 install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/ + commands（跨專案可用）
+	@# 必須是本 target 的第一個動作：後面的步驟會把 $(CURDIR) 寫進全域 symlink，
+	@# 失敗得太晚就已經污染 ~/.claude/skills/ 與 ~/.agents/ 了。
+	@$(CURDIR)/scripts/assert_not_worktree.sh "$(CURDIR)" install
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
@@ -133,6 +136,7 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 	echo "  [OK] resolve-skill-repo -> $$resolved"
 
 install-project: ## Install scope=project skills（本 repo 限定，ainization-skill 開發用）
+	@$(CURDIR)/scripts/assert_not_worktree.sh "$(CURDIR)" install-project
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
@@ -156,6 +160,7 @@ install-project: ## Install scope=project skills（本 repo 限定，ainization-
 	done
 
 install-one: ## Install one skill: make install-one SKILL=<name>
+	@$(CURDIR)/scripts/assert_not_worktree.sh "$(CURDIR)" install-one
 	@if [ -z "$(SKILL)" ]; then echo "[FAIL] SKILL 未指定，用法：make install-one SKILL=<name>"; exit 1; fi
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR)"; exit 1; }
@@ -164,6 +169,7 @@ install-one: ## Install one skill: make install-one SKILL=<name>
 	@echo "[OK] $(SKILL) -> done"
 
 install-force-one: ## 強制安裝單一 skill，覆蓋 real directory（搶回被 gstack 蓋過的 skill）: make install-force-one SKILL=<name>
+	@$(CURDIR)/scripts/assert_not_worktree.sh "$(CURDIR)" install-force-one
 	@if [ -z "$(SKILL)" ]; then echo "[FAIL] SKILL 未指定，用法：make install-force-one SKILL=<name>"; exit 1; fi
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR)"; exit 1; }

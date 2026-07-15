@@ -204,6 +204,18 @@ make install-all         # 等同 build-tools + install + install-project + inst
   repos, so the last installer won and every caller silently ran against the wrong checkout —
   measured live in PR #224, where it pointed at `ainization-skill`). Corollary: if you **move**
   a checkout, re-run `make install` — the symlink is repointed only by that run.
+- **`make install` must run from the MAIN repo, never from a worktree**: the install targets
+  point global symlinks at `$(CURDIR)`, so installing from `.claude/worktrees/<name>/` aims
+  them at a directory that `/clean-merged` deletes after the branch merges — then every skill
+  dies. Neither the resolver's identity gate nor the Makefile's `resolved == $(CURDIR)` gate
+  can catch this (a worktree is a complete checkout, and inside one those two paths are equal
+  by definition). `scripts/assert_not_worktree.sh` now blocks it as the first line of
+  `install` / `install-project` / `install-one` / `install-force-one`; see rule 11 for why it
+  fails loud instead of auto-deriving the main repo. Known remaining gap, not yet fixed:
+  `make install-scheduler` embeds `PROJECT_ROOT` (`tasks/_paths.py`, self-located from
+  `__file__`) into the LaunchAgent plist's `WorkingDirectory` at `tasks/scheduler/cli.py:248`,
+  so it reproduces this bug through Python rather than symlinks and is **not** covered by the
+  guard. `make install-all` is safe only because it chains `install` first, which aborts.
 - **installed skills go stale when local `main` is behind `origin/main`**: `make install` copies
   skill scripts to `~/.agents/skills/`; if you don't pull main + re-run `make install`, those
   copies keep an old version. Concretely, the pr-cycle-deep agy scripts stay on the pre-fix
