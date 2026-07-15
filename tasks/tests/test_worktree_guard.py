@@ -295,12 +295,22 @@ _GUARDED_SCRIPTS = {"scripts/register_skill_repo.py": "make install"}
 
 
 def _walk_commands(group: click.Group, group_name: str) -> Iterator[tuple[str, str]]:
-    """遞迴走訪 click group，yield (所屬 group 名, 指令名)。"""
+    """遞迴走訪 click group，yield (所屬 group 名, 指令名)。
+
+    **group 自己也要 yield，不能只 yield 葉節點**：click 的 group 可以用
+    `invoke_without_command=True` 直接執行，所以一個名為 `install*` 的 group 同樣是進入點。
+    首版只 yield 非 group 的葉節點，實測確認它整個逃掉：
+
+        @root.group("install-agent", invoke_without_command=True)  # 有子指令 status
+        -> 走訪結果 [('cli', 'install-plain'), ('install-agent', 'status')]
+        -> install-agent 從未出現；只有它的子指令，而 status 不以 install 開頭故被濾掉
+
+    （由 mob review round 3 的 codex voice 指出，探針證實。）
+    """
     for name, cmd in group.commands.items():
+        yield group_name, name
         if isinstance(cmd, click.Group):
             yield from _walk_commands(cmd, name)
-        else:
-            yield group_name, name
 
 
 def _scan_install_commands() -> set[tuple[str, str, str]]:
@@ -341,16 +351,28 @@ class TestGuardedSinkInventory:
     positive），而經由 helper 間接抵達的 sink 又掃不到（false negative）。改用窄形式：
     釘住已知清單，並用命名慣例強制新的 install 指令入列。
 
-    殘留（明說以便日後 re-probe；round 2 修正過一次，因為原本的說法比實情樂觀）：
+    殘留（明說以便日後 re-probe。這段被 round 2 與 round 3 各修正過一次，兩次都是因為
+    它比實情樂觀——殘留說明本身也是一種會衰減的宣稱，rule 11）：
     - 新 sink 若**不叫 install\\***（如 `setup-agent`、`link-hook`）仍抓不到。這是刻意的
       取捨——窄而可信，勝過寬而必然被關掉。
     - 非 click 的進入點（獨立腳本的 main()）掃不到，故 `_GUARDED_SCRIPTS` 手動列出。
+    - **檔名不是 `tasks/**/cli.py`** 就不在 glob 範圍內：`tasks/<mod>/commands.py`、
+      `tasks/<mod>/cli/__init__.py` 這種 package 形式、或 `scripts/` 底下的 click 進入點，
+      glob 掃不到，而上一條的 `_GUARDED_SCRIPTS` 只涵蓋**非 click** 的腳本，補不到它們。
     - 指令若不掛在該模組的 `cli` group 底下（例如另建一個 group 但沒 add 進 cli），
       click 的 registry 走不到它。
+    - **lazy / 自訂 group**：本掃描讀 `group.commands`（eager mapping）。若日後有人改用
+      覆寫 `list_commands()` / `get_command()` 的 lazy group，其子指令不會出現在
+      `commands` 裡而整批逃掉。本 repo 目前全是 decorator 填充的普通 `click.Group`，
+      故 `commands` 是完整的；不為假想情境改寫成建 `click.Context` 的形式，是因為那會替
+      一個「該無聊地可靠」的測試加進 ctx 建構的失敗模式。改用 lazy group 時要回來補這裡。
+      （由 mob review round 3 的 codex voice 指出。）
 
-    先前這裡還宣稱「不在 tasks/**/cli.py 就抓不到」，但實作用的是 `tasks/*/cli.py`
-    （單層），巢狀路徑其實也漏——glob 的 `*` 不跨 `/`（rule 02）。現已改用 `**` 使兩者
-    一致（由 mob review 的 claude voice 指出）。
+    歷史（只記已修好的不一致，不要與上面的殘留混為一談）：round 2 之前實作用的是
+    `tasks/*/cli.py`（單層）卻宣稱掃 `tasks/**/cli.py`，巢狀路徑連宣稱的範圍都漏——glob
+    的 `*` 不跨 `/`（rule 02）。現已改用 `**`，使實作與宣稱一致；但「不在 tasks/**/cli.py
+    就抓不到」這個殘留本身依然成立，見上面第三條。
+    （round 3 的 claude voice 指出：改寫時把那條殘留降格成歷史註記，讀起來像已解決。）
     """
 
     def test_wg_dt_008_every_guarded_entry_point_calls_the_guard(self) -> None:
