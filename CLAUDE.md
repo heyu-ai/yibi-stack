@@ -185,8 +185,9 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **hook script in `.claude/hooks/` does not mean enabled**: Claude Code only runs hooks
   registered in `settings.json`'s `hooks` command strings. Evaluate hook effectiveness with a
   double check: file exists AND registered in `settings.json`.
-- **registering a new hook from a worktree can brick the session** — `${CLAUDE_PROJECT_DIR}` stays
-  pinned at the session's start dir; see rule 15 for the mechanism and the Edit-tool escape.
+- **registering a new hook after entering a worktree mid-session can brick the session** —
+  `${CLAUDE_PROJECT_DIR}` stays pinned at the session's start dir; see rule 15 for the mechanism
+  and the Edit-tool escape.
 - **`Path.rglob()` does not follow symlinks** — see rule 02 for fix.
 - **`Path.glob("*/x/*")` doesn't cross `/` like regex `.*` does** — see rule 02 for fix.
 - **`plugins/harness` has no `package.json`**: not all subdirectories under `plugins/` are
