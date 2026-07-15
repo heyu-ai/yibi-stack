@@ -128,9 +128,12 @@ re-litigated as "the old way was safer": the old lookup was rewritten by `regist
 on *every* `make install`, so a moved or deleted checkout self-corrected on the next run. A
 symlink does not self-correct. The resolver traded a silent-wrong-answer failure mode for one
 that needs an explicit up-front gate — which is `scripts/assert_not_worktree.sh`, wired as the
-**first recipe line** of `install`, `install-project`, `install-one`, and `install-force-one`
-(first, because those targets write global symlinks before they reach the resolver step —
-failing late leaves `~/.claude/skills/` already polluted).
+**first recipe line** of every target that writes machine-level state (first, because those
+targets write global symlinks before they reach the resolver step — failing late leaves
+`~/.claude/skills/` already polluted). The authoritative list is `GUARDED_TARGETS` in
+`scripts/tests/test_assert_not_worktree.py`, which the tests enumerate — do not re-list the
+targets here; an enumeration copied into prose is one more claim that decays silently (this
+paragraph said "four targets" for three PRs after the count became seven).
 
 Detection is `--git-dir != --git-common-dir` (in a worktree the former is
 `<main>/.git/worktrees/<name>`, the latter `<main>/.git`; in the main repo they are equal).
@@ -302,6 +305,63 @@ symlink, not just directly.
 inside `{}`, triggering the "brace with quote character" confirmation dialog.
 Always use `if ! cmd; then echo '[FAIL]' >&2; exit 1; fi` instead (the canonical form above
 already uses this).
+
+### A gate belongs at every entrance, and the tool that documents an entrance owns it
+
+PR #234 wired the guard into 7 make targets and recorded the residual honestly: "the guard lives
+in the Makefile, so calling the Python module directly bypasses it." Issue #237 closed it. Two
+things are worth keeping from how that went:
+
+**The "unrealistic" bypass was in our own help text.** The residual was defensible only if nobody
+calls the module directly. But `tasks/scheduler/cli.py`'s `setup` command *prints*
+`uv run python -m tasks.scheduler install` as the user's next step. The unguarded entrance was not
+hypothetical — it was the documented one. Before accepting "nobody invokes it that way", grep for
+the invocation in your own `--help`, `echo`s, SKILL.md, and README; a tool that teaches a path owns
+that path.
+
+**Guard the sink, and find all of them before choosing the altitude.** The issue named two
+entry points; the repo had five. `insight install-hook` and `recap install-hook` build the same
+`Path(__file__).resolve().parents[2]` command string into `~/.claude/settings.json` and have **no
+make target at all** — the most exposed sinks were the ones nobody listed, precisely because the
+Makefile inventory was the search index. The property to enumerate on is not "which CLI did the
+issue mention" but **"what writes a repo path into state that outlives the checkout"**. Grep the
+class (`parents[` / `PROJECT_ROOT` reaching a `~/…` write), not the ticket.
+
+Three altitudes, and why the entry point wins here:
+
+| Altitude | Verdict |
+|----------|---------|
+| Path source (`_paths.py`) | **No** — `PROJECT_ROOT` is imported by `status` / `tick` / tests; an import-time gate breaks read-only work inside a worktree, which is legitimate |
+| Library install function | **No** — its destination is injectable (tests pass `settings_path=tmp`); gating it means either breaking every test or inventing a test-only bypass |
+| Process entry point (CLI command / `main()`) | **Yes** — where install intent is expressed *and* where the real machine-level destination is chosen |
+
+Residual, stated so it can be re-probed: importing an install function directly in Python still
+bypasses this. That is an in-repo API consumer, not the documented surface — but if a future caller
+appears, the guard moves down with it.
+
+### A shared helper's message is part of its interface — a hardcoded caller idiom becomes a lie
+
+`assert_not_worktree.sh` took `<make-target-name>` and printed `不可執行 make ${TARGET}` plus
+`cd <main> && make ${TARGET}`. Correct while make was the only caller. The moment Python called it,
+every message became a fabricated command: "不可執行 **make** uv run python -m tasks.scheduler
+install", and a `cd … && make uv run python …` that fails on copy-paste. The detection was
+caller-agnostic; the **message** silently was not.
+
+The fix is the seam, not the string: the script now takes a `<recovery-command>` — the complete
+command, program name included — and never prefixes anything. Callers own their idiom
+(`"make install"`, `"uv run python -m tasks.mycelium insight install-hook"`). Its rationale line
+was equally caller-specific ("symlink 會指向不存在的路徑，所有 skill 失效") and now names the
+whole class it guards: symlinks, LaunchAgent plist, and settings.json hooks.
+
+This is the same principle the script already enforced three times against *itself* — a misleading
+message is worse than a terse one — applied one level out: **when a second caller arrives, re-read
+every string the helper emits and ask which caller it was written for.** Reusing battle-tested
+detection does not mean the prose around it transfers.
+
+Pin it with a test, not a convention: `ANW-DT-016` asserts every Makefile call site passes a
+command that **names its own target** (`"make <target>…"`), so dropping the prefix — or copying a
+guard line to a new target and forgetting to change it — fails loudly instead of shipping a hint
+that is uncopyable or points at the wrong target.
 
 ### Skill scope 與 plugin agent 依賴一致性
 

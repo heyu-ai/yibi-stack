@@ -10,6 +10,7 @@ from pathlib import Path
 import click
 
 from .._paths import PROJECT_ROOT, RUNTIME_DIR
+from .._worktree_guard import assert_not_worktree
 from .config import generate_default_config, load_config, save_config
 from .db import SchedulerDB
 from .models import JobRunStatus
@@ -213,6 +214,12 @@ def run_job_cmd(job_id: str) -> None:
 @cli.command()
 def install() -> None:
     """生成並載入 macOS LaunchAgent（每 60 秒執行 tick）。"""
+    # 必須是第一個動作：plist 會把 PROJECT_ROOT 寫進 ProgramArguments 與
+    # WorkingDirectory，而 plist 住在 ~/Library/LaunchAgents/（機器層級，不隨
+    # checkout 消失）。在 worktree 裡裝完、分支一合併，LaunchAgent 就會每 60 秒
+    # 對著一個不存在的 python 失敗，且不會通知任何人。詳見 tasks/_worktree_guard.py。
+    assert_not_worktree("uv run python -m tasks.scheduler install")
+
     venv_python = PROJECT_ROOT / ".venv" / "bin" / "python"
     if not venv_python.exists():
         click.echo("找不到 .venv/bin/python，請先執行：uv sync", err=True)
