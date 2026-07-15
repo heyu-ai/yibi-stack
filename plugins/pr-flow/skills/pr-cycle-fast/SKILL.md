@@ -217,6 +217,11 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr
 在同一 session 內觸發 `/clean-wt`，清除已 merge 的分支與 worktree。
 `/clean-wt` 預設只報告；把它的 SAFE 清單呈現給使用者確認後，才用 `--apply` 實際刪除。
 
+> **本 session 所在的 worktree 不會被清掉**：這個 step 通常就在剛合併完的 worktree 裡執行，
+> 而該分支此刻剛好符合 SAFE 條件。`/clean-wt` 一律把**呼叫端所在的分支**歸為 KEEP——否則
+> 它會把自己腳下的工作目錄連根移除（實測會讓 cwd 消失）。
+> 要一併清掉這個 worktree，請在**主 repo** 目錄另外執行一次 `/clean-wt --apply`。
+
 完成後 transition：
 
 ```bash
