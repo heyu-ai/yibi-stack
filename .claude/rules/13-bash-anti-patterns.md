@@ -448,18 +448,33 @@ rm -rf "$OTHER/dir" && some-tool --do-thing && git -C "$OTHER" checkout -- dir
 #                      ^^^^^^^^^^^^^^^^^^^^ fails -> the restore never runs,
 #                                            the deletion is left behind
 
-# Correct A: `;` -- the restore runs regardless of the middle step's exit status
-rm -rf "$OTHER/dir"; some-tool --do-thing; git -C "$OTHER" checkout -- dir
-
-# Correct B: trap -- survives `set -e` and early returns too
+# Correct: trap EXIT -- the restore runs on every exit path, and the failure
+# status still propagates
 restore() { git -C "$OTHER" checkout -- dir; }
 trap restore EXIT
 rm -rf "$OTHER/dir"
 some-tool --do-thing
 ```
 
-Correct B is the stronger form: under `set -e`, or if the middle step exits non-zero in a way
-that aborts the whole script, `;` still stops before the restore — `trap ... EXIT` does not.
+**`;` is not the fix — it fails in both directions.** Swapping `&&` for `;` is the obvious
+reach and it is wrong twice over. Probed:
+
+| Form | restore runs? | exit status |
+|------|---------------|-------------|
+| `A; B; restore` under `set -e` | **no** — `set -e` aborts at B | 1 |
+| `A; B; restore` without `set -e` | yes | **0 — B's failure is masked** |
+| `trap restore EXIT` | yes | 1 |
+
+Under `set -e` the restore never runs, so `;` buys nothing over `&&`. Without `set -e` the
+restore runs but the chain reports the **restore's** status, so a failed risky step exits 0 and
+the caller believes it succeeded — the same silent-success this rule exists to prevent, moved
+one step along. Only `trap ... EXIT` gets both.
+
+If you must use `;` (an interactive one-liner, no script), capture the status explicitly:
+
+```bash
+rm -rf "$OTHER/dir"; some-tool --do-thing; rc=$?; git -C "$OTHER" checkout -- dir; exit "$rc"
+```
 
 **Why this bites hardest when handing the chain to a human**: a one-line `&&` chain looks
 atomic and gets pasted verbatim. Nothing in it signals that the last clause is conditional.
