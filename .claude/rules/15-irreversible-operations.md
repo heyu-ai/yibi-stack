@@ -192,7 +192,7 @@ If already pushed, this recovery does not apply — use PR + revert commit workf
 
 | Operation | Risk | Recommended approach |
 |-----------|------|----------------------|
-| `rm -rf <path>` | Recursive delete; cannot recover from Trash | Run all three from the owning worktree: `git -C <path> status --porcelain .` (**uncommitted edits — not recoverable from git at all**), `git -C <path> ls-files` (tracked; only the *clean* ones are restorable), `git -C <path> clean -ndx .` (untracked + ignored — gone for good; `-x` required). Let user confirm; or use `trash` instead |
+| `rm -rf <path>` | Recursive delete; cannot recover from Trash | Run all four. Use `git -C <path>` so they hit the index that owns `<path>` — and `<path>` must be **inside** the owning worktree, never a parent of one: `git -C <path> status --porcelain .` (read **both columns**: `M` in column 2 = unstaged, unrecoverable; column 1 = staged, survives in the index until something stages the deletion), `git -C <path> ls-files` (tracked — these return; clean ones byte-identical), `git -C <path> clean -ndx .` (untracked + ignored — gone for good; `-x` required, or gitignored files are silently omitted), `find <path> -name .git` (**nested repos/worktrees, which `clean` skips — silently when `<path>` is tracked**). Let user confirm; or use `trash` instead |
 | `find ... -delete` | Batch delete; scope is hard to predict | Run `find ... -print` (without `-delete`) to show affected files first |
 | `> file` overwriting an existing file | Original content permanently gone | Confirm whether backup or git version exists; use `>>` append instead, or `cp` first |
 | `truncate -s 0 file` | Empties file content | Confirm file purpose; describe and let user confirm |
@@ -230,26 +230,70 @@ why the `rm -rf` row above calls for `git ls-files` rather than `ls`.
 **Both halves need a separate command, and only one of them is recoverable.** `git ls-files`
 lists the tracked files — the ones `git checkout HEAD -- <path>` can restore. It says
 nothing about the untracked files in the same directory, which are the half that is gone for
-good. That is why the row above calls for `git clean -ndx <path>` as well: inspecting only the
-recoverable half is not a safety check.
+good. That is why the row above calls for `git -C <path> clean -ndx .` as well: inspecting only
+the recoverable half is not a safety check.
 
 **`-x` is not optional.** Plain `git clean -nd` omits gitignored files, and those are exactly
 what `rm -rf` most often destroys — `build.log`, `node_modules/`, `.runtime/`. They are untracked,
 so git cannot restore them either. Probed:
 
 ```console
-$ ls d/                       # build.log is gitignored
+$ ls d/                        # build.log is gitignored
 build.log   tracked.txt   untracked.txt
-$ git -C d ls-files           # the recoverable half
+$ git -C d ls-files            # the recoverable half
 tracked.txt
-$ git clean -nd d             # MISSES build.log
-Would remove d/untracked.txt
-$ git clean -ndx d            # the actual unrecoverable set
-Would remove d/build.log
-Would remove d/untracked.txt
+$ git -C d clean -nd .         # MISSES build.log
+Would remove untracked.txt
+$ git -C d clean -ndx .        # the actual unrecoverable set
+Would remove build.log
+Would remove untracked.txt
 ```
 
-`rm -rf d/` destroys all three. Only `ls-files` + `clean -ndx` together account for them.
+`rm -rf d/` destroys all three, and `ls-files` + `clean -ndx` together account for them —
+**except for anything inside a nested repo or worktree, which `clean` never enumerates.**
+
+**The fourth probe: `find <path> -name .git`.** `git clean` refuses to descend into a nested
+repo, and whether it *tells you* depends on something you have no reason to think about — whether
+the containing directory is tracked:
+
+```console
+$ find d -type f -not -path '*/.git/*'     # ground truth
+d/nested/precious.txt                       # untracked, inside a nested repo
+d/t.txt
+d/u.txt
+$ git -C d clean -ndx .                     # d/ IS tracked
+Would remove u.txt                          # d/nested/ not mentioned. no message. rc=0.
+```
+
+Point the same command at an **untracked** parent and it suddenly speaks:
+
+```console
+$ git -C e clean -ndx .                     # e/ is untracked
+Would skip repository ./nested
+Would remove ./u.txt
+```
+
+So `Would skip repository` is a signal you cannot rely on **arriving** — and `tasks/foo/generated/`,
+`openspec/changes/<change>/`, any tracked directory, is the silent case. `git status --porcelain`
+does show `?? d/nested/` (as a directory), so this is not total blindness; but the one command
+whose job is "enumerate what is unrecoverable" omits its contents without a word.
+
+**Worst shape: `<path>` is a *parent* of a worktree.** `-C` does not rescue this — `-C` picks the
+repo that owns `<path>`, and a parent of a worktree is owned by the *outer* repo, which is blind
+to what is inside:
+
+```console
+$ git -C .claude/worktrees status --porcelain .     # empty, rc=0
+$ git -C .claude/worktrees ls-files                 # empty, rc=0
+$ git -C .claude/worktrees clean -ndx .
+Would skip repository ./wt                          # names the worktree, no file inside it
+$ find .claude/worktrees -name '*.txt' -not -path '*/.git/*'
+.claude/worktrees/wt/precious.txt                   # untracked work. rm -rf takes it.
+.claude/worktrees/wt/d/t.txt
+```
+
+**`Would skip repository X` is a stop condition, not an observation.** It means the probes
+enumerated nothing inside `X`. Re-run all four with `git -C <path>/X` before going further.
 
 **Use `git -C <target> ls-files`, not `git ls-files -- <target>`, when the target may be in
 another worktree.** Every linked worktree has its **own index**, and the bare form fails
@@ -257,12 +301,42 @@ differently depending on where you run it — one of those ways is silent:
 
 | Run from | `git ls-files -- <other-worktree-path>` | Danger |
 |----------|------------------------------------------|--------|
-| the **main repo** | empty, `rc=0` — `.claude/worktrees/` is gitignored there | **silent false negative**: reads as "nothing tracked, safe to delete" |
+| the **main repo** | empty, `rc=0` | **silent false negative**: reads as "nothing tracked, safe to delete" |
 | a **sibling worktree** | `fatal: ... is outside repository`, `rc=128` | loud, so it cannot be mistaken for an answer — but still not an answer |
 
-The same applies to `git clean`: run from the parent it will not enumerate a nested worktree's
-contents at all (`Would skip repository ...`), with or without `-x`. Only `git -C <target>`
+**The main repo's empty answer has nothing to do with `.gitignore`** — do not read it as "only
+a problem if my worktrees are ignored". The worktree's files live in the *worktree's* index, so
+the main repo's index has no entries under that path either way. Probed with the worktree path
+**not** ignored at all:
+
+```console
+$ cat .gitignore
+cat: .gitignore: No such file or directory      # nothing is ignored here
+$ git ls-files -- .claude/worktrees/wt          # from the main repo
+$ echo $?
+0                                                # still empty. still rc=0.
+$ git status --porcelain .claude/worktrees/wt
+?? .claude/worktrees/wt/                         # main sees it only as untracked content
+```
+
+The same applies to `git clean`, and here the silent case is the **more likely** one — it
+depends on what you point the pathspec at, not on where you run it:
+
+```console
+$ git clean -ndx .claude/worktrees/wt      # pathspec IS the worktree
+$ echo $?
+0                                          # NOTHING printed. reads as "nothing to clean"
+$ git clean -ndx .claude                   # pathspec is an ANCESTOR
+Would skip repository .claude/worktrees/wt # at least it says so
+```
+
+Naming the worktree directly — the natural thing to do when that is what you mean to
+delete — produces **silence and `rc=0`**, with or without `-x`. Only `git -C <target>`
 queries the index that actually owns the path.
+
+(`git clean -ndxff .claude` reports `Would remove .claude/` — the double `-f` is what makes
+clean willing to delete a nested worktree wholesale. Do not reach for it to "get past" the
+skip message.)
 
 **Deleting tracked files from another worktree is worse than it looks.** Every linked worktree
 inherits the repo's tracked content, so a directory that exists there is usually *not* a stray
@@ -285,12 +359,61 @@ committed                                                        # restored
 ```
 
 It also silently returns the *staged* content rather than the committed content when the two
-differ. `git checkout HEAD --` works in both cases. Run it from (or `-C` into) the worktree that
-owns the path.
+differ. `git checkout HEAD --` works in both cases.
 
-Only **clean** tracked files come back at all. A tracked file with uncommitted edits restores to
-its last committed content — the edits are gone, which is why the row above puts
-`git -C <path> status --porcelain .` first. Untracked files are gone entirely.
+**`-C` the worktree root, not the deleted path** — you cannot `cd` into what you just deleted,
+and `-C` is a `cd`:
+
+```console
+$ rm -rf d
+$ git -C d checkout HEAD -- .
+fatal: cannot change to 'd': No such file or directory     # rc=128
+$ git -C <worktree-root> checkout HEAD -- d                # the surviving dir; d is the pathspec
+$ cat d/f.txt
+committed
+```
+
+This is the one place the `-C <path>` habit from the `rm -rf` row inverts: **before** the delete
+you `-C` into the target to interrogate it; **after** the delete that target is gone, so you
+`-C` into the worktree that owns it and name the target as the pathspec.
+
+**"The file comes back" and "your work comes back" are different questions** — answer the second.
+And `status --porcelain`'s **two columns are two different answers**, which is why the row reads
+them separately:
+
+| What you deleted | `status --porcelain` shows | File returns? | Your bytes return? |
+|------------------|---------------------------|---------------|--------------------|
+| tracked, clean | nothing at all | yes | yes — byte-identical |
+| tracked, **staged** edit | `M` in **column 1** | yes | **only via bare `checkout --`** — `checkout HEAD --` overwrites it with HEAD's |
+| tracked, **unstaged** edit | `M` in **column 2** | yes | **no** — gone at `rm -rf`; both forms give you HEAD's content |
+| untracked / gitignored | `??`, or nothing if ignored | **no** | no |
+
+Probed:
+
+```console
+$ git status --porcelain d
+M  d/f.txt                       # STAGED — col 1
+$ rm -rf d
+$ git checkout -- d      ; cat d/f.txt
+staged-edit                      # recovered from the index
+$ git checkout HEAD -- d ; cat d/f.txt
+committed                        # the prescribed form DESTROYS it
+```
+
+**So `checkout HEAD --` is the more reliable command, not the lossless one.** It resets the index
+entry too — silently, rc=0, no output. If a concurrent session had staged work at that path, this
+is the command that destroys it, in the very race the section is written about. That is the cost
+of its reliability, and it is worth paying only because the alternative fails outright once the
+deletion is staged (which also takes the staged edit with it — `git ls-files` goes empty).
+
+Which is the real lesson: **do not choose the cleverer command per situation — run
+`status --porcelain` first and do not delete a directory whose work is not committed.** By the
+time you are picking a restore command, someone's work is already gone; you are only choosing
+whose.
+
+(If you get there anyway: the staged blob still exists in the object store — `git fsck
+--lost-found` finds dangling blobs, and `git cat-file -p <sha>` reads them. So even "gone" has a
+last resort. Do not treat that as a plan.)
 
 (Source: yibi-stack PR #214 retro — `rm -rf tasks/nightly_agent/tests/generated/` removed a
 tracked `.gitkeep` after `git status` showed only untracked entries; separately, a `rm -rf` on
@@ -380,6 +503,36 @@ MAIN_REPO=$(dirname "$GIT_COMMON")
 
 Applies to: any script that computes project slug, log path, transcript directory, or any path
 that depends on the main repo root — when the script may run inside a linked worktree.
+
+### `${CLAUDE_PROJECT_DIR}` Is the Session's Start Dir — Registering a Hook From a Worktree Can Brick the Session
+
+Same axis, one layer up: `${CLAUDE_PROJECT_DIR}` is the project root **where the session
+started**. It does not follow you into a worktree. Enter one mid-session (the normal flow: start
+in the main repo, then `EnterWorktree`) and it stays pinned at the main repo — while the
+**worktree's** `settings.json` is still the file that gets loaded.
+
+That asymmetry is the trap. Registering a new hook there is live the moment you save it, but
+`${CLAUDE_PROJECT_DIR}/.claude/hooks/<new>.py` resolves into the **main repo**, where your
+unmerged script does not exist. Every subsequent Bash call dies with `can't open file ...` +
+`exit 2` — including the calls you would use to undo it. Existing hooks keep working only
+because the main repo already has their scripts.
+
+**Recovery**: delete the registration block with the **Edit tool**. Only `matcher: "Bash"` is
+gated, so Edit still works. This is the whole escape hatch — do not go looking for a Bash one.
+
+Not affected: a session launched *directly inside* the worktree, where `CLAUDE_PROJECT_DIR`
+is the worktree itself.
+
+**The workflow this implies** (and why "live immediately" and "fires only after merge" are both
+true — they describe the accident and the correct path, not the same moment):
+
+1. Develop and test the script in the worktree by invoking it directly, never via registration:
+   `echo '<payload>' | python3 .claude/hooks/<new>.py; echo $?`
+2. Commit the `settings.json` registration in the same PR.
+3. Expect it to start firing **after merge**, once the script reaches the main repo.
+
+(PR #214 retro: registering `protect-tracked-rm.py` from a worktree blocked every Bash call in
+that session — twice, the second time after having just written this down.)
 
 ## Scope
 

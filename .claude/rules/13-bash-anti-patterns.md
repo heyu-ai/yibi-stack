@@ -414,8 +414,15 @@ When "run tests before file mutation" conflicts with the contract, use `trap ERR
 ```bash
 rollback() {
     echo "[WARN] Release failed -- reverting version files" >&2
-    git checkout -- pyproject.toml CHANGELOG.md 2>/dev/null || true
-    git checkout -- 'plugins/*/package.json' 2>/dev/null || true
+    # `checkout HEAD --`, not the bare form: bump.sh runs in the SHARED main checkout, where a
+    # concurrent release can stage the very files we are reverting. The bare form reads the
+    # index, so it would restore their staged bump and report success -- see the probe below.
+    # `|| echo` (not `|| true`) so a glob that matches nothing does not abort the rest of the
+    # rollback, while a real failure still reaches the operator.
+    git checkout HEAD -- pyproject.toml CHANGELOG.md \
+        || echo "[WARN] rollback failed: pyproject.toml / CHANGELOG.md -- revert by hand" >&2
+    git checkout HEAD -- 'plugins/*/package.json' \
+        || echo "[WARN] rollback failed: plugins/*/package.json -- revert by hand" >&2
 }
 trap rollback ERR
 
@@ -432,8 +439,28 @@ git commit -m "chore(release): v${TAG_VERSION}"
 Notes:
 
 - `trap - ERR` must be cleared **before** the commit; post-commit failures need `git reset HEAD~1`.
-- `git checkout -- 'plugins/*/package.json'` glob must use single quotes (shell glob expansion timing).
+- `git checkout HEAD -- 'plugins/*/package.json'` glob must use single quotes (shell glob expansion
+  timing). The glob and the staged case both work with the `HEAD` form — probed.
 - If a step has its own `trap`, isolate with a subshell to avoid overwriting the outer `trap ERR`.
+- **Why not the bare `git checkout --` here.** It reads the index, so a concurrent session's
+  `git add` in the shared main checkout turns the whole rollback into a silent no-op — and the
+  `[WARN] reverting version files` line prints anyway. This is not hypothetical: rule 15's
+  "Release Operations Must Not Run in a Shared Checkout" documents that exact concurrency
+  (PR #210). Probed:
+
+  ```console
+  $ git show HEAD:pyproject.toml            # version = "1.7.0"
+  # bump.sh writes 1.8.0; a concurrent `make release` stages it:
+  $ git add -A ; git status --porcelain
+  M  pyproject.toml
+  # gates fail -> trap ERR fires -> the OLD bare-form rollback:
+  $ git checkout -- pyproject.toml 2>/dev/null || true
+  $ cat pyproject.toml
+  version = "1.8.0"                          # NOT reverted. rc=0. silent.
+  $ git checkout HEAD -- pyproject.toml
+  $ cat pyproject.toml
+  version = "1.7.0"                          # the HEAD form works
+  ```
 
 ## Never `&&`-Gate a Restore Behind the Step That Might Fail (PR #214)
 
@@ -495,6 +522,21 @@ If you must use `;` (an interactive one-liner, no script), capture the status an
 ```bash
 ( rm -rf "$OTHER/dir"; some-tool --do-thing; rc=$?; git -C "$OTHER" checkout HEAD -- dir; exit "$rc" )
 ```
+
+**This form is strictly weaker than the script above, and in one specific way: `exit "$rc"`
+reports the risky step's status and therefore discards the *restore's*.** If the restore fails —
+wrong `$OTHER`, path not in that worktree, index race — the subshell exits 0 and the caller
+believes the deletion was undone. Probed:
+
+| Form | risky step | restore | exit |
+|------|-----------|---------|------|
+| subshell one-liner | fails | ok | 1 |
+| subshell one-liner | **ok** | **fails** | **0 — the restore's failure is masked** |
+| `trap` + `set -e` | ok | fails | 1 — propagates |
+
+So the one-liner re-acquires, on the restore, the exact masking this section spends forty lines
+condemning on the risky step. Use it only where you will read the restore's output yourself;
+reach for the script form whenever the chain will be pasted and forgotten.
 
 **Why this bites hardest when handing the chain to a human**: a one-line `&&` chain looks
 atomic and gets pasted verbatim. Nothing in it signals that the last clause is conditional.
