@@ -486,10 +486,25 @@ downstream scripts often read state written by upstream scripts; step ordering c
 When "run tests before file mutation" conflicts with the contract, use `trap ERR` to auto-revert:
 
 ```bash
+set -euo pipefail   # LOAD-BEARING: `trap ERR` runs the rollback, `set -e` is what STOPS the
+                    # release. Without it the script rolls back and then walks straight into
+                    # the `git add` / `git commit` below, exit 0. Probed.
+
 rollback() {
-    echo "[WARN] Release failed -- reverting version files" >&2
-    git checkout -- pyproject.toml CHANGELOG.md 2>/dev/null || true
-    git checkout -- 'plugins/*/package.json' 2>/dev/null || true
+    echo "[FAIL] Release failed -- reverting version files" >&2
+    # `checkout HEAD --`, not the bare form: bump.sh runs in the SHARED main checkout, where a
+    # concurrent release can stage the very files we are reverting. The bare form reads the
+    # index, so it would restore their staged bump and report success -- see the probe below.
+    # `|| echo` rather than `|| true`: same abort behaviour, but a failure reaches the operator
+    # instead of vanishing. It does NOT distinguish a real failure from a glob that matched
+    # nothing -- both print the same line, and neither changes this function's exit status.
+    git checkout HEAD -- pyproject.toml CHANGELOG.md \
+        || echo "[FAIL] rollback failed: pyproject.toml / CHANGELOG.md -- revert by hand" >&2
+    # `:(glob)` so `*` stays within ONE directory level. A bare 'plugins/*/package.json' is a
+    # git pathspec, not a shell glob: its `*` CROSSES `/` and would also reset
+    # plugins/<name>/<nested>/package.json. Probed.
+    git checkout HEAD -- ':(glob)plugins/*/package.json' \
+        || echo "[FAIL] rollback failed: plugins/*/package.json -- revert by hand" >&2
 }
 trap rollback ERR
 
@@ -505,9 +520,179 @@ git commit -m "chore(release): v${TAG_VERSION}"
 
 Notes:
 
+- `set -e` is not decoration here — see the comment on it above. `trap ERR` alone rolls back and
+  then continues into the commit.
 - `trap - ERR` must be cleared **before** the commit; post-commit failures need `git reset HEAD~1`.
-- `git checkout -- 'plugins/*/package.json'` glob must use single quotes (shell glob expansion timing).
+- **The pathspec `*` is not a shell `*`.** Single quotes keep the shell from expanding it, which
+  hands it to git — whose pathspec `*` **crosses `/`**. `'plugins/*/package.json'` therefore also
+  matches `plugins/a/nested/package.json`; `':(glob)plugins/*/package.json'` is the one-level form.
+  Probed. (This is the mirror of rule 02's `Path.glob("*/x/*")` trap, where `*` does **not** cross
+  `/` unlike a regex `.*`. Same family, opposite direction — check which engine owns the `*`.)
+- **`|| echo` does not distinguish "nothing to revert" from "revert failed".** A glob matching
+  nothing exits 1 and prints the same `[FAIL] rollback failed … revert by hand` as a genuine
+  failure, so a project with no `plugins/` gets that line on every rollback. It also cannot change
+  the script's exit status: a caller cannot tell a clean abort from "your version files are still
+  bumped". Both are known costs of keeping the rollback single-purpose; if you need the
+  distinction, gate the glob with `git ls-files --error-unmatch` first, or set a flag in the `||`
+  branch and exit non-zero from the rollback path.
 - If a step has its own `trap`, isolate with a subshell to avoid overwriting the outer `trap ERR`.
+- **Why not the bare `git checkout --` here.** It reads the index, so a concurrent session's
+  `git add` in the shared main checkout turns the whole rollback into a silent no-op — and the
+  `[FAIL] reverting version files` line prints anyway. Rule 15's "Release Operations Must Not Run
+  in a Shared Checkout Without a Fresh-State Check" documents concurrent release flows interleaving
+  in that same directory (PR #210); the staged-index variant below follows from that setting but
+  was not the PR #210 incident itself, which was a stale *file* read. Probed:
+
+  ```console
+  $ git show HEAD:pyproject.toml            # version = "1.7.0"
+  # bump.sh writes 1.8.0; a concurrent `make release` stages it:
+  $ git add -A ; git status --porcelain
+  M  pyproject.toml
+  # gates fail -> trap ERR fires -> the OLD bare-form rollback:
+  $ git checkout -- pyproject.toml 2>/dev/null || true
+  $ cat pyproject.toml
+  version = "1.8.0"                          # NOT reverted. rc=0. silent.
+  $ git checkout HEAD -- pyproject.toml
+  $ cat pyproject.toml
+  version = "1.7.0"                          # the HEAD form works
+  ```
+
+## Never `&&`-Gate a Restore Behind the Step That Might Fail (PR #214)
+
+`A && B && restore` reads as "do A, do B, then put things back" — but `&&` means **B's success
+is the precondition for the restore**. When B is the fallible step, the restore is skipped
+exactly when it is needed.
+
+Related to the `trap ERR` section above, but **pick the signal by intent — they are not
+interchangeable**:
+
+| Signal | Use when | Swapping them costs |
+|--------|----------|---------------------|
+| `trap … ERR` | the mutation should **survive success**, unwind only on failure (bump.sh: the version bump stays once gates pass) | `EXIT` here fires on the success path and is **inert but noisy** — see below |
+| `trap … EXIT` | the mutation is **temporary scaffolding**, undo on every path (the `rm -rf` + restore case below) | `ERR` here skips the restore whenever the risky step happens to succeed |
+
+That is also why the ERR section needs `trap - ERR` before its commit and this one does not.
+(`trap - ERR` does **not** clear an `EXIT` trap, which is what lets the swapped one fire at all.)
+
+**The `ERR`→`EXIT` cost is worth spelling out, because it is silent rather than loud.** By the
+success path the script has already committed, so HEAD *contains* the bump — and `rollback()`
+restores HEAD. The trap runs, reverts nothing, and prints a failure warning on every successful
+release:
+
+```console
+$ bash release.sh                      # gates PASS; trap rollback EXIT
+[FAIL] Release failed -- reverting version files
+script exit=0
+$ cat pyproject.toml
+version = "1.8.0"                      # NOT reverted. the release stands.
+$ git log --oneline -1
+044d1b3 chore(release): v1.8.0
+$ git status --porcelain
+                                       # clean. the trap did nothing.
+```
+
+The bare `git checkout --` form is equally inert there (after the commit, index == HEAD), so this
+was never a matter of which restore command you pick. `EXIT` reverts only when the script exits
+*between* the mutation and the commit — which is what `ERR` already does, without the false alarm.
+
+(An earlier revision of this table claimed `EXIT` "reverts after a successful release — probed".
+It does not, in either form. The probe behind that claim used a stub `rollback()` that only
+echoed: it proved the trap **fires**, and the table asserted it **reverts**. Two different claims;
+only the first was tested. If you stamp "probed" on a cell, probe the cell's claim — not the
+mechanism underneath it.)
+
+```bash
+# Wrong: mutate -> risky-step -> restore, chained with &&
+rm -rf "$OTHER/dir" && some-tool --do-thing && git -C "$OTHER" checkout HEAD -- dir
+#                      ^^^^^^^^^^^^^^^^^^^^ fails -> the restore never runs,
+#                                            the deletion is left behind
+
+# Correct: trap EXIT runs the restore on any normal exit; `set -e` gives it the status.
+# Both are load-bearing -- see the table below.
+set -e
+# `checkout HEAD --`, not `checkout --`: the bare form reads the index and fails once
+# anything has staged the deletion. Restores TRACKED files that are IN HEAD, as of HEAD --
+# untracked content under dir is gone, an uncommitted edit comes back as HEAD's version,
+# and a concurrent session's staged edit at that path is overwritten. Work that was only
+# `git add`-ed (never committed) is not in HEAD at all: this fails rc=1 and restores
+# nothing. See rule 15's recovery table before trusting it.
+restore() { git -C "$OTHER" checkout HEAD -- dir; }
+trap restore EXIT
+rm -rf "$OTHER/dir"
+some-tool --do-thing
+```
+
+**`;` is not the fix, and the trap alone is not either.** Every row below was probed, with the
+risky step failing:
+
+| Form | restore runs? | exit status |
+|------|---------------|-------------|
+| `A; B; restore` under `set -e` | **no** — `set -e` aborts at B | 1 |
+| `A; B; restore` without `set -e` | yes | **0 — B's failure is masked** |
+| `trap restore EXIT` without `set -e`, B not the last line | yes | **0 — B's failure is masked** |
+| `trap restore EXIT` **under `set -e`** | yes | 1 |
+
+Swapping `&&` for `;` is the obvious reach and it is wrong twice over: under `set -e` the restore
+never runs, so it buys nothing over `&&`; without `set -e` the chain reports the **restore's**
+status, so a failed risky step exits 0 and the caller believes it succeeded.
+
+**But row 3 is the trap worth internalising: `trap … EXIT` makes the restore *run*, it does not
+make the failure *propagate*.** Without `set -e`, the script's status is whatever ran last — so
+appending one harmless log line after the risky step silently re-acquires the exact masking this
+rule condemns `;` for. The two mechanisms are separate: `trap EXIT` for the restore, `set -e` for
+the status. Use both.
+
+**And "runs on every path" means every *normal exit* — not every path.** `exec` replaces the
+shell, and an untrapped signal kills it; neither runs the `EXIT` trap. Probed:
+
+| How the script ends | `EXIT` trap runs? | status |
+|---------------------|-------------------|--------|
+| normal exit (incl. `set -e` abort) | yes | as expected |
+| `exec some-cmd` after the mutation | **no** | 0 |
+| untrapped `SIGTERM` (`kill`, CI timeout) | **no** | 143 |
+| `SIGKILL` | **no** | 137 |
+| `trap restore EXIT TERM` + `SIGTERM` | yes — **twice** | 0 |
+
+So: do not `exec` after a mutation; add the catchable signals explicitly
+(`trap restore EXIT INT TERM HUP`) when the script can be killed; make the restore **idempotent**,
+because the last row runs it twice. `SIGKILL` cannot be covered by anything — if that matters, the
+mutation needs to be recoverable from outside the script.
+
+If you must use `;` (an interactive one-liner, no script), capture the status and run it in a
+**subshell** — a bare `exit "$rc"` at an interactive prompt closes your terminal:
+
+```bash
+( rm -rf "$OTHER/dir"; some-tool --do-thing; rc=$?; git -C "$OTHER" checkout HEAD -- dir; exit "$rc" )
+```
+
+**This form is strictly weaker than the script above, and in one specific way: `exit "$rc"`
+reports the risky step's status and therefore discards the *restore's*.** If the restore fails —
+wrong `$OTHER`, path not in that worktree, index race — the subshell exits 0 and the caller
+believes the deletion was undone. Probed:
+
+| Form | risky step | restore | exit |
+|------|-----------|---------|------|
+| subshell one-liner | fails | ok | 1 |
+| subshell one-liner | **ok** | **fails** | **0 — the restore's failure is masked** |
+| `trap` + `set -e` | ok | fails | 1 — propagates |
+
+So the one-liner re-acquires, on the restore, the exact masking this section spends forty lines
+condemning on the risky step. Use it only where you will read the restore's output yourself;
+reach for the script form whenever the chain will be pasted and forgotten.
+
+**Why this bites hardest when handing the chain to a human**: a one-line `&&` chain looks
+atomic and gets pasted verbatim. Nothing in it signals that the last clause is conditional.
+If the chain touches state outside the current worktree (another worktree, a shared checkout),
+the skipped restore is left for someone else to discover — see rule 15's
+`git status --porcelain` section for the deletion half of this incident.
+
+Rule of thumb: **any command whose job is to undo an earlier command must not be reachable
+only via `&&`.** Verify by asking "if the middle step exits 1, does the restore still run?"
+before handing the line over.
+
+(Source: yibi-stack PR #214 retro — `rm -rf <worktree>/openspec/changes/<change> && spectra
+archive ... && git checkout -- ...` aborted at the still-failing `spectra archive`, leaving 7
+deleted tracked files in a worktree another session was concurrently committing to.)
 
 ## Exemption Regex Must Enumerate Precisely, Not Use Open Glob (PR #23)
 
