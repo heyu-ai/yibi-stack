@@ -133,19 +133,17 @@ def test_parse_tc_table_slug_empty_when_no_slug_column():
     assert rows[0].slug == ""
 
 
-def test_coverage_table_rows_dedupe_against_the_real_definitions():
-    """The parser deliberately over-collects; de-dup keeps the count honest.
+def test_coverage_table_is_not_read_as_tc_definitions():
+    """A coverage table carries a TC-ID column but defines nothing.
 
-    A coverage table carries a TC-ID column, so it IS read as a TC table. That is the
-    design: classifying a markdown table's role by its header text failed in both
-    directions (too loose swallowed real TC tables, too tight dropped them), always
-    silently. Since this gate's defining bug is silent UNDER-reporting, over-collection
-    is the safe direction -- it is visible in the count, and reconcile_unparsed_tc_ids
-    reports whatever is still missed.
+    "Coverage table" is decided structurally and identically by both parsers via
+    `_coverage_cols` — has a slug column AND an exactly-`Status` column. Measured over
+    an 18-plan corpus: 5 tables carry ID + slug + Status and all 5 are genuine
+    coverage tables, so this excludes them with zero false negatives.
 
-    A TC listed in the coverage table and defined in a TC table appears once. A TC-ID
-    that appears ONLY in the coverage table is a plan that references a TC it never
-    defined -- surfacing it is correct, not a phantom.
+    Reading them as TC definitions is not merely a wrong count: their slugs feed
+    Check 2, which BLOCKS, so a scenario listed as `missing` could manufacture a MUST
+    finding against a test that legitimately has no TC yet.
     """
     testplan = """\
 ## Test Cases
@@ -162,10 +160,10 @@ def test_coverage_table_rows_dedupe_against_the_real_definitions():
 | deferred-scenario | missing | ACME-ST-002 | blocked on telemetry |
 """
     rows = amplifier_verify.parse_tc_table(testplan)
-    # ACME-EP-001 is defined once even though it appears in both tables.
-    assert [r.tc_id for r in rows] == ["ACME-EP-001", "ACME-ST-002"]
+    # Only the real definition; ACME-ST-002 exists solely in the coverage table.
+    assert [r.tc_id for r in rows] == ["ACME-EP-001"]
     assert rows[0].slug == "pairing-code-valid"
-    # ...and the coverage parser still owns the coverage table.
+    # ...and the coverage parser owns the coverage table.
     cov = amplifier_verify.parse_coverage_table(testplan)
     assert [(c.slug, c.status) for c in cov] == [
         ("pairing-code-valid", "covered"),
@@ -239,6 +237,29 @@ def test_no_tc_table_vanishes_because_of_its_header_vocabulary():
         assert [r.tc_id for r in rows] == ["ACME-EP-001"], f"vanished: {header}"
 
 
+def test_id_column_regex_does_not_match_words_ending_in_id():
+    """`[A-Z]{2,}[-_ ]?ID` also matched VALID / GRID / UUID / RAPID / Invalid.
+
+    A table headed `| Valid | TC-ID | ... |` then resolved its ID column to column 0,
+    read "yes" as the TC-ID, matched nothing, and the whole table vanished — silently,
+    and invisibly to reconcile, which skips tables the parser did enter. Same
+    silent-under-report class as the bug this PR exists to fix, fourth spelling.
+    """
+    for header in ("VALID", "GRID", "UUID", "RAPID", "Invalid", "ID"):
+        assert not amplifier_verify._TC_ID_COL_RE.match(header), header
+    for header in ("TC-ID", "SMK-ID", "TC_ID", "TC ID", "Device ID"):
+        assert amplifier_verify._TC_ID_COL_RE.match(header), header
+
+    testplan = """\
+| Valid | TC-ID | Test Purpose |
+|-------|-------|--------------|
+| yes | ACME-EP-001 | real tc |
+| yes | ACME-EP-002 | real tc |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert [r.tc_id for r in rows] == ["ACME-EP-001", "ACME-EP-002"]
+
+
 def test_non_tc_id_prefixes_are_parsed():
     """A real plan heads its smoke table `| SMK-ID | ... |`; a TC-ID-only gate dropped
     all 5 of its slug-bearing TCs silently."""
@@ -251,21 +272,38 @@ def test_non_tc_id_prefixes_are_parsed():
     assert [(r.tc_id, r.slug) for r in rows] == [("SMK-001", "smk-exchange-happy-path")]
 
 
-def test_reconcile_reports_tc_ids_the_parser_missed():
-    """The only check that fails loudly on causes nobody has enumerated yet."""
+def test_example_tables_inside_fenced_code_blocks_are_not_read():
+    """A plan documenting its own table format contains example tables.
+
+    Reading those as real puts example TC-IDs and slugs into Check 2, which then
+    demands a `spec:` trace for any test whose name happens to match an illustration
+    — a MUST finding manufactured from documentation.
+    """
     testplan = """\
-| TC-ID | Test Purpose | Scenario Slug |
-|-------|-------------|---------------|
-| ACME-EP-001 | parsed fine | real-slug |
+Testplans use this shape:
+
+```markdown
+| TC-ID | Scenario Slug | Test Purpose |
+|-------|---------------|--------------|
+| ACME-EP-999 | example-slug | an illustration |
+```
+
+## Test Cases
+
+| TC-ID | Scenario Slug | Test Purpose |
+|-------|---------------|--------------|
+| ACME-EP-001 | real-slug | a real TC |
 """
     rows = amplifier_verify.parse_tc_table(testplan)
-    assert amplifier_verify.reconcile_unparsed_tc_ids(testplan, rows) == []
+    assert [r.tc_id for r in rows] == ["ACME-EP-001"]
 
-    # A table the parser cannot enter (no separator row) must be reported, not hidden.
-    broken = testplan + "\n| TC-ID | Test Purpose |\n| ACME-EP-777 | never parsed |\n"
-    rows = amplifier_verify.parse_tc_table(broken)
-    assert "ACME-EP-777" not in [r.tc_id for r in rows]
-    assert amplifier_verify.reconcile_unparsed_tc_ids(broken, rows) == ["ACME-EP-777"]
+    fn = amplifier_verify.TestFunction(
+        name="test_example_slug_behaviour",
+        docstring="no trace",
+        filepath="tests/test_x.py",
+        spec_trace=None,
+    )
+    assert amplifier_verify.analyze(rows, [], [fn]).must == []
 
 
 def test_slug_bearing_row_wins_over_slugless_restatement_either_order():

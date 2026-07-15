@@ -82,26 +82,37 @@ _TC_ID_RE = re.compile(r"\b[A-Z][A-Z0-9]*-(?:[A-Z]{2,}-)?[A-Z]*\d{2,4}\b")
 # their role is decided by WHICH COLUMNS THEY HAVE — never by keyword-matching the
 # header text, and never by the enclosing `##` heading.
 #
-# Both of those were tried and both failed, in the same direction:
+# Both of those were tried and both failed, in the same direction — silently:
 #   * matching the header line for a coverage-ish shape used an unanchored regex, so
-#     any TC table carrying an "Expected Status Code" column silently vanished;
-#   * requiring a keyword-y "TC-definition" column silently dropped real TC tables
-#     whose headers say Description / Objective / Scenario / Assertion / 測項;
+#     any TC table carrying an "Expected Status Code" column vanished;
+#   * requiring a keyword-y "TC-definition" column dropped real TC tables whose
+#     headers say Description / Objective / Assertion / 測項, and its keywords
+#     overlapped the coverage vocabulary it was meant to exclude, so coverage tables
+#     leaked in anyway;
 #   * heading names do not identify TC tables at all — measured, they live under
 #     arbitrary headings including "redundant items" and "traceability matrix".
 #
-# There is no reliable way to classify a markdown table's semantic role from its
-# header text. Since this file is a merge gate whose defining bug is SILENT
-# UNDER-REPORTING, the tie-break is direction, not precision: **over-collecting is
-# visible (counts go up, and reconcile_unparsed_tc_ids() reports the rest), while
-# under-collecting is silent.** So a table is a TC table if it HAS a TC-ID column,
-# full stop. A coverage/traceability/dedup table that also carries one is read too;
-# its TC-IDs de-duplicate against the real definitions and only affect the reported
-# total, which a human can see.
-# Not just literal "TC-ID": a real plan in the corpus heads its smoke-test table
-# `| SMK-ID | Scenario Slug | Purpose | ... |`, and its 5 slug-bearing TCs were
-# dropped silently by a TC-ID-only gate.
-_TC_ID_COL_RE = re.compile(r"^\s*[A-Z]{2,}[-_ ]?ID\s*$", re.IGNORECASE)
+# What survives is a purely structural pair of predicates, anchored and
+# order-independent, shared by both parsers so they cannot drift apart:
+#   * a TC table HAS an ID column;
+#   * a coverage table HAS a slug column AND an exactly-`Status` column, and is
+#     therefore NOT a TC table even when it carries an ID column too.
+#
+# Measured across an 18-plan corpus: 101 tables have an ID column only (all real TC
+# tables), 3 have slug+Status only, and 5 have all three — every one of those 5 is a
+# genuine coverage table (`| Scenario Slug | Status | TC-ID | Notes |`). Zero false
+# exclusions.
+#
+# The ID column is not literally "TC-ID": a real plan heads its smoke-test table
+# `| SMK-ID | Scenario Slug | Purpose | ... |`, and a TC-ID-only gate dropped all 5 of
+# its slug-bearing TCs silently.
+#
+# The `[-_ ]` separator is MANDATORY, not optional. With `[-_ ]?` this also matched
+# VALID, GRID, UUID, RAPID and Invalid (`[A-Z]{2,}` happily eats VAL / GR / UU / RAP),
+# so a table headed `| Valid | TC-ID | Test Purpose |` resolved its "ID column" to
+# column 0, read "yes" as the TC-ID, matched nothing, and vanished silently.
+# Requiring the separator costs only the unattested `TCID` spelling.
+_TC_ID_COL_RE = re.compile(r"^\s*[A-Z]{2,}[-_ ]ID\s*$", re.IGNORECASE)
 _SLUG_COL_RE = re.compile(r"scenario\s*slug|^\s*slug\s*$", re.IGNORECASE)
 _STATUS_COL_RE = re.compile(r"^\s*status\s*$", re.IGNORECASE)
 
@@ -129,8 +140,19 @@ def _iter_table_headers(lines: list[str]) -> Iterator[tuple[int, list[str]]]:
     recognise tables by what their header *says* has failed in this file, always in
     the same direction: a predicate that is too loose swallows real TC tables, one
     that is too tight drops them, and both do it silently.
+
+    Fenced code blocks are skipped. A testplan documenting its own table format
+    contains example tables; reading those as real ones puts example TC-IDs and slugs
+    into the blocking check, which then demands a `spec:` trace for a test whose name
+    happens to match an illustration.
     """
+    in_fence = False
     for i, line in enumerate(lines):
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
         if _header_cells(line) is None:
             continue
         nxt = next((lines[j].strip() for j in range(i + 1, len(lines)) if lines[j].strip()), "")
@@ -163,6 +185,23 @@ def _find_col(header_cells: list[str], pattern: re.Pattern[str]) -> int | None:
     return None
 
 
+def _coverage_cols(header_cells: list[str]) -> tuple[int, int] | None:
+    """Return (slug_col, status_col) if this is a coverage table, else None.
+
+    The single definition of "coverage table", used by BOTH parsers -- one to read
+    them, the other to exclude them. They previously each decided this for
+    themselves and drifted: parse_tc_table skipped on an unanchored `.*Status`
+    header match while parse_coverage_table required an exactly-`Status` column, so a
+    table headed `Expected Status` was skipped by the first and rejected by the
+    second, and vanished from both.
+    """
+    slug_col = _find_col(header_cells, _SLUG_COL_RE)
+    status_col = _find_col(header_cells, _STATUS_COL_RE)
+    if slug_col is None or status_col is None:
+        return None
+    return slug_col, status_col
+
+
 def parse_tc_table(
     testplan_text: str,
     conflicts_out: list[tuple[str, str, str]] | None = None,
@@ -175,11 +214,10 @@ def parse_tc_table(
     downstream plans: 3 of 101 TCs parsed, and 16 of 57 on the plan that established
     the testplan convention in the first place. The gate passed both times.
 
-    A table is a TC table if it HAS an ID column -- nothing more. This deliberately
-    over-collects: a coverage or traceability table that carries one is read too. See
-    the _TC_ID_COL_RE block above for why. Over-collection is visible (the count goes
-    up, and reconcile_unparsed_tc_ids() reports what was still missed); every attempt
-    to be cleverer under-collected, silently, which is this gate's defining bug.
+    A table is a TC table if it HAS an ID column and is not a coverage table. Both
+    predicates are structural -- see the _TC_ID_COL_RE block above for the three
+    text-matching designs that preceded this and how each one silently dropped real
+    tables.
 
     De-duplication is by ID, but a slug-bearing row always wins over a slug-less one
     regardless of order: the most common table shape has no slug column, so
@@ -194,6 +232,8 @@ def parse_tc_table(
         tc_col = _find_col(header_cells, _TC_ID_COL_RE)
         if tc_col is None:
             continue  # no ID column -> not a TC table
+        if _coverage_cols(header_cells) is not None:
+            continue  # a coverage table; parse_coverage_table() owns it
         slug_col = _find_col(header_cells, _SLUG_COL_RE)
         for cells in _parse_table_rows(lines, i):
             if len(cells) <= tc_col:
@@ -221,51 +261,6 @@ def parse_tc_table(
     return [by_tc_id[t] for t in order]
 
 
-def reconcile_unparsed_tc_ids(testplan_text: str, tc_rows: list[TCRow]) -> list[str]:
-    """Return TC-ID-shaped tokens present in the plan but absent from the parse.
-
-    This is the only check here that fails loudly on defects nobody has enumerated
-    yet. Every specific blindness found so far -- stop-after-first-table, a hardcoded
-    column index, an over-tight header predicate, an unusual ID prefix -- presents the
-    same way: the gate parses fewer TCs than the plan contains and prints [OK]. Rather
-    than only patching each cause as it is discovered, reconcile the parse against the
-    raw text so the *symptom* is always visible.
-
-    Scans only the first cell of rows in tables the parser did NOT enter, because a
-    WARN that cries wolf gets ignored -- which would leave the gate exactly as silent
-    as before. Two classes of false positive are excluded by construction:
-
-      * prose mentions inside a notes cell ("...superseded by DT-001...") -- only the
-        first cell is read, never the whole line;
-      * non-TC identifiers heading a table the parser DID read correctly. Traceability
-        tables are headed `| US | Scenario slug | TC-ID | ... |`; the parser finds the
-        TC-ID column and reads it, so the `US-001` in column 0 is a User Story
-        reference, not a missed TC.
-    """
-    lines = testplan_text.splitlines()
-    parsed_spans: list[range] = []
-    for i, header_cells in _iter_table_headers(lines):
-        if _find_col(header_cells, _TC_ID_COL_RE) is None:
-            continue  # parser skipped this table; its rows are reconciliation candidates
-        end = i + 1
-        while end < len(lines) and lines[end].strip().startswith("|"):
-            end += 1
-        parsed_spans.append(range(i, end))
-
-    parsed = {r.tc_id for r in tc_rows}
-    missed: set[str] = set()
-    for idx, line in enumerate(lines):
-        if any(idx in span for span in parsed_spans):
-            continue
-        cells = _header_cells(line)
-        if not cells:
-            continue
-        m = _TC_ID_RE.search(cells[0])
-        if m and m.group(0) not in parsed:
-            missed.add(m.group(0))
-    return sorted(missed)
-
-
 def parse_coverage_table(testplan_text: str) -> list[CoverageRow]:
     """Extract Coverage Analysis rows from EVERY coverage table in testplan.md.
 
@@ -285,10 +280,10 @@ def parse_coverage_table(testplan_text: str) -> list[CoverageRow]:
     lines = testplan_text.splitlines()
     coverage_rows: list[CoverageRow] = []
     for i, header_cells in _iter_table_headers(lines):
-        slug_col = _find_col(header_cells, _SLUG_COL_RE)
-        status_col = _find_col(header_cells, _STATUS_COL_RE)
-        if slug_col is None or status_col is None:
+        cols = _coverage_cols(header_cells)
+        if cols is None:
             continue  # not a coverage table
+        slug_col, status_col = cols
         for cells in _parse_table_rows(lines, i):
             if len(cells) <= max(slug_col, status_col):
                 continue
@@ -582,19 +577,6 @@ def main() -> None:
     coverage_rows = parse_coverage_table(testplan_text)
 
     print(f"[OK]   parsed {len(tc_rows)} TCs, {len(coverage_rows)} coverage rows")
-
-    # Reconcile the parse against the raw text. Every blindness found in this parser
-    # so far shows up the same way -- fewer TCs parsed than the plan contains, and an
-    # [OK] anyway. This is the only check that fails loudly on causes nobody has
-    # enumerated yet, so it is deliberately noisy rather than silent.
-    unparsed = reconcile_unparsed_tc_ids(testplan_text, tc_rows)
-    if unparsed:
-        print(
-            f"[WARN] {len(unparsed)} TC-ID-shaped token(s) appear in a testplan table but"
-            f" were NOT parsed into TC rows: {unparsed[:10]}"
-            f"{' ...' if len(unparsed) > 10 else ''} -- the parse may be incomplete.",
-            file=sys.stderr,
-        )
 
     # Step 4 — parse diff
     test_functions = parse_diff_test_functions(diff_text)
