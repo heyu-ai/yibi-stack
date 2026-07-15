@@ -185,6 +185,17 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **hook script in `.claude/hooks/` does not mean enabled**: Claude Code only runs hooks
   registered in `settings.json`'s `hooks` command strings. Evaluate hook effectiveness with a
   double check: file exists AND registered in `settings.json`.
+- **never register a new hook from inside a worktree — it bricks the session**:
+  `${CLAUDE_PROJECT_DIR}` resolves to the **main repo**, not the worktree you are editing in.
+  Register a hook whose script exists only on your unmerged branch and every subsequent Bash
+  call dies with `can't open file '<main-repo>/.claude/hooks/<new>.py'` + `exit 2` — including
+  the calls you would use to undo it. The existing hooks work only because the main repo
+  already has their scripts. Develop and test the script in the worktree (`echo '<payload>' |
+  python3 .claude/hooks/<new>.py; echo $?`), add the `settings.json` registration in the same
+  PR, but expect it to start firing only **after merge**, when the script reaches the main
+  repo. If you brick yourself anyway, the escape is to delete the registration block from the
+  worktree's `settings.json` (Edit tool still works — only Bash is gated). (PR #214 retro:
+  registering `protect-tracked-rm.py` from a worktree blocked every Bash call in the session.)
 - **`Path.rglob()` does not follow symlinks** — see rule 02 for fix.
 - **`Path.glob("*/x/*")` doesn't cross `/` like regex `.*` does** — see rule 02 for fix.
 - **`plugins/harness` has no `package.json`**: not all subdirectories under `plugins/` are
