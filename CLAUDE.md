@@ -204,6 +204,24 @@ make install-all         # 等同 build-tools + install + install-project + inst
   repos, so the last installer won and every caller silently ran against the wrong checkout —
   measured live in PR #224, where it pointed at `ainization-skill`). Corollary: if you **move**
   a checkout, re-run `make install` — the symlink is repointed only by that run.
+- **`make install` must run from the MAIN repo, never from a worktree**: the install targets
+  point global symlinks at `$(CURDIR)`, so installing from `.claude/worktrees/<name>/` aims
+  them at a directory that `/clean-merged` deletes after the branch merges — then every skill
+  dies. Neither the resolver's identity gate nor the Makefile's `resolved == $(CURDIR)` gate
+  can catch this (a worktree is a complete checkout, and inside one those two paths are equal
+  by definition). `scripts/assert_not_worktree.sh` now blocks it as the first line of every
+  target that writes global state: `install` / `install-project` / `install-one` /
+  `install-force-one` / `promote` / `install-scheduler` / `install-handover-hooks`. See rule 11
+  for why it fails loud instead of auto-deriving the main repo, why its fail-open forgives only
+  git's literal `not a git repository` **and only when `.git` is absent**, and why it normalizes
+  with `pwd -P` rather than `--path-format=absolute`.
+  Each of those targets carries its own guard rather than relying on `install-all` chaining
+  `install` first — **`make -j` runs prerequisites in parallel**, so `install-scheduler` could
+  otherwise write the plist before `install`'s guard aborts.
+  Remaining gap: the guard lives in the Makefile, so invoking the Python modules **directly**
+  (`uv run python -m tasks.scheduler install`, `... -m tasks.mycelium handover install-hooks`)
+  still self-locates via `__file__` (`tasks/_paths.py`, `tasks/mycelium/auto_handover_hooks.py:145`)
+  and would embed a worktree path into the LaunchAgent plist / `settings.json` hooks.
 - **installed skills go stale when local `main` is behind `origin/main`**: `make install` copies
   skill scripts to `~/.agents/skills/`; if you don't pull main + re-run `make install`, those
   copies keep an old version. Concretely, the pr-cycle-deep agy scripts stay on the pre-fix

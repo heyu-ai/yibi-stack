@@ -67,7 +67,11 @@ INSTALL_DIR := $(HOME)/.agents/skills
 CMD_DIR := commands
 CLAUDE_CMD_DIR := $(HOME)/.claude/commands
 
+# guard 必須是 recipe 的第一行（字面上，不是「第一個可執行動作」）：後面的步驟會把
+# $(CURDIR) 寫進全域 symlink，失敗得太晚就已經污染 ~/.claude/skills/ 與 ~/.agents/。
+# 說明寫在 target 宣告之上而非 recipe 內，好讓「第一行就是 guard」無須任何但書。
 install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/ + commands（跨專案可用）
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" install
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
@@ -133,6 +137,7 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 	echo "  [OK] resolve-skill-repo -> $$resolved"
 
 install-project: ## Install scope=project skills（本 repo 限定，ainization-skill 開發用）
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" install-project
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
@@ -156,6 +161,7 @@ install-project: ## Install scope=project skills（本 repo 限定，ainization-
 	done
 
 install-one: ## Install one skill: make install-one SKILL=<name>
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" "install-one SKILL=$(SKILL)"
 	@if [ -z "$(SKILL)" ]; then echo "[FAIL] SKILL 未指定，用法：make install-one SKILL=<name>"; exit 1; fi
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR)"; exit 1; }
@@ -164,6 +170,7 @@ install-one: ## Install one skill: make install-one SKILL=<name>
 	@echo "[OK] $(SKILL) -> done"
 
 install-force-one: ## 強制安裝單一 skill，覆蓋 real directory（搶回被 gstack 蓋過的 skill）: make install-force-one SKILL=<name>
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" "install-force-one SKILL=$(SKILL)"
 	@if [ -z "$(SKILL)" ]; then echo "[FAIL] SKILL 未指定，用法：make install-force-one SKILL=<name>"; exit 1; fi
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR)"; exit 1; }
@@ -271,7 +278,12 @@ uninstall: ## Remove own symlinks from ~/.claude/skills/ and ~/.agents/skills/
 		fi \
 	done
 
+# LaunchAgent plist 的 WorkingDirectory 寫的是 PROJECT_ROOT（tasks/_paths.py 由
+# __file__ 自我定位），在 worktree 裡跑就會寫進一個合併後會被刪掉的路徑。
+# 不能只靠 install-all 串接 install 來擋：make -j 會平行跑 prerequisites，
+# 本 target 可能在 install 的 guard 失敗前就已經寫完 plist。
 install-scheduler: ## Install macOS LaunchAgent for scheduler (every 60s tick)
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" install-scheduler
 	uv run python -m tasks.scheduler install
 
 uninstall-scheduler: ## Uninstall scheduler LaunchAgent
@@ -280,7 +292,11 @@ uninstall-scheduler: ## Uninstall scheduler LaunchAgent
 scheduler-status: ## Show scheduler job status
 	uv run python -m tasks.scheduler status
 
+# 寫進 ~/.claude/settings.json 的 hook command 內嵌 repo 路徑
+# （auto_handover_hooks.py 由 __file__ 自我定位），在 worktree 裡跑會讓
+# 全域 hook 指向一個合併後就消失的目錄。與 install-scheduler 同一 bug class。
 install-handover-hooks: ## 安裝 auto-handover PreCompact + SessionStart hook 到 ~/.claude/settings.json
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" install-handover-hooks
 	uv run python -m tasks.mycelium handover install-hooks
 
 uninstall-handover-hooks: ## 移除 auto-handover PreCompact + SessionStart hook 從 ~/.claude/settings.json
@@ -301,7 +317,10 @@ release: ## Release: make release TYPE=patch|minor|major
 
 install-all: build-tools install install-project install-handover-hooks install-scheduler patch-pr-review-agents patch-agy-allow-list ## 一次裝齊 Go tools / skill（含 project）/ hook / scheduler / patch-pr-review-agents / patch-agy-allow-list（新環境首次設定用）
 
+# guard 必須在 mv 之前：promote 尾端會委派 install-one（本身也有 guard），
+# 但那時 mv 已經執行完，worktree 內會留下「檔案搬了、沒安裝」的半完成狀態。
 promote: ## Promote draft to skill: make promote SKILL=<name>
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" "promote SKILL=$(SKILL)"
 	@if [ -z "$(SKILL)" ]; then echo "Usage: make promote SKILL=name"; exit 1; fi
 	mv drafts/$(SKILL) $(SKILL_DIR)/$(SKILL)
 	$(MAKE) install-one SKILL=$(SKILL)
