@@ -48,6 +48,13 @@ repos:
         pass_filenames: true
         types: [shell]
 
+      - id: lint-shell-subshell-exit
+        name: lint-shell-subshell-exit (exit in $()-called function)
+        entry: python3 scripts/lint_shell_subshell_exit.py
+        language: system
+        pass_filenames: true
+        types: [shell]
+
       - id: lint-skill-bash
         name: lint-skill-bash
         entry: python3 scripts/lint_skill_bash.py

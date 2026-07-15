@@ -206,6 +206,24 @@ Operationally: treat a residual note like a test. When you change the predicate,
 of the diff — if you did not re-run the scenario it describes, you do not know whether it is still
 true.
 
+**The subshell-`exit` trap is now enforced mechanically, not by memory.** After the fail-loud
+principle recurred across three dated lessons (2026-07-07, 2026-07-14, and PR #234's four
+in-PR repeats), continuing to write it down was an admission that writing it down does not work.
+`scripts/lint_shell_subshell_exit.py` (pre-commit, `types: [shell]`) now parses shell scripts and
+fails the commit on the one shape that actually fail-opens:
+
+> `exit` inside a function **and** that function is called as the first token of a `$(…)` **and**
+> the call site is somewhere `set -e` will not catch (an `if`/`while`/`until` condition, or `||`
+> / `&&`), **or** the script has no `set -e` at all.
+
+Both extra conjuncts are load-bearing, and each was learned from a false positive the first draft
+produced against real repo code: `bump.sh`'s `new_version=$(bump_semver …)` is a **bare
+assignment under `set -e`**, so the subshell's `exit 1` does abort the script — no fail-open;
+`bash-ap1-inline-check.sh`'s `block()` is called **directly**, and only *mentioned* inside an
+unrelated `$(…)`, so requiring the name to be the substitution's first token clears it. A lint
+that fires on correct code teaches people to disable it, so the negative controls are the
+important tests, not the positive one.
+
 **Do not run mutation tests on a shared worktree file while a review agent is reading it.**
 Mutation testing edits the real file in place; a reviewer dispatched against that path will read
 whatever state the file happens to be in. On this PR a reviewer read the script mid-mutation, got
