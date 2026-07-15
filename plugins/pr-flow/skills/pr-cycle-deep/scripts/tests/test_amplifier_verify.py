@@ -272,6 +272,104 @@ def test_non_tc_id_prefixes_are_parsed():
     assert [(r.tc_id, r.slug) for r in rows] == [("SMK-001", "smk-exchange-happy-path")]
 
 
+def test_tc_prefix_match_is_the_whole_gate_on_slugless_plans():
+    """Check 2's `tc_prefix_match` branch carries the gate for slug-less plans.
+
+    Measured over 57 real plans: 6 of them have NO slug on any TC. On those,
+    `matched_slug` can never fire and this branch IS the entire blocking check — yet
+    every other Check-2 fixture supplies a slug, so deleting `or tc_prefix_match`
+    used to leave the whole suite green.
+    """
+    tc_rows = [amplifier_verify.TCRow(tc_id="ACME-EP-001", slug="", raw_line="")]
+    fn = amplifier_verify.TestFunction(
+        name="test_acme_ep_001_behaviour",
+        docstring="no trace here",
+        filepath="tests/test_x.py",
+        spec_trace=None,
+    )
+    findings = amplifier_verify.analyze(tc_rows, [], [fn])
+    assert len(findings.must) == 1
+    assert "test_acme_ep_001_behaviour" in findings.must[0]
+
+
+def test_backticked_slugs_are_stripped_in_both_parsers():
+    """Real plans backtick their slugs — 1446 such cells across the corpus.
+
+    Without the strip, the slug is `` `a-slug` ``, which matches no test-function
+    name: Check 2 goes silently quiet and Check 1's lookup degrades to "unknown TC".
+    """
+    testplan = """\
+| TC-ID | Scenario Slug | Test Purpose |
+|-------|---------------|--------------|
+| ACME-EP-001 | `age-resolved-from-binding` | resolve age |
+
+## Coverage Analysis
+
+| Scenario Slug | Status | Notes |
+|---------------|--------|-------|
+| `age-resolved-from-binding` | missing | - |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert rows[0].slug == "age-resolved-from-binding"
+
+    cov = amplifier_verify.parse_coverage_table(testplan)
+    assert cov[0].slug == "age-resolved-from-binding"
+
+    # ...and the two must still join up, or Check 1 reports "unknown TC".
+    findings = amplifier_verify.analyze(rows, cov, [])
+    assert any("ACME-EP-001" in s for s in findings.should)
+
+
+def test_id_first_tc_table_tracking_status_is_not_excluded_as_coverage():
+    """A TC table that tracks per-TC status must not be eaten by the coverage rule.
+
+    The exclusion is narrowed by subject-first ordering: a coverage table is ABOUT
+    scenarios (slug first) and only references TC IDs; a TC table is ABOUT the TCs
+    (ID first). Measured over 57 plans: all 5 ID+slug+Status tables are coverage and
+    all 5 put slug first. Without the narrowing this table vanished silently.
+    """
+    testplan = """\
+| TC-ID | Scenario Slug | Steps | Status |
+|-------|---------------|-------|--------|
+| ACME-EP-001 | real-slug | do it | done |
+| ACME-EP-002 | other-slug | do it | todo |
+"""
+    rows = amplifier_verify.parse_tc_table(testplan)
+    assert [r.tc_id for r in rows] == ["ACME-EP-001", "ACME-EP-002"]
+
+    # ...while a real coverage table (slug first) is still excluded.
+    coverage = """\
+| Scenario Slug | Status | TC-ID | Notes |
+|---------------|--------|-------|-------|
+| real-slug | covered | ACME-EP-001 | - |
+"""
+    assert amplifier_verify.parse_tc_table(coverage) == []
+    assert len(amplifier_verify.parse_coverage_table(coverage)) == 1
+
+
+def test_a_table_is_identified_by_its_separator_row():
+    """Round 4's structural gate: header + separator row, not a text pattern.
+
+    A pipe-delimited block with no separator row is not a markdown table. Reading it
+    anyway would mine TC-IDs out of prose that merely looks tabular — and the header
+    row of a real table is the only thing that tells the parser which column is which,
+    so without the separator there is nothing distinguishing header from data.
+    """
+    no_separator = """\
+| TC-ID | Scenario Slug |
+| ACME-EP-001 | not-a-real-table |
+
+## Test Cases
+
+| TC-ID | Scenario Slug |
+|-------|---------------|
+| ACME-EP-002 | real |
+"""
+    rows = amplifier_verify.parse_tc_table(no_separator)
+    assert [r.tc_id for r in rows] == ["ACME-EP-002"]
+    assert "ACME-EP-001" not in [r.tc_id for r in rows]
+
+
 def test_example_tables_inside_fenced_code_blocks_are_not_read():
     """A plan documenting its own table format contains example tables.
 

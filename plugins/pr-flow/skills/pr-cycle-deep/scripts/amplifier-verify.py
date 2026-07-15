@@ -199,6 +199,17 @@ def _coverage_cols(header_cells: list[str]) -> tuple[int, int] | None:
     status_col = _find_col(header_cells, _STATUS_COL_RE)
     if slug_col is None or status_col is None:
         return None
+    id_col = _find_col(header_cells, _TC_ID_COL_RE)
+    if id_col is not None and id_col < slug_col:
+        # Subject-first: a coverage table is ABOUT scenarios and merely references TC
+        # IDs, so its slug column comes first; a TC table is ABOUT the TCs. Measured
+        # over 57 real plans: all 5 tables carrying ID+slug+Status are coverage and
+        # all 5 put slug before ID; no TC-shaped one exists. Without this an
+        # ID-first TC table that happens to track per-TC `Status` would be excluded
+        # from TC parsing entirely -- silently. Narrowing the exclusion can only
+        # over-collect (visible), never under-collect (silent), so it errs the safe
+        # way for a gate whose defining bug is silent under-reporting.
+        return None
     return slug_col, status_col
 
 
