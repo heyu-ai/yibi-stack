@@ -18,6 +18,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPO_ROOT / "commands" / "scripts" / "clean_wt.sh"
 
+
 # gh 在測試環境可能已認證，會對 fake repo 發出無意義查詢並拖慢測試。
 # 清空 PATH 中的 gh 不可行（腳本也要 git），改用 GH_CONFIG_DIR 指向空目錄讓 gh 查不到憑證，
 # 腳本會走 [WARN] 分支並改用純 git 證據 -- 這正是我們要測的降級路徑。
@@ -186,9 +187,7 @@ class TestCleanWtArgs:
         assert r.returncode == 1
         assert "[FAIL]" in r.stderr
 
-    def test_cwt_vl_002_rejects_stale_days_without_value(
-        self, repo: Path, tmp_path: Path
-    ) -> None:
+    def test_cwt_vl_002_rejects_stale_days_without_value(self, repo: Path, tmp_path: Path) -> None:
         """CWT-VL-002: --stale-days 漏傳值時給 clean [FAIL]，不得因 set -u 噴 stacktrace。"""
         env = _env(tmp_path)
         r = _run(repo, env, "--stale-days")
