@@ -218,10 +218,15 @@ make install-all         # 等同 build-tools + install + install-project + inst
   Each of those targets carries its own guard rather than relying on `install-all` chaining
   `install` first — **`make -j` runs prerequisites in parallel**, so `install-scheduler` could
   otherwise write the plist before `install`'s guard aborts.
-  Remaining gap: the guard lives in the Makefile, so invoking the Python modules **directly**
-  (`uv run python -m tasks.scheduler install`, `... -m tasks.mycelium handover install-hooks`)
-  still self-locates via `__file__` (`tasks/_paths.py`, `tasks/mycelium/auto_handover_hooks.py:145`)
-  and would embed a worktree path into the LaunchAgent plist / `settings.json` hooks.
+  The Makefile is not the only entrance, so it is not the only guard: `tasks/_worktree_guard.py`
+  re-checks in Python at each **process entry point** that persists a repo path into
+  machine-level state — `tasks.scheduler install` (LaunchAgent plist), `tasks.mycelium handover
+  install-hooks` / `insight install-hook` / `recap install-hook` (`~/.claude/settings.json` hook
+  commands), and `scripts/register_skill_repo.py`'s `main()` (`~/.agents/config.json`). It shells
+  out to the same `assert_not_worktree.sh` and treats **any** non-zero exit as "unsafe or
+  unknowable" without interpreting it — detection stays a single implementation; re-deriving it in
+  Python would re-open the six fail-opens PR #234 closed. `insight` / `recap install-hook` have no
+  make target at all, so the Python guard is their **only** line of defence (issue #237).
 - **installed skills go stale when local `main` is behind `origin/main`**: `make install` copies
   skill scripts to `~/.agents/skills/`; if you don't pull main + re-run `make install`, those
   copies keep an old version. Concretely, the pr-cycle-deep agy scripts stay on the pre-fix

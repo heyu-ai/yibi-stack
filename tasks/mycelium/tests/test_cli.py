@@ -1,14 +1,45 @@
-"""測試 CLI 指令：account link-claude。"""
+"""測試 CLI 指令：account link-claude、hook 安裝的 worktree 守門。"""
 
 from __future__ import annotations
 
 import json
+import subprocess  # nosec B404
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from click.testing import CliRunner
 
 from tasks.mycelium.cli import cli
+
+
+def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # nosec B603
+        args, capture_output=True, text=True, timeout=30, check=False
+    )
+
+
+def _make_repo(root: Path) -> Path:
+    """建立一個有 initial commit 的 git repo。
+
+    不用 `git init -b`（2.28+）；理由見 .claude/rules/09-test-conventions.md。
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    _run(["git", "init", "-q", str(root)])
+    _run(["git", "-C", str(root), "symbolic-ref", "HEAD", "refs/heads/main"])
+    _run(["git", "-C", str(root), "config", "user.email", "test@example.com"])
+    _run(["git", "-C", str(root), "config", "user.name", "test"])
+    (root / "README.md").write_text("x\n", encoding="utf-8")
+    _run(["git", "-C", str(root), "add", "README.md"])
+    _run(["git", "-C", str(root), "commit", "-qm", "init"])
+    return root
+
+
+def _make_worktree(tmp_path: Path) -> Path:
+    repo = _make_repo(tmp_path / "repo")
+    wt = tmp_path / "wt"
+    _run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "feat", str(wt)])
+    return wt
 
 
 class TestLinkClaude:
@@ -231,3 +262,55 @@ class TestRetroMigrateCli:
         assert result.exit_code == 0
         assert "3" in result.output
         assert "1" in result.output
+
+
+# hook 安裝指令，全部會把自我定位的 repo 路徑寫進 ~/.claude/settings.json。
+# insight / recap 的 install-hook **沒有對應的 make target**，故 Python 層的 guard
+# 是它們唯一的防線（handover install-hooks 另有 Makefile 層的 guard 形成雙層防護）。
+_HOOK_INSTALL_COMMANDS = [
+    ["handover", "install-hooks"],
+    ["insight", "install-hook"],
+    ["recap", "install-hook"],
+]
+
+
+class TestHookInstallWorktreeGuard:
+    """MYCWG-DT-*: hook 安裝在 worktree 內必須擋下且不動 settings.json（issue #237）。"""
+
+    @pytest.fixture
+    def home_settings(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """把 HOME 導到 tmp，讓 settings.json 的預設路徑落在拋棄式目錄。
+
+        安裝函式內部是 `settings_path or (Path.home() / ".claude" / "settings.json")`，
+        而 CLI 從不傳 settings_path —— 正是預設那條（真實機器層級）路徑。改 HOME 才能
+        測到 CLI 真正會走的分支；也讓突變驗證是安全的：拿掉 guard 時寫進 tmp，
+        不會污染使用者真正的 ~/.claude/settings.json。
+        """
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        return home / ".claude" / "settings.json"
+
+    @pytest.mark.parametrize("args", _HOOK_INSTALL_COMMANDS)
+    def test_mycwg_dt_001_hook_install_in_worktree_blocked(
+        self, args: list[str], tmp_path: Path, home_settings: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MYCWG-DT-001: worktree 內安裝 hook -> exit 1 且 settings.json 未被建立。"""
+        monkeypatch.setattr("tasks._worktree_guard.PROJECT_ROOT", _make_worktree(tmp_path))
+        result = CliRunner().invoke(cli, args)
+        assert result.exit_code == 1
+        assert not home_settings.exists(), f"{args} 的 guard 沒擋住，settings.json 已被寫出"
+
+    @pytest.mark.parametrize("args", _HOOK_INSTALL_COMMANDS)
+    def test_mycwg_dt_002_hook_install_in_main_repo_passes(
+        self, args: list[str], tmp_path: Path, home_settings: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MYCWG-DT-002: 主 repo 內安裝 hook -> 正常寫入（guard 不得誤擋）。
+
+        與 DT-001 成對：只證明「擋得住」不夠，一個永遠回傳失敗的 guard 也能讓 DT-001
+        全綠。這條釘住 guard 的另一半契約。
+        """
+        monkeypatch.setattr("tasks._worktree_guard.PROJECT_ROOT", _make_repo(tmp_path / "main"))
+        result = CliRunner().invoke(cli, args)
+        assert result.exit_code == 0
+        assert home_settings.exists(), f"{args} 在主 repo 被誤擋，settings.json 未寫出"

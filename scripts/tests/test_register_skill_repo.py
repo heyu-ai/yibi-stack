@@ -7,6 +7,8 @@ scripts/ 非 package，故以 importlib 依路徑載入模組，不污染 python
 
 import importlib.util
 import json
+import subprocess  # nosec B404
+import sys
 from pathlib import Path
 
 import pytest
@@ -168,3 +170,61 @@ class TestMakefileContract:
         # 若有人退回只傳 CURDIR（漏 key），此斷言失敗。
         assert "register_skill_repo.py '$(CURDIR)'\n" not in text
         assert "register_skill_repo.py '$(CURDIR)' \\\n" not in text
+
+
+def _sh(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # nosec B603
+        args, capture_output=True, text=True, timeout=30, check=False
+    )
+
+
+def _make_repo(root: Path) -> Path:
+    """建立有 initial commit 的 git repo（不用 `git init -b`，那是 2.28+）。"""
+    root.mkdir(parents=True, exist_ok=True)
+    _sh(["git", "init", "-q", str(root)])
+    _sh(["git", "-C", str(root), "symbolic-ref", "HEAD", "refs/heads/main"])
+    _sh(["git", "-C", str(root), "config", "user.email", "test@example.com"])
+    _sh(["git", "-C", str(root), "config", "user.name", "test"])
+    (root / "README.md").write_text("x\n", encoding="utf-8")
+    _sh(["git", "-C", str(root), "add", "README.md"])
+    _sh(["git", "-C", str(root), "commit", "-qm", "init"])
+    return root
+
+
+class TestMainWorktreeGuard:
+    """REGSKILL-DT-009/010: main() 必須守住「被寫進 config.json 的那個路徑」（issue #237）。
+
+    這個 sink 的形狀與其他四個不同：repo 路徑是 **argv[1]**，不是自我定位的結果。
+    故 guard 驗的是引數，不是本腳本自身的位置。
+    """
+
+    @pytest.fixture
+    def home(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        h = tmp_path / "home"
+        h.mkdir()
+        monkeypatch.setenv("HOME", str(h))
+        return h
+
+    def test_regskill_dt_009_main_blocks_worktree_arg(
+        self, tmp_path: Path, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """REGSKILL-DT-009: argv[1] 是 worktree -> exit 1 且 config.json 未被建立。"""
+        repo = _make_repo(tmp_path / "repo")
+        wt = tmp_path / "wt"
+        _sh(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "feat", str(wt)])
+
+        monkeypatch.setattr(sys, "argv", ["register_skill_repo.py", str(wt), "yibi-stack"])
+        with pytest.raises(SystemExit) as exc:
+            register_skill_repo.main()
+        assert exc.value.code == 1
+        assert not (home / ".agents" / "config.json").exists(), "guard 沒擋住，config.json 已寫出"
+
+    def test_regskill_dt_010_main_allows_main_repo_arg(
+        self, tmp_path: Path, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """REGSKILL-DT-010: argv[1] 是主 repo -> 正常註冊（guard 不得誤擋）。"""
+        repo = _make_repo(tmp_path / "repo")
+        monkeypatch.setattr(sys, "argv", ["register_skill_repo.py", str(repo), "yibi-stack"])
+        register_skill_repo.main()
+        cfg = json.loads((home / ".agents" / "config.json").read_text(encoding="utf-8"))
+        assert cfg["skill_repos"]["yibi-stack"] == str(repo)

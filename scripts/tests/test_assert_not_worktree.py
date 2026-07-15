@@ -1023,9 +1023,29 @@ class TestMakefileWiring:
         """ANW-DT-005: 需要 SKILL= 的 target 必須把該引數帶進 guard 的建議指令。
 
         否則 [FAIL] 訊息會叫使用者跑 `make install-one`，照抄立刻失敗於缺少 SKILL。
+
+        issue #237 起腳本改收「完整指令」而非 target 名（它多了非 make 的呼叫者），
+        故這裡連 `make ` 前綴一起斷言——建議指令要能整行照抄。
         """
         recipe = self._recipe_lines(target)
         guard_line = next(line for line in recipe if "assert_not_worktree.sh" in line)
-        assert f'"{target} SKILL=$(SKILL)"' in guard_line, (
+        assert f'"make {target} SKILL=$(SKILL)"' in guard_line, (
             f"{target} 未把 SKILL= 帶進 guard 訊息：{guard_line}"
+        )
+
+    @pytest.mark.parametrize("target", GUARDED_TARGETS)
+    def test_anw_dt_006_guard_command_arg_is_copy_pasteable(self, target: str) -> None:
+        """ANW-DT-006: 每個 target 傳給 guard 的第二個引數必須是可照抄的完整指令。
+
+        issue #237：腳本原本硬編 `make ${TARGET}` 前綴，只收 target 名。加入 Python
+        呼叫端後那個前綴會讓 `uv run python -m ...` 的呼叫者印出一條照抄必失敗的假
+        指令，故前綴移到呼叫端。這個測試釘住新契約——若有人把 `make ` 漏掉，[FAIL]
+        訊息會變成「不可執行 install-scheduler」並建議 `cd <main> && install-scheduler`，
+        照抄即 command not found。
+        """
+        recipe = self._recipe_lines(target)
+        guard_line = next(line for line in recipe if "assert_not_worktree.sh" in line)
+        assert '"make ' in guard_line, (
+            f"{target} 傳給 guard 的指令未含 `make ` 前綴，[FAIL] 訊息會給出無法照抄的"
+            f"指令：{guard_line}"
         )

@@ -82,6 +82,22 @@ def main() -> None:
         )
         raise SystemExit(1)
 
+    # scripts/ 刻意不是 package（見 scripts/tests/test_register_skill_repo.py 的說明），
+    # 故 `python3 scripts/register_skill_repo.py` 的 sys.path[0] 是 scripts/ 而非 repo 根，
+    # 直接 `import tasks.*` 會 ModuleNotFoundError。這裡把 repo 根補進 sys.path 以重用
+    # 唯一的 guard 實作——寧可在 main() 做這個受限的 bootstrap，也不要把 fail-closed 的
+    # 包裝邏輯在此複製一份（rule 11：不要把已收斂成單一實作的邏輯重新散開）。
+    # 只在 main() 做：測試以 importlib 載入本模組並直接呼叫 register()，不受影響。
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    from tasks._worktree_guard import assert_not_worktree
+
+    # 守 **argv[1]**（要被寫進 config.json 的那個路徑），而不是本腳本自身的位置：
+    # 被寫進 ~/.agents/config.json（機器層級）的毒是 repo_path，不是 __file__。
+    assert_not_worktree(
+        f"python3 scripts/register_skill_repo.py {sys.argv[1]}",
+        repo_root=pathlib.Path(sys.argv[1]),
+    )
+
     config_path = pathlib.Path.home() / ".agents" / "config.json"
     repo_name = sys.argv[2] if len(sys.argv) > 2 else None
     register(sys.argv[1], config_path, repo_name)
