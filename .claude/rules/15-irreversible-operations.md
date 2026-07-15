@@ -192,7 +192,7 @@ If already pushed, this recovery does not apply — use PR + revert commit workf
 
 | Operation | Risk | Recommended approach |
 |-----------|------|----------------------|
-| `rm -rf <path>` | Recursive delete; cannot recover from Trash | Run `ls <path>` to show contents; let user confirm; or use `trash` instead |
+| `rm -rf <path>` | Recursive delete; cannot recover from Trash | Run `git ls-files <path>` to reveal **tracked** content (`ls` alone does not distinguish it), then let user confirm; or use `trash` instead |
 | `find ... -delete` | Batch delete; scope is hard to predict | Run `find ... -print` (without `-delete`) to show affected files first |
 | `> file` overwriting an existing file | Original content permanently gone | Confirm whether backup or git version exists; use `>>` append instead, or `cp` first |
 | `truncate -s 0 file` | Empties file content | Confirm file purpose; describe and let user confirm |
@@ -204,6 +204,43 @@ find /path -name "*.log" -delete
 > /etc/config.json           # overwrites an existing config file
 truncate -s 0 data/prod.db
 ```
+
+### `git status --porcelain` Is Not a Tracked-File Listing
+
+A clean `git status --porcelain` for a directory does **not** mean the directory holds only
+untracked files. It lists files with **changes** — a tracked file that is unmodified never
+appears. Reading its output as "nothing tracked here, safe to `rm -rf` the whole directory"
+deletes tracked content:
+
+```bash
+# Wrong: status showed only `??` entries, so the directory looked disposable
+git status --porcelain tasks/foo/generated/
+# ?? tasks/foo/generated/a.py        <- untracked, fine to delete
+# ?? tasks/foo/generated/b.py        <- ...but the tracked, unmodified
+#                                       tasks/foo/generated/.gitkeep is invisible here
+rm -rf tasks/foo/generated/          # -> ` D tasks/foo/generated/.gitkeep`
+
+# Correct: ask git what it tracks, then scope the deletion
+git ls-files tasks/foo/generated/    # the authoritative tracked list
+```
+
+The same blind spot applies to `ls`: it shows the files but not their tracked status, which is
+why the `rm -rf` row above calls for `git ls-files` rather than `ls`.
+
+**Deleting tracked files from another worktree is worse than it looks.** Every linked worktree
+inherits the repo's tracked content, so a directory that exists there is usually *not* a stray
+copy someone chose to make — it is that branch's committed state. Deleting it puts spurious
+deletions in a branch you are not working on, and if a concurrent session stages with
+`git add -A` before you restore, those deletions land in *their* commit. Confirm the target is
+untracked (`git ls-files`) before deleting anything under `.claude/worktrees/`.
+
+Recovery for both cases: `git checkout -- <path>` restores tracked files byte-exact from the
+branch's committed state. Untracked files are gone.
+
+(Source: yibi-stack PR #214 retro — `rm -rf tasks/nightly_agent/tests/generated/` removed a
+tracked `.gitkeep` after `git status` showed only untracked entries; separately, a `rm -rf` on
+another worktree's tracked change directory was left unrestored, see rule 13's `&&`-chain
+section for that half.)
 
 ## Category 5: Cloud
 

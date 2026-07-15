@@ -435,6 +435,46 @@ Notes:
 - `git checkout -- 'plugins/*/package.json'` glob must use single quotes (shell glob expansion timing).
 - If a step has its own `trap`, isolate with a subshell to avoid overwriting the outer `trap ERR`.
 
+## Never `&&`-Gate a Restore Behind the Step That Might Fail (PR #214)
+
+`A && B && restore` reads as "do A, do B, then put things back" — but `&&` means **B's success
+is the precondition for the restore**. When B is the fallible step, the restore is skipped
+exactly when it is needed. This is the same concern as the `trap ERR` section above, in its
+most common one-liner form.
+
+```bash
+# Wrong: mutate -> risky-step -> restore, chained with &&
+rm -rf "$OTHER/dir" && some-tool --do-thing && git -C "$OTHER" checkout -- dir
+#                      ^^^^^^^^^^^^^^^^^^^^ fails -> the restore never runs,
+#                                            the deletion is left behind
+
+# Correct A: `;` -- the restore runs regardless of the middle step's exit status
+rm -rf "$OTHER/dir"; some-tool --do-thing; git -C "$OTHER" checkout -- dir
+
+# Correct B: trap -- survives `set -e` and early returns too
+restore() { git -C "$OTHER" checkout -- dir; }
+trap restore EXIT
+rm -rf "$OTHER/dir"
+some-tool --do-thing
+```
+
+Correct B is the stronger form: under `set -e`, or if the middle step exits non-zero in a way
+that aborts the whole script, `;` still stops before the restore — `trap ... EXIT` does not.
+
+**Why this bites hardest when handing the chain to a human**: a one-line `&&` chain looks
+atomic and gets pasted verbatim. Nothing in it signals that the last clause is conditional.
+If the chain touches state outside the current worktree (another worktree, a shared checkout),
+the skipped restore is left for someone else to discover — see rule 15's
+`git status --porcelain` section for the deletion half of this incident.
+
+Rule of thumb: **any command whose job is to undo an earlier command must not be reachable
+only via `&&`.** Verify by asking "if the middle step exits 1, does the restore still run?"
+before handing the line over.
+
+(Source: yibi-stack PR #214 retro — `rm -rf <worktree>/openspec/changes/<change> && spectra
+archive ... && git checkout -- ...` aborted at the still-failing `spectra archive`, leaving 7
+deleted tracked files in a worktree another session was concurrently committing to.)
+
 ## Exemption Regex Must Enumerate Precisely, Not Use Open Glob (PR #23)
 
 A hook exemption using `[^;|\n&]*` (open glob) instead of precise flag enumeration appears to
