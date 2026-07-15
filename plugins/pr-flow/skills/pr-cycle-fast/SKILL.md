@@ -2,7 +2,7 @@
 name: pr-cycle-fast
 type: exec
 scope: global
-description: PR 生命週期自動化 orchestrator（快速版）：偵測 open PR、並行 code review + CI monitor + conflict detect、auto-fix markdownlint/CI、merge 後自動觸發 /pr-retro 寫 mycelium、最後 /clean-merged。支援中斷後 resume。小型 PR 或追求快速 lifecycle 首選；大型 PR 或 SDD 專案請改用 /pr-cycle-deep。
+description: PR 生命週期自動化 orchestrator（快速版）：偵測 open PR、並行 code review + CI monitor + conflict detect、auto-fix markdownlint/CI、merge 後自動觸發 /pr-retro 寫 mycelium、最後 /clean-wt。支援中斷後 resume。小型 PR 或追求快速 lifecycle 首選；大型 PR 或 SDD 專案請改用 /pr-cycle-deep。
 ---
 
 # /pr-cycle-fast — PR Lifecycle Orchestrator (Fast)
@@ -214,12 +214,13 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr
 
 ### Step 8 — Clean (RETRO_DONE → CLEANED)
 
-在同一 session 內觸發 `/clean-merged`，清除已 merge 的分支與 worktree。
+在同一 session 內觸發 `/clean-wt`，清除已 merge 的分支與 worktree。
+`/clean-wt` 預設只報告；把它的 SAFE 清單呈現給使用者確認後，才用 `--apply` 實際刪除。
 
 完成後 transition：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to CLEANED --reason "clean-merged done"
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to CLEANED --reason "clean-wt done"
 ```
 
 State file 從 `.runtime/pr_orchestrator/` 搬到 `~/.claude/pr_orchestrator/<repo>/` 歸檔（Python CLI 自動處理）。

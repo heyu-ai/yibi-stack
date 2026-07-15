@@ -30,6 +30,5 @@ claude plugin install pr-flow@yibi-stack
 | `/pr-cycle-deep` command | PR 生命週期深度版（mob review + SDD） |
 | `/mob-code-review-only` command | Mob review 別人的 PR（只給建議、不修改） |
 | `/pr-retro` command | 觸發 PR 事後檢討 |
-| `/clean-gone` command | 清除遠端已刪除的本地追蹤 branch |
-| `/clean-merged` command | 清除已合併的本地 branch |
+| `/clean-wt` command | 統一清理本地分支與 worktree（merged / gone / 無價值殘留）；預設只報告，`--apply` 才刪 |
 | `/debug-to-pr` command | 從 debug session 結果產生 PR |

@@ -206,7 +206,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   a checkout, re-run `make install` — the symlink is repointed only by that run.
 - **`make install` must run from the MAIN repo, never from a worktree**: the install targets
   point global symlinks at `$(CURDIR)`, so installing from `.claude/worktrees/<name>/` aims
-  them at a directory that `/clean-merged` deletes after the branch merges — then every skill
+  them at a directory that `/clean-wt` deletes after the branch merges — then every skill
   dies. Neither the resolver's identity gate nor the Makefile's `resolved == $(CURDIR)` gate
   can catch this (a worktree is a complete checkout, and inside one those two paths are equal
   by definition). `scripts/assert_not_worktree.sh` now blocks it as the first line of every

@@ -1,0 +1,1 @@
+../plugins/pr-flow/commands/clean-wt.md
