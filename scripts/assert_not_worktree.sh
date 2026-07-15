@@ -347,7 +347,7 @@ _shell_quote() {
 echo "  [FAIL] 偵測到目前在 git worktree 內，不可執行 ${COMMAND}：" >&2
 echo "         ${WORKTREE_PATH}" >&2
 echo "         worktree 會在分支合併後被刪除。把這份 checkout 的路徑寫進機器層級" >&2
-echo "         設定後，那些設定會指向不存在的路徑並靜默失效——~/.claude/skills/ 與" >&2
+echo "         設定後，那些設定會指向不存在的路徑並靜默失效：~/.claude/skills/ 與" >&2
 echo "         ~/.agents/ 的 symlink（所有 skill 失效）、LaunchAgent plist（scheduler" >&2
 echo "         每 60 秒失敗）、~/.claude/settings.json 的 hook 指令（每次觸發失敗）。" >&2
 

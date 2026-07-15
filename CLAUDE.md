@@ -227,6 +227,9 @@ make install-all         # 等同 build-tools + install + install-project + inst
   unknowable" without interpreting it — detection stays a single implementation; re-deriving it in
   Python would re-open the six fail-opens PR #234 closed. `insight` / `recap install-hook` have no
   make target at all, so the Python guard is their **only** line of defence (issue #237).
+  Residual: importing an install function directly in Python still bypasses this — the guard sits
+  at the process entry point, not in the library (rule 11 explains why that altitude, and what
+  would move it down).
 - **installed skills go stale when local `main` is behind `origin/main`**: `make install` copies
   skill scripts to `~/.agents/skills/`; if you don't pull main + re-run `make install`, those
   copies keep an old version. Concretely, the pr-cycle-deep agy scripts stay on the pre-fix

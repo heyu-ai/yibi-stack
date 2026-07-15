@@ -14,8 +14,9 @@ from tasks.mycelium.cli import cli
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """執行 setup 用的 git 指令；**失敗即 raise**（理由見 tasks/tests/test_worktree_guard.py）。"""
     return subprocess.run(  # nosec B603
-        args, capture_output=True, text=True, timeout=30, check=False
+        args, capture_output=True, text=True, timeout=30, check=True
     )
 
 
@@ -36,9 +37,12 @@ def _make_repo(root: Path) -> Path:
 
 
 def _make_worktree(tmp_path: Path) -> Path:
+    """建立 linked worktree，並斷言 git 真的把它登記成 worktree。"""
     repo = _make_repo(tmp_path / "repo")
     wt = tmp_path / "wt"
     _run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "feat", str(wt)])
+    listed = _run(["git", "-C", str(repo), "worktree", "list", "--porcelain"]).stdout
+    assert f"worktree {wt.resolve()}" in listed, f"fixture 未建出 linked worktree：{listed}"
     return wt
 
 
@@ -267,10 +271,15 @@ class TestRetroMigrateCli:
 # hook 安裝指令，全部會把自我定位的 repo 路徑寫進 ~/.claude/settings.json。
 # insight / recap 的 install-hook **沒有對應的 make target**，故 Python 層的 guard
 # 是它們唯一的防線（handover install-hooks 另有 Makefile 層的 guard 形成雙層防護）。
+#
+# 第二欄是該指令應該傳給 guard 的復原指令——[FAIL] 訊息會原樣印出它。必須逐一釘住：
+# 三個 call site 是互相複製出來的（recap 的註解字面上就是「同 insight install-hook」），
+# 只驗 exit code 的話，recap 傳成 insight 的字串仍會全綠，而使用者拿到一條指向錯誤指令
+# 的建議（由 mob review 的 pr-test-analyzer 指出）。
 _HOOK_INSTALL_COMMANDS = [
-    ["handover", "install-hooks"],
-    ["insight", "install-hook"],
-    ["recap", "install-hook"],
+    (["handover", "install-hooks"], "uv run python -m tasks.mycelium handover install-hooks"),
+    (["insight", "install-hook"], "uv run python -m tasks.mycelium insight install-hook"),
+    (["recap", "install-hook"], "uv run python -m tasks.mycelium recap install-hook"),
 ]
 
 
@@ -291,19 +300,38 @@ class TestHookInstallWorktreeGuard:
         monkeypatch.setenv("HOME", str(home))
         return home / ".claude" / "settings.json"
 
-    @pytest.mark.parametrize("args", _HOOK_INSTALL_COMMANDS)
+    @pytest.mark.parametrize(("args", "expected_command"), _HOOK_INSTALL_COMMANDS)
     def test_mycwg_dt_001_hook_install_in_worktree_blocked(
-        self, args: list[str], tmp_path: Path, home_settings: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        args: list[str],
+        expected_command: str,
+        tmp_path: Path,
+        home_settings: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capfd: pytest.CaptureFixture[str],
     ) -> None:
-        """MYCWG-DT-001: worktree 內安裝 hook -> exit 1 且 settings.json 未被建立。"""
+        """MYCWG-DT-001: worktree 內安裝 hook -> exit 1、settings.json 未建立、且訊息指名自己。
+
+        第三個斷言不是裝飾：三個 call site 互相複製而來，傳錯字串時前兩個斷言仍會全綠。
+        guard 寫的是真實 stderr（subprocess 繼承 fd），不是 CliRunner 的 buffer，故用
+        capfd 而非 result.output。
+        """
         monkeypatch.setattr("tasks._worktree_guard.PROJECT_ROOT", _make_worktree(tmp_path))
         result = CliRunner().invoke(cli, args)
         assert result.exit_code == 1
         assert not home_settings.exists(), f"{args} 的 guard 沒擋住，settings.json 已被寫出"
+        assert expected_command in capfd.readouterr().err, (
+            f"{args} 傳給 guard 的復原指令不是自己，使用者會拿到指向錯誤指令的建議"
+        )
 
-    @pytest.mark.parametrize("args", _HOOK_INSTALL_COMMANDS)
+    @pytest.mark.parametrize(("args", "expected_command"), _HOOK_INSTALL_COMMANDS)
     def test_mycwg_dt_002_hook_install_in_main_repo_passes(
-        self, args: list[str], tmp_path: Path, home_settings: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        args: list[str],
+        expected_command: str,
+        tmp_path: Path,
+        home_settings: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """MYCWG-DT-002: 主 repo 內安裝 hook -> 正常寫入（guard 不得誤擋）。
 

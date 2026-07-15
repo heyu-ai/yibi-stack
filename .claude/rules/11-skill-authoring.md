@@ -128,9 +128,12 @@ re-litigated as "the old way was safer": the old lookup was rewritten by `regist
 on *every* `make install`, so a moved or deleted checkout self-corrected on the next run. A
 symlink does not self-correct. The resolver traded a silent-wrong-answer failure mode for one
 that needs an explicit up-front gate — which is `scripts/assert_not_worktree.sh`, wired as the
-**first recipe line** of `install`, `install-project`, `install-one`, and `install-force-one`
-(first, because those targets write global symlinks before they reach the resolver step —
-failing late leaves `~/.claude/skills/` already polluted).
+**first recipe line** of every target that writes machine-level state (first, because those
+targets write global symlinks before they reach the resolver step — failing late leaves
+`~/.claude/skills/` already polluted). The authoritative list is `GUARDED_TARGETS` in
+`scripts/tests/test_assert_not_worktree.py`, which the tests enumerate — do not re-list the
+targets here; an enumeration copied into prose is one more claim that decays silently (this
+paragraph said "four targets" for three PRs after the count became seven).
 
 Detection is `--git-dir != --git-common-dir` (in a worktree the former is
 `<main>/.git/worktrees/<name>`, the latter `<main>/.git`; in the main repo they are equal).
@@ -355,8 +358,10 @@ message is worse than a terse one — applied one level out: **when a second cal
 every string the helper emits and ask which caller it was written for.** Reusing battle-tested
 detection does not mean the prose around it transfers.
 
-Pin it with a test, not a convention: `ANW-DT-006` asserts every Makefile call site passes a
-`"make …"` prefixed command, so dropping it fails loudly instead of shipping an uncopyable hint.
+Pin it with a test, not a convention: `ANW-DT-016` asserts every Makefile call site passes a
+command that **names its own target** (`"make <target>…"`), so dropping the prefix — or copying a
+guard line to a new target and forgetting to change it — fails loudly instead of shipping a hint
+that is uncopyable or points at the wrong target.
 
 ### Skill scope 與 plugin agent 依賴一致性
 

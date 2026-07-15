@@ -13,18 +13,28 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 
 from __future__ import annotations
 
+import re
 import subprocess  # nosec B404
 from pathlib import Path
 
 import pytest
 
 from tasks import _worktree_guard
-from tasks._worktree_guard import assert_not_worktree
+from tasks._worktree_guard import GUARD_SCRIPT, assert_not_worktree
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """執行 setup 用的 git 指令；**失敗即 raise**。
+
+    `check=True` 不是潔癖：fixture 悄悄失敗會讓測試因錯的理由變綠。若 `git worktree add`
+    失敗，`wt` 根本不存在，guard 會走「[FAIL] 目錄不存在」那條路 exit 1，於是 WG-DT-001
+    照樣通過——但它驗到的是「目錄不存在」而非「偵測到 worktree」。（由 mob review 的
+    codex 與 agy 兩個 voice 各自獨立指出。）
+    """
     return subprocess.run(  # nosec B603
-        args, capture_output=True, text=True, timeout=30, check=False
+        args, capture_output=True, text=True, timeout=30, check=True
     )
 
 
@@ -50,10 +60,16 @@ def _make_repo(root: Path) -> Path:
 
 
 def _make_worktree(tmp_path: Path) -> Path:
-    """回傳一個真實的 linked worktree 路徑。"""
+    """回傳一個真實的 linked worktree 路徑。
+
+    建完後斷言它真的被 git 登記為 linked worktree——`check=True` 只擋「指令失敗」，
+    這條擋的是「指令成功了但產物不是我們要的東西」，否則後續斷言驗到的可能是別的狀態。
+    """
     repo = _make_repo(tmp_path / "repo")
     wt = tmp_path / "wt"
     _run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "feat", str(wt)])
+    listed = _run(["git", "-C", str(repo), "worktree", "list", "--porcelain"]).stdout
+    assert f"worktree {wt.resolve()}" in listed, f"fixture 未建出 linked worktree：{listed}"
     return wt
 
 
@@ -181,18 +197,54 @@ class TestFailClosed:
         assert exc.value.code == 1
         assert "[FAIL]" in capfd.readouterr().err
 
-    @pytest.mark.parametrize("code", [1, 2, 127])
+    @pytest.mark.parametrize("code", [1, 2, 126, 127, -9, -15])
     def test_wg_dt_004_any_nonzero_blocks(self, code: int, monkeypatch: pytest.MonkeyPatch) -> None:
         """WG-DT-004: **任何**非 0 exit code 都擋下，不分辨原因。
 
-        包裝層刻意不解讀 returncode 的語意——腳本已把「是 worktree」與「判不出來」
+        包裝層刻意不解讀 returncode 來決定擋不擋——腳本已把「是 worktree」與「判不出來」
         全部歸進非 0。在這裡加解讀（例如「只有 1 才擋」）就是新的 fail-open。
-        127 = command not found，正是那種「不解讀就會被誤放行」的值。
+        負值（被訊號殺掉）是最容易在日後被誤「正規化」成 0 的值，故一併釘住。
         """
         monkeypatch.setattr(_worktree_guard, "subprocess", _FakeSubprocess(returncode=code))
         with pytest.raises(SystemExit) as exc:
             assert_not_worktree("uv run python -m tasks.scheduler install")
         assert exc.value.code == 1
+
+    @pytest.mark.parametrize("code", [126, 127, -9, -15])
+    def test_wg_dt_006_abnormal_exit_is_not_silent(
+        self, code: int, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """WG-DT-006: 腳本**周邊**產生的離開碼必須由 wrapper 自己出聲，不得靜默。
+
+        腳本只為它自己偵測到的狀況印 [FAIL]。126（exec 不了）、127（找不到）、負值
+        （訊號致死）都是它印不出東西的情況；此時 wrapper 若也沉默，使用者只拿到一個沒有
+        任何解釋的 exit 1——而本模組的整個論點是「判不出來必須大聲」。
+
+        DT-004 涵蓋不到這條：它只斷言 exit code，而 _FakeSubprocess 從不寫 stderr，
+        所以有沒有訊息它都會綠（由 mob review 的 comment-analyzer 指出）。
+        """
+        monkeypatch.setattr(_worktree_guard, "subprocess", _FakeSubprocess(returncode=code))
+        with pytest.raises(SystemExit):
+            assert_not_worktree("uv run python -m tasks.mycelium insight install-hook")
+        err = capfd.readouterr().err
+        assert "[FAIL]" in err
+        assert str(code) in err, "訊息未指出實際的離開碼"
+        assert "uv run python -m tasks.mycelium insight install-hook" in err, "訊息未指名指令"
+
+    @pytest.mark.parametrize("code", [1, 2])
+    def test_wg_dt_007_script_owned_exit_stays_silent(
+        self, code: int, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+    ) -> None:
+        """WG-DT-007: 腳本自己能偵測的離開碼，wrapper 不得重複發聲。
+
+        與 DT-006 成對。腳本已為 exit 1 印過針對 command 客製的 [FAIL]；wrapper 再印一次
+        會變成兩段互相矛盾的診斷（「偵測到 worktree」+「異常終止」），訓練讀者忽略警告。
+        沒有這條，把 DT-006 的條件放寬成「所有非 0 都印」也會全綠。
+        """
+        monkeypatch.setattr(_worktree_guard, "subprocess", _FakeSubprocess(returncode=code))
+        with pytest.raises(SystemExit):
+            assert_not_worktree("uv run python -m tasks.scheduler install")
+        assert "[FAIL]" not in capfd.readouterr().err, "wrapper 對腳本已處理的離開碼重複發聲"
 
     def test_wg_dt_005_zero_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """WG-DT-005: exit 0 -> 放行。
@@ -202,3 +254,114 @@ class TestFailClosed:
         """
         monkeypatch.setattr(_worktree_guard, "subprocess", _FakeSubprocess(returncode=0))
         assert_not_worktree("uv run python -m tasks.scheduler install")
+
+
+# 已知會把 repo 路徑寫進機器層級狀態的 click 安裝指令。
+# 這是 Makefile 那側 GUARDED_TARGETS 的 Python 對應物。
+#
+# key 是 (cli 檔, click group, 指令名) 三元組，**不能只用指令名**：insight 與 recap 的
+# 指令名都叫 install-hook，只比對名字的話拿掉其中一個仍會撞到另一個而全綠——首版就是
+# 這樣寫的，突變驗證（M14）抓到它是假測試。
+_GUARDED_CLI_COMMANDS = {
+    ("tasks/scheduler/cli.py", "cli", "install"): "uv run python -m tasks.scheduler install",
+    (
+        "tasks/mycelium/cli.py",
+        "handover",
+        "install-hooks",
+    ): "uv run python -m tasks.mycelium handover install-hooks",
+    (
+        "tasks/mycelium/cli.py",
+        "insight",
+        "install-hook",
+    ): "uv run python -m tasks.mycelium insight install-hook",
+    (
+        "tasks/mycelium/cli.py",
+        "recap",
+        "install-hook",
+    ): "uv run python -m tasks.mycelium recap install-hook",
+}
+
+# 非 click 的進入點（獨立腳本的 main()），掃不到，逐一列出。
+_GUARDED_SCRIPTS = {"scripts/register_skill_repo.py": "make install"}
+
+# click command 名稱以 install 開頭者（uninstall 不匹配——移除 hook 是安全的，不該被擋）。
+# 兩種寫法：顯式字串 `@insight.command("install-hook")`，或由函式名推導的
+# `@cli.command()` + `def install(`。
+_EXPLICIT_INSTALL_CMD = re.compile(r'@(\w+)\.command\(\s*"(install[\w-]*)"\s*\)')
+_IMPLICIT_INSTALL_CMD = re.compile(r"@(cli)\.command\(\s*\)\s*\ndef (install[\w_]*)\s*\(")
+
+
+def _scan_install_commands() -> set[tuple[str, str, str]]:
+    """掃出 tasks/*/cli.py 裡所有 install* click 指令的 (檔案, group, 指令名)。"""
+    found: set[tuple[str, str, str]] = set()
+    for cli_path in sorted(_REPO_ROOT.glob("tasks/*/cli.py")):
+        source = cli_path.read_text(encoding="utf-8")
+        rel = str(cli_path.relative_to(_REPO_ROOT))
+        for group, name in _EXPLICIT_INSTALL_CMD.findall(source):
+            found.add((rel, group, name))
+        for group, func in _IMPLICIT_INSTALL_CMD.findall(source):
+            found.add((rel, group, func.replace("_", "-")))
+    return found
+
+
+class TestGuardedSinkInventory:
+    """WG-DT-008/009: 把「哪些進入點必須有 guard」變成機械檢查，而不是靠人記得。
+
+    issue #237 的成因不是有人拿掉了 guard，而是**沒有人列全**：issue 點名 2 個進入點，
+    實際有 5 個，而最暴露的兩個（insight / recap install-hook）連 make target 都沒有，
+    於是用 Makefile 當搜尋索引的人必然看不到它們。
+
+    刻意**不**做「全掃 tasks/**/cli.py 找 Path.home() 寫入」——mob review 的 codex voice
+    正確指出那個形狀兩頭都會漏：uninstall 路徑合法寫 settings.json 卻會被誤報（false
+    positive），而經由 helper 間接抵達的 sink 又掃不到（false negative）。改用窄形式：
+    釘住已知清單，並用命名慣例強制新的 install 指令入列。
+
+    殘留（明說以便日後 re-probe）：新 sink 若不叫 install*、或不在 tasks/**/cli.py，
+    這裡仍抓不到。這是刻意的取捨——窄而可信，勝過寬而必然被關掉。
+    """
+
+    def test_wg_dt_008_every_guarded_entry_point_calls_the_guard(self) -> None:
+        """WG-DT-008: 清單上的每個進入點都必須帶著自己的復原指令呼叫 guard。"""
+        by_file: list[tuple[str, str]] = list(_GUARDED_SCRIPTS.items())
+        by_file += [(path, cmd) for (path, _g, _n), cmd in _GUARDED_CLI_COMMANDS.items()]
+        for rel_path, command in by_file:
+            source = (_REPO_ROOT / rel_path).read_text(encoding="utf-8")
+            assert f'assert_not_worktree("{command}"' in source, (
+                f"{rel_path} 未以 {command!r} 呼叫 assert_not_worktree——"
+                f"guard 被移除，或復原指令漂掉了"
+            )
+
+    def test_wg_dt_009_no_install_command_escapes_the_inventory(self) -> None:
+        """WG-DT-009: tasks/*/cli.py 裡的 install* 指令集合必須與清單**完全相等**。
+
+        這條抓的是 issue #237 的**成因**而非症狀：新增一個 install-hook 卻忘了 guard 時，
+        DT-008 不會紅（它只檢查清單上的），行為測試也不會紅（沒人為它寫測試）。這條會紅，
+        因為新指令不在清單裡——作者被迫把它列進來，而列進來就會被 DT-008 要求 guard。
+
+        用相等而非單向包含：反向（清單有、程式碼沒有）代表指令被刪或改名，此時 DT-008
+        的斷言字串會過期而變成永遠通過的空檢查。兩個方向都要紅。
+        """
+        found = _scan_install_commands()
+        assert found, "掃不到任何 install 指令——正規表示式已過期，這個檢查形同虛設"
+
+        inventory = set(_GUARDED_CLI_COMMANDS)
+        missing = found - inventory
+        stale = inventory - found
+        assert not missing, (
+            f"這些 install 指令不在 _GUARDED_CLI_COMMANDS 清單上：{sorted(missing)}。"
+            f"它若會把 repo 路徑寫進機器層級狀態（plist / settings.json / config.json），"
+            f"請加上 assert_not_worktree 並列入清單；若不會，請在清單旁註明豁免理由。"
+        )
+        assert not stale, (
+            f"清單列了程式碼裡不存在的指令：{sorted(stale)}。"
+            f"指令被刪或改名時，DT-008 的斷言會退化成永遠通過的空檢查。"
+        )
+
+    def test_wg_dt_010_guard_script_exists_at_the_resolved_path(self) -> None:
+        """WG-DT-010: GUARD_SCRIPT 必須指到真實存在的檔案。
+
+        它是由 PROJECT_ROOT 組出來的；repo 結構一改（如 scripts/ 更名）而沒人動這裡，
+        每個呼叫端都會在執行期才炸「找不到守門腳本」——那是 fail-closed，但是在使用者
+        面前才發現。這條讓它在 CI 就紅。
+        """
+        assert GUARD_SCRIPT.is_file(), f"守門腳本不存在：{GUARD_SCRIPT}"

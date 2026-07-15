@@ -14,17 +14,25 @@ guard 住在 Makefile。繞過 make、直接呼叫 Python module 完全碰不到
 
 ## 為什麼是 subprocess 呼叫 shell script，而不是在 Python 重寫偵測
 
-`assert_not_worktree.sh` 經過 7 輪 mob review、65 個測試，修掉至少 6 個 fail-open：
-舊 git 無 `--path-format`、sudo 下的 dubious ownership、dangling `.git` symlink、
-`$DIR` 是壞掉 worktree 的子目錄、`$()` subshell 吞 exit code、CDPATH 干擾。在 Python
-憑直覺重寫等於把那 6 個坑重踩一次。**偵測維持單一實作**（那支 shell script），本模組
-只是薄包裝——這裡沒有任何偵測邏輯，只有「怎麼呼叫」與「失敗時怎麼辦」。
+`assert_not_worktree.sh` 經過 7 輪 mob review，修掉至少 6 個 fail-open：舊 git 無
+`--path-format`、sudo 下的 dubious ownership、dangling `.git` symlink、`$DIR` 是壞掉
+worktree 的子目錄、`$()` subshell 吞 exit code、CDPATH 干擾。在 Python 憑直覺重寫等於
+把那 6 個坑重踩一次。**偵測維持單一實作**（那支 shell script），本模組只是薄包裝——
+這裡沒有任何偵測邏輯，只有「怎麼呼叫」與「失敗時怎麼辦」。
+
+該腳本的測試數量請看 `scripts/tests/test_assert_not_worktree.py` 本身，不在此複述——
+數字會隨每次補測而變，寫死在這裡只會變成又一個過期的宣稱（rule 11：documented residual
+也是一種 claim，會隨每次修改而衰減）。
 
 ## 為什麼用 `__file__` 定位 script 不是同一個 bug
 
-`PROJECT_ROOT` 自我定位到「執行中的這份 checkout」——而本 guard 要驗的正是這份
-checkout。自我定位在這裡剛好命中目標，與 issue #237 的 bug（把自我定位的結果寫進
-不會跟著消失的地方）方向相反。
+`PROJECT_ROOT` 自我定位到「執行中的這份 checkout」——而預設要驗的正是這份 checkout。
+自我定位在這裡剛好命中目標，與 issue #237 的 bug（把自我定位的結果寫進不會跟著消失的
+地方）方向相反。
+
+例外是 `repo_root` 參數存在的理由：`scripts/register_skill_repo.py` 傳
+`repo_root=argv[1]`，因為被寫進 `~/.agents/config.json` 的毒是那個**引數**，不是本
+checkout。上面那句「要驗的正是這份 checkout」只適用於 `tasks/*` 那四個呼叫端。
 """
 
 from __future__ import annotations
@@ -96,8 +104,26 @@ def assert_not_worktree(command: str, repo_root: Path | None = None) -> None:
         _fail(f"無法執行 worktree 守門腳本（{e}），無法判定是否在 worktree 內，拒絕執行 {command}")
 
     if result.returncode != 0:
-        # **不解讀 returncode 的意義**：腳本已把「是 worktree」與「判不出來」（參數缺漏、
-        # 目錄不存在、git 呼叫失敗、路徑正規化失敗、暫存檔建不出來）全部歸進非 0，且都
-        # 已印出可行動的 [FAIL]。在這裡分辨「哪種非 0 才算真的擋」只會製造新的
-        # fail-open——正是 PR #234 反覆修掉的同一個形狀。任何非 0 = 不安全或無法確定。
+        # **不解讀 returncode 來決定擋不擋**：腳本已把「是 worktree」與「判不出來」（參數
+        # 缺漏、目錄不存在、git 呼叫失敗、路徑正規化失敗、暫存檔建不出來）全部歸進非 0。
+        # 在這裡分辨「哪種非 0 才算真的擋」只會製造新的 fail-open——正是 PR #234 反覆修掉
+        # 的同一個形狀。任何非 0 = 不安全或無法確定，一律擋。
+        #
+        # 但「不解讀」不等於「不出聲」。腳本只為**它自己偵測到的**狀況印過可行動的
+        # [FAIL]；由它**周邊**產生的離開碼它印不出東西來：
+        #   - 126：檔案在、但 exec 不了（如 checkout 弄丟 exec bit——雖然我們走 `bash <script>`
+        #          可繞過，bash 本身仍可能因權限問題以 126 收場）
+        #   - 127：bash 找不到要執行的東西（`which` 已擋掉多數情況，非全部）
+        #   - 負值：被訊號殺掉（OOM kill、SIGTERM），腳本根本沒機會印任何東西
+        # 這幾種情況下若我們也沉默，使用者只會拿到一個沒有任何解釋的 exit 1——而這個模組
+        # 的整個論點就是「判不出來必須大聲」。故補一條 wrapper 自己的訊息。
+        # （由 mob review 的 comment-analyzer 指出；Codex 認為多數情況不可達而評為 NIT，
+        # agy 指出 126 與訊號致死確實繞過上面的 is_file/which 檢查——三個 voice 都同意補。）
+        if result.returncode < 0 or result.returncode in (126, 127):
+            _fail(
+                f"worktree 守門腳本異常終止（exit {result.returncode}），無法判定是否在 "
+                f"worktree 內，拒絕執行 {command}：\n"
+                f"         {GUARD_SCRIPT}\n"
+                f"         負值代表被訊號殺掉；126/127 代表無法執行。請確認該檔案完整且可讀。"
+            )
         raise SystemExit(1)

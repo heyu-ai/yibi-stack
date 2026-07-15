@@ -1034,18 +1034,24 @@ class TestMakefileWiring:
         )
 
     @pytest.mark.parametrize("target", GUARDED_TARGETS)
-    def test_anw_dt_006_guard_command_arg_is_copy_pasteable(self, target: str) -> None:
-        """ANW-DT-006: 每個 target 傳給 guard 的第二個引數必須是可照抄的完整指令。
+    def test_anw_dt_016_guard_command_names_its_own_target(self, target: str) -> None:
+        """ANW-DT-016: 每個 target 傳給 guard 的第二個引數必須是**指名自己**的完整指令。
 
         issue #237：腳本原本硬編 `make ${TARGET}` 前綴，只收 target 名。加入 Python
         呼叫端後那個前綴會讓 `uv run python -m ...` 的呼叫者印出一條照抄必失敗的假
-        指令，故前綴移到呼叫端。這個測試釘住新契約——若有人把 `make ` 漏掉，[FAIL]
-        訊息會變成「不可執行 install-scheduler」並建議 `cd <main> && install-scheduler`，
-        照抄即 command not found。
+        指令，故前綴移到呼叫端。這個測試釘住新契約。
+
+        斷言綁到 `target` 而非只查 `"make ` 子字串：後者對任何 target 都會過，於是把
+        guard 行複製到新 target 卻忘了改（正是複製貼上最容易犯的錯）仍全綠，並出貨一條
+        指向錯誤 target 的復原指令。DT-005 對三個 SKILL= target 已示範了強形式；這裡把
+        同樣的嚴謹度補到全部 7 個（由 mob review 的 codex 與 claude 兩個 voice 指出）。
+
+        用 prefix 比對（不含結尾引號）以相容 `"make install-one SKILL=$(SKILL)"` 這種
+        帶引數的形式。
         """
         recipe = self._recipe_lines(target)
         guard_line = next(line for line in recipe if "assert_not_worktree.sh" in line)
-        assert '"make ' in guard_line, (
-            f"{target} 傳給 guard 的指令未含 `make ` 前綴，[FAIL] 訊息會給出無法照抄的"
-            f"指令：{guard_line}"
+        assert f'"make {target}' in guard_line, (
+            f"{target} 傳給 guard 的指令未指名自己的 target，[FAIL] 訊息會給出無法照抄或"
+            f"指向錯誤 target 的指令：{guard_line}"
         )

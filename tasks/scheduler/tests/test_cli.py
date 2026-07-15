@@ -15,27 +15,35 @@ from ..cli import cli
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """執行 setup 用的 git 指令；**失敗即 raise**（理由見 tasks/tests/test_worktree_guard.py）。"""
     return subprocess.run(  # nosec B603
-        args, capture_output=True, text=True, timeout=30, check=False
+        args, capture_output=True, text=True, timeout=30, check=True
     )
 
 
-def _make_worktree(tmp_path: Path) -> Path:
-    """建立一個真實的 linked worktree 並回傳其路徑。
+def _make_repo(root: Path) -> Path:
+    """建立一個有 initial commit 的 git repo。
 
     不用 `git init -b`（2.28+）；理由見 .claude/rules/09-test-conventions.md。
     """
-    repo = tmp_path / "repo"
-    repo.mkdir(parents=True, exist_ok=True)
-    _run(["git", "init", "-q", str(repo)])
-    _run(["git", "-C", str(repo), "symbolic-ref", "HEAD", "refs/heads/main"])
-    _run(["git", "-C", str(repo), "config", "user.email", "test@example.com"])
-    _run(["git", "-C", str(repo), "config", "user.name", "test"])
-    (repo / "README.md").write_text("x\n", encoding="utf-8")
-    _run(["git", "-C", str(repo), "add", "README.md"])
-    _run(["git", "-C", str(repo), "commit", "-qm", "init"])
+    root.mkdir(parents=True, exist_ok=True)
+    _run(["git", "init", "-q", str(root)])
+    _run(["git", "-C", str(root), "symbolic-ref", "HEAD", "refs/heads/main"])
+    _run(["git", "-C", str(root), "config", "user.email", "test@example.com"])
+    _run(["git", "-C", str(root), "config", "user.name", "test"])
+    (root / "README.md").write_text("x\n", encoding="utf-8")
+    _run(["git", "-C", str(root), "add", "README.md"])
+    _run(["git", "-C", str(root), "commit", "-qm", "init"])
+    return root
+
+
+def _make_worktree(tmp_path: Path) -> Path:
+    """建立 linked worktree，並斷言 git 真的把它登記成 worktree。"""
+    repo = _make_repo(tmp_path / "repo")
     wt = tmp_path / "wt"
     _run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "feat", str(wt)])
+    listed = _run(["git", "-C", str(repo), "worktree", "list", "--porcelain"]).stdout
+    assert f"worktree {wt.resolve()}" in listed, f"fixture 未建出 linked worktree：{listed}"
     return wt
 
 
@@ -172,3 +180,36 @@ class TestInstallWorktreeGuard:
         runner.invoke(cli, ["install"])
         assert not isolated["db"].exists(), "guard 之前就先建了 DB"
         assert not isolated["config"].exists(), "guard 之前就先寫了 config"
+
+    def test_sched_dt_003_install_in_main_repo_passes(
+        self, runner: CliRunner, tmp_path: Path, isolated: dict[str, Path]
+    ) -> None:
+        """SCHED-DT-003: 主 repo 內執行 install -> 正常寫出 plist（guard 不得誤擋）。
+
+        與 DT-001/002 成對。只證明「擋得住」不夠：一個 repo_root 接錯、或永遠 raise 的
+        guard 會讓 DT-001/002 全綠，而 install 在主 repo 已經永久壞掉且零測試訊號
+        （由 mob review 的 pr-test-analyzer 指出——mycelium 與 wrapper 都有這一半，
+        只有 scheduler 漏了）。
+        """
+        main_repo = _make_repo(tmp_path / "main")
+        venv_bin = main_repo / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        (venv_bin / "python").write_text("", encoding="utf-8")
+        plist = tmp_path / "ok.plist"
+
+        class _FakeSubprocess:
+            @staticmethod
+            def run(*_args: Any, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+        with (
+            patch("tasks._worktree_guard.PROJECT_ROOT", main_repo),
+            patch("tasks.scheduler.cli.PROJECT_ROOT", main_repo),
+            patch("tasks.scheduler.cli._PLIST_PATH", plist),
+            patch("tasks.scheduler.cli.subprocess", _FakeSubprocess),
+        ):
+            result = runner.invoke(cli, ["install"])
+
+        assert result.exit_code == 0, f"主 repo 被誤擋：{result.output}"
+        assert plist.exists(), "主 repo 安裝未寫出 plist"
+        assert str(main_repo) in plist.read_text(encoding="utf-8"), "plist 未嵌入主 repo 路徑"

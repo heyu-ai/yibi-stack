@@ -87,16 +87,26 @@ def main() -> None:
     # 直接 `import tasks.*` 會 ModuleNotFoundError。這裡把 repo 根補進 sys.path 以重用
     # 唯一的 guard 實作——寧可在 main() 做這個受限的 bootstrap，也不要把 fail-closed 的
     # 包裝邏輯在此複製一份（rule 11：不要把已收斂成單一實作的邏輯重新散開）。
-    # 只在 main() 做：測試以 importlib 載入本模組並直接呼叫 register()，不受影響。
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    # 既有的 register()-level 測試（以 importlib 載入本模組）不執行這裡；直接呼叫 main()
+    # 的測試（REGSKILL-DT-009/010）會，故插入前先查重，避免重複呼叫累積同一個路徑。
+    _repo_root = str(pathlib.Path(__file__).resolve().parents[1])
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
     from tasks._worktree_guard import assert_not_worktree
 
     # 守 **argv[1]**（要被寫進 config.json 的那個路徑），而不是本腳本自身的位置：
     # 被寫進 ~/.agents/config.json（機器層級）的毒是 repo_path，不是 __file__。
-    assert_not_worktree(
-        f"python3 scripts/register_skill_repo.py {sys.argv[1]}",
-        repo_root=pathlib.Path(sys.argv[1]),
-    )
+    #
+    # 復原指令傳 "make install" 而非本腳本的原始呼叫式，因為這個 sink 的形狀與其他四個
+    # 不同，`cd <main> && <原指令>` 對它無效：
+    #   1. 其他 sink 的毒是 cwd，cd 過去就解了；這裡的毒是 argv[1]，照抄後那個 worktree
+    #      路徑還在指令裡，guard 會再擋一次——建議變成一個迴圈。
+    #   2. guard 的 cd 目標是從 $DIR（= argv[1]）推出來的，也就是「被註冊那個路徑的主
+    #      repo」，未必是持有本腳本的 checkout；照抄會得到 can't open file（實測 exit 2）。
+    #   3. 原始呼叫式漏掉 argv[2]（SKILL_REPO_KEY），照抄會落回 basename fallback——正是
+    #      本模組 docstring 明文禁止的 issue #199 key drift。
+    # Makefile:119 是唯一的真實呼叫者，`make install` 同時補齊 cwd、key 與周邊步驟。
+    assert_not_worktree("make install", repo_root=pathlib.Path(sys.argv[1]))
 
     config_path = pathlib.Path.home() / ".agents" / "config.json"
     repo_name = sys.argv[2] if len(sys.argv) > 2 else None
