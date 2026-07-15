@@ -68,6 +68,17 @@
       {
         "hooks": [
           {
+            "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-tracked-rm.py || exit 2",
+            "statusMessage": "檢查 rm -rf 是否會刪到 git 追蹤檔...",
+            "timeout": 15,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-commit.sh",
             "statusMessage": "pre-commit: markdownlint + ruff format...",
             "timeout": 30,
