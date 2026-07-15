@@ -149,15 +149,34 @@ check that the condition it names is actually single. This one bit twice, one le
    to be `[ ! -e "$DIR/.git" ] && [ ! -L "$DIR/.git" ]` — `-L` is what asks "does the entry
    itself exist".
 
-Three rounds, one shape: **each time the fail-open was narrowed, the new condition still covered
+4. `[ ! -e ] && [ ! -L ]` on `$DIR` was still not it: `$DIR` can be a **subdirectory** of the
+   broken worktree, where no `.git` lives — it sits at the worktree root. Blocked at the root,
+   fail-open one level down. The predicate has to walk ancestors.
+
+Four rounds, one shape: **each time the fail-open was narrowed, the new condition still covered
 more than its name suggested.** When you write a fail-open, do not stop at naming the condition —
 enumerate the states that satisfy the predicate you actually typed, and probe each. Reading it as
-prose is how all three survived review.
+prose is how all four survived review.
 
-State the residual explicitly rather than implying the discriminator is total: a worktree whose
-`.git` has been **deleted outright** still passes, because at that point it is byte-identical to
-an unpacked zip. That is a deliberate limit of the criterion, not an oversight — say so in the
-header, or the next reader will trust `.git`-presence further than it deserves.
+**The documented residual is a claim too, and it decays with each fix.** State the limit
+explicitly — but re-probe it every time the predicate changes, because a stale residual note is
+worse than none: it tells the next reader (and reviewer) that a hole is known and accepted when
+in fact it has moved. Round 2's note said "only outright `.git` deletion is undetectable"; by
+round 4 that was false twice over (the dangling-symlink and the subdirectory cases both slipped
+through while the note claimed otherwise, and a reviewer caught the contradiction between code
+and note before catching the code). The honest residual here is narrow and worth stating in full:
+a worktree whose `.git` is deleted outright **and** which lives outside the main repo's tree —
+there it is byte-identical to an unpacked zip. If it lives *inside* the main tree, git resolves
+upward to the main repo and the equality check passes it through a different path entirely.
+
+**An error message's hint must share the predicate of the branch it explains.** The guard's
+"this repo is broken — pruned admin dir? main repo moved?" hint was gated only on "`.git`
+exists", not on "git actually said *not a git repository*". So any other git failure inside a
+directory that has a `.git` printed a confident, fabricated cause — reproduced against a
+perfectly **healthy main repo** with a shimmed dubious-ownership error. Fail-closed was right;
+naming a cause it had not established was not. This is the same rule as the `dirname` fallback
+above, one level in: that fallback pointed at a possibly-wrong *directory*, this hint at a
+possibly-wrong *reason*.
 
 Because git localises its messages, any such match must pin `LC_ALL=C`, or it silently misses on
 a non-English machine and starts blocking legitimate installs instead.

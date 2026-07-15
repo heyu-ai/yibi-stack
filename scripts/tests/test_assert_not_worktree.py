@@ -31,10 +31,24 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return _run(["git", "-C", str(root), *args])
 
 
+def _init_repo_portable(root: Path, *init_args: str) -> None:
+    """以「舊 git 也支援」的方式 init 並把預設分支設成 main。
+
+    不可用 `git init -b main`：`-b` 是 git 2.28（2020）才加入。本測試檔的重點之一
+    正是驗證舊 git 上的行為（ANW-EG-004），若 fixture 自己就需要新 git，在真正的
+    舊環境下會先掛在 fixture 而非測到腳本——宣稱測相容性、實際沒測到。
+    （由 mob review 的 codex voice 指出。）
+
+    `git symbolic-ref HEAD` 在 init 之後、commit 之前設定，古老 git 皆支援。
+    """
+    _run(["git", "init", "-q", *init_args, str(root)])
+    _run(["git", "-C", str(root), "symbolic-ref", "HEAD", "refs/heads/main"])
+
+
 def _make_repo(root: Path) -> Path:
     """建立一個有 initial commit 的 git repo（git worktree add 需要至少一個 commit）。"""
     root.mkdir(parents=True, exist_ok=True)
-    _run(["git", "init", "-q", "-b", "main", str(root)])
+    _init_repo_portable(root)
     _git(root, "config", "user.email", "test@example.com")
     _git(root, "config", "user.name", "test")
     (root / "README.md").write_text("x\n", encoding="utf-8")
@@ -375,7 +389,7 @@ class TestAssertNotWorktree:
         sep = tmp_path / "sep"
         sep_git = tmp_path / "sepgit"
         sep.mkdir()
-        _run(["git", "init", "-q", "-b", "main", f"--separate-git-dir={sep_git}", str(sep)])
+        _init_repo_portable(sep, f"--separate-git-dir={sep_git}")
         _git(sep, "config", "user.email", "t@e.com")
         _git(sep, "config", "user.name", "t")
         (sep / "README.md").write_text("x\n", encoding="utf-8")
@@ -391,7 +405,7 @@ class TestAssertNotWorktree:
         sep = tmp_path / "sep"
         sep_git = tmp_path / "sepgit"
         sep.mkdir()
-        _run(["git", "init", "-q", "-b", "main", f"--separate-git-dir={sep_git}", str(sep)])
+        _init_repo_portable(sep, f"--separate-git-dir={sep_git}")
         _git(sep, "config", "user.email", "t@e.com")
         _git(sep, "config", "user.name", "t")
         (sep / "README.md").write_text("x\n", encoding="utf-8")
@@ -405,6 +419,72 @@ class TestAssertNotWorktree:
         result = _run(["bash", str(GUARD), str(wt), "install"])
         assert result.returncode == 1, "separate-git-dir 主 repo 的 worktree 未被擋下"
         assert "worktree" in result.stderr
+
+    def test_anw_dt_012_pruned_worktree_subdir_is_blocked(self, tmp_path: Path) -> None:
+        """ANW-DT-012: 被 prune 的 worktree 的「子目錄」也須擋下。
+
+        .git 在 worktree 根而不在子目錄，所以只看 $DIR/.git 會漏。實測（修法前，
+        由 mob review 的 codex voice 指出）：prune 後 gate 對根回 exit 1（正確），
+        對子目錄回 exit 0（放行）。修法：fail-open 前往上走訪祖先找 .git。
+
+        本測試經突變驗證：把祖先走訪改回只看 $DIR/.git 會讓它失敗。
+        """
+        repo = _make_repo(tmp_path / "repo")
+        wt = tmp_path / "wt"
+        _git(repo, "worktree", "add", "-q", "-b", "feat", str(wt))
+        sub = wt / "sub"
+        sub.mkdir()
+        shutil.rmtree(repo / ".git" / "worktrees" / "wt")
+
+        # 前提：.git 在根不在子目錄
+        assert (wt / ".git").exists(), "測試前提不成立：worktree 根應有 .git"
+        assert not (sub / ".git").exists(), "測試前提不成立：子目錄不應有 .git"
+
+        result = _run(["bash", str(GUARD), str(sub), "install"])
+        assert result.returncode == 1, (
+            f"壞掉 worktree 的子目錄遭放行（fail-open）：{result.stderr!r}"
+        )
+        assert "[FAIL]" in result.stderr
+
+    def test_anw_eg_011_healthy_repo_is_not_accused_of_being_broken(self, tmp_path: Path) -> None:
+        """ANW-EG-011: 非 not-a-repo 的 git 失敗不得印出「這個 repo 壞了」的臆測。
+
+        提示訊息原本只 gate 在「有沒有 .git」，於是任何其他 git 失敗（dubious
+        ownership、git 不在 PATH）發生在有 .git 的目錄時都會照印。實測（由 mob
+        review 的 silent-failure-hunter 指出）：在一個**健康的主 repo** 上用 shim
+        模擬 dubious ownership，訊息宣稱 admin dir 被 prune / 主 repo 被搬移
+        ——全部是假的，把使用者送去查錯方向。
+
+        擋下是對的（fail-closed），但不得猜原因。
+        """
+        repo = _make_repo(tmp_path / "repo")
+
+        shim = tmp_path / "shim"
+        shim.mkdir()
+        (shim / "git").write_text(
+            "#!/bin/bash\n"
+            "echo \"fatal: detected dubious ownership in repository at '/x'\" >&2\n"
+            "exit 128\n",
+            encoding="utf-8",
+        )
+        (shim / "git").chmod(0o755)
+
+        env = dict(os.environ)
+        env["PATH"] = f"{shim}:{env['PATH']}"
+        result = subprocess.run(  # nosec B603
+            ["bash", str(GUARD), str(repo), "install"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            env=env,
+        )
+        assert result.returncode == 1, "非 not-a-repo 的 git 失敗未擋下"
+        # git 的原始訊息要透出來
+        assert "dubious ownership" in result.stderr
+        # 但不得臆測成因
+        assert "prune" not in result.stderr
+        assert "repo 壞了" not in result.stderr
 
     def test_anw_eg_009_cdpath_cannot_pollute_path_normalization(self, tmp_path: Path) -> None:
         """ANW-EG-009: CDPATH 不得污染路徑正規化。

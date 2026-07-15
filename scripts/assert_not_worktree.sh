@@ -23,12 +23,22 @@
 # 那會讓使用者以為裝了眼前 worktree 的程式碼，實際裝的是主 repo 的（可能是舊
 # commit 或別的分支）——即「安靜地做了別的事」，正是 issue #232 要消滅的問題類型。
 #
-# 已知殘留（設計上的極限，非疏漏）：
-# 一個「.git 已被整個刪除、但仍登記在主 repo」的 worktree 會被放行。此時該目錄
-# 與解壓出來的 zip 在位元層面無法區分——本 gate 的 fail-open 判準就是「沒有 .git」。
-# 要堵住得去掃描任意 repo 的 worktree admin dir，代價與收益不成比例。
-# 註：.git 是 dangling symlink 的情況**有**被擋下（-L 測連結本身，見下方）；
-# 只有「.git 完全不存在」這一種是真的無從辨識。
+# 已知殘留（設計上的極限，非疏漏）——範圍經實測界定，勿當成「凡壞掉都擋得住」：
+#
+# 唯一漏網的是「.git 已被整個刪除、且該 worktree 位於主 repo 樹**外**」的情況。
+# 此時 git 上下都找不到 repo，該目錄與解壓出來的 zip 在位元層面無法區分，
+# 而本 gate 的 fail-open 判準正是「沒有 .git」。要堵住得掃描任意 repo 的 worktree
+# admin dir，代價與收益不成比例。
+#
+# 以下三種都**有**被擋下（曾各自漏過，皆由 mob review 抓出並補上）：
+# - .git 是 dangling symlink（-L 測連結本身，-e 會跟隨連結而漏判）
+# - $DIR 是壞掉 worktree 的子目錄（往上走訪祖先找 .git）
+# - admin dir 被 prune / 主 repo 被搬走（.git 還在 -> 判定為「壞掉」而非「不存在」）
+#
+# 另有一種不會漏但機制不同：worktree 在主 repo 樹**內**（如本 repo 的
+# .claude/worktrees/<name>）且 .git 被刪除時，git 會往上解析到主 repo，
+# --git-dir 與 --git-common-dir 相等 -> 走正常放行路徑。此時該目錄事實上
+# 已不是 worktree 而只是主 repo 裡的一般目錄，放行不構成本 gate 要防的危害。
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
@@ -135,18 +145,46 @@ _abs_git_path() {
 # （連結還在、目標沒了）會讓 `! -e` 為真而走進 fail-open。實測（由 mob review 的
 # codex voice 指出）：把真 worktree 的 .git 換成 dangling symlink 後 gate 回 exit 0。
 # -L 測的是「連結本身存在」，兩者聯用才等於「這個目錄真的沒有 .git 項目」。
+#
+# 而且只看 $DIR 自己還不夠：$DIR 可能是壞掉 worktree 的**子目錄**，此時 .git 在
+# worktree 根而不在 $DIR。實測（由 mob review 的 codex voice 指出）：prune 掉 admin
+# dir 後，gate 對 worktree 根回 exit 1（正確），對子目錄卻回 exit 0（放行）。
+# 故要從 $DIR 往上走訪祖先。安全性：本分支只在 git 已宣告「上下都找不到 repo」時
+# 才進入，所以此處找到的任何 .git 必然是壞的，而 $DIR 就在它裡面 -> 擋下。
+_find_broken_git_ancestor() {
+  local d="$1"
+  while :; do
+    if [ -e "$d/.git" ] || [ -L "$d/.git" ]; then
+      printf '%s\n' "$d"
+      return 0
+    fi
+    [ "$d" = "/" ] && return 1
+    d=$(dirname -- "$d")
+  done
+}
+
+# 提示訊息必須與 fail-open 判準共用同一個前提（git 確實說了「不是 repo」），
+# 不能只看「有沒有 .git」。否則任何其他 git 失敗（dubious ownership、git 不在
+# PATH）發生在一個有 .git 的目錄時，都會印出「這個 repo 壞了、admin dir 被 prune、
+# 主 repo 被搬移」——實測在**健康的主 repo** 上會照印，全部是假的（由 mob review
+# 的 silent-failure-hunter 指出）。這與本腳本援引 rule 11 移除 dirname fallback 是
+# 同一條原則：那個 fallback 指出可能錯的「目錄」，這個提示指出可能錯的「原因」。
 if ! $_GIT -C "$DIR" rev-parse --git-dir >/dev/null 2>"$GIT_ERR"; then
-  if grep -qi "not a git repository" "$GIT_ERR" \
-    && [ ! -e "$DIR/.git" ] && [ ! -L "$DIR/.git" ]; then
+  if grep -qi "not a git repository" "$GIT_ERR"; then
+    if BROKEN_AT=$(_find_broken_git_ancestor "$DIR"); then
+      echo "[FAIL] git 無法判定 ${DIR} 是否為 worktree，拒絕安裝：" >&2
+      cat "$GIT_ERR" >&2
+      echo "         （${BROKEN_AT} 有 .git 但 git 判定為非 repo，代表這個 repo 壞了" >&2
+      echo "           而非不存在。常見成因：worktree 的 admin dir 已被 prune、主 repo" >&2
+      echo "           已被搬移或重新 clone、或該 .git 本身不完整。請確認來源後再安裝。）" >&2
+      exit 1
+    fi
+    # git 說沒有 repo，且上下都找不到 .git -> 真的不是 git repo（解壓 zip）-> 放行
     exit 0
   fi
+  # 其他 git 失敗：擋下，但不猜原因——只把 git 自己的訊息透出來。
   echo "[FAIL] git 無法判定 ${DIR} 是否為 worktree，拒絕安裝：" >&2
   cat "$GIT_ERR" >&2
-  if [ -e "$DIR/.git" ] || [ -L "$DIR/.git" ]; then
-    echo "         （該目錄有 .git 但 git 判定為非 repo，代表這個 repo 壞了而非不存在。" >&2
-    echo "           常見成因：worktree 的 admin dir 已被 prune、主 repo 已被搬移或" >&2
-    echo "           重新 clone、或該 .git 本身不完整。請確認來源後再安裝。）" >&2
-  fi
   exit 1
 fi
 
