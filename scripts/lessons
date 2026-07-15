@@ -4,15 +4,7 @@
 # 不需要手動偵測 SKILL_REPO 或 PROJECT，不觸發 Claude Code bash anti-pattern 確認框
 set -euo pipefail
 
-SKILL_REPO=$(python3 -c 'import json,pathlib; c=json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")); print((c.get("skill_repos") or {}).get("yibi-stack") or c.get("skill_repo") or "")')
-if [ -z "$SKILL_REPO" ]; then
-  echo "[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install" >&2
-  exit 1
-fi
-if [ ! -d "$SKILL_REPO" ]; then
-  echo "[FAIL] skill_repo 路徑不存在：$SKILL_REPO" >&2
-  exit 1
-fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 
 # 自動偵測 project（若 caller 已用 --project 指定則跳過，避免重複）
 # token-based check 支援 --project=val 形式，避免 insight 內文含 --project 的 false positive

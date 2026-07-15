@@ -41,6 +41,13 @@ repos:
         types: [python]
         files: ^tasks/
 
+      - id: lint-shell-syntax
+        name: lint-shell-syntax (bash -n)
+        entry: bash scripts/lint_shell_syntax.sh
+        language: system
+        pass_filenames: true
+        types: [shell]
+
       - id: lint-skill-bash
         name: lint-skill-bash
         entry: python3 scripts/lint_skill_bash.py

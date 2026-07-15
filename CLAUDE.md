@@ -195,6 +195,15 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **agy auth detection uses `onboardingComplete`, not `installation_id`**:
   `~/.gemini/antigravity-cli/installation_id` exists before OAuth completes (false positive).
   Check `~/.gemini/antigravity-cli/cache/onboarding.json` for `onboardingComplete: true` instead.
+- **`make install` is mandatory after pulling, not optional**: skills locate this repo via
+  `~/.agents/bin/resolve-skill-repo`, a symlink that only `make install` creates. Pull without
+  re-installing and those skills fail with
+  `[FAIL] ... 請在 yibi-stack 目錄執行 make install` until you run it. This is deliberate: the
+  failure is loud and names its own fix, replacing the previous `~/.agents/config.json`
+  `skill_repo` lookup whose failure mode was **silence** (the key is co-written by several skill
+  repos, so the last installer won and every caller silently ran against the wrong checkout —
+  measured live in PR #224, where it pointed at `ainization-skill`). Corollary: if you **move**
+  a checkout, re-run `make install` — the symlink is repointed only by that run.
 - **installed skills go stale when local `main` is behind `origin/main`**: `make install` copies
   skill scripts to `~/.agents/skills/`; if you don't pull main + re-run `make install`, those
   copies keep an old version. Concretely, the pr-cycle-deep agy scripts stay on the pre-fix

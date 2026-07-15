@@ -25,38 +25,87 @@ description: <one-line description with trigger keywords — keep in Chinese for
 A missing `scope:` field causes install to fail with exit 1 and an error message; it must be added.
 
 If a skill's implementation lives in this repo but is semantically useful cross-project
-(e.g. mycelium, local-port-manager), resolve the skill_repo path at the start of
+(e.g. mycelium, local-port-manager), resolve the repo path at the start of
 the execution steps and set scope to `global`:
 
 ```bash
-if ! SKILL_REPO=$(python3 -c 'import json,pathlib; c=json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")); print((c.get("skill_repos") or {}).get("yibi-stack") or c.get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
-if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
-if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在或非目錄：$SKILL_REPO" >&2; exit 1; fi
-cd "$SKILL_REPO"
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 ```
 
-**Map-first resolution (issue #197)**: the resolver reads `skill_repos["yibi-stack"]`
-first, falling back to the legacy top-level `skill_repo` only on a miss. This is because
-`~/.agents/config.json` is shared across multiple skill repos (yibi-stack, ainization-skill),
-whose `make install` runs would otherwise each clobber a single `skill_repo` field. New
-readers MUST use this map-first form; the `yibi-stack` key is hardcoded because these
-resolvers physically live in the yibi-stack repo and always want its checkout.
+`scripts/resolve-skill-repo` (symlinked to `~/.agents/bin/resolve-skill-repo` by
+`make install`) prints the repo's absolute path on stdout and a `[FAIL]` diagnostic on
+stderr. It takes no argument.
+
+The caller does **not** re-validate the path — the script already fails loudly on both
+"cannot resolve" and "resolved to the wrong repo", so a `-z` / `-d` gate at the call site is
+dead code (and a `-d` gate re-asserts the very existence-only check this rule forbids).
+The caller's one `echo` covers a different case the script cannot report on its own: when
+the **script itself is missing** (`make install` never ran) the shell fails with a bare
+`No such file or directory` and there is no resolver alive to print guidance. Keep that
+`[FAIL]` line so the failure names its own fix.
+
+**Bootstrapping dependency — `make install` is required after pulling this repo.** Because
+every call site goes through `~/.agents/bin/resolve-skill-repo`, a checkout that is pulled but
+not re-installed has skills calling a resolver that does not exist yet, and they fail until
+`make install` runs. This is a deliberate, accepted trade-off, decided when the resolver landed:
+
+- The failure is **loud and self-describing** (`[FAIL] ... 請在 yibi-stack 目錄執行 make install`),
+  never a silent wrong answer — which is the whole point of retiring the config.json lookup, where
+  the *failure mode was silence*.
+- The alternative — giving each in-repo script its own fallback copy of the symlink-resolution
+  preamble — would re-scatter the exact logic this rule consolidates into one implementation, and
+  every copy is a place for the file-symlink trap below to be re-introduced.
+
+"pull → `make install`" is already the standing requirement for this repo's skills (see the
+CLAUDE.md gotcha on installed skills going stale); the resolver makes it enforced rather than
+merely advisable.
+
+### Never locate this repo via `~/.agents/config.json`
+
+**Do not read `skill_repo` (or `skill_repos[...]`) from `~/.agents/config.json` to find this
+repo.** That file is shared across multiple skill repos (yibi-stack, ainization-skill) whose
+`make install` runs co-write it, so the flat `skill_repo` key holds whatever the *last*
+installer wrote. An existence-only gate cannot catch this: the wrong repo also exists.
+
+This is not hypothetical. Measured on a live machine during the PR #221 follow-up:
+
+```console
+$ python3 -c '...print(c.get("skill_repos", {}).get("yibi-stack") or c.get("skill_repo"))'
+/Users/<you>/Workspace/github/ainization-skill     # wrong repo
+$ test -d /Users/<you>/Workspace/github/ainization-skill && echo PASSES
+PASSES                                             # [ -d ] gate lets it through
+$ test -d /Users/<you>/Workspace/github/ainization-skill/tasks || echo "no tasks/"
+no tasks/                                          # every `uv run --directory` caller breaks
+```
+
+The `skill_repos["yibi-stack"]` map added for issue #197 does **not** rescue this: the map is
+not guaranteed to exist (the machine above had no `skill_repos` key at all), so a map-first
+resolver silently falls through to the clobbered flat key. Map-first narrows the window; it
+does not close it.
+
+`resolve-skill-repo` closes it by **self-locating**: it derives the repo from its own file
+location (`BASH_SOURCE` → resolve symlink chain → `git rev-parse --show-toplevel`), so the
+answer is always "the checkout that installed this script" — no shared mutable state is
+consulted. It then verifies **identity, not mere existence** (`tasks/` must be present).
+
+`scripts/resolve-skill-repo` is the single implementation — do not inline a copy of its
+logic into a SKILL.md. If you need this in a script that already lives in the repo, that
+script can self-locate directly instead of shelling out (see
+`plugins/pr-flow/skills/pr-control-log/scripts/bootstrap.sh` for the in-script form).
+
+**Gotcha — `pwd -P` does not resolve a *file* symlink.** The in-script form
+`SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)` only works when the symlink is
+on a **directory** in the path (as with `~/.claude/skills/<name>` → `<repo>/skills/<name>`).
+`resolve-skill-repo` is exposed as a **file** symlink under `~/.agents/bin/`, where that form
+silently returns `~/.agents/bin` instead of the real directory — no error, just a wrong
+answer. It therefore walks the symlink chain with `readlink` in a loop (macOS has no
+`readlink -f`). Copy the right form for your symlink shape; verify by executing through the
+symlink, not just directly.
 
 **Note (error handling form)**: `cmd || { echo '[FAIL]' >&2; exit 1; }` contains a `'` quote
 inside `{}`, triggering the "brace with quote character" confirmation dialog.
 Always use `if ! cmd; then echo '[FAIL]' >&2; exit 1; fi` instead (the canonical form above
 already uses this).
-
-**Note**: do not use `$(jq -r '.skill_repo' …)` (single-quote filter) or
-`$(jq -r .skill_repo …)` (unquoted filter).
-The first triggers the AP1 class D hook (leading-dot token inside filter); the second passes
-the local hook but the Claude Code built-in parser treats the leading-dot token as an
-unparseable string node and pops a confirmation dialog at runtime.
-
-The `python3 -c` single-line form is the only one that passes both sides, but the expression
-after `-c` must be wrapped in **single quotes** (use double quotes inside Python) — the
-double-quote form `$(python3 -c "...")` is an outer-`$()` → inner-`"..."` reverse-nested
-structure that violates rule 13 Quoting Rule 4 and triggers `Unhandled node type: string`.
 
 ### Skill scope 與 plugin agent 依賴一致性
 
