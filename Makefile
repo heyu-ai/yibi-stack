@@ -278,6 +278,11 @@ uninstall: ## Remove own symlinks from ~/.claude/skills/ and ~/.agents/skills/
 	done
 
 install-scheduler: ## Install macOS LaunchAgent for scheduler (every 60s tick)
+	@# LaunchAgent plist 的 WorkingDirectory 寫的是 PROJECT_ROOT（tasks/_paths.py 由
+	@# __file__ 自我定位），在 worktree 裡跑就會寫進一個合併後會被刪掉的路徑。
+	@# 不能只靠 install-all 串接 install 來擋：make -j 會平行跑 prerequisites，
+	@# 本 target 可能在 install 的 guard 失敗前就已經寫完 plist（由 codex 指出）。
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" install-scheduler
 	uv run python -m tasks.scheduler install
 
 uninstall-scheduler: ## Uninstall scheduler LaunchAgent
@@ -287,6 +292,10 @@ scheduler-status: ## Show scheduler job status
 	uv run python -m tasks.scheduler status
 
 install-handover-hooks: ## 安裝 auto-handover PreCompact + SessionStart hook 到 ~/.claude/settings.json
+	@# 寫進 ~/.claude/settings.json 的 hook command 內嵌 repo 路徑
+	@# （auto_handover_hooks.py 由 __file__ 自我定位），在 worktree 裡跑會讓
+	@# 全域 hook 指向一個合併後就消失的目錄。與 install-scheduler 同一 bug class。
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" install-handover-hooks
 	uv run python -m tasks.mycelium handover install-hooks
 
 uninstall-handover-hooks: ## 移除 auto-handover PreCompact + SessionStart hook 從 ~/.claude/settings.json

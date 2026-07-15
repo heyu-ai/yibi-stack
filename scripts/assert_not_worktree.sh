@@ -2,8 +2,11 @@
 # 斷言指定目錄不是 git worktree，是 worktree 就 [FAIL] 擋下安裝。
 #
 # 用法：assert_not_worktree.sh <dir> <make-target-name>
-# exit 0: 不在 worktree（含「非 git repo」的情況，見下方）
-# exit 1: 在 worktree 內，或參數缺漏
+# exit 0: 確定不在 worktree —— 主 repo，或確定不是 git repo（見下方 fail-open 說明）
+# exit 1: 在 worktree 內，**或無法安全判定狀態**
+#         （參數缺漏、目錄不存在、git 呼叫失敗、路徑正規化失敗、暫存檔建不出來）
+#         此為刻意的 fail-closed：判不出來就不准裝，總比裝到一個注定消失的
+#         checkout 上、之後所有 skill 靜默失效好。
 #
 # 為何需要這個 gate：
 # make install 會把 $(CURDIR) 的路徑寫進 ~/.claude/skills/、~/.agents/skills/、
@@ -45,7 +48,18 @@ fi
 # 不鎖定語系的話，非英文環境下比對必定落空而誤判成「非預期錯誤」。
 _GIT="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE LC_ALL=C git"
 
-GIT_ERR=$(mktemp)
+# CDPATH 必須清掉：下方 _abs_git_path 用 cd 正規化路徑，而 POSIX 規定 cd 的目標
+# 若首段不是 . 或 ..（例如 git 回傳的 ".git"），就會去搜尋 CDPATH，命中時還會把
+# 目的地印到 stdout，污染 $() 取值。實測（由 mob review 的 silent-failure-hunter
+# 指出）：CDPATH 指向一個含 .git 的目錄時，`cd .git && pwd -P` 會回傳兩行。
+# 目前尚不足以造成 fail-open，但讓 gate 的正確性依賴「git 剛好回相對還是絕對路徑」
+# 是不必要的風險——git 確實會回相對路徑（子目錄下的 --git-common-dir 即為 ../.git）。
+export CDPATH=
+
+if ! GIT_ERR=$(mktemp); then
+  echo "[FAIL] 無法建立暫存檔，無法判定是否為 worktree，拒絕安裝" >&2
+  exit 1
+fi
 trap 'rm -f "$GIT_ERR"' EXIT
 
 # 把 rev-parse 的輸出正規化成絕對路徑。
@@ -79,19 +93,38 @@ _abs_git_path() {
     return 1
   fi
   # raw 為相對路徑時是相對於 $1；絕對路徑時 cd 亦可直接抵達。
-  (cd "$1" && cd "$raw" && pwd -P) 2>/dev/null || return 1
+  # cd 的錯誤要導進 $GIT_ERR 而非丟掉，且用截斷（>）不用附加（>>）：
+  # 此時 GIT_ERR 裝的是「成功的」rev-parse 的 stderr（通常為空，偶爾是無關的 git
+  # warning）。丟掉的話呼叫端 `cat "$GIT_ERR"` 印出空白；附加的話那個無關 warning
+  # 會被當成錯誤原因呈現。截斷後只留 cd 自己的錯誤（ELOOP、權限、目錄被競態刪除）。
+  (cd "$1" && cd "$raw" && pwd -P) 2>"$GIT_ERR" || return 1
 }
 
-# fail-open 只允許一種情況：git 明確說「這不是 git repo」（例如下載 zip 解壓後安裝）。
+# fail-open 只允許一種情況：git 明確說「這不是 git repo」**且**該目錄真的沒有 .git。
+#
 # 不能用「rev-parse 失敗就放行」——那會把 git 版本過舊、dubious ownership
 # （sudo make install / repo 屬於他人）、權限不足、git 不在 PATH、$DIR 讀不到
 # 全部一併靜默放行，gate 形同不存在。這正是本 PR 要消滅的失敗類型。
+#
+# 但只比對訊息仍不夠：git 對「真的不是 repo」與「worktree 的 admin dir 不見了」
+# 回報同一句話。實測（由 mob review 的 silent-failure-hunter 指出並複現）：
+#   rm -rf <main>/.git/worktrees/<name>   （被 prune）      -> fatal: not a git repository: (null)
+#   mv <main> <elsewhere>                 （主 repo 搬走）   -> fatal: not a git repository: (null)
+# 兩者的 worktree 目錄裡 .git 檔案都還在，明確是 worktree，卻會被訊息比對放行
+# ——而且正是「陳舊且注定消失」的目錄，即本 gate 存在的理由本身。
+#
+# 區分依據：合法的 fail-open 情境（解壓 zip 安裝）**根本沒有 .git**。
+# .git 存在卻被 git 判定為非 repo = 這個 repo 壞了，不是不存在 -> 擋下。
 if ! $_GIT -C "$DIR" rev-parse --git-dir >/dev/null 2>"$GIT_ERR"; then
-  if grep -qi "not a git repository" "$GIT_ERR"; then
+  if grep -qi "not a git repository" "$GIT_ERR" && [ ! -e "$DIR/.git" ]; then
     exit 0
   fi
   echo "[FAIL] git 無法判定 ${DIR} 是否為 worktree，拒絕安裝：" >&2
   cat "$GIT_ERR" >&2
+  if [ -e "$DIR/.git" ]; then
+    echo "         （該目錄有 .git 但 git 判定為非 repo：可能是 admin dir 已被 prune，" >&2
+    echo "           或主 repo 已被搬移／重新 clone 的殘留 worktree）" >&2
+  fi
   exit 1
 fi
 
@@ -118,16 +151,27 @@ fi
 # 必為主 worktree。不用 dirname("$GIT_COMMON_PATH")——common dir 的父目錄不必然是
 # 主 work tree（git clone --separate-git-dir / submodule 情境下會指到別處），
 # 那會讓 [FAIL] 訊息叫使用者 cd 到一個錯的目錄。
-# 解析失敗時退回 dirname，訊息略遜但不影響「擋下」這個主要職責。
-MAIN_REPO=$($_GIT -C "$DIR" worktree list --porcelain 2>/dev/null \
-  | awk '/^worktree /{print substr($0, 10); exit}')
+#
+# 必須用 `if !` 包住：本腳本是 set -e + pipefail，裸賦值 `X=$(cmd | awk)` 在 cmd
+# 失敗時會讓整個腳本當場終止——而此處已確定是 worktree，卻會在印出 [FAIL] 之前
+# 就死掉，使用者只看到 make Error 128 而無任何說明，下面的 dirname fallback 也
+# 變成永遠碰不到的死碼。實測確認（由 mob review 的 agy voice 指出）。
+# awk 不可用 `exit` 提早結束：那會讓 git 在還沒寫完時收到 SIGPIPE，pipefail 於是
+# 捕捉到非零，即使 `worktree list` 本身成功也會走進 fallback（訊息品質下降）。
+# 改成用旗標只取第一筆，讓 awk 讀完全部輸入（由 mob review 的 codex voice 指出）。
+if ! MAIN_REPO=$($_GIT -C "$DIR" worktree list --porcelain 2>/dev/null \
+  | awk '/^worktree / && !seen {print substr($0, 10); seen = 1}'); then
+  MAIN_REPO=""
+fi
 if [ -z "$MAIN_REPO" ]; then
   MAIN_REPO=$(dirname "$GIT_COMMON_PATH")
 fi
 # 不直接印 $DIR：呼叫端可能傳相對路徑（"."），診斷訊息印出來對讀者無意義。
 # 讓 git 回報 worktree 的絕對路徑；--show-toplevel 在 worktree 內正是回傳
 # worktree 自身路徑（見 rule 15），這裡要的就是它。
-WORKTREE_PATH=$($_GIT -C "$DIR" rev-parse --show-toplevel 2>/dev/null || echo "$DIR")
+# fallback 用 printf 不用 echo：$DIR 若以 "-" 開頭（如 -n），echo 會把它當 flag 吃掉。
+WORKTREE_PATH=$($_GIT -C "$DIR" rev-parse --show-toplevel 2>/dev/null \
+  || printf '%s\n' "$DIR")
 
 # 路徑含空格時，未加引號的 cd 指令複製貼上會失敗；一律用單引號包起來。
 # 單引號內的單引號要用 '\'' 收尾再接續（POSIX sh 慣用法）。

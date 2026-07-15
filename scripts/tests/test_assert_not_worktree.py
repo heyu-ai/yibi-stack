@@ -195,6 +195,131 @@ class TestAssertNotWorktree:
         )
         assert "worktree" in result.stderr
 
+    def test_anw_eg_008_worktree_list_failure_still_reports_loudly(self, tmp_path: Path) -> None:
+        """ANW-EG-008: `git worktree list` 失敗時仍須印出 [FAIL] 並走 dirname fallback。
+
+        本腳本是 set -e + pipefail。裸賦值 `X=$(cmd | awk)` 在 cmd 失敗時會讓腳本
+        當場終止——此處已確定是 worktree，卻會在印出 [FAIL] 之前就死掉：exit 128、
+        輸出全空，dirname fallback 成為永遠碰不到的死碼。
+
+        實測（修法前）：exit=128 且輸出完全空白。由 mob review 的 agy voice 指出。
+        方向上是 fail-closed（install 仍被擋），但使用者拿不到任何說明，違反
+        CLAUDE.md「每個外部呼叫都要有可行動的 [FAIL]」。
+
+        本測試同時補上 agy 指出的測試缺口：舊 shim 只擋 --path-format，把
+        worktree list 放行給真 git，所以這個 bug 完全沒被測到。
+        """
+        repo = _make_repo(tmp_path / "repo")
+        wt = tmp_path / "wt"
+        _git(repo, "worktree", "add", "-q", "-b", "feat", str(wt))
+
+        shim = tmp_path / "shim"
+        shim.mkdir()
+        real_git = shutil.which("git")
+        (shim / "git").write_text(
+            "#!/bin/bash\n"
+            'for a in "$@"; do\n'
+            '  if [ "$a" = "worktree" ]; then\n'
+            '    echo "fatal: simulated worktree list failure" >&2\n'
+            "    exit 128\n"
+            "  fi\n"
+            "done\n"
+            f'exec {real_git} "$@"\n',
+            encoding="utf-8",
+        )
+        (shim / "git").chmod(0o755)
+
+        env = dict(os.environ)
+        env["PATH"] = f"{shim}:{env['PATH']}"
+        result = subprocess.run(  # nosec B603
+            ["bash", str(GUARD), str(wt), "install"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            env=env,
+        )
+        assert result.returncode == 1, (
+            f"worktree list 失敗讓腳本靜默終止（exit={result.returncode}）"
+        )
+        # 關鍵：訊息必須存在，不能是空白的靜默死亡
+        assert "[FAIL]" in result.stderr
+        assert "worktree" in result.stderr
+        # fallback 必須真的算出主 repo 路徑
+        assert str(repo.resolve()) in result.stderr
+
+    def test_anw_dt_007_pruned_worktree_is_still_blocked(self, tmp_path: Path) -> None:
+        """ANW-DT-007: admin dir 被 prune 的殘留 worktree 仍須擋下。
+
+        git 對「真的不是 repo」與「worktree 的 admin dir 不見了」回報**同一句話**
+        （`fatal: not a git repository: (null)`），所以單靠訊息比對放行會擊穿 gate。
+
+        實測（修法前 exit 0，由 mob review 的 silent-failure-hunter 指出並複現）：
+        `rm -rf <main>/.git/worktrees/<name>` 後，worktree 目錄的 .git 檔案還在，
+        明確是 worktree，卻被放行——而且它正是「陳舊且注定消失」的目錄，即本 gate
+        存在的理由本身。
+
+        區分依據：合法的 fail-open（解壓 zip）根本沒有 .git。
+        本測試經突變驗證：拿掉 `[ ! -e "$DIR/.git" ]` 條件會讓它失敗。
+        """
+        repo = _make_repo(tmp_path / "repo")
+        wt = tmp_path / "wt"
+        _git(repo, "worktree", "add", "-q", "-b", "feat", str(wt))
+        shutil.rmtree(repo / ".git" / "worktrees" / "wt")
+
+        # 前提確認：.git 檔案仍在，git 仍回報 not a git repository
+        assert (wt / ".git").exists(), "測試前提不成立：.git 應仍存在"
+
+        result = _run(["bash", str(GUARD), str(wt), "install"])
+        assert result.returncode == 1, (
+            f"被 prune 的殘留 worktree 遭放行（fail-open）：{result.stderr!r}"
+        )
+        assert "[FAIL]" in result.stderr
+
+    def test_anw_dt_008_worktree_of_moved_main_is_still_blocked(self, tmp_path: Path) -> None:
+        """ANW-DT-008: 主 repo 被搬走後的殘留 worktree 仍須擋下。
+
+        與 ANW-DT-007 同一 root cause，但成因是日常操作（主 repo 被搬移或重新
+        clone），不是刻意破壞。git 同樣回報 `not a git repository: (null)`。
+        """
+        repo = _make_repo(tmp_path / "repo")
+        wt = tmp_path / "wt"
+        _git(repo, "worktree", "add", "-q", "-b", "feat", str(wt))
+        repo.rename(tmp_path / "repo_moved")
+
+        assert (wt / ".git").exists(), "測試前提不成立：.git 應仍存在"
+
+        result = _run(["bash", str(GUARD), str(wt), "install"])
+        assert result.returncode == 1, (
+            f"主 repo 搬走後的殘留 worktree 遭放行（fail-open）：{result.stderr!r}"
+        )
+        assert "[FAIL]" in result.stderr
+
+    def test_anw_eg_009_cdpath_cannot_pollute_path_normalization(self, tmp_path: Path) -> None:
+        """ANW-EG-009: CDPATH 不得污染路徑正規化。
+
+        POSIX：cd 的目標若首段不是 . 或 ..（git 會回傳 ".git"），就會搜尋 CDPATH，
+        命中時還會把目的地印到 stdout，污染 $() 取值。實測（由 mob review 的
+        silent-failure-hunter 指出）：CDPATH 指向含 .git 的目錄時，
+        `cd .git && pwd -P` 回傳兩行。腳本以 `export CDPATH=` 消除此相依。
+        """
+        repo = _make_repo(tmp_path / "repo")
+        trap_dir = tmp_path / "cdpath_trap"
+        (trap_dir / ".git").mkdir(parents=True)
+
+        env = dict(os.environ)
+        env["CDPATH"] = str(trap_dir)
+        result = subprocess.run(  # nosec B603
+            ["bash", str(GUARD), str(repo), "install"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            env=env,
+        )
+        assert result.returncode == 0, f"CDPATH 污染了正規化，主 repo 被誤擋：{result.stderr!r}"
+        assert result.stdout == ""
+
     def test_anw_eg_005_non_repo_git_error_fails_loud(self, tmp_path: Path) -> None:
         """ANW-EG-005: git 因「非 not-a-repo」的原因失敗時，必須 fail loud 而非放行。
 
@@ -368,13 +493,18 @@ class TestMakefileWiring:
     主體的成因（register_skill_repo.py 早就寫好，只是那台機器沒跑過）。
     """
 
-    # promote 也在列：它會 mv 檔案後委派 install-one，guard 必須在 mv 之前。
+    # promote：會 mv 檔案後委派 install-one，guard 必須在 mv 之前。
+    # install-scheduler / install-handover-hooks：走 Python 而非 symlink，但同樣把
+    # 自我定位的 repo 路徑寫進全域狀態（LaunchAgent plist / settings.json hook）。
+    # 不能只靠 install-all 串接 install 來擋——make -j 會平行跑 prerequisites。
     GUARDED_TARGETS = [
         "install",
         "install-project",
         "install-one",
         "install-force-one",
         "promote",
+        "install-scheduler",
+        "install-handover-hooks",
     ]
 
     @staticmethod
@@ -435,6 +565,31 @@ class TestMakefileWiring:
         assert '"$(CURDIR)/scripts/assert_not_worktree.sh"' in guard_line, (
             f"{target} 的 guard 路徑未加引號：{guard_line}"
         )
+
+    def test_anw_dt_009_install_all_prereqs_are_each_guarded(self) -> None:
+        """ANW-DT-009: install-all 的每個會寫全域狀態的 prerequisite 都要自己有 guard。
+
+        不可依賴「install 排在前面會先中止」——GNU make 的 -j 會**平行**跑
+        prerequisites，install-scheduler 可能在 install 的 guard 失敗前就寫完
+        LaunchAgent plist。此點由 mob review 的 codex voice 指出，並同時證偽了
+        CLAUDE.md 原本「install-all 因串接 install 而安全」的宣稱。
+        """
+        makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        line = next(ln for ln in makefile.splitlines() if ln.startswith("install-all:"))
+        prereqs = line.split(":", 1)[1].split("##")[0].split()
+
+        # 這些 prerequisite 會寫全域狀態，每個都必須自帶 guard
+        global_state_prereqs = {
+            "install",
+            "install-project",
+            "install-scheduler",
+            "install-handover-hooks",
+        }
+        for p in prereqs:
+            if p in global_state_prereqs:
+                assert p in self.GUARDED_TARGETS, (
+                    f"install-all 的 prerequisite {p} 會寫全域狀態卻未列入 guard 清單"
+                )
 
     @pytest.mark.parametrize("target", ["install-one", "install-force-one", "promote"])
     def test_anw_dt_005_skill_targets_pass_skill_arg_in_message(self, target: str) -> None:

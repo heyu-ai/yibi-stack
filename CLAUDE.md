@@ -209,15 +209,19 @@ make install-all         # 等同 build-tools + install + install-project + inst
   them at a directory that `/clean-merged` deletes after the branch merges — then every skill
   dies. Neither the resolver's identity gate nor the Makefile's `resolved == $(CURDIR)` gate
   can catch this (a worktree is a complete checkout, and inside one those two paths are equal
-  by definition). `scripts/assert_not_worktree.sh` now blocks it as the first line of
-  `install` / `install-project` / `install-one` / `install-force-one` / `promote`; see rule 11
+  by definition). `scripts/assert_not_worktree.sh` now blocks it as the first line of every
+  target that writes global state: `install` / `install-project` / `install-one` /
+  `install-force-one` / `promote` / `install-scheduler` / `install-handover-hooks`. See rule 11
   for why it fails loud instead of auto-deriving the main repo, why its fail-open forgives only
-  git's literal `not a git repository`, and why it normalizes with `pwd -P` rather than
-  `--path-format=absolute`. Known remaining gap, not yet fixed:
-  `make install-scheduler` embeds `PROJECT_ROOT` (`tasks/_paths.py`, self-located from
-  `__file__`) into the LaunchAgent plist's `WorkingDirectory` at `tasks/scheduler/cli.py:248`,
-  so it reproduces this bug through Python rather than symlinks and is **not** covered by the
-  guard. `make install-all` is safe only because it chains `install` first, which aborts.
+  git's literal `not a git repository` **and only when `.git` is absent**, and why it normalizes
+  with `pwd -P` rather than `--path-format=absolute`.
+  Each of those targets carries its own guard rather than relying on `install-all` chaining
+  `install` first — **`make -j` runs prerequisites in parallel**, so `install-scheduler` could
+  otherwise write the plist before `install`'s guard aborts.
+  Remaining gap: the guard lives in the Makefile, so invoking the Python modules **directly**
+  (`uv run python -m tasks.scheduler install`, `... -m tasks.mycelium handover install-hooks`)
+  still self-locates via `__file__` (`tasks/_paths.py`, `tasks/mycelium/auto_handover_hooks.py:145`)
+  and would embed a worktree path into the LaunchAgent plist / `settings.json` hooks.
 - **installed skills go stale when local `main` is behind `origin/main`**: `make install` copies
   skill scripts to `~/.agents/skills/`; if you don't pull main + re-run `make install`, those
   copies keep an old version. Concretely, the pr-cycle-deep agy scripts stay on the pre-fix

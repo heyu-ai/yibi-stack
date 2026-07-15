@@ -97,6 +97,15 @@ consequence of the property that makes the resolver correct: it faithfully resol
 global symlink points into that worktree; once the branch merges and `/clean-merged`
 removes it, the symlinks dangle and every skill dies.
 
+**Guard every target that writes global state individually — a prerequisite chain is not a
+gate.** `install-all` lists `install` before `install-scheduler`, but `make -j` runs
+prerequisites **in parallel**, so the scheduler can finish writing a worktree path into its
+LaunchAgent plist before `install`'s guard aborts the build. The same applies to
+`install-handover-hooks`, which embeds the repo path into `~/.claude/settings.json` hook
+commands. Neither goes through a symlink — both self-locate in Python from `__file__` — so the
+symlink-shaped reasoning does not cover them; what they share is "writes the repo path into
+machine-level state", and that is the property to guard on.
+
 Nothing in the resolver can detect this — by construction:
 
 - The identity gate passes: a worktree is a **complete checkout**, so `tasks/mycelium` is there.
@@ -117,16 +126,42 @@ Detection is `--git-dir != --git-common-dir` (in a worktree the former is
 `<main>/.git/worktrees/<name>`, the latter `<main>/.git`; in the main repo they are equal).
 Do **not** substring-match `.claude/worktrees` — a worktree may be created at any path.
 
-**A fail-open must name the single condition it forgives, never "the call failed".** The guard's
-non-git pass-through is deliberate (an unpacked zip cannot be a worktree), but the first
-implementation expressed it as "if `git rev-parse` fails, exit 0" — which silently forgave a
-much larger set: git older than 2.31 (`--path-format` unknown), dubious ownership under
-`sudo make install`, permission errors, git missing from `PATH`, an unreadable directory. Each
-made the gate cease to exist with no warning — the same wrong-but-silent pass the whole resolver
-design exists to eliminate. All three mob-review voices flagged it independently. The gate now
-exits 0 **only** when git's own stderr says `not a git repository`, and every other failure is a
-`[FAIL]`. Because git localises that message, the call must pin `LC_ALL=C` or the match silently
-misses on a non-English machine.
+**A fail-open must name the single condition it forgives, never "the call failed"** — and then
+check that the condition it names is actually single. This one bit twice, one level apart:
+
+1. The guard's non-git pass-through is deliberate (an unpacked zip cannot be a worktree), but the
+   first implementation expressed it as "if `git rev-parse` fails, exit 0", silently forgiving a
+   much larger set: git older than 2.31 (`--path-format` unknown), dubious ownership under
+   `sudo make install`, permission errors, git missing from `PATH`, an unreadable directory. Each
+   made the gate cease to exist with no warning. All three mob-review voices flagged it.
+2. Narrowing it to "git's stderr says `not a git repository`" looked exact — but **git says the
+   same sentence for two different conditions**. A linked worktree whose admin dir is gone
+   (pruned, or the main repo moved/re-cloned) reports `fatal: not a git repository: (null)`, so
+   the narrowed match still waved through a directory that is unmistakably a worktree *and*
+   already doomed — precisely what the gate exists to catch. Measured, not theorised:
+   `rm -rf <main>/.git/worktrees/<name>` and `mv <main> <elsewhere>` both reproduce it.
+
+The disambiguator is the filesystem, not the message: the legitimate case (unpacked zip) has **no
+`.git` at all**, so the gate forgives only `not a git repository` **and** `[ ! -e "$DIR/.git" ]`.
+A `.git` that exists while git denies the repo means broken, not absent — block it.
+
+Because git localises its messages, any such match must pin `LC_ALL=C`, or it silently misses on
+a non-English machine and starts blocking legitimate installs instead.
+
+**Clear `CDPATH` before using `cd` to normalize a path.** POSIX has `cd` search `CDPATH` whenever
+the target's first component is neither `.` nor `..` — which is exactly what git returns
+(`.git`). On a hit, `cd` also **prints the destination to stdout**, so a `$(cd … && pwd -P)`
+capture silently gains a second line. Measured on this repo's guard. It was not yet exploitable
+there, but only because of which paths git happens to emit relative vs absolute — not a property
+worth resting a safety gate on. `export CDPATH=` removes the dependency.
+
+**Under `set -e` + `pipefail`, a bare `X=$(cmd | awk …)` kills the script and makes any fallback
+below it dead code.** The guard resolved the main repo that way with a `dirname` fallback
+underneath; when `git worktree list` failed, the script died at that line — exit 128, **no output
+at all** — after it had already decided the directory was a worktree, so the `[FAIL]` never
+printed and the fallback was unreachable. Wrap it in `if !`. Relatedly, do not let `awk` `exit`
+early in such a pipeline: the producer gets SIGPIPE and `pipefail` turns a successful command
+into a failure. Use a flag (`!seen`) and consume the whole stream.
 
 **Normalizing git paths: use `cd`+`pwd -P`, not `--path-format=absolute`.** Two traps, both
 measured on this repo during PR #234's review:
