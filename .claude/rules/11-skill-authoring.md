@@ -186,13 +186,25 @@ when `cmd` fails?", and every new path comparison needs "what if the input is *u
 **The documented residual is a claim too, and it decays with each fix.** State the limit
 explicitly — but re-probe it every time the predicate changes, because a stale residual note is
 worse than none: it tells the next reader (and reviewer) that a hole is known and accepted when
-in fact it has moved. Round 2's note said "only outright `.git` deletion is undetectable"; by
-round 4 that was false twice over (the dangling-symlink and the subdirectory cases both slipped
-through while the note claimed otherwise, and a reviewer caught the contradiction between code
-and note before catching the code). The honest residual here is narrow and worth stating in full:
-a worktree whose `.git` is deleted outright **and** which lives outside the main repo's tree —
-there it is byte-identical to an unpacked zip. If it lives *inside* the main tree, git resolves
-upward to the main repo and the equality check passes it through a different path entirely.
+in fact it has moved. This rule was itself learned twice on the same PR, which is the point:
+
+- Round 2's note said "only outright `.git` deletion is undetectable". By round 4 that was false
+  twice over — the dangling-symlink and subdirectory cases both slipped past while the note
+  claimed otherwise, and a reviewer caught the contradiction between code and note before
+  catching the code.
+- The note was then rewritten to say an in-tree worktree with a deleted `.git` "passes safely,
+  and that is fine". Round 5 added a registration check that **blocks exactly that case** — and
+  the note still claimed the old behavior until round 7, when a reviewer flagged the code/doc
+  contradiction. The lesson had already been written into this very file by then. Writing the
+  rule does not execute it.
+
+The honest residual, re-probed: a worktree whose `.git` is deleted outright **and** which lives
+outside the main repo's tree — there it is byte-identical to an unpacked zip. In-tree cases are
+caught by the `git worktree list` registration check.
+
+Operationally: treat a residual note like a test. When you change the predicate, the note is part
+of the diff — if you did not re-run the scenario it describes, you do not know whether it is still
+true.
 
 **Do not run mutation tests on a shared worktree file while a review agent is reading it.**
 Mutation testing edits the real file in place; a reviewer dispatched against that path will read

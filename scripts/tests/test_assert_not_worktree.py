@@ -237,10 +237,13 @@ class TestAssertNotWorktree:
 
         `--path-format` 是 git 2.31（2021）才加入。第一版實作用了它，而舊 git 的 fatal
         會被 fail-open 分支吃掉，讓 gate 靜默失效——三家 reviewer（Claude/codex/agy）
-        R1 獨立收斂到這個 Critical。
+        R1 獨立收斂到這個 Critical。修法改用 cd+pwd 正規化，完全不依賴該 flag。
 
-        本測試用一個「拒絕 --path-format」的 git shim 模擬舊 git。修法改用 cd+pwd
-        正規化，完全不依賴該 flag，所以舊 git 上 gate 正常運作（而非被擋死）。
+        **本測試證明的範圍（誠實標註）**：它只用 shim 拒絕 `--path-format`，其餘一律
+        轉給宿主的現代 git。因此它證明的是「這一條 flag 相依性已被移除」，**不是**
+        腳本 header 宣稱的 git 2.7 相容底線——要證明後者需要在 CI 跑真的 git 2.7
+        binary，本 repo 目前沒有那個基礎設施（由 mob review 的 codex voice 指出）。
+        不要把這條測試的綠燈讀成「2.7 相容性已驗證」。
         """
         repo = _make_repo(tmp_path / "repo")
         wt = tmp_path / "wt"
@@ -277,18 +280,23 @@ class TestAssertNotWorktree:
         assert "worktree" in result.stderr
 
     def test_anw_eg_008_worktree_list_failure_still_reports_loudly(self, tmp_path: Path) -> None:
-        """ANW-EG-008: `git worktree list` 失敗時仍須印出 [FAIL] 並走 dirname fallback。
+        """ANW-EG-008: `git worktree list` 失敗時仍須印出 [FAIL]，且不得給出臆測的 cd 建議。
 
         本腳本是 set -e + pipefail。裸賦值 `X=$(cmd | awk)` 在 cmd 失敗時會讓腳本
         當場終止——此處已確定是 worktree，卻會在印出 [FAIL] 之前就死掉：exit 128、
-        輸出全空，dirname fallback 成為永遠碰不到的死碼。
-
-        實測（修法前）：exit=128 且輸出完全空白。由 mob review 的 agy voice 指出。
-        方向上是 fail-closed（install 仍被擋），但使用者拿不到任何說明，違反
-        CLAUDE.md「每個外部呼叫都要有可行動的 [FAIL]」。
+        輸出全空。實測（修法前）：exit=128 且輸出完全空白。由 mob review 的 agy
+        voice 指出。方向上是 fail-closed（install 仍被擋），但使用者拿不到任何說明，
+        違反 CLAUDE.md「每個外部呼叫都要有可行動的 [FAIL]」。
 
         本測試同時補上 agy 指出的測試缺口：舊 shim 只擋 --path-format，把
         worktree list 放行給真 git，所以這個 bug 完全沒被測到。
+
+        註：這裡走的是「路徑不相等」的一般 worktree 分支，worktree list 只用來美化
+        訊息，故降級成「不給 cd 建議」即可。dirname fallback 已在 round 3 移除
+        （它會在 --separate-git-dir 佈局下指向錯目錄），所以此處斷言的是**不得**
+        出現 cd 建議——docstring 一度仍在描述那個已移除的 fallback，由 codex 指出。
+        recovery 分支（.git 已刪的巢狀 worktree）則相反：那裡 worktree list 是唯一
+        防線，失敗必須 fail-closed，見 ANW-EG-015。
         """
         repo = _make_repo(tmp_path / "repo")
         wt = tmp_path / "wt"
@@ -924,7 +932,13 @@ class TestMakefileWiring:
 
     @staticmethod
     def _recipe_lines(target: str) -> list[str]:
-        """取出單一 target 的 recipe 執行行（不含純註解行）。
+        """取出單一 target 的 recipe 行——**不排除任何行**，含 @# 註解行。
+
+        刻意不跳過 @# 註解：rule 11 要求「guard 是 recipe 的第一行」是**字面的**
+        不變量，跳過註解等於把它偷偷降級成較弱的「第一個可執行動作」，測試於是
+        掩蓋了違規（由 mob review 的 codex voice 指出——當時四個 target 的 guard
+        前面都擺了 @# 說明行，測試卻全綠）。說明文字現已移到 target 宣告之上，
+        因此字面規則可以成立而不需任何但書。
 
         必須在 recipe 區塊結尾停止：Make 的 recipe 以「第一個非 tab 開頭的非空行」
         作結。掃到檔尾的話，若某 target 的 recipe 被整個刪除，就會撿到下一個 target
@@ -942,8 +956,6 @@ class TestMakefileWiring:
                 continue
             if not line.startswith("\t"):
                 break  # recipe 區塊結束
-            if line.strip().startswith("@#"):
-                continue  # 純註解行
             recipe.append(line.strip())
         return recipe
 

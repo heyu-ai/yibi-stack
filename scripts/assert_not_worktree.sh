@@ -29,22 +29,24 @@
 # 那會讓使用者以為裝了眼前 worktree 的程式碼，實際裝的是主 repo 的（可能是舊
 # commit 或別的分支）——即「安靜地做了別的事」，正是 issue #232 要消滅的問題類型。
 #
-# 已知殘留（設計上的極限，非疏漏）——範圍經實測界定，勿當成「凡壞掉都擋得住」：
+# 已知殘留（設計上的極限，非疏漏）——範圍經實測界定，勿當成「凡壞掉都擋得住」。
 #
-# 唯一漏網的是「.git 已被整個刪除、且該 worktree 位於主 repo 樹**外**」的情況。
-# 此時 git 上下都找不到 repo，該目錄與解壓出來的 zip 在位元層面無法區分，
-# 而本 gate 的 fail-open 判準正是「沒有 .git」。要堵住得掃描任意 repo 的 worktree
-# admin dir，代價與收益不成比例。
+# 唯一漏網的是「.git 已被整個刪除、且該 worktree 位於主 repo 樹**外**」的情況：
+# git 上下都找不到 repo，該目錄與解壓出來的 zip 在位元層面無法區分，而本 gate 的
+# fail-open 判準正是「沒有 .git」。要堵住得掃描任意 repo 的 worktree admin dir，
+# 代價與收益不成比例。
 #
-# 以下三種都**有**被擋下（曾各自漏過，皆由 mob review 抓出並補上）：
+# 以下四種都**有**被擋下（曾各自漏過，皆由 mob review 抓出並補上）：
 # - .git 是 dangling symlink（-L 測連結本身，-e 會跟隨連結而漏判）
 # - $DIR 是壞掉 worktree 的子目錄（往上走訪祖先找 .git）
 # - admin dir 被 prune / 主 repo 被搬走（.git 還在 -> 判定為「壞掉」而非「不存在」）
+# - worktree 在主 repo 樹**內**（如本 repo 的 .claude/worktrees/<name>）且 .git 被
+#   刪除：git 會往上解析到主 repo，--git-dir 與 --git-common-dir 相等而走進放行
+#   路徑，但下方的登記檢查會查 `git worktree list` 並擋下它（含其子目錄）。
 #
-# 另有一種不會漏但機制不同：worktree 在主 repo 樹**內**（如本 repo 的
-# .claude/worktrees/<name>）且 .git 被刪除時，git 會往上解析到主 repo，
-# --git-dir 與 --git-common-dir 相等 -> 走正常放行路徑。此時該目錄事實上
-# 已不是 worktree 而只是主 repo 裡的一般目錄，放行不構成本 gate 要防的危害。
+# 註：最後一項在 round 4 曾被本註解宣稱為「安全放行」，round 5 加了登記檢查擋下它，
+# 這段說明卻直到 round 7 才被 codex 抓到仍在宣稱舊行為。**殘留說明本身也是一種
+# 宣稱，會隨每次修法過期**——改動判準時必須連它一起重驗（見 rule 11）。
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
@@ -348,7 +350,10 @@ if [ -n "$MAIN_REPO" ]; then
   # install-one / install-force-one 需要 SKILL=<name>，只印 target 名會給出一條
   # 照抄就失敗的指令。呼叫端把完整 make 引數（含 SKILL=）當作 $TARGET 傳進來時，
   # 這裡原樣輸出即可。
-  echo "           cd $(_shell_quote "$MAIN_REPO") && make ${TARGET}" >&2
+  # cd -- 分隔選項與運算元：主 repo 若 clone 在以 "-" 開頭的目錄（如 -repo），
+  # 照抄這行會失敗。腳本內部的兩個 cd 已有此防禦，這條「給人照抄的指令」漏了
+  # （由 mob review 的 agy voice 指出）。
+  echo "           cd -- $(_shell_quote "$MAIN_REPO") && make ${TARGET}" >&2
 else
   echo "         （無法從 git 問出主 repo 路徑，請自行切到主 repo 目錄後執行" >&2
   echo "           make ${TARGET}）" >&2
