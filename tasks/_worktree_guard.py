@@ -110,20 +110,26 @@ def assert_not_worktree(command: str, repo_root: Path | None = None) -> None:
         # 的同一個形狀。任何非 0 = 不安全或無法確定，一律擋。
         #
         # 但「不解讀」不等於「不出聲」。腳本只為**它自己偵測到的**狀況印過可行動的
-        # [FAIL]；由它**周邊**產生的離開碼它印不出東西來：
-        #   - 126：檔案在、但 exec 不了（如 checkout 弄丟 exec bit——雖然我們走 `bash <script>`
-        #          可繞過，bash 本身仍可能因權限問題以 126 收場）
-        #   - 127：bash 找不到要執行的東西（`which` 已擋掉多數情況，非全部）
-        #   - 負值：被訊號殺掉（OOM kill、SIGTERM），腳本根本沒機會印任何東西
-        # 這幾種情況下若我們也沉默，使用者只會拿到一個沒有任何解釋的 exit 1——而這個模組
-        # 的整個論點就是「判不出來必須大聲」。故補一條 wrapper 自己的訊息。
-        # （由 mob review 的 comment-analyzer 指出；Codex 認為多數情況不可達而評為 NIT，
-        # agy 指出 126 與訊號致死確實繞過上面的 is_file/which 檢查——三個 voice 都同意補。）
-        if result.returncode < 0 or result.returncode in (126, 127):
+        # [FAIL]，而它的契約只有兩個離開碼（見該腳本 header）：0 = 安全、1 = 是 worktree
+        # 或判不出來。**任何其他值都不是它產生的**，因此不存在「它已經印過訊息」這個前提：
+        #   - 2..125：腳本沒有這些出口；出現代表 bash 層或環境出事
+        #   - 126/127：exec 不了 / 找不到（`which` 擋掉多數但非全部）
+        #   - >=128：bash 的**子行程**被訊號殺掉（實測：內層 kill -9 -> 137）
+        #   - 負值：bash **自己**被訊號殺掉（實測：kill -TERM -> -15）
+        # 這些情況下若 wrapper 也沉默，使用者只拿到一個沒有任何解釋的 exit 1——而本模組的
+        # 整個論點就是「判不出來必須大聲」。
+        #
+        # 條件寫成「!= 1」而非列舉：列舉必然漏。首版列 (126, 127) 與負值，實測漏掉 137
+        # （子行程訊號致死是正值 128+N，不是負值）與 2..125。契約只有 0/1，就照契約寫。
+        # （mob review round 2：comment-analyzer 起頭，Codex 指出應以「文件化的離開碼」
+        # 為界，agy 實證指出 128+N 漏網。）
+        if result.returncode != 1:
             _fail(
                 f"worktree 守門腳本異常終止（exit {result.returncode}），無法判定是否在 "
                 f"worktree 內，拒絕執行 {command}：\n"
                 f"         {GUARD_SCRIPT}\n"
-                f"         負值代表被訊號殺掉；126/127 代表無法執行。請確認該檔案完整且可讀。"
+                f"         該腳本的契約只有 exit 0（安全）與 exit 1（擋下）；其他值代表它\n"
+                f"         根本沒跑完（負值 = 自己被訊號殺掉，>=128 = 子行程被殺，\n"
+                f"         126/127 = 無法執行）。請確認該檔案完整且可讀。"
             )
         raise SystemExit(1)

@@ -106,6 +106,17 @@ def main() -> None:
     #   3. 原始呼叫式漏掉 argv[2]（SKILL_REPO_KEY），照抄會落回 basename fallback——正是
     #      本模組 docstring 明文禁止的 issue #199 key drift。
     # Makefile:119 是唯一的真實呼叫者，`make install` 同時補齊 cwd、key 與周邊步驟。
+    #
+    # 「argv[1] 屬於別的 repo 時這條建議就錯了」——mob review round 2 有兩個 voice 這樣主張，
+    # 但順著它們自己的邏輯推下去，結論相反，故不改：
+    #   - guard 的 cd 目標是「argv[1] 的主 repo」，所以訊息實際說的是「到你想註冊的那個
+    #     repo 的主目錄，跑它的 make install」。那正是註冊那個 repo 的正確做法——skill_repos
+    #     是多 repo 共存的 map，每個 repo 由自己的 make install 登記自己。
+    #   - 「會遺失使用者自訂的 argv[2]」也不是損失：本檔 docstring 明載 key **必須**是
+    #     Makefile 傳的 canonical 識別名（issue #199），自訂 key 正是它禁止的東西。
+    #     `make install` 供給正確的 key，是修好而非遺失。
+    # 真正的殘留：若 argv[1] 指向一個沒有 make install 的目錄，這條建議無效——但那種呼叫
+    # 本來就不該存在（它不是 skill repo，註冊它沒有意義）。
     assert_not_worktree("make install", repo_root=pathlib.Path(sys.argv[1]))
 
     config_path = pathlib.Path.home() / ".agents" / "config.json"

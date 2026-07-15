@@ -11,6 +11,7 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 """
 
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 from pathlib import Path
@@ -1046,12 +1047,16 @@ class TestMakefileWiring:
         指向錯誤 target 的復原指令。DT-005 對三個 SKILL= target 已示範了強形式；這裡把
         同樣的嚴謹度補到全部 7 個（由 mob review 的 codex 與 claude 兩個 voice 指出）。
 
-        用 prefix 比對（不含結尾引號）以相容 `"make install-one SKILL=$(SKILL)"` 這種
-        帶引數的形式。
+        比對必須帶 token boundary（target 後面是空白或結尾引號）。純 prefix 比對不夠：
+        `"make install` 是 `"make install-scheduler"` 的前綴，於是把 install 的 guard 行
+        誤接成 install-scheduler 仍會通過——而這正是本測試要抓的錯。實測確認
+        （`'"make install' in '..."make install-scheduler"'` -> True）。首版就是 prefix
+        比對，round-1 的突變只試了反方向（install-scheduler -> install）而沒抓到；
+        由 mob review round 2 的 codex voice 指出。
         """
         recipe = self._recipe_lines(target)
         guard_line = next(line for line in recipe if "assert_not_worktree.sh" in line)
-        assert f'"make {target}' in guard_line, (
+        assert re.search(rf'"make {re.escape(target)}(?:"| )', guard_line), (
             f"{target} 傳給 guard 的指令未指名自己的 target，[FAIL] 訊息會給出無法照抄或"
             f"指向錯誤 target 的指令：{guard_line}"
         )

@@ -13,10 +13,12 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 
 from __future__ import annotations
 
-import re
+import importlib
 import subprocess  # nosec B404
+from collections.abc import Iterator
 from pathlib import Path
 
+import click
 import pytest
 
 from tasks import _worktree_guard
@@ -210,15 +212,20 @@ class TestFailClosed:
             assert_not_worktree("uv run python -m tasks.scheduler install")
         assert exc.value.code == 1
 
-    @pytest.mark.parametrize("code", [126, 127, -9, -15])
+    @pytest.mark.parametrize("code", [2, 42, 125, 126, 127, 137, 143, -9, -15])
     def test_wg_dt_006_abnormal_exit_is_not_silent(
         self, code: int, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
     ) -> None:
-        """WG-DT-006: 腳本**周邊**產生的離開碼必須由 wrapper 自己出聲，不得靜默。
+        """WG-DT-006: 腳本契約外的離開碼必須由 wrapper 自己出聲，不得靜默。
 
-        腳本只為它自己偵測到的狀況印 [FAIL]。126（exec 不了）、127（找不到）、負值
-        （訊號致死）都是它印不出東西的情況；此時 wrapper 若也沉默，使用者只拿到一個沒有
-        任何解釋的 exit 1——而本模組的整個論點是「判不出來必須大聲」。
+        腳本的契約只有 exit 0 / exit 1（見其 header）。其他值都不是它產生的，故不存在
+        「它已經印過訊息」這個前提；此時 wrapper 若也沉默，使用者只拿到一個沒有任何解釋
+        的 exit 1——而本模組的整個論點是「判不出來必須大聲」。
+
+        參數涵蓋實測過的兩種訊號形狀：**137/143**（bash 的子行程被殺，bash 以 128+N 收場，
+        是**正值**）與 **-9/-15**（bash 自己被殺）。首版條件寫成 `< 0 or in (126, 127)`，
+        漏掉前者與 2..125——列舉必然漏，故改以契約（!= 1）為界。
+        （round 2：codex 指出應以文件化的離開碼為界，agy 實證指出 128+N 漏網。）
 
         DT-004 涵蓋不到這條：它只斷言 exit code，而 _FakeSubprocess 從不寫 stderr，
         所以有沒有訊息它都會綠（由 mob review 的 comment-analyzer 指出）。
@@ -231,17 +238,19 @@ class TestFailClosed:
         assert str(code) in err, "訊息未指出實際的離開碼"
         assert "uv run python -m tasks.mycelium insight install-hook" in err, "訊息未指名指令"
 
-    @pytest.mark.parametrize("code", [1, 2])
     def test_wg_dt_007_script_owned_exit_stays_silent(
-        self, code: int, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+        self, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
     ) -> None:
-        """WG-DT-007: 腳本自己能偵測的離開碼，wrapper 不得重複發聲。
+        """WG-DT-007: exit 1（腳本契約內、它自己會印訊息）時 wrapper 不得重複發聲。
 
         與 DT-006 成對。腳本已為 exit 1 印過針對 command 客製的 [FAIL]；wrapper 再印一次
         會變成兩段互相矛盾的診斷（「偵測到 worktree」+「異常終止」），訓練讀者忽略警告。
         沒有這條，把 DT-006 的條件放寬成「所有非 0 都印」也會全綠。
+
+        只測 1：契約內的非 0 就只有它。首版還放了 2，那是把「腳本沒有的出口」誤當成
+        script-owned——正是 round 2 修掉的誤解。
         """
-        monkeypatch.setattr(_worktree_guard, "subprocess", _FakeSubprocess(returncode=code))
+        monkeypatch.setattr(_worktree_guard, "subprocess", _FakeSubprocess(returncode=1))
         with pytest.raises(SystemExit):
             assert_not_worktree("uv run python -m tasks.scheduler install")
         assert "[FAIL]" not in capfd.readouterr().err, "wrapper 對腳本已處理的離開碼重複發聲"
@@ -284,23 +293,39 @@ _GUARDED_CLI_COMMANDS = {
 # 非 click 的進入點（獨立腳本的 main()），掃不到，逐一列出。
 _GUARDED_SCRIPTS = {"scripts/register_skill_repo.py": "make install"}
 
-# click command 名稱以 install 開頭者（uninstall 不匹配——移除 hook 是安全的，不該被擋）。
-# 兩種寫法：顯式字串 `@insight.command("install-hook")`，或由函式名推導的
-# `@cli.command()` + `def install(`。
-_EXPLICIT_INSTALL_CMD = re.compile(r'@(\w+)\.command\(\s*"(install[\w-]*)"\s*\)')
-_IMPLICIT_INSTALL_CMD = re.compile(r"@(cli)\.command\(\s*\)\s*\ndef (install[\w_]*)\s*\(")
+
+def _walk_commands(group: click.Group, group_name: str) -> Iterator[tuple[str, str]]:
+    """遞迴走訪 click group，yield (所屬 group 名, 指令名)。"""
+    for name, cmd in group.commands.items():
+        if isinstance(cmd, click.Group):
+            yield from _walk_commands(cmd, name)
+        else:
+            yield group_name, name
 
 
 def _scan_install_commands() -> set[tuple[str, str, str]]:
-    """掃出 tasks/*/cli.py 裡所有 install* click 指令的 (檔案, group, 指令名)。"""
+    """問 click 本人：tasks/**/cli.py 裡所有 install* 指令的 (檔案, group, 指令名)。
+
+    **用 introspection 而非正規表示式**：首版用 regex 掃原始碼，三個 review voice 都指出
+    它太脆，而 Claude voice 量化了危害——`@cli.command()` 後面夾一個 `@click.option(...)`
+    再 `def install(` 這種寫法，**本 repo 的 tasks/*/cli.py 裡已有 32 個指令在用**，正是
+    regex 的 `\\)\\s*\\ndef` 抓不到的形狀。也就是說：只要有人給既有的 install 加一個
+    `--force` 選項，它就會靜默地從清單掃描裡消失。其他漏網形狀還有 `@insight.command()`
+    的隱式命名（regex 把 group 寫死成 `cli`）、`command("x", short_help=...)`、
+    `command(name="x")`、結尾逗號。
+
+    click 自己的 registry 是唯一權威，且完全不受格式影響——四種漏網形狀一次全解。
+    """
     found: set[tuple[str, str, str]] = set()
-    for cli_path in sorted(_REPO_ROOT.glob("tasks/*/cli.py")):
-        source = cli_path.read_text(encoding="utf-8")
-        rel = str(cli_path.relative_to(_REPO_ROOT))
-        for group, name in _EXPLICIT_INSTALL_CMD.findall(source):
-            found.add((rel, group, name))
-        for group, func in _IMPLICIT_INSTALL_CMD.findall(source):
-            found.add((rel, group, func.replace("_", "-")))
+    for cli_path in sorted(_REPO_ROOT.glob("tasks/**/cli.py")):
+        rel = cli_path.relative_to(_REPO_ROOT)
+        module = importlib.import_module(".".join(rel.with_suffix("").parts))
+        root = getattr(module, "cli", None)
+        if not isinstance(root, click.Group):
+            continue
+        for group_name, cmd_name in _walk_commands(root, "cli"):
+            if cmd_name.startswith("install"):
+                found.add((str(rel), group_name, cmd_name))
     return found
 
 
@@ -316,8 +341,16 @@ class TestGuardedSinkInventory:
     positive），而經由 helper 間接抵達的 sink 又掃不到（false negative）。改用窄形式：
     釘住已知清單，並用命名慣例強制新的 install 指令入列。
 
-    殘留（明說以便日後 re-probe）：新 sink 若不叫 install*、或不在 tasks/**/cli.py，
-    這裡仍抓不到。這是刻意的取捨——窄而可信，勝過寬而必然被關掉。
+    殘留（明說以便日後 re-probe；round 2 修正過一次，因為原本的說法比實情樂觀）：
+    - 新 sink 若**不叫 install\\***（如 `setup-agent`、`link-hook`）仍抓不到。這是刻意的
+      取捨——窄而可信，勝過寬而必然被關掉。
+    - 非 click 的進入點（獨立腳本的 main()）掃不到，故 `_GUARDED_SCRIPTS` 手動列出。
+    - 指令若不掛在該模組的 `cli` group 底下（例如另建一個 group 但沒 add 進 cli），
+      click 的 registry 走不到它。
+
+    先前這裡還宣稱「不在 tasks/**/cli.py 就抓不到」，但實作用的是 `tasks/*/cli.py`
+    （單層），巢狀路徑其實也漏——glob 的 `*` 不跨 `/`（rule 02）。現已改用 `**` 使兩者
+    一致（由 mob review 的 claude voice 指出）。
     """
 
     def test_wg_dt_008_every_guarded_entry_point_calls_the_guard(self) -> None:
