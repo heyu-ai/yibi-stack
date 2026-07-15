@@ -54,6 +54,27 @@ if [ ! -d "$DIR" ]; then
   exit 1
 fi
 
+# CDPATH 必須在**任何 cd 之前**清掉，包括下面那個正規化用的 cd。
+# POSIX：cd 的運算元若不以 /、. 或 .. 開頭就會搜尋 CDPATH，命中時還會把目的地印到
+# stdout。於是 `DIR=$(cd -- "$DIR" && pwd -P)` 在相對路徑下會 (a) 跑去完全不同的
+# 目錄，(b) 取回兩行垃圾。實測（由 mob review 的 silent-failure-hunter 指出）：
+# CDPATH 指向 trap 目錄時，DIR='wt' 會讓 gate 去評估 <trap>/wt。
+# 那個情況雖然碰巧 fail-closed（垃圾字串讓 git 報錯而不匹配 not-a-repo），
+# 但那是意外而非設計，且 [FAIL] 會指名錯的目錄——正是本腳本三度援引 rule 11
+# 反對的「誤導訊息」。
+export CDPATH=
+
+# 立刻正規化成絕對實體路徑。這不是整潔問題而是正確性問題：
+# 下方 _find_broken_git_ancestor 用 `dirname` 逐層往上走，而 `dirname .` 回傳 `.`，
+# 相對路徑會讓那個迴圈**永遠跑不到 "/"** -> 無限迴圈，make 整個掛住（比 fail-open
+# 更糟：使用者連錯誤訊息都沒有）。實測：`assert_not_worktree.sh . install` 在一個
+# 非 git 目錄下 timeout（codex 與 agy 亦各自獨立指出同一點）。
+# 呼叫端目前都傳 $(CURDIR)（絕對路徑）走不到，但這是通用工具腳本，不該賭呼叫端。
+if ! DIR=$(cd -- "$DIR" && pwd -P); then
+  echo "[FAIL] 無法解析目錄的絕對路徑，拒絕安裝：$1" >&2
+  exit 1
+fi
+
 # 必須清掉繼承來的 git 環境變數：GIT_DIR / GIT_WORK_TREE / GIT_COMMON_DIR 的優先權
 # 高於 `git -C`，被設定時 git 會回報那個 repo 而無視 -C 指定的目錄。
 # 對本 gate 而言後果特別嚴重：實測 GIT_DIR=<main>/.git 時，本腳本在 worktree 內
@@ -70,14 +91,6 @@ fi
 # 但清掉是零成本，且這是最後一個 env 操控的缺口。
 _GIT="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
   -u GIT_CEILING_DIRECTORIES -u GIT_DISCOVERY_ACROSS_FILESYSTEM LC_ALL=C git"
-
-# CDPATH 必須清掉：下方 _abs_git_path 用 cd 正規化路徑，而 POSIX 規定 cd 的目標
-# 若首段不是 . 或 ..（例如 git 回傳的 ".git"），就會去搜尋 CDPATH，命中時還會把
-# 目的地印到 stdout，污染 $() 取值。實測（由 mob review 的 silent-failure-hunter
-# 指出）：CDPATH 指向一個含 .git 的目錄時，`cd .git && pwd -P` 會回傳兩行。
-# 目前尚不足以造成 fail-open，但讓 gate 的正確性依賴「git 剛好回相對還是絕對路徑」
-# 是不必要的風險——git 確實會回相對路徑（子目錄下的 --git-common-dir 即為 ../.git）。
-export CDPATH=
 
 if ! GIT_ERR=$(mktemp); then
   echo "[FAIL] 無法建立暫存檔，無法判定是否為 worktree，拒絕安裝" >&2
@@ -151,14 +164,34 @@ _abs_git_path() {
 # dir 後，gate 對 worktree 根回 exit 1（正確），對子目錄卻回 exit 0（放行）。
 # 故要從 $DIR 往上走訪祖先。安全性：本分支只在 git 已宣告「上下都找不到 repo」時
 # 才進入，所以此處找到的任何 .git 必然是壞的，而 $DIR 就在它裡面 -> 擋下。
+# $1 必須是絕對路徑（上方已正規化）：相對路徑會讓 `dirname .` 永遠回 `.`，迴圈掛死。
+# 深度上限是第二道保險：任何讓 dirname 不再收斂的意外（怪異掛載、超深路徑）都不該
+# 變成「make 無聲掛住」——那比 fail-open 更難診斷。與 resolve-skill-repo 的 symlink
+# 迴圈上限同一個理由。
+#
+# 回傳碼（呼叫端必須逐一分辨，不可只用 `if !`）：
+#   0 = 找到 .git 祖先（印在 stdout）
+#   1 = 走到 / 都沒找到
+#   2 = 超過深度上限，無法判定
+# 本函式**不可用 exit**：它被 `$(...)` 呼叫，那是 subshell，exit 只結束 subshell，
+# 腳本會繼續跑並把「無法判定」誤當成「沒找到」而走進 fail-open。此坑由本 PR 自己的
+# 突變測試抓到——當時深度上限確實印了 [FAIL] 卻仍 exit 0。
 _find_broken_git_ancestor() {
   local d="$1"
+  local depth=0
   while :; do
     if [ -e "$d/.git" ] || [ -L "$d/.git" ]; then
       printf '%s\n' "$d"
       return 0
     fi
     [ "$d" = "/" ] && return 1
+    depth=$((depth + 1))
+    # 上限取 1000：PATH_MAX 在 macOS 是 1024 bytes，每段至少「1 字元 + 分隔符」，
+    # 故任何合法路徑最多約 512 段。設 100 會誤擋合法的深路徑（那是 fail-closed，
+    # 但仍是回歸）；1000 遠高於任何真實路徑，只在 dirname 真的不收斂時才觸發。
+    if [ "$depth" -gt 1000 ]; then
+      return 2
+    fi
     d=$(dirname -- "$d")
   done
 }
@@ -171,7 +204,9 @@ _find_broken_git_ancestor() {
 # 同一條原則：那個 fallback 指出可能錯的「目錄」，這個提示指出可能錯的「原因」。
 if ! $_GIT -C "$DIR" rev-parse --git-dir >/dev/null 2>"$GIT_ERR"; then
   if grep -qi "not a git repository" "$GIT_ERR"; then
-    if BROKEN_AT=$(_find_broken_git_ancestor "$DIR"); then
+    WALK_RC=0
+    BROKEN_AT=$(_find_broken_git_ancestor "$DIR") || WALK_RC=$?
+    if [ "$WALK_RC" -eq 0 ]; then
       echo "[FAIL] git 無法判定 ${DIR} 是否為 worktree，拒絕安裝：" >&2
       cat "$GIT_ERR" >&2
       echo "         （${BROKEN_AT} 有 .git 但 git 判定為非 repo，代表這個 repo 壞了" >&2
@@ -179,7 +214,12 @@ if ! $_GIT -C "$DIR" rev-parse --git-dir >/dev/null 2>"$GIT_ERR"; then
       echo "           已被搬移或重新 clone、或該 .git 本身不完整。請確認來源後再安裝。）" >&2
       exit 1
     fi
-    # git 說沒有 repo，且上下都找不到 .git -> 真的不是 git repo（解壓 zip）-> 放行
+    if [ "$WALK_RC" -ne 1 ]; then
+      # rc=2：超過深度上限，無法判定 -> fail-closed（不可當成「沒找到」而放行）
+      echo "[FAIL] 祖先目錄走訪超過上限，無法判定是否為 worktree，拒絕安裝：${DIR}" >&2
+      exit 1
+    fi
+    # git 說沒有 repo，且一路到 / 都找不到 .git -> 真的不是 git repo（解壓 zip）-> 放行
     exit 0
   fi
   # 其他 git 失敗：擋下，但不猜原因——只把 git 自己的訊息透出來。
@@ -204,6 +244,38 @@ fi
 # worktree：--git-dir 是 <main>/.git/worktrees/<name>，--git-common-dir 是 <main>/.git。
 # 用相等性判斷，而非比對 ".claude/worktrees" 字串——worktree 可以建在任意路徑。
 if [ "$GIT_DIR_PATH" = "$GIT_COMMON_PATH" ]; then
+  # 相等不代表安全：worktree 的 .git 檔被刪除、而該 worktree 又位於主 repo 樹內
+  # （本 repo 的 .claude/worktrees/<name> 正是如此）時，git 會往上解析到主 repo，
+  # 兩者於是相等 -> 放行。但實測該 worktree **仍登記在主 repo**（git worktree list
+  # 標記為 prunable），所以「它已經只是一般目錄」的推論並不成立（由 mob review 的
+  # codex voice 指出）。
+  #
+  # 註（實測界定，避免誇大）：本 repo 目前沒有任何工具會刪除該目錄——
+  # `git worktree prune` 只移除 admin entry 不動目錄，/clean-merged 與 /clean-gone
+  # 也沒有刪 worktree 目錄的邏輯。故危害鏈未閉合。但與其用文字論證它安全，
+  # 不如直接問 git：只要這個路徑仍登記為 linked worktree 就擋下。
+  if REGISTERED=$($_GIT -C "$DIR" worktree list --porcelain 2>/dev/null \
+    | awk '/^worktree /{print substr($0, 10)}'); then
+    _main_seen=0
+    while IFS= read -r wt; do
+      [ -z "$wt" ] && continue
+      # 第一筆必為主 worktree，跳過；其餘皆為 linked worktree。
+      if [ "$_main_seen" -eq 0 ]; then
+        _main_seen=1
+        continue
+      fi
+      wt_abs=$(cd -- "$wt" 2>/dev/null && pwd -P) || continue
+      if [ "$DIR" = "$wt_abs" ]; then
+        echo "  [FAIL] ${DIR} 仍登記為 git worktree（其 .git 已遺失），不可執行 make ${TARGET}：" >&2
+        echo "         git 會把它解析成主 repo，但 git worktree list 仍將它列為 worktree。" >&2
+        echo "         在此安裝會把全域 symlink 指向一個狀態不明的目錄。" >&2
+        echo "         請先在主 repo 執行 git worktree prune 或移除此目錄後再安裝。" >&2
+        exit 1
+      fi
+    done <<EOF
+$REGISTERED
+EOF
+  fi
   exit 0
 fi
 

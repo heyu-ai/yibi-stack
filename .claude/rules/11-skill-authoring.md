@@ -97,6 +97,16 @@ consequence of the property that makes the resolver correct: it faithfully resol
 global symlink points into that worktree; once the branch merges and `/clean-merged`
 removes it, the symlinks dangle and every skill dies.
 
+**Keep "the guard is the first recipe line" as a literal, testable invariant** — do not relax it
+to "the guard precedes the first *mutation*". A reviewer proposed moving each target's
+`[ -z "$(SKILL)" ]` usage check above the guard, so that forgetting `SKILL=` inside a worktree
+reports the usage error rather than the (longer) worktree error. Declined, deliberately: the
+usage check mutates nothing today, but "guard first" is checkable by a test that anyone can read,
+while "guard before the first mutation" requires every future editor to correctly classify their
+own line — and the cost of one wrong classification is the silent global-state corruption this
+whole gate exists to prevent. The UX gain is also thin: a caller inside a worktree must fix that
+first regardless of the missing argument.
+
 **Guard every target that writes global state individually — a prerequisite chain is not a
 gate.** `install-all` lists `install` before `install-scheduler`, but `make -j` runs
 prerequisites **in parallel**, so the scheduler can finish writing a worktree path into its
@@ -168,6 +178,15 @@ and note before catching the code). The honest residual here is narrow and worth
 a worktree whose `.git` is deleted outright **and** which lives outside the main repo's tree —
 there it is byte-identical to an unpacked zip. If it lives *inside* the main tree, git resolves
 upward to the main repo and the equality check passes it through a different path entirely.
+
+**Do not run mutation tests on a shared worktree file while a review agent is reading it.**
+Mutation testing edits the real file in place; a reviewer dispatched against that path will read
+whatever state the file happens to be in. On this PR a reviewer read the script mid-mutation, got
+one **false clean result**, and had to flag the race instead of reviewing. The global CLAUDE.md
+already records this incident in the opposite direction (a verification subagent editing the file
+the lead was reading) — it is symmetric, and the lead is not exempt. Sequence them: finish the
+review round, collect every report, *then* mutate. If you must do both, mutate a copy outside the
+worktree. Corollary for reviewers: pin any report on a mutable file to a SHA.
 
 **An error message's hint must share the predicate of the branch it explains.** The guard's
 "this repo is broken — pruned admin dir? main repo moved?" hint was gated only on "`.git`

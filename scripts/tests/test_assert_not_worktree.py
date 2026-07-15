@@ -446,6 +446,153 @@ class TestAssertNotWorktree:
         )
         assert "[FAIL]" in result.stderr
 
+    def test_anw_eg_012_relative_dir_does_not_hang_the_ancestor_walk(self, tmp_path: Path) -> None:
+        """ANW-EG-012: 相對路徑的 $DIR 不得讓祖先走訪無限迴圈。
+
+        `dirname .` 回傳 `.`，所以祖先走訪的 `[ "$d" = "/" ]` 終止條件永遠不成立
+        -> 迴圈掛死，make 整個卡住且無任何輸出。這比 fail-open 更難診斷：使用者
+        連錯誤訊息都沒有，只看到指令不會結束。
+
+        實測（修法前）：在非 git 目錄下 `assert_not_worktree.sh . install` timeout。
+        修法：一開始就把 $DIR 正規化成絕對實體路徑。
+
+        本測試用 timeout 而非只看 returncode：掛住的話 subprocess.run 會丟
+        TimeoutExpired，正是我們要抓的。
+        """
+        plain = tmp_path / "plain" / "nested"
+        plain.mkdir(parents=True)
+
+        # cwd 設在該目錄，傳入相對路徑 "."
+        result = subprocess.run(  # nosec B603
+            ["bash", str(GUARD), ".", "install"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+            cwd=str(plain),
+        )
+        assert result.returncode == 0, f"相對路徑下非 git 目錄未被放行：{result.stderr!r}"
+
+    def test_anw_dt_013_relative_dir_still_blocks_a_worktree(self, tmp_path: Path) -> None:
+        """ANW-DT-013: 相對路徑的 $DIR 仍須正確擋下 worktree（正規化不得改變判定）。"""
+        repo = _make_repo(tmp_path / "repo")
+        wt = tmp_path / "wt"
+        _git(repo, "worktree", "add", "-q", "-b", "feat", str(wt))
+
+        result = subprocess.run(  # nosec B603
+            ["bash", str(GUARD), ".", "install"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+            cwd=str(wt),
+        )
+        assert result.returncode == 1, "相對路徑下 worktree 未被擋下"
+        assert "worktree" in result.stderr
+        # 正規化後訊息仍須印出絕對路徑，不是 "."
+        assert str(wt.resolve()) in result.stderr
+
+    def test_anw_dt_014_registered_worktree_with_deleted_git_is_blocked(
+        self, tmp_path: Path
+    ) -> None:
+        """ANW-DT-014: 仍登記、但 .git 已遺失的 worktree（位於主 repo 樹內）須擋下。
+
+        該 worktree 的 .git 被刪除後，git 會往上解析到主 repo，--git-dir 與
+        --git-common-dir 相等 -> 走正常放行路徑。但實測它**仍登記在主 repo**
+        （git worktree list 標記為 prunable），所以不能推論「它已只是一般目錄」。
+        由 mob review 的 codex voice 指出。
+
+        誠實標註危害範圍：實測本 repo 目前沒有工具會刪除該目錄——
+        `git worktree prune` 只移除 admin entry，/clean-merged 與 /clean-gone 也沒有
+        刪 worktree 目錄的邏輯，故危害鏈未閉合。採用此修法不是因為危害已證實，
+        而是因為直接問 git 比用文字論證它安全更可靠。
+
+        本測試經突變驗證：拿掉 worktree list 比對會讓它失敗。
+        """
+        repo = _make_repo(tmp_path / "repo")
+        nested = repo / ".claude" / "worktrees" / "wt1"
+        nested.parent.mkdir(parents=True)
+        _git(repo, "worktree", "add", "-q", "-b", "feat1", str(nested))
+        (nested / ".git").unlink()
+
+        # 前提：git 從該目錄往上解析到主 repo（即相等性檢查會放行）
+        toplevel = _run(["git", "-C", str(nested), "rev-parse", "--show-toplevel"])
+        assert toplevel.stdout.strip() == str(repo.resolve()), "測試前提不成立：git 應解析到主 repo"
+        # 前提：它仍登記為 worktree
+        listing = _git(repo, "worktree", "list", "--porcelain")
+        assert str(nested.resolve()) in listing.stdout, "測試前提不成立：應仍登記"
+
+        result = _run(["bash", str(GUARD), str(nested), "install"])
+        assert result.returncode == 1, f"仍登記的 worktree（.git 已刪）遭放行：{result.stderr!r}"
+        assert "worktree" in result.stderr
+
+    def test_anw_eg_014_cdpath_cannot_redirect_relative_dir(self, tmp_path: Path) -> None:
+        """ANW-EG-014: CDPATH 不得讓相對路徑的 $DIR 被導向別的目錄。
+
+        `export CDPATH=` 原本排在正規化 cd 的**下面**，等於沒保護到它。POSIX：cd 的
+        運算元不以 /、. 或 .. 開頭時會搜尋 CDPATH，命中還會把目的地印到 stdout。
+        於是 DIR='wt' 會被導去 <trap>/wt，且 $() 取回兩行垃圾。
+
+        實測（由 mob review 的 silent-failure-hunter 指出）：碰巧 fail-closed，
+        但那是意外而非設計，且 [FAIL] 會指名錯的目錄。
+
+        本測試經突變驗證：把 `export CDPATH=` 移回正規化之後會讓它失敗。
+        """
+        repo = _make_repo(tmp_path / "repo")
+        wt_name = "wt"
+        wt = tmp_path / "base" / wt_name
+        wt.parent.mkdir()
+        _git(repo, "worktree", "add", "-q", "-b", "feat", str(wt))
+
+        # CDPATH trap：一個同名但完全無關的目錄
+        trap_dir = tmp_path / "trap"
+        (trap_dir / wt_name).mkdir(parents=True)
+
+        env = dict(os.environ)
+        env["CDPATH"] = str(trap_dir)
+        result = subprocess.run(  # nosec B603
+            ["bash", str(GUARD), wt_name, "install"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+            cwd=str(wt.parent),
+            env=env,
+        )
+        assert result.returncode == 1, "CDPATH 下 worktree 未被擋下"
+        # 關鍵：訊息必須指名真正的 worktree，不是 trap 目錄
+        assert str(trap_dir) not in result.stderr, (
+            f"[FAIL] 訊息指向 CDPATH trap 目錄而非真實路徑：{result.stderr!r}"
+        )
+        assert str(wt.resolve()) in result.stderr
+
+    def test_anw_eg_013_ancestor_walk_helper_never_calls_exit(self) -> None:
+        """ANW-EG-013: _find_broken_git_ancestor 不得用 exit 表達失敗。
+
+        它被 `$(...)` 呼叫，那是 subshell——exit 只結束 subshell，腳本會繼續跑，
+        於是「無法判定」被誤當成「沒找到 .git」而走進 fail-open。
+
+        實測（修法前）：深度上限確實印出了 [FAIL]，腳本卻仍 exit 0。這個假象還
+        連帶讓 ANW-EG-012 變成假測試（斷言的 0 剛好等於 bug 造成的 0）——是本 PR
+        自己的突變測試把兩者一起揪出來的。
+
+        改用 return code（0=找到 / 1=沒找到 / 2=超過上限），呼叫端逐一分辨。
+        這是靜態檢查：它防的是「後人把 return 2 改回 exit 1」這種看起來更直覺、
+        實際會靜默 fail-open 的回頭路。
+        """
+        src = GUARD.read_text(encoding="utf-8")
+        start = src.index("_find_broken_git_ancestor() {")
+        end = src.index("\n}", start)
+        body = src[start:end]
+
+        assert "exit " not in body, (
+            "_find_broken_git_ancestor 內含 exit：它在 $() subshell 裡執行，"
+            "exit 不會終止腳本，會靜默 fail-open。請用 return code。"
+        )
+        # 三種 return code 都必須存在
+        for rc in ("return 0", "return 1", "return 2"):
+            assert rc in body, f"缺少 {rc}"
+
     def test_anw_eg_011_healthy_repo_is_not_accused_of_being_broken(self, tmp_path: Path) -> None:
         """ANW-EG-011: 非 not-a-repo 的 git 失敗不得印出「這個 repo 壞了」的臆測。
 
