@@ -439,41 +439,61 @@ Notes:
 
 `A && B && restore` reads as "do A, do B, then put things back" — but `&&` means **B's success
 is the precondition for the restore**. When B is the fallible step, the restore is skipped
-exactly when it is needed. This is the same concern as the `trap ERR` section above, in its
-most common one-liner form.
+exactly when it is needed.
+
+Related to the `trap ERR` section above, but **pick the signal by intent — they are not
+interchangeable**:
+
+| Signal | Use when | Swapping them costs |
+|--------|----------|---------------------|
+| `trap … ERR` | the mutation should **survive success**, unwind only on failure (bump.sh: the version bump stays once gates pass) | `EXIT` here reverts `pyproject.toml`/`CHANGELOG.md` **after a successful release** — probed |
+| `trap … EXIT` | the mutation is **temporary scaffolding**, undo on every path (the `rm -rf` + restore case below) | `ERR` here skips the restore whenever the risky step happens to succeed |
+
+That is also why the ERR section needs `trap - ERR` before its commit and this one does not.
 
 ```bash
 # Wrong: mutate -> risky-step -> restore, chained with &&
-rm -rf "$OTHER/dir" && some-tool --do-thing && git -C "$OTHER" checkout -- dir
+rm -rf "$OTHER/dir" && some-tool --do-thing && git -C "$OTHER" checkout HEAD -- dir
 #                      ^^^^^^^^^^^^^^^^^^^^ fails -> the restore never runs,
 #                                            the deletion is left behind
 
-# Correct: trap EXIT -- the restore runs on every exit path, and the failure
-# status still propagates
-restore() { git -C "$OTHER" checkout -- dir; }
+# Correct: trap EXIT guarantees the restore runs; `set -e` guarantees the status.
+# Both are load-bearing -- see the table below.
+set -e
+# `checkout HEAD --`, not `checkout --`: the bare form reads the index and fails once
+# anything has staged the deletion. Restores TRACKED files only -- untracked content
+# under dir is gone (rule 15).
+restore() { git -C "$OTHER" checkout HEAD -- dir; }
 trap restore EXIT
 rm -rf "$OTHER/dir"
 some-tool --do-thing
 ```
 
-**`;` is not the fix — it fails in both directions.** Swapping `&&` for `;` is the obvious
-reach and it is wrong twice over. Probed:
+**`;` is not the fix, and the trap alone is not either.** Every row below was probed, with the
+risky step failing:
 
 | Form | restore runs? | exit status |
 |------|---------------|-------------|
 | `A; B; restore` under `set -e` | **no** — `set -e` aborts at B | 1 |
 | `A; B; restore` without `set -e` | yes | **0 — B's failure is masked** |
-| `trap restore EXIT` | yes | 1 |
+| `trap restore EXIT` without `set -e`, B not the last line | yes | **0 — B's failure is masked** |
+| `trap restore EXIT` **under `set -e`** | yes | 1 |
 
-Under `set -e` the restore never runs, so `;` buys nothing over `&&`. Without `set -e` the
-restore runs but the chain reports the **restore's** status, so a failed risky step exits 0 and
-the caller believes it succeeded — the same silent-success this rule exists to prevent, moved
-one step along. Only `trap ... EXIT` gets both.
+Swapping `&&` for `;` is the obvious reach and it is wrong twice over: under `set -e` the restore
+never runs, so it buys nothing over `&&`; without `set -e` the chain reports the **restore's**
+status, so a failed risky step exits 0 and the caller believes it succeeded.
 
-If you must use `;` (an interactive one-liner, no script), capture the status explicitly:
+**But row 3 is the trap worth internalising: `trap … EXIT` guarantees the restore *runs*, not
+that the failure *propagates*.** Without `set -e`, the script's status is whatever ran last — so
+appending one harmless log line after the risky step silently re-acquires the exact masking this
+rule condemns `;` for. The two mechanisms are separate: `trap EXIT` for the restore, `set -e` for
+the status. Use both.
+
+If you must use `;` (an interactive one-liner, no script), capture the status and run it in a
+**subshell** — a bare `exit "$rc"` at an interactive prompt closes your terminal:
 
 ```bash
-rm -rf "$OTHER/dir"; some-tool --do-thing; rc=$?; git -C "$OTHER" checkout -- dir; exit "$rc"
+( rm -rf "$OTHER/dir"; some-tool --do-thing; rc=$?; git -C "$OTHER" checkout HEAD -- dir; exit "$rc" )
 ```
 
 **Why this bites hardest when handing the chain to a human**: a one-line `&&` chain looks

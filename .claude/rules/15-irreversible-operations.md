@@ -192,7 +192,7 @@ If already pushed, this recovery does not apply — use PR + revert commit workf
 
 | Operation | Risk | Recommended approach |
 |-----------|------|----------------------|
-| `rm -rf <path>` | Recursive delete; cannot recover from Trash | Run **both**: `git -C <path> ls-files` (tracked content — `ls` cannot distinguish it; restorable via `git checkout --`) **and** `git clean -nd <path>` (untracked content — **this is the half that is gone for good**). Let user confirm; or use `trash` instead |
+| `rm -rf <path>` | Recursive delete; cannot recover from Trash | Run all three from the owning worktree: `git -C <path> status --porcelain .` (**uncommitted edits — not recoverable from git at all**), `git -C <path> ls-files` (tracked; only the *clean* ones are restorable), `git -C <path> clean -ndx .` (untracked + ignored — gone for good; `-x` required). Let user confirm; or use `trash` instead |
 | `find ... -delete` | Batch delete; scope is hard to predict | Run `find ... -print` (without `-delete`) to show affected files first |
 | `> file` overwriting an existing file | Original content permanently gone | Confirm whether backup or git version exists; use `>>` append instead, or `cp` first |
 | `truncate -s 0 file` | Empties file content | Confirm file purpose; describe and let user confirm |
@@ -228,16 +228,40 @@ The same blind spot applies to `ls`: it shows the files but not their tracked st
 why the `rm -rf` row above calls for `git ls-files` rather than `ls`.
 
 **Both halves need a separate command, and only one of them is recoverable.** `git ls-files`
-lists the tracked files — the ones `git checkout -- <path>` can restore byte-exact. It says
+lists the tracked files — the ones `git checkout HEAD -- <path>` can restore. It says
 nothing about the untracked files in the same directory, which are the half that is gone for
-good. That is why the row above calls for `git clean -nd <path>` as well: inspecting only the
+good. That is why the row above calls for `git clean -ndx <path>` as well: inspecting only the
 recoverable half is not a safety check.
 
+**`-x` is not optional.** Plain `git clean -nd` omits gitignored files, and those are exactly
+what `rm -rf` most often destroys — `build.log`, `node_modules/`, `.runtime/`. They are untracked,
+so git cannot restore them either. Probed:
+
+```console
+$ ls d/                       # build.log is gitignored
+build.log   tracked.txt   untracked.txt
+$ git -C d ls-files           # the recoverable half
+tracked.txt
+$ git clean -nd d             # MISSES build.log
+Would remove d/untracked.txt
+$ git clean -ndx d            # the actual unrecoverable set
+Would remove d/build.log
+Would remove d/untracked.txt
+```
+
+`rm -rf d/` destroys all three. Only `ls-files` + `clean -ndx` together account for them.
+
 **Use `git -C <target> ls-files`, not `git ls-files -- <target>`, when the target may be in
-another worktree.** Every linked worktree has its **own index**. Run from the caller's worktree,
-`git ls-files -- <other-worktree-path>` returns empty — not because nothing is tracked there, but
-because the caller's index does not know about it. That empty result reads as "safe to delete"
-and is the same false negative this whole section is about, one layer up. `git -C <target>`
+another worktree.** Every linked worktree has its **own index**, and the bare form fails
+differently depending on where you run it — one of those ways is silent:
+
+| Run from | `git ls-files -- <other-worktree-path>` | Danger |
+|----------|------------------------------------------|--------|
+| the **main repo** | empty, `rc=0` — `.claude/worktrees/` is gitignored there | **silent false negative**: reads as "nothing tracked, safe to delete" |
+| a **sibling worktree** | `fatal: ... is outside repository`, `rc=128` | loud, so it cannot be mistaken for an answer — but still not an answer |
+
+The same applies to `git clean`: run from the parent it will not enumerate a nested worktree's
+contents at all (`Would skip repository ...`), with or without `-x`. Only `git -C <target>`
 queries the index that actually owns the path.
 
 **Deleting tracked files from another worktree is worse than it looks.** Every linked worktree
@@ -247,8 +271,26 @@ deletions in a branch you are not working on, and if a concurrent session stages
 `git add -A` before you restore, those deletions land in *their* commit. Confirm with
 `git -C <target> ls-files` before deleting anything under `.claude/worktrees/`.
 
-Recovery: `git checkout -- <path>` restores tracked files byte-exact from the branch's committed
-state — run it from (or `-C` into) the worktree that owns the path. Untracked files are gone.
+**Recovery: use `git checkout HEAD -- <path>`, not `git checkout -- <path>`.** The bare form reads
+the **index**, not HEAD — which breaks in exactly the race described above. Probed:
+
+```console
+# the concurrent session has already staged your deletion
+$ git ls-files d                 # index: empty, the deletion is staged
+$ git checkout -- d
+error: pathspec 'd' did not match any file(s) known to git      # NOT restored
+$ git checkout HEAD -- d
+$ cat d/f.txt
+committed                                                        # restored
+```
+
+It also silently returns the *staged* content rather than the committed content when the two
+differ. `git checkout HEAD --` works in both cases. Run it from (or `-C` into) the worktree that
+owns the path.
+
+Only **clean** tracked files come back at all. A tracked file with uncommitted edits restores to
+its last committed content — the edits are gone, which is why the row above puts
+`git -C <path> status --porcelain .` first. Untracked files are gone entirely.
 
 (Source: yibi-stack PR #214 retro — `rm -rf tasks/nightly_agent/tests/generated/` removed a
 tracked `.gitkeep` after `git status` showed only untracked entries; separately, a `rm -rf` on

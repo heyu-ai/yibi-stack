@@ -185,22 +185,8 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **hook script in `.claude/hooks/` does not mean enabled**: Claude Code only runs hooks
   registered in `settings.json`'s `hooks` command strings. Evaluate hook effectiveness with a
   double check: file exists AND registered in `settings.json`.
-- **registering a new hook can brick the session when you entered the worktree mid-session**:
-  `${CLAUDE_PROJECT_DIR}` is the project root **where the session started** — it does not follow
-  you into a worktree. Enter a worktree mid-session (the normal flow: start in the main repo,
-  then `EnterWorktree`) and it stays pinned at the main repo, while the **worktree's**
-  `settings.json` is still the file that gets loaded. That asymmetry is the trap: your new
-  registration takes effect immediately, but `${CLAUDE_PROJECT_DIR}/.claude/hooks/<new>.py`
-  resolves into the main repo, where an unmerged script does not exist. Every subsequent Bash
-  call then dies with `can't open file ...` + `exit 2` — including the calls you would use to
-  undo it. Existing hooks are unaffected only because the main repo already has their scripts.
-  A session launched *directly inside* the worktree gets `CLAUDE_PROJECT_DIR` = the worktree and
-  does **not** hit this. Develop and test the script in the worktree (`echo '<payload>' |
-  python3 .claude/hooks/<new>.py; echo $?`), commit the `settings.json` registration in the same
-  PR, and expect it to start firing only **after merge**, when the script reaches the main repo.
-  If you brick yourself anyway, the escape is to delete the registration block with the Edit
-  tool — only `matcher: "Bash"` is gated, so Edit still works. (PR #214 retro: registering
-  `protect-tracked-rm.py` from a worktree blocked every Bash call in that session, twice.)
+- **registering a new hook from a worktree can brick the session** — `${CLAUDE_PROJECT_DIR}` stays
+  pinned at the session's start dir; see rule 15 for the mechanism and the Edit-tool escape.
 - **`Path.rglob()` does not follow symlinks** — see rule 02 for fix.
 - **`Path.glob("*/x/*")` doesn't cross `/` like regex `.*` does** — see rule 02 for fix.
 - **`plugins/harness` has no `package.json`**: not all subdirectories under `plugins/` are
