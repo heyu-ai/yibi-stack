@@ -70,7 +70,7 @@ CLAUDE_CMD_DIR := $(HOME)/.claude/commands
 install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/ + commands（跨專案可用）
 	@# 必須是本 target 的第一個動作：後面的步驟會把 $(CURDIR) 寫進全域 symlink，
 	@# 失敗得太晚就已經污染 ~/.claude/skills/ 與 ~/.agents/ 了。
-	@$(CURDIR)/scripts/assert_not_worktree.sh "$(CURDIR)" install
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" install
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
@@ -136,7 +136,7 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 	echo "  [OK] resolve-skill-repo -> $$resolved"
 
 install-project: ## Install scope=project skills（本 repo 限定，ainization-skill 開發用）
-	@$(CURDIR)/scripts/assert_not_worktree.sh "$(CURDIR)" install-project
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" install-project
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
 	@for s in $(SKILL_DIR)/*/; do \
@@ -160,7 +160,7 @@ install-project: ## Install scope=project skills（本 repo 限定，ainization-
 	done
 
 install-one: ## Install one skill: make install-one SKILL=<name>
-	@$(CURDIR)/scripts/assert_not_worktree.sh "$(CURDIR)" install-one
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" "install-one SKILL=$(SKILL)"
 	@if [ -z "$(SKILL)" ]; then echo "[FAIL] SKILL 未指定，用法：make install-one SKILL=<name>"; exit 1; fi
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR)"; exit 1; }
@@ -169,7 +169,7 @@ install-one: ## Install one skill: make install-one SKILL=<name>
 	@echo "[OK] $(SKILL) -> done"
 
 install-force-one: ## 強制安裝單一 skill，覆蓋 real directory（搶回被 gstack 蓋過的 skill）: make install-force-one SKILL=<name>
-	@$(CURDIR)/scripts/assert_not_worktree.sh "$(CURDIR)" install-force-one
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" "install-force-one SKILL=$(SKILL)"
 	@if [ -z "$(SKILL)" ]; then echo "[FAIL] SKILL 未指定，用法：make install-force-one SKILL=<name>"; exit 1; fi
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR)"; exit 1; }
@@ -308,6 +308,9 @@ release: ## Release: make release TYPE=patch|minor|major
 install-all: build-tools install install-project install-handover-hooks install-scheduler patch-pr-review-agents patch-agy-allow-list ## 一次裝齊 Go tools / skill（含 project）/ hook / scheduler / patch-pr-review-agents / patch-agy-allow-list（新環境首次設定用）
 
 promote: ## Promote draft to skill: make promote SKILL=<name>
+	@# guard 必須在 mv 之前：promote 尾端會委派 install-one（本身也有 guard），
+	@# 但那時 mv 已經執行完，worktree 內會留下「檔案搬了、沒安裝」的半完成狀態。
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" "promote SKILL=$(SKILL)"
 	@if [ -z "$(SKILL)" ]; then echo "Usage: make promote SKILL=name"; exit 1; fi
 	mv drafts/$(SKILL) $(SKILL_DIR)/$(SKILL)
 	$(MAKE) install-one SKILL=$(SKILL)

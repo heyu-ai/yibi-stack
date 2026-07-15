@@ -117,6 +117,37 @@ Detection is `--git-dir != --git-common-dir` (in a worktree the former is
 `<main>/.git/worktrees/<name>`, the latter `<main>/.git`; in the main repo they are equal).
 Do **not** substring-match `.claude/worktrees` — a worktree may be created at any path.
 
+**A fail-open must name the single condition it forgives, never "the call failed".** The guard's
+non-git pass-through is deliberate (an unpacked zip cannot be a worktree), but the first
+implementation expressed it as "if `git rev-parse` fails, exit 0" — which silently forgave a
+much larger set: git older than 2.31 (`--path-format` unknown), dubious ownership under
+`sudo make install`, permission errors, git missing from `PATH`, an unreadable directory. Each
+made the gate cease to exist with no warning — the same wrong-but-silent pass the whole resolver
+design exists to eliminate. All three mob-review voices flagged it independently. The gate now
+exits 0 **only** when git's own stderr says `not a git repository`, and every other failure is a
+`[FAIL]`. Because git localises that message, the call must pin `LC_ALL=C` or the match silently
+misses on a non-English machine.
+
+**Normalizing git paths: use `cd`+`pwd -P`, not `--path-format=absolute`.** Two traps, both
+measured on this repo during PR #234's review:
+
+- `--path-format=absolute` needs git >= 2.31 (2021). Using it puts the gate's correctness on a
+  version floor this repo does not otherwise require (rule 13 already documents caring about
+  macOS < Ventura toolchains). `(cd "$dir" && cd "$raw" && pwd -P)` is portable and
+  format-independent.
+- Comparing the **raw** `rev-parse` outputs (the obvious way to avoid `--path-format`) is wrong:
+  the two flags do not answer in the same spelling. From a main-repo **subdirectory**,
+  `--git-dir` returns an absolute path while `--git-common-dir` returns `../.git`; from a
+  **symlinked** path, `--git-dir` returns the *physical* path while a relative `--git-common-dir`
+  resolves *logically*. Either asymmetry makes the two compare unequal and **falsely blocks a
+  legitimate main-repo install**. `pwd -P` (physical, not logical) collapses both into one
+  namespace. macOS's own `/var` → `/private/var` symlink is enough to trigger this.
+
+**Report the main repo from `git worktree list --porcelain`, not `dirname` of the common dir.**
+Its first `worktree` entry is authoritative. The common dir's parent is not necessarily the main
+work tree (`git clone --separate-git-dir`, submodules), so `dirname` can print a `cd` target that
+does not exist — an error message that misdirects is worse than a terse one.
+
 **Any new `git` call added to the resolver family must clear inherited git env vars.** This
 is a shared trap, not a per-script detail: `GIT_DIR` / `GIT_WORK_TREE` / `GIT_COMMON_DIR`
 outrank `git -C`, so git answers about *that* repo and ignores the `-C` directory entirely.
