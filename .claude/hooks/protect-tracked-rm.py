@@ -99,7 +99,7 @@ def _tracked_files(target: str, cwd: str) -> list[str]:
     if not os.path.isdir(path):
         return []
     try:
-        result = subprocess.run(  # nosec B603
+        result = subprocess.run(  # nosec B603 B607
             ["git", "-C", path, "ls-files"],
             capture_output=True,
             text=True,
