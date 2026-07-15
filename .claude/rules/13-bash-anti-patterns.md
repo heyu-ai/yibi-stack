@@ -323,7 +323,81 @@ SCRIPT_DIR=$(realpath "$(dirname "$0")")
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 ```
 
-Use `cd "$(dirname "$0")" && pwd` in all shell scripts that need the script's own directory.
+Use `cd "$(dirname "$0")" && pwd` in shell scripts that need the script's own directory —
+but only when the script is **not reached through a file-level symlink**; see the next section
+for that case.
+
+### `pwd -P` Does Not Resolve a *File* Symlink (silent wrong directory)
+
+The portable form above resolves symlinks on **directories in the path**, never the symlink on
+the **script file itself**. `dirname` strips the filename first, so a file symlink is gone before
+`pwd -P` ever runs — it then resolves the *link's own* directory and returns it with no error.
+
+This bites when the same self-locate block is copied to a new install location:
+
+| Where the symlink sits | Example | `cd "$(dirname "$0")" && pwd -P` |
+|------------------------|---------|----------------------------------|
+| On a **directory** | `~/.claude/skills/<name>` → `<repo>/skills/<name>` | correct — resolves into the repo |
+| On the **file** | `~/.agents/bin/<tool>` → `<repo>/scripts/<tool>` | **wrong** — returns `~/.agents/bin` |
+
+```bash
+# Wrong through a file symlink: silently yields the symlink's own directory
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+
+# Fix: walk the symlink chain first (macOS has no readlink -f), then resolve the directory.
+# The depth cap matters: a circular link (a -> b -> a) otherwise hangs forever with no output.
+SOURCE="${BASH_SOURCE[0]}"
+_depth=0
+while [ -L "$SOURCE" ]; do
+  _depth=$((_depth + 1))
+  if [ "$_depth" -gt 40 ]; then echo "[FAIL] symlink loop: $SOURCE" >&2; exit 1; fi
+  _link_dir=$(cd -P "$(dirname "$SOURCE")" && pwd)
+  SOURCE=$(readlink "$SOURCE")
+  case "$SOURCE" in
+    /*) ;;
+    *) SOURCE="$_link_dir/$SOURCE" ;;
+  esac
+done
+SCRIPT_DIR=$(cd -P "$(dirname "$SOURCE")" && pwd)
+```
+
+Rule: before copying a self-locate block to a new location, check the **shape** of the symlink
+that will reach it, and verify by **executing through the symlink** — not just directly. Running
+the script in place passes in both designs, which is exactly why this ships unnoticed.
+
+Reference implementation: `scripts/resolve-skill-repo`. (Source: PR #224 — the naive form was
+correct for `~/.claude/skills/` and silently wrong the moment the same logic moved to
+`~/.agents/bin/`.)
+
+### `GIT_DIR` / `GIT_WORK_TREE` Override `git -C` (defeats self-location)
+
+`git -C <dir>` does **not** win over an inherited `GIT_DIR` / `GIT_WORK_TREE`. When those are
+set, git reports **that** repository and ignores `-C` entirely. Any "find my own checkout" logic
+built on `git -C "$SCRIPT_DIR" rev-parse --show-toplevel` is therefore defeatable by an
+environment variable, and returns a **different, valid** repo — so an identity gate that checks
+for a marker file cannot catch it either (the other checkout has the marker too).
+
+This is not an exotic scenario: **git sets `GIT_DIR` while running hooks**, so any script invoked
+from a hook context inherits it. A repo that leans on pre-commit hooks is exposed by default.
+
+```bash
+# Wrong: an inherited GIT_DIR silently redirects this to another checkout
+SKILL_REPO=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)
+
+# Fix: clear git's repo-selection vars for the resolution call only
+_GIT="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git"
+SKILL_REPO=$($_GIT -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)
+```
+
+**Scope the clearing deliberately.** Clear it only on calls that ask "where does *this script*
+live". A call that asks "which repo is the *caller* working in" (project-name detection, branch
+reporting) must keep honouring the caller's git environment — clearing it there breaks the very
+answer it wants. Both kinds often sit in the same script.
+
+Verify with a probe, not by reading: point `GIT_DIR`/`GIT_WORK_TREE` at a second checkout that
+is **also valid** (has the marker), and assert the resolver still returns its own. A test whose
+decoy checkout is invalid proves nothing — the identity gate would reject it anyway.
+(Source: PR #224 round-5 review / PR #233.)
 
 ### `rg '...\|...'` BRE alternation in ERE tool (silent empty results)
 
