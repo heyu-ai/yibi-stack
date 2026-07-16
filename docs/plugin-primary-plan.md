@@ -143,9 +143,13 @@ portman = "tasks.local_port_manager.cli:cli"
 packages = ["tasks"]         # 排除 scripts/、plugins/、本機 .venv
 ```
 
-**砍掉 9 個零 import 的依賴**：playwright、python-dotenv、pikepdf、cryptography、tabula-py、
+**砍掉 8 個零 import 的依賴**：playwright、python-dotenv、pikepdf、cryptography、tabula-py、
 pillow、pytesseract、markdownify。這一刀同時移除 Java runtime 需求（tabula-py）與瀏覽器下載
 （playwright）。
+
+> 零 import 的依賴其實有 9 個，但第 9 個 `psycopg2-binary` **不可砍**：sqlalchemy 靠連線字串
+> 的 scheme 載入它作為 postgres driver，故它移入 `ledger` extra 而非移除。「零 import」不等於
+> 「沒人用」——這正是本 PR 需要逐一查證而非依賴 grep 計數的原因。
 
 **`scripts/` 是其餘依賴的唯一持有者。** anthropic、sqlalchemy、psycopg2-binary、requests、
 pdfplumber **只**被 `scripts/` 使用——那是硬編碼到 `localhost:5435/ledgerone` 的個人帳務工具。
@@ -201,6 +205,25 @@ pdfplumber **只**被 `scripts/` 使用——那是硬編碼到 `localhost:5435/
   in-process import `tasks.mycelium`。它們是開發專用、位於所有 plugin 目錄之外、從不出貨——
   維持綁 checkout。**在 PR 說明中明講**，以免被誤認為疏漏。
 
+> **Phase 1 留下的兩顆地雷（PR #249 mob review 發現，三家一致認為非 Phase 1 blocker）**
+>
+> Phase 1 的 `packages = ["tasks"]` 已經**出貨**了這些模組，只是還沒有 console script 暴露
+> 它們——所以問題今天不可達。**Phase 2 加上第二個 entry point 的那一刻就會爆**：
+>
+> 1. **`tasks/_paths.py:5-6` 的 `PROJECT_ROOT = Path(__file__).resolve().parents[1]`**
+>    在 wheel 安裝下解析進 `site-packages/`，於是 `RUNTIME_DIR` 變成 `site-packages/.runtime`
+>    ——寫入落在安裝樹，升級時**靜默消失**。共 10 個模組 import 它。
+>    `portman` 之所以安全，是因為其 import chain 零 `_paths` 引用、`REGISTRY_PATH` 直接用
+>    `Path.home()`。Phase 3 的「狀態重新錨定」涵蓋此項——**但 Phase 2 的 mycelium 先落地，
+>    必須先確認 mycelium 是否碰 `_paths`**（其資料層已 home-anchored 於
+>    `~/.agents/handover/`，但要實測而非假設）。
+> 2. **`tasks/_worktree_guard.py:49` 呼叫 `PROJECT_ROOT/scripts/assert_not_worktree.sh`**，
+>    而該腳本**不在 wheel 內**（`packages = ["tasks"]` 不含 `scripts/`）。影響
+>    `scheduler` / `mycelium` / `nightly_agent` / `pr_orchestrator` 的 install 路徑。
+>    失敗是 **fail-closed 且大聲**（「找不到 worktree 守門腳本」），不是靜默——這是它不算
+>    blocker 的原因。但 `pip install yibi-stack && python -m tasks.scheduler install` 今天
+>    已經是死的。Phase 2 暴露 mycelium 時，需 `force-include` 該腳本或改寫 guard 的定位方式。
+
 ---
 
 ## Phase 3 — pr_orchestrator
@@ -242,32 +265,62 @@ pdfplumber **只**被 `scripts/` 使用——那是硬編碼到 `localhost:5435/
 
 ## 跨階段議題
 
-### 版本落差是新的失敗模式
+### 版本落差是新的失敗模式（修訂於 PR #249）
 
 路徑落差變成版本落差：安裝的 CLI 可能落後 plugin 的 SKILL.md。每個遷移過的 skill 都需要
 fail-loud 的 preflight：
 
 ```text
 command -v mycelium  → 不存在？印出 `uv tool install git+https://github.com/heyu-ai/yibi-stack`，停止
-mycelium --version   → 低於此 SKILL.md 所需最低版本？印出 `uv tool upgrade`，停止
+mycelium --version   → 非零退出（安裝損毀）？印出 `uv tool install --force ...`，停止
 ```
 
-這要求 CLI **能報出版本**，而今天的 `pyproject` version（1.8.0，由 release tag 驅動）並未在
-各指令暴露。**在 Phase 1 隨 `portman` 一起加上 `--version`**，讓這個模式先在白老鼠上被證明，
-而不是事後補丁式地套到 6 個 skill 上。
+> **本節原本要求的是 semver 比對，該做法已於 PR #249 撤銷。** 原文寫
+> 「`mycelium --version` → 低於此 SKILL.md 所需最低版本？印出 `uv tool upgrade`，停止」。
+> 三家 reviewer 獨立收斂確認它做不到：`uv tool install git+` 裝的是 **HEAD**，而 metadata
+> 版本字串是**上次 release** 的值——兩次 release 之間的每個 commit 都回報同一個版本，
+> 比較不到任何東西。提出此要求的 Codex 在 R2 主動撤回。詳見
+> [ADR-0004](adr/0004-plugin-primary-packaging.md) 的「負面／風險」修訂註記。
 
-這是最重要的一條跨階段議題：少了它，Phase 2/3 等於把大聲的路徑失敗換成**安靜的行為不一致**
-——嚴格來說比現狀更糟。
+**修正後的分工**：
+
+| 目的 | 機制 | 狀態 |
+|------|------|------|
+| 指令不存在 | `command -v <cli>` → fail-loud + 安裝指令 | Phase 1 已實作（portman） |
+| 安裝損毀 | `<cli> --version` 非零退出 → fail-loud + 重裝指令 | Phase 1 已實作（portman） |
+| 診斷／bug report | `<cli> --version` 的輸出（人看的） | Phase 1 已實作（portman） |
+| **真正的相容性閘門** | capability/protocol revision 或具體行為 probe | **尚未設計** |
+
+最後一列刻意留白：**在有 skill 真正需要版本專屬功能之前不要設計它**。預先加一道恆真的
+版本比較（`MIN_VERSION="1.9.0"` 在 portman 只存在於 >= 1.9.0 的今天等同 `command -v`），
+是一道 PASS 不帶資訊的閘門——rule 09 明文禁止的形狀，且會讓讀者誤以為漂移已被守住。
+
+Phase 2 若讓 mycelium 的 SKILL.md 依賴新 subcommand，屆時才設計 probe（例如比對
+`mycelium capabilities` 的輸出集合，而非版本號）。
 
 ### 單一真相來源的暴露面
 
-依 `.claude/rules/18-single-source-of-truth.md`，每個階段都製造出會靜默漂移的 doc/code 契約：
+> **註（PR #249）**：本節原本引用 `.claude/rules/18-single-source-of-truth.md`，但**該檔案
+> 不存在**（`.claude/rules/` 只有 01-11、13、15、16）——dangling reference，正是 rule 11
+> 「cross-doc cite 必須驗證兩端」要防的形狀。改引用實際存在的 rule 11。
 
-- SKILL.md 記載的最低版本 vs. CLI 實際的 `--version` → 那道 preflight 閘門**本身就是** regression
-  test，要斷言它。
+依 `.claude/rules/11-skill-authoring.md`（「Spec and SKILL.md behavioral guards must stay in
+sync」「Cross-doc Cite Must Paste the Original Quote」），每個階段都製造出會靜默漂移的
+doc/code 契約：
+
+- **SKILL.md 宣稱的 preflight 能力 vs. 它實際做的檢查** → PR #249 實例：SKILL.md 只印
+  `--version`，測試檔的 docstring 卻宣稱 preflight 會「判斷」版本。**閘門本身就是 regression
+  test，要斷言它**——不要只在文件裡宣稱它存在。
 - README 的安裝指令 vs. `marketplace.json` → 已經漂移過一次（`writing`）。Phase 0 之後，加一道
   檢查：README 廣告的每個 plugin 都必須存在於 `marketplace.json`。
+- **plugin README 的 Prerequisites vs. skill 的實際依賴** → PR #249 實例：`plugins/util/README.md`
+  在 skill 已不需 checkout 之後，仍叫使用者 `git clone && make install`。**遷移一個 skill 時，
+  必須同時檢查它所屬 plugin 的 README**。
 - `pyproject` version vs. `uv.lock` → 同 commit 一起 bump（既有 CLAUDE.md 規則）。
+- **`[project.scripts]` 宣告 vs. entry point 真的解析得到** → 由 `scripts/tests/test_packaging.py`
+  斷言（泛用寫法，Phase 2/3 新增 console script 時自動涵蓋）。
+- **wheel 打包範圍 vs. ADR 宣稱** → 由 `scripts/packaging_smoke_test.sh` 斷言，接在 CI
+  （不可用 `@pytest.mark.slow`：`addopts = "-m 'not slow'"` 連 CI 都 deselect，等於永不執行）。
 
 ### 搜尋衛生
 

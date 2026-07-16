@@ -14,9 +14,14 @@ dependencies = [
 [project.optional-dependencies]
 # mycelium 的 token 預算估算；缺少時 lessons_service.py 自動退化為 len/4 粗估。
 tokens = ["tiktoken>=0.7"]
-# scripts/ 個人帳務工具專用（硬編碼 localhost:5435/ledgerone，不出貨）。
-# psycopg2-binary 全 repo 零 import，但 sqlalchemy 連 postgres 需要它作為 driver，不可移除。
-# pandas 被 scripts/compare_billing.py 直接 import，先前只靠 tabula-py 的 transitive 滿足。
+# scripts/ 專用，不出貨（wheel 只含 tasks/）。裝法：`uv sync --extra ledger`。
+# 多數成員服務於硬編碼到 localhost:5435/ledgerone 的個人帳務工具，但兩個例外值得標明：
+#   - pdfplumber 的唯一消費者是 extract_saas_invoice_amounts.py（SaaS 發票 PDF 擷取，
+#     不開 DB、無 DSN）——它在此並非因為帳務，而是因為同樣只被 scripts/ 使用。
+#   - psycopg2-binary 全 repo 零 import，但 sqlalchemy 靠連線字串 scheme 載入它作為
+#     postgres driver，**不可因「沒人 import」而移除**。
+# pandas 被 3 支 scripts 直接 import（compare_billing / report_2024_2025 / import_hsbc_missing），
+# 先前只靠 tabula-py 的 transitive 滿足；砍 tabula-py 而不明確宣告會靜默弄壞它們。
 ledger = [
     "anthropic>=0.89.0",
     "pandas>=2.0",
@@ -77,13 +82,16 @@ disallow_untyped_defs = false
 disallow_incomplete_defs = false
 disallow_untyped_calls = false
 
-[[tool.mypy.overrides]]
-# mypy 只掃 tasks/（見 .pre-commit-config.yaml），而 tasks/ 只 import click / pydantic /
-# tiktoken（後者於 lessons_service.py 已有 inline ignore）。ledger extra 的套件列在此處，
-# 是為了在 mypy 掃描範圍未來擴及 scripts/ 時不會因缺少 type stub 而炸。
-module = ["pdfplumber.*", "requests.*", "pandas.*"]
-ignore_missing_imports = true
-follow_imports = "skip"
+# 註：原本此處有第二個 [[tool.mypy.overrides]]，列著
+# ["tabula.*", "playwright.*", "markdownify.*", "bs4.*", "requests.*"]。前四個套件已隨本次
+# 依賴瘦身砍除，該區塊隨之失效。經實測後**整段刪除**而非改列 ledger 套件：
+#   - mypy 只掃 tasks/（.pre-commit-config.yaml:31 `entry: uv run mypy tasks/` + `files: ^tasks/`；
+#     Makefile:22 同），而 tasks/ 只 import click / pydantic / tiktoken——皆有型別資訊。
+#   - 對 scripts/ 亦不需要：實測 `uv sync --extra ledger` 後，在**停用本 override** 的情況下
+#     跑 `uv run mypy scripts/`，六個 ledger 套件零 import-not-found（mypy 確實有分析：
+#     回報 25 errors / 23 source files，其中多筆是 anthropic 真實型別產生的 union-attr，
+#     反證其自帶 py.typed）。
+# 若未來 scripts/ 納入掃描而某套件確實缺 stub，屆時再依實測加條目——不要憑推測預填。
 
 [tool.pytest.ini_options]
 testpaths = ["tasks", ".claude/hooks/tests", "plugins/sdd/scripts/tests", "plugins/pr-flow/skills/pr-cycle-deep/scripts/tests", "commands/scripts/tests", "scripts/tests"]

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from tasks.mycelium.db import AgentsDB
-from tasks.mycelium.lessons_service import get_lessons, save_lesson
+from tasks.mycelium.lessons_service import _make_token_counter, get_lessons, save_lesson
 from tasks.mycelium.models import LessonRecord, LessonSource, LessonType
 
 
@@ -149,3 +153,64 @@ class TestGetLessons:
         ).fetchone()
         db2.close()
         assert row["access_count"] == 1
+
+
+class TestTokenCounterFallback:
+    """token 計數的降級路徑（PR #249）。
+
+    PR #249 之前 tiktoken 從未被宣告為依賴，故 len/4 是唯一跑過的路徑；新增 tokens
+    extra 後 tiktoken 分支首次可達，其網路失敗模式也隨之從理論變成活的。
+    """
+
+    def test_myc_svc_eg_020_missing_tiktoken_degrades_silently(self) -> None:
+        """MYC-SVC-EG-020: 未安裝 tiktoken 時退化為粗估，且**不**發警告。
+
+        未裝 tokens extra 是預期情形而非異常。若這裡發警告，每個沒裝 extra 的使用者
+        每次查 lessons 都會看到一則無法行動的雜訊。
+        """
+        with patch.dict("sys.modules", {"tiktoken": None}), warnings.catch_warnings():
+            warnings.simplefilter("error")  # 任何警告都會變成例外
+            counter = _make_token_counter()
+
+        assert counter("a" * 40) == 10  # len/4 粗估
+
+    def test_myc_svc_eg_021_tiktoken_network_failure_degrades_with_warning(self) -> None:
+        """MYC-SVC-EG-021: get_encoding() 非 ImportError 失敗時退化並發警告。
+
+        get_encoding() 在冷快取時會下載 BPE vocab，失敗拋的是網路／HTTP 錯誤而非
+        ImportError。只捕捉 ImportError 會讓這個 best-effort 的估算把例外往外拋。
+        會發警告：裝了 --extra tokens 卻仍拿到粗估的使用者需要知道原因。
+        """
+        fake_tiktoken = type(
+            "FakeTiktoken",
+            (),
+            {
+                "get_encoding": staticmethod(
+                    lambda _name: (_ for _ in ()).throw(OSError("cdn down"))
+                )
+            },
+        )
+
+        with (
+            patch.dict("sys.modules", {"tiktoken": fake_tiktoken}),
+            pytest.warns(UserWarning, match="tiktoken 初始化失敗"),
+        ):
+            counter = _make_token_counter()
+
+        assert counter("a" * 40) == 10  # 退化為 len/4，而非往外拋
+
+    def test_myc_svc_eg_022_working_tiktoken_is_used(self) -> None:
+        """MYC-SVC-EG-022: tiktoken 可用時真的使用它（而非永遠走粗估）。
+
+        沒有這個正向對照，上面兩個測試在「tiktoken 分支根本壞掉、永遠退化」時也會通過。
+        """
+        fake_enc = type("FakeEnc", (), {"encode": staticmethod(lambda text: [0] * len(text))})
+        fake_tiktoken = type(
+            "FakeTiktoken", (), {"get_encoding": staticmethod(lambda _name: fake_enc)}
+        )
+
+        with patch.dict("sys.modules", {"tiktoken": fake_tiktoken}):
+            counter = _make_token_counter()
+
+        # fake encoder 每字元一個 token；粗估則是 len/4 -> 用得出的值區分走了哪條路
+        assert counter("a" * 40) == 40

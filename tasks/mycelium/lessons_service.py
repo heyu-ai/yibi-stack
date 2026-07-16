@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
+from collections.abc import Callable
 from datetime import UTC, datetime
 from math import floor
 from pathlib import Path
@@ -668,24 +670,54 @@ def get_lessons(
 _TOKEN_BUDGET_ENCODING = "cl100k_base"  # nosec B105
 
 
+def _rough_token_count(text: str) -> int:
+    """粗估：1 token 約 4 字元。tiktoken 不可用時的退路。"""
+    return len(text) // 4
+
+
+def _make_token_counter() -> Callable[[str], int]:
+    """回傳 token 計數函式；tiktoken 不可用時退化為粗估並發出警告。
+
+    捕捉範圍刻意比 ImportError 寬：`tiktoken.get_encoding()` 在**冷快取**時會從
+    openaipublic.blob.core.windows.net 下載 BPE vocab，失敗時拋的是網路／HTTP 錯誤
+    （亦可能是快取目錄的 PermissionError），而非 ImportError——只捕捉 ImportError 會讓
+    這個本應 best-effort 的預算估算把例外往外拋。
+
+    PR #249 之前 tiktoken 從未被宣告為依賴，故 len/4 是唯一跑過的路徑；本 PR 新增
+    `tokens` extra 後 tiktoken 分支首次可達，這個失敗模式也隨之從理論變成活的。
+
+    降級會發 warning：安裝了 `--extra tokens` 卻仍拿到粗估的使用者，需要知道原因。
+    """
+    try:
+        import tiktoken  # type: ignore[import-not-found]
+
+        enc = tiktoken.get_encoding(_TOKEN_BUDGET_ENCODING)
+    except ImportError:
+        # 未安裝 tokens extra：預期情形，非異常，不發警告。
+        return _rough_token_count
+    except Exception as e:  # noqa: BLE001 — 網路／HTTP／快取權限等；一律退化而非中斷
+        warnings.warn(
+            f"tiktoken 初始化失敗（{type(e).__name__}: {e}），token 預算改用 len/4 粗估。"
+            "若需精確計算，請確認網路可連 openaipublic.blob.core.windows.net，"
+            "或預熱 tiktoken 快取。",
+            UserWarning,
+            stacklevel=2,
+        )
+        return _rough_token_count
+
+    def count_tokens(text: str) -> int:
+        return len(enc.encode(text))
+
+    return count_tokens
+
+
 def _apply_token_budget(
     rows: list[dict[str, Any]],
     budget: int,
     limit: int,
 ) -> list[dict[str, Any]]:
-    """依 token budget 截斷 rows（tiktoken cl100k_base 估算）。"""
-    try:
-        import tiktoken  # type: ignore[import-not-found]
-
-        enc = tiktoken.get_encoding(_TOKEN_BUDGET_ENCODING)
-
-        def count_tokens(text: str) -> int:
-            return len(enc.encode(text))
-
-    except ImportError:
-
-        def count_tokens(text: str) -> int:
-            return len(text) // 4  # rough estimate: 1 token ≈ 4 chars
+    """依 token budget 截斷 rows（tiktoken cl100k_base 估算；不可用時退化為 len/4 粗估）。"""
+    count_tokens = _make_token_counter()
 
     result: list[dict[str, Any]] = []
     cumulative = 0

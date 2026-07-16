@@ -2,6 +2,24 @@
 
 本目錄存放從 Claude 工作流程中抽出的獨立 script 檔案。
 
+## 安裝依賴
+
+**`uv sync` 不足以跑本目錄的帳務／PDF 腳本**——它們的依賴住在 `ledger` extra，預設不安裝
+（PR #249：那些套件不出貨給 plugin 使用者，故移出 core dependencies）：
+
+```bash
+uv sync --extra ledger
+```
+
+未安裝時的症狀是 `ModuleNotFoundError: No module named 'pandas'`（或 sqlalchemy /
+anthropic / pdfplumber / requests）。**不要用 `uv add pandas` 修**——那會把依賴加回 core，
+一次一個套件地撤銷上述隔離。
+
+受影響的腳本：`compare_billing.py`、`import_hsbc_missing.py`、`report_2024_2025.py`、
+`categorize_hsbc.py`、`categorize_hsbc_rules.py`、`extract_saas_invoice_amounts.py` 等。
+純 stdlib 的基礎設施腳本（`lint_skill_*.py`、`resolve-skill-repo`、`assert_not_worktree.sh`、
+`check_wheel_contents.py` 等）不受影響，`uv sync` 即可。
+
 ## 命名規則
 
 | 語言 | 格式 | 範例 |

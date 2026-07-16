@@ -111,7 +111,9 @@ scripts/  → CI/lint 工具腳本
 
 ```bash
 # Python 開發
-uv sync                  # 安裝依賴
+uv sync                  # 安裝依賴（core：click + pydantic）
+uv sync --extra ledger   # 額外裝 scripts/ 帳務工具的依賴（pandas/sqlalchemy/anthropic 等）
+                         # 只跑 tasks/ 與 CI 不需要；跑 scripts/*.py 才需要（見 scripts/README.md）
 make ci                  # 本地 CI：pre-commit（lint+format+type+security）+ pytest
 make check               # 執行所有檢查（lint + format + typecheck + test）
 make lint                # 只跑 ruff linter

@@ -1,20 +1,87 @@
-"""LPM CLI 測試：版本閘門。
+"""LPM CLI 測試：版本旗標、init 冪等性、get 的 exit code 契約。
 
-ADR-0004 把「版本落差」列為 plugin-primary 交付的首要風險：安裝的 CLI 可能落後
-plugin 的 SKILL.md。少了可靠的 --version，skill 的 preflight 無從判斷，等於把大聲的
-路徑失敗換成安靜的行為不一致。故 --version 必須回報套件 metadata 的真實版本，
-不得硬編碼。
+版本旗標的測試意圖：ADR-0004 把「版本落差」列為 plugin-primary 交付的首要風險。
+但 mob review（PR #249）推翻了「用 semver 比較當閘門」的做法——`uv tool install git+`
+裝的是 HEAD，metadata 版本卻是「上次 release」的值，兩次 release 之間的所有 commit 都
+回報同一個版本，比較不帶資訊。故 `--version` 的定位是**診斷用**，不是閘門；這裡只保證
+它如實回報 metadata，不假裝它能擋版本落差。
 """
 
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
 from tasks.local_port_manager.cli import cli
+from tasks.local_port_manager.models import Category, PortEntry, PortRegistry
 
 CLI_SVC = "tasks.local_port_manager.service"
+
+
+def _invoke_version_with_patched_metadata(**patch_kwargs: Any) -> tuple[int, str]:
+    """在 patch 過 importlib.metadata.version 的情況下呼叫 --version，回傳 (exit_code, output)。
+
+    **為何需要 importlib.reload**：click 的 version_option callback 用 `nonlocal version`
+    把查到的版本**快取進 closure**（見 click/decorators.py 的 `if version is None and
+    package_name is not None:`）。decorator 在 import 時只套用一次，所以整個 process 中
+    第一次呼叫 --version 之後版本就被鎖死，之後再 patch metadata 一律無效。
+
+    實測後果：不 reload 的話，本測試單獨跑會過、接在 LPM-VL-001 之後跑會失敗——
+    order-dependent 的 flaky test，比沒有測試更糟。reload 會重建 closure（version=None），
+    讓 patch 真正生效。finally 的 reload 把模組還原，避免汙染其他測試。
+
+    不要「簡化」掉 reload。
+    """
+    import importlib
+
+    import tasks.local_port_manager.cli as cli_mod
+
+    try:
+        with patch("importlib.metadata.version", **patch_kwargs):
+            importlib.reload(cli_mod)
+            result = CliRunner().invoke(cli_mod.cli, ["--version"])
+        return result.exit_code, result.output
+    finally:
+        importlib.reload(cli_mod)
+
+
+def _version_output_under_patched_metadata(sentinel: str) -> str:
+    """回傳 --version 輸出中的版本字串（metadata 被 patch 成 sentinel 時）。"""
+    exit_code, output = _invoke_version_with_patched_metadata(return_value=sentinel)
+    assert exit_code == 0, f"--version 應成功退出，實得 {exit_code}：{output}"
+    # 輸出格式為 "<prog>, version <ver>"；只取版本部分做精確比對，避免 substring 誤判
+    return output.strip().rsplit(" ", 1)[-1]
+
+
+def _version_exit_code_under_broken_metadata() -> int:
+    """回傳 metadata 拋 PackageNotFoundError 時 --version 的 exit code。"""
+    exit_code, _ = _invoke_version_with_patched_metadata(
+        side_effect=PackageNotFoundError("yibi-stack")
+    )
+    return exit_code
+
+
+def _seed_registry(path: Path, entries: list[PortEntry] | None = None) -> None:
+    """在 path 寫入一份 registry（供 get / init 冪等測試用）。"""
+    from datetime import UTC, datetime
+
+    registry = PortRegistry(
+        ranges={"db": [5400, 5499]},
+        entries=entries
+        if entries is not None
+        else [
+            PortEntry(
+                project="proj",
+                service="postgres",
+                category=Category.DB,
+                port=5433,
+                registered_at=datetime.now(tz=UTC),
+            )
+        ],
+    )
+    path.write_text(registry.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
 
 class TestInit:
@@ -31,8 +98,6 @@ class TestInit:
         assert result.exit_code == 0
         assert registry_path.exists()
 
-        from tasks.local_port_manager.models import PortRegistry
-
         registry = PortRegistry.model_validate_json(registry_path.read_text(encoding="utf-8"))
         assert registry.entries == []
 
@@ -40,32 +105,89 @@ class TestInit:
         """LPM-ST-002: init 仍寫入通用 port range（那不是個人資料）。"""
         registry_path = tmp_path / "ports.json"
         with patch(f"{CLI_SVC}.REGISTRY_PATH", registry_path):
-            CliRunner().invoke(cli, ["init"])
+            result = CliRunner().invoke(cli, ["init"])
 
-        from tasks.local_port_manager.models import PortRegistry
-
+        assert result.exit_code == 0
         registry = PortRegistry.model_validate_json(registry_path.read_text(encoding="utf-8"))
         assert registry.ranges["db"] == [5400, 5499]
 
+    def test_lpm_st_003_init_is_idempotent_and_preserves_entries(self, tmp_path: Path) -> None:
+        """LPM-ST-003: registry 已存在時 init 提早返回，不覆寫既有登記。
+
+        這是每個回訪使用者都會走的分支。把守衛反轉成覆寫會靜默摧毀已填充的
+        ~/.agents/ports.json（exit 0，無錯誤）。
+        """
+        registry_path = tmp_path / "ports.json"
+        _seed_registry(registry_path)
+
+        with patch(f"{CLI_SVC}.REGISTRY_PATH", registry_path):
+            result = CliRunner().invoke(cli, ["init"])
+
+        assert result.exit_code == 0
+        registry = PortRegistry.model_validate_json(registry_path.read_text(encoding="utf-8"))
+        assert len(registry.entries) == 1
+        assert registry.entries[0].project == "proj"
+
 
 class TestVersionOption:
-    def test_lpm_cv_001_version_flag_reports_package_version(self) -> None:
-        """LPM-CV-001: --version 輸出與套件 metadata 一致的版本號。"""
+    def test_lpm_vl_001_version_flag_reports_package_version(self) -> None:
+        """LPM-VL-001: --version 輸出與套件 metadata 一致的版本號。"""
+        from importlib.metadata import version
+
         result = CliRunner().invoke(cli, ["--version"])
 
         assert result.exit_code == 0
         assert version("yibi-stack") in result.output
 
-    def test_lpm_cv_002_version_flag_not_hardcoded(self) -> None:
-        """LPM-CV-002: --version 取自 metadata，非硬編碼字串。
+    def test_lpm_vl_002_version_comes_from_metadata_not_a_literal(self) -> None:
+        """LPM-VL-002: --version 的值來自 metadata 查找，而非寫死的字串。
 
-        以 metadata 為單一真相來源：若有人改 pyproject 的 version 卻沒同步 CLI，
-        本測試會抓到（硬編碼版本會與 metadata 分歧）。
+        以 sentinel 驗證：patch metadata 回傳一個不可能被寫死的值，若 CLI 真的查
+        metadata，該值必須出現在輸出。硬編碼的 version_option 會印出寫死的版本而失敗。
+
+        為何不能只比對 `version("yibi-stack")`（LPM-VL-001 的做法）：那是 CLI 讀的
+        同一份 live metadata，所以一個**剛好等於當前版本**的硬編碼字串能同時滿足
+        兩者。PR #249 的 mob review 以 mutation 證實了這點——`version="1.9.0"` 之下
+        原本的兩個測試全部 PASS。
         """
-        result = CliRunner().invoke(cli, ["--version"])
+        assert _version_output_under_patched_metadata("9.9.9-sentinel") == "9.9.9-sentinel"
 
-        expected = version("yibi-stack")
-        # 版本號必須完整出現，且不是空字串／佔位值
-        assert expected
-        assert expected not in {"0.0.0", "unknown"}
-        assert expected in result.output
+    def test_lpm_vl_003_version_fails_loudly_when_metadata_missing(self) -> None:
+        """LPM-VL-003: metadata 查不到時 --version 非零退出，不靜默回報假版本。
+
+        SKILL.md 的 preflight 依賴 `portman --version` 的 exit code 來判斷安裝是否
+        健全（見 plugins/util/skills/local-port-manager/SKILL.md Step 1）。若 metadata
+        損毀時它仍 exit 0，preflight 會拿一個壞掉的安裝繼續跑。
+        """
+        exit_code = _version_exit_code_under_broken_metadata()
+
+        assert exit_code != 0
+
+
+class TestGet:
+    def test_lpm_dt_021_get_exits_1_with_no_stdout_when_absent(self, tmp_path: Path) -> None:
+        """LPM-DT-021: 查無登記時 exit 1 且 stdout 全空。
+
+        SKILL.md 廣告的整合方式是 `REDIS_PORT := $(shell portman get $(PROJECT) redis)`。
+        Makefile 的 $(shell) 只看 stdout：若這裡退化成印訊息 + exit 0，使用者的 Makefile
+        會靜默綁到一個空字串或一段人類可讀文字，而非大聲失敗。
+        """
+        registry_path = tmp_path / "ports.json"
+        _seed_registry(registry_path)
+
+        with patch(f"{CLI_SVC}.REGISTRY_PATH", registry_path):
+            result = CliRunner().invoke(cli, ["get", "proj", "nope"])
+
+        assert result.exit_code == 1
+        assert result.stdout == ""
+
+    def test_lpm_dt_022_get_prints_bare_port_on_stdout(self, tmp_path: Path) -> None:
+        """LPM-DT-022: 查到時 stdout 只有裸 port 數字（Makefile $(shell) 無法容忍裝飾）。"""
+        registry_path = tmp_path / "ports.json"
+        _seed_registry(registry_path)
+
+        with patch(f"{CLI_SVC}.REGISTRY_PATH", registry_path):
+            result = CliRunner().invoke(cli, ["get", "proj", "postgres"])
+
+        assert result.exit_code == 0
+        assert result.stdout.strip() == "5433"

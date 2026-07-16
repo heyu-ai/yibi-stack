@@ -21,7 +21,7 @@ yibi-stack/
 │   │   └── cli.py                   → uv run python -m tasks.harness_eval scan --path .
 │   ├── local_port_manager/          → 跨專案 port 登記（~/.agents/ports.json）
 │   │   ├── __main__.py
-│   │   └── cli.py                   → uv run python -m tasks.local_port_manager
+│   │   └── cli.py                   → portman（console script）／uv run python -m tasks.local_port_manager
 │   ├── scheduler/                   → 排程器（LaunchAgent 每 60 秒 tick）
 │   │   ├── __main__.py
 │   │   ├── cli.py                   → uv run python -m tasks.scheduler tick

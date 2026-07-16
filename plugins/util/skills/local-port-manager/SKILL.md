@@ -22,9 +22,20 @@ if ! command -v portman >/dev/null 2>&1; then
   echo '       uv tool install git+https://github.com/heyu-ai/yibi-stack' >&2
   exit 1
 fi
-portman --version
+if ! portman --version; then
+  echo '[FAIL] portman 安裝損毀（--version 非零退出）。請重裝：' >&2
+  echo '       uv tool install --force git+https://github.com/heyu-ai/yibi-stack' >&2
+  exit 1
+fi
 ls ~/.agents/ports.json 2>/dev/null && echo "exists" || echo "需要初始化"
 ```
+
+> **為何沒有最低版本比對**：`uv tool install git+` 裝的是 HEAD，但 metadata 的版本字串是
+> **上次 release** 的值——兩次 release 之間的每個 commit 都回報同一個版本。任何 semver
+> 比較在此都**不帶資訊**，只會製造虛假的安全感（PR #249 mob review 三家共識）。
+> `--version` 在這裡的定位是**診斷**（人看的、bug report 貼的），不是閘門；真正的閘門是
+> 上面兩道 fail-loud（指令存在、安裝未損毀）。若日後需要真正的相容性閘門，應採
+> capability/protocol revision 或具體行為 probe，而非 package semver——見 ADR-0004。
 
 若 ports.json 不存在：
 
@@ -85,7 +96,8 @@ portman release {{project}} {{service}}
 | 問題 | 解法 |
 |------|------|
 | `找不到 portman 指令` | `uv tool install git+https://github.com/heyu-ai/yibi-stack` |
-| `portman` 版本過舊 | `uv tool upgrade yibi-stack`；用 `portman --version` 確認 |
-| `Registry 不存在` | 執行 `init` 指令建立 bootstrap 資料 |
+| `portman --version` 非零退出（安裝損毀） | `uv tool install --force git+https://github.com/heyu-ai/yibi-stack` |
+| `portman` 行為與本文件不符（疑似版本落差） | `uv tool upgrade yibi-stack` 取得最新 HEAD。注意 `--version` **無法**用來診斷此情況：git 安裝回報的是上次 release 的版本字串，兩次 release 之間皆相同 |
+| `Registry 不存在` | 執行 `portman init` 建立**空** registry（不含任何預載專案），再用 `reserve` 登記 |
 | `port 已被佔用` | 先執行 `suggest` 取得可用 port，再 `reserve` |
-| Makefile 整合 | `REDIS_PORT := $(shell portman get $(PROJECT) redis)` |
+| Makefile 整合 | `REDIS_PORT := $(shell portman get $(PROJECT) redis)`（查無登記時 `get` exit 1 且 stdout 全空，讓 Makefile 大聲失敗而非綁到空值） |
