@@ -307,3 +307,10 @@ make install-all         # 等同 build-tools + install + install-project + inst
   gotcha's conclusion (the agent still cannot merge; the user runs `! gh pr merge <n>` manually)
   — but the agent will now speak to the merge output rather than staying silent, so expect a
   follow-up message after a manual `!` command.
+
+`★ Insight ─────────────────────────────────────`
+The friction here is a **direction mismatch**: the dangerous case (silent empty result) was mistaken for the safe one. `git ls-files -- <worktree-path>` run from the main repo returns empty silently because `.claude/worktrees/` is gitignored there — *zero output, exit 0* — which falsely reads as "nothing tracked, safe to delete." The sibling-worktree caller that throws `fatal:` is actually the *safe* failure.
+`─────────────────────────────────────────────────`
+
+- **`git ls-files -- <worktree-path>` silently returns empty from the main repo**: when checking whether another worktree's path has tracked files before `rm -rf`, running `git ls-files -- .claude/worktrees/<name>` from the main repo gives empty output (exit 0) because `.claude/worktrees/` is gitignored — a false negative that reads as "safe to delete" when files may be tracked inside.
+  Fix: always query through the target's own index with `git -C .claude/worktrees/<name> ls-files` so git consults the worktree that actually owns the path.
