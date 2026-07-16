@@ -17,7 +17,7 @@
 # 為何需要這個 gate：
 # make install 會把 $(CURDIR) 的路徑寫進 ~/.claude/skills/、~/.agents/skills/、
 # ~/.agents/bin/ 的 symlink。在 worktree 裡跑，寫進去的就是 worktree 路徑，
-# 而 worktree 在分支合併後會被 /clean-merged 刪除，屆時所有 symlink 變成 dangling，
+# 而 worktree 在分支合併後會被 /clean-wt 刪除，屆時所有 symlink 變成 dangling，
 # 全部 skill 失效。
 #
 # 為何 Makefile 既有的安裝後 gate 擋不住（見 Makefile install target 結尾）：
@@ -258,10 +258,12 @@ if [ "$GIT_DIR_PATH" = "$GIT_COMMON_PATH" ]; then
   # 標記為 prunable），所以「它已經只是一般目錄」的推論並不成立（由 mob review 的
   # codex voice 指出）。
   #
-  # 註（實測界定，避免誇大）：本 repo 目前沒有任何工具會刪除該目錄——
-  # `git worktree prune` 只移除 admin entry 不動目錄，/clean-merged 與 /clean-gone
-  # 也沒有刪 worktree 目錄的邏輯。故危害鏈未閉合。但與其用文字論證它安全，
-  # 不如直接問 git：只要這個路徑仍登記為 linked worktree 就擋下。
+  # 註（2026-07-16 更新，實測界定）：**危害鏈現在是閉合的。**
+  # 舊註記寫「本 repo 沒有任何工具會刪除該目錄」——那在當時屬實（/clean-merged 與
+  # /clean-gone 都只用 `git worktree list` 定位主 repo，沒有刪目錄的邏輯），但 PR #239
+  # 把兩者整併成 /clean-wt，而它的 `--apply` 會呼叫 `git worktree remove` **刪除目錄本身**。
+  # 也就是說：在 worktree 裡跑 make install 寫進去的 symlink，現在真的會被 /clean-wt 清掉。
+  # 這正是為什麼要直接問 git：只要這個路徑仍登記為 linked worktree 就擋下。
   # 這個查詢是「.git 被刪的巢狀 worktree」唯一剩下的防線，所以它**失敗時必須
   # fail-closed**。用 `if REGISTERED=$(...); then ... fi` 會在查詢失敗時整段跳過
   # 而落到 exit 0——正是本 PR 反覆修掉的同一個 fail-open 形狀，實測確認
