@@ -81,9 +81,7 @@ class TestReadCommandsSkipProjectInjection:
         )
         assert f"lessons {subcmd} --json" in result.stdout
 
-    def test_lsw_dt_002_read_command_still_forwards_explicit_project(
-        self, tmp_path: Path
-    ) -> None:
+    def test_lsw_dt_002_read_command_still_forwards_explicit_project(self, tmp_path: Path) -> None:
         """LSW-DT-002: 呼叫端明確指定 --project 時，show 仍原樣轉發（不吞掉）。"""
         result = _run_wrapper(tmp_path, ["show", "--project", "yibi-mvp"])
         assert result.returncode == 0, result.stderr
