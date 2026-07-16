@@ -366,7 +366,9 @@ add_lesson \
 | **G2 onboarding-relevant** | 一個剛加入的貢獻者（day-1）也會犯這個錯誤嗎？ | 若 No（只有深度 context 才會踩）→ 只存在 retro 記錄裡，不開 rule |
 | **G3 no existing rule covers it** | 搜尋現有 `.claude/rules/` 後，沒有任何 rule 已覆蓋此 pattern 嗎？ | 若已有 → extend 現有 rule（append），不建新 rule 檔 |
 
-> 此 gate 的設計邏輯：rule 檔是每 session 全量載入的 token cost（無 globs 的 rule 永遠佔用 context）。
+> 此 gate 的設計邏輯：rule 檔是每 session 全量載入的 token cost（frontmatter 內沒有 `paths:`
+> key 的 rule 永遠佔用 context；key 名寫錯——`globs:` / `glob:` / `path:`——會被靜默忽略，
+> 效果等同沒寫，該檔案變成全量載入）。
 > 只有 hook 無法解、新人也會踩、且尚無 rule 覆蓋的 lesson，才值得加進 rule。
 
 #### Lesson Classifier

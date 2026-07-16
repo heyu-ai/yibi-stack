@@ -1,5 +1,6 @@
 ---
-globs: tasks/**
+paths:
+  - "tasks/**"
 ---
 # Task Module Structure
 

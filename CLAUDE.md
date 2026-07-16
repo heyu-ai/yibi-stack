@@ -53,15 +53,6 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 
 ## 專案架構
 
-```text
-skills/   → Agent 介面層（SKILL.md runbook，agent 讀這個來執行）
-tasks/    → Python 實作（CLI、config、models、service、tests）
-commands/ → Claude Code slash commands（symlink 到 ~/.claude/commands/）
-plugins/  → Claude Code plugin（本 repo 作為 marketplace，各 plugin 獨立子目錄）
-docs/     → 技術文件與 OpenSpec live example（docs/openspec/changes/）
-scripts/  → CI/lint 工具腳本
-```
-
 - **`skills/`** — Agent 的執行介面，每個 skill 有獨立的 `SKILL.md` runbook
   - **可執行 skill**：有對應的 `tasks/` Python 實作（如 mycelium、scheduler）
   - **知識型 skill**：純 Markdown 方法論指引（如 tdd-kentbeck、qa-test-design）
@@ -70,13 +61,30 @@ scripts/  → CI/lint 工具腳本
 
 ## 編碼慣例
 
-詳細規範在 `.claude/rules/`，Claude Code 依 glob pattern 自動載入：
+詳細規範在 `.claude/rules/`（14 個檔案：01-11、13、15、16）。載入時機由 frontmatter 決定：
+**frontmatter 內有 `paths:` key 者，只在工具碰到匹配路徑時載入；沒有 `paths:` key 者（包含
+完全沒有 frontmatter、以及有 frontmatter 但只寫了別的 key）每個 session 全量載入**。
+glob 非錨定，在任意路徑深度匹配。
 
-- **全域**（01-03）：雙語規範、錯誤處理、安全性
-- **`tasks/**`**（04-08）：module 結構、Pydantic、config、DB、CLI
+> 寫新 rule 時 key 必須是 `paths:`——`globs:` / `glob:` / `path:` 都**不是** Claude Code 認得的
+> key，會被靜默忽略（無錯誤訊息），該檔案隨即變成每 session 全量載入。這三種拼法與 `paths:`
+> 的行為差異均為 PR #250 實測（`claude -p` 探針，各拼法一個拋棄式 repo）。
+>
+> 值可以是 YAML list（`- "tasks/**"`）或純量字串（`paths: tasks/**`）——**兩者實測行為相同**，
+> 本 repo 統一用 list 形式，這是風格選擇不是正確性要求。
+>
+> 目前**沒有機械 guard** 擋錯 key（寫錯只會靜默變全量載入，不會報錯）；`tasks/harness_eval`
+> 的兩個 scanner 也都仍在偵測失效的 `glob:`——D7 的 `scanners/rules.py`（`globs:` 與 `paths:`
+> 都不匹配，分數一直來自 fallback 分支）與 D4 的 `scanners/skills.py`（`_SCOPING_KEYS` 仍為
+> `glob` 加分）。三者都追蹤在 issue #252。
+
+- **全域**（01-03、13、15、16）：雙語規範、錯誤處理、安全性、bash 反模式、不可逆操作、allow-list 衛生
+- **`tasks/**`**（04）：module 結構
+- **`tasks/**/<models|config|db|cli>.py`**（05-08）：Pydantic、config、DB、CLI
+  （各自宣告獨立 pattern，此處合寫僅為摘要，`<>` 不是可複製的 glob 語法）
 - **`tasks/**/tests/**`**（09）：測試命名與結構化 Test ID
 - **`tasks/**/parsers/**`**（10）：abstract base + registry pattern
-- **`skills/**`**（11）：SKILL.md 格式與撰寫規範
+- **`skills/**`**（11）：SKILL.md 格式與撰寫規範（非錨定，`plugins/*/skills/**` 亦匹配）
 
 ## 外來 Skill 管理
 
@@ -95,7 +103,7 @@ scripts/  → CI/lint 工具腳本
 
 - 共用路徑常數：@tasks/_paths.py
 - Bash lint 工具：@scripts/lint_skill_bash.py
-- 編碼慣例總覽：@.claude/rules/（01-16 條規則，依 glob 自動載入）
+- 編碼慣例總覽：@.claude/rules/（14 個檔案；01-03/13/15/16 全量載入，04-11 依 `paths:` 觸發）
 
 ## 如何執行 Skill
 
@@ -109,30 +117,13 @@ scripts/  → CI/lint 工具腳本
 > （如 `/config thinking=false`）；在 interactive、`-p` headless、Remote Control 皆可用
 > （Claude Code v2.1.181+）。`/config --help` 列出所有 shorthand key（v2.1.183+）。
 
+完整 target 清單跑 `make help`（Makefile 為 self-documenting，每個 target 都有 `##` 說明）。
+以下只記錄 `make help` 一行說明看不出來的語意：
+
 ```bash
-# Python 開發
-uv sync                  # 安裝依賴
-make ci                  # 本地 CI：pre-commit（lint+format+type+security）+ pytest
-make check               # 執行所有檢查（lint + format + typecheck + test）
-make lint                # 只跑 ruff linter
-make format              # 只跑 ruff formatter
-make typecheck           # 只跑 mypy
-make test                # 只跑 pytest
-
-# Skill 管理
-make install             # 安裝 scope=global skill（跨專案可用）+ commands
-make install-one SKILL=x # 安裝單一 skill
-make status              # 查看安裝狀態
-make uninstall           # 移除自己的 symlink
-
-# Hook 管理（Claude Code auto-handover hook）
-make install-handover-hooks   # 安裝 PreCompact + SessionStart hook 到 ~/.claude/settings.json
-make uninstall-handover-hooks # 移除 auto-handover hook
-
-# Scheduler 管理
-make install-scheduler   # 安裝 LaunchAgent（每 60 秒 tick）
-make uninstall-scheduler # 卸載 LaunchAgent
-make scheduler-status    # 查看 job 執行狀態
+# 依賴安裝（非 make target，make help 不會列出）
+uv sync                  # 選用：需要 Python 環境的 target（ci/test/lint/typecheck 等）都走
+                         # uv run，會自動同步環境；此指令只是先跑一次把環境備好
 
 # Plugin 發布（lockstep 版本：所有 plugin 同步升版）
 make release TYPE=patch  # patch / minor / major
