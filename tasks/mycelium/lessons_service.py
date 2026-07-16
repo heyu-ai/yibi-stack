@@ -695,14 +695,30 @@ def _make_token_counter() -> Callable[[str], int]:
     PR #249 之前 tiktoken 從未被宣告為依賴，故 len/4 是唯一跑過的路徑；該 PR 新增
     `tokens` extra 後 tiktoken 分支首次可達，這些失敗模式也隨之從理論變成活的。
     """
-    if importlib.util.find_spec("tiktoken") is None:
+    try:
+        installed = importlib.util.find_spec("tiktoken") is not None
+    except Exception as e:  # find_spec 自己會拋：__spec__ is None -> ValueError；
+        # meta-path finder 的例外也會傳播（兩者皆實測確認）。探測失敗不是「沒裝」，
+        # 是異常狀態——降級但要吵，否則這個 best-effort 估算會把例外往外拋。
+        warnings.warn(
+            f"tiktoken 探測失敗（{type(e).__name__}: {e}），token 預算改用 len/4 粗估。",
+            UserWarning,
+            stacklevel=2,
+        )
+        return _rough_token_count
+
+    if not installed:
         # 未安裝 tokens extra：預期情形，非異常，不發警告。
         return _rough_token_count
 
     # 走到這裡代表 tiktoken 已安裝，故任何失敗都是「裝了卻不能用」——必須讓使用者知道，
     # 否則付錢裝了 --extra tokens 的人會拿到粗估卻不知為何。
     try:
-        import tiktoken  # type: ignore[import-not-found]
+        # tiktoken 是 optional extra，CI 的 `uv sync --all-groups` 刻意不裝它（--all-groups
+        # 只裝 dependency-groups；extras 要 --all-extras），故 pylint 的 import-error 是環境
+        # 事實而非缺陷。用 inline 而非 [tool.pylint.main].ignored-modules：後者是 repo-wide，
+        # 實測會連 member 檢查一起關掉（`tiktoken.get_encodig` 這種 typo 不再被 E1101 抓到）。
+        import tiktoken  # type: ignore[import-not-found]  # pylint: disable=import-error
 
         enc = tiktoken.get_encoding(_TOKEN_BUDGET_ENCODING)
     except Exception as e:  # 網路／HTTP／快取權限／損壞的 tiktoken_ext；一律退化而非中斷

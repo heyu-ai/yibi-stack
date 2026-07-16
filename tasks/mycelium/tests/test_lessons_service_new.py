@@ -272,6 +272,24 @@ class TestTokenCounterFallback:
 
         assert len(calls) == 1, f"get_encoding 應只被呼叫一次（lru_cache），實得 {len(calls)}"
 
+    def test_myc_svc_eg_026_find_spec_failure_degrades_with_warning(self) -> None:
+        """MYC-SVC-EG-026: find_spec 自己拋例外時退化並發警告，不把例外往外拋。
+
+        round-3 review：find_spec 原本在 try 之外。它會拋——實測兩種：
+        模組在 sys.modules 但 __spec__ 為 None -> ValueError；meta-path finder 自己爆炸 ->
+        該例外直接傳播。兩者都會逃出本函式承諾的降級，讓一個 best-effort 的 token 估算
+        變成查詢失敗。
+
+        探測失敗不等於「沒裝」，故必須發警告（與 EG-020 的靜默分支區隔）。
+        """
+        with (
+            patch("importlib.util.find_spec", side_effect=ValueError("__spec__ is None")),
+            pytest.warns(UserWarning, match="tiktoken 探測失敗"),
+        ):
+            counter = _make_token_counter()
+
+        assert counter("a" * 40) == 10  # 退化為 len/4，而非往外拋
+
     def test_myc_svc_eg_025_encoding_name_is_valid_for_real_tiktoken(self) -> None:
         """MYC-SVC-EG-025: _TOKEN_BUDGET_ENCODING 是真實 tiktoken 認得的名稱。
 

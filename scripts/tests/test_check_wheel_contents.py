@@ -75,6 +75,14 @@ class TestRejectsBadWheel:
             # 舊版 block-list 本來就擋得住的，確保反轉後沒有退化
             ("scripts/", {"scripts/compare_billing.py": "import pandas"}),
             ("plugins/", {"plugins/util/README.md": "x"}),
+            # round-3 review：allow-list 第一版用 `".dist-info/" in n` 子字串比對，
+            # 於是任何路徑只要含該子字串就整個通過。實測確認後改為比對頂層目錄。
+            # 這與 round-2 修掉的「`"/tests/" in n` 漏掉頂層 tests/」是同一類缺陷。
+            ("偽裝的巢狀 .dist-info", {"plugins/my.dist-info/evil.py": "MALICIOUS = True"}),
+            (
+                "偽裝的 .dist-info 夾帶帳務工具",
+                {"scripts/hack.dist-info/ledger.py": "DSN='localhost:5435/ledgerone'"},
+            ),
         ],
     )
     def test_cwc_dt_010_stray_paths_rejected(
@@ -129,6 +137,47 @@ class TestRejectsBadWheel:
         """CWC-DT-013: 缺 entry_points.txt 被擋下（安裝後不會有該指令）。"""
         contents = _good_wheel_contents()
         del contents[f"{_DIST_INFO}/entry_points.txt"]
+        wheel = _make_wheel(tmp_path, contents)
+        monkeypatch.setattr(cwc.sys, "argv", ["check_wheel_contents.py", str(wheel)])
+
+        with pytest.raises(SystemExit) as exc:
+            cwc.main()
+
+        assert exc.value.code == 1
+
+    def test_cwc_dt_015_decoy_dist_info_rejected(self, tmp_path: Path, monkeypatch) -> None:
+        """CWC-DT-015: 含兩個 dist-info 時被擋下（誘餌不得勝出）。
+
+        round-3 review：舊版用 `next(n for n in names if n.endswith(".dist-info/
+        entry_points.txt"))` 取第一個命中。實測——誘餌 dist-info 帶「正確」的 entry point、
+        真品帶壞的，守衛讀誘餌後放行，而安裝出來的指令是壞的。
+        """
+        contents = _good_wheel_contents()
+        # 誘餌字典序在真品之前，且 entry point 是對的
+        contents["aaa_decoy-0.0.1.dist-info/METADATA"] = "Name: aaa-decoy\n"
+        contents["aaa_decoy-0.0.1.dist-info/entry_points.txt"] = _GOOD_ENTRY_POINTS
+        # 真品的 entry point 是壞的——若守衛讀誘餌就不會發現
+        contents[f"{_DIST_INFO}/entry_points.txt"] = (
+            "[console_scripts]\nportman = tasks.local_port_manager.cli:BROKEN\n"
+        )
+        wheel = _make_wheel(tmp_path, contents)
+        monkeypatch.setattr(cwc.sys, "argv", ["check_wheel_contents.py", str(wheel)])
+
+        with pytest.raises(SystemExit) as exc:
+            cwc.main()
+
+        assert exc.value.code == 1
+
+    def test_cwc_dt_016_mismatched_dist_info_name_rejected(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """CWC-DT-016: dist-info 名稱與 pyproject 的 project.name 不符時被擋下。"""
+        contents = {
+            "tasks/__init__.py": "",
+            "tasks/local_port_manager/cli.py": "cli = None",
+            "someone_else-1.0.dist-info/METADATA": "Name: someone-else\n",
+            "someone_else-1.0.dist-info/entry_points.txt": _GOOD_ENTRY_POINTS,
+        }
         wheel = _make_wheel(tmp_path, contents)
         monkeypatch.setattr(cwc.sys, "argv", ["check_wheel_contents.py", str(wheel)])
 

@@ -18,6 +18,7 @@ PR #249 的 review 用合成 wheel 證明了後果：帶 `openspec/`、頂層 `t
 from __future__ import annotations
 
 import configparser
+import re
 import sys
 import tomllib
 import zipfile
@@ -36,6 +37,54 @@ def _fail(msg: str) -> None:
     sys.exit(1)
 
 
+def _top_level(name: str) -> str:
+    """回傳 wheel 內路徑的頂層元件（zip 路徑一律用 /）。"""
+    return name.split("/", 1)[0]
+
+
+def _is_allowed(name: str) -> bool:
+    """路徑是否屬於允許的頂層目錄：tasks/ 或 <name>.dist-info/。
+
+    以**頂層目錄**判斷而非子字串——見上方 stray 檢查的註解。
+    """
+    top = _top_level(name)
+    return top == "tasks" or top.endswith(".dist-info")
+
+
+def _sole_dist_info(names: list[str]) -> str:
+    """回傳唯一的頂層 dist-info 目錄名；不是剛好一個、或名稱不符 distribution 即 fail。
+
+    為何要求「剛好一個」而非「找到一個就好」：本檔第一版用
+    `next(n for n in names if n.endswith(".dist-info/entry_points.txt"))` 取第一個命中，
+    於是一個含**兩個** dist-info 的 wheel 可以讓誘餌勝出——實測（PR #249 round 3）：
+    誘餌帶正確的 entry point、真品帶壞的，守衛讀誘餌後放行，而安裝出來的指令是壞的。
+    wheel 規格本來就只該有一個 dist-info，所以「剛好一個」是免費的正確性。
+
+    名稱也要對得上：PEP 427 的 dist-info 目錄是 `<normalized-name>-<version>.dist-info`，
+    normalize 規則見 PEP 503（- 與 . 轉 _）。
+    """
+    dist_infos = sorted({_top_level(n) for n in names if _top_level(n).endswith(".dist-info")})
+    if len(dist_infos) != 1:
+        _fail(f"wheel 應剛好含 1 個頂層 dist-info，實得 {len(dist_infos)} 個：{dist_infos}")
+
+    dist_info = dist_infos[0]
+    expected_prefix = _normalized_project_name() + "-"
+    if not dist_info.startswith(expected_prefix):
+        _fail(
+            f"dist-info 名稱與 distribution 不符：實得 {dist_info!r}，應以 {expected_prefix!r} 開頭"
+        )
+    return dist_info
+
+
+def _normalized_project_name() -> str:
+    """pyproject 的 project.name 依 PEP 503 正規化（用於比對 dist-info 目錄名）。"""
+    data = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    name = data.get("project", {}).get("name", "")
+    if not name:
+        _fail("pyproject.toml 缺少 project.name")
+    return re.sub(r"[-_.]+", "_", name)
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         _fail("用法：check_wheel_contents.py <wheel path>")
@@ -46,21 +95,25 @@ def main() -> None:
 
     with zipfile.ZipFile(wheel_path) as zf:
         names = zf.namelist()
-        entry_points_txt = next(
-            (n for n in names if n.endswith(".dist-info/entry_points.txt")), None
-        )
+        dist_info = _sole_dist_info(names)
+        entry_points_name = f"{dist_info}/entry_points.txt"
+        entry_points_txt = entry_points_name if entry_points_name in names else None
         entry_points_raw = zf.read(entry_points_txt).decode("utf-8") if entry_points_txt else ""
 
     tasks_files = [n for n in names if n.startswith("tasks/")]
     if not tasks_files:
         _fail("wheel 不含 tasks/，打包範圍錯誤")
 
-    # allow-list：只有 tasks/ 與 dist-info metadata 可以出現。任何其他路徑一律 fail，
-    # 不論它叫什麼——這才讓下方的 [OK] 訊息成為真的斷言而非裝飾。
-    stray = [n for n in names if not (n.startswith("tasks/") or ".dist-info/" in n)]
+    # allow-list：只有 tasks/ 與**頂層**的 <name>.dist-info/ 可以出現。
+    #
+    # 比對頂層目錄，不用子字串。`".dist-info/" in n` 看似等價，實則讓
+    # `plugins/my.dist-info/evil.py` 整個通過——實測確認（PR #249 round 3）。這與 round 2
+    # 修掉的 `"/tests/" in n` 漏掉頂層 tests/ 是**同一類缺陷**：用子字串回答「這個路徑屬於
+    # 哪個頂層目錄」永遠會被構造出的名字繞過。問結構，不要問子字串。
+    stray = [n for n in names if not _is_allowed(n)]
     if stray:
         _fail(
-            f"wheel 只該含 tasks/ 與 dist-info，實得 {len(stray)} 個越界檔案："
+            f"wheel 只該含 tasks/ 與頂層 *.dist-info/，實得 {len(stray)} 個越界檔案："
             f"{', '.join(sorted(stray)[:5])}"
         )
 
