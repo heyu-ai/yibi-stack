@@ -5,6 +5,14 @@
 **Branch**: origin/main post-PR-B (#50)
 **Rules measured**: 6 always-loaded (no `globs:` frontmatter)
 
+> **2026-07-16 correction (PR #250)**: the selection criterion above was wrong, so this baseline
+> **undercounts** the true always-loaded set. `globs:` was never a key Claude Code recognises
+> (the correct key is `paths:`, value a YAML list); it was silently ignored, so at measurement
+> time rules **04-11 were also always-loaded** — 14 files, not 6. The per-file numbers below are
+> accurate for the 6 files they cover; the *scope* is what is wrong. Measured after the fix
+> (`claude -p` probe): always-loaded set is now genuinely 01,02,03,13,15,16. Original text left
+> unchanged; this note is append-only.
+
 ## Per-file breakdown
 
 | Rule file | Chars | Tokens (pre-PR-C) | t/char |

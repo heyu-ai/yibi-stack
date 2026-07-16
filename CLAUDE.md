@@ -61,13 +61,20 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 
 ## 編碼慣例
 
-詳細規範在 `.claude/rules/`，Claude Code 依 glob pattern 自動載入：
+詳細規範在 `.claude/rules/`（14 個檔案：01-11、13、15、16）。載入時機由 frontmatter 決定：
+**有 `paths:` 者只在工具碰到匹配路徑時載入；沒有 frontmatter 者每個 session 全量載入**。
+`paths:` 的值是 **YAML list**（`- "tasks/**"`），glob 非錨定，在任意路徑深度匹配。
 
-- **全域**（01-03）：雙語規範、錯誤處理、安全性
-- **`tasks/**`**（04-08）：module 結構、Pydantic、config、DB、CLI
+> 寫新 rule 時 key 必須是 `paths:`——`globs:` / `glob:` / `path:` 都**不是** Claude Code 認得的
+> key，會被靜默忽略，該檔案隨即變成每 session 全量載入（PR #250 實測：8 個檔案因此誤載 ~21.8k
+> tokens/session）。純量寫法 `paths: tasks/**`（非 list）同樣失效。
+
+- **全域**（01-03、13、15、16）：雙語規範、錯誤處理、安全性、bash 反模式、不可逆操作、allow-list 衛生
+- **`tasks/**`**（04）：module 結構
+- **`tasks/**/{models,config,db,cli}.py`**（05-08）：Pydantic、config、DB、CLI（各自只在對應檔名載入）
 - **`tasks/**/tests/**`**（09）：測試命名與結構化 Test ID
 - **`tasks/**/parsers/**`**（10）：abstract base + registry pattern
-- **`skills/**`**（11）：SKILL.md 格式與撰寫規範
+- **`skills/**`**（11）：SKILL.md 格式與撰寫規範（非錨定，`plugins/*/skills/**` 亦匹配）
 
 ## 外來 Skill 管理
 
@@ -86,7 +93,7 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 
 - 共用路徑常數：@tasks/_paths.py
 - Bash lint 工具：@scripts/lint_skill_bash.py
-- 編碼慣例總覽：@.claude/rules/（01-16 條規則，依 glob 自動載入）
+- 編碼慣例總覽：@.claude/rules/（14 個檔案；01-03/13/15/16 全量載入，04-11 依 `paths:` 觸發）
 
 ## 如何執行 Skill
 
@@ -104,6 +111,9 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 以下只記錄 `make help` 一行說明看不出來的語意：
 
 ```bash
+# 依賴安裝（非 make target，make help 不會列出）
+uv sync                  # 選用：所有 make target 都走 uv run，會自動同步環境
+
 # Plugin 發布（lockstep 版本：所有 plugin 同步升版）
 make release TYPE=patch  # patch / minor / major
 # 流程：bump pyproject.toml -> sync plugins/*/package.json -> changelog -> test gates -> commit -> tag + GitHub Release

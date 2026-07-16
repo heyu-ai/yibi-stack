@@ -4,6 +4,12 @@
 **背景**：yibi-stack agent-facing surface 以中文撰寫，always-loaded 部分每 session 產生顯著 token 過耗
 **結論**：4-PR 路線圖，PR-A/B 已交付（基礎設施層），PR-C/D 待執行（語言層翻譯）
 
+> **2026-07-16 更正（PR #250）**：本文以下所有「`globs:` frontmatter → 按需載入」的敘述都是**錯的**，
+> 不影響本文的翻譯策略結論，但影響 §1.1 的載入分類與 §2 的 token 基線數字。`globs:` 從來不是
+> Claude Code 認得的 key（正確的是 `paths:`，值為 YAML list），會被靜默忽略，因此撰寫本文時
+> rules **04-11 其實全部都是 always-loaded**，而非本文所述的 on-demand。實測（`claude -p` 探針
+> 兩次，僅 cwd 不同）：修正前載入 14 個 rule，修正後 6 個。本文原文保留不改動，僅加註此更正。
+
 ---
 
 ## 1. Problem Statement
