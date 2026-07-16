@@ -103,6 +103,11 @@ markers = [
 
 [tool.pylint.main]
 load-plugins = ["pylint.extensions.no_self_use"]
+# tiktoken 是 optional extra（[project.optional-dependencies].tokens），CI 的
+# `uv sync --all-groups` 刻意不安裝它——實測 --all-groups 只裝 dependency-groups，
+# extras 要 --all-extras 才會裝。故 pylint 對它報 E0401 import-error 是環境事實而非缺陷：
+# lessons_service._make_token_counter 已用 find_spec 守住「沒裝」的情形並退化為粗估。
+ignored-modules = ["tiktoken"]
 
 [tool.pylint.messages_control]
 # 與 ruff 重疊的規則停用；mypy 已涵蓋型別檢查，停用相關警告

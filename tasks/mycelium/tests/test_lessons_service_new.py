@@ -159,8 +159,17 @@ class TestTokenCounterFallback:
     """token 計數的降級路徑（PR #249）。
 
     PR #249 之前 tiktoken 從未被宣告為依賴，故 len/4 是唯一跑過的路徑；新增 tokens
-    extra 後 tiktoken 分支首次可達，其網路失敗模式也隨之從理論變成活的。
+    extra 後 tiktoken 分支首次可達，其失敗模式也隨之從理論變成活的。
+
+    每個測試都先 cache_clear()：_make_token_counter 有 lru_cache（避免離線時每次查詢都
+    重新等 get_encoding 逾時），而快取會跨測試共用——不清就會變成 order-dependent。
     """
+
+    @pytest.fixture(autouse=True)
+    def _clear_counter_cache(self):
+        _make_token_counter.cache_clear()
+        yield
+        _make_token_counter.cache_clear()
 
     def test_myc_svc_eg_020_missing_tiktoken_degrades_silently(self) -> None:
         """MYC-SVC-EG-020: 未安裝 tiktoken 時退化為粗估，且**不**發警告。
@@ -168,18 +177,20 @@ class TestTokenCounterFallback:
         未裝 tokens extra 是預期情形而非異常。若這裡發警告，每個沒裝 extra 的使用者
         每次查 lessons 都會看到一則無法行動的雜訊。
         """
-        with patch.dict("sys.modules", {"tiktoken": None}), warnings.catch_warnings():
+        with (
+            patch("importlib.util.find_spec", return_value=None),
+            warnings.catch_warnings(),
+        ):
             warnings.simplefilter("error")  # 任何警告都會變成例外
             counter = _make_token_counter()
 
         assert counter("a" * 40) == 10  # len/4 粗估
 
-    def test_myc_svc_eg_021_tiktoken_network_failure_degrades_with_warning(self) -> None:
-        """MYC-SVC-EG-021: get_encoding() 非 ImportError 失敗時退化並發警告。
+    def test_myc_svc_eg_021_broken_tiktoken_degrades_with_warning(self) -> None:
+        """MYC-SVC-EG-021: 已安裝但 get_encoding() 失敗時退化並發警告。
 
-        get_encoding() 在冷快取時會下載 BPE vocab，失敗拋的是網路／HTTP 錯誤而非
-        ImportError。只捕捉 ImportError 會讓這個 best-effort 的估算把例外往外拋。
-        會發警告：裝了 --extra tokens 卻仍拿到粗估的使用者需要知道原因。
+        涵蓋網路／HTTP／快取權限等非 ImportError 失敗。會發警告：裝了 --extra tokens
+        卻仍拿到粗估的使用者需要知道原因。
         """
         fake_tiktoken = type(
             "FakeTiktoken",
@@ -192,25 +203,90 @@ class TestTokenCounterFallback:
         )
 
         with (
+            patch("importlib.util.find_spec", return_value=object()),
             patch.dict("sys.modules", {"tiktoken": fake_tiktoken}),
-            pytest.warns(UserWarning, match="tiktoken 初始化失敗"),
+            pytest.warns(UserWarning, match="已安裝但初始化失敗"),
         ):
             counter = _make_token_counter()
 
         assert counter("a" * 40) == 10  # 退化為 len/4，而非往外拋
 
+    def test_myc_svc_eg_023_installed_but_broken_import_warns(self) -> None:
+        """MYC-SVC-EG-023: 已安裝但 import 本身炸掉（transitive dep 缺失）時**發警告**。
+
+        這是 find_spec 分流要解的核心案例：舊寫法用 `except ImportError` 同時涵蓋
+        「沒裝」與「裝了但 regex 之類的 transitive dep 壞掉」，於是後者被靜默分支吃掉
+        ——而那正是警告要服務的使用者。find_spec 說「裝了」，所以任何 import 失敗都必須吵。
+        """
+        with (
+            patch("importlib.util.find_spec", return_value=object()),
+            patch.dict("sys.modules", {"tiktoken": None}),  # 讓 import tiktoken 拋 ImportError
+            pytest.warns(UserWarning, match="已安裝但初始化失敗"),
+        ):
+            counter = _make_token_counter()
+
+        assert counter("a" * 40) == 10
+
     def test_myc_svc_eg_022_working_tiktoken_is_used(self) -> None:
         """MYC-SVC-EG-022: tiktoken 可用時真的使用它（而非永遠走粗估）。
 
-        沒有這個正向對照，上面兩個測試在「tiktoken 分支根本壞掉、永遠退化」時也會通過。
+        沒有這個正向對照，上面幾個測試在「tiktoken 分支根本壞掉、永遠退化」時也會通過。
         """
         fake_enc = type("FakeEnc", (), {"encode": staticmethod(lambda text: [0] * len(text))})
         fake_tiktoken = type(
             "FakeTiktoken", (), {"get_encoding": staticmethod(lambda _name: fake_enc)}
         )
 
-        with patch.dict("sys.modules", {"tiktoken": fake_tiktoken}):
+        with (
+            patch("importlib.util.find_spec", return_value=object()),
+            patch.dict("sys.modules", {"tiktoken": fake_tiktoken}),
+        ):
             counter = _make_token_counter()
 
         # fake encoder 每字元一個 token；粗估則是 len/4 -> 用得出的值區分走了哪條路
         assert counter("a" * 40) == 40
+
+    def test_myc_svc_eg_024_result_is_cached(self) -> None:
+        """MYC-SVC-EG-024: 結果被快取，不會每次查詢都重跑 get_encoding。
+
+        離線時 get_encoding 每次要等約 30 秒逾時。不快取的話降級結果不被記住，
+        於是每次帶 token_budget 的查詢都重新卡一次——這是 lru_cache 存在的理由。
+        """
+        calls = []
+
+        def _counting_get_encoding(_name):
+            calls.append(_name)
+            return type("E", (), {"encode": staticmethod(lambda t: [0] * len(t))})
+
+        fake_tiktoken = type(
+            "FakeTiktoken", (), {"get_encoding": staticmethod(_counting_get_encoding)}
+        )
+
+        with (
+            patch("importlib.util.find_spec", return_value=object()),
+            patch.dict("sys.modules", {"tiktoken": fake_tiktoken}),
+        ):
+            _make_token_counter()
+            _make_token_counter()
+            _make_token_counter()
+
+        assert len(calls) == 1, f"get_encoding 應只被呼叫一次（lru_cache），實得 {len(calls)}"
+
+    def test_myc_svc_eg_025_encoding_name_is_valid_for_real_tiktoken(self) -> None:
+        """MYC-SVC-EG-025: _TOKEN_BUDGET_ENCODING 是真實 tiktoken 認得的名稱。
+
+        上面的測試全用 fake tiktoken，所以「cl100k_base」這個字串從未對真實套件驗證過。
+        打錯的話 get_encoding 會拋 ValueError -> 被寬捕捉吃掉 -> 靜默退化成 len/4 + 警告，
+        而所有 fake 測試照樣綠。
+
+        importorskip：CI 的 `uv sync --all-groups` **不會**裝 extras（實測 --all-groups 對
+        tiktoken 零命中，--all-extras 才有），故此測試在 CI 會 skip；它是給有裝
+        `--extra tokens` 的開發者用的真實性檢查。
+        """
+        tiktoken = pytest.importorskip("tiktoken", reason="需要 uv sync --extra tokens")
+
+        from tasks.mycelium.lessons_service import _TOKEN_BUDGET_ENCODING
+
+        enc = tiktoken.get_encoding(_TOKEN_BUDGET_ENCODING)
+
+        assert enc.encode("hello"), "真實 encoder 應能編碼文字"

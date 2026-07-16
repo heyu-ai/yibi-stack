@@ -27,15 +27,21 @@ if ! portman --version; then
   echo '       uv tool install --force git+https://github.com/heyu-ai/yibi-stack' >&2
   exit 1
 fi
-ls ~/.agents/ports.json 2>/dev/null && echo "exists" || echo "需要初始化"
+if [ -f ~/.agents/ports.json ]; then echo "exists"; else echo "需要初始化"; fi
 ```
 
-> **為何沒有最低版本比對**：`uv tool install git+` 裝的是 HEAD，但 metadata 的版本字串是
-> **上次 release** 的值——兩次 release 之間的每個 commit 都回報同一個版本。任何 semver
-> 比較在此都**不帶資訊**，只會製造虛假的安全感（PR #249 mob review 三家共識）。
-> `--version` 在這裡的定位是**診斷**（人看的、bug report 貼的），不是閘門；真正的閘門是
-> 上面兩道 fail-loud（指令存在、安裝未損毀）。若日後需要真正的相容性閘門，應採
-> capability/protocol revision 或具體行為 probe，而非 package semver——見 ADR-0004。
+> **為何沒有最低版本比對**：`uv tool install git+` 裝的是 HEAD，但套件 metadata 的版本字串
+> 取自 `pyproject.toml`，也就是**上次 release** 的值——兩次 release 之間的每個 commit 都回報
+> 同一個版本。所以 semver 比較無法區分「沒有漂移」與「偵測不到漂移」，它的 PASS 不帶資訊，
+> 只會製造虛假的安全感。
+>
+> 因此 `--version` 在這裡的定位是**診斷**（人看的、貼 bug report 用的），不是閘門；閘門是
+> 上面兩道 fail-loud：指令存在、安裝未損毀。
+>
+> ADR-0004 現行文字要求「能力／**版本**檢查」，與此實作有**已知歧異**——該要求的可行性正由
+> issue #256 追蹤裁決（是否改為 capability/protocol revision 或行為 probe）。在裁決前不預先
+> 加一道恆真的比較：`portman` 只存在於 >= 1.9.0，故 `command -v portman` 成功就已蘊含版本
+> 下限，再比一次 `MIN_VERSION="1.9.0"` 守不到任何東西。
 
 若 ports.json 不存在：
 
@@ -91,6 +97,25 @@ portman reserve {{project}} {{service}} --port {{port}}
 portman release {{project}} {{service}}
 ```
 
+## Makefile 整合
+
+`get` 在查無登記時 **exit 1 且 stdout 全空**（刻意設計，見 LPM-DT-021/022）。但
+**GNU Make 的 `$(shell ...)` 會丟棄 exit status**——實測 `X := $(shell exit 1)` 只是把 `X`
+綁成空字串，make 照常繼續、exit 0。所以裸寫法會**靜默**綁到空 port：
+
+```makefile
+# 不要這樣：get 失敗時 REDIS_PORT 靜默變成空字串
+REDIS_PORT := $(shell portman get $(PROJECT) redis)
+```
+
+要讓它大聲失敗，必須自己檢查——`$(or ...)` 搭 `$(error ...)` 會在 **parse 階段**就中止：
+
+```makefile
+REDIS_PORT := $(or $(shell portman get $(PROJECT) redis),$(error [FAIL] $(PROJECT)/redis 尚未登記 port，請先執行 portman reserve))
+```
+
+（`:=` 是立即賦值，故 `$(error)` 在讀 Makefile 時就觸發，不必等到用到該變數的 target。）
+
 ## 常見問題
 
 | 問題 | 解法 |
@@ -100,4 +125,4 @@ portman release {{project}} {{service}}
 | `portman` 行為與本文件不符（疑似版本落差） | `uv tool upgrade yibi-stack` 取得最新 HEAD。注意 `--version` **無法**用來診斷此情況：git 安裝回報的是上次 release 的版本字串，兩次 release 之間皆相同 |
 | `Registry 不存在` | 執行 `portman init` 建立**空** registry（不含任何預載專案），再用 `reserve` 登記 |
 | `port 已被佔用` | 先執行 `suggest` 取得可用 port，再 `reserve` |
-| Makefile 整合 | `REDIS_PORT := $(shell portman get $(PROJECT) redis)`（查無登記時 `get` exit 1 且 stdout 全空，讓 Makefile 大聲失敗而非綁到空值） |
+| Makefile 整合 | 見下方「Makefile 整合」——**不要**直接用裸的 `$(shell ...)`，它會吞掉失敗 |

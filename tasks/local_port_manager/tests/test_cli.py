@@ -191,3 +191,105 @@ class TestGet:
 
         assert result.exit_code == 0
         assert result.stdout.strip() == "5433"
+
+
+class TestReserve:
+    def test_lpm_dt_030_reserve_registers_entry(self, tmp_path: Path) -> None:
+        """LPM-DT-030: reserve 寫入登記（正向對照：沒有它，下方的錯誤路徑測試在
+        「reserve 整個壞掉」時也會通過）。"""
+        registry_path = tmp_path / "ports.json"
+        _seed_registry(registry_path)
+
+        with patch(f"{CLI_SVC}.REGISTRY_PATH", registry_path):
+            result = CliRunner().invoke(cli, ["reserve", "proj", "redis", "--port", "6380"])
+
+        assert result.exit_code == 0
+        registry = PortRegistry.model_validate_json(registry_path.read_text(encoding="utf-8"))
+        assert any(e.service == "redis" and e.port == 6380 for e in registry.entries)
+
+    def test_lpm_dt_031_reserve_conflict_fails_cleanly(self, tmp_path: Path) -> None:
+        """LPM-DT-031: port 已被別的 (project, service) 佔用時，乾淨報錯 + exit 1。"""
+        registry_path = tmp_path / "ports.json"
+        _seed_registry(registry_path)
+
+        with patch(f"{CLI_SVC}.REGISTRY_PATH", registry_path):
+            result = CliRunner().invoke(
+                cli, ["reserve", "other", "db", "--port", "5433", "-c", "db"]
+            )
+
+        assert result.exit_code == 1
+        assert "✗" in result.output
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+
+    def test_lpm_dt_032_reserve_with_unknown_range_name_fails_cleanly(self, tmp_path: Path) -> None:
+        """LPM-DT-032: registry 的 ranges 含非 Category 名稱時，乾淨報錯而非噴 traceback。
+
+        PortRegistry 只驗 ranges 的 [low, high] 形狀，不驗 key 是否為合法 Category，
+        所以手動編輯過的 ~/.agents/ports.json 可以含任意 range 名。此時 _infer_category
+        會對該名稱呼叫 Category(...)——若它落在 reserve_cmd 的 try/except 之外，使用者會
+        看到 Python traceback 而非本 CLI 其他錯誤路徑一致的「✗ ...」+ exit 1。
+
+        portman 現在是公開發佈的 CLI，traceback 是不可接受的使用者介面。
+        """
+        registry_path = tmp_path / "ports.json"
+        registry = PortRegistry(
+            ranges={"analytics": [9700, 9799]},  # 合法形狀，但不是 Category 成員
+            entries=[],
+        )
+        registry_path.write_text(registry.model_dump_json(indent=2) + "\n", encoding="utf-8")
+
+        with patch(f"{CLI_SVC}.REGISTRY_PATH", registry_path):
+            result = CliRunner().invoke(cli, ["reserve", "proj", "metrics", "--port", "9700"])
+
+        assert result.exit_code == 1
+        assert "✗" in result.output, f"應輸出乾淨錯誤，實得：{result.output!r}"
+        # 不得逸出未處理的例外（SystemExit 是 click 的正常退出路徑）
+        assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"不該逸出 {type(result.exception).__name__}：{result.exception}"
+        )
+
+
+class TestReleaseAndCheck:
+    def test_lpm_dt_040_release_removes_entry(self, tmp_path: Path) -> None:
+        """LPM-DT-040: release 移除登記。"""
+        registry_path = tmp_path / "ports.json"
+        _seed_registry(registry_path)
+
+        with patch(f"{CLI_SVC}.REGISTRY_PATH", registry_path):
+            result = CliRunner().invoke(cli, ["release", "proj", "postgres"])
+
+        assert result.exit_code == 0
+        registry = PortRegistry.model_validate_json(registry_path.read_text(encoding="utf-8"))
+        assert registry.entries == []
+
+    def test_lpm_dt_041_release_is_idempotent(self, tmp_path: Path) -> None:
+        """LPM-DT-041: release 不存在的登記時冪等，不報錯。"""
+        registry_path = tmp_path / "ports.json"
+        _seed_registry(registry_path)
+
+        with patch(f"{CLI_SVC}.REGISTRY_PATH", registry_path):
+            result = CliRunner().invoke(cli, ["release", "proj", "nope"])
+
+        assert result.exit_code == 0
+
+    def test_lpm_dt_042_check_reports_occupant(self, tmp_path: Path) -> None:
+        """LPM-DT-042: check 回報佔用該 port 的專案。"""
+        registry_path = tmp_path / "ports.json"
+        _seed_registry(registry_path)
+
+        with patch(f"{CLI_SVC}.REGISTRY_PATH", registry_path):
+            result = CliRunner().invoke(cli, ["check", "5433"])
+
+        assert result.exit_code == 0
+        assert "proj" in result.output
+
+    def test_lpm_dt_043_list_shows_entries(self, tmp_path: Path) -> None:
+        """LPM-DT-043: list 列出登記。"""
+        registry_path = tmp_path / "ports.json"
+        _seed_registry(registry_path)
+
+        with patch(f"{CLI_SVC}.REGISTRY_PATH", registry_path):
+            result = CliRunner().invoke(cli, ["list"])
+
+        assert result.exit_code == 0
+        assert "postgres" in result.output

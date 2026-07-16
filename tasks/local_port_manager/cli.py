@@ -121,16 +121,20 @@ def reserve_cmd(project: str, service: str, port: int, category: str | None, not
     from .service import reserve, save_registry
 
     registry = _require_registry()
-    cat = _infer_category(registry, service, category, port)
-    entry = PortEntry(
-        project=project,
-        service=service,
-        category=cat,
-        port=port,
-        note=note,
-        registered_at=datetime.now(tz=UTC),
-    )
     try:
+        # _infer_category 必須在 try 內：registry 的 ranges 只被驗 [low, high] 形狀，
+        # key 可以是任意字串（手動編輯過的 ports.json），而它會對該字串呼叫 Category(...)。
+        # 放在 try 外的話，使用者會拿到 Python traceback 而非與本 CLI 其他錯誤路徑一致的
+        # 「✗ ...」+ exit 1。portman 是公開發佈的指令，traceback 不是可接受的介面。
+        cat = _infer_category(registry, service, category, port)
+        entry = PortEntry(
+            project=project,
+            service=service,
+            category=cat,
+            port=port,
+            note=note,
+            registered_at=datetime.now(tz=UTC),
+        )
         updated = reserve(registry, entry)
     except ValueError as e:
         click.echo(f"✗ {e}", err=True)

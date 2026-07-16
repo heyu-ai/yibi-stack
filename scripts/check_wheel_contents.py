@@ -2,10 +2,15 @@
 
 由 scripts/packaging_smoke_test.sh 呼叫。fail loud：任何一項不符即 exit 1。
 
-檢查項目對應 ADR-0004 / plugin-primary-plan.md Phase 1 的驗證閘門：
+**allow-list，不是 block-list。** 這是刻意的：本檔的第一版擋 4 個寫死的前綴
+（scripts/ plugins/ .venv /tests/）卻印「全部在 tasks/ 之下」——一句它從未檢查的話。
+PR #249 的 review 用合成 wheel 證明了後果：帶 `openspec/`、頂層 `tests/`、根目錄 `.env`
+的 wheel 全都通過，其中一個還夾帶 `localhost:5435/ledgerone` DSN（正是本閘門宣稱要擋的
+東西）。block-list 只擋得住你想得到的名字；allow-list 擋得住你想不到的。
+
+檢查項目：
+- wheel 只得含 tasks/ 與 *.dist-info/（任何越界檔案即 fail，不需預先列舉壞名字）
 - 必須含 tasks/（否則 wheel 是空殼）
-- 不得含 scripts/（個人帳務工具，硬編碼 localhost:5435/ledgerone，不該出貨）
-- 不得含 plugins/ 或 .venv（打包範圍失控）
 - 不得含測試（原本佔 wheel 檔案數的 38%）
 - entry_points.txt 必須註冊 pyproject 宣告的每個 console script
 """
@@ -50,15 +55,19 @@ def main() -> None:
     if not tasks_files:
         _fail("wheel 不含 tasks/，打包範圍錯誤")
 
-    forbidden = {
-        "scripts/": [n for n in names if n.startswith("scripts/")],
-        "plugins/": [n for n in names if n.startswith("plugins/")],
-        ".venv": [n for n in names if ".venv" in n],
-        "tests": [n for n in names if "/tests/" in n],
-    }
-    for label, hits in forbidden.items():
-        if hits:
-            _fail(f"wheel 不該含 {label}，實得 {len(hits)} 個檔案，例如 {hits[0]}")
+    # allow-list：只有 tasks/ 與 dist-info metadata 可以出現。任何其他路徑一律 fail，
+    # 不論它叫什麼——這才讓下方的 [OK] 訊息成為真的斷言而非裝飾。
+    stray = [n for n in names if not (n.startswith("tasks/") or ".dist-info/" in n)]
+    if stray:
+        _fail(
+            f"wheel 只該含 tasks/ 與 dist-info，實得 {len(stray)} 個越界檔案："
+            f"{', '.join(sorted(stray)[:5])}"
+        )
+
+    # 測試不出貨。與 stray 檢查獨立：tests 在 tasks/ 之下，allow-list 放行它們。
+    test_files = [n for n in names if "/tests/" in n or n.startswith("tests/")]
+    if test_files:
+        _fail(f"wheel 不該含測試，實得 {len(test_files)} 個檔案，例如 {test_files[0]}")
 
     declared = _declared_scripts()
     if not declared:
@@ -76,8 +85,8 @@ def main() -> None:
         if shipped[name] != target:
             _fail(f"{name} 的 entry point 不符：wheel={shipped[name]!r} pyproject={target!r}")
 
-    print(f"[OK] wheel 內容：{len(names)} 檔，全部在 tasks/ 之下")
-    print("[OK] 無 scripts/ / plugins/ / .venv / tests")
+    print(f"[OK] wheel 內容：{len(names)} 檔，僅 tasks/（{len(tasks_files)}）與 dist-info")
+    print("[OK] 無測試")
     print(f"[OK] entry_points 已註冊：{', '.join(sorted(shipped))}")
 
 

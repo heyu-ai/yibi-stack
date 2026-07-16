@@ -1,11 +1,15 @@
-"""反證：確認 tasks 載自 site-packages，而非某個 checkout。
+"""斷言 tasks 載自 site-packages。
 
 由 scripts/packaging_smoke_test.sh 在隔離 venv 中呼叫。
 
-為何需要這一步：smoke test 的宣稱是「wheel 在無 checkout 環境可獨立運作」。若 portman
-其實是靠 cwd 上的某個 checkout 活著（例如 CI runner 恰好在 repo 根目錄執行），整個
-smoke test 會通過卻毫無資訊量——它會變成一個永遠 PASS 的假閘門。斷言 module 的實際
-載入路徑，是唯一能把「真的獨立」與「碰巧可用」區分開的檢查。
+**它實際擋住什麼**：「wheel 裝了，但 `tasks` 根本 import 不進來」——例如 packages 設定
+錯誤導致 wheel 內只有 metadata、或套件目錄結構壞掉。這種情況下 `portman --version` 可能
+仍因 entry point 存在而看似正常，但 import 會炸。
+
+**它不擋什麼（避免 over-claim）**：它*不是*「防止 checkout 遮蔽 site-packages」的保險。
+本腳本由 venv 的 python 執行、`sys.path[0]` 是本腳本所在的 `<repo>/scripts`（其下無
+`tasks/`），且 smoke test 已清空 PYTHONPATH——checkout 依建構就不可能被 import 到。
+路徑斷言在此是**便宜的額外確認**，不是唯一防線。
 """
 
 from __future__ import annotations

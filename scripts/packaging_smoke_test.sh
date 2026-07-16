@@ -30,7 +30,9 @@ WHEEL="${WHEELS[0]}"
 echo "[OK] $(basename "$WHEEL")"
 
 echo "=== 2. 驗證 wheel 內容範圍 ==="
-python3 "$REPO_ROOT/scripts/check_wheel_contents.py" "$WHEEL"
+# 用 uv run python 而非裸 python3：check_wheel_contents.py 需要 tomllib（3.11+），
+# 而系統 python3 的版本不受本專案控制（requires-python 只約束 uv 建的環境）。
+uv run --directory "$REPO_ROOT" python "$REPO_ROOT/scripts/check_wheel_contents.py" "$WHEEL"
 
 echo "=== 3. 安裝到隔離 venv（不碰全域 ~/.local/bin）==="
 uv venv "$WORK/venv" --quiet
@@ -51,9 +53,29 @@ if [ ! -x "$PORTMAN" ]; then
     echo "[FAIL] wheel 未產生可執行的 portman entry point" >&2
     exit 1
 fi
+# 清 PYTHONPATH：手動執行時它若含專案根目錄，python 會從 checkout 而非 site-packages
+# 解析 tasks，讓步驟 6 的反證失去意義（或誤判失敗）。
+# 隔離 HOME：步驟 5b 的 `portman init` 會寫 $HOME/.agents/ports.json——不隔離就會污染
+# 執行者真實的 port registry。
+export PYTHONPATH=
+export HOME="$WORK/fakehome"
+mkdir -p "$HOME"
+
 ( cd "$WORK" && "$PORTMAN" --version )
 ( cd "$WORK" && "$PORTMAN" --help > /dev/null )
 echo "[OK] portman --version / --help 可執行"
+
+echo "=== 5b. 執行真正的指令（--version/--help 不觸發指令內的延遲 import）==="
+# cli.py 的每個指令都在函式體內 `from . import service`（rule 02 的延遲 import 規範）。
+# 只跑 --version/--help 的話，service.py / models.py 就算沒被打包進 wheel 也照樣通過——
+# 缺陷會留到使用者第一次真的用它時才爆。init 會走完 service + models + 檔案 I/O。
+( cd "$WORK" && "$PORTMAN" init )
+if [ ! -f "$HOME/.agents/ports.json" ]; then
+    echo "[FAIL] portman init 未產生 registry：$HOME/.agents/ports.json" >&2
+    exit 1
+fi
+( cd "$WORK" && "$PORTMAN" list > /dev/null )
+echo "[OK] portman init / list 可執行，registry 已產生"
 
 echo "=== 6. 反證：tasks 必須載自 site-packages，而非某個 checkout ==="
 ( cd "$WORK" && "$WORK/venv/bin/python" "$REPO_ROOT/scripts/assert_import_from_site_packages.py" )

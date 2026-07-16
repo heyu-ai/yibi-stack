@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import warnings
 from collections.abc import Callable
 from datetime import UTC, datetime
+from functools import lru_cache
 from math import floor
 from pathlib import Path
 from typing import Any
@@ -675,31 +677,37 @@ def _rough_token_count(text: str) -> int:
     return len(text) // 4
 
 
+@lru_cache(maxsize=1)
 def _make_token_counter() -> Callable[[str], int]:
-    """回傳 token 計數函式；tiktoken 不可用時退化為粗估並發出警告。
+    """回傳 token 計數函式；tiktoken 不可用時退化為粗估。
 
-    捕捉範圍刻意比 ImportError 寬：`tiktoken.get_encoding()` 在**冷快取**時會從
-    openaipublic.blob.core.windows.net 下載 BPE vocab，失敗時拋的是網路／HTTP 錯誤
-    （亦可能是快取目錄的 PermissionError），而非 ImportError——只捕捉 ImportError 會讓
-    這個本應 best-effort 的預算估算把例外往外拋。
+    **為何用 find_spec 而非靠 exception 型別分流**：`except ImportError` 會同時涵蓋兩個
+    語意完全不同的情況——(a) 沒裝 tokens extra（預期，不該吵）、(b) 裝了但它自己的
+    transitive dep 壞掉（例如 `regex` 缺失），或 `get_encoding()` 內部 import
+    `tiktoken_ext` plugin 失敗。(b) 正是本函式的警告要服務的對象，卻會被 (a) 的靜默分支
+    吃掉。find_spec 直接問「裝了沒」，讓兩者不再共用一個 except。
 
-    PR #249 之前 tiktoken 從未被宣告為依賴，故 len/4 是唯一跑過的路徑；本 PR 新增
-    `tokens` extra 後 tiktoken 分支首次可達，這個失敗模式也隨之從理論變成活的。
+    **為何 lru_cache**：本函式在每次 `_apply_token_budget` 呼叫（即每次帶 token_budget 的
+    查詢）都會執行。`get_encoding()` 在冷快取時會向 openaipublic.blob.core.windows.net 下載
+    BPE vocab；離線時每次都要等它逾時（實測約 30 秒）。不快取的話，降級結果本身不被記住，
+    於是**每次查詢都重新卡一次**。maxsize=1 是因為本函式無參數。
 
-    降級會發 warning：安裝了 `--extra tokens` 卻仍拿到粗估的使用者，需要知道原因。
+    PR #249 之前 tiktoken 從未被宣告為依賴，故 len/4 是唯一跑過的路徑；該 PR 新增
+    `tokens` extra 後 tiktoken 分支首次可達，這些失敗模式也隨之從理論變成活的。
     """
+    if importlib.util.find_spec("tiktoken") is None:
+        # 未安裝 tokens extra：預期情形，非異常，不發警告。
+        return _rough_token_count
+
+    # 走到這裡代表 tiktoken 已安裝，故任何失敗都是「裝了卻不能用」——必須讓使用者知道，
+    # 否則付錢裝了 --extra tokens 的人會拿到粗估卻不知為何。
     try:
         import tiktoken  # type: ignore[import-not-found]
 
         enc = tiktoken.get_encoding(_TOKEN_BUDGET_ENCODING)
-    except ImportError:
-        # 未安裝 tokens extra：預期情形，非異常，不發警告。
-        return _rough_token_count
-    except Exception as e:  # noqa: BLE001 — 網路／HTTP／快取權限等；一律退化而非中斷
+    except Exception as e:  # 網路／HTTP／快取權限／損壞的 tiktoken_ext；一律退化而非中斷
         warnings.warn(
-            f"tiktoken 初始化失敗（{type(e).__name__}: {e}），token 預算改用 len/4 粗估。"
-            "若需精確計算，請確認網路可連 openaipublic.blob.core.windows.net，"
-            "或預熱 tiktoken 快取。",
+            f"tiktoken 已安裝但初始化失敗（{type(e).__name__}: {e}），token 預算改用 len/4 粗估。",
             UserWarning,
             stacklevel=2,
         )
