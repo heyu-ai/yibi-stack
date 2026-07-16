@@ -8,6 +8,7 @@ from .models import Category, PortEntry, PortRegistry
 
 
 @click.group()
+@click.version_option(package_name="yibi-stack")
 def cli() -> None:
     """本地開發 Port 分配管理工具。"""
 
