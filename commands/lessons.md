@@ -5,10 +5,21 @@ description: 查詢、搜尋、寫入 typed lessons。取代 /recall。
 
 # Lessons — 教訓查詢與寫入
 
-查詢本 project 累積的 typed lessons、legacy handover 教訓，以及寫入新教訓。
+查詢累積的 typed lessons、legacy handover 教訓，以及寫入新教訓。
 
 所有操作透過 wrapper：`~/.agents/bin/lessons {add|show|search} [args]`
-Wrapper 自動讀取 `~/.agents/config.json` 取得 skill_repo 路徑，並透過 `git rev-parse` 偵測當前 project。
+Wrapper 透過 `~/.agents/bin/resolve-skill-repo` 取得 skill_repo 路徑。
+
+**`--project` 讀寫不對稱（刻意為之）**：
+
+| 指令 | wrapper 行為 | 結果 |
+| --- | --- | --- |
+| `show` / `search`（讀取） | **不注入** `--project` | 預設回傳**全部 project**，與 CLI 文件一致；要限縮請自行加 `--project <name>` |
+| `add`（寫入） | 注入 `git rev-parse` 偵測到的 project | 教訓記到當前 repo（issue #243 的防線） |
+
+讀取之所以不注入：CLI 對 `show` / `search` 的 `--project` 預設就是「顯示全部 project」，
+wrapper 若注入會靜默覆寫該預設——呼叫端以為拿到跨 project 結果、實際只拿到 cwd 那個 repo
+的，且無任何訊號。
 
 **使用方式：**
 
@@ -64,7 +75,7 @@ Agent 直接組 `lessons add` 指令：
 
 ## Step 4 — 呈現結果
 
-- 若無結果，告知所用的 project 名稱並建議用 Step 3 寫入新教訓
+- 若無結果，說明查詢範圍為全部 project（除非呼叫端明確加了 `--project`），並建議用 Step 3 寫入新教訓
 - 若有結果，分群展示：**Typed lessons**（type 分類）和 **Legacy**（舊 handover 教訓）
 
 ## Skill integration contract（Phase B 以後實作）
