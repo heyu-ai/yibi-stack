@@ -1,5 +1,6 @@
 ---
-globs: skills/**
+paths:
+  - "skills/**"
 ---
 # SKILL.md Authoring Guide
 

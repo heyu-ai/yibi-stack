@@ -53,15 +53,6 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 
 ## 專案架構
 
-```text
-skills/   → Agent 介面層（SKILL.md runbook，agent 讀這個來執行）
-tasks/    → Python 實作（CLI、config、models、service、tests）
-commands/ → Claude Code slash commands（symlink 到 ~/.claude/commands/）
-plugins/  → Claude Code plugin（本 repo 作為 marketplace，各 plugin 獨立子目錄）
-docs/     → 技術文件與 OpenSpec live example（docs/openspec/changes/）
-scripts/  → CI/lint 工具腳本
-```
-
 - **`skills/`** — Agent 的執行介面，每個 skill 有獨立的 `SKILL.md` runbook
   - **可執行 skill**：有對應的 `tasks/` Python 實作（如 mycelium、scheduler）
   - **知識型 skill**：純 Markdown 方法論指引（如 tdd-kentbeck、qa-test-design）
@@ -109,31 +100,10 @@ scripts/  → CI/lint 工具腳本
 > （如 `/config thinking=false`）；在 interactive、`-p` headless、Remote Control 皆可用
 > （Claude Code v2.1.181+）。`/config --help` 列出所有 shorthand key（v2.1.183+）。
 
+完整 target 清單跑 `make help`（Makefile 為 self-documenting，每個 target 都有 `##` 說明）。
+以下只記錄 `make help` 一行說明看不出來的語意：
+
 ```bash
-# Python 開發
-uv sync                  # 安裝依賴
-make ci                  # 本地 CI：pre-commit（lint+format+type+security）+ pytest
-make check               # 執行所有檢查（lint + format + typecheck + test）
-make lint                # 只跑 ruff linter
-make format              # 只跑 ruff formatter
-make typecheck           # 只跑 mypy
-make test                # 只跑 pytest
-
-# Skill 管理
-make install             # 安裝 scope=global skill（跨專案可用）+ commands
-make install-one SKILL=x # 安裝單一 skill
-make status              # 查看安裝狀態
-make uninstall           # 移除自己的 symlink
-
-# Hook 管理（Claude Code auto-handover hook）
-make install-handover-hooks   # 安裝 PreCompact + SessionStart hook 到 ~/.claude/settings.json
-make uninstall-handover-hooks # 移除 auto-handover hook
-
-# Scheduler 管理
-make install-scheduler   # 安裝 LaunchAgent（每 60 秒 tick）
-make uninstall-scheduler # 卸載 LaunchAgent
-make scheduler-status    # 查看 job 執行狀態
-
 # Plugin 發布（lockstep 版本：所有 plugin 同步升版）
 make release TYPE=patch  # patch / minor / major
 # 流程：bump pyproject.toml -> sync plugins/*/package.json -> changelog -> test gates -> commit -> tag + GitHub Release

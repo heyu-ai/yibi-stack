@@ -1,5 +1,6 @@
 ---
-globs: tasks/**/config.py
+paths:
+  - "tasks/**/config.py"
 ---
 # Config Loading Pattern
 

@@ -1,5 +1,6 @@
 ---
-globs: tasks/**/parsers/**
+paths:
+  - "tasks/**/parsers/**"
 ---
 # Parser Extension Pattern
 

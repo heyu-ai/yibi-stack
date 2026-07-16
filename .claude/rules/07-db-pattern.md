@@ -1,5 +1,6 @@
 ---
-globs: tasks/**/db.py
+paths:
+  - "tasks/**/db.py"
 ---
 # SQLite DB Layer Pattern
 
