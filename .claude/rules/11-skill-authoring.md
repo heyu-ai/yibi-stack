@@ -94,7 +94,7 @@ present; plain `tasks/` does not discriminate — the sibling repo has one too).
 Self-locating is what makes a worktree install dangerous, and the danger is a direct
 consequence of the property that makes the resolver correct: it faithfully resolves to
 **the checkout that installed it**. Install from `.claude/worktrees/<name>/` and every
-global symlink points into that worktree; once the branch merges and `/clean-merged`
+global symlink points into that worktree; once the branch merges and `/clean-wt --apply`
 removes it, the symlinks dangle and every skill dies.
 
 **Keep "the guard is the first recipe line" as a literal, testable invariant** — do not relax it

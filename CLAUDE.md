@@ -209,7 +209,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   a checkout, re-run `make install` — the symlink is repointed only by that run.
 - **`make install` must run from the MAIN repo, never from a worktree**: the install targets
   point global symlinks at `$(CURDIR)`, so installing from `.claude/worktrees/<name>/` aims
-  them at a directory that `/clean-merged` deletes after the branch merges — then every skill
+  them at a directory that `/clean-wt` deletes after the branch merges — then every skill
   dies. Neither the resolver's identity gate nor the Makefile's `resolved == $(CURDIR)` gate
   can catch this (a worktree is a complete checkout, and inside one those two paths are equal
   by definition). `scripts/assert_not_worktree.sh` now blocks it as the first line of every
@@ -255,6 +255,14 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **`pre-commit run --files` only scans specified files; CI uses `--all-files`**: local
   `pre-commit run --files <file>` misses pre-existing problems in other files. Always run
   `make ci` before pushing (includes `--all-files` + pytest).
+- **`make ci` before `git add` silently skips brand-new files**: `--all-files` means all
+  files *git knows about* — an untracked new file is invisible to every hook, which then
+  reports `Passed` because it never looked. The failure only surfaces in CI after you commit,
+  and it looks like "local green, CI red" for no reason. **`git add` first, then `make ci`.**
+  (Incident: PR #239 — a new test file was ruff-format-dirty; local `ruff format` reported
+  `Passed` while untracked, and `ruff format --check` on the same file said it would
+  reformat. Distinct from the `--files` gotcha above: there the scope is too narrow by
+  argument, here it is too narrow by git's index.)
 - **widening a pre-commit hook's `files:` regex doesn't guarantee the underlying tool
   actually scans those paths**: verify the tool's own implementation covers the same
   scope, or you get a "green hook" that runs and passes without checking the changed
