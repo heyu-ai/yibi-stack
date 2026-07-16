@@ -15,9 +15,18 @@
 > Scope of the error: the per-file numbers in the tables below are accurate **for the 6 files they
 > cover**. What is wrong is the *selection*, and therefore every derived figure — the
 > `Actual reduction 35.9%` verdict and the `<= 14,946` pass threshold are reductions against these
-> 6 files only, **not** against the always-loaded set they claim to gate. Against the true 14-file
-> set the reduction was far smaller, so that gate never measured what it said it measured.
-> Original text left unchanged; this note is append-only.
+> 6 files only, **not** against the always-loaded set they claim to gate.
+>
+> Recomputed against the true 14-file always-loaded set (same tokenizer, same baseline commit
+> `b5c28bc`; rules 04-11 totalled 9,987 and were untouched by PR-C):
+>
+> | | pre-PR-C | post-PR-C | reduction |
+> |---|---|---|---|
+> | 6 files as measured here | 21,352 | 13,692 | **35.9%** ✅ (as claimed) |
+> | true 14-file always-loaded set | 31,339 | 23,679 | **24.4%** ❌ (below the 30% target) |
+>
+> So the gate **would not have passed** had it measured its stated scope. Original text left
+> unchanged; this note is append-only.
 
 ## Per-file breakdown
 

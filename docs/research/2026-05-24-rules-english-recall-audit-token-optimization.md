@@ -6,8 +6,9 @@
 
 > **2026-07-16 更正（PR #250）**：本文所有「`globs:` frontmatter → 按需載入」的敘述都是**錯的**。
 > `globs:` 從來不是 Claude Code 認得的 key（正確的是 `paths:`），會被靜默忽略，因此撰寫本文時
-> rules **04-11 其實全部都是 always-loaded**，而非本文所述的 on-demand。實測（`claude -p` 探針，
-> 僅 cwd 不同）：修正前載入 14 個 rule，修正後 6 個。
+> rules **04-11 其實全部都是 always-loaded**，而非本文所述的 on-demand。實測方式：同一句 prompt、
+> 同一個 model，分別在兩個 checkout 各啟動一個獨立 `claude -p` session，問它起始 context 裡有哪些
+> rule——`globs:` 的 checkout 載入 14 個，改成 `paths:` 的 checkout 載入 6 個。
 >
 > **這個錯誤影響本文的核心決策，不只是分類**：
 >
@@ -16,9 +17,15 @@
 > - **§2 Prior Art**：以「Rules 04-11 有 `globs:` path-based 觸發」為由否決「全 16 條 rule 翻譯」
 >   ——該理由不成立。
 > - **§3 Decision Framework**：以「精準命中 always-loaded，不影響 path-based 觸發」為由選擇
->   「無 globs 6 條」——該理由同樣不成立。以本文自己的 tokenizer（cl100k_base）量測，被排除的
->   rule 11 單檔 15,615 tokens，是當時第二大的 always-loaded 檔案，也就是本文漏掉的最高價值
->   翻譯目標。
+>   「無 globs 6 條」——該理由同樣不成立。以本文自己的 tokenizer（cl100k_base）在本文自己的
+>   baseline commit（`b5c28bc`）重新量測：被排除的 **04-11 當時合計 9,987 tokens**，其中最大的
+>   rule 11 為 **5,759 tokens，在全 14 個 always-loaded 檔案中排第二**（僅次於 rule 13 的
+>   11,810，而 rule 13 本來就在翻譯範圍內）。翻譯它們的實際效益仍需依本文 §5 的觀測設計評估
+>   ——token 數只說明規模，不等於價值。
+>
+>   （2026-07-16 現況供對照：rule 11 已成長至 15,615 tokens，成為 always-loaded 集合中最大的
+>   檔案；04-11 合計 21,297。**上一段的數字是 2026-05-24 當時的，不是今天的**——本文的決策要用
+>   當時的數字檢驗。）
 >
 > PR-C 對那 6 檔的翻譯本身仍然有效；不成立的是「已涵蓋 always-loaded 全集」這個宣稱。翻譯範圍
 > 值得依修正後的事實重新評估。本文原文一字未改，僅加註此更正。
