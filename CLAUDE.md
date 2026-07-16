@@ -53,14 +53,7 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 
 ## 專案架構
 
-```text
-skills/   → Agent 介面層（SKILL.md runbook，agent 讀這個來執行）
-tasks/    → Python 實作（CLI、config、models、service、tests）
-commands/ → Claude Code slash commands（symlink 到 ~/.claude/commands/）
-plugins/  → Claude Code plugin（本 repo 作為 marketplace，各 plugin 獨立子目錄）
-docs/     → 技術文件與 OpenSpec live example（docs/openspec/changes/）
-scripts/  → CI/lint 工具腳本
-```
+> 目錄樹與模組入口見 @ARCHITECTURE.md（由下方「Codebase Map」段落匯入）。以下只記樹狀圖看不出來的分類語意。
 
 - **`skills/`** — Agent 的執行介面，每個 skill 有獨立的 `SKILL.md` runbook
   - **可執行 skill**：有對應的 `tasks/` Python 實作（如 mycelium、scheduler）
@@ -96,12 +89,6 @@ scripts/  → CI/lint 工具腳本
 - 共用路徑常數：@tasks/_paths.py
 - Bash lint 工具：@scripts/lint_skill_bash.py
 - 編碼慣例總覽：@.claude/rules/（01-16 條規則，依 glob 自動載入）
-
-## 如何執行 Skill
-
-1. 找到對應的 `skills/<skill-name>/SKILL.md`
-2. 照 runbook 的步驟依序執行
-3. 每個 SKILL.md 都包含：環境檢查 → 設定確認 → 執行指令 → 結果報告
 
 ## Dev 指令
 
