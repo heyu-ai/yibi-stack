@@ -11,13 +11,16 @@
 fail-safe 的路徑。因此本檔用 PATH 上的 gh stub 明確覆蓋 gh 路徑。
 
 gh stub 的限制（誠實記錄）：stub 直接印出 TSV，等同於假設 `gh --json ... -q '<expr>'` 的
-jq 運算式正確，因此**不覆蓋該運算式本身**。運算式與 `--json` 欄位名已對真實 gh 實測驗證
-（headRefName / headRefOid / state / baseRefName 皆存在且輸出 TSV）。
+jq 運算式正確，因此**不覆蓋該運算式本身**。運算式與 `--json` 欄位名已對真實 gh 實測驗證：
+headRefName / headRefOid / state / baseRefName / **mergeCommit**（取 `.mergeCommit.oid // ""`）
+皆存在且輸出 TSV。`mergeCommit` 是 E3 的關鍵欄位，特別列出——本 repo 有「`--json` 欄位名
+不存在會靜默回空」的 gotcha（見 CLAUDE.md 的 `databaseId` 案例）。
 
 Test ID 規則見 .claude/rules/09-test-conventions.md。
 """
 
 import os
+import shutil
 import subprocess  # nosec B404
 from pathlib import Path
 
@@ -26,12 +29,26 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPO_ROOT / "commands" / "scripts" / "clean_wt.sh"
 
-# 忽略所有參數、直接印出 TSV 的 gh 替身。腳本只吃 `gh pr list ... -q '<tsv expr>'` 的輸出，
-# 所以印 TSV 就能驅動全部 gh 分支邏輯。
+# gh 替身。腳本**刻意分成兩次查詢**，stub 必須跟著區分，否則測試會因為錯的理由變綠／變紅：
+#   --state open -> KEEP 政策（$FAKE_GH_OPEN_TSV）
+#   --state all  -> E3 的線索（$FAKE_GH_TSV）
+# 早期的 stub 對兩者回傳同一份 TSV，於是「已 MERGED 的 PR」會被 open 查詢讀到 -> 誤判 KEEP。
 _GH_STUB = """#!/usr/bin/env bash
 if [ "${FAKE_GH_FAIL:-0}" = "1" ]; then
   echo "fake gh failure" >&2
   exit 1
+fi
+STATE=""
+PREV=""
+for a in "$@"; do
+  if [ "$PREV" = "--state" ]; then STATE="$a"; fi
+  PREV="$a"
+done
+if [ "$STATE" = "open" ]; then
+  if [ -n "${FAKE_GH_OPEN_TSV:-}" ] && [ -f "${FAKE_GH_OPEN_TSV}" ]; then
+    cat "${FAKE_GH_OPEN_TSV}"
+  fi
+  exit 0
 fi
 if [ -n "${FAKE_GH_TSV:-}" ] && [ -f "${FAKE_GH_TSV}" ]; then
   cat "${FAKE_GH_TSV}"
@@ -79,7 +96,7 @@ def _env(tmp_path: Path, **extra: str) -> dict[str, str]:
 
 
 def _gh_tsv(tmp_path: Path, *rows: tuple[str, str, str, str, str]) -> str:
-    """寫一個 gh stub 要吐的 TSV 檔，回傳路徑。
+    """`--state all` 查詢（E3 線索）的 TSV。
 
     row = (headRefName, headRefOid, state, baseRefName, mergeCommitOid)。
     欄位順序與 clean_wt.sh 的 `gh pr list --json ... -q '... | @tsv'` 一致；
@@ -87,6 +104,13 @@ def _gh_tsv(tmp_path: Path, *rows: tuple[str, str, str, str, str]) -> str:
     """
     f = tmp_path / "gh.tsv"
     f.write_text("".join("\t".join(r) + "\n" for r in rows), encoding="utf-8")
+    return str(f)
+
+
+def _gh_open_tsv(tmp_path: Path, *branches: str) -> str:
+    """`--state open` 查詢（KEEP 政策）的 TSV：每行一個 headRefName。"""
+    f = tmp_path / "gh-open.tsv"
+    f.write_text("".join(b + "\n" for b in branches), encoding="utf-8")
     return str(f)
 
 
@@ -359,8 +383,16 @@ class TestCleanWtClassification:
 
         r = _run(repo, env, "--apply")
 
-        assert "vanished-branch" in _section(r.stdout, "BLOCKED"), (
-            f"路徑不可讀的 worktree 必須 BLOCKED，不可視為乾淨:\n{r.stdout}"
+        blocked = _section(r.stdout, "BLOCKED")
+        assert "vanished-branch" in blocked, (
+            f"路徑不見的 worktree 必須 BLOCKED，不可視為乾淨:\n{r.stdout}"
+        )
+        # 斷言**訊息內容**，不只是「有出現在 BLOCKED」。
+        # `-d` 檢查本身是 equivalent mutant（拿掉後 inspect_worktree 會接住，一樣 BLOCKED），
+        # 它存在的唯一價值就是這則比較精確的訊息——所以測它的契約就是測這句話。
+        # 只斷言「在 BLOCKED 裡」的話，拿掉 `-d` 檢查測試仍會通過，等於什麼都沒釘住。
+        assert "路徑不存在" in blocked, (
+            f"必須明確指出是「路徑不存在」，而非籠統的讀取失敗:\n{blocked}"
         )
         assert "vanished-branch" in _git(repo, "branch", "--format=%(refname:short)", env=env), (
             f"無法確認內容的分支不得被刪:\n{r.stdout}\n{r.stderr}"
@@ -403,6 +435,112 @@ class TestCleanWtClassification:
         assert "unreadable-branch" in _git(repo, "branch", "--format=%(refname:short)", env=env), (
             f"無法確認內容的分支不得被刪:\n{r.stdout}\n{r.stderr}"
         )
+
+    def test_cwt_eg_020_nested_worktree_with_missing_git_link_is_blocked(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-EG-020: 巢狀且被 gitignore 的 worktree、`.git` 連結檔不見 -> 必須 BLOCKED。
+
+        **這是 production 的真實佈局**，而先前所有 worktree 測試都用 sibling 佈局
+        （`tmp/wt` vs `tmp/work`），所以這條路從未被測到（突變測試證實：拿掉 toplevel
+        驗證，全套仍全綠）。
+
+        機制（實測，PR #239 R2）：worktree 在 `.claude/worktrees/<name>`——**在主 repo 之內**
+        且被 `.gitignore` 排除。`.git` 連結檔不見時（admin dir 被 prune、主 repo 搬家／重新
+        clone），`git -C <wt> status` **不會失敗**：它往上走到主 repo，而主 repo 認為整個
+        目錄是 ignored，於是回傳 **rc=0 且輸出為空** -> WT_DIRTY=0 -> 判定「乾淨」。
+        問錯了 repo，卻拿到一個看起來很乾淨的答案。
+
+        與 EG-017 是不同的路：那裡 `.git` 是**垃圾內容**（git 會報錯 -> status 失敗）；
+        這裡 `.git` **不存在**（git 靜靜地往上走）。兩者都需要各自的 fixture。
+        """
+        env = _env(tmp_path)
+        (repo / ".gitignore").write_text(".claude/worktrees/\n", encoding="utf-8")
+        _git(repo, "add", "-A", env=env)
+        _git(repo, "commit", "-qm", "ignore worktrees", env=env)
+        _git(repo, "push", "-q", "origin", "main", env=env)
+
+        nested = repo / ".claude" / "worktrees" / "nested"
+        nested.parent.mkdir(parents=True, exist_ok=True)
+        _git(repo, "worktree", "add", "-q", "-b", "nested-br", str(nested), "HEAD", env=env)
+        (nested / "precious.txt").write_text("UNIQUE UNBACKED WORK\n", encoding="utf-8")
+        # .git 連結檔消失（admin dir 被 prune／主 repo 搬家）
+        (nested / ".git").unlink()
+
+        # fixture 自我驗證：這正是「git 靜靜地問錯 repo」的情境
+        probe = subprocess.run(  # nosec B603
+            ["git", "-C", str(nested), "status", "--porcelain", "--untracked-files=all"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+        assert probe.returncode == 0, (
+            f"fixture 失效：status 應該成功（往上問到主 repo），實際 rc={probe.returncode}"
+        )
+        assert probe.stdout.strip() == "", (
+            f"fixture 失效：主 repo 應視該目錄為 ignored，故輸出應為空:\n{probe.stdout}"
+        )
+
+        r = _run(repo, env, "--apply")
+
+        assert "nested-br" in _section(r.stdout, "BLOCKED"), (
+            f"問錯 repo 的乾淨答案不得被採信:\n{r.stdout}"
+        )
+        assert (nested / "precious.txt").is_file(), "無備份的檔案被刪除了"
+        assert (
+            "nested-br"
+            in _git(
+                repo, "for-each-ref", "--format=%(refname:strip=2)", "refs/heads/", env=env
+            ).split()
+        ), f"無法確認內容的分支不得被刪:\n{r.stdout}\n{r.stderr}"
+
+    def test_cwt_eg_019_tag_with_same_name_does_not_bypass_gates(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-EG-019: 存在同名 tag 時，worktree 髒檢查不得被跳過。
+
+        迴歸測試（實測）：`%(refname:short)` 是**歧義相依**的——有同名 tag 時它輸出
+        `heads/feat` 而非 `feat`。但 WT_MAP 的 key 是 `feat`、gh 的 headRefName 也是 `feat`，
+        於是 `wt_path_for "heads/feat"` 與 `has_open_pr "heads/feat"` 雙雙比對不到，
+        **兩道保護一起無聲失效**。實測：同一個 repo 只多一個同名 tag，髒 worktree 的分支
+        就從 BLOCKED 變成 SAFE。
+
+        修法是兩件事，缺一不可（只做一半更糟）：
+          1. `%(refname:strip=2)` 拿純名，讓比對 key 一致
+          2. 所有 git 查詢用 `refs/heads/$b`——因為純名 `feat` 會解析到 **tag**
+             （gitrevisions 把 refs/tags/ 排在 refs/heads/ 之前）
+
+        fixture 自我驗證：先確認同名 tag 真的存在、且與 branch 指向不同的 commit。
+        """
+        env = _env(tmp_path)
+        wt = tmp_path / "wt-tagged"
+        # 分支內容與 main 相同 -> 它是 SAFE 候選，唯一該擋下它的就是髒 worktree 檢查。
+        # （若讓分支有獨有 commit，它會落到 REVIEW，測試就會因為錯的理由變綠。）
+        _git(repo, "worktree", "add", "-q", "-b", "tagged", str(wt), "HEAD", env=env)
+        # 未提交檔案要**最後**建立：_commit 會 git add -A，會把它一起 commit 掉。
+        (wt / "uncommitted.txt").write_text("IRREPLACEABLE\n", encoding="utf-8")
+        # 同名 tag 指向 main
+        _git(repo, "tag", "tagged", "main", env=env)
+
+        # fixture 自我驗證
+        assert _git(repo, "rev-parse", "refs/tags/tagged", env=env), "fixture 失效：tag 不存在"
+        assert _git(repo, "rev-parse", "refs/heads/tagged", env=env), "fixture 失效：branch 不存在"
+        dirty = _git(wt, "status", "--porcelain", "--untracked-files=all", env=env)
+        assert "uncommitted.txt" in dirty, f"fixture 失效：worktree 不髒:\n{dirty}"
+
+        r = _run(repo, env, "--apply")
+
+        assert "tagged" in _section(r.stdout, "BLOCKED"), (
+            f"同名 tag 不得讓髒 worktree 的分支繞過 BLOCKED:\n{r.stdout}"
+        )
+        assert (wt / "uncommitted.txt").is_file(), "未提交的檔案被刪除了"
+        assert (
+            "tagged"
+            in _git(
+                repo, "for-each-ref", "--format=%(refname:strip=2)", "refs/heads/", env=env
+            ).split()
+        ), f"分支不得被刪:\n{r.stdout}\n{r.stderr}"
 
     def test_cwt_st_004_removes_clean_worktree_and_branch(self, repo: Path, tmp_path: Path) -> None:
         """CWT-ST-004: 乾淨且非呼叫端的 worktree -> --apply 應移除目錄並刪除分支。
@@ -644,17 +782,47 @@ class TestCleanWtGhEvidence:
         assert "feat-otherbase" not in _section(r.stdout, "SAFE"), r.stdout
 
     def test_cwt_dt_008_open_pr_is_kept(self, repo: Path, tmp_path: Path) -> None:
-        """CWT-DT-008: open PR 的分支 -> KEEP，即使內容已在 main。"""
+        """CWT-DT-008: open PR 的分支 -> KEEP，即使內容已在 main。
+
+        open PR 由**獨立的** `--state open` 查詢供給（見 clean_wt.sh 的 gh 閘門）：
+        併進 `--state all` 會讓比 --limit 更舊的 open PR 消失，而 has_open_pr 把「查不到」
+        讀成「沒有 open PR」-> KEEP 保護無聲失效。
+        """
         env_setup = _env(tmp_path)
         _git(repo, "branch", "feat-open", "HEAD", env=env_setup)
-        tip = _git(repo, "rev-parse", "feat-open", env=env_setup)
 
-        tsv = _gh_tsv(tmp_path, ("feat-open", tip, "OPEN", "main", ""))
-        env = _env(tmp_path, FAKE_GH_TSV=tsv)
+        env = _env(tmp_path, FAKE_GH_OPEN_TSV=_gh_open_tsv(tmp_path, "feat-open"))
         r = _run(repo, env, "--apply")
 
         assert "feat-open" in _section(r.stdout, "KEEP"), r.stdout
         assert "feat-open" in _git(repo, "branch", "--format=%(refname:short)", env=env)
+
+    def test_cwt_dt_011_open_pr_kept_even_when_absent_from_state_all_list(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-DT-011: open PR 不在 `--state all` 清單裡（被 --limit 截斷）仍須 KEEP。
+
+        迴歸測試：舊版只發一次 `--state all --limit 800` 查詢，然後同時拿它做 KEEP 政策與
+        E3 線索。比最近 800 個 PR 更舊的 open PR 會直接從結果消失 -> 讀成「沒有 open PR」
+        -> 該分支若內容已在 main 就會被刪。**而且完全不會發出警告**——這正是本輪修掉的
+        gh 閘門的另一種寫法（截斷版而非失敗版）。
+
+        fixture：open 清單有它，`--state all` 清單刻意是空的（= 被截斷）。
+        """
+        env_setup = _env(tmp_path)
+        _git(repo, "branch", "ancient-open-pr", "HEAD", env=env_setup)
+
+        env = _env(
+            tmp_path,
+            FAKE_GH_OPEN_TSV=_gh_open_tsv(tmp_path, "ancient-open-pr"),
+            FAKE_GH_TSV=_gh_tsv(tmp_path),  # --state all 回傳空 = 被 --limit 截斷
+        )
+        r = _run(repo, env, "--apply")
+
+        assert "ancient-open-pr" in _section(r.stdout, "KEEP"), (
+            f"被 --limit 截斷的 open PR 仍須 KEEP:\n{r.stdout}"
+        )
+        assert "ancient-open-pr" in _git(repo, "branch", "--format=%(refname:short)", env=env)
 
     def test_cwt_eg_004_gh_failure_is_fatal_under_apply(self, repo: Path, tmp_path: Path) -> None:
         """CWT-EG-004: gh 失敗時 --apply 必須致命，不得把失敗讀成「沒有 open PR」。
@@ -765,48 +933,263 @@ class TestCleanWtApplyGates:
 
 
 class TestCleanWtDeleteRace:
-    def test_cwt_eg_013_refuses_to_delete_a_branch_that_advanced_after_classification(
+    def test_cwt_eg_013_cas_refuses_when_ref_advances_before_deletion(
         self, repo: Path, tmp_path: Path
     ) -> None:
-        """CWT-EG-013: 分類後分支又長出新 commit -> 刪除必須被拒絕（compare-and-swap）。
+        """CWT-EG-013: ref 在分類後、刪除前前進 -> CAS 必須拒絕（不得遺失新 commit）。
 
-        迴歸測試（實測會遺失 commit）：`git branch -D` 只認**名字**、不驗 SHA，所以分類到
-        刪除之間（中間隔著 port 清理的 uv 子行程，每個約 1 秒）併發寫入的 commit 會被一起
-        強制刪掉。本 repo 會跨 worktree 跑平行 background session，窗口是真的。
-        改用 `git update-ref -d <ref> <expected_tip>` 後，ref 移動過就會被 git 拒絕。
+        迴歸測試（實測會遺失 commit）：`git branch -D` 只認**名字**、不驗 SHA，分類到刪除
+        之間併發寫入的 commit 會被一起強制刪掉。本 repo 跨 worktree 跑平行 background
+        session，窗口是真的。改用 `git update-ref -d <ref> <expected_tip>` 後 git 會拒絕。
 
-        注入點：用 uv stub 在 port 清理階段推進分支，精準模擬那個窗口。
+        注入點：`git` wrapper 攔截 `worktree remove`——它正好落在「刪除前的 tip 預檢」與
+        「CAS」之間，是這個窗口唯一還在的可注入處。（前一版透過 uv stub 在 port 清理階段
+        注入，但 port 釋放已依 Codex R2 I1 移到刪除成功之後，那個時機不復存在。）
+
+        這裡測的是 **CAS 這道原子保證**——預檢在此已經通過了，是 CAS 擋下來的。
         """
         env_base = _env(tmp_path)
-        _git(repo, "branch", "racy-branch", "HEAD", env=env_base)  # 內容已在 main -> SAFE
-        (repo / "tasks" / "local_port_manager").mkdir(parents=True)
+        wt = tmp_path / "racy-wt"
+        _git(repo, "worktree", "add", "-q", "-b", "racy-branch", str(wt), "HEAD", env=env_base)
 
-        # uv stub：被呼叫時（port 清理階段）在 racy-branch 上補一個新 commit
         race_marker = tmp_path / "raced"
-        uv_stub = f"""#!/usr/bin/env bash
-if [ ! -f "{race_marker}" ]; then
+        real_git = shutil.which("git")
+        assert real_git, "fixture 失效：找不到 git"
+        # 掃描全部參數找 `worktree remove`：實際呼叫是
+        # `git -c status.showUntrackedFiles=all worktree remove <path>`，所以 $1 是 `-c`。
+        git_stub = f"""#!/usr/bin/env bash
+IS_WT_REMOVE=0
+PREV=""
+for a in "$@"; do
+  if [ "$PREV" = "worktree" ] && [ "$a" = "remove" ]; then IS_WT_REMOVE=1; fi
+  PREV="$a"
+done
+# 攔截 `worktree remove`：先讓 racy-branch 前進一個 commit（模擬併發寫入），再交給真 git。
+if [ "$IS_WT_REMOVE" = "1" ] && [ ! -f "{race_marker}" ]; then
   : > "{race_marker}"
-  git -C "{repo}" branch -f racy-branch "$(git -C "{repo}" commit-tree \\
-      "$(git -C "{repo}" rev-parse main^{{tree}})" -p racy-branch -m "concurrent work")"
+  NEW=$("{real_git}" -C "{repo}" commit-tree \\
+        "$("{real_git}" -C "{repo}" rev-parse refs/heads/racy-branch^{{tree}})" \\
+        -p refs/heads/racy-branch -m "concurrent work")
+  "{real_git}" -C "{repo}" update-ref refs/heads/racy-branch "$NEW"
 fi
-echo "project          service      category   port     note"
-echo "--------------------------------------------------------"
-echo "racy-branch      postgres     db         5433"
-exit 0
+exec "{real_git}" "$@"
 """
-        _mkstub(tmp_path / "stubbin", "uv", uv_stub)
+        _mkstub(tmp_path / "stubbin", "git", git_stub)
         env = _env(tmp_path)
 
-        before = _git(repo, "rev-parse", "racy-branch", env=env)
+        before = _git(repo, "rev-parse", "refs/heads/racy-branch", env=env_base)
         r = _run(repo, env, "--apply")
-        after = _git(repo, "rev-parse", "racy-branch", env=env)
+        after = _git(repo, "rev-parse", "refs/heads/racy-branch", env=env_base)
 
-        assert race_marker.is_file(), "fixture 失效：uv stub 沒被呼叫，競態沒被注入"
-        assert before != after, "fixture 失效：分支沒有在分類後前進"
-        assert "racy-branch" in _git(repo, "branch", "--format=%(refname:short)", env=env), (
+        # fixture 自我驗證：競態真的被注入了，否則這個測試沒測到 CAS
+        assert race_marker.is_file(), "fixture 失效：git stub 沒攔到 worktree remove"
+        assert before != after, f"fixture 失效：分支沒有前進（{before} == {after}）"
+
+        remaining = _git(
+            repo, "for-each-ref", "--format=%(refname:strip=2)", "refs/heads/", env=env_base
+        )
+        assert "racy-branch" in remaining.split(), (
             f"分類後前進的分支不得被刪（CAS 應拒絕）:\n{r.stdout}\n{r.stderr}"
         )
         assert r.returncode == 1, f"刪除被拒必須 exit 1:\n{r.stdout}\n{r.stderr}"
+
+    def test_cwt_eg_018_pre_delete_rescan_catches_file_created_after_classification(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-EG-018: 分類後才出現的未提交檔案 -> 刪除前重掃必須擋下（不得遺失）。
+
+        這道重掃**不是**冗餘的：git 自己的 `worktree remove` 通常會拒絕 untracked 檔案，
+        但在 `status.showUntrackedFiles=no` 下它會安靜地把檔案刪掉（實測，見腳本檔頭）。
+        所以對「分類到刪除之間才建立的檔案」而言，這道重掃是唯一的防線。
+
+        注入點：`git` wrapper 攔截第一個 `worktree remove`，在**下一個**要處理的 worktree
+        裡寫入檔案——精準模擬「分類已完成、輪到它刪除之前」的窗口。
+        兩個分支刻意用 aaa- / zzz- 前綴確保處理順序。
+        """
+        env_base = _env(tmp_path)
+        wt_a = tmp_path / "wt-aaa"
+        wt_z = tmp_path / "wt-zzz"
+        _git(repo, "worktree", "add", "-q", "-b", "aaa-first", str(wt_a), "HEAD", env=env_base)
+        _git(repo, "worktree", "add", "-q", "-b", "zzz-second", str(wt_z), "HEAD", env=env_base)
+        # 讓 git 自己的 remove 檢查失效，凸顯重掃是唯一防線
+        _git(repo, "config", "status.showUntrackedFiles", "no", env=env_base)
+
+        marker = tmp_path / "injected"
+        real_git = shutil.which("git")
+        assert real_git, "fixture 失效：找不到 git"
+        # 掃描全部參數：實際呼叫是 `git -c status.showUntrackedFiles=all worktree remove <path>`
+        git_stub = f"""#!/usr/bin/env bash
+IS_WT_REMOVE=0
+PREV=""
+for a in "$@"; do
+  if [ "$PREV" = "worktree" ] && [ "$a" = "remove" ]; then IS_WT_REMOVE=1; fi
+  PREV="$a"
+done
+if [ "$IS_WT_REMOVE" = "1" ] && [ ! -f "{marker}" ]; then
+  : > "{marker}"
+  echo "IRREPLACEABLE" > "{wt_z}/late.txt"
+fi
+exec "{real_git}" "$@"
+"""
+        _mkstub(tmp_path / "stubbin", "git", git_stub)
+        env = _env(tmp_path)
+
+        r = _run(repo, env, "--apply")
+
+        assert marker.is_file(), "fixture 失效：git stub 沒攔到 worktree remove，檔案沒被注入"
+        assert (wt_z / "late.txt").is_file(), (
+            f"分類後才建立的檔案被刪除了（重掃失效）:\n{r.stdout}\n{r.stderr}"
+        )
+        assert "分類後出現未提交變更" in r.stderr, (
+            f"必須明確報告是重掃擋下的:\n{r.stdout}\n{r.stderr}"
+        )
+        assert r.returncode == 1, f"略過項目必須 exit 1:\n{r.stdout}\n{r.stderr}"
+
+    def test_cwt_eg_021_worktree_remove_override_catches_file_created_after_rescan(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-EG-021: 重掃**之後**才出現的檔案 -> 由 `worktree remove` 自己那道檢查擋下。
+
+        這測的是**第二道防線**，與 EG-018（第一道：刪除前重掃）不同：
+        重掃通過後、`git worktree remove` 執行前還有一個窗口。git 自己會在 remove 時檢查
+        untracked 檔案並拒絕——但那道檢查會**繼承使用者的 `status.showUntrackedFiles=no`
+        而失效**（實測：檔案被安靜刪除）。因此腳本用
+        `git -c status.showUntrackedFiles=all worktree remove` 呼叫它。
+
+        突變測試證實這兩道防線各自需要能走到它的 fixture：EG-018 的重掃會先擋下，
+        所以拿掉 `-c` 覆寫時 EG-018 仍全綠——必須在重掃**之後**注入才測得到。
+
+        注入點：git wrapper 在委派給真 git 執行 `worktree remove` 的前一刻寫入檔案。
+        """
+        env_base = _env(tmp_path)
+        wt = tmp_path / "wt-late"
+        _git(repo, "worktree", "add", "-q", "-b", "late-branch", str(wt), "HEAD", env=env_base)
+        # 讓 git 內建那道檢查在沒有覆寫時失效
+        _git(repo, "config", "status.showUntrackedFiles", "no", env=env_base)
+
+        marker = tmp_path / "late-injected"
+        real_git = shutil.which("git")
+        assert real_git, "fixture 失效：找不到 git"
+        # 在**同一個** worktree remove 呼叫裡注入：先寫檔，再委派真 git 執行 remove。
+        # 此時腳本的重掃已經跑完並通過了。
+        git_stub = f"""#!/usr/bin/env bash
+IS_WT_REMOVE=0
+PREV=""
+for a in "$@"; do
+  if [ "$PREV" = "worktree" ] && [ "$a" = "remove" ]; then IS_WT_REMOVE=1; fi
+  PREV="$a"
+done
+if [ "$IS_WT_REMOVE" = "1" ] && [ ! -f "{marker}" ]; then
+  : > "{marker}"
+  echo "IRREPLACEABLE" > "{wt}/sneaked.txt"
+fi
+exec "{real_git}" "$@"
+"""
+        _mkstub(tmp_path / "stubbin", "git", git_stub)
+        env = _env(tmp_path)
+
+        r = _run(repo, env, "--apply")
+
+        assert marker.is_file(), "fixture 失效：git stub 沒攔到 worktree remove"
+        assert (wt / "sneaked.txt").is_file(), (
+            f"重掃後才出現的檔案被刪除了——git 自己的檢查應擋下（需 -c 覆寫）:"
+            f"\n{r.stdout}\n{r.stderr}"
+        )
+        assert r.returncode == 1, f"移除被拒必須 exit 1:\n{r.stdout}\n{r.stderr}"
+
+
+class TestCleanWtRemoteNote:
+    """`remote_note_for` 是使用者按下 --apply 前看到的最後一個訊號（可不可救回）。
+
+    R1 的資料遺失路徑之一就是它說謊（ls-remote 尾部比對把「僅本地」印成「遠端仍在」）。
+    修好了卻沒有測試——突變測試證實：把 PRESENT/ABSENT 標籤對調，全套仍然全綠。
+    """
+
+    def test_cwt_dt_012_remote_note_present(self, repo: Path, tmp_path: Path) -> None:
+        """CWT-DT-012: 遠端還有這個分支 -> 標記「遠端仍在，可救回」。"""
+        env = _env(tmp_path)
+        _git(repo, "branch", "pushed-branch", "HEAD", env=env)
+        _git(repo, "push", "-q", "origin", "pushed-branch", env=env)
+
+        r = _run(repo, env)
+
+        safe = _section(r.stdout, "SAFE")
+        assert "pushed-branch" in safe, r.stdout
+        assert "遠端仍在，可救回" in safe, f"遠端還在時必須標記可救回:\n{safe}"
+
+    def test_cwt_dt_013_remote_note_absent(self, repo: Path, tmp_path: Path) -> None:
+        """CWT-DT-013: 遠端沒有這個分支 -> 標記「僅本地」（= 刪了救不回）。"""
+        env = _env(tmp_path)
+        _git(repo, "branch", "local-only-branch", "HEAD", env=env)
+
+        r = _run(repo, env)
+
+        safe = _section(r.stdout, "SAFE")
+        assert "local-only-branch" in safe, r.stdout
+        assert "僅本地" in safe, f"遠端沒有時必須標記僅本地:\n{safe}"
+
+    def test_cwt_dt_014_remote_note_unknown_when_fetch_failed(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-DT-014: fetch 失敗 -> 遠端狀態未知，不得臆測任一方向。
+
+        實測（PR #239 R2 期間，SSH 剛好壞掉）：舊版把「查不到」印成「僅本地」——
+        對一個遠端其實還在的分支謊報不可救回。
+        """
+        env = _env(tmp_path)
+        _git(repo, "branch", "unknown-remote", "HEAD", env=env)
+        _git(repo, "remote", "set-url", "origin", str(tmp_path / "gone.git"), env=env)
+
+        r = _run(repo, env)
+
+        safe = _section(r.stdout, "SAFE")
+        assert "遠端狀態未知" in safe, f"fetch 失敗時不得臆測遠端狀態:\n{r.stdout}"
+
+
+class TestCleanWtBaseFlag:
+    def test_cwt_vl_004_base_without_value_fails(self, repo: Path, tmp_path: Path) -> None:
+        """CWT-VL-004: --base 漏傳值時 clean [FAIL]，不得因 set -u 噴 stacktrace。"""
+        env = _env(tmp_path)
+        r = _run(repo, env, "--base")
+        assert r.returncode == 1
+        assert "[FAIL]" in r.stderr
+        assert "unbound variable" not in r.stderr
+
+    def test_cwt_vl_005_base_rejects_flaglike_value(self, repo: Path, tmp_path: Path) -> None:
+        """CWT-VL-005: --base 的值不得以 `-` 開頭（避免被當成 git 的選項）。"""
+        env = _env(tmp_path)
+        r = _run(repo, env, "--base", "-x")
+        assert r.returncode == 1
+        assert "[FAIL]" in r.stderr
+
+    def test_cwt_dt_015_base_flag_changes_the_evidence_target(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-DT-015: --base 真的會改變判斷依據的基準分支。
+
+        fixture 自我驗證：同一個分支在預設 base（main）下**不是** SAFE，
+        指定 --base develop 後才是 SAFE。若兩者結果相同，這個 flag 就沒作用。
+        """
+        env = _env(tmp_path)
+        # develop 含有 feat 的內容，main 沒有
+        _git(repo, "checkout", "-qb", "develop", env=env)
+        _git(repo, "checkout", "-qb", "feat-on-develop", env=env)
+        _commit(repo, env, "d.txt", "dev work\n", "dev work")
+        _git(repo, "checkout", "-q", "develop", env=env)
+        _git(repo, "merge", "-q", "--squash", "feat-on-develop", env=env)
+        _git(repo, "commit", "-qm", "squash into develop", env=env)
+        _git(repo, "push", "-q", "origin", "develop", env=env)
+        _git(repo, "checkout", "-q", "main", env=env)
+
+        r_main = _run(repo, env)
+        assert "feat-on-develop" not in _section(r_main.stdout, "SAFE"), (
+            f"fixture 失效：預設 base 就已判 SAFE，無法證明 --base 有作用:\n{r_main.stdout}"
+        )
+
+        r_dev = _run(repo, env, "--base", "develop")
+        assert "feat-on-develop" in _section(r_dev.stdout, "SAFE"), (
+            f"--base develop 下該分支的內容已在 base，應為 SAFE:\n{r_dev.stdout}"
+        )
 
 
 class TestCleanWtPortRelease:

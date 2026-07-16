@@ -510,10 +510,13 @@ class TestAssertNotWorktree:
         （git worktree list 標記為 prunable），所以不能推論「它已只是一般目錄」。
         由 mob review 的 codex voice 指出。
 
-        危害範圍（2026-07-16 更新）：**危害鏈現在是閉合的。**
-        舊註記寫「本 repo 沒有工具會刪除該目錄」在當時屬實，但 PR #239 的 /clean-wt
-        （取代 /clean-merged + /clean-gone）在 `--apply` 時會呼叫 `git worktree remove`
-        刪除目錄本身。所以這個守衛擋的不再只是理論風險。
+        危害範圍（2026-07-16 重新實測界定，分開量測不做文字論證）：
+        - 一般情況（健康的 worktree）：危害鏈**已閉合**。PR #239 的 /clean-wt --apply
+          （取代 /clean-merged + /clean-gone）會呼叫 `git worktree remove` 刪除目錄本身。
+        - 本測試對應的分支（worktree 的 .git 被刪）：仍是**理論風險**。實測
+          `git worktree remove` 對它拒絕（validation failed），/clean-wt 刪不掉它。
+          這裡擋下的是一個**狀態不明**的目錄，不是已證實會被刪的目錄。
+        結論不變：直接問 git 比用文字論證它安全更可靠。
 
         本測試經突變驗證：拿掉 worktree list 比對會讓它失敗。
         """

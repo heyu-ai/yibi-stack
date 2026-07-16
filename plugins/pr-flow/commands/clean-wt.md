@@ -26,15 +26,23 @@ effort: medium
 bash ~/.claude/commands/scripts/clean_wt.sh $ARGUMENTS
 ```
 
-把 SAFE 清單原樣呈現給使用者，**等他確認後**才執行刪除：
+把 SAFE 清單原樣呈現給使用者，**等他確認後**才執行刪除（把同一組參數原樣帶上）：
 
 ```bash
-bash ~/.claude/commands/scripts/clean_wt.sh --apply
+bash ~/.claude/commands/scripts/clean_wt.sh --apply $ARGUMENTS
 ```
 
 `--apply` 只刪 SAFE 分類；BLOCKED / REVIEW / KEEP 永遠不會被自動刪除。
 
-可選：`--stale-days N` 調整 REVIEW 區的 `[STALE]` 標記門檻（預設 30 天）。
+> **`--apply` 要把第一次的參數原樣帶上**（`--base` / `--stale-days`）。它會重新分類一次，
+> 若參數不同，實際刪除的清單就不是使用者剛才核准的那一份。
+
+可選參數：
+
+| 參數 | 作用 |
+|------|------|
+| `--base BRANCH` | 改用別的基準分支（預設 `main`，即比對 `origin/main`） |
+| `--stale-days N` | 調整 REVIEW 區的 `[STALE]` 標記門檻（預設 30 天） |
 
 ## 分類語意
 
