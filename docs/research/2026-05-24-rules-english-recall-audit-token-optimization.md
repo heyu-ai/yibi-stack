@@ -4,11 +4,24 @@
 **背景**：yibi-stack agent-facing surface 以中文撰寫，always-loaded 部分每 session 產生顯著 token 過耗
 **結論**：4-PR 路線圖，PR-A/B 已交付（基礎設施層），PR-C/D 待執行（語言層翻譯）
 
-> **2026-07-16 更正（PR #250）**：本文以下所有「`globs:` frontmatter → 按需載入」的敘述都是**錯的**，
-> 不影響本文的翻譯策略結論，但影響 §1.1 的載入分類與 §2 的 token 基線數字。`globs:` 從來不是
-> Claude Code 認得的 key（正確的是 `paths:`，值為 YAML list），會被靜默忽略，因此撰寫本文時
-> rules **04-11 其實全部都是 always-loaded**，而非本文所述的 on-demand。實測（`claude -p` 探針
-> 兩次，僅 cwd 不同）：修正前載入 14 個 rule，修正後 6 個。本文原文保留不改動，僅加註此更正。
+> **2026-07-16 更正（PR #250）**：本文所有「`globs:` frontmatter → 按需載入」的敘述都是**錯的**。
+> `globs:` 從來不是 Claude Code 認得的 key（正確的是 `paths:`），會被靜默忽略，因此撰寫本文時
+> rules **04-11 其實全部都是 always-loaded**，而非本文所述的 on-demand。實測（`claude -p` 探針，
+> 僅 cwd 不同）：修正前載入 14 個 rule，修正後 6 個。
+>
+> **這個錯誤影響本文的核心決策，不只是分類**：
+>
+> - **§1.1 載入分類**、**§1.2 token 成本模型**：always-loaded 集合當時實際是 14 個而非 6 個，
+>   基線數字整體偏低。
+> - **§2 Prior Art**：以「Rules 04-11 有 `globs:` path-based 觸發」為由否決「全 16 條 rule 翻譯」
+>   ——該理由不成立。
+> - **§3 Decision Framework**：以「精準命中 always-loaded，不影響 path-based 觸發」為由選擇
+>   「無 globs 6 條」——該理由同樣不成立。以本文自己的 tokenizer（cl100k_base）量測，被排除的
+>   rule 11 單檔 15,615 tokens，是當時第二大的 always-loaded 檔案，也就是本文漏掉的最高價值
+>   翻譯目標。
+>
+> PR-C 對那 6 檔的翻譯本身仍然有效；不成立的是「已涵蓋 always-loaded 全集」這個宣稱。翻譯範圍
+> 值得依修正後的事實重新評估。本文原文一字未改，僅加註此更正。
 
 ---
 

@@ -62,16 +62,24 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 ## 編碼慣例
 
 詳細規範在 `.claude/rules/`（14 個檔案：01-11、13、15、16）。載入時機由 frontmatter 決定：
-**有 `paths:` 者只在工具碰到匹配路徑時載入；沒有 frontmatter 者每個 session 全量載入**。
-`paths:` 的值是 **YAML list**（`- "tasks/**"`），glob 非錨定，在任意路徑深度匹配。
+**frontmatter 內有 `paths:` key 者，只在工具碰到匹配路徑時載入；沒有 `paths:` key 者（包含
+完全沒有 frontmatter、以及有 frontmatter 但只寫了別的 key）每個 session 全量載入**。
+glob 非錨定，在任意路徑深度匹配。
 
 > 寫新 rule 時 key 必須是 `paths:`——`globs:` / `glob:` / `path:` 都**不是** Claude Code 認得的
-> key，會被靜默忽略，該檔案隨即變成每 session 全量載入（PR #250 實測：8 個檔案因此誤載 ~21.8k
-> tokens/session）。純量寫法 `paths: tasks/**`（非 list）同樣失效。
+> key，會被靜默忽略（無錯誤訊息），該檔案隨即變成每 session 全量載入。這三種拼法與 `paths:`
+> 的行為差異均為 PR #250 實測（`claude -p` 探針，各拼法一個拋棄式 repo）。
+>
+> 值可以是 YAML list（`- "tasks/**"`）或純量字串（`paths: tasks/**`）——**兩者實測行為相同**，
+> 本 repo 統一用 list 形式，這是風格選擇不是正確性要求。
+>
+> 目前**沒有機械 guard** 擋錯 key（寫錯只會靜默變全量載入，不會報錯）；`tasks/harness_eval`
+> 的 D7 scanner 也仍在偵測失效的 `glob:`。兩者都追蹤在 issue #252。
 
 - **全域**（01-03、13、15、16）：雙語規範、錯誤處理、安全性、bash 反模式、不可逆操作、allow-list 衛生
 - **`tasks/**`**（04）：module 結構
-- **`tasks/**/{models,config,db,cli}.py`**（05-08）：Pydantic、config、DB、CLI（各自只在對應檔名載入）
+- **`tasks/**/<models|config|db|cli>.py`**（05-08）：Pydantic、config、DB、CLI
+  （各自宣告獨立 pattern，此處合寫僅為摘要，`<>` 不是可複製的 glob 語法）
 - **`tasks/**/tests/**`**（09）：測試命名與結構化 Test ID
 - **`tasks/**/parsers/**`**（10）：abstract base + registry pattern
 - **`skills/**`**（11）：SKILL.md 格式與撰寫規範（非錨定，`plugins/*/skills/**` 亦匹配）
@@ -112,7 +120,8 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 
 ```bash
 # 依賴安裝（非 make target，make help 不會列出）
-uv sync                  # 選用：所有 make target 都走 uv run，會自動同步環境
+uv sync                  # 選用：需要 Python 環境的 target（ci/test/lint/typecheck 等）都走
+                         # uv run，會自動同步環境；此指令只是先跑一次把環境備好
 
 # Plugin 發布（lockstep 版本：所有 plugin 同步升版）
 make release TYPE=patch  # patch / minor / major

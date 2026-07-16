@@ -7,11 +7,17 @@
 
 > **2026-07-16 correction (PR #250)**: the selection criterion above was wrong, so this baseline
 > **undercounts** the true always-loaded set. `globs:` was never a key Claude Code recognises
-> (the correct key is `paths:`, value a YAML list); it was silently ignored, so at measurement
-> time rules **04-11 were also always-loaded** — 14 files, not 6. The per-file numbers below are
-> accurate for the 6 files they cover; the *scope* is what is wrong. Measured after the fix
-> (`claude -p` probe): always-loaded set is now genuinely 01,02,03,13,15,16. Original text left
-> unchanged; this note is append-only.
+> (the correct key is `paths:`); it was silently ignored, so at measurement time rules
+> **04-11 were also always-loaded** — 14 files, not 6. Measured after the fix (`claude -p` probe):
+> the always-loaded set is now genuinely 01,02,03,13,15,16, i.e. this doc's 6-file scope became
+> correct only in 2026-07.
+>
+> Scope of the error: the per-file numbers in the tables below are accurate **for the 6 files they
+> cover**. What is wrong is the *selection*, and therefore every derived figure — the
+> `Actual reduction 35.9%` verdict and the `<= 14,946` pass threshold are reductions against these
+> 6 files only, **not** against the always-loaded set they claim to gate. Against the true 14-file
+> set the reduction was far smaller, so that gate never measured what it said it measured.
+> Original text left unchanged; this note is append-only.
 
 ## Per-file breakdown
 
