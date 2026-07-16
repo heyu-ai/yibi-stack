@@ -15,31 +15,21 @@ def cli() -> None:
 
 @cli.command()
 def init() -> None:
-    """初始化 registry，寫入 bootstrap 資料（已存在則跳過）。"""
-    from .service import BOOTSTRAP_ENTRIES, DEFAULT_RANGES, REGISTRY_PATH, save_registry
+    """初始化空 registry 與預設 port range（已存在則跳過）。"""
+    from . import service
 
-    if REGISTRY_PATH.exists():
-        click.echo(f"✓ Registry 已存在：{REGISTRY_PATH}")
+    if service.REGISTRY_PATH.exists():
+        click.echo(f"✓ Registry 已存在：{service.REGISTRY_PATH}")
         return
 
-    now = datetime.now(tz=UTC)
-    entries = [
-        PortEntry(
-            project=project,
-            service=service,
-            category=category,
-            port=port,
-            registered_at=now,
-        )
-        for project, service, port, category in BOOTSTRAP_ENTRIES
-    ]
-    registry = PortRegistry(ranges=DEFAULT_RANGES, entries=entries)
+    registry = PortRegistry(ranges=service.DEFAULT_RANGES, entries=[])
     try:
-        save_registry(registry)
+        service.save_registry(registry, service.REGISTRY_PATH)
     except RuntimeError as e:
         click.echo(f"✗ {e}", err=True)
         raise SystemExit(1) from e
-    click.echo(f"✓ 已初始化 registry：{REGISTRY_PATH}（{len(entries)} 筆記錄）")
+    click.echo(f"✓ 已初始化空 registry：{service.REGISTRY_PATH}")
+    click.echo("  用 reserve 指令登記 port，或用 suggest 取得建議值。")
 
 
 @cli.command("list")
