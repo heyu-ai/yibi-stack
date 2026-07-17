@@ -79,6 +79,12 @@ git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/orig
 
 將取得的 base branch 值記住，後續步驟凡 `<base>` 皆替換為此實際值。
 
+**Base ref 驗證（防注入）**：合法 git branch 名只含 `[A-Za-z0-9._/-]`。若偵測到的 base 值出現此
+集合以外的字元（空白、`"`、`$`、`` ` ``、`;`、`(` 等），**停止並告知使用者**——git ref 名雖可合法
+含這些字元，但正常 base（`main` / `develop` / feature 名）不會，出現即視為注入嫌疑或偵測錯誤。
+加引號（`"<base>"`）只擋空白與 glob，**擋不了值本身含 `"` 的逸出**，故此處以字元白名單為主要防線。
+（本 skill 假設 trusted repo；對 untrusted fork 的惡意分支名，此驗證是唯一防線。）
+
 ---
 
 ## Filesystem Boundary
@@ -196,7 +202,7 @@ CODEX SAYS（code review）：
 ════════════════════════════════════════════════════════════
 <codex 完整輸出，原文不截斷不摘要>
 ════════════════════════════════════════════════════════════
-GATE: PASS / FAIL（N 個 critical findings）
+GATE: PASS / FAIL（N 個 blocking findings：P0 critical + P1 important）
 ```
 
 最後加必填 Recommendation 行：
