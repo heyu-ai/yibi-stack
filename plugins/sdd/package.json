@@ -1,5 +1,5 @@
 {
   "name": "sdd",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "description": "Spec-Driven Development plugin for Claude Code: Spectra amplifier, problem-frames methodology skill, figma-design-sync skill (Figma design context extraction + incremental sync), gherkin-scenario-writer agent, qa-test-designer subagent (model: opus), qa-test-design skill, OpenSpec templates"
 }

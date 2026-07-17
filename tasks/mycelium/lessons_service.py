@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
+import warnings
+from collections.abc import Callable
 from datetime import UTC, datetime
+from functools import lru_cache
 from math import floor
 from pathlib import Path
 from typing import Any
@@ -668,24 +672,76 @@ def get_lessons(
 _TOKEN_BUDGET_ENCODING = "cl100k_base"  # nosec B105
 
 
+def _rough_token_count(text: str) -> int:
+    """粗估：1 token 約 4 字元。tiktoken 不可用時的退路。"""
+    return len(text) // 4
+
+
+@lru_cache(maxsize=1)
+def _make_token_counter() -> Callable[[str], int]:
+    """回傳 token 計數函式；tiktoken 不可用時退化為粗估。
+
+    **為何用 find_spec 而非靠 exception 型別分流**：`except ImportError` 會同時涵蓋兩個
+    語意完全不同的情況——(a) 沒裝 tokens extra（預期，不該吵）、(b) 裝了但它自己的
+    transitive dep 壞掉（例如 `regex` 缺失），或 `get_encoding()` 內部 import
+    `tiktoken_ext` plugin 失敗。(b) 正是本函式的警告要服務的對象，卻會被 (a) 的靜默分支
+    吃掉。find_spec 直接問「裝了沒」，讓兩者不再共用一個 except。
+
+    **為何 lru_cache**：本函式在每次 `_apply_token_budget` 呼叫（即每次帶 token_budget 的
+    查詢）都會執行。`get_encoding()` 在冷快取時會向 openaipublic.blob.core.windows.net 下載
+    BPE vocab；離線時每次都要等它逾時（實測約 30 秒）。不快取的話，降級結果本身不被記住，
+    於是**每次查詢都重新卡一次**。maxsize=1 是因為本函式無參數。
+
+    PR #249 之前 tiktoken 從未被宣告為依賴，故 len/4 是唯一跑過的路徑；該 PR 新增
+    `tokens` extra 後 tiktoken 分支首次可達，這些失敗模式也隨之從理論變成活的。
+    """
+    try:
+        installed = importlib.util.find_spec("tiktoken") is not None
+    except Exception as e:  # find_spec 自己會拋：__spec__ is None -> ValueError；
+        # meta-path finder 的例外也會傳播（兩者皆實測確認）。探測失敗不是「沒裝」，
+        # 是異常狀態——降級但要吵，否則這個 best-effort 估算會把例外往外拋。
+        warnings.warn(
+            f"tiktoken 探測失敗（{type(e).__name__}: {e}），token 預算改用 len/4 粗估。",
+            UserWarning,
+            stacklevel=2,
+        )
+        return _rough_token_count
+
+    if not installed:
+        # 未安裝 tokens extra：預期情形，非異常，不發警告。
+        return _rough_token_count
+
+    # 走到這裡代表 tiktoken 已安裝，故任何失敗都是「裝了卻不能用」——必須讓使用者知道，
+    # 否則付錢裝了 --extra tokens 的人會拿到粗估卻不知為何。
+    try:
+        # tiktoken 是 optional extra，CI 的 `uv sync --all-groups` 刻意不裝它（--all-groups
+        # 只裝 dependency-groups；extras 要 --all-extras），故 pylint 的 import-error 是環境
+        # 事實而非缺陷。用 inline 而非 [tool.pylint.main].ignored-modules：後者是 repo-wide，
+        # 實測會連 member 檢查一起關掉（`tiktoken.get_encodig` 這種 typo 不再被 E1101 抓到）。
+        import tiktoken  # type: ignore[import-not-found]  # pylint: disable=import-error
+
+        enc = tiktoken.get_encoding(_TOKEN_BUDGET_ENCODING)
+    except Exception as e:  # 網路／HTTP／快取權限／損壞的 tiktoken_ext；一律退化而非中斷
+        warnings.warn(
+            f"tiktoken 已安裝但初始化失敗（{type(e).__name__}: {e}），token 預算改用 len/4 粗估。",
+            UserWarning,
+            stacklevel=2,
+        )
+        return _rough_token_count
+
+    def count_tokens(text: str) -> int:
+        return len(enc.encode(text))
+
+    return count_tokens
+
+
 def _apply_token_budget(
     rows: list[dict[str, Any]],
     budget: int,
     limit: int,
 ) -> list[dict[str, Any]]:
-    """依 token budget 截斷 rows（tiktoken cl100k_base 估算）。"""
-    try:
-        import tiktoken  # type: ignore[import-not-found]
-
-        enc = tiktoken.get_encoding(_TOKEN_BUDGET_ENCODING)
-
-        def count_tokens(text: str) -> int:
-            return len(enc.encode(text))
-
-    except ImportError:
-
-        def count_tokens(text: str) -> int:
-            return len(text) // 4  # rough estimate: 1 token ≈ 4 chars
+    """依 token budget 截斷 rows（tiktoken cl100k_base 估算；不可用時退化為 len/4 粗估）。"""
+    count_tokens = _make_token_counter()
 
     result: list[dict[str, Any]] = []
     cumulative = 0

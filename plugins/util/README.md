@@ -2,24 +2,29 @@
 
 Claude Code plugin for everyday utility tools.
 
-## Prerequisites
-
-The `local-port-manager` skill requires the yibi-stack repository to be cloned and `make install` to be run for task execution
-(`python -m tasks.local_port_manager`). Plugin install provides the skill runbook and debug command only.
-
-```bash
-git clone https://github.com/howie/yibi-stack && cd yibi-stack && make install
-```
-
 ## Install
 
 ```bash
 # Register marketplace (one-time)
-claude plugin marketplace add howie/yibi-stack
+claude plugin marketplace add heyu-ai/yibi-stack
 
 # Install plugin
 claude plugin install util@yibi-stack
 ```
+
+## Prerequisites
+
+`local-port-manager` calls the `portman` CLI, which ships as an installable Python
+distribution — **no repository clone and no `make install` required**:
+
+```bash
+uv tool install git+https://github.com/heyu-ai/yibi-stack
+```
+
+The skill's Step 1 fails loud with this exact command if `portman` is missing, so you can
+also just run the skill and follow the error.
+
+`/debug` needs nothing beyond the plugin itself.
 
 ## What you get
 

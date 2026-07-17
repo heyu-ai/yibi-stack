@@ -533,10 +533,13 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh
 ```
 
-The script pins `--model 'Gemini 3.1 Pro (High)'`. Do not remove the flag: `agy`'s auto-select
+The script pins `--model 'Gemini 3.1 Pro (Low)'`. Do not remove the flag: `agy`'s auto-select
 resolves to Gemini 3.5 Flash, and its model list also contains Claude Sonnet/Opus — an
 auto-selected Claude would silently collapse this voice into the same family as the Claude lead,
-defeating the cross-family premise with no warning. `agy models` lists the valid display names;
+defeating the cross-family premise with no warning. The tier was `(High)` originally, but it
+failed consistently on this machine; `(Low)` produces reviews reliably and is still a Gemini Pro
+tier, so the cross-family premise holds (AGYS-DT-008 asserts only the `Gemini` prefix, so the
+High↔Low swap does not affect the test). `agy models` lists the valid display names;
 an invalid value fails loud and prints the list. Raw output lands in `gemini-r1-raw.md` —
 **do not read it in the main context**.
 
