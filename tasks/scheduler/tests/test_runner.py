@@ -74,6 +74,40 @@ class TestRunCommandJob:
         assert result.log_path is not None
         assert Path(result.log_path).exists()
 
+    def test_sched_eg_001_spawn_failure_reason_is_written_to_the_log(self, tmp_path: Path) -> None:
+        """SCHED-EG-001: 執行檔找不到時，**log 檔**必須寫出原因，不只進 DB。
+
+        實測事故（PR #256）：nightly-self-improvement 連 4 晚（7/13～7/16）spawn 失敗，
+        DB 的 error_message 有完整答案
+        「指令執行失敗（uv）：[Errno 2] No such file or directory: 'uv'」，
+        但 log 只寫「status=failed exit_code=1」。log 是人會去看的地方，DB 不是——
+        於是這個排程壞了 4 天沒被發現。診斷資訊存在，只是放在沒人看的抽屜裡。
+
+        stdout/stderr 在此都是空的（process 根本沒起來），所以 log 唯一能有的線索
+        就是這個 error_message。
+        """
+        job = JobConfig(
+            id="missing-binary-job",
+            description="test",
+            schedule=Schedule.daily,
+            time="21:00",
+            command=["definitely-not-installed-xyz", "run"],
+        )
+        now = datetime(2026, 4, 7, 21, 0)
+
+        result = run_job(job, tmp_path / "logs", now)
+
+        assert result.status == JobRunStatus.failed
+        assert result.error_message is not None, "fixture 失效：spawn 應該失敗"
+        assert result.log_path is not None
+        log_text = Path(result.log_path).read_text(encoding="utf-8")
+        assert "definitely-not-installed-xyz" in log_text, (
+            f"log 必須說出是哪個執行檔找不到，實際內容：\n{log_text}"
+        )
+        assert result.error_message in log_text, (
+            f"DB 有的 error_message 必須也出現在 log 裡，實際內容：\n{log_text}"
+        )
+
 
 class TestRunClaudeJob:
     def test_acp_gateway_connection_failure(self, tmp_path: Path) -> None:
