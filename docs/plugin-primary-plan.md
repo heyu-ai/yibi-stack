@@ -90,7 +90,7 @@ rm ~/.claude/skills/spectra-amplifier   # 斷掉的 symlink；該 skill 現由 s
 卻被廣告在 plugin-only 軌上。）
 
 順手修正：`3rd-tools` 的 marketplace 描述宣稱有「AI slop detection」，但 `detect-ai-slop` 住在
-`writing`，且全 repo 別無他處。`3rd-tools` 實際出貨的是 agy / codex / verify-gemini-models，
+`writing`，且全 repo 別無他處。`3rd-tools` 實際出貨的是 agy / codex-review / codex-consult / verify-gemini-models，
 描述已改為與現實相符——與 `writing` 缺席同屬 doc-vs-code 漂移，靠查證而非照抄才發現。
 
 ### 0.4 ~~移除被 commit 的 `__pycache__`~~ — **不是真問題**

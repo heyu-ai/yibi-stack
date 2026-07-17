@@ -32,7 +32,7 @@ R2 = SCRIPTS_DIR / "codex-r2.sh"
 _FRONTIER_MODEL = "gpt-5.6-sol"
 
 # The sensitive path prefixes the guard prompt must name (mirrors the canonical guard in
-# plugins/3rd-tools/skills/codex/SKILL.md). `agents/` is asserted separately as a standalone
+# plugins/3rd-tools/skills/codex-review/SKILL.md). `agents/` is asserted separately as a standalone
 # token so it isn't satisfied by the `~/.agents/` substring.
 _GUARD_PATHS = ("~/.claude/", "~/.agents/", ".claude/skills/")
 
