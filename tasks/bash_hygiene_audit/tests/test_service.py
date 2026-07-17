@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from tasks.bash_hygiene_audit.models import AuditRecord
 from tasks.bash_hygiene_audit.service import (
+    _find_log_dir,
     _find_log_path,
     compute_repeats,
     compute_stats,
@@ -42,15 +43,21 @@ def _base_record(
 
 class TestFindLogPath:
     def test_bhaudit_st_017_worktree_resolves_to_main_repo(self, tmp_path: Path) -> None:
-        """BHAUDIT-ST-017: _find_log_path 用 --git-common-dir parent，不用 --show-toplevel。"""
+        """BHAUDIT-ST-017: _find_log_dir 用 --git-common-dir parent，不用 --show-toplevel。
+
+        在 linked worktree 裡，`--show-toplevel` 回傳 worktree 路徑；
+        `--git-common-dir` 指向主 repo 的 .git 目錄，其 parent 才是真正的 repo root。
+        _find_log_dir 負責這一層解析，直接測它而非測 _find_log_path 鏈的末端，
+        以避免 _find_log_paths 的 is_dir() 守衛（目錄不存在就回 None）遮蔽路徑邏輯。
+        """
         fake_git_dir = tmp_path / ".git"
         fake_git_dir.mkdir()
         mock_run = MagicMock()
         mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = str(fake_git_dir) + "\n"
         with patch("tasks.bash_hygiene_audit.service.subprocess.run", mock_run):
-            result = _find_log_path()
-        assert result == tmp_path / ".runtime" / "logs" / "bash-hygiene-audit.jsonl"
+            result = _find_log_dir()
+        assert result == tmp_path / ".runtime" / "logs"
         called_args = mock_run.call_args[0][0]
         assert "--git-common-dir" in called_args
         assert "--show-toplevel" not in called_args

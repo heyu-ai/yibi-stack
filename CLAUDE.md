@@ -124,6 +124,10 @@ glob 非錨定，在任意路徑深度匹配。
 # 依賴安裝（非 make target，make help 不會列出）
 uv sync                  # 選用：需要 Python 環境的 target（ci/test/lint/typecheck 等）都走
                          # uv run，會自動同步環境；此指令只是先跑一次把環境備好
+                         # 只裝 core（click + pydantic）
+uv sync --extra ledger   # 額外裝 scripts/ 帳務工具的依賴（pandas/sqlalchemy/anthropic 等）
+                         # 跑 tasks/ 與 CI 都不需要；跑 scripts/*.py 才需要
+                         # 不裝就跑 = ModuleNotFoundError（見 scripts/README.md）
 
 # Plugin 發布（lockstep 版本：所有 plugin 同步升版）
 make release TYPE=patch  # patch / minor / major

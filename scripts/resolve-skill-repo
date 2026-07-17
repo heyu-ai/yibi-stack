@@ -66,7 +66,11 @@ fi
 
 # 驗身分而非僅驗存在。標記選擇經實測：與本 repo 共寫 ~/.agents/config.json 的
 # ainization-skill 同樣有 tasks/ 與 tasks/_paths.py 與 .claude-plugin/marketplace.json，
-# 全都無法區分；pyproject.toml 的 name 也不行（兩個 repo 都宣告 "ainization-skill"）。
+# 全都無法區分。
+# 註（PR #249）：pyproject.toml 的 name 在當初選擇標記時同樣不具區分力（兩個 repo 都宣告
+# "ainization-skill"）；本 repo 已於 #249 改名為 "yibi-stack"，故該理由已不再成立——
+# name 現在確實能區分。但仍**刻意保留 tasks/mycelium 作為標記**：fork 可以複製 name，
+# 而 name 只是宣告字串；tasks/mycelium 是實際的目錄結構，偽造成本較高。
 # tasks/mycelium 是實測唯一能區分的標記，故沿用 #221 的選擇。
 # 註：這是「身分標記」不是「依賴宣告」——非 mycelium 的呼叫端（harness-eval 等）
 # 同樣靠它確認自己站在 yibi-stack 上。若日後 mycelium 更名，此處必須同步更新。

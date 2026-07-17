@@ -8,37 +8,28 @@ from .models import Category, PortEntry, PortRegistry
 
 
 @click.group()
+@click.version_option(package_name="yibi-stack")
 def cli() -> None:
     """本地開發 Port 分配管理工具。"""
 
 
 @cli.command()
 def init() -> None:
-    """初始化 registry，寫入 bootstrap 資料（已存在則跳過）。"""
-    from .service import BOOTSTRAP_ENTRIES, DEFAULT_RANGES, REGISTRY_PATH, save_registry
+    """初始化空 registry 與預設 port range（已存在則跳過）。"""
+    from . import service
 
-    if REGISTRY_PATH.exists():
-        click.echo(f"✓ Registry 已存在：{REGISTRY_PATH}")
+    if service.REGISTRY_PATH.exists():
+        click.echo(f"✓ Registry 已存在：{service.REGISTRY_PATH}")
         return
 
-    now = datetime.now(tz=UTC)
-    entries = [
-        PortEntry(
-            project=project,
-            service=service,
-            category=category,
-            port=port,
-            registered_at=now,
-        )
-        for project, service, port, category in BOOTSTRAP_ENTRIES
-    ]
-    registry = PortRegistry(ranges=DEFAULT_RANGES, entries=entries)
+    registry = PortRegistry(ranges=service.DEFAULT_RANGES, entries=[])
     try:
-        save_registry(registry)
+        service.save_registry(registry, service.REGISTRY_PATH)
     except RuntimeError as e:
         click.echo(f"✗ {e}", err=True)
         raise SystemExit(1) from e
-    click.echo(f"✓ 已初始化 registry：{REGISTRY_PATH}（{len(entries)} 筆記錄）")
+    click.echo(f"✓ 已初始化空 registry：{service.REGISTRY_PATH}")
+    click.echo("  用 reserve 指令登記 port，或用 suggest 取得建議值。")
 
 
 @cli.command("list")
@@ -130,7 +121,22 @@ def reserve_cmd(project: str, service: str, port: int, category: str | None, not
     from .service import reserve, save_registry
 
     registry = _require_registry()
-    cat = _infer_category(registry, service, category, port)
+
+    # 兩個 try 各自只守它指名的那件事，中間刻意留白——見下方說明。
+    try:
+        # registry 的 ranges 只被驗 [low, high] 形狀，key 可以是任意字串（手動編輯過的
+        # ports.json），而 _infer_category 會對該字串呼叫 Category(...)。這是**使用者可觸發**
+        # 的 ValueError，故須轉成「✗ ...」+ exit 1——portman 是公開發佈的指令，traceback
+        # 不是可接受的介面。
+        cat = _infer_category(registry, service, category, port)
+    except ValueError as e:
+        click.echo(f"✗ {e}", err=True)
+        raise SystemExit(1) from e
+
+    # PortEntry 刻意**不**包在 try 內：它的欄位無約束，且 project/service 是 click 的 str
+    # 參數、port 有 type=int、cat 剛從 Category 出來——使用者輸入無法讓它失敗。所以此處的
+    # pydantic ValidationError（ValueError 的子類）只可能是開發者 bug，應大聲 traceback
+    # 而非被下方的 except 吞成一則像是使用者做錯事的「✗」。
     entry = PortEntry(
         project=project,
         service=service,
@@ -139,7 +145,9 @@ def reserve_cmd(project: str, service: str, port: int, category: str | None, not
         note=note,
         registered_at=datetime.now(tz=UTC),
     )
+
     try:
+        # port 被別的 (project, service) 佔用：使用者可觸發。
         updated = reserve(registry, entry)
     except ValueError as e:
         click.echo(f"✗ {e}", err=True)
