@@ -79,10 +79,13 @@ git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/orig
 
 將取得的 base branch 值記住，後續步驟凡 `<base>` 皆替換為此實際值。
 
-**Base ref 驗證（防注入）**：合法 git branch 名只含 `[A-Za-z0-9._/-]`。若偵測到的 base 值出現此
-集合以外的字元（空白、`"`、`$`、`` ` ``、`;`、`(` 等），**停止並告知使用者**——git ref 名雖可合法
-含這些字元，但正常 base（`main` / `develop` / feature 名）不會，出現即視為注入嫌疑或偵測錯誤。
-加引號（`"<base>"`）只擋空白與 glob，**擋不了值本身含 `"` 的逸出**，故此處以字元白名單為主要防線。
+**Base ref 驗證（防注入）**：合法 git branch 名只含 `[A-Za-z0-9._/-]`，**且不可以 `-` 開頭**。
+若偵測到的 base 值出現此集合以外的字元（空白、`"`、`$`、`` ` ``、`;`、`(` 等），或以 `-` 開頭
+（如 `--prune`／`--upload-pack=...`，會被 `git fetch` 當成 option 解析），**停止並告知使用者**。
+更嚴謹可用 `git check-ref-format --branch "<base>"` 驗證後才使用。正常 base
+（`main` / `develop` / feature 名）永遠通過；出現異常即視為注入嫌疑或偵測錯誤。
+加引號（`"<base>"`）只擋空白與 glob，**擋不了值本身含 `"` 的逸出、也擋不了開頭 `-` 的 option 注入**，
+故此處以「字元白名單 + 拒絕開頭 `-`」為主要防線。
 （本 skill 假設 trusted repo；對 untrusted fork 的惡意分支名，此驗證是唯一防線。）
 
 ---
@@ -167,11 +170,13 @@ Structure your output EXACTLY with these three markdown headings, in order:
 cat "$CLAUDE_JOB_DIR/codex-review-diff.patch" >> "$CLAUDE_JOB_DIR/codex-review-packet.txt"
 ```
 
-執行（`<repo_root>` 替換為 repo root；**不用 `timeout`**——對齊 pr-cycle-deep 的 proven 形式，且
-stock macOS 無 `timeout` 內建）：
+執行（repo root 在同一個 bash block 內解析進 `ROOT` 變數、以 `"$ROOT"` 傳入——**不用 placeholder
+替換**，避免 checkout 路徑含 `"`/`` ` ``/`$()` 時逸出；**不用 `"$(...)"` 內嵌**，那會觸發 rule 13
+Quoting Rule 2。**不用 `timeout`**——對齊 pr-cycle-deep proven 形式且 stock macOS 無 `timeout`）：
 
 ```bash
-codex exec -C "<repo_root>" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-review-packet.txt"
+ROOT=$(git rev-parse --show-toplevel)
+codex exec -C "$ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-review-packet.txt"
 ```
 
 若使用者指定 `--xhigh`，改用 `model_reasoning_effort="xhigh"`。
@@ -184,8 +189,10 @@ codex exec -C "<repo_root>" -s read-only -c 'model_reasoning_effort="high"' --en
 `## Verdict` 三個標題（上方 packet 已明確要求），判定為 agentic hijack（Codex 沒做審查、跑去讀檔
 或閒聊，產出無結構文字）——停止並告知使用者：「Codex 輸出無結構，可能發生 agentic hijack。請重試，
 或在 packet 中加強 boundary。」此檢查與 pr-cycle-deep 的 agentic-output 偵測同語意，只驗「有沒有照
-格式輸出」；**不負責**偵測「diff 內容層級的 prompt injection」——那由本 skill 的 trusted-repo 假設
-與 read-only sandbox（`-s read-only`）涵蓋。
+格式輸出」；**不負責**偵測「diff 內容層級的 prompt injection」（惡意 diff 誘導 Codex 輸出假 PASS）。
+`-s read-only` 只防 Codex **改動 repo**，**不保證 verdict 不被 diff 內容操縱**；此殘留由本 skill 的
+**trusted-repo 假設**承擔——與整個 pr-cycle-deep LLM review 同一信任邊界，非本 skill 特有，也無法在
+單一 CLI reviewer 層級消除（要消除需獨立驗證或人工確認）。
 
 **Pass/Fail gate**：只看 `## Findings` 區段內**行首為 `[P0]` 或 `[P1]` 的 finding 條目**（packet
 已要求每條 finding 自成一行、以 bare tag 起頭、無 `-`/`*`/`#`/縮排前綴）。**不可**對整份輸出做
@@ -262,10 +269,12 @@ Structure your output EXACTLY with these three markdown headings, in order:
 cat "$CLAUDE_JOB_DIR/codex-challenge-diff.patch" >> "$CLAUDE_JOB_DIR/codex-challenge-packet.txt"
 ```
 
-執行（`<repo_root>` 替換為 repo root；**不用 `timeout`**——同 Step 2A）：
+執行（repo root 解析進 `ROOT` 變數、以 `"$ROOT"` 傳入——同 Step 2A，不用 placeholder / 不用
+`"$(...)"` / 不用 `timeout`）：
 
 ```bash
-codex exec -C "<repo_root>" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-challenge-packet.txt"
+ROOT=$(git rev-parse --show-toplevel)
+codex exec -C "$ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-challenge-packet.txt"
 ```
 
 **Exit-code gate（先於 hijack 檢查）**：codex exec 非零退出 → 停止並告知使用者：

@@ -54,12 +54,6 @@ IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claud
 
 ## Step 1: 組合 prompt 並執行
 
-取得 repo root：
-
-```bash
-git rev-parse --show-toplevel
-```
-
 **一律用 stdin packet**（不傳位置參數）。使用者問題可能含雙引號、`$VAR`、`$(...)` 或 backtick，
 inline 傳入 `codex exec "..."` 會 break bash 或求值 / 執行任意 shell（injection）。用 Write tool
 把 boundary + 使用者問題寫入 `$CLAUDE_JOB_DIR/codex-consult-packet.txt`（**禁用** `"$(cat ...)"`
@@ -73,11 +67,13 @@ IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claud
 <使用者問題>
 ```
 
-執行（`<repo_root>` 替換為 repo root；**不用 `timeout`**——對齊 proven 形式且 stock macOS 無
-`timeout` 內建）：
+執行（repo root 在同一 bash block 解析進 `ROOT` 變數、以 `"$ROOT"` 傳入——**不用 placeholder
+替換**（避免 checkout 路徑含 `"`/`` ` ``/`$()` 時逸出），**不用 `"$(...)"` 內嵌**（rule 13
+Quoting Rule 2），**不用 `timeout`**——對齊 proven 形式且 stock macOS 無 `timeout` 內建）：
 
 ```bash
-codex exec -C "<repo_root>" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-consult-packet.txt"
+ROOT=$(git rev-parse --show-toplevel)
+codex exec -C "$ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-consult-packet.txt"
 ```
 
 **Exit-code gate**：上面 codex exec 若非零退出，停止並告知使用者：「codex exec 失敗；請確認
