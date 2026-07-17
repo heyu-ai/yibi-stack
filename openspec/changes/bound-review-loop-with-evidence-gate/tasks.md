@@ -64,10 +64,10 @@
 - [x] T043 使含 CJK／全形字元的錨點以真實 UTF-8 位元組比對（`Skill document line budget`）：驗證：PRC-EG-002（中文禁字原文被偵測，且 ASCII 轉寫版不被誤判）、PRC-EG-003（禁字在 code fence 內的結果須為明文刻意的決定——偵測或以明述範圍略過，絕非意外繞過）。
 - [x] T044 使每個必要錨點與行數預算皆通過 mutation 驗證，證明 guard 有能力變紅（`Skill document line budget`）：對每個必要錨點，複製真實文字、**只**刪該錨點、斷言檢查器失敗並指名它、還原——**每次迭代只做一個 mutation**（複合突變會因錯的理由變紅，給出假的「已驗證」）。行數同法 ±1。驗證：PRC-EG-006（N/N 突變體被殺；存活即代表該錨點實際未被檢查、綠燈無資訊量）、PRC-EG-007（±1 行兩個突變體皆被殺）。
 - [x] T045 決定 PRC-VL-005（CRLF）與 PRC-EG-004（重複錨點）的去留（testplan「Redundant TCs」）：**先確認** repo 是否以 `.gitattributes` / pre-commit 強制 LF、檢查器是否用 `in` 而非計數斷言，再決定刪或留。驗證：結論寫入 testplan 的 Redundant 表；不得未經確認即刪除。
-- [ ] T046 確認全量 CI 通過且工作樹乾淨：執行 `make ci`，隨後確認 `git diff --name-only` 為空（formatter hook 就地改檔會使本地綠燈與 commit 出來的樹不一致）。驗證：SMK-001（契約套件 exit 0 且收集到測試，收集到 0 個為失敗）；`make ci` 全綠且 `git diff --name-only` 輸出為空——非空則先 commit 該改寫再 push。
+- [x] T046 確認全量 CI 通過且工作樹乾淨：執行 `make ci`，隨後確認 `git diff --name-only` 為空（formatter hook 就地改檔會使本地綠燈與 commit 出來的樹不一致）。驗證：SMK-001（契約套件 exit 0 且收集到測試，收集到 0 個為失敗）；`make ci` 全綠且 `git diff --name-only` 輸出為空——非空則先 commit 該改寫再 push。
 
 ## Phase 6：SDD 文件同步與收尾
 
-- [ ] T050 執行 `spectra analyze bound-review-loop-with-evidence-gate --json` 與 `spectra validate`，使 Critical + Warning 為 0。驗證：analyze 輸出的 Critical/Warning 計數為 0；validate 回報 valid。
-- [ ] T051 每輪 fix 後同步 openspec 文件：本 repo 既有教訓——多輪 fix 會讓 `design.md` / `testplan.md` / `tasks.md` 與實作逐輪漂移，下一輪 reviewer 會找到「新增的測試／邏輯未記錄於 design」。把「同步本輪改動的 openspec 文件」當每輪的固定清單項，而非最後一次性補。驗證：每輪 fix 結束時 `spectra analyze` 的 Critical/Warning 仍為 0。
-- [ ] T052 於 PR 描述明載：契約測試全綠只證明**文件符合性**，21 個 scenario 中 18 個為 LLM 執行期行為、pytest 不可驗證（testplan 已標）。驗證：PR 描述含該聲明；不得讓綠燈被誤讀為行為證明。
+- [x] T050 執行 `spectra analyze bound-review-loop-with-evidence-gate --json` 與 `spectra validate`，使 Critical + Warning 為 0。驗證：analyze 輸出的 Critical/Warning 計數為 0；validate 回報 valid。
+- [x] T051 每輪 fix 後同步 openspec 文件：本 repo 既有教訓——多輪 fix 會讓 `design.md` / `testplan.md` / `tasks.md` 與實作逐輪漂移，下一輪 reviewer 會找到「新增的測試／邏輯未記錄於 design」。把「同步本輪改動的 openspec 文件」當每輪的固定清單項，而非最後一次性補。驗證：每輪 fix 結束時 `spectra analyze` 的 Critical/Warning 仍為 0。
+- [x] T052 於 PR 描述明載：契約測試全綠只證明**文件符合性**，21 個 scenario 中 18 個為 LLM 執行期行為、pytest 不可驗證（testplan 已標）。驗證：PR 描述含該聲明；不得讓綠燈被誤讀為行為證明。
