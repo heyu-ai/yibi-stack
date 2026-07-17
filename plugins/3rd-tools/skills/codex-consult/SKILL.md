@@ -2,7 +2,7 @@
 name: codex-consult
 type: tool
 scope: global
-description: OpenAI Codex CLI 第二意見：詢問 codebase 任何技術問題，由 Codex 閱讀程式碼後回答。觸發：ask codex, consult codex, second opinion, codex 怎麼看, 問問題, 技術諮詢。要 review diff 或 PR 改動請改用 /codex-review；外部模型 mob review 請改用 /mob-code-review-only。
+description: OpenAI Codex CLI 第二意見：請 Codex 閱讀 codebase 後回答技術問題。觸發須明確指名 Codex：ask codex, consult codex, codex 第二意見, codex 怎麼看, 問 codex, get a second opinion from codex。純粹「幫我看一下」「這樣對嗎」等未指名 Codex 的一般提問不觸發此 skill。要 review diff 或 PR 改動請改用 /codex-review；外部模型 mob review 請改用 /mob-code-review-only。
 ---
 
 # /codex-consult — 詢問 Codex 技術問題

@@ -99,20 +99,27 @@ class TestCodexGuardContract:
         )
 
     @pytest.mark.parametrize("skill_md", CODEX_BOUNDARY_SKILLS, ids=lambda p: p.parent.name)
-    def test_cdxs_dt_012_boundary_skills_carry_guard_paths(self, skill_md: Path) -> None:
-        """CDXS-DT-012: each 3rd-tools codex skill carries the four sensitive boundary paths.
+    def test_cdxs_dt_012_boundary_lines_carry_guard_paths(self, skill_md: Path) -> None:
+        """CDXS-DT-012: EVERY Filesystem Boundary line in each codex skill names all four paths.
 
         The stage-1 guard comment claims it mirrors the canonical guard in codex-review/SKILL.md;
-        both codex-review and codex-consult embed the same Filesystem Boundary. Parametrising over
-        both makes the claim enforceable, so a future edit that drops a path from *either* file
-        fails here instead of the mirror comment silently becoming a lie.
+        both codex-review and codex-consult embed the same boundary in each packet. Asserting
+        per-boundary-line (not once per file) closes the gap where a path is dropped from one
+        actual review/challenge/consult packet while a prose mention keeps a whole-file search
+        green — so a future edit that guts one packet's boundary fails here instead of the mirror
+        comment silently becoming a lie (PR #264 review, pr-test-analyzer + Codex NITs).
         """
         text = skill_md.read_text(encoding="utf-8")
-        for path in _GUARD_PATHS:
-            assert path in text, f"{skill_md.parent.name}/SKILL.md must name {path}"
-        assert re.search(r"(?<![.\w])agents/", text), (
-            f"{skill_md.parent.name}/SKILL.md must name the standalone `agents/` path"
-        )
+        boundary_lines = [
+            ln for ln in text.splitlines() if "Do NOT read or execute any files under" in ln
+        ]
+        assert boundary_lines, f"{skill_md.parent.name}/SKILL.md has no Filesystem Boundary line"
+        for ln in boundary_lines:
+            for path in _GUARD_PATHS:
+                assert path in ln, f"{skill_md.parent.name}: boundary line missing {path}: {ln!r}"
+            assert re.search(r"(?<![.\w])agents/", ln), (
+                f"{skill_md.parent.name}: boundary line missing standalone `agents/`: {ln!r}"
+            )
 
     def test_cdxs_dt_004_reviews_shared_diff_patch(self) -> None:
         """CDXS-DT-004: Stage 1 reviews the shared diff.patch (all voices see one diff)."""
