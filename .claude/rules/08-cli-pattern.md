@@ -1,5 +1,6 @@
 ---
-globs: tasks/**/cli.py
+paths:
+  - "tasks/**/cli.py"
 ---
 # Click CLI Pattern
 

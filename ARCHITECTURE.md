@@ -54,7 +54,8 @@ yibi-stack/
 │   └── openspec/                    → OpenSpec live example（changes/ 目錄）
 │
 └── .claude/
-    ├── rules/                       → 編碼慣例（依 glob pattern 自動載入，01-16）
+    ├── rules/                       → 編碼慣例（14 個檔案；01-03/13/15/16 全量載入，
+    │                                   04-11 依 `paths:` frontmatter 觸發）
     │   ├── 01-language-and-tone.md
     │   ├── 13-bash-anti-patterns.md → AP1/AP2 + bash-to-script subagent 觸發條件
     │   └── 16-allowlist-hygiene.md  → Allow-list 衛生準則

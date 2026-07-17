@@ -1,10 +1,34 @@
 #!/usr/bin/env bash
-# Wrapper: 自動偵測 skill_repo + project，forward args 給 tasks.mycelium lessons
+# Wrapper: 自動偵測 skill_repo，寫入指令另注入 project，forward args 給 tasks.mycelium lessons
 # Agent 端直接呼叫：~/.agents/bin/lessons add --type ... --key ... --insight "..." ...
 # 不需要手動偵測 SKILL_REPO 或 PROJECT，不觸發 Claude Code bash anti-pattern 確認框
+#
+# --project 注入策略（讀寫不對稱，刻意為之）：
+#   寫入（add）→ 注入 cwd 偵測到的 project。這是 load-bearing：issue #243 的 287 條
+#     retro lesson 就是因為沒走 wrapper、cwd 被 `uv run --directory` 換成 yibi-stack
+#     而被誤記。預設注入，未知/新增的子命令一律比照寫入處理（fail-safe：寧可多帶
+#     scope，也不要讓新的寫入指令靜默記到錯的 project）。
+#   讀取（show / search / --help）→ 不注入。mycelium CLI 對這兩個子命令的 --project 預設是
+#     「顯示全部 project」；wrapper 若注入，就靜默覆寫了 CLI 文件宣稱的預設，讓呼叫端
+#     以為拿到跨 project 結果、實際只拿到 cwd 那個 repo 的，且無任何訊號。
+#
+# 子命令偵測採嚴格位置制（只看第一個位置引數）。這在今日是安全的：`lessons` group
+# 未定義任何 group-level option（cli.py 的 `@cli.group()` 為裸宣告），故除 -h/--help
+# 外沒有任何旗標能合法地出現在子命令之前——不支援的旗標會讓 click 以 exit 2 大聲失敗，
+# 不會靜默窄化。若日後為 group 新增 option，此處必須改為掃描第一個非旗標 token。
 set -euo pipefail
 
 if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+
+# 子命令為第一個位置引數（如 `lessons show --json`）
+SUBCMD="${1:-}"
+
+# 讀取指令：保留 CLI 自身的「預設全部 project」語意，不注入
+# -h/--help 一併豁免：注入後會變成 `lessons --help --project X`，click 的 parser 會先
+# 因未知 option 而 exit 2，eager 的 --help 根本來不及觸發，help 永遠印不出來（實測）。
+case "$SUBCMD" in
+  show|search|-h|--help) exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons "$@" ;;
+esac
 
 # 自動偵測 project（若 caller 已用 --project 指定則跳過，避免重複）
 # token-based check 支援 --project=val 形式，避免 insight 內文含 --project 的 false positive

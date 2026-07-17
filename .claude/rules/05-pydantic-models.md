@@ -1,5 +1,6 @@
 ---
-globs: tasks/**/models.py
+paths:
+  - "tasks/**/models.py"
 ---
 # Pydantic Models
 
