@@ -26,6 +26,12 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 STAGE1 = SCRIPTS_DIR / "codex-r1-stage1.sh"
 R2 = SCRIPTS_DIR / "codex-r2.sh"
 
+# The 3rd-tools skill whose Filesystem Boundary the codex-r1 guard mirrors. Asserting the
+# four sensitive paths here makes the "mirrors the canonical guard in codex-review/SKILL.md"
+# comment self-enforcing: if that SKILL.md later drops one of the paths, this fails instead of
+# the mirror comment silently becoming a lie (PR #264 review, pr-test-analyzer NIT).
+CODEX_REVIEW_SKILL = SCRIPTS_DIR.parents[4] / "plugins/3rd-tools/skills/codex-review/SKILL.md"
+
 # The frontier model slug both review stages must pin. Sourced from ~/.codex/models_cache.json
 # (priority 1, "Latest frontier agentic coding model"), not from developers.openai.com/codex,
 # whose docs still listed gpt-5.5 as top days after the GPT-5.6 release.
@@ -86,6 +92,20 @@ class TestCodexGuardContract:
         )
         assert '< "$REVIEW_DIR/codex-r1-input.md"' in src, (
             "codex exec must read the assembled guard+prompt+diff from stdin"
+        )
+
+    def test_cdxs_dt_012_review_skill_mirrors_guard_paths(self) -> None:
+        """CDXS-DT-012: codex-review/SKILL.md carries the four sensitive paths the guard mirrors.
+
+        The stage-1 guard comment claims it mirrors the canonical guard in that SKILL.md; this
+        makes the claim enforceable, so a future edit to the SKILL.md cannot silently desync the
+        contract while the mirror comment keeps asserting it holds.
+        """
+        text = CODEX_REVIEW_SKILL.read_text(encoding="utf-8")
+        for path in _GUARD_PATHS:
+            assert path in text, f"codex-review/SKILL.md must name {path}"
+        assert re.search(r"(?<![.\w])agents/", text), (
+            "codex-review/SKILL.md must name the standalone `agents/` path"
         )
 
     def test_cdxs_dt_004_reviews_shared_diff_patch(self) -> None:
