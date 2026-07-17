@@ -26,11 +26,15 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 STAGE1 = SCRIPTS_DIR / "codex-r1-stage1.sh"
 R2 = SCRIPTS_DIR / "codex-r2.sh"
 
-# The 3rd-tools skill whose Filesystem Boundary the codex-r1 guard mirrors. Asserting the
+# The 3rd-tools skills whose Filesystem Boundary the codex-r1 guard mirrors. Asserting the
 # four sensitive paths here makes the "mirrors the canonical guard in codex-review/SKILL.md"
-# comment self-enforcing: if that SKILL.md later drops one of the paths, this fails instead of
-# the mirror comment silently becoming a lie (PR #264 review, pr-test-analyzer NIT).
-CODEX_REVIEW_SKILL = SCRIPTS_DIR.parents[4] / "plugins/3rd-tools/skills/codex-review/SKILL.md"
+# comment self-enforcing: if either SKILL.md later drops one of the paths, this fails instead of
+# the mirror comment silently becoming a lie (PR #264 review, pr-test-analyzer + Codex NITs).
+_3RD_TOOLS_SKILLS_DIR = SCRIPTS_DIR.parents[4] / "plugins/3rd-tools/skills"
+CODEX_BOUNDARY_SKILLS = (
+    _3RD_TOOLS_SKILLS_DIR / "codex-review" / "SKILL.md",
+    _3RD_TOOLS_SKILLS_DIR / "codex-consult" / "SKILL.md",
+)
 
 # The frontier model slug both review stages must pin. Sourced from ~/.codex/models_cache.json
 # (priority 1, "Latest frontier agentic coding model"), not from developers.openai.com/codex,
@@ -94,18 +98,20 @@ class TestCodexGuardContract:
             "codex exec must read the assembled guard+prompt+diff from stdin"
         )
 
-    def test_cdxs_dt_012_review_skill_mirrors_guard_paths(self) -> None:
-        """CDXS-DT-012: codex-review/SKILL.md carries the four sensitive paths the guard mirrors.
+    @pytest.mark.parametrize("skill_md", CODEX_BOUNDARY_SKILLS, ids=lambda p: p.parent.name)
+    def test_cdxs_dt_012_boundary_skills_carry_guard_paths(self, skill_md: Path) -> None:
+        """CDXS-DT-012: each 3rd-tools codex skill carries the four sensitive boundary paths.
 
-        The stage-1 guard comment claims it mirrors the canonical guard in that SKILL.md; this
-        makes the claim enforceable, so a future edit to the SKILL.md cannot silently desync the
-        contract while the mirror comment keeps asserting it holds.
+        The stage-1 guard comment claims it mirrors the canonical guard in codex-review/SKILL.md;
+        both codex-review and codex-consult embed the same Filesystem Boundary. Parametrising over
+        both makes the claim enforceable, so a future edit that drops a path from *either* file
+        fails here instead of the mirror comment silently becoming a lie.
         """
-        text = CODEX_REVIEW_SKILL.read_text(encoding="utf-8")
+        text = skill_md.read_text(encoding="utf-8")
         for path in _GUARD_PATHS:
-            assert path in text, f"codex-review/SKILL.md must name {path}"
+            assert path in text, f"{skill_md.parent.name}/SKILL.md must name {path}"
         assert re.search(r"(?<![.\w])agents/", text), (
-            "codex-review/SKILL.md must name the standalone `agents/` path"
+            f"{skill_md.parent.name}/SKILL.md must name the standalone `agents/` path"
         )
 
     def test_cdxs_dt_004_reviews_shared_diff_patch(self) -> None:

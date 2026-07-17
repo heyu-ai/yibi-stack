@@ -77,7 +77,7 @@ IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claud
 `timeout` 內建）：
 
 ```bash
-codex exec -C <repo_root> -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-consult-packet.txt"
+codex exec -C "<repo_root>" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-consult-packet.txt"
 ```
 
 **Exit-code gate**：上面 codex exec 若非零退出，停止並告知使用者：「codex exec 失敗；請確認
