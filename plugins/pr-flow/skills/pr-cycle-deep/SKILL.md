@@ -464,11 +464,9 @@ Lead reads `$REVIEW_DIR/codex-r1.json` with the Read tool and branches on the re
 
 **JSON valid** (valid JSON with `verdict` / `summary` / `findings` fields) → use the Write tool to render `$REVIEW_DIR/codex-r1.md` (compact markdown, sorted by severity: critical → important → actionable_nit).
 
-**JSON invalid** (not valid JSON or missing fields) → immediately execute fallback, do not attempt to render:
-
-1. Read `$REVIEW_DIR/codex-r1-raw.md` with the Read tool and manually summarize in the main context
-2. Write compact markdown to `$REVIEW_DIR/codex-r1.md` with the Write tool
-3. Note in the final final.md: "Codex voice used raw form this round; main context load is higher"
+**JSON invalid** (not valid JSON or missing fields) → do not render; fall back: Read
+`$REVIEW_DIR/codex-r1-raw.md`, manually summarize in the main context, Write compact markdown to
+`$REVIEW_DIR/codex-r1.md`, then note in final.md "Codex voice used raw form this round; main context load is higher".
 
 Format example (compact markdown):
 
@@ -668,9 +666,8 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r2.sh
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r2.sh
 ```
 
-> **Security note**: `agy-r2.sh` uses `--dangerously-skip-permissions` (for `--add-dir` context, same as
-> Stage 1) and inlines the prompt (issue #153); it assumes the PR comes from a trusted repo.
-> For external-fork PRs, the operator should evaluate prompt-injection risk before running mob review.
+> **Security note**: `agy-r2.sh` uses `--dangerously-skip-permissions` (for `--add-dir`, same as Stage 1)
+> and inlines the prompt (issue #153); it assumes a trusted repo — for external-fork PRs, evaluate prompt-injection risk first.
 
 Only send to available voices (CODEX_OK / GEMINI_OK).
 
