@@ -31,7 +31,7 @@ import sys
 
 # 只匹配作為指令執行的 git push（允許 git -C <path> push 與前置 env var 賦值），
 # 不匹配出現在 commit message 或 echo 字串內的 literal text。
-_PATH_TOKEN = r'(?:"[^"]*"|\'[^\']*\'|[^\s;&|]+)'
+_PATH_TOKEN = r'(?:"[^"]*"|\'[^\']*\'|[^\s;&|]+)'  # nosec B105 - regex alternation, not a password
 _GIT_PUSH_CMD = re.compile(
     rf"(?:^|[;&|]|\n)\s*(?:\w+=\S+\s+)*git\s+(?:-C\s+{_PATH_TOKEN}\s+)*push\b",
     re.MULTILINE,
