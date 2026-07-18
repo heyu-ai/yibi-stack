@@ -73,10 +73,10 @@ glob 非錨定，在任意路徑深度匹配。
 > 值可以是 YAML list（`- "tasks/**"`）或純量字串（`paths: tasks/**`）——**兩者實測行為相同**，
 > 本 repo 統一用 list 形式，這是風格選擇不是正確性要求。
 >
-> 目前**沒有機械 guard** 擋錯 key（寫錯只會靜默變全量載入，不會報錯）；`tasks/harness_eval`
+> `scripts/lint_rule_frontmatter.py` 與 pre-commit hook 會阻擋錯 key；`tasks/harness_eval`
 > 的兩個 scanner 也都仍在偵測失效的 `glob:`——D7 的 `scanners/rules.py`（`globs:` 與 `paths:`
 > 都不匹配，分數一直來自 fallback 分支）與 D4 的 `scanners/skills.py`（`_SCOPING_KEYS` 仍為
-> `glob` 加分）。三者都追蹤在 issue #252。
+> `glob` 加分）。後兩者仍追蹤在 issue #252。
 
 - **全域**（01-03、13、15、16）：雙語規範、錯誤處理、安全性、bash 反模式、不可逆操作、allow-list 衛生
 - **`tasks/**`**（04）：module 結構
