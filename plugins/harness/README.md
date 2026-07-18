@@ -7,6 +7,8 @@
 | Skill | 說明 |
 |---|---|
 | `harness-eval` | 8 維度 0-100 分 harness 就緒度評量；PASS/WARN/FAIL 清單；優先 TODO |
+| `freeze` | 把編輯範圍鎖到指定目錄：PreToolUse hook 擋掉邊界外的 Edit/Write，防止 agent 順手改到不相關的檔案。未 arm 前 fail-open。改寫自 garrytan/gstack（MIT） |
+| `unfreeze` | 清除 `/freeze` 的編輯邊界，恢復全目錄可編輯 |
 
 ## 安裝
 
