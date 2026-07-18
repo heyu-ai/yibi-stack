@@ -656,6 +656,31 @@ class TestLessonsAddCLI:
         db.close()
         assert len(rows) == 1
 
+    def test_dedup_query_failure_warns_and_still_inserts(self, tmp_path: Path) -> None:
+        """去重查詢失敗時警告，但不阻擋 lesson 寫入。"""
+        db_path = tmp_path / "test.db"
+        runner = CliRunner()
+        with (
+            patch(
+                "tasks.mycelium.lessons_service.find_existing_lesson",
+                side_effect=RuntimeError("database unavailable"),
+            ),
+            patch(
+                "tasks.mycelium.lessons_service.add_lesson",
+                side_effect=lambda data, **_kw: add_lesson(data, db_path=db_path),
+            ),
+        ):
+            result = runner.invoke(cli, self._add_args())
+
+        assert result.exit_code == 0
+        assert result.stdout.startswith("id=")
+        assert "[WARN] 去重查詢失敗，改為直接寫入：database unavailable" in result.stderr
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        rows = db.query_lessons_typed(project="test-proj")
+        db.close()
+        assert len(rows) == 1
+
     @staticmethod
     def _add_args() -> list[str]:
         return [

@@ -773,6 +773,22 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         cur = self.conn.execute(sql, params)
         return [_decode_lesson_row(row) for row in cur.fetchall()]
 
+    def find_latest_lesson_by_key(
+        self,
+        project: str,
+        lesson_type: str,
+        key: str,
+    ) -> dict[str, Any] | None:
+        """回傳 project、type、key 精確相符的最新 typed lesson。"""
+        cur = self.conn.execute(
+            "SELECT * FROM lessons "
+            "WHERE project = ? AND type = ? AND key = ? "
+            "ORDER BY ts DESC LIMIT 1",
+            (project, lesson_type, key),
+        )
+        row = cur.fetchone()
+        return _decode_lesson_row(row) if row is not None else None
+
     def increment_access_count(self, ids: list[str], now: datetime) -> None:
         """遞增指定 lesson IDs 的 access_count 與 last_accessed_at（batch update）。"""
         if not ids:

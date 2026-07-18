@@ -837,10 +837,15 @@ def lessons_add(  # pylint: disable=too-many-arguments
             "retrospective_id": retrospective_id,
             "retro_pr": retro_pr,
         }
+        # 刻意丟棄結果：在去重查詢前先 fail-fast 驗證輸入。
         LessonRecord.model_validate(record_data)
-        existing = find_existing_lesson(
-            resolved_project, lesson_type, key, db_path=_ctl_db_path()
-        )
+        try:
+            existing = find_existing_lesson(
+                resolved_project, lesson_type, key, db_path=_ctl_db_path()
+            )
+        except Exception as e:
+            click.echo(f"[WARN] 去重查詢失敗，改為直接寫入：{e}", err=True)
+            existing = None
         if existing is not None:
             existing_id = str(existing.get("id", ""))
             if skip_if_exists:
