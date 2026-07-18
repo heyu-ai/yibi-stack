@@ -29,7 +29,8 @@ _PIPED_AGY_PRINT = re.compile(r"\|\s*agy\s+(?:--print|-p)\b(?!\s+[\"'$])")
 def _code_lines(path: Path) -> str:
     """Return the script source with whole-line comments removed."""
     return "\n".join(
-        line for line in path.read_text(encoding="utf-8").splitlines()
+        line
+        for line in path.read_text(encoding="utf-8").splitlines()
         if not line.lstrip().startswith("#")
     )
 
