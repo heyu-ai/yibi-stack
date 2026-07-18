@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,9 @@ class OrchestratorConfig(BaseModel):
 
 
 def _safe_repo(repo: str) -> str:
+    # Known collision: a/b-c and a-b/c map to the same directory. The state repo
+    # mismatch guard contains this as a fail-loud lockout; use a hash encoding in
+    # a future migration of both active and archive paths.
     return repo.replace("/", "-").replace("\\", "-")
 
 
@@ -46,18 +50,28 @@ def migrate_flat_state_files() -> None:
     for src in _STATE_DIR.glob("*.json"):
         if not src.is_file() or not src.stem.isdigit():
             continue
-        repo = ""
         try:
             data = json.loads(src.read_text(encoding="utf-8"))
-            value = data.get("repo") if isinstance(data, dict) else None
-            if isinstance(value, str):
-                repo = value.strip()
-        except (OSError, json.JSONDecodeError):
-            repo = ""
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"[WARN] 舊版 State 檔無法讀取，保留原檔：{src}：{e}", file=sys.stderr)
+            continue
+
+        value = data.get("repo") if isinstance(data, dict) else None
+        repo = value.strip() if isinstance(value, str) else ""
 
         dest = state_path(repo or "unknown", int(src.stem))
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.is_file():
+            try:
+                if src.read_bytes() != dest.read_bytes():
+                    print(
+                        f"[WARN] 舊版 State 檔與既有隔離檔衝突；保留目的檔並移除來源檔："
+                        f"{src} → {dest}",
+                        file=sys.stderr,
+                    )
+                src.unlink(missing_ok=True)
+            except OSError as e:
+                raise RuntimeError(f"舊版 State 衝突檔清理失敗：{src} → {dest}") from e
             continue
         try:
             os.replace(src, dest)
@@ -94,7 +108,9 @@ def load_state_file(repo: str, pr_number: int) -> dict:  # type: ignore[type-arg
     except (OSError, json.JSONDecodeError) as e:
         raise RuntimeError(f"State 檔讀取失敗：{p}") from e
     state = OrchestratorState.model_validate(data)
-    if state.repo != repo:
+    state_repo = state.repo.strip()
+    current_repo = repo.strip()
+    if not state_repo or not current_repo or state_repo != current_repo:
         raise RuntimeError(
             f"PR #{pr_number} 的 State repo 不一致：檔案記錄為「{state.repo or '空白'}」，"
             f"目前 repo 為「{repo or '空白'}」。可能發生 state 檔碰撞，已停止操作。"
@@ -108,6 +124,11 @@ def persist_state(state: OrchestratorState) -> None:
 
     if not isinstance(state, _S):
         raise TypeError(f"expect OrchestratorState, got {type(state)}")
+    if not state.repo.strip():
+        raise RuntimeError(
+            "無法解析 repo slug（GH_REPO 未設定且 gh repo view 失敗），"
+            "無法安全隔離 state。請設定 GH_REPO=<owner>/<repo> 或確認 gh 已登入"
+        )
 
     p = state_path(state.repo, state.pr_number)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -125,7 +146,12 @@ def persist_state(state: OrchestratorState) -> None:
 def archive_state(state: OrchestratorState) -> None:
     """CLEANED 後把 state file 搬到 ~/.claude/pr_orchestrator/<repo>/ 作為歸檔。"""
 
-    dest = archive_path(state.repo or "unknown", state.pr_number)
+    if not state.repo.strip():
+        raise RuntimeError(
+            "無法解析 repo slug（GH_REPO 未設定且 gh repo view 失敗），"
+            "無法安全隔離 state。請設定 GH_REPO=<owner>/<repo> 或確認 gh 已登入"
+        )
+    dest = archive_path(state.repo, state.pr_number)
     dest.parent.mkdir(parents=True, exist_ok=True)
     src = state_path(state.repo, state.pr_number)
     if src.is_file():
@@ -164,10 +190,11 @@ def find_latest_state(repo: str) -> int | None:
     for p in candidates:
         try:
             data = _json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, _json.JSONDecodeError):
+        except (OSError, _json.JSONDecodeError) as e:
+            print(f"[WARN] State 檔無法讀取，略過：{p}：{e}", file=sys.stderr)
             continue
         ts = data.get("last_transition_at", "")
         if ts > best_ts:
             best_ts = ts
-            best_pr = data.get("pr_number")
+            best_pr = int(p.stem)
     return best_pr

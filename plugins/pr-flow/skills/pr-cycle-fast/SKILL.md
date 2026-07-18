@@ -67,7 +67,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator detect --pr {{p
 **resume**：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator resume
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator resume --repo-root "$REPO_ROOT"
 ```
 
 輸出 PR 號碼與當前 state。若無 active state 檔案：停止並提示先執行 detect。
@@ -75,7 +75,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator resume
 **讀取 state**：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status --repo-root "$REPO_ROOT"
 ```
 
 將輸出 JSON 的 `current_state` 存入變數，依此進入對應步驟。
@@ -106,13 +106,13 @@ transition 後讀取新 state，自動循環推進，直到 BLOCKED / FAILED / C
 先 transition 到 REVIEWING：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to REVIEWING --reason "spawning review subagents"
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to REVIEWING --reason "spawning review subagents" --repo-root "$REPO_ROOT"
 ```
 
 寫出 spawn-manifest（用 `write-manifest` 明確觸發）：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator write-manifest --pr {{pr_number}}
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator write-manifest --pr {{pr_number}} --repo-root "$REPO_ROOT"
 ```
 
 讀取 manifest 路徑（來自 status JSON 的 `artifacts.spawn_manifest`），然後**在同一個 message 內**用 Task tool 一次 dispatch 三個並行 subagent：
@@ -136,8 +136,8 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator write-manifest 
 - 再 transition → `CI_WAIT`（Step 4）
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to REVIEW_DONE --reason "all reviewers done"
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to CI_WAIT --reason "entering CI wait"
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to REVIEW_DONE --reason "all reviewers done" --repo-root "$REPO_ROOT"
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to CI_WAIT --reason "entering CI wait" --repo-root "$REPO_ROOT"
 ```
 
 ### Step 4 — CI Monitor (CI_WAIT)
@@ -149,7 +149,7 @@ ci-monitor subagent 的結果決定下一步：
 - `CONFLICT` → transition `CI_WAIT → CONFLICT → BLOCKED`
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to {{next_state}} --reason "{{reason}}"
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to {{next_state}} --reason "{{reason}}" --repo-root "$REPO_ROOT"
 ```
 
 若 CI_PASS：再 transition → MERGEABLE，停下等待 user ship 確認（Step 6）。
@@ -157,7 +157,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr
 ### Step 5 — Auto-Fix Loop (AUTO_FIX)
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status --pr {{pr_number}}
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status --pr {{pr_number}} --repo-root "$REPO_ROOT"
 ```
 
 > **注意**：auto-fix loop 由 Python CLI 內部管理（`tasks.pr_orchestrator.auto_fix.run()`），skill 只需觸發並等待結果。若 state 回到 CI_WAIT → 回到 Step 4；若 BLOCKED → 顯示 blockers 給 user。
@@ -199,7 +199,7 @@ gh pr merge {{pr_number}} --squash --delete-branch
 若成功，transition MERGEABLE → MERGED：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to MERGED --reason "user confirmed merge"
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to MERGED --reason "user confirmed merge" --repo-root "$REPO_ROOT"
 ```
 
 ### Step 7 — Retro (MERGED → RETRO_DONE)
@@ -207,7 +207,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr
 在同一 session 內觸發 `/pr-retro`：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to RETRO_DONE --reason "pr-retro completed"
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to RETRO_DONE --reason "pr-retro completed" --repo-root "$REPO_ROOT"
 ```
 
 > 實際執行：在此 step 前，先完整跑完 `/pr-retro`（包含 Step 4b typed lessons add），完成後才 transition 到 RETRO_DONE。
@@ -225,7 +225,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr
 完成後 transition：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to CLEANED --reason "clean-wt done"
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to CLEANED --reason "clean-wt done" --repo-root "$REPO_ROOT"
 ```
 
 State file 從 `.runtime/pr_orchestrator/` 搬到 `~/.claude/pr_orchestrator/<repo>/` 歸檔（Python CLI 自動處理）。
@@ -235,7 +235,7 @@ State file 從 `.runtime/pr_orchestrator/` 搬到 `~/.claude/pr_orchestrator/<re
 顯示完整 transition log：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator log-view --pr {{pr_number}}
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator log-view --pr {{pr_number}} --repo-root "$REPO_ROOT"
 ```
 
 回報：PR 號碼、merge commit、retro handover ID、clean 結果。

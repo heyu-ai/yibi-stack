@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import click
+from pydantic import ValidationError
 
 from . import log as olog
 from .config import (
@@ -62,9 +63,21 @@ def _load_state(repo: str, pr_number: int) -> OrchestratorState:
         return OrchestratorState.model_validate(load_state_file(repo, pr_number))
     except RuntimeError:
         raise
-    except Exception as e:
+    except ValidationError as e:
         p = state_path(repo, pr_number)
         raise RuntimeError(f"PR #{pr_number} state 檔損壞，請檢查 {p} 後重新執行 detect") from e
+
+
+def _require_repo(repo_root: Path | None = None) -> str:
+    repo = _resolve_repo_slug(repo_root=repo_root).strip()
+    if not repo:
+        click.echo(
+            "[FAIL] 無法解析 repo slug（GH_REPO 未設定且 gh repo view 失敗），"
+            "無法安全隔離 state。請設定 GH_REPO=<owner>/<repo> 或確認 gh 已登入",
+            err=True,
+        )
+        raise SystemExit(1)
+    return repo
 
 
 @click.group()
@@ -117,7 +130,7 @@ def detect(pr_number: int | None, branch: str | None, repo_root_str: str | None)
             click.echo(f"[FAIL] {e}", err=True)
             raise SystemExit(1) from None
 
-    repo = _resolve_repo_slug(repo_root=repo_root)
+    repo = _require_repo(repo_root=repo_root)
     migrate_flat_state_files()
     existing = state_path(repo, pr_info.number)
     if existing.is_file():
@@ -137,17 +150,18 @@ def detect(pr_number: int | None, branch: str | None, repo_root_str: str | None)
         repo=repo,
     )
     persist_state(state)
-    olog.append(pr_info.number, "INIT", PRState.DETECTED, "initial detection")
+    olog.append(repo, pr_info.number, "INIT", PRState.DETECTED, "initial detection")
     click.echo(f"[ok] PR #{pr_info.number} state 已建立：{state_path(repo, pr_info.number)}")
 
 
 @cli.command(name="write-manifest")
 @click.option("--pr", "pr_number", required=True, type=int)
-def write_manifest(pr_number: int) -> None:
+@click.option("--repo-root", "repo_root_str", default=None, help="repo 根目錄（留空用 cwd）")
+def write_manifest(pr_number: int, repo_root_str: str | None) -> None:
     """為 REVIEWING 狀態寫出 spawn-manifest.md，並更新 artifacts.spawn_manifest。"""
     from .dispatcher import write_review_manifest
 
-    repo = _resolve_repo_slug()
+    repo = _require_repo(Path(repo_root_str) if repo_root_str else None)
     try:
         state = _load_state(repo, pr_number)
     except RuntimeError as e:
@@ -182,7 +196,7 @@ def auto_fix_cmd(pr_number: int, repo_root_str: str | None) -> None:
     from .auto_fix import run as run_auto_fix
 
     repo_root = _Path(repo_root_str) if repo_root_str else _Path(os.getcwd())
-    repo = _resolve_repo_slug(repo_root=repo_root)
+    repo = _require_repo(repo_root=repo_root)
     try:
         state = _load_state(repo, pr_number)
     except RuntimeError as e:
@@ -207,14 +221,15 @@ def auto_fix_cmd(pr_number: int, repo_root_str: str | None) -> None:
 @click.option("--pr", "pr_number", required=True, type=int)
 @click.option("--to", "to_state", required=True, type=click.Choice([s.value for s in PRState]))
 @click.option("--reason", default="", help="transition 原因說明")
-def transition(pr_number: int, to_state: str, reason: str) -> None:
+@click.option("--repo-root", "repo_root_str", default=None, help="repo 根目錄（留空用 cwd）")
+def transition(pr_number: int, to_state: str, reason: str, repo_root_str: str | None) -> None:
     """手動觸發 state transition（供 skill 在動作完成後呼叫）。
 
     transitioning to CLEANED 同時觸發 state 歸檔至 ~/.claude/pr_orchestrator/<repo>/
     """
     from .service import transition as svc_transition
 
-    repo = _resolve_repo_slug()
+    repo = _require_repo(Path(repo_root_str) if repo_root_str else None)
     try:
         state = _load_state(repo, pr_number)
     except RuntimeError as e:
@@ -235,7 +250,7 @@ def transition(pr_number: int, to_state: str, reason: str) -> None:
         raise SystemExit(1) from None
 
     t = state.transitions[-1]
-    olog.append(pr_number, t.from_state, to_state, reason)
+    olog.append(repo, pr_number, t.from_state, to_state, reason)
     click.echo(f"[ok] PR #{pr_number}: {t.from_state} -> {to_state}")
 
     if to == PRState.CLEANED:
@@ -244,9 +259,10 @@ def transition(pr_number: int, to_state: str, reason: str) -> None:
 
 @cli.command()
 @click.option("--pr", "pr_number", default=None, type=int)
-def status(pr_number: int | None) -> None:
+@click.option("--repo-root", "repo_root_str", default=None, help="repo 根目錄（留空用 cwd）")
+def status(pr_number: int | None, repo_root_str: str | None) -> None:
     """顯示 PR state 資訊。"""
-    repo = _resolve_repo_slug()
+    repo = _require_repo(Path(repo_root_str) if repo_root_str else None)
     if pr_number is None:
         pr_number = find_latest_state(repo)
         if pr_number is None:
@@ -264,9 +280,10 @@ def status(pr_number: int | None) -> None:
 
 @cli.command()
 @click.option("--pr", "pr_number", default=None, type=int, help="PR 號碼（留空抓最新）")
-def resume(pr_number: int | None) -> None:
+@click.option("--repo-root", "repo_root_str", default=None, help="repo 根目錄（留空用 cwd）")
+def resume(pr_number: int | None, repo_root_str: str | None) -> None:
     """顯示 resume 指引：讀取 state 並告訴 skill 該從哪裡繼續。"""
-    repo = _resolve_repo_slug()
+    repo = _require_repo(Path(repo_root_str) if repo_root_str else None)
     if pr_number is None:
         pr_number = find_latest_state(repo)
         if pr_number is None:
@@ -322,15 +339,17 @@ def _next_command_hint(state: OrchestratorState) -> str:
 
 @cli.command()
 @click.option("--pr", "pr_number", default=None, type=int)
-def log_view(pr_number: int | None) -> None:
+@click.option("--repo-root", "repo_root_str", default=None, help="repo 根目錄（留空用 cwd）")
+def log_view(pr_number: int | None, repo_root_str: str | None) -> None:
     """顯示 transition log。"""
+    repo = _require_repo(Path(repo_root_str) if repo_root_str else None)
     if pr_number is None:
-        pr_number = find_latest_state(_resolve_repo_slug())
+        pr_number = find_latest_state(repo)
         if pr_number is None:
             click.echo("[FAIL] 找不到任何 active state 檔", err=True)
             raise SystemExit(1)
 
-    entries = olog.read(pr_number)
+    entries = olog.read(repo, pr_number)
     if not entries:
         click.echo(f"PR #{pr_number} 尚無 log。")
         return
@@ -346,9 +365,13 @@ def log_view(pr_number: int | None) -> None:
 @cli.command()
 @click.option("--pr", "pr_number", required=True, type=int)
 @click.option("--dry-run", is_flag=True, help="只列出要刪除的檔案，不實際刪除")
-def gc(pr_number: int, dry_run: bool) -> None:
+@click.option("--repo-root", "repo_root_str", default=None, help="repo 根目錄（留空用 cwd）")
+def gc(pr_number: int, dry_run: bool, repo_root_str: str | None) -> None:
     """清理已完成 PR 的 .runtime 暫存資料。"""
-    repo = _resolve_repo_slug()
+    from .dispatcher import manifest_path
+
+    repo = _require_repo(Path(repo_root_str) if repo_root_str else None)
+    migrate_flat_state_files()
     p = state_path(repo, pr_number)
     if not p.is_file():
         click.echo(f"PR #{pr_number} 無 active state，略過。")
@@ -364,10 +387,10 @@ def gc(pr_number: int, dry_run: bool) -> None:
         click.echo(f"PR #{pr_number} 狀態為 {state.current_state}，尚未完成，略過。")
         return
 
-    manifest = p.parent / str(pr_number)
+    manifest = manifest_path(repo, pr_number).parent
     # Collect files under manifest dir, plus the state file and log
     manifest_files = sorted(manifest.rglob("*"), reverse=True) if manifest.is_dir() else []
-    targets = [p, olog.log_path(pr_number)] + list(manifest_files)
+    targets = [p, olog.log_path(repo, pr_number)] + list(manifest_files)
 
     for t in targets:
         if t.is_file():

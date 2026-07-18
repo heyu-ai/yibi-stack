@@ -56,15 +56,18 @@ def test_pror_st_042_flat_state_migration_is_repo_scoped_and_idempotent(
     """PROR-ST-042：舊版扁平檔依 repo 遷移，重複執行不會改變結果。"""
     monkeypatch.setattr(config, "_STATE_DIR", tmp_path)
     flat = tmp_path / "42.json"
-    flat.write_text(_state("owner/alpha").model_dump_json(), encoding="utf-8")
+    source = _state("owner/alpha").model_copy(update={"head_sha": "source-a"})
+    authoritative = _state("owner/alpha").model_copy(update={"head_sha": "dest-b"})
+    flat.write_text(source.model_dump_json(), encoding="utf-8")
+    dest = config.state_path("owner/alpha", 42)
+    dest.parent.mkdir(parents=True)
+    dest.write_text(authoritative.model_dump_json(), encoding="utf-8")
 
     config.migrate_flat_state_files()
-    dest = config.state_path("owner/alpha", 42)
-    first = dest.read_text(encoding="utf-8")
     config.migrate_flat_state_files()
 
     assert not flat.is_file()
-    assert dest.read_text(encoding="utf-8") == first
+    assert json.loads(dest.read_text(encoding="utf-8"))["head_sha"] == "dest-b"
 
 
 def test_pror_st_043_flat_state_without_repo_moves_to_unknown(
@@ -79,3 +82,62 @@ def test_pror_st_043_flat_state_without_repo_moves_to_unknown(
 
     assert not flat.is_file()
     assert config.state_path("unknown", 7).is_file()
+
+
+@pytest.mark.parametrize(("stored_repo", "current_repo"), [("", "owner/current"), ("", "")])
+def test_pror_st_044_empty_repo_never_passes_mismatch_guard(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stored_repo: str,
+    current_repo: str,
+) -> None:
+    monkeypatch.setattr(config, "_STATE_DIR", tmp_path)
+    path = config.state_path(current_repo, 42)
+    path.parent.mkdir(parents=True)
+    path.write_text(_state(stored_repo).model_dump_json(), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="State repo 不一致"):
+        config.load_state_file(current_repo, 42)
+
+
+def test_pror_st_045_persist_rejects_empty_repo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(config, "_STATE_DIR", tmp_path)
+
+    with pytest.raises(RuntimeError, match="無法安全隔離 state"):
+        config.persist_state(_state("  "))
+    assert not config.state_path("unknown", 42).is_file()
+
+
+def test_pror_st_046_corrupt_flat_state_warns_and_stays_in_place(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(config, "_STATE_DIR", tmp_path)
+    flat = tmp_path / "9.json"
+    flat.write_text("{broken", encoding="utf-8")
+
+    config.migrate_flat_state_files()
+
+    assert flat.is_file()
+    assert not config.state_path("unknown", 9).is_file()
+    stderr = capsys.readouterr().err
+    assert "[WARN]" in stderr
+    assert str(flat) in stderr
+
+
+def test_pror_st_047_latest_warns_on_corrupt_and_uses_filename_pr(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(config, "_STATE_DIR", tmp_path)
+    repo_dir = config.state_path("owner/alpha", 1).parent
+    repo_dir.mkdir(parents=True)
+    (repo_dir / "99.json").write_text("{broken", encoding="utf-8")
+    (repo_dir / "42.json").write_text(
+        json.dumps({"last_transition_at": "2026-01-01T00:00:00Z"}), encoding="utf-8"
+    )
+
+    assert config.find_latest_state("owner/alpha") == 42
+    stderr = capsys.readouterr().err
+    assert "[WARN]" in stderr
+    assert str(repo_dir / "99.json") in stderr
