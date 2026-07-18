@@ -42,3 +42,10 @@ jobs:
 
       - name: Test
         run: uv run pytest --tb=short
+
+      # ADR-0004 Phase 1 的交付物是「tasks/ 可經 uv tool install 安裝並執行」。
+      # pytest 全部從源碼樹 import，證明不了這件事——entry point 打錯、packages 寫錯、
+      # exclude 過寬，測試全數照綠，缺陷會先在使用者的安裝現場爆而非 CI。
+      # 不能用 @pytest.mark.slow 涵蓋：addopts = "-m 'not slow'" 連 CI 都 deselect。
+      - name: Packaging smoke test (wheel installs and runs standalone)
+        run: bash scripts/packaging_smoke_test.sh

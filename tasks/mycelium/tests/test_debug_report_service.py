@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +24,25 @@ def make_report(**kwargs: object) -> DebugReportRecord:
         "root_cause": "follow_imports=normal 在 CI 上走到 site-packages，local 是 skip",
     }
     return save_debug_report(**{**defaults, **kwargs})  # type: ignore[arg-type]
+
+
+def make_debug_save_args(project: str | None = None) -> list[str]:
+    """建立 debug save CLI 參數；project 為 None 時省略旗標。"""
+    args = [
+        "debug",
+        "save",
+        "--keyword",
+        "test_bug",
+        "--report-path",
+        "debugs/test.md",
+        "--symptom",
+        "症狀",
+        "--root-cause",
+        "根因",
+    ]
+    if project is not None:
+        args.extend(["--project", project])
+    return args
 
 
 class TestSaveDebugReport:
@@ -211,6 +231,48 @@ class TestDebugCLI:
         ):
             result = runner.invoke(cli, ["debug", "list"])
         assert result.exit_code == 1
+
+    def test_sm_dr_033_save_explicit_project_persists_value(self, tmp_path: Path) -> None:
+        """SM-DR-033: debug save 的 explicit --project 寫入指定 project。"""
+        out = tmp_path / "debug-reports.jsonl"
+        runner = CliRunner()
+        with (
+            patch(
+                "tasks.mycelium.debug_report_service.save_debug_report",
+                side_effect=partial(save_debug_report, output_path=out),
+            ),
+            patch(
+                "tasks.mycelium.debug_report_service.detect_project",
+                return_value="cwd-project",
+            ) as mock_detect,
+        ):
+            result = runner.invoke(cli, make_debug_save_args(project="target-project"))
+
+        assert result.exit_code == 0
+        record = list_debug_reports(output_path=out)[0]
+        assert record.project == "target-project"
+        mock_detect.assert_not_called()
+
+    def test_sm_dr_034_save_omitted_project_uses_inferred_value(self, tmp_path: Path) -> None:
+        """SM-DR-034: debug save 省略 --project 時保留 git project 推斷。"""
+        out = tmp_path / "debug-reports.jsonl"
+        runner = CliRunner()
+        with (
+            patch(
+                "tasks.mycelium.debug_report_service.save_debug_report",
+                side_effect=partial(save_debug_report, output_path=out),
+            ),
+            patch(
+                "tasks.mycelium.debug_report_service.detect_project",
+                return_value="inferred-project",
+            ) as mock_detect,
+        ):
+            result = runner.invoke(cli, make_debug_save_args())
+
+        assert result.exit_code == 0
+        record = list_debug_reports(output_path=out)[0]
+        assert record.project == "inferred-project"
+        mock_detect.assert_called_once_with()
 
 
 class TestDebugReportRecordValidation:

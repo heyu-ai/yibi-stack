@@ -210,6 +210,36 @@ Operationally: treat a residual note like a test. When you change the predicate,
 of the diff — if you did not re-run the scenario it describes, you do not know whether it is still
 true.
 
+**The subshell-`exit` trap is now enforced mechanically, not by memory.** After the fail-loud
+principle recurred across three dated lessons (2026-07-07, 2026-07-14, and PR #234's four
+in-PR repeats), continuing to write it down was an admission that writing it down does not work.
+`scripts/lint_shell_subshell_exit.py` (pre-commit, `types: [shell]`) parses shell scripts and
+warns on the one shape that actually fail-opens:
+
+> `exit` inside a function **and** that function is called as the first token of a `$(…)` **and**
+> the call site is somewhere `set -e` will not catch (an `if`/`while`/`until` condition, or `||`
+> / `&&`), **or** the script has no `set -e` at all.
+
+Both extra conjuncts are load-bearing, and each was learned from a false positive the first draft
+produced against real repo code: `bump.sh`'s `new_version=$(bump_semver …)` is a **bare
+assignment under `set -e`**, so the subshell's `exit 1` does abort the script — no fail-open;
+a call like `LOG=$(python3 logger.py block …)` only *mentions* a same-named token inside an
+unrelated `$(…)` while `block()` itself is called **directly**, so requiring the name to be the
+substitution's first token clears it (see test EG-004's synthetic fixture — do not cite a specific
+tracked file's current contents, which drift). A lint that fires on correct code teaches people to
+disable it, so the negative controls are the important tests, not the positive one.
+
+**Ships advisory, not blocking (PR #241 mob review).** A cross-family mob review (Claude / Codex /
+agy) empirically found this lint is incomplete in **both** directions, so it defaults to warn-only
+(`--fail` opts into blocking for CI): it **false-positives** on the final-position `&&`/`||` case
+(`true && X=$(fn)` is caught by `set -e`, yet flagged) and on `set -o errexit`, and it
+**false-negatives** on the two most common real shapes — a quoted `X="$(fn)"` (best-practice
+quoting, invisible because `_strip_noise` drops double-quoted content) and `local/export X=$(fn)`
+(SC2155, which defeats `set -e`). The blockquote's "`||`/`&&`" clause above is therefore an
+**over-approximation**, not a precise gate. The lesson for future mechanical guards: a lint that
+enforces an anti-pattern must itself be held to the anti-pattern's full truth table before it is
+allowed to block — until then, advisory.
+
 **Do not run mutation tests on a shared worktree file while a review agent is reading it.**
 Mutation testing edits the real file in place; a reviewer dispatched against that path will read
 whatever state the file happens to be in. On this PR a reviewer read the script mid-mutation, got
@@ -1055,6 +1085,33 @@ verification-before-authoring discipline, extended from "match the artifact you 
 boundary of any claim you generalize, and run any command you tell the reader to run." When a doc
 makes a universal claim or ships a runnable snippet, the author — not a downstream reviewer — owns
 proving it.
+
+## A `verified` Annotation Is a Claim About a Version, Not a Permanent Fact (PR #229 lesson)
+
+The section above closes the authoring-time gap: probe the claim before you write it. It does not
+close the **time** gap. A probe that genuinely passed when written can silently become false when
+the tool it probes is upgraded — and the `verified` annotation, which was earned honestly, is then
+the very thing that stops the next reader from re-checking.
+
+Two rules follow:
+
+1. **Stamp the tool version next to any `verified` claim.** `verified` alone is unfalsifiable —
+   a reader cannot tell whether it still holds. `verified on agy 1.1.2` tells them exactly when to
+   re-run it.
+2. **Re-run an inherited probe before relying on it after a CLI upgrade**, rather than trusting the
+   annotation. This is cheap (one command) and is the only thing that catches rot.
+
+**Real incident (PR #229)**: rule 13 documented, as `verified`, that agy's `--print` is boolean and
+that `printf 'reply ALPHA' | agy --print --add-dir . --sandbox` returns `ALPHA` (PR #156/#157). On
+agy 1.1.2 that command makes agy explain what `--add-dir` does: `--print` takes the prompt as its
+**value**, so it swallows the next flag and never reads stdin. The claim was almost certainly true
+when written. Worse, `plugins/3rd-tools/skills/agy/scripts/run.sh` had been built on that
+documented form and was **silently broken in production** — piping a review prompt, receiving an
+unrelated answer, exiting 0. The rot was found only because an unrelated task re-ran the probe.
+
+Corollary — **doc rot and code rot travel together**. When you falsify a documented probe, grep for
+callers built on it (`rg 'agy --print'`) before assuming the damage is limited to prose. Here the
+same stale claim had produced a live silent-failure bug in a shipped skill.
 
 ## Tool Exit Codes Must Be Listed in SKILL.md Branch Design (PR #115 lesson)
 

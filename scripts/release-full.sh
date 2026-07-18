@@ -33,7 +33,12 @@ fi
 rollback() {
     echo "[WARN] Release failed — reverting version files" >&2
     git checkout -- pyproject.toml CHANGELOG.md 2>/dev/null || true
+    # Both globs are required: sync_plugin_versions.py writes package.json AND
+    # .claude-plugin/plugin.json (they are version-locked with no CI cross-check), and Step 5
+    # git-adds both. Reverting only package.json left plugin.json carrying the bumped version
+    # after a failed gate -- a half-rolled-back tree that looks clean at a glance.
     git checkout -- 'plugins/*/package.json' 2>/dev/null || true
+    git checkout -- 'plugins/*/.claude-plugin/plugin.json' 2>/dev/null || true
 }
 trap rollback ERR
 
