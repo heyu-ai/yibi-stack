@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [1.10.1] - 2026-07-17
+
+### Bug Fixes
+
+- pr-cycle-deep 的 agy review model 由 Gemini 3.1 Pro (High) 降為 (Low)（High 在本機一律故障） (#265)
+
 ## [1.10.0] - 2026-07-16
 
 ### Features

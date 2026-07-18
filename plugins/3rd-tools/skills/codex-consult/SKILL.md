@@ -1,0 +1,92 @@
+---
+name: codex-consult
+type: tool
+scope: global
+description: OpenAI Codex CLI 第二意見：請 Codex 閱讀 codebase 後回答技術問題。觸發須明確指名 Codex：ask codex, consult codex, codex 第二意見, codex 怎麼看, 問 codex, get a second opinion from codex。純粹「幫我看一下」「這樣對嗎」等未指名 Codex 的一般提問不觸發此 skill。要 review diff 或 PR 改動請改用 /codex-review；外部模型 mob review 請改用 /mob-code-review-only。
+---
+
+# /codex-consult — 詢問 Codex 技術問題
+
+讓 Codex 讀取 repo 後，回答你對 codebase 的技術問題。適合「這段邏輯對嗎？」「為什麼這樣設計？」「有什麼潛在問題？」等開放式諮詢。
+
+和 `/codex-review` 的區別：`/codex-review` 吃 **diff**（branch 改動）；`/codex-consult` 吃**任意問題**，不需要有待 review 的改動。
+
+---
+
+## Step 0.4: 確認 codex binary
+
+```bash
+which codex 2>/dev/null && echo "CODEX_BIN: found" || echo "CODEX_BIN: not_found"
+```
+
+若輸出 `not_found`：停止並告知使用者：
+「Codex CLI 未安裝。請執行：`npm install -g @openai/codex`」
+
+---
+
+## Step 0.5: Auth 確認
+
+**分兩次 bash call**（避免 if/elif 觸發確認框）：
+
+```bash
+env | grep -qE '^(CODEX_API_KEY|OPENAI_API_KEY)=.' && echo "KEY_AUTH: yes" || echo "KEY_AUTH: no"
+```
+
+```bash
+test -f ~/.codex/auth.json && echo "FILE_AUTH: yes" || echo "FILE_AUTH: no"
+```
+
+判斷規則（讀兩次輸出自行判斷）：
+
+- `KEY_AUTH: yes` → 已認證，繼續
+- `KEY_AUTH: no` 且 `FILE_AUTH: yes` → 已認證，繼續
+- `KEY_AUTH: no` 且 `FILE_AUTH: no` → 停止並告知：「請執行 `codex login` 或設定 `CODEX_API_KEY` / `OPENAI_API_KEY` 環境變數。」
+
+---
+
+## Filesystem Boundary（每次傳給 Codex 的 prompt 必須前綴此段）
+
+```text
+IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
+```
+
+---
+
+## Step 1: 組合 prompt 並執行
+
+**一律用 stdin packet**（不傳位置參數）。使用者問題可能含雙引號、`$VAR`、`$(...)` 或 backtick，
+inline 傳入 `codex exec "..."` 會 break bash 或求值 / 執行任意 shell（injection）。用 Write tool
+把 boundary + 使用者問題寫入 `$CLAUDE_JOB_DIR/codex-consult-packet.txt`（**禁用** `"$(cat ...)"`
+外層雙引號包 subshell——rule 13 Quoting Rule 2 違規）：
+
+Packet 格式：
+
+```text
+IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
+
+<使用者問題>
+```
+
+執行（repo root 在同一 bash block 解析進 `ROOT` 變數、以 `"$ROOT"` 傳入——**不用 placeholder
+替換**（避免 checkout 路徑含 `"`/`` ` ``/`$()` 時逸出），**不用 `"$(...)"` 內嵌**（rule 13
+Quoting Rule 2），**不用 `timeout`**——對齊 proven 形式且 stock macOS 無 `timeout` 內建）：
+
+```bash
+ROOT=$(git rev-parse --show-toplevel)
+codex exec -C "$ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-consult-packet.txt"
+```
+
+**Exit-code gate**：上面 codex exec 若非零退出，停止並告知使用者：「codex exec 失敗；請確認
+`codex login` 或網路後重試。」不可把失敗輸出當成答案呈現。
+
+clean exit 後，呈現完整輸出，不截斷、不摘要。
+
+---
+
+## 常見問題
+
+| 問題 | 解法 |
+|------|------|
+| Codex CLI 未找到 | `npm install -g @openai/codex` |
+| auth 失敗 | `codex login` 或設定 `CODEX_API_KEY` / `OPENAI_API_KEY` |
+| timeout | 重新執行；持續發生則縮短問題或縮小範圍 |

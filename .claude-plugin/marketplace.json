@@ -44,7 +44,7 @@
     },
     {
       "name": "3rd-tools",
-      "description": "Third-party AI tool integrations: Codex CLI wrapper, agy, and Gemini model verification for Claude Code agents.",
+      "description": "Third-party AI tool integrations: Codex code review / consult, agy, and Gemini model verification for Claude Code agents.",
       "author": {
         "name": "Howie Yu"
       },
