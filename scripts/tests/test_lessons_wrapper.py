@@ -248,6 +248,22 @@ class TestWriteCommandInjectsProject:
             f"{subcmd} 不應被注入 --project（會讓 click exit 2）：{result.stdout!r}"
         )
 
+    def test_lsw_dt_010_non_git_fallback_emits_warning(self, tmp_path: Path) -> None:
+        """LSW-DT-010: 非 git 目錄走 basename(pwd) fallback 時，須印 [WARN] 到 stderr。
+
+        fallback 會生出貌似合理的錯 project 名（如從 ~/Downloads 呼叫記成 Downloads），
+        且壓掉了 CLI 在此路徑唯一的大聲訊號（issue #254）。wrapper 至少要對此發聲並
+        提示用 --project 指定。拿掉 wrapper 的 [WARN] echo 後本測試轉紅（mutation 反證）。
+        """
+        result = _run_wrapper(tmp_path, ["add", "--key", "k"])
+        assert result.returncode == 0, result.stderr
+        assert "[WARN]" in result.stderr, (
+            f"非 git 目錄 fallback 未對可能記錯的 project 名發聲：{result.stderr!r}"
+        )
+        assert "--project" in result.stderr, (
+            f"[WARN] 未提示改用 --project 指定正確 scope：{result.stderr!r}"
+        )
+
     def test_lsw_eg_001_no_subcommand_does_not_crash(self, tmp_path: Path) -> None:
         """LSW-EG-001: 不帶任何引數時 `${1:-}` 不因 set -u 而炸。
 
