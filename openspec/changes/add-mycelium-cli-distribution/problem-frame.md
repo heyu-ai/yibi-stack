@@ -6,10 +6,10 @@
 
 | 子問題 | 方法論決策表判斷 | 分類與理由 |
 |--------|------------------|------------|
-| package metadata、README、六份 SKILL.md、hook 設定與 symlink/resolver lane 的修訂 | 使用者透過工具建立或編輯工件，且每次編輯後都必須維持結構與相容性不變式 | **Simple Workpieces**：主要交付是可版本化工件的受控修改，核心 concern 是單一 distribution、package root、唯一安裝字串與 verify-before-unlink 順序不能被破壞 |
+| package metadata、README、六份 SKILL.md、hook 設定與 symlink/resolver lane 的修訂 | 使用者透過工具建立或編輯工件，且每次編輯後都必須維持結構與相容性不變式 | **Simple Workpieces**：主要交付是可版本化工件的受控修改，核心 concern 是單一 distribution、package root、七檔一致的 recorded-tag 安裝字串與 verify-before-unlink 順序不能被破壞 |
 | skill preflight、hook registration、checkout wrapper 與 cleanup gate | 機器需在 hook 或 skill 執行時自動維持安全狀態，不靠操作者逐步下命令 | **Required Behaviour**：PATH 解析成功時必須使用 installed binary；解析或驗證失敗時必須 fail-loud 並維持 rollback lane |
 
-主導分類選 Simple Workpieces，因 Phase A 的主要變更面是 packaging、文件、skill runbook、settings command 與 migration artifacts；Required Behaviour 則補足 hook/runtime gate 的因果論證。兩個 frame 的 shared phenomena 是 recorded Git tag、PATH 解析出的 `mycelium` 路徑、explicit project target，以及六個 symlink/resolver lane 的存在狀態，語意一致且沒有互相矛盾。
+主導分類選 Simple Workpieces，因 Phase A 的主要變更面是 packaging、文件、skill runbook、settings command 與 migration artifacts；Required Behaviour 則補足 hook/runtime gate 的因果論證。兩個 frame 的 shared phenomena 是 recorded Git tag、PATH 解析出的 required console scripts、shell-quoted `mycelium` hook 路徑、explicit project target，以及六個 symlink/resolver lane 的存在狀態，語意一致且沒有互相矛盾。
 
 Domain discovery judgment：**infrastructure change, domain evidence from issue #222 field data, Event Storming not required**。本 change 沒有新的業務 aggregate 或跨 bounded-context domain event；issue #222 已提供 plugin-only 使用者與野外 symlink 已移除的直接證據，足以支撐 framing。
 
@@ -23,19 +23,19 @@ Domain discovery judgment：**infrastructure change, domain evidence from issue 
 
 ## S - Specification (Observable Machine Behaviour)
 
-- **S1**：Phase A MUST 只支援 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@<tag>"`，並 MUST 由既有 `yibi-stack` distribution expose `mycelium`、`pr-orchestrator` 與 `portman`；wheel MUST 保留 `tasks`、排除 `tasks/**/tests/**`，且 MUST NOT 建立第二個 distribution。
-- **S2**：六個 skill MUST 在第一個 tasks-backed operation 前執行 `command -v mycelium`；解析失敗時 MUST 輸出 `[FAIL]` 與 S1 的 exact command、非零退出，且 MUST NOT fallback 到 checkout、`uv run`、`uvx` 或 `python -m tasks.*`。
+- **S1**：Phase A apply/verification MUST 選定並記錄單一具體 immutable release tag，且 MUST 只支援由該 recorded tag 形成的 exact tag-pinned Git command；既有 `yibi-stack` distribution MUST expose `mycelium`、`pr-orchestrator` 與 `portman`，wheel MUST 保留 `tasks`、排除 `tasks/**/tests/**`，且 MUST NOT 建立第二個 distribution。
+- **S2**：六個 skill MUST 在第一個 tasks-backed operation 前以 `command -v` preflight selected path 實際會呼叫的每個 console script：`pr-cycle-fast` 檢查 `pr-orchestrator`（若 path 也使用 `mycelium` 則兩者都檢查）、四個 mycelium-backed skills 檢查 `mycelium`、`local-port-manager` 檢查 `portman`；任一解析失敗時 MUST 指出缺少者、輸出 `[FAIL]` 與 S1 的 exact recorded-tag command、非零退出，且 MUST NOT fallback 到 checkout、`uv run`、`uvx` 或 `python -m tasks.*`。
 - **S3**：所有 project-sensitive `mycelium` 呼叫 MUST 傳 `--project <slug>`；`pr-orchestrator` repo 操作 MUST 傳 `--repo-root <absolute-path>`；`portman` MUST 依既有介面傳明確 project option 或 operand，且 global commands MUST NOT 收到虛構 scope flag。
-- **S4**：install-hooks MUST 從當下 PATH 解析 `mycelium` 的絕對路徑並固定寫入 `~/.claude/settings.json`；checkout wrappers MUST 在每次執行時以 `command -v mycelium` 解析。任一解析失敗 MUST fail-loud，且 hook commands MUST NOT 使用 checkout import 或 `uvx`。
+- **S4**：install-hooks MUST 從當下 PATH 解析 `mycelium` 的絕對路徑，以 `shlex.quote` 或等價方式 shell-quote 後固定寫入 `~/.claude/settings.json`，且 shell parsing 後第一個 argv MUST 等於該 resolved path；checkout wrappers MUST 在每次執行時以 `command -v mycelium` 解析。任一解析失敗 MUST fail-loud，且 hook commands MUST NOT 使用 checkout import 或 `uvx`。
 - **S5**：六個 real-checkout symlink 與 consumer resolver lane MUST 保留到 recorded tag 的 clean-environment verification 全部通過；任一失敗或未執行項目 MUST 阻擋 cleanup。通過後 MUST 只移除六個指定 symlink 與已無用途的 resolver logic，並 MUST 保持 `tasks/mycelium` root 與 26 個既有 test import path。
-- **S6**：README English／繁體中文 install sections 與六個 failure gates MUST 只呈現 S1 的 CLI command，並 MUST 將 plugin install 與 CLI install 說明為不同目的的互補軌；Phase A MUST NOT 出現 PyPI install command。
+- **S6**：README English／繁體中文 install sections 與六個 failure gates MUST 只呈現 S1 由 recorded release tag 形成的同一條 exact CLI command，並 MUST 將 plugin install 與 CLI install 說明為不同目的的互補軌；Phase A MUST NOT 出現 PyPI install command。
 
 ## W - Domain Assumptions
 
 | # | 假設內容 | 若不成立的影響 |
 |---|----------|----------------|
 | W1 | `uv` 已存在於目標機器，且可執行 `uv tool install`。 | Phase A 的唯一安裝入口無法啟動；必須先新增 uv bootstrap 前置步驟或重新定義支援矩陣。 |
-| W2 | PATH 在 interactive shells **以及執行 hooks 的 contexts** 都會暴露 uv tool bin directory。 | skill preflight 或 checkout wrapper 會找不到已安裝的 `mycelium`；install-hooks 也可能無法解析可固定寫入的絕對路徑，R1/R3 不成立。 |
+| W2 | PATH 在 interactive shells **以及執行 hooks 的 contexts** 都會暴露 uv tool bin directory。 | skill preflight 會找不到 selected path 需要的 `mycelium`、`pr-orchestrator` 或 `portman`，checkout wrapper 會找不到 `mycelium`；install-hooks 也可能無法解析可固定寫入的絕對路徑，R1/R3 不成立。 |
 | W3 | 目標機器可透過 `git+https` 存取 `github.com/heyu-ai/yibi-stack`。 | Git-tag installation 無法取得 source；clean-environment acceptance 與 SMK-001 無法執行，且不得進入 cleanup。 |
 | W4 | 用於安裝與驗證的 release tags 已存在且不可變，驗證證據會記錄實際 tag。 | 安裝結果不可重現，verify-before-unlink 證據不能綁定確定版本；cleanup 必須被阻擋。 |
 | W5 | 這六個 skills 由 Claude Code plugin cache 消費，不需要 repo-root `skills/` symlink 才能被發現。 | 移除 real-checkout symlink 後 plugin discovery 會失敗；必須保留相容 lane 或修正 plugin packaging 後再驗證。 |
@@ -43,11 +43,11 @@ Domain discovery judgment：**infrastructure change, domain evidence from issue 
 
 ## Correctness Argument (S together with W implies R)
 
-由 W1、W3 與 W4，S1 的 exact Git-tag command 在目標機器上有可執行、可取得且可重現的 source；S1 再保證同一 `yibi-stack` distribution 提供三個 console scripts。由 W5，六個 skill 可從 plugin cache 被發現，S2 將它們導向 installed CLI，因此推出 R1。
+由 W1、W3 與 W4，S1 由 recorded release tag 形成的 exact Git-tag command 在目標機器上有可執行、可取得且可重現的 source；S1 再保證同一 `yibi-stack` distribution 提供三個 console scripts。由 W5，六個 skill 可從 plugin cache 被發現，S2 逐一 preflight 並將它們導向實際需要的 installed CLI，因此推出 R1。
 
 由 S3，每一個 project-sensitive shared phenomenon 都攜帶明確 project slug 或 absolute checkout path；因此即使 cwd 不相關，受影響目標仍由 invocation contract 決定，推出 R2。
 
-由 W2，install-hooks 與 hook contexts 可以看見 uv tool bin directory。S4 在 registration 時固定可執行的絕對路徑，並在 wrapper runtime 重新解析；S2/S4 對缺少 binary 的情況都在副作用前 fail-loud，故 hook 可用性或明確失敗兩者必居其一，推出 R3。
+由 W2，install-hooks 與 hook contexts 可以看見 uv tool bin directory。S4 在 registration 時以 shell-safe 形式固定可執行的絕對路徑，並在 wrapper runtime 重新解析；S2/S4 對缺少 binary 的情況都在副作用前 fail-loud，故 hook 可用性或明確失敗兩者必居其一，推出 R3。
 
 由 W6，野外已有失去 symlink lane 的 broken state，不能把「先 unlink 再驗證」當作安全假設。S5 把 recorded-tag clean-environment evidence 設為 cleanup 的必要前置，W4 讓此證據可重現；失敗時保留相容 lane，成功後只清除已被 installed CLI 取代的六個位置，因此推出 R4。
 

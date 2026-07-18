@@ -43,13 +43,13 @@ Phase A 沿用既有 distribution，wheel 繼續只出貨 `tasks` 並排除 test
 
 ### D3 — Publish Phase A as a tag-pinned Git install
 
-README 與六個 SKILL.md 的 `[FAIL]` gate 只使用：
+Apply/verification 先選定並記錄單一具體 immutable release tag；README 與六個 SKILL.md 的 `[FAIL]` gate 只使用由該 recorded release tag 形成的同一條 exact command。以下 `v1.11.0` 僅為 illustrative value，apply 時以實際 recorded release tag 取代：
 
 ```bash
-uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@<tag>"
+uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"
 ```
 
-tag pin 讓 skill 與 CLI 版本可重現；README 以 plugin 安裝處理 skill/runbook，以 `uv tool install` 處理 Python CLI，形成 two-track install。
+具體 tag pin 讓 skill 與 CLI 版本可重現；README 以 plugin 安裝處理 skill/runbook，以 `uv tool install` 處理 Python CLI，形成 two-track install。Documentation assertions 比對 README 與六個 gates 的 command 完全一致，不 hardcode illustrative `v1.11.0` 或任何 placeholder。
 
 **Rejected alternatives:**
 
@@ -58,16 +58,16 @@ tag pin 讓 skill 與 CLI 版本可重現；README 以 plugin 安裝處理 skill
 
 ### D4 — Make six skill consumers checkout-independent
 
-所有六個 SKILL.md 先以 `command -v mycelium` 作 distribution sentinel；失敗時印 `[FAIL]`、顯示 D3 的唯一安裝指令並 exit non-zero。呼叫對應如下：
+所有六個 SKILL.md 都先以 `command -v` 檢查 selected path 實際會呼叫的每個 console script；失敗時指出缺少的 script、印 `[FAIL]`、顯示 D3 的 exact recorded-tag 安裝指令並 exit non-zero。呼叫與 preflight 對應如下：
 
-| Skill | Installed command | Explicit target contract |
-|------|-------------------|--------------------------|
-| `pr-cycle-fast` | `pr-orchestrator` | `detect` / `auto-fix` 使用既有 `--repo-root "$REPO_ROOT"`；其他 state command 以明確 `--pr` 操作 |
-| `pr-control-log` | `mycelium control-log` | project-sensitive command 傳 `--project "$ORIG_PROJECT"` |
-| `pr-retrospective` | `mycelium retro`、`mycelium lessons`、`mycelium token-usage` | 傳 `--project "$ORIG_PROJECT"`，需要 filesystem scope 時另傳 `--workdir "$REAL_WORKDIR"` |
-| `mycelium` | `mycelium` | project-sensitive read/write 傳 `--project "$ORIG_PROJECT"`；`init`、`migrate` 等 global command 不虛構 project option |
-| `learn` | `mycelium lessons`、`mycelium insight` | 每條 project query 傳 `--project "$PROJECT"`，移除無 project filter 的 cwd fallback |
-| `local-port-manager` | `portman` | `list` 使用 `--project`；Click 介面以 positional project 表示的 `get` / `suggest` / `reserve` / `release` 保留顯式 project operand |
+| Skill | Installed command | Required preflight | Explicit target contract |
+|------|-------------------|--------------------|--------------------------|
+| `pr-cycle-fast` | `pr-orchestrator` | `command -v pr-orchestrator`；若 selected path 也呼叫 `mycelium`，另執行 `command -v mycelium` | `detect` / `auto-fix` 使用既有 `--repo-root "$REPO_ROOT"`；其他 state command 以明確 `--pr` 操作 |
+| `pr-control-log` | `mycelium control-log` | `command -v mycelium` | project-sensitive command 傳 `--project "$ORIG_PROJECT"` |
+| `pr-retrospective` | `mycelium retro`、`mycelium lessons`、`mycelium token-usage` | `command -v mycelium` | 傳 `--project "$ORIG_PROJECT"`，需要 filesystem scope 時另傳 `--workdir "$REAL_WORKDIR"` |
+| `mycelium` | `mycelium` | `command -v mycelium` | project-sensitive read/write 傳 `--project "$ORIG_PROJECT"`；`init`、`migrate` 等 global command 不虛構 project option |
+| `learn` | `mycelium lessons`、`mycelium insight` | `command -v mycelium` | 每條 project query 傳 `--project "$PROJECT"`，移除無 project filter 的 cwd fallback |
+| `local-port-manager` | `portman` | `command -v portman` | `list` 使用 `--project`；Click 介面以 positional project 表示的 `get` / `suggest` / `reserve` / `release` 保留顯式 project operand |
 
 `pr-orchestrator` 的明確目標是 checkout path 而非 project slug；其 source contract 已命名 `--repo-root`，刻意維持現有介面。這是 issue #222 要消除 cwd inference 的等價明確化，不把不相容旗標硬塞進既有 CLI。
 
@@ -75,7 +75,7 @@ tag pin 讓 skill 與 CLI 版本可重現；README 以 plugin 安裝處理 skill
 
 ### D5 — Resolve the settings hook binary at registration time
 
-`auto_handover_hooks.install_hooks()` 在 install-hooks 時以 `shutil.which("mycelium")` 或等價的 `command -v` 從目前 PATH 解析並正規化 binary 的絕對路徑。找不到時必須以 `[FAIL]` fail-loud，不寫入無法執行的 settings command；找到後，寫入 `~/.claude/settings.json` 的 `mycelium hooks pre-compact` 與 `mycelium hooks session-start` command 都以該絕對路徑開頭，解析結果在註冊後保持固定，直到重新安裝 hooks。checkout 內既有 `.claude/hooks/pre-compact-handover.sh` 與 `.claude/hooks/post-compact-handover-back.sh` 則在每次執行時以 `command -v mycelium` 尋找 binary，找不到時以 `[FAIL]` 停止，找到後呼叫該 binary 的相容 wrapper，不再用 inline Python import `tasks.mycelium.metrics_service`（目前 imports 位於 `.claude/hooks/pre-compact-handover.sh:63-112` 與 `.claude/hooks/post-compact-handover-back.sh:42-59`）。
+`auto_handover_hooks.install_hooks()` 在 install-hooks 時以 `shutil.which("mycelium")` 或等價的 `command -v` 從目前 PATH 解析並正規化 binary 的絕對路徑。找不到時必須以 `[FAIL]` fail-loud，不寫入無法執行的 settings command；找到後，以 `shlex.quote` 或等價 POSIX-safe encoding shell-quote 該路徑，再寫入 `~/.claude/settings.json` 的 `mycelium hooks pre-compact` 與 `mycelium hooks session-start` command。command 經 shell parsing 後的第一個 argv 必須等於解析出的絕對路徑，解析結果在註冊後保持固定，直到重新安裝 hooks。checkout 內既有 `.claude/hooks/pre-compact-handover.sh` 與 `.claude/hooks/post-compact-handover-back.sh` 則在每次執行時以 `command -v mycelium` 尋找 binary，找不到時以 `[FAIL]` 停止，找到後呼叫該 binary 的相容 wrapper，不再用 inline Python import `tasks.mycelium.metrics_service`（目前 imports 位於 `.claude/hooks/pre-compact-handover.sh:63-112` 與 `.claude/hooks/post-compact-handover-back.sh:42-59`）。
 
 **Rejected alternatives:**
 
@@ -95,21 +95,21 @@ tag pin 讓 skill 與 CLI 版本可重現；README 以 plugin 安裝處理 skill
 
 - 在沒有 yibi-stack checkout 的環境執行 D3 安裝指令後，`mycelium --help`、`pr-orchestrator --help`、`portman --help` 都成功。
 - 六個 skill 從任意 cwd 觸發時，只依賴 PATH 中已安裝的 CLI；project-sensitive 操作使用 D4 表格的明確 target，不從 CLI process cwd 猜 project。
-- 缺少 `mycelium` 時，六個 skill 在執行任何工作前印 `[FAIL]` 與完整 D3 指令並非零退出。
-- auto-handover 在 install-hooks 時從 PATH 解析 `mycelium` 絕對路徑並固定寫入 hook command；checkout wrapper 在執行時以 `command -v mycelium` 解析 binary。任一解析找不到 binary 都印 `[FAIL]` 並停止；hook event 不 import checkout 中的 `tasks`，也不呼叫 `uvx`。
+- selected skill path 缺少任何實際會呼叫的 console script 時，skill 在執行任何工作前指出缺少者、印 `[FAIL]` 與完整 D3 recorded-tag 指令並非零退出。
+- auto-handover 在 install-hooks 時從 PATH 解析 `mycelium` 絕對路徑，以 shell-safe 形式固定寫入 hook command；checkout wrapper 在執行時以 `command -v mycelium` 解析 binary。任一解析找不到 binary 都印 `[FAIL]` 並停止；hook event 不 import checkout 中的 `tasks`，也不呼叫 `uvx`。
 
 **Interface / data shape:**
 
 - Console scripts：`mycelium -> tasks.mycelium.cli:cli`、`pr-orchestrator -> tasks.pr_orchestrator.cli:cli`、既有 `portman -> tasks.local_port_manager.cli:cli`。
-- Skill preflight：`command -v mycelium >/dev/null 2>&1` 為共同 gate；stderr 訊息含 `[FAIL]` 與唯一 Git-tag install command。
+- Skill preflight：`pr-cycle-fast` 對 `pr-orchestrator`（以及 selected path 若有使用的 `mycelium`）、四個 mycelium-backed skills 對 `mycelium`、`local-port-manager` 對 `portman` 執行 `command -v <script> >/dev/null 2>&1`；stderr 訊息指出缺少的 script，並含 `[FAIL]` 與唯一 recorded-tag install command。
 - Project target：mycelium 使用 `--project <slug>`；pr-orchestrator 使用 `--repo-root <absolute-checkout-path>`；portman 依既有 Click signature 使用 `--project` 或明確 positional project。
-- Settings hook commands：`<install-time-resolved-absolute-mycelium-path> hooks pre-compact` 與 `<install-time-resolved-absolute-mycelium-path> hooks session-start`；command path 必須等於 install-hooks 當下從 PATH 解析到的絕對路徑，寫入後保持固定。兩者從 stdin 讀 Claude hook JSON，保持現有 matcher、session id、system message、exit status 與 best-effort metrics logging 語意。
+- Settings hook commands：`<shell-quoted-install-time-resolved-absolute-mycelium-path> hooks pre-compact` 與 `<shell-quoted-install-time-resolved-absolute-mycelium-path> hooks session-start`；command 經 shell parsing 後的第一個 argv 必須等於 install-hooks 當下從 PATH 解析到的絕對路徑，寫入後保持固定。兩者從 stdin 讀 Claude hook JSON，保持現有 matcher、session id、system message、exit status 與 best-effort metrics logging 語意。
 - Checkout hook wrappers：以 `command -v mycelium` 解析本次執行使用的 binary；解析失敗時印 `[FAIL]` 並非零退出。
 
 **Failure modes:**
 
 - Git install、entry point import 或 `--help` 失敗 → end-to-end gate 失敗；不得移除任何 symlink 或 resolver 相容邏輯。
-- skill 找不到 `mycelium` → `[FAIL]` + D3 install command + non-zero exit；不得 fallback 到 checkout/cwd inference。
+- skill 找不到 selected path 實際會呼叫的任何 console script → 指出缺少者 + `[FAIL]` + D3 recorded-tag install command + non-zero exit；不得 fallback 到 checkout/cwd inference。
 - install-hooks 無法從 PATH 解析 `mycelium` → 印 `[FAIL]` 並停止，不得寫入未解析的 hook command。
 - checkout wrapper 無法以 `command -v mycelium` 找到 binary，或 hook subcommand 失敗 → surfaced as hook command failure；不得以 `uvx` 或 checkout import 靜默 fallback。
 - project target 缺失 → skill 在呼叫 CLI 前 fail-loud；不得使用未帶 project filter 的 fallback query。
@@ -117,7 +117,7 @@ tag pin 讓 skill 與 CLI 版本可重現；README 以 plugin 安裝處理 skill
 **Acceptance criteria:**
 
 - clean environment 無 yibi-stack checkout：Git-tag install 成功、`mycelium --help` 成功、六個 skill 的 installed CLI smoke path 全部成功。
-- `scripts/tests/test_packaging.py` 驗證全部三個 entry point 可解析為 Click command；mycelium / pr-orchestrator CLI tests 驗證 `--help` 與 hook subcommands，auto-handover tests 以 PATH 中的 fake binary 驗證 install-time absolute-path resolution 與 missing-binary `[FAIL]`。
+- `scripts/tests/test_packaging.py` 驗證全部三個 entry point 可解析為 Click command；mycelium / pr-orchestrator CLI tests 驗證 `--help`、required-script preflight 與 hook subcommands，auto-handover tests 以名稱含空白的 temp directory 內 fake binary 驗證 install-time absolute-path resolution、shell quoting 與 missing-binary `[FAIL]`。
 - issue #222 所列 26 個 `tasks/mycelium/tests` import path 維持 `tasks.mycelium...`，package root 未移動。
 - README 的 English / 繁中 install 章節都包含 plugin + D3 CLI two-track，且不含 PyPI install command。
 - `make ci` exit 0。
