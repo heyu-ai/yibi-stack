@@ -11,7 +11,7 @@ related:
     note: "取代 ADR-0004『負面／風險』段中『版本檢查』那一半；『能力檢查』那一半保留並升為主機制"
   prs:
     - number: 249
-      note: "Phase 1 白老鼠：三家 mob review 獨立收斂出版本字串閘門不可行；portman 已改用能力檢查"
+      note: "Phase 1 白老鼠：PR #249 review 收斂出版本字串閘門不可行"
 ---
 
 ## Context
@@ -32,13 +32,13 @@ ADR-0004 的安裝路徑是 `uv tool install git+https://github.com/heyu-ai/yibi
 
 - 一個裝了「上次 release 之後、含 breaking change 的 HEAD」的使用者，其 `<cli> --version` 仍印
   出上次 release 的版本號。
-- semver 比對（「skill 需要 >= X.Y.Z」）對這種 CLI 會回報 PASS，但那個 PASS **不帶任何資訊**
-  ——它無法區分「真的相容」與「HEAD 已經 breaking 但版本字串還沒 bump」。
+- semver 比對（「skill 需要 >= X.Y.Z」）對這種 CLI 會回報 PASS。凍結的版本字串仍表示宣告的 release
+  baseline，但在本 repo 的靜態版本字串 + 未標 tag 的 git HEAD 安裝模式下，這項資訊不可靠且不完整，
+  不足以單獨作為相容性閘門：它無法區分「真的相容」與「HEAD 已經 breaking 但版本字串還沒 bump」。
 
-這不是推論。PR #249（Phase 1 白老鼠）的三家 mob review 各自獨立收斂到同一結論：Codex 主動撤回
-自己原本提的 version-check finding、agy 對 version gate 標 DISAGREE、Claude 提出上述「PASS 不帶
-資訊」的關鍵 sub-point。PR #249 的 portman 因此**已經**改用能力檢查（`command -v` + 行為
-探測），與 ADR-0004 文字之間留有已知歧異——本 ADR 就是要消解這個歧異。
+PR #249 review 收斂出：套件 semver 版本字串不足以單獨作為相容性閘門，portman 隨即**已改用存在性＋
+可執行閘門（`command -v` + `--version` 退出碼），不再用 semver 比對**。這與 ADR-0004 文字之間留有
+已知歧異——本 ADR 就是要消解這個歧異。
 
 **ADR-0004 曾被 in-place 修訂過一次，之後已完整還原**，目前仍是原始 accepted 狀態、含這條做不到
 的要求。這也暴露出本 repo 尚無「ADR 該如何修訂」的成文慣例（見下方決定 5）。
@@ -48,12 +48,14 @@ ADR-0004 的安裝路徑是 `uv tool install git+https://github.com/heyu-ai/yibi
 1. **確認推翻成立。** ADR-0004 那條要求裡的 **semver 版本字串比對**部分不予採用；`command -v` +
    能力探測是相容性閘門的主機制。ADR-0004 的其餘部分（含「能力檢查 + fail-loud」的精神）不變。
 
-2. **`<cli> --version` 降為診斷用途。** 只用來讓使用者／log 看到裝了什麼，**不作為閘門判準**。
-   不對它做 semver 比對。
+2. **`<cli> --version` 的輸出值降為診斷用途。** 版本字串只用來讓使用者／log 看到宣告的 release
+   baseline，不比較其輸出值、不以 semver 作為相容性閘門。其退出碼仍依決定 3 用於可執行性檢查。
 
-3. **存在性閘門用 `command -v <cli>` + 非零退出即 fail-loud。** skill 的前置檢查確認 CLI 有裝
-   且可執行（`command -v <cli>` 找得到、`<cli> --version` 退出碼為 0）；任一失敗即以清楚訊息
-   fail-loud（指出「請 `uv tool install git+...` 安裝／升級 `<cli>`」），而非靜默 fallback。
+3. **存在性＋可執行閘門用 `command -v <cli>` + 非零退出即 fail-loud。** skill 的前置檢查確認 CLI
+   有裝且可執行：`command -v <cli>` 找得到，並以 `<cli> --version` 的退出碼作為可執行性 smoke test，
+   不比較其輸出的版本字串。任一失敗即以清楚訊息 fail-loud（指出「請
+   `uv tool install git+...` 安裝／升級 `<cli>`」），而非靜默 fallback；但 `command -v` 只能證明
+   PATH 中有同名指令，不能單獨證明解析到預期的 CLI。
 
 4. **真正的相容性閘門用能力／protocol revision 探測，不用版本號。** 當某個 skill 真的依賴某項
    CLI 行為時，用行為層級的探測判斷相容：比對 `<cli> capabilities`（或等價子命令）輸出的能力
@@ -61,8 +63,8 @@ ADR-0004 的安裝路徑是 `uv tool install git+https://github.com/heyu-ai/yibi
    什麼」的權威宣告，不受「release 之間版本字串凍結」影響。
 
 5. **在有 skill 真正需要版本專屬功能之前，不要設計版本專屬閘門。** 現況沒有任何 skill 依賴某個
-   CLI 的版本專屬新功能；為不存在的需求預先設計閘門，只會製造出「PASS 不帶資訊」這種比沒有更糟
-   的假保證。等到第一個真需求出現時，再依決定 4 加上該功能對應的能力探測。
+   CLI 的版本專屬新功能；為不存在的需求預先設計閘門，只會製造出資訊不可靠且不完整的假保證。
+   等到第一個真需求出現時，再依決定 4 加上該功能對應的能力探測。
 
 6. **建立 ADR 修訂慣例，寫進 `docs/adr/README.md`：**
    - **In-place 修訂 + 註記**：僅限錯字、連結、補充脈絡等**不改變決定實質**的更動；須在該 ADR
@@ -70,7 +72,7 @@ ADR-0004 的安裝路徑是 `uv tool install git+https://github.com/heyu-ai/yibi
    - **Superseding / 部分取代 ADR**：任何**改變決定實質**的更動，一律開新 ADR，於 frontmatter 用
      `supersedes`（整份取代）或 `supersedes_clause`（取代某段）指向舊 ADR，並在舊 ADR 底部加
      `## Superseded by` 反向連結。舊 ADR 的 `status` 視情況改為 `superseded`（整份）或維持
-     `accepted` 並在該段旁註記被哪份 ADR 的哪條取代（部分）。
+     `accepted`，並在該 ADR 加註記指向取代它的 ADR（部分取代可用文末 `## Superseded by` 區塊）。
    - **理由**：ADR 是決策的歷史紀錄，實質更動若就地覆寫會抹掉「為何當初這樣決定、後來為何改」的
      軌跡——本 ADR 自身（ADR-0004 曾被 in-place 改實質、又還原）正是反例。
 
@@ -89,5 +91,8 @@ ADR-0004 的安裝路徑是 `uv tool install git+https://github.com/heyu-ai/yibi
 
 - [ ] 確認決定 1（推翻 semver 版本字串閘門）成立。
 - [ ] 確認決定 3/4 的替代機制（`command -v` 存在性閘門 + 能力探測）。
+- [ ] 確認能力集合如何避免過時：決定 4 首次實作時須定義 machine-readable 格式與 CI contract test，
+  讓能力宣告和實際行為保持同步。
+- [ ] 確認過渡期取捨：skill 已依賴 CLI 行為、但尚只有存在性閘門的窗口，是可接受且有時限的風險。
 - [ ] 確認決定 6 的 ADR 修訂慣例文字，並同意寫進 `docs/adr/README.md`。
 - [ ] 核准後把本 ADR `status` 改為 `accepted`。
