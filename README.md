@@ -82,29 +82,50 @@ They tell Claude *how* to approach a workflow; no hooks are involved. Skills are
 
 ### Install
 
-**Plugin-only** (lightweight, no clone needed):
+The two user installation tracks are complementary: Track 1 installs the Claude Code layer, while Track 2 installs the Python CLIs required by tasks-backed skills.
+
+#### Track 1 — Claude Code plugins
+
+Use this track for the skills, commands, rules, and hooks bundled in each plugin. It is lightweight and does not require a clone.
 
 ```bash
-claude plugin marketplace add howie/yibi-stack
+claude plugin marketplace add heyu-ai/yibi-stack
 claude plugin install bash-hygiene@yibi-stack
 claude plugin install sdd@yibi-stack
 claude plugin install growth@yibi-stack
 claude plugin install pr-flow@yibi-stack
 claude plugin install tdd@yibi-stack
+claude plugin install util@yibi-stack
 claude plugin install writing@yibi-stack
 ```
 
-Note: `harness-eval` is not installable via `claude plugin install` — clone the repo and run `make install-one SKILL=harness-eval` (or `make install-all` for a full setup).
+#### Track 2 — tasks-backed CLI tools
 
-**Full install** (plugins + all skills + hooks + scheduler):
+Use this track to install the `mycelium`, `pr-orchestrator`, and `portman` console scripts consumed by tasks-backed skills:
+
+```bash
+uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"
+```
+
+Track 2 is required by these six skills:
+
+- `pr-cycle-fast`, `pr-control-log`, `pr-retrospective`, `mycelium`, `learn`, and `local-port-manager`
+
+Without Track 2, those skills fail loud before doing any work and show the same command above as the install hint.
+
+#### Developer/contributor path — local checkout
+
+Use a local checkout when developing or contributing to yibi-stack, or when installing repo-managed skills, hooks, and the scheduler.
+This path is separate from the two user tracks above.
+`harness-eval` is not installable via `claude plugin install`; from the checkout, run `make install-one SKILL=harness-eval` or use the full setup below.
 
 ```bash
 # 1. Install plugins (pre-execution hooks + rules)
-claude plugin marketplace add howie/yibi-stack
-claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack writing@yibi-stack
+claude plugin marketplace add heyu-ai/yibi-stack
+claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack util@yibi-stack writing@yibi-stack
 
 # 2. Clone and install skills + hooks + scheduler
-git clone https://github.com/howie/yibi-stack
+git clone https://github.com/heyu-ai/yibi-stack
 cd yibi-stack
 make install-all
 ```
@@ -226,29 +247,50 @@ scripts/          CI 與 lint 工具腳本
 
 ### 安裝
 
-**只安裝 Plugin**（輕量，不需 clone）：
+兩條使用者安裝軌彼此互補：Track 1 安裝 Claude Code 層，Track 2 安裝 tasks-backed skill 所需的 Python CLI。
+
+#### Track 1 — Claude Code plugin
+
+這條安裝軌提供各 plugin 隨附的 skill、command、rule 與 hook，輕量且不需 clone repo。
 
 ```bash
-claude plugin marketplace add howie/yibi-stack
+claude plugin marketplace add heyu-ai/yibi-stack
 claude plugin install bash-hygiene@yibi-stack
 claude plugin install sdd@yibi-stack
 claude plugin install growth@yibi-stack
 claude plugin install pr-flow@yibi-stack
 claude plugin install tdd@yibi-stack
+claude plugin install util@yibi-stack
 claude plugin install writing@yibi-stack
 ```
 
-注意：`harness-eval` 無法透過 `claude plugin install` 安裝——需 clone 本 repo 後執行 `make install-one SKILL=harness-eval`（或 `make install-all` 一次裝齊）。
+#### Track 2 — tasks-backed CLI 工具
 
-**完整安裝**（plugin + 所有 skill + hook + scheduler）：
+這條安裝軌提供 tasks-backed skill 使用的 `mycelium`、`pr-orchestrator` 與 `portman` console script：
+
+```bash
+uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"
+```
+
+以下六個 skill 需要 Track 2：
+
+- `pr-cycle-fast`、`pr-control-log`、`pr-retrospective`、`mycelium`、`learn`、`local-port-manager`
+
+若未安裝 Track 2，這些 skill 會在執行任何工作前明確輸出 `[FAIL]`，並顯示與上方完全相同的安裝提示。
+
+#### 開發者／貢獻者路徑 — local checkout
+
+開發或貢獻 yibi-stack，或需要安裝 repo 管理的 skill、hook 與 scheduler 時，請使用 local checkout。
+這條路徑獨立於上方兩條使用者安裝軌。
+`harness-eval` 無法透過 `claude plugin install` 安裝；可在 checkout 中執行 `make install-one SKILL=harness-eval`，或使用下方完整設定。
 
 ```bash
 # 1. 安裝 plugin（pre-execution hook + 規則）
-claude plugin marketplace add howie/yibi-stack
-claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack writing@yibi-stack
+claude plugin marketplace add heyu-ai/yibi-stack
+claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack util@yibi-stack writing@yibi-stack
 
 # 2. Clone 並安裝 skill + hook + scheduler
-git clone https://github.com/howie/yibi-stack
+git clone https://github.com/heyu-ai/yibi-stack
 cd yibi-stack
 make install-all
 ```

@@ -22,13 +22,14 @@ def save_debug_report(
     root_cause: str,
     prevention_tags: list[str] | None = None,
     output_path: Path | None = None,
+    project: str | None = None,
 ) -> DebugReportRecord:
-    """將 debug report 摘要寫入 JSONL，回傳寫入的記錄。"""
+    """將 debug report 摘要寫入 JSONL；未指定 project 時沿用 git 推斷。"""
     now = datetime.now(UTC).astimezone().replace(microsecond=0).isoformat()
     record = DebugReportRecord(
         id=str(uuid.uuid4()),
         timestamp=now,
-        project=detect_project(),
+        project=detect_project() if project is None else project,
         working_dir=to_portable_path(str(Path.cwd())),
         branch=detect_branch() or "",
         keyword=keyword,
