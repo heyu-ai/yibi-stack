@@ -28,8 +28,9 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
     from .digest import DigestWriter
     from .drafter import ArtifactDrafter
     from .extractor import TranscriptExtractor
+    from .governance import FrictionRegistry
     from .pr_creator import PRCreator
-    from .tester import TestValidator
+    from .tester import TestValidator, _get_main_repo
 
     config = load_config(Path(config_path) if config_path else None)
     config.lookback_hours = hours
@@ -107,8 +108,17 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
     click.echo("[5/6] 草擬 artifacts 並驗證 failing→passing test …")
     drafter = ArtifactDrafter(config)
     tester = TestValidator(config.generated_tests_dir)
+    registry = FrictionRegistry(config.friction_state_file, _get_main_repo(), config.github_repo)
 
     for cluster in eligible:
+        duplicate_reason = registry.find_duplicate(cluster)
+        if duplicate_reason:
+            click.echo(
+                f"  [SKIP] 重複 friction（{cluster.friction_type}）：{duplicate_reason}", err=True
+            )
+            skipped += 1
+            continue
+        registry.record(cluster, "seen")
         try:
             proposal = drafter.draft(cluster)
         except RuntimeError as e:
@@ -302,3 +312,21 @@ def _write_digest(  # type: ignore[no-untyped-def]
     )
     result: Path = writer.write(digest)
     return result
+
+
+def emit_failure_signal(error: BaseException, digest_dir: str | Path | None = None) -> Path:
+    """排程非預期失敗時寫入可見 marker 與當日 digest。"""
+    target_dir = Path(digest_dir) if digest_dir else RUNTIME_DIR / "nightly-agent" / "digests"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[FAIL] {timestamp} nightly-agent 執行失敗：{error}\n"
+    marker = target_dir.parent / "LAST_FAILURE"
+    digest_path = target_dir / f"digest-{datetime.now().strftime('%Y-%m-%d')}.md"
+    try:
+        marker.write_text(line, encoding="utf-8")
+        with digest_path.open("a", encoding="utf-8") as stream:
+            stream.write(line)
+    except OSError as e:
+        raise RuntimeError(f"無法寫入 nightly-agent 失敗訊號：{target_dir}") from e
+    click.echo(line.rstrip(), err=True)
+    return marker

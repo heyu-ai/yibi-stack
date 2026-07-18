@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import re
 import subprocess  # nosec B404
 from datetime import datetime
@@ -36,7 +37,12 @@ class PRCreator:
     def create_pr(self, proposal: ArtifactProposal, test_result: TestResult) -> PRRecord:
         """建立 PR，回傳 PRRecord。"""
         date_str = datetime.now().strftime("%Y-%m-%d")
-        safe = re.sub(r"[^a-z0-9-]", "-", proposal.title.lower())[:40].strip("-")
+        safe = re.sub(r"[^a-z0-9-]+", "-", proposal.title.casefold())[:40].strip("-")
+        if not safe:
+            stable_id = hashlib.sha256(
+                f"{proposal.cluster_id}|{proposal.title}".encode()
+            ).hexdigest()[:10]
+            safe = f"friction-{stable_id}"
         branch = f"{self.config.pr_branch_prefix}/{date_str}/{safe}"
 
         # All git operations run against main repo (not worktree)
@@ -47,9 +53,6 @@ class PRCreator:
         self._apply_artifact(proposal, artifact_path)
 
         self._git(["add", str(artifact_path)])
-
-        if proposal.test_file and Path(proposal.test_file).exists():
-            self._git(["add", proposal.test_file])
 
         commit_msg = self._build_commit_message(proposal, test_result)
         self._git_commit(commit_msg)
@@ -145,6 +148,8 @@ class PRCreator:
         body_path.parent.mkdir(parents=True, exist_ok=True)
         body_path.write_text(body, encoding="utf-8")
 
+        if not self.config.github_repo:
+            raise RuntimeError("無法解析 GitHub repo；請設定 github_repo 為 owner/repo")
         try:
             result = subprocess.run(  # nosec B603 B607
                 [
@@ -152,7 +157,7 @@ class PRCreator:
                     "pr",
                     "create",
                     "--repo",
-                    self.config.github_repo or ".",
+                    self.config.github_repo,
                     "--base",
                     "main",
                     "--head",
@@ -170,9 +175,7 @@ class PRCreator:
                 cwd=str(self._main_repo),
             )
         except FileNotFoundError as e:
-            raise RuntimeError(
-                "gh CLI が見つかりません。brew install gh を実行してください。"
-            ) from e
+            raise RuntimeError("找不到 gh CLI；請執行 brew install gh") from e
 
         if result.returncode != 0:
             raise RuntimeError(f"gh pr create 失敗：{result.stderr[:300]}")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -100,10 +101,15 @@ def _cluster_user_prompt(cluster: FrictionCluster) -> str:
 
 
 def _make_slug(cluster: FrictionCluster) -> str:
-    """Generate a filesystem-safe slug from cluster keywords."""
+    """產生安全 slug；純 CJK 關鍵字以穩定 friction ID 取代。"""
     kws = cluster.common_keywords[:3]
-    slug = "-".join(re.sub(r"[^a-z0-9]", "", k.lower()) for k in kws if k)
-    return slug or cluster.friction_type.replace("_", "-")
+    parts = [re.sub(r"[^a-z0-9]+", "-", keyword.casefold()).strip("-") for keyword in kws]
+    slug = "-".join(part for part in parts if part)
+    if slug:
+        return slug
+    material = f"{cluster.friction_type}|{'|'.join(kws)}"
+    stable_id = hashlib.sha256(material.encode()).hexdigest()[:10]
+    return f"{str(cluster.friction_type).replace('_', '-')}-{stable_id}"
 
 
 def _resolve_target_file(artifact_type: ArtifactType, cluster: FrictionCluster) -> str:

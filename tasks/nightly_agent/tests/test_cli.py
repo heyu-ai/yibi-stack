@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
-from tasks.nightly_agent.cli import _load_mycelium_lessons
+from tasks.nightly_agent.cli import _load_mycelium_lessons, emit_failure_signal
 
 CLI = "tasks.nightly_agent.cli"
 
@@ -116,3 +116,13 @@ class TestLoadMyceliumLessons:
 
         assert result == []
         assert errors == []
+
+
+class TestFailureSignal:
+    def test_nightly_failure_001_failed_run_writes_visible_marker(self, tmp_path: Path) -> None:
+        """NIGHTLY-FAILURE-001：非預期失敗會寫入 marker 與 digest 的 FAIL 行。"""
+        digest_dir = tmp_path / "digests"
+        marker = emit_failure_signal(RuntimeError("測試故障"), digest_dir)
+        digest = next(digest_dir.glob("digest-*.md"))
+        assert "[FAIL]" in marker.read_text(encoding="utf-8")
+        assert "測試故障" in digest.read_text(encoding="utf-8")
