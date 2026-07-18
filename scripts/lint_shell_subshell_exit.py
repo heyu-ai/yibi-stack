@@ -175,13 +175,15 @@ def check_file(path: Path) -> list[str]:
             continue  # 沒被 $() 呼叫 -> 裡面的 exit 正常
 
         # 只有「呼叫點讓 set -e 不觸發」或「腳本沒 set -e」時，才會真的 fail-open
-        risky = [i for i in call_sites if not has_set_e or _unguarded_by_set_e(_strip_noise(lines[i]), name)]
+        risky = [
+            i
+            for i in call_sites
+            if not has_set_e or _unguarded_by_set_e(_strip_noise(lines[i]), name)
+        ]
         if not risky:
             continue
 
-        exit_lines = [
-            i + 1 for i in range(start, end + 1) if _EXIT.search(_strip_noise(lines[i]))
-        ]
+        exit_lines = [i + 1 for i in range(start, end + 1) if _EXIT.search(_strip_noise(lines[i]))]
         if not exit_lines:
             continue
 
