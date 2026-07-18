@@ -168,6 +168,51 @@ class TestRejectsBadWheel:
 
         assert exc.value.code == 1
 
+    def test_cwc_dt_017_prefix_matching_decoy_dist_info_rejected(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """CWC-DT-017: 誘餌 dist-info 名稱**也符合** project prefix 時，仍須被 count guard 擋下。
+
+        這是專門鎖定 `if len(dist_infos) != 1` 這條 count guard 的回歸測試。CWC-DT-015 的
+        誘餌名為 aaa_decoy-*（不符 yibi_stack- prefix），故即使拿掉 count guard 也會被
+        name-prefix 檢查擋下——那條 assertion 因此對 count guard 不帶資訊。此處誘餌名為
+        yibi_stack-0.0.1（符合 prefix、字典序在真品 1.9.0 之前、帶正確 entry point），真品
+        帶壞的 entry point。若拿掉 count guard：誘餌通過 name 檢查、sort first 勝出、讀到
+        好 entry point 而放行，真品的壞 entry point 從未被檢查——正是 PR #249 round-3 的 bug。
+        只有 count guard 能擋，故本測試若在 count guard 被移除後仍綠即為失敗（mutation 反證）。
+        """
+        contents = _good_wheel_contents()
+        contents["yibi_stack-0.0.1.dist-info/METADATA"] = "Name: yibi-stack\n"
+        contents["yibi_stack-0.0.1.dist-info/entry_points.txt"] = _GOOD_ENTRY_POINTS
+        contents[f"{_DIST_INFO}/entry_points.txt"] = (
+            "[console_scripts]\nportman = tasks.local_port_manager.cli:BROKEN\n"
+        )
+        wheel = _make_wheel(tmp_path, contents)
+        monkeypatch.setattr(cwc.sys, "argv", ["check_wheel_contents.py", str(wheel)])
+
+        with pytest.raises(SystemExit) as exc:
+            cwc.main()
+
+        assert exc.value.code == 1
+
+    def test_cwc_dt_018_path_traversal_member_rejected(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """CWC-DT-018: 含 `..` 路徑遍歷／絕對路徑的成員名稱被擋下（防禦縱深）。
+
+        `tasks/../evil.py` 的頂層元件是 tasks，會通過 allow-list，但邏輯上逃出 tasks/。
+        正常 uv build 不會產出此類名稱，故此為 hand-crafted-wheel 的防禦縱深。
+        """
+        contents = _good_wheel_contents()
+        contents["tasks/../evil.py"] = "MALICIOUS = True"
+        wheel = _make_wheel(tmp_path, contents)
+        monkeypatch.setattr(cwc.sys, "argv", ["check_wheel_contents.py", str(wheel)])
+
+        with pytest.raises(SystemExit) as exc:
+            cwc.main()
+
+        assert exc.value.code == 1
+
     def test_cwc_dt_016_mismatched_dist_info_name_rejected(
         self, tmp_path: Path, monkeypatch
     ) -> None:

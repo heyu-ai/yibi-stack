@@ -95,6 +95,17 @@ def main() -> None:
 
     with zipfile.ZipFile(wheel_path) as zf:
         names = zf.namelist()
+        # 拒絕非正規成員名稱：絕對路徑、反斜線、或含 `..` 路徑元件。正常 uv build 不會產出
+        # 這類名稱；用頂層目錄判斷 allow-list 前先擋掉，避免 `tasks/../evil.py` 之類藉頂層
+        # 目錄偽裝通過（防禦縱深，回應 mob review 的路徑遍歷 finding）。
+        malformed = [
+            n for n in names if n.startswith("/") or "\\" in n or ".." in n.split("/")
+        ]
+        if malformed:
+            _fail(
+                f"wheel 含非正規成員名稱（絕對路徑／反斜線／.. 遍歷），拒絕："
+                f"{', '.join(sorted(malformed)[:5])}"
+            )
         dist_info = _sole_dist_info(names)
         entry_points_name = f"{dist_info}/entry_points.txt"
         entry_points_txt = entry_points_name if entry_points_name in names else None
@@ -129,6 +140,7 @@ def main() -> None:
         _fail("wheel 的 dist-info 缺少 entry_points.txt；console script 不會被安裝")
 
     parser = configparser.ConfigParser()
+    parser.optionxform = str  # 保留 entry-point 名稱大小寫（configparser 預設轉小寫）
     parser.read_string(entry_points_raw)
     shipped = dict(parser["console_scripts"]) if parser.has_section("console_scripts") else {}
 
