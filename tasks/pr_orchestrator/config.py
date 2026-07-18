@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,13 +28,41 @@ class OrchestratorConfig(BaseModel):
     auto_merge: bool = False
 
 
-def state_path(pr_number: int) -> Path:
-    return _STATE_DIR / f"{pr_number}.json"
+def _safe_repo(repo: str) -> str:
+    return repo.replace("/", "-").replace("\\", "-")
+
+
+def state_path(repo: str, pr_number: int) -> Path:
+    return _STATE_DIR / _safe_repo(repo or "unknown") / f"{pr_number}.json"
 
 
 def archive_path(repo: str, pr_number: int) -> Path:
-    safe_repo = repo.replace("/", "-").replace("\\", "-")
-    return _ARCHIVE_BASE / safe_repo / f"{pr_number}.json"
+    return _ARCHIVE_BASE / _safe_repo(repo or "unknown") / f"{pr_number}.json"
+
+
+def migrate_flat_state_files() -> None:
+    """將舊版扁平 state 檔依其 repo 欄位遷移至隔離目錄。"""
+    _STATE_DIR.mkdir(parents=True, exist_ok=True)
+    for src in _STATE_DIR.glob("*.json"):
+        if not src.is_file() or not src.stem.isdigit():
+            continue
+        repo = ""
+        try:
+            data = json.loads(src.read_text(encoding="utf-8"))
+            value = data.get("repo") if isinstance(data, dict) else None
+            if isinstance(value, str):
+                repo = value.strip()
+        except (OSError, json.JSONDecodeError):
+            repo = ""
+
+        dest = state_path(repo or "unknown", int(src.stem))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.is_file():
+            continue
+        try:
+            os.replace(src, dest)
+        except OSError as e:
+            raise RuntimeError(f"舊版 State 檔遷移失敗：{src} → {dest}") from e
 
 
 def load_config(path: Path | None = None) -> OrchestratorConfig:
@@ -53,30 +82,35 @@ def save_config(cfg: OrchestratorConfig, path: Path | None = None) -> None:
     config_path.write_text(cfg.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
 
-def load_state_file(pr_number: int) -> dict:  # type: ignore[type-arg]
+def load_state_file(repo: str, pr_number: int) -> dict:  # type: ignore[type-arg]
     from .models import OrchestratorState
 
-    p = state_path(pr_number)
+    migrate_flat_state_files()
+    p = state_path(repo, pr_number)
     if not p.is_file():
         raise RuntimeError(f"找不到 PR #{pr_number} 的 state 檔：{p}")
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
-    except OSError as e:
+    except (OSError, json.JSONDecodeError) as e:
         raise RuntimeError(f"State 檔讀取失敗：{p}") from e
-    return OrchestratorState.model_validate(data).model_dump()
+    state = OrchestratorState.model_validate(data)
+    if state.repo != repo:
+        raise RuntimeError(
+            f"PR #{pr_number} 的 State repo 不一致：檔案記錄為「{state.repo or '空白'}」，"
+            f"目前 repo 為「{repo or '空白'}」。可能發生 state 檔碰撞，已停止操作。"
+        )
+    return state.model_dump()
 
 
 def persist_state(state: OrchestratorState) -> None:
     """原子寫入 state file（tmp + os.replace）。"""
-    import os
-
     from .models import OrchestratorState as _S
 
     if not isinstance(state, _S):
         raise TypeError(f"expect OrchestratorState, got {type(state)}")
 
-    _STATE_DIR.mkdir(parents=True, exist_ok=True)
-    p = state_path(state.pr_number)
+    p = state_path(state.repo, state.pr_number)
+    p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + ".tmp")
     try:
         tmp.write_text(state.model_dump_json(indent=2) + "\n", encoding="utf-8")
@@ -84,7 +118,7 @@ def persist_state(state: OrchestratorState) -> None:
     except OSError as e:
         raise RuntimeError(f"State 檔寫入失敗：{p}") from e
     finally:
-        if tmp.exists():
+        if tmp.is_file():
             tmp.unlink(missing_ok=True)
 
 
@@ -93,7 +127,7 @@ def archive_state(state: OrchestratorState) -> None:
 
     dest = archive_path(state.repo or "unknown", state.pr_number)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    src = state_path(state.pr_number)
+    src = state_path(state.repo, state.pr_number)
     if src.is_file():
         import shutil as _sh
         import sys  # noqa: PLC0415
@@ -115,12 +149,13 @@ def archive_state(state: OrchestratorState) -> None:
         click.echo(f"State 已歸檔：{dest}")
 
 
-def find_latest_state() -> int | None:
+def find_latest_state(repo: str) -> int | None:
     """找到最新（last_transition_at 最大）的 active state file，回傳 PR 號碼。"""
     import json as _json
 
-    _STATE_DIR.mkdir(parents=True, exist_ok=True)
-    candidates = [p for p in _STATE_DIR.glob("*.json") if p.stem.isdigit()]
+    migrate_flat_state_files()
+    repo_dir = state_path(repo, 0).parent
+    candidates = [p for p in repo_dir.glob("*.json") if p.is_file() and p.stem.isdigit()]
     if not candidates:
         return None
 

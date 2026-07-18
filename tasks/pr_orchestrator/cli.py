@@ -15,6 +15,8 @@ from .config import (
     archive_state,
     find_latest_state,
     load_config,
+    load_state_file,
+    migrate_flat_state_files,
     persist_state,
     state_path,
 )
@@ -54,18 +56,15 @@ def _resolve_repo_slug(repo_root: Path | None = None) -> str:
     return ""
 
 
-def _load_state(pr_number: int) -> OrchestratorState:
-    """讀取 state file 並 validate；失敗時 raise RuntimeError。"""
-    p = state_path(pr_number)
-    if not p.is_file():
-        raise RuntimeError(f"找不到 PR #{pr_number} state 檔：{p}")
+def _load_state(repo: str, pr_number: int) -> OrchestratorState:
+    """讀取並驗證 state 檔；失敗時拋出 RuntimeError。"""
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        raise RuntimeError(
-            f"PR #{pr_number} state 檔損壞（{e}），請刪除 {p} 後重新執行 detect"
-        ) from e
-    return OrchestratorState.model_validate(data)
+        return OrchestratorState.model_validate(load_state_file(repo, pr_number))
+    except RuntimeError:
+        raise
+    except Exception as e:
+        p = state_path(repo, pr_number)
+        raise RuntimeError(f"PR #{pr_number} state 檔損壞，請檢查 {p} 後重新執行 detect") from e
 
 
 @click.group()
@@ -118,18 +117,17 @@ def detect(pr_number: int | None, branch: str | None, repo_root_str: str | None)
             click.echo(f"[FAIL] {e}", err=True)
             raise SystemExit(1) from None
 
-    existing = state_path(pr_info.number)
+    repo = _resolve_repo_slug(repo_root=repo_root)
+    migrate_flat_state_files()
+    existing = state_path(repo, pr_info.number)
     if existing.is_file():
         try:
-            data = json.loads(existing.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
-            click.echo(f"[FAIL] 現有 state 檔損壞（{e}），請刪除 {existing} 後重新執行", err=True)
+            state = _load_state(repo, pr_info.number)
+        except RuntimeError as e:
+            click.echo(f"[FAIL] {e}", err=True)
             raise SystemExit(1) from None
-        click.echo(f"PR #{pr_info.number} 已有 state：{data.get('current_state')}（跳過初始化）")
+        click.echo(f"PR #{pr_info.number} 已有 state：{state.current_state}（跳過初始化）")
         return
-
-    # Resolve repo slug (best-effort — failure is non-fatal).
-    repo = _resolve_repo_slug(repo_root=repo_root)
 
     state = OrchestratorState(
         pr_number=pr_info.number,
@@ -140,7 +138,7 @@ def detect(pr_number: int | None, branch: str | None, repo_root_str: str | None)
     )
     persist_state(state)
     olog.append(pr_info.number, "INIT", PRState.DETECTED, "initial detection")
-    click.echo(f"[ok] PR #{pr_info.number} state 已建立：{state_path(pr_info.number)}")
+    click.echo(f"[ok] PR #{pr_info.number} state 已建立：{state_path(repo, pr_info.number)}")
 
 
 @cli.command(name="write-manifest")
@@ -149,8 +147,9 @@ def write_manifest(pr_number: int) -> None:
     """為 REVIEWING 狀態寫出 spawn-manifest.md，並更新 artifacts.spawn_manifest。"""
     from .dispatcher import write_review_manifest
 
+    repo = _resolve_repo_slug()
     try:
-        state = _load_state(pr_number)
+        state = _load_state(repo, pr_number)
     except RuntimeError as e:
         click.echo(f"[FAIL] {e}", err=True)
         raise SystemExit(1) from None
@@ -182,8 +181,10 @@ def auto_fix_cmd(pr_number: int, repo_root_str: str | None) -> None:
 
     from .auto_fix import run as run_auto_fix
 
+    repo_root = _Path(repo_root_str) if repo_root_str else _Path(os.getcwd())
+    repo = _resolve_repo_slug(repo_root=repo_root)
     try:
-        state = _load_state(pr_number)
+        state = _load_state(repo, pr_number)
     except RuntimeError as e:
         click.echo(f"[FAIL] {e}", err=True)
         raise SystemExit(1) from None
@@ -194,7 +195,6 @@ def auto_fix_cmd(pr_number: int, repo_root_str: str | None) -> None:
         click.echo(f"[FAIL] Config 讀取失敗：{e}", err=True)
         raise SystemExit(1) from None
 
-    repo_root = _Path(repo_root_str) if repo_root_str else _Path(os.getcwd())
     try:
         state = run_auto_fix(state, cfg, repo_root)
     except RuntimeError as e:
@@ -214,8 +214,9 @@ def transition(pr_number: int, to_state: str, reason: str) -> None:
     """
     from .service import transition as svc_transition
 
+    repo = _resolve_repo_slug()
     try:
-        state = _load_state(pr_number)
+        state = _load_state(repo, pr_number)
     except RuntimeError as e:
         click.echo(f"[FAIL] {e}", err=True)
         raise SystemExit(1) from None
@@ -245,14 +246,15 @@ def transition(pr_number: int, to_state: str, reason: str) -> None:
 @click.option("--pr", "pr_number", default=None, type=int)
 def status(pr_number: int | None) -> None:
     """顯示 PR state 資訊。"""
+    repo = _resolve_repo_slug()
     if pr_number is None:
-        pr_number = find_latest_state()
+        pr_number = find_latest_state(repo)
         if pr_number is None:
             click.echo("找不到任何 active state 檔。")
             raise SystemExit(1)
 
     try:
-        state = _load_state(pr_number)
+        state = _load_state(repo, pr_number)
     except RuntimeError as e:
         click.echo(f"[FAIL] {e}", err=True)
         raise SystemExit(1) from None
@@ -264,14 +266,15 @@ def status(pr_number: int | None) -> None:
 @click.option("--pr", "pr_number", default=None, type=int, help="PR 號碼（留空抓最新）")
 def resume(pr_number: int | None) -> None:
     """顯示 resume 指引：讀取 state 並告訴 skill 該從哪裡繼續。"""
+    repo = _resolve_repo_slug()
     if pr_number is None:
-        pr_number = find_latest_state()
+        pr_number = find_latest_state(repo)
         if pr_number is None:
             click.echo("[FAIL] 找不到任何 active state 檔，請先執行 detect", err=True)
             raise SystemExit(1)
 
     try:
-        state = _load_state(pr_number)
+        state = _load_state(repo, pr_number)
     except RuntimeError as e:
         click.echo(f"[FAIL] {e}", err=True)
         raise SystemExit(1) from None
@@ -322,7 +325,7 @@ def _next_command_hint(state: OrchestratorState) -> str:
 def log_view(pr_number: int | None) -> None:
     """顯示 transition log。"""
     if pr_number is None:
-        pr_number = find_latest_state()
+        pr_number = find_latest_state(_resolve_repo_slug())
         if pr_number is None:
             click.echo("[FAIL] 找不到任何 active state 檔", err=True)
             raise SystemExit(1)
@@ -345,13 +348,14 @@ def log_view(pr_number: int | None) -> None:
 @click.option("--dry-run", is_flag=True, help="只列出要刪除的檔案，不實際刪除")
 def gc(pr_number: int, dry_run: bool) -> None:
     """清理已完成 PR 的 .runtime 暫存資料。"""
-    p = state_path(pr_number)
+    repo = _resolve_repo_slug()
+    p = state_path(repo, pr_number)
     if not p.is_file():
         click.echo(f"PR #{pr_number} 無 active state，略過。")
         return
 
     try:
-        state = _load_state(pr_number)
+        state = _load_state(repo, pr_number)
     except RuntimeError as e:
         click.echo(f"[FAIL] {e}", err=True)
         raise SystemExit(1) from None
