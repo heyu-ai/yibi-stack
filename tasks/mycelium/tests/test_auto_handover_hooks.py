@@ -3,13 +3,36 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
 from pathlib import Path
 
-from tasks.mycelium.auto_handover_hooks import install_hooks, uninstall_hooks
+import pytest
+
+from tasks.mycelium.auto_handover_hooks import (
+    MyceliumBinaryNotFoundError,
+    install_hooks,
+    uninstall_hooks,
+)
+
+
+@pytest.fixture(autouse=True)
+def fake_mycelium_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """把可執行 fake mycelium 放進名稱含空白的 PATH 目錄。"""
+    bin_dir = tmp_path / "mycelium tool" / "bin dir"
+    bin_dir.mkdir(parents=True)
+    binary = bin_dir / "mycelium"
+    binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    binary.chmod(0o755)
+    current_path = os.environ.get("PATH", "")
+    monkeypatch.setenv("PATH", os.pathsep.join((str(bin_dir), current_path)))
+    return binary.resolve()
 
 
 class TestInstallHooks:
-    def test_agents_ah_001_install_creates_both_entries(self, tmp_path: Path) -> None:
+    def test_agents_ah_001_install_creates_both_entries(
+        self, tmp_path: Path, fake_mycelium_on_path: Path
+    ) -> None:
         """AGENTS-AH-001：全新 settings.json，安裝後有 PreCompact + SessionStart 兩個 hook。"""
         settings = tmp_path / "settings.json"
         precompact_new, session_new, _ = install_hooks(settings_path=settings)
@@ -25,8 +48,22 @@ class TestInstallHooks:
 
         precompact_cmd = precompact_hooks[0]["hooks"][0]["command"]
         session_cmd = session_start_hooks[0]["hooks"][0]["command"]
-        assert "pre-compact-handover.sh" in precompact_cmd
-        assert "post-compact-handover-back.sh" in session_cmd
+        assert shlex.split(precompact_cmd) == [
+            str(fake_mycelium_on_path),
+            "hooks",
+            "pre-compact",
+        ]
+        assert shlex.split(session_cmd) == [
+            str(fake_mycelium_on_path),
+            "hooks",
+            "session-start",
+        ]
+        assert precompact_cmd.startswith("'")
+        assert session_cmd.startswith("'")
+        for command in (precompact_cmd, session_cmd):
+            assert "python -m tasks.mycelium" not in command
+            assert "uvx" not in command
+            assert "uv run" not in command
 
     def test_agents_ah_002_precompact_matcher_is_auto(self, tmp_path: Path) -> None:
         """AGENTS-AH-002：PreCompact hook 的 matcher 必須是 'auto'（不攔截手動 compact）。"""
@@ -84,6 +121,28 @@ class TestInstallHooks:
         data = json.loads(settings.read_text(encoding="utf-8"))
         assert "PreCompact" in data["hooks"]
 
+    def test_mycli_st_005_missing_binary_fails_without_writing(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """MYCLI-ST-005：PATH 無 mycelium 時 fail-loud，且 settings 保持原樣。"""
+        empty_bin = tmp_path / "empty bin"
+        empty_bin.mkdir()
+        monkeypatch.setenv("PATH", str(empty_bin))
+        settings = tmp_path / "settings.json"
+        original = json.dumps(
+            {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other"}]}]}}
+        )
+        settings.write_text(original, encoding="utf-8")
+
+        with pytest.raises(MyceliumBinaryNotFoundError):
+            install_hooks(settings_path=settings)
+
+        assert "[FAIL]" in capsys.readouterr().err
+        assert settings.read_text(encoding="utf-8") == original
+
 
 class TestUninstallHooks:
     def test_agents_ah_010_uninstall_removes_both_entries(self, tmp_path: Path) -> None:
@@ -131,4 +190,4 @@ class TestUninstallHooks:
         precompact_entries = data2["hooks"].get("PreCompact", [])
         all_cmds = [h["command"] for e in precompact_entries for h in e["hooks"]]
         assert "other-hook" in all_cmds
-        assert not any("pre-compact-handover.sh" in c for c in all_cmds)
+        assert not any("hooks pre-compact" in c for c in all_cmds)

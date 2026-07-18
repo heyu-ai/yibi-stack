@@ -52,8 +52,8 @@ description: >
 
 ## 步驟
 
-> **執行位置**：本 skill 可從任何 cwd 觸發，底層實作住在 yibi-stack repo。
-> 執行所有 `uv run python -m tasks.*` 指令前，先捕捉原始 project 並解析 SKILL_REPO（Step 1 有完整腳本）：
+> **執行位置**：本 skill 可從任何 cwd 觸發，tasks-backed 操作一律呼叫 PATH 中
+> installed `mycelium`。啟動時先捕捉原始 project 並 preflight CLI（Step 1 有完整腳本）：
 >
 > ```bash
 > _gcd=$(git rev-parse --git-common-dir 2>/dev/null)
@@ -70,7 +70,10 @@ description: >
 >       ORIG_PROJECT=$(basename "$PWD") ;;
 > esac
 > unset _gcd
-> if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+> if ! command -v mycelium >/dev/null 2>&1; then
+>   echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"' >&2
+>   exit 1
+> fi
 > ```
 
 ### Step 1 — 環境確認
@@ -90,16 +93,16 @@ case "$_gcd" in
       ORIG_PROJECT=$(basename "$PWD") ;;
 esac
 unset _gcd
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
-
-uv --version
-python3 --version
+if ! command -v mycelium >/dev/null 2>&1; then
+  echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"' >&2
+  exit 1
+fi
 ```
 
 ### Step 2 — 初始化
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium init \
+mycelium init \
   --device-id {{device_id}} \
   --default-account {{default_account}}
 ```
@@ -112,7 +115,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.mycelium init \
 ### Step 3 — 搬遷舊資料（若有）
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium migrate
+mycelium migrate
 ```
 
 從 `~/.handover/` 與 `~/.claude/insight/` 一次性搬到 `~/.agents/`。冪等、可重跑。
@@ -120,7 +123,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.mycelium migrate
 ### Step 4 — 安裝 Stop hook
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium insight install-hook
+mycelium insight install-hook
 ```
 
 > **延伸（PostToolUse hook 升級）**：PostToolUse hook 現在支援所有工具輸出替換
@@ -145,9 +148,9 @@ uv run --directory "$SKILL_REPO" python -m tasks.mycelium insight install-hook
 ### Step 5 — 驗證
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium account detect
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium handover read --last 4
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium insight list --last 5
+mycelium account detect
+mycelium handover read --last 4 --project "$ORIG_PROJECT"
+mycelium insight list --last 5 --project "$ORIG_PROJECT"
 ```
 
 ## 子 skill
@@ -180,7 +183,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.mycelium insight list --last 5
 
 ```bash
 export AGENT_ACCOUNT=claude-team      # 臨時切
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium account set-default claude-pro
+mycelium account set-default claude-pro
 ```
 
 ## 常見問題

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess  # nosec B404
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,8 @@ import pytest
 from click.testing import CliRunner
 
 from tasks.mycelium.cli import cli
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -268,6 +271,181 @@ class TestRetroMigrateCli:
         assert "1" in result.output
 
 
+class TestInstalledHookCli:
+    def test_installed_hook_group_appears_in_help(self) -> None:
+        """MYCLI-ST-005：root help 與 hooks help 都列出已註冊的 commands。"""
+        runner = CliRunner()
+
+        root_help = runner.invoke(cli, ["--help"])
+        hooks_help = runner.invoke(cli, ["hooks", "--help"])
+
+        assert root_help.exit_code == 0
+        assert "hooks" in root_help.output
+        assert hooks_help.exit_code == 0
+        assert "pre-compact" in hooks_help.output
+        assert "session-start" in hooks_help.output
+
+    def test_installed_hook_pre_compact_preserves_observable_behavior(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MYCLI-ST-005：PreCompact 第一次攔截、第二次放行，並記錄 matcher。"""
+        from tasks.mycelium import auto_handover_hooks
+
+        events: list[tuple[object, dict[str, object]]] = []
+
+        def fake_log_event(event_type: object, **kwargs: object) -> None:
+            events.append((event_type, kwargs))
+
+        monkeypatch.setattr(auto_handover_hooks, "_STATE_DIR", tmp_path)
+        monkeypatch.setattr("tasks.mycelium.metrics_service.log_event", fake_log_event)
+        payload = json.dumps(
+            {"hook_event_name": "PreCompact", "session_id": "session-005", "matcher": "auto"}
+        )
+        runner = CliRunner()
+
+        first = runner.invoke(cli, ["hooks", "pre-compact"], input=payload)
+        second = runner.invoke(cli, ["hooks", "pre-compact"], input=payload)
+
+        assert first.exit_code == 2
+        assert "/handover" in json.loads(first.output)["systemMessage"]
+        assert second.exit_code == 0
+        assert second.output == ""
+        assert [event[0] for event in events] == ["layer2_intercept", "layer2_passthrough"]
+        assert all(event[1]["session_id"] == "session-005" for event in events)
+        assert all(event[1]["matcher"] == "auto" for event in events)
+
+    def test_installed_hook_session_start_preserves_observable_behavior(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MYCLI-ST-006：compact SessionStart 提示恢復，其他 matcher 靜默略過。"""
+        events: list[tuple[object, dict[str, object]]] = []
+
+        def fake_log_event(event_type: object, **kwargs: object) -> None:
+            events.append((event_type, kwargs))
+
+        home = tmp_path / "home"
+        handover_db = home / ".agents" / "handover" / "handover.db"
+        handover_db.parent.mkdir(parents=True)
+        handover_db.touch()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr("tasks.mycelium.metrics_service.log_event", fake_log_event)
+        runner = CliRunner()
+
+        supported = runner.invoke(
+            cli,
+            ["hooks", "session-start"],
+            input=json.dumps(
+                {"hook_event_name": "SessionStart", "matcher_type": "compact", "session_id": "s6"}
+            ),
+        )
+        ignored = runner.invoke(
+            cli,
+            ["hooks", "session-start"],
+            input=json.dumps({"hook_event_name": "SessionStart", "matcher": "startup"}),
+        )
+
+        assert supported.exit_code == 0
+        assert "/handover-back" in json.loads(supported.output)["systemMessage"]
+        assert ignored.exit_code == 0
+        assert ignored.output == ""
+        assert [event[0] for event in events] == ["layer3_session_start"]
+        assert events[0][1]["session_id"] == "s6"
+        assert events[0][1]["matcher"] == "compact"
+
+
+_HOOK_WRAPPERS = [
+    ("pre-compact-handover.sh", "pre-compact", 2),
+    ("post-compact-handover-back.sh", "session-start", 0),
+]
+
+
+class TestHookWrappers:
+    @pytest.mark.parametrize(("script_name", "subcommand", "exit_code"), _HOOK_WRAPPERS)
+    def test_mycli_st_006_hook_wrapper_delegates_to_runtime_binary(
+        self,
+        script_name: str,
+        subcommand: str,
+        exit_code: int,
+        tmp_path: Path,
+    ) -> None:
+        """MYCLI-ST-006：wrapper 保留 stdin/stdout/status，並使用 command -v 的絕對路徑。"""
+        bin_dir = tmp_path / "mycelium runtime" / "bin dir"
+        bin_dir.mkdir(parents=True)
+        binary = bin_dir / "mycelium"
+        binary.write_text(
+            """#!/bin/bash
+printf '%s\n' "$0" "$@" > "$HOOK_CAPTURE"
+cat > "$HOOK_STDIN_CAPTURE"
+printf '%s' "$HOOK_OUTPUT"
+exit "$HOOK_EXIT"
+""",
+            encoding="utf-8",
+        )
+        binary.chmod(0o755)
+        capture = tmp_path / "argv.txt"
+        stdin_capture = tmp_path / "stdin.json"
+        payload = json.dumps({"hook_event_name": "Supported", "session_id": "wrapper-006"})
+        output = json.dumps({"systemMessage": "delegated"})
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": os.pathsep.join((str(bin_dir), "/usr/bin", "/bin")),
+                "HOOK_CAPTURE": str(capture),
+                "HOOK_STDIN_CAPTURE": str(stdin_capture),
+                "HOOK_OUTPUT": output,
+                "HOOK_EXIT": str(exit_code),
+            }
+        )
+        wrapper = _REPO_ROOT / ".claude" / "hooks" / script_name
+
+        result = subprocess.run(  # nosec B603
+            [str(wrapper)], input=payload, capture_output=True, text=True, env=env, timeout=30
+        )
+
+        assert result.returncode == exit_code
+        assert result.stdout == output
+        assert result.stderr == ""
+        assert capture.read_text(encoding="utf-8").splitlines() == [
+            str(binary.resolve()),
+            "hooks",
+            subcommand,
+        ]
+        assert stdin_capture.read_text(encoding="utf-8") == payload
+
+    @pytest.mark.parametrize(("script_name", "subcommand", "exit_code"), _HOOK_WRAPPERS)
+    def test_mycli_st_006_hook_wrapper_missing_binary_fails_loud(
+        self,
+        script_name: str,
+        subcommand: str,
+        exit_code: int,
+        tmp_path: Path,
+    ) -> None:
+        """MYCLI-ST-006：PATH 無 mycelium 時 wrapper 印 [FAIL] 並非零退出。"""
+        del subcommand, exit_code
+        empty_bin = tmp_path / "empty bin"
+        empty_bin.mkdir()
+        env = os.environ.copy()
+        env["PATH"] = str(empty_bin)
+        wrapper = _REPO_ROOT / ".claude" / "hooks" / script_name
+
+        result = subprocess.run(  # nosec B603
+            [str(wrapper)], input="{}", capture_output=True, text=True, env=env, timeout=30
+        )
+
+        assert result.returncode != 0
+        assert "[FAIL]" in result.stderr
+
+    @pytest.mark.parametrize(("script_name", "subcommand", "exit_code"), _HOOK_WRAPPERS)
+    def test_mycli_st_006_hook_wrapper_source_has_no_checkout_invocation(
+        self, script_name: str, subcommand: str, exit_code: int
+    ) -> None:
+        """MYCLI-ST-006：wrapper source 不含 checkout import、uvx 或 uv run。"""
+        del subcommand, exit_code
+        source = (_REPO_ROOT / ".claude" / "hooks" / script_name).read_text(encoding="utf-8")
+        for forbidden in ("tasks.mycelium", "uvx", "uv run"):
+            assert forbidden not in source
+
+
 # hook 安裝指令，全部會把自我定位的 repo 路徑寫進 ~/.claude/settings.json。
 # insight / recap 的 install-hook **沒有對應的 make target**，故 Python 層的 guard
 # 是它們唯一的防線（handover install-hooks 另有 Makefile 層的 guard 形成雙層防護）。
@@ -339,6 +517,31 @@ class TestHookInstallWorktreeGuard:
         全綠。這條釘住 guard 的另一半契約。
         """
         monkeypatch.setattr("tasks._worktree_guard.PROJECT_ROOT", _make_repo(tmp_path / "main"))
+        bin_dir = tmp_path / "installed tools" / "bin dir"
+        bin_dir.mkdir(parents=True)
+        binary = bin_dir / "mycelium"
+        binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        binary.chmod(0o755)
+        current_path = os.environ.get("PATH", "")
+        monkeypatch.setenv("PATH", os.pathsep.join((str(bin_dir), current_path)))
         result = CliRunner().invoke(cli, args)
         assert result.exit_code == 0
         assert home_settings.exists(), f"{args} 在主 repo 被誤擋，settings.json 未寫出"
+
+    def test_mycli_st_005_handover_install_hooks_missing_binary_fails_loud(
+        self,
+        tmp_path: Path,
+        home_settings: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """MYCLI-ST-005：CLI 將 missing-binary failure 轉為 exit 1，且不寫 settings。"""
+        monkeypatch.setattr("tasks._worktree_guard.PROJECT_ROOT", _make_repo(tmp_path / "main"))
+        empty_bin = tmp_path / "empty bin"
+        empty_bin.mkdir()
+        monkeypatch.setenv("PATH", str(empty_bin))
+
+        result = CliRunner().invoke(cli, ["handover", "install-hooks"])
+
+        assert result.exit_code == 1
+        assert "[FAIL]" in result.output
+        assert not home_settings.exists()

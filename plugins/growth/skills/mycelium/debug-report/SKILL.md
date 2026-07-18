@@ -90,23 +90,33 @@ git status
 
 ### Step 6 — 歸檔並提醒 /clear
 
-> **執行位置**：Step 1–5 在呼叫端專案的 cwd 操作（`debugs/`、`git diff` 都屬於該專案）；
-> 只有 `uv run python -m tasks.mycelium` 需要在 yibi-stack repo 執行——先解析 `SKILL_REPO`
-> 再帶 `--directory "$SKILL_REPO"`：
+> **執行位置**：Step 1–5 在呼叫端專案的 cwd 操作（`debugs/`、`git diff` 都屬於該專案）。
+> 先捕捉原始 project 並 preflight installed `mycelium`，再以 explicit `--project` 歸檔：
 
 ```bash
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+_gcd=$(git rev-parse --git-common-dir 2>/dev/null)
+case "$_gcd" in
+    /*) _dir=$(dirname "$_gcd"); PROJECT=$(basename "$_dir"); unset _dir ;;
+    ?*) _top=$(git rev-parse --show-toplevel); PROJECT=$(basename "$_top"); unset _top ;;
+    *)  PROJECT=$(basename "$PWD") ;;
+esac
+unset _gcd
+if ! command -v mycelium >/dev/null 2>&1; then
+  echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"' >&2
+  exit 1
+fi
 ```
 
 使用者確認 diff 無誤後，將摘要持久化：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium debug save \
+mycelium debug save \
   --keyword "{{keyword}}" \
   --report-path "debugs/{{filename}}" \
   --symptom "{{symptom_one_line}}" \
   --root-cause "{{root_cause_one_line}}" \
-  --prevention-tags "{{tag1,tag2}}"
+  --prevention-tags "{{tag1,tag2}}" \
+  --project "$PROJECT"
 ```
 
 完成後回報：
@@ -122,10 +132,10 @@ uv run --directory "$SKILL_REPO" python -m tasks.mycelium debug save \
 
 ```bash
 # 列出最近 10 筆
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium debug list
+mycelium debug list --project "$PROJECT"
 
 # 過濾特定 project
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium debug list --project yibi-stack
+mycelium debug list --project yibi-stack
 
 # jq 跨專案搜尋
 jq -r '"\(.timestamp[:10]) [\(.keyword)] \(.root_cause)"' \
@@ -139,4 +149,4 @@ jq -r '"\(.timestamp[:10]) [\(.keyword)] \(.root_cause)"' \
 | `debugs/` 目錄不存在 | Step 1 執行 `mkdir -p debugs` |
 | keyword 不知道填什麼 | 用 bug 根因關鍵字（如 `mypy_follow_imports`、`utf8_bom_decode`） |
 | 清理誤刪正式程式碼 | Step 5 的 `git diff` 讓你檢查；不滿意就 `git checkout <file>` |
-| `~/.agents/debugs/` 不存在 | 執行 `uv run --directory "$SKILL_REPO" python -m tasks.mycelium init` 建立 |
+| `~/.agents/debugs/` 不存在 | 執行 `mycelium init` 建立 |

@@ -65,7 +65,7 @@ uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"
 | `pr-cycle-fast` | `pr-orchestrator` | `command -v pr-orchestrator`；若 selected path 也呼叫 `mycelium`，另執行 `command -v mycelium` | `detect` / `auto-fix` 使用既有 `--repo-root "$REPO_ROOT"`；其他 state command 以明確 `--pr` 操作 |
 | `pr-control-log` | `mycelium control-log` | `command -v mycelium` | project-sensitive command 傳 `--project "$ORIG_PROJECT"` |
 | `pr-retrospective` | `mycelium retro`、`mycelium lessons`、`mycelium token-usage` | `command -v mycelium` | 傳 `--project "$ORIG_PROJECT"`，需要 filesystem scope 時另傳 `--workdir "$REAL_WORKDIR"` |
-| `mycelium` | `mycelium` | `command -v mycelium` | project-sensitive read/write 傳 `--project "$ORIG_PROJECT"`；`init`、`migrate` 等 global command 不虛構 project option |
+| `mycelium` | `mycelium` | `command -v mycelium` | project-sensitive read/write 傳 `--project "$ORIG_PROJECT"`；`debug save` 增加 optional `--project`，skill 顯式傳入，省略時沿用推斷；`init`、`migrate` 等 global command 不虛構 project option |
 | `learn` | `mycelium lessons`、`mycelium insight` | `command -v mycelium` | 每條 project query 傳 `--project "$PROJECT"`，移除無 project filter 的 cwd fallback |
 | `local-port-manager` | `portman` | `command -v portman` | `list` 使用 `--project`；Click 介面以 positional project 表示的 `get` / `suggest` / `reserve` / `release` 保留顯式 project operand |
 

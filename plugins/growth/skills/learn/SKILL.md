@@ -22,8 +22,8 @@ description: >
 
 **HARD GATE**：本 skill 不實作程式碼變更，只管理 learnings。
 
-> **執行位置**：本 skill 可從任何 cwd 觸發，底層的 `uv run python -m tasks.mycelium` 指令
-> 需要在 yibi-stack repo 下執行。**skill 啟動時執行一次**（不要在每個 bash block 前重複執行）：
+> **執行位置**：本 skill 可從任何 cwd 觸發，tasks-backed 操作一律呼叫 PATH 中
+> installed `mycelium`。**skill 啟動時執行一次**（不要在每個 bash block 前重複執行）：
 >
 > ```bash
 > _gcd=$(git rev-parse --git-common-dir 2>/dev/null)
@@ -39,11 +39,14 @@ description: >
 >     *)  ORIG_PROJECT=$(basename "$PWD") ;;
 > esac
 > unset _gcd
-> if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
-> cd "$SKILL_REPO"
+> PROJECT="$ORIG_PROJECT"
+> if ! command -v mycelium >/dev/null 2>&1; then
+>   echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"' >&2
+>   exit 1
+> fi
 > ```
 >
-> `ORIG_PROJECT` 必須在 `cd` 前捕捉，且使用 `--git-common-dir` 而非 `--show-toplevel`，
+> `ORIG_PROJECT` 必須在任何 CLI 呼叫前捕捉，且使用 `--git-common-dir` 而非 `--show-toplevel`，
 > 以確保 worktree 環境下取得的是 repo 名稱而非 branch 目錄名稱。
 
 ---
@@ -70,14 +73,7 @@ description: >
 ### 1. handover 交班教訓
 
 ```bash
-PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.mycelium lessons show --project "$PROJECT" --last 10 2>/dev/null || echo ""
-```
-
-若無 `--project` 匹配，可改用無 project 過濾：
-
-```bash
-uv run python -m tasks.mycelium lessons show --last 10 2>/dev/null || echo ""
+mycelium lessons show --project "$PROJECT" --last 10 2>/dev/null || echo ""
 ```
 
 ### 2. insight 洞察（可選）
@@ -85,8 +81,7 @@ uv run python -m tasks.mycelium lessons show --last 10 2>/dev/null || echo ""
 若使用者明確要求包含 insights：
 
 ```bash
-PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.mycelium insight list --project "$PROJECT" --last 5 2>/dev/null || echo ""
+mycelium insight list --project "$PROJECT" --last 5 2>/dev/null || echo ""
 ```
 
 ### 3. gstack learnings（選用，需私有工具）
@@ -109,8 +104,7 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ## 只看 handover 教訓
 
 ```bash
-PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.mycelium lessons show --project "$PROJECT" --last 20
+mycelium lessons show --project "$PROJECT" --last 20
 ```
 
 ---
@@ -118,8 +112,7 @@ uv run python -m tasks.mycelium lessons show --project "$PROJECT" --last 20
 ## 只看 insight 洞察
 
 ```bash
-PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.mycelium insight list --project "$PROJECT" --last 20
+mycelium insight list --project "$PROJECT" --last 20
 ```
 
 ---
@@ -131,15 +124,13 @@ uv run python -m tasks.mycelium insight list --project "$PROJECT" --last 20
 ### 1. handover 教訓
 
 ```bash
-PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.mycelium lessons search "USER_QUERY" --project "$PROJECT" --last 10 2>/dev/null || echo ""
+mycelium lessons search "USER_QUERY" --project "$PROJECT" --last 10 2>/dev/null || echo ""
 ```
 
 ### 2. insight 洞察（含 insights 旗標時）
 
 ```bash
-PROJECT="$ORIG_PROJECT"
-uv run python -m tasks.mycelium lessons search "USER_QUERY" --project "$PROJECT" --insights --last 10 2>/dev/null || echo ""
+mycelium lessons search "USER_QUERY" --project "$PROJECT" --insights --last 10 2>/dev/null || echo ""
 ```
 
 ### 3. gstack learnings（選用，需私有工具）
@@ -220,7 +211,7 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 呈現 handover 教訓數量：
 
 ```bash
-uv run python -m tasks.mycelium lessons show --last 9999 --json 2>/dev/null | jq length
+mycelium lessons show --project "$PROJECT" --last 9999 --json 2>/dev/null | jq length
 ```
 
 若 gstack 可用（私有工具），也顯示 gstack learnings 統計：
