@@ -42,7 +42,10 @@ import sys
 # 如此未知選項不會讓 regex no-match 後靜默放行。
 _GIT_COMMAND = re.compile(
     r"(?:^|[;&|(]|\n)\s*"
-    r"(?P<prefix>(?:(?:env\s+)?(?:[A-Za-z_]\w*=(?:\"[^\"]*\"|'[^']*'|\S+)\s+)*|sudo\s+))"
+    # atomic group `(?>...)`（Python 3.11+）包住 assignment 重複段：一旦匹配就不回溯，
+    # 消除 `\S+` 與引號替換 overlap × 外層 `*` 造成的指數 backtracking（CodeQL py/redos）。
+    # 每個 iteration 以 `\s+` 分隔、`\S+` 不跨越空白，故 atomic 不會改變任何合法匹配。
+    r"(?P<prefix>(?:(?:env\s+)?(?>(?:[A-Za-z_]\w*=(?:\"[^\"]*\"|'[^']*'|\S+)\s+)*)|sudo\s+))"
     r"git\b(?P<args>[^;&|\n]*)",
     re.MULTILINE,
 )

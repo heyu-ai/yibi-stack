@@ -334,3 +334,30 @@ class TestEdgeCases:
 
     def test_pptd_eg_003_non_string_command_allows(self, repo: Path) -> None:
         assert run_hook(repo, ["git", "push"]).returncode == 0
+
+
+# ── ReDoS 回歸（CodeQL py/redos, PR #273）──────────────────────────────
+
+
+class TestReDoS:
+    def test_pptd_re_001_git_command_regex_no_exponential_backtracking(self) -> None:
+        """PPTD-RE-001: _GIT_COMMAND 對 CodeQL 標記的攻擊字串不得指數爆炸。
+
+        CodeQL py/redos：'&A=' 開頭 + 大量重複 '!\\xa0A=' 會在 assignment 重複段
+        （`\\S+` 與引號替換 overlap × 外層 `*`）造成指數 backtracking。修法為 atomic
+        group `(?>...)`（Python 3.11+）。以 timing 上限守住不回退：線性約數毫秒，
+        指數則遠超 1s，門檻乾淨區分兩者。
+        """
+        import importlib.util
+        import time
+
+        spec = importlib.util.spec_from_file_location("_dg_redos", HOOK)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        attack = "&A=" + ("!\xa0A=" * 4000)
+        start = time.perf_counter()
+        list(mod._GIT_COMMAND.finditer(attack))
+        elapsed = time.perf_counter() - start
+        assert elapsed < 1.0, f"疑似 ReDoS 回退：{elapsed:.2f}s（atomic group 是否被移除？）"
