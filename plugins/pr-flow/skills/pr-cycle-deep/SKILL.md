@@ -726,27 +726,11 @@ Disposition by severity × evidence × round (every cell defined — no gaps, no
 | Actionable NIT | valid | non-blocking | non-blocking |
 | Actionable NIT | none | non-blocking | non-blocking |
 
-> **Single-voice [P0] / [Critical] → verify before acting**: a lone Critical finding (especially
-> a CLI flag-parsing or runtime claim) often reasons from a plausible-but-wrong model. Construct a
-> minimal repro and run it before changing code — and **record the tool version you ran it on**,
-> because the repro's verdict expires when the tool changes.
->
-> Real incident (PR #157), and its sequel (PR #229) — read both halves:
->
-> - **Then**: agy flagged `[P0] --print eats --add-dir, disabling --sandbox`. The lead ran
->   `printf 'reply ALPHA' | agy --print --add-dir . --sandbox`, got `ALPHA`, and refuted the
->   finding. That refutation was sound *on the agy of that era*.
-> - **Now (agy 1.1.2)**: the same command makes agy explain what `--add-dir` does, and
->   `printf 'x' | agy --print` exits `flag needs an argument: -print`. `-p`/`--print` takes the
->   prompt as its **value** and there is no stdin prompt channel — i.e. **agy's [P0] describes
->   today's behavior exactly**. The finding was not wrong; it aged into being right (or the CLI
->   changed under it).
->
-> Two lessons, not one. The method still holds: refute with a repro, not by reasoning. But a
-> **stored verdict is only as fresh as the version it was run against** — this very paragraph spent
-> months teaching readers to dismiss a finding that is now correct. When you cite a past
-> refutation, re-run it before leaning on it (rule 11, "A `verified` Annotation Is a Claim About a
-> Version"). The `@-` caution still stands: the fix is inlining via `-p "$CONTENT"`, never `@file`.
+> **Single-voice [P0]/[Critical] → verify with a repro before acting — and re-verify before *citing* a past
+> verdict** (esp. CLI flag-parsing / runtime claims, which often reason from a plausible-but-wrong model).
+> **Record the tool version**: a stored verdict expires when the tool changes. Example (PR #157 → #229): agy's
+> `[P0] --print eats --add-dir` was once refuted by `printf 'reply ALPHA' | agy --print` → `ALPHA`; on **agy 1.1.2**
+> that no longer holds and the finding is now correct. The `@file` caution stands: inline via `-p "$CONTENT"`, never `@file`.
 
 `final.md` format:
 
