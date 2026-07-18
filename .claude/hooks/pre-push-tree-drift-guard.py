@@ -24,33 +24,75 @@ Exit code:
 """
 
 import json
+import os
 import re
 import subprocess  # nosec B404
 import sys
 
 # 只匹配作為指令執行的 git push（允許 git -C <path> push 與前置 env var 賦值），
 # 不匹配出現在 commit message 或 echo 字串內的 literal text。
+_PATH_TOKEN = r'(?:"[^"]*"|\'[^\']*\'|[^\s;&|]+)'
 _GIT_PUSH_CMD = re.compile(
-    r"(?:^|[;&|]|\n)\s*(?:\w+=\S+\s+)*git\s+(?:-C\s+\S+\s+)*push\b",
+    rf"(?:^|[;&|]|\n)\s*(?:\w+=\S+\s+)*git\s+(?:-C\s+{_PATH_TOKEN}\s+)*push\b",
     re.MULTILINE,
 )
+_GIT_C_ARG = re.compile(rf"-C\s+({_PATH_TOKEN})")
+_UNRESOLVABLE_PATH = re.compile(r"['\"$`~()]")
+_NOT_A_GIT_REPO = "not a git repository"
+_GIT_ENV_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 
 
-def _dirty_tracked_files() -> list[str]:
+class GitCheckError(RuntimeError):
+    """Git tree state could not be verified safely."""
+
+
+def _resolve_git_cwd(match: re.Match[str]) -> str | None:
+    """Resolve repeated literal -C paths using Git's cumulative semantics.
+
+    Each relative -C is relative to the preceding location; an absolute path resets
+    the base. Shell-expanded or quoted paths are deliberately rejected because the
+    hook cannot reproduce shell evaluation safely and guessing would fail open.
+    """
+    paths = _GIT_C_ARG.findall(match.group(0))
+    if not paths:
+        return None
+    if any(_UNRESOLVABLE_PATH.search(path) for path in paths):
+        raise GitCheckError("無法靜態解析 git -C 路徑，無法確認目標工作樹。")
+
+    cwd = os.getcwd()
+    for path in paths:
+        cwd = os.path.normpath(os.path.join(cwd, path))
+    return cwd
+
+
+def _dirty_tracked_files(cwd: str | None = None) -> list[str]:
     """回傳有未 commit 改動的已追蹤檔案（unstaged + staged）。
 
     --cached 之外再跑一次無 flag 版本，是為了同時涵蓋「已 stage 但未 commit」——
     兩者都會讓 push 出去的樹與工作區不一致。
     """
+    env = os.environ.copy()
+    for key in _GIT_ENV_KEYS:
+        env.pop(key, None)
+    env["LC_ALL"] = "C"
+
     files: list[str] = []
     for args in (["git", "diff", "--name-only"], ["git", "diff", "--cached", "--name-only"]):
-        result = subprocess.run(  # nosec B603 B607
-            args,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(  # nosec B603 B607
+                args,
+                cwd=cwd,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as e:
+            raise GitCheckError(f"Git 檢查失敗：{e}") from e
         if result.returncode != 0:
-            return []  # fail-open：git 不可用或非 repo，不擋
+            if _NOT_A_GIT_REPO in result.stderr.lower():
+                return []  # 真正的非 Git 目錄不屬於本 guard 的保護範圍。
+            detail = result.stderr.strip() or f"git 結束碼 {result.returncode}"
+            raise GitCheckError(f"Git 檢查失敗：{detail}")
         files.extend(line for line in result.stdout.splitlines() if line)
     return sorted(set(files))
 
@@ -60,14 +102,23 @@ def main() -> None:
         data = json.load(sys.stdin)
         if data.get("tool_name") != "Bash":
             sys.exit(0)
-        command: str = data.get("tool_input", {}).get("command", "")
+        command = data.get("tool_input", {}).get("command", "")
     except Exception:
         sys.exit(0)
 
-    if not _GIT_PUSH_CMD.search(command):
+    if not isinstance(command, str):
         sys.exit(0)
 
-    dirty = _dirty_tracked_files()
+    match = _GIT_PUSH_CMD.search(command)
+    if match is None:
+        sys.exit(0)
+
+    try:
+        cwd = _resolve_git_cwd(match)
+        dirty = _dirty_tracked_files(cwd)
+    except GitCheckError as e:
+        print(f"[BLOCKED] {e}\n請改用可靜態解析的 git -C 路徑後再 push。")
+        sys.exit(2)
     if not dirty:
         sys.exit(0)
 
