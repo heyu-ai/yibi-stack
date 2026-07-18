@@ -1,5 +1,6 @@
 ---
 name: investigate
+scope: global
 version: 1.0.0
 description: Systematic debugging with root cause investigation. Investigate to root cause, then fix, then hand off to the PR flow (/pr-cycle-fast, /pr-review-cycle).
 allowed-tools:
@@ -27,6 +28,8 @@ triggers:
   learnings recall is re-pointed at this repo's /lessons system (~/.agents/bin/
   lessons, yibi-stack #267 Part B), replacing gstack's gbrain/~/.gstack store.
 -->
+
+# Investigate — Systematic Debugging
 
 ## When to invoke this skill
 
@@ -67,9 +70,11 @@ Gather context before forming any hypothesis.
    causes. Use Grep to find all references, Read to understand the logic.
 
 3. **Check recent changes:**
+
    ```bash
    git log --oneline -20 -- <affected-files>
    ```
+
    Was this working before? What changed? A regression means the root cause is in
    the diff.
 
@@ -86,6 +91,7 @@ Gather context before forming any hypothesis.
    — a multi-word phrase returns nothing — so pick one noun: the failing component
    or the affected file's basename without extension (`auth`, `celery`,
    `onboarding`), alphanumeric or hyphen only.
+
    ```bash
    LESSONS="$HOME/.agents/bin/lessons"
    if [ -x "$LESSONS" ]; then
@@ -94,10 +100,11 @@ Gather context before forming any hypothesis.
      echo "prior-learnings recall skipped: $LESSONS not found"
    fi
    ```
+
    This is an area-keyed first pass; you re-search with the specific hypothesis
    noun below once you have one. If a returned lesson applies, say which one in one
-   sentence ("Prior learning applied: <key>"). If nothing comes back, that absence
-   is itself useful — no prior fix recorded for this area.
+   sentence ("Prior learning applied: `<key>`"). If nothing comes back, that
+   absence is itself useful — no prior fix recorded for this area.
 
 **Stop before a dangerous assumption.** For high-stakes ambiguity — architecture,
 data model, destructive scope, or genuinely missing context — STOP now, before
@@ -127,15 +134,16 @@ Name which returned lesson applies in one sentence, or note that none did.
 
 ## Scope Lock
 
-After forming your root cause hypothesis, lock edits to the affected module to
-prevent scope creep. This repo ships a `freeze` skill (harness plugin) whose
-PreToolUse hook blocks any Edit/Write outside a chosen boundary directory.
+After forming your root cause hypothesis, keep edits confined to the affected
+module. Name the narrowest directory that contains the affected files and treat
+anything outside it as out of scope for this session. If the bug genuinely spans
+the repo or the scope is unclear, say so and proceed carefully rather than
+editing broadly.
 
-Identify the narrowest directory containing the affected files and invoke
-`/freeze` on it (e.g. `freeze edits to backend/src/auth/`). Tell the user:
-"Edits restricted to `<dir>/` for this debug session; run `/unfreeze` to remove
-the restriction." If the bug genuinely spans the whole repo or the scope is
-unclear, skip the lock and say why.
+If a scope-guard is available in the session (a `/freeze`-style PreToolUse hook
+that blocks edits outside a boundary directory), arm it on that directory so the
+restriction is enforced, not just intended. A native scope-guard for this stack
+is a planned follow-up; until it lands, treat Scope Lock as a discipline.
 
 ## Phase 2: Pattern Analysis
 
@@ -177,7 +185,8 @@ Before writing ANY fix, verify your hypothesis.
    hypotheses, so the 3-strike rule below will not catch them.
 
 4. **3-strike rule:** If 3 hypotheses fail, **STOP**. Use AskUserQuestion:
-   ```
+
+   ```text
    3 hypotheses tested, none match. This may be an architectural issue
    rather than a simple bug.
 
@@ -187,6 +196,7 @@ Before writing ANY fix, verify your hypothesis.
    ```
 
 **Red flags** — if you see any of these, slow down:
+
 - "Quick fix for now" — there is no "for now." Fix it right or escalate.
 - Proposing a fix before tracing data flow — you are guessing.
 - Each fix reveals a new problem elsewhere — wrong layer, not wrong code.
@@ -210,7 +220,8 @@ Once root cause is confirmed:
 4. **Run the full test suite.** Paste the output. No regressions allowed.
 
 5. **If the fix touches >5 files:** Use AskUserQuestion to flag the blast radius:
-   ```
+
+   ```text
    This fix touches N files. That's a large blast radius for a bug fix.
    A) Proceed — the root cause genuinely spans these files
    B) Split — fix the critical path now, defer the rest
@@ -228,7 +239,8 @@ expired; added a null check + redirect, test at auth_test.ts:88 fails without it
 beats "I fixed the authentication issue."
 
 Output a structured debug report:
-```
+
+```text
 DEBUG REPORT
 ========================================
 Symptom:         [what the user observed]
