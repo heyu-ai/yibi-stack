@@ -213,8 +213,8 @@ true.
 **The subshell-`exit` trap is now enforced mechanically, not by memory.** After the fail-loud
 principle recurred across three dated lessons (2026-07-07, 2026-07-14, and PR #234's four
 in-PR repeats), continuing to write it down was an admission that writing it down does not work.
-`scripts/lint_shell_subshell_exit.py` (pre-commit, `types: [shell]`) now parses shell scripts and
-fails the commit on the one shape that actually fail-opens:
+`scripts/lint_shell_subshell_exit.py` (pre-commit, `types: [shell]`) parses shell scripts and
+warns on the one shape that actually fail-opens:
 
 > `exit` inside a function **and** that function is called as the first token of a `$(…)` **and**
 > the call site is somewhere `set -e` will not catch (an `if`/`while`/`until` condition, or `||`
@@ -223,10 +223,22 @@ fails the commit on the one shape that actually fail-opens:
 Both extra conjuncts are load-bearing, and each was learned from a false positive the first draft
 produced against real repo code: `bump.sh`'s `new_version=$(bump_semver …)` is a **bare
 assignment under `set -e`**, so the subshell's `exit 1` does abort the script — no fail-open;
-`bash-ap1-inline-check.sh`'s `block()` is called **directly**, and only *mentioned* inside an
-unrelated `$(…)`, so requiring the name to be the substitution's first token clears it. A lint
-that fires on correct code teaches people to disable it, so the negative controls are the
-important tests, not the positive one.
+a call like `LOG=$(python3 logger.py block …)` only *mentions* a same-named token inside an
+unrelated `$(…)` while `block()` itself is called **directly**, so requiring the name to be the
+substitution's first token clears it (see test EG-004's synthetic fixture — do not cite a specific
+tracked file's current contents, which drift). A lint that fires on correct code teaches people to
+disable it, so the negative controls are the important tests, not the positive one.
+
+**Ships advisory, not blocking (PR #241 mob review).** A cross-family mob review (Claude / Codex /
+agy) empirically found this lint is incomplete in **both** directions, so it defaults to warn-only
+(`--fail` opts into blocking for CI): it **false-positives** on the final-position `&&`/`||` case
+(`true && X=$(fn)` is caught by `set -e`, yet flagged) and on `set -o errexit`, and it
+**false-negatives** on the two most common real shapes — a quoted `X="$(fn)"` (best-practice
+quoting, invisible because `_strip_noise` drops double-quoted content) and `local/export X=$(fn)`
+(SC2155, which defeats `set -e`). The blockquote's "`||`/`&&`" clause above is therefore an
+**over-approximation**, not a precise gate. The lesson for future mechanical guards: a lint that
+enforces an anti-pattern must itself be held to the anti-pattern's full truth table before it is
+allowed to block — until then, advisory.
 
 **Do not run mutation tests on a shared worktree file while a review agent is reading it.**
 Mutation testing edits the real file in place; a reviewer dispatched against that path will read

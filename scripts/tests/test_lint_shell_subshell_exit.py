@@ -17,9 +17,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 LINT = REPO_ROOT / "scripts" / "lint_shell_subshell_exit.py"
 
 
-def _run_lint(target: Path) -> subprocess.CompletedProcess[str]:
+def _run_lint(target: Path, strict: bool = True) -> subprocess.CompletedProcess[str]:
+    # 偵測/負向控制測試用 strict（--fail）驗 exit code：偵測 -> 1、乾淨 -> 0。
+    # 預設 advisory 模式（strict=False）由 VL-002 單獨驗（有 finding 仍 exit 0）。
+    cmd = [sys.executable, str(LINT)]
+    if strict:
+        cmd.append("--fail")
+    cmd.append(str(target))
     return subprocess.run(  # nosec B603
-        [sys.executable, str(LINT), str(target)],
+        cmd,
         capture_output=True,
         text=True,
         timeout=30,
@@ -254,11 +260,41 @@ class TestLintShellSubshellExit:
         )
         assert r.returncode == 0
 
+    def test_lsse_vl_002_advisory_default_warns_but_exits_zero(self, tmp_path: Path) -> None:
+        """LSSE-VL-002: 預設 advisory 模式——即使有 finding 也 exit 0，只印 [WARN]。
+
+        與 DT-003 成對：完全相同的 fixture，差別只在有沒有 --fail。
+        DT-003（strict）-> exit 1；本測試（advisory 預設）-> exit 0 但 stderr 仍報 finding。
+        這是 PR #241 mob review 後「blocking -> advisory」的行為契約。
+        """
+        f = _write(
+            tmp_path,
+            "advisory.sh",
+            "#!/bin/bash\n"
+            "_check() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "ok"\n'
+            "}\n"
+            'RESULT=$(_check "$X")\n'
+            'echo "continued: $RESULT"\n',
+        )
+        r = _run_lint(f, strict=False)
+        assert r.returncode == 0, f"advisory 預設不應阻擋：{r.stderr!r}"
+        assert "_check" in r.stderr, "advisory 仍須把 finding 印到 stderr"
+        assert "[WARN]" in r.stderr, "advisory 模式應標 [WARN] 而非 [FAIL]"
+
     def test_lsse_st_001_whole_repo_is_clean(self) -> None:
-        """LSSE-ST-001: 現有 repo 的所有 shell 檔必須零誤報。
+        """LSSE-ST-001: 現有 repo 追蹤的 `*.sh` 檔必須零誤報。
 
         這條是 lint 能否進 pre-commit 的門檻：對既有正確的碼吵，等於逼所有人加
         # noqa 或關掉它。實測第一版報了 3 個檔案，全是誤報，判準因此重寫。
+
+        誠實標註（PR #241 mob review）：本測試只列舉 `*.sh`，但 pre-commit hook 用
+        `types: [shell]`（依 shebang 判定），範圍更廣，涵蓋無副檔名的 shell 檔
+        （如 scripts/lessons、scripts/resolve-skill-repo）。兩者範圍不一致是已知缺口，
+        待補（deferred-from-review）；在 advisory 模式下風險有限（不阻擋 commit）。
         """
         listed = subprocess.run(  # nosec B603
             ["git", "-C", str(REPO_ROOT), "ls-files", "*.sh"],
@@ -274,8 +310,9 @@ class TestLintShellSubshellExit:
         ]
         assert files, "測試前提不成立：repo 應有 .sh 檔"
 
+        # 用 --fail：exit 0 才真正代表「零 finding」；advisory 預設恆 0 會讓這條 gate vacuous。
         r = subprocess.run(  # nosec B603
-            [sys.executable, str(LINT), *[str(f) for f in files]],
+            [sys.executable, str(LINT), "--fail", *[str(f) for f in files]],
             capture_output=True,
             text=True,
             timeout=60,

@@ -51,8 +51,9 @@ regex 分不出三件事，每一件都會造成誤報：
 3. 呼叫點有沒有被 `if` / `||` 包住？（決定 set -e 會不會接住）
 
 第 2 點特別容易錯：只搜「函式名有沒有出現在某個 $() 內」會把「$() 裡剛好提到同名字串」
-也算進去（實測會誤報 `.claude/hooks/bash-ap1-inline-check.sh` 的 `block`，它其實是
-直接呼叫的）。故本 lint 要求函式名是 `$(` 後的**第一個 token**。
+也算進去（例如 `LOG=$(python3 logger.py block ...)` 裡的 `block` 只是引數，該 function
+其實是直接呼叫的——見測試 EG-004 的合成案例）。故本 lint 要求函式名是 `$(` 後的
+**第一個 token**。
 
 ## 限制（誠實標註，勿當成完備）
 
@@ -61,11 +62,29 @@ regex 分不出三件事，每一件都會造成誤報：
 - 只認同檔案內的定義與呼叫；跨檔 source、`eval`、間接呼叫（`$fn`）不追。
 - `set -e` 只看檔案前 20 行的 `set -e` / `set -eu` / `set -euo pipefail`。
 
-這些限制的方向都是**漏報**而非誤報——寧可放過，不要吵。
+## 為什麼預設是 advisory（warn-only）而非 blocking（PR #241 mob review）
+
+跨家 mob review（Claude 4-subagent / Codex / agy）實測指出本 lint 目前**兩個方向都不完備**，
+故預設降為 advisory，correctness 逐步補強（追蹤見 deferred-from-review issue）：
+
+- 誤報（會擋掉合法碼，對 blocking hook 尤其致命）：
+  - `_unguarded_by_set_e` 用整行判斷 `&&`/`||`，但 set -e 只對「非 final 位置」的 list 成員
+    停用——`true && X=$(fn)`（fn 為最後一個命令）失敗仍會被 errexit 接住，卻被報 fail-open。
+  - `_SET_E` 不認 `set -o errexit` 長式，會誤判「無 set -e」而過度標記。
+  - 單行 `if true; then X=$(fn); fi` 的 body 呼叫被當成條件位置而誤判。
+- 漏報（看不見真 fail-open）：
+  - `_strip_noise` 清掉雙引號內容，於是「命令替換一律加引號」（bash 最佳實踐）的
+    `X="$(fn)"` 完全看不見——實測 `X=$(fn)` 報、`X="$(fn)"` 不報。
+  - `local`/`declare`/`export`/`readonly X=$(fn)`（ShellCheck SC2155）會讓 set -e 失效，
+    屬真 fail-open，但被判為安全的裸賦值。
+
+上面的**誤報**是 PR #241 新確認、且與早期宣稱的「0 誤報」相牴觸，修正前不應作為阻擋式 gate。
+故本 lint 預設只警告不阻擋；CI 若要嚴格把關可加 `--fail`。
 
 exit code:
-    0 = 無問題（或無 shell 檔可檢查）
-    1 = 找到至少一個「會 fail-open 的 subshell exit」
+    預設（advisory / warn-only）：一律 exit 0，finding 印到 stderr
+        （pre-commit 端配 verbose: true 才會顯示）。
+    --fail（opt-in 阻擋，供 CI）：找到至少一個「會 fail-open 的 subshell exit」時 exit 1。
 """
 
 from __future__ import annotations
@@ -200,7 +219,9 @@ def check_file(path: Path) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    paths = [Path(a) for a in argv[1:]]
+    args = argv[1:]
+    strict = "--fail" in args  # 預設 advisory（exit 0）；--fail 才阻擋（exit 1），供 CI opt-in
+    paths = [Path(a) for a in args if a != "--fail"]
     if not paths:
         return 0
 
@@ -212,12 +233,17 @@ def main(argv: list[str]) -> int:
     if not all_findings:
         return 0
 
-    print("[FAIL] 偵測到會靜默 fail-open 的 subshell exit：", file=sys.stderr)
+    label = "[FAIL]" if strict else "[WARN]"
+    print(f"{label} 偵測到可能會靜默 fail-open 的 subshell exit：", file=sys.stderr)
     for f in all_findings:
         print(f"  {f}", file=sys.stderr)
     print("", file=sys.stderr)
     print("  背景見 .claude/rules/11-skill-authoring.md；實例見 PR #234。", file=sys.stderr)
-    return 1
+    print(
+        "  本 lint 預設為 advisory（見 module docstring「為什麼預設是 advisory」）。",
+        file=sys.stderr,
+    )
+    return 1 if strict else 0
 
 
 if __name__ == "__main__":
