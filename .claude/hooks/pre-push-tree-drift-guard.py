@@ -30,17 +30,26 @@ import shlex
 import subprocess  # nosec B404
 import sys
 
-# 先寬鬆找出「指令位置」的 git，再對 push 前的每個 token 做白名單分類。
+# Recognized shapes are plain git commands, optional inline assignments / env,
+# sudo, subshell parentheses, and command lists separated by ;, &, |, or newline.
+# Exotic wrappers and shell constructs (time, env -i, command, if/then, nested
+# command substitutions / backticks) are not recognized and currently fall
+# through to allow.  The threat model is accidental formatter drift, not an
+# adversarial user evading their own guard; adversarial coverage needs a larger
+# shell-aware (shlex-based) command parser rewrite rather than more regex cases.
+#
+# 先寬鬆找出「指令位置」的 git，再對 subcommand 前的每個 token 做白名單分類。
 # 如此未知選項不會讓 regex no-match 後靜默放行。
 _GIT_COMMAND = re.compile(
     r"(?:^|[;&|(]|\n)\s*"
-    r"(?:(?:env\s+)?(?:[A-Za-z_]\w*=\S+\s+)*|sudo\s+)"
+    r"(?P<prefix>(?:(?:env\s+)?(?:[A-Za-z_]\w*=(?:\"[^\"]*\"|'[^']*'|\S+)\s+)*|sudo\s+))"
     r"git\b(?P<args>[^;&|\n]*)",
     re.MULTILINE,
 )
 _UNRESOLVABLE_PATH = re.compile(r"['\"$`~()]")
 _NOT_A_GIT_REPO = "not a git repository"
 _GIT_ENV_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
+_REPO_CONFIG_KEYS = {"core.worktree", "core.gitdir", "core.bare"}
 
 
 class GitCheckError(RuntimeError):
@@ -76,20 +85,31 @@ _GLOBAL_OPTIONS_WITH_VALUE = {
 def _push_c_paths(match: re.Match[str]) -> list[str] | None:
     """Return every -C value for a push, or None when this Git command is not a push."""
     try:
+        prefix_tokens = shlex.split(match.group("prefix"), posix=True)
         tokens = shlex.split(match.group("args"), posix=True)
     except ValueError as e:
         raise GitCheckError(f"Git push 指令無法靜態解析：{e}") from e
 
-    push_indexes = [index for index, token in enumerate(tokens) if token.rstrip(")") == "push"]
-    if not push_indexes:
-        return None
+    unsafe_selector: str | None = None
+    for token in prefix_tokens:
+        key, separator, _value = token.partition("=")
+        if separator and key in _GIT_ENV_KEYS:
+            unsafe_selector = (
+                f"無法安全確認 inline {key} 指定的 Git repository；"
+                "請移除 repository selector 後再 push。"
+            )
 
     paths: list[str] = []
     index = 0
-    while index <= push_indexes[0]:
+    while index < len(tokens):
         token = tokens[index]
         if token.rstrip(")") == "push":
+            if unsafe_selector is not None:
+                raise GitCheckError(unsafe_selector)
             return paths
+        if not token.startswith("-"):
+            # 第一個非 option token 才是 Git subcommand；其後即使出現 push 也不是 push 指令。
+            return None
         if token in _GLOBAL_FLAGS:
             index += 1
             continue
@@ -105,7 +125,19 @@ def _push_c_paths(match: re.Match[str]) -> list[str] | None:
             if option == "-C":
                 paths.append(value)
             elif option in {"--git-dir", "--work-tree"}:
-                raise GitCheckError(f"無法安全重現會改變目標工作樹的 Git 選項：{option}")
+                unsafe_selector = f"無法安全重現會改變目標工作樹的 Git 選項：{option}"
+            elif option == "--config-env":
+                unsafe_selector = (
+                    "無法安全確認 --config-env 是否會改變 Git repository；"
+                    "請移除 repository selector 後再 push。"
+                )
+            elif option == "-c":
+                config_key = value.partition("=")[0].lower()
+                if config_key in _REPO_CONFIG_KEYS:
+                    unsafe_selector = (
+                        f"無法安全確認 -c {config_key} 指定的 Git repository；"
+                        "請移除 repository selector 後再 push。"
+                    )
             index += 1
             continue
         # push 前出現非白名單 token，無法證明它不會影響目標樹。
@@ -195,7 +227,7 @@ def main() -> None:
         else:
             dirty = []
     except GitCheckError as e:
-        print(f"[BLOCKED] {e}\n請改用可靜態解析的 git -C 路徑後再 push。")
+        print(f"[BLOCKED] {e}\n請改用 guard 可靜態確認目標工作樹的 git push 指令。")
         sys.exit(2)
     if not found_push or not dirty:
         sys.exit(0)

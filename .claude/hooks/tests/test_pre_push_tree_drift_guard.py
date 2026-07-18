@@ -106,6 +106,20 @@ class TestCommandMatching:
         (repo / "tracked.py").write_text("x = 2\n")
         assert run_hook(repo, "git commit -m wip").returncode == 0
 
+    @pytest.mark.parametrize(
+        "command",
+        ['git commit -m "add push"', "git show push", "git branch push-x"],
+    )
+    @pytest.mark.parametrize("dirty", [False, True], ids=["clean", "dirty"])
+    def test_pptd_dt_005b_push_text_after_non_push_subcommand_allows(
+        self, repo: Path, command: str, dirty: bool
+    ) -> None:
+        """第一個 subcommand 不是 push 時，不可被後續 push 字樣誤攔。"""
+        if dirty:
+            (repo / "tracked.py").write_text("x = 5\n")
+
+        assert run_hook(repo, command).returncode == 0
+
     def test_pptd_dt_006_push_as_literal_text_allows(self, repo: Path) -> None:
         """PPTD-DT-006: 'git push' 只出現在字串內容中 -> 放行（不是要執行它）"""
         (repo / "tracked.py").write_text("x = 2\n")
@@ -188,7 +202,10 @@ class TestCommandMatching:
             }
         )
 
-        assert run_hook(tmp_path, f"git -C {repo} push", env=env).returncode == 2
+        result = run_hook(tmp_path, f"git -C {repo} push", env=env)
+
+        assert result.returncode == 2
+        assert "tracked.py" in result.stdout
 
     @pytest.mark.parametrize(
         "command",
@@ -209,7 +226,48 @@ class TestCommandMatching:
     ) -> None:
         (repo / "tracked.py").write_text("x = 14\n")
 
-        assert run_hook(repo, command.format(repo=repo)).returncode == 2
+        result = run_hook(repo, command.format(repo=repo))
+
+        assert result.returncode == 2
+        assert "tracked.py" in result.stdout
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git -c http.x=y push",
+            "git -c k=v -C {repo} push",
+            "git -C {repo} -c k=v push",
+            "git --no-pager push",
+            "git -p push",
+            "env X=y git push",
+            'X="a b" git push',
+            "sudo git push",
+            "(git push)",
+        ],
+    )
+    def test_pptd_dt_014b_global_options_and_wrappers_allow_clean_push(
+        self, repo: Path, command: str
+    ) -> None:
+        assert run_hook(repo, command.format(repo=repo)).returncode == 0
+
+    @pytest.mark.parametrize(
+        "command, marker",
+        [
+            ("GIT_DIR={repo}/.git git push", "GIT_DIR"),
+            ('GIT_WORK_TREE="{repo}/tree with space" git push', "GIT_WORK_TREE"),
+            ("git -c core.worktree={repo} push", "core.worktree"),
+            ("git -c core.gitDir={repo}/.git push", "core.gitdir"),
+            ("git -c core.bare=true push", "core.bare"),
+            ("git --config-env=core.worktree=TARGET push", "--config-env"),
+        ],
+    )
+    def test_pptd_dt_014c_repository_selectors_fail_closed(
+        self, repo: Path, command: str, marker: str
+    ) -> None:
+        result = run_hook(repo, command.format(repo=repo))
+
+        assert result.returncode == 2
+        assert marker in result.stdout
 
     def test_pptd_dt_015_unrecognized_git_option_fails_closed(self, repo: Path) -> None:
         result = run_hook(repo, "git --mystery-option push")
