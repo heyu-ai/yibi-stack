@@ -225,12 +225,28 @@ class TestWriteCommandInjectsProject:
     def test_lsw_dt_005_unknown_subcommand_defaults_to_injecting(self, tmp_path: Path) -> None:
         """LSW-DT-005: 未知子命令 fail-safe 走注入路徑。
 
-        未來若新增寫入類子命令（如 issue #242 的 delete / retire），漏改此處時
-        寧可多帶 scope，也不要讓它靜默寫到錯的 project——#243 的代價高於多帶一個旗標。
+        未來若新增**寫入類**子命令而漏改 wrapper 的豁免清單，寧可多帶 scope，也不要讓它
+        靜默寫到錯的 project——#243 的代價高於多帶一個旗標。用一個刻意不存在的子命令名
+        測 fail-safe 本身（delete / retire 已明確豁免，見 test_lsw_dt_006）。
         """
-        result = _run_wrapper(tmp_path, ["retire", "--id", "abc"])
+        result = _run_wrapper(tmp_path, ["frobnicate", "--foo", "bar"])
         assert result.returncode == 0, result.stderr
         assert _project_of(result.stdout) == "some-project"
+
+    @pytest.mark.parametrize("subcmd", ["delete", "retire"])
+    def test_lsw_dt_006_id_targeted_command_skips_injection(
+        self, subcmd: str, tmp_path: Path
+    ) -> None:
+        """LSW-DT-006: delete / retire 以 --id 操作單一 lesson，wrapper 不得注入 --project。
+
+        CLI 對這兩者不定義 --project option；若 wrapper 注入，click 會因未知 option 以
+        exit 2 大聲失敗（issue #242）。此測試釘住豁免，避免日後 fail-safe 預設重新吞掉它們。
+        """
+        result = _run_wrapper(tmp_path, [subcmd, "--id", "abc"])
+        assert result.returncode == 0, result.stderr
+        assert _project_of(result.stdout) is None, (
+            f"{subcmd} 不應被注入 --project（會讓 click exit 2）：{result.stdout!r}"
+        )
 
     def test_lsw_eg_001_no_subcommand_does_not_crash(self, tmp_path: Path) -> None:
         """LSW-EG-001: 不帶任何引數時 `${1:-}` 不因 set -u 而炸。
@@ -310,11 +326,15 @@ class TestReadListDriftGuard:
         """
         from tasks.mycelium.cli import lessons
 
-        known_read = {"show", "search"}
+        # 不注入 --project 的子命令：讀取（保留全部 project 語意）或 id-targeted
+        # （delete / retire 以精確 --id 操作，CLI 不定義 --project；注入會讓 click exit 2）。
+        known_no_inject = {"show", "search", "delete", "retire"}
+        # 注入 cwd project 的寫入子命令。
         known_write = {"add"}
-        unclassified = set(lessons.commands) - known_read - known_write
+        unclassified = set(lessons.commands) - known_no_inject - known_write
         assert not unclassified, (
             f"lessons 新增了未分類的子命令 {sorted(unclassified)}：請先在 scripts/lessons 決定"
-            f"它是讀取（加進 case 豁免清單）或寫入（維持注入），再同步更新本測試。漏改的話，"
-            f"新的讀取子命令會靜默只回傳 cwd 那個 repo 的結果。"
+            f"它是「不注入」（讀取，或以 --id 操作的 delete/retire——加進 case 豁免清單）或"
+            f"「寫入」（維持注入），再同步更新本測試。漏改的話，新的讀取子命令會靜默只回傳 "
+            f"cwd 那個 repo 的結果；新的 id-targeted 子命令則會被注入 --project 而 click exit 2。"
         )

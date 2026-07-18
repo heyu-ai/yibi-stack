@@ -7,14 +7,15 @@ description: 查詢、搜尋、寫入 typed lessons。取代 /recall。
 
 查詢累積的 typed lessons、legacy handover 教訓，以及寫入新教訓。
 
-所有操作透過 wrapper：`~/.agents/bin/lessons {add|show|search} [args]`
+所有操作透過 wrapper：`~/.agents/bin/lessons {add|show|search|delete|retire} [args]`
 Wrapper 透過 `~/.agents/bin/resolve-skill-repo` 取得 skill_repo 路徑。
 
-**`--project` 讀寫不對稱（刻意為之）**：
+**`--project` 注入策略（刻意為之）**：
 
 | 指令 | wrapper 行為 | 結果 |
 | --- | --- | --- |
 | `show` / `search`（讀取） | **不注入** `--project` | 預設回傳**全部 project**，與 CLI 文件一致；要限縮請自行加 `--project <name>` |
+| `delete` / `retire`（id-targeted） | **不注入** `--project` | 以精確 `--id` 操作單一 lesson；CLI 不定義 `--project`，注入會讓 click exit 2（issue #242） |
 | `add`（寫入） | 注入 `git rev-parse` 偵測到的 project | 教訓記到當前 repo（issue #243 的防線） |
 
 讀取之所以不注入：CLI 對 `show` / `search` 的 `--project` 預設就是「顯示全部 project」，
@@ -72,6 +73,32 @@ Agent 直接組 `lessons add` 指令：
 選填：`--skill <skill-name>`、`--files <path>`（可重複）
 
 確認輸出的 id 和 trusted bit 後回報使用者。
+
+## Step 3b — 退場：delete 與 retire（issue #242）
+
+lessons 表原本只進不出，錯寫只能直接動 SQLite。兩條退場路徑語意不同：
+
+**`delete`（誤寫修正）** — 「這筆根本不該存在」。刪除前自動寫入 `lessons_deleted`
+tombstone（含完整 snapshot + `deleted_at`）保留 audit trail：
+
+```bash
+~/.agents/bin/lessons delete --id <uuid> --dry-run   # 先看會刪什麼
+~/.agents/bin/lessons delete --id <uuid>             # 實際刪除，印出剩餘筆數
+```
+
+- 只接受精確 `--id`，不支援條件式批次刪除
+- `--id` 指向不存在教訓時 fail loud（exit 1），非靜默 no-op
+
+**`retire`（教訓過期）** — 「它曾經對，現在被推翻了」。保留內容但退出流通：
+
+```bash
+~/.agents/bin/lessons retire --id <uuid> --reason "被 PR #NNN 推翻：<新事實>" --superseded-by <key>
+```
+
+- 寫入 `retired_at` / `retired_reason` / `superseded_by`
+- `--reason` 必填（「為何被推翻」常是下一條教訓）
+- `show` / `search` 預設排除 retired，加 `--include-retired` 才顯示（標 `[RETIRED]`）
+- `/knowledge-distill` 聚合時自動排除 retired，不再稀釋 cluster
 
 ## Step 4 — 呈現結果
 
