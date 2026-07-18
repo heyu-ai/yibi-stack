@@ -793,7 +793,7 @@ def lessons_add(  # pylint: disable=too-many-arguments
             "retrospective_id": retrospective_id,
             "retro_pr": retro_pr,
         }
-        result_data = add_lesson(record_data)
+        result_data = add_lesson(record_data, db_path=_ctl_db_path())
         click.echo(f"id={result_data['id']} trusted={result_data['trusted']}")
     except ValidationError as e:
         msgs = "; ".join(err["msg"] for err in e.errors())
@@ -866,6 +866,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
             insights_path=_insights_path,
             limit=last,
             include_retired=include_retired,
+            db_path=_ctl_db_path(),
         )
         if as_json:
             click.echo(json.dumps(rows_typed, ensure_ascii=False, indent=2))
@@ -885,10 +886,14 @@ def lessons_show(  # pylint: disable=too-many-arguments
                 click.echo(f"  project = {r['project']}")
             click.echo(f"  {r.get('insight', '')}")
             if r.get("retired_at"):
-                click.echo(f"  retired: {r.get('retired_reason', '')}")
+                _sup = r.get("superseded_by")
+                _sup_txt = f"（superseded_by={_sup}）" if _sup else ""
+                click.echo(f"  retired: {r.get('retired_reason', '')}{_sup_txt}")
         return
 
-    rows = show_lessons(project=project, limit=last, include_insights=include_insights)
+    rows = show_lessons(
+        project=project, limit=last, include_insights=include_insights, db_path=_ctl_db_path()
+    )
 
     if as_json:
         click.echo(json.dumps(rows, ensure_ascii=False, indent=2))
@@ -973,6 +978,7 @@ def lessons_search(  # pylint: disable=too-many-arguments
             insights_path=_insights_path,
             limit=last,
             include_retired=include_retired,
+            db_path=_ctl_db_path(),
         )
         if as_json:
             click.echo(json.dumps(rows_typed, ensure_ascii=False, indent=2))
@@ -992,11 +998,17 @@ def lessons_search(  # pylint: disable=too-many-arguments
                 click.echo(f"  project = {r['project']}")
             click.echo(f"  {r.get('insight', '')}")
             if r.get("retired_at"):
-                click.echo(f"  retired: {r.get('retired_reason', '')}")
+                _sup = r.get("superseded_by")
+                _sup_txt = f"（superseded_by={_sup}）" if _sup else ""
+                click.echo(f"  retired: {r.get('retired_reason', '')}{_sup_txt}")
         return
 
     rows = search_lessons(
-        query=query, project=project, limit=last, include_insights=include_insights
+        query=query,
+        project=project,
+        limit=last,
+        include_insights=include_insights,
+        db_path=_ctl_db_path(),
     )
 
     if as_json:
@@ -1051,7 +1063,7 @@ def lessons_delete(lesson_id: str, dry_run: bool) -> None:
     click.echo(
         f"✓ 已刪除 id={deleted['id']}（[{deleted.get('type', '')}] {deleted.get('key', '')}）"
     )
-    click.echo(f"  剩餘 lessons 筆數：{result['remaining']}")
+    click.echo(f"  剩餘 lessons 筆數（不含 retired，與 show 一致）：{result['remaining']}")
 
 
 @lessons.command("retire")

@@ -791,9 +791,16 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         row = cur.fetchone()
         return int(row["c"]) if row else 0
 
-    def count_lessons(self) -> int:
-        """回傳 lessons table 現有筆數（delete 後驗證剩餘數用，含 retired）。"""
-        cur = self.conn.execute("SELECT COUNT(*) AS c FROM lessons")
+    def count_lessons(self, include_retired: bool = True) -> int:
+        """回傳 lessons table 現有筆數。
+
+        include_retired=True（預設）計入 retired；False 只計 `retired_at IS NULL`，
+        與 `show` / `search` 預設可見集合一致（delete 後回報剩餘數用）。
+        """
+        if include_retired:
+            cur = self.conn.execute("SELECT COUNT(*) AS c FROM lessons")
+        else:
+            cur = self.conn.execute("SELECT COUNT(*) AS c FROM lessons WHERE retired_at IS NULL")
         row = cur.fetchone()
         return int(row["c"]) if row else 0
 
@@ -804,28 +811,39 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         return _decode_lesson_row(row) if row else None
 
     def delete_lesson(self, lesson_id: str, now: datetime) -> dict[str, Any] | None:
-        """刪除單筆 lesson，先寫入 lessons_deleted tombstone 保留 audit trail。
+        """刪除單筆 lesson，寫入 lessons_deleted tombstone 保留 audit trail。
 
         回傳被刪除的 row（dict）；找不到 id 時回傳 None，不寫 tombstone、不刪除。
-        tombstone 寫入與 DELETE 在同一 transaction commit，確保 audit trail 與刪除原子性。
+
+        併發安全（mycelium DB 跨 agent／機器共用，併發是運作模型而非邊界情況）：
+        - DELETE 先行並檢查 `rowcount`——若 row 在 SELECT 與 DELETE 之間被其他 process 刪除，
+          rowcount 為 0，代表本次未刪到任何資料，**不寫 tombstone**、回傳 None（service 轉成
+          fail-loud）。避免「tombstone 已寫但 0 rows 被刪卻回報成功」的孤兒 tombstone。
+        - DELETE 與 tombstone INSERT 包在同一 `with self.conn` transaction，原子 commit／
+          rollback（不再依賴 connection 的隱式 isolation 預設）。
         """
         decoded = self.get_lesson(lesson_id)
         if decoded is None:
             return None
-        self.conn.execute(
-            "INSERT INTO lessons_deleted (id, deleted_at, project, key, type, snapshot) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                decoded["id"],
-                now.isoformat(),
-                decoded.get("project"),
-                decoded.get("key"),
-                decoded.get("type"),
-                json.dumps(decoded, ensure_ascii=False),
-            ),
-        )
-        self.conn.execute("DELETE FROM lessons WHERE id = ?", (lesson_id,))
-        self.conn.commit()
+        with self.conn:  # 單一 transaction：DELETE + tombstone 原子 commit
+            deleted_rows = self.conn.execute(
+                "DELETE FROM lessons WHERE id = ?", (lesson_id,)
+            ).rowcount
+            if deleted_rows != 1:
+                # SELECT 與 DELETE 之間 row 已被其他 process 刪除：不寫 tombstone、視為找不到
+                return None
+            self.conn.execute(
+                "INSERT INTO lessons_deleted (id, deleted_at, project, key, type, snapshot) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    decoded["id"],
+                    now.isoformat(),
+                    decoded.get("project"),
+                    decoded.get("key"),
+                    decoded.get("type"),
+                    json.dumps(decoded, ensure_ascii=False),
+                ),
+            )
         return decoded
 
     def retire_lesson(
@@ -837,16 +855,20 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
     ) -> dict[str, Any] | None:
         """標記單筆 lesson 為 retired（保留內容，退出流通）。
 
-        寫入 retired_at / retired_reason / superseded_by 三欄。
-        回傳更新後的 row；找不到 id 時回傳 None。
+        寫入 retired_at / retired_reason / superseded_by 三欄，只更新**尚未 retire** 的
+        lesson（`WHERE ... AND retired_at IS NULL`）——避免重複 retire 覆寫原始退場記錄
+        （audit-data loss）。`rowcount != 1` 時回傳 None，代表「找不到」或「已 retire」；
+        呼叫端（service）用 get_lesson 先行區分兩者以給出精確錯誤訊息。
+        UPDATE 包在 `with self.conn` transaction 內原子 commit。
         """
-        if self.get_lesson(lesson_id) is None:
+        with self.conn:
+            updated_rows = self.conn.execute(
+                "UPDATE lessons SET retired_at = ?, retired_reason = ?, superseded_by = ? "
+                "WHERE id = ? AND retired_at IS NULL",
+                (now.isoformat(), reason, superseded_by, lesson_id),
+            ).rowcount
+        if updated_rows != 1:
             return None
-        self.conn.execute(
-            "UPDATE lessons SET retired_at = ?, retired_reason = ?, superseded_by = ? WHERE id = ?",
-            (now.isoformat(), reason, superseded_by, lesson_id),
-        )
-        self.conn.commit()
         return self.get_lesson(lesson_id)
 
     def insert_event(self, event: HandoverEvent) -> None:

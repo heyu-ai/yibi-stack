@@ -307,7 +307,8 @@ class TestDeleteCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["lessons", "delete", "--id", lid], env=self._env(db_path))
         assert result.exit_code == 0, result.output
-        assert "剩餘 lessons 筆數：0" in result.output
+        assert "剩餘 lessons 筆數（不含 retired" in result.output
+        assert "：0" in result.output
 
     def test_lsn_del_cv_002_missing_id_fails(self, tmp_path: Path) -> None:
         """LSN-DEL-CV-002 (negative): 無 --id 必須 fail（click required，非零 exit）"""
@@ -390,3 +391,225 @@ class TestRetireCLI:
         result = runner.invoke(cli, ["lessons", "retire", "--id", lid], env=self._env(db_path))
         assert result.exit_code != 0
         assert "--reason" in result.output
+
+
+# ─── Re-retire guard (audit-trail preservation) ──────────────────────────────
+
+
+class TestReRetireGuard:
+    def test_lsn_ret_dt_005_db_reretire_returns_none(self) -> None:
+        """LSN-RET-DT-005: db.retire_lesson 對已 retire 的 lesson 回傳 None（不覆寫）"""
+        db = AgentsDB(":memory:")
+        db.init_db()
+        record = _make_lesson(key="reretire-db")
+        db.insert_lesson(record)
+        first = db.retire_lesson(record.id, "first reason", "orig-key", _NOW)
+        assert first is not None
+        second = db.retire_lesson(record.id, "second reason", None, _NOW)
+        assert second is None  # WHERE retired_at IS NULL -> 0 rows
+        # 原始退場記錄未被覆寫
+        row = db.get_lesson(record.id)
+        assert row is not None
+        assert row["retired_reason"] == "first reason"
+        assert row["superseded_by"] == "orig-key"
+        db.close()
+
+    def test_lsn_ret_eg_003_service_reretire_raises(self, tmp_path: Path) -> None:
+        """LSN-RET-EG-003: service retire_lesson 對已 retire 的 lesson fail loud，並保留原記錄"""
+        db_path = _db_file(tmp_path)
+        lid = _seed(db_path, key="reretire-svc")
+        retire_lesson(lid, "被 PR #1 推翻", "orig-key", db_path=db_path)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="已於"):
+            retire_lesson(lid, "誤打的第二次", None, db_path=db_path)
+        # 原始退場理由與取代者未被覆寫
+        row = get_lesson(lid, db_path=db_path)
+        assert row is not None
+        assert row["retired_reason"] == "被 PR #1 推翻"
+        assert row["superseded_by"] == "orig-key"
+
+    def test_lsn_ret_cv_004_cli_reretire_exits_1(self, tmp_path: Path) -> None:
+        """LSN-RET-CV-004: CLI 重複 retire exit 1，訊息帶原始退場資訊"""
+        db_path = _db_file(tmp_path)
+        lid = _seed(db_path, key="reretire-cli")
+        retire_lesson(lid, "first", "ok", db_path=db_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["lessons", "retire", "--id", lid, "--reason", "second"],
+            env={**__import__("os").environ, "MYCELIUM_DB_OVERRIDE": db_path},
+        )
+        assert result.exit_code == 1
+        assert "已於" in result.output
+
+
+# ─── Delete concurrency safety ───────────────────────────────────────────────
+
+
+class TestDeleteConcurrencySafety:
+    def test_lsn_del_dt_005_race_no_orphan_tombstone(self, monkeypatch) -> None:
+        """LSN-DEL-DT-005: get_lesson 回傳 row 但 DELETE 命中 0 rows（併發刪除）→
+        不寫 tombstone、回傳 None（避免孤兒 tombstone）"""
+        db = AgentsDB(":memory:")
+        db.init_db()
+        fake = {"id": "ghost", "project": "p", "key": "k", "type": "pitfall", "insight": "x"}
+        # 模擬 TOCTOU：get_lesson 回傳一個實際不在 table 的 row
+        monkeypatch.setattr(db, "get_lesson", lambda _id: fake)
+        result = db.delete_lesson("ghost", _NOW)
+        assert result is None
+        tomb = db.conn.execute("SELECT COUNT(*) AS c FROM lessons_deleted").fetchone()["c"]
+        assert tomb == 0
+        db.close()
+
+    def test_lsn_del_dt_006_atomic_rollback_on_tombstone_error(self, monkeypatch) -> None:
+        """LSN-DEL-DT-006: tombstone INSERT 失敗時整個 transaction rollback——
+        DELETE 被還原（row 保留）、無 tombstone"""
+        import pytest
+
+        db = AgentsDB(":memory:")
+        db.init_db()
+        record = _make_lesson(key="atomic")
+        db.insert_lesson(record)
+
+        def _boom(*_a: object, **_k: object) -> str:
+            raise ValueError("tombstone serialize boom")
+
+        # 讓 tombstone INSERT 前的 json.dumps 拋錯（DELETE 已執行、tombstone 尚未寫入）
+        monkeypatch.setattr("tasks.mycelium.db.json.dumps", _boom)
+        with pytest.raises(ValueError):
+            db.delete_lesson(record.id, _NOW)
+        monkeypatch.undo()
+        # DELETE 被 rollback：row 仍在，且無 tombstone
+        assert db.get_lesson(record.id) is not None
+        tomb = db.conn.execute("SELECT COUNT(*) AS c FROM lessons_deleted").fetchone()["c"]
+        assert tomb == 0
+        db.close()
+
+
+# ─── Remaining count excludes retired ────────────────────────────────────────
+
+
+class TestRemainingCountExcludesRetired:
+    def test_lsn_del_st_002_remaining_counts_only_live(self, tmp_path: Path) -> None:
+        """LSN-DEL-ST-002: delete 回報的 remaining 只計非 retired（與 show 一致）"""
+        db_path = _db_file(tmp_path)
+        live = _seed(db_path, key="live-a")
+        _seed(db_path, key="live-b")
+        retired = _seed(db_path, key="retired-c")
+        retire_lesson(retired, "outdated", None, db_path=db_path)
+        # 刪掉 live-a：剩 live-b（live）+ retired-c（retired）= 1 live remaining
+        result = delete_lesson(live, db_path=db_path)
+        assert result["remaining"] == 1  # 不含 retired-c
+
+    def test_lsn_del_dt_007_count_lessons_include_retired_flag(self) -> None:
+        """LSN-DEL-DT-007: count_lessons(include_retired=) 分別計入／排除 retired"""
+        db = AgentsDB(":memory:")
+        db.init_db()
+        live = _make_lesson(key="cnt-live")
+        gone = _make_lesson(key="cnt-gone")
+        db.insert_lesson(live)
+        db.insert_lesson(gone)
+        db.retire_lesson(gone.id, "outdated", None, _NOW)
+        assert db.count_lessons(include_retired=True) == 2
+        assert db.count_lessons(include_retired=False) == 1
+        db.close()
+
+
+# ─── Dry-run missing id ──────────────────────────────────────────────────────
+
+
+class TestDryRunMissingId:
+    def test_lsn_del_cv_005_dry_run_missing_id_exits_1(self, tmp_path: Path) -> None:
+        """LSN-DEL-CV-005: delete --dry-run 對不存在 id exit 1 並提示找不到"""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["lessons", "delete", "--id", "no-such", "--dry-run"],
+            env={**__import__("os").environ, "MYCELIUM_DB_OVERRIDE": _db_file(tmp_path)},
+        )
+        assert result.exit_code == 1
+        assert "找不到" in result.output
+
+
+# ─── CLI --include-retired rendering ─────────────────────────────────────────
+
+
+class TestIncludeRetiredCLI:
+    def _env(self, db_path: str) -> dict[str, str]:
+        import os
+
+        return {**os.environ, "MYCELIUM_DB_OVERRIDE": db_path}
+
+    def test_lsn_show_cv_001_default_excludes_retired(self, tmp_path: Path) -> None:
+        """LSN-SHOW-CV-001: show 預設不顯示 retired（typed 路徑）"""
+        db_path = _db_file(tmp_path)
+        lid = _seed(db_path, key="hidden-show", insight="findme show-level unique token here.")
+        retire_lesson(lid, "outdated", None, db_path=db_path)
+        runner = CliRunner()
+        # --no-include-legacy 走 typed 路徑；--json 便於精確斷言
+        result = runner.invoke(
+            cli,
+            ["lessons", "show", "--no-include-legacy", "--json"],
+            env=self._env(db_path),
+        )
+        assert result.exit_code == 0, result.output
+        assert "hidden-show" not in result.output
+
+    def test_lsn_show_cv_002_include_retired_shows_tag_and_superseded(self, tmp_path: Path) -> None:
+        """LSN-SHOW-CV-002: show --include-retired 顯示 [RETIRED]、reason、superseded_by"""
+        db_path = _db_file(tmp_path)
+        lid = _seed(db_path, key="shown-retired")
+        retire_lesson(lid, "被 PR #7 推翻", "new-canonical", db_path=db_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["lessons", "show", "--no-include-legacy", "--include-retired"],
+            env=self._env(db_path),
+        )
+        assert result.exit_code == 0, result.output
+        assert "[RETIRED]" in result.output
+        assert "被 PR #7 推翻" in result.output
+        assert "superseded_by=new-canonical" in result.output
+
+    def test_lsn_search_cv_001_include_retired(self, tmp_path: Path) -> None:
+        """LSN-SEARCH-CV-001: search 預設排除 retired，--include-retired 才顯示並標 [RETIRED]"""
+        db_path = _db_file(tmp_path)
+        lid = _seed(db_path, key="srch-retired", insight="needle-token in a retired lesson here.")
+        retire_lesson(lid, "被推翻", "repl", db_path=db_path)
+        runner = CliRunner()
+        default = runner.invoke(
+            cli,
+            ["lessons", "search", "needle-token", "--no-include-legacy"],
+            env=self._env(db_path),
+        )
+        assert default.exit_code == 0
+        assert "srch-retired" not in default.output
+        with_flag = runner.invoke(
+            cli,
+            ["lessons", "search", "needle-token", "--no-include-legacy", "--include-retired"],
+            env=self._env(db_path),
+        )
+        assert with_flag.exit_code == 0, with_flag.output
+        assert "[RETIRED]" in with_flag.output
+
+
+# ─── tier_service excludes retired ───────────────────────────────────────────
+
+
+class TestTierServiceExcludesRetired:
+    def test_lsn_ret_st_004_tier_promotion_skips_retired(self, tmp_path: Path) -> None:
+        """LSN-RET-ST-004: tier 升降級掃描（_fetch_non_archival）排除 retired"""
+        from tasks.mycelium.tier_service import _fetch_non_archival
+
+        db_path = _db_file(tmp_path)
+        live = _seed(db_path, key="tier-live")
+        gone = _seed(db_path, key="tier-gone")
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.retire_lesson(gone, "outdated", None, _NOW)
+        rows = _fetch_non_archival(db)
+        ids = {r["id"] for r in rows}
+        db.close()
+        assert live in ids
+        assert gone not in ids

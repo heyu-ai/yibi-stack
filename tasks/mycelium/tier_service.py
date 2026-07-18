@@ -60,9 +60,15 @@ def run_promotion_check(
 
 
 def _fetch_non_archival(db: Any) -> list[dict[str, Any]]:
-    """取得所有 tier != 'archival' 的 lesson rows。"""
+    """取得所有 tier != 'archival' 且未 retire 的 lesson rows。
+
+    retired 教訓已「退出流通」（show / search / distill / get_lessons 皆預設排除），
+    故 tier 升降級也不該再處理它們——排除可避免對不可見 row 做無效的 tier churn，
+    並與 issue #242 的 retire 契約一致。db 由 AgentsDB.init_db() 建表，retired_at 欄位必存在。
+    """
     cur = db.conn.execute(
-        "SELECT id, ts, tier, access_count, last_accessed_at FROM lessons WHERE tier != 'archival'"
+        "SELECT id, ts, tier, access_count, last_accessed_at FROM lessons "
+        "WHERE tier != 'archival' AND retired_at IS NULL"
     )
     return [dict(row) for row in cur.fetchall()]
 

@@ -96,9 +96,9 @@ tombstone（含完整 snapshot + `deleted_at`）保留 audit trail：
 ```
 
 - 寫入 `retired_at` / `retired_reason` / `superseded_by`
-- `--reason` 必填（「為何被推翻」常是下一條教訓）
-- `show` / `search` 預設排除 retired，加 `--include-retired` 才顯示（標 `[RETIRED]`）
-- `/knowledge-distill` 聚合時自動排除 retired，不再稀釋 cluster
+- `--reason` 必填（「為何被推翻」常是下一條教訓）；重複 retire 會 fail loud（不覆寫原始退場記錄）
+- `show` / `search` 預設排除 retired 的 **typed** 教訓，加 `--include-retired` 才顯示（標 `[RETIRED]`，並顯示 `superseded_by`）
+- distill 聚合（`python -m tasks.mycelium distill run`）與 tier 升降級自動排除 retired，不再稀釋 cluster
 
 ## Step 4 — 呈現結果
 

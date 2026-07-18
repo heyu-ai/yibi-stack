@@ -63,6 +63,8 @@ def delete_lesson(
     """刪除單筆 lesson（誤寫修正用），先寫 tombstone 保留 audit trail。
 
     回傳含被刪除 row 與剩餘筆數的 dict：{"deleted": <row>, "remaining": <int>}。
+    remaining 只計非 retired 的 lesson（與 show / search 預設可見集合一致），
+    避免呼叫端把「含 retired 的總數」誤讀為「還有幾條可見教訓」。
     找不到 id 時 raise RuntimeError（fail loud，避免靜默 no-op）。
     """
     if not lesson_id or not lesson_id.strip():
@@ -76,7 +78,7 @@ def delete_lesson(
         deleted = db.delete_lesson(lesson_id, datetime.now(UTC))
         if deleted is None:
             raise RuntimeError(f"找不到 id={lesson_id} 的教訓，未刪除任何記錄")
-        remaining = db.count_lessons()
+        remaining = db.count_lessons(include_retired=False)
     finally:
         db.close()
 
@@ -92,7 +94,9 @@ def retire_lesson(
     """標記單筆 lesson 為 retired（教訓過期用，保留內容但退出流通）。
 
     reason 必填且非空（「這條為什麼被推翻」本身常是下一條教訓）。
-    回傳更新後的 row；找不到 id 時 raise RuntimeError（fail loud）。
+    回傳更新後的 row。找不到 id 或已 retire 時 raise RuntimeError（fail loud）：
+    重複 retire 會覆寫原始退場記錄（retired_at / reason / superseded_by）造成 audit-data
+    loss，故明確拒絕，並在訊息中帶出原始退場資訊。
     """
     if not lesson_id or not lesson_id.strip():
         raise ValueError("lesson_id 不可為空")
@@ -104,9 +108,19 @@ def retire_lesson(
     db = AgentsDB(db_path=db_path)
     try:
         db.init_db()
+        existing = db.get_lesson(lesson_id)
+        if existing is None:
+            raise RuntimeError(f"找不到 id={lesson_id} 的教訓，未標記任何記錄")
+        if existing.get("retired_at") is not None:
+            raise RuntimeError(
+                f"id={lesson_id} 已於 {existing['retired_at']} retire"
+                f"（reason={existing.get('retired_reason')}）；"
+                f"不覆寫原始退場記錄。若確需更正，請另循修正流程"
+            )
         updated = db.retire_lesson(lesson_id, reason, superseded_by, datetime.now(UTC))
         if updated is None:
-            raise RuntimeError(f"找不到 id={lesson_id} 的教訓，未標記任何記錄")
+            # 上面已確認存在且未 retire；走到這裡代表另一 process 在此空檔搶先 retire
+            raise RuntimeError(f"id={lesson_id} 已被其他 process 同時 retire，未覆寫原始退場記錄")
     finally:
         db.close()
 
