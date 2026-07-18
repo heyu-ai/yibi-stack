@@ -5,8 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
+from tasks.pr_orchestrator import config
 from tasks.pr_orchestrator.cli import _resolve_repo_slug, cli
 from tasks.pr_orchestrator.models import PRInfo
 
@@ -70,6 +72,7 @@ class TestDetectRepoRoot:
         mock_persist: MagicMock,
         mock_log: MagicMock,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """PROR-ST-034: detect --repo-root 把路徑傳給 current_branch 與 pr_for_branch 的 cwd"""
         mock_branch.return_value = "feat-x"
@@ -79,6 +82,7 @@ class TestDetectRepoRoot:
         no_state = MagicMock()
         no_state.is_file.return_value = False
         mock_state_path.return_value = no_state
+        monkeypatch.setattr(config, "_STATE_DIR", tmp_path / "runtime")
 
         result = CliRunner().invoke(cli, ["detect", "--repo-root", str(tmp_path)])
 
@@ -107,6 +111,7 @@ class TestDetectRepoRoot:
         mock_persist: MagicMock,
         mock_log: MagicMock,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """PROR-ST-036: detect --pr N 把 cwd 傳給 pr_by_number，且完全不呼叫 current_branch"""
         mock_pr_by_number.return_value = PRInfo(
@@ -115,12 +120,58 @@ class TestDetectRepoRoot:
         no_state = MagicMock()
         no_state.is_file.return_value = False
         mock_state_path.return_value = no_state
+        monkeypatch.setattr(config, "_STATE_DIR", tmp_path / "runtime")
 
         result = CliRunner().invoke(cli, ["detect", "--pr", "88", "--repo-root", str(tmp_path)])
 
         assert result.exit_code == 0, result.output
         assert mock_pr_by_number.call_args.kwargs["cwd"] == tmp_path
         mock_branch.assert_not_called()
+
+    @patch("tasks.pr_orchestrator.detector.pr_by_number")
+    @patch("tasks.pr_orchestrator.cli.subprocess.run")
+    def test_pror_st_038_detect_empty_repo_fails_loud(
+        self,
+        mock_run: MagicMock,
+        mock_pr: MagicMock,
+        monkeypatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(config, "_STATE_DIR", tmp_path / "runtime")
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="not logged in")
+        mock_pr.return_value = PRInfo(
+            number=42, head_ref_name="feat", head_ref_oid="deadbeef", base_ref_name="main"
+        )
+
+        result = CliRunner().invoke(cli, ["detect", "--pr", "42", "--repo-root", str(tmp_path)])
+
+        assert result.exit_code == 1
+        assert "[FAIL] 無法解析 repo slug" in result.output
+        assert not config.state_path("unknown", 42).is_file()
+
+    @patch("tasks.pr_orchestrator.detector.pr_by_number")
+    @patch("tasks.pr_orchestrator.cli.subprocess.run")
+    def test_pror_st_039_detect_then_status_resolves_target_repo_from_cwd(
+        self,
+        mock_run: MagicMock,
+        mock_pr: MagicMock,
+        monkeypatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(config, "_STATE_DIR", tmp_path / "runtime")
+        mock_run.return_value = MagicMock(returncode=0, stdout="owner/target\n", stderr="")
+        mock_pr.return_value = PRInfo(
+            number=42, head_ref_name="feat", head_ref_oid="deadbeef", base_ref_name="main"
+        )
+        runner = CliRunner()
+
+        detected = runner.invoke(cli, ["detect", "--pr", "42", "--repo-root", str(tmp_path)])
+        shown = runner.invoke(cli, ["status", "--pr", "42", "--repo-root", str(tmp_path)])
+
+        assert detected.exit_code == 0, detected.output
+        assert shown.exit_code == 0, shown.output
+        assert '"repo": "owner/target"' in shown.output
+        assert all(call.kwargs["cwd"] == tmp_path for call in mock_run.call_args_list)
 
 
 class TestResolveRepoSlugEnvPrecedence:
