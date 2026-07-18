@@ -29,7 +29,16 @@ cwc = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(cwc)
 
 _DIST_INFO = "yibi_stack-1.9.0.dist-info"
-_GOOD_ENTRY_POINTS = "[console_scripts]\nportman = tasks.local_port_manager.cli:cli\n"
+_GOOD_ENTRY_POINTS = (
+    "[console_scripts]\n"
+    "mycelium = tasks.mycelium.cli:cli\n"
+    "pr-orchestrator = tasks.pr_orchestrator.cli:cli\n"
+    "portman = tasks.local_port_manager.cli:cli\n"
+)
+_WRONG_PORTMAN_ENTRY_POINTS = _GOOD_ENTRY_POINTS.replace(
+    "portman = tasks.local_port_manager.cli:cli\n",
+    "portman = tasks.local_port_manager.cli:BROKEN\n",
+)
 
 
 def _make_wheel(tmp_path: Path, names: dict[str, str], *, name: str = "probe.whl") -> Path:
@@ -157,9 +166,7 @@ class TestRejectsBadWheel:
         contents["aaa_decoy-0.0.1.dist-info/METADATA"] = "Name: aaa-decoy\n"
         contents["aaa_decoy-0.0.1.dist-info/entry_points.txt"] = _GOOD_ENTRY_POINTS
         # 真品的 entry point 是壞的——若守衛讀誘餌就不會發現
-        contents[f"{_DIST_INFO}/entry_points.txt"] = (
-            "[console_scripts]\nportman = tasks.local_port_manager.cli:BROKEN\n"
-        )
+        contents[f"{_DIST_INFO}/entry_points.txt"] = _WRONG_PORTMAN_ENTRY_POINTS
         wheel = _make_wheel(tmp_path, contents)
         monkeypatch.setattr(cwc.sys, "argv", ["check_wheel_contents.py", str(wheel)])
 
@@ -184,9 +191,7 @@ class TestRejectsBadWheel:
         contents = _good_wheel_contents()
         contents["yibi_stack-0.0.1.dist-info/METADATA"] = "Name: yibi-stack\n"
         contents["yibi_stack-0.0.1.dist-info/entry_points.txt"] = _GOOD_ENTRY_POINTS
-        contents[f"{_DIST_INFO}/entry_points.txt"] = (
-            "[console_scripts]\nportman = tasks.local_port_manager.cli:BROKEN\n"
-        )
+        contents[f"{_DIST_INFO}/entry_points.txt"] = _WRONG_PORTMAN_ENTRY_POINTS
         wheel = _make_wheel(tmp_path, contents)
         monkeypatch.setattr(cwc.sys, "argv", ["check_wheel_contents.py", str(wheel)])
 
@@ -234,8 +239,9 @@ class TestRejectsBadWheel:
     ) -> None:
         """CWC-DT-014: entry point 目標與 pyproject 宣告不符時被擋下。"""
         contents = _good_wheel_contents()
-        contents[f"{_DIST_INFO}/entry_points.txt"] = (
-            "[console_scripts]\nportman = tasks.local_port_manager.cli:WRONG\n"
+        contents[f"{_DIST_INFO}/entry_points.txt"] = _GOOD_ENTRY_POINTS.replace(
+            "portman = tasks.local_port_manager.cli:cli\n",
+            "portman = tasks.local_port_manager.cli:WRONG\n",
         )
         wheel = _make_wheel(tmp_path, contents)
         monkeypatch.setattr(cwc.sys, "argv", ["check_wheel_contents.py", str(wheel)])
