@@ -72,7 +72,11 @@ def lint_frontmatter(text: str) -> list[tuple[int, str]]:
         if key != "paths":
             continue
         scalar_value = re.sub(r"(?:^|\s+)#.*$", "", value).strip()
-        if len(scalar_value) >= 2 and scalar_value[0] == scalar_value[-1] and scalar_value[0] in "'\"":
+        if (
+            len(scalar_value) >= 2
+            and scalar_value[0] == scalar_value[-1]
+            and scalar_value[0] in "'\""
+        ):
             scalar_value = scalar_value[1:-1].strip()
         scalar_value = re.sub(r"^\[\s*\]$", "[]", scalar_value)
         if scalar_value not in _EMPTY_PATH_VALUES:
