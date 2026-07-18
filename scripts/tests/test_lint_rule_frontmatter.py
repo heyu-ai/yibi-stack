@@ -29,6 +29,11 @@ class TestLintFrontmatter:
         text = "---\npaths: tasks/**\n---\n# Rule\n"
         assert lint_rule_frontmatter.lint_frontmatter(text) == []
 
+    def test_lintrule_vl_004_unindented_paths_list_is_valid(self) -> None:
+        """LINTRULE-VL-004: YAML 允許的未縮排 paths list 合法"""
+        text = '---\npaths:\n- "tasks/**"\n---\n# Rule\n'
+        assert lint_rule_frontmatter.lint_frontmatter(text) == []
+
     def test_lintrule_dt_001_bad_aliases_are_rejected(self) -> None:
         """LINTRULE-DT-001: 已知錯誤別名與 Paths 大小寫變體皆違規"""
         for key in ("globs", "glob", "path", "pattern", "Paths", "PATHS"):
@@ -41,9 +46,30 @@ class TestLintFrontmatter:
 
     def test_lintrule_dt_003_empty_paths_are_rejected(self) -> None:
         """LINTRULE-DT-003: 空白、空 list 與空 list item 皆違規"""
-        for value in ("", " []", ' ""', " # comment", " [] # comment", "\n  -"):
+        for value in (
+            "",
+            " []",
+            " [ ]",
+            " '  '",
+            ' "  "',
+            ' ""',
+            " # comment",
+            " [] # comment",
+            "\n  -",
+        ):
             violations = lint_rule_frontmatter.lint_frontmatter(f"---\npaths:{value}\n---\n")
             assert any("不可為空" in reason for _, reason in violations), value
+
+    def test_lintrule_dt_004_bom_bad_alias_is_rejected(self) -> None:
+        """LINTRULE-DT-004: UTF-8 BOM 不得遮蔽錯誤路徑 key"""
+        violations = lint_rule_frontmatter.lint_frontmatter("\ufeff---\nglobs: tasks/**\n---\n")
+        assert any("`globs:`" in reason for _, reason in violations)
+
+    def test_lintrule_dt_005_indented_fence_does_not_truncate_scan(self) -> None:
+        """LINTRULE-DT-005: 縮排的 --- 不視為 frontmatter 結束分隔線"""
+        text = "---\npaths: tasks/**\n  ---\nglobs: tasks/**\n---\n"
+        violations = lint_rule_frontmatter.lint_frontmatter(text)
+        assert any("`globs:`" in reason for _, reason in violations)
 
     def test_lintrule_eg_001_malformed_blocks_are_rejected(self) -> None:
         """LINTRULE-EG-001: 未關閉與非 mapping frontmatter 皆違規"""

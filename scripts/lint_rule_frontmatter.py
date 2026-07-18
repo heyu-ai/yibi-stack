@@ -34,11 +34,12 @@ _EMPTY_PATH_VALUES = {"", "[]", "null", "~", "''", '""'}
 
 def lint_frontmatter(text: str) -> list[tuple[int, str]]:
     """回傳 [(line_no, reason), ...]；無 frontmatter 回傳空 list。"""
+    text = text.lstrip("\ufeff")
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         return []
 
-    end = next((i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
+    end = next((i for i, line in enumerate(lines[1:], 1) if line.rstrip() == "---"), None)
     if end is None:
         return [(1, "frontmatter 缺少結束分隔線 `---`")]
 
@@ -51,6 +52,8 @@ def lint_frontmatter(text: str) -> list[tuple[int, str]]:
         if line[0].isspace():
             if not top_level:
                 violations.append((line_no, "縮排行出現在任何 top-level key 之前"))
+            continue
+        if line.startswith("-"):
             continue
         match = _TOP_LEVEL_KEY_RE.fullmatch(line)
         if match is None:
@@ -69,6 +72,9 @@ def lint_frontmatter(text: str) -> list[tuple[int, str]]:
         if key != "paths":
             continue
         scalar_value = re.sub(r"(?:^|\s+)#.*$", "", value).strip()
+        if len(scalar_value) >= 2 and scalar_value[0] == scalar_value[-1] and scalar_value[0] in "'\"":
+            scalar_value = scalar_value[1:-1].strip()
+        scalar_value = re.sub(r"^\[\s*\]$", "[]", scalar_value)
         if scalar_value not in _EMPTY_PATH_VALUES:
             continue
         next_index = top_level[position + 1][3] if position + 1 < len(top_level) else end
