@@ -216,9 +216,7 @@ class TestRunPreCompactHook:
         state_file = tmp_path / "claude-handover-suggested-denied-session"
         real_touch = Path.touch
 
-        def deny_state_touch(
-            path: Path, mode: int = 0o666, exist_ok: bool = True
-        ) -> None:
+        def deny_state_touch(path: Path, mode: int = 0o666, exist_ok: bool = True) -> None:
             if path == state_file:
                 raise PermissionError("state file is not writable")
             real_touch(path, mode, exist_ok)
