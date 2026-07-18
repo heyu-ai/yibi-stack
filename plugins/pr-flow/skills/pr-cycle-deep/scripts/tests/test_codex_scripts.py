@@ -26,13 +26,23 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 STAGE1 = SCRIPTS_DIR / "codex-r1-stage1.sh"
 R2 = SCRIPTS_DIR / "codex-r2.sh"
 
+# The 3rd-tools skills whose Filesystem Boundary the codex-r1 guard mirrors. Asserting the
+# four sensitive paths here makes the "mirrors the canonical guard in codex-review/SKILL.md"
+# comment self-enforcing: if either SKILL.md later drops one of the paths, this fails instead of
+# the mirror comment silently becoming a lie (PR #264 review, pr-test-analyzer + Codex NITs).
+_3RD_TOOLS_SKILLS_DIR = SCRIPTS_DIR.parents[4] / "plugins/3rd-tools/skills"
+CODEX_BOUNDARY_SKILLS = (
+    _3RD_TOOLS_SKILLS_DIR / "codex-review" / "SKILL.md",
+    _3RD_TOOLS_SKILLS_DIR / "codex-consult" / "SKILL.md",
+)
+
 # The frontier model slug both review stages must pin. Sourced from ~/.codex/models_cache.json
 # (priority 1, "Latest frontier agentic coding model"), not from developers.openai.com/codex,
 # whose docs still listed gpt-5.5 as top days after the GPT-5.6 release.
 _FRONTIER_MODEL = "gpt-5.6-sol"
 
 # The sensitive path prefixes the guard prompt must name (mirrors the canonical guard in
-# plugins/3rd-tools/skills/codex/SKILL.md). `agents/` is asserted separately as a standalone
+# plugins/3rd-tools/skills/codex-review/SKILL.md). `agents/` is asserted separately as a standalone
 # token so it isn't satisfied by the `~/.agents/` substring.
 _GUARD_PATHS = ("~/.claude/", "~/.agents/", ".claude/skills/")
 
@@ -87,6 +97,29 @@ class TestCodexGuardContract:
         assert '< "$REVIEW_DIR/codex-r1-input.md"' in src, (
             "codex exec must read the assembled guard+prompt+diff from stdin"
         )
+
+    @pytest.mark.parametrize("skill_md", CODEX_BOUNDARY_SKILLS, ids=lambda p: p.parent.name)
+    def test_cdxs_dt_012_boundary_lines_carry_guard_paths(self, skill_md: Path) -> None:
+        """CDXS-DT-012: EVERY Filesystem Boundary line in each codex skill names all four paths.
+
+        The stage-1 guard comment claims it mirrors the canonical guard in codex-review/SKILL.md;
+        both codex-review and codex-consult embed the same boundary in each packet. Asserting
+        per-boundary-line (not once per file) closes the gap where a path is dropped from one
+        actual review/challenge/consult packet while a prose mention keeps a whole-file search
+        green — so a future edit that guts one packet's boundary fails here instead of the mirror
+        comment silently becoming a lie (PR #264 review, pr-test-analyzer + Codex NITs).
+        """
+        text = skill_md.read_text(encoding="utf-8")
+        boundary_lines = [
+            ln for ln in text.splitlines() if "Do NOT read or execute any files under" in ln
+        ]
+        assert boundary_lines, f"{skill_md.parent.name}/SKILL.md has no Filesystem Boundary line"
+        for ln in boundary_lines:
+            for path in _GUARD_PATHS:
+                assert path in ln, f"{skill_md.parent.name}: boundary line missing {path}: {ln!r}"
+            assert re.search(r"(?<![.\w])agents/", ln), (
+                f"{skill_md.parent.name}: boundary line missing standalone `agents/`: {ln!r}"
+            )
 
     def test_cdxs_dt_004_reviews_shared_diff_patch(self) -> None:
         """CDXS-DT-004: Stage 1 reviews the shared diff.patch (all voices see one diff)."""

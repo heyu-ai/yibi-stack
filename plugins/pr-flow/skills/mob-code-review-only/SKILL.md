@@ -39,7 +39,7 @@ this skill is a thin wrapper that changes only three things:
 
 - **Reviewing AND fixing your own PR** → use `/pr-cycle-deep` (full lifecycle with fix loop).
 - **Small PR, Claude-only review is enough** → use `/pr-review-cycle` (also review-only, no external models).
-- **One quick external second opinion** → use `/agy` or `/codex` (single reviewer, no mob).
+- **One quick external second opinion** → use `/agy` or `/codex-review` (single reviewer, no mob).
 - **No external model installed** → this skill terminates and points you to `/pr-review-cycle`.
 
 ## Usage
@@ -285,7 +285,7 @@ switch to `/pr-cycle-deep` — that skill owns the fix → re-review → merge l
 | `/pr-cycle-fast` | Your own PR | Yes (then merge) | Claude (state machine, 1 reviewer) |
 | `/pr-cycle-deep` | Your own PR | Yes (then merge) | Claude + Codex + agy (mob, R1+R2) |
 | **`/mob-code-review-only`** (this skill) | **Someone else's PR** | **No — suggestions only** | Claude + Codex + agy (mob, R1+R2) |
-| `/agy`, `/codex` | Any PR / diff | No | Single external model |
+| `/agy`, `/codex-review` | Any PR / diff | No | Single external model |
 
 This skill requires ≥1 external reviewer (Codex or agy) to start; with 0, it points you to
 `/pr-review-cycle`. agy is optional — Codex-only runs a 2-voice mob; both available runs a 3-voice
