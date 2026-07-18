@@ -24,8 +24,8 @@ triggers:
   (Iron Law, five phases, pattern table, scope lock, sanitize-before-search) is
   kept and re-homed; gstack-product plumbing (telemetry, config toggles, gbrain
   context queries, session/artifacts machinery, branded voice) is dropped. Prior-
-  learnings recall is a follow-up that will point at this repo's /lessons system
-  (yibi-stack #267 Part B), not gstack's ~/.gstack store.
+  learnings recall is re-pointed at this repo's /lessons system (~/.agents/bin/
+  lessons, yibi-stack #267 Part B), replacing gstack's gbrain/~/.gstack store.
 -->
 
 ## When to invoke this skill
@@ -78,8 +78,26 @@ Gather context before forming any hypothesis.
 
 5. **Check history:** Look for prior fixes in the same area (`git log`, the
    project's issue/TODO source if present). Recurring bugs in the same files are
-   an architectural smell, not a coincidence. (Recall of past investigations from
-   this repo's /lessons system is a planned addition — yibi-stack #267 Part B.)
+   an architectural smell, not a coincidence.
+
+6. **Recall prior learnings.** Search the lessons store for patterns and pitfalls
+   recorded against the area you are debugging, so a bug already solved once
+   surfaces before you re-derive it. `lessons search` matches on a SINGLE keyword
+   — a multi-word phrase returns nothing — so pick one noun: the failing component
+   or the affected file's basename without extension (`auth`, `celery`,
+   `onboarding`), alphanumeric or hyphen only.
+   ```bash
+   LESSONS="$HOME/.agents/bin/lessons"
+   if [ -x "$LESSONS" ]; then
+     "$LESSONS" search "<affected-area-keyword>" --last 10 --include-legacy 2>/dev/null || true
+   else
+     echo "prior-learnings recall skipped: $LESSONS not found"
+   fi
+   ```
+   This is an area-keyed first pass; you re-search with the specific hypothesis
+   noun below once you have one. If a returned lesson applies, say which one in one
+   sentence ("Prior learning applied: <key>"). If nothing comes back, that absence
+   is itself useful — no prior fix recorded for this area.
 
 **Stop before a dangerous assumption.** For high-stakes ambiguity — architecture,
 data model, destructive scope, or genuinely missing context — STOP now, before
@@ -91,6 +109,21 @@ relationships, taste.
 
 Output: **"Root cause hypothesis: ..."** — a specific, testable claim about what
 is wrong and why.
+
+**Refresh learnings for the hypothesis.** The pull above was keyed to debugging
+broadly. Now re-search keyed to *this* hypothesis so prior fixes for the same
+problem-shape surface. Pick ONE keyword: a noun — the failing component, the file
+basename without extension, or the bug noun. It MUST be alphanumeric or hyphen
+only (no quotes, slashes, dots, colons, whitespace); simplify to the alphanumeric
+stem if needed. Good: `auth-cookie`, `session-expiry`, `redirect-loop`. Bad:
+`auth.ts:47`, `fix the auth bug`.
+
+```bash
+LESSONS="$HOME/.agents/bin/lessons"
+[ -x "$LESSONS" ] && "$LESSONS" search "<your-keyword>" --last 5 --include-legacy 2>/dev/null || true
+```
+
+Name which returned lesson applies in one sentence, or note that none did.
 
 ## Scope Lock
 
@@ -227,8 +260,9 @@ it so a future session can find it. In this repo that is the `/lessons` system:
 ```
 
 Only log genuine discoveries — something that would save time in a future
-session. Do not log obvious facts or one-off transient errors. (Auto-recall of
-these at skill start is tracked in yibi-stack #267.)
+session. Do not log obvious facts or one-off transient errors. Phase 1 recalls
+these at the start of the next investigation, so what you capture here is what
+surfaces there — the loop that makes the store compound over time.
 
 ## Important Rules
 
