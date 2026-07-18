@@ -11,11 +11,11 @@ from .models import FrictionCluster, NightlyDigest, PRRecord
 
 
 class DigestWriter:
-    """產生 Markdown digest 並寫入 .runtime/nightly-agent/digests/。"""
+    """產生 Markdown digest 並寫入 .runtime/nightly_agent/digests/。"""
 
     def __init__(self, digest_dir: str | Path | None = None) -> None:
         self.digest_dir = (
-            Path(digest_dir) if digest_dir else RUNTIME_DIR / "nightly-agent" / "digests"
+            Path(digest_dir) if digest_dir else RUNTIME_DIR / "nightly_agent" / "digests"
         )
 
     def build(
@@ -48,7 +48,7 @@ class DigestWriter:
             clusters_found=len(all_clusters),
             clusters_eligible=len(eligible),
             artifacts_drafted=len(prs) + skipped,
-            tests_validated=len(prs),
+            tests_validated=sum(pr.behaviorally_validated for pr in prs),
             prs_opened=len(prs),
             skipped_no_test=skipped,
             prs=prs,
@@ -106,7 +106,7 @@ class DigestWriter:
             lines.append("")
 
         if errors:
-            lines += ["## Errors", ""]
+            lines += ["## Errors", "", "[FAIL] 本次執行有未完成項目。", ""]
             for e in errors[:10]:
                 lines.append(f"- {e}")
             lines.append("")

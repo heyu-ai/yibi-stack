@@ -87,6 +87,7 @@ class TestResult(BaseModel):
     test_file: str
     passed: bool
     previously_failed: bool
+    behaviorally_validated: bool = True
     before_output: str = ""
     after_output: str = ""
     error: str = ""
@@ -102,6 +103,7 @@ class PRRecord(BaseModel):
     branch: str
     artifact_file: str
     test_file: str
+    behaviorally_validated: bool = True
 
 
 class NightlyDigest(BaseModel):
@@ -136,7 +138,7 @@ class NightlyAgentConfig(BaseModel):
     # PR branch prefix
     pr_branch_prefix: str = "nightly-agent"
     # Where to write digests
-    digest_dir: str = ".runtime/nightly-agent/digests"
+    digest_dir: str = ".runtime/nightly_agent/digests"
     # Where to write ephemeral validation records (outside pytest testpaths)
     generated_tests_dir: str = ".runtime/nightly_agent/generated_tests"
     # Cross-night friction fingerprint state

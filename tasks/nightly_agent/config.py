@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 from tasks._paths import PROJECT_ROOT, RUNTIME_DIR
@@ -67,6 +68,7 @@ def _detect_github_repo() -> str:
             timeout=5,
         )
         if result.returncode != 0:
+            print("[WARN] 無法從 git origin 偵測 GitHub repo", file=sys.stderr)
             return ""
         url = result.stdout.strip()
         # Normalize: git@github.com:owner/repo.git → owner/repo
@@ -74,8 +76,12 @@ def _detect_github_repo() -> str:
             url = url.replace("git@github.com:", "").removesuffix(".git")
         elif "github.com/" in url:
             url = url.split("github.com/")[-1].removesuffix(".git")
-        return url if re.fullmatch(r"[^/\s]+/[^/\s]+", url) else ""
-    except (OSError, subprocess.TimeoutExpired):
+        if re.fullmatch(r"[^/\s]+/[^/\s]+", url):
+            return url
+        print("[WARN] git origin 不是可辨識的 GitHub owner/repo", file=sys.stderr)
+        return ""
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"[WARN] 偵測 GitHub repo 失敗：{e}", file=sys.stderr)
         return ""
 
 

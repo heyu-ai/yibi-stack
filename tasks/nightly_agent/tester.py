@@ -35,18 +35,6 @@ def _extract_bad_command(proposal: ArtifactProposal) -> str:
     return 'echo "example bad command"'
 
 
-def _extract_distinctive_phrase(content: str) -> str:
-    for pattern in (r"\*\*([^*]{5,60})\*\*", r"##\s+(.{5,60})"):
-        match = re.search(pattern, content)
-        if match:
-            return match.group(1).strip()
-    for line in content.splitlines():
-        candidate = line.strip().lstrip("-# *")
-        if len(candidate) > 10:
-            return candidate[:60]
-    return content[:40]
-
-
 class TestValidator:
     """執行 lint-style failing→passing 驗證，不產生 pytest collection 項目。"""
 
@@ -69,7 +57,7 @@ class TestValidator:
         record_path = self.generated_tests_dir / f"lint_{safe_title}_{proposal.id[:8]}.json"
 
         before_passed, before_message = self._lint(proposal)
-        record = {
+        record: dict[str, object] = {
             "proposal_id": proposal.id,
             "kind": "nightly-agent-artifact-lint",
             "before": before_message,
@@ -80,6 +68,29 @@ class TestValidator:
             )
         except OSError as e:
             raise RuntimeError(f"無法寫入 validation record：{record_path}") from e
+
+        if proposal.artifact_type != ArtifactType.HOOKIFY_RULE:
+            message = "[RECORDED] 文件 artifact 已記錄，未做行為驗證"
+            record["after"] = message
+            record["passed"] = True
+            record["behaviorally_validated"] = False
+            try:
+                record_path.write_text(
+                    json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            except OSError as e:
+                raise RuntimeError(f"無法更新 validation record：{record_path}") from e
+            proposal.test_file = str(record_path)
+            proposal.test_content = json.dumps(record, ensure_ascii=False)
+            return TestResult(
+                proposal_id=proposal.id,
+                test_file=str(record_path),
+                passed=True,
+                previously_failed=False,
+                behaviorally_validated=False,
+                before_output=message,
+                after_output=message,
+            )
 
         if before_passed:
             return TestResult(
@@ -115,6 +126,7 @@ class TestValidator:
             test_file=str(record_path),
             passed=after_passed,
             previously_failed=True,
+            behaviorally_validated=proposal.artifact_type == ArtifactType.HOOKIFY_RULE,
             before_output=before_message,
             after_output=after_message,
             error="" if after_passed else "套用 artifact 後 lint 仍失敗",
@@ -126,13 +138,7 @@ class TestValidator:
             return False, f"[FAIL] 找不到 artifact：{target}"
         if proposal.artifact_type == ArtifactType.HOOKIFY_RULE:
             return self._lint_hook(target, proposal)
-        try:
-            content = target.read_text(encoding="utf-8")
-        except OSError as e:
-            return False, f"[FAIL] 無法讀取 artifact：{e}"
-        phrase = _extract_distinctive_phrase(proposal.content)
-        passed = phrase.casefold() in content.casefold()
-        return passed, "[PASS] 文件包含預期規則" if passed else f"[FAIL] 文件缺少：{phrase}"
+        return False, "[RECORDED] 文件 artifact 僅記錄，未做行為驗證"
 
     def _lint_hook(self, target: Path, proposal: ArtifactProposal) -> tuple[bool, str]:
         bad_payload = json.dumps(
@@ -143,14 +149,14 @@ class TestValidator:
             }
         )
         try:
-            result = subprocess.run(  # nosec B603
+            result = subprocess.run(  # nosec B603 B607
                 ["python3", str(target)],
                 input=bad_payload,
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
-            good_result = subprocess.run(  # nosec B603
+            good_result = subprocess.run(  # nosec B603 B607
                 ["python3", str(target)],
                 input=json.dumps(
                     {

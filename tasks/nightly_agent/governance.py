@@ -6,8 +6,10 @@ import hashlib
 import json
 import re
 import subprocess  # nosec B404
+import sys
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from .models import FrictionCluster
 
@@ -21,7 +23,26 @@ def friction_fingerprint(cluster: FrictionCluster) -> str:
 
 def _cluster_tokens(cluster: FrictionCluster) -> set[str]:
     text = " ".join(cluster.common_keywords + [event.description for event in cluster.events])
-    return set(re.findall(r"[a-z0-9_]{2,}", text.casefold()))
+    tokens: set[str] = set()
+    for chunk in re.findall(r"[\w\u3040-\u30ff\u3400-\u9fff]+", text.casefold(), re.UNICODE):
+        latin = re.fullmatch(r"[a-z0-9_]+", chunk)
+        if latin:
+            if len(chunk) >= 2:
+                tokens.add(chunk)
+            continue
+        # CJK／kana 沒有空白分詞；保留單字並加入 bigram，避免整句 token 讓近似判斷失真。
+        characters = [char for char in chunk if char == "_" or char.isalnum()]
+        tokens.update(characters)
+        tokens.update(
+            "".join(characters[index : index + 2]) for index in range(len(characters) - 1)
+        )
+    return tokens
+
+
+def _is_searchable_token(token: str) -> bool:
+    return len(token) >= 4 or (
+        len(token) >= 2 and any("\u3040" <= char <= "\u9fff" for char in token)
+    )
 
 
 class FrictionRegistry:
@@ -40,6 +61,8 @@ class FrictionRegistry:
         for record in self.records:
             if not isinstance(record, dict):
                 continue
+            if record.get("status") not in {"pr_opened", "resolved"}:
+                continue
             if record.get("fingerprint") == fingerprint:
                 return "跨夜 friction state"
             tokens = record.get("tokens")
@@ -54,7 +77,7 @@ class FrictionRegistry:
                     return "相似的跨夜 friction state"
 
         haystack = self._existing_branch_and_pr_text()
-        searchable = {token for token in candidate_tokens if len(token) >= 4}
+        searchable = {token for token in candidate_tokens if _is_searchable_token(token)}
         matching_tokens = {token for token in searchable if token in haystack}
         if fingerprint in haystack or len(matching_tokens) >= 2:
             return "既有 branch／open PR"
@@ -85,16 +108,40 @@ class FrictionRegistry:
             return []
         try:
             data = json.loads(self.state_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as e:
+            self._quarantine(f"無法讀取或解析：{e}")
             return []
         if not isinstance(data, dict) or not isinstance(data.get("frictions"), list):
+            self._quarantine("資料格式不符（需要包含 frictions 陣列）")
             return []
-        return [item for item in data["frictions"] if isinstance(item, dict)]
+        if any(not isinstance(item, dict) for item in data["frictions"]):
+            self._quarantine("資料格式不符（frictions 項目必須是物件）")
+            return []
+        return cast(list[dict[str, object]], data["frictions"])
+
+    def _quarantine(self, reason: str) -> None:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        candidate = self.state_file.with_name(f"{self.state_file.name}.corrupt-{timestamp}")
+        suffix = 1
+        while candidate.exists():
+            candidate = self.state_file.with_name(
+                f"{self.state_file.name}.corrupt-{timestamp}-{suffix}"
+            )
+            suffix += 1
+        try:
+            self.state_file.rename(candidate)
+        except OSError as e:
+            print(
+                f"[WARN] friction state 損壞（{reason}），且隔離失敗：{e}",
+                file=sys.stderr,
+            )
+            return
+        print(f"[WARN] friction state 損壞（{reason}），已隔離至 {candidate}", file=sys.stderr)
 
     def _existing_branch_and_pr_text(self) -> str:
         parts: list[str] = []
         try:
-            branch_result = subprocess.run(  # nosec B603
+            branch_result = subprocess.run(  # nosec B603 B607
                 [
                     "git",
                     "-C",
@@ -109,8 +156,18 @@ class FrictionRegistry:
             )
             if branch_result.returncode == 0:
                 parts.append(branch_result.stdout.casefold())
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+            else:
+                print(
+                    f"[WARN] git branch 去重檢查失敗（exit {branch_result.returncode}）："
+                    f"{branch_result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+        except FileNotFoundError as e:
+            print(f"[WARN] git branch 去重檢查跳過（git 未安裝）：{e}", file=sys.stderr)
+        except subprocess.TimeoutExpired as e:
+            print(f"[WARN] git branch 去重檢查逾時：{e}", file=sys.stderr)
+        except OSError as e:
+            print(f"[WARN] git branch 去重檢查無法執行：{e}", file=sys.stderr)
         if self.github_repo:
             try:
                 pr_result = subprocess.run(  # nosec B603 B607
@@ -131,6 +188,18 @@ class FrictionRegistry:
                 )
                 if pr_result.returncode == 0:
                     parts.append(pr_result.stdout.casefold())
-            except (OSError, subprocess.TimeoutExpired):
-                pass
+                else:
+                    print(
+                        f"[WARN] GitHub PR 去重檢查失敗（exit {pr_result.returncode}）："
+                        f"{pr_result.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+            except FileNotFoundError as e:
+                print(f"[WARN] GitHub PR 去重檢查跳過（gh 未安裝）：{e}", file=sys.stderr)
+            except subprocess.TimeoutExpired as e:
+                print(f"[WARN] GitHub PR 去重檢查逾時：{e}", file=sys.stderr)
+            except OSError as e:
+                print(f"[WARN] GitHub PR 去重檢查無法執行：{e}", file=sys.stderr)
+        else:
+            print("[WARN] 未設定 GitHub repo，跳過 open PR 去重檢查", file=sys.stderr)
         return "\n".join(parts)

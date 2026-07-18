@@ -29,8 +29,10 @@ class TestValidationLocation:
         result = validator.validate(make_proposal())
 
         record = Path(result.test_file)
-        assert result.previously_failed is True
+        assert result.previously_failed is False
         assert result.passed is True
+        assert result.behaviorally_validated is False
+        assert "未做行為驗證" in result.after_output
         assert record.is_file()
         assert record.suffix == ".json"
         assert record.is_relative_to(tmp_path / ".runtime" / "nightly_agent")

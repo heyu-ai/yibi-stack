@@ -26,12 +26,18 @@ class TestPRGovernance:
         """NIGHTLY-PR-001：純 CJK title 不會形成空白或底線垃圾 slug。"""
         mock_repo.return_value = tmp_path
         creator = PRCreator(NightlyAgentConfig(github_repo="owner/repo"))
-        creator._git = MagicMock()
-        creator._apply_artifact = MagicMock()
-        creator._git_commit = MagicMock()
-        creator._gh_pr_create = MagicMock(return_value="https://github.com/owner/repo/pull/7")
+        with (
+            patch.object(creator, "_git"),
+            patch.object(creator, "_apply_artifact"),
+            patch.object(creator, "_git_commit"),
+            patch.object(
+                creator,
+                "_gh_pr_create",
+                return_value="https://github.com/owner/repo/pull/7",
+            ),
+        ):
+            record = creator.create_pr(make_proposal("中文輸入，英文回覆"), MagicMock())
 
-        record = creator.create_pr(make_proposal("中文輸入，英文回覆"), MagicMock())
         assert "/friction-" in record.branch
         assert "_" not in record.branch
 
