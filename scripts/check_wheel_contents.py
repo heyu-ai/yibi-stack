@@ -98,9 +98,7 @@ def main() -> None:
         # 拒絕非正規成員名稱：絕對路徑、反斜線、或含 `..` 路徑元件。正常 uv build 不會產出
         # 這類名稱；用頂層目錄判斷 allow-list 前先擋掉，避免 `tasks/../evil.py` 之類藉頂層
         # 目錄偽裝通過（防禦縱深，回應 mob review 的路徑遍歷 finding）。
-        malformed = [
-            n for n in names if n.startswith("/") or "\\" in n or ".." in n.split("/")
-        ]
+        malformed = [n for n in names if n.startswith("/") or "\\" in n or ".." in n.split("/")]
         if malformed:
             _fail(
                 f"wheel 含非正規成員名稱（絕對路徑／反斜線／.. 遍歷），拒絕："

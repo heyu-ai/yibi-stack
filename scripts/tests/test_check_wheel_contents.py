@@ -195,9 +195,7 @@ class TestRejectsBadWheel:
 
         assert exc.value.code == 1
 
-    def test_cwc_dt_018_path_traversal_member_rejected(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_cwc_dt_018_path_traversal_member_rejected(self, tmp_path: Path, monkeypatch) -> None:
         """CWC-DT-018: 含 `..` 路徑遍歷／絕對路徑的成員名稱被擋下（防禦縱深）。
 
         `tasks/../evil.py` 的頂層元件是 tasks，會通過 allow-list，但邏輯上逃出 tasks/。
