@@ -21,7 +21,7 @@ yibi-stack/
 │   │   └── cli.py                   → uv run python -m tasks.harness_eval scan --path .
 │   ├── local_port_manager/          → 跨專案 port 登記（~/.agents/ports.json）
 │   │   ├── __main__.py
-│   │   └── cli.py                   → uv run python -m tasks.local_port_manager
+│   │   └── cli.py                   → portman（console script）／uv run python -m tasks.local_port_manager
 │   ├── scheduler/                   → 排程器（LaunchAgent 每 60 秒 tick）
 │   │   ├── __main__.py
 │   │   ├── cli.py                   → uv run python -m tasks.scheduler tick
@@ -54,7 +54,8 @@ yibi-stack/
 │   └── openspec/                    → OpenSpec live example（changes/ 目錄）
 │
 └── .claude/
-    ├── rules/                       → 編碼慣例（依 glob pattern 自動載入，01-16）
+    ├── rules/                       → 編碼慣例（14 個檔案；01-03/13/15/16 全量載入，
+    │                                   04-11 依 `paths:` frontmatter 觸發）
     │   ├── 01-language-and-tone.md
     │   ├── 13-bash-anti-patterns.md → AP1/AP2 + bash-to-script subagent 觸發條件
     │   └── 16-allowlist-hygiene.md  → Allow-list 衛生準則

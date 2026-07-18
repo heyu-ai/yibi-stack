@@ -2,7 +2,7 @@
 name: pr-cycle-fast
 type: exec
 scope: global
-description: PR 生命週期自動化 orchestrator（快速版）：偵測 open PR、並行 code review + CI monitor + conflict detect、auto-fix markdownlint/CI、merge 後自動觸發 /pr-retro 寫 mycelium、最後 /clean-merged。支援中斷後 resume。小型 PR 或追求快速 lifecycle 首選；大型 PR 或 SDD 專案請改用 /pr-cycle-deep。
+description: PR 生命週期自動化 orchestrator（快速版）：偵測 open PR、並行 code review + CI monitor + conflict detect、auto-fix markdownlint/CI、merge 後自動觸發 /pr-retro 寫 mycelium、最後 /clean-wt。支援中斷後 resume。小型 PR 或追求快速 lifecycle 首選；大型 PR 或 SDD 專案請改用 /pr-cycle-deep。
 ---
 
 # /pr-cycle-fast — PR Lifecycle Orchestrator (Fast)
@@ -23,8 +23,7 @@ description: PR 生命週期自動化 orchestrator（快速版）：偵測 open 
 確認 SKILL_REPO 與工具可用：
 
 ```bash
-if ! SKILL_REPO=$(python3 -c 'import json,pathlib; c=json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")); print((c.get("skill_repos") or {}).get("yibi-stack") or c.get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
-if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定' >&2; exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 ```
 
 擷取**目標 repo** 的 checkout 路徑（即目前 session 的 cwd，如 yibi-mvp）：
@@ -215,12 +214,18 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr
 
 ### Step 8 — Clean (RETRO_DONE → CLEANED)
 
-在同一 session 內觸發 `/clean-merged`，清除已 merge 的分支與 worktree。
+在同一 session 內觸發 `/clean-wt`，清除已 merge 的分支與 worktree。
+`/clean-wt` 預設只報告；把它的 SAFE 清單呈現給使用者確認後，才用 `--apply` 實際刪除。
+
+> **本 session 所在的 worktree 不會被清掉**：這個 step 通常就在剛合併完的 worktree 裡執行，
+> 而該分支此刻剛好符合 SAFE 條件。`/clean-wt` 一律把**呼叫端所在的分支**歸為 KEEP——否則
+> 它會把自己腳下的工作目錄連根移除（實測會讓 cwd 消失）。
+> 要一併清掉這個 worktree，請在**主 repo** 目錄另外執行一次 `/clean-wt --apply`。
 
 完成後 transition：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to CLEANED --reason "clean-merged done"
+uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to CLEANED --reason "clean-wt done"
 ```
 
 State file 從 `.runtime/pr_orchestrator/` 搬到 `~/.claude/pr_orchestrator/<repo>/` 歸檔（Python CLI 自動處理）。
@@ -261,7 +266,7 @@ FAILED（terminal）
 
 | 問題 | 修復方式 |
 |------|---------|
-| `[FAIL] skill_repo 未設定` | 在 yibi-stack 目錄執行 `make install` |
+| `[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install` | `~/.agents/bin/resolve-skill-repo` 不存在或不在 checkout 內；在 yibi-stack 目錄執行 `make install` |
 | `分支沒有對應的 open PR` | 先 `gh pr create` 建立 PR |
 | `多個 PR 對應同分支` | 加 `--pr <n>` 明確指定 |
 | State 停在 BLOCKED | 看 blockers 訊息，解除後跑 `/pr-cycle-fast resume` |

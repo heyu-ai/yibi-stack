@@ -340,7 +340,12 @@ def handover_read(last: int, project: str | None, exclude_tags: str | None, as_j
 @handover.command("install-hooks")
 def handover_install_hooks() -> None:
     """註冊 PreCompact + SessionStart auto-handover hooks 到 ~/.claude/settings.json。"""
+    from .._worktree_guard import assert_not_worktree
     from .auto_handover_hooks import install_hooks
+
+    # 必須在 install_hooks() 之前：hook 指令由 auto_handover_hooks._hooks_dir()
+    # 以 __file__ 自我定位組成，會把這份 checkout 的路徑寫進 ~/.claude/settings.json。
+    assert_not_worktree("uv run python -m tasks.mycelium handover install-hooks")
 
     precompact_new, session_new, msg = install_hooks()
     prefix = "✓" if (precompact_new or session_new) else "↻"
@@ -567,7 +572,13 @@ def insight() -> None:
 @insight.command("install-hook")
 def insight_install_hook() -> None:
     """註冊 Stop hook 到 ~/.claude/settings.json。"""
+    from .._worktree_guard import assert_not_worktree
     from .insight_hook import install_hook
+
+    # insight / recap 的 install-hook **沒有對應的 make target**，故連 Makefile 層的
+    # guard 都沒有——這裡是它們唯一的防線。hook 指令由 insight_hook._default_hook_command()
+    # 以 __file__ 自我定位組成，寫進 ~/.claude/settings.json。
+    assert_not_worktree("uv run python -m tasks.mycelium insight install-hook")
 
     is_new, msg = install_hook()
     prefix = "✓" if is_new else "↻"
@@ -634,7 +645,11 @@ def recap() -> None:
 @recap.command("install-hook")
 def recap_install_hook() -> None:
     """註冊 Stop hook 到 ~/.claude/settings.json。"""
+    from .._worktree_guard import assert_not_worktree
     from .recap_hook import install_hook
+
+    # 同 insight install-hook：無對應 make target，此處是唯一防線。
+    assert_not_worktree("uv run python -m tasks.mycelium recap install-hook")
 
     is_new, msg = install_hook()
     prefix = "✓" if is_new else "↻"

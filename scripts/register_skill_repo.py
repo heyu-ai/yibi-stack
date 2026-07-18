@@ -82,6 +82,43 @@ def main() -> None:
         )
         raise SystemExit(1)
 
+    # scripts/ 刻意不是 package（見 scripts/tests/test_register_skill_repo.py 的說明），
+    # 故 `python3 scripts/register_skill_repo.py` 的 sys.path[0] 是 scripts/ 而非 repo 根，
+    # 直接 `import tasks.*` 會 ModuleNotFoundError。這裡把 repo 根補進 sys.path 以重用
+    # 唯一的 guard 實作——寧可在 main() 做這個受限的 bootstrap，也不要把 fail-closed 的
+    # 包裝邏輯在此複製一份（rule 11：不要把已收斂成單一實作的邏輯重新散開）。
+    # 既有的 register()-level 測試（以 importlib 載入本模組）不執行這裡；直接呼叫 main()
+    # 的測試（REGSKILL-DT-009/010）會，故插入前先查重，避免重複呼叫累積同一個路徑。
+    _repo_root = str(pathlib.Path(__file__).resolve().parents[1])
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
+    from tasks._worktree_guard import assert_not_worktree
+
+    # 守 **argv[1]**（要被寫進 config.json 的那個路徑），而不是本腳本自身的位置：
+    # 被寫進 ~/.agents/config.json（機器層級）的毒是 repo_path，不是 __file__。
+    #
+    # 復原指令傳 "make install" 而非本腳本的原始呼叫式，因為這個 sink 的形狀與其他四個
+    # 不同，`cd <main> && <原指令>` 對它無效：
+    #   1. 其他 sink 的毒是 cwd，cd 過去就解了；這裡的毒是 argv[1]，照抄後那個 worktree
+    #      路徑還在指令裡，guard 會再擋一次——建議變成一個迴圈。
+    #   2. guard 的 cd 目標是從 $DIR（= argv[1]）推出來的，也就是「被註冊那個路徑的主
+    #      repo」，未必是持有本腳本的 checkout；照抄會得到 can't open file（實測 exit 2）。
+    #   3. 原始呼叫式漏掉 argv[2]（SKILL_REPO_KEY），照抄會落回 basename fallback——正是
+    #      本模組 docstring 明文禁止的 issue #199 key drift。
+    # Makefile:119 是唯一的真實呼叫者，`make install` 同時補齊 cwd、key 與周邊步驟。
+    #
+    # 「argv[1] 屬於別的 repo 時這條建議就錯了」——mob review round 2 有兩個 voice 這樣主張，
+    # 但順著它們自己的邏輯推下去，結論相反，故不改：
+    #   - guard 的 cd 目標是「argv[1] 的主 repo」，所以訊息實際說的是「到你想註冊的那個
+    #     repo 的主目錄，跑它的 make install」。那正是註冊那個 repo 的正確做法——skill_repos
+    #     是多 repo 共存的 map，每個 repo 由自己的 make install 登記自己。
+    #   - 「會遺失使用者自訂的 argv[2]」也不是損失：本檔 docstring 明載 key **必須**是
+    #     Makefile 傳的 canonical 識別名（issue #199），自訂 key 正是它禁止的東西。
+    #     `make install` 供給正確的 key，是修好而非遺失。
+    # 真正的殘留：若 argv[1] 指向一個沒有 make install 的目錄，這條建議無效——但那種呼叫
+    # 本來就不該存在（它不是 skill repo，註冊它沒有意義）。
+    assert_not_worktree("make install", repo_root=pathlib.Path(sys.argv[1]))
+
     config_path = pathlib.Path.home() / ".agents" / "config.json"
     repo_name = sys.argv[2] if len(sys.argv) > 2 else None
     register(sys.argv[1], config_path, repo_name)

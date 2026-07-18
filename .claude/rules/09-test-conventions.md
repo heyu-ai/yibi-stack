@@ -1,5 +1,6 @@
 ---
-globs: tasks/**/tests/**
+paths:
+  - "tasks/**/tests/**"
 ---
 # Test Conventions
 
@@ -75,6 +76,31 @@ Always use absolute-path imports in tests:
 from tasks.gmail_scan.models import ScanProfile
 from tasks.gmail_scan.service import run_scan
 ```
+
+## A Compatibility Test's Fixture Must Run in the Environment It Claims to Cover
+
+A test that claims "this works on old tool version X" is worthless if its **setup** requires a
+newer version than X: on the very environment it targets, the fixture dies first and the assertion
+never runs. It passes on the developer's modern machine, so nothing looks wrong.
+
+```python
+# Wrong: the test exists to prove the script works on git < 2.31,
+# but `git init -b` needs git 2.28 -- on a real old git the fixture fails, not the script
+_run(["git", "init", "-q", "-b", "main", str(root)])
+
+# Correct: build the fixture with primitives the target environment has
+_run(["git", "init", "-q", str(root)])
+_run(["git", "-C", str(root), "symbolic-ref", "HEAD", "refs/heads/main"])
+```
+
+Rule: when a test's purpose is compatibility with an old/minimal environment, audit **every**
+call in its fixture against that environment's floor — not just the code under test. Ask "if I ran
+this whole test on the oldest supported toolchain, what is the first line that breaks?"
+
+This is a distinct species from the fake test below: the assertions here are sound and the
+production code is genuinely covered — on modern tooling. What is missing is coverage of the one
+environment the test was written for. (Source: PR #234 — the guard's old-git regression test built
+its repo with `git init -b main`.)
 
 ## Test Fixture Schema Must Match the Real Tool Schema
 

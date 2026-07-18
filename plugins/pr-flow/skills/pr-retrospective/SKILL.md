@@ -297,12 +297,20 @@ Classifier → `--type` 對照表：
 持續，所有通過 Gate 的 lesson 都寫進**同一個** `$CLAUDE_JOB_DIR/tmp/retro_lessons.sh`（用一個
 shell function 包住重複邏輯，每筆 lesson 呼叫一次該 function），用單一 bash call 執行：
 
+> **`--project "$ORIG_PROJECT"` 不可省略**（issue #243）。`lessons add` 的 `--project` 預設是
+> 「從 git common-dir 推斷」，但 `uv run --directory "$SKILL_REPO"` 已經把子行程 cwd 換成
+> **skill repo**——省略時每一條 retro lesson 都會被記到 `yibi-stack` 名下，不論這個 retro 實際
+> 是哪個 repo 的 PR。此坑靜默：retro 照樣顯示成功、`handover read` 也查得到（Step 4 有顯式傳
+> `--project`，scope 是對的），只有 lessons 悄悄跑到別的 project，於是各 repo 用 `/lessons`
+> 查不到自己的教訓。實際影響：修復前已有 287 條 lesson 誤記（2026-05-28 起約 7 週）。
+
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 SKILL_REPO="<from Step 0>"
 PR_NUMBER="<from Step 0>"
+ORIG_PROJECT="<from Step 0>"
 RETRO_ID="<id from Step 4 output>"
 
 add_lesson() {
@@ -318,6 +326,7 @@ add_lesson() {
     --insight "$insight" \
     --confidence "$confidence" \
     --source "$source" \
+    --project "$ORIG_PROJECT" \
     ${skill_flag[@]+"${skill_flag[@]}"} \
     --retro-pr "$PR_NUMBER" \
     --retrospective-id "$RETRO_ID"
@@ -357,7 +366,9 @@ add_lesson \
 | **G2 onboarding-relevant** | 一個剛加入的貢獻者（day-1）也會犯這個錯誤嗎？ | 若 No（只有深度 context 才會踩）→ 只存在 retro 記錄裡，不開 rule |
 | **G3 no existing rule covers it** | 搜尋現有 `.claude/rules/` 後，沒有任何 rule 已覆蓋此 pattern 嗎？ | 若已有 → extend 現有 rule（append），不建新 rule 檔 |
 
-> 此 gate 的設計邏輯：rule 檔是每 session 全量載入的 token cost（無 globs 的 rule 永遠佔用 context）。
+> 此 gate 的設計邏輯：rule 檔是每 session 全量載入的 token cost（frontmatter 內沒有 `paths:`
+> key 的 rule 永遠佔用 context；key 名寫錯——`globs:` / `glob:` / `path:`——會被靜默忽略，
+> 效果等同沒寫，該檔案變成全量載入）。
 > 只有 hook 無法解、新人也會踩、且尚無 rule 覆蓋的 lesson，才值得加進 rule。
 
 #### Lesson Classifier
@@ -423,7 +434,7 @@ metadata / preference 類 lesson 本就適合 CLAUDE.md；若整體已過長，
 
 | Q5 勾選 | 動作 |
 |---|---|
-| 查歷史 lesson | `Skill(skill="lessons", args="find <Q1 keyword>")` **自動執行** |
+| 查歷史 lesson | `Skill(skill="lessons", args="find <Q1 keyword>")` **自動執行**。headless / 直接打 CLI 時用 `uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons search "<keyword>"` — CLI 子指令是 **`search`**（`find` 只是 `/lessons` slash 的別名，raw CLI **無** `find` 子指令），且**不要**加 `2>/dev/null`，否則子指令打錯會被靜默吞成「無結果」 |
 | 寫入規則文件 | 依 Lesson Classifier 輸出建議：「lesson N 屬於 <類別>，建議 append 到 `.claude/rules/XX.md`（最相關段落後；不確定就 append 到檔尾）。草稿：`<draft text>`。用 Edit 工具直接寫入 rule 檔。」|
 | 新增 hook | 輸出建議文字：「執行 `hookify:hookify`，建議的 trigger：`<draft>`」|
 | 建立 skill | 輸出建議文字：「執行 `superpowers:writing-skills`，問題定義：`<Q4 lesson>`」|

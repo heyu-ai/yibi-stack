@@ -23,9 +23,7 @@ description: >
 ### Step 1 -- 環境確認 + Target 決定
 
 ```bash
-if ! SKILL_REPO=$(python3 -c 'import json,pathlib; c=json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")); print((c.get("skill_repos") or {}).get("yibi-stack") or c.get("skill_repo") or "")'); then echo '[FAIL] 讀取 ~/.agents/config.json 失敗' >&2; exit 1; fi
-if [ -z "$SKILL_REPO" ]; then echo '[FAIL] skill_repo 未設定，請在 yibi-stack 執行 make install' >&2; exit 1; fi
-if [ ! -d "$SKILL_REPO" ]; then echo "[FAIL] skill_repo 路徑不存在：$SKILL_REPO" >&2; exit 1; fi
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 ```
 
 ```bash
@@ -203,7 +201,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 
 | 問題 | 解法 |
 |---|---|
-| `[FAIL] skill_repo 未設定` | 在 yibi-stack 執行 `make install` |
+| `[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install` | `~/.agents/bin/resolve-skill-repo` 不存在或不在 checkout 內；在 yibi-stack 執行 `make install` |
 | target 不存在 | 確認路徑；預設為 `$PWD` |
 | Python 掃描失敗 | `uv sync` 後重試 |
 | 掃描其他 repo | `/harness-eval --target /path/to/repo` |

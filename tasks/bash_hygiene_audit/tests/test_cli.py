@@ -64,19 +64,19 @@ class TestShow:
         """BHAUDIT-ST-012: log 不存在時顯示「無記錄」。"""
         import tasks.bash_hygiene_audit.service as svc_mod
 
-        orig_fn = svc_mod._find_log_path
+        orig_fn = svc_mod._find_log_paths
 
-        def mock_fn(project_root: Path | None = None) -> Path | None:
-            return tmp_path / "nonexistent.jsonl"
+        def mock_fn(project_root: Path | None = None) -> list[Path]:
+            return []
 
-        svc_mod._find_log_path = mock_fn
+        svc_mod._find_log_paths = mock_fn
         try:
             runner = CliRunner()
             result = runner.invoke(cli, ["show"])
             assert result.exit_code == 0
             assert "無記錄" in result.output
         finally:
-            svc_mod._find_log_path = orig_fn
+            svc_mod._find_log_paths = orig_fn
 
     def test_bhaudit_st_013_show_records(self, tmp_path: Path) -> None:
         """BHAUDIT-ST-013: show 指令正確顯示 verdict、hook 和 cmd_snippet。"""
@@ -85,12 +85,12 @@ class TestShow:
         log = tmp_path / "bash-hygiene-audit.jsonl"
         log.write_text(json.dumps(_base_record("block")) + "\n")
 
-        orig_fn = svc_mod._find_log_path
+        orig_fn = svc_mod._find_log_paths
 
-        def mock_fn(project_root: Path | None = None) -> Path | None:
-            return log
+        def mock_fn(project_root: Path | None = None) -> list[Path]:
+            return [log]
 
-        svc_mod._find_log_path = mock_fn
+        svc_mod._find_log_paths = mock_fn
         try:
             runner = CliRunner()
             result = runner.invoke(cli, ["show"])
@@ -100,7 +100,7 @@ class TestShow:
             assert "cmd:" in result.output
             assert "echo test" in result.output
         finally:
-            svc_mod._find_log_path = orig_fn
+            svc_mod._find_log_paths = orig_fn
 
     def test_bhaudit_st_016_show_error_verdict(self, tmp_path: Path) -> None:
         """BHAUDIT-ST-016: show 指令對 error verdict 顯示 [ERROR]（非 [ALLOW]）。"""
@@ -110,12 +110,12 @@ class TestShow:
         log = tmp_path / "bash-hygiene-audit.jsonl"
         log.write_text(json.dumps(record) + "\n")
 
-        orig_fn = svc_mod._find_log_path
+        orig_fn = svc_mod._find_log_paths
 
-        def mock_fn(project_root: Path | None = None) -> Path | None:
-            return log
+        def mock_fn(project_root: Path | None = None) -> list[Path]:
+            return [log]
 
-        svc_mod._find_log_path = mock_fn
+        svc_mod._find_log_paths = mock_fn
         try:
             runner = CliRunner()
             result = runner.invoke(cli, ["show"])
@@ -123,7 +123,7 @@ class TestShow:
             assert "[ERROR]" in result.output
             assert "[ALLOW]" not in result.output
         finally:
-            svc_mod._find_log_path = orig_fn
+            svc_mod._find_log_paths = orig_fn
 
 
 class TestStatus:
@@ -156,12 +156,12 @@ class TestStats:
         records = [_base_record("allow"), _base_record("block"), _base_record("allow")]
         log.write_text("\n".join(json.dumps(r) for r in records) + "\n")
 
-        orig_fn = svc_mod._find_log_path
+        orig_fn = svc_mod._find_log_paths
 
-        def mock_fn(project_root: Path | None = None) -> Path | None:
-            return log
+        def mock_fn(project_root: Path | None = None) -> list[Path]:
+            return [log]
 
-        svc_mod._find_log_path = mock_fn
+        svc_mod._find_log_paths = mock_fn
         try:
             runner = CliRunner()
             result = runner.invoke(cli, ["stats"])
@@ -169,4 +169,4 @@ class TestStats:
             assert "3" in result.output
             assert "33.3%" in result.output
         finally:
-            svc_mod._find_log_path = orig_fn
+            svc_mod._find_log_paths = orig_fn

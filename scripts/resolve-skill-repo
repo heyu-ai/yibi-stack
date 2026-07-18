@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# 解析本 repo（yibi-stack）checkout 的絕對路徑。
+# stdout: repo 絕對路徑（單行，成功時）
+# stderr: [FAIL] 診斷訊息
+# exit 1: 無法解析，或解析結果不是本 repo
+#
+# 用法（SKILL.md / command 的 inline bash）：
+#   if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+#
+# 為何不讀 ~/.agents/config.json 的 skill_repo：
+# 該 key 是多個 skill repo 的 make install 共寫的「單一值」，會被最後一個安裝者
+# 覆寫而指向別的 repo；而只驗目錄存在（[ -d ]）的 gate 擋不住——錯的 repo 也「存在」。
+# 實測（PR #221 follow-up）：本機 config.json 的 skill_repo 指向 ainization-skill，
+# [ -d ] 照樣通過，但該處沒有 tasks/，於是所有 uv run --directory "$SKILL_REPO"
+# 的呼叫端全部靜默解析到錯 repo。config.json 的 skill_repos map 亦非必然存在
+# （本機就沒有），故 map-first 寫法無法作為保證。
+#
+# 改用 self-locate：程式碼隨腳本走，解析結果必然是「安裝這支腳本的那份 checkout」，
+# 不受任何共享狀態影響。
+set -euo pipefail
+
+# 逐段解析 symlink 鏈至實體檔案。
+# 本腳本經 make install 以 ~/.agents/bin/resolve-skill-repo（檔案層 symlink）對外提供，
+# 而 `cd "$(dirname "$0")" && pwd -P` 只穿透「路徑中的目錄」symlink，穿不透「檔案本身」
+# 的 symlink——透過 bin symlink 執行時它會回傳 ~/.agents/bin，靜默解錯且不報錯。
+# macOS 無 readlink -f，故手動逐段 readlink。
+# 深度上限：循環 symlink（a -> b -> a）會讓此迴圈永遠掛住，且無任何輸出，
+# 比明確報錯更難診斷。40 遠高於任何正常安裝（實際最多 2 段：bin -> skills -> plugins）。
+SOURCE="${BASH_SOURCE[0]}"
+_depth=0
+while [ -L "$SOURCE" ]; do
+  _depth=$((_depth + 1))
+  if [ "$_depth" -gt 40 ]; then
+    echo "[FAIL] symlink 層數超過 40，疑似循環連結：$SOURCE" >&2
+    exit 1
+  fi
+  _link_dir=$(cd -P "$(dirname "$SOURCE")" && pwd)
+  SOURCE=$(readlink "$SOURCE")
+  case "$SOURCE" in
+    /*) ;;
+    *) SOURCE="$_link_dir/$SOURCE" ;;
+  esac
+done
+SCRIPT_DIR=$(cd -P "$(dirname "$SOURCE")" && pwd)
+
+# 必須清掉繼承來的 git 環境變數：GIT_DIR / GIT_WORK_TREE / GIT_COMMON_DIR 的優先權
+# 高於 `git -C`，一旦被設定，git 會回報那個 repo 而完全無視 -C 指定的目錄——
+# self-locate 於是靜默回傳「別的 checkout」，正是本腳本存在要消滅的失敗模式。
+# 這不是假想：git hook 執行期間本來就會設 GIT_DIR，而本 repo 大量使用 pre-commit hook，
+# 因此任何從 hook 情境觸發的 skill 都會中招。實測見 PR #224。
+# 用 env -u 只作用於這次呼叫，不影響呼叫端其餘邏輯。
+_GIT="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git"
+
+# 成功路徑必須把 stderr 丟掉，不能用 2>&1 取值：git 在成功時仍可能輸出 warning
+# （例如讀不到 ~/.gitconfig），2>&1 會把該 warning 併進變數，讓 SKILL_REPO 變成
+# "warning: ...\n/real/path"，接著身分檢查失敗並誤報「指向錯 repo」。
+# 只在失敗分支才第二次呼叫，用 2>&1 >/dev/null 單獨抓 stderr 當診斷訊息
+# （順序不可調換：先把 stderr 導到當前 stdout，再把 stdout 丟棄）。
+# 保留 git 原始訊息——非 git repo 只是其一，dubious ownership / 權限問題訊息不同。
+if ! SKILL_REPO=$($_GIT -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null); then
+  GIT_ERR=$($_GIT -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>&1 >/dev/null || true)
+  echo "[FAIL] 無法從腳本位置解析 skill repo：$SCRIPT_DIR" >&2
+  echo "[FAIL] git: $GIT_ERR" >&2
+  exit 1
+fi
+
+# 驗身分而非僅驗存在。標記選擇經實測：與本 repo 共寫 ~/.agents/config.json 的
+# ainization-skill 同樣有 tasks/ 與 tasks/_paths.py 與 .claude-plugin/marketplace.json，
+# 全都無法區分。
+# 註（PR #249）：pyproject.toml 的 name 在當初選擇標記時同樣不具區分力（兩個 repo 都宣告
+# "ainization-skill"）；本 repo 已於 #249 改名為 "yibi-stack"，故該理由已不再成立——
+# name 現在確實能區分。但仍**刻意保留 tasks/mycelium 作為標記**：fork 可以複製 name，
+# 而 name 只是宣告字串；tasks/mycelium 是實際的目錄結構，偽造成本較高。
+# tasks/mycelium 是實測唯一能區分的標記，故沿用 #221 的選擇。
+# 註：這是「身分標記」不是「依賴宣告」——非 mycelium 的呼叫端（harness-eval 等）
+# 同樣靠它確認自己站在 yibi-stack 上。若日後 mycelium 更名，此處必須同步更新。
+if [ ! -d "$SKILL_REPO/tasks/mycelium" ]; then
+  echo "[FAIL] 解析到的 repo 不含 tasks/mycelium（指向錯 repo？）：$SKILL_REPO" >&2
+  exit 1
+fi
+
+echo "$SKILL_REPO"

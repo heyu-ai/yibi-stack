@@ -12,10 +12,15 @@ model: sonnet
 git repo 根目錄名稱作為 project name（與 `detect_project()` 行為一致），或 fallback 為 `pwd` 的 basename。
 
 > **執行注意**：script 內含多個 `"$VAR"` expansion，直接內嵌會觸發 CC parser `simple_expansion` 確認框，故提取為獨立 script（rule 13 Quoting Rule 5-B）。
-> **路徑說明**：使用 `$(python3 -c '...')` 從 `~/.agents/config.json` 動態取得 SKILL_REPO 的絕對路徑，確保從任何專案目錄呼叫都能找到 script（全域 slash command 不能假設 cwd 在 yibi-stack）。**直接呼叫 script，不要重新內嵌 bash logic。**
+> **路徑說明**：用 `~/.agents/bin/resolve-skill-repo`（`make install` 建立）解析 SKILL_REPO 的絕對路徑，
+> 確保從任何專案目錄呼叫都能找到 script（全域 slash command 不能假設 cwd 在 yibi-stack）。
+> 不要改回讀 `~/.agents/config.json` 的 `skill_repo`：該 key 由多個 repo 的 `make install` 共寫，
+> 會被最後一個安裝者覆寫而指向錯 repo（見 rule 11）。
+> **直接呼叫 script，不要重新內嵌 bash logic。**
 
 ```bash
-bash $(python3 -c 'import json,pathlib; c=json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")); print(((c.get("skill_repos") or {}).get("yibi-stack") or c.get("skill_repo") or "")+"/commands/scripts/handover-read.sh")')
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+bash "$SKILL_REPO/commands/scripts/handover-read.sh"
 ```
 
 若查無記錄，明確告知使用者所用的 project name，方便確認是否有誤：
@@ -26,7 +31,8 @@ bash $(python3 -c 'import json,pathlib; c=json.loads((pathlib.Path.home()/".agen
 不帶 `--project` 顯示所有記錄（跨專案）：
 
 ```bash
-bash $(python3 -c 'import json,pathlib; c=json.loads((pathlib.Path.home()/".agents"/"config.json").read_text(encoding="utf-8")); print(((c.get("skill_repos") or {}).get("yibi-stack") or c.get("skill_repo") or "")+"/commands/scripts/handover-read.sh")') --no-project
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+bash "$SKILL_REPO/commands/scripts/handover-read.sh" --no-project
 ```
 
 ## Step 2 — 呈現重點

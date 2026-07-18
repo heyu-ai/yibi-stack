@@ -176,6 +176,13 @@ def run_job(job: JobConfig, log_dir: Path, now: datetime | None = None) -> JobRu
 
         finished_at = datetime.now().isoformat()
         status = JobRunStatus.success if exit_code == 0 else JobRunStatus.failed
+        # error 也要寫進 log：它先前只進 DB 的 error_message 欄位，而 log 才是人會去看的地方。
+        # 實測後果（PR #256）：nightly-self-improvement 連續 4 晚啟動即死，log 只寫
+        # 「status=failed exit_code=1」不說原因，DB 裡卻躺著完整答案
+        # 「指令執行失敗（uv）：[Errno 2] No such file or directory: 'uv'」——沒人會去 query DB，
+        # 於是這個排程壞了 4 天沒被發現。診斷資訊存在，只是放在沒人看的抽屜裡。
+        if error:
+            log_file.write(f"\n=== error: {error} ===\n")
         log_file.write(
             f"\n=== finished at {finished_at} | status={status} exit_code={exit_code} ===\n"
         )

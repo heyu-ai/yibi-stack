@@ -7,10 +7,6 @@
 
 set -euo pipefail
 
-if ! command -v jq >/dev/null 2>&1; then
-  echo '[FAIL] jq not installed' >&2
-  exit 1
-fi
 if ! command -v gh >/dev/null 2>&1; then
   echo '[FAIL] gh not installed' >&2
   exit 1
@@ -30,7 +26,7 @@ unset _gcd _dir _top
 
 # SKILL_REPO：從本腳本自身位置解析，不依賴 ~/.agents/config.json 的 skill_repo。
 # 該 key 是多 repo 共寫的單一值，會被最後一個 make install 覆寫指向錯 repo；
-# 只驗目錄存在（[ -d ]）的舊 gate 會讓錯 repo 靜默通過（見 rule 11 / 18、PR #215）。
+# 只驗目錄存在（[ -d ]）的舊 gate 會讓錯 repo 靜默通過（見 rule 11、PR #215）。
 #
 # 語意（刻意設計）：SKILL_REPO = 「這份腳本副本所屬的 checkout」，程式碼隨腳本走，
 # 腳本與其呼叫的 tasks/mycelium 版本必然一致。實務上經 make install 的
@@ -40,13 +36,20 @@ unset _gcd _dir _top
 # （見 tasks/mycelium/config.py 的 HANDOVER_DB_PATH），與 checkout 無關，故不同
 # checkout 不會分岔資料。
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-if ! GIT_ERR=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>&1 >/dev/null); then
-  # 保留 git 原始錯誤：非 git repo 只是其一，dubious ownership / 權限問題訊息不同
+# 成功路徑丟掉 stderr：git 成功時仍可能輸出 warning（如讀不到 ~/.gitconfig），
+# 用 2>&1 取值會把 warning 併進 SKILL_REPO，導致後續 tasks/mycelium 檢查誤報。
+# 只在失敗分支才第二次呼叫抓 stderr 當診斷（2>&1 >/dev/null 順序不可調換）。
+# 清掉繼承的 git 環境變數：GIT_DIR / GIT_WORK_TREE 優先權高於 `git -C`，被設定時
+# git 會回報那個 repo 而無視 -C，self-locate 於是靜默解析到別的 checkout。
+# git hook 執行期間本來就會設 GIT_DIR，本 repo 大量使用 pre-commit hook。實測見 PR #224。
+# 注意：上方 ORIG_PROJECT 的偵測「不」清除——它要的正是呼叫端所在的 repo。
+_GIT="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git"
+if ! SKILL_REPO=$($_GIT -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null); then
+  GIT_ERR=$($_GIT -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>&1 >/dev/null || true)
   echo "[FAIL] 無法從腳本位置解析 SKILL_REPO: $SCRIPT_DIR" >&2
   echo "[FAIL] git: $GIT_ERR" >&2
   exit 1
 fi
-SKILL_REPO=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 # 驗 resolved 目標確實含 pr-control-log 依賴的 tasks/mycelium，而非只驗目錄存在
 if [ ! -d "$SKILL_REPO/tasks/mycelium" ]; then
   echo "[FAIL] resolved SKILL_REPO 不含 tasks/mycelium（指向錯 repo？）: $SKILL_REPO" >&2

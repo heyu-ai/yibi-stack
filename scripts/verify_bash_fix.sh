@@ -60,12 +60,12 @@ check_cmd_must_block() {
   fi
 }
 
-check_cmd 'GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir)' "clean-merged: step 1 (git rev-parse)"
-check_cmd 'MAIN_REPO=$(dirname "$GIT_COMMON")' "clean-merged: step 2 (dirname)"
-check_cmd 'echo "  [OK] released port: branch/svc"' "clean-merged: success echo"
-check_cmd 'echo "  [FAIL] failed to release port: branch/svc"' "clean-merged: failure echo"
-check_cmd 'echo "  [WARN] 不在 git repo 內 -- 跳過 port cleanup for branch"' "clean-merged: warn echo (L46)"
-check_cmd 'echo "  [WARN] uv 不可用 -- 跳過 port cleanup for branch"' "clean-merged: warn echo (L57)"
+check_cmd 'GIT_COMMON=$(git rev-parse --path-format=absolute --git-common-dir)' "legacy clean-merged (removed in #239): step 1 (git rev-parse)"
+check_cmd 'MAIN_REPO=$(dirname "$GIT_COMMON")' "legacy clean-merged (removed in #239): step 2 (dirname)"
+check_cmd 'echo "  [OK] released port: branch/svc"' "legacy clean-merged (removed in #239): success echo"
+check_cmd 'echo "  [FAIL] failed to release port: branch/svc"' "legacy clean-merged (removed in #239): failure echo"
+check_cmd 'echo "  [WARN] 不在 git repo 內 -- 跳過 port cleanup for branch"' "legacy clean-merged (removed in #239): warn echo"
+check_cmd 'echo "  [WARN] uv 不可用 -- 跳過 port cleanup for branch"' "legacy clean-merged (removed in #239): warn echo 2"
 check_cmd '[ -d .claude/ ] && echo "[OK] .claude/ 存在" || echo "[WARN] .claude/ 不存在，Step 2 會自動建立"' "protect-push: step 1 check"
 check_cmd 'echo "[OK] Skill 目錄：$SKILL_DIR"' "protect-push: skill dir ok"
 check_cmd 'echo "[OK] hook 腳本已安裝：.claude/hooks/protect-push.sh"' "protect-push: hook installed"

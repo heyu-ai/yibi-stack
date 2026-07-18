@@ -78,16 +78,47 @@ openspec/changes/<name>/
 
 本 skill 引用的模板（`references/*.md`）與腳本（`scripts/*.py`）都住在 **sdd plugin 目錄內**，
 會隨 `claude plugin install sdd@yibi-stack` 一起安裝。在 host 專案中不存在
-`plugins/sdd/` 這個 repo 相對路徑——執行前先解析 plugin root：
+`plugins/sdd/` 這個 repo 相對路徑——執行前先解析 plugin root。
+
+**`CLAUDE_PLUGIN_ROOT` 在 skill bash 不可用**（實測 unset；它只在 hook context 有值）。
+故不能只靠它，必須依序嘗試三個候選，且**每個候選都用「能力檢查」把關**——驗
+`scripts/check_spec_coverage.py` 真的讀得到，而不是只驗目錄存在（目錄存在檢查會讓錯的 root
+靜默通過；見 rule 11/18 與 PR #215）。
+
+執行以下區塊解析 `SDD_ROOT`（整段執行一次）：
 
 ```bash
-# 經 plugin 安裝執行時 Claude Code 會設定 CLAUDE_PLUGIN_ROOT；
-# 在 yibi-stack 源碼 repo 內直接執行時 fallback 到 repo 相對路徑
-SDD_ROOT="${CLAUDE_PLUGIN_ROOT:-plugins/sdd}"
+SDD_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('sdd@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
 ```
 
+```bash
+SDD_ROOT=""
+if [ -r "${CLAUDE_PLUGIN_ROOT:-/nonexistent}/scripts/check_spec_coverage.py" ]; then
+  SDD_ROOT="$CLAUDE_PLUGIN_ROOT"
+elif [ -r "${SDD_CACHED:-/nonexistent}/scripts/check_spec_coverage.py" ]; then
+  SDD_ROOT="$SDD_CACHED"
+elif [ -r "plugins/sdd/scripts/check_spec_coverage.py" ]; then
+  SDD_ROOT="plugins/sdd"
+fi
+echo "SDD_ROOT=${SDD_ROOT}"
+```
+
+候選順序與理由：
+
+| # | 候選 | 何時命中 |
+|---|------|---------|
+| 1 | `$CLAUDE_PLUGIN_ROOT` | 目前恆不命中；保留在首位，未來 Claude Code 若補上此變數即自動生效 |
+| 2 | `installed_plugins.json` 的 `installPath` | **plugin 安裝的正常路徑**；此檔記錄「目前生效版本」的絕對路徑 |
+| 3 | `plugins/sdd` | 在 yibi-stack 源碼 repo 內開發時 |
+
+> 候選 2 **不要**改用 `~/.claude/plugins/cache/yibi-stack/sdd/*/` glob 取版本：cache 內多版本
+> 並存（實測 1.2.5 / 1.3.1 / 1.6.0），而 glob 是字典序，`1.10.0` 會排在 `1.9.0` 之前——選到
+> 錯版本且不報錯。`installed_plugins.json` 才是「哪個版本生效」的單一真相來源。
+
+若 `SDD_ROOT` 為空（三個候選皆未命中）：
+`[FAIL] sdd plugin 資源未找到 -- 請執行 claude plugin install sdd@yibi-stack`，停止。
+
 後續所有 `<sdd-root>/references/...`、`<sdd-root>/scripts/...` 引用都以此為準。
-若兩個路徑都不存在，`[FAIL] sdd plugin 資源未找到 -- 請確認 claude plugin install sdd@yibi-stack 已安裝`，停止。
 
 ---
 
@@ -753,8 +784,10 @@ openspec/changes/<name>/
 spectra analyze <change-name> --json
 spectra validate <change-name>
 
-# BDD trace coverage（可選；SDD_ROOT 解析見「Plugin 資源路徑解析」章節）
-SDD_ROOT="${CLAUDE_PLUGIN_ROOT:-plugins/sdd}"
+# BDD trace coverage（可選）
+# SDD_ROOT 必須先用「Plugin 資源路徑解析」章節的區塊解析；
+# 不要在此重新寫 ${CLAUDE_PLUGIN_ROOT:-plugins/sdd}——該變數在 skill bash 恆為 unset，
+# fallback 到的 repo 相對路徑在 host 專案不存在，會靜默失敗。
 uv run python "$SDD_ROOT/scripts/check_spec_coverage.py" \
   --specs-dir openspec/changes/<change-name>/specs \
   --tests-dir tests/ --cap <feature-name>
