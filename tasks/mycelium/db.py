@@ -816,22 +816,21 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         回傳被刪除的 row（dict）；找不到 id 時回傳 None，不寫 tombstone、不刪除。
 
         併發安全（mycelium DB 跨 agent／機器共用，併發是運作模型而非邊界情況）：
-        - DELETE 先行並檢查 `rowcount`——若 row 在 SELECT 與 DELETE 之間被其他 process 刪除，
-          rowcount 為 0，代表本次未刪到任何資料，**不寫 tombstone**、回傳 None（service 轉成
-          fail-loud）。避免「tombstone 已寫但 0 rows 被刪卻回報成功」的孤兒 tombstone。
+        - 用 `DELETE ... RETURNING *` 在**同一 statement** 原子取得「實際被刪除的資料列」
+          內容來寫 tombstone。不先 SELECT 快照再 DELETE，故沒有兩者之間被併發 UPDATE
+          導致「墓碑內容 != 實際刪除的資料」的視窗（Codex re-review 指出的過期快照問題）。
+        - RETURNING 回傳 None（0 rows）代表找不到或已被其他 process 刪除：**不寫 tombstone**、
+          回傳 None（service 轉成 fail-loud），避免孤兒 tombstone。
         - DELETE 與 tombstone INSERT 包在同一 `with self.conn` transaction，原子 commit／
-          rollback（不再依賴 connection 的隱式 isolation 預設）。
+          rollback。RETURNING 需 SQLite >= 3.35（本專案實測 3.47）。
         """
-        decoded = self.get_lesson(lesson_id)
-        if decoded is None:
-            return None
-        with self.conn:  # 單一 transaction：DELETE + tombstone 原子 commit
-            deleted_rows = self.conn.execute(
-                "DELETE FROM lessons WHERE id = ?", (lesson_id,)
-            ).rowcount
-            if deleted_rows != 1:
-                # SELECT 與 DELETE 之間 row 已被其他 process 刪除：不寫 tombstone、視為找不到
+        with self.conn:  # 單一 transaction：DELETE(RETURNING) + tombstone 原子 commit
+            cur = self.conn.execute("DELETE FROM lessons WHERE id = ? RETURNING *", (lesson_id,))
+            row = cur.fetchone()
+            if row is None:
+                # 找不到，或併發已被刪除：不寫 tombstone、視為找不到
                 return None
+            decoded = _decode_lesson_row(row)
             self.conn.execute(
                 "INSERT INTO lessons_deleted (id, deleted_at, project, key, type, snapshot) "
                 "VALUES (?, ?, ?, ?, ?, ?)",

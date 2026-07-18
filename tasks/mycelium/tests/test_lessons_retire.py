@@ -448,18 +448,26 @@ class TestReRetireGuard:
 
 
 class TestDeleteConcurrencySafety:
-    def test_lsn_del_dt_005_race_no_orphan_tombstone(self, monkeypatch) -> None:
-        """LSN-DEL-DT-005: get_lesson 回傳 row 但 DELETE 命中 0 rows（併發刪除）→
-        不寫 tombstone、回傳 None（避免孤兒 tombstone）"""
+    def test_lsn_del_dt_005_tombstone_reflects_actual_deleted_row(self) -> None:
+        """LSN-DEL-DT-005: tombstone snapshot 取自實際被刪除的資料列（DELETE RETURNING），
+        反映刪除當下的內容而非過期快照——先 retire（UPDATE）再 delete，tombstone 須含 retired_at"""
+        import json
+
         db = AgentsDB(":memory:")
         db.init_db()
-        fake = {"id": "ghost", "project": "p", "key": "k", "type": "pitfall", "insight": "x"}
-        # 模擬 TOCTOU：get_lesson 回傳一個實際不在 table 的 row
-        monkeypatch.setattr(db, "get_lesson", lambda _id: fake)
-        result = db.delete_lesson("ghost", _NOW)
-        assert result is None
-        tomb = db.conn.execute("SELECT COUNT(*) AS c FROM lessons_deleted").fetchone()["c"]
-        assert tomb == 0
+        record = _make_lesson(key="snapshot-fresh")
+        db.insert_lesson(record)
+        db.retire_lesson(record.id, "retired then deleted", "repl", _NOW)
+        deleted = db.delete_lesson(record.id, _NOW)
+        assert deleted is not None
+        # RETURNING 反映 post-retire 狀態（非 pre-retire 快照）
+        assert deleted["retired_at"] == _NOW.isoformat()
+        snap = db.conn.execute(
+            "SELECT snapshot FROM lessons_deleted WHERE id = ?", (record.id,)
+        ).fetchone()["snapshot"]
+        parsed = json.loads(snap)
+        assert parsed["retired_at"] == _NOW.isoformat()
+        assert parsed["superseded_by"] == "repl"
         db.close()
 
     def test_lsn_del_dt_006_atomic_rollback_on_tombstone_error(self, monkeypatch) -> None:
