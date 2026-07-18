@@ -29,7 +29,12 @@ cwc = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(cwc)
 
 _DIST_INFO = "yibi_stack-1.9.0.dist-info"
-_GOOD_ENTRY_POINTS = "[console_scripts]\nportman = tasks.local_port_manager.cli:cli\n"
+_GOOD_ENTRY_POINTS = (
+    "[console_scripts]\n"
+    "mycelium = tasks.mycelium.cli:cli\n"
+    "pr-orchestrator = tasks.pr_orchestrator.cli:cli\n"
+    "portman = tasks.local_port_manager.cli:cli\n"
+)
 
 
 def _make_wheel(tmp_path: Path, names: dict[str, str], *, name: str = "probe.whl") -> Path:
