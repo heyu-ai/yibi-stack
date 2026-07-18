@@ -183,7 +183,7 @@ Claude Code 的 4 層 Permission 模型：
 | 重複工作流識別 | 檢查 CLAUDE.md 裡有沒有步驟式指示（「每次 PR 前先執行...」）→ 應封裝成 skill | 把步驟型 CLAUDE.md 段落改為 skill |
 | 觸發關鍵字豐富度 | description 包含幾個不同角度的觸發詞 | 新增同義詞、場景描述、常見錯誤說法 |
 | scope 正確性 | `global` skill 不應依賴 project-specific 路徑 | 有 `uv run --directory $SKILL_REPO` 解析的可設 global |
-| **path/tool scoping（v2 新增）** | SKILL.md frontmatter 有無 `allowed-tools` / `glob` / `paths` 欄位 | Anthropic：scope skill 到特定路徑/工具，避免無關 context 載入；progressive disclosure |
+| **path/tool scoping（v2 新增）** | SKILL.md frontmatter 有無 `allowed-tools` / `paths` 欄位（`glob:` / `globs:` 不是有效 key，會被靜默忽略） | Anthropic：scope skill 到特定路徑/工具，避免無關 context 載入；progressive disclosure |
 | slash command 覆蓋 | `.claude/commands/*.md` 有無對應 skill 的快捷入口 | 高頻 skill 加對應 command |
 | **plugin 分發（v2 新增）** | `plugins/<name>/package.json` 是否存在；marketplace 設定是否完整 | Anthropic 建議用 plugin 作為「bundle skills + hooks + MCP」的分發單位；新工程師 day-one 即可裝 |
 | 錯誤隔離 | plugin 載入失敗不應影響其他 skill | 觀察 plugin lifecycle 設定 |

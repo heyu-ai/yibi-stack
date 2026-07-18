@@ -57,6 +57,17 @@
       {
         "hooks": [
           {
+            "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-push-tree-drift-guard.py || exit 2",
+            "statusMessage": "檢查 push 的樹是否與已驗證的樹一致...",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
             "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-ap2-check.py || exit 2",
             "statusMessage": "AP2 Unicode 字元檢查...",
             "timeout": 10,

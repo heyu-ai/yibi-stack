@@ -10,7 +10,7 @@ Exit codes:
   2 -> 攔截，並把 stdout 訊息顯示給使用者
 
 原因：linked worktree 佔用 main，讓主 repo 無法 git checkout main，
-      導致 /clean-merged 等工具失效。
+      導致 /clean-wt 等工具失效。
 
 Known limitations (static analysis; determined bypass is possible):
   - git -C <path> worktree add ... not matched (regex anchored to "git worktree add")
@@ -29,7 +29,7 @@ _BLOCK_MSG = """\
 BLOCKED: worktree 禁止 checkout '{branch}'!
 
 原因：linked worktree 佔用 main 後，主 repo 無法執行 git checkout main，
-      /clean-merged 等工具將全部失效。
+      /clean-wt 等工具將全部失效。
 
 請改用 feature branch：
   git checkout -b <feature-branch>

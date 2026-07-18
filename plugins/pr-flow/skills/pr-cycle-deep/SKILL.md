@@ -31,15 +31,10 @@ Complete workflow for multi-frontier-model mob review of a PR, applicable to any
 - Small feature / bug fix / refactor: use `/pr-cycle-fast` (full lifecycle) or `/pr-review-cycle` (review only)
 - Codex not installed and agy (Antigravity CLI) not installed: use `/pr-review-cycle`
 
-**Core philosophy**: when codex / agy are detected, run them alongside Claude as **synchronous
-parallel** reviewers — each reviews independently, then cross-reads each other's findings to
-debate, and produces an aggregated final report. The coding agent (Claude main session) fixes
-according to the report, then runs another round of group review, cycling until all reviewers
-LGTM (including actionable NITs). Finally, the human scans all changes in a few minutes, raises
-concerns immediately, and the reviewer lead (Claude main) responds on the spot — faster than
-finding two senior engineers, and broader in perspective.
-
-No external models detected → prompt the user to fall back to `/pr-review-cycle`; this skill terminates (no fallback inside `/pr-cycle-deep`, to avoid semantic confusion).
+**Core philosophy**: when codex / agy are detected, they review alongside Claude as **synchronous
+parallel** reviewers — independent, then cross-reading to debate into an aggregated report. Claude
+(lead) fixes per the report and re-reviews within the bounded loop (Step 7); the human then scans in
+a few minutes and the lead responds on the spot — faster than two senior engineers, broader in view.
 
 ## Usage
 
@@ -77,16 +72,12 @@ Use the Read tool to try reading `~/.claude/mob-detection-cache`:
     re-authenticate, then re-run Step 0 from **0b** (full re-detect + refresh cache).
 - **File does not exist** (Read tool returns error): run Step 0b directly.
 
-> **Why re-verify instead of asking**: a still-valid auth is the common case, so the default is
-> silent reuse — the only reason to stop is a real auth failure. The static auth check here
-> confirms the token is still *present*; a present-but-expired token that slips past it is caught
-> at use-time by the R1 review stage (fail-loud via `agy_validate.py` / codex error), which marks
-> that voice unavailable for this PR and notes it in `final.md` — the mob proceeds with the
-> remaining voices and does **not** block (re-auth then happens on the next Step 0 run). The warm
-> path re-verifies only auth, **not** `GEMINI_ALLOW_LIST` — a stale allow-list never blocks
-> execution (it only adds a per-call confirmation prompt), so it is left for the next full Step 0b.
-> To force a full re-detection (e.g. you just configured a new voice that the cache predates),
-> delete `~/.claude/mob-detection-cache` and re-run.
+> **Why re-verify instead of asking**: valid auth is the common case, so silent reuse is the
+> default; only a real auth failure stops the flow. A present-but-expired token that slips the
+> static check is caught at use-time by R1 fail-loud (`agy_validate.py` / codex error), which marks
+> that voice unavailable and proceeds with the rest — no block. The warm path re-verifies auth only,
+> not `GEMINI_ALLOW_LIST` (a stale allow-list only adds a per-call prompt). Force a full re-detect
+> by deleting `~/.claude/mob-detection-cache`.
 
 ### Step 0b — Run detection
 
@@ -139,16 +130,10 @@ An external reviewer is "available" = binary OK + auth OK (Codex or Gemini).
 
 **Gemini (agy) auth OK states**: `KEY_SET` and `ONBOARDED` both count as auth OK (`ONBOARDED` means `onboardingComplete: true`, i.e. OAuth completed).
 
-**`BINARY_OK + NOT_AUTHED` handling**: binary found but auth failed (`NOT_AUTHED`,
-`KEY_WHITESPACE_PREFIX`) does not count as "available", and Step 0 **must explicitly stop**
-rather than silently counting this tool as one fewer available — otherwise the user assumes
-the tool is not installed, rather than that auth is broken. When this state is detected, show
-the user the fix command, and re-run Step 0 after they confirm the fix.
-
-**Note**: the count table below only applies when all binary-OK tools have passed auth.
-If any tool shows `BINARY_OK + NOT_AUTHED / KEY_WHITESPACE_PREFIX` → do not enter the
-count calculation; show the user the fix command and wait for them to confirm the fix,
-then re-run Step 0.
+**`BINARY_OK + NOT_AUTHED` handling**: a binary found but with failed auth (`NOT_AUTHED` /
+`KEY_WHITESPACE_PREFIX`) is **not** "available". Do not enter the count table below and do not
+silently count it as one fewer voice (the user would then assume it is uninstalled, not broken):
+**stop**, show the fix command, and re-run Step 0 after they confirm.
 
 | Available external reviewers | Action |
 | ---: | --- |
@@ -199,7 +184,7 @@ Every finding (Claude / Codex / Gemini voice) is graded with an
 |----------|-------|-------------------|
 | **MUST** | Critical | Blocks merge |
 | **SHOULD** | Important | Defer only with a documented reason in the PR |
-| **MAY** | Actionable NIT | Optional per RFC 2119 — but this skill's convention cleans up every **undisputed actionable NIT** before merge (see Step 5) |
+| **MAY** | Actionable NIT | Does not block merge — fix opportunistically (see Step 5) |
 
 MUST = functional / security / PII-in-logs / data-loss / explicit-baseline violation.
 SHOULD = test gaps on changed critical paths, silent failures, naming / structure
@@ -239,9 +224,8 @@ git commit -m "..."
 git push -u origin HEAD
 ```
 
-Write the PR body to `$CLAUDE_JOB_DIR/pr-body.md` with the Write tool
-(avoids heredoc triggering hooks; the job dir is auto-cleaned and not shared
-across parallel sessions, so no `rm` is needed), then pass it in:
+Write the PR body to `$CLAUDE_JOB_DIR/pr-body.md` with the Write tool (avoids heredoc hooks; the job
+dir auto-cleans and is not shared across parallel sessions, so no `rm` needed), then pass it in:
 
 ```bash
 gh pr create --title "..." --body-file "$CLAUDE_JOB_DIR/pr-body.md"
@@ -280,27 +264,15 @@ Pre-review Check
 
 ### Step 2 — Code Review (defect detection)
 
-Run `/code-review` to scan all PR changes for correctness bugs:
+Run `/code-review` to scan all PR changes for correctness bugs (`/code-review high` for stricter
+effort; add `--comment` to post findings as GitHub PR inline comments):
 
 ```text
 /code-review
 ```
 
-For stricter review, specify effort:
-
-```text
-/code-review high
-```
-
-Optional: add `--comment` to post findings directly as GitHub PR inline comments:
-
-```text
-/code-review --comment
-```
-
 - **No findings** → proceed to Step 3.
-- **Has findings** → bring into Step 6 (Fix) and handle together with mob review results.
-  `/code-review` **does not modify code**; findings are review comments and do not need a separate commit.
+- **Has findings** → bring into Step 6 (Fix) with the mob results. `/code-review` **does not modify code**; findings are review comments, no separate commit needed.
 
 > **Fallback (Claude Code < 2.1.146)**: if `/code-review` reports `Unknown skill: code-review`,
 > use `pr-review-toolkit:code-reviewer` agent instead (same behavior — report only, no code changes):
@@ -320,13 +292,11 @@ in the review dir (referred to below as `$REVIEW_DIR`).
 
 #### 3.1 — Prepare working directory and shared prompt
 
-Write all R1/R2 intermediate files to the review dir (`<worktree-root>/.pr-review/`, referred
-to as `$REVIEW_DIR`). Using the worktree root as namespace naturally isolates concurrent sessions;
-re-running review in the same worktree naturally overwrites old output.
-The agy scripts **inline** this content into `agy -p "$CONTENT"` rather than referencing it with
-`@file` (issue #153: `@file` fails to resolve in nested worktrees and triggers agentic mode);
-`--add-dir "$WT_ROOT"` is still passed so agy can look up surrounding code for context, and the
-worktree-root namespace keeps files off `/tmp/` (which the sandbox rejects).
+Write all R1/R2 intermediate files to the review dir (`<worktree-root>/.pr-review/`, `$REVIEW_DIR`).
+The worktree-root namespace isolates concurrent sessions, overwrites old output on re-run, and keeps
+files off `/tmp/` (the sandbox rejects it). The agy scripts **inline** this content into
+`agy -p "$CONTENT"` rather than `@file` (issue #153: `@file` fails in nested worktrees and triggers
+agentic mode); `--add-dir "$WT_ROOT"` still lets agy look up surrounding code.
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
@@ -390,10 +360,14 @@ Output format (strictly follow, for downstream aggregation):
 ### [Critical] <short title>
 - File: <path:line>
 - Issue: <description>
+- Evidence: <the evidence lead can use to reproduce this defect; form depends on finding type — see Evidence forms below>
 - Suggested fix: <how to fix>
 
 ### [Important] <short title>
-...
+- File: <path:line>
+- Issue: <description>
+- Evidence: <the evidence lead can use to reproduce this defect; form depends on finding type — see Evidence forms below>
+- Suggested fix: <how to fix>
 
 ### [Actionable NIT] <short title>
 - Must be a concrete, actionable small fix (naming, comment error, import order, etc.), not subjective preference
@@ -412,6 +386,19 @@ Focus on:
 - Documentation / comment inconsistency with implementation
 - Do NOT list "code style preferences" or "subjective aesthetics" — non-actionable items only
 - Be skeptical, be terse, no compliments
+
+Evidence forms (closed enumeration — the `Evidence:` field on a [Critical] / [Important] finding
+MUST match your finding's type below; a type not in this list carries no blocking evidence and is
+deferred, not merged against). You review a diff, not a checkout — so no runnable command is ever
+required:
+
+| Finding type | Required `Evidence:` form |
+| --- | --- |
+| Logic / functional error, security hole | A concrete failure scenario: the input or state that triggers it and the wrong output / crash that results. |
+| Test coverage gap | The production line left unverified plus a mutation that would survive the current tests (what you could break with the tests still green). |
+| Doc / comment factual error | The single command output or diff line that proves the statement wrong. |
+| Naming / structural inconsistency | A grep result showing at least 2 sibling occurrences of the convention this diff departs from. |
+| Precision / subjective quality ("unclear", "not precise enough") | No acceptable evidence form exists — always deferred, never a merge gate. |
 ```
 
 #### 3.2 — Launch 3 voices in parallel
@@ -477,11 +464,9 @@ Lead reads `$REVIEW_DIR/codex-r1.json` with the Read tool and branches on the re
 
 **JSON valid** (valid JSON with `verdict` / `summary` / `findings` fields) → use the Write tool to render `$REVIEW_DIR/codex-r1.md` (compact markdown, sorted by severity: critical → important → actionable_nit).
 
-**JSON invalid** (not valid JSON or missing fields) → immediately execute fallback, do not attempt to render:
-
-1. Read `$REVIEW_DIR/codex-r1-raw.md` with the Read tool and manually summarize in the main context
-2. Write compact markdown to `$REVIEW_DIR/codex-r1.md` with the Write tool
-3. Note in the final final.md: "Codex voice used raw form this round; main context load is higher"
+**JSON invalid** (not valid JSON or missing fields) → do not render; fall back: Read
+`$REVIEW_DIR/codex-r1-raw.md`, manually summarize in the main context, Write compact markdown to
+`$REVIEW_DIR/codex-r1.md`, then note in final.md "Codex voice used raw form this round; main context load is higher".
 
 Format example (compact markdown):
 
@@ -546,10 +531,13 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh
 ```
 
-The script pins `--model 'Gemini 3.1 Pro (High)'`. Do not remove the flag: `agy`'s auto-select
+The script pins `--model 'Gemini 3.1 Pro (Low)'`. Do not remove the flag: `agy`'s auto-select
 resolves to Gemini 3.5 Flash, and its model list also contains Claude Sonnet/Opus — an
 auto-selected Claude would silently collapse this voice into the same family as the Claude lead,
-defeating the cross-family premise with no warning. `agy models` lists the valid display names;
+defeating the cross-family premise with no warning. The tier was `(High)` originally, but it
+failed consistently on this machine; `(Low)` produces reviews reliably and is still a Gemini Pro
+tier, so the cross-family premise holds (AGYS-DT-008 asserts only the `Gemini` prefix, so the
+High↔Low swap does not affect the test). `agy models` lists the valid display names;
 an invalid value fails loud and prints the list. Raw output lands in `gemini-r1-raw.md` —
 **do not read it in the main context**.
 
@@ -603,9 +591,8 @@ Check:
 
 #### 4.1 — Generate R1 aggregate
 
-Use the Write tool to concatenate all R1 content into `$REVIEW_DIR/r1-aggregate.md` (only
-include voices that produced output). Replace `$REVIEW_DIR` with the actual path
-(e.g. `/path/to/worktree/.pr-review`) and paste each voice's compact markdown in full:
+Use the Write tool to concatenate all R1 content into `$REVIEW_DIR/r1-aggregate.md` (only voices
+that produced output; replace `$REVIEW_DIR` with the actual path and paste each voice's compact markdown in full):
 
 ```text
 # Round 1 Findings — Independent Results per Reviewer
@@ -679,9 +666,8 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r2.sh
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r2.sh
 ```
 
-> **Security note**: `agy-r2.sh` uses `--dangerously-skip-permissions` (for `--add-dir` context, same as
-> Stage 1) and inlines the prompt (issue #153); it assumes the PR comes from a trusted repo.
-> For external-fork PRs, the operator should evaluate prompt-injection risk before running mob review.
+> **Security note**: `agy-r2.sh` uses `--dangerously-skip-permissions` (for `--add-dir`, same as Stage 1)
+> and inlines the prompt (issue #153); it assumes a trusted repo — for external-fork PRs, evaluate prompt-injection risk first.
 
 Only send to available voices (CODEX_OK / GEMINI_OK).
 
@@ -691,11 +677,9 @@ Claude voice: the lead writes `$REVIEW_DIR/claude-r2.md` after reading r1-aggreg
 
 ### Step 5 — Aggregator synthesis
 
-After the lead reads all R1 + R2, produce `$REVIEW_DIR/final.md`, graded per the
-[Review Severity Standard](#review-severity-standard-rfc-2119) (Critical = MUST, Important =
-SHOULD, Actionable NIT = MAY). Note the project override: although **MAY** is optional under
-RFC 2119, this skill's convention cleans up every actionable NIT before merge (see the
-Actionable NIT row).
+After reading all R1 + R2, produce `$REVIEW_DIR/final.md`, graded per the
+[Review Severity Standard](#review-severity-standard-rfc-2119) (Critical = MUST, Important = SHOULD,
+Actionable NIT = MAY). Blocking is decided by the Evidence gate below; NIT never blocks any round.
 
 | Grade | Condition | Action |
 | --- | --- | --- |
@@ -703,16 +687,49 @@ Actionable NIT row).
 | **Consensus Important** | ≥2 voices mark Important with no DISAGREE | Must fix |
 | **Disputed** | 1 voice marks Critical/Important; others DISAGREE | List the dispute; user decides |
 | **Single-voice Critical** | 1 voice marks Critical; others did not mention | Lead **empirically refutes or confirms** (run a minimal repro), not judge-by-reasoning → confirmed: elevate to Consensus; refuted: drop with the evidence noted; can't test: list as Disputed |
-| **Actionable NIT** | Any 1 voice marks NIT and it's not subjective preference | **Must fix** (user emphasized "all NITs cleaned up") |
+| **Actionable NIT** | Any 1 voice marks NIT and it's not subjective preference | **Deferred — never blocks**, any round. Lead MAY fix trivially in-round; doing so is not a gate |
 | **Withdrawn** | Marked WITHDRAW in R2 | Remove from list |
 | **Voice unavailable** | That voice failed R1/R2 twice in a row | Note in final.md; do not block |
 
-> **Single-voice [P0] / [Critical] → verify before acting**: a lone Critical finding (especially
-> a CLI flag-parsing or runtime claim) often reasons from a plausible-but-wrong model. Construct a
-> minimal repro and run it before changing code. Real incident (PR #157): agy flagged `[P0]
-> --print eats --add-dir, disabling --sandbox`; `printf 'reply ALPHA' | agy --print --add-dir .
-> --sandbox` returned `ALPHA`, refuting the whole chain — acting blindly would have cargo-culted a
-> wrong `@-` fix that re-introduces the `@` agentic trigger.
+#### Evidence gate
+
+A Critical / Important finding blocks merge **only** if it carries a valid `Evidence:` in the form
+its type requires (see Evidence forms in the R1 prompt). The gate is applied at aggregation, before
+any fixing, and is **tiered by cost** so most rejections execute nothing:
+
+| Tier | Applies to | Action |
+| --- | --- | --- |
+| Structure check | any finding | `Evidence:` missing or not the required form → **demote immediately, executing nothing** |
+| Verify | Critical with well-formed evidence | lead **must** reproduce it (run the minimal repro / confirm the failure scenario) |
+| Spot-check | Important with well-formed evidence | lead **may** verify selectively; unverified Important stays blocking in Round 1 only |
+
+A demoted finding is **moved, never dropped**: it goes to `## Deferred for lack of evidence` with
+its original title, description, and demotion reason **preserved verbatim** — the lead must not
+silently discard it.
+
+Verifying well-formed evidence has three outcomes — do not collapse "invalid" into "absent":
+
+| Outcome | Disposition |
+| --- | --- |
+| Reproduced | stays blocking |
+| Not reproduced | moved to deferred, recorded as "evidence did not reproduce" |
+| Invalid (evidence itself is broken / won't run) | lead fixes it once; if still unusable, **demote to Important into deferred — never drop, never record it as "not reproduced"** |
+
+Disposition by severity × evidence × round (every cell defined — no gaps, no ambiguity):
+
+| Severity | Evidence | Round 1 | Round 2 |
+| --- | --- | --- | --- |
+| Critical | valid | blocking | blocking |
+| Critical | none | deferred | deferred |
+| Important | valid | blocking | **deferred** (R2 blocks on Critical only) |
+| Important | none | deferred | deferred |
+| Actionable NIT | valid | non-blocking | non-blocking |
+| Actionable NIT | none | non-blocking | non-blocking |
+
+> Lone Critical claims (CLI flag-parsing, runtime behavior) often reason from a plausible-but-wrong
+> model — the Verify tier is why. Real incident (PR #157): agy's `[P0] --print eats --add-dir` was
+> refuted by one command (`printf 'reply ALPHA' | agy --print --add-dir . --sandbox` → `ALPHA`);
+> acting blindly would have cargo-culted a wrong `@-` fix that re-introduces the `@` agentic trigger.
 
 `final.md` format:
 
@@ -728,8 +745,11 @@ group-review ({{N}}/3 voices active)
 ## Consensus Important (must fix)
 1. <finding>...
 
-## Actionable NIT (must fix — user requires all NITs cleaned up)
+## Actionable NIT (deferred — never blocks; fix opportunistically)
 1. <finding>...
+
+## Deferred for lack of evidence (not blocking; reason stated per item)
+1. <finding> — demoted: <reason>...
 
 ## Disputed (user decides)
 - Voice X argues Critical: <reason>
@@ -746,14 +766,9 @@ Report the final.md summary to the user and wait for Disputed item decisions bef
 
 ### Step 5b — Post review summary to PR
 
-Post the aggregated review consensus to the PR as a comment, **before** fixes start, so the
-review's decision trail is permanently recorded on the PR for anyone reading it later. This is
-a pre-fix snapshot of consensus; the subsequent fix commits show what was changed in response.
-
-Resolve the review dir and post in a **single self-contained block** — each Bash call is a fresh
-shell, so `REVIEW_DIR` must be recomputed in the same block that runs `gh pr comment` (do not rely
-on a variable assigned in an earlier block, or the `--body-file` path expands empty). If `final.md`
-is missing, skip without blocking the flow:
+Post the aggregated consensus as a PR comment **before** fixes start, so the decision trail is
+recorded for later readers. Recompute `REVIEW_DIR` in the same block as `gh pr comment` (each Bash
+call is a fresh shell, else `--body-file` expands empty); skip without blocking if `final.md` is missing:
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
@@ -765,18 +780,34 @@ else
 fi
 ```
 
-`gh pr comment` exit code semantics:
+- **exit 0** → report the comment URL.
+- **non-zero** (auth / network / PR not found) → `[WARN] 無法貼 review summary 到 PR`; show the user the manual command, then **continue to Step 6** (posting must not block fixes).
 
-- **exit 0** — comment posted; report the comment URL to the user.
-- **non-zero** (auth / network / PR not found) — `[WARN] 無法貼 review summary 到 PR`; show the
-  user the manual command above to run themselves, then **continue to Step 6** (posting is a
-  provenance nicety and must not block fixes).
+First-time use may prompt for permission → add `Bash(gh pr comment:*)` to `settings.local.json`
+(rule 16 safe form). MVP posts one comment here; re-post after Step 7 only if consensus materially changed.
 
-> First-time `gh pr comment` use in this skill: if the agent is prompted for permission each run,
-> add `Bash(gh pr comment:*)` to `settings.local.json` (rule 16 safe form — verb locked at prefix).
+---
 
-MVP posts one comment here. If Step 7 re-review later produces materially new consensus findings,
-post an updated comment then; otherwise this single snapshot is sufficient.
+### Step 5c — 降級 Important 批次 issue
+
+降級的 Important（`final.md` 的 `## Deferred for lack of evidence` 段落中 severity 為 Important 者）
+需要有人承接，去處是**每個 PR 至多一張** GitHub issue，標 `deferred-from-review`，一次列出該 PR
+全部降級 Important。降級的 Actionable NIT **不開票**——它留在 Step 5b 已貼的 PR comment 裡。沒有降級
+Important 時**不建立** issue。
+
+時機：Round 2 結束後建立一次。circuit breaker（人類裁決）路徑下**同樣建立**——降級 Important 與未解
+blocking 是兩回事，前者不因後者而消失。
+
+執行前先確認 label 存在。若 `gh label list --repo {{owner/repo}}` 找不到 `deferred-from-review`：
+`[FAIL] deferred-from-review label 不存在 — 請先執行 gh label create deferred-from-review，再繼續。`
+
+label 就位且有降級 Important 時，把它們彙整成單一 issue body（逐項保留原標題／描述／降級理由），建立一張：
+
+```bash
+gh issue create --repo {{owner/repo}} --label deferred-from-review --title "Deferred from review: PR #{{pr_number}}" --body-file "$REVIEW_DIR/deferred-issue.md"
+```
+
+`gh issue create` 非零退出（auth／label 不存在／網路）→ `[WARN]` 回報，不阻斷流程。
 
 ---
 
@@ -837,9 +868,24 @@ If `gh pr view` itself errors (auth / network), stop and report — an empty res
 
 ---
 
-### Step 7 — Group re-review (until all voices LGTM)
+### Step 7 — Group re-review (bounded to two rounds)
 
-Re-run Step 3 + Step 4 (R1 + R2) on **files modified in this round**.
+The re-review loop is **bounded**: Round 1, then at most Round 2, then it exits — to a merge or to
+human adjudication. There is no "run one more round to see."
+
+| Round | Review surface | Can block merge | On exit |
+| --- | --- | --- | --- |
+| Round 1 | the **full diff**; record the baseline head SHA (`git rev-parse HEAD`) before Step 6 fixes — the next round's surface is defined relative to it | evidenced Critical / Important | blocking set empty → Step 8 merge; non-empty → Step 6 fix, then Round 2 |
+| Round 2 | only `baseline..HEAD` (the commits this round's fixes added) | evidenced Critical only | blocking set empty → merge; non-empty → circuit breaker (human adjudication) |
+| Round 3 | **does not exist** — the loop never starts a third round | — | — |
+
+Recording the baseline SHA in Round 1 is load-bearing: the `baseline..HEAD` surface cannot be
+computed without it. The two surfaces are **disjoint** (`base..baseline` vs `baseline..HEAD`) —
+neither contains the other, and Round 2's size is not bounded by Round 1's. Termination is
+guaranteed by the two-round cap **alone**, never by the review surface changing size between rounds
+(an earlier design claimed the surface shrinks each round; that was false — see problem-frame.md).
+
+Re-run Step 3 + Step 4 (R1 + R2) on the round's review surface.
 
 **7.1 Refresh diff state** (required — diff has changed after fixes):
 
@@ -853,75 +899,53 @@ hand-roll `git diff "{{base_branch}}"...HEAD` here — that uses the local ref a
 bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 ```
 
-**7.2 Token savings: only skip R2 debate for voices that were LGTM in the previous round** (R1 still runs for all):
+**7.2 Token savings — skip R2 only for voices that were LGTM last round** (R1 still runs for all):
 
-Read each voice's **most recent** verdict file (prefer `*-r2.md`; fall back to `*-r1.md`) and
-find voices with `Final verdict: NEEDS_CHANGES` (R2 format) or `## Verdict` section containing
-`NEEDS_CHANGES` (R1 format).
+Read each voice's most recent verdict (`*-r2.md`, else `*-r1.md`), then:
 
-- **All voices**: re-run R1 (confirm new fixes haven't introduced regressions)
-- **Previous-round NEEDS_CHANGES voices**: run R1 + R2
-- **Previous-round LGTM voices**: run R1 only; skip R2 debate (saves one API round-trip; LGTM voices' R2 is a cross-check on old findings, which no longer exist this round)
+- **All voices** re-run R1 (catch regressions from this round's fixes).
+- **Previous-round NEEDS_CHANGES voices** run R1 + R2.
+- **Previous-round LGTM voices** run R1 only — their R2 would only cross-check old findings that no longer exist. (New R1 overwrites all R1 files; R2 overwrites only re-run voices.)
 
-```text
-Re-run decision logic (agent executes):
-- claude   previous-round NEEDS_CHANGES → R1 + R2
-- codex    previous-round LGTM          → R1 only (skip R2, save one codex exec)
-- gemini   previous-round NEEDS_CHANGES → R1 + R2
-```
-
-New-round R1 overwrites old R1 files (all voices); R2 only overwrites voices that needed re-running.
-
-**LGTM voices' old R2 handling (important)**: for voices that skip R2, their old `*-r2.md`
-still exists on disk, but **must not be referenced in this round's aggregation** — old R2
-corresponds to a previous diff and the content may be stale. Before running Step 5 aggregation,
-delete old R2 files for LGTM-skip voices:
+A skipped voice's old `*-r2.md` stays on disk but corresponds to a previous diff — **delete it before Step 5 aggregation** so stale results don't leak in:
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
-# LGTM voice skipping R2: delete old r2 before aggregation to avoid stale results
-# Replace voice names with the actual voices skipping this round (codex / gemini / claude)
-rm -f "$REVIEW_DIR/codex-r2.md"   # if codex is LGTM-skip this round
+rm -f "$REVIEW_DIR/codex-r2.md"   # substitute the voices that are LGTM-skip this round
 ```
 
-If a LGTM voice shows NEEDS_CHANGES in new R1, immediately run R2 (r2 file was deleted; re-running overwrites it).
+If a LGTM voice turns NEEDS_CHANGES in the new R1, run its R2 immediately (re-running overwrites the deleted file).
+
+#### Baseline freshness (before Round 2 defines its surface)
+
+Before Round 2 computes `baseline..HEAD`, confirm the baseline is fresh. A stale fork `origin` or a
+cached `codex review --base` result silently distorts that surface with **no error** (CLAUDE.md
+records both). `setup-review-dir.sh` already fetches from the base remote (`upstream` if present,
+else `origin`) — do not bypass it with a hand-rolled local-ref diff.
+
+#### Merge gate
+
+Merge is gated **only** by the blocking set (Round 1 evidenced Critical / Important; Round 2
+evidenced Critical). When that set is empty the PR merges even with open Actionable NITs or deferred
+evidence-less findings still listed — NIT never blocks merge in any round, and neither does a
+finding that carries no valid `Evidence:`.
 
 #### Convergence condition
 
-**All voices LGTM** = every active voice in the latest round outputs:
-
-- `Final verdict: LGTM`, and
-- no new [Critical] / [Important] / [Actionable NIT] findings
-
-Any voice still has actionable items → return to Step 6 to fix.
-
-**LGTM-with-trickle-NITs (lead judgment call)**: a distinct pattern from
-persistent NEEDS_CHANGES — every voice's *verdict* is already LGTM, but one
-voice emits a small number of new, progressively-more-trivial actionable NITs
-each round (each fixed same-round), so the strict "no new NITs" condition never
-quite closes. The lead MAY declare convergence without another full round when
-ALL of the following hold:
-
-1. every active voice's verdict has been LGTM for **2+ consecutive rounds**;
-2. every actionable NIT raised in those rounds was **fixed in the same round**
-   (none deferred, none disputed);
-3. the latest unreviewed delta is **comment/doc-only** (no runtime surface).
-
-Record the judgment explicitly in `final.md` / `human-summary.md` (which voice
-was still trickling, what the last item was, why the loop was closed). If the
-trickle items are code-bearing rather than cosmetic, do NOT use this shortcut —
-run the next round. (Origin: openspectra PR #35 rounds 4–7, where one voice
-emitted one shrinking NIT per round down to a docstring reflow.)
+Every active voice's latest round outputs `Final verdict: LGTM` and the blocking set is empty.
+Actionable NIT and evidence-less findings are deferred and never re-open the loop. Blocking set
+non-empty at the end of Round 1 → Step 6 to fix, then Round 2.
 
 #### Circuit breaker
 
-After **3 consecutive rounds** without all voices LGTM → stop automatic retries; present the user with the persistent unresolved findings:
+**Round 2 ends with a non-empty blocking set** → stop; do not start a third round. Hand the
+unresolved findings to the user for adjudication, reusing the same three-option UX:
 
 ```text
-Group review has run 3 rounds without all voices LGTM. Remaining unresolved items:
-1. <Voice X>: <finding> — Critical for 3 consecutive rounds
-2. <Voice Y>: <finding> — raised in round 2
+Round 2 finished with unresolved blocking findings. Remaining items:
+1. <Voice X>: <finding> — Critical
+2. <Voice Y>: <finding> — Important, raised in Round 1
 
 Possible causes:
 - False positive (Voice X lacks sufficient codebase context)
@@ -935,22 +959,17 @@ Wait for explicit instruction before continuing.
 
 #### Gotcha: re-review must not use stale diff.patch
 
-When manually triggering a single voice re-run after fixes, the input **must use the diff.patch refreshed in Step 7.1**, not the stale version from the setup stage:
+A single-voice re-run after fixes **must** review the diff.patch that Step 7.1 refreshed, not the setup-stage version:
 
 ```bash
-# Correct: refresh the shared diff via setup-review-dir.sh (sole owner of the safe
-# fetch+FETCH_HEAD base), then re-run the stage-1 script -- it reviews $REVIEW_DIR/diff.patch
-# via codex exec and re-writes codex-r1-raw.md for this round.
 bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh
-
-# Wrong 1: hand-rolling `git diff "{{base_branch}}"...HEAD > diff.patch` -- uses the local ref
-#          and bypasses setup-review-dir.sh's fetch, silently reviewing a stale base (PR #22).
-# Wrong 2: hand-rolling `codex review --base ...` -- rejects the guard prompt (issue #194)
-#          and re-opens the skill-hijack hole; always go through the stage-1 script.
-# Wrong 3: overwriting codex-r1.md (the compact render) directly destroys aggregate history;
-#          let Stage 2 (extract) + Stage 3 (render) produce it from codex-r1-raw.md.
 ```
+
+Never hand-roll it: `git diff "{{base_branch}}"...HEAD > diff.patch` uses the local ref and bypasses
+the fetch (stale base, PR #22); `codex review --base` rejects the guard prompt and re-opens the
+skill-hijack hole (issue #194); overwriting `codex-r1.md` directly destroys aggregate history (let
+Stage 2 + Stage 3 render it from `codex-r1-raw.md`).
 
 ---
 
@@ -986,7 +1005,7 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 2. ...
 ```
 
-Show the summary and hotspots to the user and invite challenges. First get the actual path with bash, then communicate via conversational reply (so the user can directly cat the path):
+Show the summary and hotspots to the user. Get the path, then reply conversationally so they can `cat` it:
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
@@ -994,13 +1013,7 @@ REVIEW_DIR="$WT_ROOT/.pr-review"
 echo "$REVIEW_DIR/human-summary.md"
 ```
 
-Then reply to the user (substitute the actual path from the echo above for `<path>`):
-
-```text
-All voices LGTM. Three hotspots listed in <path>.
-Raise any concerns directly in this session; I (reviewer lead) will respond immediately.
-No concerns? Reply "ship" to proceed to Step 9 CI check.
-```
+Reply (substitute the echoed path for `<path>`): "All voices LGTM. Three hotspots in `<path>`. Raise concerns here — I (reviewer lead) respond immediately; reply 'ship' to proceed to Step 9 CI."
 
 User raises a concern → lead responds directly (citing R1/R2 original findings if needed); unresolvable concern → return to Step 6 to fix; resolved → user replies "ship" before proceeding to Step 9.
 
@@ -1023,29 +1036,22 @@ Local CI is authoritative: when CI and local differ, trust local; check for CI e
 
 ### Pre-merge check: version bump
 
-Before running `gh pr merge`, pause and ask the user:
-
-> Does this change require a version bump?
->
-> - **Yes** → run [`/bump-version`](../bump-version/SKILL.md) first (commits version files + CHANGELOG + git tag + push on the feature branch).
->   After that, **return to the previous step and wait for CI to go green** (new commit triggers a new CI run), then come back here to continue merging.
->   Note: after `--squash` merge the git tag points to the feature branch HEAD, not the main merge commit; if you need the tag on main, re-tag on main after merging.
-> - **No** → confirm and proceed to merge.
-> - **Unsure** → describe the change; the agent evaluates and suggests a bump type, then **waits for user confirmation** before running `/bump-version` or proceeding.
-
-Decision guide (agent may pre-evaluate before asking):
+Before `gh pr merge`, ask the user whether this change needs a version bump (pre-evaluate first):
 
 | Change type | Recommendation |
 | --------- | ------ |
-| Pure internal refactor, tests, CI config | Usually no bump needed |
+| Pure internal refactor, tests, CI config | Usually no bump |
 | Bug fix, doc fix, performance, compatibility | patch |
 | New feature, new API (backward-compatible) | minor |
 | Breaking change (API-incompatible) | major |
 
-(This guide is for quick assessment only; full definition in [`/bump-version`](../bump-version/SKILL.md) Step 1.)
+- **Yes** → run [`/bump-version`](../bump-version/SKILL.md) first (commits version files + CHANGELOG + tag + push on the feature branch), then **wait for the new CI run to go green**
+  before returning. After `--squash` merge the tag points at the feature-branch HEAD, not the main merge commit — re-tag on main if you need it there.
+- **No** → confirm and proceed.
+- **Unsure** → describe the change; agent suggests a bump type and **waits for confirmation**.
 
-Only proceed to `gh pr merge` after the user explicitly says "no bump needed" or "I've run `/bump-version`".
-If the user says "I've run `/bump-version`", confirm the bump commit was pushed to remote:
+Only merge after the user says "no bump" or "I've run `/bump-version`". If bumped, confirm the
+release commit and tag both reached remote (commit push and tag push are independent — tags silently fail to push):
 
 ```bash
 git fetch
@@ -1055,19 +1061,13 @@ git fetch
 git log --oneline -3 '@{upstream}'
 ```
 
-Confirm that one of the last 3 commits matches `chore(release): v*` format; if not, prompt the user to complete `/bump-version` Step 4 (push) before continuing.
-Extract the version tag from that commit message (e.g. `v1.2.3`) and confirm that tag was pushed to remote (commit push and tag push are independent operations; tags may silently not be pushed):
+One of the last 3 commits must match `chore(release): v*`; extract its tag (e.g. `v1.2.3`) and confirm the tag is on remote (empty → prompt the user to run `git push --tags`):
 
 ```bash
 git ls-remote --tags origin 'refs/tags/v<TAG_VERSION>'
 ```
 
-(e.g. `git ls-remote --tags origin 'refs/tags/v1.2.3'`)
-Confirm the output contains the exact version tag, not just older tags; if empty, prompt the user to run `git push --tags`.
-
-> **If the target repo has tag-triggered CI/CD** (e.g. automatic GitHub Release on tag push):
-> the git tag is pushed before the merge and may trigger a production deployment. Evaluate the
-> risk before continuing, or re-tag on main after merging instead.
+> **If the target repo has tag-triggered CI/CD** (auto GitHub Release on tag push): the tag is pushed before the merge and may trigger a production deploy. Evaluate the risk, or re-tag on main after merging.
 
 ---
 
@@ -1191,7 +1191,7 @@ finding reference but **do not enter the main context**.
 | codex Stage 1 runs against wrong repo | The stage-1 script passes `codex exec -C "$WT_ROOT"`, pinning the repo root; ensure you run the script from inside the worktree (avoid tools like gstack changing CWD, AP3 Sub-class A) |
 | A voice fails R1/R2 twice consecutively | Mark as unavailable; do not block; aggregate report notes the reason |
 | R2 receives r1-aggregate that is too large for voice to process | Remove raw diff from r1-aggregate; keep only findings; diff was already processed in the r1 prompt |
-| 3 consecutive rounds without all voices LGTM | Trigger circuit breaker; report remaining findings to user with three-option decision |
+| Round 2 ends with unresolved blocking findings | Trigger circuit breaker; hand remaining findings to user with the three-option decision (no third round) |
 | User chooses to ignore a disputed finding | Add a Known Issues section to the PR description with the reason |
 | User raises new concern during human quick pass | Reviewer lead (Claude main) responds immediately; unresolvable → return to Step 6; resolved → wait for user "ship" |
 | Want to skip R2 and run only R1 | Not allowed; R2 is the core value of mob review (mutual debate). Switch to `/pr-review-cycle` (Claude-only) if you want to skip it |
@@ -1216,5 +1216,4 @@ finding reference but **do not enter the main context**.
 | `/pr-review-cycle` | Small feature / bug fix / refactor; fast merge | Claude pr-review-toolkit 4 subagents in parallel |
 | `/pr-cycle-deep` (this skill) | Medium/large PR / high-risk changes / cross-model pressure test | Claude + Codex (required) + agy (optional); R1 independent + R2 debate |
 
-This skill requires ≥1 external reviewer (Codex or agy) to start; with 0, falls back to `/pr-review-cycle`.
-agy (Antigravity CLI) is optional — when only Codex is available, runs 2-voice mob; when both are available, runs 3-voice full mob.
+This skill needs ≥1 external reviewer (Codex or agy); with 0 it falls back to `/pr-review-cycle`. With only Codex it runs a 2-voice mob, with both a 3-voice full mob.

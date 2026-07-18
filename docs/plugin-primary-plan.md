@@ -90,7 +90,7 @@ rm ~/.claude/skills/spectra-amplifier   # 斷掉的 symlink；該 skill 現由 s
 卻被廣告在 plugin-only 軌上。）
 
 順手修正：`3rd-tools` 的 marketplace 描述宣稱有「AI slop detection」，但 `detect-ai-slop` 住在
-`writing`，且全 repo 別無他處。`3rd-tools` 實際出貨的是 agy / codex / verify-gemini-models，
+`writing`，且全 repo 別無他處。`3rd-tools` 實際出貨的是 agy / codex-review / codex-consult / verify-gemini-models，
 描述已改為與現實相符——與 `writing` 缺席同屬 doc-vs-code 漂移，靠查證而非照抄才發現。
 
 ### 0.4 ~~移除被 commit 的 `__pycache__`~~ — **不是真問題**
@@ -143,9 +143,13 @@ portman = "tasks.local_port_manager.cli:cli"
 packages = ["tasks"]         # 排除 scripts/、plugins/、本機 .venv
 ```
 
-**砍掉 9 個零 import 的依賴**：playwright、python-dotenv、pikepdf、cryptography、tabula-py、
+**砍掉 8 個零 import 的依賴**：playwright、python-dotenv、pikepdf、cryptography、tabula-py、
 pillow、pytesseract、markdownify。這一刀同時移除 Java runtime 需求（tabula-py）與瀏覽器下載
 （playwright）。
+
+> 零 import 的依賴其實有 9 個，但第 9 個 `psycopg2-binary` **不可砍**：sqlalchemy 靠連線字串
+> 的 scheme 載入它作為 postgres driver，故它移入 `ledger` extra 而非移除。「零 import」不等於
+> 「沒人用」——這是 PR #249 實作時查證出來的，原文的計數與清單因此對不上。
 
 **`scripts/` 是其餘依賴的唯一持有者。** anthropic、sqlalchemy、psycopg2-binary、requests、
 pdfplumber **只**被 `scripts/` 使用——那是硬編碼到 `localhost:5435/ledgerone` 的個人帳務工具。
@@ -200,6 +204,25 @@ pdfplumber **只**被 `scripts/` 使用——那是硬編碼到 `localhost:5435/
 - `.claude/hooks/{pre-compact-handover,post-compact-handover-back}.sh` 在 `cd "$REPO_ROOT"` 後
   in-process import `tasks.mycelium`。它們是開發專用、位於所有 plugin 目錄之外、從不出貨——
   維持綁 checkout。**在 PR 說明中明講**，以免被誤認為疏漏。
+
+> **Phase 1 留下的兩顆地雷（PR #249 mob review 發現，三家一致認為非 Phase 1 blocker）**
+>
+> Phase 1 的 `packages = ["tasks"]` 已經**出貨**了這些模組，只是還沒有 console script 暴露
+> 它們——所以問題今天不可達。**Phase 2 加上第二個 entry point 的那一刻就會爆**：
+>
+> 1. **`tasks/_paths.py:5-6` 的 `PROJECT_ROOT = Path(__file__).resolve().parents[1]`**
+>    在 wheel 安裝下解析進 `site-packages/`，於是 `RUNTIME_DIR` 變成 `site-packages/.runtime`
+>    ——寫入落在安裝樹，升級時**靜默消失**。實測共 10 個模組 import `RUNTIME_DIR`。
+>    `portman` 之所以安全，是因為其 import chain 零 `_paths` 引用、`REGISTRY_PATH` 直接用
+>    `Path.home()`。Phase 3 的「狀態重新錨定」涵蓋此項——**但 Phase 2 的 mycelium 先落地，
+>    必須先實測 mycelium 是否碰 `_paths`**（其資料層已 home-anchored 於 `~/.agents/handover/`，
+>    但要驗證而非假設）。
+> 2. **`tasks/_worktree_guard.py:49` 呼叫 `PROJECT_ROOT/scripts/assert_not_worktree.sh`**，
+>    而該腳本**不在 wheel 內**（`packages = ["tasks"]` 不含 `scripts/`）。影響
+>    `scheduler` / `mycelium` / `nightly_agent` / `pr_orchestrator` 的 install 路徑。
+>    失敗是 **fail-closed 且大聲**（「找不到 worktree 守門腳本」），不是靜默——這是它不算
+>    blocker 的原因。但 `pip install yibi-stack && python -m tasks.scheduler install` 今天
+>    已經是死的。Phase 2 暴露 mycelium 時，需 `force-include` 該腳本或改寫 guard 的定位方式。
 
 ---
 

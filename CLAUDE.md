@@ -63,13 +63,30 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 
 ## 編碼慣例
 
-詳細規範在 `.claude/rules/`，Claude Code 依 glob pattern 自動載入：
+詳細規範在 `.claude/rules/`（14 個檔案：01-11、13、15、16）。載入時機由 frontmatter 決定：
+**frontmatter 內有 `paths:` key 者，只在工具碰到匹配路徑時載入；沒有 `paths:` key 者（包含
+完全沒有 frontmatter、以及有 frontmatter 但只寫了別的 key）每個 session 全量載入**。
+glob 非錨定，在任意路徑深度匹配。
 
-- **全域**（01-03）：雙語規範、錯誤處理、安全性
-- **`tasks/**`**（04-08）：module 結構、Pydantic、config、DB、CLI
+> 寫新 rule 時 key 必須是 `paths:`——`globs:` / `glob:` / `path:` 都**不是** Claude Code 認得的
+> key，會被靜默忽略（無錯誤訊息），該檔案隨即變成每 session 全量載入。這三種拼法與 `paths:`
+> 的行為差異均為 PR #250 實測（`claude -p` 探針，各拼法一個拋棄式 repo）。
+>
+> 值可以是 YAML list（`- "tasks/**"`）或純量字串（`paths: tasks/**`）——**兩者實測行為相同**，
+> 本 repo 統一用 list 形式，這是風格選擇不是正確性要求。
+>
+> 目前**沒有機械 guard** 擋錯 key（寫錯只會靜默變全量載入，不會報錯）；`tasks/harness_eval`
+> 的兩個 scanner 也都仍在偵測失效的 `glob:`——D7 的 `scanners/rules.py`（`globs:` 與 `paths:`
+> 都不匹配，分數一直來自 fallback 分支）與 D4 的 `scanners/skills.py`（`_SCOPING_KEYS` 仍為
+> `glob` 加分）。三者都追蹤在 issue #252。
+
+- **全域**（01-03、13、15、16）：雙語規範、錯誤處理、安全性、bash 反模式、不可逆操作、allow-list 衛生
+- **`tasks/**`**（04）：module 結構
+- **`tasks/**/<models|config|db|cli>.py`**（05-08）：Pydantic、config、DB、CLI
+  （各自宣告獨立 pattern，此處合寫僅為摘要，`<>` 不是可複製的 glob 語法）
 - **`tasks/**/tests/**`**（09）：測試命名與結構化 Test ID
 - **`tasks/**/parsers/**`**（10）：abstract base + registry pattern
-- **`skills/**`**（11）：SKILL.md 格式與撰寫規範
+- **`skills/**`**（11）：SKILL.md 格式與撰寫規範（非錨定，`plugins/*/skills/**` 亦匹配）
 
 ## 外來 Skill 管理
 
@@ -88,7 +105,7 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 
 - 共用路徑常數：@tasks/_paths.py
 - Bash lint 工具：@scripts/lint_skill_bash.py
-- 編碼慣例總覽：@.claude/rules/（01-16 條規則，依 glob 自動載入）
+- 編碼慣例總覽：@.claude/rules/（14 個檔案；01-03/13/15/16 全量載入，04-11 依 `paths:` 觸發）
 
 ## Dev 指令
 
@@ -96,30 +113,17 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 > （如 `/config thinking=false`）；在 interactive、`-p` headless、Remote Control 皆可用
 > （Claude Code v2.1.181+）。`/config --help` 列出所有 shorthand key（v2.1.183+）。
 
+完整 target 清單跑 `make help`（Makefile 為 self-documenting，每個 target 都有 `##` 說明）。
+以下只記錄 `make help` 一行說明看不出來的語意：
+
 ```bash
-# Python 開發
-uv sync                  # 安裝依賴
-make ci                  # 本地 CI：pre-commit（lint+format+type+security）+ pytest
-make check               # 執行所有檢查（lint + format + typecheck + test）
-make lint                # 只跑 ruff linter
-make format              # 只跑 ruff formatter
-make typecheck           # 只跑 mypy
-make test                # 只跑 pytest
-
-# Skill 管理
-make install             # 安裝 scope=global skill（跨專案可用）+ commands
-make install-one SKILL=x # 安裝單一 skill
-make status              # 查看安裝狀態
-make uninstall           # 移除自己的 symlink
-
-# Hook 管理（Claude Code auto-handover hook）
-make install-handover-hooks   # 安裝 PreCompact + SessionStart hook 到 ~/.claude/settings.json
-make uninstall-handover-hooks # 移除 auto-handover hook
-
-# Scheduler 管理
-make install-scheduler   # 安裝 LaunchAgent（每 60 秒 tick）
-make uninstall-scheduler # 卸載 LaunchAgent
-make scheduler-status    # 查看 job 執行狀態
+# 依賴安裝（非 make target，make help 不會列出）
+uv sync                  # 選用：需要 Python 環境的 target（ci/test/lint/typecheck 等）都走
+                         # uv run，會自動同步環境；此指令只是先跑一次把環境備好
+                         # 只裝 core（click + pydantic）
+uv sync --extra ledger   # 額外裝 scripts/ 帳務工具的依賴（pandas/sqlalchemy/anthropic 等）
+                         # 跑 tasks/ 與 CI 都不需要；跑 scripts/*.py 才需要
+                         # 不裝就跑 = ModuleNotFoundError（見 scripts/README.md）
 
 # Plugin 發布（lockstep 版本：所有 plugin 同步升版）
 make release TYPE=patch  # patch / minor / major
@@ -196,7 +200,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   a checkout, re-run `make install` — the symlink is repointed only by that run.
 - **`make install` must run from the MAIN repo, never from a worktree**: the install targets
   point global symlinks at `$(CURDIR)`, so installing from `.claude/worktrees/<name>/` aims
-  them at a directory that `/clean-merged` deletes after the branch merges — then every skill
+  them at a directory that `/clean-wt` deletes after the branch merges — then every skill
   dies. Neither the resolver's identity gate nor the Makefile's `resolved == $(CURDIR)` gate
   can catch this (a worktree is a complete checkout, and inside one those two paths are equal
   by definition). `scripts/assert_not_worktree.sh` now blocks it as the first line of every
@@ -242,6 +246,14 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **`pre-commit run --files` only scans specified files; CI uses `--all-files`**: local
   `pre-commit run --files <file>` misses pre-existing problems in other files. Always run
   `make ci` before pushing (includes `--all-files` + pytest).
+- **`make ci` before `git add` silently skips brand-new files**: `--all-files` means all
+  files *git knows about* — an untracked new file is invisible to every hook, which then
+  reports `Passed` because it never looked. The failure only surfaces in CI after you commit,
+  and it looks like "local green, CI red" for no reason. **`git add` first, then `make ci`.**
+  (Incident: PR #239 — a new test file was ruff-format-dirty; local `ruff format` reported
+  `Passed` while untracked, and `ruff format --check` on the same file said it would
+  reformat. Distinct from the `--files` gotcha above: there the scope is too narrow by
+  argument, here it is too narrow by git's index.)
 - **widening a pre-commit hook's `files:` regex doesn't guarantee the underlying tool
   actually scans those paths**: verify the tool's own implementation covers the same
   scope, or you get a "green hook" that runs and passes without checking the changed

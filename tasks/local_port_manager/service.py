@@ -26,25 +26,6 @@ SEEDED_DEFAULTS: dict[str, tuple[int, Category]] = {
     "frontend": (4000, Category.FRONTEND),
 }
 
-BootstrapEntry = tuple[str, str, int, Category]  # (project, service, port, category)
-
-BOOTSTRAP_ENTRIES: list[BootstrapEntry] = [
-    ("yibi-mvp", "postgres", 5432, Category.DB),
-    ("yibi-mvp", "redis", 6379, Category.CACHE),
-    ("yibi-mvp", "backend", 8000, Category.BACKEND),
-    ("yibi-mvp", "frontend", 5173, Category.FRONTEND),
-    ("yibi-mvp", "admin", 5174, Category.FRONTEND),
-    ("voice-lab", "postgres", 5433, Category.DB),
-    ("voice-lab", "redis", 6380, Category.CACHE),
-    ("coachly", "postgres", 5434, Category.DB),
-    ("coachly", "redis", 6381, Category.CACHE),
-    ("coachly", "api", 8001, Category.BACKEND),
-    ("coachly", "pgadmin", 5050, Category.OTHER),
-    ("coachly", "flower", 5555, Category.OTHER),
-    ("coaching365", "frontend", 4000, Category.FRONTEND),
-    ("coaching365", "api", 8002, Category.BACKEND),
-]
-
 
 def load_registry(path: Path | None = None) -> PortRegistry:
     """載入 registry；檔案不存在或格式錯誤時 raise RuntimeError。"""
