@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from tasks.mycelium import auto_handover_hooks
 from tasks.mycelium.auto_handover_hooks import (
     MyceliumBinaryNotFoundError,
     install_hooks,
@@ -111,6 +112,40 @@ class TestInstallHooks:
         assert "PreCompact" in data["hooks"]
         assert "SessionStart" in data["hooks"]
 
+    def test_mycli_st_005_install_preserves_shared_entry_matcher(self, tmp_path: Path) -> None:
+        """MYCLI-ST-005: shared entry 更新 owned hook 時保留 custom matcher。
+        spec: mycelium-cli#settings-hooks-use-stable-binary"""
+        settings = tmp_path / "settings.json"
+        settings.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "PreCompact": [
+                            {
+                                "matcher": "custom-matcher",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": ".claude/hooks/pre-compact-handover.sh",
+                                    },
+                                    {"type": "command", "command": "foreign-hook"},
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        install_hooks(settings_path=settings)
+
+        data = json.loads(settings.read_text(encoding="utf-8"))
+        entry = data["hooks"]["PreCompact"][0]
+        assert entry["matcher"] == "custom-matcher"
+        assert entry["hooks"][1]["command"] == "foreign-hook"
+        assert "hooks pre-compact" in entry["hooks"][0]["command"]
+
     def test_agents_ah_005_install_to_nonexistent_settings(self, tmp_path: Path) -> None:
         """AGENTS-AH-005：settings.json 不存在時，install 會自動建立。"""
         settings = tmp_path / "subdir" / "settings.json"
@@ -127,7 +162,8 @@ class TestInstallHooks:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """MYCLI-ST-005：PATH 無 mycelium 時 fail-loud，且 settings 保持原樣。"""
+        """MYCLI-ST-005: PATH 無 mycelium 時 fail-loud，且 settings 保持原樣。
+        spec: mycelium-cli#settings-hooks-use-stable-binary"""
         empty_bin = tmp_path / "empty bin"
         empty_bin.mkdir()
         monkeypatch.setenv("PATH", str(empty_bin))
@@ -142,6 +178,73 @@ class TestInstallHooks:
 
         assert "[FAIL]" in capsys.readouterr().err
         assert settings.read_text(encoding="utf-8") == original
+
+
+class TestRunPreCompactHook:
+    def test_mycli_st_005_concurrent_state_deletion_is_graceful(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MYCLI-ST-005: state file 在 stat 與 unlink 間消失時仍正常 passthrough。
+        spec: mycelium-cli#settings-hooks-use-stable-binary"""
+        monkeypatch.setattr(auto_handover_hooks, "_STATE_DIR", tmp_path)
+        state_file = tmp_path / "claude-handover-suggested-race-session"
+        state_file.touch()
+        real_unlink = Path.unlink
+
+        def delete_before_unlink(path: Path, missing_ok: bool = False) -> None:
+            if path == state_file and path.exists():
+                real_unlink(path)
+            real_unlink(path, missing_ok=missing_ok)
+
+        monkeypatch.setattr(Path, "unlink", delete_before_unlink)
+        payload = json.dumps(
+            {
+                "hook_event_name": "PreCompact",
+                "session_id": "race-session",
+                "matcher": "auto",
+            }
+        )
+
+        assert auto_handover_hooks.run_pre_compact_hook(payload) == (0, None)
+
+    def test_mycli_st_005_permission_denied_touch_still_intercepts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MYCLI-ST-005: state touch 權限錯誤時仍回傳 intercept 訊息。
+        spec: mycelium-cli#settings-hooks-use-stable-binary"""
+        monkeypatch.setattr(auto_handover_hooks, "_STATE_DIR", tmp_path)
+        state_file = tmp_path / "claude-handover-suggested-denied-session"
+        real_touch = Path.touch
+
+        def deny_state_touch(path: Path, *args: object, **kwargs: object) -> None:
+            if path == state_file:
+                raise PermissionError("state file is not writable")
+            real_touch(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "touch", deny_state_touch)
+        payload = json.dumps(
+            {
+                "hook_event_name": "PreCompact",
+                "session_id": "denied-session",
+                "matcher": "auto",
+            }
+        )
+
+        with pytest.warns(UserWarning, match="無法寫入狀態檔"):
+            exit_code, message = auto_handover_hooks.run_pre_compact_hook(payload)
+
+        assert exit_code == 2
+        assert message is not None
+        assert "/handover" in message
+
+    def test_mycli_st_005_malformed_json_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MYCLI-ST-005: malformed JSON payload 靜默 passthrough。
+        spec: mycelium-cli#settings-hooks-use-stable-binary"""
+        monkeypatch.setattr(auto_handover_hooks, "_STATE_DIR", tmp_path)
+
+        assert auto_handover_hooks.run_pre_compact_hook("{not-json") == (0, None)
 
 
 class TestUninstallHooks:

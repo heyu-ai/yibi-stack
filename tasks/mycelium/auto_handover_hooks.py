@@ -148,36 +148,56 @@ def run_pre_compact_hook(stdin_text: str) -> tuple[int, str | None]:
     state_suffix = session_id or "default"
     state_file = _STATE_DIR / f"claude-handover-suggested-{state_suffix}"
 
-    if state_file.exists():
-        try:
-            file_age = time.time() - state_file.stat().st_mtime
-        except OSError:
-            warnings.warn(
-                "pre-compact-handover: 無法讀取狀態檔 mtime，跳過過期檢查",
-                stacklevel=2,
+    try:
+        file_age = time.time() - state_file.stat().st_mtime
+    except FileNotFoundError:
+        pass
+    except OSError:
+        warnings.warn(
+            "pre-compact-handover: 無法讀取狀態檔 mtime，視為無狀態並繼續",
+            stacklevel=2,
+        )
+    else:
+        if file_age > _STATE_TTL_SECONDS:
+            _unlink_state_file_best_effort(state_file)
+            _log_event_best_effort(
+                "layer2_stale_reset",
+                session_id=session_id,
+                matcher=matcher,
+                source_layer="layer2",
             )
         else:
-            if file_age > _STATE_TTL_SECONDS:
-                state_file.unlink()
-                _log_event_best_effort(
-                    "layer2_stale_reset",
-                    session_id=session_id,
-                    matcher=matcher,
-                    source_layer="layer2",
-                )
+            _unlink_state_file_best_effort(state_file)
+            _log_event_best_effort(
+                "layer2_passthrough",
+                session_id=session_id,
+                matcher=matcher,
+                source_layer="layer2",
+            )
+            return 0, None
 
-    if state_file.exists():
-        state_file.unlink()
-        _log_event_best_effort(
-            "layer2_passthrough", session_id=session_id, matcher=matcher, source_layer="layer2"
+    try:
+        state_file.touch()
+    except OSError:
+        warnings.warn(
+            "pre-compact-handover: 無法寫入狀態檔，仍執行本次攔截",
+            stacklevel=2,
         )
-        return 0, None
-
-    state_file.touch()
     _log_event_best_effort(
         "layer2_intercept", session_id=session_id, matcher=matcher, source_layer="layer2"
     )
     return 2, _PRECOMPACT_SYSTEM_MESSAGE
+
+
+def _unlink_state_file_best_effort(state_file: Path) -> None:
+    """移除 best-effort 狀態檔；race 或權限錯誤不得中斷 hook。"""
+    try:
+        state_file.unlink(missing_ok=True)
+    except OSError:
+        warnings.warn(
+            "pre-compact-handover: 無法移除狀態檔，繼續執行 hook",
+            stacklevel=3,
+        )
 
 
 def run_session_start_hook(stdin_text: str) -> tuple[int, str | None]:
@@ -222,9 +242,11 @@ def _upsert_hook(
 ) -> bool:
     """新增 owned hook，或把 legacy/existing command 原地更新為目前 binary。"""
     for entry in entries:
-        for hook in entry.get("hooks", []):
+        entry_hooks = entry.get("hooks", [])
+        for hook in entry_hooks:
             if _command_has_marker(hook.get("command", ""), markers):
-                entry["matcher"] = matcher
+                if len(entry_hooks) == 1:
+                    entry["matcher"] = matcher
                 hook.update({"type": "command", "command": command, "timeout": 10})
                 return False
 

@@ -368,7 +368,8 @@ class TestHookWrappers:
         exit_code: int,
         tmp_path: Path,
     ) -> None:
-        """MYCLI-ST-006：wrapper 保留 stdin/stdout/status，並使用 command -v 的絕對路徑。"""
+        """MYCLI-ST-006: wrapper 保留 stdin/stdout/status，並使用 command -v 的絕對路徑。
+        spec: mycelium-cli#checkout-hook-wrappers-avoid-source-imports"""
         bin_dir = tmp_path / "mycelium runtime" / "bin dir"
         bin_dir.mkdir(parents=True)
         binary = bin_dir / "mycelium"
@@ -420,7 +421,8 @@ exit "$HOOK_EXIT"
         exit_code: int,
         tmp_path: Path,
     ) -> None:
-        """MYCLI-ST-006：PATH 無 mycelium 時 wrapper 印 [FAIL] 並非零退出。"""
+        """MYCLI-ST-006: PATH 無 mycelium 時 wrapper 印 [FAIL] 並非零退出。
+        spec: mycelium-cli#checkout-hook-wrappers-avoid-source-imports"""
         del subcommand, exit_code
         empty_bin = tmp_path / "empty bin"
         empty_bin.mkdir()
@@ -439,7 +441,8 @@ exit "$HOOK_EXIT"
     def test_mycli_st_006_hook_wrapper_source_has_no_checkout_invocation(
         self, script_name: str, subcommand: str, exit_code: int
     ) -> None:
-        """MYCLI-ST-006：wrapper source 不含 checkout import、uvx 或 uv run。"""
+        """MYCLI-ST-006: wrapper source 不含 checkout import、uvx 或 uv run。
+        spec: mycelium-cli#checkout-hook-wrappers-avoid-source-imports"""
         del subcommand, exit_code
         source = (_REPO_ROOT / ".claude" / "hooks" / script_name).read_text(encoding="utf-8")
         for forbidden in ("tasks.mycelium", "uvx", "uv run"):
@@ -534,7 +537,8 @@ class TestHookInstallWorktreeGuard:
         home_settings: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """MYCLI-ST-005：CLI 將 missing-binary failure 轉為 exit 1，且不寫 settings。"""
+        """MYCLI-ST-005: CLI 將 missing-binary failure 轉為 exit 1，且不寫 settings。
+        spec: mycelium-cli#settings-hooks-use-stable-binary"""
         monkeypatch.setattr("tasks._worktree_guard.PROJECT_ROOT", _make_repo(tmp_path / "main"))
         empty_bin = tmp_path / "empty bin"
         empty_bin.mkdir()
