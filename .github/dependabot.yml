@@ -1,0 +1,31 @@
+# Dependabot 設定：自動偵測依賴的已知漏洞（CVE）並開升級 PR。
+# 補上 repo 原本缺的「第三方依賴」掃描——既有的 bandit 只掃自家程式碼，不看依賴。
+# 文件：https://docs.github.com/code-security/dependabot/dependabot-version-updates
+version: 2
+updates:
+  # Python 依賴（pyproject.toml + uv.lock）。
+  # 用 uv ecosystem 而非 pip：pip 只認 pyproject.toml，不會同步 uv.lock，會造成漂移。
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      # minor / patch 合併成單一 PR，降低 PR 噪音；major 仍各自獨立以便逐一評估。
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions（.github/workflows/ 內 pin 的第三方 action）。
+  # 獨立於 Python 依賴，actions/checkout、astral-sh/setup-uv 等也有安全更新。
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions-all:
+        update-types:
+          - "minor"
+          - "patch"
