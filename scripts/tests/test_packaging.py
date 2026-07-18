@@ -28,6 +28,11 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT_PATH = PROJECT_ROOT / "pyproject.toml"
+REQUIRED_CONSOLE_SCRIPTS = {
+    "mycelium": "tasks.mycelium.cli:cli",
+    "pr-orchestrator": "tasks.pr_orchestrator.cli:cli",
+    "portman": "tasks.local_port_manager.cli:cli",
+}
 
 
 def _console_scripts() -> dict[str, str]:
@@ -54,13 +59,16 @@ class TestConsoleScripts:
 
         assert scripts, f"{PYPROJECT_PATH} 的 [project.scripts] 是空的；Phase 1 至少應宣告 portman"
 
-    def test_pkg_st_002_portman_is_declared(self) -> None:
-        """PKG-ST-002: portman 已宣告（Phase 1 的白老鼠，SKILL.md 直接呼叫它）。"""
+    @pytest.mark.parametrize(("name", "expected_target"), sorted(REQUIRED_CONSOLE_SCRIPTS.items()))
+    def test_pkg_st_002_required_console_script_is_declared(
+        self, name: str, expected_target: str
+    ) -> None:
+        """PKG-ST-002: Phase A 的三個 console script 名稱與 target 必須精確相符。"""
         scripts = _console_scripts()
 
-        assert "portman" in scripts, (
-            "plugins/util/skills/local-port-manager/SKILL.md 直接呼叫裸 portman 指令；"
-            "移除此宣告會讓該 skill 在所有 plugin-only 安裝上失效"
+        assert scripts.get(name) == expected_target, (
+            f"{name} 的 entry point 必須是 {expected_target!r}，實得 {scripts.get(name)!r}；"
+            "名稱或 target 錯置會讓對應的 installed CLI 無法啟動"
         )
 
     @pytest.mark.parametrize("name", sorted(_console_scripts()))

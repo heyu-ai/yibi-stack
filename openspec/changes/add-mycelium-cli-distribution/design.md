@@ -58,6 +58,8 @@ uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"
 
 ### D4 — Make six skill consumers checkout-independent
 
+[MODIFIED]
+
 所有六個 SKILL.md 都先以 `command -v` 檢查 selected path 實際會呼叫的每個 console script；失敗時指出缺少的 script、印 `[FAIL]`、顯示 D3 的 exact recorded-tag 安裝指令並 exit non-zero。呼叫與 preflight 對應如下：
 
 | Skill | Installed command | Required preflight | Explicit target contract |
@@ -65,9 +67,11 @@ uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"
 | `pr-cycle-fast` | `pr-orchestrator` | `command -v pr-orchestrator`；若 selected path 也呼叫 `mycelium`，另執行 `command -v mycelium` | `detect` / `auto-fix` 使用既有 `--repo-root "$REPO_ROOT"`；其他 state command 以明確 `--pr` 操作 |
 | `pr-control-log` | `mycelium control-log` | `command -v mycelium` | project-sensitive command 傳 `--project "$ORIG_PROJECT"` |
 | `pr-retrospective` | `mycelium retro`、`mycelium lessons`、`mycelium token-usage` | `command -v mycelium` | 傳 `--project "$ORIG_PROJECT"`，需要 filesystem scope 時另傳 `--workdir "$REAL_WORKDIR"` |
-| `mycelium` | `mycelium` | `command -v mycelium` | project-sensitive read/write 傳 `--project "$ORIG_PROJECT"`；`init`、`migrate` 等 global command 不虛構 project option |
+| `mycelium` | `mycelium` | `command -v mycelium` | project-sensitive read/write 傳 `--project "$ORIG_PROJECT"`；`debug save` 增加 optional `--project`，skill 顯式傳入，省略時沿用推斷；`init`、`migrate` 等 global command 不虛構 project option |
 | `learn` | `mycelium lessons`、`mycelium insight` | `command -v mycelium` | 每條 project query 傳 `--project "$PROJECT"`，移除無 project filter 的 cwd fallback |
 | `local-port-manager` | `portman` | `command -v portman` | `list` 使用 `--project`；Click 介面以 positional project 表示的 `get` / `suggest` / `reserve` / `release` 保留顯式 project operand |
+
+`pr-control-log` 與 `pr-retrospective` 仍需要各自隨 plugin 出貨的 bootstrap scripts，因此其 resource root 必須依序嘗試三個候選，且每個候選都以「目標 `scripts/bootstrap.sh` 可讀」作能力檢查：(1) `~/.claude/plugins/installed_plugins.json` 中 `pr-flow@yibi-stack` 目前生效 entry 的 `installPath`，(2) `make install` 建立的 `$HOME/.claude/skills/<skill>` symlink，(3) source checkout 的 `plugins/pr-flow/skills/<skill>` repo-relative path。不得以 cache version glob 或只檢查目錄存在取代。三者皆缺少時，skill 必須在工作前印 `[FAIL]`，並同時指引 `claude plugin install pr-flow@yibi-stack` 與在 yibi-stack checkout 執行 `make install` 兩條支援路徑。
 
 `pr-orchestrator` 的明確目標是 checkout path 而非 project slug；其 source contract 已命名 `--repo-root`，刻意維持現有介面。這是 issue #222 要消除 cwd inference 的等價明確化，不把不相容旗標硬塞進既有 CLI。
 
@@ -75,7 +79,13 @@ uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"
 
 ### D5 — Resolve the settings hook binary at registration time
 
+[MODIFIED]
+
 `auto_handover_hooks.install_hooks()` 在 install-hooks 時以 `shutil.which("mycelium")` 或等價的 `command -v` 從目前 PATH 解析並正規化 binary 的絕對路徑。找不到時必須以 `[FAIL]` fail-loud，不寫入無法執行的 settings command；找到後，以 `shlex.quote` 或等價 POSIX-safe encoding shell-quote 該路徑，再寫入 `~/.claude/settings.json` 的 `mycelium hooks pre-compact` 與 `mycelium hooks session-start` command。command 經 shell parsing 後的第一個 argv 必須等於解析出的絕對路徑，解析結果在註冊後保持固定，直到重新安裝 hooks。checkout 內既有 `.claude/hooks/pre-compact-handover.sh` 與 `.claude/hooks/post-compact-handover-back.sh` 則在每次執行時以 `command -v mycelium` 尋找 binary，找不到時以 `[FAIL]` 停止，找到後呼叫該 binary 的相容 wrapper，不再用 inline Python import `tasks.mycelium.metrics_service`（目前 imports 位於 `.claude/hooks/pre-compact-handover.sh:63-112` 與 `.claude/hooks/post-compact-handover-back.sh:42-59`）。
+
+PreCompact 的 `/tmp/claude-handover-suggested-*` 狀態檔只是 best-effort memory，不是 intercept/passthrough 的可用性 gate。mtime read、`unlink(missing_ok=True)` 與 `touch()` 的任何 `OSError` 都不得逃出 hook；無法確認或建立狀態時仍回傳本次 intercept 的 exit 2 與原 system message，已觀察到 fresh state 時則維持 passthrough 決策，即使 cleanup 失敗也不 crash。malformed JSON 仍靜默回傳 `(0, None)`。
+
+`install_hooks()` 更新既有 owned hook command 時，只有該 entry 的 hooks list 恰好只有這一個 owned hook 才可把 matcher 正規化為目前值；若 entry 同時含 foreign hook，必須保留原 matcher，只原地更新 owned hook 的 command/type/timeout，避免擴張或縮小 foreign hook 的觸發範圍。
 
 **Rejected alternatives:**
 
@@ -96,7 +106,9 @@ uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"
 - 在沒有 yibi-stack checkout 的環境執行 D3 安裝指令後，`mycelium --help`、`pr-orchestrator --help`、`portman --help` 都成功。
 - 六個 skill 從任意 cwd 觸發時，只依賴 PATH 中已安裝的 CLI；project-sensitive 操作使用 D4 表格的明確 target，不從 CLI process cwd 猜 project。
 - selected skill path 缺少任何實際會呼叫的 console script 時，skill 在執行任何工作前指出缺少者、印 `[FAIL]` 與完整 D3 recorded-tag 指令並非零退出。
+- `pr-control-log` 與 `pr-retrospective` 的 bootstrap 先依 D4 三候選鏈解析 plugin resource；plugin install 與 checkout `make install` 任一路徑都可工作，三者皆 miss 才 fail-loud。
 - auto-handover 在 install-hooks 時從 PATH 解析 `mycelium` 絕對路徑，以 shell-safe 形式固定寫入 hook command；checkout wrapper 在執行時以 `command -v mycelium` 解析 binary。任一解析找不到 binary 都印 `[FAIL]` 並停止；hook event 不 import checkout 中的 `tasks`，也不呼叫 `uvx`。
+- PreCompact 狀態檔的 mtime/unlink/touch 錯誤不得中斷 hook；shared settings entry 的 matcher 不得因 owned hook command 升級而被覆寫。
 
 **Interface / data shape:**
 
@@ -110,14 +122,16 @@ uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"
 
 - Git install、entry point import 或 `--help` 失敗 → end-to-end gate 失敗；不得移除任何 symlink 或 resolver 相容邏輯。
 - skill 找不到 selected path 實際會呼叫的任何 console script → 指出缺少者 + `[FAIL]` + D3 recorded-tag install command + non-zero exit；不得 fallback 到 checkout/cwd inference。
+- bootstrap 三候選都無可讀 script → `[FAIL]` 並指引 plugin install 與 checkout `make install`；不得 hard-depend 單一路徑。
 - install-hooks 無法從 PATH 解析 `mycelium` → 印 `[FAIL]` 並停止，不得寫入未解析的 hook command。
+- PreCompact 狀態檔發生 race、permission 或其他 `OSError` → 保留已做出的 intercept/passthrough 決策並以 warning 降級；不得拋 traceback。
 - checkout wrapper 無法以 `command -v mycelium` 找到 binary，或 hook subcommand 失敗 → surfaced as hook command failure；不得以 `uvx` 或 checkout import 靜默 fallback。
 - project target 缺失 → skill 在呼叫 CLI 前 fail-loud；不得使用未帶 project filter 的 fallback query。
 
 **Acceptance criteria:**
 
 - clean environment 無 yibi-stack checkout：Git-tag install 成功、`mycelium --help` 成功、六個 skill 的 installed CLI smoke path 全部成功。
-- `scripts/tests/test_packaging.py` 驗證全部三個 entry point 可解析為 Click command；mycelium / pr-orchestrator CLI tests 驗證 `--help`、required-script preflight 與 hook subcommands，auto-handover tests 以名稱含空白的 temp directory 內 fake binary 驗證 install-time absolute-path resolution、shell quoting 與 missing-binary `[FAIL]`。
+- `scripts/tests/test_packaging.py` 驗證全部三個 entry point 可解析為 Click command；mycelium / pr-orchestrator CLI tests 驗證 `--help`、required-script preflight 與 hook subcommands，auto-handover tests 以名稱含空白的 temp directory 內 fake binary 驗證 install-time absolute-path resolution、shell quoting、missing-binary `[FAIL]`、shared matcher preservation、state-file race/permission failure 與 malformed JSON passthrough。
 - issue #222 所列 26 個 `tasks/mycelium/tests` import path 維持 `tasks.mycelium...`，package root 未移動。
 - README 的 English / 繁中 install 章節都包含 plugin + D3 CLI two-track，且不含 PyPI install command。
 - `make ci` exit 0。

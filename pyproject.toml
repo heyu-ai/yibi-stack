@@ -32,6 +32,8 @@ ledger = [
 ]
 
 [project.scripts]
+mycelium = "tasks.mycelium.cli:cli"
+pr-orchestrator = "tasks.pr_orchestrator.cli:cli"
 portman = "tasks.local_port_manager.cli:cli"
 
 [build-system]
