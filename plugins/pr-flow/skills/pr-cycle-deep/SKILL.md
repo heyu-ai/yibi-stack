@@ -726,10 +726,11 @@ Disposition by severity × evidence × round (every cell defined — no gaps, no
 | Actionable NIT | valid | non-blocking | non-blocking |
 | Actionable NIT | none | non-blocking | non-blocking |
 
-> Lone Critical claims (CLI flag-parsing, runtime behavior) often reason from a plausible-but-wrong
-> model — the Verify tier is why. Real incident (PR #157): agy's `[P0] --print eats --add-dir` was
-> refuted by one command (`printf 'reply ALPHA' | agy --print --add-dir . --sandbox` → `ALPHA`);
-> acting blindly would have cargo-culted a wrong `@-` fix that re-introduces the `@` agentic trigger.
+> **Single-voice [P0]/[Critical] → verify with a repro before acting — and re-verify before *citing* a past
+> verdict** (esp. CLI flag-parsing / runtime claims, which often reason from a plausible-but-wrong model).
+> **Record the tool version**: a stored verdict expires when the tool changes. Example (PR #157 → #229): agy's
+> `[P0] --print eats --add-dir` was once refuted by `printf 'reply ALPHA' | agy --print` → `ALPHA`; on **agy 1.1.2**
+> that no longer holds and the finding is now correct. The `@file` caution stands: inline via `-p "$CONTENT"`, never `@file`.
 
 `final.md` format:
 

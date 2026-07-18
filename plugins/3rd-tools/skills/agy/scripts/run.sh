@@ -37,19 +37,32 @@ fi
 
 cd "$REPO_ROOT"
 
-# 直接 pipe prompt 進 agy stdin，取代 @file（nested worktree（.claude/worktrees/<name>/）下
+# prompt 以 inline 形式當 -p 的值傳入，取代 @file（nested worktree（.claude/worktrees/<name>/）下
 # @file 解析失敗會讓 agy 靜默進入 agentic 探索模式：review 錯 target / brain-artifact / timeout，
-# 與 pr-cycle-deep issue #153 同根因）。pipe 一次根治四點：
+# 與 pr-cycle-deep issue #153 同根因）。inline 保住三點：
 #   (1) agy 不讀 @file 即無 agentic 觸發點；
-#   (2) 內容走 stdin 不佔 ARG_MAX 參數預算，無單一 arg 長度上限；
-#   (3) 內容不經 -p 參數解析，開頭即使是 '@' 也不會被誤判成檔案路徑而重觸發本 bug；
-#   (4) 不落地暫存檔，免去並行 review 互相覆寫與 SIGKILL 繞過 EXIT trap 殘留 untracked 檔。
+#   (2) 開頭永遠是 HEADER，內容不會以 '@' 起始而被誤判成檔案路徑重觸發本 bug；
+#   (3) 不落地暫存檔，免去並行 review 互相覆寫與 SIGKILL 繞過 EXIT trap 殘留 untracked 檔。
+#
+# 不可改回 `{ ... } | agy --print ...`（PR #229 retro 實測）：-p/--print 不是 boolean，它把
+# 下一個 token 當 prompt 值吃掉，因此該形式會讓 agy 收到 "--add-dir" 當 prompt、完全不讀 pipe
+# 進來的 diff，回一段關於 --add-dir 的說明後 exit 0——靜默失敗，看起來像 review 但不是。
+# agy 1.1.2 沒有 stdin prompt 通道（`printf 'x' | agy --print` 直接報 flag needs an argument）。
+# 代價是 inline 佔 ARG_MAX 參數預算，故需下方 size guard（比照 pr-cycle-deep 的 agy 腳本）。
 # --sandbox 保持不變（standalone 為輕量第二意見，維持較嚴格的 sandbox security posture）。
-{
+PROMPT_CONTENT=$(
   printf '%s\n\n' "$HEADER"
   if [ -n "$INSTRUCTION" ]; then
     printf '特別關注：%s\n\n' "$INSTRUCTION"
   fi
   printf 'Base branch: %s\n\n' "$BASE"
   printf '```diff\n%s\n```\n' "$DIFF"
-} | agy --print --add-dir . --sandbox
+)
+
+PROMPT_BYTES=${#PROMPT_CONTENT}
+if [ "$PROMPT_BYTES" -gt 256000 ]; then
+  echo "[FAIL] review 輸入 ${PROMPT_BYTES}B 超過 256000B inline 上限，diff 過大不適合 agy inline 模式" >&2
+  exit 1
+fi
+
+agy -p "$PROMPT_CONTENT" --add-dir . --sandbox

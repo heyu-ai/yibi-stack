@@ -341,13 +341,15 @@ def handover_read(last: int, project: str | None, exclude_tags: str | None, as_j
 def handover_install_hooks() -> None:
     """註冊 PreCompact + SessionStart auto-handover hooks 到 ~/.claude/settings.json。"""
     from .._worktree_guard import assert_not_worktree
-    from .auto_handover_hooks import install_hooks
+    from .auto_handover_hooks import MyceliumBinaryNotFoundError, install_hooks
 
-    # 必須在 install_hooks() 之前：hook 指令由 auto_handover_hooks._hooks_dir()
-    # 以 __file__ 自我定位組成，會把這份 checkout 的路徑寫進 ~/.claude/settings.json。
+    # 保留 hook 設定修改的 worktree 守門，且必須在 PATH 解析與 settings 寫入前執行。
     assert_not_worktree("uv run python -m tasks.mycelium handover install-hooks")
 
-    precompact_new, session_new, msg = install_hooks()
+    try:
+        precompact_new, session_new, msg = install_hooks()
+    except MyceliumBinaryNotFoundError:
+        raise SystemExit(1) from None
     prefix = "✓" if (precompact_new or session_new) else "↻"
     click.echo(f"{prefix} {msg}")
 
@@ -409,6 +411,40 @@ def handover_search(
         click.echo("─" * 60)
         click.echo(f"[{r['timestamp']}] {r['session_type']} — {r['topic']}")
         click.echo(f"  {r['conversation_summary'][:120]}")
+
+
+# ─── hooks ───────────────────────────────────────────────────────────────
+
+
+@cli.group()
+def hooks() -> None:
+    """Claude Code auto-handover hook 執行入口。"""
+
+
+@hooks.command("pre-compact")
+def hooks_pre_compact() -> None:
+    """從 stdin 處理 PreCompact hook payload。"""
+    import sys
+
+    from .auto_handover_hooks import run_pre_compact_hook
+
+    exit_code, system_message = run_pre_compact_hook(sys.stdin.read())
+    if system_message is not None:
+        click.echo(json.dumps({"systemMessage": system_message}))
+    raise SystemExit(exit_code)
+
+
+@hooks.command("session-start")
+def hooks_session_start() -> None:
+    """從 stdin 處理 SessionStart hook payload。"""
+    import sys
+
+    from .auto_handover_hooks import run_session_start_hook
+
+    exit_code, system_message = run_session_start_hook(sys.stdin.read())
+    if system_message is not None:
+        click.echo(json.dumps({"systemMessage": system_message}))
+    raise SystemExit(exit_code)
 
 
 # ─── retro ───────────────────────────────────────────────────────────────
@@ -1210,12 +1246,14 @@ def debug() -> None:
 @click.option("--symptom", required=True, help="症狀一行摘要")
 @click.option("--root-cause", required=True, help="根因一行摘要")
 @click.option("--prevention-tags", default="", help="逗號分隔預防標籤（如 test,mypy,ci）")
+@click.option("--project", default=None, help="所屬 project（預設從 git 推斷）")
 def debug_save(
     keyword: str,
     report_path: str,
     symptom: str,
     root_cause: str,
     prevention_tags: str,
+    project: str | None,
 ) -> None:
     """將 debug report 摘要寫入 ~/.agents/debugs/debug-reports.jsonl。"""
     from pydantic import ValidationError
@@ -1230,6 +1268,7 @@ def debug_save(
             symptom_summary=symptom,
             root_cause=root_cause,
             prevention_tags=tags,
+            project=project,
         )
     except (RuntimeError, ValidationError) as e:
         click.echo(f"✗ 無法儲存 debug report：{e}", err=True)

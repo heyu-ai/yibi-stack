@@ -16,6 +16,7 @@ claude plugin install pr-flow@yibi-stack
 
 | Component | Description |
 |-----------|-------------|
+| `investigate` skill | 系統化除錯：先根因調查（五階段 + Iron Law）再修，然後交棒給 PR 生命週期。改寫自 garrytan/gstack（MIT），剝除 gstack 產品 plumbing。Scope Lock 階段可選用編輯範圍護欄（`freeze` scope-guard 為獨立 follow-up） |
 | `pr-review-cycle` skill | 完整 PR 生命週期：PR 建立 → review → fix → CI → merge → archive |
 | `pr-cycle-fast` skill | PR 生命週期快速版：Python state machine，1 reviewer，支援 resume |
 | `pr-cycle-deep` skill | PR 生命週期深度版：mob review（Codex + Gemini）+ SDD amplifier-verifier |

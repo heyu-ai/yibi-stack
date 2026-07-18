@@ -5,13 +5,10 @@
 `from tasks.<mod>.cli import cli` 直接 import——**entry point 路徑打錯、module 改名、
 packages 設定寫錯，這些測試全數照綠**，缺陷會先在使用者的安裝現場爆，而非 CI。
 
-本檔補上那道缺口的**快速半**：不需要 build wheel，直接驗證 [project.scripts] 宣告的
-`module:attr` 真的 import 得到且是個 click command。
-
-**已知覆蓋缺口**：另一半——實際 build wheel、驗證打包範圍（不得夾帶 scripts/ 等）、裝進
-乾淨環境執行——**不在本 PR**。那套驗證在 PR #249 的 mob review 中連續三輪成為缺陷來源
-（block-list 印 allow-list 訊息、子字串比對可繞過、誘餌 dist-info 讓驗證選錯 metadata），
-故抽出獨立 PR 單獨審查，見 issue #262。在它落地之前，wheel 的打包範圍**只靠人工驗證**。
+本檔補上那道缺口的快速半：不需要 build wheel，直接驗證 [project.scripts] 宣告的
+`module:attr` 真的 import 得到且是個 click command。wheel 內容與乾淨安裝的端到端驗證
+由 .github/workflows/ci.yml 的 packaging smoke test 步驟負責（兩者互補：這裡快、每次
+pytest 都跑；那裡慢、但涵蓋依賴與 entry point metadata）。
 
 泛用寫法：迭代 [project.scripts] 的所有條目，故 Phase 2/3 加入 mycelium /
 pr-orchestrator 時自動涵蓋，不需改動本檔。
@@ -28,6 +25,11 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT_PATH = PROJECT_ROOT / "pyproject.toml"
+REQUIRED_CONSOLE_SCRIPTS = {
+    "mycelium": "tasks.mycelium.cli:cli",
+    "pr-orchestrator": "tasks.pr_orchestrator.cli:cli",
+    "portman": "tasks.local_port_manager.cli:cli",
+}
 
 
 def _console_scripts() -> dict[str, str]:
@@ -54,13 +56,16 @@ class TestConsoleScripts:
 
         assert scripts, f"{PYPROJECT_PATH} 的 [project.scripts] 是空的；Phase 1 至少應宣告 portman"
 
-    def test_pkg_st_002_portman_is_declared(self) -> None:
-        """PKG-ST-002: portman 已宣告（Phase 1 的白老鼠，SKILL.md 直接呼叫它）。"""
+    @pytest.mark.parametrize(("name", "expected_target"), sorted(REQUIRED_CONSOLE_SCRIPTS.items()))
+    def test_pkg_st_002_required_console_script_is_declared(
+        self, name: str, expected_target: str
+    ) -> None:
+        """PKG-ST-002: Phase A 的三個 console script 名稱與 target 必須精確相符。"""
         scripts = _console_scripts()
 
-        assert "portman" in scripts, (
-            "plugins/util/skills/local-port-manager/SKILL.md 直接呼叫裸 portman 指令；"
-            "移除此宣告會讓該 skill 在所有 plugin-only 安裝上失效"
+        assert scripts.get(name) == expected_target, (
+            f"{name} 的 entry point 必須是 {expected_target!r}，實得 {scripts.get(name)!r}；"
+            "名稱或 target 錯置會讓對應的 installed CLI 無法啟動"
         )
 
     @pytest.mark.parametrize("name", sorted(_console_scripts()))
