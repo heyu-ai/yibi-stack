@@ -68,6 +68,10 @@ def test_pror_st_042_flat_state_migration_is_repo_scoped_and_idempotent(
 
     assert not flat.is_file()
     assert json.loads(dest.read_text(encoding="utf-8"))["head_sha"] == "dest-b"
+    # 內容衝突時來源檔不得被刪除（可能含獨有狀態）：須保留為 .bak 備份供人工檢查。
+    backup = dest.with_name("42.flat-conflict.bak")
+    assert backup.is_file(), "衝突的來源 state 檔應保留為備份，不可靜默刪除"
+    assert json.loads(backup.read_text(encoding="utf-8"))["head_sha"] == "source-a"
 
 
 def test_pror_st_043_flat_state_without_repo_moves_to_unknown(

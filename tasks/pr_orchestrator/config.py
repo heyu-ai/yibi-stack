@@ -63,15 +63,21 @@ def migrate_flat_state_files() -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.is_file():
             try:
-                if src.read_bytes() != dest.read_bytes():
+                if src.read_bytes() == dest.read_bytes():
+                    # 內容與既有隔離檔相同，安全移除重複的舊來源檔
+                    src.unlink(missing_ok=True)
+                else:
+                    # 內容衝突時不得刪除來源（可能含獨有狀態）：改存為備份供人工檢查。
+                    # 備份用 .bak 結尾，不符 *.json glob，故不會被下次遷移重複處理。
+                    backup = dest.with_name(f"{int(src.stem)}.flat-conflict.bak")
+                    os.replace(src, backup)
                     print(
-                        f"[WARN] 舊版 State 檔與既有隔離檔衝突；保留目的檔並移除來源檔："
-                        f"{src} → {dest}",
+                        f"[WARN] 舊版 State 檔與既有隔離檔內容衝突；保留目的檔，"
+                        f"來源檔改存備份供人工檢查：{src} → {backup}",
                         file=sys.stderr,
                     )
-                src.unlink(missing_ok=True)
             except OSError as e:
-                raise RuntimeError(f"舊版 State 衝突檔清理失敗：{src} → {dest}") from e
+                raise RuntimeError(f"舊版 State 衝突檔處理失敗：{src} → {dest}") from e
             continue
         try:
             os.replace(src, dest)
