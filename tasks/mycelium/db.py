@@ -827,6 +827,8 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         with self.conn:  # 單一 transaction：DELETE(RETURNING) + tombstone 原子 commit
             cur = self.conn.execute("DELETE FROM lessons WHERE id = ? RETURNING *", (lesson_id,))
             row = cur.fetchone()
+            cur.close()  # 明確關閉 RETURNING cursor：避免未耗盡 statement 在部分 SQLite 版本
+            # 阻擋後續 commit（防禦性，跨版本穩健；本專案 3.47 實測不需要但無害）
             if row is None:
                 # 找不到，或併發已被刪除：不寫 tombstone、視為找不到
                 return None
