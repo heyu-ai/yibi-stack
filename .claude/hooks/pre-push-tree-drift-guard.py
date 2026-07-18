@@ -26,17 +26,18 @@ Exit code:
 import json
 import os
 import re
+import shlex
 import subprocess  # nosec B404
 import sys
 
-# 只匹配作為指令執行的 git push（允許 git -C <path> push 與前置 env var 賦值），
-# 不匹配出現在 commit message 或 echo 字串內的 literal text。
-_PATH_TOKEN = r'(?:"[^"]*"|\'[^\']*\'|[^\s;&|]+)'  # nosec B105 - regex alternation, not a password
-_GIT_PUSH_CMD = re.compile(
-    rf"(?:^|[;&|]|\n)\s*(?:\w+=\S+\s+)*git\s+(?:-C\s+{_PATH_TOKEN}\s+)*push\b",
+# 先寬鬆找出「指令位置」的 git，再對 push 前的每個 token 做白名單分類。
+# 如此未知選項不會讓 regex no-match 後靜默放行。
+_GIT_COMMAND = re.compile(
+    r"(?:^|[;&|(]|\n)\s*"
+    r"(?:(?:env\s+)?(?:[A-Za-z_]\w*=\S+\s+)*|sudo\s+)"
+    r"git\b(?P<args>[^;&|\n]*)",
     re.MULTILINE,
 )
-_GIT_C_ARG = re.compile(rf"-C\s+({_PATH_TOKEN})")
 _UNRESOLVABLE_PATH = re.compile(r"['\"$`~()]")
 _NOT_A_GIT_REPO = "not a git repository"
 _GIT_ENV_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
@@ -46,22 +47,91 @@ class GitCheckError(RuntimeError):
     """Git tree state could not be verified safely."""
 
 
-def _resolve_git_cwd(match: re.Match[str]) -> str | None:
+_GLOBAL_FLAGS = {
+    "--bare",
+    "--literal-pathspecs",
+    "--glob-pathspecs",
+    "--noglob-pathspecs",
+    "--icase-pathspecs",
+    "--no-optional-locks",
+    "--no-pager",
+    "--no-replace-objects",
+    "--paginate",
+    "--version",
+    "--help",
+    "-p",
+}
+_GLOBAL_OPTIONS_WITH_VALUE = {
+    "-C",
+    "-c",
+    "--config-env",
+    "--exec-path",
+    "--git-dir",
+    "--namespace",
+    "--super-prefix",
+    "--work-tree",
+}
+
+
+def _push_c_paths(match: re.Match[str]) -> list[str] | None:
+    """Return every -C value for a push, or None when this Git command is not a push."""
+    try:
+        tokens = shlex.split(match.group("args"), posix=True)
+    except ValueError as e:
+        raise GitCheckError(f"Git push 指令無法靜態解析：{e}") from e
+
+    push_indexes = [index for index, token in enumerate(tokens) if token.rstrip(")") == "push"]
+    if not push_indexes:
+        return None
+
+    paths: list[str] = []
+    index = 0
+    while index <= push_indexes[0]:
+        token = tokens[index]
+        if token.rstrip(")") == "push":
+            return paths
+        if token in _GLOBAL_FLAGS:
+            index += 1
+            continue
+        option, separator, inline_value = token.partition("=")
+        if option in _GLOBAL_OPTIONS_WITH_VALUE:
+            if separator:
+                value = inline_value
+            else:
+                index += 1
+                if index >= len(tokens):
+                    raise GitCheckError(f"Git 全域選項缺少參數：{option}")
+                value = tokens[index]
+            if option == "-C":
+                paths.append(value)
+            elif option in {"--git-dir", "--work-tree"}:
+                raise GitCheckError(f"無法安全重現會改變目標工作樹的 Git 選項：{option}")
+            index += 1
+            continue
+        # push 前出現非白名單 token，無法證明它不會影響目標樹。
+        raise GitCheckError(f"無法辨識 git push 前的選項：{token}")
+    return None
+
+
+def _resolve_git_cwd(paths: list[str], base_cwd: str) -> str:
     """Resolve repeated literal -C paths using Git's cumulative semantics.
 
     Each relative -C is relative to the preceding location; an absolute path resets
     the base. Shell-expanded or quoted paths are deliberately rejected because the
     hook cannot reproduce shell evaluation safely and guessing would fail open.
     """
-    paths = _GIT_C_ARG.findall(match.group(0))
     if not paths:
-        return None
+        return os.path.realpath(base_cwd)
     if any(_UNRESOLVABLE_PATH.search(path) for path in paths):
-        raise GitCheckError("無法靜態解析 git -C 路徑，無法確認目標工作樹。")
+        raise GitCheckError(
+            "無法靜態解析 git -C 路徑，無法確認目標工作樹；"
+            "路徑含 ()、~、$、引號或反引號時，請改用可靜態解析的絕對路徑。"
+        )
 
-    cwd = os.getcwd()
+    cwd = os.path.realpath(base_cwd)
     for path in paths:
-        cwd = os.path.normpath(os.path.join(cwd, path))
+        # Git 會依序 chdir；每段都 realpath 才能保留 symlink 後續 '..' 的語意。
+        cwd = os.path.realpath(os.path.join(cwd, path))
     return cwd
 
 
@@ -103,23 +173,31 @@ def main() -> None:
         if data.get("tool_name") != "Bash":
             sys.exit(0)
         command = data.get("tool_input", {}).get("command", "")
+        payload_cwd = data.get("cwd")
     except Exception:
         sys.exit(0)
 
     if not isinstance(command, str):
         sys.exit(0)
 
-    match = _GIT_PUSH_CMD.search(command)
-    if match is None:
-        sys.exit(0)
-
     try:
-        cwd = _resolve_git_cwd(match)
-        dirty = _dirty_tracked_files(cwd)
+        base_cwd = payload_cwd if isinstance(payload_cwd, str) else os.getcwd()
+        found_push = False
+        for match in _GIT_COMMAND.finditer(command):
+            paths = _push_c_paths(match)
+            if paths is None:
+                continue
+            found_push = True
+            cwd = _resolve_git_cwd(paths, base_cwd)
+            dirty = _dirty_tracked_files(cwd)
+            if dirty:
+                break
+        else:
+            dirty = []
     except GitCheckError as e:
         print(f"[BLOCKED] {e}\n請改用可靜態解析的 git -C 路徑後再 push。")
         sys.exit(2)
-    if not dirty:
+    if not found_push or not dirty:
         sys.exit(0)
 
     listed = "\n".join(f"    {f}" for f in dirty)

@@ -47,9 +47,16 @@ def run_hook(
     command: object,
     tool_name: str = "Bash",
     env: dict[str, str] | None = None,
+    payload_cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """以給定 cwd 與指令執行 hook，回傳完整結果。"""
-    payload = json.dumps({"tool_name": tool_name, "tool_input": {"command": command}})
+    payload = json.dumps(
+        {
+            "tool_name": tool_name,
+            "tool_input": {"command": command},
+            **({"cwd": str(payload_cwd)} if payload_cwd is not None else {}),
+        }
+    )
     return subprocess.run(
         ["python3", str(HOOK)],
         input=payload,
@@ -182,6 +189,76 @@ class TestCommandMatching:
         )
 
         assert run_hook(tmp_path, f"git -C {repo} push", env=env).returncode == 2
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git -c http.x=y push",
+            "git -c k=v -C {repo} push",
+            "git -C {repo} -c k=v push",
+            "git --no-pager push",
+            "git -p push",
+            "env X=y git push",
+            "X=y git push",
+            "sudo git push",
+            "(git push)",
+        ],
+    )
+    def test_pptd_dt_014_global_options_and_wrappers_block_dirty_push(
+        self, repo: Path, command: str
+    ) -> None:
+        (repo / "tracked.py").write_text("x = 14\n")
+
+        assert run_hook(repo, command.format(repo=repo)).returncode == 2
+
+    def test_pptd_dt_015_unrecognized_git_option_fails_closed(self, repo: Path) -> None:
+        result = run_hook(repo, "git --mystery-option push")
+
+        assert result.returncode == 2
+        assert "無法辨識" in result.stdout
+
+    def test_pptd_dt_015b_repository_selector_fails_closed(self, repo: Path) -> None:
+        result = run_hook(repo, "git --git-dir=/r/.git push")
+
+        assert result.returncode == 2
+        assert "--git-dir" in result.stdout
+
+    def test_pptd_dt_016_compound_clean_then_dirty_blocks(
+        self, repo: Path, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        clean = tmp_path_factory.mktemp("compound-clean")
+        _git(clean, "init", "-q")
+        (repo / "tracked.py").write_text("x = 16\n")
+
+        command = f"git -C {clean} push; git -C {repo} push"
+        assert run_hook(clean, command).returncode == 2
+
+    def test_pptd_dt_017_payload_cwd_is_authoritative(
+        self, repo: Path, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        launch_cwd = tmp_path_factory.mktemp("hook-launch-cwd")
+        (repo / "tracked.py").write_text("x = 17\n")
+
+        assert run_hook(launch_cwd, "git push", payload_cwd=repo).returncode == 2
+
+    def test_pptd_dt_018_symlink_then_parent_uses_stepwise_chdir(self, tmp_path: Path) -> None:
+        real_parent = tmp_path / "real-parent"
+        dirty_repo = real_parent / "dirty"
+        dirty_repo.mkdir(parents=True)
+        _git(dirty_repo, "init", "-q")
+        _git(dirty_repo, "config", "user.email", "test@example.com")
+        _git(dirty_repo, "config", "user.name", "test")
+        (dirty_repo / "tracked.py").write_text("x = 1\n")
+        _git(dirty_repo, "add", "tracked.py")
+        _git(dirty_repo, "commit", "-q", "-m", "init")
+        (dirty_repo / "tracked.py").write_text("x = 18\n")
+        symlink = tmp_path / "link-to-dirty"
+        symlink.symlink_to(dirty_repo, target_is_directory=True)
+
+        result = run_hook(tmp_path, f"git -C {symlink} -C .. -C dirty push")
+
+        assert result.returncode == 2
+        assert "tracked.py" in result.stdout
 
 
 # ── 邊界 ───────────────────────────────────────────────────────────────
