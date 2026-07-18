@@ -1056,6 +1056,33 @@ boundary of any claim you generalize, and run any command you tell the reader to
 makes a universal claim or ships a runnable snippet, the author — not a downstream reviewer — owns
 proving it.
 
+## A `verified` Annotation Is a Claim About a Version, Not a Permanent Fact (PR #229 lesson)
+
+The section above closes the authoring-time gap: probe the claim before you write it. It does not
+close the **time** gap. A probe that genuinely passed when written can silently become false when
+the tool it probes is upgraded — and the `verified` annotation, which was earned honestly, is then
+the very thing that stops the next reader from re-checking.
+
+Two rules follow:
+
+1. **Stamp the tool version next to any `verified` claim.** `verified` alone is unfalsifiable —
+   a reader cannot tell whether it still holds. `verified on agy 1.1.2` tells them exactly when to
+   re-run it.
+2. **Re-run an inherited probe before relying on it after a CLI upgrade**, rather than trusting the
+   annotation. This is cheap (one command) and is the only thing that catches rot.
+
+**Real incident (PR #229)**: rule 13 documented, as `verified`, that agy's `--print` is boolean and
+that `printf 'reply ALPHA' | agy --print --add-dir . --sandbox` returns `ALPHA` (PR #156/#157). On
+agy 1.1.2 that command makes agy explain what `--add-dir` does: `--print` takes the prompt as its
+**value**, so it swallows the next flag and never reads stdin. The claim was almost certainly true
+when written. Worse, `plugins/3rd-tools/skills/agy/scripts/run.sh` had been built on that
+documented form and was **silently broken in production** — piping a review prompt, receiving an
+unrelated answer, exiting 0. The rot was found only because an unrelated task re-ran the probe.
+
+Corollary — **doc rot and code rot travel together**. When you falsify a documented probe, grep for
+callers built on it (`rg 'agy --print'`) before assuming the damage is limited to prose. Here the
+same stale claim had produced a live silent-failure bug in a shipped skill.
+
 ## Tool Exit Codes Must Be Listed in SKILL.md Branch Design (PR #115 lesson)
 
 Any SKILL.md step that calls a shell tool with multiple non-trivial exit codes must
