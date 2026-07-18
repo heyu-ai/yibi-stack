@@ -61,7 +61,9 @@ def run(
         state = add_blocker(state, f"無法執行 git status 檢查：{e}", "確認 git 可用且路徑正確")
         state = transition(state, PRState.BLOCKED, "git status failed")
         persist_state(state)
-        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "git status failed")
+        olog.append(
+            state.repo, state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "git status failed"
+        )
         return state
 
     if not tree_clean:
@@ -70,7 +72,7 @@ def run(
         )
         state = transition(state, PRState.BLOCKED, "WIP detected before auto-fix")
         persist_state(state)
-        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "WIP detected")
+        olog.append(state.repo, state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "WIP detected")
         return state
 
     # Safety gate 2 — fork PR check (fail-closed: API failure → BLOCKED)
@@ -86,7 +88,9 @@ def run(
                 )
                 state = transition(state, PRState.BLOCKED, "fork PR, auto-fix refused")
                 persist_state(state)
-                olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "fork PR")
+                olog.append(
+                    state.repo, state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "fork PR"
+                )
                 return state
         except RuntimeError as e:
             # Cannot verify fork status → fail closed to protect against unintended fork pushes
@@ -97,7 +101,9 @@ def run(
             )
             state = transition(state, PRState.BLOCKED, "fork check failed")
             persist_state(state)
-            olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "fork check failed")
+            olog.append(
+                state.repo, state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "fork check failed"
+            )
             return state
 
     # Fetch PR diff files (scope limiter — only fix files in this PR)
@@ -109,7 +115,9 @@ def run(
         )
         state = transition(state, PRState.BLOCKED, "pr diff fetch failed")
         persist_state(state)
-        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "pr diff fetch failed")
+        olog.append(
+            state.repo, state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "pr diff fetch failed"
+        )
         return state
 
     # Fetch CI failure logs
@@ -119,13 +127,15 @@ def run(
         state = add_blocker(state, f"無法取得 CI log：{e}", "手動查看 GitHub Actions")
         state = transition(state, PRState.BLOCKED, "ci log fetch failed")
         persist_state(state)
-        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "ci log fetch failed")
+        olog.append(
+            state.repo, state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "ci log fetch failed"
+        )
         return state
 
     if not failures:
         state = transition(state, PRState.CI_WAIT, "no CI failures found, re-poll")
         persist_state(state)
-        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.CI_WAIT, "no failures")
+        olog.append(state.repo, state.pr_number, PRState.AUTO_FIX, PRState.CI_WAIT, "no failures")
         return state
 
     combined_log = "\n".join(f.log_text for f in failures)
@@ -141,7 +151,9 @@ def run(
         )
         state = transition(state, PRState.BLOCKED, "max fix iterations exceeded")
         persist_state(state)
-        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "max iterations")
+        olog.append(
+            state.repo, state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "max iterations"
+        )
         return state
 
     if not applicable_fixers:
@@ -150,7 +162,7 @@ def run(
         )
         state = transition(state, PRState.BLOCKED, "no applicable fixer")
         persist_state(state)
-        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "no fixer")
+        olog.append(state.repo, state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "no fixer")
         return state
 
     # Run each applicable fixer; wrap each call to prevent a single crash from
@@ -201,10 +213,14 @@ def run(
         )
         state = transition(state, PRState.BLOCKED, "all fixers failed or no-change")
         persist_state(state)
-        olog.append(state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "all fixers failed")
+        olog.append(
+            state.repo, state.pr_number, PRState.AUTO_FIX, PRState.BLOCKED, "all fixers failed"
+        )
         return state
 
     state = transition(state, PRState.CI_WAIT, f"iteration {iteration} applied, re-poll CI")
     persist_state(state)
-    olog.append(state.pr_number, PRState.AUTO_FIX, PRState.CI_WAIT, f"iteration {iteration}")
+    olog.append(
+        state.repo, state.pr_number, PRState.AUTO_FIX, PRState.CI_WAIT, f"iteration {iteration}"
+    )
     return state

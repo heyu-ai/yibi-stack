@@ -20,10 +20,10 @@ description: PR 生命週期自動化 orchestrator（快速版）：偵測 open 
 
 ### Step 0 — Environment Check
 
-確認 SKILL_REPO 與工具可用：
+確認 installed CLI 可用：
 
 ```bash
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+if ! command -v pr-orchestrator >/dev/null 2>&1; then echo '[FAIL] 缺少 pr-orchestrator，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"' >&2; exit 1; fi
 ```
 
 擷取**目標 repo** 的 checkout 路徑（即目前 session 的 cwd，如 yibi-mvp）：
@@ -32,17 +32,15 @@ if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無
 REPO_ROOT="$PWD"
 ```
 
-> **為什麼需要 `REPO_ROOT`**：Step 1 用 `uv run --directory "$SKILL_REPO"` 才能 import
-> `tasks.pr_orchestrator`（module 只在 skill repo），但 `--directory` 會把子行程 cwd 換成
-> **skill repo**。orchestrator 內的 `git branch --show-current` 只認 cwd 底下的 checkout，
-> 也不吃 `GH_REPO`（那是 gh 的遠端 slug，不是本地路徑），若不傳 `--repo-root` 就會誤讀成
-> skill repo 的分支。務必用 `--repo-root "$REPO_ROOT"` 明確指向目標 repo。
+> **為什麼需要 `REPO_ROOT`**：installed `pr-orchestrator` 雖然從目標 repo 啟動，
+> 仍務必用 `--repo-root "$REPO_ROOT"` 明確指定 Git/GitHub 與 auto-fix 的作用範圍，
+> 不依賴 CLI process cwd 推斷目標 checkout。
 
-確認 `gh`、`git`、`uv` 可用：
+確認 `gh`、`git` 可用：
 
 ```bash
-gh --version
-uv --version
+if ! command -v gh >/dev/null 2>&1; then echo '[FAIL] 缺少必要工具 gh，請先安裝' >&2; exit 1; fi
+if ! command -v git >/dev/null 2>&1; then echo '[FAIL] 缺少必要工具 git，請先安裝' >&2; exit 1; fi
 ```
 
 若任一失敗：`[FAIL] 缺少必要工具，請先安裝` >&2，停止。
@@ -52,14 +50,14 @@ uv --version
 **auto-detect（無引數）**：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator detect --repo-root "$REPO_ROOT"
+pr-orchestrator detect --repo-root "$REPO_ROOT"
 ```
 
 `--repo-root "$REPO_ROOT"` 讓 branch/gh 偵測回到目標 repo（見 Step 0 說明）。
 明確指定 PR 時同樣帶上：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator detect --pr {{pr_number}} --repo-root "$REPO_ROOT"
+pr-orchestrator detect --pr {{pr_number}} --repo-root "$REPO_ROOT"
 ```
 
 若失敗（多 PR 同分支）：停止，告訴 user 加 `--pr <n>` 重跑。
@@ -67,7 +65,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator detect --pr {{p
 **resume**：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator resume
+pr-orchestrator resume --repo-root "$REPO_ROOT"
 ```
 
 輸出 PR 號碼與當前 state。若無 active state 檔案：停止並提示先執行 detect。
@@ -75,7 +73,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator resume
 **讀取 state**：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status
+pr-orchestrator status --repo-root "$REPO_ROOT"
 ```
 
 將輸出 JSON 的 `current_state` 存入變數，依此進入對應步驟。
@@ -106,13 +104,13 @@ transition 後讀取新 state，自動循環推進，直到 BLOCKED / FAILED / C
 先 transition 到 REVIEWING：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to REVIEWING --reason "spawning review subagents"
+pr-orchestrator transition --pr {{pr_number}} --to REVIEWING --reason "spawning review subagents" --repo-root "$REPO_ROOT"
 ```
 
 寫出 spawn-manifest（用 `write-manifest` 明確觸發）：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator write-manifest --pr {{pr_number}}
+pr-orchestrator write-manifest --pr {{pr_number}} --repo-root "$REPO_ROOT"
 ```
 
 讀取 manifest 路徑（來自 status JSON 的 `artifacts.spawn_manifest`），然後**在同一個 message 內**用 Task tool 一次 dispatch 三個並行 subagent：
@@ -136,8 +134,8 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator write-manifest 
 - 再 transition → `CI_WAIT`（Step 4）
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to REVIEW_DONE --reason "all reviewers done"
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to CI_WAIT --reason "entering CI wait"
+pr-orchestrator transition --pr {{pr_number}} --to REVIEW_DONE --reason "all reviewers done" --repo-root "$REPO_ROOT"
+pr-orchestrator transition --pr {{pr_number}} --to CI_WAIT --reason "entering CI wait" --repo-root "$REPO_ROOT"
 ```
 
 ### Step 4 — CI Monitor (CI_WAIT)
@@ -149,7 +147,7 @@ ci-monitor subagent 的結果決定下一步：
 - `CONFLICT` → transition `CI_WAIT → CONFLICT → BLOCKED`
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to {{next_state}} --reason "{{reason}}"
+pr-orchestrator transition --pr {{pr_number}} --to {{next_state}} --reason "{{reason}}" --repo-root "$REPO_ROOT"
 ```
 
 若 CI_PASS：再 transition → MERGEABLE，停下等待 user ship 確認（Step 6）。
@@ -157,7 +155,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr
 ### Step 5 — Auto-Fix Loop (AUTO_FIX)
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status --pr {{pr_number}}
+pr-orchestrator status --pr {{pr_number}} --repo-root "$REPO_ROOT"
 ```
 
 > **注意**：auto-fix loop 由 Python CLI 內部管理（`tasks.pr_orchestrator.auto_fix.run()`），skill 只需觸發並等待結果。若 state 回到 CI_WAIT → 回到 Step 4；若 BLOCKED → 顯示 blockers 給 user。
@@ -165,13 +163,12 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator status --pr {{p
 明確觸發方式（transition 到 AUTO_FIX 後執行）：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator auto-fix --pr {{pr_number}} --repo-root "$REPO_ROOT"
+pr-orchestrator auto-fix --pr {{pr_number}} --repo-root "$REPO_ROOT"
 ```
 
-> **務必帶 `--repo-root "$REPO_ROOT"`**：省略時 `auto-fix` 會 fallback 到 `os.getcwd()`
-> ＝ skill repo（因 `--directory` 換了子行程 cwd），auto-fix 的 `git add/commit/push`
-> 與 fork 安全檢查、diff 範圍都會作用在 skill repo 而非目標 repo——這是比 detect 更危險的
-> wrong-repo `git push`。與 Step 1 同源。
+> **務必帶 `--repo-root "$REPO_ROOT"`**：省略時 `auto-fix` 會 fallback 到 `os.getcwd()`。
+> 顯式 target 可確保 `git add/commit/push`、fork 安全檢查與 diff 範圍都作用在目標 repo，
+> 避免 wrong-repo `git push`。與 Step 1 同源。
 
 ### Step 6 — Ship Gate (MERGEABLE)
 
@@ -199,7 +196,7 @@ gh pr merge {{pr_number}} --squash --delete-branch
 若成功，transition MERGEABLE → MERGED：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to MERGED --reason "user confirmed merge"
+pr-orchestrator transition --pr {{pr_number}} --to MERGED --reason "user confirmed merge" --repo-root "$REPO_ROOT"
 ```
 
 ### Step 7 — Retro (MERGED → RETRO_DONE)
@@ -207,7 +204,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr
 在同一 session 內觸發 `/pr-retro`：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to RETRO_DONE --reason "pr-retro completed"
+pr-orchestrator transition --pr {{pr_number}} --to RETRO_DONE --reason "pr-retro completed" --repo-root "$REPO_ROOT"
 ```
 
 > 實際執行：在此 step 前，先完整跑完 `/pr-retro`（包含 Step 4b typed lessons add），完成後才 transition 到 RETRO_DONE。
@@ -225,7 +222,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr
 完成後 transition：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator transition --pr {{pr_number}} --to CLEANED --reason "clean-wt done"
+pr-orchestrator transition --pr {{pr_number}} --to CLEANED --reason "clean-wt done" --repo-root "$REPO_ROOT"
 ```
 
 State file 從 `.runtime/pr_orchestrator/` 搬到 `~/.claude/pr_orchestrator/<repo>/` 歸檔（Python CLI 自動處理）。
@@ -235,7 +232,7 @@ State file 從 `.runtime/pr_orchestrator/` 搬到 `~/.claude/pr_orchestrator/<re
 顯示完整 transition log：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.pr_orchestrator log-view --pr {{pr_number}}
+pr-orchestrator log-view --pr {{pr_number}} --repo-root "$REPO_ROOT"
 ```
 
 回報：PR 號碼、merge commit、retro handover ID、clean 結果。
@@ -266,7 +263,7 @@ FAILED（terminal）
 
 | 問題 | 修復方式 |
 |------|---------|
-| `[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install` | `~/.agents/bin/resolve-skill-repo` 不存在或不在 checkout 內；在 yibi-stack 目錄執行 `make install` |
+| `[FAIL] 缺少 pr-orchestrator` | 執行 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"` |
 | `分支沒有對應的 open PR` | 先 `gh pr create` 建立 PR |
 | `多個 PR 對應同分支` | 加 `--pr <n>` 明確指定 |
 | State 停在 BLOCKED | 看 blockers 訊息，解除後跑 `/pr-cycle-fast resume` |

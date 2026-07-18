@@ -5,13 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from .._paths import RUNTIME_DIR
+from .config import _safe_repo
 from .models import OrchestratorState
 
 _MANIFEST_BASE = RUNTIME_DIR / "pr_orchestrator"
 
 
-def manifest_path(pr_number: int) -> Path:
-    return _MANIFEST_BASE / str(pr_number) / "spawn-manifest.md"
+def manifest_path(repo: str, pr_number: int) -> Path:
+    return _MANIFEST_BASE / _safe_repo(repo) / str(pr_number) / "spawn-manifest.md"
 
 
 def write_review_manifest(state: OrchestratorState) -> Path:
@@ -66,12 +67,12 @@ prompt: |
 3. On code review + CI + conflict check all complete, run in order:
    ```bash
    uv run python -m tasks.pr_orchestrator transition --pr {pr} --to REVIEW_DONE \
-       --reason "review subagents completed"
+       --reason "review subagents completed" --repo-root "$REPO_ROOT"
    uv run python -m tasks.pr_orchestrator transition --pr {pr} --to CI_WAIT \
-       --reason "awaiting CI"
+       --reason "awaiting CI" --repo-root "$REPO_ROOT"
    ```
 """
-    p = manifest_path(pr)
+    p = manifest_path(state.repo, pr)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
     return p

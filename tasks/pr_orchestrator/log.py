@@ -7,15 +7,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .._paths import RUNTIME_DIR
+from .config import _safe_repo
 
 _LOG_BASE = RUNTIME_DIR / "logs" / "pr_orchestrator"
 
 
-def log_path(pr_number: int) -> Path:
-    return _LOG_BASE / f"{pr_number}.log"
+def log_path(repo: str, pr_number: int) -> Path:
+    return _LOG_BASE / _safe_repo(repo) / f"{pr_number}.log"
 
 
 def append(
+    repo: str,
     pr_number: int,
     from_state: str,
     to_state: str,
@@ -37,16 +39,17 @@ def append(
         "reason": reason,
     }
     try:
-        _LOG_BASE.mkdir(parents=True, exist_ok=True)
-        with log_path(pr_number).open("a", encoding="utf-8") as f:
+        p = log_path(repo, pr_number)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except (OSError, ValueError) as e:
         print(f"[WARN] transition log 寫入失敗（state 已儲存）：{e}", file=sys.stderr)
 
 
-def read(pr_number: int) -> list[dict]:  # type: ignore[type-arg]
+def read(repo: str, pr_number: int) -> list[dict]:  # type: ignore[type-arg]
     """讀取全部 transition log entries（失敗時回傳空清單）。"""
-    p = log_path(pr_number)
+    p = log_path(repo, pr_number)
     if not p.exists():
         return []
     entries = []

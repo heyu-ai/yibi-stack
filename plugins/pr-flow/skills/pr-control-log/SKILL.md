@@ -35,16 +35,19 @@ description: >
 
 先定位 bootstrap.sh。**不要用 `~/.agents/config.json` 的 `skill_repo` 來找它**：該 key 是多個
 repo 的 `make install` 共寫的單一值，會被最後一個安裝者覆寫而指向錯 repo，而只驗 `[ -d ]`
-的 gate 擋不住（錯 repo 也「存在」），結果 `bash "$SKILL_REPO/plugins/.../bootstrap.sh"` 直接
-死在 No such file——bootstrap 一行都跑不到（PR #215 已在 pr-retrospective 實測此失敗）。
+的 gate 擋不住（錯 repo 也「存在」），用該值拼出的 bootstrap 路徑會直接死在
+No such file——bootstrap 一行都跑不到（PR #215 已在 pr-retrospective 實測此失敗）。
 
-改用 `make install` 建立的 symlink 定位。**本 skill 需要一份真實的 yibi-stack checkout**
-（要跑 `tasks/mycelium`），而 `~/.claude/skills/pr-control-log` symlink 正好指向它；純 plugin
-安裝（`~/.claude/plugins/cache/...`）是非 git 的解壓目錄且不含 `tasks/`，無法支撐本 skill：
+依序從目前生效的 plugin cache、`make install` symlink、source checkout 定位，且每個候選都直接
+檢查 bootstrap.sh 可讀。tasks-backed 操作一律呼叫 PATH 中 installed `mycelium`，不從 checkout
+import `tasks/mycelium`：
 
 ```bash
-CL_ROOT="$HOME/.claude/skills/pr-control-log"
-if [ ! -r "$CL_ROOT/scripts/bootstrap.sh" ]; then echo "[FAIL] 讀不到 bootstrap.sh：$CL_ROOT/scripts/bootstrap.sh（請在 yibi-stack 執行 make install）" >&2; exit 1; fi
+PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('pr-flow@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
+CL_ROOT=""
+if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$PR_FLOW_CACHED/skills/pr-control-log"; elif [ -r "$HOME/.claude/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$HOME/.claude/skills/pr-control-log"; elif [ -r "plugins/pr-flow/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="plugins/pr-flow/skills/pr-control-log"; fi
+if ! test -n "$CL_ROOT"; then echo "[FAIL] 讀不到 pr-control-log bootstrap.sh；請執行 claude plugin install pr-flow@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
+if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"' >&2; exit 1; fi
 ```
 
 再執行 bootstrap：
@@ -53,8 +56,7 @@ if [ ! -r "$CL_ROOT/scripts/bootstrap.sh" ]; then echo "[FAIL] 讀不到 bootstr
 bash "$CL_ROOT/scripts/bootstrap.sh"
 ```
 
-解析 stdout 的 `ORIG_PROJECT` / `REAL_WORKDIR` / `BRANCH`。**`SKILL_REPO` 以此輸出為唯一來源**
-（bootstrap 從自身位置 self-locate，與 config 無關；後續步驟都用這個值）。
+解析 stdout 的 `ORIG_PROJECT` / `REAL_WORKDIR` / `BRANCH`。
 如果 script 輸出 `[FAIL]`，停止並回報錯誤。
 
 然後偵測 PR 號（`detect-pr.sh` 是 bootstrap.sh 的同目錄 sibling，一律用 `$CL_ROOT` 定址）：
@@ -123,7 +125,7 @@ user_requested: <0 = AI 自主 | 1 = 使用者明確要求>
 對每個確認的 entry，執行：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium control-log add \
+mycelium control-log add \
   --pr "$PR_NUMBER" \
   --category "<category>" \
   --summary "<summary>" \
@@ -131,7 +133,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.mycelium control-log add \
   [--evidence "<evidence>"] \
   [--severity <low|medium|high>] \
   [--verification-status <verified|partial|unverified>] \
-  [--project "$ORIG_PROJECT"]
+  --project "$ORIG_PROJECT"
 ```
 
 每個 entry 確認輸出 `已寫入 control log entry (id=N)`。
@@ -212,14 +214,16 @@ Artifact **不應** commit（`.runtime/` 在 `.gitignore`）。
 
 ### Step 5 — 顯示統計（選用，若 entries >= 3）
 
+> `stats` 與 `advice` 是 DB-wide aggregates（global），因此刻意不接受也不傳 `--project`。
+
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium control-log stats --since-days 90
+mycelium control-log stats --since-days 90
 ```
 
 顯示四個指標。若有建議：
 
 ```bash
-uv run --directory "$SKILL_REPO" python -m tasks.mycelium control-log advice --since-days 90
+mycelium control-log advice --since-days 90
 ```
 
 ---
@@ -228,8 +232,7 @@ uv run --directory "$SKILL_REPO" python -m tasks.mycelium control-log advice --s
 
 | 問題 | 解決方式 |
 |------|---------|
-| `[FAIL] 讀不到 bootstrap.sh：~/.claude/skills/pr-control-log/...` | 在 yibi-stack 根目錄執行 `make install`（建立 `~/.claude/skills/pr-control-log` symlink） |
-| bootstrap.sh `[FAIL] resolved SKILL_REPO 不含 tasks/mycelium` | symlink 指向的不是完整的 yibi-stack checkout（如純 plugin 安裝的解壓目錄）；重跑 `make install` 讓它指向 repo |
+| `[FAIL] 讀不到 pr-control-log bootstrap.sh` | 執行 `claude plugin install pr-flow@yibi-stack`，或在 yibi-stack checkout 執行 `make install` |
 | detect-pr.sh `[FAIL] no PR detected` | 傳入 `--pr <n>` 引數，或確認在有 PR 的分支上 |
-| `control-log add` 失敗 | 確認 `uv` 與 `tasks.mycelium` module 存在：`uv run --directory "$SKILL_REPO" python -m tasks.mycelium --help` |
+| `control-log add` 失敗 | 確認 installed CLI 可用：`mycelium --help` |
 | artifact 路徑不存在 | `.runtime/control-logs/` 不存在時 agent 應先 `mkdir -p` 建立 |
