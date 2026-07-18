@@ -44,7 +44,7 @@
     },
     {
       "name": "3rd-tools",
-      "description": "Third-party AI tool integrations: Codex, Gemini model verification, and AI slop detection for Claude Code agents.",
+      "description": "Third-party AI tool integrations: Codex code review / consult, agy, and Gemini model verification for Claude Code agents.",
       "author": {
         "name": "Howie Yu"
       },
@@ -68,6 +68,15 @@
       },
       "category": "productivity",
       "source": "./plugins/util"
+    },
+    {
+      "name": "writing",
+      "description": "Writing skills for Claude Code agents: AI slop detection, text analysis, and writing quality improvement.",
+      "author": {
+        "name": "Howie Yu"
+      },
+      "category": "productivity",
+      "source": "./plugins/writing"
     }
   ]
 }

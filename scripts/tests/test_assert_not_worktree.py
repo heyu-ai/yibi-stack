@@ -11,6 +11,7 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 """
 
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 from pathlib import Path
@@ -510,10 +511,13 @@ class TestAssertNotWorktree:
         （git worktree list 標記為 prunable），所以不能推論「它已只是一般目錄」。
         由 mob review 的 codex voice 指出。
 
-        誠實標註危害範圍：實測本 repo 目前沒有工具會刪除該目錄——
-        `git worktree prune` 只移除 admin entry，/clean-merged 與 /clean-gone 也沒有
-        刪 worktree 目錄的邏輯，故危害鏈未閉合。採用此修法不是因為危害已證實，
-        而是因為直接問 git 比用文字論證它安全更可靠。
+        危害範圍（2026-07-16 重新實測界定，分開量測不做文字論證）：
+        - 一般情況（健康的 worktree）：危害鏈**已閉合**。PR #239 的 /clean-wt --apply
+          （取代 /clean-merged + /clean-gone）會呼叫 `git worktree remove` 刪除目錄本身。
+        - 本測試對應的分支（worktree 的 .git 被刪）：仍是**理論風險**。實測
+          `git worktree remove` 對它拒絕（validation failed），/clean-wt 刪不掉它。
+          這裡擋下的是一個**狀態不明**的目錄，不是已證實會被刪的目錄。
+        結論不變：直接問 git 比用文字論證它安全更可靠。
 
         本測試經突變驗證：拿掉 worktree list 比對會讓它失敗。
         """
@@ -1023,9 +1027,39 @@ class TestMakefileWiring:
         """ANW-DT-005: 需要 SKILL= 的 target 必須把該引數帶進 guard 的建議指令。
 
         否則 [FAIL] 訊息會叫使用者跑 `make install-one`，照抄立刻失敗於缺少 SKILL。
+
+        issue #237 起腳本改收「完整指令」而非 target 名（它多了非 make 的呼叫者），
+        故這裡連 `make ` 前綴一起斷言——建議指令要能整行照抄。
         """
         recipe = self._recipe_lines(target)
         guard_line = next(line for line in recipe if "assert_not_worktree.sh" in line)
-        assert f'"{target} SKILL=$(SKILL)"' in guard_line, (
+        assert f'"make {target} SKILL=$(SKILL)"' in guard_line, (
             f"{target} 未把 SKILL= 帶進 guard 訊息：{guard_line}"
+        )
+
+    @pytest.mark.parametrize("target", GUARDED_TARGETS)
+    def test_anw_dt_016_guard_command_names_its_own_target(self, target: str) -> None:
+        """ANW-DT-016: 每個 target 傳給 guard 的第二個引數必須是**指名自己**的完整指令。
+
+        issue #237：腳本原本硬編 `make ${TARGET}` 前綴，只收 target 名。加入 Python
+        呼叫端後那個前綴會讓 `uv run python -m ...` 的呼叫者印出一條照抄必失敗的假
+        指令，故前綴移到呼叫端。這個測試釘住新契約。
+
+        斷言綁到 `target` 而非只查 `"make ` 子字串：後者對任何 target 都會過，於是把
+        guard 行複製到新 target 卻忘了改（正是複製貼上最容易犯的錯）仍全綠，並出貨一條
+        指向錯誤 target 的復原指令。DT-005 對三個 SKILL= target 已示範了強形式；這裡把
+        同樣的嚴謹度補到全部 7 個（由 mob review 的 codex 與 claude 兩個 voice 指出）。
+
+        比對必須帶 token boundary（target 後面是空白或結尾引號）。純 prefix 比對不夠：
+        `"make install` 是 `"make install-scheduler"` 的前綴，於是把 install 的 guard 行
+        誤接成 install-scheduler 仍會通過——而這正是本測試要抓的錯。實測確認
+        （`'"make install' in '..."make install-scheduler"'` -> True）。首版就是 prefix
+        比對，round-1 的突變只試了反方向（install-scheduler -> install）而沒抓到；
+        由 mob review round 2 的 codex voice 指出。
+        """
+        recipe = self._recipe_lines(target)
+        guard_line = next(line for line in recipe if "assert_not_worktree.sh" in line)
+        assert re.search(rf'"make {re.escape(target)}(?:"| )', guard_line), (
+            f"{target} 傳給 guard 的指令未指名自己的 target，[FAIL] 訊息會給出無法照抄或"
+            f"指向錯誤 target 的指令：{guard_line}"
         )

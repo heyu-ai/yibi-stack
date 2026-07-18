@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## [1.10.1] - 2026-07-17
+
+### Bug Fixes
+
+- pr-cycle-deep 的 agy review model 由 Gemini 3.1 Pro (High) 降為 (Low)（High 在本機一律故障） (#265)
+
+## [1.10.0] - 2026-07-16
+
+### Features
+
+- push 前擋下「已驗證的樹 != 要 push 的樹」 (#255)
+- 整併 clean-gone + clean-merged 成 /clean-wt（證據導向，預設只報告） (#239)
+
+### Bug Fixes
+
+- 用 paths: 取代 globs: 讓條件式 rules 真正延遲載入 (#250)
+- 讀取指令不再注入 --project，還原 CLI 宣稱的「預設全部 project」 (#248)
+- repair spectra-amplifier resource locator + plan plugin-primary delivery (#222) (#230)
+- Step 4b 補 --project，修 retro lesson 誤記 project scope (#244)
+- 把 worktree 守門下推到 Python 層，覆蓋全部 5 個 sink (#240)
+- block make install from a worktree, fail loud (#232) (#234)
+- amplifier TC parser sees 3 of 101 TCs and reports success (#223)
+- ignore inherited GIT_DIR/GIT_WORK_TREE when self-locating (#233)
+- self-locate skill repo via shared resolver, retire config.json lookup (#221 follow-up) (#224)
+
 ## [1.9.0] - 2026-07-14
 
 ### Features

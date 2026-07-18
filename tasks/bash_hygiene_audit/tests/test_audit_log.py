@@ -62,15 +62,20 @@ class TestLogPath:
     def test_bhaudit_fl_005b_worktree_path_uses_parent_of_git_common_dir(
         self, tmp_path: Path
     ) -> None:
-        """BHAUDIT-FL-005b: --git-common-dir 輸出的 parent 為 repo root（worktree 相容）。"""
+        """BHAUDIT-FL-005b: --git-common-dir 輸出的 parent 為 repo root（worktree 相容）。
+
+        傳入固定 today 讓檔名可預測（PR #262 改為每日輪替格式）。
+        """
+        from datetime import date
+
         fake_git_dir = tmp_path / ".git"
         fake_git_dir.mkdir()
         mock_run = MagicMock()
         mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = str(fake_git_dir) + "\n"
         with patch("subprocess.run", mock_run):
-            result = _audit_log._log_path()
-        assert result == tmp_path / ".runtime" / "logs" / "bash-hygiene-audit.jsonl"
+            result = _audit_log._log_path(today=date(2026, 1, 15))
+        assert result == tmp_path / ".runtime" / "logs" / "bash-hygiene-audit-2026-01-15.jsonl"
 
 
 class TestLogEvent:

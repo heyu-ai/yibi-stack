@@ -99,7 +99,7 @@ bash ~/.claude/commands/scripts/newjob-port-setup.sh
 
 若專案無 docker-compose.yml，跳過此步驟。
 
-**收尾提示**：Worktree 刪除時（`/clean-gone` 或 `/clean-merged`），port 登記會隨 branch 一併清理——前提是 `BRANCH_NAME` 與 git branch name 完全一致（即使用 `git rev-parse --abbrev-ref HEAD` 取得的值）。
+**收尾提示**：`/clean-wt --apply` 刪除分支時，會一併釋放該分支的 port 登記——前提是 `BRANCH_NAME` 與 git branch name 完全一致（即使用 `git rev-parse --abbrev-ref HEAD` 取得的值）。只跑報告模式（不加 `--apply`）不會動到登記。
 
 ## Step 3: Environment Validation
 

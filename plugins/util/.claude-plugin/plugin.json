@@ -1,12 +1,12 @@
 {
   "name": "util",
   "description": "Utility tools for Claude Code agents: local port manager and debug slash command.",
-  "version": "1.9.0",
+  "version": "1.10.1",
   "author": {
     "name": "Howie Yu",
     "email": "2318485+howie@users.noreply.github.com"
   },
-  "repository": "howie/yibi-stack",
+  "repository": "heyu-ai/yibi-stack",
   "license": "MIT",
   "keywords": [
     "local-port-manager",

@@ -10,9 +10,11 @@ from pathlib import Path
 
 from .models import AuditRecord, AuditStats, RepeatEvent, RepeatStats, Verdict
 
+_LOG_STEM = "bash-hygiene-audit"
 
-def _find_log_path(project_root: Path | None = None) -> Path | None:
-    """找到當前 git repo 的 audit log 路徑；找不到時回傳 None。"""
+
+def _find_log_dir(project_root: Path | None = None) -> Path | None:
+    """找到當前 git repo 的 audit log 目錄；找不到時回傳 None。"""
     if project_root is None:
         try:
             result = subprocess.run(  # nosec B603 B607
@@ -26,7 +28,32 @@ def _find_log_path(project_root: Path | None = None) -> Path | None:
             project_root = Path(result.stdout.strip()).parent
         except Exception:
             return None
-    return project_root / ".runtime" / "logs" / "bash-hygiene-audit.jsonl"
+    return project_root / ".runtime" / "logs"
+
+
+def _find_log_paths(project_root: Path | None = None) -> list[Path]:
+    """回傳所有要讀的 audit log，依日期排序（舊 -> 新）。
+
+    log 自 PR #262 起改為每日輪替（`bash-hygiene-audit-YYYY-MM-DD.jsonl`）。
+    **同時仍讀舊的單一檔** `bash-hygiene-audit.jsonl`：升級當下那個檔還在（實測 94 MB /
+    39 天的歷史），若不讀它，使用者的 stats 會在升級瞬間一片空白——那是靜默的資料消失，
+    比留著更糟。舊檔不會再被寫入，也不會被輪替刪掉（它的檔名解析不出日期），
+    使用者確認不需要後可自行刪除。
+    """
+    d = _find_log_dir(project_root)
+    if d is None or not d.is_dir():
+        return []
+    dated = sorted(d.glob(f"{_LOG_STEM}-*.jsonl"))
+    legacy = d / f"{_LOG_STEM}.jsonl"
+    paths = [legacy] if legacy.is_file() else []
+    paths.extend(p for p in dated if p.is_file())
+    return paths
+
+
+def _find_log_path(project_root: Path | None = None) -> Path | None:
+    """相容用：回傳最新的一個 log 檔。新程式碼請用 `_find_log_paths`。"""
+    paths = _find_log_paths(project_root)
+    return paths[-1] if paths else None
 
 
 def read_log(
@@ -35,20 +62,21 @@ def read_log(
     verdict: str | None = None,
     project_root: Path | None = None,
 ) -> list[AuditRecord]:
-    """讀取 audit log，依 last/hook/verdict 過濾，回傳最近 N 筆。"""
-    path = _find_log_path(project_root)
-    if path is None or not path.is_file():
-        return []
+    """讀取 audit log，依 last/hook/verdict 過濾，回傳最近 N 筆。
+
+    跨所有每日檔 + 舊的單一檔一起讀（見 `_find_log_paths`）。
+    """
     records: list[AuditRecord] = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                records.append(AuditRecord.model_validate(json.loads(line)))
-            except Exception:  # nosec B112
-                continue
+    for path in _find_log_paths(project_root):
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    records.append(AuditRecord.model_validate(json.loads(line)))
+                except Exception:  # nosec B112
+                    continue
     if hook:
         records = [r for r in records if r.hook == hook]
     if verdict:

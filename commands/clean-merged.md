@@ -1,1 +1,0 @@
-../plugins/pr-flow/commands/clean-merged.md

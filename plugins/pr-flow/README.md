@@ -16,6 +16,7 @@ claude plugin install pr-flow@yibi-stack
 
 | Component | Description |
 |-----------|-------------|
+| `investigate` skill | 系統化除錯：先根因調查（五階段 + Iron Law）再修，然後交棒給 PR 生命週期。改寫自 garrytan/gstack（MIT），剝除 gstack 產品 plumbing。Scope Lock 階段可選用編輯範圍護欄（`freeze` scope-guard 為獨立 follow-up） |
 | `pr-review-cycle` skill | 完整 PR 生命週期：PR 建立 → review → fix → CI → merge → archive |
 | `pr-cycle-fast` skill | PR 生命週期快速版：Python state machine，1 reviewer，支援 resume |
 | `pr-cycle-deep` skill | PR 生命週期深度版：mob review（Codex + Gemini）+ SDD amplifier-verifier |
@@ -30,6 +31,5 @@ claude plugin install pr-flow@yibi-stack
 | `/pr-cycle-deep` command | PR 生命週期深度版（mob review + SDD） |
 | `/mob-code-review-only` command | Mob review 別人的 PR（只給建議、不修改） |
 | `/pr-retro` command | 觸發 PR 事後檢討 |
-| `/clean-gone` command | 清除遠端已刪除的本地追蹤 branch |
-| `/clean-merged` command | 清除已合併的本地 branch |
+| `/clean-wt` command | 統一清理本地分支與 worktree（merged / gone / 無價值殘留）；預設只報告，`--apply` 才刪 |
 | `/debug-to-pr` command | 從 debug session 結果產生 PR |

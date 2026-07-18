@@ -1,5 +1,6 @@
 ---
-globs: tasks/**/tests/**
+paths:
+  - "tasks/**/tests/**"
 ---
 # Test Conventions
 

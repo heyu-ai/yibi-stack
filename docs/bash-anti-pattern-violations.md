@@ -12,8 +12,8 @@
 | commands/newjob.md | L45 | `### 2a. ⚠️ Push 安全驗證` — H3 heading markdown，非 bash 指令 |
 | commands/newjob.md | L135 | em dash 在 markdown prose 段落 |
 | commands/newjob.md | L231-237 | ` ```text ` block（Go/No-Go 輸出範本），非 bash 執行 |
-| commands/clean-gone.md | L92-95 | ✅ 在 markdown prose bullet list |
-| commands/clean-merged.md | L77-81 | ✅ ⚠️ 在 markdown prose bullet list |
+| commands/clean-gone.md | L92-95 | ✅ 在 markdown prose bullet list（檔案已於 PR #239 移除，整併為 /clean-wt） |
+| commands/clean-merged.md | L77-81 | ✅ ⚠️ 在 markdown prose bullet list（檔案已於 PR #239 移除，整併為 /clean-wt） |
 | .claude/rules/12-auto-handover.md | L15 | ⚠️ 在 ` ```text ` block，非 bash |
 | .claude/rules/13-bash-anti-patterns.md | 多處 | 本規範文件，em dash / emoji 是說明文字 |
 | .claude/rules/*.md | em dash 行 | Markdown 文件中的 em dash 是 prose，非 bash |
@@ -760,6 +760,7 @@ hook 層阻擋（至少涵蓋 `git push --force`、`rm -rf`、`alembic upgrade h
 
 **發現背景**：PR #99 修 Case 26（反向巢狀 subshell），但漏掉了更單純的母結構。
 `commands/clean-gone.md` 也有相同漏洞，由 `scripts/lint_skill_bash.py` 發現並修正。
+（該檔已於 PR #239 移除，整併為 `/clean-wt`；本節保留為當時的稽核紀錄。）
 
 **阻礙**：`$(dirname "$GIT_COMMON")` 是 Rule 4 修法文件化的 fix pattern（拆兩 call 後第二 call）；
 加入偵測 5 會攔截 `TestHandoverAntiBashPatterns` 中 4 個 `allow` 測試，需先更新

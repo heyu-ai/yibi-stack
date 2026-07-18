@@ -24,7 +24,7 @@ claude plugin install growth@yibi-stack          # mycelium + learn + handover/n
 claude plugin install pr-flow@yibi-stack         # PR 全流程 5 skills + 6 commands
 claude plugin install sdd@yibi-stack             # spectra-amplifier + figma-design-sync + qa-test-design + /sdd:setup
 claude plugin install bash-hygiene@yibi-stack    # bash-anti-patterns + protect-push
-claude plugin install 3rd-tools@yibi-stack       # codex + agy + verify-gemini-models
+claude plugin install 3rd-tools@yibi-stack       # codex-review + codex-consult + agy + verify-gemini-models
 claude plugin install tdd@yibi-stack             # tdd-kentbeck + flutter-tdd + ci-triage
 claude plugin install util@yibi-stack            # local-port-manager + debug command
 claude plugin install writing@yibi-stack         # detect-ai-slop
@@ -46,11 +46,13 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 | `protect-push` | tool | [plugins/bash-hygiene/](../plugins/bash-hygiene/README.md) | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
 | `bash-hygiene-audit` | exec | [tasks/bash_hygiene_audit/](../tasks/bash_hygiene_audit/) | bash-hygiene hook audit log 管理：啟用/停用記錄、查看近期 hook 攔截事件、統計違規比例與熱點 pattern | [bash-hygiene-audit/SKILL.md](bash-hygiene-audit/SKILL.md) |
 | `harness-eval` | exec | [plugins/harness/](../plugins/harness/README.md) | Claude Code harness 就緒度評量：11 維度（D1–D11）滿分 123，PASS/WARN/FAIL 清單，優先改善 TODO。涵蓋 CLAUDE.md / hooks / settings / skills / testing / git / rules / security / subagents / codebase-navigation / token-economy | [harness-eval/SKILL.md](harness-eval/SKILL.md) |
-| `pr-cycle-fast` | exec | [plugins/pr-flow/](../plugins/pr-flow/README.md) | PR 生命週期自動化 orchestrator（快速版）：偵測 open PR → 並行 code review + CI monitor + conflict detect → auto-fix markdownlint/CI（≤3 次）→ merge → /pr-retro 寫 mycelium → /clean-merged。State machine 可中斷 resume。小型 PR 首選；大型 PR 或 SDD 請改用 pr-cycle-deep | [pr-cycle-fast/SKILL.md](pr-cycle-fast/SKILL.md) |
+| `pr-cycle-fast` | exec | [plugins/pr-flow/](../plugins/pr-flow/README.md) | PR 生命週期自動化 orchestrator（快速版）：偵測 open PR → 並行 code review + CI monitor + conflict detect → auto-fix markdownlint/CI（≤3 次）→ merge → /pr-retro 寫 mycelium → /clean-wt。State machine 可中斷 resume。小型 PR 首選；大型 PR 或 SDD 請改用 pr-cycle-deep | [pr-cycle-fast/SKILL.md](pr-cycle-fast/SKILL.md) |
+| `investigate` | tool | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 系統化除錯：先根因調查（五階段 + Iron Law：沒找到根因不准修）再修，然後交棒給 PR 生命週期。改寫自 garrytan/gstack（MIT），剝除 gstack 產品 plumbing；Scope Lock 呼叫 `freeze` 鎖範圍 | [investigate/SKILL.md](investigate/SKILL.md) |
 | `pr-retrospective` | tool | [plugins/pr-flow/](../plugins/pr-flow/README.md) | PR 收尾五問回顧（agent 推論草稿、使用者校準），寫入 mycelium handover；依 Lesson Classifier 路由 lessons 到 `.claude/rules/` 或 CLAUDE.md，再觸發 hookify、writing-skills 等下游 skill | [pr-retrospective/SKILL.md](pr-retrospective/SKILL.md) |
 | `pr-control-log` | tool | [plugins/pr-flow/](../plugins/pr-flow/README.md) | PR 完成後的 AI 行為審計：從 git log / PR diff / PR body 推論 7 類 entries（autonomous_decision / assumption / spec_deviation 等），使用者 3 輪校準後寫入 mycelium DB，產生 .runtime/control-logs/pr-N.md artifact，並依閾值輸出 CLAUDE.md / hook 補充建議 | [pr-control-log/SKILL.md](pr-control-log/SKILL.md) |
 | `claude-md-prune` | tool | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 審查並精簡 CLAUDE.md：把累積的 gotcha 路由到對應的 `.claude/rules/` 子檔，刪除過期或重複內容，維持 CLAUDE.md 在 Anthropic 建議的 200 行軟上限內 | [claude-md-prune/SKILL.md](claude-md-prune/SKILL.md) |
-| `codex` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | OpenAI Codex CLI 第二意見：review（pass/fail gate）、challenge（對抗模式）、consult（詢問 codebase）；auth 確認用兩次 bash call，不觸發 if/elif 確認框 | [codex/SKILL.md](codex/SKILL.md) |
+| `codex-review` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | OpenAI Codex CLI 對當前 branch diff 做 code review（含 `[P1]` pass/fail gate）或 challenge 對抗模式找 bug；改用 `codex exec` + stdin packet，含 hijack 偵測 | [codex-review/SKILL.md](codex-review/SKILL.md) |
+| `codex-consult` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | OpenAI Codex CLI 第二意見：詢問 codebase 任何技術問題，由 Codex 閱讀程式碼後回答；不需要有待 review 的 diff | [codex-consult/SKILL.md](codex-consult/SKILL.md) |
 | `agy` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | Antigravity CLI（Gemini）第二意見：review（PASS/FAIL gate）、challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 Gemini reviewer | [agy/SKILL.md](agy/SKILL.md) |
 | `verify-gemini-models` | exec | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | 驗證 Gemini 模型在 Google AI Studio 與 Vertex AI 上的實際可用性（LLM / TTS / Live），支援 Gemini 3.x global 端點 | [verify-gemini-models/SKILL.md](verify-gemini-models/SKILL.md) |
 

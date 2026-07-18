@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # 斷言指定目錄不是 git worktree，是 worktree 就 [FAIL] 擋下安裝。
 #
-# 用法：assert_not_worktree.sh <dir> <make-target-name>
+# 用法：assert_not_worktree.sh <dir> <recovery-command>
+#
+# <recovery-command> 是「使用者該在主 repo 執行的完整指令」，會原樣出現在 [FAIL]
+# 訊息與 `cd <main> && <recovery-command>` 建議裡。呼叫端必須傳完整指令，含程式名：
+#   Makefile：      "make install"、"make install-one SKILL=$(SKILL)"
+#   Python CLI：    "uv run python -m tasks.mycelium insight install-hook"
+# 本腳本刻意**不**替字串補上 "make " 前綴——它現在有非 make 的呼叫者（tasks/ 底下的
+# CLI 經 tasks/_worktree_guard.py 呼叫），硬編前綴會讓那些呼叫者印出一條照抄必失敗的
+# 假指令，正是本腳本三度援引 rule 11 反對的「誤導的訊息比簡短的訊息更糟」。
+#
 # exit 0: 確定不在 worktree —— 主 repo，或確定不是 git repo（見下方 fail-open 說明）
 # exit 1: 在 worktree 內，**或無法安全判定狀態**
 #         （參數缺漏、目錄不存在、git 呼叫失敗、路徑正規化失敗、暫存檔建不出來）
@@ -17,7 +26,7 @@
 # 為何需要這個 gate：
 # make install 會把 $(CURDIR) 的路徑寫進 ~/.claude/skills/、~/.agents/skills/、
 # ~/.agents/bin/ 的 symlink。在 worktree 裡跑，寫進去的就是 worktree 路徑，
-# 而 worktree 在分支合併後會被 /clean-merged 刪除，屆時所有 symlink 變成 dangling，
+# 而 worktree 在分支合併後會被 /clean-wt 刪除，屆時所有 symlink 變成 dangling，
 # 全部 skill 失效。
 #
 # 為何 Makefile 既有的安裝後 gate 擋不住（見 Makefile install target 結尾）：
@@ -50,12 +59,12 @@
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
-  echo "[FAIL] 用法：assert_not_worktree.sh <dir> <make-target-name>" >&2
+  echo "[FAIL] 用法：assert_not_worktree.sh <dir> <recovery-command>" >&2
   exit 1
 fi
 
 DIR="$1"
-TARGET="$2"
+COMMAND="$2"
 
 if [ ! -d "$DIR" ]; then
   echo "[FAIL] 目錄不存在，無法判定是否為 worktree：${DIR}" >&2
@@ -258,17 +267,26 @@ if [ "$GIT_DIR_PATH" = "$GIT_COMMON_PATH" ]; then
   # 標記為 prunable），所以「它已經只是一般目錄」的推論並不成立（由 mob review 的
   # codex voice 指出）。
   #
-  # 註（實測界定，避免誇大）：本 repo 目前沒有任何工具會刪除該目錄——
-  # `git worktree prune` 只移除 admin entry 不動目錄，/clean-merged 與 /clean-gone
-  # 也沒有刪 worktree 目錄的邏輯。故危害鏈未閉合。但與其用文字論證它安全，
-  # 不如直接問 git：只要這個路徑仍登記為 linked worktree 就擋下。
+  # 註（2026-07-16 重新實測界定；這則 residual 已連續三輪被 review 抓到過度宣稱，
+  # 所以這次逐一分開量測，不用文字論證）：
+  #   - **一般情況（健康的 worktree）：危害鏈現在是閉合的。** 舊註記寫「本 repo 沒有任何
+  #     工具會刪除該目錄」在當時屬實（/clean-merged 與 /clean-gone 只用 `git worktree list`
+  #     定位主 repo，沒有刪目錄的邏輯），但 PR #239 的 /clean-wt --apply 會呼叫
+  #     `git worktree remove` **刪除目錄本身**（實測：成功，目錄消失）。所以在 worktree 裡
+  #     跑 make install 寫進去的 symlink，確實會被 /clean-wt 清掉。
+  #   - **但這個 if 分支本身（worktree 的 .git 被刪）仍是理論風險**：實測
+  #     `git worktree remove` 對它**拒絕**（`fatal: validation failed ... '.git' does not
+  #     exist`），/clean-wt 刪不掉這種目錄。換句話說，這裡擋下的是一個**狀態不明**的目錄，
+  #     不是一個已證實會被刪的目錄。
+  # 兩者都不影響結論：與其用文字論證它安全，不如直接問 git——只要這個路徑仍登記為 linked
+  # worktree 就擋下。
   # 這個查詢是「.git 被刪的巢狀 worktree」唯一剩下的防線，所以它**失敗時必須
   # fail-closed**。用 `if REGISTERED=$(...); then ... fi` 會在查詢失敗時整段跳過
   # 而落到 exit 0——正是本 PR 反覆修掉的同一個 fail-open 形狀，實測確認
   # （由 mob review 的 codex voice 指出）。
   if ! REGISTERED=$($_GIT -C "$DIR" worktree list --porcelain 2>"$GIT_ERR"); then
     echo "  [FAIL] 無法查詢 git worktree list，不足以判定 ${DIR} 是否為已登記的 worktree，" >&2
-    echo "         拒絕執行 make ${TARGET}：" >&2
+    echo "         拒絕執行 ${COMMAND}：" >&2
     cat "$GIT_ERR" >&2
     exit 1
   fi
@@ -292,10 +310,10 @@ if [ "$GIT_DIR_PATH" = "$GIT_COMMON_PATH" ]; then
     # （codex 與 agy）各自獨立指出。
     case "$DIR" in
       "$wt_abs" | "$wt_abs"/*)
-        echo "  [FAIL] ${DIR} 位於仍登記的 git worktree 內（其 .git 已遺失），不可執行 make ${TARGET}：" >&2
+        echo "  [FAIL] ${DIR} 位於仍登記的 git worktree 內（其 .git 已遺失），不可執行 ${COMMAND}：" >&2
         echo "         worktree 根：${wt_abs}" >&2
         echo "         git 會把它解析成主 repo，但 git worktree list 仍將它列為 worktree。" >&2
-        echo "         在此安裝會把全域 symlink 指向一個狀態不明的目錄。" >&2
+        echo "         在此安裝會把機器層級設定指向一個狀態不明的目錄。" >&2
         echo "         請先在主 repo 執行 git worktree prune 或移除此目錄後再安裝。" >&2
         exit 1
         ;;
@@ -335,10 +353,12 @@ _shell_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
-echo "  [FAIL] 偵測到目前在 git worktree 內，不可執行 make ${TARGET}：" >&2
+echo "  [FAIL] 偵測到目前在 git worktree 內，不可執行 ${COMMAND}：" >&2
 echo "         ${WORKTREE_PATH}" >&2
-echo "         worktree 會在分支合併後被刪除，屆時 ~/.claude/skills/、~/.agents/" >&2
-echo "         的 symlink 會指向不存在的路徑，所有 skill 失效。" >&2
+echo "         worktree 會在分支合併後被刪除。把這份 checkout 的路徑寫進機器層級" >&2
+echo "         設定後，那些設定會指向不存在的路徑並靜默失效：~/.claude/skills/ 與" >&2
+echo "         ~/.agents/ 的 symlink（所有 skill 失效）、LaunchAgent plist（scheduler" >&2
+echo "         每 60 秒失敗）、~/.claude/settings.json 的 hook 指令（每次觸發失敗）。" >&2
 
 # 只有在能從 git 權威 metadata 問出主 repo 時才給 cd 建議。
 # 問不出來就明說問不出來，不用 dirname("$GIT_COMMON_PATH") 猜——那在
@@ -348,14 +368,14 @@ echo "         的 symlink 會指向不存在的路徑，所有 skill 失效。"
 if [ -n "$MAIN_REPO" ]; then
   echo "         請改到主 repo 目錄執行：" >&2
   # install-one / install-force-one 需要 SKILL=<name>，只印 target 名會給出一條
-  # 照抄就失敗的指令。呼叫端把完整 make 引數（含 SKILL=）當作 $TARGET 傳進來時，
-  # 這裡原樣輸出即可。
+  # 照抄就失敗的指令。呼叫端把**完整指令**（含 "make " 或 "uv run python -m ..."、
+  # 含 SKILL=）當作 $COMMAND 傳進來，這裡原樣輸出即可。
   # cd -- 分隔選項與運算元：主 repo 若 clone 在以 "-" 開頭的目錄（如 -repo），
   # 照抄這行會失敗。腳本內部的兩個 cd 已有此防禦，這條「給人照抄的指令」漏了
   # （由 mob review 的 agy voice 指出）。
-  echo "           cd -- $(_shell_quote "$MAIN_REPO") && make ${TARGET}" >&2
+  echo "           cd -- $(_shell_quote "$MAIN_REPO") && ${COMMAND}" >&2
 else
   echo "         （無法從 git 問出主 repo 路徑，請自行切到主 repo 目錄後執行" >&2
-  echo "           make ${TARGET}）" >&2
+  echo "           ${COMMAND}）" >&2
 fi
 exit 1

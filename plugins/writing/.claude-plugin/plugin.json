@@ -1,7 +1,7 @@
 {
   "name": "writing",
   "description": "Writing skills for Claude Code agents: AI slop detection, text analysis, and writing quality improvement.",
-  "version": "1.9.0",
+  "version": "1.10.1",
   "author": {
     "name": "Howie Yu",
     "email": "2318485+howie@users.noreply.github.com"
