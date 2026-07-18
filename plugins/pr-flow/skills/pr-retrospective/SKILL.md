@@ -434,7 +434,7 @@ metadata / preference 類 lesson 本就適合 CLAUDE.md；若整體已過長，
 
 | Q5 勾選 | 動作 |
 |---|---|
-| 查歷史 lesson | `Skill(skill="lessons", args="find <Q1 keyword>")` **自動執行** |
+| 查歷史 lesson | `Skill(skill="lessons", args="find <Q1 keyword>")` **自動執行**。headless / 直接打 CLI 時用 `uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons search "<keyword>"` — CLI 子指令是 **`search`**（`find` 只是 `/lessons` slash 的別名，raw CLI **無** `find` 子指令），且**不要**加 `2>/dev/null`，否則子指令打錯會被靜默吞成「無結果」 |
 | 寫入規則文件 | 依 Lesson Classifier 輸出建議：「lesson N 屬於 <類別>，建議 append 到 `.claude/rules/XX.md`（最相關段落後；不確定就 append 到檔尾）。草稿：`<draft text>`。用 Edit 工具直接寫入 rule 檔。」|
 | 新增 hook | 輸出建議文字：「執行 `hookify:hookify`，建議的 trigger：`<draft>`」|
 | 建立 skill | 輸出建議文字：「執行 `superpowers:writing-skills`，問題定義：`<Q4 lesson>`」|
