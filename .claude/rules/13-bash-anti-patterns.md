@@ -310,6 +310,37 @@ cmd 2>&1 | grep -v "INFO"
 cmd 2>&1
 ```
 
+### A Pipe Masks the Upstream Command's Exit Code (silent false-green gate)
+
+The previous section bans output-filter pipes because Claude cannot see the full output. There is
+a **second, sharper** failure: `cmd | tail`/`head`/`grep` reports the **last stage's** exit code,
+not `cmd`'s. A failing `cmd` piped into a succeeding `tail` yields exit `0` — so any gate that reads
+that status (a background-task wrapper, an `&&` chain, `if cmd | tail; then`) concludes the command
+**passed** when it failed.
+
+```bash
+# Wrong: make ci fails (Error 1), but tail exits 0, so the pipeline exits 0.
+# A background/CI wrapper reading the exit code reports "passed" -- a false green.
+make ci 2>&1 | tail -40
+
+# Fix A (preferred): do not put a gate command upstream of a pipe. Truncation is a
+# separate concern -- write full output to a file, then Read it with the Read tool.
+make ci > /tmp/ci.log 2>&1      # exit code is make ci's; then Read /tmp/ci.log
+
+# Fix B: when you must pipe, make the pipe fail loud on any stage.
+set -o pipefail                 # pipeline exits non-zero if ANY stage fails
+make ci 2>&1 | tail -40
+# or inspect ${PIPESTATUS[0]} explicitly (the upstream command's real status)
+```
+
+This is the exit-code twin of the output-filter rule above, and a member of the same
+"green comes from asking the wrong question" family as the pre-commit-formatter false-green trap
+(a documented CLAUDE.md gotcha): the check runs, reports success, and the success is about the
+wrong thing. Before trusting a green from a piped command, ask **whose** exit code you just read.
+
+(Source: PR #299 retro -- `make ci 2>&1 | tail -40` reported exit 0 while `make ci` was Error 1;
+the failure was nearly shipped as a passing CI.)
+
 ### `realpath` — Not Available on macOS < Ventura
 
 `realpath` is absent on macOS Monterey and earlier. Scripts using it fail with `command not found`

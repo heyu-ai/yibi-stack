@@ -215,6 +215,9 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
             "ALTER TABLE lessons ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE lessons ADD COLUMN archived_path TEXT",
             "ALTER TABLE lessons ADD COLUMN retrospective_id TEXT",
+            "ALTER TABLE lessons ADD COLUMN retired_at TEXT",
+            "ALTER TABLE lessons ADD COLUMN retired_reason TEXT",
+            "ALTER TABLE lessons ADD COLUMN superseded_by TEXT",
         ):
             try:
                 self.conn.execute(_alter)
@@ -293,7 +296,10 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
               tier            TEXT NOT NULL DEFAULT 'working',
               last_accessed_at TEXT,
               access_count    INTEGER NOT NULL DEFAULT 0,
-              archived_path   TEXT
+              archived_path   TEXT,
+              retired_at      TEXT,
+              retired_reason  TEXT,
+              superseded_by   TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_lessons_proj_ts
@@ -302,6 +308,18 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
               ON lessons(project, type);
             CREATE INDEX IF NOT EXISTS idx_lessons_proj_key
               ON lessons(project, key, type);
+
+            CREATE TABLE IF NOT EXISTS lessons_deleted (
+              tombstone_id INTEGER PRIMARY KEY AUTOINCREMENT,
+              id           TEXT NOT NULL,
+              deleted_at   TEXT NOT NULL,
+              project      TEXT,
+              key          TEXT,
+              type         TEXT,
+              snapshot     TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_lessons_deleted_id
+              ON lessons_deleted(id);
             """
         )
         self.conn.commit()
@@ -646,16 +664,21 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         trusted_only: bool = False,
         cross_project: bool = False,
         limit: int = 20,
+        include_retired: bool = False,
     ) -> list[dict[str, Any]]:
         """查詢 typed lessons table，支援 type / source / confidence / trusted 過濾。
 
         cross_project=True 時忽略 project 限制，但只回傳 trusted=True 的記錄。
+        include_retired=False（預設）時排除已 retire 的教訓（retired_at IS NULL）。
         """
         if limit <= 0:
             raise ValueError("limit 必須為正整數")
 
         conditions: list[str] = []
         params: list[object] = []
+
+        if not include_retired:
+            conditions.append("retired_at IS NULL")
 
         if cross_project:
             conditions.append("trusted = 1")
@@ -695,17 +718,22 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         trusted_only: bool = False,
         cross_project: bool = False,
         limit: int = 20,
+        include_retired: bool = False,
     ) -> list[dict[str, Any]]:
         """在 typed lessons 的 key、insight、files 欄位做 case-insensitive 搜尋。
 
         lesson_type、source、min_confidence、trusted_only、cross_project 等 filter
         全部在 SQL WHERE 子句套用，不在 Python 層後處理。
+        include_retired=False（預設）時排除已 retire 的教訓（retired_at IS NULL）。
         """
         if limit <= 0:
             raise ValueError("limit 必須為正整數")
 
         conditions: list[str] = []
         params: list[object] = []
+
+        if not include_retired:
+            conditions.append("retired_at IS NULL")
 
         if query:
             safe_query = _escape_like(query.lower())
@@ -762,6 +790,87 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         cur = self.conn.execute("SELECT COUNT(*) AS c FROM handovers")
         row = cur.fetchone()
         return int(row["c"]) if row else 0
+
+    def count_lessons(self, include_retired: bool = True) -> int:
+        """回傳 lessons table 現有筆數。
+
+        include_retired=True（預設）計入 retired；False 只計 `retired_at IS NULL`，
+        與 `show` / `search` 預設可見集合一致（delete 後回報剩餘數用）。
+        """
+        if include_retired:
+            cur = self.conn.execute("SELECT COUNT(*) AS c FROM lessons")
+        else:
+            cur = self.conn.execute("SELECT COUNT(*) AS c FROM lessons WHERE retired_at IS NULL")
+        row = cur.fetchone()
+        return int(row["c"]) if row else 0
+
+    def get_lesson(self, lesson_id: str) -> dict[str, Any] | None:
+        """依 id 取回單筆 typed lesson（含 retired）；找不到時回傳 None。"""
+        cur = self.conn.execute("SELECT * FROM lessons WHERE id = ?", (lesson_id,))
+        row = cur.fetchone()
+        return _decode_lesson_row(row) if row else None
+
+    def delete_lesson(self, lesson_id: str, now: datetime) -> dict[str, Any] | None:
+        """刪除單筆 lesson，寫入 lessons_deleted tombstone 保留 audit trail。
+
+        回傳被刪除的 row（dict）；找不到 id 時回傳 None，不寫 tombstone、不刪除。
+
+        併發安全（mycelium DB 跨 agent／機器共用，併發是運作模型而非邊界情況）：
+        - 用 `DELETE ... RETURNING *` 在**同一 statement** 原子取得「實際被刪除的資料列」
+          內容來寫 tombstone。不先 SELECT 快照再 DELETE，故沒有兩者之間被併發 UPDATE
+          導致「墓碑內容 != 實際刪除的資料」的視窗（Codex re-review 指出的過期快照問題）。
+        - RETURNING 回傳 None（0 rows）代表找不到或已被其他 process 刪除：**不寫 tombstone**、
+          回傳 None（service 轉成 fail-loud），避免孤兒 tombstone。
+        - DELETE 與 tombstone INSERT 包在同一 `with self.conn` transaction，原子 commit／
+          rollback。RETURNING 需 SQLite >= 3.35（本專案實測 3.47）。
+        """
+        with self.conn:  # 單一 transaction：DELETE(RETURNING) + tombstone 原子 commit
+            cur = self.conn.execute("DELETE FROM lessons WHERE id = ? RETURNING *", (lesson_id,))
+            row = cur.fetchone()
+            cur.close()  # 明確關閉 RETURNING cursor：避免未耗盡 statement 在部分 SQLite 版本
+            # 阻擋後續 commit（防禦性，跨版本穩健；本專案 3.47 實測不需要但無害）
+            if row is None:
+                # 找不到，或併發已被刪除：不寫 tombstone、視為找不到
+                return None
+            decoded = _decode_lesson_row(row)
+            self.conn.execute(
+                "INSERT INTO lessons_deleted (id, deleted_at, project, key, type, snapshot) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    decoded["id"],
+                    now.isoformat(),
+                    decoded.get("project"),
+                    decoded.get("key"),
+                    decoded.get("type"),
+                    json.dumps(decoded, ensure_ascii=False),
+                ),
+            )
+        return decoded
+
+    def retire_lesson(
+        self,
+        lesson_id: str,
+        reason: str,
+        superseded_by: str | None,
+        now: datetime,
+    ) -> dict[str, Any] | None:
+        """標記單筆 lesson 為 retired（保留內容，退出流通）。
+
+        寫入 retired_at / retired_reason / superseded_by 三欄，只更新**尚未 retire** 的
+        lesson（`WHERE ... AND retired_at IS NULL`）——避免重複 retire 覆寫原始退場記錄
+        （audit-data loss）。`rowcount != 1` 時回傳 None，代表「找不到」或「已 retire」；
+        呼叫端（service）用 get_lesson 先行區分兩者以給出精確錯誤訊息。
+        UPDATE 包在 `with self.conn` transaction 內原子 commit。
+        """
+        with self.conn:
+            updated_rows = self.conn.execute(
+                "UPDATE lessons SET retired_at = ?, retired_reason = ?, superseded_by = ? "
+                "WHERE id = ? AND retired_at IS NULL",
+                (now.isoformat(), reason, superseded_by, lesson_id),
+            ).rowcount
+        if updated_rows != 1:
+            return None
+        return self.get_lesson(lesson_id)
 
     def insert_event(self, event: HandoverEvent) -> None:
         """寫入一筆 handover_event。"""

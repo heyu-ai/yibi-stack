@@ -541,7 +541,7 @@ class TestLessonsAddCLI:
         runner = CliRunner()
         with patch(
             "tasks.mycelium.lessons_service.add_lesson",
-            side_effect=lambda data: add_lesson(data, db_path=db_path),
+            side_effect=lambda data, **_kw: add_lesson(data, db_path=db_path),
         ):
             result = runner.invoke(
                 cli,
@@ -579,7 +579,7 @@ class TestLessonsAddCLI:
         )
         captured: list[dict[str, object]] = []
 
-        def capture_add(data: dict[str, object]) -> dict[str, object]:
+        def capture_add(data: dict[str, object], **_kw: object) -> dict[str, object]:
             captured.append(data)
             return {"id": "fake-id", "trusted": False}
 
@@ -621,7 +621,7 @@ class TestLessonsAddCLI:
         )
         captured: list[dict[str, object]] = []
 
-        def capture_add(data: dict[str, object]) -> dict[str, object]:
+        def capture_add(data: dict[str, object], **_kw: object) -> dict[str, object]:
             captured.append(data)
             return {"id": "fake-id", "trusted": False}
 
