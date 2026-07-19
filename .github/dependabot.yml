@@ -11,11 +11,19 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
-      # minor / patch 合併成單一 PR，降低 PR 噪音；major 仍各自獨立以便逐一評估。
+      # minor / patch 的 version update 合併成單一 PR，降低 PR 噪音；major 仍各自獨立以便逐一評估。
       python-minor-patch:
+        applies-to: version-updates
         update-types:
           - "minor"
           - "patch"
+      # 安全更新（CVE 驅動）預設不受上面的 group 管轄，會每個受影響套件各開一個 PR。
+      # 明確設一個 security group 把它們合併成單一 PR，避免散開的連鎖 uv.lock conflict。
+      # （2026-07-19 一次收到 5 個散開的 root 安全更新 + 3 個子目錄 PR，逐一 rebase 很痛。）
+      python-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   # GitHub Actions（.github/workflows/ 內 pin 的第三方 action）。
   # 獨立於 Python 依賴，actions/checkout、astral-sh/setup-uv 等也有安全更新。
@@ -26,6 +34,12 @@ updates:
     open-pull-requests-limit: 5
     groups:
       github-actions-all:
+        applies-to: version-updates
         update-types:
           - "minor"
           - "patch"
+      # 同 python-security：actions 的安全更新也合併成單一 PR。
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
