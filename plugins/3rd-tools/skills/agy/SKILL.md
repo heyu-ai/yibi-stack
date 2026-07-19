@@ -2,7 +2,7 @@
 name: agy
 type: tool
 scope: global
-description: Antigravity CLI（Gemini）第二意見：review（PASS/FAIL gate）、challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 Gemini reviewer
+description: Antigravity CLI（Gemini）第二意見：review（PASS/FAIL gate）、challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 Gemini reviewer。觸發須明確指名 Gemini / agy / antigravity；未指名的一般「幫我 review」「這樣對嗎」不觸發。要 OpenAI Codex（而非 Gemini）的 diff review 或第二意見請改用 /codex-review、/codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
 ---
 
 # /agy — Gemini 第二意見

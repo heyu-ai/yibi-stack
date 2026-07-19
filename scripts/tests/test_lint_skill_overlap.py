@@ -130,6 +130,156 @@ class TestExtractKeywords:
         assert "用者" not in kw
         assert "使者" not in kw  # 死條目本來就不該出現，順便鎖住
 
+    def test_lintoverlap_eg_030_redirect_target_skill_name_stripped(self) -> None:
+        """LINTOVERLAP-EG-030: 「請改用 /codex-review」的兄弟 skill 名被剝除，不算觸發詞。
+
+        正向對照：同一份文字若把 redirect 標記拿掉，`codex-review` token 就會出現——
+        證明是剝除機制讓它消失，而非它本來就不會被 tokenize。
+        """
+        with_redirect = lint_skill_overlap.extract_keywords("做 diff review；請改用 /codex-review")
+        assert "codex-review" not in with_redirect
+        # 正向對照：無 redirect 標記時，同一個 ASCII token 會被抽出
+        without_marker = lint_skill_overlap.extract_keywords("做 diff review 用 codex-review")
+        assert "codex-review" in without_marker
+
+    def test_lintoverlap_eg_031_content_before_redirect_marker_preserved(self) -> None:
+        """LINTOVERLAP-EG-031: redirect 標記前的條件描述（本 skill 邊界）保留"""
+        kw = lint_skill_overlap.extract_keywords("小型 PR 或快速 lifecycle 請改用 /pr-cycle-fast")
+        assert "lifecycle" in kw  # 標記前的合法內容保留
+        assert "pr-cycle-fast" not in kw  # 標記後的兄弟 skill 名剝除
+
+    def test_lintoverlap_eg_032_multiple_redirect_clauses_each_stripped(self) -> None:
+        """LINTOVERLAP-EG-032: 多個 redirect 子句（；分隔）各自剝除，子句間的內容保留"""
+        kw = lint_skill_overlap.extract_keywords(
+            "請改用 /codex-consult；要 review 請改用 /agy；mob review 請改用 /mob-code-review-only"
+        )
+        assert "codex-consult" not in kw
+        assert "agy" not in kw
+        assert "mob-code-review-only" not in kw
+        assert "review" in kw  # 子句間的合法內容保留
+
+    def test_lintoverlap_eg_033_fallback_known_skill_ref_stripped(self) -> None:
+        """LINTOVERLAP-EG-033: fallback「退回 /X」的 X 是已知 skill 時，靠名稱判斷剝除。
+
+        「退回」是日常動詞、不再當 redirect marker；改由 skill_ref_re（已知 skill 名）剝除。
+        """
+        ref = lint_skill_overlap._build_skill_ref_re(frozenset({"pr-review-cycle"}))
+        kw = lint_skill_overlap.extract_keywords("偵測不到外部模型時提示退回 /pr-review-cycle", ref)
+        assert "pr-review-cycle" not in kw
+
+    def test_lintoverlap_eg_034_bare_markers_in_domain_prose_not_stripped(self) -> None:
+        """LINTOVERLAP-EG-034: 裸的「改用/退回/請用」等日常動詞（無 /skill 錨）不得剝除。
+
+        負向對照——這是 mob review 一致指出的真 bug：舊版無錨 regex 會把 domain 觸發詞
+        連同動詞一起吃到句末，讓真實 over-trigger 逃過偵測（warn-only 假陰性）。
+        """
+        kw1 = lint_skill_overlap.extract_keywords("從 pandas 改用 polars 讀取大型 CSV")
+        assert "polars" in kw1
+        assert "csv" in kw1
+        kw2 = lint_skill_overlap.extract_keywords("git 助手：退回上一個 commit 再 rebase")
+        assert "commit" in kw2
+        assert "rebase" in kw2
+        kw3 = lint_skill_overlap.extract_keywords("SQL 產生器：務必請用參數化查詢避免 injection")
+        assert "injection" in kw3
+
+    def test_lintoverlap_eg_035_multi_target_list_all_stripped(self) -> None:
+        """LINTOVERLAP-EG-035: 逗號/或 分隔的多目標清單，每個 /skill 都要剝除（含無 marker 的第二個）"""
+        kw = lint_skill_overlap.extract_keywords("請改用 /codex-review、/codex-consult 或 /agy")
+        assert "codex-review" not in kw
+        assert "codex-consult" not in kw
+        assert "agy" not in kw
+
+    def test_lintoverlap_eg_036_content_after_comma_preserved(self) -> None:
+        """LINTOVERLAP-EG-036: /skill 之後、逗號後的合法內容保留（不再貪婪吃到句末）"""
+        kw = lint_skill_overlap.extract_keywords("請改用 /pr-cycle-fast，並確認 markdownlint 通過")
+        assert "markdownlint" in kw
+        assert "pr-cycle-fast" not in kw
+
+    def test_lintoverlap_eg_037_slash_between_alnum_not_stripped(self) -> None:
+        """LINTOVERLAP-EG-037: 字母間的斜線（CI/CD）不是 skill 參照，lookbehind 排除，不得剝除"""
+        kw = lint_skill_overlap.extract_keywords("支援 CI/CD 流程自動化")
+        assert "ci" in kw
+        assert "cd" in kw
+
+    def test_lintoverlap_eg_038_comparison_known_skill_stripped(self) -> None:
+        """LINTOVERLAP-EG-038: 比較句（與 /X 共用）的 X 是已知 skill 時靠名稱剝除"""
+        ref = lint_skill_overlap._build_skill_ref_re(frozenset({"pr-cycle-deep"}))
+        kw = lint_skill_overlap.extract_keywords("與 /pr-cycle-deep 共用同一套引擎", ref)
+        assert "pr-cycle-deep" not in kw
+
+    def test_lintoverlap_eg_042_comparison_word_before_path_not_stripped(self) -> None:
+        """LINTOVERLAP-EG-042: 「與」後接的是路徑（非已知 skill）時不得剝除。
+
+        負向對照——mob R4 指出：把「與」當無條件起頭詞會誤剝 `與 /etc/passwd` 的路徑。
+        靠已知 skill 名判斷後，`etc` 不是 skill 名故安全保留。
+        """
+        ref = lint_skill_overlap._build_skill_ref_re(frozenset({"pr-cycle-deep"}))
+        kw = lint_skill_overlap.extract_keywords("與 /etc/passwd 比對設定", ref)
+        assert "etc" in kw
+
+    def test_lintoverlap_eg_043_backtick_wrapped_list_all_stripped(self) -> None:
+        """LINTOVERLAP-EG-043: 個別反引號包裹的多目標清單，每個已知 skill 都要剝除。
+
+        負向對照——mob R4 指出：舊 regex 只接開頭反引號、不接收尾反引號，導致
+        `` `/a`、`/b` `` 只剝第一項。靠已知 skill 名逐個匹配後不受反引號配對影響。
+        """
+        ref = lint_skill_overlap._build_skill_ref_re(frozenset({"pr-cycle-fast", "pr-cycle-deep"}))
+        kw = lint_skill_overlap.extract_keywords("請改用 `/pr-cycle-fast`、`/pr-cycle-deep`", ref)
+        assert "pr-cycle-fast" not in kw
+        assert "pr-cycle-deep" not in kw
+
+    def test_lintoverlap_eg_044_unknown_slash_token_after_verb_not_stripped(self) -> None:
+        """LINTOVERLAP-EG-044: 非已知 skill、且非「請改用」標記後的 /token 不得剝除"""
+        ref = lint_skill_overlap._build_skill_ref_re(frozenset({"pr-cycle-deep"}))
+        kw = lint_skill_overlap.extract_keywords("改用 /custom-endpoint 讀取資料", ref)
+        assert "custom-endpoint" in kw
+
+    def test_lintoverlap_eg_045_skill_name_prefix_boundary(self) -> None:
+        """LINTOVERLAP-EG-045: `/agy` 剝除不得誤匹配 `/agyx`（word boundary）"""
+        ref = lint_skill_overlap._build_skill_ref_re(frozenset({"agy"}))
+        kw = lint_skill_overlap.extract_keywords("參照 /agyx-service 端點", ref)
+        assert "agyx-service" in kw
+
+    def test_lintoverlap_eg_046_marker_backtick_wrapped_list_all_stripped(self) -> None:
+        """LINTOVERLAP-EG-046: 請改用 標記後、反引號包裹的非 scanned CLI 指令清單，每個都要剝除。
+
+        mob R5 NIT：收尾反引號原本會中斷 _REDIRECT_MARKER_RE 匹配，漏掉清單第二個目標。
+        這些是非 scanned 指令（無已知 skill 名），故只能靠 marker regex 涵蓋。
+        """
+        kw = lint_skill_overlap.extract_keywords("請改用 `/spectra-apply`、`/spectra-propose`")
+        assert "spectra-apply" not in kw
+        assert "spectra-propose" not in kw
+
+    def test_lintoverlap_eg_039_url_slash_not_stripped(self) -> None:
+        """LINTOVERLAP-EG-039: URL 裡的斜線詞（https://api…）不是 skill 參照，不得剝除。
+
+        負向對照——mob R2 指出：若把 redirect 前綴設為可選，正則會誤剝 URL scheme 後的
+        `/word`（`://api` 的 `/api`）。前綴枚舉集不含 `://` / 空白，故 URL 安全。
+        """
+        kw = lint_skill_overlap.extract_keywords("呼叫 https://api.stripe.com 取得 token")
+        assert "api" in kw
+        assert "stripe" in kw
+
+    def test_lintoverlap_eg_040_absolute_path_not_stripped(self) -> None:
+        """LINTOVERLAP-EG-040: 空白後的絕對路徑（/etc/nginx）不是 skill 參照，不得剝除"""
+        kw = lint_skill_overlap.extract_keywords("讀取 /etc/nginx.conf 設定")
+        assert "etc" in kw
+        assert "nginx" in kw
+
+    def test_lintoverlap_eg_041_separator_only_leads_no_strip(self) -> None:
+        """LINTOVERLAP-EG-041: 分隔詞（、／，／或）不能自己當起頭；標點後的孤立路徑不得剝除。
+
+        負向對照——mob R3 指出：把分隔詞當無條件前綴，會誤剝標點後的路徑。分隔詞只能
+        延續一個已由 redirect/比較起頭詞開啟的清單。
+        """
+        kw = lint_skill_overlap.extract_keywords("選項 A、/etc/passwd 是系統路徑")
+        assert "etc" in kw
+        # 但 marker 起頭的清單延續仍要剝除（回歸鎖定）
+        kw2 = lint_skill_overlap.extract_keywords("請改用 /alpha 或 /beta、/gamma")
+        assert "alpha" not in kw2
+        assert "beta" not in kw2
+        assert "gamma" not in kw2
+
     def test_lintoverlap_eg_024_punctuation_crossing_bigrams_impossible(self) -> None:
         """LINTOVERLAP-EG-024: CJK run 在全形標點處斷開，跨標點的 bigram 永遠不會產生
 

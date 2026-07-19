@@ -2,7 +2,7 @@
 name: pr-cycle-fast
 type: exec
 scope: global
-description: PR 生命週期自動化 orchestrator（快速版）：偵測 open PR、並行 code review + CI monitor + conflict detect、auto-fix markdownlint/CI、merge 後自動觸發 /pr-retro 寫 mycelium、最後 /clean-wt。支援中斷後 resume。小型 PR 或追求快速 lifecycle 首選；大型 PR 或 SDD 專案請改用 /pr-cycle-deep。
+description: PR 生命週期自動化 orchestrator（快速版）：偵測 open PR、並行 code review + CI monitor + conflict detect、auto-fix markdownlint/CI、merge 後自動觸發 /pr-retro 寫 mycelium、最後 /clean-wt。支援中斷後 resume。小型 PR 或追求快速 lifecycle 首選；大型 PR 或 SDD 專案請改用 /pr-cycle-deep；只需平行 code review、不要自動 merge / CI orchestration 請改用 /pr-review-cycle。
 ---
 
 # /pr-cycle-fast — PR Lifecycle Orchestrator (Fast)
