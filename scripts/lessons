@@ -23,11 +23,15 @@ if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無
 # 子命令為第一個位置引數（如 `lessons show --json`）
 SUBCMD="${1:-}"
 
-# 讀取指令：保留 CLI 自身的「預設全部 project」語意，不注入
-# -h/--help 一併豁免：注入後會變成 `lessons --help --project X`，click 的 parser 會先
-# 因未知 option 而 exit 2，eager 的 --help 根本來不及觸發，help 永遠印不出來（實測）。
+# 不注入 --project 的子命令（兩種豁免理由不同，勿混為一談）：
+#   show / search → 保留 CLI 自身的「預設全部 project」語意（注入會靜默窄化）。
+#   delete / retire → 以精確 --id 操作單一 lesson（issue #242），CLI 根本不定義
+#     --project option。注入會讓 click 因未知 option 以 exit 2 大聲失敗——不是「多帶
+#     scope」而是「直接壞掉」，故 fail-safe 注入預設對它們不成立，必須明確豁免。
+#   -h/--help → 注入後會變成 `lessons --help --project X`，click 的 parser 會先因未知
+#     option 而 exit 2，eager 的 --help 根本來不及觸發，help 永遠印不出來（實測）。
 case "$SUBCMD" in
-  show|search|-h|--help) exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons "$@" ;;
+  show|search|delete|retire|-h|--help) exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons "$@" ;;
 esac
 
 # 自動偵測 project（若 caller 已用 --project 指定則跳過，避免重複）
