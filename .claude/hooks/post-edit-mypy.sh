@@ -48,7 +48,11 @@ fi
 REPO_ROOT=$(git rev-parse --show-toplevel)
 MYPY_EXIT=0
 MYPY_OUT=$(uv run --directory "$REPO_ROOT" mypy "$FILE" --no-error-summary 2>&1) || MYPY_EXIT=$?
-MATCHING=$(printf '%s\n' "$MYPY_OUT" | grep -E 'error:|note:' || true)
+# 只匹配「type error/note」行（格式 file:line[:col]: error:），排除 mypy 自身的
+# invocation error（格式 mypy: error: ...，無 :line:）。mypy 2.x 把 invocation error
+# 改以 `mypy: error:` 前綴輸出到 stdout，舊的寬鬆 pattern `error:|note:` 會誤判成
+# type error 印到 stdout；收緊後 invocation error 正確落到下方 elif 的 stderr 分支。
+MATCHING=$(printf '%s\n' "$MYPY_OUT" | grep -E '^.+:[0-9]+(:[0-9]+)?: (error|note):' || true)
 if [ -n "$MATCHING" ]; then
     printf '%s\n' "$MATCHING"
 elif [ "$MYPY_EXIT" -ne 0 ]; then
