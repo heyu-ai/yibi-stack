@@ -163,6 +163,45 @@ class TestExtractKeywords:
         kw = lint_skill_overlap.extract_keywords("偵測不到外部模型時提示退回 /pr-review-cycle")
         assert "pr-review-cycle" not in kw
 
+    def test_lintoverlap_eg_034_bare_markers_in_domain_prose_not_stripped(self) -> None:
+        """LINTOVERLAP-EG-034: 裸的「改用/退回/請用」等日常動詞（無 /skill 錨）不得剝除。
+
+        負向對照——這是 mob review 一致指出的真 bug：舊版無錨 regex 會把 domain 觸發詞
+        連同動詞一起吃到句末，讓真實 over-trigger 逃過偵測（warn-only 假陰性）。
+        """
+        kw1 = lint_skill_overlap.extract_keywords("從 pandas 改用 polars 讀取大型 CSV")
+        assert "polars" in kw1
+        assert "csv" in kw1
+        kw2 = lint_skill_overlap.extract_keywords("git 助手：退回上一個 commit 再 rebase")
+        assert "commit" in kw2
+        assert "rebase" in kw2
+        kw3 = lint_skill_overlap.extract_keywords("SQL 產生器：務必請用參數化查詢避免 injection")
+        assert "injection" in kw3
+
+    def test_lintoverlap_eg_035_multi_target_list_all_stripped(self) -> None:
+        """LINTOVERLAP-EG-035: 逗號/或 分隔的多目標清單，每個 /skill 都要剝除（含無 marker 的第二個）"""
+        kw = lint_skill_overlap.extract_keywords("請改用 /codex-review、/codex-consult 或 /agy")
+        assert "codex-review" not in kw
+        assert "codex-consult" not in kw
+        assert "agy" not in kw
+
+    def test_lintoverlap_eg_036_content_after_comma_preserved(self) -> None:
+        """LINTOVERLAP-EG-036: /skill 之後、逗號後的合法內容保留（不再貪婪吃到句末）"""
+        kw = lint_skill_overlap.extract_keywords("請改用 /pr-cycle-fast，並確認 markdownlint 通過")
+        assert "markdownlint" in kw
+        assert "pr-cycle-fast" not in kw
+
+    def test_lintoverlap_eg_037_slash_between_alnum_not_stripped(self) -> None:
+        """LINTOVERLAP-EG-037: 字母間的斜線（CI/CD）不是 skill 參照，lookbehind 排除，不得剝除"""
+        kw = lint_skill_overlap.extract_keywords("支援 CI/CD 流程自動化")
+        assert "ci" in kw
+        assert "cd" in kw
+
+    def test_lintoverlap_eg_038_comparison_reference_stripped_without_marker(self) -> None:
+        """LINTOVERLAP-EG-038: 無 redirect 標記的比較型參照（與 /X 共用）也剝除 skill 名"""
+        kw = lint_skill_overlap.extract_keywords("與 /pr-cycle-deep 共用同一套引擎")
+        assert "pr-cycle-deep" not in kw
+
     def test_lintoverlap_eg_024_punctuation_crossing_bigrams_impossible(self) -> None:
         """LINTOVERLAP-EG-024: CJK run 在全形標點處斷開，跨標點的 bigram 永遠不會產生
 
