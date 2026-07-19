@@ -2,7 +2,7 @@
 name: codex-review
 type: tool
 scope: global
-description: OpenAI Codex CLI 對當前 branch diff 做 code review 或對抗模式找 bug，含 [P1] pass/fail gate。觸發：codex review, codex challenge, review diff, 對抗找 bug, code review, 找安全漏洞, adversarial review。純粹問問題或要第二意見（沒有 diff 要看）請改用 /codex-consult；外部模型的 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep。
+description: OpenAI Codex CLI 對當前 branch diff 做 code review 或對抗模式找 bug，含 [P1] pass/fail gate。觸發：codex review, codex challenge, review diff, 對抗找 bug, code review, 找安全漏洞, adversarial review。純粹問問題或要第二意見（沒有 diff 要看）請改用 /codex-consult；要 Gemini（而非 Codex）的 review 或對抗找 bug 請改用 /agy；外部模型的 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep。
 ---
 
 # /codex-review — Codex Code Review / 對抗 Challenge

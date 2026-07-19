@@ -6,6 +6,7 @@ description: >
   完整 PR 生命週期（通用版，任何專案皆可用）：從建立 PR 到 code-review → parallel review（4 個 pr-review-toolkit subagent）
   → fix → re-review → CI → merge。無 SDD/spectra 依賴。
   SDD 專案（需要 spectra archive + Jira sync + amplifier-verifier）請改用 /pr-cycle-deep。
+  要全自動 orchestrator（auto-fix CI、merge 後自動 retro、中斷 resume）請改用 /pr-cycle-fast。
   觸發情境：「跑 PR cycle」「review 這個 PR」「pr-review-cycle」「完整 PR 流程」「parallel review」
 ---
 

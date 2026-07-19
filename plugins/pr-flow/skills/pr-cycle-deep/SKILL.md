@@ -9,7 +9,7 @@ description: >
   actionable NIT）→ 人類快速複查 → CI → merge → spectra archive + Jira sync。
   適用中大型 PR / 高風險改動 / 跨家視角壓力測試 / SDD 專案。小型 PR 或快速 lifecycle
   請改用 `/pr-cycle-fast`（Claude-only state machine）。純 PR review 不需完整 lifecycle
-  請改用 `/pr-review-cycle`（4 個 pr-review-toolkit subagent 平行）。
+  請改用 `/pr-review-cycle`（4 個 pr-review-toolkit subagent 平行）。只想 review 別人的 PR、給建議但不改 code / 不 merge 請改用 `/mob-code-review-only`。
   偵測不到任何外部模型時提示使用者退回 `/pr-review-cycle`。
   觸發情境：「mob review」「group review」「multi-model PR review」「跨家 LLM review」
   「pr-cycle-deep」「frontier model 群審」「找 codex + agy 一起 review」「deep review」

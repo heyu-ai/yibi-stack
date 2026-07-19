@@ -11,7 +11,11 @@ description: >
   「structural vs behavioral change」、「分離結構與行為變更」等場景。
   當用戶貼上需求或 plan 要求逐步實作功能、修 bug 要先寫測試重現、
   或任何需要嚴格測試循環紀律的開發工作，都應觸發此 Skill。
-  即使用戶只說「幫我寫這個功能」但上下文暗示需要測試驅動方式，也應觸發。
+  與 /spectra-apply 銜接：當 /spectra-apply 進入 tasks 實作階段（開始寫 code）時，
+  用本 skill 的 Red-Green-Refactor 循環逐一驅動每個 task 的實作，是實作階段的預設方法論。
+  但仍在寫規格 / 展開需求階段（請改用 /spectra-propose 或 spectra-amplifier）不觸發；
+  純「幫我寫這個功能」而未提及測試、也未進入 /spectra-apply 實作時不主動搶觸發（屬一般實作工作）。
+  Flutter 專案的 TDD 請改用 /flutter-tdd；CI 紅燈診斷（非撰寫測試）請改用 /ci-triage。
 ---
 
 # TDD with Kent Beck's Methodology

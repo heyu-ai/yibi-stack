@@ -130,6 +130,39 @@ class TestExtractKeywords:
         assert "用者" not in kw
         assert "使者" not in kw  # 死條目本來就不該出現，順便鎖住
 
+    def test_lintoverlap_eg_030_redirect_target_skill_name_stripped(self) -> None:
+        """LINTOVERLAP-EG-030: 「請改用 /codex-review」的兄弟 skill 名被剝除，不算觸發詞。
+
+        正向對照：同一份文字若把 redirect 標記拿掉，`codex-review` token 就會出現——
+        證明是剝除機制讓它消失，而非它本來就不會被 tokenize。
+        """
+        with_redirect = lint_skill_overlap.extract_keywords("做 diff review；請改用 /codex-review")
+        assert "codex-review" not in with_redirect
+        # 正向對照：無 redirect 標記時，同一個 ASCII token 會被抽出
+        without_marker = lint_skill_overlap.extract_keywords("做 diff review 用 codex-review")
+        assert "codex-review" in without_marker
+
+    def test_lintoverlap_eg_031_content_before_redirect_marker_preserved(self) -> None:
+        """LINTOVERLAP-EG-031: redirect 標記前的條件描述（本 skill 邊界）保留"""
+        kw = lint_skill_overlap.extract_keywords("小型 PR 或快速 lifecycle 請改用 /pr-cycle-fast")
+        assert "lifecycle" in kw  # 標記前的合法內容保留
+        assert "pr-cycle-fast" not in kw  # 標記後的兄弟 skill 名剝除
+
+    def test_lintoverlap_eg_032_multiple_redirect_clauses_each_stripped(self) -> None:
+        """LINTOVERLAP-EG-032: 多個 redirect 子句（；分隔）各自剝除，子句間的內容保留"""
+        kw = lint_skill_overlap.extract_keywords(
+            "請改用 /codex-consult；要 review 請改用 /agy；mob review 請改用 /mob-code-review-only"
+        )
+        assert "codex-consult" not in kw
+        assert "agy" not in kw
+        assert "mob-code-review-only" not in kw
+        assert "review" in kw  # 子句間的合法內容保留
+
+    def test_lintoverlap_eg_033_fallback_redirect_marker_stripped(self) -> None:
+        """LINTOVERLAP-EG-033: 「退回 /X」fallback 型標記也剝除兄弟 skill 名"""
+        kw = lint_skill_overlap.extract_keywords("偵測不到外部模型時提示退回 /pr-review-cycle")
+        assert "pr-review-cycle" not in kw
+
     def test_lintoverlap_eg_024_punctuation_crossing_bigrams_impossible(self) -> None:
         """LINTOVERLAP-EG-024: CJK run 在全形標點處斷開，跨標點的 bigram 永遠不會產生
 

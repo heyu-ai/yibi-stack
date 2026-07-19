@@ -7,7 +7,8 @@ description: >
   優先改善 TODO。涵蓋 CLAUDE.md / hooks / settings / skills / testing-CI / git / rules /
   security / subagents / codebase-navigation / token-economy。觸發關鍵字：harness eval、
   agentic readiness、claude code 健診、評估 repo、harness 評分、改善 TODO、agentic posture、
-  token economy、context budget、always-on context
+  token economy、context budget、always-on context。
+  只想深挖單一維度（如 D2 hook、D3 權限）的具體修法請改用 /harness-eval-focus。
 ---
 
 # Harness Eval
