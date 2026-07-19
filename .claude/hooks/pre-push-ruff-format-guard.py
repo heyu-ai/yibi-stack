@@ -30,6 +30,7 @@ Exit code:
          brand-new files」（fresh worktree commit 不觸發 pre-commit 的同類復發）。
 """
 
+import contextlib
 import json
 import os
 import re
@@ -176,8 +177,15 @@ def _git_env() -> dict[str, str]:
 
 
 def _warn(message: str) -> None:
-    """把 fail-open 的原因寫到 stderr，讓「guard 靜默沒跑」變成可診斷（rule 02）。"""
-    print(f"[WARN] pre-push-ruff-guard: {message}（fail-open，放行 push）", file=sys.stderr)
+    """把 fail-open 的原因寫到 stderr，讓「guard 靜默沒跑」變成可診斷（rule 02）。
+
+    診斷輸出本身**絕不可**影響控制流：stderr 已關閉/損壞（BrokenPipeError、OSError）或訊息
+    含非 UTF-8 surrogate（UnicodeEncodeError）時 print 會擲例外；`_warn` 幾乎都在 fail-open
+    路徑上被呼叫（呼叫端隨後要 exit 0），若讓例外往上傳會反轉成非零退出 → settings.json
+    `|| exit 2` → 誤擋。故整段吞掉，寧可少一行診斷也不可影響 push（mob review R2：codex）。
+    """
+    with contextlib.suppress(Exception):  # 診斷輸出失敗不得影響 fail-open 控制流
+        print(f"[WARN] pre-push-ruff-guard: {message}（fail-open，放行 push）", file=sys.stderr)
 
 
 def _repo_root(base_cwd: str) -> str | None:
@@ -325,23 +333,31 @@ def main() -> None:
     if not unformatted:
         sys.exit(0)
 
-    listed = "\n".join(f"    {f}" for f in unformatted)
-    print(
-        "[BLOCKED] 有已追蹤但未經 ruff format 的 Python 檔，push 出去 CI 必紅\n"
-        "\n"
-        f"{listed}\n"
-        "\n"
-        "這些是 git 已追蹤的 .py，但從沒跑過 ruff format——CI 的 pre-commit（--all-files）\n"
-        "會就地改檔並判紅。常見成因：在 fresh git worktree 裡 commit 不觸發本地 pre-commit hook。\n"
-        "\n"
-        "出路：\n"
-        "  uv run ruff format .        # 全樹格式化\n"
-        "  git add <上列檔案> && git commit --amend   # 或另開一個 fixup commit\n"
-        "  然後重新 push\n"
-        "\n"
-        "規則來源：本 repo CLAUDE.md Known Gotchas"
-        "「make ci before git add silently skips brand-new files」"
+    # surrogateescape 讓 tracked 路徑可能含 surrogate 字元；用 backslashreplace 轉成可安全
+    # 輸出的字面，避免 print 對非 UTF-8 檔名擲 UnicodeEncodeError（mob review R2：agy）。
+    listed = "\n".join(
+        f"    {f.encode('utf-8', 'backslashreplace').decode('utf-8')}" for f in unformatted
     )
+    # print 以 suppress 包住：block 這個結果由下方 sys.exit(2) 保證，訊息輸出失敗（stdout 損壞
+    # / 罕見編碼問題）不得改變「必須擋」的結論，也不可讓例外反轉成別的退出碼。
+    with contextlib.suppress(Exception):
+        print(
+            "[BLOCKED] 有已追蹤但未經 ruff format 的 Python 檔，push 出去 CI 必紅\n"
+            "\n"
+            f"{listed}\n"
+            "\n"
+            "這些是 git 已追蹤的 .py，但從沒跑過 ruff format——\n"
+            "CI 的 pre-commit（--all-files）會就地改檔並判紅。\n"
+            "常見成因：在 fresh git worktree 裡 commit 不觸發本地 pre-commit hook。\n"
+            "\n"
+            "出路：\n"
+            "  uv run ruff format .        # 全樹格式化\n"
+            "  git add <上列檔案> && git commit --amend   # 或另開一個 fixup commit\n"
+            "  然後重新 push\n"
+            "\n"
+            "規則來源：本 repo CLAUDE.md Known Gotchas"
+            "「make ci before git add silently skips brand-new files」"
+        )
     sys.exit(2)
 
 
