@@ -5,8 +5,8 @@ scope: global
 description: >
   Mob review by multiple frontier-model agents — 完整 PR 生命週期含跨家 LLM
   group review：自動偵測 codex / agy，≥1 家即啟動
-  R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM（含
-  actionable NIT）→ 人類快速複查 → CI → merge → spectra archive + Jira sync。
+  R1 獨立 + conditional R2 交叉 debate + aggregate；Review Contract 與 Evidence gate
+  決定 blocking set，fix → bounded re-review → 人類快速複查 → CI → merge → archive。
   適用中大型 PR / 高風險改動 / 跨家視角壓力測試 / SDD 專案。小型 PR 或快速 lifecycle
   請改用 `/pr-cycle-fast`（Claude-only state machine）。純 PR review 不需完整 lifecycle
   請改用 `/pr-review-cycle`（4 個 pr-review-toolkit subagent 平行）。
@@ -40,7 +40,7 @@ a few minutes and the lead responds on the spot — faster than two senior engin
 
 ```text
 /pr-cycle-deep
-/pr-cycle-deep #<PR number>   ← skip to Step 2 if PR already exists
+/pr-cycle-deep #<PR number>   ← skip PR creation, but still run the Step 1 Review Contract gate
 ```
 
 ---
@@ -195,7 +195,7 @@ Subjective preference with no verifiable reason is **not a finding** — discard
 
 ## Workflow (mob review mode)
 
-### Step 1 — Create PR
+### Step 1 — Create PR + Review Contract gate
 
 If no PR exists yet, run in order:
 
@@ -224,16 +224,46 @@ git commit -m "..."
 git push -u origin HEAD
 ```
 
-Write the PR body to `$CLAUDE_JOB_DIR/pr-body.md` with the Write tool (avoids heredoc hooks; the job
-dir auto-cleans and is not shared across parallel sessions, so no `rm` needed), then pass it in:
+Before creating or reviewing the PR, its body MUST contain this exact PR-specific contract:
+
+```text
+## Review Contract
+### Goal
+<the single user or operator outcome this PR must deliver>
+### Non-goals
+<explicit scope exclusions; cannot waive repo security/data-integrity baselines>
+### Accepted Residual Risks
+- Failure mode / impact: ...; Accepted boundary: ...; Mitigation: ...;
+  Detection / recovery: ...; Accepted by: <human name or handle>
+### Acceptance Criteria
+- AC-1: <concrete testable condition required for LGTM>
+### Follow-ups
+- <explicitly deferred hardening; non-blocking unless promoted by human amendment>
+```
+
+For a new PR, the lead drafts this contract from the matching spec/change and writes the complete PR
+body to `$CLAUDE_JOB_DIR/pr-body.md` with the Write tool, then creates the PR:
 
 ```bash
 gh pr create --title "..." --body-file "$CLAUDE_JOB_DIR/pr-body.md"
 ```
 
-If the project has `/commit-commands:commit-push-pr` slash command installed, run that directly (auto commit + push + PR).
+For an existing PR, read `title,body`; if any heading is missing or Acceptance Criteria is empty,
+draft a complete body preserving unrelated content, show every missing field, and update it with
+`gh pr edit "{{pr_number}}" --body-file "$CLAUDE_JOB_DIR/pr-body.md"`. **Do not launch R1 while the
+contract is incomplete.** Show the final section to the user and wait for explicit confirmation.
+The confirmed text is the **frozen Review Contract** for this review pass.
 
-Note the PR number as `{{pr_number}}` and the base branch as `{{base_branch}}` (usually `main`).
+A **material amendment** changes Goal, Non-goals, Accepted Residual Risks, Acceptance Criteria, or
+adds in-scope behavior: update the PR body, record why, obtain human confirmation, then restart
+full-diff R1. An **editorial amendment** (spelling, formatting, links, no semantic change) keeps the
+current pass. Until a material amendment is confirmed, use the frozen snapshot and stop reviewing
+the proposed new scope.
+
+Use `/commit-commands:commit-push-pr` only when it preserves the confirmed contract in the PR body.
+
+Note the PR number as `{{pr_number}}` and the base branch as `{{base_branch}}` (usually `main`). At
+Step 3.1, paste the confirmed contract into `$REVIEW_DIR/review-contract.md` and `prompt-r1.md`.
 
 ---
 
@@ -306,21 +336,9 @@ The script's last line outputs `REVIEW_DIR=<absolute path>` as informational; su
 calls do not need to parse this output — derive directly from the worktree root
 (`WT_ROOT=$(git rev-parse --show-toplevel); REVIEW_DIR="$WT_ROOT/.pr-review"`, equivalent).
 
-**Why extracted to a script**: the original fat bash block violated rule 13 AP1 (overly complex
-single command), rule 14 Quoting Rule 5 (multiple `"$VAR"` expansions), rule 14 `$?` section
-(`if [ $? -ne 0 ]`), and writing to `.git/info/exclude` triggered a permission dialog.
-The script uses `set -euo pipefail` and `if ! cmd; then` instead of `$?`, and resolves
-`BASE_BRANCH` by always `git fetch`-ing it fresh from the base remote and diffing against
-`FETCH_HEAD` (not a bare `git rev-parse --verify` — a stale local branch ref would otherwise
-pass that check and silently produce a diff against the wrong base; see the script's own header
-comment for the PR that motivated this). The base remote is `upstream` when that remote exists,
-else `origin` (issue #196: reviewing from a personal fork whose `main` lags the real base repo
-would otherwise resolve a stale merge-base and balloon the diff). A typo'd or nonexistent branch
-name now surfaces as a `git fetch` failure, not a `rev-parse --verify` failure.
-
-**Allow-list pattern note**: `Bash()` rules do **not expand** `~` (rule 16 "safe pattern
-examples", key point 2), so `Bash(bash ~/.agents/skills/.../setup-review-dir.sh)` **does not**
-match the runtime string. When permanently allowing in `~/.claude/settings.local.json`, use
+The script owns safe base resolution: `set -euo pipefail`, fresh `git fetch`, `FETCH_HEAD`, and
+`upstream` when present (else `origin`). Do not replace it with a local-ref diff; that reopens stale
+base and fork-base failures (issues #22/#196). `Bash()` allow-list rules do not expand `~`, so use
 the expanded absolute path:
 
 ```text
@@ -328,11 +346,8 @@ Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh 
 Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh)
 ```
 
-Confirm `<you>` with `whoami` or `echo $USER`. Full absolute path matches rule 16 safe pattern
-(scripts are already reviewed). `setup-review-dir.sh` keeps a trailing `*` for its base-branch
-argument; `codex-r1-stage1.sh` takes no argument, so it is an exact match (tighter, no wildcard).
-
-The extract prompt path is fixed at `~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` (symlink created by `make install`); no need to resolve `SKILL_REPO`.
+`setup-review-dir.sh` needs `*` for its branch argument; `codex-r1-stage1.sh` is exact. The extract
+prompt is fixed at `~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` (`make install` symlink).
 
 Write the review prompt to `$REVIEW_DIR/prompt-r1.md` using the Write tool (`$REVIEW_DIR` is
 the actual path derived above, e.g. `/path/to/worktree/.pr-review`). Replace `{{REVIEW_DIR}}`
@@ -350,6 +365,9 @@ PR #: {{pr_number}}
 Diff: see {{REVIEW_DIR}}/diff.patch
 Changed files: see {{REVIEW_DIR}}/changed-files.txt
 
+## Frozen Review Contract
+<paste the exact human-confirmed ## Review Contract section from the PR body>
+
 Output format (strictly follow, for downstream aggregation):
 
 ## Summary
@@ -360,12 +378,14 @@ Output format (strictly follow, for downstream aggregation):
 ### [Critical] <short title>
 - File: <path:line>
 - Issue: <description>
+- Contract mapping: <AC-ID | repo baseline: path/rule | unaccepted risk: description>
 - Evidence: <the evidence lead can use to reproduce this defect; form depends on finding type — see Evidence forms below>
 - Suggested fix: <how to fix>
 
 ### [Important] <short title>
 - File: <path:line>
 - Issue: <description>
+- Contract mapping: <AC-ID | repo baseline: path/rule | unaccepted risk: description>
 - Evidence: <the evidence lead can use to reproduce this defect; form depends on finding type — see Evidence forms below>
 - Suggested fix: <how to fix>
 
@@ -384,6 +404,10 @@ Focus on:
 - Logic errors, race conditions, security holes, silent failures, resource leaks
 - Test coverage gaps (critical paths not tested)
 - Documentation / comment inconsistency with implementation
+- A Critical / Important item can block only when Contract mapping uses one of the three listed
+  sources. Do not invent an Acceptance Criterion or expand Goal scope.
+- Work wholly inside Non-goals, an accepted risk boundary, or Follow-ups is non-blocking unless it
+  violates a located repo security/data-integrity baseline. Accepted risks require `Accepted by:`.
 - Do NOT list "code style preferences" or "subjective aesthetics" — non-actionable items only
 - Be skeptical, be terse, no compliments
 
@@ -444,13 +468,8 @@ The script takes no base-branch argument — it reviews the shared `$REVIEW_DIR/
 Step 3.1 already produced, so all three voices review the identical diff. Raw output lands in
 `codex-r1-raw.md` — **do not read it in the main context**.
 
-The script pins `-m gpt-5.6-sol` rather than inheriting `~/.codex/config.toml`, so a reviewer's
-local config cannot silently decide which model reviews the PR. **This requires codex-cli
->= 0.144**; on an older build the request fails with `The 'gpt-5.6-sol' model requires a newer
-version of Codex` (visible in `codex-r1.stage1.log`) — run `codex update` to fix. To confirm the
-current frontier slug on your build, read `~/.codex/models_cache.json` (`priority` ascending;
-`gpt-5.6-sol` is priority 1, "Latest frontier agentic coding model") — do not trust
-`developers.openai.com/codex/models`, which lagged the GPT-5.6 release by at least five days.
+The script pins `-m gpt-5.6-sol` (codex-cli >= 0.144) instead of local config. If the stage log says
+the model needs a newer Codex, run `codex update`; confirm frontier slugs in `models_cache.json`.
 
 ###### Stage 2: Extract (compress verbose raw markdown into structured JSON)
 
@@ -468,64 +487,19 @@ Lead reads `$REVIEW_DIR/codex-r1.json` with the Read tool and branches on the re
 `$REVIEW_DIR/codex-r1-raw.md`, manually summarize in the main context, Write compact markdown to
 `$REVIEW_DIR/codex-r1.md`, then note in final.md "Codex voice used raw form this round; main context load is higher".
 
-Format example (compact markdown):
-
-```text
-## Codex R1
-
-**Verdict**: NEEDS_CHANGES
-**Summary**: <summary field>
-
-### [critical] <title>
-- File: <file>:<line_start>-<line_end>
-- Issue: <issue>
-- Fix: <fix>
-
-### [important] <title>
-...
-```
-
 ##### Gemini voice (when GEMINI_OK)
 
 agy does not accept a combined stdin prompt + diff path; concatenate into a single file first:
 
 ###### Stage 1: Native review (raw output lands on disk, does not enter main context)
 
-> **[Important] bash block execution rules**:
->
-> - Execute the bash block below verbatim; **do not add any `$?`-related code after the agy command**
->   (including `echo "exit:$?"` or additional `if [ $? -ne 0 ]`) —
->   Rule 5: the parser intercepts ALL `simple_expansion` nodes; `$?` triggers a confirmation dialog
->   regardless of quoting; the bash block already contains exit code handling, do not add more
-> - **issue #153: `@file` fails in nested worktrees → inline prompt (current approach)**: inside a
->   nested worktree (`.claude/worktrees/<name>/`) agy cannot resolve `@.pr-review/<file>` and silently
->   enters agentic file-search mode — three endings: wrong-target review (reads a stale scratch input
->   from a previous session), brain-artifact detour (real review lands in `~/.gemini/.../brain/<uuid>/`,
->   stdout is only a pointer), or `Error: timed out`. The scripts now **inline** the prompt+diff into
->   `agy -p "$CONTENT"` (no `@file`), removing the agentic trigger; they also clear stale scratch input
->   at start and run `agy_validate.py` (fail-loud + brain-artifact rescue). How to confirm a regression:
->   if `gemini-r1-raw.md` starts with `call:` or `tool_use:`, agentic mode fired — `agy_validate.py`
->   exits non-zero and the voice is correctly marked failed.
-> - **Stage 1 keeps `--dangerously-skip-permissions` for `--add-dir` context**: the diff alone lacks
->   surrounding-code context; `--add-dir .` lets agy look up neighbouring code, which `--sandbox` would
->   block. Stage 2 extraction needs no code context, so it stays on `--sandbox` (more secure).
-> - **[Security] `--dangerously-skip-permissions` trust boundary**: Stage 1 scripts remove agy tool
->   access restrictions. If the PR diff comes from an external fork or untrusted source, malicious
->   instructions in the diff may be auto-approved by agy (prompt injection risk). This skill assumes
->   the PR comes from a trusted repo; when running mob review on an external fork, the operator must
->   evaluate this risk themselves.
-> - **[Security] agy is REVIEW-ONLY — guard + detection (PR #194 retro)**: because the permission-bypass
->   flag also grants *write* access, agy can (and once did) autonomously edit the worktree during what
->   should be a read-only review. Two defenses now live in `agy-r1-stage1.sh` / `agy-r2.sh`: (1) a
->   `REVIEW_ONLY_GUARD` string is prepended to the inlined prompt, explicitly forbidding any file
->   modification; (2) the script snapshots `git status --porcelain` before and after the agy call and
->   emits a loud `[WARN]` (not a hard fail — the review text is still useful) if agy modified the working
->   tree, so the lead audits and reverts unintended edits. Never trust a review voice's claim that it
->   "already implemented and verified" fixes — the coding agent (Claude lead) owns all edits.
-> **Execution note**: the script writes stderr to `$REVIEW_DIR/gemini-r1.stage1.log`; stdout only
-> outputs "agy R1 Stage 1 complete". **Run directly — do not append `> $CLAUDE_JOB_DIR/foo.log 2>&1`**
-> (harness auto-capture is redundant here; see rule 16 **(2) Bash redirect `>`** for `Bash(verb:*)` allow-list patterns) —
-> on failure, Read `$REVIEW_DIR/gemini-r1.stage1.log` for the full error.
+> **Execution/security contract**: run the script verbatim; never append `$?` logic or redirects.
+> It inlines prompt+diff (never `@file`, issue #153), clears stale scratch input, and validates
+> timeout/agentic/wrong-target output with `agy_validate.py`. Stage 1 retains
+> `--dangerously-skip-permissions` for surrounding-code lookup, so use only on trusted repos: the
+> review-only guard forbids edits and before/after `git status` emits `[WARN]` on mutation, but the
+> lead must audit and undo any unintended change. Stage 2 stays sandboxed. On failure, read
+> `$REVIEW_DIR/gemini-r1.stage1.log`; never trust a voice claiming it implemented a fix.
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh
@@ -585,9 +559,26 @@ Check:
 
 ---
 
-### Step 4 — Round 2: Cross-debate
+#### 3.4 — R2 activation gate
 
-**Goal**: each voice reads the other voices' R1 findings and takes positions (agree / disagree / supplement), forcing out consensus and disputes.
+After all R1 voices return, the lead performs a zero-execution preliminary gate on every
+Critical/Important item. A **candidate blocker** has both (1) a valid `Contract mapping:` source and
+(2) a structurally valid `Evidence:` form. A **blocking dispute** exists when voices disagree about
+the same item's mapping, blocking severity, or disposition. NIT, missing mapping, and malformed or
+absent evidence never activate R2.
+
+- Candidate blocking set empty **and** no blocking dispute → report
+  `R2 skipped: no contract-blocking candidate or dispute`, skip Step 4, and aggregate R1 in Step 5.
+- At least one candidate blocker **or** blocking dispute → run Step 4 for all active voices.
+
+This gate applies on the initial review and every bounded re-review pass.
+
+---
+
+### Step 4 — Round 2: Cross-debate (conditional)
+
+Enter this step only when Step 3.4 activates it. Each voice reads the other voices' R1 findings and
+takes positions (agree / disagree / supplement), forcing out consensus and disputes.
 
 #### 4.1 — Generate R1 aggregate
 
@@ -677,7 +668,7 @@ Claude voice: the lead writes `$REVIEW_DIR/claude-r2.md` after reading r1-aggreg
 
 ### Step 5 — Aggregator synthesis
 
-After reading all R1 + R2, produce `$REVIEW_DIR/final.md`, graded per the
+After reading all R1 plus any activated R2, produce `$REVIEW_DIR/final.md`, graded per the
 [Review Severity Standard](#review-severity-standard-rfc-2119) (Critical = MUST, Important = SHOULD,
 Actionable NIT = MAY). Blocking is decided by the Evidence gate below; NIT never blocks any round.
 
@@ -690,6 +681,15 @@ Actionable NIT = MAY). Blocking is decided by the Evidence gate below; NIT never
 | **Actionable NIT** | Any 1 voice marks NIT and it's not subjective preference | **Deferred — never blocks**, any round. Lead MAY fix trivially in-round; doing so is not a gate |
 | **Withdrawn** | Marked WITHDRAW in R2 | Remove from list |
 | **Voice unavailable** | That voice failed R1/R2 twice in a row | Note in final.md; do not block |
+
+#### Contract mapping gate
+
+A Critical / Important finding is eligible for the Evidence gate only when `Contract mapping:` is
+one of: `AC-<id>`, `repo baseline: <path/rule>`, or `unaccepted risk: <description>`. Missing or
+invalid mapping is moved to deferred with its original text and reason preserved. Work wholly inside
+Non-goals, Follow-ups, or a documented accepted boundary is non-blocking. An accepted risk needs all
+five fields from Step 1, including `Accepted by:`; a voice or lead cannot accept it for the human.
+Repo security/data-integrity baselines cannot be waived by any Review Contract section.
 
 #### Evidence gate
 
@@ -740,6 +740,11 @@ Disposition by severity × evidence × round (every cell defined — no gaps, no
 ## Mode
 group-review ({{N}}/3 voices active)
 
+## Contract compliance
+- Acceptance Criteria verified: <AC-ID → evidence>
+- Scope drift: none / <unapproved change>
+- Residual risks: fixed / accepted by <human> within <boundary>
+
 ## Consensus Critical (must fix)
 1. <finding>...
 
@@ -751,6 +756,9 @@ group-review ({{N}}/3 voices active)
 
 ## Deferred for lack of evidence (not blocking; reason stated per item)
 1. <finding> — demoted: <reason>...
+
+## Outside contract (not blocking; mapping reason stated per item)
+1. <finding> — <Non-goal / accepted boundary / Follow-up / invalid mapping>...
 
 ## Disputed (user decides)
 - Voice X argues Critical: <reason>
@@ -886,7 +894,7 @@ neither contains the other, and Round 2's size is not bounded by Round 1's. Term
 guaranteed by the two-round cap **alone**, never by the review surface changing size between rounds
 (an earlier design claimed the surface shrinks each round; that was false — see problem-frame.md).
 
-Re-run Step 3 + Step 4 (R1 + R2) on the round's review surface.
+Re-run Step 3 on the round's review surface, then run Step 4 only if the Step 3.4 gate activates it.
 
 **7.1 Refresh diff state** (required — diff has changed after fixes):
 
@@ -900,23 +908,17 @@ hand-roll `git diff "{{base_branch}}"...HEAD` here — that uses the local ref a
 bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 ```
 
-**7.2 Token savings — skip R2 only for voices that were LGTM last round** (R1 still runs for all):
-
-Read each voice's most recent verdict (`*-r2.md`, else `*-r1.md`), then:
-
-- **All voices** re-run R1 (catch regressions from this round's fixes).
-- **Previous-round NEEDS_CHANGES voices** run R1 + R2.
-- **Previous-round LGTM voices** run R1 only — their R2 would only cross-check old findings that no longer exist. (New R1 overwrites all R1 files; R2 overwrites only re-run voices.)
-
-A skipped voice's old `*-r2.md` stays on disk but corresponds to a previous diff — **delete it before Step 5 aggregation** so stale results don't leak in:
+**7.2 Apply the R2 activation gate**: all active voices re-run R1 to catch regressions. Recompute
+candidate blockers and disputes from the new R1; previous voice verdicts have no gate authority. If
+Step 3.4 skips R2, delete every stale R2 file before Step 5 aggregation:
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
-rm -f "$REVIEW_DIR/codex-r2.md"   # substitute the voices that are LGTM-skip this round
+rm -f "$REVIEW_DIR/claude-r2.md" "$REVIEW_DIR/codex-r2.md" "$REVIEW_DIR/gemini-r2.md"
 ```
 
-If a LGTM voice turns NEEDS_CHANGES in the new R1, run its R2 immediately (re-running overwrites the deleted file).
+If the gate activates R2, run it for every active voice so debate participants see the same R1 set.
 
 #### Baseline freshness (before Round 2 defines its surface)
 
@@ -934,9 +936,11 @@ finding that carries no valid `Evidence:`.
 
 #### Convergence condition
 
-Every active voice's latest round outputs `Final verdict: LGTM` and the blocking set is empty.
-Actionable NIT and evidence-less findings are deferred and never re-open the loop. Blocking set
-non-empty at the end of Round 1 → Step 6 to fix, then Round 2.
+The **blocking set is the sole LGTM gate** after contract compliance is confirmed: every Acceptance
+Criterion has verification evidence, no unauthorized scope drift remains, and material risks are
+fixed or human-accepted within their documented boundary. A raw voice verdict has no independent
+veto when it contains only non-blocking items. Actionable NIT, evidence-less, outside-contract, and
+accepted-risk findings never re-open the loop. Round 1 blocking set non-empty → Step 6, then Round 2.
 
 #### Circuit breaker
 
@@ -976,7 +980,7 @@ Stage 2 + Stage 3 render it from `codex-r1-raw.md`).
 
 ### Step 8 — Human quick pass
 
-After all voices LGTM, the lead gives the human a summary **scannable in a few minutes**:
+After the contract LGTM gate passes, the lead gives the human a summary **scannable in a few minutes**:
 
 ```bash
 git diff "{{base_branch}}"...HEAD --stat
@@ -996,10 +1000,10 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 1. <Consensus Critical 1>: fix approach = ...
 2. <Disputed item>: user chose ___, reason ...
 
-## Voices final verdict
-- Claude: LGTM
-- Codex: LGTM (if CODEX_OK) / N/A
-- Gemini: LGTM (if GEMINI_OK) / N/A
+## Raw voice verdict (informational; no independent veto)
+- Claude: LGTM / NEEDS_CHANGES (<blocking or non-blocking only>)
+- Codex: LGTM / NEEDS_CHANGES / N/A
+- Gemini: LGTM / NEEDS_CHANGES / N/A
 
 ## Change hotspots (top 3 places most worth human eyes)
 1. <file:line> — <why it's a hotspot>
@@ -1014,7 +1018,7 @@ REVIEW_DIR="$WT_ROOT/.pr-review"
 echo "$REVIEW_DIR/human-summary.md"
 ```
 
-Reply (substitute the echoed path for `<path>`): "All voices LGTM. Three hotspots in `<path>`. Raise concerns here — I (reviewer lead) respond immediately; reply 'ship' to proceed to Step 9 CI."
+Reply (substitute the echoed path for `<path>`): "Contract satisfied and blocking set empty. Three hotspots in `<path>`. Raise concerns here — I (reviewer lead) respond immediately; reply 'ship' to proceed to Step 9 CI."
 
 User raises a concern → lead responds directly (citing R1/R2 original findings if needed); unresolvable concern → return to Step 6 to fix; resolved → user replies "ship" before proceeding to Step 9.
 
@@ -1140,7 +1144,7 @@ and must not be silently ignored:
 ```text
 PR #{{pr_number}} squash-merged to main.
 Merge commit: {{merge_commit_sha}}
-Group review mode: {{N}}/3 voices LGTM (Claude / Codex / Gemini).
+Group review mode: {{N}}/3 voices active; Review Contract satisfied and blocking set empty.
 ```
 
 If 11a archived a change, append:
@@ -1152,20 +1156,6 @@ Spectra change `{{change_name}}` archived; spec status updated to complete.
 Report back to the user: spectra archive status, Jira ticket status.
 
 > **Suggested next step**: run `/pr-retro` to close out this session; the agent drafts 5 questions from the PR context for your calibration.
-
----
-
-## Reviewer Call Quick Reference
-
-| Voice | Detection | R1 call (3-stage) | R2 call | Aggregate input |
-| --- | --- | --- | --- | --- |
-| Claude | always | Task() pr-review-toolkit 4 subagents | lead writes claude-r2.md directly | claude-r1.md (finding markdown) |
-| Codex | `which codex` + auth | S1: `codex exec -C "$WT_ROOT" -s read-only < codex-r1-input.md(guard+prompt-r1+diff.patch) > codex-r1-raw.md 2>codex-r1.stage1.log` / S2: `codex exec low < extract-input 2>extract.log \| tee codex-r1.json > /dev/null` / S3: lead renders codex-r1.md | `set -o pipefail; codex exec -C "$WT_ROOT" -s read-only < input.md 2>r2.log \| tee codex-r2.md > /dev/null` | codex-r1.md (compact, not raw) |
-| Gemini/agy *(optional)* | `which agy` + auth | S1: `bash agy-r1-stage1.sh` / S2: `bash agy-r1-stage2.sh` (inlines prompt, `--sandbox`, extracts gemini-r1.json) / S3: lead renders gemini-r1.md | `bash agy-r2.sh` | gemini-r1.md (compact, not raw) |
-
-Each voice's R1 / R2 should be written to `$REVIEW_DIR/<voice>-r{1,2}.md` (compact version),
-read by the lead for unified aggregation. Raw versions (`*-r1-raw.md`) stay on disk for disputed
-finding reference but **do not enter the main context**.
 
 ---
 
@@ -1195,7 +1185,7 @@ finding reference but **do not enter the main context**.
 | Round 2 ends with unresolved blocking findings | Trigger circuit breaker; hand remaining findings to user with the three-option decision (no third round) |
 | User chooses to ignore a disputed finding | Add a Known Issues section to the PR description with the reason |
 | User raises new concern during human quick pass | Reviewer lead (Claude main) responds immediately; unresolvable → return to Step 6; resolved → wait for user "ship" |
-| Want to skip R2 and run only R1 | Not allowed; R2 is the core value of mob review (mutual debate). Switch to `/pr-review-cycle` (Claude-only) if you want to skip it |
+| When does R2 run? | All active voices always run independent R1. Run R2 only when Step 3.4 finds a candidate blocker or blocking dispute; a clean R1 reports the required skip message and aggregates directly. |
 | Linter / type-check fails | `ruff check --fix` / `eslint --fix` / `mypy follow_imports = skip` etc. |
 | Security scanner fails | bandit `# nosec BXXX` etc. ignore comments; explain reason in PR |
 | spectra archive validation fails | `spectra analyze {{change_name}}`; fix then archive; `--no-validate` requires explicit user instruction |
@@ -1207,14 +1197,3 @@ finding reference but **do not enter the main context**.
 | Extract step keeps failing (2 consecutive) | Fall back to path C: Claude lead reads raw with Read tool, manually extracts compact form in main session without calling codex/agy again; less efficient but workflow not blocked |
 | Extract prompt path missing (`~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md`) | Skill not installed; run `make install` in the yibi-stack directory to create the symlink; verify: `ls ~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` should return the path, not "No such file" |
 | User skipped bump but needs a version tag later | Create a release branch, run [`/bump-version`](../bump-version/SKILL.md) on it, then open a PR to merge into main (CI pass + CHANGELOG confirmed is sufficient; no full review cycle needed; if main has new commits, CHANGELOG may include extra entries — verify manually) |
-
----
-
-## Relationship to other PR review skills
-
-| Skill | Use case | Reviewer composition |
-| --- | --- | --- |
-| `/pr-review-cycle` | Small feature / bug fix / refactor; fast merge | Claude pr-review-toolkit 4 subagents in parallel |
-| `/pr-cycle-deep` (this skill) | Medium/large PR / high-risk changes / cross-model pressure test | Claude + Codex (required) + agy (optional); R1 independent + R2 debate |
-
-This skill needs ≥1 external reviewer (Codex or agy); with 0 it falls back to `/pr-review-cycle`. With only Codex it runs a 2-voice mob, with both a 3-voice full mob.
