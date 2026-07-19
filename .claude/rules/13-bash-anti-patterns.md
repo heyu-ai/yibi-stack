@@ -122,7 +122,7 @@ git -C /path/to/repo log --oneline -5
 git -C /path/to/repo rev-parse --short HEAD
 ```
 
-### AP3 Sub-class C: Path Resolution Hiding (class F1 hook attempts to catch)
+### AP3 Sub-class C: Path Resolution Hiding (built-in prompt removed in 2.1.207 — no mechanical guard left)
 
 **Trigger**: `cd <path> && <command> ... 2>/dev/null` — cd makes relative path resolution
 depend on CWD; `2>/dev/null` swallows errors, causing path issues to fail silently.
@@ -140,13 +140,21 @@ find /path/to/project -name "*.py"
 # Glob: /path/to/project/**/*.py
 ```
 
+> **Update (Claude Code 2.1.207)**: the built-in confirmation that used to fire on this pattern
+> was removed — the changelog reads "Fixed compound commands with `cd` prompting for permission
+> when the only output redirect was to `/dev/null`". AP3-C therefore has **no mechanical guard
+> left**: the F1 class no longer prompts, and this repo's own hooks (`bash-ap1-inline-check.sh`,
+> `bash-ap2-check.py`) target AP1/AP2 forms, not this one. Agent discipline — absolute path or
+> the Read/Grep tool — is now the **sole** defence, which is why this sub-class stays
+> highest-priority. (Verified against the official changelog, 2026-07-19.)
+
 ### AP3 Summary
 
 | Sub-class | Hook | Cases | Fix |
 |-----------|------|-------|-----|
 | A: CWD pollution | None (silent) | 4/17/18 | `--directory` flag or subshell |
 | B: cd-before-git | Class C (partial) | 7/9/12 | `git -C <path>` |
-| C: path resolution hiding | Class F1 (partial) | 10/11/15 | Absolute path / Read/Grep tool |
+| C: path resolution hiding | None since 2.1.207 (was Class F1) | 10/11/15 | Absolute path / Read/Grep tool |
 
 ## Prefer Claude Built-in Tools for Code Search
 
@@ -309,6 +317,37 @@ cmd 2>&1 | grep -v "INFO"
 # Fix: remove grep filter; Claude receives complete output
 cmd 2>&1
 ```
+
+### A Pipe Masks the Upstream Command's Exit Code (silent false-green gate)
+
+The previous section bans output-filter pipes because Claude cannot see the full output. There is
+a **second, sharper** failure: `cmd | tail`/`head`/`grep` reports the **last stage's** exit code,
+not `cmd`'s. A failing `cmd` piped into a succeeding `tail` yields exit `0` — so any gate that reads
+that status (a background-task wrapper, an `&&` chain, `if cmd | tail; then`) concludes the command
+**passed** when it failed.
+
+```bash
+# Wrong: make ci fails (Error 1), but tail exits 0, so the pipeline exits 0.
+# A background/CI wrapper reading the exit code reports "passed" -- a false green.
+make ci 2>&1 | tail -40
+
+# Fix A (preferred): do not put a gate command upstream of a pipe. Truncation is a
+# separate concern -- write full output to a file, then Read it with the Read tool.
+make ci > /tmp/ci.log 2>&1      # exit code is make ci's; then Read /tmp/ci.log
+
+# Fix B: when you must pipe, make the pipe fail loud on any stage.
+set -o pipefail                 # pipeline exits non-zero if ANY stage fails
+make ci 2>&1 | tail -40
+# or inspect ${PIPESTATUS[0]} explicitly (the upstream command's real status)
+```
+
+This is the exit-code twin of the output-filter rule above, and a member of the same
+"green comes from asking the wrong question" family as the pre-commit-formatter false-green trap
+(a documented CLAUDE.md gotcha): the check runs, reports success, and the success is about the
+wrong thing. Before trusting a green from a piped command, ask **whose** exit code you just read.
+
+(Source: PR #299 retro -- `make ci 2>&1 | tail -40` reported exit 0 while `make ci` was Error 1;
+the failure was nearly shipped as a passing CI.)
 
 ### `realpath` — Not Available on macOS < Ventura
 

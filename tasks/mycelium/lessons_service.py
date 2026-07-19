@@ -41,6 +41,92 @@ def add_lesson(
     return {"id": record.id, "trusted": record.trusted}
 
 
+def get_lesson(
+    lesson_id: str,
+    db_path: str | Path | None = None,
+) -> dict[str, Any] | None:
+    """依 id 取回單筆 typed lesson（含 retired）；找不到時回傳 None。"""
+    from .db import AgentsDB
+
+    db = AgentsDB(db_path=db_path)
+    try:
+        db.init_db()
+        return db.get_lesson(lesson_id)
+    finally:
+        db.close()
+
+
+def delete_lesson(
+    lesson_id: str,
+    db_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """刪除單筆 lesson（誤寫修正用），先寫 tombstone 保留 audit trail。
+
+    回傳含被刪除 row 與剩餘筆數的 dict：{"deleted": <row>, "remaining": <int>}。
+    remaining 只計非 retired 的 lesson（與 show / search 預設可見集合一致），
+    避免呼叫端把「含 retired 的總數」誤讀為「還有幾條可見教訓」。
+    找不到 id 時 raise RuntimeError（fail loud，避免靜默 no-op）。
+    """
+    if not lesson_id or not lesson_id.strip():
+        raise ValueError("lesson_id 不可為空")
+
+    from .db import AgentsDB
+
+    db = AgentsDB(db_path=db_path)
+    try:
+        db.init_db()
+        deleted = db.delete_lesson(lesson_id, datetime.now(UTC))
+        if deleted is None:
+            raise RuntimeError(f"找不到 id={lesson_id} 的教訓，未刪除任何記錄")
+        remaining = db.count_lessons(include_retired=False)
+    finally:
+        db.close()
+
+    return {"deleted": deleted, "remaining": remaining}
+
+
+def retire_lesson(
+    lesson_id: str,
+    reason: str,
+    superseded_by: str | None = None,
+    db_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """標記單筆 lesson 為 retired（教訓過期用，保留內容但退出流通）。
+
+    reason 必填且非空（「這條為什麼被推翻」本身常是下一條教訓）。
+    回傳更新後的 row。找不到 id 或已 retire 時 raise RuntimeError（fail loud）：
+    重複 retire 會覆寫原始退場記錄（retired_at / reason / superseded_by）造成 audit-data
+    loss，故明確拒絕，並在訊息中帶出原始退場資訊。
+    """
+    if not lesson_id or not lesson_id.strip():
+        raise ValueError("lesson_id 不可為空")
+    if not reason or not reason.strip():
+        raise ValueError("retire 必須提供 --reason 說明為何退場")
+
+    from .db import AgentsDB
+
+    db = AgentsDB(db_path=db_path)
+    try:
+        db.init_db()
+        existing = db.get_lesson(lesson_id)
+        if existing is None:
+            raise RuntimeError(f"找不到 id={lesson_id} 的教訓，未標記任何記錄")
+        if existing.get("retired_at") is not None:
+            raise RuntimeError(
+                f"id={lesson_id} 已於 {existing['retired_at']} retire"
+                f"（reason={existing.get('retired_reason')}）；"
+                f"不覆寫原始退場記錄。若確需更正，請另循修正流程"
+            )
+        updated = db.retire_lesson(lesson_id, reason, superseded_by, datetime.now(UTC))
+        if updated is None:
+            # 上面已確認存在且未 retire；走到這裡代表另一 process 在此空檔搶先 retire
+            raise RuntimeError(f"id={lesson_id} 已被其他 process 同時 retire，未覆寫原始退場記錄")
+    finally:
+        db.close()
+
+    return updated
+
+
 def _apply_decay(
     confidence: int,
     source: str,
@@ -92,11 +178,13 @@ def show_lessons_typed(  # pylint: disable=too-many-arguments
     limit: int = 20,
     db_path: str | Path | None = None,
     insights_path: str | Path | None = None,
+    include_retired: bool = False,
 ) -> list[dict[str, Any]]:
     """查詢 typed lessons，可合併 legacy handovers.lessons_learned（include_legacy=True）。
 
     回傳 dict list，每筆含 effective_confidence（with_decay=True 時套用衰減）。
     cross_project=True 時只回傳 trusted=True 的記錄（跨專案安全限制）。
+    include_retired=False（預設）時排除已 retire 的 typed 教訓。
     """
     from .db import AgentsDB
 
@@ -111,6 +199,7 @@ def show_lessons_typed(  # pylint: disable=too-many-arguments
             trusted_only=trusted_only or cross_project,
             cross_project=cross_project,
             limit=_SEARCH_INTERNAL_LIMIT,
+            include_retired=include_retired,
         )
     finally:
         db.close()
@@ -176,8 +265,12 @@ def search_lessons_typed(  # pylint: disable=too-many-arguments
     limit: int = 20,
     db_path: str | Path | None = None,
     insights_path: str | Path | None = None,
+    include_retired: bool = False,
 ) -> list[dict[str, Any]]:
-    """在 typed lessons 中搜尋（含 legacy 合併，可套用 filter 和 dedup）。"""
+    """在 typed lessons 中搜尋（含 legacy 合併，可套用 filter 和 dedup）。
+
+    include_retired=False（預設）時排除已 retire 的 typed 教訓。
+    """
     from .db import AgentsDB
 
     db = AgentsDB(db_path=db_path)
@@ -192,6 +285,7 @@ def search_lessons_typed(  # pylint: disable=too-many-arguments
             trusted_only=trusted_only or cross_project,
             cross_project=cross_project,
             limit=_SEARCH_INTERNAL_LIMIT,
+            include_retired=include_retired,
         )
     finally:
         db.close()

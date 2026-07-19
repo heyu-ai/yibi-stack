@@ -6,10 +6,11 @@ description: >
   Claude Code Stop hook，自動從 session transcript 擷取 ★ Insight 區塊，
   以 JSONL 格式累積至 ~/.agents/insight/insights.jsonl。
   被動式收集，不需手動觸發。每次 Claude 完成回應時自動執行。
-  是 `agents` skill 的子 skill，整合跨 Agent / 跨帳號的 metadata。
+  是 `mycelium` skill 的子 skill，整合跨 Agent / 跨帳號的 metadata。
+  本 skill 只收 ★ Insight 教學洞察，不收 Claude Code 自動產生的工作狀態摘要（那由 sibling 負責）。
 ---
 
-# agents insight：洞察自動收集器
+# mycelium insight：洞察自動收集器
 
 ## 設計哲學
 

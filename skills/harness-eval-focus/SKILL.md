@@ -5,6 +5,7 @@ scope: global
 description: >
   針對單一 harness-eval 維度做深度稽核與具體修法。配合 /harness-eval 使用：
   先跑全面評估，發現 WARN/FAIL 後用此 skill 精準挖掘。
+  要一次跑完 11 維度全面評估（而非單一維度）請改用 /harness-eval。
   用法：/harness-eval-focus D2（或 D1~D11）。
   觸發關鍵字：harness-eval-focus、深度稽核、維度修法、D2 hook 問題、
   D3 權限問題、D1 CLAUDE.md 問題、D9 subagents、D10 codebase navigation、

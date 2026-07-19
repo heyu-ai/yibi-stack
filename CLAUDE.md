@@ -53,6 +53,8 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 
 ## 專案架構
 
+> 目錄樹與模組入口見 @ARCHITECTURE.md（由下方「Codebase Map」段落匯入）。以下只記樹狀圖看不出來的分類語意。
+
 - **`skills/`** — Agent 的執行介面，每個 skill 有獨立的 `SKILL.md` runbook
   - **可執行 skill**：有對應的 `tasks/` Python 實作（如 mycelium、scheduler）
   - **知識型 skill**：純 Markdown 方法論指引（如 tdd-kentbeck、qa-test-design）
@@ -73,10 +75,10 @@ glob 非錨定，在任意路徑深度匹配。
 > 值可以是 YAML list（`- "tasks/**"`）或純量字串（`paths: tasks/**`）——**兩者實測行為相同**，
 > 本 repo 統一用 list 形式，這是風格選擇不是正確性要求。
 >
-> 目前**沒有機械 guard** 擋錯 key（寫錯只會靜默變全量載入，不會報錯）；`tasks/harness_eval`
+> `scripts/lint_rule_frontmatter.py` 與 pre-commit hook 會阻擋錯 key；`tasks/harness_eval`
 > 的兩個 scanner 也都仍在偵測失效的 `glob:`——D7 的 `scanners/rules.py`（`globs:` 與 `paths:`
 > 都不匹配，分數一直來自 fallback 分支）與 D4 的 `scanners/skills.py`（`_SCOPING_KEYS` 仍為
-> `glob` 加分）。三者都追蹤在 issue #252。
+> `glob` 加分）。後兩者仍追蹤在 issue #252。
 
 - **全域**（01-03、13、15、16）：雙語規範、錯誤處理、安全性、bash 反模式、不可逆操作、allow-list 衛生
 - **`tasks/**`**（04）：module 結構
@@ -104,12 +106,6 @@ glob 非錨定，在任意路徑深度匹配。
 - 共用路徑常數：@tasks/_paths.py
 - Bash lint 工具：@scripts/lint_skill_bash.py
 - 編碼慣例總覽：@.claude/rules/（14 個檔案；01-03/13/15/16 全量載入，04-11 依 `paths:` 觸發）
-
-## 如何執行 Skill
-
-1. 找到對應的 `skills/<skill-name>/SKILL.md`
-2. 照 runbook 的步驟依序執行
-3. 每個 SKILL.md 都包含：環境檢查 → 設定確認 → 執行指令 → 結果報告
 
 ## Dev 指令
 
@@ -298,11 +294,15 @@ make install-all         # 等同 build-tools + install + install-project + inst
   After upgrading pylint, always run `uv run pylint --generate-toml-config | grep max-` to
   verify the current option names.
 - **unattended/scheduled retries use `CLAUDE_CODE_RETRY_WATCHDOG`, not a large
-  `CLAUDE_CODE_MAX_RETRIES`**: since Claude Code v2.1.186, `CLAUDE_CODE_MAX_RETRIES` is capped
-  at 15, so a scheduled or batch task can no longer get "long auto-retry" by setting it high —
-  use the retry watchdog instead. Affects `nightly-self-improvement` (the only `enabled: true`
-  job in `.runtime/schedules.json`) and any future ACP Gateway `skill:` job. Setting
-  `CLAUDE_CODE_MAX_RETRIES` above 15 silently clamps to 15, not an error.
+  `CLAUDE_CODE_MAX_RETRIES`**: Claude Code v2.1.186 capped bare
+  `CLAUDE_CODE_MAX_RETRIES` at 15 (setting it higher silently clamps). v2.1.199 then made
+  `CLAUDE_CODE_RETRY_WATCHDOG` **lift that cap of 15** and raise the default retry count to 300
+  for non-capacity transient errors (429s unrelated to the usage limit are also auto-retried with
+  backoff for subscribers). So the watchdog is not merely "the alternative" — it is what actually
+  restores long auto-retry; a large `CLAUDE_CODE_MAX_RETRIES` **alone** still clamps to 15.
+  Affects `nightly-self-improvement` (the only `enabled: true` job in `.runtime/schedules.json`)
+  and any future ACP Gateway `skill:` job. (Cap-lift verified against the official changelog,
+  2026-07-19; supersedes the earlier "always clamps to 15" wording.)
 - **`!` bash command output now auto-triggers a Claude response** (v2.1.186): a `!`-prefixed
   bash command's output used to be context-only; it now makes Claude respond to that output by
   default. To restore the old "context only, no response" behavior, set

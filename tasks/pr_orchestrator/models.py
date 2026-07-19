@@ -69,7 +69,7 @@ class Blocker(BaseModel):
 
 
 class OrchestratorState(BaseModel):
-    """PR Orchestrator 完整執行狀態，持久化到 .runtime/pr_orchestrator/<pr>.json。"""
+    """PR Orchestrator 完整執行狀態，依 repo 隔離後持久化。"""
 
     schema_version: int = 1
     pr_number: int

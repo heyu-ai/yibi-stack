@@ -829,7 +829,7 @@ def lessons_add(  # pylint: disable=too-many-arguments
             "retrospective_id": retrospective_id,
             "retro_pr": retro_pr,
         }
-        result_data = add_lesson(record_data)
+        result_data = add_lesson(record_data, db_path=_ctl_db_path())
         click.echo(f"id={result_data['id']} trusted={result_data['trusted']}")
     except ValidationError as e:
         msgs = "; ".join(err["msg"] for err in e.errors())
@@ -858,6 +858,7 @@ def lessons_add(  # pylint: disable=too-many-arguments
     default=True,
     help="合併 legacy handovers.lessons_learned（預設 True）",
 )
+@click.option("--include-retired", is_flag=True, help="同時顯示已 retire 的教訓（預設排除）")
 @click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
 def lessons_show(  # pylint: disable=too-many-arguments
     project: str | None,
@@ -869,6 +870,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
     trusted_only: bool,
     cross_project: bool,
     include_legacy: bool,
+    include_retired: bool,
     as_json: bool,
 ) -> None:
     """顯示 handover 教訓與試過的方案（可選合併 insight）。"""
@@ -881,6 +883,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
         or trusted_only
         or cross_project
         or not include_legacy
+        or include_retired
     )
     if _use_typed:
         _insights_path = None
@@ -898,6 +901,8 @@ def lessons_show(  # pylint: disable=too-many-arguments
             include_legacy=include_legacy,
             insights_path=_insights_path,
             limit=last,
+            include_retired=include_retired,
+            db_path=_ctl_db_path(),
         )
         if as_json:
             click.echo(json.dumps(rows_typed, ensure_ascii=False, indent=2))
@@ -908,15 +913,23 @@ def lessons_show(  # pylint: disable=too-many-arguments
         for r in rows_typed:
             click.echo("─" * 60)
             eff = r.get("effective_confidence", r.get("confidence", ""))
+            retired_tag = " [RETIRED]" if r.get("retired_at") else ""
             click.echo(
-                f"[{r.get('ts', '')[:10]}] [{r.get('type', '')}] {r.get('key', '')} (conf={eff})"
+                f"[{r.get('ts', '')[:10]}] [{r.get('type', '')}] "
+                f"{r.get('key', '')} (conf={eff}){retired_tag}"
             )
             if r.get("project"):
                 click.echo(f"  project = {r['project']}")
             click.echo(f"  {r.get('insight', '')}")
+            if r.get("retired_at"):
+                _sup = r.get("superseded_by")
+                _sup_txt = f"（superseded_by={_sup}）" if _sup else ""
+                click.echo(f"  retired: {r.get('retired_reason', '')}{_sup_txt}")
         return
 
-    rows = show_lessons(project=project, limit=last, include_insights=include_insights)
+    rows = show_lessons(
+        project=project, limit=last, include_insights=include_insights, db_path=_ctl_db_path()
+    )
 
     if as_json:
         click.echo(json.dumps(rows, ensure_ascii=False, indent=2))
@@ -955,6 +968,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
     default=True,
     help="合併 legacy handovers.lessons_learned（預設 True）",
 )
+@click.option("--include-retired", is_flag=True, help="同時搜尋已 retire 的教訓（預設排除）")
 @click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
 def lessons_search(  # pylint: disable=too-many-arguments
     query: str,
@@ -967,6 +981,7 @@ def lessons_search(  # pylint: disable=too-many-arguments
     trusted_only: bool,
     cross_project: bool,
     include_legacy: bool,
+    include_retired: bool,
     as_json: bool,
 ) -> None:
     """在 handover 教訓、試過的方案（與可選 insight）中搜尋關鍵字。"""
@@ -979,6 +994,7 @@ def lessons_search(  # pylint: disable=too-many-arguments
         or trusted_only
         or cross_project
         or not include_legacy
+        or include_retired
     )
     if _use_typed:
         _insights_path = None
@@ -997,6 +1013,8 @@ def lessons_search(  # pylint: disable=too-many-arguments
             include_legacy=include_legacy,
             insights_path=_insights_path,
             limit=last,
+            include_retired=include_retired,
+            db_path=_ctl_db_path(),
         )
         if as_json:
             click.echo(json.dumps(rows_typed, ensure_ascii=False, indent=2))
@@ -1007,16 +1025,26 @@ def lessons_search(  # pylint: disable=too-many-arguments
         for r in rows_typed:
             click.echo("─" * 60)
             eff = r.get("effective_confidence", r.get("confidence", ""))
+            retired_tag = " [RETIRED]" if r.get("retired_at") else ""
             click.echo(
-                f"[{r.get('ts', '')[:10]}] [{r.get('type', '')}] {r.get('key', '')} (conf={eff})"
+                f"[{r.get('ts', '')[:10]}] [{r.get('type', '')}] "
+                f"{r.get('key', '')} (conf={eff}){retired_tag}"
             )
             if r.get("project"):
                 click.echo(f"  project = {r['project']}")
             click.echo(f"  {r.get('insight', '')}")
+            if r.get("retired_at"):
+                _sup = r.get("superseded_by")
+                _sup_txt = f"（superseded_by={_sup}）" if _sup else ""
+                click.echo(f"  retired: {r.get('retired_reason', '')}{_sup_txt}")
         return
 
     rows = search_lessons(
-        query=query, project=project, limit=last, include_insights=include_insights
+        query=query,
+        project=project,
+        limit=last,
+        include_insights=include_insights,
+        db_path=_ctl_db_path(),
     )
 
     if as_json:
@@ -1037,6 +1065,67 @@ def lessons_search(  # pylint: disable=too-many-arguments
         if r.get("project"):
             click.echo(f"  project = {r['project']}")
         click.echo(f"  {r['text']}")
+
+
+@lessons.command("delete")
+@click.option("--id", "lesson_id", required=True, help="要刪除的 lesson id（uuid，精確比對）")
+@click.option("--dry-run", is_flag=True, help="只顯示會刪除什麼，不實際刪除")
+def lessons_delete(lesson_id: str, dry_run: bool) -> None:
+    """刪除單筆誤寫的 typed lesson（先寫 tombstone 保留 audit trail）。
+
+    僅接受精確 --id，不支援條件式批次刪除（避免 DELETE without WHERE 類意外）。
+    """
+    from .lessons_service import delete_lesson, get_lesson
+
+    _db = _ctl_db_path()
+
+    if dry_run:
+        row = get_lesson(lesson_id, db_path=_db)
+        if row is None:
+            click.echo(f"[dry-run] 找不到 id={lesson_id} 的教訓，不會刪除任何記錄", err=True)
+            raise SystemExit(1)
+        click.echo(f"[dry-run] 將刪除 id={row['id']}")
+        click.echo(f"  [{row.get('type', '')}] {row.get('key', '')} (project={row.get('project')})")
+        click.echo(f"  {row.get('insight', '')}")
+        return
+
+    try:
+        result = delete_lesson(lesson_id, db_path=_db)
+    except (ValueError, RuntimeError) as e:
+        click.echo(f"錯誤：{e}", err=True)
+        raise SystemExit(1) from e
+
+    deleted = result["deleted"]
+    click.echo(
+        f"✓ 已刪除 id={deleted['id']}（[{deleted.get('type', '')}] {deleted.get('key', '')}）"
+    )
+    click.echo(f"  剩餘 lessons 筆數（不含 retired，與 show 一致）：{result['remaining']}")
+
+
+@lessons.command("retire")
+@click.option("--id", "lesson_id", required=True, help="要退場的 lesson id（uuid，精確比對）")
+@click.option("--reason", required=True, help="退場理由（為何被推翻，必填）")
+@click.option("--superseded-by", default=None, help="取代此教訓的新 key（可選）")
+def lessons_retire(lesson_id: str, reason: str, superseded_by: str | None) -> None:
+    """標記教訓退場：保留內容但退出流通（show/search/distill 預設排除）。
+
+    與 delete 語意不同：delete 是「這筆根本不該存在」；retire 是「它曾經對，現在被推翻了」。
+    """
+    from .lessons_service import retire_lesson
+
+    try:
+        updated = retire_lesson(lesson_id, reason, superseded_by, db_path=_ctl_db_path())
+    except (ValueError, RuntimeError) as e:
+        click.echo(f"錯誤：{e}", err=True)
+        raise SystemExit(1) from e
+
+    click.echo(
+        f"✓ 已退場 id={updated['id']}（[{updated.get('type', '')}] {updated.get('key', '')}）"
+    )
+    click.echo(f"  retired_at = {updated.get('retired_at')}")
+    click.echo(f"  reason = {updated.get('retired_reason')}")
+    if updated.get("superseded_by"):
+        click.echo(f"  superseded_by = {updated.get('superseded_by')}")
 
 
 # ─── metrics ─────────────────────────────────────────────────────────────

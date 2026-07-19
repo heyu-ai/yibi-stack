@@ -1,5 +1,7 @@
 """skill_eval 評測核心測試（judge 以 stub / AgentJudge，不打真 LLM）。"""
 
+from pathlib import Path
+
 import pytest
 
 from tasks.skill_eval.config import load_fixture
@@ -194,7 +196,8 @@ class TestFixtureLoading:
     def test_seval_st_003_real_example_fixture_loads(self) -> None:
         """SEVAL-ST-003: 內附示範 fixture 可被載入並計分（rule 09 用真檔）。
         spec: skill-trigger-eval#valid-fixture-loads"""
-        fx = load_fixture("pr-cycle-fast")
+        # 此變更起六個 skills 僅由 plugin 提供，不再保留 repo-root symlink。
+        fx = load_fixture("pr-cycle-fast", skills_dir=Path("plugins/pr-flow/skills"))
         tasks = build_tasks([fx])
         assert tasks, "示範 fixture 應產出至少一個評測任務"
         # 全部答對時 pass rate 皆為 1.0（重用 tasks，不重算 build_tasks）
