@@ -294,11 +294,15 @@ make install-all         # 等同 build-tools + install + install-project + inst
   After upgrading pylint, always run `uv run pylint --generate-toml-config | grep max-` to
   verify the current option names.
 - **unattended/scheduled retries use `CLAUDE_CODE_RETRY_WATCHDOG`, not a large
-  `CLAUDE_CODE_MAX_RETRIES`**: since Claude Code v2.1.186, `CLAUDE_CODE_MAX_RETRIES` is capped
-  at 15, so a scheduled or batch task can no longer get "long auto-retry" by setting it high —
-  use the retry watchdog instead. Affects `nightly-self-improvement` (the only `enabled: true`
-  job in `.runtime/schedules.json`) and any future ACP Gateway `skill:` job. Setting
-  `CLAUDE_CODE_MAX_RETRIES` above 15 silently clamps to 15, not an error.
+  `CLAUDE_CODE_MAX_RETRIES`**: Claude Code v2.1.186 capped bare
+  `CLAUDE_CODE_MAX_RETRIES` at 15 (setting it higher silently clamps). v2.1.199 then made
+  `CLAUDE_CODE_RETRY_WATCHDOG` **lift that cap of 15** and raise the default retry count to 300
+  for non-capacity transient errors (429s unrelated to the usage limit are also auto-retried with
+  backoff for subscribers). So the watchdog is not merely "the alternative" — it is what actually
+  restores long auto-retry; a large `CLAUDE_CODE_MAX_RETRIES` **alone** still clamps to 15.
+  Affects `nightly-self-improvement` (the only `enabled: true` job in `.runtime/schedules.json`)
+  and any future ACP Gateway `skill:` job. (Cap-lift verified against the official changelog,
+  2026-07-19; supersedes the earlier "always clamps to 15" wording.)
 - **`!` bash command output now auto-triggers a Claude response** (v2.1.186): a `!`-prefixed
   bash command's output used to be context-only; it now makes Claude respond to that output by
   default. To restore the old "context only, no response" behavior, set
