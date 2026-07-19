@@ -240,6 +240,16 @@ class TestExtractKeywords:
         kw = lint_skill_overlap.extract_keywords("參照 /agyx-service 端點", ref)
         assert "agyx-service" in kw
 
+    def test_lintoverlap_eg_046_marker_backtick_wrapped_list_all_stripped(self) -> None:
+        """LINTOVERLAP-EG-046: 請改用 標記後、反引號包裹的非 scanned CLI 指令清單，每個都要剝除。
+
+        mob R5 NIT：收尾反引號原本會中斷 _REDIRECT_MARKER_RE 匹配，漏掉清單第二個目標。
+        這些是非 scanned 指令（無已知 skill 名），故只能靠 marker regex 涵蓋。
+        """
+        kw = lint_skill_overlap.extract_keywords("請改用 `/spectra-apply`、`/spectra-propose`")
+        assert "spectra-apply" not in kw
+        assert "spectra-propose" not in kw
+
     def test_lintoverlap_eg_039_url_slash_not_stripped(self) -> None:
         """LINTOVERLAP-EG-039: URL 裡的斜線詞（https://api…）不是 skill 參照，不得剝除。
 

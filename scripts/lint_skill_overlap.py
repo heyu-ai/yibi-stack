@@ -74,9 +74,11 @@ _CJK_RUN_RE = re.compile(r"[一-鿿]{2,}")
 # (2) `_REDIRECT_MARKER_RE`：`請改用` 是語意上絕不接路徑的明確 redirect 詞，故其後的 `/token`
 #     即使不是 scanned skill（如 spectra CLI 的 `/spectra-apply`、`/spectra-propose`）也安全剝除。
 #     只保留 `請改用`（不含裸「改用/退回/與」——那些是會接路徑的日常詞，交給 (1) 以名稱判斷）。
+# 每個 target 兩側反引號皆可選（`` `?…`? ``）：涵蓋反引號包裹的清單
+# （`` 請改用 `/spectra-apply`、`/spectra-propose` ``），否則收尾反引號會中斷匹配、漏掉後續 target。
 _REDIRECT_MARKER_RE = re.compile(
-    r"請改用\s*`?/[A-Za-z][A-Za-z0-9_-]*"
-    r"(?:\s*[、，,或]\s*`?/[A-Za-z][A-Za-z0-9_-]*)*"
+    r"請改用\s*`?/[A-Za-z][A-Za-z0-9_-]*`?"
+    r"(?:\s*[、，,或]\s*`?/[A-Za-z][A-Za-z0-9_-]*`?)*"
 )
 
 
