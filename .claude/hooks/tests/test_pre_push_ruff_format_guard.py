@@ -6,9 +6,10 @@
         2 = 攔截（BLOCK）
 
 ruff 呼叫走 _RUFF_CMD_ENV seam 注入「PATH 上的真 ruff」直接掃 tmp repo——用真 ruff
-而非 mock，理由同姊妹 hook：mock 只驗證「程式有照我說的呼叫 ruff」，不驗證「我對 ruff
-輸出格式的假設是否成立」（見 ~/.claude/CLAUDE.md 的 verify-mock-asserts-assumption）。
-production 不設此 env，走專案 pinned 的 `uv run ruff`（版本與 CI 一致）。
+而非 mock：mock 只驗證「程式有照我說的呼叫 ruff」，不驗證「我對 ruff 輸出格式的假設
+是否成立」（沿用姊妹 hook 的測試哲學）。seam 只覆寫 ruff 指令**前綴**，hook 一律在其後
+附上已追蹤 .py 清單。production 不設此 env，走專案 pinned 的 `uv run ruff`（版本與 CI 目前
+一致，但兩處 pin 各自維護、無機械 lockstep）。
 """
 
 import json
@@ -59,7 +60,8 @@ def run_hook(
     """
     env = os.environ.copy()
     if ruff_override == "__real__":
-        env["PRE_PUSH_RUFF_GUARD_CMD"] = f"{RUFF} format --check ."
+        # 只給前綴（不含路徑）；hook 會在其後附上已追蹤 .py 清單。
+        env["PRE_PUSH_RUFF_GUARD_CMD"] = f"{RUFF} format --check"
     elif ruff_override is None:
         env.pop("PRE_PUSH_RUFF_GUARD_CMD", None)
     else:
@@ -76,6 +78,19 @@ def run_hook(
         input=payload,
         cwd=cwd,
         env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+def run_hook_raw(cwd: Path, raw_payload: str) -> subprocess.CompletedProcess[str]:
+    """以原始（可能格式錯誤）JSON 字串呼叫 hook，用來測外部資料邊界的 fail-open。"""
+    return subprocess.run(
+        ["python3", str(HOOK)],
+        input=raw_payload,
+        cwd=cwd,
+        env=os.environ.copy(),
         capture_output=True,
         text=True,
         timeout=30,
@@ -124,6 +139,39 @@ class TestFormatGuard:
         launch_cwd = tmp_path_factory.mktemp("launch-cwd")
         assert run_hook(launch_cwd, "git push", payload_cwd=repo).returncode == 2
 
+    def test_pprf_dt_010_multiple_relative_c_accumulates(self, repo: Path) -> None:
+        """PPRF-DT-010: 多個相對 -C 依 Git 累積語意解析（_resolve_cwd 迴圈本體）。
+
+        從 repo 的孫目錄啟動，用兩段相對 -C（`../..`）回到 repo root；若累積解析壞掉
+        （例如只取最後一段），目標會落在錯的目錄、抓不到 bad.py → 這個 block 就會消失。
+        """
+        (repo / "bad.py").write_text(_UNFORMATTED)
+        _git(repo, "add", "bad.py")
+        _git(repo, "commit", "-q", "-m", "add unformatted")
+        grandchild = repo / "a" / "b"
+        grandchild.mkdir(parents=True)
+        result = run_hook(grandchild, "git -C .. -C .. push origin feature")
+        assert result.returncode == 2
+        assert "bad.py" in result.stdout
+
+    def test_pprf_dt_011_multiple_pushes_second_target_blocks(
+        self, repo: Path, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        """PPRF-DT-011: 指令串含多個 push，第一個目標乾淨/非 git、後面的目標仍要被檢查。
+
+        涵蓋 _push_target_cwds 的 finditer 多筆 + main 迴圈「跳過乾淨/None 目標、在後面
+        的目標 block」分支；mutation `for target in targets[:1]` 會讓此測試失敗。
+        """
+        (repo / "bad.py").write_text(_UNFORMATTED)
+        _git(repo, "add", "bad.py")
+        _git(repo, "commit", "-q", "-m", "add unformatted")
+        nongit = tmp_path_factory.mktemp(
+            "nongit"
+        )  # 第一個 push 目標：非 git 目錄（_repo_root -> None）
+        result = run_hook(nongit, f"git push origin a && git -C {repo} push origin b")
+        assert result.returncode == 2
+        assert "bad.py" in result.stdout
+
 
 # ── 指令匹配：只認真正執行的 git push ─────────────────────────────────
 
@@ -163,18 +211,22 @@ class TestCommandMatching:
             "git --no-pager push",
             "git -p push",
             "git -c http.x=y push",
+            "git --exec-path=/bin push",  # inline `=` 帶值全域選項（_GLOBAL_OPTIONS_WITH_VALUE separator 分支）
             "env X=y git push",
             "X=y git push",
+            'FOO="a b" git push',  # 帶空白的引號 inline env（atomic-group regex 的引號值分支）
             "sudo git push",
             "(git push)",
         ],
     )
     def test_pprf_dt_008_global_options_and_wrappers_block(self, repo: Path, command: str) -> None:
-        """PPRF-DT-008: 全域選項 / wrapper 形狀的 push 仍要認得"""
+        """PPRF-DT-008: 全域選項 / wrapper 形狀的 push 仍要認得（且列出檔名，非只驗 exit code）"""
         (repo / "bad.py").write_text(_UNFORMATTED)
         _git(repo, "add", "bad.py")
         _git(repo, "commit", "-q", "-m", "add unformatted")
-        assert run_hook(repo, command).returncode == 2
+        result = run_hook(repo, command)
+        assert result.returncode == 2
+        assert "bad.py" in result.stdout
 
     def test_pprf_dt_009_unrecognized_option_fails_open(self, repo: Path) -> None:
         """PPRF-DT-009: push 前出現非白名單 option → 保守放行（fail-open，非本 guard 目的）"""
@@ -210,8 +262,48 @@ class TestEdgeCases:
         _git(repo, "add", "bad.py")
         _git(repo, "commit", "-q", "-m", "add unformatted")
         result = run_hook(
-            repo, "git push", ruff_override="/definitely/nonexistent/ruff format --check ."
+            repo, "git push", ruff_override="/definitely/nonexistent/ruff format --check"
         )
+        assert result.returncode == 0
+
+    @_needs_ruff
+    def test_pprf_eg_005_untracked_unformatted_does_not_block(self, repo: Path) -> None:
+        """PPRF-EG-005: 未追蹤（never git add）的未格式化 .py 不該擋 push。
+
+        旗艦回歸：舊版掃 `.` 會把從沒進 push 的暫存檔判紅（mob review 3 家共識 Critical）。
+        改掃 `git ls-files` 已追蹤檔後，未追蹤的 scratch.py 不在集合內 → 放行。
+        """
+        (repo / "scratch.py").write_text(_UNFORMATTED)  # 未 git add
+        assert run_hook(repo, "git push origin feature").returncode == 0
+
+    def test_pprf_eg_006_null_tool_input_fails_open(self, repo: Path) -> None:
+        """PPRF-EG-006: payload 的 tool_input 為 null → fail-open 放行（rule 02 型別守門）。
+
+        舊版 `data.get("tool_input", {}).get(...)` 在 tool_input=null 時擲 AttributeError，
+        落在 try 外 → exit 1 → settings.json `|| exit 2` → 誤擋 push（與 fail-open 契約相反）。
+        """
+        payload = json.dumps({"tool_name": "Bash", "tool_input": None, "cwd": str(repo)})
+        assert run_hook_raw(repo, payload).returncode == 0
+
+    def test_pprf_eg_007_non_object_payload_fails_open(self, repo: Path) -> None:
+        """PPRF-EG-007: 頂層非物件的 JSON（如 `[1,2]`）→ fail-open 放行。"""
+        assert run_hook_raw(repo, "[1, 2]").returncode == 0
+
+    def test_pprf_eg_008_ruff_rc1_without_parseable_lines_blocks(self, repo: Path) -> None:
+        """PPRF-EG-008: ruff rc==1 但 stdout 解析不出檔名 → 仍一律 block（不因解析失敗 fail-open）。
+
+        用 stub 強制 rc==1、無 `Would reformat:` 行，模擬未來 ruff 改輸出格式的情形。
+        """
+        result = run_hook(repo, "git push", ruff_override="python3 -c 'import sys; sys.exit(1)'")
+        assert result.returncode == 2
+        assert "ruff format" in result.stdout
+
+    def test_pprf_eg_009_ruff_rc2_fails_open(self, repo: Path) -> None:
+        """PPRF-EG-009: ruff rc==2（用法錯誤等，非 {0,1}）無法判定 → fail-open 放行。"""
+        (repo / "bad.py").write_text(_UNFORMATTED)
+        _git(repo, "add", "bad.py")
+        _git(repo, "commit", "-q", "-m", "add unformatted")
+        result = run_hook(repo, "git push", ruff_override="python3 -c 'import sys; sys.exit(2)'")
         assert result.returncode == 0
 
 
@@ -219,11 +311,20 @@ class TestEdgeCases:
 
 
 class TestReDoS:
-    def test_pprf_re_001_git_command_regex_no_exponential_backtracking(self) -> None:
-        """PPRF-RE-001: _GIT_COMMAND 對長重複 assignment 攻擊字串不得指數爆炸。
+    @pytest.mark.parametrize(
+        "attack",
+        [
+            "&A=" + ("A=x " * 4000),  # ASCII 空白分隔的長重複 assignment
+            "&A=" + ("\xa0A=" * 4000),  # CodeQL py/redos 的原始 witness（\xa0 = NBSP，屬 \s）
+            "\n" * 8000 + " git status",  # 大量換行邊界（Codex R1 提出、已 withdraw 的 witness）
+        ],
+    )
+    def test_pprf_re_001_git_command_regex_no_exponential_backtracking(self, attack: str) -> None:
+        """PPRF-RE-001: _GIT_COMMAND 對長重複攻擊字串不得指數爆炸。
 
-        本 hook 的 assignment 重複段 `(?:[A-Za-z_]\\w*=\\S+\\s+)*` 中 `\\S+` 與 `\\s+`
-        字元類互斥、每段以 `=` 錨定，理論上線性；此測試以 timing 上限守住不回退。
+        assignment 重複段以 atomic group `(?>...)` 包住（Python 3.11+），一旦匹配不回溯，
+        消除 `\\S+`/引號替換 × 外層 `*` 的指數 backtracking（CodeQL py/redos）。此測試以 timing
+        上限守住不回退，並涵蓋 CodeQL 的原始 NBSP witness。
         """
         import importlib.util
         import time
@@ -233,7 +334,6 @@ class TestReDoS:
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        attack = "&A=" + ("A=x " * 4000)
         start = time.perf_counter()
         list(mod._GIT_COMMAND.finditer(attack))
         elapsed = time.perf_counter() - start

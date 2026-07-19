@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PreToolUse hook: push 前擋下「已 commit 但從沒跑過 ruff format」的 Python 檔。
+"""PreToolUse hook: push 前擋下「已追蹤但從沒跑過 ruff format」的 Python 檔。
 
 姊妹 hook `pre-push-tree-drift-guard.py` 擋的是**已格式化但沒 commit**（push 前工作區
 有未 commit 的 tracked 改動）。本 hook 補的是**另一半、且它抓不到**的缺口：內容**已經
@@ -12,15 +12,22 @@ CI 端 `pre-commit run --all-files` 的 ruff-format 卻必然紅（就地改檔 
     -> 未 ruff format 的新 .py 直接進 commit -> 本地看起來乾淨 -> push -> CI 紅
 
 被動記錄（CLAUDE.md gotcha、typed lesson）已證明攔不住反覆復發，故改由本 hook 在 push
-這個 CI-gate 時間點主動阻擋：對 repo 跑 `ruff format --check`（比照 CI 的 --all-files），
+這個 CI-gate 時間點主動阻擋：對**已追蹤的 .py**（`git ls-files`）跑 `ruff format --check`，
 有任何檔案會被重格式化就 block。
 
-Exit code:
-  0 -> 放行（非 push、非 git repo、ruff 不可用、或全部已格式化——一律 fail-open）
-  2 -> 攔截（有 .py 尚未 ruff format）並顯示清單與出路
+只掃**已追蹤**檔案（`git ls-files`），不掃未追蹤檔：這正是 CI 的 `pre-commit --all-files`
+所看的集合（pre-commit 對 `git ls-files` 取檔，不含未追蹤檔）。掃整個工作目錄（`.`）會連
+未追蹤、非 gitignore 的暫存 .py 一起判紅，製造 push 根本不含這些檔的誤報（姊妹 hook
+「只看已追蹤檔案」同一理由）。已知殘留：`ruff --check` 讀的是工作區位元組，非 push refspec
+指向的 commit 物件，故「commit 乾淨版本後又在工作區改亂」的少見序列仍可能誤報——這與
+姊妹 hook 相同，屬可接受的取捨（鼓勵乾淨工作區）。
 
-規則來源：~/.claude/CLAUDE.md「Verification Before Claiming Done」、
-         .claude/rules/13「make ci before git add silently skips brand-new files」
+Exit code:
+  0 -> 放行（非 push、非 git repo、ruff 不可用、無已追蹤 .py、或全部已格式化——一律 fail-open）
+  2 -> 攔截（有已追蹤 .py 尚未 ruff format）並顯示清單與出路
+
+規則來源：本 repo `CLAUDE.md` Known Gotchas「`make ci` before `git add` silently skips
+         brand-new files」（fresh worktree commit 不觸發 pre-commit 的同類復發）。
 """
 
 import json
@@ -33,19 +40,30 @@ import sys
 _GIT_ENV_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 
 # 測試 seam：黑盒測試在 tmp_path git repo（無 uv project）裡跑，`uv run ruff` 無法解析
-# 專案。設此 env 可覆寫整條 ruff 指令，讓測試注入 PATH 上的真 ruff 直接掃 tmp repo
-# （用真 ruff 而非 mock，契合姊妹 hook 的測試哲學）。production 不設它，一律走
-# 專案 pinned 的 `uv run ruff`（版本與 CI 的 pre-commit ruff-format 一致，避免 PATH 上
-# 某個版本相異的 ruff 判讀與 CI 分歧）。
+# 專案。設此 env 可覆寫 ruff 指令**前綴**（executable + 子指令 + flag），hook 一律在其後
+# 附上已追蹤 .py 清單，讓測試注入 PATH 上的真 ruff 直接掃 tmp repo（用真 ruff 而非 mock，
+# 契合姊妹 hook 的測試哲學：mock 只驗證「有照我說的呼叫」，不驗證「我對 ruff 輸出的假設」）。
+# production 不設它，一律走專案 pinned 的 `uv run ruff`（版本與 CI 的 pre-commit ruff-format
+# 一致，避免 PATH 上某個版本相異的 ruff 判讀與 CI 分歧）。
 _RUFF_CMD_ENV = "PRE_PUSH_RUFF_GUARD_CMD"
-_DEFAULT_RUFF_CMD = ["uv", "run", "ruff", "format", "--check", "."]
+_DEFAULT_RUFF_CMD = ["uv", "run", "ruff", "format", "--check"]
+
+# subprocess timeout（秒）。內層 ruff 上限必須 <= settings.json 的 hook timeout（120），否則
+# harness 會先砍掉整個 hook，內層 timeout 形同虛設（見 settings.json pre-push-ruff-format-guard
+# 的 "timeout": 120，特意給 fresh worktree 冷啟 `uv run` 足夠 headroom）。
+_RUFF_TIMEOUT = 110
+_GIT_TIMEOUT = 15
 
 # 與 pre-push-tree-drift-guard 同一威脅模型：防的是「意外把未格式化的 commit push 出去」，
 # 不是對抗使用者刻意繞過自己的 guard。故只需辨識常見 git 指令形狀（inline env / sudo /
 # 指令串），exotic wrapper 落到放行分支即可。
 _GIT_COMMAND = re.compile(
     r"(?:^|[;&|(]|\n)\s*"
-    r"(?:(?:env\s+)?(?:[A-Za-z_]\w*=\S+\s+)*|sudo\s+)"
+    # atomic group `(?>...)`（Python 3.11+）包住 assignment 重複段：一旦匹配就不回溯，
+    # 消除 `\S+` 與引號替換 overlap × 外層 `*` 造成的指數 backtracking（CodeQL py/redos）。
+    # 每個 iteration 以 `\s+` 分隔、值不跨越空白，故 atomic 不會改變任何合法匹配。
+    # 值支援引號形式（`FOO="a b"`），涵蓋帶空白的 inline env（沿用姊妹 hook 的 pattern）。
+    r"(?:(?:env\s+)?(?>(?:[A-Za-z_]\w*=(?:\"[^\"]*\"|'[^']*'|\S+)\s+)*)|sudo\s+)"
     r"git\b(?P<args>[^;&|\n]*)",
     re.MULTILINE,
 )
@@ -75,6 +93,7 @@ _GLOBAL_OPTIONS_WITH_VALUE = {
 
 
 _UNRESOLVABLE_PATH = re.compile(r"['\"$`~()]")
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def _push_c_paths(args: str) -> list[str] | None:
@@ -143,25 +162,31 @@ def _push_target_cwds(command: str, base_cwd: str) -> list[str]:
     return targets
 
 
-def _repo_root(base_cwd: str) -> str | None:
-    """回傳 base_cwd 所在 repo（或 worktree）的 toplevel；非 git 目錄回傳 None。
+def _git_env() -> dict[str, str]:
+    """複製 environ 並清掉 GIT_DIR/GIT_WORK_TREE 等 selector，鎖定 LC_ALL=C。
 
-    清掉 GIT_DIR/GIT_WORK_TREE 等 selector，避免 hook 執行環境（可能繼承自 git hook 情境）
-    把解析導向別的 repo（見 rule 13「GIT_DIR / GIT_WORK_TREE Override」）。
+    清 selector 避免 hook 執行環境（可能繼承自 git hook 情境）把解析導向別的 repo
+    （見 rule 13「GIT_DIR / GIT_WORK_TREE Override」）。
     """
     env = os.environ.copy()
     for key in _GIT_ENV_KEYS:
         env.pop(key, None)
     env["LC_ALL"] = "C"
+    return env
+
+
+def _repo_root(base_cwd: str) -> str | None:
+    """回傳 base_cwd 所在 repo（或 worktree）的 toplevel；非 git 目錄回傳 None。"""
     try:
         result = subprocess.run(  # nosec B603 B607
             ["git", "rev-parse", "--show-toplevel"],
             cwd=base_cwd,
-            env=env,
+            env=_git_env(),
             capture_output=True,
             text=True,
+            timeout=_GIT_TIMEOUT,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode != 0:
         return None
@@ -169,25 +194,55 @@ def _repo_root(base_cwd: str) -> str | None:
     return root or None
 
 
-def _unformatted_files(root: str) -> list[str] | None:
-    """對 repo 跑 `ruff format --check`，回傳會被重格式化的檔案清單。
+def _tracked_py_files(root: str) -> list[str] | None:
+    """回傳 repo 內所有**已追蹤**的 .py（相對 root 的路徑）。
 
-    回傳 None 代表無法判斷（ruff 不可用 / 執行失敗）——呼叫端據此 fail-open 放行。
-    比照 CI 的 pre-commit --all-files 掃全 repo：ruff 極快，且 CI 本就會對全樹判紅，
-    只掃 diff 反而會漏掉「push 進來的 commit 讓別處檔案失格」的少見情形。
+    回傳 None 代表 git 查詢失敗（無法判斷）——呼叫端據此 fail-open 放行。
+    比照 CI：`pre-commit --all-files` 對 `git ls-files` 取檔，只涵蓋已追蹤檔案；本 hook
+    用同一集合，故不會把未追蹤、非 gitignore 的暫存 .py 誤判成 push 內容。
     """
-    env = os.environ.copy()
-    env["LC_ALL"] = "C"
+    try:
+        result = subprocess.run(  # nosec B603 B607
+            ["git", "ls-files", "-z", "--", "*.py"],
+            cwd=root,
+            env=_git_env(),
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return [f for f in result.stdout.split("\0") if f]
+
+
+def _unformatted_files(root: str) -> list[str] | None:
+    """對已追蹤的 .py 跑 `ruff format --check`，回傳會被重格式化的檔案清單。
+
+    回傳 None 代表無法判斷（ruff 不可用 / git 查詢失敗 / 執行失敗）——呼叫端 fail-open 放行。
+    回傳 [] 代表全部已格式化（或無已追蹤 .py）。
+    """
+    tracked = _tracked_py_files(root)
+    if tracked is None:
+        return None
+    if not tracked:
+        return []  # 無已追蹤 .py，沒東西可檢查（不可傳空清單給 ruff，否則它會退回掃 `.`）。
+
+    env = _git_env()
+    env["NO_COLOR"] = "1"  # ruff 即使輸出到 pipe 仍會上色；關色讓檔名清單乾淨可讀。
     override = env.get(_RUFF_CMD_ENV)
     if override:
         try:
-            cmd = shlex.split(override)
+            base_cmd = shlex.split(override)
         except ValueError:
             return None
-        if not cmd:
+        if not base_cmd:
             return None
     else:
-        cmd = _DEFAULT_RUFF_CMD
+        base_cmd = list(_DEFAULT_RUFF_CMD)
+    # 附上已追蹤檔案清單（而非掃 `.`）。已追蹤 .py 數量對真實 repo 遠低於 ARG_MAX。
+    cmd = base_cmd + tracked
     try:
         result = subprocess.run(  # nosec B603 B607
             cmd,
@@ -195,34 +250,42 @@ def _unformatted_files(root: str) -> list[str] | None:
             env=env,
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=_RUFF_TIMEOUT,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode == 0:
         return []  # 全部已格式化
-    # ruff --check 對「會重格式化」回傳 1，並在 stdout 印 `Would reformat: <path>`。
+    if result.returncode == 1:
+        # rc==1 本身即 ruff 的明確「有檔案會被重格式化」判定；一律 block，不因輸出解析
+        # 失敗而 fail-open（未來 ruff 改字串 / 改輸出位置也不會靜默漏擋）。
+        lines = [
+            _ANSI_ESCAPE.sub("", ln).partition("Would reformat:")[2].strip()
+            for ln in result.stdout.splitlines()
+            if "Would reformat:" in ln
+        ]
+        return lines or ["(ruff 回報有檔案需要重新格式化；請跑：uv run ruff format .)"]
     # 其他非 0（例如 2 = 用法錯誤 / ruff 不存在於 uv 環境）無法判定 -> fail-open。
-    lines = [ln for ln in result.stdout.splitlines() if ln.startswith("Would reformat:")]
-    if result.returncode == 1 and lines:
-        return [ln.partition("Would reformat:")[2].strip() for ln in lines]
     return None
 
 
 def main() -> None:
+    # 外部資料邊界：payload 解析 + 型別驗證全部包在 fail-open boundary 內。settings.json 以
+    # `... || exit 2` 包裝本 hook，任何未捕捉的例外會變 exit 1 -> `|| exit 2` -> 擋 push，
+    # 與 docstring 承諾的 fail-open 相反（rule 02「Type Guard at External Data Boundaries」）。
     try:
         data = json.load(sys.stdin)
-    except Exception:
+        if data.get("tool_name") != "Bash":
+            sys.exit(0)
+        command = data.get("tool_input", {}).get("command", "")
+        payload_cwd = data.get("cwd")
+    except Exception:  # noqa: BLE001 -- 外部資料邊界，任何解析/取值失敗一律 fail-open
         sys.exit(0)
-    if data.get("tool_name") != "Bash":
-        sys.exit(0)
-    command = data.get("tool_input", {}).get("command", "")
+
     if not isinstance(command, str):
         sys.exit(0)
 
-    base_cwd = data.get("cwd")
-    if not isinstance(base_cwd, str) or not base_cwd:
-        base_cwd = os.getcwd()
+    base_cwd = payload_cwd if isinstance(payload_cwd, str) and payload_cwd else os.getcwd()
 
     targets = _push_target_cwds(command, base_cwd)
     if not targets:
@@ -242,20 +305,20 @@ def main() -> None:
 
     listed = "\n".join(f"    {f}" for f in unformatted)
     print(
-        "[BLOCKED] 有已 commit 但未經 ruff format 的 Python 檔，push 出去 CI 必紅\n"
+        "[BLOCKED] 有已追蹤但未經 ruff format 的 Python 檔，push 出去 CI 必紅\n"
         "\n"
         f"{listed}\n"
         "\n"
-        "這些檔的內容已經在 commit 裡，但從沒跑過 ruff format。工作區是乾淨的，\n"
-        "所以 tree-drift-guard 放行——但 CI 的 pre-commit（--all-files）會就地改檔並判紅。\n"
-        "常見成因：在 fresh git worktree 裡 commit 不觸發本地 pre-commit hook。\n"
+        "這些是 git 已追蹤的 .py，但從沒跑過 ruff format——CI 的 pre-commit（--all-files）\n"
+        "會就地改檔並判紅。常見成因：在 fresh git worktree 裡 commit 不觸發本地 pre-commit hook。\n"
         "\n"
         "出路：\n"
         "  uv run ruff format .        # 全樹格式化\n"
         "  git add <上列檔案> && git commit --amend   # 或另開一個 fixup commit\n"
         "  然後重新 push\n"
         "\n"
-        "規則來源：~/.claude/CLAUDE.md「Verification Before Claiming Done」"
+        "規則來源：本 repo CLAUDE.md Known Gotchas"
+        "「make ci before git add silently skips brand-new files」"
     )
     sys.exit(2)
 

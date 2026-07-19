@@ -70,7 +70,7 @@
           {
             "command": "[ -f \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-push-ruff-format-guard.py\" ] || exit 0; python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-push-ruff-format-guard.py\" || exit 2",
             "statusMessage": "檢查 push 出去的 .py 是否已 ruff format...",
-            "timeout": 30,
+            "timeout": 120,
             "type": "command"
           }
         ],
