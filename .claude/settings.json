@@ -68,6 +68,17 @@
       {
         "hooks": [
           {
+            "command": "[ -f \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-push-ruff-format-guard.py\" ] || exit 0; python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-push-ruff-format-guard.py\" || exit 2",
+            "statusMessage": "檢查 push 出去的 .py 是否已 ruff format...",
+            "timeout": 120,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
             "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-ap2-check.py || exit 2",
             "statusMessage": "AP2 Unicode 字元檢查...",
             "timeout": 10,
