@@ -13,7 +13,7 @@ description: >
   或任何需要嚴格測試循環紀律的開發工作，都應觸發此 Skill。
   與 /spectra-apply 銜接：當 /spectra-apply 進入 tasks 實作階段（開始寫 code）時，
   用本 skill 的 Red-Green-Refactor 循環逐一驅動每個 task 的實作，是實作階段的預設方法論。
-  但仍在寫規格 / 展開需求階段（請改用 /spectra-propose 或 spectra-amplifier）不觸發；
+  但仍在寫規格 / 展開需求階段（請改用 /spectra-propose 或 /spectra-amplifier）不觸發；
   純「幫我寫這個功能」而未提及測試、也未進入 /spectra-apply 實作時不主動搶觸發（屬一般實作工作）。
   Flutter 專案的 TDD 請改用 /flutter-tdd；CI 紅燈診斷（非撰寫測試）請改用 /ci-triage。
 ---

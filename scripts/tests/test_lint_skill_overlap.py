@@ -218,6 +218,20 @@ class TestExtractKeywords:
         assert "etc" in kw
         assert "nginx" in kw
 
+    def test_lintoverlap_eg_041_separator_only_leads_no_strip(self) -> None:
+        """LINTOVERLAP-EG-041: 分隔詞（、／，／或）不能自己當起頭；標點後的孤立路徑不得剝除。
+
+        負向對照——mob R3 指出：把分隔詞當無條件前綴，會誤剝標點後的路徑。分隔詞只能
+        延續一個已由 redirect/比較起頭詞開啟的清單。
+        """
+        kw = lint_skill_overlap.extract_keywords("選項 A、/etc/passwd 是系統路徑")
+        assert "etc" in kw
+        # 但 marker 起頭的清單延續仍要剝除（回歸鎖定）
+        kw2 = lint_skill_overlap.extract_keywords("請改用 /alpha 或 /beta、/gamma")
+        assert "alpha" not in kw2
+        assert "beta" not in kw2
+        assert "gamma" not in kw2
+
     def test_lintoverlap_eg_024_punctuation_crossing_bigrams_impossible(self) -> None:
         """LINTOVERLAP-EG-024: CJK run 在全形標點處斷開，跨標點的 bigram 永遠不會產生
 
