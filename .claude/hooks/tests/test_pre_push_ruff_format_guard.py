@@ -139,18 +139,34 @@ class TestFormatGuard:
         launch_cwd = tmp_path_factory.mktemp("launch-cwd")
         assert run_hook(launch_cwd, "git push", payload_cwd=repo).returncode == 2
 
-    def test_pprf_dt_010_multiple_relative_c_accumulates(self, repo: Path) -> None:
-        """PPRF-DT-010: 多個相對 -C 依 Git 累積語意解析（_resolve_cwd 迴圈本體）。
+    def test_pprf_dt_010_multiple_relative_c_accumulates(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        """PPRF-DT-010: 多個相對 -C 依 Git 累積語意解析（_resolve_cwd 累積迴圈）。
 
-        從 repo 的孫目錄啟動，用兩段相對 -C（`../..`）回到 repo root；若累積解析壞掉
-        （例如只取最後一段），目標會落在錯的目錄、抓不到 bad.py → 這個 block 就會消失。
+        中繼點刻意用「不同的 repo」，累積解析才可觀察：base_cwd 設在 decoy repo，正確的兩段
+        累積（`-C .. -C target`）會落在含 bad.py 的 target repo（→ block）；壞掉的「只取最後
+        一段」會落在 decoy/target（不存在）→ 放行。若像先前那樣在同一 repo 內用 `../..`，
+        `git rev-parse --show-toplevel` 會把任何子目錄正規化回同一 root，last-only mutation
+        便無法被殺（pr-test-analyzer 於 re-review 抓到的 fake-test）。
         """
-        (repo / "bad.py").write_text(_UNFORMATTED)
-        _git(repo, "add", "bad.py")
-        _git(repo, "commit", "-q", "-m", "add unformatted")
-        grandchild = repo / "a" / "b"
-        grandchild.mkdir(parents=True)
-        result = run_hook(grandchild, "git -C .. -C .. push origin feature")
+
+        def _init(path: Path, *files: tuple[str, str]) -> None:
+            path.mkdir()
+            _git(path, "init", "-q")
+            _git(path, "config", "user.email", "test@example.com")
+            _git(path, "config", "user.name", "test")
+            for name, content in files:
+                (path / name).write_text(content)
+            _git(path, "add", *[name for name, _ in files])
+            _git(path, "commit", "-q", "-m", "init")
+
+        container = tmp_path_factory.mktemp("acc")
+        target = container / "target"
+        _init(target, ("tracked.py", _FORMATTED), ("bad.py", _UNFORMATTED))
+        decoy = container / "decoy"
+        _init(decoy, ("clean.py", _FORMATTED))
+        result = run_hook(decoy, "git -C .. -C target push origin feature", payload_cwd=decoy)
         assert result.returncode == 2
         assert "bad.py" in result.stdout
 
@@ -305,6 +321,37 @@ class TestEdgeCases:
         _git(repo, "commit", "-q", "-m", "add unformatted")
         result = run_hook(repo, "git push", ruff_override="python3 -c 'import sys; sys.exit(2)'")
         assert result.returncode == 0
+
+    def test_pprf_eg_010_ansi_escapes_stripped_from_file_list(self, repo: Path) -> None:
+        """PPRF-EG-010: ruff 輸出帶 ANSI 色碼時，block 清單需去色（_ANSI_ESCAPE 生效）。
+
+        用 stub 強制輸出含 ANSI 的 `Would reformat:` 行；若 `_ANSI_ESCAPE.sub` 被拿掉，
+        清單會夾帶 `\\x1b[...m` 逃逸碼 → 此斷言會失敗。
+        """
+        stub = repo / "ansi_stub.py"
+        stub.write_text(
+            "import sys\nsys.stdout.write('Would reformat: \\x1b[1mx.py\\x1b[0m\\n')\nsys.exit(1)\n"
+        )
+        result = run_hook(repo, "git push", ruff_override=f"python3 {stub}")
+        assert result.returncode == 2
+        assert "x.py" in result.stdout
+        assert "\x1b" not in result.stdout
+
+    @_needs_ruff
+    def test_pprf_eg_011_no_tracked_py_allows(self, tmp_path: Path) -> None:
+        """PPRF-EG-011: repo 無任何已追蹤 .py（只有未追蹤未格式化 .py）→ 放行。
+
+        涵蓋 `_unformatted_files` 的 `if not tracked: return []` 分支：若拿掉該防護，ruff 會
+        以空清單退回掃 `.` → 抓到未追蹤 scratch.py → 誤擋；本測試斷言 exit 0。
+        """
+        _git(tmp_path, "init", "-q")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "test")
+        (tmp_path / "readme.txt").write_text("hi\n")
+        _git(tmp_path, "add", "readme.txt")
+        _git(tmp_path, "commit", "-q", "-m", "init")
+        (tmp_path / "scratch.py").write_text(_UNFORMATTED)  # 未追蹤
+        assert run_hook(tmp_path, "git push origin feature").returncode == 0
 
 
 # ── ReDoS 回歸（比照姊妹 hook / CodeQL py/redos）───────────────────────

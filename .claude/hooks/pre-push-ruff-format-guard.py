@@ -175,6 +175,11 @@ def _git_env() -> dict[str, str]:
     return env
 
 
+def _warn(message: str) -> None:
+    """把 fail-open 的原因寫到 stderr，讓「guard 靜默沒跑」變成可診斷（rule 02）。"""
+    print(f"[WARN] pre-push-ruff-guard: {message}（fail-open，放行 push）", file=sys.stderr)
+
+
 def _repo_root(base_cwd: str) -> str | None:
     """回傳 base_cwd 所在 repo（或 worktree）的 toplevel；非 git 目錄回傳 None。"""
     try:
@@ -184,12 +189,14 @@ def _repo_root(base_cwd: str) -> str | None:
             env=_git_env(),
             capture_output=True,
             text=True,
+            errors="surrogateescape",  # 非 UTF-8 路徑不擲 UnicodeDecodeError
             timeout=_GIT_TIMEOUT,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as e:
+        _warn(f"git rev-parse 失敗：{e}")
         return None
     if result.returncode != 0:
-        return None
+        return None  # 非 git 目錄：正常、非本 guard 範圍，不必 [WARN]
     root = result.stdout.strip()
     return root or None
 
@@ -208,11 +215,14 @@ def _tracked_py_files(root: str) -> list[str] | None:
             env=_git_env(),
             capture_output=True,
             text=True,
+            errors="surrogateescape",  # 非 UTF-8 檔名不擲 UnicodeDecodeError
             timeout=_GIT_TIMEOUT,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as e:
+        _warn(f"git ls-files 失敗：{e}")
         return None
     if result.returncode != 0:
+        _warn(f"git ls-files 回傳碼 {result.returncode}")
         return None
     return [f for f in result.stdout.split("\0") if f]
 
@@ -241,8 +251,10 @@ def _unformatted_files(root: str) -> list[str] | None:
             return None
     else:
         base_cmd = list(_DEFAULT_RUFF_CMD)
-    # 附上已追蹤檔案清單（而非掃 `.`）。已追蹤 .py 數量對真實 repo 遠低於 ARG_MAX。
-    cmd = base_cmd + tracked
+    # `--` 終止選項解析：名稱像選項的檔案（例如 `-foo.py`）才不會被 ruff 誤判成 flag。
+    # 全部路徑單次傳入：已追蹤 .py 數量對真實 repo 遠低於 ARG_MAX；極大 repo 若超限會擲
+    # OSError -> 下方 fail-open（附 [WARN]），屬本便利 guard 可接受的殘留（未分批）。
+    cmd = base_cmd + ["--"] + tracked
     try:
         result = subprocess.run(  # nosec B603 B607
             cmd,
@@ -250,9 +262,11 @@ def _unformatted_files(root: str) -> list[str] | None:
             env=env,
             capture_output=True,
             text=True,
+            errors="surrogateescape",  # 非 UTF-8 路徑不擲 UnicodeDecodeError
             timeout=_RUFF_TIMEOUT,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as e:
+        _warn(f"ruff 執行失敗：{e}")
         return None
     if result.returncode == 0:
         return []  # 全部已格式化
@@ -266,40 +280,48 @@ def _unformatted_files(root: str) -> list[str] | None:
         ]
         return lines or ["(ruff 回報有檔案需要重新格式化；請跑：uv run ruff format .)"]
     # 其他非 0（例如 2 = 用法錯誤 / ruff 不存在於 uv 環境）無法判定 -> fail-open。
+    _warn(f"ruff 回傳非預期碼 {result.returncode}")
     return None
 
 
-def main() -> None:
-    # 外部資料邊界：payload 解析 + 型別驗證全部包在 fail-open boundary 內。settings.json 以
-    # `... || exit 2` 包裝本 hook，任何未捕捉的例外會變 exit 1 -> `|| exit 2` -> 擋 push，
-    # 與 docstring 承諾的 fail-open 相反（rule 02「Type Guard at External Data Boundaries」）。
-    try:
-        data = json.load(sys.stdin)
-        if data.get("tool_name") != "Bash":
-            sys.exit(0)
-        command = data.get("tool_input", {}).get("command", "")
-        payload_cwd = data.get("cwd")
-    except Exception:  # noqa: BLE001 -- 外部資料邊界，任何解析/取值失敗一律 fail-open
-        sys.exit(0)
+def _evaluate() -> list[str]:
+    """回傳需要 block 的檔案清單；空 list = 放行。
 
+    所有「非 push / 非 git / 無法判斷」情形都回傳 []。本函式**不**呼叫 sys.exit：任何未預期
+    例外交由 main() 統一 fail-open——否則 payload 解析、`-C` 路徑解析（realpath 遇 NUL 擲
+    ValueError）、launch cwd 已刪除（getcwd 擲例外）、非 UTF-8 路徑等在 try 外擲例外時，會被
+    settings.json 的 `|| exit 2` 反轉成 fail-closed（rule 02 外部資料邊界）。
+    """
+    data = json.load(sys.stdin)
+    if data.get("tool_name") != "Bash":
+        return []
+    command = data.get("tool_input", {}).get("command", "")
     if not isinstance(command, str):
-        sys.exit(0)
-
+        return []
+    payload_cwd = data.get("cwd")
     base_cwd = payload_cwd if isinstance(payload_cwd, str) and payload_cwd else os.getcwd()
 
-    targets = _push_target_cwds(command, base_cwd)
-    if not targets:
-        sys.exit(0)  # 非 push 指令
-
-    unformatted: list[str] = []
-    for target in targets:
+    for target in _push_target_cwds(command, base_cwd):
         root = _repo_root(target)
         if root is None:
             continue  # 非 git 目錄不屬本 guard 範圍
         found = _unformatted_files(root)
         if found:  # None（無法判斷）或 []（全乾淨）都跳過
-            unformatted = found
-            break
+            return found
+    return []
+
+
+def main() -> None:
+    # fail-open 邊界：整段評估（payload 解析、型別驗證、-C 路徑解析、git/ruff 子行程）都包起來。
+    # settings.json 以 `... || exit 2` 包裝本 hook，任何未捕捉例外會變 exit 1 -> `|| exit 2`
+    # -> 擋 push，與 docstring 承諾的 fail-open 相反。sys.exit 由本函式負責、_evaluate 不自行
+    # exit，故真正的 block 判斷不會被 except 吞掉。
+    try:
+        unformatted = _evaluate()
+    except Exception as e:  # noqa: BLE001 -- 便利 guard：任何未預期失敗一律 fail-open
+        _warn(f"未預期例外：{e}")
+        sys.exit(0)
+
     if not unformatted:
         sys.exit(0)
 
