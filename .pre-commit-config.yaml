@@ -70,6 +70,13 @@ repos:
         pass_filenames: false
         files: ^(skills/.*/SKILL\.md|\.claude-plugin/marketplace\.json)$
 
+      - id: lint-rule-frontmatter
+        name: lint-rule-frontmatter
+        entry: python3 scripts/lint_rule_frontmatter.py
+        language: system
+        pass_filenames: false
+        files: ^\.claude/rules/.*\.md$
+
       - id: lint-skill-overlap
         name: lint-skill-overlap
         entry: python3 scripts/lint_skill_overlap.py
