@@ -63,13 +63,20 @@ _CJK_RUN_RE = re.compile(r"[一-鿿]{2,}")
 # 子句來讓 lint 過關）。故 tokenize 前先剝除這些 skill 參照，連同緊鄰其前的 redirect 標記
 # （請改用 / 改用 / 退回）一起剝掉，避免標記 bigram 也殘留成共享詞。
 #
-# **必須錨定 `/skill` 才剝除**（rule 13「exemption regex 要精確枚舉、不用 open glob」）：裸的
-# 「改用」「退回」「請用」是日常中文動詞（「改用 polars」「退回上一個 commit」「請用參數化查詢」），
-# 若無 `/` 錨定就會連 domain 觸發詞一起吃掉，反而讓真實 over-trigger 逃過偵測（lint 是 warn-only，
-# 這種假陰性會無聲漏報）。負向 lookbehind `(?<![A-Za-z0-9])` 排除 `CI/CD` 這種字母間的斜線。
-# marker 設為可選：逗號分隔的多目標清單（`請改用 /a、/b`）第二個目標前沒有 marker，仍需剝除。
+# **必須有「明確前綴 + `/skill`」兩個錨才剝除**（rule 13「exemption regex 要精確枚舉、
+# 不用 open glob」）：
+#   - 只錨 `/skill` 不夠：把前綴設為可選會誤剝 URL 與絕對路徑裡的斜線詞
+#     （`https://api...` 的 `/api`、`/etc/nginx` 的 `/etc`），同樣造成 domain 觸發詞流失、
+#     真實 over-trigger 逃過偵測。
+#   - 只錨前綴不夠：裸的「改用」「退回」是日常中文動詞（「改用 polars」「退回上一個 commit」），
+#     無 `/` 錨就會連 domain 詞一起吃掉。
+# 故要求前綴屬於明確枚舉集：redirect 標記（請改用 / 改用 / 退回）、比較詞（與）、清單分隔
+# （、／或／，）——這些正是 skill reference 在 description 裡出現的語境；URL scheme（`://`）、
+# 空白、動詞（呼叫 / 讀取）都不在集合內，故路徑與網址安全。分隔詞納入是為了逗號清單的第二個
+# 目標（`請改用 /a、/b` 的 `/b` 前綴是 `、`）。負向 lookbehind `(?<![A-Za-z0-9])` 再排除
+# `CI/CD` 這種字母間斜線。
 _REDIRECT_CLAUSE_RE = re.compile(
-    r"(?:請改用|改用|退回)?\s*(?<![A-Za-z0-9])`?/[A-Za-z][A-Za-z0-9_-]*"
+    r"(?:請改用|改用|退回|與|、|或|，)\s*(?<![A-Za-z0-9])`?/[A-Za-z][A-Za-z0-9_-]*"
 )
 # YAML block scalar header: `|`/`>` plus optional chomping (`+`/`-`) and indentation (1-9)
 # indicators in either order (e.g. `|2`, `>1-`, `|-2`), not just the bare/chomping-only forms.

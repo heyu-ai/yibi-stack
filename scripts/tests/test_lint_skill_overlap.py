@@ -198,9 +198,25 @@ class TestExtractKeywords:
         assert "cd" in kw
 
     def test_lintoverlap_eg_038_comparison_reference_stripped_without_marker(self) -> None:
-        """LINTOVERLAP-EG-038: 無 redirect 標記的比較型參照（與 /X 共用）也剝除 skill 名"""
+        """LINTOVERLAP-EG-038: 比較詞前綴（與 /X 共用）也剝除 skill 名"""
         kw = lint_skill_overlap.extract_keywords("與 /pr-cycle-deep 共用同一套引擎")
         assert "pr-cycle-deep" not in kw
+
+    def test_lintoverlap_eg_039_url_slash_not_stripped(self) -> None:
+        """LINTOVERLAP-EG-039: URL 裡的斜線詞（https://api…）不是 skill 參照，不得剝除。
+
+        負向對照——mob R2 指出：若把 redirect 前綴設為可選，正則會誤剝 URL scheme 後的
+        `/word`（`://api` 的 `/api`）。前綴枚舉集不含 `://` / 空白，故 URL 安全。
+        """
+        kw = lint_skill_overlap.extract_keywords("呼叫 https://api.stripe.com 取得 token")
+        assert "api" in kw
+        assert "stripe" in kw
+
+    def test_lintoverlap_eg_040_absolute_path_not_stripped(self) -> None:
+        """LINTOVERLAP-EG-040: 空白後的絕對路徑（/etc/nginx）不是 skill 參照，不得剝除"""
+        kw = lint_skill_overlap.extract_keywords("讀取 /etc/nginx.conf 設定")
+        assert "etc" in kw
+        assert "nginx" in kw
 
     def test_lintoverlap_eg_024_punctuation_crossing_bigrams_impossible(self) -> None:
         """LINTOVERLAP-EG-024: CJK run 在全形標點處斷開，跨標點的 bigram 永遠不會產生
