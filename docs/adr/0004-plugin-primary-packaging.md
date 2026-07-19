@@ -160,3 +160,11 @@ Phase 1 是白老鼠。若在乾淨機器上 `uv tool install git+https://github
 無法產生可用的 `portman`，則**在 mycelium 或 pr_orchestrator 動工前重新檢視本 ADR**。
 
 實作計畫見 [docs/plugin-primary-plan.md](../plugin-primary-plan.md)。
+
+## Superseded by（部分，提案中）
+
+上方「負面／風險」段「版本落差取代路徑落差」一條要求「每個 skill 都必須加上能力／**版本**檢查
+並 fail-loud」。其中 **semver 版本字串比對**那半在本 ADR 指定的 `uv tool install git+`（裝 HEAD）
+下不可行——[ADR-0005](0005-skill-compat-gate-capability-not-version.md)（proposed，issue #256）
+提案取代該子句：改以 `command -v` 存在性閘門 + 能力探測為相容性判準，「能力檢查 + fail-loud」的
+精神保留。ADR-0005 核准後，本段以其為準。
