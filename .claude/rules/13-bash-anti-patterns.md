@@ -122,7 +122,7 @@ git -C /path/to/repo log --oneline -5
 git -C /path/to/repo rev-parse --short HEAD
 ```
 
-### AP3 Sub-class C: Path Resolution Hiding (class F1 hook attempts to catch)
+### AP3 Sub-class C: Path Resolution Hiding (built-in prompt removed in 2.1.207 — no mechanical guard left)
 
 **Trigger**: `cd <path> && <command> ... 2>/dev/null` — cd makes relative path resolution
 depend on CWD; `2>/dev/null` swallows errors, causing path issues to fail silently.
@@ -140,13 +140,21 @@ find /path/to/project -name "*.py"
 # Glob: /path/to/project/**/*.py
 ```
 
+> **Update (Claude Code 2.1.207)**: the built-in confirmation that used to fire on this pattern
+> was removed — the changelog reads "Fixed compound commands with `cd` prompting for permission
+> when the only output redirect was to `/dev/null`". AP3-C therefore has **no mechanical guard
+> left**: the F1 class no longer prompts, and this repo's own hooks (`bash-ap1-inline-check.sh`,
+> `bash-ap2-check.py`) target AP1/AP2 forms, not this one. Agent discipline — absolute path or
+> the Read/Grep tool — is now the **sole** defence, which is why this sub-class stays
+> highest-priority. (Verified against the official changelog, 2026-07-19.)
+
 ### AP3 Summary
 
 | Sub-class | Hook | Cases | Fix |
 |-----------|------|-------|-----|
 | A: CWD pollution | None (silent) | 4/17/18 | `--directory` flag or subshell |
 | B: cd-before-git | Class C (partial) | 7/9/12 | `git -C <path>` |
-| C: path resolution hiding | Class F1 (partial) | 10/11/15 | Absolute path / Read/Grep tool |
+| C: path resolution hiding | None since 2.1.207 (was Class F1) | 10/11/15 | Absolute path / Read/Grep tool |
 
 ## Prefer Claude Built-in Tools for Code Search
 
