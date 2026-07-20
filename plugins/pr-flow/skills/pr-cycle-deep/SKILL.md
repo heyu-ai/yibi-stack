@@ -263,7 +263,7 @@ the proposed new scope.
 Use `/commit-commands:commit-push-pr` only when it preserves the confirmed contract in the PR body.
 
 Note the PR number as `{{pr_number}}` and the base branch as `{{base_branch}}` (usually `main`). At
-Step 3.1, paste the confirmed contract into `$REVIEW_DIR/review-contract.md` and `prompt-r1.md`.
+Step 3.1, paste the confirmed contract into `prompt-r1.md` (the copy the reviewers consume).
 
 ---
 

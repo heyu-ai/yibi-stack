@@ -30,4 +30,14 @@
   - New: `openspec/changes/add-pr-review-contract/specs/pr-review-contract/spec.md`
   - New: `openspec/changes/add-pr-review-contract/design.md`
   - New: `openspec/changes/add-pr-review-contract/tasks.md`
+  - New: `openspec/changes/add-pr-review-contract/testplan.md`
   - Removed: 無
+
+## Follow-ups（不阻擋本 PR merge）
+
+- **extract-r1.md schema 需帶 `contract_mapping` / `evidence` 欄位**：本 change 讓
+  `Contract mapping:` 與 `Evidence:` 成為 aggregation gate 的必要輸入，但外部 voice（Codex/agy）的
+  Stage-2 萃取 schema（`prompts/extract-r1.md`）目前不帶這兩欄，compact 化後 gate 看不到所依賴的欄位
+  （lead 讀 raw 可暫時緩衝）。此 gap 非本 PR 引入（#305 即存在）且落在 8 檔 diff 之外，追蹤為獨立 issue。
+- **「Round 1/Round 2」命名重載**：cross-debate 輪次與 bounded re-review pass 共用同一詞，建議在
+  Step 7 補一句釐清（非功能性矛盾，Step 7 表格已可辨別）。

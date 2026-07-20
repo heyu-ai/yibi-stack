@@ -10,8 +10,9 @@ agent obeys them on a future PR.
 against the real file cannot exercise its own failure paths, so the negative cases
 (PRC-DT-002 / PRC-EG-001 / PRC-EG-006) would be impossible and the checker would rot into a
 "always green, no information" decoration. All anchor matching reads raw UTF-8 via
-`Path.read_text(encoding="utf-8")` (host rule 13): the anchors contain 全形／CJK characters
-(`每個 PR 至多一張`), and an ASCII substitution would silently fail to match.
+`Path.read_text(encoding="utf-8")` (cf. host rule 13 AP2 unicode handling): the anchors
+contain 全形／CJK characters (`每個 PR 至多一張`), and an ASCII substitution would silently
+fail to match.
 """
 
 from __future__ import annotations
@@ -46,6 +47,10 @@ REQUIRED_ANCHORS: list[str] = [
     "### Goal",  # contract: required outcome
     "### Non-goals",  # contract: explicit scope exclusions
     "### Accepted Residual Risks",  # contract: human-owned risk acceptance
+    "Failure mode / impact",  # residual-risk field: failure mode & impact (Step 1 template)
+    "Accepted boundary",  # residual-risk field: the accepted boundary
+    "Mitigation",  # residual-risk field: mitigation
+    "Detection / recovery",  # residual-risk field: detection & recovery procedure
     "### Acceptance Criteria",  # contract: PR-specific merge gates
     "### Follow-ups",  # contract: explicit non-blocking deferrals
     "frozen Review Contract",  # confirmed snapshot used by one review pass
