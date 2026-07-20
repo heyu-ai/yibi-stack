@@ -706,21 +706,28 @@ Prevention remains the rule in `CLAUDE.md`: run `gh pr merge` from the main repo
 Two branch-lifecycle hazards that surface *after* a merge. Both end in an irreversible
 `git branch -D` or `git push origin --delete`, so they belong in this rule.
 
-### A squash-merged branch fails `git branch -d` — use `-D`, then prune the worktree
+### A squash-merged branch fails `git branch -d` — free the worktree first, then `-D`
 
 A squash merge lands the branch's work as **one new commit on the base**, which does not carry
 the feature branch's own commits as ancestors. So `git branch -d <branch>` — the *safe* delete
-that refuses unless the branch is merged — reports `error: The branch '<branch>' is not fully
+that refuses unless the branch is merged — reports `error: the branch '<branch>' is not fully
 merged` even though the PR is merged, and `--delete-branch` has already removed the remote branch.
 
+A **second** refusal stacks on top when the branch lived in a linked worktree: while that
+worktree entry still exists, *any* delete (`-d` or `-D`) fails with `cannot delete branch
+'<branch>' used by worktree at '...'`. So free the worktree **before** deleting the branch — the
+order matters:
+
 ```bash
-# After confirming the merge is real (gh pr view <N> --json state,mergedAt), from the MAIN repo root:
-git branch -D <branch>          # -d refuses post-squash; -D force-deletes (the work is on main as a squash commit)
-git worktree prune              # drop the now-dead linked-worktree entry
+# From the MAIN repo root, after confirming the merge (gh pr view <N> --json state,mergedAt):
+git worktree remove .claude/worktrees/<name>   # frees the branch; use `git worktree prune` if the dir is already gone
+git branch -D <branch>                          # now unbound; -d still refuses post-squash, so -D force-deletes
 ```
 
-`-D` is a force delete: confirm the squash commit is on `origin/main` **first**. Once the branch
-ref is gone, "Rescuing a Commit Accidentally Made on Main" above no longer applies.
+`-D` is a force delete, but nothing is lost here: the squash commit on `origin/main` is the
+canonical copy of the merged work. (A branch deleted *before* its work reached `origin/main` is a
+different case — then it is recoverable only via the reflog / `git fsck --lost-found`, and only
+before GC.)
 
 ### Push-without-PR leaves orphan `origin` branches that collide with later sessions
 
