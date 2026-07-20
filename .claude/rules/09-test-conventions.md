@@ -115,6 +115,32 @@ permanently broken in production, only discovered when mob review compared again
 Fix: read the tool's real schema documentation before writing fixtures, or compare against a real
 config file (e.g. `.claude/settings.json`).
 
+## A Snapshot Fixture of Live-Read Config Drifts Silently
+
+When the code under test reads a source-of-truth **at runtime**, the test's "good" fixture must be
+**derived from that same source**, not a hardcoded snapshot of it. A snapshot is correct only at the
+moment it is written; it drifts the instant the real config changes, and nothing re-syncs it.
+
+Concretely (PR #280 CI): `check_wheel_contents.py` reads the real `pyproject.toml`
+`[project.scripts]` and asserts every declared entry point appears in the built wheel. The test's
+clean-wheel fixture froze that value —
+
+```python
+# Wrong: a snapshot of pyproject's entry points at the time the test was written
+_GOOD_ENTRY_POINTS = "[console_scripts]\nportman = tasks.local_port_manager.cli:cli\n"
+```
+
+When #281 added `mycelium` and `pr-orchestrator` to the real `[project.scripts]`, the check found
+them declared but absent from the frozen fixture and failed — `test_cwc_st_001` broke with no
+change to the test itself. Worse, the failure is inherited: any unrelated PR that branched from that
+base (here a docs-only openspec PR) shows the same red CI, so the symptom points away from its cause.
+
+Fix: build the fixture from the declared config, or assert against a value computed from it, so
+adding an entry point can never silently desync the two. (Broke on main after #281; fixed by #292.)
+
+This is a third fixture species, distinct from the two above: the schema is right and the
+environment is fine — the fixture is simply a **stale copy** of a value the code reads live.
+
 ## Assertion Semantic Precision
 
 Avoid overly broad substring matches when verifying findings/output — if the target string appears
