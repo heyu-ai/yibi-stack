@@ -774,6 +774,12 @@ def lessons() -> None:
 @click.option("--handover-id", default=None, help="關聯 handover id（可選）")
 @click.option("--retrospective-id", default=None, help="關聯 retrospective id（可選）")
 @click.option("--retro-pr", default=None, type=int, help="關聯 PR 號碼（可選）")
+@click.option(
+    "--skip-if-exists",
+    is_flag=True,
+    default=False,
+    help="相同 project、type、key 已存在時略過寫入",
+)
 def lessons_add(  # pylint: disable=too-many-arguments
     lesson_type: str,
     key: str,
@@ -786,13 +792,15 @@ def lessons_add(  # pylint: disable=too-many-arguments
     handover_id: str | None,
     retrospective_id: str | None,
     retro_pr: int | None,
+    skip_if_exists: bool,
 ) -> None:
     """寫入一筆 typed lesson 到 lessons table。"""
     import subprocess  # nosec B404
 
     from pydantic import ValidationError
 
-    from .lessons_service import add_lesson
+    from .lessons_service import add_lesson, find_existing_lesson
+    from .models import LessonRecord
 
     resolved_project = project
     if not resolved_project:
@@ -829,6 +837,37 @@ def lessons_add(  # pylint: disable=too-many-arguments
             "retrospective_id": retrospective_id,
             "retro_pr": retro_pr,
         }
+        # 刻意丟棄結果：在去重查詢前先 fail-fast 驗證輸入。
+        LessonRecord.model_validate(record_data)
+        try:
+            existing = find_existing_lesson(
+                resolved_project, lesson_type, key, db_path=_ctl_db_path()
+            )
+        except Exception as e:
+            click.echo(f"[WARN] 去重查詢失敗，改為直接寫入：{e}", err=True)
+            existing = None
+        if existing is not None:
+            existing_id = str(existing.get("id", ""))
+            if skip_if_exists:
+                click.echo(
+                    "[INFO] 已存在相同 key 的 lesson，依 --skip-if-exists 略過寫入"
+                    f"（id={existing_id}）",
+                    err=True,
+                )
+                return
+
+            existing_insight = str(existing.get("insight", ""))[:80]
+            click.echo(
+                "[WARN] 已存在相同 key 的 lesson"
+                f"（id={existing_id}, confidence={existing.get('confidence', '')}, "
+                f"ts={existing.get('ts', '')}）：{existing_insight}",
+                err=True,
+            )
+            click.echo(
+                "[INFO] 本次新增會依 latest-wins 規則在讀取時取代舊記錄；"
+                "如要略過寫入，請使用 --skip-if-exists。",
+                err=True,
+            )
         result_data = add_lesson(record_data, db_path=_ctl_db_path())
         click.echo(f"id={result_data['id']} trusted={result_data['trusted']}")
     except ValidationError as e:

@@ -14,6 +14,7 @@ from tasks.mycelium.db import AgentsDB
 from tasks.mycelium.lessons_service import (
     _apply_decay,
     add_lesson,
+    find_existing_lesson,
     search_lessons,
     search_lessons_typed,
     show_lessons,
@@ -107,6 +108,26 @@ class TestAddLesson:
 
         result = add_lesson(make_lesson_data(source=LessonSource.user_stated), db_path=db_path)
         assert result["trusted"] is True
+
+    def test_lsn_st_012_find_existing_lesson_returns_latest_exact_match(
+        self, tmp_path: Path
+    ) -> None:
+        """LSN-ST-012: helper 僅回傳 project+type+key 精確相符的最新記錄"""
+        db_path = tmp_path / "test.db"
+        add_lesson(
+            make_lesson_data(ts="2026-01-01T00:00:00+00:00", insight="older exact lesson insight"),
+            db_path=db_path,
+        )
+        add_lesson(
+            make_lesson_data(ts="2026-02-01T00:00:00+00:00", insight="newer exact lesson insight"),
+            db_path=db_path,
+        )
+        add_lesson(make_lesson_data(key="test-key-extra"), db_path=db_path)
+
+        result = find_existing_lesson("yibi-stack", "pitfall", "test-key", db_path=db_path)
+
+        assert result is not None
+        assert result["insight"] == "newer exact lesson insight"
 
 
 class TestApplyDecay:
@@ -539,9 +560,12 @@ class TestLessonsAddCLI:
         """LSN-ADD-001: 明確傳 --project 時正常寫入並回傳 id"""
         db_path = tmp_path / "test.db"
         runner = CliRunner()
-        with patch(
-            "tasks.mycelium.lessons_service.add_lesson",
-            side_effect=lambda data, **_kw: add_lesson(data, db_path=db_path),
+        with (
+            patch("tasks.mycelium.lessons_service.find_existing_lesson", return_value=None),
+            patch(
+                "tasks.mycelium.lessons_service.add_lesson",
+                side_effect=lambda data, **_kw: add_lesson(data, db_path=db_path),
+            ),
         ):
             result = runner.invoke(
                 cli,
@@ -565,6 +589,116 @@ class TestLessonsAddCLI:
             )
         assert result.exit_code == 0, result.output
         assert "id=" in result.output
+        assert result.stderr == ""
+
+    def test_lsn_add_005_duplicate_warns_on_stderr_and_still_inserts(self, tmp_path: Path) -> None:
+        """LSN-ADD-005: 重複 key 預設警告但仍寫入，stdout 格式不受影響"""
+        db_path = tmp_path / "test.db"
+        existing = add_lesson(
+            make_lesson_data(project="test-proj", key="duplicate-key"), db_path=db_path
+        )
+        runner = CliRunner()
+        with (
+            patch(
+                "tasks.mycelium.lessons_service.find_existing_lesson",
+                side_effect=lambda project, lesson_type, key, **_kw: find_existing_lesson(
+                    project, lesson_type, key, db_path=db_path
+                ),
+            ),
+            patch(
+                "tasks.mycelium.lessons_service.add_lesson",
+                side_effect=lambda data, **_kw: add_lesson(data, db_path=db_path),
+            ),
+        ):
+            result = runner.invoke(cli, self._add_args())
+
+        assert result.exit_code == 0
+        assert result.stdout.startswith("id=")
+        assert "[WARN] 已存在相同 key 的 lesson" in result.stderr
+        assert str(existing["id"]) in result.stderr
+        assert "--skip-if-exists" in result.stderr
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        rows = db.query_lessons_typed(project="test-proj")
+        db.close()
+        assert len(rows) == 2
+
+    def test_lsn_add_006_skip_if_exists_exits_zero_without_insert(self, tmp_path: Path) -> None:
+        """LSN-ADD-006: --skip-if-exists 遇到重複時不寫入且成功結束"""
+        db_path = tmp_path / "test.db"
+        existing = add_lesson(
+            make_lesson_data(project="test-proj", key="duplicate-key"), db_path=db_path
+        )
+        runner = CliRunner()
+        with (
+            patch(
+                "tasks.mycelium.lessons_service.find_existing_lesson",
+                side_effect=lambda project, lesson_type, key, **_kw: find_existing_lesson(
+                    project, lesson_type, key, db_path=db_path
+                ),
+            ),
+            patch(
+                "tasks.mycelium.lessons_service.add_lesson",
+                side_effect=lambda data, **_kw: add_lesson(data, db_path=db_path),
+            ),
+        ):
+            result = runner.invoke(cli, [*self._add_args(), "--skip-if-exists"])
+
+        assert result.exit_code == 0
+        assert result.stdout == ""
+        assert result.stderr == (
+            "[INFO] 已存在相同 key 的 lesson，依 --skip-if-exists 略過寫入"
+            f"（id={existing['id']}）\n"
+        )
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        rows = db.query_lessons_typed(project="test-proj")
+        db.close()
+        assert len(rows) == 1
+
+    def test_dedup_query_failure_warns_and_still_inserts(self, tmp_path: Path) -> None:
+        """去重查詢失敗時警告，但不阻擋 lesson 寫入。"""
+        db_path = tmp_path / "test.db"
+        runner = CliRunner()
+        with (
+            patch(
+                "tasks.mycelium.lessons_service.find_existing_lesson",
+                side_effect=RuntimeError("database unavailable"),
+            ),
+            patch(
+                "tasks.mycelium.lessons_service.add_lesson",
+                side_effect=lambda data, **_kw: add_lesson(data, db_path=db_path),
+            ),
+        ):
+            result = runner.invoke(cli, self._add_args())
+
+        assert result.exit_code == 0
+        assert result.stdout.startswith("id=")
+        assert "[WARN] 去重查詢失敗，改為直接寫入：database unavailable" in result.stderr
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        rows = db.query_lessons_typed(project="test-proj")
+        db.close()
+        assert len(rows) == 1
+
+    @staticmethod
+    def _add_args() -> list[str]:
+        return [
+            "lessons",
+            "add",
+            "--type",
+            "pitfall",
+            "--key",
+            "duplicate-key",
+            "--insight",
+            "duplicate lesson insight content",
+            "--confidence",
+            "7",
+            "--source",
+            "observed",
+            "--project",
+            "test-proj",
+        ]
 
     def test_lsn_add_002_git_inference_success(self, tmp_path: Path) -> None:
         """LSN-ADD-002: git rev-parse 成功時 project 從 common-dir parent 推斷"""
@@ -586,6 +720,7 @@ class TestLessonsAddCLI:
         runner = CliRunner()
         with (
             patch("subprocess.run", return_value=fake_result),
+            patch("tasks.mycelium.lessons_service.find_existing_lesson", return_value=None),
             patch(
                 "tasks.mycelium.lessons_service.add_lesson",
                 side_effect=capture_add,
@@ -628,6 +763,7 @@ class TestLessonsAddCLI:
         runner = CliRunner()
         with (
             patch("subprocess.run", return_value=fake_result),
+            patch("tasks.mycelium.lessons_service.find_existing_lesson", return_value=None),
             patch(
                 "tasks.mycelium.lessons_service.add_lesson",
                 side_effect=capture_add,

@@ -127,6 +127,23 @@ def retire_lesson(
     return updated
 
 
+def find_existing_lesson(
+    project: str,
+    lesson_type: str,
+    key: str,
+    db_path: str | Path | None = None,
+) -> dict[str, Any] | None:
+    """尋找同 project、type、key 的最新 typed lesson。"""
+    from .db import AgentsDB
+
+    db = AgentsDB(db_path=db_path)
+    try:
+        db.init_db()
+        return db.find_latest_lesson_by_key(project, lesson_type, key)
+    finally:
+        db.close()
+
+
 def _apply_decay(
     confidence: int,
     source: str,
