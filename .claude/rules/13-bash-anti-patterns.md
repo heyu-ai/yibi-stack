@@ -360,8 +360,12 @@ Analysis tools exit non-zero for two completely different reasons: **it failed t
 **it ran and found something**. `mypy`, `pytest`, and most linters use non-zero for "found
 findings"; review tools like `agy` / `codex review` instead encode findings in their *output* and
 reserve non-zero for execution failure — so "non-zero == findings" is not universal, read each
-tool's own contract. Either way, `|| exit 0` / `|| true` throws that exit code away, and whatever
-you branch on next can no longer tell the two apart.
+tool's own contract. Either way, `|| exit 0` / `|| true` throws that exit code away — but with
+*different* control flow, so be precise which one you wrote: `|| true` masks the failure and the
+script **keeps running**, so whatever you branch on next can no longer tell the two apart;
+`|| exit 0` instead **ends the script right there** with a success status, turning a real failure
+into a silent early-exit that skips every downstream step. Either way the caller sees success and
+cannot distinguish "failed to run" from "ran and found something".
 
 ```bash
 # Wrong (branch on the exit code): `|| true` forces exit 0, so a run that FAILED -- or that found
@@ -383,8 +387,16 @@ if [ -z "$OUT" ]; then
   echo "[FAIL] agy produced no output (exit $EXIT) -- treat as tool failure, not as 'no findings'" >&2
   exit 1
 fi
-# For a review tool, a non-zero EXIT means it failed to run -- reject it, do not read its stdout as
-# findings. For mypy/pytest, non-zero is expected on findings; reconcile output and exit per contract.
+# For a REVIEW tool (agy / codex review), a non-zero EXIT means it failed to run -- reject it IN
+# CODE, do not read its stdout as findings. This branch is the point: capturing $EXIT is useless
+# unless something actually acts on it.
+if [ "$EXIT" -ne 0 ]; then
+  echo "[FAIL] agy exited $EXIT -- execution failure; its stdout is not review findings" >&2
+  exit 1
+fi
+# Now: EXIT == 0 and OUT non-empty -> read the findings from OUT.
+# For mypy/pytest the contract is INVERTED -- non-zero IS the "found something" signal, so there you
+# must NOT add this reject-on-non-zero branch; reconcile output and exit per that tool's contract.
 ```
 
 The distinction to encode is **"failed to run" vs "ran and found something"**, and the exit code
