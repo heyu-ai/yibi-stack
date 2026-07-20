@@ -355,9 +355,12 @@ Same family, different mechanism: the pipe case loses the exit code, this one **
 purpose** — and with it, the tool's actual output.
 
 Analysis tools exit non-zero for two completely different reasons: **it failed to run**, and
-**it ran and found something**. `agy`, `codex`, `mypy`, `pytest`, and most linters all use
-non-zero for "found findings". Wrapping the call in `|| exit 0` or `|| true` collapses both into
-"nothing to see", so a reviewer that produced real findings is silently dropped from the report.
+**it ran and found something**. `mypy`, `pytest`, and most linters use non-zero for "found
+findings"; review tools like `agy` / `codex review` instead encode findings in their *output* and
+reserve non-zero for execution failure — so "non-zero == findings" is not universal, read each
+tool's own contract. Either way, wrapping the call in `|| exit 0` or `|| true` collapses both
+reasons into "nothing to see", so a reviewer that produced real findings is silently dropped from
+the report.
 
 ```bash
 # Wrong: a review that FOUND problems is indistinguishable from one that failed to start,
@@ -372,12 +375,19 @@ if [ -z "$OUT" ]; then
   echo "[FAIL] agy produced no output (exit $EXIT) -- treat as tool failure, not as 'no findings'" >&2
   exit 1
 fi
-# non-empty output + non-zero exit == findings, which is a normal, reportable result
+# Non-empty output: read the verdict FROM the output (e.g. a [PASS]/[FAIL] line) -- do NOT infer
+# it from the exit code. A review tool that fails AFTER printing an error to stdout also produces
+# non-empty output + non-zero exit, so "non-zero == findings" would misread that failure as a result.
 ```
 
 The distinction to encode is **"failed to run" vs "ran and found something"** — never let one
 `||` erase both. `|| true` is only appropriate where the failure genuinely cannot affect anything
 downstream, which a result you are about to branch on never is.
+
+The empty-output check above assumes the tool **always emits something when it ran** — true for
+`agy` / `codex review` / `mypy` / `pytest`. A linter that is silent on a clean run (`ruff check`,
+`eslint`) exits 0 with no output, so `[ -z "$OUT" ]` would false-`[FAIL]` a green run; there, gate
+on the exit code, not on emptiness.
 
 ### A `file:line`-Only Diagnostic Filter Drops Invocation Errors
 
@@ -389,8 +399,9 @@ line number**. A filter matching only `[0-9]+(:[0-9]+)?: (error|note):` matches 
 "no diagnostics" is reported as clean — even though mypy analyzed nothing at all.
 
 ```bash
-# Wrong: counts parsed diagnostics; `mypy: error: No files given` yields a count of 0 == "clean"
-COUNT=$(uv run mypy tasks/ | grep -cE '[0-9]+: (error|note):')
+# Wrong: counts parsed diagnostics; `mypy: error: Missing target module, package, files, or
+# command.` yields a count of 0 == "clean"
+COUNT=$(uv run mypy tasks/ | grep -cE '[0-9]+(:[0-9]+)?: (error|note):')
 
 # Correct: the exit code already answers the question the filter was approximating
 if ! uv run mypy tasks/ > /tmp/mypy.log 2>&1; then
@@ -435,10 +446,17 @@ discovery rules, whether or not git tracks it. Leftover generated directories (h
 indistinguishable from real ones — and they follow the checkout, not the branch.
 
 ```bash
-git -C <repo> ls-files <failing-dir>        # empty output == git does not track it == stray
-git -C <repo> clean -ndx <failing-dir>      # preview what removal would delete
-git -C <repo> clean -fdx <failing-dir>      # then remove, and re-run
+git -C <repo> ls-files <failing-dir>        # empty output == git does not track it == likely stray
+git -C <repo> clean -ndx <failing-dir>      # preview EXACTLY what removal would delete
 ```
+
+An empty `git ls-files` proves the path is *untracked*, not that its contents are *safe to
+delete* — it is one probe, not a safety proof (see rule 15's `rm -rf` row on why the probes do
+not tell you enough). `git clean -fdx` then permanently removes every untracked **and ignored**
+file under the path (`.env`, build artifacts) with no Trash, which makes it a
+[rule 15](15-irreversible-operations.md) Category 4 operation the agent must **not** run
+autonomously. Confirm the `-ndx` preview lists only disposable generated files, then let the user
+run `clean -fdx` (or use `trash`).
 
 Note `.gitignore` does not help here: ignored files are still on disk and still collected —
 see the `.gitignore` ≠ absent-from-disk rule in
@@ -454,7 +472,13 @@ platform-specific assumptions (BSD vs GNU flags, `realpath` availability, font l
 Watch the remote run before declaring the task done:
 
 ```bash
-gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')"
+# Filter to THIS branch's latest run -- an unfiltered `--limit 1` returns the most recent run
+# across ALL branches/workflows and can watch someone else's. Split the subshell out of the outer
+# double-quotes too (rule 13 Quoting Rule 2: `gh run watch "$(...)"` trips `Unhandled node type: string`).
+BRANCH=$(git branch --show-current)
+RUN_ID=$(gh run list --branch "$BRANCH" --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RUN_ID"
+# Simplest when a PR exists: gh pr checks <N> --watch
 ```
 
 This is distinct from the `git add`-before-`make ci` divergence documented in `CLAUDE.md` — that

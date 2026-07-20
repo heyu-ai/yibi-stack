@@ -38,6 +38,12 @@ Rule: before composing **any** reply, check the language of the user's most rece
 If it contains CJK characters (U+4E00–U+9FFF), write the entire reply in 繁體中文台灣用語 —
 identifiers, CLI flags, and code fences keep their original English form.
 
+An explicit language instruction — from the user, or from a project/global setting like this
+repo's CLAUDE.md — always overrides this character-range heuristic. The range is a fast backstop
+for the common case, not a language classifier: U+4E00–U+9FFF also covers Japanese kanji and
+Simplified Chinese, so treat it as "reply in the user's language" with 繁中 as this repo's default,
+not as "any CJK byte forces Traditional Chinese".
+
 "Any reply" is literal. The observed failures were never the main answer; they were the
 small utterances that feel exempt:
 
@@ -57,10 +63,11 @@ Three mechanisms cause the drift. Knowing them is what makes the rule actionable
 So the check must be **re-run per reply**, not per session, and it keys off the *user's message*
 only — never off the language of tool output or of your own reasoning.
 
-Evidence: the nightly self-improvement agent independently rediscovered this friction on **26
-separate branches across six days** (2026-07-14 → 2026-07-19), making it by far the most
-frequently observed friction in the repo's history. See PR #279 for the dedup pipeline that
-stopped the re-reporting; this rule addresses the underlying behavior.
+Evidence: the nightly self-improvement agent independently rediscovered this friction on roughly
+**26 branches across a six-day window** (2026-07-14 → 2026-07-19; the exact count comes from the
+dedup pipeline's record, not from surviving refs, which are fewer after merges/deletions), making
+it by far the most frequently observed friction in the repo's history. See PR #279 for the dedup
+pipeline that stopped the re-reporting; this rule addresses the underlying behavior.
 
 ## Punctuation
 

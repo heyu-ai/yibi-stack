@@ -168,9 +168,10 @@ below is strictly harder than the check.
 **The dominant culprit is `nightly-agent/YYYY-MM-DD/*`.** The nightly self-improvement agent
 creates and checks out a branch per friction inside the shared main checkout, and does not
 restore the previous branch when its run aborts partway. Any session that starts afterward
-inherits that branch. This is observed, not hypothetical: at the time this rule was written the
-shared checkout was parked on `nightly-agent/2026-07-19/mypy--error---invocation-errors-bypass`,
-and a prior incident (#269) landed a proposal commit on a nightly-agent branch this way.
+inherits that branch. This is observed, not hypothetical: incident #269 landed a proposal commit
+on a nightly-agent branch exactly this way. The specific branch a checkout is parked on is
+ephemeral — it varies by day and is often gone by the time you read this — so the durable evidence
+is that merged incident, not any one transient ref.
 
 Checking at commit time is what matters — checking at session start is not equivalent, because a
 concurrently running background job can move the shared checkout mid-session.
@@ -669,12 +670,19 @@ succeeded.
 `gh pr merge` does two things in order:
 
 1. **Merges the PR through the GitHub API** — remote-side, succeeds immediately
-2. **Cleans up locally** — checks out the base branch, deletes the merged branch
+2. **Cleans up locally** — checks out the base branch, deletes the merged branch. This step only
+   runs with `--delete-branch` (and depends on checkout state); a plain `gh pr merge` skips it. This
+   repo's flow always passes `--delete-branch` (see the pr-cycle skills), so the failure below is
+   the normal case here, not an edge case.
 
 Run from inside a linked worktree, step 1 succeeds and step 2 fails with
 `fatal: 'main' is already used by worktree`. The command exits non-zero and prints a worktree
 error, so it reads as "the merge did not happen" — **but the PR is already merged.** Retrying
 then produces confusing follow-on errors against an already-merged PR.
+
+In this repo the **agent cannot run `gh pr merge`** — `protect-push` blocks it, so the user runs
+it (see `CLAUDE.md`). Whoever ran it, after a non-zero exit establish the real outcome before
+reacting; the checks below are read-only and safe for the agent to run:
 
 ```bash
 # After ANY `gh pr merge` that exits non-zero, establish the real outcome before reacting
