@@ -87,11 +87,23 @@ _GLOBAL_OPTIONS_WITH_VALUE = {
 
 def _push_c_paths(match: re.Match[str]) -> list[str] | None:
     """Return every -C value for a push, or None when this Git command is not a push."""
+    raw_args = match.group("args")
     try:
         prefix_tokens = shlex.split(match.group("prefix"), posix=True)
-        tokens = shlex.split(match.group("args"), posix=True)
+        tokens = shlex.split(raw_args, posix=True)
     except ValueError as e:
-        raise GitCheckError(f"Git push 指令無法靜態解析：{e}") from e
+        # `_GIT_COMMAND` captures args with `[^;&|\n]*`, which is NOT quote-aware: a `|` inside a
+        # quoted argument (e.g. `git commit -m "distinguish || exit 0"`, or
+        # `git for-each-ref --format='a|b'`) truncates the capture mid-quote, and shlex then fails
+        # on the now-unbalanced quote. Such a command is not a push -- a real `git push` almost
+        # never carries a quoted `|` before the `push` token -- so under this guard's threat model
+        # (accidental formatter drift, not an adversary evading their own guard) treat the
+        # unparseable capture as "not a push" and fall through to allow. Only when the raw capture
+        # still names `push` do we keep the original fail-closed behaviour, so a genuine but
+        # unparseable push is never silently allowed.
+        if re.search(r"\bpush\b", raw_args):
+            raise GitCheckError(f"Git push 指令無法靜態解析：{e}") from e
+        return None
 
     unsafe_selector: str | None = None
     for token in prefix_tokens:

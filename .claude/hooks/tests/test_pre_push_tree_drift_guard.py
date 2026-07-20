@@ -125,6 +125,35 @@ class TestCommandMatching:
         (repo / "tracked.py").write_text("x = 2\n")
         assert run_hook(repo, "echo 'remember to git push later'").returncode == 0
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'git commit -m "distinguish || exit 0 from || true"',
+            "git for-each-ref --format='%(refname:short)|%(objectname)' refs/heads/",
+            'git log --format="%h|%s"',
+        ],
+    )
+    @pytest.mark.parametrize("dirty", [False, True], ids=["clean", "dirty"])
+    def test_pptd_dt_005c_pipe_in_quoted_arg_of_non_push_allows(
+        self, repo: Path, command: str, dirty: bool
+    ) -> None:
+        """引號內含 `|` 的非 push 指令不可被誤攔。
+
+        指令匹配用的字元類擷取（非 quote-aware）遇引號內 `|` 會截斷成未閉合引號，
+        shlex 隨即拋 ValueError。這類指令不是 push（commit message / --format 帶 `|`），
+        必須放行，而非 fail-closed 誤擋。
+        """
+        if dirty:
+            (repo / "tracked.py").write_text("x = 9\n")
+        assert run_hook(repo, command).returncode == 0
+
+    def test_pptd_dt_005d_unparseable_capture_still_naming_push_fails_closed(
+        self, repo: Path
+    ) -> None:
+        """截斷後無法解析、但仍含 push token -> 維持 fail-closed（修 005c 不得放行真 push）。"""
+        # 引號內 `|` 截斷成未閉合引號；因擷取片段仍含 push，保留 fail-closed（攔截）。
+        assert run_hook(repo, 'git push origin "branch|\'x"').returncode == 2
+
     def test_pptd_dt_007_git_c_path_push_blocks(self, repo: Path) -> None:
         """PPTD-DT-007: git -C <path> push 形式也要認得 -> 攔截"""
         (repo / "tracked.py").write_text("x = 2\n")
