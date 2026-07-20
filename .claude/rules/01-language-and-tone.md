@@ -34,15 +34,16 @@ click.echo(f"✓ 已匯入 {count} 筆帳單記錄")
 The sections above govern **artifacts** (docstrings, `click.echo()`, comments). This one governs
 the **assistant's own chat replies**, which is a separate and far more frequently violated layer.
 
-Rule: before composing **any** reply, check the language of the user's most recent message.
-If it contains CJK characters (U+4E00–U+9FFF), write the entire reply in 繁體中文台灣用語 —
-identifiers, CLI flags, and code fences keep their original English form.
+Rule: before composing **any** reply, mirror the language of the user's most recent message —
+reply in the language the user wrote in, keeping identifiers, CLI flags, and code fences in their
+original English form. For this repo the operative case is Chinese: whenever the user writes in
+Chinese, write the entire reply in 繁體中文台灣用語.
 
-An explicit language instruction — from the user, or from a project/global setting like this
-repo's CLAUDE.md — always overrides this character-range heuristic. The range is a fast backstop
-for the common case, not a language classifier: U+4E00–U+9FFF also covers Japanese kanji and
-Simplified Chinese, so treat it as "reply in the user's language" with 繁中 as this repo's default,
-not as "any CJK byte forces Traditional Chinese".
+A CJK character-range check (U+4E00–U+9FFF) is a fast backstop for spotting that common case, not
+a language classifier — the range also covers Japanese kanji and Simplified Chinese, so do not read
+"the message contains a CJK byte" as "force Traditional Chinese". An explicit language instruction —
+from the user, or from a project/global setting like this repo's CLAUDE.md — always wins over the
+heuristic.
 
 "Any reply" is literal. The observed failures were never the main answer; they were the
 small utterances that feel exempt:

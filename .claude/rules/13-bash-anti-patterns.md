@@ -351,38 +351,45 @@ the failure was nearly shipped as a passing CI.)
 
 ### `|| exit 0` / `|| true` Turns a Real Result Into a Silent Skip
 
-Same family, different mechanism: the pipe case loses the exit code, this one **discards it on
-purpose** — and with it, the tool's actual output.
+Same family, different mechanism: the pipe case loses the exit code by accident, this one
+**discards it on purpose**. Be precise about *what* it discards — `$(...)` still captures stdout
+even with `|| true`; only the **exit code** is masked. That is the whole problem, because the exit
+code is often the only signal separating "failed to run" from "ran and found something".
 
 Analysis tools exit non-zero for two completely different reasons: **it failed to run**, and
 **it ran and found something**. `mypy`, `pytest`, and most linters use non-zero for "found
 findings"; review tools like `agy` / `codex review` instead encode findings in their *output* and
 reserve non-zero for execution failure — so "non-zero == findings" is not universal, read each
-tool's own contract. Either way, wrapping the call in `|| exit 0` or `|| true` collapses both
-reasons into "nothing to see", so a reviewer that produced real findings is silently dropped from
-the report.
+tool's own contract. Either way, `|| exit 0` / `|| true` throws that exit code away, and whatever
+you branch on next can no longer tell the two apart.
 
 ```bash
-# Wrong: a review that FOUND problems is indistinguishable from one that failed to start,
-# and both are silently discarded. The voice vanishes from the aggregate with no diagnostic.
+# Wrong (branch on the exit code): `|| true` forces exit 0, so a run that FAILED -- or that found
+# problems, for a tool that signals findings via its exit code -- reads as clean and the script
+# sails right past it.
+agy review ... || true
+# ... proceeds as if nothing happened
+
+# Wrong (branch on the output): $(...) DOES capture stdout despite `|| true`, so findings are not
+# lost here -- but a failed run that printed its error to stdout is now indistinguishable from real
+# findings (both non-empty), because the exit code that separated them is gone.
 OUT=$(agy review ... || true)
 if [ -n "$OUT" ]; then ... ; fi
 
-# Correct: capture status and output separately, then decide from the OUTPUT what happened
+# Correct: capture status and output separately, then decide from BOTH against the tool's contract
 EXIT=0
 OUT=$(agy review ...) || EXIT=$?
 if [ -z "$OUT" ]; then
   echo "[FAIL] agy produced no output (exit $EXIT) -- treat as tool failure, not as 'no findings'" >&2
   exit 1
 fi
-# Non-empty output: read the verdict FROM the output (e.g. a [PASS]/[FAIL] line) -- do NOT infer
-# it from the exit code. A review tool that fails AFTER printing an error to stdout also produces
-# non-empty output + non-zero exit, so "non-zero == findings" would misread that failure as a result.
+# For a review tool, a non-zero EXIT means it failed to run -- reject it, do not read its stdout as
+# findings. For mypy/pytest, non-zero is expected on findings; reconcile output and exit per contract.
 ```
 
-The distinction to encode is **"failed to run" vs "ran and found something"** — never let one
-`||` erase both. `|| true` is only appropriate where the failure genuinely cannot affect anything
-downstream, which a result you are about to branch on never is.
+The distinction to encode is **"failed to run" vs "ran and found something"**, and the exit code
+is what carries it — so never let one `||` mask it. `|| true` is only appropriate where the failure
+genuinely cannot affect anything downstream, which a result you are about to branch on never is.
 
 The empty-output check above assumes the tool **always emits something when it ran** — true for
 `agy` / `codex review` / `mypy` / `pytest`. A linter that is silent on a clean run (`ruff check`,
@@ -404,8 +411,10 @@ line number**. A filter matching only `[0-9]+(:[0-9]+)?: (error|note):` matches 
 COUNT=$(uv run mypy tasks/ | grep -cE '[0-9]+(:[0-9]+)?: (error|note):')
 
 # Correct: the exit code already answers the question the filter was approximating
-if ! uv run mypy tasks/ > /tmp/mypy.log 2>&1; then
-  echo "[FAIL] mypy failed -- see /tmp/mypy.log (may be diagnostics OR an invocation error)" >&2
+LOG=$(mktemp)   # unique per run; a fixed /tmp/mypy.log races under parallel runs and can truncate
+                # a file the path already symlinks to
+if ! uv run mypy tasks/ > "$LOG" 2>&1; then
+  echo "[FAIL] mypy failed -- see ${LOG} (may be diagnostics OR an invocation error)" >&2
   exit 1
 fi
 ```
@@ -427,9 +436,14 @@ flutter test | grep -q "All tests passed"
 
 # Correct: use the exit code, which already encodes the verdict
 flutter test
-# or, if a banner check is genuinely needed, accept both forms
-flutter test | grep -qE "All (other )?tests passed"
 ```
+
+Do not reach for a banner grep even as a "double-check": `flutter test | grep ...` returns
+**grep's** exit code, not flutter's (the pipe-masks-exit-code trap at the top of this file), so it
+can report success on a failing run whose output happened to contain the banner earlier. If you
+genuinely must inspect the banner, do it without a pipe — run `flutter test`, keep its exit code,
+then grep the saved output separately (and match `All (other )?tests passed` to survive the
+skipped-test variant).
 
 Success banners are **presentation**, not API — they change with tool versions and with run
 conditions. Exit codes are the contract. Same family as the two sections above: the check ran and

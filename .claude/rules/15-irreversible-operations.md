@@ -158,7 +158,8 @@ shared checkout parked on an unrelated branch, and the first commit of the new s
 stacks onto it.
 
 ```bash
-# Run this before the FIRST git commit of every session -- not just when something feels wrong
+# Run this before EVERY commit -- the first most of all, but re-check any later commit too if a
+# background job may have moved the shared checkout in the meantime
 git -C <repo> branch --show-current
 ```
 
@@ -174,7 +175,10 @@ ephemeral — it varies by day and is often gone by the time you read this — s
 is that merged incident, not any one transient ref.
 
 Checking at commit time is what matters — checking at session start is not equivalent, because a
-concurrently running background job can move the shared checkout mid-session.
+concurrently running background job can move the shared checkout mid-session. A background job that
+will commit should isolate itself in its own worktree (so a concurrent checkout switch cannot
+redirect its commits at all); absent that, re-run the check immediately before *each* commit, not
+just the first.
 
 ### Recovery: Rescuing a Commit Accidentally Made on Main (Only if Not Yet Pushed)
 
