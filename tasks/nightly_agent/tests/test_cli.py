@@ -6,7 +6,11 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
-from tasks.nightly_agent.cli import _load_mycelium_lessons
+from click.testing import CliRunner
+
+from tasks.nightly_agent.cli import _load_mycelium_lessons, cli, emit_failure_signal
+from tasks.nightly_agent.models import NightlyAgentConfig
+from tasks.nightly_agent.tests.test_drafter import make_cluster
 
 CLI = "tasks.nightly_agent.cli"
 
@@ -33,21 +37,19 @@ def make_handover_db(tmp_path: Path, *, with_retrospective_id: bool) -> Path:
 
     conn = sqlite3.connect(str(db_path))
     conn.execute(f"CREATE TABLE lessons ({', '.join(columns)})")
-    insert_cols = ["id", "ts", "project", "type", "key", "insight", "confidence", "source"]
-    values = [
-        "'l1'",
-        "datetime('now')",
-        "'yibi-stack'",
-        "'pitfall'",
-        "'k1'",
-        "'test insight'",
-        "5",
-        "'observed'",
-    ]
     if with_retrospective_id:
-        insert_cols.append("retrospective_id")
-        values.append("'r1'")
-    conn.execute(f"INSERT INTO lessons ({', '.join(insert_cols)}) VALUES ({', '.join(values)})")
+        conn.execute(
+            "INSERT INTO lessons "
+            "(id, ts, project, type, key, insight, confidence, source, retrospective_id) "
+            "VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?, ?)",
+            ("l1", "yibi-stack", "pitfall", "k1", "test insight", 5, "observed", "r1"),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO lessons (id, ts, project, type, key, insight, confidence, source) "
+            "VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?)",
+            ("l1", "yibi-stack", "pitfall", "k1", "test insight", 5, "observed"),
+        )
     conn.commit()
     conn.close()
     return db_path
@@ -116,3 +118,47 @@ class TestLoadMyceliumLessons:
 
         assert result == []
         assert errors == []
+
+
+class TestFailureSignal:
+    def test_nightly_failure_001_failed_run_writes_visible_marker(self, tmp_path: Path) -> None:
+        """NIGHTLY-FAILURE-001：非預期失敗會寫入 marker 與 digest 的 FAIL 行。"""
+        digest_dir = tmp_path / "digests"
+        marker = emit_failure_signal(RuntimeError("測試故障"), digest_dir)
+        digest = next(digest_dir.glob("digest-*.md"))
+        assert "[FAIL]" in marker.read_text(encoding="utf-8")
+        assert "測試故障" in digest.read_text(encoding="utf-8")
+
+    def test_all_clusters_fail_emits_marker_and_fail_digest(self, tmp_path: Path) -> None:
+        """所有 eligible clusters 草擬失敗仍留下排程可見失敗訊號。"""
+        digest_dir = tmp_path / "digests"
+        config = NightlyAgentConfig(
+            digest_dir=str(digest_dir),
+            friction_state_file=str(tmp_path / "frictions.json"),
+        )
+        cluster = make_cluster()
+        with (
+            patch("tasks.nightly_agent.config.load_config", return_value=config),
+            patch("tasks.nightly_agent.extractor.TranscriptExtractor.extract", return_value=[]),
+            patch(f"{CLI}._load_mycelium_lessons", return_value=[]),
+            patch("tasks.nightly_agent.classifier.FrictionClassifier.classify", return_value=[]),
+            patch(
+                "tasks.nightly_agent.clusterer.FrictionClusterer.cluster", return_value=[cluster]
+            ),
+            patch(
+                "tasks.nightly_agent.clusterer.FrictionClusterer.eligible", return_value=[cluster]
+            ),
+            patch(
+                "tasks.nightly_agent.governance.FrictionRegistry.find_duplicate", return_value=None
+            ),
+            patch(
+                "tasks.nightly_agent.drafter.ArtifactDrafter.draft",
+                side_effect=RuntimeError("草擬故障"),
+            ),
+        ):
+            result = CliRunner().invoke(cli, ["run"])
+
+        assert result.exit_code == 0
+        assert "[FAIL]" in (tmp_path / "LAST_FAILURE").read_text(encoding="utf-8")
+        digest = next(digest_dir.glob("digest-*.md"))
+        assert "[FAIL]" in digest.read_text(encoding="utf-8")

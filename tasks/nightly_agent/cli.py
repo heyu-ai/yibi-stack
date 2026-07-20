@@ -28,8 +28,9 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
     from .digest import DigestWriter
     from .drafter import ArtifactDrafter
     from .extractor import TranscriptExtractor
+    from .governance import FrictionRegistry
     from .pr_creator import PRCreator
-    from .tester import TestValidator
+    from .tester import TestValidator, _get_main_repo
 
     config = load_config(Path(config_path) if config_path else None)
     config.lookback_hours = hours
@@ -84,6 +85,8 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
             errors,
             config.min_cluster_size,
         )
+        if errors:
+            emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
         return
 
     if dry_run:
@@ -101,14 +104,24 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
             errors,
             config.min_cluster_size,
         )
+        if errors:
+            emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
         return
 
     # --- Step 5: Draft & validate ---
     click.echo("[5/6] 草擬 artifacts 並驗證 failing→passing test …")
     drafter = ArtifactDrafter(config)
     tester = TestValidator(config.generated_tests_dir)
+    registry = FrictionRegistry(config.friction_state_file, _get_main_repo(), config.github_repo)
 
     for cluster in eligible:
+        duplicate_reason = registry.find_duplicate(cluster)
+        if duplicate_reason:
+            click.echo(
+                f"  [SKIP] 重複 friction（{cluster.friction_type}）：{duplicate_reason}", err=True
+            )
+            skipped += 1
+            continue
         try:
             proposal = drafter.draft(cluster)
         except RuntimeError as e:
@@ -136,6 +149,12 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
             click.echo(f"  [SKIP] PR 建立失敗 ({proposal.title}): {e}", err=True)
             errors.append(str(e))
             skipped += 1
+            continue
+        try:
+            registry.record(cluster, "pr_opened")
+        except RuntimeError as e:
+            click.echo(f"  [WARN] PR 已建立，但 friction state 寫入失敗：{e}", err=True)
+            errors.append(str(e))
 
     click.echo(f"[6/6] 完成：{len(prs)} PRs opened, {skipped} skipped")
 
@@ -151,6 +170,8 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
         config.min_cluster_size,
     )
     click.echo(f"      Digest: {digest_path}")
+    if errors:
+        emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
 
 
 @cli.command()
@@ -209,7 +230,7 @@ def digest(date: str) -> None:
     if date == "today":
         date = datetime.now().strftime("%Y-%m-%d")
     digest_dir = (
-        Path(config.digest_dir) if config.digest_dir else RUNTIME_DIR / "nightly-agent" / "digests"
+        Path(config.digest_dir) if config.digest_dir else RUNTIME_DIR / "nightly_agent" / "digests"
     )
     digest_path = digest_dir / f"digest-{date}.md"
     if not digest_path.exists():
@@ -302,3 +323,22 @@ def _write_digest(  # type: ignore[no-untyped-def]
     )
     result: Path = writer.write(digest)
     return result
+
+
+def emit_failure_signal(error: BaseException, digest_dir: str | Path | None = None) -> Path:
+    """排程非預期失敗時寫入可見 marker 與當日 digest。"""
+    target_dir = Path(digest_dir) if digest_dir else RUNTIME_DIR / "nightly_agent" / "digests"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[FAIL] {timestamp} nightly-agent 執行失敗：{error}\n"
+    marker = target_dir.parent / "LAST_FAILURE"
+    digest_path = target_dir / f"digest-{datetime.now().strftime('%Y-%m-%d')}.md"
+    try:
+        marker.write_text(line, encoding="utf-8")
+        with digest_path.open("a", encoding="utf-8") as stream:
+            stream.write(line)
+    except OSError as e:
+        click.echo(f"[WARN] 無法寫入 nightly-agent 失敗訊號：{target_dir}：{e}", err=True)
+        raise error from e
+    click.echo(line.rstrip(), err=True)
+    return marker

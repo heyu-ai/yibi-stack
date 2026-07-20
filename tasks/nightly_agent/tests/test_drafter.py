@@ -58,6 +58,14 @@ class TestMakeSlug:
         )
         assert "worktree" in _make_slug(cluster)
 
+    def test_nightly_slug_001_cjk_keywords_have_stable_id(self) -> None:
+        """NIGHTLY-SLUG-001：純 CJK keywords 不得被 strip 成空 slug。"""
+        cluster = make_cluster(keywords=["中文輸入", "英文回覆", "語言不符"])
+        slug = _make_slug(cluster)
+        assert slug.startswith("ap2-block-")
+        assert slug == _make_slug(cluster)
+        assert "_" not in slug
+
 
 class TestClusterUserPrompt:
     def test_prompt_contains_friction_type(self) -> None:

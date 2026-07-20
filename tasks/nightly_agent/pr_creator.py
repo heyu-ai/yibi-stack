@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import re
 import subprocess  # nosec B404
 from datetime import datetime
@@ -36,7 +37,12 @@ class PRCreator:
     def create_pr(self, proposal: ArtifactProposal, test_result: TestResult) -> PRRecord:
         """建立 PR，回傳 PRRecord。"""
         date_str = datetime.now().strftime("%Y-%m-%d")
-        safe = re.sub(r"[^a-z0-9-]", "-", proposal.title.lower())[:40].strip("-")
+        safe = re.sub(r"[^a-z0-9-]+", "-", proposal.title.casefold())[:40].strip("-")
+        if not safe:
+            stable_id = hashlib.sha256(
+                f"{proposal.cluster_id}|{proposal.title}".encode()
+            ).hexdigest()[:10]
+            safe = f"friction-{stable_id}"
         branch = f"{self.config.pr_branch_prefix}/{date_str}/{safe}"
 
         # All git operations run against main repo (not worktree)
@@ -47,9 +53,6 @@ class PRCreator:
         self._apply_artifact(proposal, artifact_path)
 
         self._git(["add", str(artifact_path)])
-
-        if proposal.test_file and Path(proposal.test_file).exists():
-            self._git(["add", proposal.test_file])
 
         commit_msg = self._build_commit_message(proposal, test_result)
         self._git_commit(commit_msg)
@@ -71,6 +74,7 @@ class PRCreator:
             branch=branch,
             artifact_file=proposal.target_file,
             test_file=proposal.test_file,
+            behaviorally_validated=test_result.behaviorally_validated,
         )
 
     def _git(self, args: list[str]) -> str:
@@ -118,7 +122,7 @@ class PRCreator:
             f"Artifact type: {proposal.artifact_type}\n"
             f"Friction type: {proposal.cluster_id[:8]} — {ftype[:80]}\n"
             f"Sessions: {', '.join(proposal.source_session_ids[:3])}\n"
-            f"Test: failing-then-passing verified\n"
+            f"Validation: {self._validation_summary(test_result)}\n"
         )
 
     def _build_pr_body(self, proposal: ArtifactProposal, test_result: TestResult) -> str:
@@ -132,7 +136,8 @@ class PRCreator:
             f"{friction_list}\n\n"
             f"### Source sessions\n\n"
             f"{session_links}\n\n"
-            f"### Test validation\n\n"
+            f"### Validation\n\n"
+            f"- Result: {self._validation_summary(test_result)}\n"
             f"- Previously failing: `{test_result.previously_failed}`\n"
             f"- After artifact: `{test_result.passed}`\n\n"
             f"```\n{test_result.after_output[-400:]}\n```\n\n"
@@ -140,11 +145,19 @@ class PRCreator:
             f"{datetime.now().strftime('%Y-%m-%d %H:%M')}*"
         )
 
+    @staticmethod
+    def _validation_summary(test_result: TestResult) -> str:
+        if test_result.behaviorally_validated:
+            return "failing-then-passing behavior verified"
+        return "artifact recorded; not behaviorally validated"
+
     def _gh_pr_create(self, branch: str, title: str, body: str) -> str:
         body_path = self._main_repo / ".runtime" / "nightly_agent_pr_body.txt"
         body_path.parent.mkdir(parents=True, exist_ok=True)
         body_path.write_text(body, encoding="utf-8")
 
+        if not self.config.github_repo:
+            raise RuntimeError("無法解析 GitHub repo；請設定 github_repo 為 owner/repo")
         try:
             result = subprocess.run(  # nosec B603 B607
                 [
@@ -152,7 +165,7 @@ class PRCreator:
                     "pr",
                     "create",
                     "--repo",
-                    self.config.github_repo or ".",
+                    self.config.github_repo,
                     "--base",
                     "main",
                     "--head",
@@ -170,9 +183,7 @@ class PRCreator:
                 cwd=str(self._main_repo),
             )
         except FileNotFoundError as e:
-            raise RuntimeError(
-                "gh CLI が見つかりません。brew install gh を実行してください。"
-            ) from e
+            raise RuntimeError("找不到 gh CLI；請執行 brew install gh") from e
 
         if result.returncode != 0:
             raise RuntimeError(f"gh pr create 失敗：{result.stderr[:300]}")
