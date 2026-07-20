@@ -701,6 +701,43 @@ just read* — except here the false signal is a false **negative**.
 
 Prevention remains the rule in `CLAUDE.md`: run `gh pr merge` from the main repo directory.
 
+## Post-Merge Branch Cleanup: `branch -d` Refuses, and Push-Without-PR Leaves Orphans
+
+Two branch-lifecycle hazards that surface *after* a merge. Both end in an irreversible
+`git branch -D` or `git push origin --delete`, so they belong in this rule.
+
+### A squash-merged branch fails `git branch -d` — use `-D`, then prune the worktree
+
+A squash merge lands the branch's work as **one new commit on the base**, which does not carry
+the feature branch's own commits as ancestors. So `git branch -d <branch>` — the *safe* delete
+that refuses unless the branch is merged — reports `error: The branch '<branch>' is not fully
+merged` even though the PR is merged, and `--delete-branch` has already removed the remote branch.
+
+```bash
+# After confirming the merge is real (gh pr view <N> --json state,mergedAt), from the MAIN repo root:
+git branch -D <branch>          # -d refuses post-squash; -D force-deletes (the work is on main as a squash commit)
+git worktree prune              # drop the now-dead linked-worktree entry
+```
+
+`-D` is a force delete: confirm the squash commit is on `origin/main` **first**. Once the branch
+ref is gone, "Rescuing a Commit Accidentally Made on Main" above no longer applies.
+
+### Push-without-PR leaves orphan `origin` branches that collide with later sessions
+
+An automated session (e.g. the nightly self-improvement agent) that pushes `nightly-agent/*`
+branches to `origin` but aborts before `gh pr create` leaves those branches on the remote with no
+PR. They accumulate and later sessions hit branch-name collisions. Cleaning them up is an
+irreversible, cross-environment remote deletion (Category 3), so audit and confirm scope first:
+
+```bash
+git ls-remote --heads origin 'nightly-agent/*'      # audit: list the orphan branches
+git push origin --delete <branch> [<branch> ...]    # irreversible: the remote ref is gone
+```
+
+Never delete a branch whose only copy of some content is that branch. Before deleting, confirm
+each branch's content is already on `main` (merged, or harvested into a rule) — the agent must
+list the exact branches and get explicit confirmation before running `git push origin --delete`.
+
 ## Scope
 
 This rule applies to all Claude Code agent sessions. It does not affect commands the user
