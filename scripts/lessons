@@ -48,6 +48,7 @@ if [ "$has_project" -eq 0 ]; then
     PROJECT=$(basename "$(dirname "$GIT_COMMON")")
   else
     PROJECT=$(basename "$(pwd)")
+    echo "[WARN] 無法偵測 git project，將以 '${PROJECT}'（當前目錄名）記錄。如需正確 scope 請用 --project 指定。" >&2
   fi
   exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons "$@" --project "$PROJECT"
 else
