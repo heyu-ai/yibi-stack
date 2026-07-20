@@ -349,6 +349,117 @@ wrong thing. Before trusting a green from a piped command, ask **whose** exit co
 (Source: PR #299 retro -- `make ci 2>&1 | tail -40` reported exit 0 while `make ci` was Error 1;
 the failure was nearly shipped as a passing CI.)
 
+### `|| exit 0` / `|| true` Turns a Real Result Into a Silent Skip
+
+Same family, different mechanism: the pipe case loses the exit code, this one **discards it on
+purpose** — and with it, the tool's actual output.
+
+Analysis tools exit non-zero for two completely different reasons: **it failed to run**, and
+**it ran and found something**. `agy`, `codex`, `mypy`, `pytest`, and most linters all use
+non-zero for "found findings". Wrapping the call in `|| exit 0` or `|| true` collapses both into
+"nothing to see", so a reviewer that produced real findings is silently dropped from the report.
+
+```bash
+# Wrong: a review that FOUND problems is indistinguishable from one that failed to start,
+# and both are silently discarded. The voice vanishes from the aggregate with no diagnostic.
+OUT=$(agy review ... || true)
+if [ -n "$OUT" ]; then ... ; fi
+
+# Correct: capture status and output separately, then decide from the OUTPUT what happened
+EXIT=0
+OUT=$(agy review ...) || EXIT=$?
+if [ -z "$OUT" ]; then
+  echo "[FAIL] agy produced no output (exit $EXIT) -- treat as tool failure, not as 'no findings'" >&2
+  exit 1
+fi
+# non-empty output + non-zero exit == findings, which is a normal, reportable result
+```
+
+The distinction to encode is **"failed to run" vs "ran and found something"** — never let one
+`||` erase both. `|| true` is only appropriate where the failure genuinely cannot affect anything
+downstream, which a result you are about to branch on never is.
+
+### A `file:line`-Only Diagnostic Filter Drops Invocation Errors
+
+A filter written against the *diagnostic* format silently drops errors that do not have that
+format — most importantly, the ones that mean the tool never ran.
+
+mypy 2.x reports config and invocation failures as `mypy: error: <msg>` with **no file and no
+line number**. A filter matching only `[0-9]+(:[0-9]+)?: (error|note):` matches zero lines, so
+"no diagnostics" is reported as clean — even though mypy analyzed nothing at all.
+
+```bash
+# Wrong: counts parsed diagnostics; `mypy: error: No files given` yields a count of 0 == "clean"
+COUNT=$(uv run mypy tasks/ | grep -cE '[0-9]+: (error|note):')
+
+# Correct: the exit code already answers the question the filter was approximating
+if ! uv run mypy tasks/ > /tmp/mypy.log 2>&1; then
+  echo "[FAIL] mypy failed -- see /tmp/mypy.log (may be diagnostics OR an invocation error)" >&2
+  exit 1
+fi
+```
+
+Generalization: whenever you parse a tool's output to decide pass/fail, you have replaced the
+tool's own verdict with a regex, and the regex does not know about the failure modes it was not
+written for. Prefer the exit code; if you must parse, add an explicit arm for
+"tool-level error" (`^mypy: error:`) alongside the per-file diagnostics.
+
+### Grepping a Success Banner Breaks When the Banner Changes
+
+`flutter test` prints `All tests passed!` — except when any test was **skipped**, where it prints
+`All other tests passed!` instead. A gate written as `grep "All tests passed"` therefore reports
+failure for a perfectly green run that happened to skip a test.
+
+```bash
+# Wrong: false FAILURE whenever any test is skipped
+flutter test | grep -q "All tests passed"
+
+# Correct: use the exit code, which already encodes the verdict
+flutter test
+# or, if a banner check is genuinely needed, accept both forms
+flutter test | grep -qE "All (other )?tests passed"
+```
+
+Success banners are **presentation**, not API — they change with tool versions and with run
+conditions. Exit codes are the contract. Same family as the two sections above: the check ran and
+reported confidently about the wrong thing.
+
+### Before Attributing a Red Result to Your Diff
+
+Three ways a red signal turns out not to be about your change. Check these before debugging your
+own diff — and equally, before concluding a local green means anything.
+
+**1. Stray untracked directories on disk.** `pytest` collects from any directory matching its
+discovery rules, whether or not git tracks it. Leftover generated directories (historically
+`tasks/nightly_agent/tests/`, but any `tasks/*/tests/` from an aborted run) produce failures
+indistinguishable from real ones — and they follow the checkout, not the branch.
+
+```bash
+git -C <repo> ls-files <failing-dir>        # empty output == git does not track it == stray
+git -C <repo> clean -ndx <failing-dir>      # preview what removal would delete
+git -C <repo> clean -fdx <failing-dir>      # then remove, and re-run
+```
+
+Note `.gitignore` does not help here: ignored files are still on disk and still collected —
+see the `.gitignore` ≠ absent-from-disk rule in
+[`02-error-and-import.md`](02-error-and-import.md).
+
+**2. Pre-existing failures unrelated to your change.** `make release` runs `gates.sh`, which runs
+`uv run pytest` as a gate under `trap ERR`. Any pre-existing failure — including stray-directory
+noise from case 1 — aborts the release mid-flight before any commit or tag exists. Confirm a zero-
+failure baseline *before* starting a release, not after it rolls back.
+
+**3. macOS-green does not imply Linux-green.** A local `make ci` pass on macOS says nothing about
+platform-specific assumptions (BSD vs GNU flags, `realpath` availability, font lists, locale).
+Watch the remote run before declaring the task done:
+
+```bash
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')"
+```
+
+This is distinct from the `git add`-before-`make ci` divergence documented in `CLAUDE.md` — that
+one is about git's index, this one is about the platform.
+
 ### `realpath` — Not Available on macOS < Ventura
 
 `realpath` is absent on macOS Monterey and earlier. Scripts using it fail with `command not found`

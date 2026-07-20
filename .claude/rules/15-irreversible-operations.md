@@ -150,6 +150,31 @@ This is a runtime safety net layered **on top of** this doc-layer rule, not a re
   fixed and version-dependent; an operation outside it (or a user on an older version, or a
   non-auto mode) gets no native guard. Always apply the Agent Standard Behavior above first.
 
+### Prevention: Verify the Current Branch Before the Session's First Commit
+
+`git commit` targets whatever branch the working tree happens to be on — which is not
+necessarily where *this* session started. A previous session, or a background job, can leave the
+shared checkout parked on an unrelated branch, and the first commit of the new session silently
+stacks onto it.
+
+```bash
+# Run this before the FIRST git commit of every session -- not just when something feels wrong
+git -C <repo> branch --show-current
+```
+
+If the answer is not the branch you intend, stop and fix it **before** committing; the recovery
+below is strictly harder than the check.
+
+**The dominant culprit is `nightly-agent/YYYY-MM-DD/*`.** The nightly self-improvement agent
+creates and checks out a branch per friction inside the shared main checkout, and does not
+restore the previous branch when its run aborts partway. Any session that starts afterward
+inherits that branch. This is observed, not hypothetical: at the time this rule was written the
+shared checkout was parked on `nightly-agent/2026-07-19/mypy--error---invocation-errors-bypass`,
+and a prior incident (#269) landed a proposal commit on a nightly-agent branch this way.
+
+Checking at commit time is what matters — checking at session start is not equivalent, because a
+concurrently running background job can move the shared checkout mid-session.
+
 ### Recovery: Rescuing a Commit Accidentally Made on Main (Only if Not Yet Pushed)
 
 When a commit was made directly on `main` and needs to become a PR, the situation is fully
@@ -613,6 +638,56 @@ it points at is not in the main repo yet. There is no quiet window.
 
 (PR #214 retro: registering `protect-tracked-rm.py` from a worktree blocked every Bash call in
 that session — twice, the second time after having just written this down.)
+
+## A Linked Worktree Must Never Check Out `main`
+
+Git lets exactly one worktree hold a given branch. If a linked worktree checks out `main`, the
+main repo can no longer `git checkout main`, and every command that internally does so —
+`gh pr merge`, `/clean-merged`, `/clean-gone` — fails with
+`fatal: 'main' is already used by worktree at '...'`.
+
+```bash
+# Wrong: occupies the main ref for as long as the worktree exists
+git worktree add .claude/worktrees/<name> main
+
+# Correct: always branch off main
+git worktree add .claude/worktrees/<name> -b <feat-branch> origin/main
+```
+
+`.claude/hooks/protect-worktree.py` enforces this at `PreToolUse`. That hook is the mechanism —
+**this section is the reason**, recorded at the doc layer so the invariant survives the hook being
+disabled, bypassed, or not yet installed in a fresh clone. `CLAUDE.md` lists `protect-worktree`
+among the installed hooks without saying what it protects against; that list is not a substitute
+for the invariant.
+
+## `gh pr merge` From a Worktree: Non-Zero Exit Does Not Mean the Merge Failed
+
+Related to the previous section but a **distinct and more dangerous** failure, because the
+misleading signal points the wrong way: it reports failure for an operation that already
+succeeded.
+
+`gh pr merge` does two things in order:
+
+1. **Merges the PR through the GitHub API** — remote-side, succeeds immediately
+2. **Cleans up locally** — checks out the base branch, deletes the merged branch
+
+Run from inside a linked worktree, step 1 succeeds and step 2 fails with
+`fatal: 'main' is already used by worktree`. The command exits non-zero and prints a worktree
+error, so it reads as "the merge did not happen" — **but the PR is already merged.** Retrying
+then produces confusing follow-on errors against an already-merged PR.
+
+```bash
+# After ANY `gh pr merge` that exits non-zero, establish the real outcome before reacting
+git -C <main-repo> fetch origin
+git -C <main-repo> log origin/main -1 --oneline    # did the squash commit land?
+gh pr view <N> --json state,mergedAt              # authoritative: MERGED or not
+```
+
+Never judge success or failure from that stderr alone. This is the same class as the exit-code
+false-greens in [`13-bash-anti-patterns.md`](13-bash-anti-patterns.md) — *ask whose exit code you
+just read* — except here the false signal is a false **negative**.
+
+Prevention remains the rule in `CLAUDE.md`: run `gh pr merge` from the main repo directory.
 
 ## Scope
 
