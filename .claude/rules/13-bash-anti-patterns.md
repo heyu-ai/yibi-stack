@@ -349,6 +349,167 @@ wrong thing. Before trusting a green from a piped command, ask **whose** exit co
 (Source: PR #299 retro -- `make ci 2>&1 | tail -40` reported exit 0 while `make ci` was Error 1;
 the failure was nearly shipped as a passing CI.)
 
+### `|| exit 0` / `|| true` Turns a Real Result Into a Silent Skip
+
+Same family, different mechanism: the pipe case loses the exit code by accident, this one
+**discards it on purpose**. Be precise about *what* it discards — `$(...)` still captures stdout
+even with `|| true`; only the **exit code** is masked. That is the whole problem, because the exit
+code is often the only signal separating "failed to run" from "ran and found something".
+
+Analysis tools exit non-zero for two completely different reasons: **it failed to run**, and
+**it ran and found something**. `mypy`, `pytest`, and most linters use non-zero for "found
+findings"; review tools like `agy` / `codex review` instead encode findings in their *output* and
+reserve non-zero for execution failure — so "non-zero == findings" is not universal, read each
+tool's own contract. Either way, `|| exit 0` / `|| true` throws that exit code away — but with
+*different* control flow, so be precise which one you wrote: `|| true` masks the failure and the
+script **keeps running**, so whatever you branch on next can no longer tell the two apart;
+`|| exit 0` instead **ends the script right there** with a success status, turning a real failure
+into a silent early-exit that skips every downstream step. Either way the caller sees success and
+cannot distinguish "failed to run" from "ran and found something".
+
+```bash
+# Wrong (branch on the exit code): `|| true` forces exit 0, so a run that FAILED -- or that found
+# problems, for a tool that signals findings via its exit code -- reads as clean and the script
+# sails right past it.
+agy review ... || true
+# ... proceeds as if nothing happened
+
+# Wrong (branch on the output): $(...) DOES capture stdout despite `|| true`, so findings are not
+# lost here -- but a failed run that printed its error to stdout is now indistinguishable from real
+# findings (both non-empty), because the exit code that separated them is gone.
+OUT=$(agy review ... || true)
+if [ -n "$OUT" ]; then ... ; fi
+
+# Correct: capture status and output separately, then decide from BOTH against the tool's contract
+EXIT=0
+OUT=$(agy review ...) || EXIT=$?
+if [ -z "$OUT" ]; then
+  echo "[FAIL] agy produced no output (exit $EXIT) -- treat as tool failure, not as 'no findings'" >&2
+  exit 1
+fi
+# For a REVIEW tool (agy / codex review), a non-zero EXIT means it failed to run -- reject it IN
+# CODE, do not read its stdout as findings. This branch is the point: capturing $EXIT is useless
+# unless something actually acts on it.
+if [ "$EXIT" -ne 0 ]; then
+  echo "[FAIL] agy exited $EXIT -- execution failure; its stdout is not review findings" >&2
+  exit 1
+fi
+# Now: EXIT == 0 and OUT non-empty -> read the findings from OUT.
+# For mypy/pytest the contract is INVERTED -- non-zero IS the "found something" signal, so there you
+# must NOT add this reject-on-non-zero branch; reconcile output and exit per that tool's contract.
+```
+
+The distinction to encode is **"failed to run" vs "ran and found something"**, and the exit code
+is what carries it — so never let one `||` mask it. `|| true` is only appropriate where the failure
+genuinely cannot affect anything downstream, which a result you are about to branch on never is.
+
+The empty-output check above assumes the tool **always emits something when it ran** — true for
+`agy` / `codex review` / `mypy` / `pytest`. A linter that is silent on a clean run (`ruff check`,
+`eslint`) exits 0 with no output, so `[ -z "$OUT" ]` would false-`[FAIL]` a green run; there, gate
+on the exit code, not on emptiness.
+
+### A `file:line`-Only Diagnostic Filter Drops Invocation Errors
+
+A filter written against the *diagnostic* format silently drops errors that do not have that
+format — most importantly, the ones that mean the tool never ran.
+
+mypy 2.x reports config and invocation failures as `mypy: error: <msg>` with **no file and no
+line number**. A filter matching only `[0-9]+(:[0-9]+)?: (error|note):` matches zero lines, so
+"no diagnostics" is reported as clean — even though mypy analyzed nothing at all.
+
+```bash
+# Wrong: counts parsed diagnostics; `mypy: error: Missing target module, package, files, or
+# command.` yields a count of 0 == "clean"
+COUNT=$(uv run mypy tasks/ | grep -cE '[0-9]+(:[0-9]+)?: (error|note):')
+
+# Correct: the exit code already answers the question the filter was approximating
+LOG=$(mktemp)   # unique per run; a fixed /tmp/mypy.log races under parallel runs and can truncate
+                # a file the path already symlinks to
+if ! uv run mypy tasks/ > "$LOG" 2>&1; then
+  echo "[FAIL] mypy failed -- see ${LOG} (may be diagnostics OR an invocation error)" >&2
+  exit 1
+fi
+```
+
+Generalization: whenever you parse a tool's output to decide pass/fail, you have replaced the
+tool's own verdict with a regex, and the regex does not know about the failure modes it was not
+written for. Prefer the exit code; if you must parse, add an explicit arm for
+"tool-level error" (`^mypy: error:`) alongside the per-file diagnostics.
+
+### Grepping a Success Banner Breaks When the Banner Changes
+
+`flutter test` prints `All tests passed!` — except when any test was **skipped**, where it prints
+`All other tests passed!` instead. A gate written as `grep "All tests passed"` therefore reports
+failure for a perfectly green run that happened to skip a test.
+
+```bash
+# Wrong: false FAILURE whenever any test is skipped
+flutter test | grep -q "All tests passed"
+
+# Correct: use the exit code, which already encodes the verdict
+flutter test
+```
+
+Do not reach for a banner grep even as a "double-check": `flutter test | grep ...` returns
+**grep's** exit code, not flutter's (the pipe-masks-exit-code trap at the top of this file), so it
+can report success on a failing run whose output happened to contain the banner earlier. If you
+genuinely must inspect the banner, do it without a pipe — run `flutter test`, keep its exit code,
+then grep the saved output separately (and match `All (other )?tests passed` to survive the
+skipped-test variant).
+
+Success banners are **presentation**, not API — they change with tool versions and with run
+conditions. Exit codes are the contract. Same family as the two sections above: the check ran and
+reported confidently about the wrong thing.
+
+### Before Attributing a Red Result to Your Diff
+
+Three ways a red signal turns out not to be about your change. Check these before debugging your
+own diff — and equally, before concluding a local green means anything.
+
+**1. Stray untracked directories on disk.** `pytest` collects from any directory matching its
+discovery rules, whether or not git tracks it. Leftover generated directories (historically
+`tasks/nightly_agent/tests/`, but any `tasks/*/tests/` from an aborted run) produce failures
+indistinguishable from real ones — and they follow the checkout, not the branch.
+
+```bash
+git -C <repo> ls-files <failing-dir>        # empty output == git does not track it == likely stray
+git -C <repo> clean -ndx <failing-dir>      # preview EXACTLY what removal would delete
+```
+
+An empty `git ls-files` proves the path is *untracked*, not that its contents are *safe to
+delete* — it is one probe, not a safety proof (see rule 15's `rm -rf` row on why the probes do
+not tell you enough). `git clean -fdx` then permanently removes every untracked **and ignored**
+file under the path (`.env`, build artifacts) with no Trash, which makes it a
+[rule 15](15-irreversible-operations.md) Category 4 operation the agent must **not** run
+autonomously. Confirm the `-ndx` preview lists only disposable generated files, then let the user
+run `clean -fdx` (or use `trash`).
+
+Note `.gitignore` does not help here: ignored files are still on disk and still collected —
+see the `.gitignore` ≠ absent-from-disk rule in
+[`02-error-and-import.md`](02-error-and-import.md).
+
+**2. Pre-existing failures unrelated to your change.** `make release` runs `gates.sh`, which runs
+`uv run pytest` as a gate under `trap ERR`. Any pre-existing failure — including stray-directory
+noise from case 1 — aborts the release mid-flight before any commit or tag exists. Confirm a zero-
+failure baseline *before* starting a release, not after it rolls back.
+
+**3. macOS-green does not imply Linux-green.** A local `make ci` pass on macOS says nothing about
+platform-specific assumptions (BSD vs GNU flags, `realpath` availability, font lists, locale).
+Watch the remote run before declaring the task done:
+
+```bash
+# Filter to THIS branch's latest run -- an unfiltered `--limit 1` returns the most recent run
+# across ALL branches/workflows and can watch someone else's. Split the subshell out of the outer
+# double-quotes too (rule 13 Quoting Rule 2: `gh run watch "$(...)"` trips `Unhandled node type: string`).
+BRANCH=$(git branch --show-current)
+RUN_ID=$(gh run list --branch "$BRANCH" --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RUN_ID"
+# Simplest when a PR exists: gh pr checks <N> --watch
+```
+
+This is distinct from the `git add`-before-`make ci` divergence documented in `CLAUDE.md` — that
+one is about git's index, this one is about the platform.
+
 ### `realpath` — Not Available on macOS < Ventura
 
 `realpath` is absent on macOS Monterey and earlier. Scripts using it fail with `command not found`

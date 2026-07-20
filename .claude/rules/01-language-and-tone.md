@@ -29,6 +29,47 @@ raise RuntimeError("環境變數 GMAIL_TOKEN 未設定，請先執行 setup 指�
 click.echo(f"✓ 已匯入 {count} 筆帳單記錄")
 ```
 
+## Conversational Replies — Mirror the User's Input Language
+
+The sections above govern **artifacts** (docstrings, `click.echo()`, comments). This one governs
+the **assistant's own chat replies**, which is a separate and far more frequently violated layer.
+
+Rule: before composing **any** reply, mirror the language of the user's most recent message —
+reply in the language the user wrote in, keeping identifiers, CLI flags, and code fences in their
+original English form. For this repo the operative case is Chinese: whenever the user writes in
+Chinese, write the entire reply in 繁體中文台灣用語.
+
+A CJK character-range check (U+4E00–U+9FFF) is a fast backstop for spotting that common case, not
+a language classifier — the range also covers Japanese kanji and Simplified Chinese, so do not read
+"the message contains a CJK byte" as "force Traditional Chinese". An explicit language instruction —
+from the user, or from a project/global setting like this repo's CLAUDE.md — always wins over the
+heuristic.
+
+"Any reply" is literal. The observed failures were never the main answer; they were the
+small utterances that feel exempt:
+
+- the opening action sentence of a turn (`Let me check...`, `I'll run the...`)
+- mid-task progress and status updates during a long workflow
+- skill bootstrap narration and diagnostic steps
+- tool-call narration between two tool invocations
+
+Three mechanisms cause the drift. Knowing them is what makes the rule actionable:
+
+| Mechanism | What happens |
+| --- | --- |
+| **Tool-call re-entry** | The language decision is made once at session start and silently dropped when the turn resumes after a tool call or context switch. |
+| **`thinking` in English** | When reasoning opens in English, the reply inherits that language — the first prose line comes out English before anything "decides" to switch. |
+| **English tool output** | Surrounding English stdout/stderr biases the reply language, even though tool output is data, not a language signal. |
+
+So the check must be **re-run per reply**, not per session, and it keys off the *user's message*
+only — never off the language of tool output or of your own reasoning.
+
+Evidence: the nightly self-improvement agent independently rediscovered this friction on roughly
+**26 branches across a six-day window** (2026-07-14 → 2026-07-19; the exact count comes from the
+dedup pipeline's record, not from surviving refs, which are fewer after merges/deletions), making
+it by far the most frequently observed friction in the repo's history. See PR #279 for the dedup
+pipeline that stopped the re-reporting; this rule addresses the underlying behavior.
+
 ## Punctuation
 
 Chinese text uses full-width punctuation: ，、。：；！？「」『』
