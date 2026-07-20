@@ -99,6 +99,26 @@ if settings_path.exists():
 This applies to any file read inside a scanner or service — another process may delete
 or replace the file between the `exists()` check and the `read_text()` call.
 
+## Writing a File Before Its Parent Directory Exists
+
+Writing into a directory that has not been created yet does not silently create the parent:
+`pathlib`'s `write_text()` raises `FileNotFoundError`, and a shell tool may instead land the
+write in the wrong place — either way the work is lost and must be redone. This bites when an
+agent generates files (e.g. `notes.md`) into a spec/output directory before its init step has run.
+
+```python
+# Wrong: parent may not exist yet -> FileNotFoundError (or, via a shell tool, a misplaced file)
+out_path.write_text(rendered)
+
+# Correct: ensure the parent exists first
+out_path.parent.mkdir(parents=True, exist_ok=True)
+out_path.write_text(rendered)
+```
+
+When the directory is owned by an init tool (not a plain `mkdir`) — e.g. `spectra init` creating
+a spec directory — run that tool and confirm it succeeded before writing, rather than assuming
+the directory is there: `test -d <dir> || <init-command>`.
+
 ## Pathlib Semantics
 
 `Path.with_suffix(ext)` **replaces** the last extension — it does not append:

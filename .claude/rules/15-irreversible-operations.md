@@ -701,6 +701,50 @@ just read* — except here the false signal is a false **negative**.
 
 Prevention remains the rule in `CLAUDE.md`: run `gh pr merge` from the main repo directory.
 
+## Post-Merge Branch Cleanup: `branch -d` Refuses, and Push-Without-PR Leaves Orphans
+
+Two branch-lifecycle hazards that surface *after* a merge. Both end in an irreversible
+`git branch -D` or `git push origin --delete`, so they belong in this rule.
+
+### A squash-merged branch fails `git branch -d` — free the worktree first, then `-D`
+
+A squash merge lands the branch's work as **one new commit on the base**, which does not carry
+the feature branch's own commits as ancestors. So `git branch -d <branch>` — the *safe* delete
+that refuses unless the branch is merged — reports `error: the branch '<branch>' is not fully
+merged` even though the PR is merged, and `--delete-branch` has already removed the remote branch.
+
+A **second** refusal stacks on top when the branch lived in a linked worktree: while that
+worktree entry still exists, *any* delete (`-d` or `-D`) fails with `cannot delete branch
+'<branch>' used by worktree at '...'`. So free the worktree **before** deleting the branch — the
+order matters:
+
+```bash
+# From the MAIN repo root, after confirming the merge (gh pr view <N> --json state,mergedAt):
+git worktree remove .claude/worktrees/<name>   # frees the branch; use `git worktree prune` if the dir is already gone
+git branch -D <branch>                          # now unbound; -d still refuses post-squash, so -D force-deletes
+```
+
+`-D` is a force delete, but nothing is lost here: the squash commit on `origin/main` is the
+canonical copy of the merged work. (A branch deleted *before* its work reached `origin/main` is a
+different case — then it is recoverable only via the reflog / `git fsck --lost-found`, and only
+before GC.)
+
+### Push-without-PR leaves orphan `origin` branches that collide with later sessions
+
+An automated session (e.g. the nightly self-improvement agent) that pushes `nightly-agent/*`
+branches to `origin` but aborts before `gh pr create` leaves those branches on the remote with no
+PR. They accumulate and later sessions hit branch-name collisions. Cleaning them up is an
+irreversible, cross-environment remote deletion (Category 3), so audit and confirm scope first:
+
+```bash
+git ls-remote --heads origin 'nightly-agent/*'      # audit: list the orphan branches
+git push origin --delete <branch> [<branch> ...]    # irreversible: the remote ref is gone
+```
+
+Never delete a branch whose only copy of some content is that branch. Before deleting, confirm
+each branch's content is already on `main` (merged, or harvested into a rule) — the agent must
+list the exact branches and get explicit confirmation before running `git push origin --delete`.
+
 ## Scope
 
 This rule applies to all Claude Code agent sessions. It does not affect commands the user
