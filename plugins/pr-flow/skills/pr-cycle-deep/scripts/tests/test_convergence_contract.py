@@ -24,7 +24,18 @@ import pytest
 SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 
 # The change's self-imposed line budget: the file must not grow past its pre-change length.
-LINE_BUDGET = 1220
+#
+# Raised 1220 -> 1239 (+19) for Step 1.6 "Fact-assertion sweep". Recorded here rather than
+# absorbed silently, because the point of this ratchet is that growth must be argued for:
+#
+#   yibi-mvp PR #933 ran this skill with 3 voices over 2 rounds and produced 25 findings, yet its
+#   two highest-consequence defects were found by NO voice -- every voice reads only diff.patch,
+#   so a false statement living outside the diff is structurally invisible to all of them. Adding
+#   reviewers cannot close that gap; only widening the surface can. The 19 lines buy the trigger
+#   for that widening.
+#
+# Anyone raising this again: say what the added lines buy, in the same commit.
+LINE_BUDGET = 1239
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the
@@ -118,33 +129,40 @@ def _fixture(n_lines: int, *, trailing_newline: bool = True, eol: str = "\n") ->
 
 
 def test_prc_vl_001_budget_upper_bound_accepted():
-    """PRC-VL-001: exactly 1220 lines, anchors complete → []."""
-    text = _fixture(1220)
-    assert _count_lines(text) == 1220
+    """PRC-VL-001: exactly LINE_BUDGET lines, anchors complete → []."""
+    text = _fixture(LINE_BUDGET)
+    assert _count_lines(text) == LINE_BUDGET
     assert check_convergence_contract(text) == []
 
 
 def test_prc_vl_002_budget_plus_one_rejected_with_both_numbers():
-    """PRC-VL-002: 1221 lines fails with a single message naming both 1221 and 1220."""
-    text = _fixture(1221)
-    assert _count_lines(text) == 1221
+    """PRC-VL-002: budget+1 fails with a single message naming both the count and the budget.
+
+    Derived from LINE_BUDGET rather than hardcoded: the first budget raise (1220 -> 1239) broke
+    these three tests precisely because the numbers were literals, so the boundary assertions
+    stopped describing the boundary they claim to guard.
+    """
+    over = LINE_BUDGET + 1
+    text = _fixture(over)
+    assert _count_lines(text) == over
     failures = check_convergence_contract(text)
-    budget_msgs = [f for f in failures if "1221" in f and "1220" in f]
+    budget_msgs = [f for f in failures if str(over) in f and str(LINE_BUDGET) in f]
     assert len(budget_msgs) == 1, failures
 
 
 def test_prc_vl_003_budget_minus_one_accepted():
-    """PRC-VL-003: 1219 lines → []."""
-    text = _fixture(1219)
-    assert _count_lines(text) == 1219
+    """PRC-VL-003: budget-1 lines → []."""
+    under = LINE_BUDGET - 1
+    text = _fixture(under)
+    assert _count_lines(text) == under
     assert check_convergence_contract(text) == []
 
 
 def test_prc_vl_004_no_trailing_newline_not_off_by_one():
-    """PRC-VL-004: a 1220-line doc without a final newline counts as 1220, not 1219/1221."""
-    text = _fixture(1220, trailing_newline=False)
+    """PRC-VL-004: a budget-length doc without a final newline counts exactly, not +/-1."""
+    text = _fixture(LINE_BUDGET, trailing_newline=False)
     assert not text.endswith("\n")
-    assert _count_lines(text) == 1220
+    assert _count_lines(text) == LINE_BUDGET
     assert check_convergence_contract(text) == []
 
 
@@ -155,10 +173,11 @@ def test_prc_vl_005_crlf_counts_same_as_lf():
     T045 decision: KEPT. This repo does not pin LF via .gitattributes, so a Windows checkout could
     introduce CRLF; the test is cheap and guards the `\\n`-only counting.
     """
-    text = _fixture(1221, eol="\r\n")
-    assert _count_lines(text) == 1221
+    over = LINE_BUDGET + 1
+    text = _fixture(over, eol="\r\n")
+    assert _count_lines(text) == over
     failures = check_convergence_contract(text)
-    assert any("1221" in f and "1220" in f for f in failures)
+    assert any(str(over) in f and str(LINE_BUDGET) in f for f in failures)
 
 
 # --------------------------------------------------------------------------- anchors (DT)
@@ -255,17 +274,17 @@ def test_prc_eg_006_every_required_anchor_is_load_bearing():
 
 
 def test_prc_eg_007_line_budget_mutation_killed_both_directions():
-    """PRC-EG-007: +1 line over a passing 1220 fixture fails; -1 line under a failing 1221 fixture
-    passes. Both mutants killed."""
-    ok = _fixture(1220)
+    """PRC-EG-007: +1 line over a passing budget-length fixture fails; -1 line under a failing
+    budget+1 fixture passes. Both mutants killed."""
+    ok = _fixture(LINE_BUDGET)
     over = ok + "one more line\n"
-    assert _count_lines(over) == 1221
+    assert _count_lines(over) == LINE_BUDGET + 1
     assert check_convergence_contract(over), "adding a line over budget must fail"
 
-    bad = _fixture(1221)
+    bad = _fixture(LINE_BUDGET + 1)
     lines = bad.split("\n")
     under = "\n".join(lines[:-2]) + "\n"  # drop one logical line
-    assert _count_lines(under) == 1220
+    assert _count_lines(under) == LINE_BUDGET
     assert check_convergence_contract(under) == [], "dropping back to budget must pass"
 
 

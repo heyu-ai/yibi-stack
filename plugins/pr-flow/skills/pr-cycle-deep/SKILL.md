@@ -262,6 +262,25 @@ Pre-review Check
 
 ---
 
+### Step 1.6 — Fact-assertion sweep (widen the review surface beyond the diff)
+
+Every voice in Steps 3–4 reads `diff.patch` and nothing else: the mob is broad in *viewpoints*,
+**fixed in *scope***. Text elsewhere that this PR just made false is invisible to all of them.
+
+Before Step 2, write 3–7 `X is now Y (was Z)` statements from the PR body + diff. For each, grep the
+repo (docs, runbooks, checklists, rules — not just code) for text still assuming the old state,
+including **arguments whose premise was the old state**. Fix live hits in this PR and add those
+files to the review surface; leave historical provenance alone. Report `- "<fact>" -> N hits, M live`.
+Where the calling repo has a residual-reference rule, this step is where it gets *executed*, not
+merely loaded. **Never skip it on a docs-only PR** — that is exactly when sibling documents rot,
+and CI does not check prose.
+
+> Why it is a step and not advice (yibi-mvp PR #933, docs-only, 3 voices × 2 rounds, 25 findings):
+> the two worst defects were found by **no voice** — a store data-safety under-declaration and an
+> App Store 5.1.1(v) rejection, both asserted in a runbook sitting outside the diff.
+
+---
+
 ### Step 2 — Code Review (defect detection)
 
 Run `/code-review` to scan all PR changes for correctness bugs (`/code-review high` for stricter
