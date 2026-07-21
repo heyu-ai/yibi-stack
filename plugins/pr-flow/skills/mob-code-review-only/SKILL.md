@@ -160,7 +160,7 @@ exactly as `/pr-cycle-deep` specifies.
 
 - The `final.md` severity grades are **the author's to-do list, not yours.** Note that the engine's
   `final.md` template uses self-directed, imperative section headers (`## Consensus Critical (must
-  fix)`, `## Actionable NIT (must fix — user requires all NITs cleaned up)`) — those belong to
+  fix)`, `## Consensus Important (must fix)`) — those belong to
   *your own* PR lifecycle and are presumptuous on a contributor's PR. **Do not post `final.md`
   verbatim**; Step 4 rewrites it into author-facing suggestion language before posting (see Step 4a).
   Internally `final.md` is still graded normally; only the *delivered* wording softens.
@@ -182,8 +182,8 @@ confirmation before posting (the user may want to edit tone or drop disputed ite
 
 ### 4a — Build the author-facing comment (rewrite `final.md` headers)
 
-Do **not** post `final.md` verbatim — its `must fix` / `user requires all NITs cleaned up` headers
-are self-directed and presumptuous on a contributor's PR. Use the Write tool to produce
+Do **not** post `final.md` verbatim — its `must fix` headers (e.g. `## Consensus Critical (must
+fix)`) are self-directed and presumptuous on a contributor's PR. Use the Write tool to produce
 `$REVIEW_DIR/review-comment.md` from `final.md`, keeping every finding's content and file:line
 intact but rewriting the section headers into suggestion language:
 
@@ -191,7 +191,8 @@ intact but rewriting the section headers into suggestion language:
 | --- | --- |
 | `## Consensus Critical (must fix)` | `## Blocking concerns (strongly recommend addressing before merge)` |
 | `## Consensus Important (must fix)` | `## Important suggestions` |
-| `## Actionable NIT (must fix — user requires all NITs cleaned up)` | `## Minor suggestions (nits)` |
+| `## Actionable NIT (deferred — never blocks; fix opportunistically)` | `## Minor suggestions (nits)` |
+| `## Deferred for lack of evidence (not blocking; reason stated per item)` | `## Flagged but unverified (needs your input to confirm)` |
 | `## Disputed (user decides)` | `## Points the reviewers disagreed on (your call)` |
 | `## Voices unavailable` | `## Voices unavailable` (unchanged) |
 
