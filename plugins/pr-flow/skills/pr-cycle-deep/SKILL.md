@@ -242,7 +242,9 @@ Before creating or reviewing the PR, its body MUST contain this exact PR-specifi
 ```
 
 For a new PR, the lead drafts this contract from the matching spec/change and writes the complete PR
-body to `$CLAUDE_JOB_DIR/pr-body.md` with the Write tool, then creates the PR:
+body to `$CLAUDE_JOB_DIR/pr-body.md` with the Write tool. **Show the drafted contract to the user and
+wait for explicit confirmation before creating the PR** — do not launch R1 on a self-drafted,
+unconfirmed contract; the confirmed text is the frozen Review Contract for this pass. Then create the PR:
 
 ```bash
 gh pr create --title "..." --body-file "$CLAUDE_JOB_DIR/pr-body.md"
@@ -882,6 +884,10 @@ If `gh pr view` itself errors (auth / network), stop and report — an empty res
 The re-review loop is **bounded**: Round 1, then at most Round 2, then it exits — to a merge or to
 human adjudication. There is no "run one more round to see."
 
+**Terminology**: these **re-review passes** (Round 1 / Round 2 here) are distinct from the per-pass
+cross-debate **rounds** (Step 3 R1 independent + Step 4 R2 debate). Each re-review pass internally
+re-runs Step 3, and Step 4 only if the Step 3.4 gate activates — so one pass can contain its own R1/R2.
+
 | Round | Review surface | Can block merge | On exit |
 | --- | --- | --- | --- |
 | Round 1 | the **full diff**; record the baseline head SHA (`git rev-parse HEAD`) before Step 6 fixes — the next round's surface is defined relative to it | evidenced Critical / Important | blocking set empty → Step 8 merge; non-empty → Step 6 fix, then Round 2 |
@@ -1001,7 +1007,7 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 2. <Disputed item>: user chose ___, reason ...
 
 ## Raw voice verdict (informational; no independent veto)
-- Claude: LGTM / NEEDS_CHANGES (<blocking or non-blocking only>)
+- Claude: LGTM / NEEDS_CHANGES
 - Codex: LGTM / NEEDS_CHANGES / N/A
 - Gemini: LGTM / NEEDS_CHANGES / N/A
 
