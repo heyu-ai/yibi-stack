@@ -10,8 +10,9 @@ agent obeys them on a future PR.
 against the real file cannot exercise its own failure paths, so the negative cases
 (PRC-DT-002 / PRC-EG-001 / PRC-EG-006) would be impossible and the checker would rot into a
 "always green, no information" decoration. All anchor matching reads raw UTF-8 via
-`Path.read_text(encoding="utf-8")` (host rule 13): the anchors contain 全形／CJK characters
-(`每個 PR 至多一張`), and an ASCII substitution would silently fail to match.
+`Path.read_text(encoding="utf-8")` (Python-layer read; not a rule-13/bash concern): the anchors
+contain 全形／CJK characters (`每個 PR 至多一張`), and an ASCII substitution would silently
+fail to match.
 """
 
 from __future__ import annotations
@@ -53,6 +54,23 @@ REQUIRED_ANCHORS: list[str] = [
     "fixes it once",  # invalid evidence is repaired at most once
     "每個 PR 至多一張",  # at most one batch issue per PR
     "deferred-from-review",  # the batch issue's label
+    "## Review Contract",  # PR body contract wrapper
+    "### Goal",  # contract: required outcome
+    "### Non-goals",  # contract: explicit scope exclusions
+    "### Accepted Residual Risks",  # contract: human-owned risk acceptance
+    "Failure mode / impact:",  # residual-risk field (colon-anchored to the Step 1 template line)
+    "Accepted boundary:",  # residual-risk field: the accepted boundary
+    "Mitigation:",  # residual-risk field (colon avoids matching the bare word)
+    "Detection / recovery:",  # residual-risk field: detection & recovery procedure
+    "### Acceptance Criteria",  # contract: PR-specific merge gates
+    "### Follow-ups",  # contract: explicit non-blocking deferrals
+    "frozen Review Contract",  # confirmed snapshot used by one review pass
+    "Contract mapping:",  # finding -> AC / repo baseline / unaccepted risk
+    "Accepted by:",  # a review voice cannot accept risk for a human
+    "blocking set is the sole LGTM gate",  # raw voice verdict has no veto
+    "R2 skipped: no contract-blocking candidate or dispute",  # clean R1 exit
+    "material amendment",  # semantic contract change restarts full-diff R1
+    "editorial amendment",  # non-semantic correction keeps the current pass
 ]
 
 # Strings that MUST be absent. The NIT-must-be-cleaned convention (any spelling) and the old
@@ -65,6 +83,11 @@ FORBIDDEN_STRINGS: list[str] = [
     "3 consecutive rounds",
     "連續 3 輪",
     "每個 actionable NIT 都要在 merge 前清掉",  # PRC-DT-003 / PRC-EG-002 CJK forbidden convention
+    "全員 LGTM",
+    "all voices LGTM",
+    "All voices LGTM",
+    "Every active voice's latest round outputs",
+    "Want to skip R2 and run only R1 | Not allowed",
 ]
 
 
@@ -206,6 +229,71 @@ def test_prc_dt_003_forbidden_convention_present_fails():
 def test_prc_dt_004_no_forbidden_convention_passes():
     """PRC-DT-004: a clean fixture with anchors complete and no forbidden string → []."""
     assert check_convergence_contract(_fixture(900)) == []
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "## Review Contract",
+        "### Goal",
+        "### Non-goals",
+        "### Accepted Residual Risks",
+        "### Acceptance Criteria",
+        "### Follow-ups",
+    ],
+)
+def test_prc_dt_005_review_contract_headings_are_required(heading: str):
+    """spec: pr-review-contract#missing-contract-section-blocks-reviewer-launch
+
+    Removing any fixed Review Contract heading turns the pure checker red, so a partial PR-body
+    template cannot silently launch the expensive reviewers.
+    """
+    text = _fixture(900).replace(heading, "")
+    failures = check_convergence_contract(text)
+    assert any(heading in f and "absent" in f for f in failures), failures
+
+
+@pytest.mark.parametrize(
+    "anchor",
+    [
+        "frozen Review Contract",
+        "Contract mapping:",
+        "Accepted by:",
+        "blocking set is the sole LGTM gate",
+        "R2 skipped: no contract-blocking candidate or dispute",
+        "material amendment",
+        "editorial amendment",
+    ],
+)
+def test_prc_dt_006_contract_decision_anchors_are_required(anchor: str):
+    """spec: pr-review-contract#conditional-r2-mutation-fails
+
+    Contract amendment, mapping, human risk ownership, LGTM, and conditional-R2 rules are all
+    load-bearing; removing one is a conformance failure rather than an optional documentation edit.
+    """
+    text = _fixture(900).replace(anchor, "")
+    failures = check_convergence_contract(text)
+    assert any(anchor in f and "absent" in f for f in failures), failures
+
+
+@pytest.mark.parametrize(
+    "wording",
+    [
+        "全員 LGTM（含 actionable NIT）",
+        "all voices LGTM",
+        "All voices LGTM",
+        "Every active voice's latest round outputs `Final verdict: LGTM`",
+        "Want to skip R2 and run only R1 | Not allowed",
+    ],
+)
+def test_prc_dt_007_unanimous_voice_and_mandatory_r2_wording_is_forbidden(wording: str):
+    """spec: pr-review-contract#unanimous-wording-mutation-fails
+
+    Known semantic variants of the old unanimous-veto and always-R2 rules must not survive merely
+    because the original checker searched one exact English phrase.
+    """
+    failures = check_convergence_contract(_fixture(900) + wording + "\n")
+    assert any("forbidden string present" in f for f in failures), failures
 
 
 # --------------------------------------------------------------------------- edge / guard (EG)
