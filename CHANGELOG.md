@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gate mob review with a PR review contract (extracted from #305) (#316)
 - Propose add-retro-evidence-gate (retro rule/hook write-time evidence gate) (#322)
 - Amplify add-retro-evidence-gate to 5-layer spec (problem-frame, US+AC, Gherkin slugs, testplan)
+- V1.12.0
 
 ### Fixed
 
