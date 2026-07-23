@@ -456,9 +456,18 @@ harness 改動當場寫檔＋開 PR，而是排進常設佇列 issue、每週由
    gh issue list --label harness-queue --state open --json number,title
    ```
 
-   - **恰好 1 筆** → 用 Write 把佇列項寫成暫存檔，`gh issue comment <n> --body-file
-     <path>` 追加（**不寫檔、不開 PR**；不編輯 issue body——並行 session 編輯 body
-     會互相覆蓋）。發文後重讀該 issue 確認 comment 確實寫入。項目模板（欄位值取自
+   **指令本身失敗**（exit non-zero，如 gh auth 過期、多 remote 未設 default）→
+   `[FAIL]` 停止並顯示錯誤。不可與「0 筆」混同——無法判定佇列是否存在時 fallback
+   寫檔，會讓教訓靜默繞過存在中的佇列。
+
+   - **恰好 1 筆** → 先把填好欄位值的佇列項草稿（下方模板）**呈現給使用者確認**
+     ——`gh issue comment` 是對外寫入、非 read-only 動作，比照「寫檔動作只建議」
+     原則，送出前由使用者放行（Step 3 校準的是 lesson 本身，落點／patch-surface
+     等欄位值是本步驟才推導的，需另行確認）。確認後用 Write 把佇列項寫成暫存檔，
+     `gh issue comment <n> --body-file <path>` 追加（**不寫檔、不開 PR**；不編輯
+     issue body——並行 session 編輯 body 會互相覆蓋）。發文後重讀該 issue 確認
+     comment 確實寫入；**重讀未見該 comment 或發文失敗 → `[FAIL]` 停止**，輸出
+     暫存檔路徑請使用者手動補發，不得視同已排隊。項目模板（欄位值取自
      Classifier 與 Ladder 的輸出）：
 
      ```markdown
@@ -470,8 +479,12 @@ harness 改動當場寫檔＋開 PR，而是排進常設佇列 issue、每週由
      - 草稿：<1-3 句的改動內容草稿>
      ```
 
+     patch-surface 枚舉只列 Ladder 常用的前四階；後段（`eval` / `merge / split` /
+     `deprecate / retire`）屬大改動，不進佇列，建議獨立 PR 處理。
    - **0 筆**（repo 未採用批次流程）→ fallback 上表原行為，行為完全不變。
-   - **≥2 筆** → `[WARN]` 佇列分裂，提示使用者人工合併；本次 fallback 原行為。
+   - **≥2 筆** → `[FAIL]` 佇列分裂：列出候選 issue 請使用者裁決（人工合併佇列，
+     或指定本次目標 issue）。**不自動 fallback 寫檔**——分裂期間 fallback 會讓
+     教訓繞過存在中的佇列，違反 design doc「應恰好一個」的不變量。
 
 ---
 
