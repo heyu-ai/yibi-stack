@@ -2,6 +2,7 @@
 name: <skill-name>
 type: exec
 scope: global  # global | project（必填）
+# disallowed-tools: [Edit, Write]  # 選填；skill 執行期間硬性禁用列出的工具（值可為 YAML list 或空格/逗號分隔字串），見 rule 11
 description: <一句話描述這個 skill 做什麼>
 ---
 

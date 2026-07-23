@@ -1222,6 +1222,16 @@ If a variable has adjacent prefix/suffix (e.g., `"${prefix}_suffix"`), do not ch
 Do not add any `$?`-related code after commands in SKILL.md bash blocks — use
 `if ! <command>; then echo '[FAIL]...'; exit 1; fi` instead of all `if [ $? -ne 0 ]` forms.
 
+## `\$` in Skill / Command Bodies Is Markdown-Layer Substitution, Not Bash Quoting
+
+A `\$` in a skill or slash command **body** (the Markdown prose, outside bash code) is
+consumed by Claude Code's string-substitution layer before any shell runs — it emits a
+literal `$` in front of a digit, `ARGUMENTS`, or a declared argument name (e.g. `\$1.00`
+in prose). It is unrelated to bash quoting, and none of the quoting rules in this file
+apply to it. The full rules, official quote, and probed boundary table live in
+[`11-skill-authoring.md`](11-skill-authoring.md) ("Skill Body — Literal `$` Escape") —
+do not duplicate them here.
+
 ## Gemini CLI Workspace Sandbox (PR #24)
 
 Gemini CLI `@<path>` references are restricted to paths inside the git worktree directory.
