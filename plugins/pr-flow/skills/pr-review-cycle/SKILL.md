@@ -193,6 +193,20 @@ Optional: add `--comment` to post findings directly as GitHub PR inline comments
 >       prompt="Code review all diffs in this PR; report bugs / convention violations / logic errors")
 > ```
 
+#### Auto-apply cleanups (optional)
+
+The default stays report-only — run this sub-step only when the user explicitly asks for
+auto-applied cleanups.
+
+- `/code-review --fix` — detects correctness bugs and auto-applies its findings (including
+  reuse / simplification / efficiency / altitude cleanups) to the working tree.
+- `/simplify` — cleanup-only review (reuse / simplification / efficiency); applies fixes
+  without hunting for bugs.
+
+Auto-applied changes modify the working tree: review the resulting diff and commit it through
+the existing diff-review + commit flow before any push. (Division of labor verified against
+the official /code-review docs, 2026-07-23, Claude Code 2.1.218.)
+
 ---
 
 ### Step 3 — Parallel Review (launch 4 agents in parallel)

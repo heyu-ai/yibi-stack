@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.1] - 2026-07-23
+
+### Changed
+
+- pr-review-cycle 與 pr-cycle-deep 的 code review 步驟新增「Auto-apply cleanups (optional)」小節：
+  /code-review --fix 與 /simplify 的 opt-in 自動套用路徑，預設 report-only 不變（issue #145）
+- rule 11 新增 disallowed-tools frontmatter 與 skill body literal `$` escape 文件；
+  rule 13 新增 layer 消歧 cross-ref；skill 模板 frontmatter 加 disallowed-tools 註解行（issue #145）
+
 ## [1.14.0] - 2026-07-23
 
 ### Changed

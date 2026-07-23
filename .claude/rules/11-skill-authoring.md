@@ -559,6 +559,78 @@ applying it to heavy scheduled skills (`gmail-billing`, `icf-global-news-digest`
 confirm the local build is ≥ v2.1.186 via `claude --version` and verify empirically that the
 skill still loads on schedule / explicit call.
 
+## Frontmatter — `disallowed-tools` (Optional)
+
+Removes the listed tools from the skill's available tool pool while the skill is active,
+turning a "this skill must not modify code / must not prompt the user" convention into a
+hard guarantee. Official definition (code.claude.com/docs/en/skills, frontmatter reference;
+checked 2026-07-23):
+
+> Tools removed from Claude's available pool while this skill is active. Use for autonomous
+> skills that should never call certain tools, such as AskUserQuestion for a background loop.
+> Accepts a space- or comma-separated string, or a YAML list.
+
+```yaml
+---
+name: <skill-name>
+type: exec
+scope: global
+disallowed-tools: [Edit, Write]   # or "Edit Write" / "Edit, Write"
+description: ...
+---
+```
+
+Key points:
+
+- **Key name**: the official canonical spelling is `disallowed-tools` (hyphen form).
+  Frontmatter key names are case- and separator-insensitive since v2.1.186 (see the
+  Additional Keys section above), but write the official hyphen form — runtime tolerance
+  is not a documentation-style license.
+- **Value formats**: space-separated string, comma-separated string, or a YAML list.
+- **Lifetime**: the restriction applies while the skill is active and lifts when the turn ends.
+- **Use cases**: read-only-contract skills (a triage or review-only skill that must never
+  edit files → `disallowed-tools: [Edit, Write]`); autonomous or background skills that must
+  never block on interaction (→ `disallowed-tools: [AskUserQuestion]`).
+- **Observed enforcement (probed on Claude Code 2.1.218)**: a probe skill with
+  `disallowed-tools: [Bash]` had its Bash call rejected with "Permission to use Bash has
+  been denied", while an otherwise-identical control skill without the key ran the same
+  command successfully. Enforcement surfaced as a hard denial at invocation rather than the
+  tool disappearing from the pool as the official wording suggests — either way the listed
+  tool cannot be used. Re-probe after CLI upgrades before relying on the exact failure shape.
+- **Limit**: cannot remove `EndConversation` while other tools remain available.
+
+## Skill Body — Literal `$` Escape (`\$`)
+
+Skill and slash command bodies substitute `$ARGUMENTS`, `$1`/`$2`-style positional
+references, and declared argument names before the model sees the prompt. To output a
+literal dollar sign in front of one of these tokens (a price, an env-var example), use the
+official backslash escape. Official rule (code.claude.com/docs/en/skills, "Available string
+substitutions"; checked 2026-07-23):
+
+> To include a literal $ before a digit, ARGUMENTS, or a declared argument name, such as
+> $1.00 in prose, escape it with a backslash: \$1.00. A backslash before any other $ is
+> left unchanged. Only a single backslash directly before the token escapes it.
+
+Boundary behavior, probed on Claude Code 2.1.218 (rendered text read from the session
+transcript, not from model echo — model echo proved unreliable across runs):
+
+| Written in skill body | Rendered | Notes |
+|-----------------------|----------|-------|
+| `\$1.00` | `$1.00` | single backslash directly before a digit escapes |
+| `\$ARGUMENTS` | `$ARGUMENTS` | same rule for the ARGUMENTS placeholder |
+| `\\$1` | `\\` + expanded arg value | double backslash does not escape; token still expands |
+| `\$x` (x not a digit or declared argument) | `\$x` | backslash before any other `$` is left unchanged |
+
+All four rows match the official description on 2.1.218. Adjacent observed anomaly (same
+probe): positional references in a project slash command bound 0-based — `$0` rendered the
+first argument token and `$1` the second, and `$2` was left un-substituted with two
+arguments given — deviating from the docs' "`$1` is the first argument". Re-probe before
+relying on positional numbering; the escape rules above are independent of it.
+
+Bash-layer `\$` (quoting inside shell commands) is a different mechanism — see
+[`13-bash-anti-patterns.md`](13-bash-anti-patterns.md) for shell quoting; this section is
+about the Markdown/skill-body substitution layer only.
+
 ## Exec Skill Standard 4-Step Template
 
 ```markdown
