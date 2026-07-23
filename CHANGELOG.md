@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-07-23
+
+### Added
+
+- Add Dependabot config for uv and github-actions (#290)
+
+### Changed
+
+- Wheel 範圍守衛 + smoke test 落地 (#262) (#272)
+- Task 4.3 unlink -- remove six real-checkout symlinks and resolver lanes after 4.2 tag verification (15/15 tasks) (#292)
+- 專案架構改指向 ARCHITECTURE.md，移除重複的目錄樹與 Skill 執行步驟 (#251)
+- Archive add-mycelium-cli-distribution -- promote mycelium-cli spec baseline (issue #222 Gap A closed)
+- Bump 6 vulnerable deps to clear 17 Dependabot alerts (#299)
+- Lessons delete + retire 退場機制（#242） (#284)
+- Pipe masks upstream exit code (rule 13, PR #299 retro) (#306)
+- Bump the python-minor-patch group across 1 directory with 11 updates (#304)
+- Bump urllib3 (#301)
+- Bump idna in /plugins/3rd-tools/skills/verify-gemini-models (#302)
+- Bump cryptography (#303)
+- Bump astral-sh/setup-uv from 4 to 7 (#294)
+- Bump actions/checkout from 4 to 7 (#295)
+- Bump actions/cache from 4 to 6 (#296)
+- Lint_rule_frontmatter 機械 guard，防 globs: 類靜默失效 (#252) (#274)
+- Bump mypy from 1.19.1 to 2.3.0 (#298)
+- Pre-push-ruff-format-guard - block pushing unformatted .py (#272 retro) (#300)
+- 安全更新也 group 成單一 PR (#309)
+- 起草 ADR-0005 相容性閘門用能力探測不用 semver 版本字串 (#256) (#278)
+- Correct AP3-C and retry-cap gotchas against 2.1.199/2.1.207 changelog (#310)
+- Lessons add 寫入前查重，不再靜默 insert 重複 (#267 Part A) (#277)
+- 用 openspectra archive 6 個完成 change，清空積壓 (#227) (#280)
+- Rule 09 記錄 snapshot fixture 漂移（PR #280 CI 教訓） (#313)
+- 統整 60 條 nightly-agent 孤兒分支，收斂為 8 條已驗證規則 (#312)
+- Consolidate 3 residual 07-20 nightly-agent lessons (#314)
+- Revert "fix(pr-flow): sync mob-code-review-only final.md rewrite table with engine" (#320)
+- 加 Step 1.6 fact-assertion sweep，把 review surface 撐出 diff 之外 (#321)
+- Gate mob review with a PR review contract (extracted from #305) (#316)
+- Propose add-retro-evidence-gate (retro rule/hook write-time evidence gate) (#322)
+- Amplify add-retro-evidence-gate to 5-layer spec (problem-frame, US+AC, Gherkin slugs, testplan)
+
+### Fixed
+
+- Drift-guard 把 git -C 路徑傳進 subprocess cwd，杜絕假陰性放行 (#258) (#273)
+- State 檔加 repo 隔離維度，杜絕跨 repo 同號 PR fail-open (#246) (#271)
+- Post-edit-mypy 收緊 grep pattern 相容 mypy 2.x (#308)
+- 補 negative-trigger redirect 修正 over-trigger + 修 lint 雙計 bug (#307)
+- 治理 pipeline (generated test/去重/slug/失敗訊號) (#259, #225) (#279)
+- Wrapper 的 basename(pwd) fallback 加 [WARN]，不再靜默記錯 project (#276)
+- Tree-drift-guard no longer false-blocks git commands with a pipe in a quoted arg (#315)
+- Sync mob-code-review-only final.md rewrite table with engine
+
 ## [1.11.0] - 2026-07-18
 
 ### Changed
@@ -17,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mycelium CLI distribution change proposal (issue #222 Gap A Phase A) (#269)
 - Enforce the subshell-exit fail-open mechanically (#234 follow-up) (#241)
 - Phase A install-from-git -- entry points, six-skill migration, stable hook binary (#281)
+- V1.11.0
 
 ### Fixed
 
@@ -530,6 +581,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove bash anti-patterns triggering CC confirmation dialogs (#137)
 - Remove unnecessary rm-f after git commit-F (#105)
 
+[1.12.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.11.0..v1.12.0
 [1.11.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.10.0..v1.11.0
 [1.10.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.9.0..v1.10.0
 [1.9.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.8.0..v1.9.0
