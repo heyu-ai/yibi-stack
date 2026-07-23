@@ -426,13 +426,65 @@ metadata / preference 類 lesson 本就適合 CLAUDE.md；若整體已過長，
 | Q5 勾選 | 動作 |
 |---|---|
 | 查歷史 lesson | `Skill(skill="lessons", args="find <Q1 keyword>")` **自動執行**。headless / 直接打 CLI 時用 `mycelium lessons search "<keyword>" --project "$ORIG_PROJECT"` — CLI 子指令是 **`search`**（`find` 只是 `/lessons` slash 的別名，raw CLI **無** `find` 子指令），且**不要**加 `2>/dev/null`，否則子指令打錯會被靜默吞成「無結果」 |
-| 寫入規則文件 | 依 Lesson Classifier 輸出建議：「lesson N 屬於 <類別>，建議 append 到 `.claude/rules/XX.md`（最相關段落後；不確定就 append 到檔尾）。草稿：`<draft text>`。用 Edit 工具直接寫入 rule 檔。」|
+| 寫入規則文件 | **先走下方「批次佇列分流」判斷**。緊急例外、或 target repo 無佇列時，才照原行為——依 Lesson Classifier 輸出建議：「lesson N 屬於 <類別>，建議 append 到 `.claude/rules/XX.md`（最相關段落後；不確定就 append 到檔尾）。草稿：`<draft text>`。用 Edit 工具直接寫入 rule 檔。」|
 | 新增 hook | 輸出建議文字：「執行 `hookify:hookify`，建議的 trigger：`<draft>`」|
 | 建立 skill | 輸出建議文字：「執行 `superpowers:writing-skills`，問題定義：`<Q4 lesson>`」|
 | 找 automation | 輸出建議文字：「執行 `/claude-code-setup:claude-automation-recommender`」|
 | 產生 control log | 執行 `Skill(skill="pr-control-log")` 紀錄本 PR 的 AI 行為審計 entries |
 
 寫檔動作**只建議**，由使用者決定是否執行。
+
+#### 批次佇列分流（「寫入規則文件」與 CLAUDE.md / memory 類落地需求適用）
+
+採用 harness 批次化流程的 repo（如 yibi-mvp，design doc：該 repo
+`docs/research/2026-07-23-harness-batch-workflow-design.md`）不再對每條散文類
+harness 改動當場寫檔＋開 PR，而是排進常設佇列 issue、每週由 `/harness-batch`
+結批成一個 PR。Promotion Gate（G1-G3）、Lesson Classifier、Patch-Surface Ladder
+**照常先跑**——它們決定「值不值得落地、落到哪、用多重的手段」；本分流只攔截
+最後的「怎麼送出」：
+
+1. **緊急例外判斷**（二擇一成立即為緊急）：
+   - 機械 gate 修「正在流血」的洞——延後一週有可預期的具體事故會發生；
+   - 修正既有 rule / CLAUDE.md 的**錯誤內容**（錯的指引會誤導每個 session；
+     刪除冗餘不算錯誤）。
+
+   緊急 → 照上表原行為（Edit 直接寫檔，建議立即開獨立 PR）。
+2. **非緊急 → 偵測 target repo 佇列**（以 label 做 feature detection，不 hardcode
+   issue 編號）：
+
+   ```bash
+   gh issue list --label harness-queue --state open --json number,title
+   ```
+
+   **指令本身失敗**（exit non-zero，如 gh auth 過期、多 remote 未設 default）→
+   `[FAIL]` 停止並顯示錯誤。不可與「0 筆」混同——無法判定佇列是否存在時 fallback
+   寫檔，會讓教訓靜默繞過存在中的佇列。
+
+   - **恰好 1 筆** → 先把填好欄位值的佇列項草稿（下方模板）**呈現給使用者確認**
+     ——`gh issue comment` 是對外寫入、非 read-only 動作，比照「寫檔動作只建議」
+     原則，送出前由使用者放行（Step 3 校準的是 lesson 本身，落點／patch-surface
+     等欄位值是本步驟才推導的，需另行確認）。確認後用 Write 把佇列項寫成暫存檔，
+     `gh issue comment <n> --body-file <path>` 追加（**不寫檔、不開 PR**；不編輯
+     issue body——並行 session 編輯 body 會互相覆蓋）。發文後重讀該 issue 確認
+     comment 確實寫入；**重讀未見該 comment 或發文失敗 → `[FAIL]` 停止**，輸出
+     暫存檔路徑請使用者手動補發，不得視同已排隊。項目模板（欄位值取自
+     Classifier 與 Ladder 的輸出）：
+
+     ```markdown
+     ### [queue] <一句摘要>
+     - type: rule-prose | gate-script | claude-md | skill | memory | other
+     - 來源：PR #<n> retro / lesson key `<slug>`
+     - 建議落點：`<檔案路徑>`
+     - 建議 patch-surface：description | workflow-gate | reference-rule | script-helper
+     - 草稿：<1-3 句的改動內容草稿>
+     ```
+
+     patch-surface 枚舉只列 Ladder 常用的前四階；後段（`eval` / `merge / split` /
+     `deprecate / retire`）屬大改動，不進佇列，建議獨立 PR 處理。
+   - **0 筆**（repo 未採用批次流程）→ fallback 上表原行為，行為完全不變。
+   - **≥2 筆** → `[FAIL]` 佇列分裂：列出候選 issue 請使用者裁決（人工合併佇列，
+     或指定本次目標 issue）。**不自動 fallback 寫檔**——分裂期間 fallback 會讓
+     教訓繞過存在中的佇列，違反 design doc「應恰好一個」的不變量。
 
 ---
 
