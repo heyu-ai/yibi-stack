@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 文件中的 CLI 安裝 pin 由 `@v1.11.0` 更新為 `@v1.14.0`：移除 18 個 `@v1.11.0` 引用，
   其中 17 處就地轉為 `@v1.14.0`（跨 11 個檔案、全部保持一致）、1 處隨 pr-cycle-fast
   Step 0 重構一併刪除。原字串指向的正是缺少 `--repo-root` 的版本，會讓能力探測的補救指示自我矛盾。
+  `openspec/specs/mycelium-cli/spec.md` 的 illustrative examples 亦一併更新到 `@v1.14.0`（10 處），
+  維持與生效文件一致（archive 歷史紀錄不動）。
 
 ## [1.14.1] - 2026-07-23
 
