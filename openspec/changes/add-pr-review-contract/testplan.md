@@ -107,6 +107,12 @@ pytest **不可消除**——要收斂需 golden-transcript eval harness（見 M
 在它存在之前，testplan **必須明講**：契約測試套件全綠只證明**文件符合性**，不證明
 agent 遵守。
 
+> **承接**：此建議由 change `add-review-gate-conformance-eval` 實作（`tasks/gate_eval/`：
+> 合成 finding fixture → disposition 判定 → 三值穩定度 + 守恆檢查，並附 fixture 層 mutation
+> 有效性與 suite 層 sunset 協議）。該 harness 以 `uv run python -m tasks.gate_eval` 手動／排程
+> 執行，刻意不進 pre-commit。此處的 `[doc]` 契約測試界線（全綠只證文件符合性）在該 change
+> 落地後仍成立——gate_eval 量測的是 agent 對既有規則的**符合度**，不證明規則本身正確。
+
 ---
 
 ## Redundant TCs

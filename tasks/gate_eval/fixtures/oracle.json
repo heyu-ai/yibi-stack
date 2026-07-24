@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "entries": [
+    {"severity": "critical", "evidence": "valid", "round": "r1", "contract_mapping": "valid", "disposition": "blocking"},
+    {"severity": "critical", "evidence": "valid", "round": "r2", "contract_mapping": "valid", "disposition": "blocking"},
+    {"severity": "critical", "evidence": "none", "round": "r1", "contract_mapping": "valid", "disposition": "deferred"},
+    {"severity": "critical", "evidence": "none", "round": "r2", "contract_mapping": "valid", "disposition": "deferred"},
+    {"severity": "important", "evidence": "valid", "round": "r1", "contract_mapping": "valid", "disposition": "blocking"},
+    {"severity": "important", "evidence": "valid", "round": "r2", "contract_mapping": "valid", "disposition": "deferred"},
+    {"severity": "important", "evidence": "none", "round": "r1", "contract_mapping": "valid", "disposition": "deferred"},
+    {"severity": "important", "evidence": "none", "round": "r2", "contract_mapping": "valid", "disposition": "deferred"},
+    {"severity": "nit", "evidence": "valid", "round": "r1", "contract_mapping": "valid", "disposition": "non-blocking"},
+    {"severity": "nit", "evidence": "valid", "round": "r2", "contract_mapping": "valid", "disposition": "non-blocking"},
+    {"severity": "nit", "evidence": "none", "round": "r1", "contract_mapping": "valid", "disposition": "non-blocking"},
+    {"severity": "nit", "evidence": "none", "round": "r2", "contract_mapping": "valid", "disposition": "non-blocking"}
+  ]
+}

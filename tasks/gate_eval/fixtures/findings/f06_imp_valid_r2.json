@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "id": "f06_imp_valid_r2",
+  "finding_text": "### [Important] 合成 finding — f06_imp_valid_r2\n- File: tasks/example/foo.py:1\n- Issue: 合成案例，用於量測 R2 對 Important + 良構 evidence（形式與 finding 類型相符） 的 disposition。\n- Contract mapping: AC-EXAMPLE-1\n- Evidence: 一個具體的失敗情境（觸發輸入與錯誤輸出）。\n- Suggested fix: 合成案例，無需真實修法。",
+  "review_contract": "## Review Contract\n### Acceptance Criteria\n- AC-EXAMPLE-1: 合成契約項。",
+  "factors": {
+    "severity": "important",
+    "evidence": "valid",
+    "round": "r2",
+    "contract_mapping": "valid"
+  },
+  "expected_disposition": "deferred",
+  "mutation": {
+    "anchors": [
+      "| Important | valid | blocking | **deferred** (R2 blocks on Critical only) |"
+    ],
+    "replacement": ""
+  },
+  "tier": "form-mismatch"
+}
