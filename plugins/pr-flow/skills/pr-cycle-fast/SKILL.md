@@ -40,8 +40,10 @@ Exit code 語義：
 
 - **exit 0** — 介面齊備，繼續 Step 1
 - **exit 1** — PATH 中沒有 `pr-orchestrator`（未安裝）→ 停止，照 stderr 的安裝指令執行
-- **exit 2** — 已安裝但 `--help` 跑不起來（安裝損毀），或缺少 `--repo-root`（版本過舊）
-  → 停止，照 stderr 的指令執行。兩者訊息不同且修法不同，不要互相套用
+- **exit 2（安裝損毀）** — 已安裝但某子指令 `--help` 跑不起來 → 停止，照 stderr 的 `--force` 重裝指令執行
+- **exit 2（版本過舊）** — 已安裝且 `--help` 正常，但缺少 `--repo-root` → 停止，照 stderr 的升級指令執行
+
+  兩個 exit 2 子情況訊息不同、修法不同，不要互相套用（stderr 已指明各自的指令）
 
 > **為什麼探能力而不是比版本**：`uv tool install git+...` 裝的是 HEAD，版本字串卻取自上次
 > release 的 `pyproject.toml`，兩次 release 之間所有 commit 回報同一字串，semver 比對因此

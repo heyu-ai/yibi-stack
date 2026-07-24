@@ -43,6 +43,11 @@ def _run(bin_dir: Path | None) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _normalize_continuations(text: str) -> str:
+    """把反斜線續行（`\\` + 換行 + 前導空白）折成單一空格，讓跨行指令能被單行 regex 偵測。"""
+    return re.sub(r"\\\n\s*", " ", text)
+
+
 def _script_subcommands() -> set[str]:
     text = _SCRIPT.read_text(encoding="utf-8")
     match = re.search(r"^SUBCOMMANDS=\(([^)]*)\)", text, re.MULTILINE)
@@ -57,6 +62,8 @@ class TestCapabilityProbe:
         result = _run(tmp_path / "bin")
         assert result.returncode == 0, result.stderr
         assert "[OK]" in result.stdout
+        # 鎖住成功訊息的 count（否則把 ${#SUBCOMMANDS[@]} 改錯是 equivalent mutation；mob review F5）
+        assert f"{len(_script_subcommands())} 個子指令" in result.stdout
 
     def test_clicap_dt_002_fails_when_flag_absent(self, tmp_path: Path) -> None:
         """CLICAP-DT-002: 完全沒有 --repo-root 時 exit 2（負向對照）"""
@@ -84,6 +91,17 @@ class TestCapabilityProbe:
             assert sub in result.stderr, f"stderr 未點名缺少 flag 的子指令 {sub}"
         assert "detect" not in result.stderr.split("子指令：")[1].split("\n")[0]
 
+    def test_clicap_dt_007_substring_lookalike_flag_does_not_pass(self, tmp_path: Path) -> None:
+        """CLICAP-DT-007: 只含 `--repo-root-dir`（無 `--repo-root`）的 CLI 須 exit 2
+
+        F1 負向 fixture：證明探針做的是整個 token 的精確比對，不是子字串——`*--repo-root*`
+        glob 會把 `--repo-root-dir` 誤認為齊備而 exit 0（mob review Codex F1，lead 實測確認可達）。
+        """
+        _write_stub(tmp_path / "bin", 'echo "  --repo-root-dir TEXT  a different option"')
+        result = _run(tmp_path / "bin")
+        assert result.returncode == 2
+        assert "缺少 --repo-root" in result.stderr
+
     def test_clicap_dt_004_exit_1_when_binary_missing(self) -> None:
         """CLICAP-DT-004: PATH 中沒有 pr-orchestrator → exit 1（與 exit 2 區分）"""
         result = _run(None)
@@ -100,7 +118,11 @@ class TestCapabilityProbe:
         result = _run(tmp_path / "bin")
         assert result.returncode == 2
         assert "安裝可能損毀" in result.stderr
-        assert "版本過舊" not in result.stderr
+        # 斷言 stale branch 的「真實」訊息不出現——原本斷言的「版本過舊」是 SKILL.md 裡的
+        # prose、script 任何路徑都不印，故恆真、無鑑別力（mob review F2，test-analyzer 抓）。
+        # 用 stale branch 實際會印的 `缺少 --repo-root`：刪掉 help-failure 分支的 exit 2 會讓
+        # 所有子指令 fall-through 到 stale 分支印出此訊息，此斷言即翻紅、擋住 branch-collapse 突變。
+        assert "缺少 --repo-root" not in result.stderr
 
 
 class TestNoDrift:
@@ -110,11 +132,31 @@ class TestNoDrift:
         新增一個帶 --repo-root 的呼叫卻忘了加進探針，會讓探針對該子指令的缺失無感——
         正是 issue #333 的失敗形狀在未來的重演。
         """
-        text = _SKILL_MD.read_text(encoding="utf-8")
+        # 先正規化反斜線續行（`\` + 換行 + 前導空白 → 單一空格），否則 `[^\n]*` 不跨行，
+        # 一個 `pr-orchestrator foo \`（換行）`--repo-root ...` 的多行呼叫會漏抓，DF-001 仍綠、
+        # 而探針實際缺該子指令——正是本 guard 要防的漂移在未來的重演（mob review F4，三 voice 共識）。
+        text = _normalize_continuations(_SKILL_MD.read_text(encoding="utf-8"))
         used = set(re.findall(r"pr-orchestrator ([a-z-]+)[^\n]*--repo-root", text))
         assert used, "SKILL.md 未偵測到任何 --repo-root 呼叫——正則已失效，非真的沒有"
         missing = used - _script_subcommands()
         assert not missing, f"SKILL.md 用到但探針未涵蓋的子指令：{sorted(missing)}"
+
+    def test_clicap_df_003_continuation_normalization_exposes_crossline_call(self) -> None:
+        """CLICAP-DF-003: 反斜線續行的跨行 --repo-root 呼叫，正規化後須被同一 regex 抓到
+
+        F4 修正的正向對照：證明 `_normalize_continuations` 真的讓 DF-001 看得見跨行呼叫，
+        而非只是加了個沒作用的步驟。未正規化前此字串抓不到 `newsub`。
+        """
+        crossline = 'pr-orchestrator newsub --pr 1 \\\n  --repo-root "$REPO_ROOT"\n'
+        raw_hits = set(re.findall(r"pr-orchestrator ([a-z-]+)[^\n]*--repo-root", crossline))
+        assert "newsub" not in raw_hits, "前提失效：未正規化竟已抓到，測試無鑑別力"
+        norm_hits = set(
+            re.findall(
+                r"pr-orchestrator ([a-z-]+)[^\n]*--repo-root",
+                _normalize_continuations(crossline),
+            )
+        )
+        assert "newsub" in norm_hits, "正規化後仍抓不到跨行子指令——F4 修正無效"
 
     def test_clicap_df_002_probe_list_has_no_dead_entries(self) -> None:
         """CLICAP-DF-002: 探針清單不得含 SKILL.md 已不再使用的子指令（避免探針空轉）"""

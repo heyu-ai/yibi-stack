@@ -38,10 +38,12 @@ for sub in "${SUBCOMMANDS[@]}"; do
     echo "       重裝：${UPGRADE_CMD}" >&2
     exit 2
   fi
-  case "${HELP_TEXT}" in
-    *--repo-root*) ;;
-    *) MISSING+=("${sub}") ;;
-  esac
+  # 精確比對整個選項 token，不用子字串：`*--repo-root*` glob 會把 `--repo-root-dir` /
+  # `--repo-root-old` 等其他選項誤認為 --repo-root（mob review F1，Codex 抓、lead 實測確認可達）。
+  # word boundary：--repo-root 後接空白 / `=` / 行尾（click TEXT 選項一律是 `--repo-root TEXT`）。
+  if ! printf '%s\n' "${HELP_TEXT}" | grep -qE -- '(^|[[:space:]])--repo-root([[:space:]]|=|$)'; then
+    MISSING+=("${sub}")
+  fi
 done
 
 if [ "${#MISSING[@]}" -gt 0 ]; then
