@@ -47,7 +47,7 @@ PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.hom
 CL_ROOT=""
 if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$PR_FLOW_CACHED/skills/pr-control-log"; elif [ -r "$HOME/.claude/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$HOME/.claude/skills/pr-control-log"; elif [ -r "plugins/pr-flow/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="plugins/pr-flow/skills/pr-control-log"; fi
 if ! test -n "$CL_ROOT"; then echo "[FAIL] 讀不到 pr-control-log bootstrap.sh；請執行 claude plugin install pr-flow@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
-if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"' >&2; exit 1; fi
+if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2; exit 1; fi
 ```
 
 再執行 bootstrap：
