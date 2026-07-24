@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "id": "f09_nit_valid_r1",
+  "finding_text": "### [Actionable NIT] 合成 finding — f09_nit_valid_r1\n- File: tasks/example/foo.py:1\n- Issue: 合成案例，用於量測 R1 對 Actionable NIT + 良構 evidence（形式與 finding 類型相符） 的 disposition。\n- Contract mapping: AC-EXAMPLE-1\n- Evidence: 一個具體的失敗情境（觸發輸入與錯誤輸出）。\n- Suggested fix: 合成案例，無需真實修法。",
+  "review_contract": "## Review Contract\n### Acceptance Criteria\n- AC-EXAMPLE-1: 合成契約項。",
+  "factors": {
+    "severity": "nit",
+    "evidence": "valid",
+    "round": "r1",
+    "contract_mapping": "valid"
+  },
+  "expected_disposition": "non-blocking",
+  "mutation": {
+    "anchors": [
+      "| Actionable NIT | valid | non-blocking | non-blocking |"
+    ],
+    "replacement": ""
+  },
+  "tier": "closed-enum"
+}

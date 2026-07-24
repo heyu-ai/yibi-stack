@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "id": "f03_crit_none_r1",
+  "finding_text": "### [Critical] 合成 finding — f03_crit_none_r1\n- File: tasks/example/foo.py:1\n- Issue: 合成案例，用於量測 R1 對 Critical + 缺 evidence 的 disposition。\n- Contract mapping: AC-EXAMPLE-1\n- Evidence: （無）\n- Suggested fix: 合成案例，無需真實修法。",
+  "review_contract": "## Review Contract\n### Acceptance Criteria\n- AC-EXAMPLE-1: 合成契約項。",
+  "factors": {
+    "severity": "critical",
+    "evidence": "none",
+    "round": "r1",
+    "contract_mapping": "valid"
+  },
+  "expected_disposition": "deferred",
+  "mutation": {
+    "anchors": [
+      "| Critical | none | deferred | deferred |"
+    ],
+    "replacement": ""
+  },
+  "tier": "structure"
+}
