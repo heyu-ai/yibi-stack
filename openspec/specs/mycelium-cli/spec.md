@@ -132,11 +132,11 @@ The English and Traditional Chinese README install sections SHALL document plugi
 
 [MODIFIED]
 
-##### Example: illustrative v1.11.0 two-track commands
+##### Example: illustrative v1.14.0 two-track commands
 
-**GIVEN** a plugin-only user needs `growth`, `pr-flow`, and `util`, and the illustrative recorded release tag is `v1.11.0`
+**GIVEN** a plugin-only user needs `growth`, `pr-flow`, and `util`, and the illustrative recorded release tag is `v1.14.0`
 **WHEN** the user reads the English or Traditional Chinese install section
-**THEN** the section MUST show a plugin command such as `claude plugin install growth@yibi-stack pr-flow@yibi-stack util@yibi-stack` and the CLI string `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"`, with the two purposes stated separately
+**THEN** the section MUST show a plugin command such as `claude plugin install growth@yibi-stack pr-flow@yibi-stack util@yibi-stack` and the CLI string `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"`, with the two purposes stated separately
 
 #### Scenario: pypi-install-is-not-pre-documented -- Phase A does not advertise PyPI
 
@@ -148,9 +148,9 @@ The English and Traditional Chinese README install sections SHALL document plugi
 
 [MODIFIED]
 
-##### Example: illustrative v1.11.0 consistency check
+##### Example: illustrative v1.14.0 consistency check
 
-**GIVEN** the illustrative recorded release tag is `v1.11.0` and the seven documentation files contain `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"`
+**GIVEN** the illustrative recorded release tag is `v1.14.0` and the seven documentation files contain `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"`
 **WHEN** they are searched for `pip install yibi-stack`, `pip install mycelium`, `uv tool install yibi-stack`, and Git installs that omit the recorded release tag, and their supported install strings are compared
 **THEN** every prohibited search MUST return zero matches and all seven supported install strings MUST be identical to the command formed with the recorded release tag
 
@@ -392,9 +392,9 @@ The six real-checkout skill symlinks and their consumer-side `SKILL_REPO` or `re
 
 [MODIFIED]
 
-##### Example: illustrative v1.11.0 help failure blocks cleanup
+##### Example: illustrative v1.14.0 help failure blocks cleanup
 
-**GIVEN** the illustrative recorded tag `v1.11.0` is installed under clean HOME `/tmp/mycli-clean`, `pr-orchestrator --help` exits `1`, and `/tmp/yibi-stack/skills/pr-cycle-fast` through `/tmp/yibi-stack/skills/local-port-manager` still name the six compatibility symlinks
+**GIVEN** the illustrative recorded tag `v1.14.0` is installed under clean HOME `/tmp/mycli-clean`, `pr-orchestrator --help` exits `1`, and `/tmp/yibi-stack/skills/pr-cycle-fast` through `/tmp/yibi-stack/skills/local-port-manager` still name the six compatibility symlinks
 **WHEN** the verify-before-unlink gate evaluates the recorded CLI results
 **THEN** all six symlink paths MUST still exist, resolver strings `SKILL_REPO` and `resolve-skill-repo` MUST remain in their six consumers, and cleanup MUST report a blocked result
 
@@ -408,9 +408,9 @@ The six real-checkout skill symlinks and their consumer-side `SKILL_REPO` or `re
 
 [MODIFIED]
 
-##### Example: illustrative v1.11.0 evidence permits six-path cleanup
+##### Example: illustrative v1.14.0 evidence permits six-path cleanup
 
-**GIVEN** the illustrative tag `v1.11.0` is recorded and MYCLI-ST-001..006, MYCLI-DT-001..004, SMK-001, SMK-002, and SMK-003 all have PASS evidence
+**GIVEN** the illustrative tag `v1.14.0` is recorded and MYCLI-ST-001..006, MYCLI-DT-001..004, SMK-001, SMK-002, and SMK-003 all have PASS evidence
 **WHEN** cleanup removes `/tmp/yibi-stack/skills/pr-cycle-fast`, `/tmp/yibi-stack/skills/pr-control-log`, `/tmp/yibi-stack/skills/pr-retrospective`, `/tmp/yibi-stack/skills/mycelium`, `/tmp/yibi-stack/skills/learn`, and `/tmp/yibi-stack/skills/local-port-manager`
 **THEN** those six paths MUST be absent, the six consumers MUST contain no obsolete resolver string, `tasks/mycelium` MUST still exist, and all 26 tests MUST still import `tasks.mycelium`
 
