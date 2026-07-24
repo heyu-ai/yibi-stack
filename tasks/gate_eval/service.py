@@ -118,10 +118,15 @@ def run_fixture_with_judge(
 
 
 def check_conservation(inputs: list[Finding], outputs: list[Finding]) -> ConservationResult:
-    """每筆輸入 finding 須在輸出恰好一次且標題描述逐字保留；否則記守恆失敗。"""
+    """每筆輸入 finding 須在輸出恰好一次且標題描述逐字保留；否則記守恆失敗。
+
+    雙向檢查：除了輸入的遺失／重複／改寫，也回報輸出多出、輸入沒有的標題（捏造 finding）——
+    單向檢查會讓被塞入的假 finding 靜默通過。
+    """
     out_by_title: dict[str, list[Finding]] = {}
     for f in outputs:
         out_by_title.setdefault(f.title, []).append(f)
+    in_titles = {f.title for f in inputs}
 
     missing: list[str] = []
     duplicated: list[str] = []
@@ -136,16 +141,26 @@ def check_conservation(inputs: list[Finding], outputs: list[Finding]) -> Conserv
         if any(m.description != f.description for m in matches):
             altered.append(f.title)
 
-    ok = not (missing or duplicated or altered)
-    return ConservationResult(ok=ok, missing=missing, duplicated=duplicated, altered=altered)
+    extra = sorted(title for title in out_by_title if title not in in_titles)
+
+    ok = not (missing or duplicated or altered or extra)
+    return ConservationResult(
+        ok=ok, missing=missing, duplicated=duplicated, altered=altered, extra=extra
+    )
 
 
-def render_report(conservation: ConservationResult, verdicts: list[FixtureVerdict]) -> str:
-    """組出人類可讀報告；首行固定為界線聲明，守恆結果排在 disposition verdict 之前。"""
+def render_report(conservation: ConservationResult | None, verdicts: list[FixtureVerdict]) -> str:
+    """組出人類可讀報告；首行固定為界線聲明，守恆結果排在 disposition verdict 之前。
+
+    conservation 為 None 代表此路徑未執行守恆檢查（無 aggregation 輸出可比對）——印 [SKIP]，
+    不得偽稱 [OK]（誤導讀者以為守恆已通過）。
+    """
     lines = [f"[LIMIT] {LIMITATION}", ""]
 
     lines.append("## 守恆檢查")
-    if conservation.ok:
+    if conservation is None:
+        lines.append("  [SKIP] 守恆檢查未於此路徑執行（無 aggregation 輸出可比對；見單元測試）")
+    elif conservation.ok:
         lines.append("  [OK] 每筆輸入 finding 在輸出恰好一次且原文保留")
     else:
         for title in conservation.missing:
@@ -154,6 +169,8 @@ def render_report(conservation: ConservationResult, verdicts: list[FixtureVerdic
             lines.append(f"  [FAIL] 重複：{title}")
         for title in conservation.altered:
             lines.append(f"  [FAIL] 描述被改寫：{title}")
+        for title in conservation.extra:
+            lines.append(f"  [FAIL] 輸出多出（輸入沒有）：{title}")
     lines.append("")
 
     lines.append("## disposition 判定")

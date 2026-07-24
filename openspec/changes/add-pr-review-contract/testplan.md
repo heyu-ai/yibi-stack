@@ -112,6 +112,9 @@ agent 遵守。
 > 有效性與 suite 層 sunset 協議）。該 harness 以 `uv run python -m tasks.gate_eval` 手動／排程
 > 執行，刻意不進 pre-commit。此處的 `[doc]` 契約測試界線（全綠只證文件符合性）在該 change
 > 落地後仍成立——gate_eval 量測的是 agent 對既有規則的**符合度**，不證明規則本身正確。
+> **界線**：該 change 目前只交付 deterministic scaffold（harness self-test 用 AnchorPresenceJudge）；
+> 量測真實 agent disposition 符合度的生產跑（AgentJudge）尚未執行、排程於 issue #337，故上文
+> lines 99-103 的執行期缺口（lead 真的凍結／重啟）**尚未關閉**，只是有了承接它的機制。
 
 ---
 

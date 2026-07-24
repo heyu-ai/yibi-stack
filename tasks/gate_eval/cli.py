@@ -69,33 +69,65 @@ def eval(  # noqa: A001 — spec 要求的子命令名，與內建 eval() 無關
         )
         raise SystemExit(1)
 
-    from .models import Disposition, RunOutcome
-    from .service import evaluate_fixture
+    from .models import Disposition, RunOutcome, StabilityVerdict
+    from .service import INITIAL_N, RERUN_N, evaluate_fixture, render_report
 
     try:
         recorded = json.loads(disp_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
         click.echo(f"[FAIL] 讀取 dispositions 失敗：{disp_file}", err=True)
         raise SystemExit(1) from e
+    # external-data 邊界：dispositions 檔須為 {fixture_id: [disposition, ...]} 物件（rule 02）。
+    if not isinstance(recorded, dict):
+        click.echo(
+            "[FAIL] dispositions 檔須為 JSON 物件（fixture_id -> disposition 陣列）", err=True
+        )
+        raise SystemExit(1)
+
+    def _build_outcomes(fixture_id: str, raw: object) -> list[RunOutcome]:
+        """把單一 fixture 的已記錄 disposition 陣列轉為 RunOutcome；壞值 fail loud 並指名。"""
+        if not isinstance(raw, list):
+            click.echo(
+                f"[FAIL] fixture {fixture_id} 的紀錄須為陣列，收到 {type(raw).__name__}", err=True
+            )
+            raise SystemExit(1)
+        outcomes: list[RunOutcome] = []
+        for d in raw:
+            if not d:  # null / 空字串 = 執行失敗（與 disposition 刻意分離）
+                outcomes.append(RunOutcome(error="執行失敗"))
+                continue
+            try:
+                outcomes.append(RunOutcome(disposition=Disposition(d)))
+            except ValueError as e:
+                click.echo(f"[FAIL] fixture {fixture_id} 的 disposition 值無效：{d!r}", err=True)
+                raise SystemExit(1) from e
+        return outcomes
 
     verdicts = []
     nonconformant = 0
     for fx in fixtures.fixtures:
-        raw = recorded.get(fx.id, [])
-        outcomes = [
-            RunOutcome(disposition=Disposition(d)) if d else RunOutcome(error="執行失敗")
-            for d in raw
-        ]
-        fv = evaluate_fixture(fx.id, fx.expected_disposition, outcomes)
+        if fx.id not in recorded:
+            click.echo(f"[FAIL] fixture {fx.id} 無任何已記錄判定（缺席 != UNSTABLE）", err=True)
+            raise SystemExit(1)
+        outcomes_all = _build_outcomes(fx.id, recorded[fx.id])
+        if len(outcomes_all) < INITIAL_N:
+            click.echo(
+                f"[FAIL] fixture {fx.id} 只有 {len(outcomes_all)} 筆判定，需至少 {INITIAL_N} 筆",
+                err=True,
+            )
+            raise SystemExit(1)
+        # 首輪取前 INITIAL_N 筆；備妥 RERUN_N 筆才提供 rerun 集，讓 evaluate_fixture 在 UNSTABLE 時
+        # 真正加跑（否則 reran 永遠 False）。
+        initial = outcomes_all[:INITIAL_N]
+        rerun = outcomes_all[:RERUN_N] if len(outcomes_all) >= RERUN_N else None
+        fv = evaluate_fixture(fx.id, fx.expected_disposition, initial, rerun_outcomes=rerun)
         verdicts.append(fv)
-        if fv.verdict.value != "conformant":
+        if fv.verdict != StabilityVerdict.CONFORMANT:
             nonconformant += 1
 
-    from .models import ConservationResult
-    from .service import render_report
-
-    # 守恆檢查在此 CLI 未帶輸出 finding 時視為 vacuously ok（守恆對照見單元測試）。
-    click.echo(render_report(ConservationResult(ok=True), verdicts))
+    # 守恆檢查需要 aggregation 的輸入／輸出 finding 對；此 CLI 路徑不做 aggregation，故傳 None
+    # 讓報告印 [SKIP]（不得偽稱 [OK]）。守恆本身的對照見單元測試。
+    click.echo(render_report(None, verdicts))
     if nonconformant:
         click.echo(f"[FAIL] {nonconformant} 個 fixture 非 CONFORMANT", err=True)
         raise SystemExit(1)
@@ -148,6 +180,8 @@ def mutation_verify(findings_dir: Path | None, skill_file: Path | None) -> None:
 )
 def sunset_report(window_file: Path) -> None:
     """依窗口狀態產出每個 fixture 的 prune 建議與 suite 層 sunset 求值。"""
+    from pydantic import ValidationError
+
     from .models import FixtureWindowRecord, SuiteWindow
     from .sunset import classify_prune, evaluate_suite_sunset
 
@@ -156,9 +190,18 @@ def sunset_report(window_file: Path) -> None:
     except (OSError, json.JSONDecodeError) as e:
         click.echo(f"[FAIL] 讀取窗口狀態失敗：{window_file}", err=True)
         raise SystemExit(1) from e
-
-    records = [FixtureWindowRecord.model_validate(r) for r in data.get("fixtures", [])]
-    windows = [SuiteWindow.model_validate(w) for w in data.get("windows", [])]
+    # external-data 邊界：頂層須為物件，且 fixtures/windows 各筆須通過 schema（rule 02）。
+    if not isinstance(data, dict):
+        click.echo(
+            "[FAIL] 窗口狀態檔須為 JSON 物件（fixtures / windows / superseded_by_code）", err=True
+        )
+        raise SystemExit(1)
+    try:
+        records = [FixtureWindowRecord.model_validate(r) for r in data.get("fixtures", [])]
+        windows = [SuiteWindow.model_validate(w) for w in data.get("windows", [])]
+    except ValidationError as e:
+        click.echo(f"[FAIL] 窗口狀態格式錯誤：{e}", err=True)
+        raise SystemExit(1) from e
     superseded = bool(data.get("superseded_by_code", False))
 
     click.echo("## fixture prune 建議")

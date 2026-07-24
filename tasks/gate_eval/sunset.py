@@ -51,7 +51,14 @@ def restore_and_invalidate(target: Path, original: str, module_root: Path) -> No
     target.write_text(original, encoding="utf-8")
     if module_root.is_dir():
         for cache_dir in module_root.rglob("__pycache__"):
-            shutil.rmtree(cache_dir, ignore_errors=True)
+            # 不用 ignore_errors=True：清不掉的 __pycache__ 會留下 mutation 版 bytecode，
+            # 使下一輪讀到過期 .pyc 而得到假的存活/被殺判定——正是本函式要防的事，故 fail loud。
+            try:
+                shutil.rmtree(cache_dir)
+            except OSError as e:
+                raise RuntimeError(
+                    f"無法清除快取目錄 {cache_dir}：{e}；殘留 bytecode 會污染下一輪 mutation 判定"
+                ) from e
     os.utime(target, None)  # 設為現在，跨秒使 .pyc 判為過期
 
 

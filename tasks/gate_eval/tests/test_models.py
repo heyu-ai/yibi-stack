@@ -232,3 +232,59 @@ class TestControlOne:
         fixtures = load_fixtures(findings)
         with pytest.raises(RuntimeError, match="oos"):
             check_fixture_oracle_consistency(fixtures, oracle)
+
+
+class TestDisputedHalt:
+    """AC-5：指向 disputed oracle 格的 fixture 須中止並指名（無法對未定義答案評分）。"""
+
+    def test_geval_dt_003_disputed_cell_halts_named(self, tmp_path: Path) -> None:
+        """GEVAL-DT-003: fixture 命中 disputed 的 oracle 格 -> RuntimeError 指名 fixture。"""
+        # 自建 oracle：一個 disputed 格（missing mapping，見 D1）加 blocking/non-blocking 各一
+        oracle = DispositionOracle(
+            entries=[
+                OracleEntry(
+                    severity=Severity.CRITICAL,
+                    evidence=EvidenceForm.NONE,
+                    round=Round.R1,
+                    contract_mapping=ContractMapping.MISSING,
+                    disposition="disputed",
+                    note="D1：missing mapping 落 deferred 還是 outside-contract，SKILL.md 兩段矛盾",
+                ),
+                OracleEntry(
+                    severity=Severity.CRITICAL,
+                    evidence=EvidenceForm.VALID,
+                    round=Round.R1,
+                    contract_mapping=ContractMapping.VALID,
+                    disposition=Disposition.BLOCKING,
+                ),
+                OracleEntry(
+                    severity=Severity.NIT,
+                    evidence=EvidenceForm.VALID,
+                    round=Round.R1,
+                    contract_mapping=ContractMapping.VALID,
+                    disposition=Disposition.NON_BLOCKING,
+                ),
+            ]
+        )
+        findings = tmp_path / "findings"
+        findings.mkdir()
+        write_fixture(
+            findings / "disputed.json",
+            id="hits_disputed",
+            expected_disposition=Disposition.DEFERRED,
+            factors=make_factors(
+                evidence=EvidenceForm.NONE, contract_mapping=ContractMapping.MISSING
+            ),
+        )
+        write_fixture(findings / "b.json", id="b", expected_disposition=Disposition.BLOCKING)
+        write_fixture(
+            findings / "nb.json",
+            id="nb",
+            expected_disposition=Disposition.NON_BLOCKING,
+            factors=make_factors(severity=Severity.NIT),
+        )
+        fixtures = load_fixtures(findings)
+        # 匹配 disputed-halt 獨有的「無法評分」，不用會被 mismatch-fallback 訊息也滿足的寬鬆樣式——
+        # 否則 neuter disputed 分支後 fallback 仍 raise 含 disputed 的訊息，mutation 假存活。
+        with pytest.raises(RuntimeError, match="hits_disputed.*無法評分"):
+            check_fixture_oracle_consistency(fixtures, oracle)

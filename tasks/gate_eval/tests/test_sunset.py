@@ -60,6 +60,20 @@ class TestMutationMechanism:
         assert not (module_root / "sub" / "__pycache__").exists()
         assert source.stat().st_mtime > old_mtime
 
+    def test_geval_eg_004_cache_clear_failure_fails_loud(self, tmp_path: Path) -> None:
+        """GEVAL-EG-004: __pycache__ 清不掉時 fail loud（不 ignore_errors 吞掉）。"""
+        from unittest.mock import patch
+
+        module_root = tmp_path / "mod"
+        (module_root / "__pycache__").mkdir(parents=True)
+        source = module_root / "src.md"
+        source.write_text("mutated", encoding="utf-8")
+        with (
+            patch("tasks.gate_eval.sunset.shutil.rmtree", side_effect=OSError("locked")),
+            pytest.raises(RuntimeError, match="無法清除快取目錄"),
+        ):
+            restore_and_invalidate(source, "restored", module_root)
+
 
 class TestEffectiveness:
     def test_geval_dt_006_killed_is_effective(self) -> None:

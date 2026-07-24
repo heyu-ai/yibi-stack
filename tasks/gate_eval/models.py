@@ -256,6 +256,7 @@ class ConservationResult(BaseModel):
     missing: list[str] = Field(default_factory=list)  # 輸出缺少的 finding 標題
     duplicated: list[str] = Field(default_factory=list)  # 輸出重複的標題
     altered: list[str] = Field(default_factory=list)  # 標題在但描述被改寫
+    extra: list[str] = Field(default_factory=list)  # 輸出多出、輸入沒有的標題（捏造 finding）
 
 
 class AlertClass(StrEnum):

@@ -176,6 +176,14 @@ class TestConservation:
         assert not res.ok
         assert res.duplicated == ["A"]
 
+    def test_geval_st_015_fabricated_output_finding_named(self) -> None:
+        """GEVAL-ST-015: 輸出多出、輸入沒有的 finding（捏造）-> 守恆失敗並指名（雙向檢查）。"""
+        inp = [Finding(title="A", description="da")]
+        out = [Finding(title="A", description="da"), Finding(title="FABRICATED", description="x")]
+        res = check_conservation(inp, out)
+        assert not res.ok
+        assert res.extra == ["FABRICATED"]
+
 
 class TestReport:
     def test_geval_st_013_first_line_is_limitation_when_green(self) -> None:
@@ -195,3 +203,42 @@ class TestReport:
         lines = report.splitlines()
         assert lines[0] == f"[LIMIT] {LIMITATION}"
         assert report.index("守恆檢查") < report.index("disposition 判定")
+
+    def test_geval_st_016_conservation_none_renders_skip_not_ok(self) -> None:
+        """GEVAL-ST-016: conservation=None（未執行）-> 報告印 [SKIP]，不得偽稱 [OK]。"""
+        fv = evaluate_fixture("fx", B, outcomes(B, B, B, B, B))
+        report = render_report(None, [fv])
+        assert "[SKIP]" in report
+        assert "每筆輸入 finding 在輸出恰好一次且原文保留" not in report
+
+    def test_geval_st_017_duplicated_altered_extra_reran_branches_rendered(self) -> None:
+        """GEVAL-ST-017: render_report 印出 duplicated/altered/extra 行與 reran@15 旗標。"""
+        from tasks.gate_eval.models import ConservationResult
+
+        fv = evaluate_fixture(
+            "fx", B, outcomes(B, B, B, D, D), rerun_outcomes=outcomes(*([B] * 12 + [D] * 3))
+        )
+        report = render_report(
+            ConservationResult(ok=False, duplicated=["D"], altered=["A"], extra=["E"]), [fv]
+        )
+        assert "重複：D" in report
+        assert "描述被改寫：A" in report
+        assert "輸出多出（輸入沒有）：E" in report
+        assert "reran@15" in report
+
+
+class TestAllFailureBoundary:
+    def test_geval_eg_001_all_execution_failure_is_unstable_not_crash(self) -> None:
+        """GEVAL-EG-001: 全部執行失敗 -> UNSTABLE（不因空分佈 max() 崩潰）。"""
+        fv = evaluate_fixture("fx", B, outcomes(None, None, None, None, None))
+        assert fv.verdict == StabilityVerdict.UNSTABLE
+        assert fv.majority_disposition is None
+        assert fv.execution_failures == 5
+
+    def test_geval_eg_002_needs_rerun_only_on_unstable(self) -> None:
+        """GEVAL-EG-002: needs_rerun 只在 UNSTABLE 為真（涵蓋既有無 caller 的 public 函式）。"""
+        from tasks.gate_eval.service import needs_rerun
+
+        assert needs_rerun(StabilityVerdict.UNSTABLE)
+        assert not needs_rerun(StabilityVerdict.CONFORMANT)
+        assert not needs_rerun(StabilityVerdict.NONCONFORMANT)
