@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "id": "f07_imp_none_r1",
+  "finding_text": "### [Important] 合成 finding — f07_imp_none_r1\n- File: tasks/example/foo.py:1\n- Issue: 合成案例，用於量測 R1 對 Important + 缺 evidence 的 disposition。\n- Contract mapping: AC-EXAMPLE-1\n- Evidence: （無）\n- Suggested fix: 合成案例，無需真實修法。",
+  "review_contract": "## Review Contract\n### Acceptance Criteria\n- AC-EXAMPLE-1: 合成契約項。",
+  "factors": {
+    "severity": "important",
+    "evidence": "none",
+    "round": "r1",
+    "contract_mapping": "valid"
+  },
+  "expected_disposition": "deferred",
+  "mutation": {
+    "anchors": [
+      "| Important | none | deferred | deferred |"
+    ],
+    "replacement": ""
+  },
+  "tier": ""
+}
