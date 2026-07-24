@@ -20,11 +20,33 @@ description: PR 生命週期自動化 orchestrator（快速版）：偵測 open 
 
 ### Step 0 — Environment Check
 
-確認 installed CLI 可用：
+先定位本 skill 的 scripts 目錄（依序從目前生效的 plugin cache、`make install` symlink、
+source checkout 定位，每個候選都直接檢查 script 可讀）：
 
 ```bash
-if ! command -v pr-orchestrator >/dev/null 2>&1; then echo '[FAIL] 缺少 pr-orchestrator，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"' >&2; exit 1; fi
+PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('pr-flow@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
+PCF_ROOT=""
+if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="$PR_FLOW_CACHED/skills/pr-cycle-fast"; elif [ -r "$HOME/.claude/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="$HOME/.claude/skills/pr-cycle-fast"; elif [ -r "plugins/pr-flow/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="plugins/pr-flow/skills/pr-cycle-fast"; fi
+if ! test -n "$PCF_ROOT"; then echo "[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh；請執行 claude plugin install pr-flow@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
 ```
+
+確認 installed CLI **具備本 skill 實際會呼叫的介面**——不是只確認它存在：
+
+```bash
+bash "$PCF_ROOT/scripts/check-cli-capability.sh"
+```
+
+Exit code 語義：
+
+- **exit 0** — 介面齊備，繼續 Step 1
+- **exit 1** — PATH 中沒有 `pr-orchestrator`（未安裝）→ 停止，照 stderr 的安裝指令執行
+- **exit 2** — 已安裝但 `--help` 跑不起來（安裝損毀），或缺少 `--repo-root`（版本過舊）
+  → 停止，照 stderr 的指令執行。兩者訊息不同且修法不同，不要互相套用
+
+> **為什麼探能力而不是比版本**：`uv tool install git+...` 裝的是 HEAD，版本字串卻取自上次
+> release 的 `pyproject.toml`，兩次 release 之間所有 commit 回報同一字串，semver 比對因此
+> 無法區分「沒有漂移」與「偵測不到漂移」（issue #256、PR #249）。本 skill 已經知道自己要
+> 呼叫 `--repo-root`，直接探測該能力即可，不需要任何版本號。
 
 擷取**目標 repo** 的 checkout 路徑（即目前 session 的 cwd，如 yibi-mvp）：
 
@@ -263,7 +285,10 @@ FAILED（terminal）
 
 | 問題 | 修復方式 |
 |------|---------|
-| `[FAIL] 缺少 pr-orchestrator` | 執行 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"` |
+| `[FAIL] 缺少 pr-orchestrator`（exit 1） | 執行 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"` |
+| `[FAIL] 已安裝的 pr-orchestrator 缺少 --repo-root`（exit 2） | 版本過舊。執行 `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"`；帶 `--force` 是因為它在「已安裝」與「未安裝」兩種狀態下都成立，不需要先判斷目前狀態 |
+| `[FAIL] pr-orchestrator <sub> --help 無法執行`（exit 2） | 安裝損毀，非版本問題。同樣以 `--force` 重裝；若仍失敗，先 `uv tool uninstall yibi-stack` 再安裝 |
+| `[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh` | 執行 `claude plugin install pr-flow@yibi-stack`，或在 yibi-stack checkout 執行 `make install` |
 | `分支沒有對應的 open PR` | 先 `gh pr create` 建立 PR |
 | `多個 PR 對應同分支` | 加 `--pr <n>` 明確指定 |
 | State 停在 BLOCKED | 看 blockers 訊息，解除後跑 `/pr-cycle-fast resume` |

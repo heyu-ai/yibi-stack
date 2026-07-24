@@ -51,7 +51,7 @@ PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.hom
 RETRO_ROOT=""
 if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="$PR_FLOW_CACHED/skills/pr-retrospective"; elif [ -r "$HOME/.claude/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="$HOME/.claude/skills/pr-retrospective"; elif [ -r "plugins/pr-flow/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="plugins/pr-flow/skills/pr-retrospective"; fi
 if ! test -n "$RETRO_ROOT"; then echo "[FAIL] 讀不到 pr-retrospective bootstrap.sh；請執行 claude plugin install pr-flow@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
-if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"' >&2; exit 1; fi
+if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2; exit 1; fi
 ```
 
 再執行環境檢查 + 專案偵測（prereqs check / case-free project detection / config）：

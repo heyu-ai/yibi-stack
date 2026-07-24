@@ -81,7 +81,7 @@ case "$_gcd" in
 esac
 unset _gcd
 if ! command -v mycelium >/dev/null 2>&1; then
-  echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.11.0"' >&2
+  echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2
   exit 1
 fi
 ls ~/.agents/handover/handover.db

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.2] - 2026-07-24
+
+### Fixed
+
+- pr-cycle-fast Step 0 由「工具存在」檢查改為**能力探測**：新增
+  `scripts/check-cli-capability.sh`，逐一確認 7 個子指令的 `--help` 都含 `--repo-root`
+  （skill 每一步都靠它指定目標 repo）。缺少時以 exit 2 在 workflow 開始前就停下，
+  取代原本跑到一半才浮現的 `Error: No such option '--repo-root'`（issue #333）。
+  刻意不比對版本號：`uv tool install git+...` 裝 HEAD 但版本字串取自上次 release，
+  semver 比對無法區分「沒有漂移」與「偵測不到漂移」（issue #256、PR #249）。
+
+### Changed
+
+- 文件中的 CLI 安裝 pin 由 `@v1.11.0` 更新為 `@v1.14.0`（11 個檔案、16 處，全部保持一致）。
+  原字串指向的正是缺少 `--repo-root` 的版本，會讓能力探測的補救指示自我矛盾。
+
 ## [1.14.1] - 2026-07-23
 
 ### Changed
