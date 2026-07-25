@@ -5,33 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.14.2] - 2026-07-24
+## [1.15.0] - 2026-07-25
+
+### Added
+
+- Add-review-gate-conformance-eval 提案 (#335)
+
+### Changed
+
+- /code-review --fix opt-in 小節與 disallowed-tools、literal $ escape 文件 (#145) (#331)
+- Archive document-fix-optin-and-skill-frontmatter (#332)
+- Evidence gate conformance eval 實作（含 sunset 協議） (#338)
 
 ### Fixed
 
-- pr-cycle-fast Step 0 由「工具存在」檢查改為**能力探測**：新增
-  `scripts/check-cli-capability.sh`，逐一確認 7 個子指令的 `--help` 都含 `--repo-root`
-  （skill 每一步都靠它指定目標 repo）。缺少時以 exit 2 在 workflow 開始前就停下，
-  取代原本跑到一半才浮現的 `Error: No such option '--repo-root'`（issue #333）。
-  刻意不比對版本號：`uv tool install git+...` 裝 HEAD 但版本字串取自上次 release，
-  semver 比對無法區分「沒有漂移」與「偵測不到漂移」（issue #256、PR #249）。
-
-### Changed
-
-- 文件中的 CLI 安裝 pin 由 `@v1.11.0` 更新為 `@v1.14.0`：移除 18 個 `@v1.11.0` 引用，
-  其中 17 處就地轉為 `@v1.14.0`（跨 11 個檔案、全部保持一致）、1 處隨 pr-cycle-fast
-  Step 0 重構一併刪除。原字串指向的正是缺少 `--repo-root` 的版本，會讓能力探測的補救指示自我矛盾。
-  `openspec/specs/mycelium-cli/spec.md` 的 illustrative examples 亦一併更新到 `@v1.14.0`（10 處），
-  維持與生效文件一致（archive 歷史紀錄不動）。
-
-## [1.14.1] - 2026-07-23
-
-### Changed
-
-- pr-review-cycle 與 pr-cycle-deep 的 code review 步驟新增「Auto-apply cleanups (optional)」小節：
-  /code-review --fix 與 /simplify 的 opt-in 自動套用路徑，預設 report-only 不變（issue #145）
-- rule 11 新增 disallowed-tools frontmatter 與 skill body literal `$` escape 文件；
-  rule 13 新增 layer 消歧 cross-ref；skill 模板 frontmatter 加 disallowed-tools 註解行（issue #145）
+- Step 0 改為 CLI 能力探測，非只驗工具存在 (#333) (#336)
 
 ## [1.14.0] - 2026-07-23
 
@@ -40,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 空 release guard -- 零新 commit 時拒絕 make release (#328)
 - Step 5 落地路由加入批次佇列分流 (#329)
 - Bump pyasn1 (#327)
+- V1.14.0
 
 ## [1.13.0] - 2026-07-23
 
@@ -624,6 +613,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove bash anti-patterns triggering CC confirmation dialogs (#137)
 - Remove unnecessary rm-f after git commit-F (#105)
 
+[1.15.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.14.0..v1.15.0
 [1.14.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.13.0..v1.14.0
 [1.13.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.12.0..v1.13.0
 [1.12.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.11.0..v1.12.0
