@@ -465,12 +465,29 @@ so each member's `description` must carry an explicit negative boundary against 
   (Flutter-specific) and `ci-triage` (CI failure diagnosis, not test authorship) are adjacent
   skills whose boundaries against `tdd-kentbeck` must stay explicit.
 
-**Quantified detection is planned, not yet available.** A `scripts/lint_skill_overlap.py` that
-measures pairwise `description` keyword overlap and flags over-trigger risk is tracked under
-issue #186 (path B) and does **not** exist yet — do not cite it as an existing gate. Until it
-lands, this three-class self-check is a manual authoring discipline. When it is built, model it on
-`scripts/lint_skill_scope.py`: docstring-as-spec with an exit-code table, regex-based frontmatter
-parsing (no YAML dependency), and a `[FAIL]`/`[OK]` message that points back to this section.
+**Quantified detection now exists, but it is warn-only.** `scripts/lint_skill_overlap.py`
+measures pairwise `description` keyword overlap (Jaccard, threshold 0.12) and is wired into
+pre-commit as `lint-skill-overlap` with `verbose: true` — the verbosity matters, because a
+warn-only hook exits 0 and pre-commit hides the output of any hook that does. It scans
+repo-root `skills/*/` plus `plugins/*/skills/**/SKILL.md`, deduplicating by realpath so a
+symlink and its target are not counted twice.
+
+Two consequences for authoring:
+
+- **It warns, it does not block.** The three-class self-check above remains the authoring
+  discipline; the lint is a backstop that surfaces pairs you did not consider, not a gate that
+  proves you considered them.
+- **Do not delete a `請改用 /X` redirect clause to quiet it.** The script strips redirect
+  references before computing overlap, so removing the clause *raises* the score while also
+  destroying the negative-trigger declaration the clause encodes.
+
+Known limitation: warnings identify skills by directory leaf name only, so two same-named
+skills in different packs print as `recap <-> recap` and cannot be told apart.
+
+(An earlier revision of this paragraph said the script "does not exist yet — do not cite it as
+an existing gate", citing issue #186. It shipped; the text did not follow. A rule that
+describes tooling is a claim about the present, and this file is loaded by agents who cannot
+see that it went stale.)
 
 ## Frontmatter — `effort` (Optional, added 2026-05)
 

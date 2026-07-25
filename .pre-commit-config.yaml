@@ -70,6 +70,15 @@ repos:
         pass_filenames: false
         files: ^(skills/.*/SKILL\.md|\.claude-plugin/marketplace\.json)$
 
+      - id: lint-plugin-layout
+        name: lint-plugin-layout
+        entry: python3 scripts/lint_plugin_layout.py
+        language: system
+        pass_filenames: false
+        # 觸發面 = 任何會影響 pack 結構的改動：pack 內的 manifest 與文件、marketplace 登記、
+        # 以及頂層 symlink（搬動 / 刪除 plugin 端而漏改頂層，正是本 hook 要擋的失誤）。
+        files: ^(plugins/.*|\.claude-plugin/marketplace\.json|skills/[^/]+|commands/[^/]+\.md)$
+
       - id: lint-rule-frontmatter
         name: lint-rule-frontmatter
         entry: python3 scripts/lint_rule_frontmatter.py
