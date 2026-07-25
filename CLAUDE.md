@@ -310,3 +310,10 @@ make install-all         # 等同 build-tools + install + install-project + inst
   gotcha's conclusion (the agent still cannot merge; the user runs `! gh pr merge <n>` manually)
   — but the agent will now speak to the merge output rather than staying silent, so expect a
   follow-up message after a manual `!` command.
+
+- **`cargo clippy` without `-D warnings` passes locally but fails CI**: Running bare
+  `cargo clippy` treats lint warnings as non-fatal; this project's CI runs
+  `cargo clippy -- -D warnings` which exits non-zero on any warning, making CI red even
+  when local clippy reported clean.
+  Fix: Always use `cargo clippy -- -D warnings` (and `cargo fmt --check`) before pushing
+  to match the full CI gate shown in the verification summary.
