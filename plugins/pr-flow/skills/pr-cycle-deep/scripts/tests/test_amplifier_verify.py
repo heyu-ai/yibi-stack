@@ -15,6 +15,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _SCRIPT = Path(__file__).resolve().parent.parent / "amplifier-verify.py"
 _spec = importlib.util.spec_from_file_location("amplifier_verify", _SCRIPT)
 amplifier_verify = importlib.util.module_from_spec(_spec)
@@ -699,15 +701,20 @@ new file mode 100644
 def test_detect_change_ignores_valid_slug_in_content_line():
     # A *valid* slug that appears ONLY in a content line (single `+`), never in a
     # file header. This isolates the header-line restriction: slug validation alone
-    # would accept "add-login", so this test fails if the header filter is dropped
-    # (or against the old whole-text regex, which returns "add-login").
+    # would accept "add-login", so this test fails if the header filter is dropped.
+    #
+    # The content line carries the `b/` prefix deliberately. Without it the line does not
+    # match `[ab]/(?:docs/)?openspec/changes/…` in the first place, so the test would stay
+    # green with the header filter removed and prove nothing -- which is what the earlier
+    # `See \`openspec/changes/add-login/proposal.md\`` fixture did once the regex gained its
+    # `[ab]/` prefix requirement.
     diff = """\
 diff --git a/.claude/skills/spectra-ask/SKILL.md b/.claude/skills/spectra-ask/SKILL.md
 --- a/.claude/skills/spectra-ask/SKILL.md
 +++ b/.claude/skills/spectra-ask/SKILL.md
 @@ -1 +1,2 @@
  existing
-+  See `openspec/changes/add-login/proposal.md` for the worked example.
++  The header would read b/openspec/changes/add-login/proposal.md in that example.
 """
     assert amplifier_verify.detect_change_from_diff(diff) == ""
 
@@ -722,3 +729,594 @@ diff --git a/src/app.py b/src/app.py
 +x = 2
 """
     assert amplifier_verify.detect_change_from_diff(diff) == ""
+
+
+# ---------------------------------------------------------------------------
+# Archive awareness.
+#
+# Regression: a PR that touches or merely references an ARCHIVED change aborted the
+# gate with a fatal `[FAIL] testplan.md not found for change '<name>'`, even though
+# such a PR has no active change to verify at all. The PRs most exposed are exactly
+# the ones doing retirement / path-cleanup work on docs, because those legitimately
+# carry historical change names.
+#
+# Two independent mechanisms produce it, and both are covered below:
+#   * `changes/([^/\\n]+)/` captures the literal container segment `archive` from a
+#     file header under `changes/archive/<date>-<name>/`, so the gate then hunts for
+#     `changes/archive/testplan.md`;
+#   * a change that has since been archived no longer exists at the active path, so
+#     even a correctly-read name resolves to nothing.
+#
+# Both mean "no active spectra change" -> exit 0. The load-bearing counterpart is the
+# positive control: a change that IS active but has no testplan.md must still exit 2.
+# A fix verified only against the first half would pass everything and look correct.
+# ---------------------------------------------------------------------------
+
+
+def _make_repo(tmp_path, active=(), archived=(), root="openspec/changes", testplans=()):
+    """Build a fake checkout with the given active and archived change dirs.
+
+    `root` is parameterised because BOTH layout roots are live in this repo and a helper
+    hardwired to one of them leaves the other's resolution path unexercised -- a mutation
+    truncating `_CHANGE_ROOTS` to a single entry then survives.
+    `testplans` writes `testplan.md` into the named active dirs, which is what the
+    cross-root preference loop keys on.
+    """
+    changes = tmp_path.joinpath(*root.split("/"))
+    for name in active:
+        (changes / name).mkdir(parents=True, exist_ok=True)
+    for name in archived:
+        (changes / "archive" / name).mkdir(parents=True, exist_ok=True)
+    for name in testplans:
+        (changes / name).mkdir(parents=True, exist_ok=True)
+        (changes / name / "testplan.md").write_text("| TC-ID |\n|---|\n", encoding="utf-8")
+    return tmp_path
+
+
+def _stub_run(monkeypatch, diff, repo_root):
+    """Replace _run so main() gets a canned `gh pr diff` and repo root."""
+
+    def fake_run(args, timeout=180):
+        if args[0] == "gh":
+            return diff
+        if args[0] == "git":
+            return f"{repo_root}\n"
+        raise AssertionError(f"unexpected command: {args}")
+
+    monkeypatch.setattr(amplifier_verify, "_run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["amplifier-verify.py", "--pr", "1"])
+
+
+def _one_file_diff(path):
+    """A minimal single-file modification hunk for `path`."""
+    return f"""\
+diff --git a/{path} b/{path}
+--- a/{path}
++++ b/{path}
+@@ -1 +1 @@
+-old
++new
+"""
+
+
+def _two_file_diff(first, second):
+    """Two file hunks in the given order -- git emits headers in path byte order."""
+    return _one_file_diff(first) + _one_file_diff(second)
+
+
+def _archive_diff(dirname):
+    return _one_file_diff(f"openspec/changes/archive/{dirname}/tasks.md")
+
+
+def _deleted_file_diff(path):
+    """A deletion hunk: the `--- a/` header is present but nothing exists on disk."""
+    return f"""\
+diff --git a/{path} b/{path}
+deleted file mode 100644
+--- a/{path}
++++ /dev/null
+@@ -1 +0,0 @@
+-old
+"""
+
+
+def test_archive_header_creates_no_obligation_to_verify():
+    """A header under `changes/archive/` names no change to verify.
+
+    Two bugs met here. The old regex stopped at the first segment after `changes/`, so such
+    a header reported the change as the container string `archive` and the gate hunted for
+    `openspec/changes/archive/testplan.md`. Capturing the dated name instead was worse: it
+    made the archived name a *resolvable* candidate that could win the scan over a real
+    active change later in the same diff. Ranking is therefore by which tree the header
+    points into -- archived material carries no obligation at all.
+    """
+    diff = _archive_diff("2026-07-18-add-login")
+    assert amplifier_verify.detect_change_from_diff(diff) == ""
+    refs = amplifier_verify.detect_change_refs_from_diff(diff)
+    assert refs.active_tree == []
+    assert refs.archive_tree == ["2026-07-18-add-login"]
+
+
+def test_an_archive_header_does_not_shadow_an_active_change_in_the_same_diff():
+    """The blocking regression: an archive header must not win the scan.
+
+    git emits file headers in path byte order, so `changes/archive/...` precedes every
+    active slug sorting after "archive". While the archived name was a resolvable candidate
+    it won, `main()` took the archived-only branch, and the active change was never verified
+    -- exit 0 where the pre-fix code exited 2. Asserted in BOTH orders so the fix cannot be
+    a reordering that merely happens to work for one of them.
+    """
+    archived = "openspec/changes/archive/2026-07-18-old-thing/tasks.md"
+    active = "openspec/changes/zz-new/tasks.md"
+    for first, second in ((archived, active), (active, archived)):
+        diff = _two_file_diff(first, second)
+        assert amplifier_verify.detect_change_from_diff(diff) == "zz-new"
+        refs = amplifier_verify.detect_change_refs_from_diff(diff)
+        assert refs.active_tree == ["zz-new"]
+        assert refs.archive_tree == ["2026-07-18-old-thing"]
+
+
+def test_a_container_only_header_is_neither_tree():
+    """`changes/archive/README.md` cannot take the `archive/` branch, so it needs the guard.
+
+    The optional group needs a trailing `/` after the captured segment; `README.md/` has
+    none, so the regex backtracks and captures the literal `archive` as an ACTIVE-tree slug.
+    Without the guard that becomes an obligation to verify a change named `archive`.
+    """
+    diff = _one_file_diff("openspec/changes/archive/README.md")
+    assert amplifier_verify.detect_change_from_diff(diff) == ""
+    refs = amplifier_verify.detect_change_refs_from_diff(diff)
+    assert refs.active_tree == []
+    assert refs.archive_tree == []
+
+
+def test_a_container_header_does_not_shadow_a_later_active_change():
+    diff = _two_file_diff("openspec/changes/archive/README.md", "openspec/changes/zz-new/t.md")
+    assert amplifier_verify.detect_change_from_diff(diff) == "zz-new"
+
+
+def test_every_active_tree_candidate_is_reported_in_order_without_duplicates():
+    diff = _two_file_diff(
+        "openspec/changes/alpha/tasks.md", "openspec/changes/alpha/design.md"
+    ) + _one_file_diff("openspec/changes/beta/tasks.md")
+    refs = amplifier_verify.detect_change_refs_from_diff(diff)
+    assert refs.active_tree == ["alpha", "beta"]
+
+
+def test_locate_change_finds_an_active_change(tmp_path):
+    repo = _make_repo(tmp_path, active=["add-login"])
+    location = amplifier_verify.locate_change(repo, "add-login")
+    assert location.is_active
+    assert not location.is_archived_only
+
+
+def test_locate_change_finds_a_date_prefixed_archived_change(tmp_path):
+    """The common case: the diff names the change, the dir is `archive/<date>-<name>`."""
+    repo = _make_repo(tmp_path, archived=["2026-07-18-add-login"])
+    location = amplifier_verify.locate_change(repo, "add-login")
+    assert location.is_archived_only
+    assert not location.is_active
+
+
+def test_locate_change_finds_an_archived_dir_named_verbatim(tmp_path):
+    """A file header under the archive yields the dated dir name itself."""
+    repo = _make_repo(tmp_path, archived=["2026-07-18-add-login"])
+    location = amplifier_verify.locate_change(repo, "2026-07-18-add-login")
+    assert location.is_archived_only
+
+
+def test_active_wins_over_an_archived_namesake(tmp_path):
+    """A name reused after archival is still an active change and must be verified."""
+    repo = _make_repo(tmp_path, active=["add-login"], archived=["2026-07-18-add-login"])
+    location = amplifier_verify.locate_change(repo, "add-login")
+    assert location.is_active
+    assert not location.is_archived_only
+
+
+def test_archive_lookup_does_not_match_a_longer_name(tmp_path):
+    """`<date>-<name>` must anchor: `foo` must not resolve to `...-bar-foo`.
+
+    A `*-{name}` glob would match it, silently exit 0, and skip a real verification.
+    """
+    repo = _make_repo(tmp_path, archived=["2026-01-01-bar-foo"])
+    location = amplifier_verify.locate_change(repo, "foo")
+    assert not location.is_archived_only
+    assert not location.is_active
+
+
+def test_archive_lookup_does_not_match_a_name_with_a_suffix(tmp_path):
+    """The match must end at the name: `foo` must not resolve to `...-foo-extra`.
+
+    Distinct from the prefix case above, and it is the half a bare `re.match` lets
+    through -- `match` anchors only at the start, so `\\d{4}-\\d{2}-\\d{2}-foo` happily
+    matches `2026-01-01-foo-extra`. Only `fullmatch` (or a trailing `$`) closes it.
+    """
+    repo = _make_repo(tmp_path, archived=["2026-01-01-foo-extra"])
+    location = amplifier_verify.locate_change(repo, "foo")
+    assert not location.is_archived_only
+    assert not location.is_active
+
+
+def test_archive_lookup_ignores_an_undated_archive_entry(tmp_path):
+    """Only `<YYYY-MM-DD>-<name>` counts as this change's archived form."""
+    repo = _make_repo(tmp_path, archived=["notes-add-login"])
+    location = amplifier_verify.locate_change(repo, "add-login")
+    assert not location.is_archived_only
+    assert not location.is_active
+
+
+def test_the_archive_container_is_never_an_active_change(tmp_path):
+    """`archive` names a container whose directory really does exist.
+
+    Detection no longer emits it, but `--change archive` still can, and a bare
+    directory-exists check would report the container as an active change and then
+    demand a testplan.md for it.
+    """
+    repo = _make_repo(tmp_path, archived=["2026-07-18-add-login"])
+    location = amplifier_verify.locate_change(repo, "archive")
+    assert not location.is_active
+    assert not location.is_archived_only
+
+
+def test_main_exits_zero_when_an_active_tree_name_has_since_been_archived(
+    tmp_path, monkeypatch, capsys
+):
+    """Negative control, via the route that actually produces a bare archived name.
+
+    The archiving PR's own rename header is `a/openspec/changes/<name>/...` ->
+    `b/openspec/changes/archive/<date>-<name>/...`; the first path wins, so detection yields
+    the bare `<name>` as an ACTIVE-tree slug. That name no longer resolves at an active root,
+    and this is the case `locate_change`'s archived branch exists for -- without it the gate
+    would abort on every archiving PR.
+    """
+    repo = _make_repo(tmp_path, archived=["2026-07-18-add-login"])
+    rename = (
+        "diff --git a/openspec/changes/add-login/tasks.md"
+        " b/openspec/changes/archive/2026-07-18-add-login/tasks.md\n"
+        "similarity index 100%\n"
+        "rename from openspec/changes/add-login/tasks.md\n"
+        "rename to openspec/changes/archive/2026-07-18-add-login/tasks.md\n"
+    )
+    assert amplifier_verify.detect_change_from_diff(rename) == "add-login"
+    _stub_run(monkeypatch, rename, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert "exists only in the archive" in captured.out
+    assert "[FAIL]" not in captured.out + captured.err
+
+
+def test_main_still_fails_when_an_active_change_has_no_testplan(tmp_path, monkeypatch, capsys):
+    """Positive control: the gate must keep firing on a real active change.
+
+    This is the test that makes the negative control above mean something -- a fix
+    that simply exits 0 whenever testplan.md is missing would satisfy that one and
+    disable the gate entirely.
+    """
+    repo = _make_repo(tmp_path, active=["add-login"])
+    diff = """\
+diff --git a/openspec/changes/add-login/tasks.md b/openspec/changes/add-login/tasks.md
+--- a/openspec/changes/add-login/tasks.md
++++ b/openspec/changes/add-login/tasks.md
+@@ -1 +1 @@
+-old
++new
+"""
+    _stub_run(monkeypatch, diff, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "testplan.md not found" in err
+
+
+def test_main_verifies_the_active_change_despite_an_earlier_archive_header(
+    tmp_path, monkeypatch, capsys
+):
+    """End-to-end form of the blocking regression: exit 2, not a silent exit 0.
+
+    The archive header sorts first (git's path order), and the active change has no
+    testplan.md. If the archived name wins, `main()` exits 0 and this change is never gated.
+    """
+    repo = _make_repo(tmp_path, active=["zz-new"], archived=["2026-07-18-old-thing"])
+    diff = _two_file_diff(
+        "openspec/changes/archive/2026-07-18-old-thing/tasks.md",
+        "openspec/changes/zz-new/tasks.md",
+    )
+    _stub_run(monkeypatch, diff, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    assert "testplan.md not found" in capsys.readouterr().err
+
+
+def test_main_exits_zero_when_only_archived_material_is_touched(tmp_path, monkeypatch, capsys):
+    """An archive-only diff has nothing to gate, and says so distinguishably."""
+    repo = _make_repo(tmp_path, archived=["2026-07-18-old-thing"])
+    _stub_run(monkeypatch, _archive_diff("2026-07-18-old-thing"), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert "2026-07-18-old-thing" in captured.out
+    assert "[FAIL]" not in captured.out + captured.err
+
+
+def test_main_exits_zero_when_an_archived_change_is_deleted(tmp_path, monkeypatch, capsys):
+    """Deleting an archived change must not abort the gate.
+
+    A deletion emits a `--- a/openspec/changes/archive/<dated>/...` header while nothing
+    remains on disk. Ranking candidates by what RESOLVES would leave this one resolving
+    nowhere and, if that is fatal, abort exactly the retirement/cleanup PR shape this fix
+    exists to unblock. Ranking by which tree the header points into has no such state.
+    """
+    repo = _make_repo(tmp_path)
+    diff = _deleted_file_diff("openspec/changes/archive/2026-07-18-gone/tasks.md")
+    _stub_run(monkeypatch, diff, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert "[FAIL]" not in captured.out + captured.err
+
+
+def test_main_warns_when_several_active_changes_are_touched(tmp_path, monkeypatch, capsys):
+    """First-active-wins is pre-existing; make the narrowing visible rather than silent."""
+    repo = _make_repo(tmp_path, active=["alpha", "beta"])
+    diff = _two_file_diff("openspec/changes/alpha/tasks.md", "openspec/changes/beta/tasks.md")
+    _stub_run(monkeypatch, diff, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2  # alpha has no testplan.md
+    err = capsys.readouterr().err
+    assert "alpha" in err and "beta" in err
+
+
+def test_locate_change_resolves_under_the_docs_layout_root(tmp_path):
+    """The second layout root must resolve, not just appear in the regex.
+
+    Without this, truncating `_CHANGE_ROOTS` to a single entry survives the whole suite.
+    """
+    repo = _make_repo(tmp_path, active=["add-login"], root="docs/openspec/changes")
+    location = amplifier_verify.locate_change(repo, "add-login")
+    assert location.is_active
+    assert location.active_dir == repo / "docs" / "openspec" / "changes" / "add-login"
+
+
+def test_locate_change_finds_an_archived_change_under_the_docs_layout_root(tmp_path):
+    repo = _make_repo(tmp_path, archived=["2026-07-18-add-login"], root="docs/openspec/changes")
+    assert amplifier_verify.locate_change(repo, "add-login").is_archived_only
+
+
+def test_an_active_dir_holding_the_testplan_wins_over_an_empty_one_at_another_root(tmp_path):
+    """The cross-root preference loop: prefer whichever active dir actually has a testplan.
+
+    The replaced code picked the first candidate whose `testplan.md` was present, not the
+    first directory that existed. Deleting the preference loop otherwise survives the suite.
+    """
+    repo = _make_repo(tmp_path, active=["add-login"])
+    _make_repo(repo, testplans=["add-login"], root="docs/openspec/changes")
+    location = amplifier_verify.locate_change(repo, "add-login")
+    assert location.is_active
+    assert location.active_dir == repo / "docs" / "openspec" / "changes" / "add-login"
+
+
+def test_a_dot_in_the_change_name_is_not_a_regex_wildcard(tmp_path):
+    """`re.escape` is load-bearing: `_VALID_CHANGE_SLUG_RE` permits `.` in a slug.
+
+    Unescaped, name `v1.2` matches archived dir `2026-01-01-v1-2` and the gate exits 0.
+    """
+    repo = _make_repo(tmp_path, archived=["2026-01-01-v1-2"])
+    location = amplifier_verify.locate_change(repo, "v1.2")
+    assert not location.is_archived_only
+    assert not location.is_active
+
+
+def test_a_file_in_the_archive_is_not_mistaken_for_an_archived_change(tmp_path):
+    """`entry.is_dir()` is load-bearing: without it a regular file resolves as archived."""
+    archive_root = tmp_path / "openspec" / "changes" / "archive"
+    archive_root.mkdir(parents=True)
+    (archive_root / "2026-07-18-add-login").write_text("not a directory", encoding="utf-8")
+    location = amplifier_verify.locate_change(tmp_path, "add-login")
+    assert not location.is_archived_only
+    assert not location.is_active
+
+
+def test_the_oldest_dated_archive_copy_is_chosen_deterministically(tmp_path):
+    """Pins the `sorted()` tie-break the comment claims, which was otherwise untested."""
+    repo = _make_repo(tmp_path, archived=["2026-07-18-add-login", "2026-01-02-add-login"])
+    location = amplifier_verify.locate_change(repo, "add-login")
+    assert location.is_archived_only
+    assert location.archived_dir is not None
+    assert location.archived_dir.name == "2026-01-02-add-login"
+
+
+def test_the_missing_directory_message_lists_every_location_that_was_probed(
+    tmp_path, monkeypatch, capsys
+):
+    """The fatal message must not name only the two active roots.
+
+    Detection can hand `main()` a name that never lives at an active root, so a message
+    listing only those points at a path that by construction cannot exist.
+
+    The six expected strings are written out **literally** rather than derived from
+    `probed_locations()`. Deriving them moves both sides of the assertion together, so the
+    test then pins only "main() calls that function" and every mutation of what it returns
+    survives -- including `return active`, which reintroduces the exact defect this test's
+    docstring claims to guard.
+    """
+    repo = _make_repo(tmp_path)
+    _stub_run(monkeypatch, _one_file_diff("openspec/changes/ghost/tasks.md"), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    for expected in (
+        "openspec/changes/ghost/",
+        "docs/openspec/changes/ghost/",
+        "openspec/changes/archive/ghost/",
+        "openspec/changes/archive/<YYYY-MM-DD>-ghost/",
+        "docs/openspec/changes/archive/ghost/",
+        "docs/openspec/changes/archive/<YYYY-MM-DD>-ghost/",
+    ):
+        assert expected in err
+
+
+def test_main_verifies_a_later_active_candidate_when_the_first_is_archived_only(
+    tmp_path, monkeypatch, capsys
+):
+    """The masking must not survive by moving from detection into resolution.
+
+    The canonical SDD shape: one PR archives finished change `alpha` and proposes `beta`.
+    `alpha` arrives as an active-tree name (the archiving rename header's `a/` side) but
+    resolves archived-only. Stopping there exits 0 and never gates `beta`.
+    """
+    repo = _make_repo(tmp_path, active=["beta"], archived=["2026-07-25-alpha"])
+    diff = _two_file_diff("openspec/changes/alpha/tasks.md", "openspec/changes/beta/proposal.md")
+    _stub_run(monkeypatch, diff, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "testplan.md not found for change 'beta'" in err
+
+
+def test_main_exits_zero_only_when_every_active_candidate_is_archived(
+    tmp_path, monkeypatch, capsys
+):
+    repo = _make_repo(tmp_path, archived=["2026-07-25-alpha", "2026-07-25-beta"])
+    diff = _two_file_diff("openspec/changes/alpha/tasks.md", "openspec/changes/beta/tasks.md")
+    _stub_run(monkeypatch, diff, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert "[FAIL]" not in captured.out + captured.err
+
+
+def test_main_fails_loud_when_a_candidate_resolves_nowhere_beside_an_archived_one(
+    tmp_path, monkeypatch, capsys
+):
+    """An archived candidate must not mask an unresolvable one.
+
+    Ranking "nowhere" below "archived" so another candidate can excuse it is the shadowing
+    bug one level down -- an unresolvable active name would vanish the same way.
+    """
+    repo = _make_repo(tmp_path, archived=["2026-07-25-alpha"])
+    diff = _two_file_diff("openspec/changes/alpha/tasks.md", "openspec/changes/ghost/tasks.md")
+    _stub_run(monkeypatch, diff, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    assert "ghost" in capsys.readouterr().err
+
+
+def test_main_verifies_the_first_active_candidate_not_the_last(tmp_path, monkeypatch, capsys):
+    """Pin WHICH candidate is verified, not merely that a warning is printed.
+
+    `beta` is given a valid testplan and `alpha` is not, so the two choices produce
+    different exit codes -- otherwise `active_tree[0]` -> `[-1]` survives.
+    """
+    repo = _make_repo(tmp_path, active=["alpha"], testplans=["beta"])
+    diff = _two_file_diff("openspec/changes/alpha/tasks.md", "openspec/changes/beta/tasks.md")
+    _stub_run(monkeypatch, diff, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "verifying only 'alpha'" in err
+    assert "testplan.md not found for change 'alpha'" in err
+
+
+def test_detection_reads_the_docs_layout_root_too(tmp_path):
+    """`(?:docs/)?` in the regex needs a parsing test, not only a resolution one.
+
+    Removing it otherwise survives, because no diff fixture used that root.
+    """
+    diff = _one_file_diff("docs/openspec/changes/add-login/tasks.md")
+    refs = amplifier_verify.detect_change_refs_from_diff(diff)
+    assert refs.active_tree == ["add-login"]
+    archived = _one_file_diff("docs/openspec/changes/archive/2026-07-18-add-login/tasks.md")
+    assert amplifier_verify.detect_change_refs_from_diff(archived).archive_tree == [
+        "2026-07-18-add-login"
+    ]
+
+
+def test_only_file_headers_are_scanned_never_content_lines(tmp_path):
+    """Pins the design property the docstring claims, making the Non-goal self-checking.
+
+    The content line must carry the `b/` prefix the regex requires, or the test proves
+    nothing: a line reading `see openspec/changes/foo/...` does not match `[ab]/…` at all, so
+    it stays empty whether the header filter is present or not. With the prefix, replacing the
+    header condition with `True` yields `['add-login']` and the test fails as intended.
+    """
+    diff = """\
+diff --git a/docs/notes.md b/docs/notes.md
+--- a/docs/notes.md
++++ b/docs/notes.md
+@@ -1 +1,2 @@
+ existing
++the archiving header reads b/openspec/changes/add-login/tasks.md in the example above
+"""
+    refs = amplifier_verify.detect_change_refs_from_diff(diff)
+    assert refs.active_tree == []
+    assert refs.archive_tree == []
+
+
+def test_an_archiving_rename_yields_the_bare_active_name(tmp_path):
+    """Direction 1 of the rename pair: active -> archive. Must keep working."""
+    rename = (
+        "diff --git a/openspec/changes/add-login/tasks.md"
+        " b/openspec/changes/archive/2026-07-18-add-login/tasks.md\n"
+        "similarity index 100%\n"
+    )
+    refs = amplifier_verify.detect_change_refs_from_diff(rename)
+    assert refs.active_tree == ["add-login"]
+
+
+def test_an_unarchiving_rename_is_a_documented_accepted_residual_risk(tmp_path):
+    """Direction 2 of the rename pair: archive -> active. ACCEPTED, not fixed.
+
+    A 100%-similarity rename emits no `---`/`+++` lines, so the `diff --git` line is the
+    only header, and only its FIRST path is read. Moving a change OUT of the archive
+    therefore attributes the archive side and never sees the active destination, so the
+    obligation disappears and the gate exits 0.
+
+    This is a **knowingly accepted residual risk**, recorded in the PR's Review Contract:
+    no spectra command performs un-archiving, so it requires a manual `git mv`. This test
+    pins the accepted behaviour deliberately -- if a future change makes `active_tree`
+    non-empty here, that is the risk being *fixed*, and this test should be replaced by one
+    asserting the obligation is created rather than silently deleted.
+    """
+    rename = (
+        "diff --git a/openspec/changes/archive/2026-07-18-add-login/tasks.md"
+        " b/openspec/changes/add-login/tasks.md\n"
+        "similarity index 100%\n"
+    )
+    refs = amplifier_verify.detect_change_refs_from_diff(rename)
+    assert refs.active_tree == []
+    assert refs.archive_tree == ["2026-07-18-add-login"]
+
+
+def test_main_reports_a_change_dir_that_exists_nowhere(tmp_path, monkeypatch, capsys):
+    """Neither active nor archived is the genuinely anomalous case -- still fatal.
+
+    The message must say the directory is missing rather than blame testplan.md,
+    which was never the reason.
+    """
+    repo = _make_repo(tmp_path)
+    diff = """\
+diff --git a/openspec/changes/ghost/tasks.md b/openspec/changes/ghost/tasks.md
+--- a/openspec/changes/ghost/tasks.md
++++ b/openspec/changes/ghost/tasks.md
+@@ -1 +1 @@
+-old
++new
+"""
+    _stub_run(monkeypatch, diff, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "ghost" in err
