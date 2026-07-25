@@ -15,6 +15,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _SCRIPT = Path(__file__).resolve().parent.parent / "amplifier-verify.py"
 _spec = importlib.util.spec_from_file_location("amplifier_verify", _SCRIPT)
 amplifier_verify = importlib.util.module_from_spec(_spec)
@@ -722,3 +724,205 @@ diff --git a/src/app.py b/src/app.py
 +x = 2
 """
     assert amplifier_verify.detect_change_from_diff(diff) == ""
+
+
+# ---------------------------------------------------------------------------
+# Archive awareness.
+#
+# Regression: a PR that touches or merely references an ARCHIVED change aborted the
+# gate with a fatal `[FAIL] testplan.md not found for change '<name>'`, even though
+# such a PR has no active change to verify at all. The PRs most exposed are exactly
+# the ones doing retirement / path-cleanup work on docs, because those legitimately
+# carry historical change names.
+#
+# Two independent mechanisms produce it, and both are covered below:
+#   * `changes/([^/\\n]+)/` captures the literal container segment `archive` from a
+#     file header under `changes/archive/<date>-<name>/`, so the gate then hunts for
+#     `changes/archive/testplan.md`;
+#   * a change that has since been archived no longer exists at the active path, so
+#     even a correctly-read name resolves to nothing.
+#
+# Both mean "no active spectra change" -> exit 0. The load-bearing counterpart is the
+# positive control: a change that IS active but has no testplan.md must still exit 2.
+# A fix verified only against the first half would pass everything and look correct.
+# ---------------------------------------------------------------------------
+
+
+def _make_repo(tmp_path, active=(), archived=()):
+    """Build a fake checkout with the given active and archived change dirs."""
+    for name in active:
+        (tmp_path / "openspec" / "changes" / name).mkdir(parents=True)
+    for name in archived:
+        (tmp_path / "openspec" / "changes" / "archive" / name).mkdir(parents=True)
+    return tmp_path
+
+
+def _stub_run(monkeypatch, diff, repo_root):
+    """Replace _run so main() gets a canned `gh pr diff` and repo root."""
+
+    def fake_run(args, timeout=180):
+        if args[0] == "gh":
+            return diff
+        if args[0] == "git":
+            return f"{repo_root}\n"
+        raise AssertionError(f"unexpected command: {args}")
+
+    monkeypatch.setattr(amplifier_verify, "_run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["amplifier-verify.py", "--pr", "1"])
+
+
+def _archive_diff(dirname):
+    path = f"openspec/changes/archive/{dirname}/tasks.md"
+    return f"""\
+diff --git a/{path} b/{path}
+--- a/{path}
++++ b/{path}
+@@ -1 +1 @@
+-old
++new
+"""
+
+
+def test_archive_container_is_not_read_as_a_change_name():
+    """`archive` is a container segment, never a change name.
+
+    The old regex stopped at the first path segment after `changes/`, so every file
+    header under `changes/archive/<date>-<name>/` reported the change as `archive` and
+    the gate looked for `openspec/changes/archive/testplan.md`.
+    """
+    assert amplifier_verify.detect_change_from_diff(_archive_diff("2026-07-18-add-login")) == (
+        "2026-07-18-add-login"
+    )
+
+
+def test_locate_change_finds_an_active_change(tmp_path):
+    repo = _make_repo(tmp_path, active=["add-login"])
+    location = amplifier_verify.locate_change(repo, "add-login")
+    assert location.is_active
+    assert not location.is_archived_only
+
+
+def test_locate_change_finds_a_date_prefixed_archived_change(tmp_path):
+    """The common case: the diff names the change, the dir is `archive/<date>-<name>`."""
+    repo = _make_repo(tmp_path, archived=["2026-07-18-add-login"])
+    location = amplifier_verify.locate_change(repo, "add-login")
+    assert location.is_archived_only
+    assert not location.is_active
+
+
+def test_locate_change_finds_an_archived_dir_named_verbatim(tmp_path):
+    """A file header under the archive yields the dated dir name itself."""
+    repo = _make_repo(tmp_path, archived=["2026-07-18-add-login"])
+    location = amplifier_verify.locate_change(repo, "2026-07-18-add-login")
+    assert location.is_archived_only
+
+
+def test_active_wins_over_an_archived_namesake(tmp_path):
+    """A name reused after archival is still an active change and must be verified."""
+    repo = _make_repo(tmp_path, active=["add-login"], archived=["2026-07-18-add-login"])
+    location = amplifier_verify.locate_change(repo, "add-login")
+    assert location.is_active
+    assert not location.is_archived_only
+
+
+def test_archive_lookup_does_not_match_a_longer_name(tmp_path):
+    """`<date>-<name>` must anchor: `foo` must not resolve to `...-bar-foo`.
+
+    A `*-{name}` glob would match it, silently exit 0, and skip a real verification.
+    """
+    repo = _make_repo(tmp_path, archived=["2026-01-01-bar-foo"])
+    location = amplifier_verify.locate_change(repo, "foo")
+    assert not location.is_archived_only
+    assert not location.is_active
+
+
+def test_archive_lookup_does_not_match_a_name_with_a_suffix(tmp_path):
+    """The match must end at the name: `foo` must not resolve to `...-foo-extra`.
+
+    Distinct from the prefix case above, and it is the half a bare `re.match` lets
+    through -- `match` anchors only at the start, so `\\d{4}-\\d{2}-\\d{2}-foo` happily
+    matches `2026-01-01-foo-extra`. Only `fullmatch` (or a trailing `$`) closes it.
+    """
+    repo = _make_repo(tmp_path, archived=["2026-01-01-foo-extra"])
+    location = amplifier_verify.locate_change(repo, "foo")
+    assert not location.is_archived_only
+    assert not location.is_active
+
+
+def test_archive_lookup_ignores_an_undated_archive_entry(tmp_path):
+    """Only `<YYYY-MM-DD>-<name>` counts as this change's archived form."""
+    repo = _make_repo(tmp_path, archived=["notes-add-login"])
+    location = amplifier_verify.locate_change(repo, "add-login")
+    assert not location.is_archived_only
+
+
+def test_the_archive_container_is_never_an_active_change(tmp_path):
+    """`archive` names a container whose directory really does exist.
+
+    Detection no longer emits it, but `--change archive` still can, and a bare
+    directory-exists check would report the container as an active change and then
+    demand a testplan.md for it.
+    """
+    repo = _make_repo(tmp_path, archived=["2026-07-18-add-login"])
+    location = amplifier_verify.locate_change(repo, "archive")
+    assert not location.is_active
+    assert not location.is_archived_only
+
+
+def test_main_exits_zero_when_the_change_exists_only_in_archive(tmp_path, monkeypatch, capsys):
+    """Negative control: an archived-only change is 'no active change', not fatal."""
+    repo = _make_repo(tmp_path, archived=["2026-07-18-add-login"])
+    _stub_run(monkeypatch, _archive_diff("2026-07-18-add-login"), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "archive" in out
+    assert "[FAIL]" not in out
+
+
+def test_main_still_fails_when_an_active_change_has_no_testplan(tmp_path, monkeypatch, capsys):
+    """Positive control: the gate must keep firing on a real active change.
+
+    This is the test that makes the negative control above mean something -- a fix
+    that simply exits 0 whenever testplan.md is missing would satisfy that one and
+    disable the gate entirely.
+    """
+    repo = _make_repo(tmp_path, active=["add-login"])
+    diff = """\
+diff --git a/openspec/changes/add-login/tasks.md b/openspec/changes/add-login/tasks.md
+--- a/openspec/changes/add-login/tasks.md
++++ b/openspec/changes/add-login/tasks.md
+@@ -1 +1 @@
+-old
++new
+"""
+    _stub_run(monkeypatch, diff, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "testplan.md not found" in err
+
+
+def test_main_reports_a_change_dir_that_exists_nowhere(tmp_path, monkeypatch, capsys):
+    """Neither active nor archived is the genuinely anomalous case -- still fatal.
+
+    The message must say the directory is missing rather than blame testplan.md,
+    which was never the reason.
+    """
+    repo = _make_repo(tmp_path)
+    diff = """\
+diff --git a/openspec/changes/ghost/tasks.md b/openspec/changes/ghost/tasks.md
+--- a/openspec/changes/ghost/tasks.md
++++ b/openspec/changes/ghost/tasks.md
+@@ -1 +1 @@
+-old
++new
+"""
+    _stub_run(monkeypatch, diff, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "ghost" in err

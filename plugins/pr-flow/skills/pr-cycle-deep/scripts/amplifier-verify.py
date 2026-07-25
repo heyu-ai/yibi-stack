@@ -3,10 +3,12 @@
 
 Exit codes:
   0 — no spectra change in this PR (nothing to check)
+  0 — the referenced change exists only in the archive (finished work; nothing to gate)
   0 — all TCs traced (only INFO gaps; non-blocking)
   1 — MUST findings (missing spec: trace on test that targets a TC) — blocks merge
   1 — SHOULD findings only (coverage gap; printed as [WARN]; document reason before deferring)
-  2 — fatal error (testplan.md missing, unparseable, or gh pr diff failed)
+  2 — fatal error (change directory not found, testplan.md missing, unparseable,
+      or gh pr diff failed)
 """
 
 from __future__ import annotations
@@ -321,8 +323,23 @@ _FILE_HEADER_RE = re.compile(r"^\+\+\+\s+b/(.+)$")
 # skill docs) must NOT be treated as a change, or a spectra-init PR that only
 # vendors those docs fails spuriously with "testplan.md not found for change
 # '<name>'". The slug is also validated to reject placeholder-looking matches.
-_CHANGE_DIR_RE = re.compile(r"[ab]/(?:docs/)?openspec/changes/([^/\n]+)/")
+#
+# `archive/` is skipped as a container segment, not captured as a slug. Without the
+# optional group, a file header under `changes/archive/<YYYY-MM-DD>-<name>/` reported
+# the change as the literal string `archive`, and the gate then went looking for
+# `openspec/changes/archive/testplan.md` and aborted the whole PR review with a fatal
+# "testplan.md not found for change 'archive'".
+_CHANGE_DIR_RE = re.compile(r"[ab]/(?:docs/)?openspec/changes/(?:archive/)?([^/\n]+)/")
 _VALID_CHANGE_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+# Both layout roots a change directory can live under, in the order they are tried.
+_CHANGE_ROOTS = ("openspec/changes", "docs/openspec/changes")
+# The container an archived change is moved into, and the date prefix it gains there.
+# Concatenated rather than str.format()-ed into a template: `{4}` in `\d{4}` is a
+# positional replacement field to str.format, which raises IndexError.
+_ARCHIVE_SEGMENT = "archive"
+_ARCHIVE_DATE_PREFIX_RE = r"\d{4}-\d{2}-\d{2}-"
+_TESTPLAN_NAME = "testplan.md"
 
 
 def detect_change_from_diff(diff_text: str) -> str:
@@ -332,6 +349,12 @@ def detect_change_from_diff(diff_text: str) -> str:
     openspec/changes/<slug>/ is required; a placeholder-looking slug (angle
     brackets or other non-slug chars, e.g. the literal ``<name>`` in generated
     skill docs) is rejected as defense-in-depth.
+
+    A header under the archive yields that directory's own dated name
+    (``2026-07-18-add-login``), which :func:`locate_change` resolves against the
+    archive. The bare ``archive`` container is skipped rather than returned, so a PR
+    that touches both an archived change and a real active one still finds the active
+    one instead of stopping on the container.
     """
     for line in diff_text.splitlines():
         if not (
@@ -342,9 +365,90 @@ def detect_change_from_diff(diff_text: str) -> str:
         # returns the old slug. Renaming a spectra change dir mid-review is rare and the
         # worst case is looking for testplan.md under the stale slug (a clear failure).
         m = _CHANGE_DIR_RE.search(line)
-        if m and _VALID_CHANGE_SLUG_RE.match(m.group(1)):
-            return m.group(1)
+        if not m or not _VALID_CHANGE_SLUG_RE.match(m.group(1)):
+            continue
+        if m.group(1) == _ARCHIVE_SEGMENT:
+            # Reachable only on a header naming the container itself with no change
+            # directory under it. Keep scanning rather than reporting the container.
+            continue
+        return m.group(1)
     return ""
+
+
+@dataclass
+class ChangeLocation:
+    """Where a change name resolves on disk: active, archived, or nowhere.
+
+    The distinction is what separates "nothing to gate" from "the gate is broken".
+    An archived change is finished work whose artifacts have moved out of
+    ``openspec/changes/``; treating its absence there as a fatal error blocks exactly
+    the PRs most likely to mention it — docs changes fixing trace paths and other
+    retirement cleanup, which carry historical change names by their very nature and
+    have no active change to verify at all.
+    """
+
+    active_dir: Path | None = None
+    archived_dir: Path | None = None
+
+    @property
+    def is_active(self) -> bool:
+        return self.active_dir is not None
+
+    @property
+    def is_archived_only(self) -> bool:
+        return self.active_dir is None and self.archived_dir is not None
+
+
+def locate_change(repo_root: Path, change_name: str) -> ChangeLocation:
+    """Resolve a change name against the active and archived layouts.
+
+    Active wins over an archived namesake: a name reused after archival is a real
+    change that must still be verified.
+
+    Two archived spellings are accepted, because the name can arrive by two routes.
+    A diff that merely *references* a since-archived change carries its bare name, whose
+    directory is ``archive/<YYYY-MM-DD>-<name>/``; a diff whose file header points
+    *inside* the archive carries that dated directory name verbatim.
+
+    The date prefix is matched with ``fullmatch``, never a ``*-<name>`` glob and never a
+    bare ``match``: the glob matches ``2026-01-01-bar-foo`` for the name ``foo`` and
+    ``match`` alone matches ``2026-01-01-foo-extra``, either of which would report an
+    unrelated change as archived, exit 0, and silently skip a verification that should
+    have run. ``fullmatch`` is used rather than ``^…$`` because ``match`` already anchors
+    at the start, so a lone ``^`` reads as protection it is not providing.
+    """
+    if change_name == _ARCHIVE_SEGMENT:
+        # The container is not a change, even though the directory exists. Only
+        # reachable through an explicit --change; reported as "found nowhere".
+        return ChangeLocation()
+
+    # Prefer an active directory that actually holds a testplan, so a name present under
+    # both layout roots resolves the same way it did before this function existed (the
+    # old code picked the first candidate whose testplan.md was readable, not the first
+    # directory that happened to exist).
+    active_dirs = [
+        d for d in (repo_root / root / change_name for root in _CHANGE_ROOTS) if d.is_dir()
+    ]
+    for candidate in active_dirs:
+        if (candidate / _TESTPLAN_NAME).is_file():
+            return ChangeLocation(active_dir=candidate)
+    if active_dirs:
+        return ChangeLocation(active_dir=active_dirs[0])
+
+    dated_re = re.compile(_ARCHIVE_DATE_PREFIX_RE + re.escape(change_name))
+    for root in _CHANGE_ROOTS:
+        archive_root = repo_root / root / _ARCHIVE_SEGMENT
+        verbatim = archive_root / change_name
+        if verbatim.is_dir():
+            return ChangeLocation(archived_dir=verbatim)
+        if not archive_root.is_dir():
+            continue
+        # sorted() so a repo that somehow holds two dated copies of one change picks
+        # deterministically (oldest first) instead of following directory order.
+        for entry in sorted(archive_root.iterdir()):
+            if dated_re.fullmatch(entry.name) and entry.is_dir():
+                return ChangeLocation(archived_dir=entry)
+    return ChangeLocation()
 
 
 def parse_diff_test_functions(diff_text: str) -> list[TestFunction]:
@@ -545,29 +649,46 @@ def main() -> None:
             print("no spectra change")
             sys.exit(0)
 
-    print(f"[OK]   spectra change detected: {change_name}")
-
-    # Step 2 — locate testplan.md
+    # Step 2 — resolve the change directory, then locate testplan.md
     # Resolve the CURRENT checkout's root with --show-toplevel (not --git-common-dir,
     # whose parent is the MAIN repo). The change under review is committed on the PR
     # branch, which is checked out in the worktree we are running from; an unmerged
     # change's testplan does not yet exist in the main checkout. --show-toplevel also
     # handles being invoked from a subdir, returning the worktree (or repo) root.
     repo_root = Path(_run(["git", "rev-parse", "--show-toplevel"]).strip())
-    candidates = [
-        repo_root / f"openspec/changes/{change_name}/testplan.md",
-        repo_root / f"docs/openspec/changes/{change_name}/testplan.md",
-    ]
-    testplan_path: Path | None = None
-    for c in candidates:
-        if c.is_file():
-            testplan_path = c
-            break
+    location = locate_change(repo_root, change_name)
 
-    if testplan_path is None:
+    if location.is_archived_only:
+        # Nothing to gate: the change is finished and its artifacts have moved. Say so
+        # explicitly rather than printing a bare "no spectra change", so a reader can
+        # tell this apart from "the diff touched no change at all".
+        assert location.archived_dir is not None  # nosec B101 — implied by is_archived_only
         print(
-            f"[FAIL] testplan.md not found for change '{change_name}'."
-            f" Expected at openspec/changes/{change_name}/testplan.md",
+            f"no active spectra change: '{change_name}' exists only in the archive"
+            f" ({location.archived_dir.relative_to(repo_root)})"
+        )
+        sys.exit(0)
+
+    if not location.is_active:
+        # Neither active nor archived — the genuinely anomalous case. Blame the missing
+        # directory, not testplan.md, which was never the reason.
+        roots = " or ".join(f"{root}/{change_name}/" for root in _CHANGE_ROOTS)
+        print(
+            f"[FAIL] no change directory found for '{change_name}'. Expected at {roots}."
+            f" If this name came from the PR diff, the change may have been renamed"
+            f" or the local checkout may not be on the PR branch.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    print(f"[OK]   spectra change detected: {change_name}")
+
+    assert location.active_dir is not None  # nosec B101 — implied by is_active
+    testplan_path = location.active_dir / _TESTPLAN_NAME
+    if not testplan_path.is_file():
+        print(
+            f"[FAIL] {_TESTPLAN_NAME} not found for change '{change_name}'."
+            f" Expected at {testplan_path.relative_to(repo_root)}",
             file=sys.stderr,
         )
         sys.exit(2)
