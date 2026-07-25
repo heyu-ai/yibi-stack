@@ -289,7 +289,7 @@ Once all three return successfully, write `$CLAUDE_JOB_DIR/pre-review-check.md` 
 Pre-review Check
 - Diff: <file count> files, <line count> lines changed
 - CI: <pass / fail / pending / not yet triggered — list any failing checks by name>
-- Amplifier: <MUST: N findings / SHOULD: N findings / OK: all TCs traced / no spectra change>
+- Amplifier: <MUST: N findings / SHOULD: N findings / OK: all TCs traced / no spectra change / change is archived-only (nothing to gate)>
 ```
 
 ---
