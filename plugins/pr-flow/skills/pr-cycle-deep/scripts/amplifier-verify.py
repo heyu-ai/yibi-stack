@@ -394,24 +394,27 @@ def detect_change_refs_from_diff(diff_text: str) -> DiffChangeRefs:
             line.startswith("diff --git ") or line.startswith("+++ ") or line.startswith("--- ")
         ):
             continue
-        # First path on the line wins: on a `diff --git a/…old/… b/…new/…` rename this reads the
-        # OLD path. That is what makes an archiving PR work — its rename header's `a/` side is
-        # still the active `changes/<name>/`, so the bare name is attributed to the active tree
-        # and `locate_change` then resolves it as archived.
-        m = _CHANGE_DIR_RE.search(line)
-        if not m:
-            continue
-        in_archive, name = m.group(1), m.group(2)
-        if not _VALID_CHANGE_SLUG_RE.match(name):
-            continue
-        if in_archive:
-            if name not in refs.archive_tree:
-                refs.archive_tree.append(name)
-            continue
-        if name == _ARCHIVE_SEGMENT:
-            continue  # the container itself, not a change
-        if name not in refs.active_tree:
-            refs.active_tree.append(name)
+        # EVERY match on the line, not just the first. A `diff --git a/…old/… b/…new/…` header
+        # carries two paths, and a 100%-similarity rename emits no `---`/`+++` lines at all, so
+        # this header is the only chance to see either of them. Reading just the first attributed
+        # only the `a/` side: it happened to be right for the archiving direction (whose `a/` side
+        # is the active path) and silently wrong for the reverse — restoring a change out of the
+        # archive lost the obligation entirely and the gate exited 0.
+        #
+        # Ordinary `a/P b/P` headers name the same directory twice; the dedup below collapses them,
+        # so scanning both sides costs nothing on the common shape.
+        for m in _CHANGE_DIR_RE.finditer(line):
+            in_archive, name = m.group(1), m.group(2)
+            if not _VALID_CHANGE_SLUG_RE.match(name):
+                continue
+            if in_archive:
+                if name not in refs.archive_tree:
+                    refs.archive_tree.append(name)
+                continue
+            if name == _ARCHIVE_SEGMENT:
+                continue  # the container itself, not a change
+            if name not in refs.active_tree:
+                refs.active_tree.append(name)
     return refs
 
 

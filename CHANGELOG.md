@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.2] - 2026-07-25
+
+### Fixed
+
+- amplifier-verify：un-archive 純 rename 不再讓驗證義務消失（原為已接受風險，改為修掉） (#324)
+
 ## [1.15.1] - 2026-07-25
 
 ### Fixed

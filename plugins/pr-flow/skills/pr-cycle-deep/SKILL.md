@@ -299,9 +299,9 @@ Pre-review Check
 Every voice in Steps 3–4 reads `diff.patch` and nothing else: the mob is broad in *viewpoints*,
 **fixed in *scope***. Text elsewhere that this PR just made false is invisible to all of them.
 
-Before Step 2, write 3–7 `X is now Y (was Z)` statements from the PR body + diff. For each, grep the
-repo (docs, runbooks, checklists, rules — not just code) for text still assuming the old state,
-including **arguments whose premise was the old state**. Fix live hits in this PR and add those
+Before Step 2, write 3–7 `X is now Y (was Z)` statements from the PR body + diff. For each, grep the repo (docs, runbooks, checklists, rules — not just code) for text still assuming the old state,
+including **arguments whose premise was the old state**. **Re-read your own PR body and commit messages too**: written from intent rather than from a probe, they are the likeliest carriers of an
+unverified claim, and on PR #340 this step's first live hit was one the author had asserted there a step earlier. Fix live hits in this PR and add those
 files to the review surface; leave historical provenance alone. Report `- "<fact>" -> N hits, M live`.
 Where the calling repo has a residual-reference rule, this step is where it gets *executed*, not
 merely loaded. **Never skip it on a docs-only PR** — that is exactly when sibling documents rot,

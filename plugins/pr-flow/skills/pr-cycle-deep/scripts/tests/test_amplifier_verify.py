@@ -1275,19 +1275,17 @@ def test_an_archiving_rename_yields_the_bare_active_name(tmp_path):
     assert refs.active_tree == ["add-login"]
 
 
-def test_an_unarchiving_rename_is_a_documented_accepted_residual_risk(tmp_path):
-    """Direction 2 of the rename pair: archive -> active. ACCEPTED, not fixed.
+def test_an_unarchiving_rename_creates_the_obligation(tmp_path):
+    """Direction 2 of the rename pair: archive -> active. Must create an obligation.
 
     A 100%-similarity rename emits no `---`/`+++` lines, so the `diff --git` line is the
-    only header, and only its FIRST path is read. Moving a change OUT of the archive
-    therefore attributes the archive side and never sees the active destination, so the
-    obligation disappears and the gate exits 0.
+    only header available. Reading only its FIRST path attributed the archive side and never
+    saw the active destination, so the obligation disappeared and the gate exited 0 -- a
+    silent bypass where the pre-archive-awareness code exited 2.
 
-    This is a **knowingly accepted residual risk**, recorded in the PR's Review Contract:
-    no spectra command performs un-archiving, so it requires a manual `git mv`. This test
-    pins the accepted behaviour deliberately -- if a future change makes `active_tree`
-    non-empty here, that is the risk being *fixed*, and this test should be replaced by one
-    asserting the obligation is created rather than silently deleted.
+    Scanning EVERY match on the header line fixes it without disturbing the archiving
+    direction, because that direction's first path is the active one and both sides are now
+    recorded either way.
     """
     rename = (
         "diff --git a/openspec/changes/archive/2026-07-18-add-login/tasks.md"
@@ -1295,8 +1293,57 @@ def test_an_unarchiving_rename_is_a_documented_accepted_residual_risk(tmp_path):
         "similarity index 100%\n"
     )
     refs = amplifier_verify.detect_change_refs_from_diff(rename)
-    assert refs.active_tree == []
+    assert refs.active_tree == ["add-login"]
     assert refs.archive_tree == ["2026-07-18-add-login"]
+
+
+def test_main_gates_a_change_restored_out_of_the_archive(tmp_path, monkeypatch, capsys):
+    """End-to-end: the restored change is verified, not silently excused.
+
+    Before this fix `main()` printed "touches only archived material" and exited 0 while the
+    PR put a change back into the active tree with no testplan.
+    """
+    repo = _make_repo(tmp_path, active=["add-login"])
+    rename = (
+        "diff --git a/openspec/changes/archive/2026-07-18-add-login/tasks.md"
+        " b/openspec/changes/add-login/tasks.md\n"
+        "similarity index 100%\n"
+        "rename from openspec/changes/archive/2026-07-18-add-login/tasks.md\n"
+        "rename to openspec/changes/add-login/tasks.md\n"
+    )
+    _stub_run(monkeypatch, rename, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    assert "testplan.md not found for change 'add-login'" in capsys.readouterr().err
+
+
+def test_both_sides_of_a_cross_slug_active_rename_are_surfaced(tmp_path):
+    """Scanning every match also surfaces the destination of an active->active rename.
+
+    Previously only the source was seen. Surfacing both is the safe direction: resolution
+    picks whichever exists and the multiple-candidate warning makes any narrowing visible,
+    whereas missing the destination is how an obligation disappears.
+    """
+    rename = (
+        "diff --git a/openspec/changes/old-name/tasks.md"
+        " b/openspec/changes/new-name/tasks.md\n"
+        "similarity index 100%\n"
+    )
+    refs = amplifier_verify.detect_change_refs_from_diff(rename)
+    assert refs.active_tree == ["old-name", "new-name"]
+
+
+def test_an_ordinary_modification_header_still_yields_one_candidate(tmp_path):
+    """`diff --git a/P b/P` names the same path twice; dedup must collapse it.
+
+    Without dedup, scanning every match would report the same change twice and trip the
+    multiple-candidate warning on every ordinary PR.
+    """
+    refs = amplifier_verify.detect_change_refs_from_diff(
+        _one_file_diff("openspec/changes/add-login/tasks.md")
+    )
+    assert refs.active_tree == ["add-login"]
 
 
 def test_main_reports_a_change_dir_that_exists_nowhere(tmp_path, monkeypatch, capsys):
