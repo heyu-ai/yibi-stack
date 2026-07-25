@@ -17,7 +17,9 @@
 
 1. **新 capability `retro-evidence-gate`**：定義 retro 產出「加 rule / hook」action item 時，寫入 always-loaded 面（`.claude/rules/*`、`CLAUDE.md`）或註冊 hook 前，必須通過的三層證據分級契約。複用姊妹 change 已驗證的四個模式：證據形式**封閉列舉、無 catch-all**；三種執行結果（重現／未重現／**無效**）與「無效 ≠ 不成立、降級不丟棄」；驗證成本分層（零成本結構檢查擋掉多數）；純函式檢查器讓負向測試可行。
 
-2. **`/pr-retro` SKILL.md 新增 Step 5.0 Evidence Gate**：置於既有 Promotion Gate 上游。對每個「加 rule / hook」action item：抽出可證偽宣稱 → 分 tier → Tier 1（可機械實測）便宜的當場跑 probe、昂貴的（`claude -p` 拋棄式 repo）派 subagent 或降級 Tier 2、Tier 2（事件佐證）要求 PR/issue 連結 + 貼原文 quote、Tier 3（主觀／單次）**park，流程對此項終止**。只有帶證據的 Tier 1/2 才往下進入既有三道 gate。probe 方法引用既有 `verification-recipes` 配方 9/10。
+2. **`/pr-retro` SKILL.md 新增 Step 5.0 Evidence Gate**：置於既有 Promotion Gate 上游。對每個「加 rule / hook」action item：抽出可證偽宣稱 → 分 tier → Tier 1（可機械實測）便宜的當場跑 probe、昂貴的（`claude -p` 拋棄式 repo）派 subagent 或降級 Tier 2、Tier 2（事件佐證）要求 PR/issue 連結 + 貼原文 quote、Tier 3（主觀／單次）**park，流程對此項終止**。只有帶證據的 Tier 1/2 才往下進入既有三道 gate。probe 紀律引用既有 rule 11 的
+「Blanket Claims and Reader-Run Commands Must Be Empirically Probed」與
+「A `verified` Annotation Is a Claim About a Version」兩段。
 
 3. **`scripts/lint_rule_evidence.py` + pre-commit hook**：機械層，仿既有 `scripts/lint_rule_frontmatter.py`。純函式 `check_rule_evidence(diff_text) -> list[str]` 暴露以支援負向測試。分層：**新 `.claude/rules/NN-*.md` 檔** 或 **settings.json 新註冊的 hook + 其 script** 缺證據標記 → 擋 commit（error）；**既有 rule 檔新增 section** 缺標記 → 初期 warn-only（`verbose: true`），避免龐大歷史 corpus 一上線就爆紅。
 

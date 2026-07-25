@@ -347,6 +347,55 @@ add_lesson \
 
 ### Step 5 — 路由建議 + 自動跑 read-only 動作
 
+#### Step 5.0 Evidence Gate（分級 + 驗證；在 Promotion Gate 之上游）
+
+**在既有三道 gate（Promotion Gate / Lesson Classifier / Patch-Surface Ladder）之前**，先對每個
+「新增 rule / 新增 hook」action item 分級並取得證據。**未完成分級的 action item 不進 Promotion
+Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--source` 分數升級**（來源信任度不等於實測）。
+
+三層分級：**Tier 1 Probed**（可機械實測的可證偽宣稱）、**Tier 2 Incident-cited**（有真實事件佐證但
+不易廉價重跑）、**Tier 3 Subjective**（主觀 / 單一次 / 無可接受證據形式）。
+
+**證據形式表（封閉列舉；未列出的類型無可接受形式，恆歸 Tier 3；表中不得有 catch-all 列）**：
+
+| lesson 類型 | 可接受證據形式 | Tier |
+|-------------|----------------|------|
+| bash 反模式 / hook 攔截 pattern | 正 / 負樣本 `echo … \| script` 顯示攔 / 放行如預期 | 1 |
+| `paths:` / frontmatter / CLI flag 行為宣稱 | `claude -p` 拋棄式 repo 探針，或 failing→passing test 的輸出 | 1 |
+| 工具輸出欄位 / 版本相依行為 | 目標平台實跑一次的輸出（CLI 宣稱須附工具版本） | 1 |
+| 真實事件教訓（不易廉價重跑） | PR / issue 連結 + 貼原文 quote（雙端 verify，見 rule 11 Cross-doc Cite） | 2 |
+| 精確度 / 可能誤導 / 建議補充 / 品味 | **無可接受形式** | **3（恆 park）** |
+
+**Tier 1 probe 的三種執行結果**（三者處置相異；「證據無效」不等於「宣稱不成立」）：
+
+| 執行結果 | 意義 | 處置 |
+|----------|------|------|
+| 跑了、宣稱重現 | 判斷正確 | 可寫入（往下進 Promotion Gate） |
+| 跑了、宣稱不成立 | 判斷錯誤 | 不寫入，記錄「未重現」（不是 park） |
+| **根本跑不起來（證據無效）** | 宣稱狀態未知 | **先修一次**；修不好則**降 Tier 3 park**，**不 drop**、**不記為未重現** |
+
+**驗證成本分層**（多數淘汰發生在零成本的結構檢查，避免昂貴 probe 卡住互動 session）：
+
+- **結構檢查（零指令）**：action item 是否已分級、Tier 1 / 2 是否附證據欄位——不跑任何指令即判定。
+- **秒級 probe 當場跑**：正 / 負樣本、`failing→passing test` 等。
+- **昂貴 probe（`claude -p` 拋棄式 repo 探針）**：**派 subagent 執行，或降級 Tier 2** 要求貼出 PR 階段
+  已產生的證據；**互動式 retro 不得被單一昂貴 probe 同步阻塞**。機制宣稱先跑再寫、`verified` 標記須
+  附工具版本並在 CLI 升級後重跑等 probe 紀律，見 `.claude/rules/11-skill-authoring.md`
+  「Blanket Claims and Reader-Run Commands Must Be Empirically Probed」與
+  「A `verified` Annotation Is a Claim About a Version」兩段。
+
+**Tier 3 park 與 recurrence 升級**（不新增檔案面；park 複用既有 typed-lessons）：
+
+- Tier 3 **不得寫入** `.claude/rules/*` / `CLAUDE.md` 或註冊 hook；**park 到 typed-lessons**，以
+  `confidence ≤ 4` + `tags` 含 `"parked"` 記錄（Step 4b 寫入時加 `--tag parked`），原標題 / 描述逐字保留。
+- **recurrence**：同類 friction（同 `key`）於後續 retro 再現時，於既有 parked lesson 的 `tags` bump
+  `"recurrence-<n>"`。**recurrence ≥ 2 才「解除 park」重新進入 Evidence Gate**——但**仍須通過 Tier 1
+  或 Tier 2 證據才得寫入**。recurrence 證明「問題真且會重現」，不證明「此修法有效」，故不單獨構成寫入理由。
+
+> **與下方三道 gate 的關係**：Evidence Gate 問「這宣稱是真的嗎」；Promotion Gate 問「該不該寫進 rule
+> 檔」、Classifier 問「寫到哪個檔」、Patch-Surface Ladder 問「改動面多大」。先驗真偽（Tier 1/2 帶證據
+> 或 Tier 3 park），通過者才往下。
+
 #### Promotion Gate（3 條，全通過才路由到 rule 檔）
 
 每個 Q4 lesson 在進入 Lesson Classifier 前，先依序通過 3 條 gate。**任一失敗 → 只存在 retro 記錄裡，不寫規則文件**：
@@ -426,8 +475,8 @@ metadata / preference 類 lesson 本就適合 CLAUDE.md；若整體已過長，
 | Q5 勾選 | 動作 |
 |---|---|
 | 查歷史 lesson | `Skill(skill="lessons", args="find <Q1 keyword>")` **自動執行**。headless / 直接打 CLI 時用 `mycelium lessons search "<keyword>" --project "$ORIG_PROJECT"` — CLI 子指令是 **`search`**（`find` 只是 `/lessons` slash 的別名，raw CLI **無** `find` 子指令），且**不要**加 `2>/dev/null`，否則子指令打錯會被靜默吞成「無結果」 |
-| 寫入規則文件 | **先走下方「批次佇列分流」判斷**。緊急例外、或 target repo 無佇列時，才照原行為——依 Lesson Classifier 輸出建議：「lesson N 屬於 <類別>，建議 append 到 `.claude/rules/XX.md`（最相關段落後；不確定就 append 到檔尾）。草稿：`<draft text>`。用 Edit 工具直接寫入 rule 檔。」|
-| 新增 hook | 輸出建議文字：「執行 `hookify:hookify`，建議的 trigger：`<draft>`」|
+| 寫入規則文件 | **須先通過 Step 5.0 Evidence Gate（Tier 1/2 帶證據；判為 Tier 3 則改 park，不寫 rule）**。通過後**先走下方「批次佇列分流」判斷**。緊急例外、或 target repo 無佇列時，才照原行為——依 Lesson Classifier 輸出建議：「lesson N 屬於 <類別>，建議 append 到 `.claude/rules/XX.md`（最相關段落後；不確定就 append 到檔尾）。草稿：`<draft text>`（附證據標記：Tier 1 標 `<!-- verified: probe -->`、Tier 2 標 `(Source: PR #NNN`）。用 Edit 工具直接寫入 rule 檔。」|
+| 新增 hook | **須先通過 Step 5.0 Evidence Gate（Tier 1/2 帶證據；判為 Tier 3 則改 park）**。輸出建議文字：「執行 `hookify:hookify`，建議的 trigger：`<draft>`（附正 / 負樣本作為 Tier 1 證據）」|
 | 建立 skill | 輸出建議文字：「執行 `superpowers:writing-skills`，問題定義：`<Q4 lesson>`」|
 | 找 automation | 輸出建議文字：「執行 `/claude-code-setup:claude-automation-recommender`」|
 | 產生 control log | 執行 `Skill(skill="pr-control-log")` 紀錄本 PR 的 AI 行為審計 entries |

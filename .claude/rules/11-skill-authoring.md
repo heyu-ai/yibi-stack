@@ -897,6 +897,43 @@ not abstract suggestions.
 
 Source practice: `/pr-retro` Step 5 Lesson Classifier (pr-retrospective SKILL.md) uses this pattern.
 
+## Retro-authored rule/hook 的三層證據標準（Evidence Gate）
+
+The verify-before-authoring family above ("Hook Descriptions", "Tool Output Fields", "Blanket
+Claims", "`verified` Annotation", "Cross-doc Cite") says *what evidence a claim needs*. This
+section says *when that evidence is mandatory as a gate*: any rule or hook produced by `/pr-retro`
+must clear a three-tier Evidence Gate **before** it is written to an always-loaded surface
+(`.claude/rules/*` without a `paths:` key, `CLAUDE.md`) or registered as a hook. The gate exists
+because a retro action item is an LLM narrative inference — a reviewer cannot otherwise tell an
+empirically-probed lesson from a plausible-but-unverified opinion, and the latter is what inflates
+the always-loaded corpus.
+
+| Tier | 宣稱性質 | 必要證據 | 去處 |
+|------|----------|----------|------|
+| **Tier 1 Probed** | 可機械實測的可證偽宣稱（hook regex、`paths:` 行為、bash 形式、CLI 欄位） | 實跑 probe 的輸出（正 / 負樣本、`failing→passing` test、`claude -p` 拋棄式 repo 探針；CLI 宣稱附工具版本） | 可寫入，附 `<!-- verified: probe -->` |
+| **Tier 2 Incident-cited** | 有真實事件佐證但不易廉價重跑 | PR / issue 連結 + 貼原文 quote（**兩端 verify**，見上方 Cross-doc Cite） | 可寫入，附 `(Source: PR #NNN` 或 `<!-- verified: incident PR#NNN -->` |
+| **Tier 3 Subjective** | 主觀 / 單一次 / 無可接受證據形式（「措辭可更精確」「建議補充」） | **無可接受形式** | **不得寫入 always-loaded 面**；park 到 typed-lessons（`confidence ≤ 4` + `tags` 含 `parked`） |
+
+Three enforcement points, matching the "gate belongs at every entrance" discipline above:
+
+1. **Write-time** — `/pr-retro` Step 5.0 Evidence Gate classifies each action item and blocks
+   Tier 3 from the always-loaded surface (upstream of the existing Promotion Gate).
+2. **Commit-time** — `scripts/lint_rule_evidence.py` (pre-commit `lint-rule-evidence`) fails the
+   commit when a **new** `.claude/rules/NN-*.md` file or a new `.claude/hooks/*` script carries no
+   evidence marker; a **new section in an existing** rule file is warn-only at first (advisory,
+   `verbose: true`), so the historical corpus is not retro-blocked. The checker is the pure
+   function `check_rule_evidence(diff_text) -> list[str]` — test its failure paths with synthetic
+   diffs, not only against real files (same reason `lint_shell_subshell_exit.py`'s negative
+   controls matter).
+3. **`recurrence` promotes out of park, not into a write.** A parked Tier-3 candidate whose
+   `recurrence-<n>` tag reaches 2 re-enters the gate — but still needs Tier 1/2 evidence to be
+   written. "真且會重現" and "此修法有效" are different claims; recurrence establishes only the first.
+
+Self-constraint (dogfood): this norm lives here in rule 11 (`paths: skills/**`, loads only when
+editing skills/rules), **not** in a new always-loaded rule file — a change that treats corpus
+inflation must not itself inflate the always-loaded surface. `scripts/check_always_loaded_growth.py`
+asserts the net line growth of the `paths:`-less rule files is 0.
+
 ## Inserting a New Blockquote After an Existing One Requires Removing the Blank Line (MD028)
 
 When inserting a new blockquote after an existing blockquote block, if there is a blank line
