@@ -714,10 +714,12 @@ def main() -> None:
     # Step 1 — detect spectra change from diff if not provided
     diff_text = _run(["gh", "pr", "diff", str(opts.pr)])
 
-    change_name = opts.change
-    if not change_name:
+    if opts.change:
+        candidates = [opts.change]
+    else:
         refs = detect_change_refs_from_diff(diff_text)
-        if not refs.active_tree:
+        candidates = refs.active_tree
+        if not candidates:
             # No obligation to verify. Distinguish "touched archived material" from "touched no
             # change at all": both are exit 0, but a reader debugging a gate that passed needs
             # to know which one happened.
@@ -729,49 +731,56 @@ def main() -> None:
             else:
                 print("no spectra change")
             sys.exit(0)
-        change_name = refs.active_tree[0]
-        if len(refs.active_tree) > 1:
-            # First-active-wins predates this script's archive awareness and is left as-is:
-            # failing loud on several changes would block PRs that legitimately touch two, and
-            # verifying all of them is a wider contract than this gate has. What is not
-            # acceptable is doing it invisibly, so name every candidate and which one was used.
-            print(
-                f"[WARN] {len(refs.active_tree)} active change dirs in this diff"
-                f" ({', '.join(refs.active_tree)}); verifying only '{change_name}'",
-                file=sys.stderr,
-            )
 
-    # Step 2 — resolve the change directory, then locate testplan.md
+    # Step 2 — resolve every candidate, then locate testplan.md
     # Resolve the CURRENT checkout's root with --show-toplevel (not --git-common-dir,
     # whose parent is the MAIN repo). The change under review is committed on the PR
     # branch, which is checked out in the worktree we are running from; an unmerged
     # change's testplan does not yet exist in the main checkout. --show-toplevel also
     # handles being invoked from a subdir, returning the worktree (or repo) root.
     repo_root = Path(_run(["git", "rev-parse", "--show-toplevel"]).strip())
-    location = locate_change(repo_root, change_name)
+    resolved = [(name, locate_change(repo_root, name)) for name in candidates]
 
-    if location.is_archived_only:
-        # Nothing to gate: the change is finished and its artifacts have moved. Say so
-        # explicitly rather than printing a bare "no spectra change", so a reader can
-        # tell this apart from "the diff touched no change at all".
-        assert location.archived_dir is not None  # nosec B101 — implied by is_archived_only
+    # An ACTIVE candidate wins over an archived one regardless of position. Stopping at the
+    # first candidate was a second shadowing bug, one layer below the first: the canonical
+    # SDD PR archives one change and proposes another, the archived one arrives first (its
+    # rename header's `a/` side is still the active path), and exiting 0 there left the
+    # proposed change ungated.
+    active = [(name, loc) for name, loc in resolved if loc.is_active]
+    if not active:
+        archived = [(name, loc) for name, loc in resolved if loc.is_archived_only]
+        if len(archived) == len(resolved):
+            # Every candidate is finished work: nothing to gate.
+            described = ", ".join(
+                f"'{name}' ({loc.archived_dir.relative_to(repo_root)})"
+                for name, loc in archived
+                if loc.archived_dir is not None
+            )
+            print(f"no active spectra change: exists only in the archive: {described}")
+            sys.exit(0)
+        # At least one candidate resolves NOWHERE. Report that one — an archived sibling must
+        # not excuse it, or an unresolvable active name vanishes the same way.
+        name = next(n for n, loc in resolved if not loc.is_active and not loc.is_archived_only)
+        roots = " or ".join(probed_locations(name))
         print(
-            f"no active spectra change: '{change_name}' exists only in the archive"
-            f" ({location.archived_dir.relative_to(repo_root)})"
-        )
-        sys.exit(0)
-
-    if not location.is_active:
-        # Neither active nor archived — the genuinely anomalous case. Blame the missing
-        # directory, not testplan.md, which was never the reason.
-        roots = " or ".join(probed_locations(change_name))
-        print(
-            f"[FAIL] no change directory found for '{change_name}'. Searched {roots}."
-            f" If this name came from the PR diff, the change may have been renamed"
-            f" or the local checkout may not be on the PR branch.",
+            f"[FAIL] no change directory found for '{name}'. Searched {roots}."
+            f" If this name came from the PR diff, the change may have been renamed,"
+            f" deleted rather than archived, or the local checkout may not be on the PR branch.",
             file=sys.stderr,
         )
         sys.exit(2)
+
+    change_name, location = active[0]
+    if len(active) > 1:
+        # First-active-wins predates this script's archive awareness and is left as-is:
+        # failing loud on several changes would block PRs that legitimately touch two, and
+        # verifying all of them is a wider contract than this gate has. What is not
+        # acceptable is doing it invisibly, so name every candidate and which one was used.
+        print(
+            f"[WARN] {len(active)} active change dirs in this diff"
+            f" ({', '.join(name for name, _ in active)}); verifying only '{change_name}'",
+            file=sys.stderr,
+        )
 
     print(f"[OK]   spectra change detected: {change_name}")
 
