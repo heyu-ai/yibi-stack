@@ -187,3 +187,55 @@ class TestGitUnavailable:
         monkeypatch.setattr(calg.subprocess, "run", _boom)
         with pytest.raises(RuntimeError):
             calg._run_git("status")
+
+
+class TestGitShowFailurePropagates:
+    """回歸（Codex Round 2 re-review 發現）：`_always_loaded_paths_at_ref` /
+    `_line_count_at_ref` 過去吞掉 `git show` 的 RuntimeError，當成「該 ref 下讀不到
+    此檔」保守跳過或回傳 0。但 `_run_git` 的 RuntimeError 也涵蓋 git 逾時 / 缺失 /
+    物件損毀等真正的執行失敗——`ls-tree` 剛列出的路徑理論上不會讀不到，吞掉例外會讓
+    這些真正的故障被誤判成「檔案不存在」而悄悄漏算，違反本檔案文件宣稱的 exit 2 契約。
+    """
+
+    def test_always_loaded_paths_at_ref_propagates_show_failure(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_run_git = calg._run_git
+
+        def _fake_run_git(*args: str) -> str:
+            if args and args[0] == "show":
+                raise RuntimeError("simulated git show failure")
+            return real_run_git(*args)
+
+        monkeypatch.setattr(calg, "_run_git", _fake_run_git)
+        with pytest.raises(RuntimeError):
+            calg._always_loaded_paths_at_ref("HEAD")
+
+    def test_line_count_at_ref_propagates_show_failure(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _fake_run_git(*_args: str) -> str:
+            raise RuntimeError("simulated git show failure")
+
+        monkeypatch.setattr(calg, "_run_git", _fake_run_git)
+        with pytest.raises(RuntimeError):
+            calg._line_count_at_ref("HEAD", "01-always.md")
+
+    def test_net_growth_surfaces_show_failure_as_exit_2_via_main(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """端對端確認：git show 故障最終讓 main() 回傳 2（設定錯誤），而不是靜默算出
+        一個看似合理但錯誤的淨增數字。"""
+        # 先製造一個 base_paths - current_paths 的情境（刪除既有 always-loaded 檔），
+        # 這樣 net_growth 一定會呼叫 _line_count_at_ref。
+        (repo / ".claude" / "rules" / "01-always.md").unlink()
+
+        real_run_git = calg._run_git
+
+        def _fake_run_git(*args: str) -> str:
+            if args and args[0] == "show":
+                raise RuntimeError("simulated git show failure")
+            return real_run_git(*args)
+
+        monkeypatch.setattr(calg, "_run_git", _fake_run_git)
+        assert calg.main(["--base", "HEAD"]) == 2

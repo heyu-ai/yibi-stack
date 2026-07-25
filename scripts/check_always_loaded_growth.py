@@ -100,28 +100,31 @@ def _merge_base(base_ref: str) -> str:
 
 
 def _always_loaded_paths_at_ref(ref: str) -> set[str]:
-    """回傳指定 ref 版本中，`.claude/rules/*.md` 裡無 `paths:` key 的檔案相對路徑集合。"""
+    """回傳指定 ref 版本中，`.claude/rules/*.md` 裡無 `paths:` key 的檔案相對路徑集合。
+
+    `git show <ref>:<rel>` 對 `ls-tree` 剛列出的路徑理論上不會失敗——這裡刻意不吞
+    `RuntimeError`：曾經吞過（視為「該 ref 下讀不到此檔」保守跳過），但 `_run_git`
+    的 RuntimeError 也涵蓋 git 逾時 / 缺失 / 物件損毀等真正的執行失敗，吞掉會讓這些
+    情況被誤判為「檔案不存在」而悄悄漏算，違反本檔案 exit 2 的設定錯誤契約
+    （Codex 於 PR #339 第二輪 re-review 發現）。讓例外往上傳，交給 `main()` 既有的
+    `except RuntimeError` 轉成 `[FAIL]` + exit 2。
+    """
     listing = _run_git("ls-tree", "-r", "--name-only", ref, "--", ".claude/rules")
     result: set[str] = set()
     for rel in listing.splitlines():
         rel = rel.strip()
         if not rel.endswith(".md"):
             continue
-        try:
-            content = _run_git("show", f"{ref}:{rel}")
-        except RuntimeError:
-            # 該 ref 下讀不到此檔（理論上不會發生，ls-tree 剛列出它）；保守不計入。
-            continue
+        content = _run_git("show", f"{ref}:{rel}")
         if not has_paths_key(content):
             result.add(rel)
     return result
 
 
 def _line_count_at_ref(ref: str, rel_path: str) -> int:
-    try:
-        content = _run_git("show", f"{ref}:{rel_path}")
-    except RuntimeError:
-        return 0
+    """回傳指定 ref 版本中該檔案的行數。同上：不吞 `RuntimeError`，讓真正的 git
+    執行失敗往上傳給 `main()`，而不是悄悄回傳 0 造成淨增計算漏算負值。"""
+    content = _run_git("show", f"{ref}:{rel_path}")
     return len(content.splitlines())
 
 
