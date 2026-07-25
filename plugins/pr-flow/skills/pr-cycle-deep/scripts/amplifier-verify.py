@@ -3,12 +3,13 @@
 
 Exit codes:
   0 — no spectra change in this PR (nothing to check)
-  0 — the referenced change exists only in the archive (finished work; nothing to gate)
+  0 — the PR touches only archived material, or names a change that has since been
+      archived (finished work; nothing to gate)
   0 — all TCs traced (only INFO gaps; non-blocking)
   1 — MUST findings (missing spec: trace on test that targets a TC) — blocks merge
   1 — SHOULD findings only (coverage gap; printed as [WARN]; document reason before deferring)
-  2 — fatal error (change directory not found, testplan.md missing, unparseable,
-      or gh pr diff failed)
+  2 — fatal error: change directory not found, testplan.md missing, testplan contains no TC
+      table, or a `gh` / `git` invocation failed (binary not found, timed out, or non-zero)
 """
 
 from __future__ import annotations
@@ -324,12 +325,17 @@ _FILE_HEADER_RE = re.compile(r"^\+\+\+\s+b/(.+)$")
 # vendors those docs fails spuriously with "testplan.md not found for change
 # '<name>'". The slug is also validated to reject placeholder-looking matches.
 #
-# `archive/` is skipped as a container segment, not captured as a slug. Without the
-# optional group, a file header under `changes/archive/<YYYY-MM-DD>-<name>/` reported
-# the change as the literal string `archive`, and the gate then went looking for
-# `openspec/changes/archive/testplan.md` and aborted the whole PR review with a fatal
-# "testplan.md not found for change 'archive'".
-_CHANGE_DIR_RE = re.compile(r"[ab]/(?:docs/)?openspec/changes/(?:archive/)?([^/\n]+)/")
+# Group 1 captures the `archive/` container when present, so a header can be attributed to the
+# tree it points into; group 2 is the directory name. Without the group, a header under
+# `changes/archive/<YYYY-MM-DD>-<name>/` reported the change as the literal string `archive` and
+# the gate went looking for `openspec/changes/archive/testplan.md`, aborting the whole PR review.
+#
+# Capturing the dated name as an ordinary slug was worse, not better: it made the archived name a
+# *resolvable* candidate, and since only the first matching header was returned and git emits
+# headers in path byte order, the archived name won over any active slug sorting after `"archive"`
+# — turning a loud failure into a silent skip of that active change's verification. Attribution by
+# tree is what fixes it; see `detect_change_refs_from_diff`.
+_CHANGE_DIR_RE = re.compile(r"[ab]/(?:docs/)?openspec/changes/(archive/)?([^/\n]+)/")
 _VALID_CHANGE_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # Both layout roots a change directory can live under, in the order they are tried.
@@ -342,37 +348,81 @@ _ARCHIVE_DATE_PREFIX_RE = r"\d{4}-\d{2}-\d{2}-"
 _TESTPLAN_NAME = "testplan.md"
 
 
-def detect_change_from_diff(diff_text: str) -> str:
-    """Return the spectra change slug from a PR diff, or "" if none.
+@dataclass
+class DiffChangeRefs:
+    """Change directories a diff's FILE HEADERS point at, split by which tree they are in.
 
-    Scans only git file-header lines so a real changed file under
-    openspec/changes/<slug>/ is required; a placeholder-looking slug (angle
-    brackets or other non-slug chars, e.g. the literal ``<name>`` in generated
-    skill docs) is rejected as defense-in-depth.
+    The split is the whole fix for the shadowing bug. **Only a header under the active tree
+    creates an obligation to verify**; a header under ``changes/archive/`` creates none,
+    whether or not that directory still exists on disk.
 
-    A header under the archive yields that directory's own dated name
-    (``2026-07-18-add-login``), which :func:`locate_change` resolves against the
-    archive. The bare ``archive`` container is skipped rather than returned, so a PR
-    that touches both an archived change and a real active one still finds the active
-    one instead of stopping on the container.
+    Ranking by which tree the header points into rather than by what each candidate *resolves*
+    to is deliberate, and the alternative is worse in both directions. A candidate can resolve
+    nowhere — an archive-*deletion* PR emits a header under ``changes/archive/<dated>/`` with
+    nothing left on disk — and a resolve-based ranking has no correct slot for it: make
+    "nowhere" fatal and the gate aborts on exactly the retirement/cleanup PRs this script was
+    fixed to stop blocking; rank it below "archived" so another archived candidate can mask it
+    and an unresolvable *active* name gets masked too, which is the shadowing bug one level
+    down. Attribution by tree has no such state, because an archive-origin name never reaches
+    :func:`locate_change`.
     """
+
+    active_tree: list[str] = field(default_factory=list)
+    archive_tree: list[str] = field(default_factory=list)
+
+
+def detect_change_refs_from_diff(diff_text: str) -> DiffChangeRefs:
+    """Attribute every change directory named by a diff FILE HEADER to its tree.
+
+    Scans only git file-header lines so a real changed file under ``openspec/changes/<slug>/``
+    is required; a placeholder-looking slug (angle brackets or other non-slug chars, e.g. the
+    literal ``<name>`` in generated skill docs) is rejected as defense-in-depth.
+
+    Both lists preserve header order and drop duplicates, so a change touched by several files
+    appears once.
+
+    The literal ``archive`` capture is still rejected explicitly, for a reason the optional
+    group does not cover: ``changes/archive/README.md`` — a file directly in the container —
+    cannot take that branch, because the group needs a trailing ``/`` after the captured
+    segment and ``README.md/`` has none. The regex backtracks and captures ``archive`` as an
+    *active-tree* slug, which without the guard becomes an obligation to verify a change named
+    ``archive``.
+    """
+    refs = DiffChangeRefs()
     for line in diff_text.splitlines():
         if not (
             line.startswith("diff --git ") or line.startswith("+++ ") or line.startswith("--- ")
         ):
             continue
-        # First path wins: on a `diff --git a/…old/… b/…new/…` change-dir rename this
-        # returns the old slug. Renaming a spectra change dir mid-review is rare and the
-        # worst case is looking for testplan.md under the stale slug (a clear failure).
+        # First path on the line wins: on a `diff --git a/…old/… b/…new/…` rename this reads the
+        # OLD path. That is what makes an archiving PR work — its rename header's `a/` side is
+        # still the active `changes/<name>/`, so the bare name is attributed to the active tree
+        # and `locate_change` then resolves it as archived.
         m = _CHANGE_DIR_RE.search(line)
-        if not m or not _VALID_CHANGE_SLUG_RE.match(m.group(1)):
+        if not m:
             continue
-        if m.group(1) == _ARCHIVE_SEGMENT:
-            # Reachable only on a header naming the container itself with no change
-            # directory under it. Keep scanning rather than reporting the container.
+        in_archive, name = m.group(1), m.group(2)
+        if not _VALID_CHANGE_SLUG_RE.match(name):
             continue
-        return m.group(1)
-    return ""
+        if in_archive:
+            if name not in refs.archive_tree:
+                refs.archive_tree.append(name)
+            continue
+        if name == _ARCHIVE_SEGMENT:
+            continue  # the container itself, not a change
+        if name not in refs.active_tree:
+            refs.active_tree.append(name)
+    return refs
+
+
+def detect_change_from_diff(diff_text: str) -> str:
+    """Return the change slug this PR obliges the gate to verify, or "" if none.
+
+    That is the first **active-tree** slug. A diff touching only archived material returns "",
+    because archived work has nothing left to gate — see :class:`DiffChangeRefs`.
+    """
+    refs = detect_change_refs_from_diff(diff_text)
+    return refs.active_tree[0] if refs.active_tree else ""
 
 
 @dataclass
@@ -380,11 +430,12 @@ class ChangeLocation:
     """Where a change name resolves on disk: active, archived, or nowhere.
 
     The distinction is what separates "nothing to gate" from "the gate is broken".
-    An archived change is finished work whose artifacts have moved out of
-    ``openspec/changes/``; treating its absence there as a fatal error blocks exactly
-    the PRs most likely to mention it — docs changes fixing trace paths and other
-    retirement cleanup, which carry historical change names by their very nature and
-    have no active change to verify at all.
+    An archived change is finished work whose artifacts have moved out of the *active*
+    ``openspec/changes/<name>/`` into ``openspec/changes/archive/<YYYY-MM-DD>-<name>/``
+    (``archive`` is a child of ``changes/``, not a sibling); treating its absence from the
+    active path as a fatal error blocks exactly the PRs most likely to name it — docs changes
+    fixing trace paths and other retirement cleanup, which carry historical change names by
+    their very nature and have no active change to verify at all.
     """
 
     active_dir: Path | None = None
@@ -399,23 +450,44 @@ class ChangeLocation:
         return self.active_dir is None and self.archived_dir is not None
 
 
+def probed_locations(change_name: str) -> list[str]:
+    """Every location :func:`locate_change` looks at, in the same order, as display strings.
+
+    Derived from the same constants as the lookup and kept adjacent to it so the fatal
+    "not found" message cannot drift from what was actually searched. Listing only the two
+    active roots was misleading in a specific way: an explicit ``--change`` can name a dated
+    archive directory, which by construction never exists at an active root, so the message
+    pointed at a path that could not have been there.
+    """
+    active = [f"{root}/{change_name}/" for root in _CHANGE_ROOTS]
+    archived = []
+    for root in _CHANGE_ROOTS:
+        archived.append(f"{root}/{_ARCHIVE_SEGMENT}/{change_name}/")
+        archived.append(f"{root}/{_ARCHIVE_SEGMENT}/<YYYY-MM-DD>-{change_name}/")
+    return active + archived
+
+
 def locate_change(repo_root: Path, change_name: str) -> ChangeLocation:
     """Resolve a change name against the active and archived layouts.
 
     Active wins over an archived namesake: a name reused after archival is a real
     change that must still be verified.
 
-    Two archived spellings are accepted, because the name can arrive by two routes.
-    A diff that merely *references* a since-archived change carries its bare name, whose
-    directory is ``archive/<YYYY-MM-DD>-<name>/``; a diff whose file header points
-    *inside* the archive carries that dated directory name verbatim.
+    Two archived spellings are accepted, because the name can arrive by two routes — neither
+    of which is a prose mention: :func:`detect_change_refs_from_diff` reads only file headers,
+    so a content line that merely names a path yields nothing.
+    1. The **archiving PR's own rename header**, whose first path is still the active
+       ``a/openspec/changes/<name>/``, so the bare ``<name>`` arrives and its directory is now
+       ``archive/<YYYY-MM-DD>-<name>/``.
+    2. An explicit ``--change <name>``, in either spelling, including the dated directory name
+       verbatim.
 
-    The date prefix is matched with ``fullmatch``, never a ``*-<name>`` glob and never a
-    bare ``match``: the glob matches ``2026-01-01-bar-foo`` for the name ``foo`` and
-    ``match`` alone matches ``2026-01-01-foo-extra``, either of which would report an
-    unrelated change as archived, exit 0, and silently skip a verification that should
-    have run. ``fullmatch`` is used rather than ``^…$`` because ``match`` already anchors
-    at the start, so a lone ``^`` reads as protection it is not providing.
+    The date prefix is matched with ``fullmatch``, never a ``*-<name>`` glob and never a bare
+    ``match``: the glob matches ``2026-01-01-bar-foo`` for the name ``foo``, and ``match``
+    — anchored only at the start — matches ``2026-01-01-foo-extra``. Either would report an
+    unrelated change as archived, exit 0, and silently skip a verification that should have
+    run. An explicit ``^…$`` with ``re.match`` would be equally correct; ``fullmatch`` is
+    preferred only because it puts both anchors in the call rather than half in the pattern.
     """
     if change_name == _ARCHIVE_SEGMENT:
         # The container is not a change, even though the directory exists. Only
@@ -424,8 +496,8 @@ def locate_change(repo_root: Path, change_name: str) -> ChangeLocation:
 
     # Prefer an active directory that actually holds a testplan, so a name present under
     # both layout roots resolves the same way it did before this function existed (the
-    # old code picked the first candidate whose testplan.md was readable, not the first
-    # directory that happened to exist).
+    # old code picked the first candidate whose testplan.md existed as a file -- note
+    # is_file() proves type and existence, not that the contents can be read).
     active_dirs = [
         d for d in (repo_root / root / change_name for root in _CHANGE_ROOTS) if d.is_dir()
     ]
@@ -644,10 +716,30 @@ def main() -> None:
 
     change_name = opts.change
     if not change_name:
-        change_name = detect_change_from_diff(diff_text)
-        if not change_name:
-            print("no spectra change")
+        refs = detect_change_refs_from_diff(diff_text)
+        if not refs.active_tree:
+            # No obligation to verify. Distinguish "touched archived material" from "touched no
+            # change at all": both are exit 0, but a reader debugging a gate that passed needs
+            # to know which one happened.
+            if refs.archive_tree:
+                print(
+                    "no active spectra change: this PR touches only archived material"
+                    f" ({', '.join(refs.archive_tree)})"
+                )
+            else:
+                print("no spectra change")
             sys.exit(0)
+        change_name = refs.active_tree[0]
+        if len(refs.active_tree) > 1:
+            # First-active-wins predates this script's archive awareness and is left as-is:
+            # failing loud on several changes would block PRs that legitimately touch two, and
+            # verifying all of them is a wider contract than this gate has. What is not
+            # acceptable is doing it invisibly, so name every candidate and which one was used.
+            print(
+                f"[WARN] {len(refs.active_tree)} active change dirs in this diff"
+                f" ({', '.join(refs.active_tree)}); verifying only '{change_name}'",
+                file=sys.stderr,
+            )
 
     # Step 2 — resolve the change directory, then locate testplan.md
     # Resolve the CURRENT checkout's root with --show-toplevel (not --git-common-dir,
@@ -672,9 +764,9 @@ def main() -> None:
     if not location.is_active:
         # Neither active nor archived — the genuinely anomalous case. Blame the missing
         # directory, not testplan.md, which was never the reason.
-        roots = " or ".join(f"{root}/{change_name}/" for root in _CHANGE_ROOTS)
+        roots = " or ".join(probed_locations(change_name))
         print(
-            f"[FAIL] no change directory found for '{change_name}'. Expected at {roots}."
+            f"[FAIL] no change directory found for '{change_name}'. Searched {roots}."
             f" If this name came from the PR diff, the change may have been renamed"
             f" or the local checkout may not be on the PR branch.",
             file=sys.stderr,

@@ -279,7 +279,7 @@ Spawn three Task agents **in a single message** to gather baseline information i
 |-------|------|
 | **diff-reviewer** | Run `gh pr diff {{pr_number}}`; summarise changed files and line counts. **Do not use local `main`** — always fetch from GitHub. If the command exits non-zero, report `[FAIL] gh pr diff: <exact error>` and stop. |
 | **ci-checker** | Run `gh pr checks {{pr_number}}`; report pass / fail / pending per check. If the list is empty, report "CI: not yet triggered". If the command exits non-zero, report `[FAIL] gh pr checks: <exact error>` and stop. |
-| **amplifier-verifier** | Run TC coverage + docstring traceability check: `python3 ~/.agents/skills/pr-cycle-deep/scripts/amplifier-verify.py --pr {{pr_number}}`. Exit 0 = no spectra change (including a change that exists only under `changes/archive/`, which is finished work with nothing to gate) or all TCs traced; exit 1 = MUST or SHOULD findings present; exit 2 = fatal error (change directory not found, missing testplan, parse failure, gh error). Report the full stdout. On exit 2, stop with `[FAIL]`. On exit 1, **do not stop** — write MUST findings to `$REVIEW_DIR/final.md` Critical section and SHOULD findings to Important section, then continue to Step 2. |
+| **amplifier-verifier** | Run TC coverage + docstring traceability check: `python3 ~/.agents/skills/pr-cycle-deep/scripts/amplifier-verify.py --pr {{pr_number}}`. Exit 0 = no spectra change (including a PR that touches only archived material, or names a change that has since been archived — finished work with nothing to gate) or all TCs traced; exit 1 = MUST or SHOULD findings present; exit 2 = fatal error (change directory not found, missing testplan, no TC table, or a `gh` / `git` invocation failure). A `[WARN]` on stderr naming several active change dirs means the diff touched more than one and only the first was verified. Report the full stdout. On exit 2, stop with `[FAIL]`. On exit 1, **do not stop** — write MUST findings to `$REVIEW_DIR/final.md` Critical section and SHOULD findings to Important section, then continue to Step 2. |
 
 If any agent reports `[FAIL]` (exit 2 or explicit `[FAIL]` in output), stop and report the failure explicitly; do not proceed to Step 2.
 
@@ -289,7 +289,7 @@ Once all three return successfully, write `$CLAUDE_JOB_DIR/pre-review-check.md` 
 Pre-review Check
 - Diff: <file count> files, <line count> lines changed
 - CI: <pass / fail / pending / not yet triggered — list any failing checks by name>
-- Amplifier: <MUST: N findings / SHOULD: N findings / OK: all TCs traced / no spectra change / change is archived-only (nothing to gate)>
+- Amplifier: <MUST: N findings / SHOULD: N findings / OK: all TCs traced / no spectra change / only archived material touched (nothing to gate) / named change has since been archived>
 ```
 
 ---
