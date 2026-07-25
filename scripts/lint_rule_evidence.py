@@ -37,11 +37,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# 接受的證據標記。任一命中即視為該區塊「有證據」。
+# 接受的證據標記（封閉列舉，任一命中即視為該區塊「有證據」）。每個 pattern 錨定到
+# docstring 宣稱的確切形式——先前 `verified:` 接受任意後續文字、`verified on` 只要求
+# 一個 token，兩者都超出封閉列舉本身宣稱的範圍（Codex R1 + 本檔重新審視發現先前只修了
+# table/fence 過濾，沒收窄這兩個 pattern 本身）。
 _EVIDENCE_MARKERS = [
-    re.compile(r"<!--\s*verified:", re.IGNORECASE),  # 結構化
+    re.compile(r"<!--\s*verified:\s*probe\s*-->", re.IGNORECASE),  # 結構化：probe
+    re.compile(r"<!--\s*verified:\s*incident\s+PR#\d+", re.IGNORECASE),  # 結構化：incident
     re.compile(r"\bProbed\.", re.IGNORECASE),  # prose：實測過
-    re.compile(r"\bverified on \S"),  # prose：verified on <tool> <version>
+    re.compile(r"\bverified on\s+\S+\s+\S+"),  # prose：verified on <tool> <version>（兩個 token）
     re.compile(r"Source: PR #\d"),  # prose：(Source: PR #NNN
 ]
 
@@ -64,12 +68,23 @@ _PRECOMMIT_HOOK_ID_RE = re.compile(r"^\s*-\s*id:\s*\S+")
 
 
 class _FileDiff:
-    """一個檔案的 diff：新舊路徑 + 新增行（含 heading 標記）。"""
+    """一個檔案的 diff：新舊路徑 + 依 hunk（`@@ ... @@`）分組的新增行。
+
+    分 hunk 儲存（而非攤平成單一清單）是刻意的：`_sections_missing_evidence` 需要
+    「同一個 hunk 內」的新增 heading 與其後續內容配對，攤平會讓不相關 hunk 的證據
+    標記被誤判為屬於前一個 hunk 新增的 heading（false negative，Gemini R1 發現）。
+    """
 
     def __init__(self, old_path: str, new_path: str) -> None:
         self.old_path = old_path
         self.new_path = new_path
-        self.added_lines: list[str] = []  # 不含前綴 `+` 的內容
+        self.chunks: list[list[str]] = []  # 每個 hunk 一組；元素為新增行內容（不含前綴 `+`）
+
+    @property
+    def added_lines(self) -> list[str]:
+        """攤平所有 hunk 的新增行——只給不需要 hunk 邊界語意的整檔判定使用
+        （如 `check_rule_evidence` 判斷「這個新檔哪裡都沒有證據標記」）。"""
+        return [line for chunk in self.chunks for line in chunk]
 
     @property
     def is_new_file(self) -> bool:
@@ -77,13 +92,15 @@ class _FileDiff:
 
 
 def _parse_diff(diff_text: str) -> list[_FileDiff]:
-    """把 unified diff 切成 per-file，收集新增行。純字串解析，不呼叫 git。"""
+    """把 unified diff 切成 per-file、per-hunk，收集新增行。純字串解析，不呼叫 git。"""
     files: list[_FileDiff] = []
     current: _FileDiff | None = None
+    current_chunk: list[str] | None = None
     old_path = ""
     for line in diff_text.splitlines():
         if line.startswith("diff --git "):
             current = None
+            current_chunk = None
             old_path = ""
             continue
         if line.startswith("--- "):
@@ -93,9 +110,21 @@ def _parse_diff(diff_text: str) -> list[_FileDiff]:
             new_path = _strip_diff_path(line[4:])
             current = _FileDiff(old_path, new_path)
             files.append(current)
+            current_chunk = None
             continue
-        if current is not None and line.startswith("+") and not line.startswith("+++"):
-            current.added_lines.append(line[1:])
+        if line.startswith("@@") and current is not None:
+            current_chunk = []
+            current.chunks.append(current_chunk)
+            continue
+        # `+++ ` 的尾隨空格是刻意的：diff 內容行本身以 `++` 開頭時（如 `++Probed.`），
+        # 加上 diff 的 `+` 前綴會變成 `+++Probed.`——沒有空格，不該被誤判成檔頭。
+        if (
+            current is not None
+            and current_chunk is not None
+            and line.startswith("+")
+            and not line.startswith("+++ ")
+        ):
+            current_chunk.append(line[1:])
     return files
 
 
@@ -136,8 +165,8 @@ def _has_evidence(lines: list[str]) -> bool:
     return any(marker.search(blob) for marker in _EVIDENCE_MARKERS)
 
 
-def _sections_missing_evidence(added_lines: list[str]) -> list[str]:
-    """回傳「新增了 heading 但該 section 內無證據標記」的 heading 標題清單。
+def _missing_evidence_in_chunk(chunk: list[str]) -> list[str]:
+    """單一 diff hunk 內，新增了 heading 但該 section 內無證據標記的 heading 標題清單。
 
     以新增行中的 heading 為錨點：只有 heading 本身被新增（即新 section）才計入；
     只在既有 section 內新增內容（無新 heading）不會誤觸發。
@@ -150,7 +179,7 @@ def _sections_missing_evidence(added_lines: list[str]) -> list[str]:
         if current_heading is not None and not _has_evidence(current_block):
             missing.append(current_heading)
 
-    for line in added_lines:
+    for line in chunk:
         match = _ADDED_HEADING_RE.fullmatch("+" + line)
         if match is not None:
             _flush()
@@ -160,6 +189,30 @@ def _sections_missing_evidence(added_lines: list[str]) -> list[str]:
             current_block.append(line)
     _flush()
     return missing
+
+
+def _sections_missing_evidence(chunks: list[list[str]]) -> list[str]:
+    """回傳「新增了 heading 但該 section 內無證據標記」的 heading 標題清單。
+
+    逐 hunk 獨立評估（不跨 hunk 攤平）：同一檔案裡兩個不相關的 hunk 若被合併成一個
+    清單，後面 hunk 新增的證據標記字串會被誤判成屬於前面 hunk 新增的 heading，讓真正
+    缺證據的 section 被錯誤地判定為「有證據」（false negative，Gemini R1 發現）。
+    """
+    missing: list[str] = []
+    for chunk in chunks:
+        missing.extend(_missing_evidence_in_chunk(chunk))
+    return missing
+
+
+def _is_newly_protected(old_path: str, new_path: str, protected_re: re.Pattern[str]) -> bool:
+    """`new_path` 符合受保護樣式，且 `old_path` 不符合。
+
+    涵蓋兩種情境：真正的新檔（`old_path == "/dev/null"`，必然不符合任何樣式），以及
+    從受保護目錄外 rename 進來的既有檔案（`old_path` 是目錄外的路徑，同樣不符合）。
+    先前只看 `is_new_file`（`old_path == "/dev/null"`），rename 進來的檔案 `old_path`
+    不是 `/dev/null` 所以被當成既有檔案，完全繞過 error gate（Codex + Gemini R1 皆發現）。
+    """
+    return bool(protected_re.fullmatch(new_path)) and not bool(protected_re.fullmatch(old_path))
 
 
 def _is_settings_hook_registration(fd: "_FileDiff") -> bool:
@@ -183,8 +236,8 @@ def check_rule_evidence(diff_text: str) -> list[str]:
     errors: list[str] = []
     for fd in _parse_diff(diff_text):
         path = fd.new_path
-        is_new_rule = fd.is_new_file and bool(_NEW_RULE_FILE_RE.fullmatch(path))
-        is_new_hook = fd.is_new_file and bool(_NEW_HOOK_FILE_RE.fullmatch(path))
+        is_new_rule = _is_newly_protected(fd.old_path, path, _NEW_RULE_FILE_RE)
+        is_new_hook = _is_newly_protected(fd.old_path, path, _NEW_HOOK_FILE_RE)
         is_settings_hook = _is_settings_hook_registration(fd)
         is_precommit_hook = _is_precommit_hook_registration(fd)
         if not (is_new_rule or is_new_hook or is_settings_hook or is_precommit_hook):
@@ -208,9 +261,11 @@ def warn_rule_evidence(diff_text: str) -> list[str]:
     """回傳 **warn** 訊息清單；既有 rule 檔 / CLAUDE.md 新增 section 缺證據標記（起步期不擋 commit）。"""
     warns: list[str] = []
     for fd in _parse_diff(diff_text):
-        if fd.is_new_file or not _EXISTING_ALWAYS_LOADED_DOC_RE.fullmatch(fd.new_path):
+        if not _EXISTING_ALWAYS_LOADED_DOC_RE.fullmatch(fd.new_path):
             continue
-        for heading in _sections_missing_evidence(fd.added_lines):
+        if _is_newly_protected(fd.old_path, fd.new_path, _EXISTING_ALWAYS_LOADED_DOC_RE):
+            continue  # 新增檔 / rename 進來的既有檔已由 error 層（check_rule_evidence）處理
+        for heading in _sections_missing_evidence(fd.chunks):
             warns.append(
                 f"{fd.new_path}：新增 section「{heading}」缺證據標記（建議補 probe 或 PR cite）"
             )

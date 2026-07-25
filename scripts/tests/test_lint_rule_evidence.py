@@ -44,6 +44,36 @@ def _existing_file_diff(path: str, added_body: list[str]) -> str:
     return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -10,0 +11 @@\n{added}\n"
 
 
+def _existing_file_diff_multi_hunk(
+    path: str, hunk1_added: list[str], hunk2_added: list[str]
+) -> str:
+    added1 = "\n".join(f"+{line}" for line in hunk1_added)
+    added2 = "\n".join(f"+{line}" for line in hunk2_added)
+    return (
+        f"diff --git a/{path} b/{path}\n"
+        f"--- a/{path}\n"
+        f"+++ b/{path}\n"
+        f"@@ -10,0 +11,{len(hunk1_added)} @@\n"
+        f"{added1}\n"
+        f"@@ -50,0 +52,{len(hunk2_added)} @@\n"
+        f"{added2}\n"
+    )
+
+
+def _rename_diff(old_path: str, new_path: str, added_body: list[str]) -> str:
+    added = "\n".join(f"+{line}" for line in added_body)
+    return (
+        f"diff --git a/{old_path} b/{new_path}\n"
+        "similarity index 80%\n"
+        f"rename from {old_path}\n"
+        f"rename to {new_path}\n"
+        f"--- a/{old_path}\n"
+        f"+++ b/{new_path}\n"
+        f"@@ -1,0 +1,{len(added_body)} @@\n"
+        f"{added}\n"
+    )
+
+
 # --- REG-EG-001a：新 rule 檔缺證據標記 -> error 非空 ---
 
 
@@ -294,3 +324,89 @@ def test_staged_diff_wraps_missing_git_binary_as_runtime_error(
     monkeypatch.setattr(subprocess, "run", _boom)
     with pytest.raises(RuntimeError):
         lint_rule_evidence._staged_diff()
+
+
+# --- AC-6 迴歸：rename 進受保護目錄不得繞過 error gate（Codex + Gemini 皆發現）---
+
+
+def test_rename_non_rule_file_into_rules_dir_missing_evidence_is_error():
+    diff = _rename_diff(
+        "scripts/old-notes.md", ".claude/rules/renamed-in.md", ["# Renamed", "沒有證據的內容。"]
+    )
+    errors = check_rule_evidence(diff)
+    assert errors, (
+        "從受保護目錄外 rename 進來的檔案缺證據標記，過去因 is_new_file 只看"
+        "old_path == /dev/null 而誤判為既有檔，繞過 error gate"
+    )
+    assert ".claude/rules/renamed-in.md" in errors[0]
+
+
+def test_rename_hook_script_from_scripts_dir_missing_evidence_is_error():
+    diff = _rename_diff("scripts/helper.py", ".claude/hooks/renamed-in.py", ["import sys"])
+    errors = check_rule_evidence(diff)
+    assert errors
+    assert ".claude/hooks/renamed-in.py" in errors[0]
+
+
+def test_rename_within_rules_dir_not_treated_as_new_file():
+    """既有 rule 檔改名（仍在 .claude/rules/ 內）不是「新檔」——走既有檔 warn 路徑，非 error。"""
+    diff = _rename_diff(
+        ".claude/rules/13-old-name.md", ".claude/rules/13-new-name.md", ["## 新段落", "沒有證據。"]
+    )
+    assert check_rule_evidence(diff) == []
+    warns = warn_rule_evidence(diff)
+    assert warns
+
+
+# --- AC-6/AC-7 迴歸：證據標記正則本身仍過寬（Codex 指出，第一輪只修了 table/fence 過濾）---
+
+
+def test_verified_colon_with_unenumerated_value_is_not_evidence():
+    diff = _new_file_diff(
+        ".claude/rules/17-foo.md", ["# Foo", "內容。<!-- verified: something-else -->"]
+    )
+    errors = check_rule_evidence(diff)
+    assert errors, "verified: 後接非封閉列舉允許的值（非 probe、非 incident PR#NNN）不應被當成證據"
+
+
+def test_verified_on_with_only_one_token_is_not_evidence():
+    diff = _new_file_diff(".claude/rules/17-foo.md", ["# Foo", "內容。verified on agy"])
+    errors = check_rule_evidence(diff)
+    assert errors, "verified on 缺版本號（只有一個 token）不應被當成證據"
+
+
+def test_verified_on_with_tool_and_version_is_evidence():
+    diff = _new_file_diff(".claude/rules/17-foo.md", ["# Foo", "內容。verified on agy 1.1.2"])
+    assert check_rule_evidence(diff) == []
+
+
+def test_verified_incident_structured_marker_passes():
+    diff = _new_file_diff(
+        ".claude/rules/17-foo.md", ["# Foo", "內容。<!-- verified: incident PR#250 -->"]
+    )
+    assert check_rule_evidence(diff) == []
+
+
+# --- AC-7 迴歸：不相關 hunk 攤平合併導致證據標記被誤判歸屬（Gemini 發現）---
+
+
+def test_evidence_in_unrelated_later_hunk_does_not_cover_earlier_missing_section():
+    diff = _existing_file_diff_multi_hunk(
+        ".claude/rules/13-bash-anti-patterns.md",
+        hunk1_added=["## 新的反模式一", "沒有證據的說明。"],
+        hunk2_added=["在既有段落補一行 Probed. 但跟上面的新 section 完全無關。"],
+    )
+    warns = warn_rule_evidence(diff)
+    assert warns, "後面不相關 hunk 的證據標記字串不應覆蓋前面 hunk 新增 heading 缺證據的事實"
+    assert "新的反模式一" in warns[0]
+
+
+def test_evidence_in_same_hunk_as_new_heading_still_counts():
+    """確認上面的負向控制不是矯枉過正：同一個 hunk 內的證據標記仍要通過。"""
+    diff = _existing_file_diff_multi_hunk(
+        ".claude/rules/13-bash-anti-patterns.md",
+        hunk1_added=["## 新的反模式二", "說明。Probed."],
+        hunk2_added=["在既有段落補一行，跟新 section 無關。"],
+    )
+    warns = warn_rule_evidence(diff)
+    assert warns == [], "同一個 hunk 內的證據標記應正常算數"
