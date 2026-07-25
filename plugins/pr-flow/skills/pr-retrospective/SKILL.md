@@ -379,8 +379,10 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 - **結構檢查（零指令）**：action item 是否已分級、Tier 1 / 2 是否附證據欄位——不跑任何指令即判定。
 - **秒級 probe 當場跑**：正 / 負樣本、`failing→passing test` 等。
 - **昂貴 probe（`claude -p` 拋棄式 repo 探針）**：**派 subagent 執行，或降級 Tier 2** 要求貼出 PR 階段
-  已產生的證據；**互動式 retro 不得被單一昂貴 probe 同步阻塞**。probe 方法見 `verification-recipes`
-  配方 9（機制宣稱先跑再寫）/ 配方 10（修復可達性）。
+  已產生的證據；**互動式 retro 不得被單一昂貴 probe 同步阻塞**。機制宣稱先跑再寫、`verified` 標記須
+  附工具版本並在 CLI 升級後重跑等 probe 紀律，見 `.claude/rules/11-skill-authoring.md`
+  「Blanket Claims and Reader-Run Commands Must Be Empirically Probed」與
+  「A `verified` Annotation Is a Claim About a Version」兩段。
 
 **Tier 3 park 與 recurrence 升級**（不新增檔案面；park 複用既有 typed-lessons）：
 

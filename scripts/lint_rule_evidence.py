@@ -5,11 +5,14 @@
 本 lint 是 write-time gate 之外的 commit-time 第二道防線：對 git-staged diff 檢查
 「證據標記」是否存在，分層強制——
 
-- 新增 `.claude/rules/NN-*.md` 檔，或新增 `.claude/hooks/*` script → 缺標記即 **error**（擋 commit）。
-- 既有 rule 檔新增 section（diff 中出現新的 `##` / `###` heading）→ 缺標記即 **warn-only**
-  （不擋，靠 pre-commit `verbose: true` 讓警告可見；起步期漸進，避免龐大歷史 corpus 一次爆紅）。
+- 新增 `.claude/rules/*.md` 檔、新增 `.claude/hooks/**` script（含子目錄），或既有
+  `.pre-commit-config.yaml` / `.claude/settings.json` 新註冊 hook → 缺標記即 **error**（擋 commit）。
+- 既有 rule 檔或 `CLAUDE.md` 新增 section（diff 中出現新的 `##` / `###` heading）→ 缺標記即
+  **warn-only**（不擋，靠 pre-commit `verbose: true` 讓警告可見；起步期漸進，避免龐大歷史
+  corpus 一次爆紅）。
 
-接受的證據標記（擇一）：
+接受的證據標記（擇一，且必須出現在「自身即為標記」的行——不計入 table row `|...` 或
+fenced code block ```...``` 內的文字，避免把「範例說明」誤判為真實證據）：
 - 結構化：`<!-- verified: probe -->`、`<!-- verified: incident PR#NNN -->`
 - prose 慣例：`Probed.`、`verified on <tool> <version>`、`(Source: PR #NNN`
 
@@ -23,8 +26,8 @@
 
 Exit code:
   0 -> 無 error（可能有 warn，已印到 stderr）
-  1 -> 有 error（新檔 / 新 hook 缺證據標記）
-  2 -> 設定錯誤（git 不可用）
+  1 -> 有 error（新檔 / 新 hook / 新註冊 hook 缺證據標記）
+  2 -> 設定錯誤（git 不可用，或無法執行）
 """
 
 import re
@@ -42,11 +45,22 @@ _EVIDENCE_MARKERS = [
     re.compile(r"Source: PR #\d"),  # prose：(Source: PR #NNN
 ]
 
-_NEW_RULE_FILE_RE = re.compile(r"^\.claude/rules/\d+[^/]*\.md$")
-_NEW_HOOK_FILE_RE = re.compile(r"^\.claude/hooks/[^/]+$")
-_EXISTING_RULE_FILE_RE = re.compile(r"^\.claude/rules/[^/]+\.md$")
+# `_NEW_RULE_FILE_RE` 不要求數字前綴——「NN-」是命名慣例，不是本檔的把關條件；沒有數字
+# 前綴的新 rule 檔（如 `.claude/rules/retro-evidence.md`）過去會同時逃過 error 與 warn 兩層。
+_NEW_RULE_FILE_RE = re.compile(r"^\.claude/rules/[^/]+\.md$")
+# 允許子目錄（如 `.claude/hooks/lib/foo.py`）——過去單層路徑假設讓巢狀 hook script 逃過檢查。
+_NEW_HOOK_FILE_RE = re.compile(r"^\.claude/hooks/.+$")
+# 既有 always-loaded 文件面：rule 檔 + CLAUDE.md（rule 11 對 always-loaded 的定義包含兩者）。
+_EXISTING_ALWAYS_LOADED_DOC_RE = re.compile(r"^(\.claude/rules/[^/]+\.md|CLAUDE\.md)$")
 # diff 新增行中的 section heading（`+## ` / `+### `），錨點 = 新 section。
 _ADDED_HEADING_RE = re.compile(r"^\+(#{2,3})\s+(.*)$")
+
+# 既有設定檔新註冊 hook：不看整檔是否為新檔（這兩個檔案本身通常都是既有檔案），
+# 而是看新增行是否「看起來像在註冊一個 hook」。
+_SETTINGS_JSON_PATH = ".claude/settings.json"
+_PRECOMMIT_CONFIG_PATH = ".pre-commit-config.yaml"
+_SETTINGS_HOOK_COMMAND_RE = re.compile(r'"command"\s*:\s*"')
+_PRECOMMIT_HOOK_ID_RE = re.compile(r"^\s*-\s*id:\s*\S+")
 
 
 class _FileDiff:
@@ -95,8 +109,30 @@ def _strip_diff_path(raw: str) -> str:
     return raw
 
 
+def _evidence_eligible_lines(lines: list[str]) -> list[str]:
+    """濾掉 table row（`|` 開頭）與 fenced code block 內的行。
+
+    這兩種脈絡常常「提及」證據標記語法本身當作範例說明（本檔自己的 docstring 表、
+    rule 11 的證據形式表都是如此），並非真的宣稱該區塊已驗證——不濾掉的話，任何
+    列出標記語法範例的文字都會被誤判為「有證據」。
+    """
+    eligible: list[str] = []
+    in_fence = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if stripped.startswith("|"):
+            continue
+        eligible.append(line)
+    return eligible
+
+
 def _has_evidence(lines: list[str]) -> bool:
-    blob = "\n".join(lines)
+    blob = "\n".join(_evidence_eligible_lines(lines))
     return any(marker.search(blob) for marker in _EVIDENCE_MARKERS)
 
 
@@ -126,17 +162,40 @@ def _sections_missing_evidence(added_lines: list[str]) -> list[str]:
     return missing
 
 
+def _is_settings_hook_registration(fd: "_FileDiff") -> bool:
+    return fd.new_path == _SETTINGS_JSON_PATH and any(
+        _SETTINGS_HOOK_COMMAND_RE.search(line) for line in fd.added_lines
+    )
+
+
+def _is_precommit_hook_registration(fd: "_FileDiff") -> bool:
+    return fd.new_path == _PRECOMMIT_CONFIG_PATH and any(
+        _PRECOMMIT_HOOK_ID_RE.match(line) for line in fd.added_lines
+    )
+
+
 def check_rule_evidence(diff_text: str) -> list[str]:
-    """回傳 **error** 訊息清單（空 = 無 error）；新 rule 檔 / 新 hook 缺證據標記即 error。"""
+    """回傳 **error** 訊息清單（空 = 無 error）。
+
+    三種觸發條件皆為 error（擋 commit）：新 rule 檔、新 hook script（含子目錄），
+    或既有 `.pre-commit-config.yaml` / `.claude/settings.json` 新註冊的 hook。
+    """
     errors: list[str] = []
     for fd in _parse_diff(diff_text):
         path = fd.new_path
-        is_new_rule = fd.is_new_file and _NEW_RULE_FILE_RE.fullmatch(path)
-        is_new_hook = fd.is_new_file and _NEW_HOOK_FILE_RE.fullmatch(path)
-        if not (is_new_rule or is_new_hook):
+        is_new_rule = fd.is_new_file and bool(_NEW_RULE_FILE_RE.fullmatch(path))
+        is_new_hook = fd.is_new_file and bool(_NEW_HOOK_FILE_RE.fullmatch(path))
+        is_settings_hook = _is_settings_hook_registration(fd)
+        is_precommit_hook = _is_precommit_hook_registration(fd)
+        if not (is_new_rule or is_new_hook or is_settings_hook or is_precommit_hook):
             continue
         if not _has_evidence(fd.added_lines):
-            kind = "rule 檔" if is_new_rule else "hook"
+            if is_new_rule:
+                kind = "rule 檔"
+            elif is_new_hook:
+                kind = "hook"
+            else:
+                kind = "設定檔新註冊 hook"
             errors.append(
                 f"{path}：新增的 {kind} 缺少證據標記。"
                 "須帶 `<!-- verified: probe -->` / `<!-- verified: incident PR#NNN -->`，"
@@ -146,10 +205,10 @@ def check_rule_evidence(diff_text: str) -> list[str]:
 
 
 def warn_rule_evidence(diff_text: str) -> list[str]:
-    """回傳 **warn** 訊息清單；既有 rule 檔新增 section 缺證據標記（起步期不擋 commit）。"""
+    """回傳 **warn** 訊息清單；既有 rule 檔 / CLAUDE.md 新增 section 缺證據標記（起步期不擋 commit）。"""
     warns: list[str] = []
     for fd in _parse_diff(diff_text):
-        if fd.is_new_file or not _EXISTING_RULE_FILE_RE.fullmatch(fd.new_path):
+        if fd.is_new_file or not _EXISTING_ALWAYS_LOADED_DOC_RE.fullmatch(fd.new_path):
             continue
         for heading in _sections_missing_evidence(fd.added_lines):
             warns.append(
@@ -160,7 +219,10 @@ def warn_rule_evidence(diff_text: str) -> list[str]:
 
 def _staged_diff() -> str:
     cmd = ["git", "-C", str(REPO_ROOT), "diff", "--cached", "--unified=0"]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)  # nosec B603
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)  # nosec B603
+    except (OSError, subprocess.SubprocessError) as e:
+        raise RuntimeError(f"git diff --cached 無法執行：{e}") from e
     if proc.returncode != 0:
         raise RuntimeError(f"git diff --cached 失敗：{proc.stderr.strip()}")
     return proc.stdout

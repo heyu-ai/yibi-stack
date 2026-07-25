@@ -82,7 +82,10 @@ repos:
         entry: python3 scripts/lint_rule_evidence.py
         language: system
         pass_filenames: false
-        files: ^\.claude/(rules/.*\.md|hooks/.*|settings\.json)$
+        # 含 .pre-commit-config.yaml 自身（AC-6 明列的新註冊 hook 來源之一，先前遺漏於此
+        # 觸發範圍，導致只改本檔就不會觸發此 hook）與 CLAUDE.md（rule 11 對 always-loaded
+        # 的定義包含它，見 lint_rule_evidence.py 的 _EXISTING_ALWAYS_LOADED_DOC_RE）。
+        files: ^(\.claude/(rules/.*\.md|hooks/.*|settings\.json)|\.pre-commit-config\.yaml|CLAUDE\.md)$
         verbose: true  # advisory：既有檔新 section 缺證據只 [WARN]（起步期不擋），verbose 讓警告在通過時仍顯示（見 retro-evidence-gate）
 
       - id: lint-skill-overlap
