@@ -2,8 +2,9 @@
 """Lint：新增的 rule 檔 / hook 必須帶「證據標記」，否則擋 commit（retro-evidence-gate）。
 
 `/pr-retro` 可能把未驗證的教訓寫成新 `.claude/rules/*.md` 或新 `.claude/hooks/*`。
-本 lint 是 write-time gate 之外的 commit-time 第二道防線：對 git-staged diff 檢查
-「證據標記」是否存在，分層強制——
+本 lint 是 write-time gate 之外的第二道防線，跑在兩個地方：pre-commit（讀 git-staged diff）
+與 CI（讀 PR / push 的 commit range，見下方「用法」）。兩者都檢查「證據標記」是否存在，
+分層強制——
 
 - 新增 `.claude/rules/*.md` 檔、新增 `.claude/hooks/**` script（含子目錄），或既有
   `.pre-commit-config.yaml` / `.claude/settings.json` 新註冊 hook → 缺標記即 **error**（擋 commit）。

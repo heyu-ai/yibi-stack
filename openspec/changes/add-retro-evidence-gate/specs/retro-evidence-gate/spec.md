@@ -106,9 +106,11 @@ recurrence 升級 MUST 遵循：同類 friction 於後續 retro 再現時 recurr
 
 ### Requirement: commit-time lint 分層強制且以純函式暴露
 
-US-003 / AC-003-1, AC-003-2, AC-003-3. MUST 存在一個 pre-commit lint，對 git-staged diff 檢查證據標記，且其檢查邏輯 MUST 以純函式 `check_rule_evidence(diff_text) -> list[str]` 暴露（回傳失敗訊息清單，空清單代表通過），使負向案例可用合成 fixture 驗證而非只對真實檔案斷言。
+US-003 / AC-003-1, AC-003-2, AC-003-3. MUST 存在一個 lint，檢查證據標記，且其檢查邏輯 MUST 以純函式 `check_rule_evidence(diff_text) -> list[str]` 暴露（回傳失敗訊息清單，空清單代表通過），使負向案例可用合成 fixture 驗證而非只對真實檔案斷言。
 
-強制分層 MUST 為：（a）新增 `.claude/rules/NN-*.md` 檔，或 settings.json 新註冊的 hook 及其 script，缺證據標記 → MUST 以非零 exit 擋 commit；（b）既有 rule 檔新增 section 缺證據標記 → 初期 MUST 為 warn-only（pre-commit 設 `verbose: true` 使警告可見）。lint 接受的證據標記 MUST 包含結構化形式（`<!-- verified: probe -->` / `<!-- verified: incident PR#NNN -->`）與既有 prose 慣例（`Probed.` / `verified on <tool> <version>` / `(Source: PR #NNN`）擇一。
+該 lint MUST 在**兩個獨立執行點**可用，且兩者讀的 diff 來源不同：（i）pre-commit，讀 git-staged diff；（ii）CI，讀 PR / push 的 commit range（`--base <sha> --head <sha>`）。CI 執行點 MUST NOT 依賴 staged diff——CI runner 上 `git diff --cached` 恆為空，會使 gate「跑完、通過、什麼都沒檢查」。range 模式 MUST 使用三點 `base...head` 語意（`pull_request.base.sha` 是 base 分支 tip 而非 merge-base，兩點會把他人合入 base 的改動算進本 PR），且在 commit 無法解析時 MUST 以非零 exit 大聲失敗，MUST NOT 回傳空 diff。
+
+強制分層 MUST 為：（a）新增 `.claude/rules/NN-*.md` 檔，或 settings.json 新註冊的 hook 及其 script，缺證據標記 → MUST 以非零 exit 擋 commit；（b）既有 rule 檔新增 section 缺證據標記 → 初期 MUST 為 warn-only，且警告 MUST 在兩個執行點都可見（pre-commit 端設 `verbose: true`；CI 端 lint 直接寫 stderr，無需該設定）。lint 接受的證據標記 MUST 包含結構化形式（`<!-- verified: probe -->` / `<!-- verified: incident PR#NNN -->`）與既有 prose 慣例（`Probed.` / `verified on <tool> <version>` / `(Source: PR #NNN`）擇一。
 
 錨點策略 MUST 遵循既有教訓：若 lint 因錨點字串過時而找不到目標，MUST `[FAIL]` 而非靜默通過；錨點比對 MUST 以 UTF-8 讀原始位元組。
 

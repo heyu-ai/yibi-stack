@@ -47,7 +47,7 @@ wrapper 若注入會靜默覆寫該預設——呼叫端以為拿到跨 project 
 ~/.agents/bin/lessons search <KEYWORD> --last 10 --include-legacy
 ```
 
-可選 flag：`--type pitfall`、`--trusted-only`、`--cross-project`
+可選 flag：`--type pitfall`、`--trusted-only`、`--cross-project`、`--include-retired`、`--include-parked`
 
 ## Step 3 — 寫入新教訓
 
@@ -70,7 +70,13 @@ Agent 直接組 `lessons add` 指令：
 | confidence | 1-10 的整數 |
 | source | observed / user-stated / inferred / cross-model |
 
-選填：`--skill <skill-name>`、`--files <path>`（可重複）
+選填：`--skill <skill-name>`、`--files <path>`（可重複）、`--project <name>`、`--retro-pr <N>`、
+`--retrospective-id <id>`、`--skip-if-exists`、`--park`
+
+`--park` 用於 Evidence Gate 判為 Tier 3（主觀 / 單次 / 無可接受證據形式）的教訓：原子地以
+`confidence ≤ 4` + `tags` 含 `parked` 寫入，同 key 再現時 bump `recurrence-<n>`，`recurrence ≥ 2`
+解除 park 並回報 `reassess`。parked 教訓預設不進 `show` / `search` 與 tier 升降級。
+`--park` 與 `--skip-if-exists` 互斥。
 
 確認輸出的 id 和 trusted bit 後回報使用者。
 
@@ -98,7 +104,10 @@ tombstone（含完整 snapshot + `deleted_at`）保留 audit trail：
 - 寫入 `retired_at` / `retired_reason` / `superseded_by`
 - `--reason` 必填（「為何被推翻」常是下一條教訓）；重複 retire 會 fail loud（不覆寫原始退場記錄）
 - `show` / `search` 預設排除 retired 的 **typed** 教訓，加 `--include-retired` 才顯示（標 `[RETIRED]`，並顯示 `superseded_by`）
+- `show` / `search` 亦預設排除 **parked** 教訓（Evidence Gate Tier 3），加 `--include-parked` 才顯示。
+  兩者是獨立維度：`--include-retired` 不會連帶納入 parked，反之亦然
 - distill 聚合（`python -m tasks.mycelium distill run`）與 tier 升降級自動排除 retired，不再稀釋 cluster
+- tier 升降級同樣排除 parked：parked 教訓完全不進 promotion job 的 fetch，`access_count` 再高也不升 hot
 
 ## Step 4 — 呈現結果
 

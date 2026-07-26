@@ -86,9 +86,11 @@ Evidence Gate 的作者面規範 MUST 寫入 `.claude/rules/11-skill-authoring.m
 
 唯一的資料面接觸：Tier 3 park 使用既有 mycelium typed-lessons store 的 `parked` 狀態值與 recurrence 計數。實作時 MUST 先確認 mycelium schema 是否已有 `parked` 狀態與 recurrence 欄位；若無，加欄 MUST 向後相容（既有讀取者不認得新狀態時不得崩潰，見 rule 02 「Type Guard at External Data Boundaries」）。此為既有 schema 的相容擴充，非新資料模型。
 
+> **已定案（tasks.md 1.1 + PR #347 落地）**：schema **無** `parked` 狀態欄位、**無** per-lesson recurrence 欄位，最終**不加欄**——以既有 `confidence`（≤ 4）+ `tags`（含 `parked` / `recurrence-<n>`）編碼，零 migration。但這不代表「零讀取面影響」：`db.get_lessons` / `search_lessons` / `tier_service` 的預設查詢都加了 parked 排除，見 proposal.md Impact 段的修正。
+
 ## Implementation Contract
 
-**In scope**：`pr-retrospective` SKILL.md 的 Step 5.0 Evidence Gate 段與 Q5→action 映射的證據前置條件、rule 11 的三層證據標準段、`scripts/lint_rule_evidence.py` 純函式檢查器與其合成 fixture 測試、`.pre-commit-config.yaml` 的 hook 註冊、以及本 change 自我約束的 always-loaded 淨增檢查。
+**In scope**：`pr-retrospective` SKILL.md 的 Step 5.0 Evidence Gate 段與 Q5→action 映射的證據前置條件、rule 11 的三層證據標準段、`scripts/lint_rule_evidence.py` 純函式檢查器與其合成 fixture 測試、`.pre-commit-config.yaml` 的 hook 註冊、`.github/workflows/ci.yml` 的 range-mode CI wiring（`--base`/`--head` + `fetch-depth: 0`，PR #347 補上實作端）、`mycelium lessons add --park` 的 CLI/service/DB 執行介面（tasks.md 6.1）、以及本 change 自我約束的 always-loaded 淨增檢查。
 
 **Out of scope**：既有 rules corpus 內容、hot/cold tier、review-loop gate、golden-transcript harness、mycelium 回顧流程本身、issue #252 / #220。
 
@@ -108,7 +110,7 @@ Evidence Gate 的作者面規範 MUST 寫入 `.claude/rules/11-skill-authoring.m
 #### 失敗模式
 
 - 若 lint「新 section」偵測誤判既有 section 的行內編輯為新增 → 對既有內容誤 `[WARN]`。緩解：以 diff hunk 中的新 `##`/`###` heading 為錨點，非以行變更計數；實作時以合成 diff fixture 覆蓋「編輯既有 section」不觸發的案例。
-- 若 mycelium 無 `parked` 狀態且加欄破壞既有讀取 → typed-lessons 讀取崩潰。緩解：加欄向後相容 + rule 02 type guard；實作時實測既有讀取路徑。
+- ~~若 mycelium 無 `parked` 狀態且加欄破壞既有讀取 → typed-lessons 讀取崩潰。~~ **已關閉**：最終不加欄（tags 編碼），無 schema 風險。取而代之的殘餘風險是**預設結果集變窄**——`show` / `search` / tier promotion 預設排除 parked，未預期此行為的呼叫端會少拿到資料而非崩潰。緩解：`--include-parked` 顯式納入，並在 `commands/lessons.md` 與 delta spec 明載。
 - 若規範誤寫進全量載入 rule 檔 → 違反自我約束。緩解：自我約束檢查會 `[FAIL]`。
 
 ## Risks / Trade-offs
@@ -121,7 +123,7 @@ Evidence Gate 的作者面規範 MUST 寫入 `.claude/rules/11-skill-authoring.m
 
 ## Migration Plan
 
-SKILL.md 與 rule 11 的行為改動於合併後即對新的 `/pr-retro` 呼叫生效；lint 於 `.pre-commit-config.yaml` 註冊後對新 commit 生效。既有 rules corpus **不回溯**補標記（warn-only 起步正是為此）。
+SKILL.md 與 rule 11 的行為改動於合併後即對新的 `/pr-retro` 呼叫生效；lint 於 `.pre-commit-config.yaml` 註冊後對新 commit 生效，並**獨立地**於 `.github/workflows/ci.yml` 對每個 PR / push 的 commit range 生效（不依賴本機是否安裝 pre-commit hook）。既有 rules corpus **不回溯**補標記（warn-only 起步正是為此）。
 
 需注意本 repo 安裝機制陷阱：`pr-retrospective` 透過 symlink 散布，SKILL.md body 只跟本地 main checkout 一樣新。合併後應在**主 repo**（非 worktree）`git pull`，再驗證 `/pr-retro` 載入的是新版 body（CLAUDE.md 已記載「合併後 `/pr-retro` 載到舊版 skill body」前例）。
 
@@ -131,4 +133,5 @@ Rollback：`git revert` 該 commit 即回復舊行為；lint 移除註冊即停�
 
 - lint「新 section」偵測的精確 heuristic：以 diff hunk 新增行中出現的 `^#{2,3} ` heading 為準，或需解析整檔 section 邊界？傾向前者（純 diff 錨點，零檔案 I/O），實作時以「編輯既有 section 不誤觸發」的 fixture 定案。
 - 便宜／昂貴 probe 的界線如何在 runbook 表達為可操作判準：以「是否需要建立拋棄式 repo 或跨 process 呼叫 `claude -p`」為分界，或以預估秒數？傾向前者（結構判準比時間判準可複驗）。
-- mycelium typed-lessons 是否已有 `parked` 狀態與 recurrence 欄位，或需加欄——實作第一步先讀 schema 確認。
+- ~~mycelium typed-lessons 是否已有 `parked` 狀態與 recurrence 欄位，或需加欄——實作第一步先讀 schema 確認。~~
+  **已解答（tasks.md 1.1）**：兩者皆無，最終不加欄，以 `confidence ≤ 4` + `tags` 編碼，零 migration。

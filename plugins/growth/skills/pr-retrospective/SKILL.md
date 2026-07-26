@@ -275,7 +275,8 @@ Classifier → `--type` 對照表：
 | Cross-project preference | `preference` |
 | Investigation-driven discovery | `investigation` |
 
-**先呈現 derived `--type` 給 user 確認**，再執行 `lessons add`（避免分類偏差）：
+**先呈現 derived `--type` 給 user 確認**，再把 `lessons add` 呼叫**寫進** script（避免分類偏差）。
+此處仍然不執行——執行點是 Step 5.0 分級之後（見本步驟開頭的紅字）：
 
 > **下游蒸餾品質要求**（`/knowledge-distill` 依賴這些訊號聚合多 PR 教訓，不可壓平）：
 >
@@ -344,7 +345,8 @@ add_lesson \
 > 直接展開 `"${skill_flag[@]}"` 在 macOS 系統 bash 3.2 會炸 `unbound variable`（homebrew
 > bash 5.x 沒事）；`${arr[@]+...}` 是可攜寫法，陣列為空時整段安全消失。
 
-若呼叫失敗：停止並輸出完整 script 內容讓使用者手動重跑（`bash <path>`）。
+此步驟到此為止**只寫檔、不執行**——因此這裡沒有「呼叫失敗」的處理，失敗處理屬於實際執行點
+（Step 5.0 與 Promotion Gate 之後），各自有自己的停止規則。
 
 > **為什麼需要 Step 4b**：Step 4 的 retro write 把 lesson 存在 `retrospectives.lessons_learned` JSON 欄位。
 > `tasks/mycelium/tier_service.py` 的 `working→hot→cold→archival` promotion 只處理 typed `lessons` 表。
