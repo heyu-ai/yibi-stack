@@ -87,6 +87,7 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
         )
         if errors:
             emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
+            raise SystemExit(1)
         return
 
     if dry_run:
@@ -172,6 +173,7 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
     click.echo(f"      Digest: {digest_path}")
     if errors:
         emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
+        raise SystemExit(1)
 
 
 @cli.command()

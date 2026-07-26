@@ -130,7 +130,10 @@ class TestFailureSignal:
         assert "測試故障" in digest.read_text(encoding="utf-8")
 
     def test_all_clusters_fail_emits_marker_and_fail_digest(self, tmp_path: Path) -> None:
-        """所有 eligible clusters 草擬失敗仍留下排程可見失敗訊號。"""
+        """所有 eligible clusters 草擬失敗時，除了留下 marker/digest，行程本身也要以非零 exit
+        code 結束——scheduler runner 的 status 完全依賴 subprocess exit code 判斷
+        success/failed（見 tasks/scheduler/runner.py），沒有非零 exit code，失敗永遠不會被
+        排程層看見，只能靠人主動翻 digest 才發現。"""
         digest_dir = tmp_path / "digests"
         config = NightlyAgentConfig(
             digest_dir=str(digest_dir),
@@ -158,7 +161,7 @@ class TestFailureSignal:
         ):
             result = CliRunner().invoke(cli, ["run"])
 
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "[FAIL]" in (tmp_path / "LAST_FAILURE").read_text(encoding="utf-8")
         digest = next(digest_dir.glob("digest-*.md"))
         assert "[FAIL]" in digest.read_text(encoding="utf-8")
