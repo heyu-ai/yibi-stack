@@ -59,3 +59,19 @@
   `before`/`sha`，並加 `fetch-depth: 0` 使 range diff 可解析（shallow checkout 預設只有單一
   commit，range diff 會失敗）。驗證：
   `uv run pytest scripts/tests/test_retro_evidence_gate_integration.py -q`。
+
+  **6.2 修正（本 PR 的 CI 紅燈）：range mode 當時只做了呼叫端。** `scripts/lint_rule_evidence.py`
+  原本只吃 positional diff 檔，`--base` 被當成檔名 ->
+  `[FAIL] 無法讀取 diff 檔：[Errno 2] No such file or directory: '--base'`，exit 2，
+  後面每個 CI step 全 skipped。當時的驗證測試只斷言「ci.yml 這個**字串檔**裡有 `--base`」，
+  沒有任何測試用這組 flag 真的呼叫過腳本，所以本機全綠、CI 必紅——屬 CLAUDE.md
+  「綠燈來自問錯問題的探測」家族的**介面兩端各自綠燈**軸。補上：
+  - 實作端：`_parse_args()`（手寫，避免 argparse 的 `SystemExit` 逃出 `main()` 的
+    回傳-exit-code 契約）+ `_range_diff()`（**三點** `base...head`；`pull_request.base.sha`
+    是 base 分支 tip 不是 merge-base，兩點會把別人合進 base 的改動算進本 PR）。
+    解不開的 commit -> exit 2 大聲失敗，不得回空 diff 讓 gate 空洞通過。
+  - 測試端：`scripts/tests/test_lint_rule_evidence.py` 以真 git repo 跑 range，含正向對照
+    （缺證據的新 rule 檔在 range mode 下必回 exit 1）、三點語意鎖、四條 exit-2 契約；
+    `scripts/tests/test_retro_evidence_gate_integration.py` 加 drift guard——從 ci.yml 抽出
+    實際傳遞的 flag 餵給 `_parse_args`，呼叫端／實作端任一改名即紅（已 mutation 驗證：
+    把 `_parse_args` 認得的 flag 改名後該 guard 轉紅）。

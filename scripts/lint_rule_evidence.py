@@ -21,13 +21,17 @@ fenced code block ```...``` 內的文字，避免把「範例說明」誤判為�
 失敗路徑，「新檔缺標記必回非空」「錨點缺失不空洞通過」這些負向案例需要純函式入口。
 
 用法：
-  python3 scripts/lint_rule_evidence.py            # 讀 git staged diff
-  python3 scripts/lint_rule_evidence.py <diff-file>  # 讀檔（測試 / 手動）
+  python3 scripts/lint_rule_evidence.py                      # 讀 git staged diff（pre-commit）
+  python3 scripts/lint_rule_evidence.py --base <A> --head <B>  # 讀 commit range（CI）
+  python3 scripts/lint_rule_evidence.py <diff-file>            # 讀檔（測試 / 手動）
+
+三種模式互斥。CI 用 range 模式是因為 CI 上沒有 staged index——`git diff --cached` 在
+runner 上永遠是空的，gate 會「跑完、通過、什麼都沒檢查」，正是本 repo 最常見的假綠形狀。
 
 Exit code:
   0 -> 無 error（可能有 warn，已印到 stderr）
   1 -> 有 error（新檔 / 新 hook / 新註冊 hook 缺證據標記）
-  2 -> 設定錯誤（git 不可用，或無法執行）
+  2 -> 設定錯誤（引數矛盾、git 不可用、commit 解不開，或無法執行）
 """
 
 import re
@@ -272,21 +276,88 @@ def warn_rule_evidence(diff_text: str) -> list[str]:
     return warns
 
 
-def _staged_diff() -> str:
-    cmd = ["git", "-C", str(REPO_ROOT), "diff", "--cached", "--unified=0"]
+def _run_git_diff(args: list[str], label: str) -> str:
+    cmd = ["git", "-C", str(REPO_ROOT), "diff", "--unified=0", *args]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)  # nosec B603
     except (OSError, subprocess.SubprocessError) as e:
-        raise RuntimeError(f"git diff --cached 無法執行：{e}") from e
+        raise RuntimeError(f"{label} 無法執行：{e}") from e
     if proc.returncode != 0:
-        raise RuntimeError(f"git diff --cached 失敗：{proc.stderr.strip()}")
+        raise RuntimeError(f"{label} 失敗：{proc.stderr.strip()}")
     return proc.stdout
 
 
+def _staged_diff() -> str:
+    return _run_git_diff(["--cached"], "git diff --cached")
+
+
+def _range_diff(base: str, head: str) -> str:
+    """`base...head`（**三點**）的 unified diff。
+
+    三點而非兩點是刻意的：GitHub 的 `pull_request.base.sha` 是 base 分支在事件當下的
+    tip，不是 merge-base。兩點 `git diff base head` 比對的是兩棵樹，於是「fork 之後別人
+    合進 base、本 PR 沒有」的檔案也會出現在 diff 裡（方向相反，呈現為刪除），把別人的
+    改動算到本 PR 頭上。三點只看 head 自 merge-base 以來新增了什麼，正是 PR review 的語意。
+
+    解不開的 commit（shallow checkout 缺物件是 CI 上的真實情境——workflow 需要
+    `fetch-depth: 0`）在此轉成 RuntimeError，由 `main()` 以 exit 2 大聲失敗；不可回空字串，
+    否則 gate 會在根本沒讀到 diff 的情況下報告通過。
+    """
+    return _run_git_diff([f"{base}...{head}", "--"], f"git diff {base}...{head}")
+
+
+def _parse_args(argv: list[str]) -> tuple[str | None, str | None, str | None]:
+    """回傳 `(base, head, diff_file)`；引數矛盾時 raise ValueError（由 `main()` 轉 exit 2）。
+
+    手寫而非 argparse：argparse 的錯誤路徑是 `SystemExit`，`main()` 的契約是**回傳**
+    exit code（測試直接呼叫 `main()` 斷言回傳值），混用會讓 exit 2 這條路徑逃出契約之外。
+    """
+    base: str | None = None
+    head: str | None = None
+    positional: list[str] = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in ("--base", "--head"):
+            # 先驗邊界再取值：漏傳值時要給 clean 的 [FAIL]，不是 IndexError stacktrace。
+            if i + 1 >= len(argv):
+                raise ValueError(f"{arg} 後面需要一個 commit-ish 引數")
+            if arg == "--base":
+                base = argv[i + 1]
+            else:
+                head = argv[i + 1]
+            i += 2
+            continue
+        if arg.startswith("-"):
+            raise ValueError(f"未知選項：{arg}")
+        positional.append(arg)
+        i += 1
+
+    if (base is None) != (head is None):
+        raise ValueError("--base 與 --head 必須成對出現（只給一半無法界定 range）")
+    if base is not None and positional:
+        raise ValueError("range 模式（--base/--head）與 diff 檔路徑不可同時指定")
+    if len(positional) > 1:
+        raise ValueError(f"最多只能指定一個 diff 檔路徑，收到 {len(positional)} 個")
+    return base, head, (positional[0] if positional else None)
+
+
 def main(argv: list[str]) -> int:
-    if argv:
+    try:
+        base, head, diff_file = _parse_args(argv)
+    except ValueError as e:
+        print(f"[FAIL] 引數錯誤：{e}", file=sys.stderr)
+        return 2
+
+    if base is not None and head is not None:
         try:
-            diff_text = Path(argv[0]).read_text(encoding="utf-8")
+            diff_text = _range_diff(base, head)
+        except RuntimeError as e:
+            print(f"[FAIL] {e}", file=sys.stderr)
+            return 2
+    elif diff_file is not None:
+        try:
+            diff_text = Path(diff_file).read_text(encoding="utf-8")
         except OSError as e:
             print(f"[FAIL] 無法讀取 diff 檔：{e}", file=sys.stderr)
             return 2
