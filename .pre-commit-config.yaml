@@ -61,7 +61,13 @@ repos:
         entry: python3 scripts/lint_skill_bash.py
         language: system
         pass_filenames: false
-        files: ^(commands|skills|plugins|\.claude/commands)/.*\.md$
+        # always_run，不用 files: —— pre-commit 的 staged-file 清單用
+        # --diff-filter=ACMRTUXB（不含 D），deletion-only commit 不會匹配任何 files:
+        # pattern，讓這個 hook 完全不觸發。而 `git rm plugins/<pack>/commands/<cmd>.md`
+        # 漏改頂層 symlink，正是本 hook 要擋的 dangling-symlink 失誤——deletion-only
+        # 形狀恰好是最需要它的時候。script 本身 pass_filenames: false，已經是 repo-wide
+        # 掃描，files: 在這裡只買到「跳過無關 commit 的速度」，代價是漏掉 deletion。
+        always_run: true
 
       - id: lint-skill-scope
         name: lint-skill-scope
@@ -69,6 +75,17 @@ repos:
         language: system
         pass_filenames: false
         files: ^(skills/.*/SKILL\.md|\.claude-plugin/marketplace\.json)$
+
+      - id: lint-plugin-layout
+        name: lint-plugin-layout
+        entry: python3 scripts/lint_plugin_layout.py
+        language: system
+        pass_filenames: false
+        # always_run，理由同 lint-skill-bash：pre-commit 的 --diff-filter=ACMRTUXB
+        # 不含 D，deletion-only commit（如 `git rm -r plugins/<pack>`）不會匹配任何
+        # files: pattern，讓這個 hook 完全不觸發——而那正是本 hook 要擋的「搬動 / 刪除
+        # plugin 端而漏改頂層」失誤最常見的形狀。script 本身已是 repo-wide 掃描。
+        always_run: true
 
       - id: lint-rule-frontmatter
         name: lint-rule-frontmatter
