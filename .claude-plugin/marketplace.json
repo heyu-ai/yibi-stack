@@ -34,13 +34,13 @@
       "source": "./plugins/growth"
     },
     {
-      "name": "pr-flow",
+      "name": "dev-cycle",
       "description": "Full PR workflow: review cycles, retrospective, bump-version, claude-md-prune, and PR slash commands for Claude Code agents.",
       "author": {
         "name": "Howie Yu"
       },
       "category": "development",
-      "source": "./plugins/pr-flow"
+      "source": "./plugins/dev-cycle"
     },
     {
       "name": "3rd-tools",

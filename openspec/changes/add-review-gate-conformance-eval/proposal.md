@@ -1,8 +1,8 @@
 ## Why
 
 `/pr-cycle-deep` 的 Evidence gate（決定一筆 finding 是 blocking 還是 deferred）不是程式，是
-`plugins/pr-flow/skills/pr-cycle-deep/SKILL.md` 裡的散文，由 lead agent 在執行期閱讀後施行。
-既有測試守不到它：`plugins/pr-flow/skills/pr-cycle-deep/scripts/tests/test_convergence_contract.py`
+`plugins/dev-cycle/skills/pr-cycle-deep/SKILL.md` 裡的散文，由 lead agent 在執行期閱讀後施行。
+既有測試守不到它：`plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests/test_convergence_contract.py`
 只斷言 runbook 裡的錨點字串在場且承重，兩支 validator 腳本分別處理 agy 輸出的靜默失敗與 TC
 覆蓋率，都不碰 disposition 判定。
 

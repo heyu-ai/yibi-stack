@@ -24,10 +24,10 @@ description: PR 生命週期自動化 orchestrator（快速版）：偵測 open 
 source checkout 定位，每個候選都直接檢查 script 可讀）：
 
 ```bash
-PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('pr-flow@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
+PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('dev-cycle@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
 PCF_ROOT=""
-if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="$PR_FLOW_CACHED/skills/pr-cycle-fast"; elif [ -r "$HOME/.claude/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="$HOME/.claude/skills/pr-cycle-fast"; elif [ -r "plugins/pr-flow/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="plugins/pr-flow/skills/pr-cycle-fast"; fi
-if ! test -n "$PCF_ROOT"; then echo "[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh；請執行 claude plugin install pr-flow@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
+if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="$PR_FLOW_CACHED/skills/pr-cycle-fast"; elif [ -r "$HOME/.claude/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="$HOME/.claude/skills/pr-cycle-fast"; elif [ -r "plugins/dev-cycle/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="plugins/dev-cycle/skills/pr-cycle-fast"; fi
+if ! test -n "$PCF_ROOT"; then echo "[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh；請執行 claude plugin install dev-cycle@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
 ```
 
 確認 installed CLI **具備本 skill 實際會呼叫的介面**——不是只確認它存在：
@@ -290,7 +290,7 @@ FAILED（terminal）
 | `[FAIL] 缺少 pr-orchestrator`（exit 1） | 執行 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"` |
 | `[FAIL] 已安裝的 pr-orchestrator 缺少 --repo-root`（exit 2） | 版本過舊。執行 `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"`；帶 `--force` 是因為它在「已安裝」與「未安裝」兩種狀態下都成立，不需要先判斷目前狀態 |
 | `[FAIL] pr-orchestrator <sub> --help 無法執行`（exit 2） | 安裝損毀，非版本問題。同樣以 `--force` 重裝；若仍失敗，先 `uv tool uninstall yibi-stack` 再安裝 |
-| `[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh` | 執行 `claude plugin install pr-flow@yibi-stack`，或在 yibi-stack checkout 執行 `make install` |
+| `[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh` | 執行 `claude plugin install dev-cycle@yibi-stack`，或在 yibi-stack checkout 執行 `make install` |
 | `分支沒有對應的 open PR` | 先 `gh pr create` 建立 PR |
 | `多個 PR 對應同分支` | 加 `--pr <n>` 明確指定 |
 | State 停在 BLOCKED | 看 blockers 訊息，解除後跑 `/pr-cycle-fast resume` |

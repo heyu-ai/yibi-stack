@@ -33,7 +33,7 @@ yibi-stack/
 ├── plugins/                         → Claude Code plugin packs（可透過 claude plugin install 安裝）
 │   ├── bash-hygiene/                → Bash 衛生工具（AP1/AP2 lint + protect-push hook）
 │   ├── growth/                      → 成長工具（mycelium、scheduler skills）
-│   ├── pr-flow/                     → PR 流程工具（review cycle、mob review）
+│   ├── dev-cycle/                   → PR 流程工具（review cycle、mob review）
 │   ├── sdd/                         → Subagent Driven Development 方法論
 │   ├── tdd/                         → TDD 方法論（Kent Beck style）
 │   ├── util/                        → 通用工具（port manager、handover）

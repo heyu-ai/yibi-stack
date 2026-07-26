@@ -54,7 +54,7 @@ plugins/          Claude Code plugin packs (installable via claude plugin instal
   bash-hygiene/   PreToolUse hook enforcement, shell hygiene rules, anti-pattern guide
   sdd/            Spec-Driven Development: Spectra + OpenSpec methodology, qa-test-design
   growth/         Session continuity: mycelium, learn, handover/newjob commands
-  pr-flow/        PR workflow: review cycles, retrospective, bump-version, pr commands
+  dev-cycle/      PR workflow: review cycles, retrospective, bump-version, pr commands
   3rd-tools/      Third-party AI: Codex, Antigravity CLI (agy/Gemini), model verification
   tdd/            Test-Driven Development: Kent Beck TDD, Flutter TDD, CI triage
   util/           Utility: local port manager, debug command
@@ -73,7 +73,7 @@ scripts/          CI and lint tooling
 
 ### Plugins vs Skills — what's the difference?
 
-**Plugins** (`plugins/bash-hygiene`, `plugins/sdd`, `plugins/growth`, `plugins/pr-flow`, `plugins/3rd-tools`, `plugins/tdd`, `plugins/util`, `plugins/writing`)
+**Plugins** (`plugins/bash-hygiene`, `plugins/sdd`, `plugins/growth`, `plugins/dev-cycle`, `plugins/3rd-tools`, `plugins/tdd`, `plugins/util`, `plugins/writing`)
 are proper Claude Code plugins with `package.json` manifests. They install hooks, rules, and bundled skills. Installable via `claude plugin install` without cloning.
 `plugins/harness` is a documentation placeholder only (no `package.json`) — its `harness-eval` skill installs via `make install-one SKILL=harness-eval` (see Plugins table).
 
@@ -93,7 +93,7 @@ claude plugin marketplace add heyu-ai/yibi-stack
 claude plugin install bash-hygiene@yibi-stack
 claude plugin install sdd@yibi-stack
 claude plugin install growth@yibi-stack
-claude plugin install pr-flow@yibi-stack
+claude plugin install dev-cycle@yibi-stack
 claude plugin install tdd@yibi-stack
 claude plugin install util@yibi-stack
 claude plugin install writing@yibi-stack
@@ -122,7 +122,7 @@ This path is separate from the two user tracks above.
 ```bash
 # 1. Install plugins (pre-execution hooks + rules)
 claude plugin marketplace add heyu-ai/yibi-stack
-claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack util@yibi-stack writing@yibi-stack
+claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack dev-cycle@yibi-stack tdd@yibi-stack util@yibi-stack writing@yibi-stack
 
 # 2. Clone and install skills + hooks + scheduler
 git clone https://github.com/heyu-ai/yibi-stack
@@ -167,7 +167,7 @@ See [`skills/README.md`](skills/README.md) for the full index.
 | `bash-hygiene` | `claude plugin install bash-hygiene@yibi-stack` | Pre-execution bash anti-pattern detection with auto-fix guidance |
 | `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec spec-amplifier methodology + qa-test-design |
 | `growth` | `claude plugin install growth@yibi-stack` | Session continuity: mycelium, learn, handover/newjob commands |
-| `pr-flow` | `claude plugin install pr-flow@yibi-stack` | Full PR workflow: 5 skills + 6 slash commands |
+| `dev-cycle` | `claude plugin install dev-cycle@yibi-stack` | Full PR workflow: 5 skills + 6 slash commands |
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex, Antigravity CLI (agy/Gemini), model verification |
 | `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD, Flutter TDD, CI triage |
 | `util` | `claude plugin install util@yibi-stack` | Local port manager + debug command |
@@ -220,7 +220,7 @@ plugins/          Claude Code plugin packs（可透過 claude plugin install 安
   bash-hygiene/   PreToolUse hook 防線、shell 衛生規則、反模式修法指南
   sdd/            Spec-Driven Development：Spectra + OpenSpec 方法論、qa-test-design
   growth/         跨 session 連續性：mycelium、learn、handover/newjob commands
-  pr-flow/        PR 全流程：review cycles、retrospective、bump-version、PR commands
+  dev-cycle/      PR 全流程：review cycles、retrospective、bump-version、PR commands
   3rd-tools/      第三方 AI：Codex、Antigravity CLI（agy/Gemini）、模型驗證
   tdd/            測試驅動開發：Kent Beck TDD、Flutter TDD、CI 診斷
   util/           工具：local port manager、debug command
@@ -239,7 +239,7 @@ scripts/          CI 與 lint 工具腳本
 
 ### Plugin 與 Skill 的差別？
 
-**Plugin**（`plugins/bash-hygiene`、`plugins/sdd`、`plugins/growth`、`plugins/pr-flow`、`plugins/3rd-tools`、`plugins/tdd`、`plugins/util`、`plugins/writing`）
+**Plugin**（`plugins/bash-hygiene`、`plugins/sdd`、`plugins/growth`、`plugins/dev-cycle`、`plugins/3rd-tools`、`plugins/tdd`、`plugins/util`、`plugins/writing`）
 是有 `package.json` manifest 的正式 Claude Code plugin，會安裝 hook、rules 和隨附 skill，不需 clone 即可用 `claude plugin install` 安裝。
 `plugins/harness` 是純文件容器（無 `package.json`）——其 `harness-eval` skill 透過 `make install-one SKILL=harness-eval` 安裝（見下方 Plugins 表格）。
 
@@ -258,7 +258,7 @@ claude plugin marketplace add heyu-ai/yibi-stack
 claude plugin install bash-hygiene@yibi-stack
 claude plugin install sdd@yibi-stack
 claude plugin install growth@yibi-stack
-claude plugin install pr-flow@yibi-stack
+claude plugin install dev-cycle@yibi-stack
 claude plugin install tdd@yibi-stack
 claude plugin install util@yibi-stack
 claude plugin install writing@yibi-stack
@@ -287,7 +287,7 @@ uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"
 ```bash
 # 1. 安裝 plugin（pre-execution hook + 規則）
 claude plugin marketplace add heyu-ai/yibi-stack
-claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack pr-flow@yibi-stack tdd@yibi-stack util@yibi-stack writing@yibi-stack
+claude plugin install bash-hygiene@yibi-stack sdd@yibi-stack growth@yibi-stack dev-cycle@yibi-stack tdd@yibi-stack util@yibi-stack writing@yibi-stack
 
 # 2. Clone 並安裝 skill + hook + scheduler
 git clone https://github.com/heyu-ai/yibi-stack
@@ -332,7 +332,7 @@ make status-own
 | `bash-hygiene` | `claude plugin install bash-hygiene@yibi-stack` | 執行前 bash 反模式偵測，附自動修法指引 |
 | `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec 規格展開 + qa-test-design 測試設計 |
 | `growth` | `claude plugin install growth@yibi-stack` | 跨 session 記憶：mycelium、learn、handover/newjob |
-| `pr-flow` | `claude plugin install pr-flow@yibi-stack` | 完整 PR 流程：5 個 skill + 6 個 slash command |
+| `dev-cycle` | `claude plugin install dev-cycle@yibi-stack` | 完整 PR 流程：5 個 skill + 6 個 slash command |
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex、Antigravity CLI（agy/Gemini）、模型驗證 |
 | `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD、Flutter TDD、CI 診斷 |
 | `util` | `claude plugin install util@yibi-stack` | 本機 port 管理 + debug command |

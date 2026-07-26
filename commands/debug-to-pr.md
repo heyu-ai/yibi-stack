@@ -1,1 +1,1 @@
-../plugins/pr-flow/commands/debug-to-pr.md
+../plugins/dev-cycle/commands/debug-to-pr.md

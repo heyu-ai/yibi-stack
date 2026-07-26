@@ -43,10 +43,10 @@ No such file——bootstrap 一行都跑不到（PR #215 已在 pr-retrospective
 import `tasks/mycelium`：
 
 ```bash
-PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('pr-flow@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
+PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('dev-cycle@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
 CL_ROOT=""
-if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$PR_FLOW_CACHED/skills/pr-control-log"; elif [ -r "$HOME/.claude/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$HOME/.claude/skills/pr-control-log"; elif [ -r "plugins/pr-flow/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="plugins/pr-flow/skills/pr-control-log"; fi
-if ! test -n "$CL_ROOT"; then echo "[FAIL] 讀不到 pr-control-log bootstrap.sh；請執行 claude plugin install pr-flow@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
+if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$PR_FLOW_CACHED/skills/pr-control-log"; elif [ -r "$HOME/.claude/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$HOME/.claude/skills/pr-control-log"; elif [ -r "plugins/dev-cycle/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="plugins/dev-cycle/skills/pr-control-log"; fi
+if ! test -n "$CL_ROOT"; then echo "[FAIL] 讀不到 pr-control-log bootstrap.sh；請執行 claude plugin install dev-cycle@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
 if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2; exit 1; fi
 ```
 
@@ -232,7 +232,7 @@ mycelium control-log advice --since-days 90
 
 | 問題 | 解決方式 |
 |------|---------|
-| `[FAIL] 讀不到 pr-control-log bootstrap.sh` | 執行 `claude plugin install pr-flow@yibi-stack`，或在 yibi-stack checkout 執行 `make install` |
+| `[FAIL] 讀不到 pr-control-log bootstrap.sh` | 執行 `claude plugin install dev-cycle@yibi-stack`，或在 yibi-stack checkout 執行 `make install` |
 | detect-pr.sh `[FAIL] no PR detected` | 傳入 `--pr <n>` 引數，或確認在有 PR 的分支上 |
 | `control-log add` 失敗 | 確認 installed CLI 可用：`mycelium --help` |
 | artifact 路徑不存在 | `.runtime/control-logs/` 不存在時 agent 應先 `mkdir -p` 建立 |

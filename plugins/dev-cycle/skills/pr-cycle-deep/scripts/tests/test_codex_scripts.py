@@ -151,7 +151,7 @@ class TestCodexGuardContract:
         """CDXS-DT-010: both review stages pin -m gpt-5.6-sol.
 
         Without -m, codex inherits the reviewer's ~/.codex/config.toml, so which model
-        reviews the PR silently depends on local config -- a skill shipped via the pr-flow
+        reviews the PR silently depends on local config -- a skill shipped via the dev-cycle
         plugin must not vary that way. Dropping the flag produces no error, just a quieter
         model, which is exactly the class of regression these contract tests exist to catch.
         """

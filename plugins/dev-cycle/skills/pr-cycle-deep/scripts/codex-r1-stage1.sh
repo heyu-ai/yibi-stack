@@ -81,7 +81,7 @@ trap - ERR
 # go to STDERR. -s read-only keeps codex from mutating the tree.
 #
 # -m pins the model rather than inheriting ~/.codex/config.toml: this skill ships via the
-# pr-flow plugin, so a reviewer's local config must not silently decide which model reviews
+# dev-cycle plugin, so a reviewer's local config must not silently decide which model reviews
 # the PR. gpt-5.6-sol is the frontier tier (models_cache.json priority 1, "Latest frontier
 # agentic coding model"); requires codex-cli >= 0.144 -- older builds fail the request with
 # "requires a newer version of Codex".

@@ -1,4 +1,4 @@
-"""Tests for plugins/pr-flow/skills/pr-cycle-deep/scripts/agy_validate.py.
+"""Tests for plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy_validate.py.
 
 Covers the issue #153 fail-loud validation + brain-artifact rescue layer.
 """

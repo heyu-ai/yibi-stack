@@ -1,1 +1,1 @@
-../plugins/pr-flow/commands/pr-retro.md
+../plugins/dev-cycle/commands/pr-retro.md

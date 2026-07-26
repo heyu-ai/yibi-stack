@@ -5,7 +5,7 @@
 > Test convention: host `.claude/rules/09-test-conventions.md`（MODULE 前綴 `PRC`）。`SMK` 冒煙測試前綴
 > **非** rule 09 的 category（DT/ST/EG/CV/VL），為沿用前身 `bound-review-loop-with-evidence-gate`
 > 的本地 2-part 擴充（`SMK-00N`），僅用於「對真實檔案跑一次」的冒煙層，刻意保留以與前身對齊。
-> Mechanical checker: `plugins/pr-flow/skills/pr-cycle-deep/scripts/tests/test_convergence_contract.py`
+> Mechanical checker: `plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests/test_convergence_contract.py`
 
 ---
 

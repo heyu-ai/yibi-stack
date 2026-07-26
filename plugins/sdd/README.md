@@ -5,8 +5,8 @@ figma-design-sync (Figma design context extraction + incremental sync), qa-test-
 and OpenSpec change-management workflow.
 
 > **This plugin does NOT bundle the spectra CLI. Install Spectra.app separately (see Prerequisites).**
-> **v0.2 Upgrade note:** PR review skills (`pr-review-cycle`, `pr-cycle-fast`, `pr-cycle-deep`) have moved to `pr-flow@yibi-stack`. If upgrading from `yibi-spectra`, run:
-> `claude plugin uninstall yibi-spectra@yibi-stack && claude plugin install sdd@yibi-stack pr-flow@yibi-stack`
+> **v0.2 Upgrade note:** PR review skills (`pr-review-cycle`, `pr-cycle-fast`, `pr-cycle-deep`) have moved to `dev-cycle@yibi-stack`. If upgrading from `yibi-spectra`, run:
+> `claude plugin uninstall yibi-spectra@yibi-stack && claude plugin install sdd@yibi-stack dev-cycle@yibi-stack`
 
 ## Prerequisites
 

@@ -1,1 +1,1 @@
-../plugins/pr-flow/commands/clean-wt.md
+../plugins/dev-cycle/commands/clean-wt.md

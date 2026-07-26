@@ -25,8 +25,8 @@
 
 - Affected specs: 新增 `pr-review-contract`
 - Affected code:
-  - Modified: `plugins/pr-flow/skills/pr-cycle-deep/SKILL.md`
-  - Modified: `plugins/pr-flow/skills/pr-cycle-deep/scripts/tests/test_convergence_contract.py`
+  - Modified: `plugins/dev-cycle/skills/pr-cycle-deep/SKILL.md`
+  - Modified: `plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests/test_convergence_contract.py`
   - New: `openspec/changes/add-pr-review-contract/specs/pr-review-contract/spec.md`
   - New: `openspec/changes/add-pr-review-contract/design.md`
   - New: `openspec/changes/add-pr-review-contract/tasks.md`

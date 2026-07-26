@@ -265,7 +265,7 @@ switch to `/pr-cycle-deep` — that skill owns the fix → re-review → merge l
 
 | Issue | How to handle |
 | --- | --- |
-| Engine scripts missing (`~/.agents/skills/pr-cycle-deep/scripts/...` not found) | `/pr-cycle-deep` is not installed. Run `make install` in the yibi-stack repo, or `claude plugin install pr-flow@yibi-stack`. Verify: `ls ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh` returns the path |
+| Engine scripts missing (`~/.agents/skills/pr-cycle-deep/scripts/...` not found) | `/pr-cycle-deep` is not installed. Run `make install` in the yibi-stack repo, or `claude plugin install dev-cycle@yibi-stack`. Verify: `ls ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh` returns the path |
 | `git status --short` shows uncommitted changes | Do not `gh pr checkout` over a dirty tree; commit/stash, or re-run inside a fresh worktree |
 | `gh pr checkout` fails with local branch name collision | The PR's head branch name already exists locally; `gh pr checkout {{pr_number}} -b mob-review-{{pr_number}}` to use an alternate local name |
 | `setup-review-dir.sh` fails with `[FAIL] git fetch <remote> ... 失敗` | `{{base_branch}}` doesn't exist on the selected base remote (`upstream` if that remote exists, else `origin`); a typo, or a local-only/unpushed branch (the script fetches from the remote and no longer falls back to a local ref). Confirm the branch name and that it's pushed to that remote, then re-run |

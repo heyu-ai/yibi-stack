@@ -99,11 +99,11 @@ finding 格式在既有 `Evidence:` 前後加入 `Contract mapping:`。Accepted 
 
 ### Acceptance and verification
 
-- `uv run pytest plugins/pr-flow/skills/pr-cycle-deep/scripts/tests/test_convergence_contract.py -q` 通過且收集到測試。
+- `uv run pytest plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests/test_convergence_contract.py -q` 通過且收集到測試。
 - checker 對真實 SKILL.md 回傳空 failure list。
 - 移除任一 Review Contract heading、conditional R2 anchor 或 blocking-set LGTM anchor 時，對應 mutation test 轉紅。
 - 插入「全員 LGTM（含 actionable NIT）」或等價既有 unanimous gate wording 時，forbidden test 轉紅。
-- `wc -l plugins/pr-flow/skills/pr-cycle-deep/SKILL.md` 結果不超過 1220。
+- `wc -l plugins/dev-cycle/skills/pr-cycle-deep/SKILL.md` 結果不超過 1220。
 - `spectra analyze add-pr-review-contract` 與 `spectra validate add-pr-review-contract` 無 Critical/Warning。
 
 ### Scope boundaries

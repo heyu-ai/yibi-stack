@@ -1,4 +1,4 @@
-"""Tests for plugins/pr-flow/skills/pr-cycle-deep/scripts/amplifier-verify.py.
+"""Tests for plugins/dev-cycle/skills/pr-cycle-deep/scripts/amplifier-verify.py.
 
 Locks the TC-ID parser so it accepts BOTH testplan conventions:
   3-part  PREFIX-CATEGORY-NUMBER  (YIBI-NFC-001, FBAUTH-UNIT-01)

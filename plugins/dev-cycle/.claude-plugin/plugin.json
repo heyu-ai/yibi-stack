@@ -1,5 +1,5 @@
 {
-  "name": "pr-flow",
+  "name": "dev-cycle",
   "description": "Full PR workflow for Claude Code agents: review cycles (solo/mob/codex), retrospective, bump-version, claude-md-prune, and PR slash commands.",
   "version": "1.15.2",
   "author": {

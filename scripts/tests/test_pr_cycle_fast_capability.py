@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-_SKILL_DIR = _REPO_ROOT / "plugins" / "pr-flow" / "skills" / "pr-cycle-fast"
+_SKILL_DIR = _REPO_ROOT / "plugins" / "dev-cycle" / "skills" / "pr-cycle-fast"
 _SCRIPT = _SKILL_DIR / "scripts" / "check-cli-capability.sh"
 _SKILL_MD = _SKILL_DIR / "SKILL.md"
 

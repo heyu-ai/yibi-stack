@@ -1,4 +1,4 @@
-# pr-flow
+# dev-cycle
 
 Claude Code plugin for the full PR lifecycle: from writing to review, merge, and retrospective.
 
@@ -9,8 +9,11 @@ Claude Code plugin for the full PR lifecycle: from writing to review, merge, and
 claude plugin marketplace add howie/yibi-stack
 
 # Install plugin
-claude plugin install pr-flow@yibi-stack
+claude plugin install dev-cycle@yibi-stack
 ```
+
+> **Upgrade note:** `pr-flow@yibi-stack` has been renamed to `dev-cycle@yibi-stack`. Run
+> `claude plugin uninstall pr-flow@yibi-stack && claude plugin install dev-cycle@yibi-stack`.
 
 ## What you get
 

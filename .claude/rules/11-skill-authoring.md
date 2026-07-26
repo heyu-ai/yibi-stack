@@ -321,7 +321,7 @@ blocked: it cannot be a worktree, so blocking it would be a pure regression.
 `scripts/resolve-skill-repo` is the single implementation — do not inline a copy of its
 logic into a SKILL.md. If you need this in a script that already lives in the repo, that
 script can self-locate directly instead of shelling out (see
-`plugins/pr-flow/skills/pr-control-log/scripts/bootstrap.sh` for the in-script form).
+`plugins/dev-cycle/skills/pr-control-log/scripts/bootstrap.sh` for the in-script form).
 
 **Gotcha — `pwd -P` does not resolve a *file* symlink.** The in-script form
 `SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)` only works when the symlink is
@@ -1128,14 +1128,14 @@ Fix: `methodology.md` was updated to use "Scenario Slug"; the sync instruction w
 **Preflight: confirm the two paths are not a symlink before applying this doctrine.** This
 doctrine applies only to two **genuinely duplicated, independently-maintained** files. Before
 labelling one an owner and the other a summary, run `ls -la` (or `test -L`) on both paths: if one
-is a symlink to the other (e.g. `skills/pr-retrospective` → `plugins/pr-flow/skills/pr-retrospective`),
+is a symlink to the other (e.g. `skills/pr-retrospective` → `plugins/dev-cycle/skills/pr-retrospective`),
 there is a **single physical file** on disk — editing either path edits the same bytes, so both
 stay in sync automatically and an owner/summary annotation is redundant and misleading. This is
 "single source of truth, two access paths," not dual-source ownership.
 
 **Real incident (PR #188)**: issue #185 instructed the author to "sync both versions" of the
 pr-retrospective SKILL.md per this doctrine. An `ls -la` showed `skills/pr-retrospective` was a
-symlink into `plugins/pr-flow/skills/pr-retrospective` — one file, not two — so the edit was made
+symlink into `plugins/dev-cycle/skills/pr-retrospective` — one file, not two — so the edit was made
 once and no owner/summary label was added. Trusting the issue's premise blindly would have
 produced a redundant annotation on a file that has no second copy to drift from.
 

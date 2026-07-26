@@ -186,8 +186,8 @@ pdfplumber **只**被 `scripts/` 使用——那是硬編碼到 `localhost:5435/
 
 ## Phase 2 — mycelium
 
-涵蓋 6 個 skill 中的 4 個：`growth/mycelium`、`growth/learn`、`pr-flow/pr-control-log`、
-`pr-flow/pr-retrospective`。
+涵蓋 6 個 skill 中的 4 個：`growth/mycelium`、`growth/learn`、`dev-cycle/pr-control-log`、
+`dev-cycle/pr-retrospective`。
 
 - 加 `mycelium = "tasks.mycelium.cli:cli"`。**import path 不變**——26 個測試模組與 12 處硬編碼
   的 `python -m tasks.mycelium` 字串（`insight_hook.py:202`、`recap_hook.py:212`、
@@ -228,7 +228,7 @@ pdfplumber **只**被 `scripts/` 使用——那是硬編碼到 `localhost:5435/
 
 ## Phase 3 — pr_orchestrator
 
-涵蓋第 6 個 skill：`pr-flow/pr-cycle-fast`（15 個呼叫點）。
+涵蓋第 6 個 skill：`dev-cycle/pr-cycle-fast`（15 個呼叫點）。
 
 - **狀態重新錨定。** `tasks/_paths.py` 的 `PROJECT_ROOT = Path(__file__).resolve().parents[1]`
   使 `RUNTIME_DIR` 在 pip 安裝下解析進 site-packages。三個消費端：`config.py:12,17-19`、
@@ -238,7 +238,7 @@ pdfplumber **只**被 `scripts/` 使用——那是硬編碼到 `localhost:5435/
 - 加 `pr-orchestrator = "tasks.pr_orchestrator.cli:cli"`。
 - **`dispatcher.py`（77 LOC）** 產生的 Claude Code subagent spawn manifest 內含
   `uv run python -m tasks.pr_orchestrator transition ...`（`:39, :68-71`），改寫為 console script。
-- 改寫 `plugins/pr-flow/skills/pr-cycle-fast/SKILL.md` 的全部 15 個 `uv run --directory` 呼叫點。
+- 改寫 `plugins/dev-cycle/skills/pr-cycle-fast/SKILL.md` 的全部 15 個 `uv run --directory` 呼叫點。
 - **保住 `--repo-root` 貫穿。** `cli.py:177,197` 與測試
   PROR-ST-030/032/033/034/036/040 釘住每個 git/gh 呼叫的 `cwd == repo_root`。在 console script
   下 cwd 是使用者的 shell——這是**與當初那些測試所針對的 `uv run --directory` 不同**的錯誤 cwd

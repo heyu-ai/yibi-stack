@@ -48,7 +48,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PLUGINS_DIR = REPO_ROOT / "plugins"
 
 _BASH_FENCE = re.compile(r"^```bash\s*\n(.*?)\n```", re.DOTALL | re.MULTILINE)
-# skill-form 例：CL_ROOT="plugins/pr-flow/skills/pr-control-log"
+# skill-form 例：CL_ROOT="plugins/dev-cycle/skills/pr-control-log"
 _TIER3_ASSIGN = re.compile(
     r'(?P<var>[A-Z][A-Z0-9_]*)="(?P<path>plugins/[a-z0-9-]+/skills/[a-z0-9-]+)"'
 )
