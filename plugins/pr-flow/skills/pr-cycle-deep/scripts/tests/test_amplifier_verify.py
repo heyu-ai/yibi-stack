@@ -964,10 +964,11 @@ def test_main_exits_zero_when_an_active_tree_name_has_since_been_archived(
     """Negative control, via the route that actually produces a bare archived name.
 
     The archiving PR's own rename header is `a/openspec/changes/<name>/...` ->
-    `b/openspec/changes/archive/<date>-<name>/...`; the first path wins, so detection yields
-    the bare `<name>` as an ACTIVE-tree slug. That name no longer resolves at an active root,
-    and this is the case `locate_change`'s archived branch exists for -- without it the gate
-    would abort on every archiving PR.
+    `b/openspec/changes/archive/<date>-<name>/...`; the `a/` side is the active path, so the
+    bare `<name>` arrives as an ACTIVE-tree slug (the dated `b/` side also lands in
+    `archive_tree` -- every match on the header is attributed to its tree). That name no
+    longer resolves at an active root, and this is the case `locate_change`'s archived branch
+    exists for -- without it the gate would abort on every archiving PR.
     """
     repo = _make_repo(tmp_path, archived=["2026-07-18-add-login"])
     rename = (
@@ -1279,9 +1280,10 @@ def test_an_unarchiving_rename_creates_the_obligation(tmp_path):
     """Direction 2 of the rename pair: archive -> active. Must create an obligation.
 
     A 100%-similarity rename emits no `---`/`+++` lines, so the `diff --git` line is the
-    only header available. Reading only its FIRST path attributed the archive side and never
-    saw the active destination, so the obligation disappeared and the gate exited 0 -- a
-    silent bypass where the pre-archive-awareness code exited 2.
+    only line this scanner reads that carries the paths (`rename from`/`rename to` also do,
+    but are deliberately not scanned). Reading only its FIRST path attributed the archive
+    side and never saw the active destination, so the obligation disappeared and the gate
+    exited 0 -- a silent bypass where the pre-archive-awareness code exited 2.
 
     Scanning EVERY match on the header line fixes it without disturbing the archiving
     direction, because that direction's first path is the active one and both sides are now
@@ -1321,9 +1323,9 @@ def test_main_gates_a_change_restored_out_of_the_archive(tmp_path, monkeypatch, 
 def test_both_sides_of_a_cross_slug_active_rename_are_surfaced(tmp_path):
     """Scanning every match also surfaces the destination of an active->active rename.
 
-    Previously only the source was seen. Surfacing both is the safe direction: resolution
-    picks whichever exists and the multiple-candidate warning makes any narrowing visible,
-    whereas missing the destination is how an obligation disappears.
+    Previously only the source was seen. This test pins the DETECT layer only (both names
+    in header order); what main() does with the pair is pinned by
+    `test_main_verifies_the_destination_of_a_cross_slug_rename` below.
     """
     rename = (
         "diff --git a/openspec/changes/old-name/tasks.md"
@@ -1334,14 +1336,89 @@ def test_both_sides_of_a_cross_slug_active_rename_are_surfaced(tmp_path):
     assert refs.active_tree == ["old-name", "new-name"]
 
 
-def test_an_ordinary_modification_header_still_yields_one_candidate(tmp_path):
-    """`diff --git a/P b/P` names the same path twice; dedup must collapse it.
+def test_main_verifies_the_destination_of_a_cross_slug_rename(tmp_path, monkeypatch, capsys):
+    """The realistic cross-slug state: source dir renamed away, destination active.
 
-    Without dedup, scanning every match would report the same change twice and trip the
-    multiple-candidate warning on every ordinary PR.
+    The source candidate resolves NOWHERE and must be superseded by the active destination
+    -- silently, because the disappeared source is what a rename means, not an ambiguity.
+    Pins three things at once: the destination is the change that gets verified, the
+    nowhere candidate does not abort the gate, and no multi-candidate [WARN] fires (that
+    warning is for the both-dirs-coexist case only). A fail-loud-on-nowhere mutant
+    otherwise survives the whole suite while aborting every real cross-slug rename PR.
+    """
+    repo = _make_repo(tmp_path, active=["new-name"])
+    rename = (
+        "diff --git a/openspec/changes/old-name/tasks.md"
+        " b/openspec/changes/new-name/tasks.md\n"
+        "similarity index 100%\n"
+    )
+    _stub_run(monkeypatch, rename, repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "testplan.md not found for change 'new-name'" in err
+    assert "no change directory found" not in err
+    assert "[WARN]" not in err
+
+
+def test_a_stray_file_rename_does_not_eat_the_destination_change(tmp_path):
+    """A greedy capture must not span the a/b path boundary of a rename header.
+
+    With `([^/\\n]+)/` the a-side of `a/openspec/changes/notes.md
+    b/openspec/changes/real-change/notes.md` captures `notes.md b` -- slug validation
+    rejects it, but the match has already consumed the b-side's `b/` anchor, so the
+    destination change dir is never seen: both trees empty, gate exits 0, while the PR
+    moves a file INTO an active change. `([^/\\s]+)` cannot cross the boundary (git path
+    fields on a header line are space-separated) and loses no legitimate capture, because
+    `_VALID_CHANGE_SLUG_RE` already rejects any name containing whitespace.
+    """
+    stray = (
+        "diff --git a/openspec/changes/notes.md"
+        " b/openspec/changes/real-change/notes.md\n"
+        "similarity index 100%\n"
+    )
+    refs = amplifier_verify.detect_change_refs_from_diff(stray)
+    assert refs.active_tree == ["real-change"]
+    assert refs.archive_tree == []
+
+
+def test_an_archive_side_stray_file_rename_still_finds_the_destination(tmp_path):
+    stray = (
+        "diff --git a/openspec/changes/archive/old-notes.md"
+        " b/openspec/changes/real-change/notes.md\n"
+        "similarity index 100%\n"
+    )
+    refs = amplifier_verify.detect_change_refs_from_diff(stray)
+    assert refs.active_tree == ["real-change"]
+    assert refs.archive_tree == []
+
+
+def test_a_placeholder_named_directory_in_a_real_header_is_rejected(tmp_path):
+    """Slug validation must fire on HEADER lines too, not only guard content lines.
+
+    A template repo can vendor a literal `openspec/changes/<name>/` directory, whose diff
+    headers then carry `<name>` as a real path segment. Without `_VALID_CHANGE_SLUG_RE`
+    the gate would hunt for `openspec/changes/<name>/testplan.md` and abort. This became
+    unpinned when the capture tightened to `[^/\\s]+`: the container test's old kill path
+    (a space-containing capture) no longer exists, so this is the only test that reaches
+    the validation via a header.
+    """
+    diff = _one_file_diff("openspec/changes/<name>/proposal.md")
+    refs = amplifier_verify.detect_change_refs_from_diff(diff)
+    assert refs.active_tree == []
+    assert refs.archive_tree == []
+
+
+def test_an_ordinary_modification_header_still_yields_one_candidate(tmp_path):
+    """One `diff --git a/P b/P` line alone names the same path twice; dedup collapses it.
+
+    Header-only fixture deliberately: with the full 3-line fixture (`---`/`+++` included)
+    this test could not distinguish same-line dedup from cross-line dedup. The lone
+    `diff --git` line is also exactly the shape a 100%-similarity diff emits.
     """
     refs = amplifier_verify.detect_change_refs_from_diff(
-        _one_file_diff("openspec/changes/add-login/tasks.md")
+        "diff --git a/openspec/changes/add-login/tasks.md b/openspec/changes/add-login/tasks.md\n"
     )
     assert refs.active_tree == ["add-login"]
 

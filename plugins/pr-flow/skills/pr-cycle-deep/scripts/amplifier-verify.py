@@ -335,7 +335,15 @@ _FILE_HEADER_RE = re.compile(r"^\+\+\+\s+b/(.+)$")
 # headers in path byte order, the archived name won over any active slug sorting after `"archive"`
 # — turning a loud failure into a silent skip of that active change's verification. Attribution by
 # tree is what fixes it; see `detect_change_refs_from_diff`.
-_CHANGE_DIR_RE = re.compile(r"[ab]/(?:docs/)?openspec/changes/(archive/)?([^/\n]+)/")
+#
+# The name capture is `[^/\s]+`, not `[^/\n]+`: git path fields on a header line are
+# space-separated, and a greedy newline-only capture can span the a/b boundary. On a rename
+# whose a-side is a stray file directly under `changes/` (`a/openspec/changes/notes.md
+# b/openspec/changes/real-change/notes.md`) it captured `notes.md b` — rejected by slug
+# validation, but the `b/` anchor was already consumed, so the destination change was never
+# seen and the gate exited 0. Excluding whitespace loses no legitimate capture:
+# _VALID_CHANGE_SLUG_RE rejects any name containing it.
+_CHANGE_DIR_RE = re.compile(r"[ab]/(?:docs/)?openspec/changes/(archive/)?([^/\s]+)/")
 _VALID_CHANGE_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # Both layout roots a change directory can live under, in the order they are tried.
@@ -396,7 +404,9 @@ def detect_change_refs_from_diff(diff_text: str) -> DiffChangeRefs:
             continue
         # EVERY match on the line, not just the first. A `diff --git a/…old/… b/…new/…` header
         # carries two paths, and a 100%-similarity rename emits no `---`/`+++` lines at all, so
-        # this header is the only chance to see either of them. Reading just the first attributed
+        # this header is the only line THIS SCANNER READS that carries either of them (the
+        # `rename from`/`rename to` lines also do, but are deliberately not scanned). Reading
+        # just the first attributed
         # only the `a/` side: it happened to be right for the archiving direction (whose `a/` side
         # is the active path) and silently wrong for the reverse — restoring a change out of the
         # archive lost the obligation entirely and the gate exited 0.
