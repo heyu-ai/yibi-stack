@@ -335,7 +335,15 @@ _FILE_HEADER_RE = re.compile(r"^\+\+\+\s+b/(.+)$")
 # headers in path byte order, the archived name won over any active slug sorting after `"archive"`
 # — turning a loud failure into a silent skip of that active change's verification. Attribution by
 # tree is what fixes it; see `detect_change_refs_from_diff`.
-_CHANGE_DIR_RE = re.compile(r"[ab]/(?:docs/)?openspec/changes/(archive/)?([^/\n]+)/")
+#
+# The name capture is `[^/\s]+`, not `[^/\n]+`: git path fields on a header line are
+# space-separated, and a greedy newline-only capture can span the a/b boundary. On a rename
+# whose a-side is a stray file directly under `changes/` (`a/openspec/changes/notes.md
+# b/openspec/changes/real-change/notes.md`) it captured `notes.md b` — rejected by slug
+# validation, but the `b/` anchor was already consumed, so the destination change was never
+# seen and the gate exited 0. Excluding whitespace loses no legitimate capture:
+# _VALID_CHANGE_SLUG_RE rejects any name containing it.
+_CHANGE_DIR_RE = re.compile(r"[ab]/(?:docs/)?openspec/changes/(archive/)?([^/\s]+)/")
 _VALID_CHANGE_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # Both layout roots a change directory can live under, in the order they are tried.
@@ -394,24 +402,29 @@ def detect_change_refs_from_diff(diff_text: str) -> DiffChangeRefs:
             line.startswith("diff --git ") or line.startswith("+++ ") or line.startswith("--- ")
         ):
             continue
-        # First path on the line wins: on a `diff --git a/…old/… b/…new/…` rename this reads the
-        # OLD path. That is what makes an archiving PR work — its rename header's `a/` side is
-        # still the active `changes/<name>/`, so the bare name is attributed to the active tree
-        # and `locate_change` then resolves it as archived.
-        m = _CHANGE_DIR_RE.search(line)
-        if not m:
-            continue
-        in_archive, name = m.group(1), m.group(2)
-        if not _VALID_CHANGE_SLUG_RE.match(name):
-            continue
-        if in_archive:
-            if name not in refs.archive_tree:
-                refs.archive_tree.append(name)
-            continue
-        if name == _ARCHIVE_SEGMENT:
-            continue  # the container itself, not a change
-        if name not in refs.active_tree:
-            refs.active_tree.append(name)
+        # EVERY match on the line, not just the first. A `diff --git a/…old/… b/…new/…` header
+        # carries two paths, and a 100%-similarity rename emits no `---`/`+++` lines at all, so
+        # this header is the only line THIS SCANNER READS that carries either of them (the
+        # `rename from`/`rename to` lines also do, but are deliberately not scanned). Reading
+        # just the first attributed
+        # only the `a/` side: it happened to be right for the archiving direction (whose `a/` side
+        # is the active path) and silently wrong for the reverse — restoring a change out of the
+        # archive lost the obligation entirely and the gate exited 0.
+        #
+        # Ordinary `a/P b/P` headers name the same directory twice; the dedup below collapses them,
+        # so scanning both sides costs nothing on the common shape.
+        for m in _CHANGE_DIR_RE.finditer(line):
+            in_archive, name = m.group(1), m.group(2)
+            if not _VALID_CHANGE_SLUG_RE.match(name):
+                continue
+            if in_archive:
+                if name not in refs.archive_tree:
+                    refs.archive_tree.append(name)
+                continue
+            if name == _ARCHIVE_SEGMENT:
+                continue  # the container itself, not a change
+            if name not in refs.active_tree:
+                refs.active_tree.append(name)
     return refs
 
 
