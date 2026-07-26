@@ -7,7 +7,9 @@
   **結論（1.1）：沿用既有欄位，零 schema / DB migration。** `LessonRecord`（`tasks/mycelium/models.py:72-96`）有 `confidence: int = Field(ge=1, le=10)` 與 `tags: list[str] = Field(default_factory=list)`，但**無**專屬 `parked` 狀態欄位、**無**每筆 lesson 的 recurrence 計數欄位（`recurrence_pr_count` 在另一彙總 model）。`db.py` 確認 `lessons.tags` 為 `TEXT NOT NULL DEFAULT '[]'`（JSON 持久化，`db.py:158/359/649/1124`），且支援 `exclude_tags` LIKE 過濾（`db.py:510-521`）。
   - park = `confidence ≤ 4` + `tags` 含 `"parked"`；recurrence = `tags` 含 `"recurrence-<n>"`（同 `key` 再現時 bump）。
   - 向後相容（rule 02 type guard）：既有讀取者見到多的 tag 不崩；正常 recall 可用 `exclude_tags=["parked"]` 濾除 parked lesson。
-  - 影響 task 3.6：runbook 以 `tags` 編碼 park/recurrence，**不需**改 mycelium 程式碼或 DB。
+  - Review 修正（PR #339 mob review + 本 follow-up PR）：`mycelium lessons add` 原本沒有
+    `--tag` / `--tags`，且沒有 recurrence/unpark mutation 路徑；因此 task 3.6 與本檔 6.1 加入
+    最小、向後相容的 `--park` CLI/service/DB 支援（不做 schema migration）。
 - [x] 1.2 量測本 change 前 `.claude/rules/` 中 frontmatter 無 `paths:` key（每 session 全量載入）的檔案總行數，作為「本 change 自我約束——always-loaded 面淨增為零」的 baseline。行為：baseline 數字被記錄。驗證：印出數字並寫入本檔。
 
   **Baseline（1.2）：6 個 always-loaded 檔、共 3012 行**（`python3 scripts/check_always_loaded_growth.py`）：01=81、02=339、03=156、13=1391、15=752、16=293。5.1 的檢查以 `--base origin/main` 算這些檔的淨增行數，須為 0。
@@ -38,3 +40,22 @@
 
 - [x] 5.1 實作並執行「本 change 自我約束——always-loaded 面淨增為零」的機械檢查。行為：全量載入 rule 檔總行數相對 1.2 baseline 淨增為 0，且數字被印給操作者。驗證：檢查腳本輸出淨增行數 = 0。
 - [x] 5.2 收尾閘門。行為：`make ci` 全綠且其後 `git diff --name-only` 為空（formatter hook 就地改檔）；`spectra validate` 與 `spectra analyze`（Critical + Warning 為 0）通過。驗證：貼出三者輸出摘要。
+
+## 6. Code review remediation（PR #339 mob review，本 follow-up PR 補齊剩餘兩項）
+
+> PR #339 mob review 提出多項 remediation，其中 rename-bypass / loose-regex / hunk-boundary
+> 缺口、always-loaded growth 計算修正、evidence marker 收緊已隨 PR #339 一併合併
+> （commit `bf9ebcc` / `805ca29` / `b4deb48`）。以下 6.1、6.2 是同一批 review 意見中，
+> 完成但漏未推送、本 follow-up PR 補上的兩項。
+
+- [x] 6.1 讓 Tier 3 park 成為可執行流程。行為：Evidence Gate 在 typed-lessons 寫入前分級；
+  `mycelium lessons add --park` 以 `confidence ≤ 4` 原子地新增 parked lesson、同 key 再現時 bump
+  `recurrence-<n>`，`recurrence ≥ 2` 解除 park 並回報 `reassess`；若重評後仍為 Tier 3，再次
+  `--park` 只重套 parked、不重複 bump。parked lesson 預設不進 normal recall 與 tier promotion，
+  且原標題／描述不被覆寫。驗證：`uv run pytest tasks/mycelium/tests/test_lesson_parking.py -q`
+  （CLI/service/DB、recurrence、default exclusion）與 runbook anchor test。
+- [x] 6.2 讓 evidence lint 在 CI 讀到正確的 PR / push diff range。行為：`.github/workflows/ci.yml`
+  對 `pull_request` 事件以 `--base`/`--head` 指定 PR range、對 `push` 事件指定
+  `before`/`sha`，並加 `fetch-depth: 0` 使 range diff 可解析（shallow checkout 預設只有單一
+  commit，range diff 會失敗）。驗證：
+  `uv run pytest scripts/tests/test_retro_evidence_gate_integration.py -q`。

@@ -41,6 +41,26 @@ def add_lesson(
     return {"id": record.id, "trusted": record.trusted}
 
 
+def park_lesson(
+    record_data: dict[str, Any],
+    db_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """把 Tier 3 lesson park；同 key recurrence 由 DB transaction 原子處理。"""
+    from .db import AgentsDB
+    from .models import LessonRecord
+
+    record = LessonRecord.model_validate(record_data)
+    if record.confidence > 4:
+        raise ValueError("parked lesson 的 confidence 必須 ≤ 4")
+
+    db = AgentsDB(db_path=db_path)
+    try:
+        db.init_db()
+        return db.park_lesson(record)
+    finally:
+        db.close()
+
+
 def get_lesson(
     lesson_id: str,
     db_path: str | Path | None = None,
@@ -196,6 +216,7 @@ def show_lessons_typed(  # pylint: disable=too-many-arguments
     db_path: str | Path | None = None,
     insights_path: str | Path | None = None,
     include_retired: bool = False,
+    include_parked: bool = False,
 ) -> list[dict[str, Any]]:
     """查詢 typed lessons，可合併 legacy handovers.lessons_learned（include_legacy=True）。
 
@@ -217,6 +238,7 @@ def show_lessons_typed(  # pylint: disable=too-many-arguments
             cross_project=cross_project,
             limit=_SEARCH_INTERNAL_LIMIT,
             include_retired=include_retired,
+            include_parked=include_parked,
         )
     finally:
         db.close()
@@ -283,6 +305,7 @@ def search_lessons_typed(  # pylint: disable=too-many-arguments
     db_path: str | Path | None = None,
     insights_path: str | Path | None = None,
     include_retired: bool = False,
+    include_parked: bool = False,
 ) -> list[dict[str, Any]]:
     """在 typed lessons 中搜尋（含 legacy 合併，可套用 filter 和 dedup）。
 
@@ -303,6 +326,7 @@ def search_lessons_typed(  # pylint: disable=too-many-arguments
             cross_project=cross_project,
             limit=_SEARCH_INTERNAL_LIMIT,
             include_retired=include_retired,
+            include_parked=include_parked,
         )
     finally:
         db.close()

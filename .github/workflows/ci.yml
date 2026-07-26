@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -36,6 +38,20 @@ jobs:
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Evidence lint against pull request range
+        if: github.event_name == 'pull_request'
+        run: >-
+          uv run python scripts/lint_rule_evidence.py
+          --base "${{ github.event.pull_request.base.sha }}"
+          --head "${{ github.event.pull_request.head.sha }}"
+
+      - name: Evidence lint against pushed range
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: >-
+          uv run python scripts/lint_rule_evidence.py
+          --base "${{ github.event.before }}"
+          --head "${{ github.sha }}"
 
       - name: Lint, format, type check, security (pre-commit)
         run: uv run pre-commit run --all-files

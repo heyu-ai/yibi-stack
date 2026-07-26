@@ -68,7 +68,8 @@ def _fetch_non_archival(db: Any) -> list[dict[str, Any]]:
     """
     cur = db.conn.execute(
         "SELECT id, ts, tier, access_count, last_accessed_at FROM lessons "
-        "WHERE tier != 'archival' AND retired_at IS NULL"
+        "WHERE tier != 'archival' AND retired_at IS NULL "
+        "AND tags NOT LIKE '%\"parked\"%'"
     )
     return [dict(row) for row in cur.fetchall()]
 

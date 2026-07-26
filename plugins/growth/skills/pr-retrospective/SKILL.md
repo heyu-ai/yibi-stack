@@ -256,10 +256,11 @@ mycelium retro write \
 
 ---
 
-### Step 4b — 寫入 typed lessons（tier promotion 用）
+### Step 4b — 準備 typed-lessons 寫入（Step 5 分級後才執行）
 
-> **執行條件**：只對通過 Step 5 Promotion Gate G1+G2+G3 的 lesson 執行。
-> 若 Step 4 retro 寫入已失敗，此步驟跳過。
+> **此處只準備 metadata 與 script，不得執行。** 實際 mutation 必須等 Step 5.0 Evidence Gate
+> 分級：Tier 3 走 `--park`；Tier 1/2 還須通過 Promotion Gate G1+G2+G3 才正常寫入。
+> 若 Step 4 retro 寫入已失敗，此步驟與後續 mutation 都跳過。
 
 Classifier → `--type` 對照表：
 
@@ -287,9 +288,9 @@ Classifier → `--type` 對照表：
 > - **`--skill` 填「教訓的主題 skill」而非 `pr-retrospective`**（產生者）。例：教訓是關於 `gmail-billing` 的 parser → 填 `gmail-billing`；關於 bash/quoting 等泛用主題 → **留空**（`--skill` 省略），讓蒸餾以 type + 語意聚類。
 > - **`--key` slug 加領域前綴**（`bash-`、`pydantic-`、`gmail-billing-`、`cli-` …），讓同類教訓跨 PR 的 key 前綴一致，提升 dedup 與 cluster 收斂。
 
-確認後對每筆通過 Gate 的 lesson 執行。**同 Step 4 的執行注意**：shell 變數不跨 bash call
-持續，所有通過 Gate 的 lesson 都寫進**同一個** `$CLAUDE_JOB_DIR/tmp/retro_lessons.sh`（用一個
-shell function 包住重複邏輯，每筆 lesson 呼叫一次該 function），用單一 bash call 執行：
+確認後先把候選 metadata 寫進**同一個** `$CLAUDE_JOB_DIR/tmp/retro_lessons.sh`，但此時**不可執行**。
+Step 5 決定每筆的 `active|park` outcome 後，再用一個 shell function 包住重複邏輯並以單一 bash
+call 執行，避免 shell 變數跨 bash call 遺失：
 
 > **`--project "$ORIG_PROJECT"` 不可省略**（issue #243）。`lessons add` 的 `--project` 預設是
 > 從 git common-dir 推斷，但 installed CLI 的 process cwd 不應作為 target contract。省略時每一條
@@ -306,10 +307,14 @@ ORIG_PROJECT="<from Step 0>"
 RETRO_ID="<id from Step 4 output>"
 
 add_lesson() {
-  local key="$1" type="$2" insight="$3" confidence="$4" source="$5" skill_flag_val="$6"
+  local key="$1" type="$2" insight="$3" confidence="$4" source="$5" skill_flag_val="$6" state="$7"
   local skill_flag=()
+  local park_flag=()
   if [ -n "$skill_flag_val" ]; then
     skill_flag=(--skill "$skill_flag_val")
+  fi
+  if [ "$state" = "park" ]; then
+    park_flag=(--park)
   fi
   mycelium lessons add \
     --key "$key" \
@@ -319,18 +324,20 @@ add_lesson() {
     --source "$source" \
     --project "$ORIG_PROJECT" \
     ${skill_flag[@]+"${skill_flag[@]}"} \
+    ${park_flag[@]+"${park_flag[@]}"} \
     --retro-pr "$PR_NUMBER" \
     --retrospective-id "$RETRO_ID"
 }
 
-# 每筆通過 Gate 的 lesson 呼叫一次；--skill 留空字串代表省略（避免把產生者誤記成主題）
+# Step 5 完成後才加入呼叫；--skill 留空字串代表省略（避免把產生者誤記成主題）
 add_lesson \
   "{{domain-prefixed-slug}}" \
   "{{pitfall|pattern|preference|architecture|tool|operational|investigation}}" \
   "{{lesson body}}" \
-  "{{5-10 依來源差異化；recurrence +1，封頂 10}}" \
+  "{{active: 5-10 依來源差異化；park: 1-4}}" \
   "{{user-stated|cross-model|inferred；與 confidence 依據一致}}" \
-  "{{主題 skill 名；泛用教訓留空字串}}"
+  "{{主題 skill 名；泛用教訓留空字串}}" \
+  "{{active|park；Tier 3 必須 park 且 confidence ≤ 4}}"
 ```
 
 > **`${skill_flag[@]+"${skill_flag[@]}"}` 而非 `"${skill_flag[@]}"`**：`set -u` 底下對空陣列
@@ -387,10 +394,20 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 **Tier 3 park 與 recurrence 升級**（不新增檔案面；park 複用既有 typed-lessons）：
 
 - Tier 3 **不得寫入** `.claude/rules/*` / `CLAUDE.md` 或註冊 hook；**park 到 typed-lessons**，以
-  `confidence ≤ 4` + `tags` 含 `"parked"` 記錄（Step 4b 寫入時加 `--tag parked`），原標題 / 描述逐字保留。
+  `confidence ≤ 4` + `tags` 含 `"parked"` 記錄（Step 4b prepared script 以 `--park` 執行），
+  原標題 / 描述逐字保留；parked lesson 預設不進 normal recall / tier promotion。
 - **recurrence**：同類 friction（同 `key`）於後續 retro 再現時，於既有 parked lesson 的 `tags` bump
   `"recurrence-<n>"`。**recurrence ≥ 2 才「解除 park」重新進入 Evidence Gate**——但**仍須通過 Tier 1
   或 Tier 2 證據才得寫入**。recurrence 證明「問題真且會重現」，不證明「此修法有效」，故不單獨構成寫入理由。
+
+**Tier 3 可執行流程**：
+
+1. 把 Step 4b prepared call 設為 `state=park`、`confidence ≤ 4` 後執行。
+2. `mycelium lessons add --park` 必須回傳 `status=parked recurrence=<n>` 或
+   `status=reassess recurrence=<n>`；任何其他輸出或 non-zero 都停止並呈現完整 script。
+3. `status=parked` → 此項流程終止，不進 Promotion Gate。
+4. `status=reassess recurrence≥2` → 立刻把**同一項**重新送入 Evidence Gate，不得直接寫 rule/hook。
+   若重評仍為 Tier 3，再執行同一個 `--park` call；此時只重套 parked、不再次 bump recurrence。
 
 > **與下方三道 gate 的關係**：Evidence Gate 問「這宣稱是真的嗎」；Promotion Gate 問「該不該寫進 rule
 > 檔」、Classifier 問「寫到哪個檔」、Patch-Surface Ladder 問「改動面多大」。先驗真偽（Tier 1/2 帶證據
@@ -405,6 +422,9 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 | **G1 automation-infeasible** | 這個 lesson 能被 hook 自動阻擋嗎？（PreToolUse / PostToolUse 能機械偵測？） | 先執行 `hookify:hookify`，不寫 rule；rule 只給 hook 無法覆蓋的情境 |
 | **G2 onboarding-relevant** | 一個剛加入的貢獻者（day-1）也會犯這個錯誤嗎？ | 若 No（只有深度 context 才會踩）→ 只存在 retro 記錄裡，不開 rule |
 | **G3 no existing rule covers it** | 搜尋現有 `.claude/rules/` 後，沒有任何 rule 已覆蓋此 pattern 嗎？ | 若已有 → extend 現有 rule（append），不建新 rule 檔 |
+
+Tier 1/2 只有在 G1+G2+G3 全通過後，才執行 Step 4b prepared script 的 `state=active` call；
+未全通過者不寫 typed lesson promotion path，也不得用 `active` 繞過 Evidence Gate。
 
 > 此 gate 的設計邏輯：rule 檔是每 session 全量載入的 token cost（frontmatter 內沒有 `paths:`
 > key 的 rule 永遠佔用 context；key 名寫錯——`globs:` / `glob:` / `path:`——會被靜默忽略，

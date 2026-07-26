@@ -619,6 +619,11 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
 
     def insert_lesson(self, record: LessonRecord) -> None:
         """寫入一筆 typed lesson；`id` 衝突時 raise sqlite3.IntegrityError。"""
+        self._insert_lesson_row(record)
+        self.conn.commit()
+
+    def _insert_lesson_row(self, record: LessonRecord) -> None:
+        """寫入 lesson row 但不 commit；供需要單一 transaction 的 mutation path 複用。"""
         self.conn.execute(
             """
             INSERT INTO lessons (
@@ -653,7 +658,85 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
                 record.archived_path,
             ),
         )
-        self.conn.commit()
+
+    def park_lesson(self, record: LessonRecord) -> dict[str, Any]:
+        """原子執行 initial park / recurrence bump / reassessment 後 re-park。
+
+        - 無同 key lesson：新增 `parked, recurrence-1`
+        - 已 parked：recurrence +1；達 2 時移除 parked，回報 `reassess`
+        - 已因 recurrence 解 park：重評仍為 Tier 3 時重套 parked，不再次 bump
+        """
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cur = self.conn.execute(
+                "SELECT * FROM lessons "
+                "WHERE project = ? AND type = ? AND key = ? AND retired_at IS NULL "
+                "ORDER BY ts DESC LIMIT 1",
+                (record.project, record.type.value, record.key),
+            )
+            row = cur.fetchone()
+            if row is None:
+                tags = [
+                    *[tag for tag in record.tags if tag not in {"parked", "recurrence-1"}],
+                    "parked",
+                    "recurrence-1",
+                ]
+                parked_record = record.model_copy(
+                    update={"confidence": min(record.confidence, 4), "tags": tags}
+                )
+                self._insert_lesson_row(parked_record)
+                lesson_id = parked_record.id
+                recurrence = 1
+                status = "parked"
+            else:
+                existing = _decode_lesson_row(row)
+                lesson_id = str(existing["id"])
+                tags = list(existing.get("tags", []))
+                recurrence_values: list[int] = []
+                for tag in tags:
+                    if not tag.startswith("recurrence-"):
+                        continue
+                    try:
+                        recurrence_values.append(int(tag.removeprefix("recurrence-")))
+                    except ValueError:
+                        continue
+                recurrence = max(recurrence_values, default=1 if "parked" in tags else 0)
+                tags = [tag for tag in tags if not tag.startswith("recurrence-")]
+
+                if "parked" in tags:
+                    recurrence += 1
+                    tags = [tag for tag in tags if tag != "parked"]
+                    status = "reassess" if recurrence >= 2 else "parked"
+                    if status == "parked":
+                        tags.append("parked")
+                elif recurrence >= 2:
+                    # recurrence 已解除 park；重評仍為 Tier 3 時重套，不再把同一 occurrence bump。
+                    tags.append("parked")
+                    status = "parked"
+                else:
+                    raise RuntimeError(
+                        f"id={lesson_id} 是未 parked 的既有 lesson，拒絕覆寫為 Tier 3"
+                    )
+
+                tags.append(f"recurrence-{recurrence}")
+                self.conn.execute(
+                    "UPDATE lessons SET tags = ?, confidence = MIN(confidence, 4) WHERE id = ?",
+                    (json.dumps(tags, ensure_ascii=False), lesson_id),
+                )
+
+            saved = self.conn.execute("SELECT * FROM lessons WHERE id = ?", (lesson_id,)).fetchone()
+            if saved is None:
+                raise RuntimeError(f"park lesson id={lesson_id} 寫入後讀回失敗")
+            self.conn.commit()
+            return {
+                "id": lesson_id,
+                "status": status,
+                "recurrence": recurrence,
+                "lesson": _decode_lesson_row(saved),
+            }
+        except Exception:
+            self.conn.rollback()
+            raise
 
     def query_lessons_typed(
         self,
@@ -665,11 +748,12 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         cross_project: bool = False,
         limit: int = 20,
         include_retired: bool = False,
+        include_parked: bool = False,
     ) -> list[dict[str, Any]]:
         """查詢 typed lessons table，支援 type / source / confidence / trusted 過濾。
 
         cross_project=True 時忽略 project 限制，但只回傳 trusted=True 的記錄。
-        include_retired=False（預設）時排除已 retire 的教訓（retired_at IS NULL）。
+        include_retired=False（預設）時排除已 retire；include_parked=False 排除 parked。
         """
         if limit <= 0:
             raise ValueError("limit 必須為正整數")
@@ -679,6 +763,8 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
 
         if not include_retired:
             conditions.append("retired_at IS NULL")
+        if not include_parked:
+            conditions.append("tags NOT LIKE '%\"parked\"%'")
 
         if cross_project:
             conditions.append("trusted = 1")
@@ -719,12 +805,13 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         cross_project: bool = False,
         limit: int = 20,
         include_retired: bool = False,
+        include_parked: bool = False,
     ) -> list[dict[str, Any]]:
         """在 typed lessons 的 key、insight、files 欄位做 case-insensitive 搜尋。
 
         lesson_type、source、min_confidence、trusted_only、cross_project 等 filter
         全部在 SQL WHERE 子句套用，不在 Python 層後處理。
-        include_retired=False（預設）時排除已 retire 的教訓（retired_at IS NULL）。
+        include_retired=False（預設）時排除已 retire；include_parked=False 排除 parked。
         """
         if limit <= 0:
             raise ValueError("limit 必須為正整數")
@@ -734,6 +821,8 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
 
         if not include_retired:
             conditions.append("retired_at IS NULL")
+        if not include_parked:
+            conditions.append("tags NOT LIKE '%\"parked\"%'")
 
         if query:
             safe_query = _escape_like(query.lower())
