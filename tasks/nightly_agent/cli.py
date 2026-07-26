@@ -25,7 +25,6 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
     from .classifier import FrictionClassifier, classify_mycelium_lessons
     from .clusterer import FrictionClusterer
     from .config import load_config
-    from .digest import DigestWriter
     from .drafter import ArtifactDrafter
     from .extractor import TranscriptExtractor
     from .governance import FrictionRegistry
@@ -37,6 +36,11 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
 
     date_str = datetime.now().strftime("%Y-%m-%d")
     errors: list[str] = []
+    # errors 是給 digest 看的完整記錄（含已知的良性降級，例如舊 handover.db 缺 lessons
+    # table、或 friction 已被處理而 test 提前通過）；fatal_errors 只收真正的執行失敗
+    # （草擬 / PR 建立 / friction-state 寫入的 RuntimeError，以及驗證後仍失敗的 test）。
+    # 排程的 exit code 只看 fatal_errors，避免良性降級被誤報成「排程失敗」。
+    fatal_errors: list[str] = []
     from .models import PRRecord
 
     prs: list[PRRecord] = []
@@ -74,39 +78,18 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
 
     if not eligible:
         click.echo("[INFO] 沒有 eligible clusters，結束。")
-        _write_digest(
-            DigestWriter(config.digest_dir),
-            date_str,
-            hours,
-            events,
-            all_clusters,
-            prs,
-            skipped,
-            errors,
-            config.min_cluster_size,
+        _finalize_run(
+            config, date_str, hours, events, all_clusters, prs, skipped, errors, fatal_errors
         )
-        if errors:
-            emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
-            raise SystemExit(1)
         return
 
     if dry_run:
         click.echo("[DRY RUN] Eligible clusters:")
         for c in eligible:
             click.echo(f"  {c.friction_type} ×{c.count}: {', '.join(c.common_keywords[:5])}")
-        _write_digest(
-            DigestWriter(config.digest_dir),
-            date_str,
-            hours,
-            events,
-            all_clusters,
-            prs,
-            skipped,
-            errors,
-            config.min_cluster_size,
+        _finalize_run(
+            config, date_str, hours, events, all_clusters, prs, skipped, errors, fatal_errors
         )
-        if errors:
-            emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
         return
 
     # --- Step 5: Draft & validate ---
@@ -128,15 +111,20 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
         except RuntimeError as e:
             click.echo(f"  [SKIP] 草擬失敗 ({cluster.friction_type}): {e}", err=True)
             errors.append(str(e))
+            fatal_errors.append(str(e))
             skipped += 1
             continue
 
         result = tester.validate(proposal)
         if not result.passed:
             click.echo(f"  [SKIP] test 未通過 ({proposal.title}): {result.error}", err=True)
-            if not result.previously_failed:
-                click.echo("  [INFO] test 在 artifact 前就通過，代表 friction 已被處理", err=True)
             errors.append(f"test failed: {proposal.title}")
+            if result.previously_failed:
+                # 套用 artifact 前 test 本來就失敗，套用後仍失敗 -> 驗證真的沒過，是執行失敗。
+                fatal_errors.append(f"test failed: {proposal.title}")
+            else:
+                # 套用 artifact 前 test 就已經通過，代表 friction 已被處理，不是失敗。
+                click.echo("  [INFO] test 在 artifact 前就通過，代表 friction 已被處理", err=True)
             skipped += 1
             continue
 
@@ -149,6 +137,7 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
         except RuntimeError as e:
             click.echo(f"  [SKIP] PR 建立失敗 ({proposal.title}): {e}", err=True)
             errors.append(str(e))
+            fatal_errors.append(str(e))
             skipped += 1
             continue
         try:
@@ -156,24 +145,11 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
         except RuntimeError as e:
             click.echo(f"  [WARN] PR 已建立，但 friction state 寫入失敗：{e}", err=True)
             errors.append(str(e))
+            fatal_errors.append(str(e))
 
     click.echo(f"[6/6] 完成：{len(prs)} PRs opened, {skipped} skipped")
 
-    digest_path = _write_digest(
-        DigestWriter(config.digest_dir),
-        date_str,
-        hours,
-        events,
-        all_clusters,
-        prs,
-        skipped,
-        errors,
-        config.min_cluster_size,
-    )
-    click.echo(f"      Digest: {digest_path}")
-    if errors:
-        emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
-        raise SystemExit(1)
+    _finalize_run(config, date_str, hours, events, all_clusters, prs, skipped, errors, fatal_errors)
 
 
 @cli.command()
@@ -325,6 +301,35 @@ def _write_digest(  # type: ignore[no-untyped-def]
     )
     result: Path = writer.write(digest)
     return result
+
+
+def _finalize_run(  # type: ignore[no-untyped-def]
+    config, date_str, hours, events, all_clusters, prs, skipped, errors, fatal_errors
+) -> None:
+    """寫 digest、視情況發出失敗訊號，並在真正的執行失敗時以非零 exit code 結束。
+
+    `errors`（給 digest 看的完整記錄，含良性降級）與 `fatal_errors`（真正的執行失敗）
+    分開判斷：`run()` 的三個結束點（無 eligible cluster／dry-run／正常跑完）共用同一套
+    收尾邏輯，避免各自维护一份、漂移出不一致的行為。
+    """
+    from .digest import DigestWriter
+
+    digest_path = _write_digest(
+        DigestWriter(config.digest_dir),
+        date_str,
+        hours,
+        events,
+        all_clusters,
+        prs,
+        skipped,
+        errors,
+        config.min_cluster_size,
+    )
+    click.echo(f"      Digest: {digest_path}")
+    if errors:
+        emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
+    if fatal_errors:
+        raise SystemExit(1)
 
 
 def emit_failure_signal(error: BaseException, digest_dir: str | Path | None = None) -> Path:

@@ -44,8 +44,9 @@ class PRCreator:
         `git checkout -b` 直接失敗（`would be overwritten by checkout`），且失敗或中斷時
         殘留的分支/未 commit 內容會一路帶進下一次 checkout，污染 main repo（見
         `.runtime/logs/nightly-self-improvement_20260725_210002.log`：main repo 有未 commit
-        檔案，同一次排程連續 4 次 create_pr 因此失敗）。worktree 用完即刪，
-        不論成功或失敗都不留痕跡。
+        檔案，同一次排程連續 4 次 create_pr 因此失敗）。worktree 與其分支用完即刪
+        （`git worktree remove` 本身不會刪分支，需另外 `branch -D`），不論成功或失敗都不
+        在 main repo 留下痕跡。
         """
         date_str = datetime.now().strftime("%Y-%m-%d")
         safe = re.sub(r"[^a-z0-9-]+", "-", proposal.title.casefold())[:40].strip("-")
@@ -57,7 +58,7 @@ class PRCreator:
         branch = f"{self.config.pr_branch_prefix}/{date_str}/{safe}"
 
         worktree_dir = self._main_repo / ".claude" / "worktrees" / branch.replace("/", "-")
-        self._cleanup_worktree(worktree_dir)
+        self._cleanup_worktree(worktree_dir, branch)
         self._git(["worktree", "add", str(worktree_dir), "-b", branch, "origin/main"])
         try:
             artifact_path = worktree_dir / proposal.target_file
@@ -86,27 +87,82 @@ class PRCreator:
                 behaviorally_validated=test_result.behaviorally_validated,
             )
         finally:
-            self._cleanup_worktree(worktree_dir)
+            # push 之後 origin 才是 canonical 副本；push 之前失敗時本地 branch 也沒有留著的
+            # 必要——兩種情況下都刪掉本地 branch，只留 worktree 目錄本身的清除給下面處理。
+            self._cleanup_worktree(worktree_dir, branch)
 
-    def _cleanup_worktree(self, worktree_dir: Path) -> None:
-        """移除指定路徑的 worktree（若存在）。刻意 best-effort：清不掉只警告，不遮蔽
-        呼叫端真正的例外（`create_pr` 的 finally 區塊）。"""
+    def _is_registered_worktree(self, worktree_dir: Path) -> bool:
+        """`worktree_dir` 目前是否仍被 git 註冊為（可能使用中的）worktree。"""
         result = subprocess.run(  # nosec B603 B607
-            ["git", "-C", str(self._main_repo), "worktree", "remove", "--force", str(worktree_dir)],
+            ["git", "-C", str(self._main_repo), "worktree", "list", "--porcelain"],
             capture_output=True,
             text=True,
             timeout=30,
         )
-        if result.returncode != 0 and worktree_dir.exists():
-            shutil.rmtree(worktree_dir, ignore_errors=True)
-            subprocess.run(  # nosec B603 B607
-                ["git", "-C", str(self._main_repo), "worktree", "prune"],
+        if result.returncode != 0:
+            return False
+        target = str(worktree_dir.resolve())
+        prefix = "worktree "
+        for line in result.stdout.splitlines():
+            if line.startswith(prefix) and line[len(prefix) :].strip() == target:
+                return True
+        return False
+
+    def _cleanup_worktree(self, worktree_dir: Path, branch: str) -> None:
+        """移除指定路徑的 worktree 與其分支（若存在）。
+
+        刻意 best-effort、刻意包在 try/except 裡：`create_pr` 的 finally 區塊呼叫本函式時，
+        若這裡讓 `OSError`/`subprocess` 例外往外拋，會蓋掉 `finally` 正在處理的原始例外，
+        讓呼叫端連 digest／`LAST_FAILURE` marker 都寫不進去——比原本的失敗更糟。
+        `shutil.rmtree` 只在 `worktree_dir` 已經**不被 git 註冊**為 worktree 時才會執行
+        （例如上一次 `worktree add` 中斷留下的半殘留目錄）；仍被註冊、`--force` 卻移除失敗，
+        代表可能真的被別的行程使用中，此時只警告、不強制刪除。
+        """
+        try:
+            result = subprocess.run(  # nosec B603 B607
+                [
+                    "git",
+                    "-C",
+                    str(self._main_repo),
+                    "worktree",
+                    "remove",
+                    "--force",
+                    str(worktree_dir),
+                ],
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
-        if worktree_dir.exists():
-            print(f"[WARN] 無法清除 nightly-agent worktree：{worktree_dir}", file=sys.stderr)
+            if result.returncode != 0 and worktree_dir.exists():
+                if self._is_registered_worktree(worktree_dir):
+                    print(
+                        f"[WARN] nightly-agent worktree 仍被 git 註冊為使用中，"
+                        f"未強制刪除：{worktree_dir}：{result.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+                else:
+                    shutil.rmtree(worktree_dir, ignore_errors=True)
+                    subprocess.run(  # nosec B603 B607
+                        ["git", "-C", str(self._main_repo), "worktree", "prune"],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+            if worktree_dir.exists():
+                print(f"[WARN] 無法清除 nightly-agent worktree：{worktree_dir}", file=sys.stderr)
+            # best-effort：分支可能根本不存在（第一次為此 slug 執行的 pre-clean 呼叫），
+            # 忽略結果即可，不需要另外處理 stderr。
+            subprocess.run(  # nosec B603 B607
+                ["git", "-C", str(self._main_repo), "branch", "-D", branch],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            print(
+                f"[WARN] 清除 nightly-agent worktree 時發生例外：{worktree_dir}：{e}",
+                file=sys.stderr,
+            )
 
     def _git(self, args: list[str], cwd: Path | None = None) -> str:
         target = cwd if cwd is not None else self._main_repo

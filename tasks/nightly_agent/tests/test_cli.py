@@ -9,7 +9,8 @@ from unittest.mock import patch
 from click.testing import CliRunner
 
 from tasks.nightly_agent.cli import _load_mycelium_lessons, cli, emit_failure_signal
-from tasks.nightly_agent.models import NightlyAgentConfig
+from tasks.nightly_agent.models import ArtifactProposal, ArtifactType, NightlyAgentConfig
+from tasks.nightly_agent.models import TestResult as ArtifactTestResult
 from tasks.nightly_agent.tests.test_drafter import make_cluster
 
 CLI = "tasks.nightly_agent.cli"
@@ -165,3 +166,138 @@ class TestFailureSignal:
         assert "[FAIL]" in (tmp_path / "LAST_FAILURE").read_text(encoding="utf-8")
         digest = next(digest_dir.glob("digest-*.md"))
         assert "[FAIL]" in digest.read_text(encoding="utf-8")
+
+
+def make_proposal(title: str = "test proposal") -> ArtifactProposal:
+    return ArtifactProposal(
+        id="proposal-123",
+        cluster_id="cluster-1",
+        artifact_type=ArtifactType.CLAUDE_MD_GOTCHA,
+        title=title,
+        content="content",
+        target_file="CLAUDE.md",
+    )
+
+
+class TestFatalVsBenignErrors:
+    """NIGHTLY-FATAL 系列：exit code 只反映真正的執行失敗，良性降級不應誤報排程失敗
+    （PR #349 mob review finding 4/5：`errors` 混雜了良性降級與真正失敗）。"""
+
+    def test_nightly_fatal_001_benign_mycelium_warning_alone_exits_zero(
+        self, tmp_path: Path
+    ) -> None:
+        """沒有 eligible clusters、唯一的 errors 來源是良性的 mycelium read warning
+        （例如舊 handover.db 缺 lessons table）時，exit code 必須是 0——這種降級是
+        `test_missing_lessons_table_returns_empty_with_warning` 明確支援的行為，不是失敗。
+        digest/`LAST_FAILURE` 仍然照寫（給人看的完整記錄），只是不影響 exit code。"""
+        digest_dir = tmp_path / "digests"
+        config = NightlyAgentConfig(digest_dir=str(digest_dir))
+
+        def _fake_load(hours: int, lesson_types: list[str], errors: list[str]) -> list[object]:
+            errors.append("mycelium read error: no such table: lessons")
+            return []
+
+        with (
+            patch("tasks.nightly_agent.config.load_config", return_value=config),
+            patch("tasks.nightly_agent.extractor.TranscriptExtractor.extract", return_value=[]),
+            patch(f"{CLI}._load_mycelium_lessons", side_effect=_fake_load),
+            patch("tasks.nightly_agent.classifier.FrictionClassifier.classify", return_value=[]),
+            patch("tasks.nightly_agent.clusterer.FrictionClusterer.cluster", return_value=[]),
+            patch("tasks.nightly_agent.clusterer.FrictionClusterer.eligible", return_value=[]),
+        ):
+            result = CliRunner().invoke(cli, ["run"])
+
+        assert result.exit_code == 0
+        assert "[FAIL]" in (tmp_path / "LAST_FAILURE").read_text(encoding="utf-8")
+
+    def test_nightly_fatal_002_friction_already_resolved_does_not_fail_exit_code(
+        self, tmp_path: Path
+    ) -> None:
+        """test 在套用 artifact 前就通過（`previously_failed=False`，代表 friction 已被
+        別的地方處理掉）：`errors` 仍記一筆給 digest 看，但這不是執行失敗，exit code 須為 0。"""
+        digest_dir = tmp_path / "digests"
+        config = NightlyAgentConfig(
+            digest_dir=str(digest_dir),
+            friction_state_file=str(tmp_path / "frictions.json"),
+        )
+        cluster = make_cluster()
+        proposal = make_proposal()
+        already_resolved = ArtifactTestResult(
+            proposal_id=proposal.id,
+            test_file="test.json",
+            passed=False,
+            previously_failed=False,
+            before_output="before",
+            after_output="after",
+            error="套用 artifact 前 lint 已通過；friction 可能已修正，略過 PR",
+        )
+
+        with (
+            patch("tasks.nightly_agent.config.load_config", return_value=config),
+            patch("tasks.nightly_agent.extractor.TranscriptExtractor.extract", return_value=[]),
+            patch(f"{CLI}._load_mycelium_lessons", return_value=[]),
+            patch("tasks.nightly_agent.classifier.FrictionClassifier.classify", return_value=[]),
+            patch(
+                "tasks.nightly_agent.clusterer.FrictionClusterer.cluster", return_value=[cluster]
+            ),
+            patch(
+                "tasks.nightly_agent.clusterer.FrictionClusterer.eligible", return_value=[cluster]
+            ),
+            patch(
+                "tasks.nightly_agent.governance.FrictionRegistry.find_duplicate", return_value=None
+            ),
+            patch("tasks.nightly_agent.drafter.ArtifactDrafter.draft", return_value=proposal),
+            patch(
+                "tasks.nightly_agent.tester.TestValidator.validate",
+                return_value=already_resolved,
+            ),
+        ):
+            result = CliRunner().invoke(cli, ["run"])
+
+        assert result.exit_code == 0
+
+    def test_nightly_fatal_003_genuine_validation_failure_exits_nonzero(
+        self, tmp_path: Path
+    ) -> None:
+        """test 在套用 artifact 前就失敗（`previously_failed=True`），套用後仍失敗：
+        這是真正的驗證失敗（artifact 沒解決它宣稱要解決的 friction），exit code 必須非零。"""
+        digest_dir = tmp_path / "digests"
+        config = NightlyAgentConfig(
+            digest_dir=str(digest_dir),
+            friction_state_file=str(tmp_path / "frictions.json"),
+        )
+        cluster = make_cluster()
+        proposal = make_proposal()
+        genuinely_failed = ArtifactTestResult(
+            proposal_id=proposal.id,
+            test_file="test.json",
+            passed=False,
+            previously_failed=True,
+            before_output="before",
+            after_output="after",
+            error="套用 artifact 後 lint 仍失敗",
+        )
+
+        with (
+            patch("tasks.nightly_agent.config.load_config", return_value=config),
+            patch("tasks.nightly_agent.extractor.TranscriptExtractor.extract", return_value=[]),
+            patch(f"{CLI}._load_mycelium_lessons", return_value=[]),
+            patch("tasks.nightly_agent.classifier.FrictionClassifier.classify", return_value=[]),
+            patch(
+                "tasks.nightly_agent.clusterer.FrictionClusterer.cluster", return_value=[cluster]
+            ),
+            patch(
+                "tasks.nightly_agent.clusterer.FrictionClusterer.eligible", return_value=[cluster]
+            ),
+            patch(
+                "tasks.nightly_agent.governance.FrictionRegistry.find_duplicate", return_value=None
+            ),
+            patch("tasks.nightly_agent.drafter.ArtifactDrafter.draft", return_value=proposal),
+            patch(
+                "tasks.nightly_agent.tester.TestValidator.validate",
+                return_value=genuinely_failed,
+            ),
+        ):
+            result = CliRunner().invoke(cli, ["run"])
+
+        assert result.exit_code == 1
