@@ -104,6 +104,10 @@ class PRRecord(BaseModel):
     artifact_file: str
     test_file: str
     behaviorally_validated: bool = True
+    # PR 本身已透過 GitHub API 成功建立，不因清理未完全成功而回報失敗（PR 已是真實存在的
+    # 事實）；但 worktree／本地分支若沒清乾淨，呼叫端需要知道以便計入 fatal_errors，
+    # 讓排程 exit code 仍能反映「這次執行沒有完全乾淨」。
+    cleanup_ok: bool = True
 
 
 class NightlyDigest(BaseModel):

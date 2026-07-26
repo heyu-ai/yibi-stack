@@ -120,6 +120,27 @@ class TestLoadMyceliumLessons:
         assert result == []
         assert errors == []
 
+    def test_genuine_io_failure_is_fatal_not_benign(self, tmp_path: Path) -> None:
+        """真正的 I/O 故障（磁碟讀取失敗、權限問題等，`OSError`）跟良性的 schema drift
+        （`sqlite3.OperationalError`，例如缺 lessons table）不是同一類——前者必須計入
+        `fatal_errors`，否則無論多嚴重的儲存層問題都只會產生一則 [WARN]，exit code
+        仍是 0，排程層完全看不到（PR #349 mob review Important finding）。"""
+        db_path = make_handover_db(tmp_path, with_retrospective_id=True)
+        assert db_path.exists()
+
+        errors: list[str] = []
+        fatal_errors: list[str] = []
+        with (
+            patch(f"{CLI}.Path.home", return_value=tmp_path),
+            patch("sqlite3.connect", side_effect=OSError("disk I/O error")),
+        ):
+            result = _load_mycelium_lessons(24, ["pitfall", "pattern"], errors, fatal_errors)
+
+        assert result == []
+        assert len(errors) == 1
+        assert len(fatal_errors) == 1
+        assert "I/O" in fatal_errors[0] or "disk" in fatal_errors[0].lower()
+
 
 class TestFailureSignal:
     def test_nightly_failure_001_failed_run_writes_visible_marker(self, tmp_path: Path) -> None:
@@ -193,7 +214,9 @@ class TestFatalVsBenignErrors:
         digest_dir = tmp_path / "digests"
         config = NightlyAgentConfig(digest_dir=str(digest_dir))
 
-        def _fake_load(hours: int, lesson_types: list[str], errors: list[str]) -> list[object]:
+        def _fake_load(
+            hours: int, lesson_types: list[str], errors: list[str], fatal_errors: list[str]
+        ) -> list[object]:
             errors.append("mycelium read error: no such table: lessons")
             return []
 
@@ -301,3 +324,65 @@ class TestFatalVsBenignErrors:
             result = CliRunner().invoke(cli, ["run"])
 
         assert result.exit_code == 1
+
+    def test_nightly_fatal_004_cleanup_incomplete_still_records_pr_but_exits_nonzero(
+        self, tmp_path: Path
+    ) -> None:
+        """PR 已成功建立（`create_pr` 正常回傳 `PRRecord`），但 worktree/分支清理未完全
+        成功（`cleanup_ok=False`）：PR 仍然算數、被記錄下來（不因清理殘留而假裝 PR 沒
+        建立成功），但排程的 exit code 仍要非零，讓「這次執行沒有完全乾淨」被看見
+        （PR #349 mob review 的折衷方案：Codex/Claude 主張要讓呼叫端知道、Gemini 主張
+        不該讓已成功的 PR 被回報成失敗，兩者在這個設計下同時滿足）。"""
+        from tasks.nightly_agent.models import PRRecord
+
+        digest_dir = tmp_path / "digests"
+        config = NightlyAgentConfig(
+            digest_dir=str(digest_dir),
+            friction_state_file=str(tmp_path / "frictions.json"),
+        )
+        cluster = make_cluster()
+        proposal = make_proposal()
+        passed_result = ArtifactTestResult(
+            proposal_id=proposal.id,
+            test_file="test.json",
+            passed=True,
+            previously_failed=True,
+            behaviorally_validated=True,
+            before_output="before",
+            after_output="after",
+        )
+        pr_record = PRRecord(
+            proposal_id=proposal.id,
+            cluster_id=proposal.cluster_id,
+            pr_url="https://github.com/o/r/pull/1",
+            pr_number=1,
+            branch="nightly-agent/2026-01-01/test-abcd1234",
+            artifact_file=proposal.target_file,
+            test_file="test.json",
+            behaviorally_validated=True,
+            cleanup_ok=False,
+        )
+
+        with (
+            patch("tasks.nightly_agent.config.load_config", return_value=config),
+            patch("tasks.nightly_agent.extractor.TranscriptExtractor.extract", return_value=[]),
+            patch(f"{CLI}._load_mycelium_lessons", return_value=[]),
+            patch("tasks.nightly_agent.classifier.FrictionClassifier.classify", return_value=[]),
+            patch(
+                "tasks.nightly_agent.clusterer.FrictionClusterer.cluster", return_value=[cluster]
+            ),
+            patch(
+                "tasks.nightly_agent.clusterer.FrictionClusterer.eligible", return_value=[cluster]
+            ),
+            patch(
+                "tasks.nightly_agent.governance.FrictionRegistry.find_duplicate", return_value=None
+            ),
+            patch("tasks.nightly_agent.drafter.ArtifactDrafter.draft", return_value=proposal),
+            patch("tasks.nightly_agent.tester.TestValidator.validate", return_value=passed_result),
+            patch("tasks.nightly_agent.pr_creator.PRCreator.create_pr", return_value=pr_record),
+            patch("tasks.nightly_agent.governance.FrictionRegistry.record"),
+        ):
+            result = CliRunner().invoke(cli, ["run"])
+
+        assert result.exit_code == 1
+        assert f"PR #{pr_record.pr_number}" in result.output

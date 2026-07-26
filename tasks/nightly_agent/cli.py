@@ -54,7 +54,7 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
 
     # --- Step 2: Read mycelium lessons ---
     click.echo("[2/6] 讀取 mycelium lessons …")
-    lessons = _load_mycelium_lessons(hours, config.lesson_types, errors)
+    lessons = _load_mycelium_lessons(hours, config.lesson_types, errors, fatal_errors)
     click.echo(f"      {len(lessons)} lessons found")
 
     # --- Step 3: Classify friction events ---
@@ -134,6 +134,19 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
             pr_record = pr_creator.create_pr(proposal, result)
             prs.append(pr_record)
             click.echo(f"  [OK] PR #{pr_record.pr_number}: {pr_record.pr_url}")
+            if not pr_record.cleanup_ok:
+                # PR 本身已成功建立（GitHub 上真的存在），不因清理未完全乾淨而回報這次
+                # create_pr 失敗；但排程層需要知道「這次執行沒有完全乾淨」，所以計入
+                # fatal_errors 讓 exit code 反映出來，不影響已開的 PR。
+                click.echo(
+                    f"  [WARN] PR 已建立，但 worktree/分支清理未完全成功：{pr_record.branch}",
+                    err=True,
+                )
+                cleanup_msg = (
+                    f"cleanup incomplete for PR #{pr_record.pr_number} ({pr_record.branch})"
+                )
+                errors.append(cleanup_msg)
+                fatal_errors.append(cleanup_msg)
         except RuntimeError as e:
             click.echo(f"  [SKIP] PR 建立失敗 ({proposal.title}): {e}", err=True)
             errors.append(str(e))
@@ -232,7 +245,10 @@ def setup() -> None:
 
 
 def _load_mycelium_lessons(
-    hours: int, lesson_types: list[str], errors: list[str]
+    hours: int,
+    lesson_types: list[str],
+    errors: list[str],
+    fatal_errors: list[str] | None = None,
 ) -> list[dict[str, object]]:
     """從 mycelium 的 lessons table 讀取最近 hours 小時的 typed lessons。
 
@@ -242,6 +258,12 @@ def _load_mycelium_lessons(
     三者仍共用同一實體檔案 `~/.agents/handover/handover.db`（見
     `tasks/mycelium/config.py` 的 `HANDOVER_DB_PATH`），但 `lessons` 是與 `handovers`/
     `retrospectives` 平行的獨立 table，故 SELECT 需一併帶出 `retrospective_id`。
+
+    `sqlite3.OperationalError`（如缺 `lessons` table，代表尚未 migrate 的舊 schema）與
+    `OSError`（磁碟讀取失敗、權限問題、DB 檔案被並發寫入毀損等真正的 I/O 故障）分開處理：
+    前者是已知、支援的降級路徑（`test_missing_lessons_table_returns_empty_with_warning`
+    明確涵蓋），後者是真正的基礎設施故障，必須算進 `fatal_errors`——否則無論多嚴重的
+    儲存層問題都只會產生一則 `[WARN]`，exit code 仍是 0，排程層完全看不到。
     """
     import sqlite3  # noqa: PLC0415
 
@@ -287,9 +309,15 @@ def _load_mycelium_lessons(
             if d.get("type") in lesson_types:
                 result.append(d)
         return result
-    except (sqlite3.OperationalError, OSError) as e:
+    except sqlite3.OperationalError as e:
         click.echo(f"[WARN] mycelium read error: {e}", err=True)
         errors.append(f"mycelium read error: {e}")
+        return []
+    except OSError as e:
+        click.echo(f"[WARN] mycelium read error (I/O failure): {e}", err=True)
+        errors.append(f"mycelium read error (I/O failure): {e}")
+        if fatal_errors is not None:
+            fatal_errors.append(f"mycelium read error (I/O failure): {e}")
         return []
 
 
@@ -310,7 +338,7 @@ def _finalize_run(  # type: ignore[no-untyped-def]
 
     `errors`（給 digest 看的完整記錄，含良性降級）與 `fatal_errors`（真正的執行失敗）
     分開判斷：`run()` 的三個結束點（無 eligible cluster／dry-run／正常跑完）共用同一套
-    收尾邏輯，避免各自维护一份、漂移出不一致的行為。
+    收尾邏輯，避免各自維護一份、漂移出不一致的行為。
     """
     from .digest import DigestWriter
 
@@ -327,7 +355,15 @@ def _finalize_run(  # type: ignore[no-untyped-def]
     )
     click.echo(f"      Digest: {digest_path}")
     if errors:
-        emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
+        # fatal_errors 非空時措辭維持「執行失敗」；只有良性降級時改用較輕的措辭，避免
+        # 讀 LAST_FAILURE marker 的人誤以為排程真的壞了（machine signal 的 exit code
+        # 已經正確區分兩者，這裡只是讓 human-facing 的文字跟著一致）。
+        if fatal_errors:
+            emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
+        else:
+            emit_failure_signal(
+                RuntimeError(f"（僅良性降級，非致命）{'；'.join(errors)}"), config.digest_dir
+            )
     if fatal_errors:
         raise SystemExit(1)
 
