@@ -17,15 +17,26 @@ Usage:
 
 Default warn-only 模式在初期部署使用；所有現有違規修完後改為 --fail 模式。
 
-**斷掉的 symlink 一律硬失敗**（不受 warn-only 影響）：頂層 `commands/<cmd>.md` 與
-`skills/<name>` 是指向 `plugins/<pack>/...` 的 symlink，刪除或搬動 plugin 端而漏了
-`git rm` 頂層 symlink，glob 仍會命中該路徑但 `read_text()` 拋 FileNotFoundError。
-在此之前那是未捕捉的 traceback，會讓 pre-commit 與 CI 一起掛，且錯誤訊息不指出是哪個
-symlink——連 lint 都跑不了來查。改為具名 `[FAIL]` 後，失敗仍是失敗，但訊息可行動。
+**斷掉的 symlink 一律硬失敗**（不受 warn-only 影響，且不依賴 hook 檔案是否存在）：
+頂層 `commands/<cmd>.md` 是指向 `plugins/<pack>/...` 的 symlink，刪除或搬動 plugin 端
+而漏了 `git rm` 頂層 symlink，`commands/*.md` 這條 glob 仍會命中該路徑但
+`read_text()` 拋 FileNotFoundError。在此之前那是未捕捉的 traceback，會讓 pre-commit
+與 CI 一起掛，且錯誤訊息不指出是哪個 symlink——連 lint 都跑不了來查。改為具名
+`[FAIL]` 後，失敗仍是失敗，但訊息可行動。
+
+**這條硬失敗只涵蓋 `commands/<cmd>.md`，不涵蓋 `skills/<name>`。** `MD_GLOBS` 對
+skills 的樣式是 `skills/**/SKILL.md`——pathlib 的 `**` **不會下降到斷線的目錄
+symlink**（`.claude/rules/02-error-and-import.md` 已記載：`Path.rglob()` / `**`
+不跟隨 symlink）。故一個斷掉的 `skills/<name>` 目錄 symlink 對這條 glob 完全不可見，
+既有 `find_broken_links()` 也就永遠偵測不到它——那一半的涵蓋面交給
+`scripts/lint_plugin_layout.py` 的斷言 1（`check_root_symlinks()`，用
+`SKILLS_DIR.iterdir()` 逐一檢查，不受 `**` 的限制）。
 
 Exit code:
   0 -> 所有 block 通過，或 warn-only 模式（即使有 anti-pattern 違規）
-  1 -> --fail 模式且有 anti-pattern 違規，或（任何模式）偵測到斷掉的 symlink
+  1 -> --fail 模式且有 anti-pattern 違規；或（任何模式）偵測到斷掉的 commands/*.md
+       symlink；或（任何模式）掃描過程中有檔案讀取失敗（結構性錯誤，不受 warn-only
+       影響——讀不到檔案代表掃描不完整，與「掃描完但發現風格違規」是不同性質的失敗）
 """
 
 import json
@@ -103,31 +114,38 @@ _HOOKS: list[tuple[list[str], str]] = [
     ([str(AP1_HOOK)], "AP1"),
     (["python3", str(AP2_HOOK)], "AP2"),
 ]
-_ACTIVE_HOOKS = [(cmd, label) for cmd, label in _HOOKS if Path(cmd[-1]).exists()]
-if not _ACTIVE_HOOKS:
-    print("[WARN] lint_skill_bash: no hook files found — skipping validation (check HOOKS_DIR)")
-    import sys as _sys
-
-    _sys.exit(0)
 
 
-def lint_file(path: Path) -> list[str]:
-    violations: list[str] = []
+def _active_hooks() -> list[tuple[list[str], str]]:
+    return [(cmd, label) for cmd, label in _HOOKS if Path(cmd[-1]).exists()]
+
+
+def lint_file(path: Path, active_hooks: list[tuple[list[str], str]]) -> tuple[list[str], list[str]]:
+    """回傳 (anti_pattern_violations, structural_errors)。
+
+    兩者分開回傳，不合併成一個清單——結構性讀取失敗（OSError）代表掃描本身不完整，
+    必須讓呼叫端無條件 exit 1；若併入 anti-pattern violations 清單，warn-only 模式
+    會把它跟「掃描完、發現風格問題」同等對待，回報成功，而使用者無法區分
+    「沒有壞 symlink/讀取問題」與「掃描根本沒跑完」。
+    """
+    anti_pattern: list[str] = []
+    structural: list[str] = []
     rel = path.relative_to(REPO_ROOT)
     try:
         blocks = extract_bash_blocks(path)
     except OSError as e:
         # TOCTOU：find_broken_links() 之後、讀取之前檔案被移除或權限變更
-        return [f"  {rel}: 無法讀取（{type(e).__name__}: {e.strerror}）"]
+        structural.append(f"  {rel}: 無法讀取（{type(e).__name__}: {e.strerror}）")
+        return anti_pattern, structural
     for line_no, block in blocks:
-        for hook_cmd, label in _ACTIVE_HOOKS:
+        for hook_cmd, label in active_hooks:
             code, msg = _run_hook(hook_cmd, block)
             if code == 2:
                 first_line = msg.split("\n")[0] if msg else "violation"
-                violations.append(f"  {rel}:{line_no}: [{label}] {first_line}")
+                anti_pattern.append(f"  {rel}:{line_no}: [{label}] {first_line}")
             elif code not in (0, 1):
-                violations.append(f"  {rel}:{line_no}: [{label}] hook exited {code} (crash?)")
-    return violations
+                anti_pattern.append(f"  {rel}:{line_no}: [{label}] hook exited {code} (crash?)")
+    return anti_pattern, structural
 
 
 def main() -> int:
@@ -136,7 +154,10 @@ def main() -> int:
         print("[SKIP] 找不到 markdown 檔案可驗證")
         return 0
 
-    # 結構性錯誤先擋：斷掉的 symlink 不是 style 問題，warn-only 也必須失敗。
+    # 結構性錯誤先擋，且不依賴 hook 是否存在：斷掉的 symlink 不是 style 問題，
+    # warn-only 也必須失敗。這一步必須在下面的 hook-availability 檢查之前執行——
+    # 否則 hook 檔案缺失時的早退（見下）會讓這裡永遠跑不到，dangling symlink
+    # 完全偵測不到卻回報 exit 0（SF-2 finding：兩者曾經順序相反）。
     broken = find_broken_links(files)
     if broken:
         print(f"[FAIL] 偵測到 {len(broken)} 個斷掉的 symlink：", file=sys.stderr)
@@ -153,9 +174,32 @@ def main() -> int:
         )
         return 1
 
+    active_hooks = _active_hooks()
+    if not active_hooks:
+        print(
+            "[WARN] lint_skill_bash: no hook files found — skipping anti-pattern"
+            " validation (check HOOKS_DIR)",
+            file=sys.stderr,
+        )
+        return 0
+
     all_violations: list[str] = []
+    all_structural: list[str] = []
     for f in files:
-        all_violations.extend(lint_file(f))
+        violations, structural = lint_file(f, active_hooks)
+        all_violations.extend(violations)
+        all_structural.extend(structural)
+
+    # 結構性讀取失敗一律硬失敗，不受 warn-only / --fail 影響——與上面的斷線 symlink
+    # 檢查同一個等級：讀不到檔案代表掃描不完整，不是「掃描完發現風格違規」。
+    if all_structural:
+        print(
+            f"[FAIL] {len(all_structural)} 個檔案讀取失敗（結構性錯誤，不受 warn-only 影響）：",
+            file=sys.stderr,
+        )
+        for s in all_structural:
+            print(s, file=sys.stderr)
+        return 1
 
     if all_violations:
         level = "[FAIL]" if FAIL_MODE else "[WARN]"

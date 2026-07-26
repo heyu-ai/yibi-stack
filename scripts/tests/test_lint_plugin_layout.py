@@ -190,6 +190,56 @@ class TestSelfReference:
         result = _run(root)
         assert result.returncode == 0, result.stderr
 
+    def test_lintlayout_sr_006_stale_packroot_self_reference_fails(self, tmp_path: Path) -> None:
+        """LINTLAYOUT-SR-006: pack-root 形狀的自我引用（`<VAR>_ROOT="plugins/<pack>"`，
+        無 `/skills/` 段）指向別的 pack -> exit 1
+
+        對應 D1（mob review 發現：`plugins/sdd/skills/spectra-amplifier/SKILL.md` 的
+        self-locate tier-3 是 `SDD_ROOT="plugins/sdd"` 這種 pack-root 形狀，原本的
+        `_PATH_RE` 只認 `plugins/<pack>/skills/<skill>`，這個形狀完全逃過斷言 2）。
+        """
+        root = _make_repo(tmp_path)
+        skill_md = root / "plugins" / "alpha" / "skills" / "foo" / "SKILL.md"
+        skill_md.write_text(
+            skill_md.read_text(encoding="utf-8") + '\nFOO_ROOT="plugins/beta"\n',
+            encoding="utf-8",
+        )
+
+        result = _run(root)
+        assert result.returncode == 1
+        assert "pack-root" in result.stderr or "自我引用" in result.stderr
+
+    def test_lintlayout_sr_007_own_packroot_self_reference_allowed(self, tmp_path: Path) -> None:
+        """LINTLAYOUT-SR-007: pack-root 自我引用指向自己所屬 pack -> 放行"""
+        root = _make_repo(tmp_path)
+        skill_md = root / "plugins" / "alpha" / "skills" / "foo" / "SKILL.md"
+        skill_md.write_text(
+            skill_md.read_text(encoding="utf-8") + '\nFOO_ROOT="plugins/alpha"\n',
+            encoding="utf-8",
+        )
+
+        result = _run(root)
+        assert result.returncode == 0, result.stderr
+
+    def test_lintlayout_sr_008_non_root_variable_packroot_shape_ignored(
+        self, tmp_path: Path
+    ) -> None:
+        """LINTLAYOUT-SR-008: 沒有 `_ROOT` 後綴的賦值 -> 不當成 self-locate，放行
+
+        負面對照：避免把任意 `VAR="plugins/<pack>"` 賦值都當成 self-locate 誤判——
+        `_ROOT` 後綴是本 repo 四個既有 self-locate 變數（CL_ROOT/PCF_ROOT/RETRO_ROOT/
+        SDD_ROOT）共同的命名慣例，用它縮小誤判面。
+        """
+        root = _make_repo(tmp_path)
+        skill_md = root / "plugins" / "alpha" / "skills" / "foo" / "SKILL.md"
+        skill_md.write_text(
+            skill_md.read_text(encoding="utf-8") + '\nSOME_OTHER_VAR="plugins/beta"\n',
+            encoding="utf-8",
+        )
+
+        result = _run(root)
+        assert result.returncode == 0, result.stderr
+
 
 class TestMarketplace:
     def test_lintlayout_mp_001_missing_source_dir_fails(self, tmp_path: Path) -> None:
@@ -227,6 +277,64 @@ class TestMarketplace:
         result = _run(root)
         assert result.returncode == 1
         assert "orphan" in result.stderr
+
+    def test_lintlayout_mp_004_plugin_json_only_orphan_fails(self, tmp_path: Path) -> None:
+        """LINTLAYOUT-MP-004: 只有 plugin.json（無 package.json）的未登記 pack -> exit 1
+
+        對應 D5：反向檢查原本以 `package.json` 存在為前提，只有 `.claude-plugin/plugin.json`
+        （Claude Code 實際讀的 manifest）的未登記 pack 會兩邊都被跳過而靜默通過——
+        正是斷言 3 自己宣稱要關的洞（未登記的 pack 被 lint_skill_scope.py 豁免檢查）。
+        """
+        root = _make_repo(tmp_path)
+        pack_dir = root / "plugins" / "gamma"
+        skill_md = pack_dir / "skills" / "solo" / "SKILL.md"
+        skill_md.parent.mkdir(parents=True)
+        skill_md.write_text(
+            "---\nname: solo\ntype: know\nscope: global\ndescription: demo\n---\n\n# solo\n",
+            encoding="utf-8",
+        )
+        (pack_dir / ".claude-plugin").mkdir()
+        _write_json(
+            pack_dir / ".claude-plugin" / "plugin.json", {"name": "gamma", "version": "1.0.0"}
+        )
+        # 刻意不建 package.json
+
+        result = _run(root)
+        assert result.returncode == 1
+        assert "gamma" in result.stderr
+
+    def test_lintlayout_mp_005_registered_pack_with_mismatched_dirname_allowed(
+        self, tmp_path: Path
+    ) -> None:
+        """LINTLAYOUT-MP-005: 正確登記但目錄名與 name 不同的 pack -> 放行
+
+        對應 D6（agy R1 Critical，lead 已於 verify_d6_basename.py 重現）：反向檢查原本用
+        `pack_dir.name not in registered`（目錄 basename 對 marketplace name），而
+        `registered` 裝的是 name 欄位——一個正確登記為
+        `{"name": "bar", "source": "./plugins/foo"}` 的 pack 會被誤報「未登記」。
+        改用 resolved source 目錄集合比對後應正確放行。
+        """
+        root = _make_repo(tmp_path)
+        pack_dir = root / "plugins" / "foo"
+        skill_md = pack_dir / "skills" / "solo" / "SKILL.md"
+        skill_md.parent.mkdir(parents=True)
+        skill_md.write_text(
+            "---\nname: solo\ntype: know\nscope: global\ndescription: demo\n---\n\n# solo\n",
+            encoding="utf-8",
+        )
+        _write_json(pack_dir / "package.json", {"name": "bar", "version": "1.0.0"})
+        (pack_dir / ".claude-plugin").mkdir()
+        _write_json(
+            pack_dir / ".claude-plugin" / "plugin.json", {"name": "bar", "version": "1.0.0"}
+        )
+
+        marketplace = root / ".claude-plugin" / "marketplace.json"
+        data = json.loads(marketplace.read_text(encoding="utf-8"))
+        data["plugins"].append({"name": "bar", "source": "./plugins/foo"})
+        _write_json(marketplace, data)
+
+        result = _run(root)
+        assert result.returncode == 0, result.stderr
 
 
 class TestVersionLockstep:

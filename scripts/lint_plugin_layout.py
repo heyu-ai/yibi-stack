@@ -56,8 +56,17 @@ COMMANDS_DIR = REPO_ROOT / "commands"
 
 MARKETPLACE_SLUG = "yibi-stack"
 
-# plugins/<pack>/skills/<skill>
+# plugins/<pack>/skills/<skill>（existence 檢查用；nested sub-skill 只取第一段，
+# 足以判斷「這個 skill 目錄本身存在」，完整路徑的自我引用比對交給下面的 tail-based 檢查）
 _PATH_RE = re.compile(r"plugins/([a-z0-9][a-z0-9-]*)/skills/([a-z0-9][a-z0-9-]*)")
+# pack-root 形狀的 self-locate 賦值，例：SDD_ROOT="plugins/sdd"（無 /skills/ 段——
+# spectra-amplifier 的 tier-3 自我定位到整個 pack，而非特定 skill 子目錄）。
+# `_ROOT` 後綴限制縮小誤判面：本 repo 四個既有 self-locate 變數
+# （CL_ROOT/PCF_ROOT/RETRO_ROOT/SDD_ROOT）都以 `_ROOT` 結尾，任意 `VAR="plugins/<pack>"`
+# 賦值不應該全部被當成 self-locate（可能是無關的迭代/查表邏輯）。
+_PACKROOT_ASSIGN_RE = re.compile(
+    r'(?P<var>[A-Z][A-Z0-9_]*_ROOT)="plugins/(?P<pack>[a-z0-9][a-z0-9-]*)"'
+)
 # <pack>@yibi-stack
 _CACHE_KEY_RE = re.compile(rf"([a-z0-9][a-z0-9-]*)@{re.escape(MARKETPLACE_SLUG)}\b")
 
@@ -102,11 +111,19 @@ def _owning_pack(path: Path) -> str:
     return path.relative_to(PLUGINS_DIR).parts[0]
 
 
-def _own_skill_name(path: Path) -> str | None:
-    """plugins/<pack>/skills/<...>/<name>/SKILL.md -> <name>；非 skill 檔回傳 None。"""
+def _own_skill_tail(path: Path) -> str | None:
+    """plugins/<pack>/skills/<a>/<b>/.../SKILL.md -> "a/b/..."（skills/ 之後、SKILL.md
+    之前的完整相對路徑，用 `/` join）；非 skill 檔回傳 None。
+
+    對 flat skill（plugins/alpha/skills/foo/SKILL.md）回傳 "foo"；對 nested sub-skill
+    （plugins/growth/skills/mycelium/recap/SKILL.md）回傳 "mycelium/recap"——回傳完整尾段
+    而非只取 leaf，是因為自我引用比對需要整條路徑相符，只比 leaf 會把
+    `plugins/other/skills/mycelium/recap` 誤判成跨 pack 引用（leaf "recap" 對得上，
+    但沒人比對中間的 "mycelium" 段）。
+    """
     parts = path.relative_to(PLUGINS_DIR).parts
     if len(parts) >= 4 and parts[1] == "skills" and parts[-1] == "SKILL.md":
-        return parts[-2]
+        return "/".join(parts[2:-1])
     return None
 
 
@@ -144,9 +161,11 @@ def check_pack_references() -> list[str]:
             continue
 
         owner = _owning_pack(doc)
-        own_skill = _own_skill_name(doc)
+        own_tail = _own_skill_tail(doc)
         rel_doc = _rel(doc)
 
+        # (a) 存在性檢查：referenced skill 目錄是否存在。只取 skills/ 後第一段即可判斷
+        # 「這個目錄本身存在」；自我引用的 pack 正確性交給 (b) 的完整 tail 比對。
         for m in _PATH_RE.finditer(text):
             ref_pack, ref_skill = m.group(1), m.group(2)
             line_no = text[: m.start()].count("\n") + 1
@@ -156,12 +175,32 @@ def check_pack_references() -> list[str]:
                     f"  {rel_doc}:{line_no}: 引用不存在的路徑 "
                     f"plugins/{ref_pack}/skills/{ref_skill}/"
                 )
-                continue
-            # 自我引用（同名 skill）必須指向自己的 pack
-            if own_skill is not None and ref_skill == own_skill and ref_pack != owner:
+
+        # (b) 自我引用（skill-form）：比對完整尾段而非 leaf，nested sub-skill 才抓得到。
+        # 用該檔自己的 own_tail 動態組 regex，只匹配「引用路徑以我自己的完整尾段結尾」
+        # 的那些出現——與 (a) 分開跑，故存在性錯誤與自我引用錯誤互不遮蔽彼此。
+        if own_tail is not None:
+            tail_re = re.compile(rf"plugins/([a-z0-9][a-z0-9-]*)/skills/{re.escape(own_tail)}\b")
+            for m in tail_re.finditer(text):
+                ref_pack = m.group(1)
+                line_no = text[: m.start()].count("\n") + 1
+                if ref_pack != owner:
+                    errors.append(
+                        f"  {rel_doc}:{line_no}: 自我引用指向錯誤的 pack——"
+                        f"寫的是 plugins/{ref_pack}/，但本 skill 住在 plugins/{owner}/。"
+                        f"這是 self-locate fallback 的最後一段，寫錯會靜默降級。"
+                    )
+
+        # (c) 自我引用（pack-root form）：spectra-amplifier 的 tier-3 自我定位到整個 pack
+        # 而非 skill 子目錄，形如 `SDD_ROOT="plugins/sdd"`——(a)/(b) 的 /skills/ 前提在此
+        # 不成立，需要獨立偵測。
+        for m in _PACKROOT_ASSIGN_RE.finditer(text):
+            ref_pack = m.group("pack")
+            line_no = text[: m.start()].count("\n") + 1
+            if ref_pack != owner:
                 errors.append(
-                    f"  {rel_doc}:{line_no}: 自我引用指向錯誤的 pack——"
-                    f"寫的是 plugins/{ref_pack}/，但本 skill 住在 plugins/{owner}/。"
+                    f"  {rel_doc}:{line_no}: pack-root 自我引用指向錯誤的 pack——"
+                    f'`{m.group("var")}="plugins/{ref_pack}"`，但本文件住在 plugins/{owner}/。'
                     f"這是 self-locate fallback 的最後一段，寫錯會靜默降級。"
                 )
 
@@ -197,7 +236,10 @@ def _read_json(path: Path) -> dict | None:
 
 def check_marketplace(entries: list[dict]) -> list[str]:
     errors: list[str] = []
-    registered: set[str] = set()
+    # resolved source 目錄集合，不是 name 集合——目錄 basename 與 marketplace 登記的
+    # name 是兩個獨立識別符，可以不同（如 source: ./plugins/foo 但 name: "bar"）。
+    # 用 name 比對目錄 basename 會誤報一個正確登記的 pack「未登記」。
+    registered_dirs: set[Path] = set()
 
     for entry in entries:
         name = entry.get("name")
@@ -205,12 +247,12 @@ def check_marketplace(entries: list[dict]) -> list[str]:
         if not name or not isinstance(source, str):
             errors.append(f"  marketplace.json：項目缺少 name 或 source（{entry!r}）")
             continue
-        registered.add(name)
 
         pack_dir = (REPO_ROOT / source).resolve()
         if not pack_dir.is_dir():
             errors.append(f"  marketplace.json：'{name}' 的 source '{source}' 目錄不存在")
             continue
+        registered_dirs.add(pack_dir)
 
         for rel_path in (
             Path(".claude-plugin") / "plugin.json",
@@ -227,14 +269,23 @@ def check_marketplace(entries: list[dict]) -> list[str]:
                     f"與 marketplace.json 的 '{name}' 不符"
                 )
 
-    # 反向：有 package.json 的 pack 目錄都必須被登記，否則 lint_skill_scope 會靜默豁免它
+    # 反向：有 package.json **或** plugin.json 的 pack 目錄都必須被登記，否則
+    # lint_skill_scope 會靜默豁免它。`.claude-plugin/plugin.json` 才是 Claude Code
+    # 實際讀的 manifest，`package.json` 只是 repo 記帳用——只認 package.json 存在
+    # 會讓「只有 plugin.json」的未登記 pack 逃過這道檢查。
     for pack_dir in sorted(PLUGINS_DIR.iterdir()) if PLUGINS_DIR.is_dir() else []:
-        if not pack_dir.is_dir() or not (pack_dir / "package.json").is_file():
+        if not pack_dir.is_dir():
             continue
-        if pack_dir.name not in registered:
+        has_manifest = (pack_dir / "package.json").is_file() or (
+            pack_dir / ".claude-plugin" / "plugin.json"
+        ).is_file()
+        if not has_manifest:
+            continue
+        if pack_dir.resolve() not in registered_dirs:
             errors.append(
-                f"  plugins/{pack_dir.name}/ 有 package.json 但未登記進 marketplace.json。"
-                f"未登記的 pack 會被 lint_skill_scope.py 當成外部 plugin 而豁免檢查。"
+                f"  plugins/{pack_dir.name}/ 有 package.json 或 plugin.json 但未登記進"
+                f" marketplace.json。未登記的 pack 會被 lint_skill_scope.py 當成外部"
+                f" plugin 而豁免檢查。"
             )
     return errors
 
