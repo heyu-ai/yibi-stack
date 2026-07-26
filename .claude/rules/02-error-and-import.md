@@ -133,6 +133,41 @@ tmp = SETTINGS_PATH.with_name("settings.json.tmp")  # intent is clear
 
 For `.tmp` scratch files, always use `with_name(stem + ".tmp")` or `with_name("filename.tmp")`.
 
+## `old_path == "/dev/null"` Alone Doesn't Catch a Rename Into a Protected Path
+
+When parsing a unified diff (or any change-set representation with old/new paths) to decide
+"is this a genuinely new file under directory X", checking only `old_path == "/dev/null"`
+misses a file **renamed in** from outside X: its `old_path` is a real path elsewhere, not
+`/dev/null`, so the check treats it as "already existing" and skips whatever new-file
+handling X requires.
+
+```python
+# Wrong: a rename from scripts/old.py into .claude/hooks/new.py has old_path != "/dev/null",
+# so is_new_hook is False even though .claude/hooks/ has never seen this content before
+is_new_hook = old_path == "/dev/null" and NEW_HOOK_RE.fullmatch(new_path)
+
+# Correct: "new" means the new path matches the protected pattern AND the old path did not --
+# covering both a genuine new file (old_path == "/dev/null", never matches anything) and a
+# rename in from outside the protected directory
+def is_newly_protected(old_path: str, new_path: str, protected_re: re.Pattern) -> bool:
+    return bool(protected_re.fullmatch(new_path)) and not bool(protected_re.fullmatch(old_path))
+```
+
+A rename **within** the protected directory (old and new paths both match) correctly stays
+`False` under the fixed form — it is an existing file being renamed, not a new one, so it
+should route to whatever "existing file changed" handling already exists, not the new-file path.
+
+Scope: any check whose purpose is "does this diff introduce new content under directory/pattern
+X" — commit-time lints, migration scanners, anything that treats a path's presence in a
+protected namespace as the thing to gate on.
+
+<!-- verified: probe --> Reproduced on yibi-stack PR #339: `check_rule_evidence()`
+(`scripts/lint_rule_evidence.py`) used `fd.is_new_file` (`old_path == "/dev/null"`) to decide
+whether a new rule/hook file needs an evidence marker; a synthetic diff renaming
+`scripts/old-notes.md` to `.claude/rules/renamed-in.md` bypassed the check entirely. Found
+independently by two reviewer models (Codex and Gemini) in the same review round. Fixed by
+requiring the new path to match and the old path not to.
+
 ## Type Guard at External Data Boundaries (PR #92)
 
 Validate the type of external data **before** entering business logic — especially in hooks
@@ -299,6 +334,56 @@ This is distinct from "Exception Type Selection" (which describes what to *raise
 section covers what to *catch and log* in infrastructure helpers.
 
 Source: PR #130, `_github_issue_state()` fix in commit `7326cf3`.
+
+## A Shared Helper's Exception Type Can Get Over-Caught at a Downstream Call Site
+
+The section above is about the *helper itself* catching too broadly. This is the mirror
+case, one call away: a shared helper wraps several genuinely distinct failure modes into
+one exception type (e.g. a `_run_subprocess()` wrapper that raises `RuntimeError` for both
+"the binary is missing/timed out" *and* "the command ran and exited non-zero"), and a
+**downstream caller** — one that only intended to handle the second, narrower case — catches
+that same broad type and silently treats it as if it were only that narrow case.
+
+```python
+# Wrong: run_git() wraps two different failure classes into one RuntimeError
+def run_git(*args: str) -> str:
+    try:
+        proc = subprocess.run(["git", *args], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise RuntimeError(f"git {args} could not run: {e}") from e
+    if proc.returncode != 0:
+        raise RuntimeError(f"git {args} failed: {proc.stderr}")
+    return proc.stdout
+
+# A caller that assumes RuntimeError only ever means "this path doesn't exist at this ref"
+# (true when ls-tree just listed the path moments earlier -- until git itself breaks)
+def line_count_at_ref(ref: str, path: str) -> int:
+    try:
+        content = run_git("show", f"{ref}:{path}")
+    except RuntimeError:
+        return 0  # silently treats a genuine git failure as "file not found"
+
+# Correct: don't catch here at all -- let it propagate to whoever actually owns
+# "what does a real tool failure mean for this operation"
+def line_count_at_ref(ref: str, path: str) -> int:
+    content = run_git("show", f"{ref}:{path}")
+    return len(content.splitlines())
+```
+
+The tell: a comment near the `except` reads "theoretically this shouldn't happen" — that is
+the exact shape of an assumption that a shared exception type cannot express in its type
+alone. If the call site's own precondition guarantees the narrow case ("we just listed this
+path, so it must exist"), *any* exception it still gets is the OTHER case, and belongs
+several levels up, not swallowed on the spot.
+
+Scope: any call site that catches a shared helper's broad exception type based on an
+assumption about *why* it thinks that call will fail, not on the type's actual meaning.
+
+<!-- verified: probe --> Reproduced on yibi-stack PR #339: `_always_loaded_paths_at_ref()` /
+`_line_count_at_ref()` (`scripts/check_always_loaded_growth.py`) caught `RuntimeError` from
+`git show` and returned an empty/zero result, masking a simulated git failure as "file not
+found" instead of surfacing the documented exit 2. Fixed by removing the `except` and letting
+the error propagate to the caller that already had the correct handler.
 
 ## Pylint Detects Cyclic Imports Through Deferred (Method-Body) Imports
 
