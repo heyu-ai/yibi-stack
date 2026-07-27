@@ -171,7 +171,7 @@ echo "SDD_ROOT=${SDD_ROOT}"
 | frame concern 檢查表全數勾選（含通用四項）| 繼續 Step 1a |
 | frame concern 有未補齊項，且 effort = medium | `[WARN] frame concern 未補齊：<清單>`，確認後繼續 |
 | frame concern 有未補齊項，且 effort = high | `[FAIL] Stop. frame concern 未補齊：<清單>。補齊後重跑。` |
-| `problem-frames` 方法論（`methodology.md`）缺失或不可讀取 | `[FAIL] Stop. problem-frames 方法論不可用。sdd plugin 應同時提供 spectra-amplifier 與 problem-frames，請還原 sdd plugin 後重跑。` |
+| `problem-frames` 方法論（`methodology.md`）缺失或不可讀取 | `[FAIL] Stop. problem-frames 方法論不可用。請確認已安裝 methodology@yibi-stack（problem-frames 不再隨 sdd 附帶）：claude plugin install methodology@yibi-stack。` |
 
 > **W 的單一來源**：此處產出的 W 是後續 Step 4 假設表的唯一來源；
 > Step 4 只能**衍生／引用** W，不得另行重編（避免兩處漂移）。

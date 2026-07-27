@@ -52,12 +52,11 @@ yibi-stack layers three forms of enforcement on top of Claude Code:
 ```text
 plugins/          Claude Code plugin packs (installable via claude plugin install)
   harness/        Harness readiness eval + PreToolUse hook enforcement + anti-pattern guide
-  sdd/            Spec-Driven Development: Spectra + OpenSpec methodology, qa-test-design
+  sdd/            Spec-Driven Development: Spectra + OpenSpec methodology
   growth/         Knowledge extraction: mycelium, learn, PR retro/control log, CLAUDE.md prune
-  dev-cycle/      Development flow: PR cycles, setup/handover, local port manager, debug
+  dev-cycle/      Development flow: PR cycles, CI triage, setup/handover, local port manager, debug
   3rd-tools/      Third-party AI: Codex, Antigravity CLI (agy/Gemini), model verification
-  tdd/            Test-Driven Development: Kent Beck TDD, Flutter TDD, CI triage
-  writing/        Writing quality: AI slop detection
+  methodology/    Portable TDD, event-storming, problem-frames, QA test design methodology
 
 skills/           Agent execution layer -- SKILL.md runbooks (installed via make install)
   <skill-name>/   Each skill is a flat directory with a SKILL.md runbook (or a symlink)
@@ -71,7 +70,7 @@ scripts/          CI and lint tooling
 
 ### Plugins vs Skills — what's the difference?
 
-**Plugins** (`plugins/harness`, `plugins/sdd`, `plugins/growth`, `plugins/dev-cycle`, `plugins/3rd-tools`, `plugins/tdd`, `plugins/writing`)
+**Plugins** (`plugins/harness`, `plugins/sdd`, `plugins/growth`, `plugins/dev-cycle`, `plugins/3rd-tools`, `plugins/methodology`)
 are proper Claude Code plugins with `package.json` manifests. They install hooks, rules, and bundled skills. Installable via `claude plugin install` without cloning.
 
 **Skills** (`skills/*/SKILL.md`) are runbook files — not plugins. They're installed as symlinks into `~/.claude/skills/` via `make install`.
@@ -91,8 +90,7 @@ claude plugin install harness@yibi-stack
 claude plugin install sdd@yibi-stack
 claude plugin install growth@yibi-stack
 claude plugin install dev-cycle@yibi-stack
-claude plugin install tdd@yibi-stack
-claude plugin install writing@yibi-stack
+claude plugin install methodology@yibi-stack
 ```
 
 #### Track 2 — tasks-backed CLI tools
@@ -119,7 +117,7 @@ Tasks-backed harness skills still require the checkout setup below for their Pyt
 ```bash
 # 1. Install plugins (pre-execution hooks + rules)
 claude plugin marketplace add heyu-ai/yibi-stack
-claude plugin install harness@yibi-stack sdd@yibi-stack growth@yibi-stack dev-cycle@yibi-stack tdd@yibi-stack writing@yibi-stack
+claude plugin install harness@yibi-stack sdd@yibi-stack growth@yibi-stack dev-cycle@yibi-stack methodology@yibi-stack
 
 # 2. Clone and install skills + hooks + scheduler
 git clone https://github.com/heyu-ai/yibi-stack
@@ -152,7 +150,6 @@ make status-own
 | `pr-retrospective` | 5-question PR retro, routes lessons to `.claude/rules/` or CLAUDE.md |
 | `claude-md-prune` | Prune CLAUDE.md bloat: route gotchas to `.claude/rules/` files, stay under 200-line soft cap |
 | `agy` | Antigravity CLI (Gemini) second opinion: lightweight single-model review / challenge mode |
-| `detect-ai-slop` | Detect AI-generated text patterns with model-specific fingerprints and de-slop suggestions |
 | `harness-eval` | 11-dimension harness readiness assessment with PASS/WARN/FAIL checklist and priority TODO |
 
 See [`skills/README.md`](skills/README.md) for the full index.
@@ -162,12 +159,11 @@ See [`skills/README.md`](skills/README.md) for the full index.
 | Plugin | Install | Description |
 |--------|---------|-------------|
 | `harness` | `claude plugin install harness@yibi-stack` | Harness readiness evaluation (11-dimension) plus pre-execution bash anti-pattern detection with auto-fix guidance and worktree push protection. |
-| `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec spec-amplifier methodology + qa-test-design |
+| `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec spec-amplifier methodology |
 | `growth` | `claude plugin install growth@yibi-stack` | Knowledge extraction and retention: mycelium, learn, PR retro/control log, CLAUDE.md prune |
-| `dev-cycle` | `claude plugin install dev-cycle@yibi-stack` | Development workflow: PR cycles, setup/handover, local port manager, debug |
+| `dev-cycle` | `claude plugin install dev-cycle@yibi-stack` | Development workflow: PR cycles, CI triage, setup/handover, local port manager, debug |
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex, Antigravity CLI (agy/Gemini), model verification |
-| `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD, Flutter TDD, CI triage |
-| `writing` | `claude plugin install writing@yibi-stack` | AI slop detection |
+| `methodology` | `claude plugin install methodology@yibi-stack` | Portable methodology: Kent Beck TDD, Flutter TDD, event storming, problem frames, QA test design. |
 
 ---
 
@@ -213,12 +209,11 @@ yibi-stack 在 Claude Code 之上疊加三層約束：
 ```text
 plugins/          Claude Code plugin packs（可透過 claude plugin install 安裝）
   harness/        Harness 就緒度評量 + PreToolUse hook 防線 + 反模式修法指南
-  sdd/            Spec-Driven Development：Spectra + OpenSpec 方法論、qa-test-design
+  sdd/            Spec-Driven Development：Spectra + OpenSpec 方法論
   growth/         知識萃取與留存：mycelium、learn、PR 回顧／審計、CLAUDE.md 精簡
-  dev-cycle/      開發流程：PR cycles、工作區設定／交班、本機 port 管理、debug
+  dev-cycle/      開發流程：PR cycles、CI 診斷、工作區設定／交班、本機 port 管理、debug
   3rd-tools/      第三方 AI：Codex、Antigravity CLI（agy/Gemini）、模型驗證
-  tdd/            測試驅動開發：Kent Beck TDD、Flutter TDD、CI 診斷
-  writing/        寫作品質：AI slop 偵測
+  methodology/    可攜方法論：TDD、event-storming、problem-frames、qa-test-design
 
 skills/           Agent 執行介面層（SKILL.md runbook，透過 make install 安裝）
   <skill-name>/   每個 skill 是一個目錄（或指向 plugins/ 的 symlink）
@@ -232,7 +227,7 @@ scripts/          CI 與 lint 工具腳本
 
 ### Plugin 與 Skill 的差別？
 
-**Plugin**（`plugins/harness`、`plugins/sdd`、`plugins/growth`、`plugins/dev-cycle`、`plugins/3rd-tools`、`plugins/tdd`、`plugins/writing`）
+**Plugin**（`plugins/harness`、`plugins/sdd`、`plugins/growth`、`plugins/dev-cycle`、`plugins/3rd-tools`、`plugins/methodology`）
 是有 `package.json` manifest 的正式 Claude Code plugin，會安裝 hook、rules 和隨附 skill，不需 clone 即可用 `claude plugin install` 安裝。
 
 **Skill**（`skills/*/SKILL.md`）是 runbook 檔案，不是 plugin。透過 `make install` 以 symlink 安裝到 `~/.claude/skills/`，告訴 Claude 如何執行特定工作流程。**Skills 無法透過 `claude plugin install` 個別安裝。**
@@ -251,8 +246,7 @@ claude plugin install harness@yibi-stack
 claude plugin install sdd@yibi-stack
 claude plugin install growth@yibi-stack
 claude plugin install dev-cycle@yibi-stack
-claude plugin install tdd@yibi-stack
-claude plugin install writing@yibi-stack
+claude plugin install methodology@yibi-stack
 ```
 
 #### Track 2 — tasks-backed CLI 工具
@@ -279,7 +273,7 @@ Tasks-backed harness skills 的 Python 實作仍需要下方 checkout 設定。
 ```bash
 # 1. 安裝 plugin（pre-execution hook + 規則）
 claude plugin marketplace add heyu-ai/yibi-stack
-claude plugin install harness@yibi-stack sdd@yibi-stack growth@yibi-stack dev-cycle@yibi-stack tdd@yibi-stack writing@yibi-stack
+claude plugin install harness@yibi-stack sdd@yibi-stack growth@yibi-stack dev-cycle@yibi-stack methodology@yibi-stack
 
 # 2. Clone 並安裝 skill + hook + scheduler
 git clone https://github.com/heyu-ai/yibi-stack
@@ -312,7 +306,6 @@ make status-own
 | `pr-retrospective` | PR 收尾五問回顧，路由 lesson 到 `.claude/rules/` 或 CLAUDE.md |
 | `claude-md-prune` | CLAUDE.md 精簡：把 gotcha 路由到 `.claude/rules/` 子檔，維持 200 行軟上限 |
 | `agy` | Antigravity CLI（Gemini）第二意見：輕量單一模型 review / 對抗模式 |
-| `detect-ai-slop` | 偵測 AI 生成文字特徵，含模型指紋比對與去 AI 味建議 |
 | `harness-eval` | 11 維度 harness 就緒度評量，附 PASS/WARN/FAIL 清單與優先改善 TODO |
 
 完整索引見 [`skills/README.md`](skills/README.md)。
@@ -322,12 +315,11 @@ make status-own
 | Plugin | 安裝指令 | 說明 |
 |--------|---------|------|
 | `harness` | `claude plugin install harness@yibi-stack` | Harness 就緒度評量（11 維度）+ 執行前 bash 反模式偵測與自動修法指引 + worktree push 保護。 |
-| `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec 規格展開 + qa-test-design 測試設計 |
+| `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec 規格展開 |
 | `growth` | `claude plugin install growth@yibi-stack` | 知識萃取與留存：mycelium、learn、PR 回顧／審計、CLAUDE.md 精簡 |
-| `dev-cycle` | `claude plugin install dev-cycle@yibi-stack` | 開發流程：PR cycles、工作區設定／交班、本機 port 管理、debug |
+| `dev-cycle` | `claude plugin install dev-cycle@yibi-stack` | 開發流程：PR cycles、CI 診斷、工作區設定／交班、本機 port 管理、debug |
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex、Antigravity CLI（agy/Gemini）、模型驗證 |
-| `tdd` | `claude plugin install tdd@yibi-stack` | Kent Beck TDD、Flutter TDD、CI 診斷 |
-| `writing` | `claude plugin install writing@yibi-stack` | AI slop 偵測 |
+| `methodology` | `claude plugin install methodology@yibi-stack` | 可攜方法論：Kent Beck TDD、Flutter TDD、event storming、problem frames、QA test design。 |
 
 ---
 

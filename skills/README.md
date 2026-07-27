@@ -21,12 +21,11 @@ Global skill 已依主題分組為 plugin pack，可透過 Claude Code marketpla
 claude plugin marketplace add howie/yibi-stack  # 一次性註冊
 
 claude plugin install growth@yibi-stack          # mycelium + learn + PR 回顧/審計 + CLAUDE.md 精簡
-claude plugin install dev-cycle@yibi-stack       # PR 全流程 + newjob/handover + port/debug
-claude plugin install sdd@yibi-stack             # spectra-amplifier + figma-design-sync + qa-test-design + /sdd:setup
+claude plugin install dev-cycle@yibi-stack       # PR 全流程 + newjob/handover + port/debug + ci-triage
+claude plugin install sdd@yibi-stack             # spectra-amplifier + figma-design-sync + /sdd:setup
 claude plugin install harness@yibi-stack        # harness-eval + harness-eval-focus + bash-hygiene-audit + bash-anti-patterns + protect-push
 claude plugin install 3rd-tools@yibi-stack       # codex-review + codex-consult + agy + verify-gemini-models
-claude plugin install tdd@yibi-stack             # tdd-kentbeck + flutter-tdd + ci-triage
-claude plugin install writing@yibi-stack         # detect-ai-slop
+claude plugin install methodology@yibi-stack     # tdd-kentbeck + flutter-tdd + event-storming + problem-frames + qa-test-design
 ```
 
 ---
@@ -55,19 +54,18 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 |-------|------|------|----------|
 | `bump-version` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | Project-level 版本 bump（Flutter/Python/Node.js/Go）+ CHANGELOG 生成 + git tag 發布，附帶 commit-msg hook 安裝 | [bump-version/SKILL.md](bump-version/SKILL.md) |
 | `harness-eval-focus` | [plugins/harness/](../plugins/harness/README.md) | 單維度深度稽核：配合 /harness-eval 使用，發現 WARN/FAIL 後針對 D1~D11 某維度精準挖掘具體修法。含 hook lifecycle 覆蓋、permission 4 層模型、CLAUDE.md signal-to-noise 等深度 rubric | [harness-eval-focus/SKILL.md](harness-eval-focus/SKILL.md) |
-| `event-storming` | [plugins/sdd/](../plugins/sdd/README.md) | 領域發現前置 skill（draft）；amplifier Step 0 的 handoff 來源；產出 Domain Events / Bounded Contexts / Aggregate Roots | [event-storming/SKILL.md](event-storming/SKILL.md) |
-| `problem-frames` | [plugins/sdd/](../plugins/sdd/README.md) | Jackson Problem Frames 方法論；於 event-storming 之後、amplifier 展開規格之前執行，產出 `problem-frame.md` 供 amplifier Step 0.5 沿用；把需求拆成 R/S/W 並證明 S∧W⟹R，將領域假設前置顯式化 | [problem-frames/SKILL.md](problem-frames/SKILL.md) |
-| `qa-test-design` | [plugins/sdd/](../plugins/sdd/README.md) | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |
+| `event-storming` | [plugins/methodology/](../plugins/methodology/README.md) | 領域發現前置 skill（draft）；amplifier Step 0 的 handoff 來源；產出 Domain Events / Bounded Contexts / Aggregate Roots | [event-storming/SKILL.md](event-storming/SKILL.md) |
+| `problem-frames` | [plugins/methodology/](../plugins/methodology/README.md) | Jackson Problem Frames 方法論；於 event-storming 之後、amplifier 展開規格之前執行，產出 `problem-frame.md` 供 amplifier Step 0.5 沿用；把需求拆成 R/S/W 並證明 S∧W⟹R，將領域假設前置顯式化 | [problem-frames/SKILL.md](problem-frames/SKILL.md) |
+| `qa-test-design` | [plugins/methodology/](../plugins/methodology/README.md) | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |
 | `verify-done` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | 宣告完成前端對端驗證：make ci / pre-commit、gh pr checks（含 PENDING/TOOL ERROR 狀態）、Spectra artifact 完整性、worktree merge 安全性 | [verify-done/SKILL.md](verify-done/SKILL.md) |
 | `pr-review-cycle` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | 完整 PR 生命週期：建立 PR → /code-review 缺陷偵測 → parallel review（Claude pr-review-toolkit 4 subagent）→ fix → re-review → CI → merge → spectra archive + Jira sync。適用小型 feature / 快速合併 | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |
 | `pr-cycle-deep` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | PR 生命週期深度版（含 mob review + SDD amplifier-verifier）：多模型（Codex / Gemini）R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM → CI → merge → spectra archive。中大型 PR 或 SDD 專案首選 | [pr-cycle-deep/SKILL.md](pr-cycle-deep/SKILL.md) |
 | `mob-code-review-only` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | Mob review **別人的 PR**（只給建議、不修改）：與 pr-cycle-deep 共用 R1+R2+aggregate 引擎，但鎖定他人 PR、產出彙整建議貼回 PR，**不**改 code、**不** re-review loop、**不** merge / archive。適用 review 同事 / 外部貢獻者的 PR | [mob-code-review-only/SKILL.md](mob-code-review-only/SKILL.md) |
 | `issue-triage` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | GitHub **Issue**（非 PR）定期盤點治理，預設唯讀產報告：逐 issue 研判 CLOSE / UPDATE-SCOPE / MERGE / RELABEL / KEEP 並給優先排序。三原則：逐症狀對照現有程式碼（不看「PR 有沒有合併」）、綁 openspec change 以 tasks.md checkbox 為準、尊重留言的 keep-open 意圖。寫入需 `--apply` 逐項確認 | [issue-triage/SKILL.md](issue-triage/SKILL.md) |
 | `bash-anti-patterns` | [plugins/harness/](../plugins/harness/README.md) | Claude Code agent 下 bash 指令三層防線：AP1 過度複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd；Rule 14 shell 引號衛生；Rule 15 不可逆操作邊界；含判斷標準、對策決策樹與可選裝 PreToolUse hook | [bash-anti-patterns/SKILL.md](bash-anti-patterns/SKILL.md) |
-| `tdd-kentbeck` | [plugins/tdd/](../plugins/tdd/README.md) | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
-| `flutter-tdd` | [plugins/tdd/](../plugins/tdd/README.md) | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
-| `ci-triage` | [plugins/tdd/](../plugins/tdd/README.md) | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests），含 Python / JS / Go 工具範例 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |
-| `detect-ai-slop` | [plugins/writing/](../plugins/writing/README.md) | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
+| `tdd-kentbeck` | [plugins/methodology/](../plugins/methodology/README.md) | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
+| `flutter-tdd` | [plugins/methodology/](../plugins/methodology/README.md) | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
+| `ci-triage` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests），含 Python / JS / Go 工具範例 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |
 
 ---
 

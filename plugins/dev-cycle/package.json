@@ -1,11 +1,12 @@
 {
   "name": "dev-cycle",
   "version": "1.15.2",
-  "description": "Full development workflow plugin for Claude Code: PR review cycles, bump-version, newjob/handover, local port management, debug, and PR slash commands.",
+  "description": "Full development workflow plugin for Claude Code: PR review cycles, CI triage, bump-version, newjob/handover, local port management, debug, and PR slash commands.",
   "keywords": [
     "pr-review",
     "pr-review-cycle",
     "pull-request",
+    "ci-triage",
     "bump-version",
     "git-workflow",
     "newjob",

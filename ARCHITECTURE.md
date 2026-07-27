@@ -35,9 +35,8 @@ yibi-stack/
 │   ├── growth/                      → 成長工具（mycelium、scheduler skills）
 │   ├── dev-cycle/                   → PR 流程工具（review cycle、mob review）
 │   ├── sdd/                         → Subagent Driven Development 方法論
-│   ├── tdd/                         → TDD 方法論（Kent Beck style）
 │   ├── 3rd-tools/                   → 第三方工具整合（Gemini、Codex）
-│   └── writing/                     → 寫作品質工具（detect-ai-slop）
+│   └── methodology/                 → 可攜方法論（TDD、event-storming、problem-frames、qa-test-design）
 │
 ├── commands/                        → Claude Code slash commands（symlink 到 ~/.claude/commands/）
 │   ├── pr.md                        → /pr

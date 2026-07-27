@@ -22,7 +22,8 @@
 
    判準：引用路徑的 `<skill>` 與該檔自己的 skill 名相同 -> 視為自我引用，pack 必須相符；
    不同 -> 視為跨 pack 引用（如 codex-review 引用 pr-cycle-deep 的測試路徑），只驗存在。
-   `<pack>@yibi-stack` 一律要求等於自己所屬 pack（目前 repo 內 14 處全數符合）。
+   `<pack>@yibi-stack` 原則上要求等於自己所屬 pack；蓄意的跨-pack runtime dependency
+   必須以精確的（文件路徑, pack）例外登記。
 
 3. **marketplace.json 與 pack 目錄雙向一致**——每筆 `source` 目錄存在，且
    `name` == `plugin.json.name` == `package.json.name`；反向亦然：任何有 `package.json`
@@ -70,10 +71,12 @@ _PACKROOT_ASSIGN_RE = re.compile(
 # <pack>@yibi-stack
 _CACHE_KEY_RE = re.compile(rf"([a-z0-9][a-z0-9-]*)@{re.escape(MARKETPLACE_SLUG)}\b")
 
-# 合法的跨 pack cache-key 引用（例：某 skill 明確要求使用者安裝另一個 pack）。
-# 目前為空——repo 內 14 處 `<pack>@yibi-stack` 全部指向自己所屬 pack。
+# 合法的跨 pack cache-key 引用（某 skill 明確要求使用者安裝 runtime dependency）。
+# spectra-amplifier 仍由 sdd 提供，但其 problem-frames 方法論已移至 methodology。
 # 新增例外時請一併說明理由，不要為了讓 lint 過而加。
-CACHE_KEY_EXCEPTIONS: set[tuple[str, str]] = set()  # (相對檔案路徑, 被引用的 pack)
+CACHE_KEY_EXCEPTIONS: set[tuple[str, str]] = {
+    ("plugins/sdd/skills/spectra-amplifier/SKILL.md", "methodology"),
+}  # (相對檔案路徑, 被引用的 pack)
 
 
 def _rel(path: Path) -> str:

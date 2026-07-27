@@ -75,7 +75,7 @@ Technique abbreviations: EP / BVA / DT / ST / PW / RB.
 
 ## Methodology Reference
 
-Source of truth: `plugins/sdd/skills/qa-test-design/methodology.md`
+Source of truth: `plugins/methodology/skills/qa-test-design/methodology.md`
 
 The following is the methodology content used by this agent (inline copy):
 
