@@ -313,8 +313,10 @@ def _load_mycelium_lessons(
         # sqlite3.OperationalError 涵蓋的範圍比「缺 lessons table」廣得多，也包含
         # database is locked、unable to open database file 等真正的資料庫層故障
         # （Codex round-2 mob review 指出：全部歸為良性會讓這類故障也悄悄變成 exit 0）。
-        # 只有「缺 table」是已知、支援的 schema-drift 降級路徑，其餘一律視為 fatal。
-        if "no such table" in str(e).lower():
+        # 只有「缺 lessons table」是已知、支援的 schema-drift 降級路徑，其餘一律視為 fatal
+        # （Codex round-3 mob review：比對字串應鎖定 lessons，不是任何 "no such table"——
+        # 本函式目前只查 lessons 這一張表，故現況不可達，但收緊比對防止未來加查詢時誤放行）。
+        if "no such table: lessons" in str(e).lower():
             click.echo(f"[WARN] mycelium read error: {e}", err=True)
             errors.append(f"mycelium read error: {e}")
         else:
