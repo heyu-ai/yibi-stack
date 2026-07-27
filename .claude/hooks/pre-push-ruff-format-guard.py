@@ -47,7 +47,15 @@ _GIT_ENV_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 # production 不設它，一律走專案 pinned 的 `uv run ruff`（版本與 CI 的 pre-commit ruff-format
 # 一致，避免 PATH 上某個版本相異的 ruff 判讀與 CI 分歧）。
 _RUFF_CMD_ENV = "PRE_PUSH_RUFF_GUARD_CMD"
-_DEFAULT_RUFF_CMD = ["uv", "run", "ruff", "format", "--check"]
+_DEFAULT_RUFF_CMD = [
+    "uv",
+    "run",
+    "ruff",
+    "format",
+    "--check",
+    "--output-format",
+    "json",
+]
 
 # subprocess timeout（秒）。內層 ruff 上限必須 <= settings.json 的 hook timeout（120），否則
 # harness 會先砍掉整個 hook，內層 timeout 形同虛設（見 settings.json pre-push-ruff-format-guard
@@ -235,6 +243,60 @@ def _tracked_py_files(root: str) -> list[str] | None:
     return [f for f in result.stdout.split("\0") if f]
 
 
+def _json_unformatted_files(output: str, root: str, tracked: list[str]) -> list[str]:
+    """從 Ruff JSON diagnostics 取出 unformatted 的 tracked 相對路徑。
+
+    Ruff 0.16 將 `format --check` 的人類可讀輸出從 `Would reformat: <path>` 改為完整
+    diagnostic；JSON 是它同時新增的穩定機器介面。只接受本次傳給 Ruff 的 tracked 路徑，
+    避免異常輸出把 repo 外路徑帶進 block 訊息。無效 JSON / null filename 回空清單，
+    呼叫端仍會依 rc==1 block 並顯示通用出路。
+    """
+    try:
+        diagnostics = json.loads(output)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(diagnostics, list):
+        return []
+
+    tracked_by_absolute = {
+        os.path.normcase(os.path.realpath(os.path.join(root, path))): path for path in tracked
+    }
+    found: list[str] = []
+    for diagnostic in diagnostics:
+        if not isinstance(diagnostic, dict):
+            continue
+        if diagnostic.get("code") != "unformatted" and diagnostic.get("name") != "unformatted":
+            continue
+        filename = diagnostic.get("filename")
+        if not isinstance(filename, str) or not filename:
+            continue
+        absolute = filename if os.path.isabs(filename) else os.path.join(root, filename)
+        relative = tracked_by_absolute.get(os.path.normcase(os.path.realpath(absolute)))
+        if relative is not None and relative not in found:
+            found.append(relative)
+    return found
+
+
+def _legacy_unformatted_files(output: str) -> list[str]:
+    """解析 Ruff 0.15 `Would reformat:` 與 0.16 full-output 的 location 行。"""
+    found: list[str] = []
+    for raw_line in output.splitlines():
+        line = _ANSI_ESCAPE.sub("", raw_line)
+        if "Would reformat:" in line:
+            path = line.partition("Would reformat:")[2].strip()
+        else:
+            location = line.strip()
+            if not location.startswith("--> "):
+                continue
+            path, separator, column = location[4:].rpartition(":")
+            path, row_separator, row = path.rpartition(":")
+            if not separator or not row_separator or not row.isdigit() or not column.isdigit():
+                continue
+        if path and path not in found:
+            found.append(path)
+    return found
+
+
 def _unformatted_files(root: str) -> list[str] | None:
     """對已追蹤的 .py 跑 `ruff format --check`，回傳會被重格式化的檔案清單。
 
@@ -281,11 +343,9 @@ def _unformatted_files(root: str) -> list[str] | None:
     if result.returncode == 1:
         # rc==1 本身即 ruff 的明確「有檔案會被重格式化」判定；一律 block，不因輸出解析
         # 失敗而 fail-open（未來 ruff 改字串 / 改輸出位置也不會靜默漏擋）。
-        lines = [
-            _ANSI_ESCAPE.sub("", ln).partition("Would reformat:")[2].strip()
-            for ln in result.stdout.splitlines()
-            if "Would reformat:" in ln
-        ]
+        lines = _json_unformatted_files(result.stdout, root, tracked)
+        if not lines:
+            lines = _legacy_unformatted_files(result.stdout)
         return lines or ["(ruff 回報有檔案需要重新格式化；請跑：uv run ruff format .)"]
     # 其他非 0（例如 2 = 用法錯誤 / ruff 不存在於 uv 環境）無法判定 -> fail-open。
     _warn(f"ruff 回傳非預期碼 {result.returncode}")
