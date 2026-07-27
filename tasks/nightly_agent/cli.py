@@ -25,7 +25,6 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
     from .classifier import FrictionClassifier, classify_mycelium_lessons
     from .clusterer import FrictionClusterer
     from .config import load_config
-    from .digest import DigestWriter
     from .drafter import ArtifactDrafter
     from .extractor import TranscriptExtractor
     from .governance import FrictionRegistry
@@ -37,6 +36,11 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
 
     date_str = datetime.now().strftime("%Y-%m-%d")
     errors: list[str] = []
+    # errors 是給 digest 看的完整記錄（含已知的良性降級，例如舊 handover.db 缺 lessons
+    # table、或 friction 已被處理而 test 提前通過）；fatal_errors 只收真正的執行失敗
+    # （草擬 / PR 建立 / friction-state 寫入的 RuntimeError，以及驗證後仍失敗的 test）。
+    # 排程的 exit code 只看 fatal_errors，避免良性降級被誤報成「排程失敗」。
+    fatal_errors: list[str] = []
     from .models import PRRecord
 
     prs: list[PRRecord] = []
@@ -50,7 +54,7 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
 
     # --- Step 2: Read mycelium lessons ---
     click.echo("[2/6] 讀取 mycelium lessons …")
-    lessons = _load_mycelium_lessons(hours, config.lesson_types, errors)
+    lessons = _load_mycelium_lessons(hours, config.lesson_types, errors, fatal_errors)
     click.echo(f"      {len(lessons)} lessons found")
 
     # --- Step 3: Classify friction events ---
@@ -74,38 +78,18 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
 
     if not eligible:
         click.echo("[INFO] 沒有 eligible clusters，結束。")
-        _write_digest(
-            DigestWriter(config.digest_dir),
-            date_str,
-            hours,
-            events,
-            all_clusters,
-            prs,
-            skipped,
-            errors,
-            config.min_cluster_size,
+        _finalize_run(
+            config, date_str, hours, events, all_clusters, prs, skipped, errors, fatal_errors
         )
-        if errors:
-            emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
         return
 
     if dry_run:
         click.echo("[DRY RUN] Eligible clusters:")
         for c in eligible:
             click.echo(f"  {c.friction_type} ×{c.count}: {', '.join(c.common_keywords[:5])}")
-        _write_digest(
-            DigestWriter(config.digest_dir),
-            date_str,
-            hours,
-            events,
-            all_clusters,
-            prs,
-            skipped,
-            errors,
-            config.min_cluster_size,
+        _finalize_run(
+            config, date_str, hours, events, all_clusters, prs, skipped, errors, fatal_errors
         )
-        if errors:
-            emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
         return
 
     # --- Step 5: Draft & validate ---
@@ -127,15 +111,20 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
         except RuntimeError as e:
             click.echo(f"  [SKIP] 草擬失敗 ({cluster.friction_type}): {e}", err=True)
             errors.append(str(e))
+            fatal_errors.append(str(e))
             skipped += 1
             continue
 
         result = tester.validate(proposal)
         if not result.passed:
             click.echo(f"  [SKIP] test 未通過 ({proposal.title}): {result.error}", err=True)
-            if not result.previously_failed:
-                click.echo("  [INFO] test 在 artifact 前就通過，代表 friction 已被處理", err=True)
             errors.append(f"test failed: {proposal.title}")
+            if result.previously_failed:
+                # 套用 artifact 前 test 本來就失敗，套用後仍失敗 -> 驗證真的沒過，是執行失敗。
+                fatal_errors.append(f"test failed: {proposal.title}")
+            else:
+                # 套用 artifact 前 test 就已經通過，代表 friction 已被處理，不是失敗。
+                click.echo("  [INFO] test 在 artifact 前就通過，代表 friction 已被處理", err=True)
             skipped += 1
             continue
 
@@ -145,9 +134,23 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
             pr_record = pr_creator.create_pr(proposal, result)
             prs.append(pr_record)
             click.echo(f"  [OK] PR #{pr_record.pr_number}: {pr_record.pr_url}")
+            if not pr_record.cleanup_ok:
+                # PR 本身已成功建立（GitHub 上真的存在），不因清理未完全乾淨而回報這次
+                # create_pr 失敗；但排程層需要知道「這次執行沒有完全乾淨」，所以計入
+                # fatal_errors 讓 exit code 反映出來，不影響已開的 PR。
+                click.echo(
+                    f"  [WARN] PR 已建立，但 worktree/分支清理未完全成功：{pr_record.branch}",
+                    err=True,
+                )
+                cleanup_msg = (
+                    f"cleanup incomplete for PR #{pr_record.pr_number} ({pr_record.branch})"
+                )
+                errors.append(cleanup_msg)
+                fatal_errors.append(cleanup_msg)
         except RuntimeError as e:
             click.echo(f"  [SKIP] PR 建立失敗 ({proposal.title}): {e}", err=True)
             errors.append(str(e))
+            fatal_errors.append(str(e))
             skipped += 1
             continue
         try:
@@ -155,23 +158,11 @@ def run(hours: int, dry_run: bool, config_path: str | None) -> None:
         except RuntimeError as e:
             click.echo(f"  [WARN] PR 已建立，但 friction state 寫入失敗：{e}", err=True)
             errors.append(str(e))
+            fatal_errors.append(str(e))
 
     click.echo(f"[6/6] 完成：{len(prs)} PRs opened, {skipped} skipped")
 
-    digest_path = _write_digest(
-        DigestWriter(config.digest_dir),
-        date_str,
-        hours,
-        events,
-        all_clusters,
-        prs,
-        skipped,
-        errors,
-        config.min_cluster_size,
-    )
-    click.echo(f"      Digest: {digest_path}")
-    if errors:
-        emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
+    _finalize_run(config, date_str, hours, events, all_clusters, prs, skipped, errors, fatal_errors)
 
 
 @cli.command()
@@ -254,7 +245,10 @@ def setup() -> None:
 
 
 def _load_mycelium_lessons(
-    hours: int, lesson_types: list[str], errors: list[str]
+    hours: int,
+    lesson_types: list[str],
+    errors: list[str],
+    fatal_errors: list[str] | None = None,
 ) -> list[dict[str, object]]:
     """從 mycelium 的 lessons table 讀取最近 hours 小時的 typed lessons。
 
@@ -264,6 +258,12 @@ def _load_mycelium_lessons(
     三者仍共用同一實體檔案 `~/.agents/handover/handover.db`（見
     `tasks/mycelium/config.py` 的 `HANDOVER_DB_PATH`），但 `lessons` 是與 `handovers`/
     `retrospectives` 平行的獨立 table，故 SELECT 需一併帶出 `retrospective_id`。
+
+    `sqlite3.OperationalError`（如缺 `lessons` table，代表尚未 migrate 的舊 schema）與
+    `OSError`（磁碟讀取失敗、權限問題、DB 檔案被並發寫入毀損等真正的 I/O 故障）分開處理：
+    前者是已知、支援的降級路徑（`test_missing_lessons_table_returns_empty_with_warning`
+    明確涵蓋），後者是真正的基礎設施故障，必須算進 `fatal_errors`——否則無論多嚴重的
+    儲存層問題都只會產生一則 `[WARN]`，exit code 仍是 0，排程層完全看不到。
     """
     import sqlite3  # noqa: PLC0415
 
@@ -309,9 +309,27 @@ def _load_mycelium_lessons(
             if d.get("type") in lesson_types:
                 result.append(d)
         return result
-    except (sqlite3.OperationalError, OSError) as e:
-        click.echo(f"[WARN] mycelium read error: {e}", err=True)
-        errors.append(f"mycelium read error: {e}")
+    except sqlite3.OperationalError as e:
+        # sqlite3.OperationalError 涵蓋的範圍比「缺 lessons table」廣得多，也包含
+        # database is locked、unable to open database file 等真正的資料庫層故障
+        # （Codex round-2 mob review 指出：全部歸為良性會讓這類故障也悄悄變成 exit 0）。
+        # 只有「缺 lessons table」是已知、支援的 schema-drift 降級路徑，其餘一律視為 fatal
+        # （Codex round-3 mob review：比對字串應鎖定 lessons，不是任何 "no such table"——
+        # 本函式目前只查 lessons 這一張表，故現況不可達，但收緊比對防止未來加查詢時誤放行）。
+        if "no such table: lessons" in str(e).lower():
+            click.echo(f"[WARN] mycelium read error: {e}", err=True)
+            errors.append(f"mycelium read error: {e}")
+        else:
+            click.echo(f"[WARN] mycelium read error (database issue): {e}", err=True)
+            errors.append(f"mycelium read error (database issue): {e}")
+            if fatal_errors is not None:
+                fatal_errors.append(f"mycelium read error (database issue): {e}")
+        return []
+    except OSError as e:
+        click.echo(f"[WARN] mycelium read error (I/O failure): {e}", err=True)
+        errors.append(f"mycelium read error (I/O failure): {e}")
+        if fatal_errors is not None:
+            fatal_errors.append(f"mycelium read error (I/O failure): {e}")
         return []
 
 
@@ -323,6 +341,43 @@ def _write_digest(  # type: ignore[no-untyped-def]
     )
     result: Path = writer.write(digest)
     return result
+
+
+def _finalize_run(  # type: ignore[no-untyped-def]
+    config, date_str, hours, events, all_clusters, prs, skipped, errors, fatal_errors
+) -> None:
+    """寫 digest、視情況發出失敗訊號，並在真正的執行失敗時以非零 exit code 結束。
+
+    `errors`（給 digest 看的完整記錄，含良性降級）與 `fatal_errors`（真正的執行失敗）
+    分開判斷：`run()` 的三個結束點（無 eligible cluster／dry-run／正常跑完）共用同一套
+    收尾邏輯，避免各自維護一份、漂移出不一致的行為。
+    """
+    from .digest import DigestWriter
+
+    digest_path = _write_digest(
+        DigestWriter(config.digest_dir),
+        date_str,
+        hours,
+        events,
+        all_clusters,
+        prs,
+        skipped,
+        errors,
+        config.min_cluster_size,
+    )
+    click.echo(f"      Digest: {digest_path}")
+    if errors:
+        # fatal_errors 非空時措辭維持「執行失敗」；只有良性降級時改用較輕的措辭，避免
+        # 讀 LAST_FAILURE marker 的人誤以為排程真的壞了（machine signal 的 exit code
+        # 已經正確區分兩者，這裡只是讓 human-facing 的文字跟著一致）。
+        if fatal_errors:
+            emit_failure_signal(RuntimeError("；".join(errors)), config.digest_dir)
+        else:
+            emit_failure_signal(
+                RuntimeError(f"（僅良性降級，非致命）{'；'.join(errors)}"), config.digest_dir
+            )
+    if fatal_errors:
+        raise SystemExit(1)
 
 
 def emit_failure_signal(error: BaseException, digest_dir: str | Path | None = None) -> Path:
