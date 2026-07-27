@@ -1191,6 +1191,38 @@ def lessons_retire(lesson_id: str, reason: str, superseded_by: str | None) -> No
         click.echo(f"  superseded_by = {updated.get('superseded_by')}")
 
 
+@lessons.command("finalize")
+@click.option("--id", "lesson_id", required=True, help="park 輸出的 lesson id（uuid，精確比對）")
+@click.option("--confidence", required=True, type=click.IntRange(1, 10), help="重評後的信心度")
+@click.option("--source", required=True, help="observed / user-stated / inferred / cross-model")
+@click.option("--insight", default=None, help="可選：更新教訓內文；省略則逐字保留原文")
+def lessons_finalize(lesson_id: str, confidence: int, source: str, insight: str | None) -> None:
+    """重評通過 Tier 1/2 後，把已解除 park 的教訓原地升級為 active。
+
+    用於 `/pr-retro` Tier 3 流程：`--park` 回報 `status=reassess` 後，該教訓已解除 park
+    但仍是低信心。重評若通過 Tier 1/2，用本指令**原地**升級——不要跑一般 `lessons add`，
+    那會新增另一列而把舊列留成孤兒（未 parked、未 retired，仍會進 tier promotion）。
+
+    本指令冪等：同樣的引數重跑只是把同一列設成同樣的值，不會新增列，可安全重試。
+    """
+    from .lessons_service import finalize_reassessed_lesson
+
+    try:
+        updated = finalize_reassessed_lesson(
+            lesson_id,
+            confidence=confidence,
+            source=source,
+            insight=insight,
+            db_path=_ctl_db_path(),
+        )
+    except (ValueError, RuntimeError) as e:
+        click.echo(f"錯誤：{e}", err=True)
+        raise SystemExit(1) from e
+
+    row = updated["lesson"]
+    click.echo(f"id={updated['id']} status=active confidence={row.get('confidence')}")
+
+
 # ─── metrics ─────────────────────────────────────────────────────────────
 
 

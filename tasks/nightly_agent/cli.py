@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -244,7 +245,7 @@ def setup() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _excluded_lesson_ids(conn: object, columns: set[str]) -> set[str]:
+def _excluded_lesson_ids(conn: sqlite3.Connection, columns: set[str]) -> set[str]:
     """回傳「不該進 nightly digest」的 lesson id：parked（Tier 3）與 retired。
 
     為什麼要有這個函式：`_load_mycelium_lessons` 繞過 `lessons_service` 直接讀
@@ -263,16 +264,12 @@ def _excluded_lesson_ids(conn: object, columns: set[str]) -> set[str]:
     if "retired_at" in columns:
         excluded.update(
             str(r["id"])
-            for r in conn.execute(  # type: ignore[attr-defined]
-                "SELECT id FROM lessons WHERE retired_at IS NOT NULL"
-            )
+            for r in conn.execute("SELECT id FROM lessons WHERE retired_at IS NOT NULL")
         )
     if "tags" in columns:
         excluded.update(
             str(r["id"])
-            for r in conn.execute(  # type: ignore[attr-defined]
-                "SELECT id FROM lessons WHERE tags LIKE '%\"parked\"%'"
-            )
+            for r in conn.execute("SELECT id FROM lessons WHERE tags LIKE '%\"parked\"%'")
         )
     return excluded
 
@@ -298,8 +295,6 @@ def _load_mycelium_lessons(
     明確涵蓋），後者是真正的基礎設施故障，必須算進 `fatal_errors`——否則無論多嚴重的
     儲存層問題都只會產生一則 `[WARN]`，exit code 仍是 0，排程層完全看不到。
     """
-    import sqlite3  # noqa: PLC0415
-
     try:
         db_path = Path.home() / ".agents" / "handover" / "handover.db"
         if not db_path.exists():
@@ -341,7 +336,9 @@ def _load_mycelium_lessons(
         result = []
         for row in rows:
             d = dict(row)
-            if d.get("type") in lesson_types and d.get("id") not in excluded:
+            # 兩端都 `str()`：SQLite 無強型別，任何以 int 寫入 `lessons.id` 的來源會讓
+            # `"5" != 5` 而靜默漏過過濾——parked 教訓回到 nightly 管線，正是本過濾要防的事。
+            if d.get("type") in lesson_types and str(d.get("id")) not in excluded:
                 result.append(d)
         return result
     except sqlite3.OperationalError as e:

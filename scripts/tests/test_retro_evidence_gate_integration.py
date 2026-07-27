@@ -68,10 +68,16 @@ def _evidence_lint_steps() -> list[dict[str, Any]]:
 
 
 def _argv_from_run(run: str) -> list[str]:
-    """把 step 的 `run` scalar 還原成腳本實際收到的 argv（`${{ }}` 換成佔位 token）。
+    """把 step 的 `run` scalar 還原成腳本實際收到的 argv。
 
-    這是關鍵：只比對 flag 名稱無法分辨 `--base <v>` 與 `--base=<v>`，而後者會讓
-    `_parse_args` 走到 `arg.startswith("-")` 而 raise `未知選項`。
+    每個 `${{ expr }}` 換成**可辨識**的 `EXPR:<expr>` 佔位，而不是同一個匿名 token。
+    這一點是關鍵：折成同一個 token 只驗得出「有兩個 flag、值是某個東西」，驗不出
+    `--base` 拿到的是 `base.sha` 還是 `head.sha`——把 `--base` 換成 head 側會讓 range 變成
+    `head...head`、diff 恆空、gate exit 0 印 `[OK]`，正是 AC-3「不是讀到空 diff」要擋的假綠。
+    （PR #347 re-review 以 mutation 實證該假綠存活。）
+
+    保留 argv 形式（而非只比對原文）也是必要的：`--base <v>` 與 `--base=<v>` 的 flag 名稱
+    相同，但後者會讓 `_parse_args` 走到 `arg.startswith("-")` 而 raise `未知選項`。
     """
     masked: list[str] = []
     rest = run
@@ -80,7 +86,7 @@ def _argv_from_run(run: str) -> list[str]:
         expr, _, tail = tail.partition("}}")
         assert expr, f"ci.yml 的 `${{{{` 沒有對應的 `}}}}`：{run!r}"
         masked.append(head)
-        masked.append("PLACEHOLDER_SHA")
+        masked.append(f"EXPR:{expr.strip()}")
         rest = tail
     masked.append(rest)
     tokens = shlex.split("".join(masked))
@@ -90,6 +96,11 @@ def _argv_from_run(run: str) -> list[str]:
     )
     assert idx is not None, f"在 run 內找不到 {_LINT_SCRIPT}：{run!r}"
     return tokens[idx + 1 :]
+
+
+def _flag_map(argv: list[str]) -> dict[str, str]:
+    """把 `["--base", "X", "--head", "Y"]` 轉成 `{"--base": "X", "--head": "Y"}`。"""
+    return {argv[i]: argv[i + 1] for i in range(0, len(argv) - 1, 2)}
 
 
 def test_runbook_defers_typed_lesson_mutation_until_after_evidence_gate():
@@ -139,25 +150,30 @@ def test_evidence_lint_steps_run_on_the_events_they_claim():
     （本 workflow 的 `on:` 只有 push / pull_request），該 step 從此永久 skip、gate 什麼都不
     檢查，而改版前的測試照樣全綠。
     """
-    triggers = _load_ci().get("on") or _load_ci().get(True)  # YAML 1.1 會把裸 `on` 解析成 True
+    ci = _load_ci()
+    triggers = ci.get("on") or ci.get(True)  # YAML 1.1 會把裸 `on` 解析成 True
     assert isinstance(triggers, dict), f"無法解析 ci.yml 的 on: 區塊（得到 {type(triggers)}）"
     assert "pull_request" in triggers, (
         "workflow 未在 pull_request 事件觸發，PR range step 永遠不會跑"
     )
     assert "push" in triggers, "workflow 未在 push 事件觸發，push range step 永遠不會跑"
 
-    conditions = [str(s.get("if", "")) for s in _evidence_lint_steps()]
-    pr_steps = [c for c in conditions if "pull_request" in c and "pull_request_target" not in c]
-    push_steps = [c for c in conditions if "'push'" in c or '"push"' in c]
-
-    assert pr_steps, (
-        f"沒有任何 evidence-lint step 的 if: 綁在 pull_request 上，實際條件：{conditions}"
+    # **完全比對**，不是子字串比對。子字串比對對「條件後面接了什麼」完全不看，於是加一個
+    # 收窄的合取（現實中的形狀是 `&& github.event.pull_request.draft == false`，不是
+    # `&& false`）就讓 gate 在某些 PR 上永久 skip，而測試照樣全綠。
+    # （PR #347 re-review 以 mutation 實證該假綠存活。）
+    # 代價是改條件時必須連本測試一起改——那正是它存在的目的。
+    conditions = {str(s.get("if", "")) for s in _evidence_lint_steps()}
+    expected = {
+        "github.event_name == 'pull_request'",
+        "github.event_name == 'push' && github.event.before != "
+        "'0000000000000000000000000000000000000000'",
+    }
+    assert conditions == expected, (
+        f"evidence-lint step 的 if: 條件與預期不完全相符。\n實際：{sorted(conditions)}\n"
+        f"預期：{sorted(expected)}\n"
+        "任何額外合取都會讓 gate 在某些事件上靜默 skip；若這是刻意的，請同步更新本測試。"
     )
-    assert push_steps, f"沒有任何 evidence-lint step 的 if: 綁在 push 上，實際條件：{conditions}"
-    for cond in pr_steps:
-        assert "github.event_name == 'pull_request'" in cond, (
-            f"PR step 的 if: 不是綁在 pull_request 事件上：{cond!r}"
-        )
 
 
 def test_workflow_argv_is_accepted_by_the_scripts_own_parser():
@@ -169,6 +185,7 @@ def test_workflow_argv_is_accepted_by_the_scripts_own_parser():
     steps = _evidence_lint_steps()
     assert len(steps) == 2, f"預期 PR 與 push 各一個 evidence-lint step，實際 {len(steps)} 個"
 
+    seen: dict[str, str] = {}
     for step in steps:
         argv = _argv_from_run(str(step["run"]))
         assert argv, (
@@ -177,6 +194,36 @@ def test_workflow_argv_is_accepted_by_the_scripts_own_parser():
         base, head, diff_file = lint_rule_evidence._parse_args(argv)
         assert base and head, f"step '{step.get('name')}' 未同時提供 --base/--head：{argv}"
         assert diff_file is None, f"step '{step.get('name')}' 不應同時給 diff 檔：{argv}"
+        assert base != head, (
+            f"step '{step.get('name')}' 的 --base 與 --head 是同一個表達式 "
+            f"（{base}）——range 會退化成 `X...X`、diff 恆空、gate 印 [OK] 卻什麼都沒檢查"
+        )
+        seen[str(step.get("if", ""))] = f"{base} {head}"
+
+    # 逐一釘住「哪個 SHA 餵給哪個 flag」。只驗「有兩個 flag、值是某個 token」擋不住把
+    # `--base` 換成 head 側——那會讓 range 變成 `head...head` 而 gate 恆綠。
+    pr_key = "github.event_name == 'pull_request'"
+    push_key = next(k for k in seen if k.startswith("github.event_name == 'push'"))
+    assert seen[pr_key] == (
+        "EXPR:github.event.pull_request.base.sha EXPR:github.event.pull_request.head.sha"
+    ), f"PR step 的 base/head 表達式配對錯誤：{seen[pr_key]}"
+    assert seen[push_key] == "EXPR:github.event.before EXPR:github.sha", (
+        f"push step 的 base/head 表達式配對錯誤：{seen[push_key]}"
+    )
+
+
+def test_argv_extractor_detects_a_degenerate_same_sha_range():
+    """正向對照：把 --base 換成 head 側時，上面那條必須紅。
+
+    這是 re-review 實證存活的假綠形狀——`head...head` 的 diff 恆空，gate exit 0 印 `[OK]`。
+    """
+    argv = _argv_from_run(
+        f"uv run python {_LINT_SCRIPT} "
+        '--base "${{ github.event.pull_request.head.sha }}" '
+        '--head "${{ github.event.pull_request.head.sha }}"'
+    )
+    base, head, _ = lint_rule_evidence._parse_args(argv)
+    assert base == head, "佔位 token 折疊了表達式差異——本對照失去偵測能力"
 
 
 def test_argv_extractor_rejects_the_equals_form_that_broke_ci():

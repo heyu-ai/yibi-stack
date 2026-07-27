@@ -420,23 +420,35 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 > 卻通過 tier promotion 的三個過濾條件（實測 `_fetch_non_archival` 回 2 列），最終 age 成
 > archival 並匯出到 `~/.agents/archive/`，成為一筆重複的低信心 lesson。
 >
-> 收尾順序**先 add 後 retire**，且兩步都要檢查 exit code：
+> **收尾用 `lessons finalize`，原地升級同一列**——不要跑一般 `lessons add`：
 >
-> 1. 先跑 Step 4b prepared script 的 `state=active` call（正常 confidence / source），記下新 id。
-> 2. 再把舊列 retire 掉，指向新的教訓：
+> ```bash
+> mycelium lessons finalize --id "$OLD_PARKED_ID" --confidence <5-10> --source <與依據一致>
+> ```
 >
->    ```bash
->    mycelium lessons retire --id "$OLD_PARKED_ID" --reason "recurrence 重評通過 Tier 1/2，由新 lesson 取代" --superseded-by "$KEY"
->    ```
+> 非零 exit → 停止並輸出完整 script 讓使用者手動重跑。**這個指令冪等**：同樣引數重跑只是把
+> 同一列設成同樣的值，不會新增列。這一點是刻意的——runbook 對失敗的指示就是「重跑整個
+> script」，而先前設計的「先 add 後 retire」在重跑時會再 INSERT 一列，讓狀況比修之前更糟
+> （Codex 於 R2 與 re-review 兩輪指出，第二輪明確以「不可重試」為由升為 Critical，已照做）。
+> `finalize` 內部是單一 transaction 的 compare-and-set：id 不存在、已 retire、仍為 parked、
+> 或沒有 `recurrence-<n>` tag（代表它不是等待重評的那一列）都直接失敗，不做部分更新。
 >
-> 任一步 non-zero → 停止並輸出完整 script 讓使用者手動重跑。**先 add 後 retire 是刻意的**：
-> 若 add 成功而 retire 失敗，狀態退化成「兩列」——與修這個 bug 之前的現況相同，不會更糟；
-> 反過來先 retire 若 add 失敗，該教訓會暫時完全不在可見集合裡。
+> **重評通過 Tier 1/2、但 Promotion Gate（G1/G2/G3）沒過**：這條分支同樣需要終止轉移，
+> 否則舊列會停在「已解除 park、confidence ≤ 4」的孤兒狀態，重新進入一般 recall 與 tier
+> promotion——與上面那個 bug 完全相同的後果，只是入口不同（Codex re-review Critical）。
+> 此時**不要** finalize，改為再跑一次 `--park` 把它放回 parked：
 >
-> （Codex R2 建議另一種做法：改成 transactional 的 finalize-by-id，把舊列原地升級而非新增。
-> 那個做法是原子的、更乾淨，但需要新增 DB method + service + CLI 命令，屬本 PR 的 scope 之外；
-> 此處採用只動 runbook、複用既有 `retire` 機制的最小修法，並以 `retired_at IS NULL` 已在
-> promotion filter 內為前提——已實測確認。若日後這條路徑變頻繁，應改用 finalize-by-id。）
+> ```bash
+> mycelium lessons add --park ...   # 同一組 metadata；只重套 parked，不再次 bump recurrence
+> ```
+>
+> 三條出口整理如下，**每條都必須落到一個明確狀態**，不得留在 reassess 中繼態：
+>
+> | 重評結論 | 動作 | 終止狀態 |
+> |---|---|---|
+> | 仍為 Tier 3 | 再跑 `--park` | parked（recurrence 不變） |
+> | Tier 1/2 且 Promotion Gate 全過 | `lessons finalize --id` | active（同一列升級） |
+> | Tier 1/2 但 Promotion Gate 未過 | 再跑 `--park` | parked（recurrence 不變） |
 >
 > **與下方三道 gate 的關係**：Evidence Gate 問「這宣稱是真的嗎」；Promotion Gate 問「該不該寫進 rule
 > 檔」、Classifier 問「寫到哪個檔」、Patch-Surface Ladder 問「改動面多大」。先驗真偽（Tier 1/2 帶證據

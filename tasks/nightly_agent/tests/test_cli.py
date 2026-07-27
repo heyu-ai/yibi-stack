@@ -239,24 +239,39 @@ class TestNightlyExcludesParkedAndRetired:
         assert len(result) == 1
 
     def test_nightly_dt_012_read_path_stays_read_only(self, tmp_path: Path) -> None:
-        """NIGHTLY-DT-012: 新增的排除查詢不得把讀取路徑變成寫入路徑"""
+        """NIGHTLY-DT-012: 新增的排除查詢不得把讀取路徑變成寫入路徑
+
+        **同時快照 schema 與資料**。初版只比對 `sqlite_master.sql`（即 DDL），能抓 rule 07
+        點名的 `ALTER TABLE` 自我 migration（PR #210 的原始迴歸），但抓不到任何 data 寫入
+        ——在 `_excluded_lesson_ids` 內插一句 `UPDATE lessons SET confidence = 1` 時三條測試
+        全綠。docstring 宣稱的性質比測試涵蓋的面大，是一條沒有資訊量的斷言。
+        （PR #347 re-review 以 mutation 實證。）
+        """
         db_path = make_db_with_parked_and_retired(tmp_path)
-        before = (
-            sqlite3.connect(str(db_path))
-            .execute("SELECT sql FROM sqlite_master WHERE name='lessons'")
-            .fetchone()[0]
-        )
+
+        def snapshot() -> tuple[str, list[tuple[object, ...]]]:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                ddl = conn.execute("SELECT sql FROM sqlite_master WHERE name='lessons'").fetchone()[
+                    0
+                ]
+                rows = conn.execute(
+                    "SELECT id, ts, project, type, key, insight, confidence, source, "
+                    "tags, retired_at FROM lessons ORDER BY id"
+                ).fetchall()
+            finally:
+                conn.close()
+            return ddl, rows
+
+        before = snapshot()
 
         errors: list[str] = []
         with patch(f"{CLI}.Path.home", return_value=tmp_path):
             _load_mycelium_lessons(24, ["pitfall"], errors)
 
-        after = (
-            sqlite3.connect(str(db_path))
-            .execute("SELECT sql FROM sqlite_master WHERE name='lessons'")
-            .fetchone()[0]
-        )
-        assert after == before
+        after = snapshot()
+        assert after[0] == before[0], "讀取路徑改動了 schema"
+        assert after[1] == before[1], "讀取路徑改動了資料列"
 
 
 class TestFailureSignal:

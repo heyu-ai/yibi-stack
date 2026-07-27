@@ -21,6 +21,7 @@ from tasks.mycelium.cli import cli
 from tasks.mycelium.db import AgentsDB
 from tasks.mycelium.lessons_service import (
     add_lesson,
+    finalize_reassessed_lesson,
     park_lesson,
     search_lessons_typed,
     show_lessons_typed,
@@ -298,26 +299,127 @@ class TestReassessHandoff:
         db.close()
         assert len(fetched) == 2, "孤兒列應通過 promotion 過濾（缺陷現況）"
 
-    def test_lsn_park_st_006_retiring_the_old_row_removes_it_from_promotion(self, tmp_path: Path):
-        """LSN-PARK-ST-006: runbook 的收尾（先 add 後 retire）讓孤兒不再進 promotion
+    def test_lsn_park_st_006_finalize_upgrades_in_place_without_a_second_row(self, tmp_path: Path):
+        """LSN-PARK-ST-006: `finalize` 原地升級同一列，不新增列、原文保留"""
+        db_path = tmp_path / "lessons.db"
+        park_lesson(_lesson(), db_path=db_path)
+        old_id = str(park_lesson(_lesson(), db_path=db_path)["id"])
 
-        這條釘住修法：retire 舊列之後，`_fetch_non_archival` 只剩新的 active lesson。
-        把 runbook 的 retire 步驟拿掉就會退回上一條的兩列狀態。
+        result = finalize_reassessed_lesson(
+            old_id, confidence=8, source="cross-model", db_path=db_path
+        )
+
+        assert result["id"] == old_id, "應原地升級，不得換 id"
+        assert result["lesson"]["confidence"] == 8
+        assert result["lesson"]["insight"] == _INSIGHT, "省略 insight 時原文必須逐字保留"
+
+        from tasks.mycelium import tier_service
+
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        rows = db.conn.execute(
+            "SELECT id FROM lessons WHERE key = ? AND retired_at IS NULL", (_KEY,)
+        ).fetchall()
+        fetched = tier_service._fetch_non_archival(db)  # noqa: SLF001
+        db.close()
+        assert len(rows) == 1, "finalize 不得新增第二列"
+        assert len(fetched) == 1, "promotion 只應看到這一列，沒有孤兒"
+
+    def test_lsn_park_st_007_finalize_is_idempotent_on_retry(self, tmp_path: Path):
+        """LSN-PARK-ST-007: 重跑 finalize 不新增列——runbook 對失敗的指示就是「重跑 script」
+
+        先前設計的「先 add 後 retire」在此情境下會再 INSERT 一列，讓狀況比修之前更糟
+        （Codex 於 R2 與 re-review 兩輪指出，第二輪以「不可重試」為由升為 Critical）。
         """
         db_path = tmp_path / "lessons.db"
         park_lesson(_lesson(), db_path=db_path)
-        reassessed = park_lesson(_lesson(), db_path=db_path)
-        old_id = str(reassessed["id"])
+        old_id = str(park_lesson(_lesson(), db_path=db_path)["id"])
 
-        added = add_lesson(_lesson(confidence=8, source="cross-model"), db_path=db_path)
-        from tasks.mycelium.lessons_service import retire_lesson
-
-        retire_lesson(
-            old_id,
-            reason="recurrence 重評通過 Tier 1/2，由新 lesson 取代",
-            superseded_by=_KEY,
-            db_path=db_path,
+        first = finalize_reassessed_lesson(
+            old_id, confidence=8, source="cross-model", db_path=db_path
         )
+        second = finalize_reassessed_lesson(
+            old_id, confidence=8, source="cross-model", db_path=db_path
+        )
+
+        assert first["lesson"]["confidence"] == second["lesson"]["confidence"] == 8
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        rows = db.conn.execute("SELECT id FROM lessons WHERE key = ?", (_KEY,)).fetchall()
+        db.close()
+        assert len(rows) == 1, "重跑 finalize 產生了第二列——冪等性失效"
+
+    def test_lsn_park_dt_006_finalize_refuses_a_lesson_that_is_still_parked(self, tmp_path: Path):
+        """LSN-PARK-DT-006: 仍為 parked（尚未 reassess）時 finalize 必須拒絕"""
+        db_path = tmp_path / "lessons.db"
+        parked = park_lesson(_lesson(), db_path=db_path)
+
+        with pytest.raises(RuntimeError, match="仍為 parked"):
+            finalize_reassessed_lesson(
+                str(parked["id"]), confidence=8, source="cross-model", db_path=db_path
+            )
+
+    def test_lsn_park_dt_007_finalize_refuses_an_arbitrary_active_lesson(self, tmp_path: Path):
+        """LSN-PARK-DT-007: 沒有 recurrence tag 的一般 active lesson 不得被 finalize 改動
+
+        compare-and-set 的重點：`finalize` 只能作用在「等待重評結論」的那一列，
+        不得變成一個可以任意改寫他人 lesson 的後門。
+        """
+        db_path = tmp_path / "lessons.db"
+        added = add_lesson(_lesson(confidence=9, source="cross-model"), db_path=db_path)
+
+        with pytest.raises(RuntimeError, match="沒有 recurrence tag"):
+            finalize_reassessed_lesson(
+                str(added["id"]), confidence=2, source="inferred", db_path=db_path
+            )
+
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        row = db.get_lesson(str(added["id"]))
+        db.close()
+        assert row is not None
+        assert row["confidence"] == 9, "被拒絕時不得有部分更新"
+
+    def test_lsn_park_dt_008_park_refuses_a_finalized_lesson(self, tmp_path: Path):
+        """LSN-PARK-DT-008: finalize 過的 active lesson 不得被後續 --park 從側門夾回 Tier 3
+
+        `finalize` 刻意保留 `recurrence-<n>` tag（拿它當 compare-and-set 前提），於是該列
+        變成「未 parked + recurrence≥2 + confidence 8」。`park_lesson` 的
+        `elif recurrence >= 2` 分支原本只看 tag 不看 confidence，會把它重新 park 並用
+        `MIN(confidence, 4)` 夾成 4——DT-005 宣稱擋住的靜默可見性損失，從側門發生。
+        （PR #347 re-review：此缺陷在 finalize 落地前是 latent，落地後變 live。）
+        """
+        db_path = tmp_path / "lessons.db"
+        park_lesson(_lesson(), db_path=db_path)
+        old_id = str(park_lesson(_lesson(), db_path=db_path)["id"])
+        finalize_reassessed_lesson(old_id, confidence=8, source="cross-model", db_path=db_path)
+
+        with pytest.raises(RuntimeError, match="拒絕覆寫"):
+            park_lesson(_lesson(), db_path=db_path)
+
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        row = db.get_lesson(old_id)
+        db.close()
+        assert row is not None
+        assert row["confidence"] == 8, "已 finalize 的 lesson 被夾成 Tier 3 信心度"
+        assert "parked" not in row["tags"], "已 finalize 的 lesson 被重新掛上 parked"
+
+    def test_lsn_park_st_008_repark_is_the_exit_when_promotion_gate_fails(self, tmp_path: Path):
+        """LSN-PARK-ST-008: 重評過 Tier 1/2 但 Promotion Gate 未過時，re-park 是終止轉移
+
+        這條分支若沒有出口，舊列會停在「已解除 park、confidence ≤ 4」的孤兒狀態並重新進入
+        recall 與 promotion——與 ST-005 相同的後果，只是入口不同（Codex re-review Critical）。
+        """
+        db_path = tmp_path / "lessons.db"
+        park_lesson(_lesson(), db_path=db_path)
+        assert park_lesson(_lesson(), db_path=db_path)["status"] == "reassess"
+
+        # Promotion Gate 未過 -> 不 finalize，改為再跑 --park
+        back = park_lesson(_lesson(), db_path=db_path)
+
+        assert back["status"] == "parked"
+        assert back["recurrence"] == 2, "re-park 不得再次 bump recurrence"
 
         from tasks.mycelium import tier_service
 
@@ -325,8 +427,7 @@ class TestReassessHandoff:
         db.init_db()
         fetched = tier_service._fetch_non_archival(db)  # noqa: SLF001
         db.close()
-        assert len(fetched) == 1, "retire 之後 promotion 應只看到新的 active lesson"
-        assert str(fetched[0]["id"]) == str(added["id"])
+        assert fetched == [], "放回 parked 之後不應再有任何列進 promotion"
 
 
 class TestParkCli:

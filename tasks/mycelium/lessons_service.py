@@ -61,6 +61,34 @@ def park_lesson(
         db.close()
 
 
+def finalize_reassessed_lesson(
+    lesson_id: str,
+    *,
+    confidence: int,
+    source: str,
+    insight: str | None = None,
+    db_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """重評通過 Tier 1/2 後，把已解除 park 的 lesson 原地升級為 active（冪等）。
+
+    見 `AgentsDB.finalize_reassessed_lesson` 的 docstring：這取代「先 add 後 retire」，
+    因為後者在 runbook 指示的「失敗就重跑」語意下會重複新增列。
+    """
+    from .db import AgentsDB
+
+    if confidence < 1 or confidence > 10:
+        raise ValueError("confidence 必須介於 1 到 10")
+
+    db = AgentsDB(db_path=db_path)
+    try:
+        db.init_db()
+        return db.finalize_reassessed_lesson(
+            lesson_id, confidence=confidence, source=source, insight=insight
+        )
+    finally:
+        db.close()
+
+
 def get_lesson(
     lesson_id: str,
     db_path: str | Path | None = None,
