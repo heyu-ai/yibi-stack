@@ -184,7 +184,9 @@
   - Modified：`tasks/mycelium/{cli,db,lessons_service,tier_service}.py` + New：`tasks/mycelium/tests/test_lesson_parking.py`（PR #347：`--park` / `--include-parked` 執行介面）
 - 不影響 `/pr-cycle-deep` 的 review-loop gate（各自獨立子系統）。
   **對 typed-lessons 既有讀寫的影響（PR #347 修正）**：原本宣稱「不影響」，實際上 `--park` 落地時
-  改了讀取路徑本身——`db.get_lessons` / `search_lessons` 預設排除 `parked`，`tier_service` 的
-  promotion fetch 亦排除。既有呼叫端不會崩（多一個 tag 不影響解析），但**預設結果集會少掉 parked
+  改了讀取路徑本身——`AgentsDB.query_lessons_typed` / `AgentsDB.search_lessons_typed` 預設排除
+  `parked`（`lessons_service.show_lessons_typed` / `search_lessons_typed` 透過它們間接排除），
+  `tier_service._fetch_non_archival` 亦排除，`tasks/nightly_agent` 的直接 SQL 讀取路徑同樣補上。
+  既有呼叫端不會崩（多一個 tag 不影響解析），但**預設結果集會少掉 parked
   教訓**，這不是「純新增狀態值向後相容」。需要看到 parked 的呼叫端要顯式加 `include_parked=True`。
 - 自我約束（可機械檢查）：本 change 對 `.claude/rules/` 的淨新增 always-loaded 行數 = 0

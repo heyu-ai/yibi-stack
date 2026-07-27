@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lint：新增的 rule 檔 / hook 必須帶「證據標記」，否則擋 commit（retro-evidence-gate）。
+"""Lint：新增的 rule 檔 / hook 必須帶「證據標記」，否則以非零 exit 失敗（retro-evidence-gate）。
 
 `/pr-retro` 可能把未驗證的教訓寫成新 `.claude/rules/*.md` 或新 `.claude/hooks/*`。
 本 lint 是 write-time gate 之外的第二道防線，跑在兩個地方：pre-commit（讀 git-staged diff）
@@ -7,10 +7,11 @@
 分層強制——
 
 - 新增 `.claude/rules/*.md` 檔、新增 `.claude/hooks/**` script（含子目錄），或既有
-  `.pre-commit-config.yaml` / `.claude/settings.json` 新註冊 hook → 缺標記即 **error**（擋 commit）。
+  `.pre-commit-config.yaml` / `.claude/settings.json` 新註冊 hook → 缺標記即 **error**
+  （pre-commit 端擋 commit；CI 端讓 job 失敗）。
 - 既有 rule 檔或 `CLAUDE.md` 新增 section（diff 中出現新的 `##` / `###` heading）→ 缺標記即
-  **warn-only**（不擋，靠 pre-commit `verbose: true` 讓警告可見；起步期漸進，避免龐大歷史
-  corpus 一次爆紅）。
+  **warn-only**（不擋；pre-commit 端需設 `verbose: true` 才看得到警告，CI 端本腳本直接寫
+  stderr、無需該設定。起步期漸進，避免龐大歷史 corpus 一次爆紅）。
 
 接受的證據標記（擇一，且必須出現在「自身即為標記」的行——不計入 table row `|...` 或
 fenced code block ```...``` 內的文字，避免把「範例說明」誤判為真實證據）：
@@ -323,10 +324,17 @@ def _parse_args(argv: list[str]) -> tuple[str | None, str | None, str | None]:
             # 先驗邊界再取值：漏傳值時要給 clean 的 [FAIL]，不是 IndexError stacktrace。
             if i + 1 >= len(argv):
                 raise ValueError(f"{arg} 後面需要一個 commit-ish 引數")
+            value = argv[i + 1]
+            # 空字串必須擋在這裡：`""` 不是 `None`，會通過下面的成對檢查而進入 range 模式，
+            # 而 `git diff "...head"` 是**合法** range（等同 `HEAD...head`）——CI 的 checkout
+            # 就在 head，於是 git exit 0 回空 diff，gate 印 [OK] 通過卻什麼都沒讀。這正是本檔
+            # 要防的假綠形狀，只是換一道門進來。（PR #347 mob review，三家獨立提出。）
+            if not value.strip():
+                raise ValueError(f"{arg} 的值不可為空字串（空值會退化成 HEAD...HEAD 的空 diff）")
             if arg == "--base":
-                base = argv[i + 1]
+                base = value
             else:
-                head = argv[i + 1]
+                head = value
             i += 2
             continue
         if arg.startswith("-"):

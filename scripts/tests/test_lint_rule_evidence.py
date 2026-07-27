@@ -482,11 +482,14 @@ def test_range_mode_blocks_known_bad_input(tmp_path: Path, monkeypatch: pytest.M
 def test_range_mode_uses_merge_base_not_two_dot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """PR range 必須是三點語意：base 分支在 fork 之後新增的檔案不算在這條 PR 頭上。
+    """base 分支在 fork 之後**新增**的檔案不算在這條 PR 頭上。
 
-    兩點 `git diff base head` 會把「base 有、head 沒有」的檔案報成 head 刪除了它，
-    路徑仍出現在 diff 中；更關鍵的是 GitHub 的 `pull_request.base.sha` 是 base 分支當下的
-    tip，不是 merge-base，所以兩點語意會把別人合進 main 的改動算進本 PR。
+    **這條測試證明不了三點語意**（PR #347 mob review，三家獨立以 mutation 實證）：此形狀在
+    兩點下呈現為 head **刪除**該檔（`+++ /dev/null`），而 `_is_newly_protected` 對 `/dev/null`
+    的 fullmatch 必為 None，error 層根本不看它——兩點與三點輸出相同判定，把 `...` 換成 `..`
+    本測試照樣綠。真正能分辨的是下一條
+    `test_range_mode_two_dot_would_falsely_blame_a_base_side_deletion`。
+    保留本條是因為它仍覆蓋了「base 新增檔案」這個獨立案例（Codex R2 明確建議增加而非取代）。
     """
     _init_repo(tmp_path)
     fork_point = _git(tmp_path, "rev-parse", "HEAD")
@@ -504,6 +507,63 @@ def test_range_mode_uses_merge_base_not_two_dot(
     assert lint_rule_evidence.main(["--base", base, "--head", head]) == 0, (
         "base 分支上別人新增的缺證據 rule 檔不應讓這條 PR 變紅"
     )
+
+
+def test_range_mode_two_dot_would_falsely_blame_a_base_side_deletion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**這條才是三點語意鎖**：把 `...` 換成 `..` 會讓它轉紅。
+
+    形狀：一個缺證據標記的 rule 檔在 fork **之前**就存在；fork 之後 base 分支把它刪掉，
+    head 分支原封不動。
+    - 三點 `base...head`：以 merge-base 為基準，head 什麼都沒動 -> 空 diff -> exit 0（正確）。
+    - 兩點 `base head`：base 已無該檔、head 有 -> git 報成 head **新增**了它 ->
+      `_is_newly_protected` 命中 -> exit 1，把別人刪掉的檔算成本 PR 新增的缺證據 rule 檔。
+
+    上一條測試（base 新增檔案）在兩種語意下都是 exit 0，所以證明不了任何事——本條補上。
+    （PR #347 mob review：Claude comment-analyzer / test-analyzer / code-reviewer 三家各自
+    以 mutation 實證舊測試存活，並提出同一個替代 fixture。）
+    """
+    _init_repo(tmp_path)
+    # fork 之前就存在的缺證據 rule 檔
+    _commit_rule(tmp_path, "95-preexisting.md", "# Pre-existing\n\n缺證據。\n", "seed rule")
+    fork_point = _git(tmp_path, "rev-parse", "HEAD")
+
+    # PR 分支：完全不碰那個檔
+    _git(tmp_path, "checkout", "-q", "-b", "pr")
+    head = _commit_rule(tmp_path, "96-mine.md", "# Mine\n\n說明。Probed.\n", "pr work")
+
+    # base 分支在 fork 之後刪掉那個既有檔
+    _git(tmp_path, "checkout", "-q", "main")
+    (tmp_path / ".claude" / "rules" / "95-preexisting.md").unlink()
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "base removes the old rule")
+    base = _git(tmp_path, "rev-parse", "HEAD")
+    assert base != fork_point
+
+    monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", tmp_path)
+    assert lint_rule_evidence.main(["--base", base, "--head", head]) == 0, (
+        "base 分支刪掉的既有缺證據檔不得被算成本 PR 新增——若這裡回 1，range mode 已退回兩點語意"
+    )
+
+
+def test_range_mode_rejects_empty_flag_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """空字串值必須 exit 2，不得退化成 `HEAD...HEAD` 的空 diff 而靜默通過。
+
+    `""` 不是 `None`，會通過成對檢查進入 range 模式；而 `git diff "...head"` 是合法 range
+    （等同 `HEAD...head`），CI 的 checkout 就在 head，於是 exit 0 回空 diff、gate 印 [OK]。
+    （PR #347 mob review：test-analyzer / silent-failure / code-reviewer 三家獨立提出，
+    皆誠實標註目前 wiring 下兩個 SHA 必為非空，屬殘餘風險而非活 bug。）
+    """
+    _init_repo(tmp_path)
+    head = _git(tmp_path, "rev-parse", "HEAD")
+    monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", tmp_path)
+
+    assert lint_rule_evidence.main(["--base", "", "--head", head]) == 2
+    assert lint_rule_evidence.main(["--base", head, "--head", ""]) == 2
+    assert lint_rule_evidence.main(["--base", "   ", "--head", head]) == 2
 
 
 def test_range_mode_requires_both_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

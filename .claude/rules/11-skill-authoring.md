@@ -929,7 +929,7 @@ the always-loaded corpus.
 |------|----------|----------|------|
 | **Tier 1 Probed** | 可機械實測的可證偽宣稱（hook regex、`paths:` 行為、bash 形式、CLI 欄位） | 實跑 probe 的輸出（正 / 負樣本、`failing→passing` test、`claude -p` 拋棄式 repo 探針；CLI 宣稱附工具版本） | 可寫入，附 `<!-- verified: probe -->` |
 | **Tier 2 Incident-cited** | 有真實事件佐證但不易廉價重跑 | PR / issue 連結 + 貼原文 quote（**兩端 verify**，見上方 Cross-doc Cite） | 可寫入，附 `(Source: PR #NNN` 或 `<!-- verified: incident PR#NNN -->` |
-| **Tier 3 Subjective** | 主觀 / 單一次 / 無可接受證據形式（「措辭可更精確」「建議補充」） | **無可接受形式** | **不得寫入 always-loaded 面**；park 到 typed-lessons，執行介面是 `mycelium lessons add --park`（原子地寫入 `confidence ≤ 4` + `tags` 含 `parked`；`lessons add` **沒有** `--tag` 選項，不要試圖手工下標） |
+| **Tier 3 Subjective** | 主觀 / 單一次 / 無可接受證據形式（「措辭可更精確」「建議補充」） | **無可接受形式** | **不得寫入 always-loaded 面**；park 到 typed-lessons，執行介面是 `mycelium lessons add --park`（原子寫入 `tags` 含 `parked`；`--confidence` 須 ≤ 4，超過**直接拒絕**不夾取；`lessons add` **沒有** `--tag` 選項，不要試圖手工下標） |
 
 Four enforcement points, matching the "gate belongs at every entrance" discipline above:
 
@@ -943,7 +943,8 @@ Four enforcement points, matching the "gate belongs at every entrance" disciplin
    synthetic diffs, not only against real files (same reason `lint_shell_subshell_exit.py`'s
    negative controls matter).
 3. **CI-time** — the same script runs in `.github/workflows/ci.yml` over the **commit range**
-   (`--base`/`--head`; PR range on `pull_request`, `before`..`sha` on `push`). This is the
+   (`--base`/`--head`, always **three-dot** `base...head` for both events — two-dot would blame
+   this branch for changes that landed on the base after the fork). This is the
    enforcement point that actually closes the `--no-verify` / hook-not-installed hole: the
    pre-commit path reads `git diff --cached`, which on a CI runner is **always empty**, so it would
    run, pass, and check nothing. The range mode requires `fetch-depth: 0` on checkout, and fails

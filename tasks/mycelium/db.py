@@ -676,8 +676,16 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
             )
             row = cur.fetchone()
             if row is None:
+                # 用前綴比對而非硬寫 `recurrence-1`：`park_lesson` 是 public service，
+                # 傳入的 record 可能自帶 `recurrence-5` 之類的髒 tag。只濾字面值會讓它與新加的
+                # `recurrence-1` 並存，下一次呼叫的 `max(recurrence_values)` 讀到 5 而非 1，
+                # recurrence 計數靜默跳號。（PR #347 mob review）
                 tags = [
-                    *[tag for tag in record.tags if tag not in {"parked", "recurrence-1"}],
+                    *[
+                        tag
+                        for tag in record.tags
+                        if tag != "parked" and not tag.startswith("recurrence-")
+                    ],
                     "parked",
                     "recurrence-1",
                 ]

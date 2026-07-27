@@ -74,9 +74,15 @@ Agent 直接組 `lessons add` 指令：
 `--retrospective-id <id>`、`--skip-if-exists`、`--park`
 
 `--park` 用於 Evidence Gate 判為 Tier 3（主觀 / 單次 / 無可接受證據形式）的教訓：原子地以
-`confidence ≤ 4` + `tags` 含 `parked` 寫入，同 key 再現時 bump `recurrence-<n>`，`recurrence ≥ 2`
-解除 park 並回報 `reassess`。parked 教訓預設不進 `show` / `search` 與 tier 升降級。
-`--park` 與 `--skip-if-exists` 互斥。
+`tags` 含 `parked` 寫入，同 key 再現時 bump `recurrence-<n>`，`recurrence ≥ 2` 解除 park 並回報
+`reassess`；重評仍為 Tier 3 時再次 `--park` 只重套 parked、不重複 bump。
+parked 教訓預設不進 `show` / `search` 與 tier 升降級。
+
+- `--confidence` **必須 ≤ 4**，超過時直接以 exit 1 拒絕（**不是**靜默夾到 4）。呼叫端要自己
+  給對的分數，不要依賴系統幫忙修正。
+- 同一 `key` 已有**未 parked** 的教訓時，`--park` 會拒絕並保持原教訓不變——避免把已通過
+  Tier 1/2 的教訓夾成低信心並掛上 parked 而從預設查詢中消失。
+- `--park` 與 `--skip-if-exists` 互斥。
 
 確認輸出的 id 和 trusted bit 後回報使用者。
 

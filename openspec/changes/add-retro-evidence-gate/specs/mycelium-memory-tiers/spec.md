@@ -72,6 +72,17 @@ A caller SHALL be able to include them explicitly via `include_parked=True`
 （CLI：`mycelium lessons show --include-parked` / `mycelium lessons search --include-parked`）。
 這與 archival 的排除是**兩個獨立維度**：`include_archived` 不會連帶納入 parked，反之亦然。
 
+#### Scenario: Archival export preserves full content
+
+- **WHEN** a lesson is demoted to `archival`
+- **THEN** the lesson's full `content`, `lesson_type`, `tags`, and `created_at` are written to
+  `~/.agents/archive/YYYY-MM.md` in a readable Markdown format
+
+#### Scenario: Archived lesson still queryable
+
+- **WHEN** a caller invokes `lessons_service.get_lessons(include_archived=True, query="git push pitfall")`
+- **THEN** lessons with `tier="archival"` whose `archived_path` exists are included in the result set
+
 #### Scenario: Default recall excludes parked
 
 - **WHEN** a caller invokes `lessons_service.show_lessons_typed()` or `search_lessons_typed()` without `include_parked=True`

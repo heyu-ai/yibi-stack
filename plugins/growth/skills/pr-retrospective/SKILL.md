@@ -409,8 +409,35 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
    `status=reassess recurrence=<n>`；任何其他輸出或 non-zero 都停止並呈現完整 script。
 3. `status=parked` → 此項流程終止，不進 Promotion Gate。
 4. `status=reassess recurrence≥2` → 立刻把**同一項**重新送入 Evidence Gate，不得直接寫 rule/hook。
-   若重評仍為 Tier 3，再執行同一個 `--park` call；此時只重套 parked、不再次 bump recurrence。
+   **記下這次輸出的 `id=<uuid>`**，重評結論兩條路各自要用到它：
+   - 重評仍為 Tier 3 → 再執行同一個 `--park` call；此時只重套 parked、不再次 bump recurrence。
+   - 重評通過 Tier 1/2 → 見下方「reassess 通過後的收尾」，**不可**只跑一般 `lessons add` 就結束。
 
+> **reassess 通過 Tier 1/2 後必須收尾舊列，否則同 key 留下兩筆**（PR #347 mob review，
+> lead 實證重現）。`lessons add` 是無條件 INSERT 新 UUID，沒有 key-based upsert；而 reassess
+> 已經把舊列的 `parked` tag 拿掉了。若只跑一般 add，舊列會變成一筆**未 parked、未 retired、
+> confidence ≤ 4** 的孤兒：它被 `_dedup_latest_winner` 藏出 `show` / `search`（所以看起來沒事），
+> 卻通過 tier promotion 的三個過濾條件（實測 `_fetch_non_archival` 回 2 列），最終 age 成
+> archival 並匯出到 `~/.agents/archive/`，成為一筆重複的低信心 lesson。
+>
+> 收尾順序**先 add 後 retire**，且兩步都要檢查 exit code：
+>
+> 1. 先跑 Step 4b prepared script 的 `state=active` call（正常 confidence / source），記下新 id。
+> 2. 再把舊列 retire 掉，指向新的教訓：
+>
+>    ```bash
+>    mycelium lessons retire --id "$OLD_PARKED_ID" --reason "recurrence 重評通過 Tier 1/2，由新 lesson 取代" --superseded-by "$KEY"
+>    ```
+>
+> 任一步 non-zero → 停止並輸出完整 script 讓使用者手動重跑。**先 add 後 retire 是刻意的**：
+> 若 add 成功而 retire 失敗，狀態退化成「兩列」——與修這個 bug 之前的現況相同，不會更糟；
+> 反過來先 retire 若 add 失敗，該教訓會暫時完全不在可見集合裡。
+>
+> （Codex R2 建議另一種做法：改成 transactional 的 finalize-by-id，把舊列原地升級而非新增。
+> 那個做法是原子的、更乾淨，但需要新增 DB method + service + CLI 命令，屬本 PR 的 scope 之外；
+> 此處採用只動 runbook、複用既有 `retire` 機制的最小修法，並以 `retired_at IS NULL` 已在
+> promotion filter 內為前提——已實測確認。若日後這條路徑變頻繁，應改用 finalize-by-id。）
+>
 > **與下方三道 gate 的關係**：Evidence Gate 問「這宣稱是真的嗎」；Promotion Gate 問「該不該寫進 rule
 > 檔」、Classifier 問「寫到哪個檔」、Patch-Surface Ladder 問「改動面多大」。先驗真偽（Tier 1/2 帶證據
 > 或 Tier 3 park），通過者才往下。

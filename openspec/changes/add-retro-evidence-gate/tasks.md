@@ -71,7 +71,62 @@
     是 base 分支 tip 不是 merge-base，兩點會把別人合進 base 的改動算進本 PR）。
     解不開的 commit -> exit 2 大聲失敗，不得回空 diff 讓 gate 空洞通過。
   - 測試端：`scripts/tests/test_lint_rule_evidence.py` 以真 git repo 跑 range，含正向對照
-    （缺證據的新 rule 檔在 range mode 下必回 exit 1）、三點語意鎖、四條 exit-2 契約；
-    `scripts/tests/test_retro_evidence_gate_integration.py` 加 drift guard——從 ci.yml 抽出
-    實際傳遞的 flag 餵給 `_parse_args`，呼叫端／實作端任一改名即紅（已 mutation 驗證：
-    把 `_parse_args` 認得的 flag 改名後該 guard 轉紅）。
+    （缺證據的新 rule 檔在 range mode 下必回 exit 1）與四條 exit-2 契約；
+    `scripts/tests/test_retro_evidence_gate_integration.py` 加 drift guard。
+
+## 7. Mob review remediation（PR #347，3 voices × R1+R2）
+
+> 六個聲音（Claude 4 subagent / Codex / Gemini agy）R1 獨立 + R2 交叉辯論。R2 中兩家外部
+> 聲音對 Claude 的 10 項發現全數 AGREE、無 DISAGREE。以下 13 項為 blocking set，全部已修
+> 並逐項 mutation 驗證。
+
+- [x] 7.1 **`mycelium-memory-tiers` delta 漏抄兩個已部署 scenario**（Consensus Critical）。
+  MODIFIED 在 archive 時是整段取代，reviewer 以拋棄式 spectra 專案**實跑 archive** 證明
+  `Archival export preserves full content` 與 `Archived lesson still queryable` 會被靜默刪除
+  （exit 0、無警告，`spectra validate` 亦回報 valid）。已逐字抄回；另寫對照腳本驗證兩個
+  MODIFIED requirement 都帶齊，並以「拿掉一個 scenario」的正向對照確認該檢查會 [FAIL]。
+- [x] 7.2 **reassess → active 交接產生重複列**（Consensus Critical，lead 實證重現）。
+  `lessons add` 是無條件 INSERT 新 UUID，而 reassess 已拿掉舊列的 `parked`，於是同 key 兩列；
+  孤兒列被 `_dedup_latest_winner` 藏出 show/search，卻通過 promotion 三個過濾（實測
+  `_fetch_non_archival` 回 2 列），最終 age 成 archival 匯出成重複 lesson。修法：runbook 在
+  reassess 通過 Tier 1/2 後**先 add 後 retire**（複用既有 retire，`retired_at IS NULL` 已在
+  promotion filter 內）。補 `LSN-PARK-ST-005`（釘住缺陷）與 `ST-006`（釘住修法）兩條。
+  **與 Codex R2 建議的分歧已記錄在 SKILL.md**：它建議 transactional finalize-by-id（原子、更乾淨），
+  本 PR 採最小修法，理由與升級條件都寫在該處。
+- [x] 7.3 **三條 CI 斷言改成解析 YAML、綁到實際 job / step / argv**（Critical + 2 Important）。
+  原本 `fetch-depth: 0` 是整檔字串比對（拆多 job 後失效）、`if:` 條件零斷言（改成
+  `pull_request_target` 則 step 永久 skip 而測試全綠）、drift guard 只抽 flag 名稱（改等號形式
+  `--base=<sha>` 則 guard 全綠但 runtime exit 2）。三個曾存活的突變現已全部 KILLED 且各只殺一條。
+- [x] 7.4 **AC-4 三點語意鎖補上真正能分辨的 fixture**（Consensus Important，三家獨立提出）。
+  舊 fixture（base 新增缺證據檔）在兩點下呈現為刪除，`_is_newly_protected` 對 `/dev/null`
+  必不匹配，兩種語意輸出相同。新增「base 刪除一個 fork 前就存在的缺證據 rule 檔」：三點 exit 0、
+  兩點 exit 1。依 Codex R2 建議**增加而非取代**舊 fixture。`...` → 兩點的突變現已 KILLED。
+- [x] 7.5 **空字串 `--base`/`--head` 的 fail-open**（Consensus Important）。`""` 不是 `None`，
+  `"...head"` 是合法 range（等同 `HEAD...head`）→ git exit 0 回空 diff → gate 印 `[OK]`。
+  `_parse_args` 加空值拒絕 + `LSN` 對應測試；突變已 KILLED。三家皆誠實標註目前 wiring 下
+  兩個 SHA 必為非空，屬殘餘風險而非活 bug。
+- [x] 7.6 **parked 排除面四個入口只測了一個**（Consensus Important）。補 `search_lessons_typed`
+  預設排除 / `include_parked`、CLI `lessons show|search --include-parked` 各一條、以及 demotion
+  側排除。四個突變逐一驗證，且**精準命中**：突變 search 那處只殺 search 的兩條測試
+  （第一次用字串 replace 誤中 show 那處，屬「把 A 機制的突變配到 B 的測試」，已重做）。
+- [x] 7.7 **`park_lesson` 拒絕覆寫未 parked lesson 的守衛零覆蓋**（Consensus Important）。
+  拿掉守衛會把 confidence 9 的 active lesson 夾成 4 並掛 parked——靜默的可見性損失。
+  補 `LSN-PARK-DT-005` 並斷言 rollback 有效；突變已 KILLED。
+- [x] 7.8 **`nightly_agent` 直接 SQL 讀取仍撿到 parked**（Important，Gemini R2 升為 Critical）。
+  被 park 的教訓當晚會從側門重回 rule 生成管線。加 `_excluded_lesson_ids`（parked + retired，
+  `tags`/`retired_at` 各自獨立做欄位存在判斷、SQL 維持靜態字串、讀取路徑維持唯讀），補三條測試。
+  retired 洩漏是本 PR 之前就存在的漏洞，一併補。
+- [x] 7.9 **`retro-evidence-gate` spec 與 SKILL.md / code / design.md 互相矛盾**（Important）。
+  「狀態 parked」改為 `tags 含 "parked"`；補 re-park 不重複 bump、拒絕覆寫、confidence 拒絕
+  三個 scenario 與 `status=` 輸出契約。
+- [x] 7.10 **`test_lesson_parking.py` 違反 rule 09**（Important）。重寫為 `class TestXxx` +
+  `LSN-PARK-<DT|ST|VL|EG|CV>-NNN` 結構化 ID，與 `test_lessons_retire.py` 的分層一致。
+- [x] 7.11 **confidence 契約三方矛盾**（Codex R2 升為 Important）。統一為「> 4 直接拒絕，
+  不是 clamp」，同步 `commands/lessons.md`、rule 11 與 spec。
+- [x] 7.12 NIT 批次：rule 11 的 push range 兩點寫法、`db.get_lessons` 等不存在的方法名、
+  spec 標題仍稱 commit-time、docstring bullet 只講 pre-commit、`--all-files`「毫無作用」過度陳述、
+  恆真斷言 `confidence <= 4`、初次 park 的 tag 清洗硬寫 `recurrence-1`（改前綴比對 + `EG-001`）。
+- [ ] 7.13 **Deferred（人類裁決）**：Codex R2 新開的 Critical「既有 always-loaded 文件仍可經
+  warn-only 路徑新增缺證據 section」與 contract 的 Non-goals 第三條直接衝突。@howie 於
+  2026-07-26 裁定**維持 Non-goal、本項不 blocking**，理由是升級為 error 會 retro-block 整個
+  歷史 corpus，正是當初列為 Non-goal 的原因。留在 Follow-ups。

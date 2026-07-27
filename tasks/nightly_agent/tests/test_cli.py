@@ -166,6 +166,99 @@ class TestLoadMyceliumLessons:
         assert "locked" in fatal_errors[0].lower()
 
 
+def make_db_with_parked_and_retired(tmp_path: Path) -> Path:
+    """建立含 tags / retired_at 欄位的 handover.db，塞入 active / parked / retired 各一筆。"""
+    db_dir = tmp_path / ".agents" / "handover"
+    db_dir.mkdir(parents=True)
+    db_path = db_dir / "handover.db"
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "CREATE TABLE lessons ("
+        "id TEXT PRIMARY KEY, ts TEXT NOT NULL, project TEXT NOT NULL, type TEXT NOT NULL, "
+        "key TEXT NOT NULL, insight TEXT NOT NULL, confidence INTEGER NOT NULL, "
+        "source TEXT NOT NULL, handover_id TEXT, retrospective_id TEXT, "
+        "tags TEXT NOT NULL DEFAULT '[]', retired_at TEXT)"
+    )
+    rows = [
+        ("active", "[]", None),
+        ("parked", '["parked", "recurrence-1"]', None),
+        ("retired", "[]", "2026-07-01T00:00:00+00:00"),
+    ]
+    for lesson_id, tags, retired_at in rows:
+        conn.execute(
+            "INSERT INTO lessons "
+            "(id, ts, project, type, key, insight, confidence, source, tags, retired_at) "
+            "VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                lesson_id,
+                "yibi-stack",
+                "pitfall",
+                lesson_id,
+                "insight",
+                5,
+                "observed",
+                tags,
+                retired_at,
+            ),
+        )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+class TestNightlyExcludesParkedAndRetired:
+    """NIGHTLY-DT-010..012：park 的目的是不讓未驗證教訓回到 rule 生成管線。"""
+
+    def test_nightly_dt_010_parked_and_retired_are_excluded(self, tmp_path: Path) -> None:
+        """NIGHTLY-DT-010: parked 與 retired 教訓不得進 nightly digest"""
+        make_db_with_parked_and_retired(tmp_path)
+
+        errors: list[str] = []
+        with patch(f"{CLI}.Path.home", return_value=tmp_path):
+            result = _load_mycelium_lessons(24, ["pitfall"], errors)
+
+        assert errors == []
+        assert [r["id"] for r in result] == ["active"], (
+            "parked / retired 教訓從側門進了 nightly rule 生成管線"
+        )
+
+    def test_nightly_dt_011_missing_columns_do_not_break_the_read(self, tmp_path: Path) -> None:
+        """NIGHTLY-DT-011: 舊 schema（無 tags / retired_at）仍可讀，且不過濾
+
+        缺欄位等同「park 與 retire 當時還不存在」，不過濾是正確的；重點是不得因為少了欄位
+        就整批讀取失敗。
+        """
+        make_handover_db(tmp_path, with_retrospective_id=False)
+
+        errors: list[str] = []
+        with patch(f"{CLI}.Path.home", return_value=tmp_path):
+            result = _load_mycelium_lessons(24, ["pitfall"], errors)
+
+        assert errors == []
+        assert len(result) == 1
+
+    def test_nightly_dt_012_read_path_stays_read_only(self, tmp_path: Path) -> None:
+        """NIGHTLY-DT-012: 新增的排除查詢不得把讀取路徑變成寫入路徑"""
+        db_path = make_db_with_parked_and_retired(tmp_path)
+        before = (
+            sqlite3.connect(str(db_path))
+            .execute("SELECT sql FROM sqlite_master WHERE name='lessons'")
+            .fetchone()[0]
+        )
+
+        errors: list[str] = []
+        with patch(f"{CLI}.Path.home", return_value=tmp_path):
+            _load_mycelium_lessons(24, ["pitfall"], errors)
+
+        after = (
+            sqlite3.connect(str(db_path))
+            .execute("SELECT sql FROM sqlite_master WHERE name='lessons'")
+            .fetchone()[0]
+        )
+        assert after == before
+
+
 class TestFailureSignal:
     def test_nightly_failure_001_failed_run_writes_visible_marker(self, tmp_path: Path) -> None:
         """NIGHTLY-FAILURE-001：非預期失敗會寫入 marker 與 digest 的 FAIL 行。"""

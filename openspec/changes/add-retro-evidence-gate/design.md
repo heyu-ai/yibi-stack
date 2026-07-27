@@ -86,7 +86,7 @@ Evidence Gate 的作者面規範 MUST 寫入 `.claude/rules/11-skill-authoring.m
 
 唯一的資料面接觸：Tier 3 park 使用既有 mycelium typed-lessons store 的 `parked` 狀態值與 recurrence 計數。實作時 MUST 先確認 mycelium schema 是否已有 `parked` 狀態與 recurrence 欄位；若無，加欄 MUST 向後相容（既有讀取者不認得新狀態時不得崩潰，見 rule 02 「Type Guard at External Data Boundaries」）。此為既有 schema 的相容擴充，非新資料模型。
 
-> **已定案（tasks.md 1.1 + PR #347 落地）**：schema **無** `parked` 狀態欄位、**無** per-lesson recurrence 欄位，最終**不加欄**——以既有 `confidence`（≤ 4）+ `tags`（含 `parked` / `recurrence-<n>`）編碼，零 migration。但這不代表「零讀取面影響」：`db.get_lessons` / `search_lessons` / `tier_service` 的預設查詢都加了 parked 排除，見 proposal.md Impact 段的修正。
+> **已定案（tasks.md 1.1 + PR #347 落地）**：schema **無** `parked` 狀態欄位、**無** per-lesson recurrence 欄位，最終**不加欄**——以既有 `confidence`（≤ 4）+ `tags`（含 `parked` / `recurrence-<n>`）編碼，零 migration。但這不代表「零讀取面影響」：`AgentsDB.query_lessons_typed` / `AgentsDB.search_lessons_typed` / `tier_service._fetch_non_archival` / `tasks/nightly_agent` 的直接 SQL 讀取路徑都加了 parked 排除，見 proposal.md Impact 段的修正。
 
 ## Implementation Contract
 

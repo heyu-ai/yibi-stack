@@ -244,6 +244,39 @@ def setup() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _excluded_lesson_ids(conn: object, columns: set[str]) -> set[str]:
+    """回傳「不該進 nightly digest」的 lesson id：parked（Tier 3）與 retired。
+
+    為什麼要有這個函式：`_load_mycelium_lessons` 繞過 `lessons_service` 直接讀
+    `handover.db`，因此拿不到 service 層的預設排除。Evidence Gate 判為 Tier 3 而 park 的
+    教訓，正是「無可接受證據形式、不得進 always-loaded 面」的那些；不過濾的話它們當晚就會
+    從側門重新進入 nightly 的 rule 生成管線並可能被 cluster 成 rule 提案——park 的目的正是
+    防這件事。retired 同理：`show` / `search` / `distill` / tier 升降級都已排除，只有這條
+    query 沒有（本 PR 之前就存在的漏洞，一併補）。
+
+    `tags` / `retired_at` 都是 `db.py` 那批 `ALTER TABLE` 補的欄位，舊 `handover.db` 可能
+    沒有。**各自獨立判斷**（不合併成單一「新 schema」旗標）：兩者的 migration 不同步時，
+    有哪個就用哪個，而不是整組退回不過濾。缺欄位等同「該功能當時還不存在」，不過濾是正確的。
+    查詢維持完整靜態字串（不用 f-string 拼欄位），避免 bandit B608 誤判。
+    """
+    excluded: set[str] = set()
+    if "retired_at" in columns:
+        excluded.update(
+            str(r["id"])
+            for r in conn.execute(  # type: ignore[attr-defined]
+                "SELECT id FROM lessons WHERE retired_at IS NOT NULL"
+            )
+        )
+    if "tags" in columns:
+        excluded.update(
+            str(r["id"])
+            for r in conn.execute(  # type: ignore[attr-defined]
+                "SELECT id FROM lessons WHERE tags LIKE '%\"parked\"%'"
+            )
+        )
+    return excluded
+
+
 def _load_mycelium_lessons(
     hours: int,
     lesson_types: list[str],
@@ -283,6 +316,7 @@ def _load_mycelium_lessons(
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(lessons)")}
             # 兩條完整靜態 SQL 字串（而非用 f-string 插入欄位片段），避免動態組字串
             # 觸發 bandit B608 誤判，也讓兩種 schema 各自的查詢一目瞭然。
+            #
             if "retrospective_id" in columns:
                 select_sql = (
                     "SELECT id, ts, project, type, key, insight, confidence, source, "
@@ -301,12 +335,13 @@ def _load_mycelium_lessons(
                 )
             # SQLite datetime arithmetic: last N hours
             rows = conn.execute(select_sql, (f"-{hours}",)).fetchall()
+            excluded = _excluded_lesson_ids(conn, columns)
         finally:
             conn.close()
         result = []
         for row in rows:
             d = dict(row)
-            if d.get("type") in lesson_types:
+            if d.get("type") in lesson_types and d.get("id") not in excluded:
                 result.append(d)
         return result
     except sqlite3.OperationalError as e:

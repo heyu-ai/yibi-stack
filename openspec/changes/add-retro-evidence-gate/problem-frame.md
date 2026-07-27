@@ -64,8 +64,9 @@
 
 > **W3 減災修正（PR #347）：原本寫的「`make ci` 於 CI 端 `--all-files` 重跑」其實從未生效。**
 > `lint-rule-evidence` hook 是 `pass_filenames: false`，不帶引數呼叫腳本 → 走 staged-diff 模式
-> → CI runner 上 `git diff --cached` **恆為空** → gate 跑完、通過、什麼都沒檢查。`--all-files`
-> 只影響 pre-commit 挑哪些檔給 hook，對一個不看檔名引數的 hook 毫無作用。
+> → CI runner 上 `git diff --cached` **恆為空** → gate 跑完、通過、什麼都沒檢查。
+> 精確地說：`--all-files` 決定 hook 會不會**被觸發**（它讓所有 tracked 檔都納入 `files:` 比對），
+> 但**不改變 hook 讀到的 diff**——對一個不看檔名引數的 hook，被觸發等於跑一次空檢查。
 > 真正補上 W3 的是 `.github/workflows/ci.yml` 的兩個 range-mode step（`--base`/`--head`），
 > 它們讀 PR / push 的實際 commit range，並在 commit 解不開時 exit 2 大聲失敗。
 > 這是一個「減災措施本身是假綠」的實例——寫下減災不等於減災存在。
