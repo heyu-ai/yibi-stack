@@ -1,1 +1,1 @@
-../plugins/util/commands/debug.md
+../plugins/dev-cycle/commands/debug.md

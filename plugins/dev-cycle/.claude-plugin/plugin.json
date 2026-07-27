@@ -1,6 +1,6 @@
 {
   "name": "dev-cycle",
-  "description": "Full PR workflow for Claude Code agents: review cycles (solo/mob/codex), retrospective, bump-version, claude-md-prune, and PR slash commands.",
+  "description": "Full development workflow for Claude Code agents: PR review cycles, bump-version, newjob/handover, local port management, debug, and PR slash commands.",
   "version": "1.15.2",
   "author": {
     "name": "Howie Yu",
@@ -13,8 +13,10 @@
     "pr-review-cycle",
     "pull-request",
     "bump-version",
-    "claude-md-prune",
-    "retrospective",
-    "git-workflow"
+    "git-workflow",
+    "newjob",
+    "handover",
+    "local-port-manager",
+    "debug"
   ]
 }

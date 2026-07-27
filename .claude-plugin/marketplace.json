@@ -26,7 +26,7 @@
     },
     {
       "name": "growth",
-      "description": "Session continuity and knowledge retention: mycelium, learn skill, handover/newjob slash commands for Claude Code agents.",
+      "description": "Knowledge extraction and retention: mycelium, learn, PR retrospective/control log, CLAUDE.md pruning, and /pr-retro for Claude Code agents.",
       "author": {
         "name": "Howie Yu"
       },
@@ -35,7 +35,7 @@
     },
     {
       "name": "dev-cycle",
-      "description": "Full PR workflow: review cycles, retrospective, bump-version, claude-md-prune, and PR slash commands for Claude Code agents.",
+      "description": "Full development workflow: PR review cycles, bump-version, newjob/handover, local port management, debug, and PR slash commands for Claude Code agents.",
       "author": {
         "name": "Howie Yu"
       },
@@ -59,15 +59,6 @@
       },
       "category": "development",
       "source": "./plugins/tdd"
-    },
-    {
-      "name": "util",
-      "description": "Utility tools: local port manager and debug slash command for Claude Code agents.",
-      "author": {
-        "name": "Howie Yu"
-      },
-      "category": "productivity",
-      "source": "./plugins/util"
     },
     {
       "name": "writing",

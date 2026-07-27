@@ -156,7 +156,7 @@ class TestVersionOption:
         """LPM-VL-003: metadata 查不到時 --version 非零退出，不靜默回報假版本。
 
         SKILL.md 的 preflight 依賴 `portman --version` 的 exit code 來判斷安裝是否
-        健全（見 plugins/util/skills/local-port-manager/SKILL.md Step 1）。若 metadata
+        健全（見 plugins/dev-cycle/skills/local-port-manager/SKILL.md Step 1）。若 metadata
         損毀時它仍 exit 0，preflight 會拿一個壞掉的安裝繼續跑。
         """
         exit_code = _version_exit_code_under_broken_metadata()

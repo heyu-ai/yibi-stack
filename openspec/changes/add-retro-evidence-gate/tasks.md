@@ -22,7 +22,7 @@
 
 ## 3. `/pr-retro` Evidence Gate runbook
 
-- [x] 3.1 於 `plugins/dev-cycle/skills/pr-retrospective/SKILL.md` 新增 Step 5.0 Evidence Gate，滿足需求「每個「加 rule/hook」action item 寫入前必須分級」與設計決策「Evidence Gate 置於既有三道 gate 之上游」。行為：Step 5 在 Q5→action 映射前先分級，未分級者不進 Promotion Gate；分級依「有無可接受證據形式」而非 `--source` 分數。驗證：字串錨點測試確認 Step 5.0 段存在且位於 Promotion Gate 敘述之前。
+- [x] 3.1 於 `plugins/growth/skills/pr-retrospective/SKILL.md` 新增 Step 5.0 Evidence Gate，滿足需求「每個「加 rule/hook」action item 寫入前必須分級」與設計決策「Evidence Gate 置於既有三道 gate 之上游」。行為：Step 5 在 Q5→action 映射前先分級，未分級者不進 Promotion Gate；分級依「有無可接受證據形式」而非 `--source` 分數。驗證：字串錨點測試確認 Step 5.0 段存在且位於 Promotion Gate 敘述之前。
 - [x] 3.2 於 Step 5.0 加入證據形式表，滿足需求「證據形式依 lesson 類型封閉列舉且無 catch-all」與設計決策「證據形式表以 lesson 類型封閉列舉（見 spec SBE Example）」「複用姊妹 change 的證據模式，不重新發明」。行為：表為封閉列舉、最後一列標「無可接受形式，恆 park」、無 `other`/`etc.` catch-all 列。驗證：錨點測試確認最後一列存在且全文無 catch-all 列字樣。
 - [x] 3.3 於 Step 5.0 加入三種執行結果規則，滿足需求「Tier 1 probe 必有三種執行結果且無效不等於不成立」。行為：文件明載重現／未重現／無效三分法、「無效先修一次、修不好降 Tier 3 park、不記為未重現、不 drop」。驗證：錨點測試確認「無效」「repair once」「不記為未重現」三個錨點皆存在。
 - [x] 3.4 於 Step 5.0 加入成本分層規則，滿足需求「驗證成本分層」與設計決策「成本分層：便宜當場跑、昂貴派 subagent 或降級」。行為：文件明載結構檢查零成本、秒級 probe 當場跑、昂貴 probe 派 subagent 或降 Tier 2，並指向 rule 11 既有的 probe 紀律段落（不再指向不存在的 `verification-recipes` 配方 9/10——PR #339 mob review 指出該文件在本 repo 從未存在，已改連結真實段落）。驗證：`scripts/tests/test_pr_retrospective_evidence_gate_anchors.py::test_cost_tiering_anchors` 對真實 SKILL.md 斷言「派 subagent」與「降級 Tier 2」措辭存在。

@@ -134,9 +134,9 @@ The English and Traditional Chinese README install sections SHALL document plugi
 
 ##### Example: illustrative v1.14.0 two-track commands
 
-**GIVEN** a plugin-only user needs `growth`, `dev-cycle`, and `util`, and the illustrative recorded release tag is `v1.14.0`
+**GIVEN** a plugin-only user needs `growth` and `dev-cycle`, and the illustrative recorded release tag is `v1.14.0`
 **WHEN** the user reads the English or Traditional Chinese install section
-**THEN** the section MUST show a plugin command such as `claude plugin install growth@yibi-stack dev-cycle@yibi-stack util@yibi-stack` and the CLI string `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"`, with the two purposes stated separately
+**THEN** the section MUST show a plugin command such as `claude plugin install growth@yibi-stack dev-cycle@yibi-stack` and the CLI string `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"`, with the two purposes stated separately
 
 #### Scenario: pypi-install-is-not-pre-documented -- Phase A does not advertise PyPI
 

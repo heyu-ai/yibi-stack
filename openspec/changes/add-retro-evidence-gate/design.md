@@ -1,11 +1,11 @@
 ## Context
 
-`/pr-retro`（`plugins/dev-cycle/skills/pr-retrospective/SKILL.md`）是本 repo 單一 PR / session 收尾的回顧 skill：agent 從 PR context 推論 5 題草稿，使用者校準後寫入 typed lessons，並在 Step 5 依 Lesson Classifier 把教訓路由成 rule / hook / CLAUDE.md 的 action item。此處只補充實作必須知道的現況約束：
+`/pr-retro`（`plugins/growth/skills/pr-retrospective/SKILL.md`）是本 repo 單一 PR / session 收尾的回顧 skill：agent 從 PR context 推論 5 題草稿，使用者校準後寫入 typed lessons，並在 Step 5 依 Lesson Classifier 把教訓路由成 rule / hook / CLAUDE.md 的 action item。此處只補充實作必須知道的現況約束：
 
 - **retro 寫入路徑目前無驗證關卡**。Step 5 的三道 gate（Promotion Gate G1/G2/G3、Lesson Classifier、Patch-Surface Ladder）只回答「該不該寫、寫哪、寫多大」。信心度差異化（Step 4b）靠 `--source` 打分，是來源信任度而非實測。
 - **姊妹 change 已上線並界定了本 change**。`bound-review-loop-with-evidence-gate`（2026-07-18 archived）在 `/pr-cycle-deep` review 迴圈導入證據閘門，其 Non-Goals 明確 defer「rules corpus 治理（`/pr-retro` 路由表出口、hot/cold tier）」，理由是「不同子系統，回饋源是 `/pr-retro` 而非 review 迴圈」，且判斷先做 review-loop gate 會「減少該子系統的流入量，先做這個可能讓後者變小」。本 change 即該續作。
 - **兩閘門互補**。review-loop gate 把「精確度／可能誤導／建議補充」類 finding 恆降級為非 blocking，因此 reviewer 結構上擋不住「看似合理但沒驗證」的新 rule。該缺口只能靠 write-time + commit-time 對 rule 自身的證據 tier 分級補。
-- **pr-retrospective 是 symlink skill**。`skills/pr-retrospective` symlink 進 `plugins/dev-cycle/skills/pr-retrospective`；SKILL.md body 只跟本地 main checkout 一樣新（見 CLAUDE.md「installed skills go stale」）。
+- **pr-retrospective 是 plugin-only skill**。repo root 沒有 `skills/pr-retrospective` symlink；plugin cache 與 in-repo fallback 都必須指向 `plugins/growth/skills/pr-retrospective`。
 
 Stakeholder：本 repo 維護者（單人），既是 skill 作者也是使用者——「skill 自己的 PR 用 skill 自己 review」使規則通膨會自我放大，與姊妹 change 同一結構性風險。
 

@@ -47,10 +47,10 @@ No such file——bootstrap 一行都跑不到。
 import `tasks/mycelium`：
 
 ```bash
-PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('dev-cycle@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
+PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('growth@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
 RETRO_ROOT=""
-if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="$PR_FLOW_CACHED/skills/pr-retrospective"; elif [ -r "$HOME/.claude/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="$HOME/.claude/skills/pr-retrospective"; elif [ -r "plugins/dev-cycle/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="plugins/dev-cycle/skills/pr-retrospective"; fi
-if ! test -n "$RETRO_ROOT"; then echo "[FAIL] 讀不到 pr-retrospective bootstrap.sh；請執行 claude plugin install dev-cycle@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
+if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="$PR_FLOW_CACHED/skills/pr-retrospective"; elif [ -r "$HOME/.claude/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="$HOME/.claude/skills/pr-retrospective"; elif [ -r "plugins/growth/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="plugins/growth/skills/pr-retrospective"; fi
+if ! test -n "$RETRO_ROOT"; then echo "[FAIL] 讀不到 pr-retrospective bootstrap.sh；請執行 claude plugin install growth@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
 if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2; exit 1; fi
 ```
 
