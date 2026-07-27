@@ -5,7 +5,7 @@
         0 = 放行
         2 = 攔截（BLOCK）
 
-ruff 呼叫走 _RUFF_CMD_ENV seam 注入「PATH 上的真 ruff」直接掃 tmp repo——用真 ruff
+ruff 呼叫走 _RUFF_CMD_ENV seam 注入「PATH 上的真 ruff + JSON 輸出」直接掃 tmp repo——用真 ruff
 而非 mock：mock 只驗證「程式有照我說的呼叫 ruff」，不驗證「我對 ruff 輸出格式的假設
 是否成立」（沿用姊妹 hook 的測試哲學）。seam 只覆寫 ruff 指令**前綴**，hook 一律在其後
 附上已追蹤 .py 清單。production 不設此 env，走專案 pinned 的 `uv run ruff`（版本與 CI 目前
@@ -61,7 +61,7 @@ def run_hook(
     env = os.environ.copy()
     if ruff_override == "__real__":
         # 只給前綴（不含路徑）；hook 會在其後附上已追蹤 .py 清單。
-        env["PRE_PUSH_RUFF_GUARD_CMD"] = f"{RUFF} format --check"
+        env["PRE_PUSH_RUFF_GUARD_CMD"] = f"{RUFF} format --check --output-format json"
     elif ruff_override is None:
         env.pop("PRE_PUSH_RUFF_GUARD_CMD", None)
     else:
@@ -308,7 +308,7 @@ class TestEdgeCases:
     def test_pprf_eg_008_ruff_rc1_without_parseable_lines_blocks(self, repo: Path) -> None:
         """PPRF-EG-008: ruff rc==1 但 stdout 解析不出檔名 → 仍一律 block（不因解析失敗 fail-open）。
 
-        用 stub 強制 rc==1、無 `Would reformat:` 行，模擬未來 ruff 改輸出格式的情形。
+        用 stub 強制 rc==1、無 JSON/legacy 檔名，模擬未來 ruff 改輸出格式的情形。
         """
         result = run_hook(repo, "git push", ruff_override="python3 -c 'import sys; sys.exit(1)'")
         assert result.returncode == 2
@@ -325,8 +325,9 @@ class TestEdgeCases:
     def test_pprf_eg_010_ansi_escapes_stripped_from_file_list(self, repo: Path) -> None:
         """PPRF-EG-010: ruff 輸出帶 ANSI 色碼時，block 清單需去色（_ANSI_ESCAPE 生效）。
 
-        用 stub 強制輸出含 ANSI 的 `Would reformat:` 行；若 `_ANSI_ESCAPE.sub` 被拿掉，
-        清單會夾帶 `\\x1b[...m` 逃逸碼 → 此斷言會失敗。
+        用 stub 強制輸出舊 Ruff 含 ANSI 的 `Would reformat:` 行，驗證 JSON 模式導入後仍
+        保留 legacy fallback；若 `_ANSI_ESCAPE.sub` 被拿掉，清單會夾帶
+        `\\x1b[...m` 逃逸碼 → 此斷言會失敗。
         """
         stub = repo / "ansi_stub.py"
         stub.write_text(
