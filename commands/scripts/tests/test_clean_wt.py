@@ -1201,8 +1201,10 @@ class TestCleanWtPortRelease:
         """
         env_base = _env(tmp_path)
         _git(repo, "branch", "ported-branch", "HEAD", env=env_base)
-        # PM_AVAILABLE 需要 repo 裡有這個 module
-        (repo / "tasks" / "local_port_manager").mkdir(parents=True)
+        # PM_AVAILABLE 需要 repo 裡有這個 module（含 __main__.py entrypoint，見 CWT-EG-022）
+        pm_dir = repo / "tasks" / "local_port_manager"
+        pm_dir.mkdir(parents=True)
+        (pm_dir / "__main__.py").write_text("", encoding="utf-8")
         uv_log = tmp_path / "uv.log"
         uv_log.write_text("", encoding="utf-8")
         _mkstub(tmp_path / "stubbin", "uv", _UV_STUB)
@@ -1232,7 +1234,9 @@ class TestCleanWtPortRelease:
         """
         env_base = _env(tmp_path)
         _git(repo, "branch", "noport-branch", "HEAD", env=env_base)
-        (repo / "tasks" / "local_port_manager").mkdir(parents=True)
+        pm_dir = repo / "tasks" / "local_port_manager"
+        pm_dir.mkdir(parents=True)
+        (pm_dir / "__main__.py").write_text("", encoding="utf-8")
         _mkstub(tmp_path / "stubbin", "uv", "#!/usr/bin/env bash\nexit 1\n")
         env = _env(tmp_path)
 
@@ -1257,7 +1261,9 @@ class TestCleanWtPortRelease:
         """
         env_base = _env(tmp_path)
         _git(repo, "branch", "nouv-branch", "HEAD", env=env_base)
-        (repo / "tasks" / "local_port_manager").mkdir(parents=True)
+        pm_dir = repo / "tasks" / "local_port_manager"
+        pm_dir.mkdir(parents=True)
+        (pm_dir / "__main__.py").write_text("", encoding="utf-8")
 
         # PATH 只留 stub 目錄 + 系統基本路徑，且不提供 uv -> command -v uv 找不到
         env = _env(tmp_path)
@@ -1278,6 +1284,43 @@ class TestCleanWtPortRelease:
         assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
         assert "uv 不存在" not in r.stderr, f"沒有 module 時不該抱怨 uv:\n{r.stderr}"
         assert "port" not in r.stderr.lower(), f"沒有 module 時不該提及 port:\n{r.stderr}"
+
+    def test_cwt_eg_022_module_dir_without_entrypoint_is_silent(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-EG-022: module 搬到別的 repo 後只留殘留目錄 -> 視同「沒有 module」，安靜跳過。
+
+        ainization-skill 實測案例：tasks/local_port_manager 已在某次 migration 搬到 yibi-stack，
+        本 repo 只剩沒清掉的 __pycache__/ 與 tests/（無 __main__.py），舊版只檢查目錄存在就
+        判定 PM_AVAILABLE=1，導致每次 --apply 都對這個搬空的殘留目錄發出「讀取 port registry
+        失敗」的 [WARN] 並讓 exit code 變 1——這不是真正的 read failure，是誤把殘留目錄當成
+        可用 module。目錄檢查必須換成「entrypoint 檔案存在」，才能分辨「module 還在」與
+        「只剩沒清掉的殘骸」。
+        """
+        env_base = _env(tmp_path)
+        _git(repo, "branch", "migrated-away-branch", "HEAD", env=env_base)
+        pm_dir = repo / "tasks" / "local_port_manager"
+        (pm_dir / "__pycache__").mkdir(parents=True)
+        (pm_dir / "__pycache__" / "cli.cpython-313.pyc").write_bytes(b"")
+        (pm_dir / "tests").mkdir()
+        # 刻意不建立 __main__.py：這就是「原始碼被搬走、只剩殘留」的實際形狀
+
+        uv_log = tmp_path / "uv.log"
+        uv_log.write_text("", encoding="utf-8")
+        _mkstub(tmp_path / "stubbin", "uv", _UV_STUB)
+        env = _env(tmp_path, FAKE_UV_LOG=str(uv_log), FAKE_UV_PROJECT="migrated-away-branch")
+
+        r = _run(repo, env, "--apply")
+
+        assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
+        assert "讀取 port registry 失敗" not in r.stderr, (
+            f"殘留目錄不該被當成可用 module 而報 read failure:\n{r.stderr}"
+        )
+        assert "uv 不存在" not in r.stderr, f"殘留目錄時不該抱怨 uv:\n{r.stderr}"
+        assert uv_log.read_text(encoding="utf-8") == "", (
+            f"entrypoint 缺失時，uv 根本不該被呼叫（應視同 module 不存在）:\n"
+            f"{uv_log.read_text(encoding='utf-8')}"
+        )
 
 
 class TestCleanWtArgs:
