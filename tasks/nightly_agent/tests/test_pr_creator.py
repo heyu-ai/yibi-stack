@@ -41,7 +41,7 @@ class TestPRGovernance:
             patch.object(creator, "_git"),
             patch.object(creator, "_apply_artifact"),
             patch.object(creator, "_git_commit"),
-            patch.object(creator, "_cleanup_worktree"),
+            patch.object(creator, "_cleanup_worktree", return_value=True),
             patch.object(
                 creator,
                 "_gh_pr_create",
@@ -201,7 +201,7 @@ class TestWorktreeIsolation:
                 f"{proposal.cluster_id}|{proposal.title}".encode()
             ).hexdigest()[:10]
             safe = f"friction-{stable_id}"
-        unique_suffix = proposal.id.replace("-", "")[:8] or "noid"
+        unique_suffix = proposal.id.replace("-", "") or "noid"
         branch = f"{config.pr_branch_prefix}/{date_str}/{safe}-{unique_suffix}"
 
         worktree_dir = main_repo / ".claude" / "worktrees" / branch.replace("/", "-")

@@ -141,6 +141,30 @@ class TestLoadMyceliumLessons:
         assert len(fatal_errors) == 1
         assert "I/O" in fatal_errors[0] or "disk" in fatal_errors[0].lower()
 
+    def test_operational_error_other_than_missing_table_is_fatal(self, tmp_path: Path) -> None:
+        """`sqlite3.OperationalError` 涵蓋的範圍比「缺 lessons table」廣得多，也包含
+        `database is locked`、`unable to open database file` 等真正的資料庫層故障
+        （Codex round-2 mob review 指出：只分 OperationalError vs OSError 兩類不夠，
+        OperationalError 內部「缺 table」以外的訊息也該是 fatal，不能全部歸為良性）。"""
+        db_path = make_handover_db(tmp_path, with_retrospective_id=True)
+        assert db_path.exists()
+
+        errors: list[str] = []
+        fatal_errors: list[str] = []
+        with (
+            patch(f"{CLI}.Path.home", return_value=tmp_path),
+            patch(
+                "sqlite3.connect",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+        ):
+            result = _load_mycelium_lessons(24, ["pitfall", "pattern"], errors, fatal_errors)
+
+        assert result == []
+        assert len(errors) == 1
+        assert len(fatal_errors) == 1
+        assert "locked" in fatal_errors[0].lower()
+
 
 class TestFailureSignal:
     def test_nightly_failure_001_failed_run_writes_visible_marker(self, tmp_path: Path) -> None:

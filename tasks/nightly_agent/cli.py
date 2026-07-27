@@ -310,8 +310,18 @@ def _load_mycelium_lessons(
                 result.append(d)
         return result
     except sqlite3.OperationalError as e:
-        click.echo(f"[WARN] mycelium read error: {e}", err=True)
-        errors.append(f"mycelium read error: {e}")
+        # sqlite3.OperationalError 涵蓋的範圍比「缺 lessons table」廣得多，也包含
+        # database is locked、unable to open database file 等真正的資料庫層故障
+        # （Codex round-2 mob review 指出：全部歸為良性會讓這類故障也悄悄變成 exit 0）。
+        # 只有「缺 table」是已知、支援的 schema-drift 降級路徑，其餘一律視為 fatal。
+        if "no such table" in str(e).lower():
+            click.echo(f"[WARN] mycelium read error: {e}", err=True)
+            errors.append(f"mycelium read error: {e}")
+        else:
+            click.echo(f"[WARN] mycelium read error (database issue): {e}", err=True)
+            errors.append(f"mycelium read error (database issue): {e}")
+            if fatal_errors is not None:
+                fatal_errors.append(f"mycelium read error (database issue): {e}")
         return []
     except OSError as e:
         click.echo(f"[WARN] mycelium read error (I/O failure): {e}", err=True)

@@ -63,7 +63,10 @@ class PRCreator:
                 f"{proposal.cluster_id}|{proposal.title}".encode()
             ).hexdigest()[:10]
             safe = f"friction-{stable_id}"
-        unique_suffix = proposal.id.replace("-", "")[:8] or "noid"
+        # 用完整 proposal.id（非截斷）：8-hex 前綴只有 32 bits，長期跑下來並非零碰撞機率
+        # （Codex round-2 mob review 明確指出「短後綴碰撞」風險）；完整 UUID 在 git ref /
+        # 檔案系統路徑長度限制內都游刃有餘，碰撞機率可視為零。
+        unique_suffix = proposal.id.replace("-", "") or "noid"
         branch = f"{self.config.pr_branch_prefix}/{date_str}/{safe}-{unique_suffix}"
 
         worktree_dir = self._main_repo / ".claude" / "worktrees" / branch.replace("/", "-")
