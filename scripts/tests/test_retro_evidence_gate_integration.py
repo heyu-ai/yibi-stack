@@ -99,7 +99,7 @@ def _argv_from_run(run: str) -> list[str]:
 
 
 def test_runbook_defers_typed_lesson_mutation_until_after_evidence_gate():
-    skill = _read("plugins/pr-flow/skills/pr-retrospective/SKILL.md")
+    skill = _read("plugins/growth/skills/pr-retrospective/SKILL.md")
 
     preparation = skill.index("### Step 4b — 準備 typed-lessons 寫入")
     no_execute = skill.index("此處只準備 metadata 與 script，不得執行", preparation)
@@ -110,7 +110,7 @@ def test_runbook_defers_typed_lesson_mutation_until_after_evidence_gate():
 
 
 def test_runbook_uses_executable_park_and_reassessment_contract():
-    skill = _read("plugins/pr-flow/skills/pr-retrospective/SKILL.md")
+    skill = _read("plugins/growth/skills/pr-retrospective/SKILL.md")
 
     assert "mycelium lessons add --park" in skill
     assert "status=parked recurrence=<n>" in skill
