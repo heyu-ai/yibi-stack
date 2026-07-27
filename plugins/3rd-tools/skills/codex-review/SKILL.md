@@ -94,7 +94,7 @@ git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/orig
 
 每個傳給 Codex 的 packet 都必須嵌入此 boundary。**四個敏感路徑前綴**
 （`~/.claude/`、`~/.agents/`、`.claude/skills/`、`agents/`）是**強制契約**——
-`plugins/pr-flow/skills/pr-cycle-deep/scripts/tests/test_codex_scripts.py` 對這四路徑斷言；
+`plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests/test_codex_scripts.py` 對這四路徑斷言；
 Step 2A / 2B 的 packet 用**較短的變體**（四路徑逐字保留，周邊措辭可精簡），為權威來源。
 完整參考版本：
 

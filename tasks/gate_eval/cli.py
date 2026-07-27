@@ -10,7 +10,7 @@ from pathlib import Path
 
 import click
 
-SKILL_REL = "plugins/pr-flow/skills/pr-cycle-deep/SKILL.md"
+SKILL_REL = "plugins/dev-cycle/skills/pr-cycle-deep/SKILL.md"
 
 
 @click.group()

@@ -5,7 +5,7 @@
 
 ## Why
 
-`/pr-retro`（`plugins/pr-flow/skills/pr-retrospective/SKILL.md`）在 Step 5 把 retro 教訓路由成「新增 rule / hook」的 action item，但**這條進料口沒有任何驗證關卡**。現有三道 gate——Promotion Gate（G1 能否自動化 / G2 新人是否會犯 / G3 現有 rule 是否已覆蓋）、Lesson Classifier（進哪個檔）、Patch-Surface Ladder（改動面多大）——**全部只回答「該不該寫、寫哪、寫多大」，沒有一道回答「這條教訓的技術宣稱是真的嗎」**。信心度差異化（Step 4b）靠 `--source`（user-stated 8-9 / cross-model 8 / inferred 5-6）打分，這是「來源信任度」而非「實測驗證」。
+`/pr-retro`（`plugins/growth/skills/pr-retrospective/SKILL.md`）在 Step 5 把 retro 教訓路由成「新增 rule / hook」的 action item，但**這條進料口沒有任何驗證關卡**。現有三道 gate——Promotion Gate（G1 能否自動化 / G2 新人是否會犯 / G3 現有 rule 是否已覆蓋）、Lesson Classifier（進哪個檔）、Patch-Surface Ladder（改動面多大）——**全部只回答「該不該寫、寫哪、寫多大」，沒有一道回答「這條教訓的技術宣稱是真的嗎」**。信心度差異化（Step 4b）靠 `--source`（user-stated 8-9 / cross-model 8 / inferred 5-6）打分，這是「來源信任度」而非「實測驗證」。
 
 後果是 reviewer 收到一條「建議加 rule」時無法區分三種東西：(1) 有實測支撐（如 CLAUDE.md 記載 `paths:` key 行為是「PR #250 實測，`claude -p` 探針」）、(2) 合理但沒驗證的主觀判斷、(3) 一次性、換 context 就不成立、只會讓 always-loaded token 變肥的內容。第 (2)(3) 類每次 retro 都可能長出一條 rule，形成 harness 的「規則通膨」。
 
@@ -174,7 +174,7 @@
 
 - Affected specs：新增 `retro-evidence-gate`
 - Affected code：
-  - Modified：`plugins/pr-flow/skills/pr-retrospective/SKILL.md`（Step 5.0 Evidence Gate 段、Step 5 Q5→action 映射表加證據前置條件、Lesson Classifier 前置說明指向 Evidence Gate）
+  - Modified：`plugins/growth/skills/pr-retrospective/SKILL.md`（Step 5.0 Evidence Gate 段、Step 5 Q5→action 映射表加證據前置條件、Lesson Classifier 前置說明指向 Evidence Gate）
   - Modified：`.claude/rules/11-skill-authoring.md`（新增「Retro-authored rule/hook 的三層證據標準」段，複用既有 verify-before-authoring / Cross-doc Cite 脈絡，不淨增 always-loaded 行數見 What Changes #5）
   - New：`scripts/lint_rule_evidence.py` + `scripts/tests/test_lint_rule_evidence.py`（純函式檢查器 + 合成 fixture 負向測試）
   - Modified：`.pre-commit-config.yaml`（註冊新 hook，warn-only 段 `verbose: true`）

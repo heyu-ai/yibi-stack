@@ -13,7 +13,7 @@ assert _spec is not None and _spec.loader is not None
 lint_skill_scope = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(lint_skill_scope)
 
-OWN = {"sdd", "pr-flow", "bash-hygiene"}
+OWN = {"sdd", "dev-cycle", "harness"}
 
 
 def make_skill(scope: str, body: str = "") -> str:
@@ -72,7 +72,7 @@ class TestLoadOwnPlugins:
         """LINTSCOPE-ST-001: 從本 repo marketplace.json 讀出自有 plugin 名單"""
         names = lint_skill_scope.load_own_plugins(lint_skill_scope.MARKETPLACE)
         assert "sdd" in names
-        assert "pr-flow" in names
+        assert "dev-cycle" in names
 
 
 class TestMainEndToEnd:

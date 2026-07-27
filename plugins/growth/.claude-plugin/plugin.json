@@ -1,19 +1,21 @@
 {
   "name": "growth",
-  "description": "Session continuity and knowledge retention for Claude Code agents: mycelium, learn skill, and handover/newjob slash commands.",
+  "description": "Knowledge extraction and retention for Claude Code agents: mycelium, learn, PR retrospective/control log, CLAUDE.md pruning, and /pr-retro.",
   "version": "1.15.2",
   "author": {
     "name": "Howie Yu",
     "email": "2318485+howie@users.noreply.github.com"
   },
-  "repository": "howie/yibi-stack",
+  "repository": "heyu-ai/yibi-stack",
   "license": "MIT",
   "keywords": [
     "mycelium",
-    "handover",
     "learn",
     "productivity",
     "knowledge-retention",
-    "newjob"
+    "pr-retrospective",
+    "pr-control-log",
+    "claude-md-prune",
+    "pr-retro"
   ]
 }

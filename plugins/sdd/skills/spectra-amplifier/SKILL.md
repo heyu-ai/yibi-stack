@@ -171,7 +171,7 @@ echo "SDD_ROOT=${SDD_ROOT}"
 | frame concern 檢查表全數勾選（含通用四項）| 繼續 Step 1a |
 | frame concern 有未補齊項，且 effort = medium | `[WARN] frame concern 未補齊：<清單>`，確認後繼續 |
 | frame concern 有未補齊項，且 effort = high | `[FAIL] Stop. frame concern 未補齊：<清單>。補齊後重跑。` |
-| `problem-frames` 方法論（`methodology.md`）缺失或不可讀取 | `[FAIL] Stop. problem-frames 方法論不可用。sdd plugin 應同時提供 spectra-amplifier 與 problem-frames，請還原 sdd plugin 後重跑。` |
+| `problem-frames` 方法論（`methodology.md`）缺失或不可讀取 | `[FAIL] Stop. problem-frames 方法論不可用。請確認已安裝 methodology@yibi-stack（problem-frames 不再隨 sdd 附帶）：claude plugin install methodology@yibi-stack。` |
 
 > **W 的單一來源**：此處產出的 W 是後續 Step 4 假設表的唯一來源；
 > Step 4 只能**衍生／引用** W，不得另行重編（避免兩處漂移）。
@@ -260,7 +260,7 @@ design/ 不存在時本段不適用，流程與原本相同。
 | N > 5 | `[WARN] capability 數超過 5，建議與使用者確認是否分批` → 降回 inline sequential 展開 |
 
 **前置檢查（2 ≤ N ≤ 5，dispatch 前必做）**：確認 `sdd:gherkin-scenario-writer` subagent 可用。
-若未找到：`[FAIL] Stop. sdd:gherkin-scenario-writer subagent 未找到。本專案需安裝 sdd plugin：claude plugin marketplace add howie/yibi-stack && claude plugin install sdd@yibi-stack（安裝後重新執行 spectra-amplifier）。`
+若未找到：`[FAIL] Stop. sdd:gherkin-scenario-writer subagent 未找到。本專案需安裝 sdd plugin：claude plugin marketplace add heyu-ai/yibi-stack && claude plugin install sdd@yibi-stack（安裝後重新執行 spectra-amplifier）。`
 （不降級成 inline——確保 Gherkin 品質；與 Step 2a 的 not-available gate 對稱。）
 
 **平行 dispatch 格式（N ∈ [2, 5]）**：
@@ -360,7 +360,7 @@ Expected output from sdd:qa-test-designer:
 - Coverage Analysis（Covered / Partial / Missing / Redundant）
 
 If sdd:qa-test-designer not available:
-`[FAIL] Stop. sdd:qa-test-designer subagent 未找到。本專案需安裝 sdd plugin：claude plugin marketplace add howie/yibi-stack && claude plugin install sdd@yibi-stack（安裝後重新執行 spectra-amplifier）。`
+`[FAIL] Stop. sdd:qa-test-designer subagent 未找到。本專案需安裝 sdd plugin：claude plugin marketplace add heyu-ai/yibi-stack && claude plugin install sdd@yibi-stack（安裝後重新執行 spectra-amplifier）。`
 
 若 subagent 回傳內容以 `[FAIL]` 開頭，或 Task tool 本身執行失敗（timeout/error）：
 Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。

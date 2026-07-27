@@ -59,7 +59,7 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
   - **可執行 skill**：有對應的 `tasks/` Python 實作（如 mycelium、scheduler）
   - **知識型 skill**：純 Markdown 方法論指引（如 tdd-kentbeck、qa-test-design）
 - **`tasks/`** — 實作細節，包含 CLI entry point、設定模型、服務邏輯；`tasks/*/skill.md` 為開發者參考文件
-- **`plugins/`** — Claude Code plugin packs（8 個）：bash-hygiene / sdd / growth / pr-flow / 3rd-tools / tdd / util / writing
+- **`plugins/`** — Claude Code plugin packs（6 個）：harness / sdd / growth / dev-cycle / 3rd-tools / methodology
 
 ## 編碼慣例
 
@@ -169,7 +169,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   (fat command, `if [ $? -ne 0 ]`, `||` branching). Move complex bash to `commands/scripts/*.sh`
   or `skills/<name>/scripts/*.sh`; documents keep only a single `bash <script-path>` call.
   See rule 16: use full script paths in allow-list, not fat command wildcards.
-  Example: `plugins/pr-flow/skills/pr-cycle-deep/scripts/setup-review-dir.sh`.
+  Example: `plugins/dev-cycle/skills/pr-cycle-deep/scripts/setup-review-dir.sh`.
 - **make target names must be copied verbatim**: target names in README/CLAUDE.md must be
   copied directly from the Makefile — never rephrase as a "readable label" (e.g., abbreviating
   `patch-pr-review-agents`) or users get a make error.
@@ -181,10 +181,6 @@ make install-all         # 等同 build-tools + install + install-project + inst
   and the Edit-tool escape.
 - **`Path.rglob()` does not follow symlinks** — see rule 02 for fix.
 - **`Path.glob("*/x/*")` doesn't cross `/` like regex `.*` does** — see rule 02 for fix.
-- **`plugins/harness` has no `package.json`**: not all subdirectories under `plugins/` are
-  installable plugins. `plugins/harness` is a README-only container; install with
-  `make install-one SKILL=harness-eval`. Parallel listings must inline-annotate this exception,
-  otherwise readers inherit the block's semantic and silently fail.
 - **bootstrap script `[SKIP]` should be `[WARN]` for missing prerequisites** — see rule 13 for fix.
 - **agy auth detection uses `onboardingComplete`, not `installation_id`**:
   `~/.gemini/antigravity-cli/installation_id` exists before OAuth completes (false positive).

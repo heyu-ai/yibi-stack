@@ -1,5 +1,15 @@
 {
   "name": "growth",
   "version": "1.15.2",
-  "description": "Session continuity and knowledge retention plugin for Claude Code"
+  "description": "Knowledge extraction and retention plugin for Claude Code: mycelium, learn, PR retrospective/control log, CLAUDE.md pruning, and /pr-retro.",
+  "keywords": [
+    "mycelium",
+    "learn",
+    "productivity",
+    "knowledge-retention",
+    "pr-retrospective",
+    "pr-control-log",
+    "claude-md-prune",
+    "pr-retro"
+  ]
 }

@@ -197,7 +197,7 @@ class TestFixtureLoading:
         """SEVAL-ST-003: 內附示範 fixture 可被載入並計分（rule 09 用真檔）。
         spec: skill-trigger-eval#valid-fixture-loads"""
         # 此變更起六個 skills 僅由 plugin 提供，不再保留 repo-root symlink。
-        fx = load_fixture("pr-cycle-fast", skills_dir=Path("plugins/pr-flow/skills"))
+        fx = load_fixture("pr-cycle-fast", skills_dir=Path("plugins/dev-cycle/skills"))
         tasks = build_tasks([fx])
         assert tasks, "示範 fixture 應產出至少一個評測任務"
         # 全部答對時 pass rate 皆為 1.0（重用 tasks，不重算 build_tasks）

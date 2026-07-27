@@ -6,7 +6,7 @@ Claude Code plugin for integrating third-party AI tools into your workflow.
 
 ```bash
 # Register marketplace (one-time)
-claude plugin marketplace add howie/yibi-stack
+claude plugin marketplace add heyu-ai/yibi-stack
 
 # Install plugin
 claude plugin install 3rd-tools@yibi-stack
@@ -23,8 +23,5 @@ claude plugin install 3rd-tools@yibi-stack
 
 ## Migration
 
-`detect-ai-slop` skill was moved to the `writing` plugin. To keep using it:
-
-```bash
-claude plugin install writing@yibi-stack
-```
+The unused `detect-ai-slop` skill was removed from yibi-stack. There is no replacement plugin
+to install.

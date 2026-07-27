@@ -22,7 +22,7 @@ from tasks.gate_eval.models import Disposition, Severity, StabilityVerdict
 from tasks.gate_eval.service import INITIAL_N, evaluate_fixture, run_fixture_with_judge
 from tasks.gate_eval.sunset import apply_mutation, is_effective
 
-SKILL = PROJECT_ROOT / "plugins" / "pr-flow" / "skills" / "pr-cycle-deep" / "SKILL.md"
+SKILL = PROJECT_ROOT / "plugins" / "dev-cycle" / "skills" / "pr-cycle-deep" / "SKILL.md"
 FINDINGS = PROJECT_ROOT / "tasks" / "gate_eval" / "fixtures" / "findings"
 # 三個代表不同 tier 的 fixture（tier 欄位見各 fixture 檔）
 TIER_FIXTURES = ["f03_crit_none_r1", "f06_imp_valid_r2", "f09_nit_valid_r1"]

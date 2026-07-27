@@ -14,7 +14,7 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SKILL_MD = REPO_ROOT / "plugins" / "pr-flow" / "skills" / "pr-retrospective" / "SKILL.md"
+SKILL_MD = REPO_ROOT / "plugins" / "growth" / "skills" / "pr-retrospective" / "SKILL.md"
 RULE_11 = REPO_ROOT / ".claude" / "rules" / "11-skill-authoring.md"
 
 

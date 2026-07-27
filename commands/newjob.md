@@ -1,1 +1,1 @@
-../plugins/growth/commands/newjob.md
+../plugins/dev-cycle/commands/newjob.md

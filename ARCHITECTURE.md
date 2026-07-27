@@ -31,15 +31,12 @@ yibi-stack/
 │       └── cli.py                   → uv run python -m tasks.mycelium
 │
 ├── plugins/                         → Claude Code plugin packs（可透過 claude plugin install 安裝）
-│   ├── bash-hygiene/                → Bash 衛生工具（AP1/AP2 lint + protect-push hook）
+│   ├── harness/                     → Harness 工程品質（harness-eval 評量 + AP1/AP2 lint + protect-push hook）
 │   ├── growth/                      → 成長工具（mycelium、scheduler skills）
-│   ├── pr-flow/                     → PR 流程工具（review cycle、mob review）
+│   ├── dev-cycle/                   → PR 流程工具（review cycle、mob review）
 │   ├── sdd/                         → Subagent Driven Development 方法論
-│   ├── tdd/                         → TDD 方法論（Kent Beck style）
-│   ├── util/                        → 通用工具（port manager、handover）
 │   ├── 3rd-tools/                   → 第三方工具整合（Gemini、Codex）
-│   ├── writing/                     → 寫作品質工具（detect-ai-slop）
-│   └── harness/                     → Harness eval（無 package.json，用 make install-one SKILL=harness-eval）
+│   └── methodology/                 → 可攜方法論（TDD、event-storming、problem-frames、qa-test-design）
 │
 ├── commands/                        → Claude Code slash commands（symlink 到 ~/.claude/commands/）
 │   ├── pr.md                        → /pr

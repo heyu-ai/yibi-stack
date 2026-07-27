@@ -1,6 +1,6 @@
 ## 1. 契約檢查器與負向案例
 
-- [x] 1.1 在 `check_convergence_contract(text)` 實作「Mechanical conformance checks protect the Review Contract」及設計決策「Mechanical checker 同時保護必要規則與已知矛盾」：必要錨點涵蓋五段 contract、frozen snapshot、`Contract mapping:`、human acceptor、blocking-set LGTM、conditional R2，forbidden rules 涵蓋現有 unanimous/NIT veto wording；以 `uv run pytest plugins/pr-flow/skills/pr-cycle-deep/scripts/tests/test_convergence_contract.py -q` 驗證既有測試仍通過。
+- [x] 1.1 在 `check_convergence_contract(text)` 實作「Mechanical conformance checks protect the Review Contract」及設計決策「Mechanical checker 同時保護必要規則與已知矛盾」：必要錨點涵蓋五段 contract、frozen snapshot、`Contract mapping:`、human acceptor、blocking-set LGTM、conditional R2，forbidden rules 涵蓋現有 unanimous/NIT veto wording；以 `uv run pytest plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests/test_convergence_contract.py -q` 驗證既有測試仍通過。
 - [x] 1.2 新增合成 mutation tests，驗證「Deep review requires a confirmed Review Contract」、「Contract amendments preserve review integrity」與「Cross-debate Round 2 is conditional」的必要文字缺失會轉紅，且插入 `全員 LGTM（含 actionable NIT）` 會失敗；以指定 pytest 檔案收集並通過所有新增案例驗證。
 
 ## 2. Review Contract 與 finding 邊界

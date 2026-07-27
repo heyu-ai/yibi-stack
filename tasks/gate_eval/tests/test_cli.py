@@ -10,7 +10,7 @@ from tasks.gate_eval.cli import cli
 from tasks.gate_eval.config import load_fixtures
 from tasks.gate_eval.models import Disposition
 
-SKILL = PROJECT_ROOT / "plugins" / "pr-flow" / "skills" / "pr-cycle-deep" / "SKILL.md"
+SKILL = PROJECT_ROOT / "plugins" / "dev-cycle" / "skills" / "pr-cycle-deep" / "SKILL.md"
 
 
 def _all_fixture_ids_expected() -> dict[str, Disposition]:

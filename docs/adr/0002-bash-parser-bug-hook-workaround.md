@@ -93,7 +93,7 @@ D6 (`rg-bre-misuse`) already uses Grep tool as option A; D3 now follows the same
 1. Verify: open a new Claude Code session and confirm `grep "foo\|bar" file.txt` executes
    without `Unhandled node type: string`
 2. Remove the three detection blocks from both:
-   - `plugins/bash-hygiene/hooks/bash-ap1-inline-check.sh`
+   - `plugins/harness/hooks/bash-ap1-inline-check.sh`
    - `.claude/hooks/bash-ap1-inline-check.sh`
 3. Keep D1/D2/D6 — those intercept anti-patterns in the agent's logic, not CC parser bugs
 4. Update this ADR status to `superseded`

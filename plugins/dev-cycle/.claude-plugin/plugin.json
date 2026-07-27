@@ -1,0 +1,23 @@
+{
+  "name": "dev-cycle",
+  "description": "Full development workflow for Claude Code agents: PR review cycles, CI triage, bump-version, newjob/handover, local port management, debug, and PR slash commands.",
+  "version": "1.15.2",
+  "author": {
+    "name": "Howie Yu",
+    "email": "2318485+howie@users.noreply.github.com"
+  },
+  "repository": "heyu-ai/yibi-stack",
+  "license": "MIT",
+  "keywords": [
+    "pr-review",
+    "pr-review-cycle",
+    "pull-request",
+    "ci-triage",
+    "bump-version",
+    "git-workflow",
+    "newjob",
+    "handover",
+    "local-port-manager",
+    "debug"
+  ]
+}

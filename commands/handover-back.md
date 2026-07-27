@@ -1,1 +1,1 @@
-../plugins/growth/commands/handover-back.md
+../plugins/dev-cycle/commands/handover-back.md

@@ -18,16 +18,14 @@
 Global skill 已依主題分組為 plugin pack，可透過 Claude Code marketplace 選擇性安裝：
 
 ```bash
-claude plugin marketplace add howie/yibi-stack  # 一次性註冊
+claude plugin marketplace add heyu-ai/yibi-stack  # 一次性註冊
 
-claude plugin install growth@yibi-stack          # mycelium + learn + handover/newjob
-claude plugin install pr-flow@yibi-stack         # PR 全流程 5 skills + 6 commands
-claude plugin install sdd@yibi-stack             # spectra-amplifier + figma-design-sync + qa-test-design + /sdd:setup
-claude plugin install bash-hygiene@yibi-stack    # bash-anti-patterns + protect-push
+claude plugin install growth@yibi-stack          # mycelium + learn + PR 回顧/審計 + CLAUDE.md 精簡
+claude plugin install dev-cycle@yibi-stack       # PR 全流程 + newjob/handover + port/debug + ci-triage
+claude plugin install sdd@yibi-stack             # spectra-amplifier + figma-design-sync + /sdd:setup
+claude plugin install harness@yibi-stack        # harness-eval + harness-eval-focus + bash-hygiene-audit + bash-anti-patterns + protect-push
 claude plugin install 3rd-tools@yibi-stack       # codex-review + codex-consult + agy + verify-gemini-models
-claude plugin install tdd@yibi-stack             # tdd-kentbeck + flutter-tdd + ci-triage
-claude plugin install util@yibi-stack            # local-port-manager + debug command
-claude plugin install writing@yibi-stack         # detect-ai-slop
+claude plugin install methodology@yibi-stack     # tdd-kentbeck + flutter-tdd + event-storming + problem-frames + qa-test-design
 ```
 
 ---
@@ -40,11 +38,11 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 
 | Skill | 類型 | 住址 | 描述 | SKILL.md |
 |-------|------|------|------|----------|
-| `protect-push` | tool | [plugins/bash-hygiene/](../plugins/bash-hygiene/README.md) | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
+| `protect-push` | tool | [plugins/harness/](../plugins/harness/README.md) | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
 | `bash-hygiene-audit` | exec | [tasks/bash_hygiene_audit/](../tasks/bash_hygiene_audit/) | bash-hygiene hook audit log 管理：啟用/停用記錄、查看近期 hook 攔截事件、統計違規比例與熱點 pattern | [bash-hygiene-audit/SKILL.md](bash-hygiene-audit/SKILL.md) |
 | `harness-eval` | exec | [plugins/harness/](../plugins/harness/README.md) | Claude Code harness 就緒度評量：11 維度（D1–D11）滿分 123，PASS/WARN/FAIL 清單，優先改善 TODO。涵蓋 CLAUDE.md / hooks / settings / skills / testing / git / rules / security / subagents / codebase-navigation / token-economy | [harness-eval/SKILL.md](harness-eval/SKILL.md) |
-| `investigate` | tool | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 系統化除錯：先根因調查（五階段 + Iron Law：沒找到根因不准修）再修，然後交棒給 PR 生命週期。改寫自 garrytan/gstack（MIT），剝除 gstack 產品 plumbing；Scope Lock 呼叫 `freeze` 鎖範圍 | [investigate/SKILL.md](investigate/SKILL.md) |
-| `claude-md-prune` | tool | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 審查並精簡 CLAUDE.md：把累積的 gotcha 路由到對應的 `.claude/rules/` 子檔，刪除過期或重複內容，維持 CLAUDE.md 在 Anthropic 建議的 200 行軟上限內 | [claude-md-prune/SKILL.md](claude-md-prune/SKILL.md) |
+| `investigate` | tool | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | 系統化除錯：先根因調查（五階段 + Iron Law：沒找到根因不准修）再修，然後交棒給 PR 生命週期。改寫自 garrytan/gstack（MIT），剝除 gstack 產品 plumbing；Scope Lock 呼叫 `freeze` 鎖範圍 | [investigate/SKILL.md](investigate/SKILL.md) |
+| `claude-md-prune` | tool | [plugins/growth/](../plugins/growth/README.md) | 審查並精簡 CLAUDE.md：把累積的 gotcha 路由到對應的 `.claude/rules/` 子檔，刪除過期或重複內容，維持 CLAUDE.md 在 Anthropic 建議的 200 行軟上限內 | [claude-md-prune/SKILL.md](claude-md-prune/SKILL.md) |
 | `codex-review` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | OpenAI Codex CLI 對當前 branch diff 做 code review（含 `[P1]` pass/fail gate）或 challenge 對抗模式找 bug；改用 `codex exec` + stdin packet，含 hijack 偵測 | [codex-review/SKILL.md](codex-review/SKILL.md) |
 | `codex-consult` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | OpenAI Codex CLI 第二意見：詢問 codebase 任何技術問題，由 Codex 閱讀程式碼後回答；不需要有待 review 的 diff | [codex-consult/SKILL.md](codex-consult/SKILL.md) |
 | `agy` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | Antigravity CLI（Gemini）第二意見：review（PASS/FAIL gate）、challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 Gemini reviewer | [agy/SKILL.md](agy/SKILL.md) |
@@ -54,21 +52,20 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 
 | Skill | 住址 | 描述 | SKILL.md |
 |-------|------|------|----------|
-| `bump-version` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | Project-level 版本 bump（Flutter/Python/Node.js/Go）+ CHANGELOG 生成 + git tag 發布，附帶 commit-msg hook 安裝 | [bump-version/SKILL.md](bump-version/SKILL.md) |
+| `bump-version` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | Project-level 版本 bump（Flutter/Python/Node.js/Go）+ CHANGELOG 生成 + git tag 發布，附帶 commit-msg hook 安裝 | [bump-version/SKILL.md](bump-version/SKILL.md) |
 | `harness-eval-focus` | [plugins/harness/](../plugins/harness/README.md) | 單維度深度稽核：配合 /harness-eval 使用，發現 WARN/FAIL 後針對 D1~D11 某維度精準挖掘具體修法。含 hook lifecycle 覆蓋、permission 4 層模型、CLAUDE.md signal-to-noise 等深度 rubric | [harness-eval-focus/SKILL.md](harness-eval-focus/SKILL.md) |
-| `event-storming` | [plugins/sdd/](../plugins/sdd/README.md) | 領域發現前置 skill（draft）；amplifier Step 0 的 handoff 來源；產出 Domain Events / Bounded Contexts / Aggregate Roots | [event-storming/SKILL.md](event-storming/SKILL.md) |
-| `problem-frames` | [plugins/sdd/](../plugins/sdd/README.md) | Jackson Problem Frames 方法論；於 event-storming 之後、amplifier 展開規格之前執行，產出 `problem-frame.md` 供 amplifier Step 0.5 沿用；把需求拆成 R/S/W 並證明 S∧W⟹R，將領域假設前置顯式化 | [problem-frames/SKILL.md](problem-frames/SKILL.md) |
-| `qa-test-design` | [plugins/sdd/](../plugins/sdd/README.md) | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |
-| `verify-done` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 宣告完成前端對端驗證：make ci / pre-commit、gh pr checks（含 PENDING/TOOL ERROR 狀態）、Spectra artifact 完整性、worktree merge 安全性 | [verify-done/SKILL.md](verify-done/SKILL.md) |
-| `pr-review-cycle` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | 完整 PR 生命週期：建立 PR → /code-review 缺陷偵測 → parallel review（Claude pr-review-toolkit 4 subagent）→ fix → re-review → CI → merge → spectra archive + Jira sync。適用小型 feature / 快速合併 | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |
-| `pr-cycle-deep` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | PR 生命週期深度版（含 mob review + SDD amplifier-verifier）：多模型（Codex / Gemini）R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM → CI → merge → spectra archive。中大型 PR 或 SDD 專案首選 | [pr-cycle-deep/SKILL.md](pr-cycle-deep/SKILL.md) |
-| `mob-code-review-only` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | Mob review **別人的 PR**（只給建議、不修改）：與 pr-cycle-deep 共用 R1+R2+aggregate 引擎，但鎖定他人 PR、產出彙整建議貼回 PR，**不**改 code、**不** re-review loop、**不** merge / archive。適用 review 同事 / 外部貢獻者的 PR | [mob-code-review-only/SKILL.md](mob-code-review-only/SKILL.md) |
-| `issue-triage` | [plugins/pr-flow/](../plugins/pr-flow/README.md) | GitHub **Issue**（非 PR）定期盤點治理，預設唯讀產報告：逐 issue 研判 CLOSE / UPDATE-SCOPE / MERGE / RELABEL / KEEP 並給優先排序。三原則：逐症狀對照現有程式碼（不看「PR 有沒有合併」）、綁 openspec change 以 tasks.md checkbox 為準、尊重留言的 keep-open 意圖。寫入需 `--apply` 逐項確認 | [issue-triage/SKILL.md](issue-triage/SKILL.md) |
-| `bash-anti-patterns` | [plugins/bash-hygiene/](../plugins/bash-hygiene/README.md) | Claude Code agent 下 bash 指令三層防線：AP1 過度複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd；Rule 14 shell 引號衛生；Rule 15 不可逆操作邊界；含判斷標準、對策決策樹與可選裝 PreToolUse hook | [bash-anti-patterns/SKILL.md](bash-anti-patterns/SKILL.md) |
-| `tdd-kentbeck` | [plugins/tdd/](../plugins/tdd/README.md) | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
-| `flutter-tdd` | [plugins/tdd/](../plugins/tdd/README.md) | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
-| `ci-triage` | [plugins/tdd/](../plugins/tdd/README.md) | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests），含 Python / JS / Go 工具範例 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |
-| `detect-ai-slop` | [plugins/writing/](../plugins/writing/README.md) | 系統化辨識 AI 生成文字，含模型特徵比對與去除 AI 味建議 | [detect-ai-slop/SKILL.md](detect-ai-slop/SKILL.md) |
+| `event-storming` | [plugins/methodology/](../plugins/methodology/README.md) | 領域發現前置 skill（draft）；amplifier Step 0 的 handoff 來源；產出 Domain Events / Bounded Contexts / Aggregate Roots | [event-storming/SKILL.md](event-storming/SKILL.md) |
+| `problem-frames` | [plugins/methodology/](../plugins/methodology/README.md) | Jackson Problem Frames 方法論；於 event-storming 之後、amplifier 展開規格之前執行，產出 `problem-frame.md` 供 amplifier Step 0.5 沿用；把需求拆成 R/S/W 並證明 S∧W⟹R，將領域假設前置顯式化 | [problem-frames/SKILL.md](problem-frames/SKILL.md) |
+| `qa-test-design` | [plugins/methodology/](../plugins/methodology/README.md) | 六大測試設計技術（等價類別、邊界值、決策表、狀態轉移、Pairwise、風險導向） | [qa-test-design/SKILL.md](qa-test-design/SKILL.md) |
+| `verify-done` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | 宣告完成前端對端驗證：make ci / pre-commit、gh pr checks（含 PENDING/TOOL ERROR 狀態）、Spectra artifact 完整性、worktree merge 安全性 | [verify-done/SKILL.md](verify-done/SKILL.md) |
+| `pr-review-cycle` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | 完整 PR 生命週期：建立 PR → /code-review 缺陷偵測 → parallel review（Claude pr-review-toolkit 4 subagent）→ fix → re-review → CI → merge → spectra archive + Jira sync。適用小型 feature / 快速合併 | [pr-review-cycle/SKILL.md](pr-review-cycle/SKILL.md) |
+| `pr-cycle-deep` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | PR 生命週期深度版（含 mob review + SDD amplifier-verifier）：多模型（Codex / Gemini）R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM → CI → merge → spectra archive。中大型 PR 或 SDD 專案首選 | [pr-cycle-deep/SKILL.md](pr-cycle-deep/SKILL.md) |
+| `mob-code-review-only` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | Mob review **別人的 PR**（只給建議、不修改）：與 pr-cycle-deep 共用 R1+R2+aggregate 引擎，但鎖定他人 PR、產出彙整建議貼回 PR，**不**改 code、**不** re-review loop、**不** merge / archive。適用 review 同事 / 外部貢獻者的 PR | [mob-code-review-only/SKILL.md](mob-code-review-only/SKILL.md) |
+| `issue-triage` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | GitHub **Issue**（非 PR）定期盤點治理，預設唯讀產報告：逐 issue 研判 CLOSE / UPDATE-SCOPE / MERGE / RELABEL / KEEP 並給優先排序。三原則：逐症狀對照現有程式碼（不看「PR 有沒有合併」）、綁 openspec change 以 tasks.md checkbox 為準、尊重留言的 keep-open 意圖。寫入需 `--apply` 逐項確認 | [issue-triage/SKILL.md](issue-triage/SKILL.md) |
+| `bash-anti-patterns` | [plugins/harness/](../plugins/harness/README.md) | Claude Code agent 下 bash 指令三層防線：AP1 過度複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd；Rule 14 shell 引號衛生；Rule 15 不可逆操作邊界；含判斷標準、對策決策樹與可選裝 PreToolUse hook | [bash-anti-patterns/SKILL.md](bash-anti-patterns/SKILL.md) |
+| `tdd-kentbeck` | [plugins/methodology/](../plugins/methodology/README.md) | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
+| `flutter-tdd` | [plugins/methodology/](../plugins/methodology/README.md) | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
+| `ci-triage` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests），含 Python / JS / Go 工具範例 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |
 
 ---
 
@@ -81,10 +78,10 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 |-------|------|------|----------|
 | `mycelium` | [plugins/growth/](../plugins/growth/README.md)（`claude plugin install growth@yibi-stack`）| 跨對話工作記憶中樞：跨 Agent / 跨帳號 / 跨機器的統一 handover 交班與 insight 收集系統，所有產出收斂至 `~/.agents/` | [../plugins/growth/skills/mycelium/SKILL.md](../plugins/growth/skills/mycelium/SKILL.md) |
 | `learn` | [plugins/growth/](../plugins/growth/README.md)（`claude plugin install growth@yibi-stack`）| 統一教訓管理 — 整合 handover 交班教訓、insight 洞察，支援瀏覽、搜尋、修剪、匯出 | [../plugins/growth/skills/learn/SKILL.md](../plugins/growth/skills/learn/SKILL.md) |
-| `local-port-manager` | [plugins/util/](../plugins/util/README.md)（`claude plugin install util@yibi-stack`）| 機器層 port 分配登錄，管理多專案服務 port 避免衝突。支援 suggest（查不寫）+ reserve（確認後登記）兩步驟工作流 | [../plugins/util/skills/local-port-manager/SKILL.md](../plugins/util/skills/local-port-manager/SKILL.md) |
-| `pr-cycle-fast` | [plugins/pr-flow/](../plugins/pr-flow/README.md)（`claude plugin install pr-flow@yibi-stack`）| PR 生命週期自動化 orchestrator（快速版）：偵測 open PR → 並行 code review + CI monitor + conflict detect → auto-fix markdownlint/CI（≤3 次）→ merge → /pr-retro 寫 mycelium → /clean-wt。State machine 可中斷 resume。小型 PR 首選；大型 PR 或 SDD 請改用 pr-cycle-deep | [../plugins/pr-flow/skills/pr-cycle-fast/SKILL.md](../plugins/pr-flow/skills/pr-cycle-fast/SKILL.md) |
-| `pr-retrospective` | [plugins/pr-flow/](../plugins/pr-flow/README.md)（`claude plugin install pr-flow@yibi-stack`）| PR 收尾五問回顧（agent 推論草稿、使用者校準），寫入 mycelium handover；依 Lesson Classifier 路由 lessons 到 `.claude/rules/` 或 CLAUDE.md，再觸發 hookify、writing-skills 等下游 skill | [../plugins/pr-flow/skills/pr-retrospective/SKILL.md](../plugins/pr-flow/skills/pr-retrospective/SKILL.md) |
-| `pr-control-log` | [plugins/pr-flow/](../plugins/pr-flow/README.md)（`claude plugin install pr-flow@yibi-stack`）| PR 完成後的 AI 行為審計：從 git log / PR diff / PR body 推論 7 類 entries（autonomous_decision / assumption / spec_deviation 等），使用者 3 輪校準後寫入 mycelium DB，產生 .runtime/control-logs/pr-N.md artifact，並依閾值輸出 CLAUDE.md / hook 補充建議 | [../plugins/pr-flow/skills/pr-control-log/SKILL.md](../plugins/pr-flow/skills/pr-control-log/SKILL.md) |
+| `local-port-manager` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md)（`claude plugin install dev-cycle@yibi-stack`）| 機器層 port 分配登錄，管理多專案服務 port 避免衝突。支援 suggest（查不寫）+ reserve（確認後登記）兩步驟工作流 | [../plugins/dev-cycle/skills/local-port-manager/SKILL.md](../plugins/dev-cycle/skills/local-port-manager/SKILL.md) |
+| `pr-cycle-fast` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md)（`claude plugin install dev-cycle@yibi-stack`）| PR 生命週期自動化 orchestrator（快速版）：偵測 open PR → 並行 code review + CI monitor + conflict detect → auto-fix markdownlint/CI（≤3 次）→ merge → /pr-retro 寫 mycelium → /clean-wt。State machine 可中斷 resume。小型 PR 首選；大型 PR 或 SDD 請改用 pr-cycle-deep | [../plugins/dev-cycle/skills/pr-cycle-fast/SKILL.md](../plugins/dev-cycle/skills/pr-cycle-fast/SKILL.md) |
+| `pr-retrospective` | [plugins/growth/](../plugins/growth/README.md)（`claude plugin install growth@yibi-stack`）| PR 收尾五問回顧（agent 推論草稿、使用者校準），寫入 mycelium handover；依 Lesson Classifier 路由 lessons 到 `.claude/rules/` 或 CLAUDE.md，再觸發 hookify、writing-skills 等下游 skill | [../plugins/growth/skills/pr-retrospective/SKILL.md](../plugins/growth/skills/pr-retrospective/SKILL.md) |
+| `pr-control-log` | [plugins/growth/](../plugins/growth/README.md)（`claude plugin install growth@yibi-stack`）| PR 完成後的 AI 行為審計：從 git log / PR diff / PR body 推論 7 類 entries（autonomous_decision / assumption / spec_deviation 等），使用者 3 輪校準後寫入 mycelium DB，產生 .runtime/control-logs/pr-N.md artifact，並依閾值輸出 CLAUDE.md / hook 補充建議 | [../plugins/growth/skills/pr-control-log/SKILL.md](../plugins/growth/skills/pr-control-log/SKILL.md) |
 | `spectra-amplifier` | [plugins/sdd/](../plugins/sdd/README.md)（`claude plugin install sdd@yibi-stack`）| Wave D Plugin Edition：Step 0-5 規格展開（BDD Gherkin + qa-test-design dispatch + ADR-0008 docstring trace + SMK smoke tests）| [../plugins/sdd/skills/spectra-amplifier/SKILL.md](../plugins/sdd/skills/spectra-amplifier/SKILL.md) |
 | `figma-design-sync` | [plugins/sdd/](../plugins/sdd/README.md)（`claude plugin install sdd@yibi-stack`）| Figma 設計擷取（extract）與增量同步（sync）：設計上下文落地到 `openspec/changes/<name>/design/`（文字進 git、截圖留本地不入 git），供 amplifier Step 1a 引用（不 dispatch agent；plugin-only 原因是與 spectra-amplifier/openspec 生態耦合）| [../plugins/sdd/skills/figma-design-sync/SKILL.md](../plugins/sdd/skills/figma-design-sync/SKILL.md) |
 

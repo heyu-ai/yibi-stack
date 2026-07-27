@@ -7,17 +7,17 @@
   },
   "plugins": [
     {
-      "name": "bash-hygiene",
-      "description": "Bash anti-pattern detection for Claude Code agents: AP1 overly complex commands, AP2 Unicode in bash strings, shell quoting hygiene, irreversible operation boundaries.",
+      "name": "harness",
+      "description": "Claude Code harness engineering: readiness evaluation, bash anti-pattern detection and enforcement, and worktree push protection.",
       "author": {
         "name": "Howie Yu"
       },
       "category": "development",
-      "source": "./plugins/bash-hygiene"
+      "source": "./plugins/harness"
     },
     {
       "name": "sdd",
-      "description": "Spec-Driven Development: Spectra amplifier methodology, qa-test-design framework, OpenSpec change-management templates for Claude Code agents.",
+      "description": "Spec-Driven Development: Spectra amplifier methodology, Figma design sync, OpenSpec change-management templates, and QA/Gherkin subagents for Claude Code agents.",
       "author": {
         "name": "Howie Yu"
       },
@@ -26,7 +26,7 @@
     },
     {
       "name": "growth",
-      "description": "Session continuity and knowledge retention: mycelium, learn skill, handover/newjob slash commands for Claude Code agents.",
+      "description": "Knowledge extraction and retention: mycelium, learn, PR retrospective/control log, CLAUDE.md pruning, and /pr-retro for Claude Code agents.",
       "author": {
         "name": "Howie Yu"
       },
@@ -34,13 +34,13 @@
       "source": "./plugins/growth"
     },
     {
-      "name": "pr-flow",
-      "description": "Full PR workflow: review cycles, retrospective, bump-version, claude-md-prune, and PR slash commands for Claude Code agents.",
+      "name": "dev-cycle",
+      "description": "Full development workflow: PR review cycles, CI triage, bump-version, newjob/handover, local port management, debug, and PR slash commands for Claude Code agents.",
       "author": {
         "name": "Howie Yu"
       },
       "category": "development",
-      "source": "./plugins/pr-flow"
+      "source": "./plugins/dev-cycle"
     },
     {
       "name": "3rd-tools",
@@ -52,31 +52,13 @@
       "source": "./plugins/3rd-tools"
     },
     {
-      "name": "tdd",
-      "description": "Test-Driven Development methodology: Kent Beck TDD, Flutter TDD, and CI triage skills for Claude Code agents.",
+      "name": "methodology",
+      "description": "Portable methodology skills: Kent Beck TDD, Flutter TDD, event storming, Jackson Problem Frames, and QA test design. All project-agnostic.",
       "author": {
         "name": "Howie Yu"
       },
       "category": "development",
-      "source": "./plugins/tdd"
-    },
-    {
-      "name": "util",
-      "description": "Utility tools: local port manager and debug slash command for Claude Code agents.",
-      "author": {
-        "name": "Howie Yu"
-      },
-      "category": "productivity",
-      "source": "./plugins/util"
-    },
-    {
-      "name": "writing",
-      "description": "Writing skills for Claude Code agents: AI slop detection, text analysis, and writing quality improvement.",
-      "author": {
-        "name": "Howie Yu"
-      },
-      "category": "productivity",
-      "source": "./plugins/writing"
+      "source": "./plugins/methodology"
     }
   ]
 }

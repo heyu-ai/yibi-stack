@@ -25,19 +25,19 @@ Issue #222 記錄了擋住此前提的兩個結構性缺口。下列事實在做
 
 ### Gap A — `tasks/*` 從不出貨
 
-`.claude-plugin/marketplace.json` 每個 entry 只有 `source` 路徑（如 `"./plugins/pr-flow"`，
+`.claude-plugin/marketplace.json` 每個 entry 只有 `source` 路徑（如 `"./plugins/dev-cycle"`，
 marketplace.json:16-70），**沒有任何 file list / include / exclude 機制**，所以 plugin 的
 payload 就是它自己那個目錄。`tasks/` 位於 repo root、與 `plugins/` 平行——在所有 plugin 目錄
-之外，因此永遠搆不到。實測：`~/.claude/plugins/cache/yibi-stack/pr-flow/1.6.0/` 只有
+之外，因此永遠搆不到。實測：`~/.claude/plugins/cache/yibi-stack/dev-cycle/1.6.0/` 只有
 `commands/ skills/ package.json README.md`，**無 `tasks/`**。
 
 有 6 個 skill、橫跨 3 個 plugin 依賴它，且目前全標 `scope: global`：
 
 | plugin | skill | 依賴模組 |
 |---|---|---|
-| pr-flow | pr-cycle-fast | `tasks.pr_orchestrator` |
-| pr-flow | pr-control-log | `tasks.mycelium` |
-| pr-flow | pr-retrospective | `tasks.mycelium` |
+| dev-cycle | pr-cycle-fast | `tasks.pr_orchestrator` |
+| dev-cycle | pr-control-log | `tasks.mycelium` |
+| dev-cycle | pr-retrospective | `tasks.mycelium` |
 | growth | mycelium | `tasks.mycelium` |
 | growth | learn | `tasks.mycelium` |
 | util | local-port-manager | `tasks.local_port_manager` |
@@ -45,7 +45,7 @@ payload 就是它自己那個目錄。`tasks/` 位於 repo root、與 `plugins/`
 它們靠讀 `~/.agents/config.json` 的 `skill_repo` 找 checkout，再
 `uv run --directory "$SKILL_REPO" python -m tasks.X`。**該 key 只有 clone + `make install`
 後才存在**——與 plugin-only 安裝直接矛盾。這個失敗模式甚至已經寫在 repo 自己的文件裡：
-`plugins/pr-flow/skills/pr-control-log/SKILL.md:232`。
+`plugins/dev-cycle/skills/pr-control-log/SKILL.md:232`。
 
 此外 `.claude/hooks/pre-compact-handover.sh` 與 `post-compact-handover-back.sh` 是
 **in-process import** `tasks.mycelium`。它們同樣位於所有 plugin 目錄之外，是**第二個未出貨
@@ -55,7 +55,7 @@ payload 就是它自己那個目錄。`tasks/` 位於 repo root、與 `plugins/`
 
 `CLAUDE_PLUGIN_ROOT` 在 **hook** context 有值，但在 **skill bash 沒有**（agent 是透過 Bash
 tool 執行 skill 的 bash，該環境不帶 plugin context）。這是未文件化的平台限制，實測結果已記於
-`plugins/pr-flow/skills/pr-retrospective/SKILL.md:48`。
+`plugins/dev-cycle/skills/pr-retrospective/SKILL.md:48`。
 
 因此 `plugins/sdd/skills/spectra-amplifier/SKILL.md:86,757` 是**永遠執行不到的死碼**：
 
@@ -113,7 +113,7 @@ package import path 維持 `tasks.*`。只改動 `[build-system]`、`[project.sc
 
 ### 被否決的替代方案
 
-**把 `tasks/` 搬進各 plugin 目錄出貨。** Claude Code **沒有 plugin 相依機制**，所以 `pr-flow`
+**把 `tasks/` 搬進各 plugin 目錄出貨。** Claude Code **沒有 plugin 相依機制**，所以 `dev-cycle`
 與 `growth` 都需要 mycelium 時，只能二選一：重複一份、或再拆一個「shared」plugin，但其他三個
 plugin 無法宣告對它的相依。兩份 mycelium 各自漂移，正是
 `.claude/rules/18-single-source-of-truth.md` 明文禁止的 dual-source 失敗模式——而且
