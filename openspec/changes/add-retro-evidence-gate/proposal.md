@@ -93,7 +93,7 @@
 |---|-----------------------------------|----------------|
 | W1 | retro agent 誠實執行分級與 probe（lint 只驗「有無標記」，不驗「標記是否誠實」） | 最大假設風險：假證據標記可繞過 gate。減災：封閉列舉、mob review 抽查、三分法；殘餘由 golden-transcript harness 收斂（OOS） |
 | W2 | typed-lessons store 可寫入且 `parked` 被既有回顧流程消費 | park 成墳場。減災：recurrence 機制 + 複用既有 mycelium 流程 |
-| W3 | pre-commit hook 實際被執行（未被 `--no-verify` / CI 略過） | S6 機械層失效，只剩 doc gate。減災：CI `--all-files` 重跑 |
+| W3 | pre-commit hook 實際被執行（未被 `--no-verify` / CI 略過） | S6 機械層失效，只剩 doc gate。減災：CI 以 commit range 模式（`--base`/`--head`）獨立重跑 lint（原本寫的 `--all-files` 重跑對此 hook 無效，見 problem-frame W3 修正） |
 | W4 | 「always-loaded」判定穩定且 lint 能辨識新檔 vs 既有檔新 section | 自我約束與分層強制誤判。減災：diff hunk 新 heading 錨點 + 合成 fixture |
 | W5 | `claude -p` 拋棄式 repo 探針在維護者環境可用 | 昂貴 probe 無法執行。減災：允許降 Tier 2 要 PR 階段證據 |
 | W6 | 姊妹 review-loop gate 已上線且運作，減少低品質 rule 流入 | retro gate 承擔更大流量，但不影響正確性——把關與 review-loop 是否運作無關 |
@@ -172,11 +172,21 @@
 
 ## Impact
 
-- Affected specs：新增 `retro-evidence-gate`
+- Affected specs：新增 `retro-evidence-gate`；MODIFIED `mycelium-memory-tiers`（parked 排除於
+  tier promotion 與預設 recall，delta 見 `specs/mycelium-memory-tiers/spec.md`）
 - Affected code：
-  - Modified：`plugins/growth/skills/pr-retrospective/SKILL.md`（Step 5.0 Evidence Gate 段、Step 5 Q5→action 映射表加證據前置條件、Lesson Classifier 前置說明指向 Evidence Gate）
+  - Modified：`plugins/growth/skills/pr-retrospective/SKILL.md`（Step 5.0 Evidence Gate 段、Step 5 Q5→action 映射表加證據前置條件、Lesson Classifier 前置說明指向 Evidence Gate；Step 4b 改為只準備不執行）
   - Modified：`.claude/rules/11-skill-authoring.md`（新增「Retro-authored rule/hook 的三層證據標準」段，複用既有 verify-before-authoring / Cross-doc Cite 脈絡，不淨增 always-loaded 行數見 What Changes #5）
-  - New：`scripts/lint_rule_evidence.py` + `scripts/tests/test_lint_rule_evidence.py`（純函式檢查器 + 合成 fixture 負向測試）
+  - New：`scripts/lint_rule_evidence.py` + `scripts/tests/test_lint_rule_evidence.py`（純函式檢查器 + 合成 fixture 負向測試；PR #347 追加 `--base`/`--head` range mode 與真 git repo 測試）
   - Modified：`.pre-commit-config.yaml`（註冊新 hook，warn-only 段 `verbose: true`）
-- 不影響 `/pr-cycle-deep` 的 review-loop gate（各自獨立子系統）；不影響 typed-lessons 既有讀寫（新增狀態值向後相容）
+  - Modified：`.github/workflows/ci.yml`（PR #347：`fetch-depth: 0` + 兩個 range-mode evidence-lint step）
+  - New：`scripts/tests/test_retro_evidence_gate_integration.py`（runbook 順序與 CI wiring 的 contract test + flag drift guard）
+  - Modified：`tasks/mycelium/{cli,db,lessons_service,tier_service}.py` + New：`tasks/mycelium/tests/test_lesson_parking.py`（PR #347：`--park` / `--include-parked` 執行介面）
+- 不影響 `/pr-cycle-deep` 的 review-loop gate（各自獨立子系統）。
+  **對 typed-lessons 既有讀寫的影響（PR #347 修正）**：原本宣稱「不影響」，實際上 `--park` 落地時
+  改了讀取路徑本身——`AgentsDB.query_lessons_typed` / `AgentsDB.search_lessons_typed` 預設排除
+  `parked`（`lessons_service.show_lessons_typed` / `search_lessons_typed` 透過它們間接排除），
+  `tier_service._fetch_non_archival` 亦排除，`tasks/nightly_agent` 的直接 SQL 讀取路徑同樣補上。
+  既有呼叫端不會崩（多一個 tag 不影響解析），但**預設結果集會少掉 parked
+  教訓**，這不是「純新增狀態值向後相容」。需要看到 parked 的呼叫端要顯式加 `include_parked=True`。
 - 自我約束（可機械檢查）：本 change 對 `.claude/rules/` 的淨新增 always-loaded 行數 = 0

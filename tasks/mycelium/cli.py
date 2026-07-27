@@ -780,6 +780,12 @@ def lessons() -> None:
     default=False,
     help="相同 project、type、key 已存在時略過寫入",
 )
+@click.option(
+    "--park",
+    is_flag=True,
+    default=False,
+    help="以 Tier 3 parked 狀態寫入；同 key recurrence 原子 bump，達 2 回報 reassess",
+)
 def lessons_add(  # pylint: disable=too-many-arguments
     lesson_type: str,
     key: str,
@@ -793,13 +799,14 @@ def lessons_add(  # pylint: disable=too-many-arguments
     retrospective_id: str | None,
     retro_pr: int | None,
     skip_if_exists: bool,
+    park: bool,
 ) -> None:
     """寫入一筆 typed lesson 到 lessons table。"""
     import subprocess  # nosec B404
 
     from pydantic import ValidationError
 
-    from .lessons_service import add_lesson, find_existing_lesson
+    from .lessons_service import add_lesson, find_existing_lesson, park_lesson
     from .models import LessonRecord
 
     resolved_project = project
@@ -839,6 +846,15 @@ def lessons_add(  # pylint: disable=too-many-arguments
         }
         # 刻意丟棄結果：在去重查詢前先 fail-fast 驗證輸入。
         LessonRecord.model_validate(record_data)
+        if park:
+            if skip_if_exists:
+                raise ValueError("--park 與 --skip-if-exists 不可同時使用")
+            result_data = park_lesson(record_data, db_path=_ctl_db_path())
+            click.echo(
+                f"id={result_data['id']} status={result_data['status']} "
+                f"recurrence={result_data['recurrence']}"
+            )
+            return
         try:
             existing = find_existing_lesson(
                 resolved_project, lesson_type, key, db_path=_ctl_db_path()
@@ -898,6 +914,7 @@ def lessons_add(  # pylint: disable=too-many-arguments
     help="合併 legacy handovers.lessons_learned（預設 True）",
 )
 @click.option("--include-retired", is_flag=True, help="同時顯示已 retire 的教訓（預設排除）")
+@click.option("--include-parked", is_flag=True, help="同時顯示 parked 教訓（預設排除）")
 @click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
 def lessons_show(  # pylint: disable=too-many-arguments
     project: str | None,
@@ -910,6 +927,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
     cross_project: bool,
     include_legacy: bool,
     include_retired: bool,
+    include_parked: bool,
     as_json: bool,
 ) -> None:
     """顯示 handover 教訓與試過的方案（可選合併 insight）。"""
@@ -923,6 +941,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
         or cross_project
         or not include_legacy
         or include_retired
+        or include_parked
     )
     if _use_typed:
         _insights_path = None
@@ -941,6 +960,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
             insights_path=_insights_path,
             limit=last,
             include_retired=include_retired,
+            include_parked=include_parked,
             db_path=_ctl_db_path(),
         )
         if as_json:
@@ -1008,6 +1028,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
     help="合併 legacy handovers.lessons_learned（預設 True）",
 )
 @click.option("--include-retired", is_flag=True, help="同時搜尋已 retire 的教訓（預設排除）")
+@click.option("--include-parked", is_flag=True, help="同時搜尋 parked 教訓（預設排除）")
 @click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
 def lessons_search(  # pylint: disable=too-many-arguments
     query: str,
@@ -1021,6 +1042,7 @@ def lessons_search(  # pylint: disable=too-many-arguments
     cross_project: bool,
     include_legacy: bool,
     include_retired: bool,
+    include_parked: bool,
     as_json: bool,
 ) -> None:
     """在 handover 教訓、試過的方案（與可選 insight）中搜尋關鍵字。"""
@@ -1034,6 +1056,7 @@ def lessons_search(  # pylint: disable=too-many-arguments
         or cross_project
         or not include_legacy
         or include_retired
+        or include_parked
     )
     if _use_typed:
         _insights_path = None
@@ -1053,6 +1076,7 @@ def lessons_search(  # pylint: disable=too-many-arguments
             insights_path=_insights_path,
             limit=last,
             include_retired=include_retired,
+            include_parked=include_parked,
             db_path=_ctl_db_path(),
         )
         if as_json:
@@ -1165,6 +1189,52 @@ def lessons_retire(lesson_id: str, reason: str, superseded_by: str | None) -> No
     click.echo(f"  reason = {updated.get('retired_reason')}")
     if updated.get("superseded_by"):
         click.echo(f"  superseded_by = {updated.get('superseded_by')}")
+
+
+@lessons.command("finalize")
+@click.option("--id", "lesson_id", required=True, help="park 輸出的 lesson id（uuid，精確比對）")
+@click.option(
+    "--confidence",
+    required=True,
+    type=click.IntRange(5, 10),
+    help="重評後的信心度（5-10；Tier 3 水位是 ≤ 4，那種情況請改用 `lessons add --park`）",
+)
+@click.option(
+    "--source",
+    required=True,
+    # `click.Choice` 而非裸字串：裸字串會一路穿到 table 的 `CHECK(source IN (...))`，
+    # 而 CLI 只 catch (ValueError, RuntimeError)，`sqlite3.IntegrityError` 會逃逸成
+    # traceback。同 repo 對列舉值一律用 Choice（rule 08），`lessons add` 走 Pydantic 也給
+    # 乾淨訊息。（PR #347 Round 2）
+    type=click.Choice(["observed", "user-stated", "inferred", "cross-model"]),
+    help="教訓來源（與 confidence 依據一致）",
+)
+@click.option("--insight", default=None, help="可選：更新教訓內文；省略則逐字保留原文")
+def lessons_finalize(lesson_id: str, confidence: int, source: str, insight: str | None) -> None:
+    """重評通過 Tier 1/2 後，把已解除 park 的教訓原地升級為 active。
+
+    用於 `/pr-retro` Tier 3 流程：`--park` 回報 `status=reassess` 後，該教訓已解除 park
+    但仍是低信心。重評若通過 Tier 1/2，用本指令**原地**升級——不要跑一般 `lessons add`，
+    那會新增另一列而把舊列留成孤兒（未 parked、未 retired，仍會進 tier promotion）。
+
+    本指令冪等：同樣的引數重跑只是把同一列設成同樣的值，不會新增列，可安全重試。
+    """
+    from .lessons_service import finalize_reassessed_lesson
+
+    try:
+        updated = finalize_reassessed_lesson(
+            lesson_id,
+            confidence=confidence,
+            source=source,
+            insight=insight,
+            db_path=_ctl_db_path(),
+        )
+    except (ValueError, RuntimeError) as e:
+        click.echo(f"錯誤：{e}", err=True)
+        raise SystemExit(1) from e
+
+    row = updated["lesson"]
+    click.echo(f"id={updated['id']} status=active confidence={row.get('confidence')}")
 
 
 # ─── metrics ─────────────────────────────────────────────────────────────

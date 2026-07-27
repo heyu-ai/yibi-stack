@@ -31,7 +31,7 @@
 |---|----------|----------------|
 | W1 | retro agent 會誠實執行分級與 probe（lint 只能驗「有無證據標記」，無法驗「標記是否誠實」——為 runbook 約定，非機械強制）| gate 最大假設風險：agent 可對主觀教訓貼假的 `<!-- verified: probe -->` 繞過。減災：封閉列舉縮小誤判空間、mob review 抽查證據真偽、三分法使「無效證據」難偽裝成重現。殘餘由 golden-transcript harness 收斂（OOS）|
 | W2 | mycelium typed-lessons store 可寫入，且 `parked` 狀態被既有回顧流程消費 | park 成無人看的墳場，R3 的「保留」淪為形式。減災：recurrence 使重現者主動浮出；複用既有 mycelium 流程而非新建清單 |
-| W3 | pre-commit hook 實際被執行（未被 `git commit --no-verify` 或 CI 略過）| S6 的機械層失效，只剩 S1 doc gate。減災：`make ci` 於 CI 端 `--all-files` 重跑（既有機制）|
+| W3 | pre-commit hook 實際被執行（未被 `git commit --no-verify` 或 CI 略過）| S6 的機械層失效，只剩 S1 doc gate。減災：CI 以 **commit range 模式**（`--base`/`--head`）獨立重跑 lint，見下方修正 |
 | W4 | 「always-loaded」判定（frontmatter 無 `paths:` key）穩定，且 lint 能正確辨識新 rule 檔 vs 既有檔新 section | 自我約束（S7）與分層強制（S6）誤判。減災：以 diff hunk 新 heading 為錨點 + 合成 fixture 覆蓋「編輯既有 section 不誤觸發」|
 | W5 | `claude -p` 拋棄式 repo 探針在維護者環境可用（Tier 1 昂貴 probe 路徑）| 昂貴 probe 無法當場或派 subagent 執行。減災：S4 允許降 Tier 2 要求 PR 階段已產生的證據 |
 | W6 | 姊妹 change `bound-review-loop-with-evidence-gate` 已上線且持續運作，減少低品質 rule 於 PR review 階段流入 | retro gate 需獨力承擔更大流量，但**不影響正確性**——S1/S6 的把關與 review-loop gate 是否運作無關。此假設只影響「本 change 可以較小」的範圍判斷 |
@@ -60,7 +60,16 @@
 ### Commanded Behaviour 額外
 
 - [x] **列出「不該被執行」的命令，並說明 S 如何拒絕（安全 concern）**：命令「把 Tier 3 主觀教訓寫入 always-loaded 面」MUST 被拒絕——S1 在上游不讓它進 Promotion Gate、S5 強制 park、S6 於 commit 端擋新檔/新 hook。命令「因 recurrence ≥ 2 就寫入未驗證教訓」MUST 被拒絕——S5 要求仍過 Tier 1/2。
-- [x] **操作者誤操作／競態下 invariant 仍維持**：agent 略過 Step 5.0 直接 Edit 寫 rule 檔（誤操作）→ S6 commit-time lint 為第二道防線；`--no-verify` 繞過（競態/刻意）→ W3 的 CI `--all-files` 重跑補上。
+- [x] **操作者誤操作／競態下 invariant 仍維持**：agent 略過 Step 5.0 直接 Edit 寫 rule 檔（誤操作）→ S6 commit-time lint 為第二道防線；`--no-verify` 繞過（競態/刻意）→ W3 的 CI range-mode 重跑補上。
+
+> **W3 減災修正（PR #347）：原本寫的「`make ci` 於 CI 端 `--all-files` 重跑」其實從未生效。**
+> `lint-rule-evidence` hook 是 `pass_filenames: false`，不帶引數呼叫腳本 → 走 staged-diff 模式
+> → CI runner 上 `git diff --cached` **恆為空** → gate 跑完、通過、什麼都沒檢查。
+> 精確地說：`--all-files` 決定 hook 會不會**被觸發**（它讓所有 tracked 檔都納入 `files:` 比對），
+> 但**不改變 hook 讀到的 diff**——對一個不看檔名引數的 hook，被觸發等於跑一次空檢查。
+> 真正補上 W3 的是 `.github/workflows/ci.yml` 的兩個 range-mode step（`--base`/`--head`），
+> 它們讀 PR / push 的實際 commit range，並在 commit 解不開時 exit 2 大聲失敗。
+> 這是一個「減災措施本身是假綠」的實例——寫下減災不等於減災存在。
 
 ### Simple Workpieces 額外
 
