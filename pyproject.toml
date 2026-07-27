@@ -1,6 +1,6 @@
 [project]
 name = "yibi-stack"
-version = "1.16.0"
+version = "1.17.0"
 description = "Agentic skill stack for Claude Code"
 license = "Apache-2.0"
 requires-python = ">=3.11"
@@ -96,7 +96,7 @@ disallow_untyped_calls = false
 # 若未來 scripts/ 納入掃描而某套件確實缺 stub，屆時再依實測加條目——不要憑推測預填。
 
 [tool.pytest.ini_options]
-testpaths = ["tasks", ".claude/hooks/tests", "plugins/sdd/scripts/tests", "plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests", "commands/scripts/tests", "scripts/tests"]
+testpaths = ["tasks", ".claude/hooks/tests", "plugins/sdd/scripts/tests", "plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests", "plugins/3rd-tools/skills/codex-cli/scripts/tests", "commands/scripts/tests", "scripts/tests"]
 pythonpath = [".", "commands/scripts"]
 addopts = "-m 'not slow'"
 markers = [
