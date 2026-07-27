@@ -1,6 +1,6 @@
 {
   "name": "harness",
-  "version": "1.15.2",
+  "version": "1.16.0",
   "description": "Claude Code harness engineering plugin: readiness evaluation, bash anti-pattern hooks, and push protection.",
   "keywords": [
     "harness",

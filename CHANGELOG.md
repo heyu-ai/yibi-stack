@@ -5,17 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.15.2] - 2026-07-25
+## [1.16.0] - 2026-07-27
+
+### Changed
+
+- Plugin pack 結構護欄 + 修 dangling symlink 崩潰 (#344)
+- Route two PR #339 mob-review lessons into rule 02 (#348)
+- Bump the python-minor-patch group with 4 updates (#341)
+- Pack taxonomy -- process/knowledge/methodology/harness axis (#351)
 
 ### Fixed
 
-- amplifier-verify：un-archive 純 rename 不再讓驗證義務消失（原為已接受風險，改為修掉） (#324)
+- Isolate PR creation in a scratch worktree, propagate run() failures via exit code (#349)
 
-## [1.15.1] - 2026-07-25
+## [1.15.2] - 2026-07-26
+
+### Changed
+
+- Implement retro-evidence-gate (Step 5.0 + lint + self-constraint) (#339)
 
 ### Fixed
 
-- amplifier-verify 不再把已歸檔 change 名稱誤判為 active，純文件 PR 不再被 gate 擋下 (#324)
+- Amplifier-verify 不再把已歸檔 change 誤判為 active (#324) (#340)
+- Un-archive 純 rename 不再讓驗證義務消失（改為修掉而非接受） (#343)
 
 ## [1.15.0] - 2026-07-25
 
@@ -28,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - /code-review --fix opt-in 小節與 disallowed-tools、literal $ escape 文件 (#145) (#331)
 - Archive document-fix-optin-and-skill-frontmatter (#332)
 - Evidence gate conformance eval 實作（含 sunset 協議） (#338)
+- V1.15.0
 
 ### Fixed
 
@@ -625,6 +638,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove bash anti-patterns triggering CC confirmation dialogs (#137)
 - Remove unnecessary rm-f after git commit-F (#105)
 
+[1.16.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.15.2..v1.16.0
+[1.15.2]: https://github.com/heyu-ai/yibi-stack/compare/v1.15.0..v1.15.2
 [1.15.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.14.0..v1.15.0
 [1.14.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.13.0..v1.14.0
 [1.13.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.12.0..v1.13.0
