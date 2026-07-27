@@ -519,6 +519,50 @@ tracked `.gitkeep` after `git status` showed only untracked entries; separately,
 another worktree's tracked change directory was left unrestored — see rule 13's
 "Never `&&`-Gate a Restore Behind the Step That Might Fail" for that half.)
 
+### A Boolean Safety Gate Must Distinguish "Confirmed Safe" From "Couldn't Check" (Tri-State, Not Bool)
+
+The probes above answer "is it safe to delete" with a two-valued check every time — but a probe
+that queries live state (a subprocess call, a network request, a lock-contended command) can
+itself fail independently of the answer it was trying to give. When a safety-gate function's
+return type is a plain `bool`, "I don't know" has nowhere to go except collapsing into one of the
+two real answers — and it collapses into whichever one the code happens to write on the
+error path, not whichever one is safe.
+
+```python
+# Wrong: probe failure and "confirmed not in use" both return False
+def is_still_in_use(path: Path) -> bool:
+    result = subprocess.run(["some-tool", "list"], ...)
+    if result.returncode != 0:
+        return False          # <- probe itself failed; NOT "confirmed unused"
+    return path in parse(result.stdout)
+
+if not is_still_in_use(target):   # fires on both "confirmed free" AND "couldn't tell"
+    shutil.rmtree(target)         # deletes on the ambiguous case too
+
+# Correct: three states, and the caller treats "unknown" as the conservative branch
+def is_still_in_use(path: Path) -> bool | None:
+    """True = confirmed in use; False = confirmed free; None = probe itself failed."""
+    result = subprocess.run(["some-tool", "list"], ...)
+    if result.returncode != 0:
+        return None
+    return path in parse(result.stdout)
+
+if is_still_in_use(target) is False:   # only the CONFIRMED-free case takes the delete path
+    shutil.rmtree(target)
+```
+
+The fix is not "handle the error better" — it is recognizing that the function was answering a
+three-valued question with a two-valued type, so *some* input was always going to be misclassified
+by construction. `is not False` (or `is None or is True`) at the call site is what makes "unknown"
+join the safe branch instead of the destructive one.
+
+(Source: yibi-stack PR #349 mob review — `_is_registered_worktree()` used to fold "`git worktree
+list` itself returned non-zero" into the same `False` as "confirmed not registered," so a
+transient probe failure took the `shutil.rmtree()` branch meant only for confirmed-safe paths.
+Independently reproduced by 3 Claude review subagents plus Codex and Gemini in the same review
+round — a five-way cross-model convergence on the identical root cause, one of the strongest
+recurrence signals this repo's mob-review process has produced.)
+
 ## Category 5: Cloud
 
 | Operation | Risk | Recommended approach |
