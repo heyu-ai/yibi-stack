@@ -1321,6 +1321,9 @@ class TestCleanWtPortRelease:
             f"entrypoint 缺失時，uv 根本不該被呼叫（應視同 module 不存在）:\n"
             f"{uv_log.read_text(encoding='utf-8')}"
         )
+        assert "migrated-away-branch" not in _git(
+            repo, "branch", "--format=%(refname:short)", env=env
+        ), "port 清理判斷不應阻擋分支本身被正常刪除（deletion anchor）"
 
 
 class TestCleanWtArgs:

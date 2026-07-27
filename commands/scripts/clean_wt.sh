@@ -566,7 +566,8 @@ if [ -f "$MAIN_REPO/tasks/local_port_manager/__main__.py" ]; then
   # __pycache__/ 與 tests/，目錄本身還在但原始碼已搬走，此時 `python -m` 必然失敗
   # （"cannot be directly executed"）。這種殘留形狀等同「別的 repo 沒有這個 module」，
   # 應安靜跳過，不該當成「read failure」發出 [WARN] 並讓 exit code 變 1
-  # （實測：ainization-skill 的 local_port_manager 已搬到本 repo，只留殘留目錄）。
+  # （實測：ainization-skill 的 local_port_manager 已搬到 yibi-stack——本檔案所在 repo，
+  # ainization-skill 只留殘留目錄）。
   #
   # 這個 module 只存在於本 repo；不在就安靜跳過（別的 repo 沒有它，是正常狀態）。
   # 但 module 在而 uv 不在，是**錯誤狀態**，不可用同一個沉默處理掉：
