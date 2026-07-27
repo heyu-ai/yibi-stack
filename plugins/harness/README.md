@@ -40,6 +40,7 @@ claude plugin install harness@yibi-stack
 | `bash-hygiene-audit` skill | 管理 hook audit log：啟用／停用記錄、查看攔截事件、統計違規比例與熱點 pattern |
 | `bash-anti-patterns` skill | Full methodology guide for AP1/AP2/AP3 detection and shell quoting hygiene |
 | `protect-push` skill | Git pre-push hook installer: blocks direct push to main/master from worktree branches |
+| `plugin-migration-check` skill | Detects installed yibi-stack packs that were renamed/merged/split/removed and prints the exact `claude plugin uninstall`/`install` commands to fix them |
 | AP1 PreToolUse hook | Blocks `python -c` multi-line, `osascript` heredoc, `grep "\|"` BRE, nested `$(outer "$(inner)")`, `$(jq '...')` subshell |
 | AP2 PreToolUse hook | Blocks em dash, en dash, emoji, zero-width chars in bash strings |
 | Smart-fix PreToolUse hook | Detects Rule 2 `"$(cmd)"` standalone token and shows corrected command inline |
@@ -53,6 +54,8 @@ claude plugin install harness@yibi-stack
 - Inspect hook behavior and recurring violations with `bash-hygiene-audit`.
 - Install `protect-push` to prevent worktree branches from pushing directly to main/master.
 - Consult `bash-anti-patterns` for shell-safe command construction and remediation guidance.
+- Run `plugin-migration-check` after a marketplace update if a skill you used to have
+  seems to have disappeared, or right after any yibi-stack pack taxonomy refactor.
 
 ## Known Limitations
 
