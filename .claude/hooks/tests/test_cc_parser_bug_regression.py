@@ -147,7 +147,7 @@ class TestCCParserBugDirectProbe:
                 f"  1. Verify manually: open a new Claude Code session\n"
                 f"     and confirm the pattern runs without parser error.\n"
                 f"  2. Remove D3/D4/D5 detections from bash-ap1-inline-check.sh\n"
-                f"     (both plugins/bash-hygiene/hooks/ and .claude/hooks/ versions).\n"
+                f"     (both plugins/harness/hooks/ and .claude/hooks/ versions).\n"
                 f"  3. Keep D1/D2/D6 — those block anti-patterns, not parser bugs.\n"
                 f"  4. Update ADR-0002 status to 'superseded'.\n"
                 f"  See: {ADR_URL}\n"
@@ -198,7 +198,7 @@ class TestCCParserBugIssueMonitor:
                 f"  1. Open {ADR_URL} and read the fix description.\n"
                 f"  2. Verify that D3/D4/D5 patterns no longer cause 'Unhandled node type'.\n"
                 f"  3. Remove D3/D4/D5 detections from bash-ap1-inline-check.sh\n"
-                f"     (both plugins/bash-hygiene/hooks/ and .claude/hooks/ versions).\n"
+                f"     (both plugins/harness/hooks/ and .claude/hooks/ versions).\n"
                 f"  4. Keep D1/D2/D6 — those block anti-patterns, not parser bugs.\n"
                 f"  5. Update ADR-0002 status to 'superseded'.\n"
             )

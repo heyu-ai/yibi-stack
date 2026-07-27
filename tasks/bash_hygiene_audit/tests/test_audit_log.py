@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-_HOOK_DIR = Path(__file__).parents[3] / "plugins" / "bash-hygiene" / "hooks"
+_HOOK_DIR = Path(__file__).parents[3] / "plugins" / "harness" / "hooks"
 
 # 動態載入 _audit_log 模組（不在 tasks package 內）
 _spec = importlib.util.spec_from_file_location("_audit_log", _HOOK_DIR / "_audit_log.py")

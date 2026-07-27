@@ -59,7 +59,7 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
   - **可執行 skill**：有對應的 `tasks/` Python 實作（如 mycelium、scheduler）
   - **知識型 skill**：純 Markdown 方法論指引（如 tdd-kentbeck、qa-test-design）
 - **`tasks/`** — 實作細節，包含 CLI entry point、設定模型、服務邏輯；`tasks/*/skill.md` 為開發者參考文件
-- **`plugins/`** — Claude Code plugin packs（8 個）：bash-hygiene / sdd / growth / dev-cycle / 3rd-tools / tdd / util / writing
+- **`plugins/`** — Claude Code plugin packs（7 個）：harness / sdd / growth / dev-cycle / 3rd-tools / tdd / writing
 
 ## 編碼慣例
 
@@ -181,10 +181,6 @@ make install-all         # 等同 build-tools + install + install-project + inst
   and the Edit-tool escape.
 - **`Path.rglob()` does not follow symlinks** — see rule 02 for fix.
 - **`Path.glob("*/x/*")` doesn't cross `/` like regex `.*` does** — see rule 02 for fix.
-- **`plugins/harness` has no `package.json`**: not all subdirectories under `plugins/` are
-  installable plugins. `plugins/harness` is a README-only container; install with
-  `make install-one SKILL=harness-eval`. Parallel listings must inline-annotate this exception,
-  otherwise readers inherit the block's semantic and silently fail.
 - **bootstrap script `[SKIP]` should be `[WARN]` for missing prerequisites** — see rule 13 for fix.
 - **agy auth detection uses `onboardingComplete`, not `installation_id`**:
   `~/.gemini/antigravity-cli/installation_id` exists before OAuth completes (false positive).

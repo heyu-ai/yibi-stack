@@ -23,7 +23,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 0
 fi
 
-# fire-and-forget event logging（3 levels up from plugins/bash-hygiene/hooks/）
+# fire-and-forget event logging（3 levels up from plugins/harness/hooks/）
 _LOG_SCRIPT="${BASH_SOURCE[0]%/*}/../../../scripts/log_bash_hygiene_event.py"
 _RULE_ID="13"
 

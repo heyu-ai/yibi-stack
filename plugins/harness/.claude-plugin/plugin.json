@@ -1,0 +1,26 @@
+{
+  "name": "harness",
+  "description": "Claude Code harness engineering: 11-dimension readiness evaluation (harness-eval), single-dimension deep audit (harness-eval-focus), bash anti-pattern detection and enforcement hooks (AP1/AP2), bash-hygiene hook audit logging, and worktree push protection.",
+  "version": "1.15.2",
+  "author": {
+    "name": "Howie Yu",
+    "email": "2318485+howie@users.noreply.github.com"
+  },
+  "repository": "howie/yibi-stack",
+  "license": "MIT",
+  "keywords": [
+    "harness",
+    "readiness",
+    "evaluation",
+    "bash",
+    "linting",
+    "anti-pattern",
+    "hooks",
+    "shell",
+    "unicode",
+    "quoting",
+    "protect-push",
+    "git-hooks",
+    "audit"
+  ]
+}

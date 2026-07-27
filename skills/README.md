@@ -23,7 +23,7 @@ claude plugin marketplace add howie/yibi-stack  # 一次性註冊
 claude plugin install growth@yibi-stack          # mycelium + learn + PR 回顧/審計 + CLAUDE.md 精簡
 claude plugin install dev-cycle@yibi-stack       # PR 全流程 + newjob/handover + port/debug
 claude plugin install sdd@yibi-stack             # spectra-amplifier + figma-design-sync + qa-test-design + /sdd:setup
-claude plugin install bash-hygiene@yibi-stack    # bash-anti-patterns + protect-push
+claude plugin install harness@yibi-stack        # harness-eval + harness-eval-focus + bash-hygiene-audit + bash-anti-patterns + protect-push
 claude plugin install 3rd-tools@yibi-stack       # codex-review + codex-consult + agy + verify-gemini-models
 claude plugin install tdd@yibi-stack             # tdd-kentbeck + flutter-tdd + ci-triage
 claude plugin install writing@yibi-stack         # detect-ai-slop
@@ -39,7 +39,7 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 
 | Skill | 類型 | 住址 | 描述 | SKILL.md |
 |-------|------|------|------|----------|
-| `protect-push` | tool | [plugins/bash-hygiene/](../plugins/bash-hygiene/README.md) | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
+| `protect-push` | tool | [plugins/harness/](../plugins/harness/README.md) | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
 | `bash-hygiene-audit` | exec | [tasks/bash_hygiene_audit/](../tasks/bash_hygiene_audit/) | bash-hygiene hook audit log 管理：啟用/停用記錄、查看近期 hook 攔截事件、統計違規比例與熱點 pattern | [bash-hygiene-audit/SKILL.md](bash-hygiene-audit/SKILL.md) |
 | `harness-eval` | exec | [plugins/harness/](../plugins/harness/README.md) | Claude Code harness 就緒度評量：11 維度（D1–D11）滿分 123，PASS/WARN/FAIL 清單，優先改善 TODO。涵蓋 CLAUDE.md / hooks / settings / skills / testing / git / rules / security / subagents / codebase-navigation / token-economy | [harness-eval/SKILL.md](harness-eval/SKILL.md) |
 | `investigate` | tool | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | 系統化除錯：先根因調查（五階段 + Iron Law：沒找到根因不准修）再修，然後交棒給 PR 生命週期。改寫自 garrytan/gstack（MIT），剝除 gstack 產品 plumbing；Scope Lock 呼叫 `freeze` 鎖範圍 | [investigate/SKILL.md](investigate/SKILL.md) |
@@ -63,7 +63,7 @@ claude plugin install writing@yibi-stack         # detect-ai-slop
 | `pr-cycle-deep` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | PR 生命週期深度版（含 mob review + SDD amplifier-verifier）：多模型（Codex / Gemini）R1 獨立 + R2 交叉 debate + aggregate；fix → re-review 直到全員 LGTM → CI → merge → spectra archive。中大型 PR 或 SDD 專案首選 | [pr-cycle-deep/SKILL.md](pr-cycle-deep/SKILL.md) |
 | `mob-code-review-only` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | Mob review **別人的 PR**（只給建議、不修改）：與 pr-cycle-deep 共用 R1+R2+aggregate 引擎，但鎖定他人 PR、產出彙整建議貼回 PR，**不**改 code、**不** re-review loop、**不** merge / archive。適用 review 同事 / 外部貢獻者的 PR | [mob-code-review-only/SKILL.md](mob-code-review-only/SKILL.md) |
 | `issue-triage` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | GitHub **Issue**（非 PR）定期盤點治理，預設唯讀產報告：逐 issue 研判 CLOSE / UPDATE-SCOPE / MERGE / RELABEL / KEEP 並給優先排序。三原則：逐症狀對照現有程式碼（不看「PR 有沒有合併」）、綁 openspec change 以 tasks.md checkbox 為準、尊重留言的 keep-open 意圖。寫入需 `--apply` 逐項確認 | [issue-triage/SKILL.md](issue-triage/SKILL.md) |
-| `bash-anti-patterns` | [plugins/bash-hygiene/](../plugins/bash-hygiene/README.md) | Claude Code agent 下 bash 指令三層防線：AP1 過度複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd；Rule 14 shell 引號衛生；Rule 15 不可逆操作邊界；含判斷標準、對策決策樹與可選裝 PreToolUse hook | [bash-anti-patterns/SKILL.md](bash-anti-patterns/SKILL.md) |
+| `bash-anti-patterns` | [plugins/harness/](../plugins/harness/README.md) | Claude Code agent 下 bash 指令三層防線：AP1 過度複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd；Rule 14 shell 引號衛生；Rule 15 不可逆操作邊界；含判斷標準、對策決策樹與可選裝 PreToolUse hook | [bash-anti-patterns/SKILL.md](bash-anti-patterns/SKILL.md) |
 | `tdd-kentbeck` | [plugins/tdd/](../plugins/tdd/README.md) | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
 | `flutter-tdd` | [plugins/tdd/](../plugins/tdd/README.md) | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
 | `ci-triage` | [plugins/tdd/](../plugins/tdd/README.md) | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests），含 Python / JS / Go 工具範例 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |

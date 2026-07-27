@@ -7,13 +7,13 @@
   },
   "plugins": [
     {
-      "name": "bash-hygiene",
-      "description": "Bash anti-pattern detection for Claude Code agents: AP1 overly complex commands, AP2 Unicode in bash strings, shell quoting hygiene, irreversible operation boundaries.",
+      "name": "harness",
+      "description": "Claude Code harness engineering: readiness evaluation, bash anti-pattern detection and enforcement, and worktree push protection.",
       "author": {
         "name": "Howie Yu"
       },
       "category": "development",
-      "source": "./plugins/bash-hygiene"
+      "source": "./plugins/harness"
     },
     {
       "name": "sdd",

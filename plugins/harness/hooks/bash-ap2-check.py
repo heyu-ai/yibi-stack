@@ -32,7 +32,7 @@ except Exception:  # pragma: no cover
         pass
 
 
-# plugins/bash-hygiene/hooks/ は 4 層深いため parent x4 で repo root に到達
+# plugins/harness/hooks/ は 4 層深いため parent x4 で repo root に到達
 _LOG_SCRIPT = (
     pathlib.Path(__file__).parent.parent.parent.parent / "scripts" / "log_bash_hygiene_event.py"
 )
