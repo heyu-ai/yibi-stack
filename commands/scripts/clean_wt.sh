@@ -561,7 +561,14 @@ fi
 # worktree 建立時（/newjob Step 2c）會用 branch name 當 project key 登記 host port。
 # 刪分支卻不 release，登記就永久洩漏——下一個 worktree 會被推去用更高的 port，無限累積。
 PM_AVAILABLE=0
-if [ -d "$MAIN_REPO/tasks/local_port_manager" ]; then
+if [ -f "$MAIN_REPO/tasks/local_port_manager/__main__.py" ]; then
+  # 檢查 entrypoint 檔案，不能只檢查目錄存在：module migration 後常留下沒清掉的
+  # __pycache__/ 與 tests/，目錄本身還在但原始碼已搬走，此時 `python -m` 必然失敗
+  # （"cannot be directly executed"）。這種殘留形狀等同「別的 repo 沒有這個 module」，
+  # 應安靜跳過，不該當成「read failure」發出 [WARN] 並讓 exit code 變 1
+  # （實測：ainization-skill 的 local_port_manager 已搬到 yibi-stack——本檔案所在 repo，
+  # ainization-skill 只留殘留目錄）。
+  #
   # 這個 module 只存在於本 repo；不在就安靜跳過（別的 repo 沒有它，是正常狀態）。
   # 但 module 在而 uv 不在，是**錯誤狀態**，不可用同一個沉默處理掉：
   # fail-open 必須逐一列出它寬恕的條件（rule 11）。
