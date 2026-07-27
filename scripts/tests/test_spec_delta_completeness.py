@@ -24,14 +24,25 @@ _SCENARIO_RE = re.compile(r"^#### Scenario: (.+)$", re.MULTILINE)
 _MODIFIED_HEADING_RE = re.compile(r"^##\s+MODIFIED Requirements\s*$", re.MULTILINE)
 
 
-def _requirements_with_scenarios(text: str) -> dict[str, list[str]]:
-    """把 spec 內容切成 {requirement 標題: [scenario 標題, ...]}。"""
-    out: dict[str, list[str]] = {}
+def _requirements_with_scenarios(text: str) -> dict[str, dict[str, str]]:
+    """把 spec 切成 `{requirement 標題: {scenario 標題: 正規化後的 body}}`。
+
+    **連 body 一起帶**，不是只帶標題：archive 是整段取代，一份「標題照抄、內文全空」的
+    delta 同樣會把已部署內容覆蓋掉，而只比對標題的 gate 會全綠。
+    （PR #347 Round 2 以 mutation 實證：刪光所有 body → SURVIVED。）
+    """
+    out: dict[str, dict[str, str]] = {}
     reqs = list(_REQ_RE.finditer(text))
     for i, m in enumerate(reqs):
         end = reqs[i + 1].start() if i + 1 < len(reqs) else len(text)
-        body = text[m.start() : end]
-        out[m.group(1).strip()] = [s.group(1).strip() for s in _SCENARIO_RE.finditer(body)]
+        req_body = text[m.start() : end]
+        scenarios: dict[str, str] = {}
+        hits = list(_SCENARIO_RE.finditer(req_body))
+        for j, s in enumerate(hits):
+            s_end = hits[j + 1].start() if j + 1 < len(hits) else len(req_body)
+            raw = req_body[s.end() : s_end]
+            scenarios[s.group(1).strip()] = " ".join(raw.split())
+        out[m.group(1).strip()] = scenarios
     return out
 
 
@@ -52,11 +63,43 @@ def _delta_spec_files() -> list[Path]:
     return sorted(p for p in CHANGES_DIR.glob("*/specs/*/spec.md") if "archive" not in p.parts)
 
 
+def _comparable_deltas() -> list[Path]:
+    """真的會進入比對的 delta：對應 capability 已部署，且有 MODIFIED 段落。"""
+    out: list[Path] = []
+    for p in _delta_spec_files():
+        if not (DEPLOYED_DIR / p.parts[-2] / "spec.md").is_file():
+            continue
+        if _modified_section(p.read_text(encoding="utf-8")) is None:
+            continue
+        out.append(p)
+    return out
+
+
 def test_spec_dt_001_delta_specs_are_discoverable():
     """SPEC-DT-001: 至少找得到一份 delta spec——找不到代表 glob 錨點失效，本檔等於沒跑"""
     assert _delta_spec_files(), (
         f"在 {CHANGES_DIR} 下找不到任何 */specs/*/spec.md——錨點失效，"
         "後面的參數化測試會在空集合上空洞通過"
+    )
+
+
+def test_spec_dt_003_at_least_one_delta_actually_reaches_the_comparison():
+    """SPEC-DT-003: 必須至少有一份 delta 真的被比對過，否則本檔是「全 skip 但全綠」
+
+    DT-001 只擋「glob 掃不到檔案」這一種空洞。真正會發生的是另一種：檔案都在，但每個案例
+    都 `pytest.skip`（capability 尚未部署、或沒有 MODIFIED 段落），於是本檔報告成功卻做了
+    零次比對。本 change 被 `/spectra-archive` 移出 `openspec/changes/` 是它的正常生命終點，
+    屆時這個鎖就會靜默失效——正是 rule 11「Pin it with a test」要防的形狀。
+    （PR #347 Round 2：test-analyzer 以兩個存活突變實證。）
+
+    此斷言失敗時的正確處置**不是**刪掉它，而是確認「本 repo 現在真的沒有任何 MODIFIED
+    delta」——若是，改用 `pytest.skip` 並在訊息裡說明；若不是，代表偵測邏輯壞了。
+    """
+    comparable = _comparable_deltas()
+    assert comparable, (
+        f"在 {CHANGES_DIR} 下有 {len(_delta_spec_files())} 份 delta spec，但沒有任何一份"
+        "會進入 MODIFIED 比對（capability 未部署，或沒有 MODIFIED Requirements 段落）。"
+        "本檔目前是「全 skip 但全綠」，等於沒有保護力。"
     )
 
 
@@ -92,3 +135,18 @@ def test_spec_dt_002_modified_requirements_carry_every_deployed_scenario(delta_p
             "MODIFIED 在 archive 時是整段取代，這些 scenario 會被靜默刪除"
             "（spectra validate 與 archive 都不會報錯）。請逐字抄回。"
         )
+        # body 也要看，不能只比標題：「標題照抄、內文全空」的 delta 一樣會在 archive 時把
+        # 已部署內容覆蓋掉，而只比標題的 gate 全綠。
+        #
+        # 但**不能**要求 delta 逐字包含已部署文字——MODIFIED 的用意就是改動 scenario 內容
+        # （本 change 正是刻意把「access_count ≥ 3」加上 parked 條件）。逐字比對等於禁止
+        # MODIFIED 做它該做的事。因此只斷言「有實質內容」，這是能在不牴觸語意的前提下
+        # 擋掉掏空的最強條件。剩下的「內容改對了嗎」屬人類 review 範圍，不是機械 gate。
+        for scenario, deployed_body in deployed[req].items():
+            if not deployed_body:
+                continue
+            assert len(delta_scenarios[scenario]) >= 20, (
+                f"{delta_path}：MODIFIED '{req}' 的 scenario '{scenario}' 標題抄了但內文"
+                f"幾乎是空的（{len(delta_scenarios[scenario])} 字元）。archive 會用 delta 的"
+                "內容整段取代已部署版本，掏空等同刪除。"
+            )

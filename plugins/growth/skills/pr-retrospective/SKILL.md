@@ -444,11 +444,20 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 >
 > 三條出口整理如下，**每條都必須落到一個明確狀態**，不得留在 reassess 中繼態：
 >
-> | 重評結論 | 動作 | 終止狀態 |
-> |---|---|---|
-> | 仍為 Tier 3 | 再跑 `--park` | parked（recurrence 不變） |
-> | Tier 1/2 且 Promotion Gate 全過 | `lessons finalize --id` | active（同一列升級） |
-> | Tier 1/2 但 Promotion Gate 未過 | 再跑 `--park` | parked（recurrence 不變） |
+> | 重評結論 | 動作 | 終止狀態 | 可重試？ |
+> |---|---|---|---|
+> | 仍為 Tier 3 | 再跑 `--park` | parked（recurrence 不變） | **否**——見下方 |
+> | Tier 1/2 且 Promotion Gate 全過 | `lessons finalize --id` | active（同一列升級） | 是（冪等） |
+> | Tier 1/2 但 Promotion Gate 未過 | 再跑 `--park` | parked（recurrence 不變） | **否**——見下方 |
+>
+> **`--park` 這兩條出口不可重試**：`--park` 分不出「重試同一次 occurrence」與「這是新的一次
+> occurrence」，所以對**已經 re-park 的列**再跑一次同樣的 call，會走 `if "parked" in tags`
+> 分支——recurrence 2→3、拿掉 `parked`、狀態翻回 reassess，那筆孤兒又重新進 tier promotion。
+> 這與本 runbook 對失敗的通用指示（「停止並輸出完整 script 讓使用者手動重跑」）相衝突：
+> **re-park 失敗時不要盲目重跑整個 script**，先用 `mycelium lessons show --include-parked`
+> 確認該列目前是 parked 還是 reassess，再決定要不要補跑。
+> （`finalize` 沒有這個問題——它是 compare-and-set，重跑是 no-op。
+> PR #347 Round 2 code-reviewer 以四次連續呼叫實證這個奇偶震盪。）
 >
 > **與下方三道 gate 的關係**：Evidence Gate 問「這宣稱是真的嗎」；Promotion Gate 問「該不該寫進 rule
 > 檔」、Classifier 問「寫到哪個檔」、Patch-Surface Ladder 問「改動面多大」。先驗真偽（Tier 1/2 帶證據

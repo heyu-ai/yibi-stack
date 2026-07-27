@@ -198,7 +198,9 @@ def test_workflow_argv_is_accepted_by_the_scripts_own_parser():
     # 逐一釘住「哪個 SHA 餵給哪個 flag」。只驗「有兩個 flag、值是某個 token」擋不住把
     # `--base` 換成 head 側——那會讓 range 變成 `head...head` 而 gate 恆綠。
     pr_key = "github.event_name == 'pull_request'"
-    push_key = next(k for k in seen if k.startswith("github.event_name == 'push'"))
+    assert pr_key in seen, f"找不到 pull_request step 的 if: 條件，實際：{sorted(seen)}"
+    push_key = next((k for k in seen if k.startswith("github.event_name == 'push'")), None)
+    assert push_key is not None, f"找不到 push step 的 if: 條件，實際：{sorted(seen)}"
     assert seen[pr_key] == (
         "EXPR:github.event.pull_request.base.sha EXPR:github.event.pull_request.head.sha"
     ), f"PR step 的 base/head 表達式配對錯誤：{seen[pr_key]}"

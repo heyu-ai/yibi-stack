@@ -458,6 +458,36 @@ class TestReassessHandoff:
         assert row is not None
         assert row["confidence"] == 9, "被拒絕時不得有部分更新"
 
+    @pytest.mark.parametrize(
+        ("park_source", "final_source", "expected_trusted"),
+        [
+            ("observed", "user-stated", True),
+            ("user-stated", "inferred", False),
+        ],
+    )
+    def test_lsn_park_dt_010_finalize_keeps_trusted_derived_from_source(
+        self, tmp_path: Path, park_source: str, final_source: str, expected_trusted: bool
+    ):
+        """LSN-PARK-DT-010: finalize 改寫 source 時必須同步重算 trusted
+
+        `trusted` 是 `source` 的衍生不變量（`models.py` 的 `_set_trusted`）。finalize 是唯一
+        在 `LessonRecord` 之外寫 `source` 的路徑，漏掉重算會讓兩者去同步，**雙向**都有後果：
+        user-stated 但 trusted=False 會在 cross-project recall 中隱形；inferred 但
+        trusted=True 會被當成可信送給其他 project。兩個方向都要鎖——只鎖一邊等於只證明一半。
+        （PR #347 Round 2：test-analyzer 雙向實證。）
+        """
+        db_path = tmp_path / "lessons.db"
+        park_lesson(_lesson(source=park_source), db_path=db_path)
+        rid = str(park_lesson(_lesson(source=park_source), db_path=db_path)["id"])
+
+        result = finalize_reassessed_lesson(rid, confidence=8, source=final_source, db_path=db_path)
+
+        assert result["lesson"]["source"] == final_source
+        assert bool(result["lesson"]["trusted"]) is expected_trusted, (
+            f"source={final_source} 時 trusted 應為 {expected_trusted}——"
+            "trusted 與 source 去同步會影響 cross-project recall"
+        )
+
     def test_lsn_park_st_008_repark_is_the_exit_when_promotion_gate_fails(self, tmp_path: Path):
         """LSN-PARK-ST-008: 重評過 Tier 1/2 但 Promotion Gate 未過時，re-park 是終止轉移
 

@@ -17,6 +17,7 @@ from .models import (
     HandoverEvent,
     HandoverRecord,
     LessonRecord,
+    LessonSource,
     RetrospectiveRecord,
     SessionType,
 )
@@ -717,7 +718,7 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
                     status = "reassess" if recurrence >= 2 else "parked"
                     if status == "parked":
                         tags.append("parked")
-                elif recurrence >= 2 and int(existing.get("confidence", 0)) <= 4:
+                elif recurrence >= 2 and int(existing["confidence"]) <= 4:
                     # recurrence 已解除 park、但**尚未** finalize（confidence 仍是 Tier 3 水位）：
                     # 重評仍為 Tier 3 時重套 parked，不再把同一 occurrence bump。
                     #
@@ -819,25 +820,35 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
             # 可以放行：**冪等重試**——既有值與本次請求完全相同，寫下去是 no-op。
             # 其他情況一律拒絕，否則 finalize 會變成「改寫已升級 lesson 的 confidence」的後門。
             already_finalized = (
-                int(existing.get("confidence", 0)) == confidence
+                int(existing["confidence"]) == confidence
                 and existing.get("source") == source
                 and (insight is None or existing.get("insight") == insight)
             )
-            if int(existing.get("confidence", 0)) > 4 and not already_finalized:
+            if int(existing["confidence"]) > 4 and not already_finalized:
                 raise RuntimeError(
                     f"finalize 失敗：id={lesson_id} 的 confidence 已 > 4 且與本次請求不符，"
                     "它不是待重評的 Tier 3 列——拒絕覆寫已升級的 lesson"
                 )
 
+            # `trusted` 是 `source` 的**衍生不變量**（`models.py` 的 `_set_trusted`：
+            # `trusted = (source == user-stated)`），所有其他寫入路徑都經過 `LessonRecord`
+            # 而自動維持它。這裡是唯一在 `LessonRecord` 之外寫 `source` 的地方，因此必須
+            # 自己重算——漏掉會讓兩者去同步，雙向都有實際後果：
+            #   - user-stated 但 trusted=False → 該教訓在 cross-project recall 中隱形
+            #     （`query_lessons_typed` 對 `cross_project=True` 會強制 `trusted = 1`）
+            #   - inferred 但 trusted=True → 未驗證的教訓被當成可信送給其他 project
+            # 兩者都 exit 0、無警告。（PR #347 Round 2：test-analyzer 雙向實證。）
+            trusted = int(source == LessonSource.user_stated.value)
             if insight is None:
                 self.conn.execute(
-                    "UPDATE lessons SET confidence = ?, source = ? WHERE id = ?",
-                    (confidence, source, lesson_id),
+                    "UPDATE lessons SET confidence = ?, source = ?, trusted = ? WHERE id = ?",
+                    (confidence, source, trusted, lesson_id),
                 )
             else:
                 self.conn.execute(
-                    "UPDATE lessons SET confidence = ?, source = ?, insight = ? WHERE id = ?",
-                    (confidence, source, insight, lesson_id),
+                    "UPDATE lessons SET confidence = ?, source = ?, trusted = ?, insight = ? "
+                    "WHERE id = ?",
+                    (confidence, source, trusted, insight, lesson_id),
                 )
 
             saved = self.conn.execute("SELECT * FROM lessons WHERE id = ?", (lesson_id,)).fetchone()

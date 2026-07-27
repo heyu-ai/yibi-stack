@@ -239,13 +239,17 @@ class TestNightlyExcludesParkedAndRetired:
         assert len(result) == 1
 
     def test_nightly_dt_012_read_path_stays_read_only(self, tmp_path: Path) -> None:
-        """NIGHTLY-DT-012: 新增的排除查詢不得把讀取路徑變成寫入路徑
+        """NIGHTLY-DT-012: 讀取路徑不得留下**已 commit** 的 schema 或資料變更
 
-        **同時快照 schema 與資料**。初版只比對 `sqlite_master.sql`（即 DDL），能抓 rule 07
-        點名的 `ALTER TABLE` 自我 migration（PR #210 的原始迴歸），但抓不到任何 data 寫入
-        ——在 `_excluded_lesson_ids` 內插一句 `UPDATE lessons SET confidence = 1` 時三條測試
-        全綠。docstring 宣稱的性質比測試涵蓋的面大，是一條沒有資訊量的斷言。
-        （PR #347 re-review 以 mutation 實證。）
+        涵蓋面精確描述（不要放大）：本測試前後快照 schema 與資料列，因此抓得到
+        `ALTER TABLE`（rule 07 點名的自我 migration，PR #210 的原始迴歸）與已 commit 的
+        `UPDATE` / `INSERT` / `DELETE`。**未 commit 的寫入嘗試不在本測試涵蓋內**——讀取路徑
+        不 commit，這類寫入會在連線關閉時回滾，快照自然看不到。
+
+        這一段曾經寫成「插一句 `UPDATE lessons SET confidence = 1` 就會被抓到」，
+        re-review 逐字照做後發現該 mutation **仍然存活**（不加 `conn.commit()` 就被回滾）
+        ——docstring 宣稱的涵蓋面大於實際做到的，正是本 PR 一路在治的同一種病。
+        未 commit 的那一面由下一條 `DT-013` 以 `PRAGMA query_only` 覆蓋。
         """
         db_path = make_db_with_parked_and_retired(tmp_path)
 
@@ -272,6 +276,80 @@ class TestNightlyExcludesParkedAndRetired:
         after = snapshot()
         assert after[0] == before[0], "讀取路徑改動了 schema"
         assert after[1] == before[1], "讀取路徑改動了資料列"
+
+    def test_nightly_dt_013_read_path_survives_a_query_only_connection(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """NIGHTLY-DT-013: 讀取路徑在 `PRAGMA query_only` 下必須完全不嘗試寫入
+
+        補上 DT-012 抓不到的那一面：**未 commit** 的寫入嘗試。`query_only` 讓任何寫入直接
+        raise，因此連「寫了但被回滾」都會被抓到。rule 07 點名的真正危害（read-only mount、
+        被並行 writer 鎖住的 DB）恰恰在寫入被回滾時也會發生，所以這一面必須有覆蓋。
+        """
+        make_db_with_parked_and_retired(tmp_path)
+
+        real_connect = sqlite3.connect
+
+        def query_only_connect(database: str) -> sqlite3.Connection:
+            conn = real_connect(database)
+            conn.execute("PRAGMA query_only = ON")
+            return conn
+
+        monkeypatch.setattr(sqlite3, "connect", query_only_connect)
+
+        errors: list[str] = []
+        with patch(f"{CLI}.Path.home", return_value=tmp_path):
+            result = _load_mycelium_lessons(24, ["pitfall"], errors)
+
+        assert errors == [], f"唯讀連線下讀取路徑嘗試了寫入：{errors}"
+        assert [r["id"] for r in result] == ["active"]
+
+    def test_nightly_dt_014_integer_ids_are_normalized_before_exclusion(
+        self, tmp_path: Path
+    ) -> None:
+        """NIGHTLY-DT-014: id 以 INTEGER 寫入時，parked 過濾仍生效
+
+        SQLite 無強型別，任何以 int 寫入 `lessons.id` 的來源會讓 `"5" != 5`——排除集合是
+        `str`，比對端若不轉型就靜默漏過，parked 教訓回到 nightly 管線。兩端都 `str()` 的
+        那行改動在此之前零測試涵蓋（re-review 實證：改回不轉型仍全綠）。
+        """
+        db_dir = tmp_path / ".agents" / "handover"
+        db_dir.mkdir(parents=True)
+        conn = sqlite3.connect(str(db_dir / "handover.db"))
+        conn.execute(
+            "CREATE TABLE lessons ("
+            "id, ts TEXT NOT NULL, project TEXT NOT NULL, type TEXT NOT NULL, "
+            "key TEXT NOT NULL, insight TEXT NOT NULL, confidence INTEGER NOT NULL, "
+            "source TEXT NOT NULL, handover_id TEXT, retrospective_id TEXT, "
+            "tags TEXT NOT NULL DEFAULT '[]', retired_at TEXT)"
+        )
+        for lesson_id, tags in [(5, '["parked", "recurrence-1"]'), (6, "[]")]:
+            conn.execute(
+                "INSERT INTO lessons "
+                "(id, ts, project, type, key, insight, confidence, source, tags) "
+                "VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    lesson_id,
+                    "yibi-stack",
+                    "pitfall",
+                    f"k{lesson_id}",
+                    "insight",
+                    5,
+                    "observed",
+                    tags,
+                ),
+            )
+        conn.commit()
+        conn.close()
+
+        errors: list[str] = []
+        with patch(f"{CLI}.Path.home", return_value=tmp_path):
+            result = _load_mycelium_lessons(24, ["pitfall"], errors)
+
+        assert errors == []
+        assert [str(r["id"]) for r in result] == ["6"], (
+            "INTEGER id 的 parked 教訓漏過過濾——排除集合是 str，比對端未轉型"
+        )
 
 
 class TestFailureSignal:

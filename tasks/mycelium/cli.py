@@ -1199,7 +1199,16 @@ def lessons_retire(lesson_id: str, reason: str, superseded_by: str | None) -> No
     type=click.IntRange(5, 10),
     help="重評後的信心度（5-10；Tier 3 水位是 ≤ 4，那種情況請改用 `lessons add --park`）",
 )
-@click.option("--source", required=True, help="observed / user-stated / inferred / cross-model")
+@click.option(
+    "--source",
+    required=True,
+    # `click.Choice` 而非裸字串：裸字串會一路穿到 table 的 `CHECK(source IN (...))`，
+    # 而 CLI 只 catch (ValueError, RuntimeError)，`sqlite3.IntegrityError` 會逃逸成
+    # traceback。同 repo 對列舉值一律用 Choice（rule 08），`lessons add` 走 Pydantic 也給
+    # 乾淨訊息。（PR #347 Round 2）
+    type=click.Choice(["observed", "user-stated", "inferred", "cross-model"]),
+    help="教訓來源（與 confidence 依據一致）",
+)
 @click.option("--insight", default=None, help="可選：更新教訓內文；省略則逐字保留原文")
 def lessons_finalize(lesson_id: str, confidence: int, source: str, insight: str | None) -> None:
     """重評通過 Tier 1/2 後，把已解除 park 的教訓原地升級為 active。
