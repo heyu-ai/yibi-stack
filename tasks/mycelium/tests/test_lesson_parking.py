@@ -368,9 +368,11 @@ class TestReassessHandoff:
         db_path = tmp_path / "lessons.db"
         added = add_lesson(_lesson(confidence=9, source="cross-model"), db_path=db_path)
 
-        with pytest.raises(RuntimeError, match="沒有 recurrence tag"):
+        # confidence 用**合法**的 8：否則會先被 service 的 5-10 下限擋掉，這條就變成在測
+        # 下限而不是在測 CAS——測試因錯的理由變綠/變紅都是假驗證。
+        with pytest.raises(RuntimeError, match="recurrence ≥ 2"):
             finalize_reassessed_lesson(
-                str(added["id"]), confidence=2, source="inferred", db_path=db_path
+                str(added["id"]), confidence=8, source="cross-model", db_path=db_path
             )
 
         db = AgentsDB(db_path=db_path)
@@ -404,6 +406,57 @@ class TestReassessHandoff:
         assert row is not None
         assert row["confidence"] == 8, "已 finalize 的 lesson 被夾成 Tier 3 信心度"
         assert "parked" not in row["tags"], "已 finalize 的 lesson 被重新掛上 parked"
+
+    def test_lsn_park_vl_002_finalize_rejects_tier_three_confidence(self, tmp_path: Path):
+        """LSN-PARK-VL-002: finalize 的 confidence 必須 ≥ 5，不得讓 Tier 3 直接轉 active
+
+        `confidence ≤ 4` 就是 Tier 3 的水位定義。允許 1–4 會讓一筆仍屬 Tier 3 的教訓完全
+        不經過 park 就進入一般 recall 與 tier promotion——Evidence Gate 要防的正是這件事。
+        （PR #347 Round 2：Codex 提出，lead 實證重現 confidence=2 的 finalize 進了 promotion。）
+        """
+        db_path = tmp_path / "lessons.db"
+        park_lesson(_lesson(), db_path=db_path)
+        rid = str(park_lesson(_lesson(), db_path=db_path)["id"])
+
+        with pytest.raises(ValueError, match="5 到 10"):
+            finalize_reassessed_lesson(rid, confidence=2, source="inferred", db_path=db_path)
+
+    def test_lsn_park_dt_009_finalize_requires_proof_of_a_second_park(self, tmp_path: Path):
+        """LSN-PARK-DT-009: 只帶 recurrence tag 不足以通過 CAS，必須是 recurrence ≥ 2
+
+        `startswith("recurrence-")` 太鬆：`recurrence-1`、格式壞掉的 tag、甚至外部
+        `add_lesson({... "tags": ["recurrence-2"]})` 造出的普通 active lesson 都會通過，
+        finalize 就變成「可任意改寫他人 lesson confidence」的後門。
+        （PR #347 Round 2：Codex 提出，lead 實證重現——confidence 9 的 active lesson 被改成 1。）
+        """
+        db_path = tmp_path / "lessons.db"
+
+        # (a) 偽造 recurrence-2 的普通 active lesson：confidence 已 > 4，必須被擋
+        forged = add_lesson(
+            _lesson(key="forged", confidence=9, source="cross-model", tags=["recurrence-2"]),
+            db_path=db_path,
+        )
+        with pytest.raises(RuntimeError, match="confidence 已 > 4"):
+            finalize_reassessed_lesson(
+                str(forged["id"]), confidence=8, source="cross-model", db_path=db_path
+            )
+
+        # (b) recurrence 只有 1（從未走到第二次 park）：必須被擋
+        only_once = add_lesson(
+            _lesson(key="once", confidence=4, source="inferred", tags=["recurrence-1"]),
+            db_path=db_path,
+        )
+        with pytest.raises(RuntimeError, match="recurrence ≥ 2"):
+            finalize_reassessed_lesson(
+                str(only_once["id"]), confidence=8, source="cross-model", db_path=db_path
+            )
+
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        row = db.get_lesson(str(forged["id"]))
+        db.close()
+        assert row is not None
+        assert row["confidence"] == 9, "被拒絕時不得有部分更新"
 
     def test_lsn_park_st_008_repark_is_the_exit_when_promotion_gate_fails(self, tmp_path: Path):
         """LSN-PARK-ST-008: 重評過 Tier 1/2 但 Promotion Gate 未過時，re-park 是終止轉移

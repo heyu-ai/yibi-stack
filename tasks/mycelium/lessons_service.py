@@ -76,8 +76,15 @@ def finalize_reassessed_lesson(
     """
     from .db import AgentsDB
 
-    if confidence < 1 or confidence > 10:
-        raise ValueError("confidence 必須介於 1 到 10")
+    # 下限是 5 而非 1：finalize 的語意是「重評通過 Tier 1/2」，而 Tier 3 的水位定義就是
+    # `confidence ≤ 4`。允許 1–4 會讓一筆仍屬 Tier 3 的教訓直接轉成 active、進入一般 recall
+    # 與 tier promotion 而完全不經過 park——正是 Evidence Gate 要防的事。重評結論若仍是
+    # Tier 3，正確出口是再跑一次 `--park`（見 SKILL.md 的三條出口表）。
+    # （PR #347 Round 2：Codex 提出，lead 實證重現 confidence=2 的 finalize 進了 promotion。）
+    if confidence < 5 or confidence > 10:
+        raise ValueError(
+            "finalize 的 confidence 必須介於 5 到 10（Tier 3 請改用 --park 重新 park）"
+        )
 
     db = AgentsDB(db_path=db_path)
     try:

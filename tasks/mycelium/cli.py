@@ -1193,7 +1193,12 @@ def lessons_retire(lesson_id: str, reason: str, superseded_by: str | None) -> No
 
 @lessons.command("finalize")
 @click.option("--id", "lesson_id", required=True, help="park 輸出的 lesson id（uuid，精確比對）")
-@click.option("--confidence", required=True, type=click.IntRange(1, 10), help="重評後的信心度")
+@click.option(
+    "--confidence",
+    required=True,
+    type=click.IntRange(5, 10),
+    help="重評後的信心度（5-10；Tier 3 水位是 ≤ 4，那種情況請改用 `lessons add --park`）",
+)
 @click.option("--source", required=True, help="observed / user-stated / inferred / cross-model")
 @click.option("--insight", default=None, help="可選：更新教訓內文；省略則逐字保留原文")
 def lessons_finalize(lesson_id: str, confidence: int, source: str, insight: str | None) -> None:

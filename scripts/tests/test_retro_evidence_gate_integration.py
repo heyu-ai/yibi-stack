@@ -98,11 +98,6 @@ def _argv_from_run(run: str) -> list[str]:
     return tokens[idx + 1 :]
 
 
-def _flag_map(argv: list[str]) -> dict[str, str]:
-    """把 `["--base", "X", "--head", "Y"]` 轉成 `{"--base": "X", "--head": "Y"}`。"""
-    return {argv[i]: argv[i + 1] for i in range(0, len(argv) - 1, 2)}
-
-
 def test_runbook_defers_typed_lesson_mutation_until_after_evidence_gate():
     skill = _read("plugins/pr-flow/skills/pr-retrospective/SKILL.md")
 

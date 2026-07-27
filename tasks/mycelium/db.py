@@ -796,10 +796,37 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
                 raise RuntimeError(
                     f"finalize 失敗：id={lesson_id} 仍為 parked，尚未因 recurrence 解除 park"
                 )
-            if not any(t.startswith("recurrence-") for t in tags):
+            # CAS 前提必須**證明**這一列走過「第二次 park 而解除 park」，不能只證明它帶了
+            # 某個 recurrence tag。`startswith` 太鬆：`recurrence-1`、格式壞掉的 tag、
+            # 甚至外部呼叫 `add_lesson({... "tags": ["recurrence-2"]})` 造出的普通 active
+            # lesson 都會通過，於是 finalize 變成「可以任意改寫他人 lesson 的 confidence」
+            # 的後門。（PR #347 Round 2：Codex 提出，lead 實證重現——一筆 confidence 9 的
+            # active lesson 被 finalize 成 1。）
+            recurrences: list[int] = []
+            for tag in tags:
+                if not tag.startswith("recurrence-"):
+                    continue
+                try:
+                    recurrences.append(int(tag.removeprefix("recurrence-")))
+                except ValueError:
+                    continue
+            if max(recurrences, default=0) < 2:
                 raise RuntimeError(
-                    f"finalize 失敗：id={lesson_id} 沒有 recurrence tag，"
-                    "不是等待重評的 lesson——拒絕改動任意 active lesson"
+                    f"finalize 失敗：id={lesson_id} 沒有 recurrence ≥ 2 的 tag，"
+                    "無法證明它經過第二次 park 而解除 park——拒絕改動任意 active lesson"
+                )
+            # 待重評的列 confidence 必然 ≤ 4。已 > 4 代表它早就升級過了，此時只有一種情況
+            # 可以放行：**冪等重試**——既有值與本次請求完全相同，寫下去是 no-op。
+            # 其他情況一律拒絕，否則 finalize 會變成「改寫已升級 lesson 的 confidence」的後門。
+            already_finalized = (
+                int(existing.get("confidence", 0)) == confidence
+                and existing.get("source") == source
+                and (insight is None or existing.get("insight") == insight)
+            )
+            if int(existing.get("confidence", 0)) > 4 and not already_finalized:
+                raise RuntimeError(
+                    f"finalize 失敗：id={lesson_id} 的 confidence 已 > 4 且與本次請求不符，"
+                    "它不是待重評的 Tier 3 列——拒絕覆寫已升級的 lesson"
                 )
 
             if insight is None:
