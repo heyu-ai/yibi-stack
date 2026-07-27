@@ -9,14 +9,14 @@ These skills require the yibi-stack repository to be cloned and `make install` t
 Plugin install provides the skill runbooks and slash commands only.
 
 ```bash
-git clone https://github.com/howie/yibi-stack && cd yibi-stack && make install
+git clone https://github.com/heyu-ai/yibi-stack && cd yibi-stack && make install
 ```
 
 ## Install
 
 ```bash
 # Register marketplace (one-time)
-claude plugin marketplace add howie/yibi-stack
+claude plugin marketplace add heyu-ai/yibi-stack
 
 # Install plugin
 claude plugin install growth@yibi-stack

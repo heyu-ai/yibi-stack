@@ -17,7 +17,7 @@ git clone https://github.com/heyu-ai/yibi-stack && cd yibi-stack && make install
 
 ```bash
 # Register marketplace (one-time)
-claude plugin marketplace add howie/yibi-stack
+claude plugin marketplace add heyu-ai/yibi-stack
 
 # Install plugin
 claude plugin install dev-cycle@yibi-stack

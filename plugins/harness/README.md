@@ -10,14 +10,14 @@ logging, and worktree push protection.
 Plugin install provides the skill runbooks, slash command, and enforcement hooks.
 
 ```bash
-git clone https://github.com/howie/yibi-stack && cd yibi-stack && make install
+git clone https://github.com/heyu-ai/yibi-stack && cd yibi-stack && make install
 ```
 
 ## Install
 
 ```bash
 # Register marketplace (one-time)
-claude plugin marketplace add howie/yibi-stack
+claude plugin marketplace add heyu-ai/yibi-stack
 
 # Install plugin
 claude plugin install harness@yibi-stack

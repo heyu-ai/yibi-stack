@@ -31,7 +31,7 @@ name at runtime. Projects that use those steps need `methodology@yibi-stack` ins
 
 ```bash
 # Register marketplace (one-time)
-claude plugin marketplace add howie/yibi-stack
+claude plugin marketplace add heyu-ai/yibi-stack
 
 # Install plugin
 claude plugin install sdd@yibi-stack

@@ -18,7 +18,7 @@
 Global skill 已依主題分組為 plugin pack，可透過 Claude Code marketplace 選擇性安裝：
 
 ```bash
-claude plugin marketplace add howie/yibi-stack  # 一次性註冊
+claude plugin marketplace add heyu-ai/yibi-stack  # 一次性註冊
 
 claude plugin install growth@yibi-stack          # mycelium + learn + PR 回顧/審計 + CLAUDE.md 精簡
 claude plugin install dev-cycle@yibi-stack       # PR 全流程 + newjob/handover + port/debug + ci-triage

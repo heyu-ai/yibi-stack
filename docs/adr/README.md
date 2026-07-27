@@ -11,6 +11,7 @@
 | [0003](0003-gwscli-go-gmail-cli-design.md) | gwscli — Go Native Gmail CLI 設計 | accepted | 2026-04-14 |
 | [0004](0004-plugin-primary-packaging.md) | Plugin-Primary 交付 — 把 tasks/* 做成可安裝的 CLI distribution | accepted | 2026-07-14 |
 | [0005](0005-skill-compat-gate-capability-not-version.md) | Skill 相容性閘門用能力探測，不用 semver 版本字串比對 | proposed | 2026-07-18 |
+| [0006](0006-plugin-pack-taxonomy.md) | Plugin Pack 分類軸 — 流程 / 知識 / 方法論 / 環境品質 | proposed | 2026-07-27 |
 
 ## ADR 修訂慣例
 

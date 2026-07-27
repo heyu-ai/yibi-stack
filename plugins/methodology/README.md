@@ -6,7 +6,7 @@ Portable, project-agnostic methodology skills for Claude Code agents.
 
 ```bash
 # Register marketplace (one-time)
-claude plugin marketplace add howie/yibi-stack
+claude plugin marketplace add heyu-ai/yibi-stack
 
 # Install plugin
 claude plugin install methodology@yibi-stack
