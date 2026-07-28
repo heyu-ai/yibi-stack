@@ -604,9 +604,19 @@ absent evidence never activate R2.
 
 - Candidate blocking set empty **and** no blocking dispute → report
   `R2 skipped: no contract-blocking candidate or dispute`, skip Step 4, and aggregate R1 in Step 5.
-- At least one candidate blocker **or** blocking dispute → run Step 4 for all active voices.
+- Candidate blockers exist、**無 blocking dispute**、且 lead 承諾**全數照原評級採納並修復**
+  （不對任何一項辯論降級、不提出任何 DISAGREE）→ 得跳過 Step 4，回報
+  `R2 skipped: lead adopts all blockers`，並在 final.md 逐項記錄 disposition。理由：R2 的
+  功能是仲裁爭議與校準嚴重度；當處置已是辯論結果的超集（全部照單修復），跑 R2 唯一可能的
+  產出是降級已被接受的工作。**採納 ≠ 免驗證**：單一 voice 的 Critical 仍須依 Step 5
+  Evidence gate 由 lead 復現——openspectra PR #102 的實測反例：一個 Critical 經復現不成立，
+  沒有這道驗證「照單全收」會修一個不存在的缺陷。任何一項 lead 想降級、不修、或對
+  mapping / severity 有異議 → 本出口失效，照常跑 R2。
+- At least one candidate blocker the lead does **not** adopt as-graded, **or** any blocking
+  dispute → run Step 4 for all active voices.
 
 This gate applies on the initial review and every bounded re-review pass.
+（第二個出口來自 openspectra #100-#104 批次的實戰回饋，見 issue #361。）
 
 ---
 
@@ -1225,7 +1235,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Round 2 ends with unresolved blocking findings | Trigger circuit breaker; hand remaining findings to user with the three-option decision (no third round) |
 | User chooses to ignore a disputed finding | Add a Known Issues section to the PR description with the reason |
 | User raises new concern during human quick pass | Reviewer lead (Claude main) responds immediately; unresolvable → return to Step 6; resolved → wait for user "ship" |
-| When does R2 run? | All active voices always run independent R1. Run R2 only when Step 3.4 finds a candidate blocker or blocking dispute; a clean R1 reports the required skip message and aggregates directly. |
+| When does R2 run? | All active voices always run independent R1. Run R2 only when Step 3.4 finds a candidate blocker the lead does not adopt as-graded, or a blocking dispute. Two legal skips: a clean R1 (`R2 skipped: no contract-blocking candidate or dispute`), and lead-adopts-all (`R2 skipped: lead adopts all blockers` — 採納 ≠ 免驗證，Evidence gate 照跑). |
 | Linter / type-check fails | `ruff check --fix` / `eslint --fix` / `mypy follow_imports = skip` etc. |
 | Security scanner fails | bandit `# nosec BXXX` etc. ignore comments; explain reason in PR |
 | spectra archive validation fails | `spectra analyze {{change_name}}`; fix then archive; `--no-validate` requires explicit user instruction |
