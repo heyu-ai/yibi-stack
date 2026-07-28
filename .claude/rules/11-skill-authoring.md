@@ -187,6 +187,22 @@ of the round-4 fix, hours later*. Fixing a bug creates new code, and new code is
 bug goes next. Concretely, for a gate: every new `if cmd; then check; fi` needs "what happens
 when `cmd` fails?", and every new path comparison needs "what if the input is *under* this path?"
 
+**A third occurrence, one level removed: two functions that share an invariant, fixed one at a
+time.** The bug above is the *same* defect shape reappearing in new code. The variant is a
+*different* defect shape appearing in a function you did not touch, because the fix broke an
+invariant that function silently depended on. Three consecutive mob-review rounds (R1+R2,
+re-review R1, re-review R2) each opened with "the most important finding is one the previous
+round's own fix introduced" — every time in the same seam: `park_lesson()` and
+`finalize_reassessed_lesson()` shared an implicit contract (the `confidence` watermark that marks
+"still Tier 3", the meaning of a `recurrence-<n>` tag, `trusted` as a derived function of
+`source`), and each round's fix satisfied its own function's half of the contract while silently
+breaking the other function's assumption about it. Reading the diff of either function in
+isolation looked correct every time. The mitigation is not "read more carefully" — it is
+structural: **when editing one side of a two-function seam a second time, enumerate every
+invariant the *other* function assumes about the data this function writes, and check each one
+explicitly**, rather than re-verifying only the line you just changed. (Source: PR #347 —
+`park_lesson()` / `finalize_reassessed_lesson()`, `tasks/mycelium/db.py`.)
+
 **The documented residual is a claim too, and it decays with each fix.** State the limit
 explicitly — but re-probe it every time the predicate changes, because a stale residual note is
 worse than none: it tells the next reader (and reviewer) that a hole is known and accepted when
