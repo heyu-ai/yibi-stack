@@ -343,8 +343,9 @@ class TestReadListDriftGuard:
         from tasks.mycelium.cli import lessons
 
         # 不注入 --project 的子命令：讀取（保留全部 project 語意）或 id-targeted
-        # （delete / retire 以精確 --id 操作，CLI 不定義 --project；注入會讓 click exit 2）。
-        known_no_inject = {"show", "search", "delete", "retire"}
+        # （delete / retire / finalize 以精確 --id 操作，CLI 不定義 --project；
+        # 注入會讓 click exit 2）。
+        known_no_inject = {"show", "search", "delete", "retire", "finalize"}
         # 注入 cwd project 的寫入子命令。
         known_write = {"add"}
         unclassified = set(lessons.commands) - known_no_inject - known_write

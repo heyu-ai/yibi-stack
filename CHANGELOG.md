@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.0] - 2026-07-27
+
+### Added
+
+- Tier 3 lesson park 的可執行流程：`mycelium lessons add --park`（原子 park / recurrence
+  bump / recurrence ≥ 2 解除 park 重評）、`lessons finalize --id`（重評通過 Tier 1/2 後
+  原地升級為 active，compare-and-set 且冪等）、`lessons show|search --include-parked` (#347)
+- evidence lint 的 CI range mode：`--base`/`--head` 以三點 `base...head` 讀 PR / push
+  的實際 commit range。先前 workflow 已接上呼叫端但腳本沒有這個介面，CI 直接 exit 2 (#347)
+
+### Fixed
+
+- parked lesson 於四個消費面一致排除：`show` / `search` 兩條 recall 路徑、tier promotion
+  的升級與降級兩條分支、以及 `nightly_agent` 繞過 service 的直接 SQL 讀取——最後一個會讓
+  被 park 的教訓當晚從側門重回 rule 生成管線（同一 query 也一併補上遺漏的 retired 過濾）(#347)
+- `finalize` 不再讓 `trusted` 與 `source` 去同步。`trusted` 是 `source` 的衍生不變量，
+  去同步會使 user-stated 教訓在 cross-project recall 中隱形、或讓 inferred 教訓被當成可信
+  送給其他 project (#347)
+- CI contract test 改為解析 YAML 並綁到實際的 job / step / argv：`fetch-depth: 0` 綁 gate
+  job 的 checkout、`if:` 條件完全比對、逐一釘住哪個 SHA 餵給哪個 flag。先前皆為字串比對，
+  三個會造成假綠的改動（step 永久 skip、range 退化成 `head...head`、`--base=` 等號形式）
+  都能通過 (#347)
+- `spectra archive` 的 MODIFIED delta 若漏抄已部署 scenario 會靜默刪除它們，
+  `spectra validate` 與 archive 本身都不報錯；新增 `test_spec_delta_completeness.py` 擋住 (#347)
+
 ## [1.16.0] - 2026-07-27
 
 ### Changed
