@@ -55,7 +55,7 @@ dry-run（預設）：
 [SKIP] /Users/x/.claude/plugins/cache/yibi-stack/pr-flow/1.11.0 -- 掃描後已被重新釘選，跳過
 
 實際刪除 139 個目錄，回收約 46.5 MB
-另有 1 個目錄因刪除前重新確認而跳過
+另有 1 個目錄在刪除前確認為已重新釘選而跳過
 ```
 
 **預設為 dry-run，不會自動刪除任何檔案**——必須明確加上 `--apply` 才會實際執行刪除。
@@ -75,6 +75,12 @@ dry-run（預設）：
   `[SKIP]`，不會依舊快照刪除。
 - **不跟隨 symlink**。marketplace／plugin／version 三層皆拒絕 symlink，並斷言每個刪除
   候選解析後仍位於 cache root 內，避免刪到 cache 之外的真實目錄；被排除者以 `[SKIP]` 回報。
+- **近期有異動的目錄一律不碰**。安裝流程會先建立並填充版本目錄、之後才把 `installPath`
+  寫進 `installed_plugins.json`；在那段窗口內該目錄在**任何一次重讀**下都長得像孤兒，
+  重新確認也分辨不出來。因此再加一道時間門檻：mtime 在 300 秒內的未參照目錄視為
+  「可能正在安裝」，跳過並留到下次執行。門檻取 300 秒有量測依據——實測機器上 50 個版本
+  目錄中，5 分鐘內有異動的是 0 個、1 小時內是 21 個。讀不到 mtime 時同樣歸入「無法確認」
+  而跳過。
 - **先刪成功才回報**。`[REMOVE]` 只在 `rmtree` 成功後印出；單一目錄刪除失敗會記
   `[FAIL]` 並繼續處理其餘目錄，最後以非零退出碼結束，不會讓整批中斷在一半且不留摘要。
 
@@ -91,8 +97,9 @@ dry-run（預設）：
 |------|---------|
 | 執行後說找不到 `installed_plugins.json` | 確認你至少透過 `claude plugin install` 裝過一個 plugin；純 symlink 安裝（`make install`）不會產生這份檔案 |
 | dry-run 列出的目錄看起來是我還在用的版本 | 檢查 `~/.claude/plugins/installed_plugins.json` 裡對應 plugin 的 `installPath`；若版本不符，代表你可能需要先 `claude plugin update` 讓安裝清單指向新版本，而不是這個工具判斷錯誤 |
-| 想確認會刪多少空間但不想跑兩次 | 先跑不帶 `--apply` 的版本，確認清單與總量後再重跑一次帶 `--apply` 的版本；兩次都是完整重新掃描，結果一致 |
+| 想確認會刪多少空間但不想跑兩次 | 先跑不帶 `--apply` 的版本確認清單與總量，再重跑一次帶 `--apply` 的版本。兩次都是完整重新掃描，但**結果不保證一致**——期間若有 plugin 被安裝／更新，第二次的清單就會不同；`--apply` 一律以刪除當下的安裝清單為準，被重新釘選者以 `[SKIP]` 回報 |
 | `[FAIL] ... 可解析但推導不出任何 installPath` | 安裝清單存在但沒有任何有效安裝紀錄。這是刻意拒絕，不是誤判——此時每個版本目錄都會「看起來像」孤兒，照刪會清空整個 cache。若你確實要清空，請自行刪除 `~/.claude/plugins/cache/` |
 | `[FAIL] ... 有一筆安裝缺少 installPath` | 該筆安裝無法確認釘選哪個目錄，工具中止以免誤刪。先 `claude plugin update` 或重裝該 plugin 讓清單完整，再重跑 |
-| `[SKIP] ... symlink 或位於 cache root 之外` | cache 內有 symlink（例如本機 plugin 開發把 checkout 連進來）。工具刻意不跟隨，以免刪到 cache 之外的真實目錄；該目錄需自行處理 |
-| `--apply` 跑完退出碼非零 | 有目錄刪除失敗（權限、唯讀檔等），詳見 stderr 的 `[FAIL]` 行。其餘目錄仍已正常處理，摘要列出實際回收量 |
+| `[SKIP] ... symlink，不跟隨以免刪到 cache root 之外` | cache 內有 symlink（例如本機 plugin 開發把 checkout 連進來）。工具刻意不跟隨，以免刪到 cache 之外的真實目錄；該目錄需自行處理 |
+| `[SKIP] ... 可能是安裝中的目錄` | 該目錄 mtime 在 300 秒內。可能正好有 `claude plugin install/update`（含背景 autoUpdate）在寫入它。等幾分鐘後重跑即可；若確定沒有安裝在跑，該目錄下次執行就會被回收 |
+| `--apply` 跑完退出碼非零 | 兩種情況會回非零：有目錄刪除失敗（權限、唯讀檔等），或有目錄在刪除前**無法重新確認**安裝清單。兩者都在 stderr 留 `[FAIL]` 行。其餘目錄仍已正常處理，摘要列出實際回收量。「確認後發現已被重新釘選」屬良性結果，走 `[SKIP]` 且不影響退出碼 |

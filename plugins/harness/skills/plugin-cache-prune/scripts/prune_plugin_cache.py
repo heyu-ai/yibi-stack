@@ -27,9 +27,17 @@ import argparse
 import json
 import shutil
 import sys
+import time
 from pathlib import Path
 
 _MANIFEST_RELATIVE = (".claude", "plugins", "installed_plugins.json")
+
+# 安裝中的版本目錄會先被建立並填充，`installPath` 之後才寫進 installed_plugins.json。
+# 在那段窗口內，該目錄在任何一次重讀下都「長得像孤兒」——刪除前重新確認也分辨不出來。
+# 因此再加一道時間門檻：近期有異動的目錄一律不碰，留到下次執行再判斷。
+# 門檻取 300 秒有實測依據：本機 50 個版本目錄中，5 分鐘內有異動的是 0 個、
+# 1 小時內是 21 個，所以 300 秒足以覆蓋安裝窗口，又不會誤擋真正該回收的舊版本。
+_RECENT_ACTIVITY_SECONDS = 300
 
 
 def _manifest_path() -> Path:
@@ -103,22 +111,29 @@ def _is_within(path: Path, root: Path) -> bool:
 
 
 def _find_stale_dirs(cache_root: Path, active_paths: set[str]) -> tuple[list[Path], list[Path]]:
-    """回傳 (未被參照的版本目錄, 因 symlink／越界而跳過的路徑)。"""
+    """回傳 (未被參照的版本目錄, [(被跳過的路徑, 原因)])。
+
+    每個被排除的項目都帶明確原因並回報，不做靜默丟棄——使用者要能分辨
+    「這個目錄沒被列出」是因為它安全、還是因為工具不敢碰它。
+    """
     stale: list[Path] = []
-    skipped: list[Path] = []
+    skipped: list[tuple[Path, str]] = []
     if not cache_root.is_dir():
         return stale, skipped
 
     root_resolved = cache_root.resolve()
+    now = time.time()
 
     def _walk(parent: Path) -> list[Path]:
         children: list[Path] = []
         for child in sorted(parent.iterdir()):
             if child.is_symlink():
-                skipped.append(child)
+                skipped.append((child, "symlink，不跟隨以免刪到 cache root 之外"))
                 continue
-            if child.is_dir():
-                children.append(child)
+            if not child.is_dir():
+                skipped.append((child, "非目錄，不列入版本目錄候選"))
+                continue
+            children.append(child)
         return children
 
     for marketplace_dir in _walk(cache_root):
@@ -127,10 +142,24 @@ def _find_stale_dirs(cache_root: Path, active_paths: set[str]) -> tuple[list[Pat
                 resolved = version_dir.resolve()
                 if not _is_within(resolved, root_resolved):
                     # 三層 symlink 拒絕就位時理論上不可達；留作 belt-and-braces。
-                    skipped.append(version_dir)
+                    skipped.append((version_dir, "解析後位於 cache root 之外"))
                     continue
-                if str(resolved) not in active_paths:
-                    stale.append(version_dir)
+                if str(resolved) in active_paths:
+                    continue
+                try:
+                    age = now - version_dir.stat().st_mtime
+                except OSError as e:
+                    skipped.append((version_dir, f"無法讀取 mtime（{e}），不確認就不刪"))
+                    continue
+                if age < _RECENT_ACTIVITY_SECONDS:
+                    skipped.append(
+                        (
+                            version_dir,
+                            f"最近 {_RECENT_ACTIVITY_SECONDS} 秒內有異動，可能是安裝中的目錄",
+                        )
+                    )
+                    continue
+                stale.append(version_dir)
     return stale, skipped
 
 
@@ -151,13 +180,17 @@ def prune(cache_root: Path, dry_run: bool) -> int:
     active_paths = _load_active_paths()
     stale_dirs, skipped = _find_stale_dirs(cache_root, active_paths)
 
-    for path in skipped:
-        print(f"[SKIP] {path} -- symlink 或位於 cache root 之外，不列入刪除候選", file=sys.stderr)
+    for path, reason in skipped:
+        print(f"[SKIP] {path} -- {reason}", file=sys.stderr)
 
     total_bytes = 0
     removed = 0
     failures = 0
-    reclaimed_by_race = 0
+    # 兩個計數器刻意分開：「確認後發現被重新釘選」是良性結果（工具正確地沒動它），
+    # 「根本無法確認」則與初次載入失敗是同一種輸入，必須反映在退出碼上，否則同一個
+    # 壞掉的安裝清單會因為「什麼時候壞的」而給出 exit 1 或 exit 0 兩種相反答案。
+    skipped_repinned = 0
+    skipped_unconfirmed = 0
 
     for version_dir in stale_dirs:
         size = _dir_size(version_dir)
@@ -171,12 +204,12 @@ def prune(cache_root: Path, dry_run: bool) -> int:
         try:
             current_active = _read_active_paths()
         except RuntimeError as e:
-            print(f"[SKIP] {version_dir} -- 無法重新確認安裝清單（{e}），跳過", file=sys.stderr)
-            reclaimed_by_race += 1
+            print(f"[FAIL] {version_dir} -- 無法重新確認安裝清單（{e}），跳過", file=sys.stderr)
+            skipped_unconfirmed += 1
             continue
         if str(version_dir.resolve()) in current_active:
             print(f"[SKIP] {version_dir} -- 掃描後已被重新釘選，跳過", file=sys.stderr)
-            reclaimed_by_race += 1
+            skipped_repinned += 1
             continue
 
         try:
@@ -199,12 +232,14 @@ def prune(cache_root: Path, dry_run: bool) -> int:
         print("此為 dry-run，未實際刪除任何檔案。加上 --apply 才會真的刪除。")
     else:
         print(f"實際刪除 {removed} 個目錄，回收約 {total_mb:.1f} MB")
-        if reclaimed_by_race:
-            print(f"另有 {reclaimed_by_race} 個目錄因刪除前重新確認而跳過")
+        if skipped_repinned:
+            print(f"另有 {skipped_repinned} 個目錄在刪除前確認為已重新釘選而跳過")
+        if skipped_unconfirmed:
+            print(f"另有 {skipped_unconfirmed} 個目錄無法重新確認而跳過（詳見上方 [FAIL] 訊息）")
         if failures:
             print(f"另有 {failures} 個目錄刪除失敗（詳見上方 [FAIL] 訊息）")
 
-    return 1 if failures else 0
+    return 1 if (failures or skipped_unconfirmed) else 0
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -7,17 +7,26 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 - AC-2 apply 只刪未參照者：PCP-DT-002 / PCP-DT-012
 - AC-3 掃描所有 marketplace：PCP-DT-003
 - AC-4 fail loud + 空 active set 守衛：PCP-DT-004 / PCP-DT-005 / PCP-DT-006
-  / PCP-EG-001 / PCP-EG-002 / PCP-EG-003 / PCP-EG-004
+  / PCP-EG-001 / PCP-EG-002 / PCP-EG-003 / PCP-EG-004 / PCP-EG-008
 - AC-6 刪除前重新確認：PCP-DT-007 / PCP-DT-008
-- 破壞半徑不得超出 cache root（symlink）：PCP-DT-009 / PCP-DT-014
+- 破壞半徑不得超出 cache root（symlink）：PCP-DT-009 / PCP-DT-014 / PCP-DT-015 / PCP-DT-016
+- 每個被排除項目都要帶原因回報，不得靜默丟棄：PCP-DT-017
+- 安裝中的目錄不得被刪（時間門檻，AC-6 的補強）：PCP-DT-018 / PCP-DT-019
 - 刪除失敗不得中斷整批且不得謊報：PCP-EG-005 / PCP-EG-006
+- CLI 介面必須拒絕未知旗標（AC-1 安全預設的一部分）：PCP-EG-007
+
+這份對映表本身是 canonical claim，新增測試時必須同步更新
+（見 .claude/rules/18-single-source-of-truth.md）。
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
 import sys
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -67,12 +76,28 @@ def _write_raw_installed(home: Path, payload: str) -> None:
     (path / "installed_plugins.json").write_text(payload, encoding="utf-8")
 
 
+def _backdate(path: Path, age_seconds: float) -> None:
+    """把 mtime 往前調。
+
+    production 端有「近期異動的目錄不碰」的守衛（避免刪到安裝中的目錄），所以
+    fixture 預設必須是「老」目錄，否則每個新建的測試目錄都會被守衛跳過。
+    """
+    stamp = time.time() - age_seconds
+    os.utime(path, (stamp, stamp))
+
+
 def _make_version_dir(
-    cache_root: Path, marketplace: str, plugin: str, version: str, payload: str = "dummy"
+    cache_root: Path,
+    marketplace: str,
+    plugin: str,
+    version: str,
+    payload: str = "dummy",
+    age_seconds: float = 3600,
 ) -> Path:
     version_dir = cache_root / marketplace / plugin / version
     version_dir.mkdir(parents=True, exist_ok=True)
     (version_dir / "SKILL.md").write_text(payload, encoding="utf-8")
+    _backdate(version_dir, age_seconds)
     return version_dir
 
 
@@ -227,12 +252,15 @@ class TestDeleteTimeReconfirmation:
         ):
             rc = prune_plugin_cache.prune(cache_root, dry_run=False)
 
-        err = capsys.readouterr().err
+        captured = capsys.readouterr()
         assert rc == 0
         assert not stale.exists(), "掃描時與刪除時皆為孤兒者應被刪除"
         assert newly_pinned.exists(), "刪除前重新確認應保住掃描後才被釘選的目錄"
         assert active.exists()
-        assert "[SKIP]" in err
+        assert "[SKIP]" in captured.err
+        assert "另有 1 個目錄在刪除前確認為已重新釘選而跳過" in captured.out, (
+            "摘要必須如實回報因競態而跳過的數量（SKILL.md 的輸出範例也載明此行）"
+        )
 
     def test_pcp_dt_008_unreadable_manifest_at_delete_time_skips_instead_of_deleting(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -258,10 +286,15 @@ class TestDeleteTimeReconfirmation:
         ):
             rc = prune_plugin_cache.prune(cache_root, dry_run=False)
 
-        err = capsys.readouterr().err
-        assert rc == 0
+        captured = capsys.readouterr()
+        assert rc == 1, (
+            "「無法確認安裝清單」與初次載入失敗是同一種輸入，必須反映在退出碼上；"
+            "否則同一份壞掉的清單會因為壞掉的時機不同而給出 exit 1 或 exit 0 兩種相反答案"
+        )
         assert stale.exists(), "無法重新確認時必須跳過，不得依舊快照刪除"
-        assert "[SKIP]" in err
+        assert "[FAIL]" in captured.err
+        assert "無法重新確認而跳過" in captured.out
+        assert "已重新釘選" not in captured.out, "不得把『無法確認』誤述為良性的『已被重新釘選』"
 
 
 class TestSymlinkContainment:
@@ -332,8 +365,23 @@ class TestSymlinkContainment:
 
         stale, skipped = prune_plugin_cache._find_stale_dirs(cache_root, {str(active.resolve())})
 
-        assert link in skipped, "symlink 必須被明確回報為跳過，不得靜默忽略"
+        skipped_paths = [p for p, _ in skipped]
+        assert link in skipped_paths, "symlink 必須被明確回報為跳過，不得靜默忽略"
         assert stale == [], "symlink 不得成為刪除候選"
+
+    def test_pcp_dt_017_stray_non_directory_entry_is_reported_not_silently_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        """PCP-DT-017: cache 樹中的雜項檔案必須帶原因回報，不得靜默丟棄。"""
+        cache_root = tmp_path / "cache"
+        active = _make_version_dir(cache_root, "mkt", "pack", "1.0.0")
+        stray = cache_root / "README.txt"
+        stray.write_text("not a marketplace", encoding="utf-8")
+
+        stale, skipped = prune_plugin_cache._find_stale_dirs(cache_root, {str(active.resolve())})
+
+        assert (stray, "非目錄，不列入版本目錄候選") in skipped
+        assert stale == []
 
     def test_pcp_dt_016_is_within_predicate_bounds_the_blast_radius(self, tmp_path: Path) -> None:
         """PCP-DT-016: `_is_within` 述詞本身的雙向驗證（belt-and-braces 防線的單元測試）。"""
@@ -344,6 +392,57 @@ class TestSymlinkContainment:
         assert prune_plugin_cache._is_within(root / "mkt" / "pack" / "1.0.0", root) is True
         assert prune_plugin_cache._is_within((tmp_path / "outside").resolve(), root) is False
         assert prune_plugin_cache._is_within(root.parent, root) is False
+
+
+class TestRecentActivityGuard:
+    """安裝中的目錄在任何重讀下都長得像孤兒，只能靠時間門檻擋下。"""
+
+    def test_pcp_dt_018_recently_modified_dir_is_not_deleted(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PCP-DT-018: mtime 在門檻內的未參照目錄視為「可能安裝中」，不得刪除。"""
+        cache_root = tmp_path / "cache"
+        active = _make_version_dir(cache_root, "mkt", "pack", "1.0.0")
+        installing = _make_version_dir(cache_root, "mkt", "pack", "2.0.0", age_seconds=0)
+        old_orphan = _make_version_dir(cache_root, "mkt", "pack", "0.9.0")
+        _write_installed(tmp_path, [str(active)])
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            rc = prune_plugin_cache.prune(cache_root, dry_run=False)
+
+        captured = capsys.readouterr()
+        assert rc == 0
+        assert installing.exists(), "近期有異動的目錄可能是安裝中，不得刪除"
+        assert not old_orphan.exists(), "守衛不得誤擋真正過期的目錄"
+        assert active.exists()
+        assert "可能是安裝中的目錄" in captured.err
+
+    def test_pcp_dt_019_unreadable_mtime_is_skipped_not_deleted(self, tmp_path: Path) -> None:
+        """PCP-DT-019: 讀不到 mtime 時屬「無法確認」，跳過而非預設可刪。
+
+        用「目錄在走訪後、讀 mtime 前消失」這個真實競態觸發該分支。不用
+        `patch.object(Path, "stat")`：`Path.is_dir()` 只吞 ENOENT/ENOTDIR 這類錯誤，
+        不吞 EACCES，模擬的 PermissionError 會在 `_walk` 就逃出去，測到的不是這條分支。
+        """
+        cache_root = tmp_path / "cache"
+        active = _make_version_dir(cache_root, "mkt", "pack", "1.0.0")
+        orphan = _make_version_dir(cache_root, "mkt", "pack", "0.9.0")
+        orphan_resolved = orphan.resolve()
+
+        real_is_within = prune_plugin_cache._is_within
+
+        def vanishing_is_within(path: Path, root: Path) -> bool:
+            if path == orphan_resolved and orphan.exists():
+                shutil.rmtree(orphan)  # 模擬掃描後、讀 mtime 前目錄被移除
+            return real_is_within(path, root)
+
+        with patch.object(prune_plugin_cache, "_is_within", vanishing_is_within):
+            stale, skipped = prune_plugin_cache._find_stale_dirs(
+                cache_root, {str(active.resolve())}
+            )
+
+        assert stale == [], "無法確認新舊時不得列入刪除候選"
+        assert any(p == orphan and "無法讀取 mtime" in reason for p, reason in skipped)
 
 
 class TestSizeReporting:
@@ -357,6 +456,8 @@ class TestSizeReporting:
         nested = stale / "sub" / "deeper"
         nested.mkdir(parents=True)
         (nested / "extra.txt").write_text("b" * 2000, encoding="utf-8")
+        # 寫入巢狀內容會把 stale 的 mtime 推回現在，觸發「可能安裝中」守衛；重新往前調。
+        _backdate(stale, 3600)
         _write_installed(tmp_path, [str(active)])
 
         expected = sum(f.stat().st_size for f in stale.rglob("*") if f.is_file())
@@ -509,6 +610,34 @@ class TestFailureModes:
         assert exc_info.value.code == 1
         assert "[FAIL]" in capsys.readouterr().err
 
+    def test_pcp_eg_008_unreadable_manifest_fails_loud_not_traceback(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PCP-EG-008: 清單存在但讀取拋非 FileNotFoundError 的 OSError -> 乾淨 [FAIL] + exit 1。
+
+        涵蓋 `_read_active_paths` 的 generic `except OSError` 分支；只測
+        FileNotFoundError 的話，刪掉該分支所有測試仍會全綠，而真實的
+        PermissionError 會變成 raw traceback。
+        """
+        _write_installed(tmp_path, [str(tmp_path / "x")])
+        cache_root = tmp_path / "cache"
+        real_read_text = Path.read_text
+
+        def denied_read_text(self: Path, *a: Any, **kw: Any) -> str:
+            if self.name == "installed_plugins.json":
+                raise PermissionError("模擬權限不足")
+            return real_read_text(self, *a, **kw)
+
+        with (
+            patch.object(Path, "home", return_value=tmp_path),
+            patch.object(Path, "read_text", denied_read_text),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            prune_plugin_cache.prune(cache_root, dry_run=True)
+
+        assert exc_info.value.code == 1
+        assert "[FAIL]" in capsys.readouterr().err
+
     def test_pcp_eg_005_rmtree_failure_does_not_abort_batch_or_claim_removal(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -539,6 +668,7 @@ class TestFailureModes:
         assert not survivor_target.exists(), "單一目錄失敗不得中斷整批"
         assert "[FAIL]" in captured.err
         assert "實際刪除" in captured.out, "失敗後仍必須印出摘要"
+        assert "另有 1 個目錄刪除失敗" in captured.out, "摘要必須如實回報失敗數量"
 
     def test_pcp_eg_006_dir_size_skips_vanished_and_symlinked_entries(self, tmp_path: Path) -> None:
         """PCP-EG-006: _dir_size 遇到掃描中消失的檔案或 symlink 時跳過，不 crash。"""
