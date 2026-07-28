@@ -60,24 +60,32 @@ git branch --show-current
 ## Step 0.4: 工作區乾淨 gate
 
 ```bash
-git status --porcelain
+if ! git status --porcelain; then echo '[FAIL] git status 失敗，無法確認工作區狀態' >&2; exit 1; fi
 ```
 
 **輸出非空即停止**，並告知使用者：「工作區有未提交的改動，請先 commit 或 stash——否則收貨時
 無法分辨哪些改動是 Codex 做的。」
 
-這道 gate 是 Step 4 收貨查核的前提：只有從乾淨狀態出發，`git diff` 才等於「Codex 的改動」。
+`if !` 不可省：`git status` 無輸出**且非零退出**（repo 損壞、權限問題）會被讀成「乾淨」，
+於是在一個壞掉的 repo 上開啟 workspace-write。無輸出必須先確認是「成功且乾淨」才算過。
+
+這道 gate 是 Step 4 收貨查核的前提：只有從乾淨狀態出發，工作樹的狀態才等於「Codex 的改動」。
 
 ## Step 0.5: 偵測 repo 的全量 CI 指令
 
 ```bash
-git ls-files Makefile .pre-commit-config.yaml package.json
+ROOT=$(git rev-parse --show-toplevel)
+git -C "$ROOT" ls-files Makefile .pre-commit-config.yaml package.json
 ```
+
+`-C "$ROOT"` 不可省：`git ls-files` 的 pathspec 是 **cwd-relative**，從子目錄執行會回空清單，
+於是在一個三者俱全的 repo 裡靜默走到「全都沒有」那一列。
 
 若上一步輸出含 `Makefile`：
 
 ```bash
-grep -n '^ci:' Makefile
+ROOT=$(git rev-parse --show-toplevel)
+grep -n '^ci:' "$ROOT/Makefile"
 ```
 
 （無 `Makefile` 時 grep 會回報找不到檔案，屬預期；依上一步的清單判斷即可。）
@@ -120,12 +128,17 @@ python3 ~/.agents/skills/codex-cli/scripts/select_rules.py --repo-root "$ROOT" t
 
 把最後一個參數換成本次實際會碰到的路徑（可給多個，空白分隔）。
 
-Exit code 語意：
+Exit code 與 stderr 語意（每個 `[WARN]` 各有獨立成因，不可混為一談）：
 
-- **exit 0 + stdout 有內容** → 把輸出原樣接到 brief 末端（見下一步）
-- **exit 0 + stderr 有 `[WARN]`** → 該 repo 沒有 `.claude/rules/`，或沒有規則匹配。
-  繼續執行，但要在最終報告告訴使用者「這次派工只有 contract 的通用約束」
-- **exit 2** → repo root 解析錯誤，停止並回報
+| 結果 | 意義 | 動作 |
+|------|------|------|
+| exit 0，stdout 有內容，stderr 空 | 正常 | 把輸出原樣接到 brief 末端（見下一步） |
+| exit 0 + `[WARN] ... 沒有 .claude/rules/` | 目標 repo 無規則目錄 | 繼續，但最終報告要說明「這次派工只有 contract 的通用約束」 |
+| exit 0 + `[WARN] ... 沒有命中任何 path-scoped rule` | 給的路徑全數落空（多半是拼錯或給了絕對路徑） | **停下來檢查路徑**再重跑——packet 會缺少該檔案適用的規範 |
+| exit 0 + `[WARN] <rule> 有 paths: key 但解析不出任何 pattern` | 該 rule 的 `paths:` 寫法無法解析 | 繼續，但在報告點名該 rule，並回頭修它的 frontmatter |
+| exit 0 + `[WARN] 無法讀取 <rule>` | 個別 rule 檔讀取失敗 | 繼續，但在報告點名該 rule |
+| exit 2 + stderr 含 `repo root 不存在` | repo root 解析錯誤 | 停止並回報 |
+| exit 2 + stderr 含 `can't open file` | skill 未安裝（`~/.agents/skills/codex-cli/` 不存在） | 停止：「請在 yibi-stack 目錄執行 `make install`」 |
 
 把 picker 的輸出用 Write tool 追加到 brief 的 `## Rules you must read` 區段下，格式：
 
@@ -139,11 +152,37 @@ Read each file listed above before you start. Name them in your "## Rules consul
 
 ## Step 3: 組 packet 並派工
 
-契約與 brief 合併成 packet（契約在前，brief 在後）：
+**先 gate 契約檔存在**，再合併（契約在前，brief 在後）：
+
+```bash
+if [ ! -f "$HOME/.agents/skills/codex-cli/contract.md" ]; then echo '[FAIL] 找不到 contract.md，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+```
+
+這道 gate 不可省，而且**不能靠 `cat` 的退出碼補救**：`>` 會先把輸出檔建出來，`cat` 缺檔時
+只印一行 stderr 並非零退出，**packet 仍然生成，只含 brief**。實測：
+
+```console
+$ if ! cat /nonexistent/contract.md /etc/hosts > probe.txt 2>&1; then echo "cat: NON-ZERO EXIT"; fi
+cat: NON-ZERO EXIT
+$ wc -c probe.txt
+398 probe.txt          # 檔案照樣建立，只含第二個來源
+```
+
+沒有這道 gate，一個照 `claude plugin install 3rd-tools@yibi-stack` 安裝、從未跑過
+`make install` 的使用者（`~/.agents/skills/` 不存在），會在**零邊界**下把 workspace write
+交給 Codex——四個禁讀前綴、禁止 git 操作、語言規範、全量 CI 要求全部消失，而且無聲。
 
 ```bash
 cat ~/.agents/skills/codex-cli/contract.md "$CLAUDE_JOB_DIR/codex-cli-brief.md" > "$CLAUDE_JOB_DIR/codex-cli-packet.txt"
 ```
+
+派工前再確認 packet 真的以契約開頭：
+
+```bash
+head -1 "$CLAUDE_JOB_DIR/codex-cli-packet.txt"
+```
+
+輸出不是 `# Codex Delegation Contract` → **停止**，不可派工。
 
 執行（repo root 在同一個 bash block 解析進 `ROOT`，以 `"$ROOT"` 傳入；**不用 placeholder 替換**，
 避免 checkout 路徑含特殊字元時逸出；**不用 `timeout`**，stock macOS 沒有這個指令）：
@@ -162,27 +201,53 @@ clean exit 後讀 `$CLAUDE_JOB_DIR/codex-cli-report.md`，那是 Codex 的自述
 
 ## Step 4: 以 git 查核實際改動
 
+**第一件事是把 Codex 的產出全部納入 git 視野**，包含新增檔案：
+
 ```bash
-git status --short
+git add -A
+```
+
+`git diff`（未加 `--cached`）與 `git diff --stat` 都**看不到 untracked 檔案**，而「新增檔案」
+正是委託實作最常見的產出形狀（新 module + 新測試）。不先 `git add`，三件事會同時靜默失效：
+
+1. 空判斷把**成功**的委託誤判成 `BLOCKED`
+2. 逐檔 review 讀到零行新程式碼，卻回報「已讀完整 diff」
+3. Step 5 的全量 CI 掃不到新檔——`CLAUDE.md` 原文：「`--all-files` means all files *git knows
+   about* — an untracked new file is invisible to every hook, which then reports `Passed`
+   because it never looked. … **`git add` first, then `make ci`.**」
+
+Step 0.4 已保證出發時工作區乾淨，所以 `git add -A` 之後 staged 的內容**就是** Codex 的改動。
+本 skill 仍然不 commit——staged 只是讓 git 與 CI 看得見。
+
+```bash
+git status --porcelain
 ```
 
 ```bash
-git diff --stat
+git diff --cached --stat
 ```
 
 | 狀況 | 動作 |
 |------|------|
-| diff 為空，但 Codex 報告宣稱完成 | **`BLOCKED`**：回報「Codex 宣稱完成但工作樹沒有任何改動」，附上它的報告全文讓使用者判斷 context 缺什麼。**不可宣稱成功** |
-| diff 動到 brief `## Out of scope` 列的檔案 | 在 Step 6 當成 finding 回饋，要求還原 |
-| diff 含 `.git/` 以外的預期改動 | 繼續 |
+| `git status --porcelain` 為空，但 Codex 報告宣稱完成 | **`BLOCKED`**：回報「Codex 宣稱完成但工作樹沒有任何改動」，附上它的報告全文讓使用者判斷 context 缺什麼。**不可宣稱成功** |
+| 改動觸及 brief `## Out of scope` 列的檔案 | 在 Step 6 當成 finding 回饋，要求還原 |
+| 其他 | 繼續 |
 
-接著用 Read tool 讀**完整** diff（不是只看 `--stat`），逐檔檢視。Codex 報告裡的
-`## Rules consulted` 若與 Step 2 的清單有落差，記為 finding。
+空判斷用 `git status --porcelain` 而不是 diff：它是唯一一個 untracked 與 tracked 都看得到的
+探針，也就是唯一能回答「Codex 到底有沒有動過東西」的那個。
+
+接著用 Read tool 讀 `git diff --cached` 的**完整**輸出（不是只看 `--stat`），逐檔檢視。
+Codex 報告裡的 `## Rules consulted` 若與 Step 2 的清單有落差，記為 finding。
 
 ## Step 5: 跑全量 CI
 
 執行 Step 0.5 決定的 `{{ci_command}}`。**不要接 `| tail`／`| head`**——pipeline 的 exit code
 取自最後一段，會把失敗讀成成功（`.claude/rules/13`）。
+
+**Step 0.5 若沒能定出全量 CI 指令**（`[WARN] 找不到全量 CI 指令`，使用者也未指定），這一步
+無事可做：直接把最終狀態上限壓在 `DONE_WITH_CONCERNS`，並在報告的驗收欄寫
+「未執行（找不到全量 CI 指令）」。**不可**因為「沒有 finding」就報 `DONE`——沒跑過的驗收
+不是通過的驗收。
 
 CI 通過後**還要再看一次工作樹**：
 
@@ -190,9 +255,16 @@ CI 通過後**還要再看一次工作樹**：
 git diff --name-only
 ```
 
-輸出非空 → 表示 CI 過程中有 formatter 就地改了檔（`ruff-format`、`trailing-whitespace` 等）。
-這是預期行為，但那些改寫**必須一併留在工作樹交付**，否則使用者 commit 出來的樹與你驗過的樹
-不同，CI 端必紅。在最終報告明確說明哪些檔被 formatter 改過。
+Step 4 已經 `git add -A`，所以 staged 的是 Codex 的改動，而這裡的 **unstaged** diff 精確等於
+「CI 過程中被就地改寫的檔案」（`ruff-format`、`trailing-whitespace` 等）——兩者不會混淆。
+輸出非空是預期行為，但那些改寫**必須一併交付**，否則使用者 commit 出來的樹與你驗過的樹不同，
+CI 端必紅（PR #248 的實帳）。把它們收進來後再往下：
+
+```bash
+git add -A
+```
+
+在最終報告明確列出哪些檔被 formatter 改過。
 
 CI 失敗 → 把失敗輸出當成 finding，進入 Step 6。
 
@@ -218,11 +290,23 @@ below. Everything from the original contract still applies.
 Re-run {{ci_command}} and confirm it passes.
 ```
 
-重新組 packet 並派工（同 Step 3 的形式，換 brief 檔名）：
+重新組 packet 並派工（同 Step 3 的形式，換 brief 檔名）。**Step 3 的契約存在 gate 與
+`head -1` 斷言在這裡同樣適用**——回修輪同樣是一次 `-s workspace-write` 派工，少了契約
+一樣是零邊界：
+
+```bash
+if [ ! -f "$HOME/.agents/skills/codex-cli/contract.md" ]; then echo '[FAIL] 找不到 contract.md，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+```
 
 ```bash
 cat ~/.agents/skills/codex-cli/contract.md "$CLAUDE_JOB_DIR/codex-cli-fix-brief.md" > "$CLAUDE_JOB_DIR/codex-cli-fix-packet.txt"
 ```
+
+```bash
+head -1 "$CLAUDE_JOB_DIR/codex-cli-fix-packet.txt"
+```
+
+輸出不是 `# Codex Delegation Contract` → **停止**，不可派工。
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
@@ -264,11 +348,12 @@ STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED
 
 | 狀態 | 條件 |
 |------|------|
-| `DONE` | CI 全綠且無未解 finding |
-| `DONE_WITH_CONCERNS` | 有改動且 CI 綠，但仍有未解 finding；或 2 輪後仍未收斂 |
+| `DONE` | **全量 CI 實際執行過且全綠**，且無未解 finding |
+| `DONE_WITH_CONCERNS` | 有改動但仍有未解 finding；或 2 輪後仍未收斂；**或全量 CI 根本沒得跑**（Step 0.5 找不到指令） |
 | `BLOCKED` | Codex 沒產生改動、`codex exec` 失敗、或 CI 始終無法通過 |
 
-不可為了讓報告好看而把 `DONE_WITH_CONCERNS` 寫成 `DONE`。
+`DONE` 要求 CI **跑過**而不只是「沒有失敗」——沒跑過的驗收不是通過的驗收，這兩者在報告裡
+讀起來一樣，但意思完全不同。不可為了讓報告好看而把 `DONE_WITH_CONCERNS` 寫成 `DONE`。
 
 ---
 
@@ -280,6 +365,11 @@ STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED
 "Bash(python3 /Users/<you>/.agents/skills/codex-cli/scripts/select_rules.py *)",
 "Bash(codex exec:*)"
 ```
+
+**要讓第一條真的命中，Step 2 的指令必須寫成同一個絕對路徑**——`~` 在 `Bash()` pattern 裡
+不展開（rule 16），所以一條寫 `/Users/<you>/...` 的 allow-list 條目對一個以 `~/...` 呼叫的
+指令永遠不匹配，結果是條目形同虛設、每次照樣跳確認框。要嘛把 Step 2 的指令改寫成絕對路徑，
+要嘛接受每次確認。
 
 ## 常見問題
 

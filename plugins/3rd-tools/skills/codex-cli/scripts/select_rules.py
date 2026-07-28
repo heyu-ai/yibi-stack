@@ -80,8 +80,15 @@ def parse_paths(text: str) -> list[str] | None:
         match = _TOP_LEVEL_KEY_RE.fullmatch(line)
         if match is None or match.group(1) != "paths":
             continue
-        scalar = _strip_quotes(match.group(2) or "")
-        if scalar and scalar not in {"[]", "null", "~"}:
+        raw = re.sub(r"(?:^|\s+)#.*$", "", match.group(2) or "").strip()
+        # YAML flow sequence（`paths: ["tasks/**", "scripts/**"]`）——單一 pattern 的 rule
+        # 最容易寫成這個形式。不特別處理的話它會落進下面的 scalar 分支，變成一個帶著中括號
+        # 與引號的 literal pattern，匹配不到任何真實路徑，然後靜默漏掉該 rule。
+        if raw.startswith("[") and raw.endswith("]"):
+            inner = raw[1:-1].strip()
+            return [item for item in (_strip_quotes(part) for part in inner.split(",")) if item]
+        scalar = _strip_quotes(raw)
+        if scalar and scalar not in {"null", "~"}:
             return [scalar]
         patterns = []
         for child in lines[index + 1 : end]:
@@ -105,9 +112,27 @@ def title_of(text: str, fallback: str) -> str:
     return fallback
 
 
-def select(rules_dir: Path, changed: list[str]) -> list[str]:
-    """回傳給 packet 用的 markdown 清單行。"""
+def normalize_path(path: str) -> str:
+    """去掉開頭的 `./`，但不動到 dot-prefixed 路徑本身。
+
+    不可用 `str.lstrip("./")`：它吃的是**字元集合**不是前綴，`.claude/hooks/x.py` 會被削成
+    `claude/hooks/x.py`，於是 `paths: [".claude/hooks/**"]` 這種 rule 永遠不匹配——exit 0、
+    無診斷，正是本 script 要防的失敗。
+    """
+    while path.startswith("./"):
+        path = path[2:]
+    return path
+
+
+def select(rules_dir: Path, changed: list[str]) -> tuple[list[str], int]:
+    """回傳（packet 用的 markdown 清單行, 命中的 path-scoped rule 數）。
+
+    第二個值與 `len(lines)` 不同：`lines` 還含 always-loaded rule。呼叫端必須用它判斷
+    「給了路徑卻沒有任何 scoped rule 命中」——用 `lines` 判斷的話，只要 repo 有任何一個
+    always-loaded rule 就永遠不成立。
+    """
     selected: list[str] = []
+    scoped_hits = 0
     for rule_file in sorted(rules_dir.glob("*.md")):
         if not rule_file.is_file():
             continue
@@ -123,6 +148,12 @@ def select(rules_dir: Path, changed: list[str]) -> list[str]:
         if patterns is None:
             selected.append(f"- `{rel}` — {title}（always loaded）")
             continue
+        if not patterns:
+            print(
+                f"[WARN] {rel} 有 paths: key 但解析不出任何 pattern，該 rule 不會被選入",
+                file=sys.stderr,
+            )
+            continue
         hit = next(
             (
                 pattern
@@ -132,8 +163,9 @@ def select(rules_dir: Path, changed: list[str]) -> list[str]:
             None,
         )
         if hit is not None:
+            scoped_hits += 1
             selected.append(f"- `{rel}` — {title}（matched `{hit}`）")
-    return selected
+    return selected, scoped_hits
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -159,11 +191,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    changed = [path.lstrip("./") for path in args.paths]
-    lines = select(rules_dir, changed)
+    changed = [normalize_path(path) for path in args.paths]
+    lines, scoped_hits = select(rules_dir, changed)
+    if changed and scoped_hits == 0:
+        print(
+            f"[WARN] 給定的 {len(changed)} 個路徑沒有命中任何 path-scoped rule —— "
+            "確認路徑相對 repo root 且拼字正確，否則 packet 會缺少該檔案適用的規範。",
+            file=sys.stderr,
+        )
     if not lines:
         print(
-            f"[WARN] {rules_dir} 裡沒有任何 rule 匹配（給定 {len(changed)} 個路徑）",
+            f"[WARN] {rules_dir} 裡沒有任何 rule 可列出（給定 {len(changed)} 個路徑）",
             file=sys.stderr,
         )
         return 0

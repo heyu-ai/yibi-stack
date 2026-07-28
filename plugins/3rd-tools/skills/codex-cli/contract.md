@@ -25,8 +25,9 @@ the four prefixes into "avoid everything under `.claude/`".
 ## Prohibited actions
 
 - **No git history operations.** Do not run `git commit`, `git push`, `git merge`, `git rebase`,
-  `git reset`, `git checkout --`, `git stash`, or `git clean`. Leave every change unstaged in the
-  working tree; the reviewer inspects it with `git diff` and the human decides what lands.
+  `git reset`, `git checkout --`, `git stash`, or `git clean`. Leave every change in the working
+  tree and do not stage anything yourself — the reviewer stages it (so that new files become
+  visible to `git diff` and to the CI hooks) and the human decides what lands.
 - **No new dependencies** unless the brief explicitly asks for one. Do not edit lockfiles,
   `pyproject.toml` dependency lists, or `package.json` dependency lists on your own initiative.
 - **No writes outside the working tree.** Everything you create or edit stays under the
