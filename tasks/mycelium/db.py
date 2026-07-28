@@ -17,6 +17,7 @@ from .models import (
     HandoverEvent,
     HandoverRecord,
     LessonRecord,
+    LessonSource,
     RetrospectiveRecord,
     SessionType,
 )
@@ -619,6 +620,11 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
 
     def insert_lesson(self, record: LessonRecord) -> None:
         """寫入一筆 typed lesson；`id` 衝突時 raise sqlite3.IntegrityError。"""
+        self._insert_lesson_row(record)
+        self.conn.commit()
+
+    def _insert_lesson_row(self, record: LessonRecord) -> None:
+        """寫入 lesson row 但不 commit；供需要單一 transaction 的 mutation path 複用。"""
         self.conn.execute(
             """
             INSERT INTO lessons (
@@ -653,7 +659,206 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
                 record.archived_path,
             ),
         )
-        self.conn.commit()
+
+    def park_lesson(self, record: LessonRecord) -> dict[str, Any]:
+        """原子執行 initial park / recurrence bump / reassessment 後 re-park。
+
+        - 無同 key lesson：新增 `parked, recurrence-1`
+        - 已 parked：recurrence +1；達 2 時移除 parked，回報 `reassess`
+        - 已因 recurrence 解 park：重評仍為 Tier 3 時重套 parked，不再次 bump
+        """
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            cur = self.conn.execute(
+                "SELECT * FROM lessons "
+                "WHERE project = ? AND type = ? AND key = ? AND retired_at IS NULL "
+                "ORDER BY ts DESC LIMIT 1",
+                (record.project, record.type.value, record.key),
+            )
+            row = cur.fetchone()
+            if row is None:
+                # 用前綴比對而非硬寫 `recurrence-1`：`park_lesson` 是 public service，
+                # 傳入的 record 可能自帶 `recurrence-5` 之類的髒 tag。只濾字面值會讓它與新加的
+                # `recurrence-1` 並存，下一次呼叫的 `max(recurrence_values)` 讀到 5 而非 1，
+                # recurrence 計數靜默跳號。（PR #347 mob review）
+                tags = [
+                    *[
+                        tag
+                        for tag in record.tags
+                        if tag != "parked" and not tag.startswith("recurrence-")
+                    ],
+                    "parked",
+                    "recurrence-1",
+                ]
+                parked_record = record.model_copy(
+                    update={"confidence": min(record.confidence, 4), "tags": tags}
+                )
+                self._insert_lesson_row(parked_record)
+                lesson_id = parked_record.id
+                recurrence = 1
+                status = "parked"
+            else:
+                existing = _decode_lesson_row(row)
+                lesson_id = str(existing["id"])
+                tags = list(existing.get("tags", []))
+                recurrence_values: list[int] = []
+                for tag in tags:
+                    if not tag.startswith("recurrence-"):
+                        continue
+                    try:
+                        recurrence_values.append(int(tag.removeprefix("recurrence-")))
+                    except ValueError:
+                        continue
+                recurrence = max(recurrence_values, default=1 if "parked" in tags else 0)
+                tags = [tag for tag in tags if not tag.startswith("recurrence-")]
+
+                if "parked" in tags:
+                    recurrence += 1
+                    tags = [tag for tag in tags if tag != "parked"]
+                    status = "reassess" if recurrence >= 2 else "parked"
+                    if status == "parked":
+                        tags.append("parked")
+                elif recurrence >= 2 and int(existing["confidence"]) <= 4:
+                    # recurrence 已解除 park、但**尚未** finalize（confidence 仍是 Tier 3 水位）：
+                    # 重評仍為 Tier 3 時重套 parked，不再把同一 occurrence bump。
+                    #
+                    # `confidence <= 4` 是必要條件，不是多餘的保險。`finalize_reassessed_lesson`
+                    # 刻意保留 `recurrence-<n>` tag（拿它當 compare-and-set 前提），所以一筆
+                    # 已升級的 active lesson 同樣是「未 parked + recurrence≥2」。若這裡只看
+                    # recurrence，下一次同 key 的 `--park` 會命中本分支，把它重新掛上 parked 並
+                    # 被下方的 `MIN(confidence, 4)` 從 8 夾成 4——該教訓從此在 show / search /
+                    # tier promotion 的預設集合中消失，exit 0、無警告。那正是下面 else 分支
+                    # 宣稱擋住的損失，從側門發生。（PR #347 re-review 以 mutation 實證；
+                    # 此缺陷在 finalize 落地前 latent，落地後變 live。）
+                    tags.append("parked")
+                    status = "parked"
+                else:
+                    raise RuntimeError(
+                        f"id={lesson_id} 是未 parked 的既有 lesson，拒絕覆寫為 Tier 3"
+                    )
+
+                tags.append(f"recurrence-{recurrence}")
+                self.conn.execute(
+                    "UPDATE lessons SET tags = ?, confidence = MIN(confidence, 4) WHERE id = ?",
+                    (json.dumps(tags, ensure_ascii=False), lesson_id),
+                )
+
+            saved = self.conn.execute("SELECT * FROM lessons WHERE id = ?", (lesson_id,)).fetchone()
+            if saved is None:
+                raise RuntimeError(f"park lesson id={lesson_id} 寫入後讀回失敗")
+            self.conn.commit()
+            return {
+                "id": lesson_id,
+                "status": status,
+                "recurrence": recurrence,
+                "lesson": _decode_lesson_row(saved),
+            }
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def finalize_reassessed_lesson(
+        self,
+        lesson_id: str,
+        *,
+        confidence: int,
+        source: str,
+        insight: str | None = None,
+    ) -> dict[str, Any]:
+        """把一筆「因 recurrence 解除 park、重評通過 Tier 1/2」的 lesson 原地升級為 active。
+
+        **為什麼需要這個操作，而不是跑一般 `add_lesson`**（PR #347 mob review 兩輪指出）：
+        `add_lesson` 是無條件 INSERT 新 UUID，沒有 key-based upsert。reassess 已經拿掉舊列的
+        `parked`，所以跑一般 add 會留下一筆未 parked、未 retired、`confidence ≤ 4` 的孤兒——
+        它被 `_dedup_latest_winner` 藏出 show / search，卻通過 tier promotion 的三個過濾條件，
+        最終 age 成 archival 匯出成重複 lesson。
+
+        先前的修法是「先 add 後 retire」，但 runbook 對失敗的指示是「重跑整個 script」，
+        而該組合**不具冪等性**：重跑會再 INSERT 一列。本方法改為單一 transaction 內的
+        compare-and-set，重跑只是把同一列設成同樣的值，因此可安全重試。
+
+        compare-and-set 的前提（任一不成立就 raise，不做部分更新）：
+        - id 存在且未 retire
+        - 該列目前**不是** parked（已由 recurrence 解除），且帶 `recurrence-<n>` tag
+          ——即確實處於「等待重評結論」的狀態，而非任意一列 active lesson
+
+        `insight` 省略時保留原文（park 的原標題／描述 MUST 逐字保留）。
+        """
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.conn.execute("SELECT * FROM lessons WHERE id = ?", (lesson_id,)).fetchone()
+            if row is None:
+                raise RuntimeError(f"finalize 失敗：找不到 id={lesson_id} 的 lesson")
+            existing = _decode_lesson_row(row)
+            if existing.get("retired_at"):
+                raise RuntimeError(f"finalize 失敗：id={lesson_id} 已 retire，不可再升級")
+            tags = list(existing.get("tags", []))
+            if "parked" in tags:
+                raise RuntimeError(
+                    f"finalize 失敗：id={lesson_id} 仍為 parked，尚未因 recurrence 解除 park"
+                )
+            # CAS 前提必須**證明**這一列走過「第二次 park 而解除 park」，不能只證明它帶了
+            # 某個 recurrence tag。`startswith` 太鬆：`recurrence-1`、格式壞掉的 tag、
+            # 甚至外部呼叫 `add_lesson({... "tags": ["recurrence-2"]})` 造出的普通 active
+            # lesson 都會通過，於是 finalize 變成「可以任意改寫他人 lesson 的 confidence」
+            # 的後門。（PR #347 Round 2：Codex 提出，lead 實證重現——一筆 confidence 9 的
+            # active lesson 被 finalize 成 1。）
+            recurrences: list[int] = []
+            for tag in tags:
+                if not tag.startswith("recurrence-"):
+                    continue
+                try:
+                    recurrences.append(int(tag.removeprefix("recurrence-")))
+                except ValueError:
+                    continue
+            if max(recurrences, default=0) < 2:
+                raise RuntimeError(
+                    f"finalize 失敗：id={lesson_id} 沒有 recurrence ≥ 2 的 tag，"
+                    "無法證明它經過第二次 park 而解除 park——拒絕改動任意 active lesson"
+                )
+            # 待重評的列 confidence 必然 ≤ 4。已 > 4 代表它早就升級過了，此時只有一種情況
+            # 可以放行：**冪等重試**——既有值與本次請求完全相同，寫下去是 no-op。
+            # 其他情況一律拒絕，否則 finalize 會變成「改寫已升級 lesson 的 confidence」的後門。
+            already_finalized = (
+                int(existing["confidence"]) == confidence
+                and existing.get("source") == source
+                and (insight is None or existing.get("insight") == insight)
+            )
+            if int(existing["confidence"]) > 4 and not already_finalized:
+                raise RuntimeError(
+                    f"finalize 失敗：id={lesson_id} 的 confidence 已 > 4 且與本次請求不符，"
+                    "它不是待重評的 Tier 3 列——拒絕覆寫已升級的 lesson"
+                )
+
+            # `trusted` 是 `source` 的**衍生不變量**（`models.py` 的 `_set_trusted`：
+            # `trusted = (source == user-stated)`），所有其他寫入路徑都經過 `LessonRecord`
+            # 而自動維持它。這裡是唯一在 `LessonRecord` 之外寫 `source` 的地方，因此必須
+            # 自己重算——漏掉會讓兩者去同步，雙向都有實際後果：
+            #   - user-stated 但 trusted=False → 該教訓在 cross-project recall 中隱形
+            #     （`query_lessons_typed` 對 `cross_project=True` 會強制 `trusted = 1`）
+            #   - inferred 但 trusted=True → 未驗證的教訓被當成可信送給其他 project
+            # 兩者都 exit 0、無警告。（PR #347 Round 2：test-analyzer 雙向實證。）
+            trusted = int(source == LessonSource.user_stated.value)
+            if insight is None:
+                self.conn.execute(
+                    "UPDATE lessons SET confidence = ?, source = ?, trusted = ? WHERE id = ?",
+                    (confidence, source, trusted, lesson_id),
+                )
+            else:
+                self.conn.execute(
+                    "UPDATE lessons SET confidence = ?, source = ?, trusted = ?, insight = ? "
+                    "WHERE id = ?",
+                    (confidence, source, trusted, insight, lesson_id),
+                )
+
+            saved = self.conn.execute("SELECT * FROM lessons WHERE id = ?", (lesson_id,)).fetchone()
+            if saved is None:
+                raise RuntimeError(f"finalize lesson id={lesson_id} 寫入後讀回失敗")
+            self.conn.commit()
+            return {"id": lesson_id, "status": "active", "lesson": _decode_lesson_row(saved)}
+        except Exception:
+            self.conn.rollback()
+            raise
 
     def query_lessons_typed(
         self,
@@ -665,11 +870,12 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         cross_project: bool = False,
         limit: int = 20,
         include_retired: bool = False,
+        include_parked: bool = False,
     ) -> list[dict[str, Any]]:
         """查詢 typed lessons table，支援 type / source / confidence / trusted 過濾。
 
         cross_project=True 時忽略 project 限制，但只回傳 trusted=True 的記錄。
-        include_retired=False（預設）時排除已 retire 的教訓（retired_at IS NULL）。
+        include_retired=False（預設）時排除已 retire；include_parked=False 排除 parked。
         """
         if limit <= 0:
             raise ValueError("limit 必須為正整數")
@@ -679,6 +885,8 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
 
         if not include_retired:
             conditions.append("retired_at IS NULL")
+        if not include_parked:
+            conditions.append("tags NOT LIKE '%\"parked\"%'")
 
         if cross_project:
             conditions.append("trusted = 1")
@@ -719,12 +927,13 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         cross_project: bool = False,
         limit: int = 20,
         include_retired: bool = False,
+        include_parked: bool = False,
     ) -> list[dict[str, Any]]:
         """在 typed lessons 的 key、insight、files 欄位做 case-insensitive 搜尋。
 
         lesson_type、source、min_confidence、trusted_only、cross_project 等 filter
         全部在 SQL WHERE 子句套用，不在 Python 層後處理。
-        include_retired=False（預設）時排除已 retire 的教訓（retired_at IS NULL）。
+        include_retired=False（預設）時排除已 retire；include_parked=False 排除 parked。
         """
         if limit <= 0:
             raise ValueError("limit 必須為正整數")
@@ -734,6 +943,8 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
 
         if not include_retired:
             conditions.append("retired_at IS NULL")
+        if not include_parked:
+            conditions.append("tags NOT LIKE '%\"parked\"%'")
 
         if query:
             safe_query = _escape_like(query.lower())

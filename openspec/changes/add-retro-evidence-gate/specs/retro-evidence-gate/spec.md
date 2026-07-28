@@ -84,17 +84,43 @@ US-001 / AC-001-4. Evidence Gate MUST 以成本分層執行，使多數淘汰發
 
 ### Requirement: Tier 3 park 與 recurrence 升級契約
 
-US-002 / AC-002-1, AC-002-2, AC-002-3. Tier 3 action item MUST NOT 寫入任何 always-loaded 面（`.claude/rules/*`、`CLAUDE.md`）或註冊為 hook。Tier 3 MUST 被 park 到既有 mycelium typed-lessons store，以 `confidence ≤ 4` 且狀態 `parked` 記錄，MUST NOT 新增獨立檔案面；park 的原標題與描述 MUST 逐字保留。
+US-002 / AC-002-1, AC-002-2, AC-002-3. Tier 3 action item MUST NOT 寫入任何 always-loaded 面（`.claude/rules/*`、`CLAUDE.md`）或註冊為 hook。Tier 3 MUST 被 park 到既有 mycelium typed-lessons store，以 `confidence ≤ 4` 且 `tags` 含 `"parked"` 記錄（**無** `parked` 狀態欄位，零 schema migration——見 design.md 的已定案段），MUST NOT 新增獨立檔案面；park 的原標題與描述 MUST 逐字保留。
 
-recurrence 升級 MUST 遵循：同類 friction 於後續 retro 再現時 recurrence +1；recurrence ≥ 2 時該候選 MUST「解除 park」重新進入 Evidence Gate；解除 park **僅**使其重新受評，MUST 仍通過 Tier 1 或 Tier 2 證據要求才得寫入。recurrence MUST NOT 單獨構成寫入理由。
+執行介面 MUST 為 `mycelium lessons add --park`，且 MUST 以單一 transaction 原子完成，輸出 MUST 為 `status=parked recurrence=<n>` 或 `status=reassess recurrence=<n>`——runbook 依此輸出分流，任何其他輸出或非零 exit MUST 中止流程。`confidence > 4` 時 MUST 以非零 exit 拒絕（**不是** clamp，見下方 scenario）。
+
+recurrence 升級 MUST 遵循：同類 friction 於後續 retro 再現時 recurrence +1；recurrence ≥ 2 時該候選 MUST「解除 park」重新進入 Evidence Gate；解除 park **僅**使其重新受評，MUST 仍通過 Tier 1 或 Tier 2 證據要求才得寫入。recurrence MUST NOT 單獨構成寫入理由。若重評結論仍為 Tier 3，再次 `--park` MUST 只重套 `parked`、MUST NOT 再次 bump recurrence。
+
+同一 `key` 已存在**未 parked** 的 lesson 時，`--park` MUST 拒絕並以非零 exit 失敗，MUST NOT 覆寫該 lesson——否則會把已通過 Tier 1/2 的教訓夾成 `confidence ≤ 4` 並掛上 `parked`，使其從預設 recall 與 tier promotion 中消失。
 
 #### Scenario: tier3-parked-not-always-loaded -- Tier 3 不碰 always-loaded 面
 
 **GIVEN** 一個 action item 被歸為 Tier 3
 **WHEN** Evidence Gate 處置該 action item
 **THEN** 系統 MUST NOT 將其寫入 `.claude/rules/*` 或 `CLAUDE.md`
-  AND 系統 MUST 將其 park 到 typed-lessons（confidence ≤ 4、狀態 parked）
+  AND 系統 MUST 將其 park 到 typed-lessons（`confidence ≤ 4`、`tags` 含 `"parked"`）
   AND 系統 MUST 逐字保留其原標題與描述
+
+#### Scenario: repark-after-failed-reassessment-does-not-double-bump -- 重評仍 Tier 3 時不重複計數
+
+**GIVEN** 一個候選已因 recurrence 達 2 而解除 park
+**WHEN** 重評結論仍為 Tier 3 並再次執行 `--park`
+**THEN** 系統 MUST 重新掛上 `parked`
+  AND 系統 MUST NOT 把 recurrence 由 2 再 bump 成 3
+  AND 輸出 MUST 為 `status=parked recurrence=2`
+
+#### Scenario: park-refuses-to-overwrite-an-unparked-lesson -- 拒絕把已驗證教訓打成 Tier 3
+
+**GIVEN** 同一 `key` 已存在一筆未 parked 的 lesson（例如 `confidence=9`）
+**WHEN** 對該 key 執行 `--park`
+**THEN** 系統 MUST 以非零 exit 拒絕
+  AND 該既有 lesson 的 `confidence` 與 `tags` MUST 維持不變
+
+#### Scenario: park-rejects-confidence-above-four -- confidence 超標是拒絕而非夾取
+
+**GIVEN** 一個 `--park` 呼叫帶 `confidence = 5`
+**WHEN** 系統處理該呼叫
+**THEN** 系統 MUST 以非零 exit 拒絕並說明 `confidence` 必須 ≤ 4
+  AND 系統 MUST NOT 靜默把它夾成 4 後照常寫入
 
 #### Scenario: recurrence-unparks-still-needs-evidence -- recurrence 達標僅解除 park 而不自動寫入
 
@@ -104,11 +130,13 @@ recurrence 升級 MUST 遵循：同類 friction 於後續 retro 再現時 recurr
   AND 系統 MUST NOT 僅因 recurrence ≥ 2 就將其寫入 always-loaded 面
   AND 系統 MUST 要求其通過 Tier 1 或 Tier 2 證據後才寫入
 
-### Requirement: commit-time lint 分層強制且以純函式暴露
+### Requirement: evidence lint 分層強制、雙執行點且以純函式暴露
 
-US-003 / AC-003-1, AC-003-2, AC-003-3. MUST 存在一個 pre-commit lint，對 git-staged diff 檢查證據標記，且其檢查邏輯 MUST 以純函式 `check_rule_evidence(diff_text) -> list[str]` 暴露（回傳失敗訊息清單，空清單代表通過），使負向案例可用合成 fixture 驗證而非只對真實檔案斷言。
+US-003 / AC-003-1, AC-003-2, AC-003-3. MUST 存在一個 lint，檢查證據標記，且其檢查邏輯 MUST 以純函式 `check_rule_evidence(diff_text) -> list[str]` 暴露（回傳失敗訊息清單，空清單代表通過），使負向案例可用合成 fixture 驗證而非只對真實檔案斷言。
 
-強制分層 MUST 為：（a）新增 `.claude/rules/NN-*.md` 檔，或 settings.json 新註冊的 hook 及其 script，缺證據標記 → MUST 以非零 exit 擋 commit；（b）既有 rule 檔新增 section 缺證據標記 → 初期 MUST 為 warn-only（pre-commit 設 `verbose: true` 使警告可見）。lint 接受的證據標記 MUST 包含結構化形式（`<!-- verified: probe -->` / `<!-- verified: incident PR#NNN -->`）與既有 prose 慣例（`Probed.` / `verified on <tool> <version>` / `(Source: PR #NNN`）擇一。
+該 lint MUST 在**兩個獨立執行點**可用，且兩者讀的 diff 來源不同：（i）pre-commit，讀 git-staged diff；（ii）CI，讀 PR / push 的 commit range（`--base <sha> --head <sha>`）。CI 執行點 MUST NOT 依賴 staged diff——CI runner 上 `git diff --cached` 恆為空，會使 gate「跑完、通過、什麼都沒檢查」。range 模式 MUST 使用三點 `base...head` 語意（`pull_request.base.sha` 是 base 分支 tip 而非 merge-base，兩點會把他人合入 base 的改動算進本 PR），且在 commit 無法解析時 MUST 以非零 exit 大聲失敗，MUST NOT 回傳空 diff。
+
+強制分層 MUST 為：（a）新增 `.claude/rules/NN-*.md` 檔，或 settings.json 新註冊的 hook 及其 script，缺證據標記 → MUST 以非零 exit 擋 commit；（b）既有 rule 檔新增 section 缺證據標記 → 初期 MUST 為 warn-only，且警告 MUST 在兩個執行點都可見（pre-commit 端設 `verbose: true`；CI 端 lint 直接寫 stderr，無需該設定）。lint 接受的證據標記 MUST 包含結構化形式（`<!-- verified: probe -->` / `<!-- verified: incident PR#NNN -->`）與既有 prose 慣例（`Probed.` / `verified on <tool> <version>` / `(Source: PR #NNN`）擇一。
 
 錨點策略 MUST 遵循既有教訓：若 lint 因錨點字串過時而找不到目標，MUST `[FAIL]` 而非靜默通過；錨點比對 MUST 以 UTF-8 讀原始位元組。
 

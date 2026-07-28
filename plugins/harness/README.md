@@ -41,6 +41,7 @@ claude plugin install harness@yibi-stack
 | `bash-anti-patterns` skill | Full methodology guide for AP1/AP2/AP3 detection and shell quoting hygiene |
 | `protect-push` skill | Git pre-push hook installer: blocks direct push to main/master from worktree branches |
 | `plugin-migration-check` skill | Detects installed yibi-stack packs that were renamed/merged/split/removed and prints the exact `claude plugin uninstall`/`install` commands to fix them |
+| `plugin-cache-prune` skill | Scans `~/.claude/plugins/cache/` across all marketplaces for stale plugin version directories no longer referenced by `installed_plugins.json`, and removes them on request |
 | AP1 PreToolUse hook | Blocks `python -c` multi-line, `osascript` heredoc, `grep "\|"` BRE, nested `$(outer "$(inner)")`, `$(jq '...')` subshell |
 | AP2 PreToolUse hook | Blocks em dash, en dash, emoji, zero-width chars in bash strings |
 | Smart-fix PreToolUse hook | Detects Rule 2 `"$(cmd)"` standalone token and shows corrected command inline |
@@ -56,6 +57,9 @@ claude plugin install harness@yibi-stack
 - Consult `bash-anti-patterns` for shell-safe command construction and remediation guidance.
 - Run `plugin-migration-check` after a marketplace update if a skill you used to have
   seems to have disappeared, or right after any yibi-stack pack taxonomy refactor.
+- Run `plugin-cache-prune` periodically to reclaim disk space from stale plugin version
+  directories that accumulate under `~/.claude/plugins/cache/` every time a marketplace
+  plugin is updated.
 
 ## Known Limitations
 

@@ -41,6 +41,61 @@ def add_lesson(
     return {"id": record.id, "trusted": record.trusted}
 
 
+def park_lesson(
+    record_data: dict[str, Any],
+    db_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """把 Tier 3 lesson park；同 key recurrence 由 DB transaction 原子處理。"""
+    from .db import AgentsDB
+    from .models import LessonRecord
+
+    record = LessonRecord.model_validate(record_data)
+    if record.confidence > 4:
+        raise ValueError("parked lesson 的 confidence 必須 ≤ 4")
+
+    db = AgentsDB(db_path=db_path)
+    try:
+        db.init_db()
+        return db.park_lesson(record)
+    finally:
+        db.close()
+
+
+def finalize_reassessed_lesson(
+    lesson_id: str,
+    *,
+    confidence: int,
+    source: str,
+    insight: str | None = None,
+    db_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """重評通過 Tier 1/2 後，把已解除 park 的 lesson 原地升級為 active（冪等）。
+
+    見 `AgentsDB.finalize_reassessed_lesson` 的 docstring：這取代「先 add 後 retire」，
+    因為後者在 runbook 指示的「失敗就重跑」語意下會重複新增列。
+    """
+    from .db import AgentsDB
+
+    # 下限是 5 而非 1：finalize 的語意是「重評通過 Tier 1/2」，而 Tier 3 的水位定義就是
+    # `confidence ≤ 4`。允許 1–4 會讓一筆仍屬 Tier 3 的教訓直接轉成 active、進入一般 recall
+    # 與 tier promotion 而完全不經過 park——正是 Evidence Gate 要防的事。重評結論若仍是
+    # Tier 3，正確出口是再跑一次 `--park`（見 SKILL.md 的三條出口表）。
+    # （PR #347 Round 2：Codex 提出，lead 實證重現 confidence=2 的 finalize 進了 promotion。）
+    if confidence < 5 or confidence > 10:
+        raise ValueError(
+            "finalize 的 confidence 必須介於 5 到 10（Tier 3 請改用 --park 重新 park）"
+        )
+
+    db = AgentsDB(db_path=db_path)
+    try:
+        db.init_db()
+        return db.finalize_reassessed_lesson(
+            lesson_id, confidence=confidence, source=source, insight=insight
+        )
+    finally:
+        db.close()
+
+
 def get_lesson(
     lesson_id: str,
     db_path: str | Path | None = None,
@@ -196,6 +251,7 @@ def show_lessons_typed(  # pylint: disable=too-many-arguments
     db_path: str | Path | None = None,
     insights_path: str | Path | None = None,
     include_retired: bool = False,
+    include_parked: bool = False,
 ) -> list[dict[str, Any]]:
     """查詢 typed lessons，可合併 legacy handovers.lessons_learned（include_legacy=True）。
 
@@ -217,6 +273,7 @@ def show_lessons_typed(  # pylint: disable=too-many-arguments
             cross_project=cross_project,
             limit=_SEARCH_INTERNAL_LIMIT,
             include_retired=include_retired,
+            include_parked=include_parked,
         )
     finally:
         db.close()
@@ -283,6 +340,7 @@ def search_lessons_typed(  # pylint: disable=too-many-arguments
     db_path: str | Path | None = None,
     insights_path: str | Path | None = None,
     include_retired: bool = False,
+    include_parked: bool = False,
 ) -> list[dict[str, Any]]:
     """在 typed lessons 中搜尋（含 legacy 合併，可套用 filter 和 dedup）。
 
@@ -303,6 +361,7 @@ def search_lessons_typed(  # pylint: disable=too-many-arguments
             cross_project=cross_project,
             limit=_SEARCH_INTERNAL_LIMIT,
             include_retired=include_retired,
+            include_parked=include_parked,
         )
     finally:
         db.close()

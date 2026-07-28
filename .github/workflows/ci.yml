@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -36,6 +38,26 @@ jobs:
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Evidence lint against pull request range
+        if: github.event_name == 'pull_request'
+        run: >-
+          uv run python scripts/lint_rule_evidence.py
+          --base "${{ github.event.pull_request.base.sha }}"
+          --head "${{ github.event.pull_request.head.sha }}"
+
+      # 全零 `before` 代表「這個 ref 是被本次 push 建立的」，此時沒有可用的比較基準。
+      # 這裡略過是安全的，不是覆蓋缺口：上方 `on:` 把 push 限定在 `branches: [main]`，
+      # 而 main 只會被建立一次；新分支根本不觸發本 workflow，其 evidence lint 涵蓋來自
+      # 上面的 pull_request step。（PR #347 re-review 提出「新分支首次 push 略過 lint」，
+      # 經 trigger 範圍確認前提不成立——若日後把 push 觸發放寬到其他分支，這條就要改成
+      # 與預設分支算 merge base。）
+      - name: Evidence lint against pushed range
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: >-
+          uv run python scripts/lint_rule_evidence.py
+          --base "${{ github.event.before }}"
+          --head "${{ github.sha }}"
 
       - name: Lint, format, type check, security (pre-commit)
         run: uv run pre-commit run --all-files

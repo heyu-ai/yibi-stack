@@ -166,6 +166,192 @@ class TestLoadMyceliumLessons:
         assert "locked" in fatal_errors[0].lower()
 
 
+def make_db_with_parked_and_retired(tmp_path: Path) -> Path:
+    """建立含 tags / retired_at 欄位的 handover.db，塞入 active / parked / retired 各一筆。"""
+    db_dir = tmp_path / ".agents" / "handover"
+    db_dir.mkdir(parents=True)
+    db_path = db_dir / "handover.db"
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "CREATE TABLE lessons ("
+        "id TEXT PRIMARY KEY, ts TEXT NOT NULL, project TEXT NOT NULL, type TEXT NOT NULL, "
+        "key TEXT NOT NULL, insight TEXT NOT NULL, confidence INTEGER NOT NULL, "
+        "source TEXT NOT NULL, handover_id TEXT, retrospective_id TEXT, "
+        "tags TEXT NOT NULL DEFAULT '[]', retired_at TEXT)"
+    )
+    rows = [
+        ("active", "[]", None),
+        ("parked", '["parked", "recurrence-1"]', None),
+        ("retired", "[]", "2026-07-01T00:00:00+00:00"),
+    ]
+    for lesson_id, tags, retired_at in rows:
+        conn.execute(
+            "INSERT INTO lessons "
+            "(id, ts, project, type, key, insight, confidence, source, tags, retired_at) "
+            "VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                lesson_id,
+                "yibi-stack",
+                "pitfall",
+                lesson_id,
+                "insight",
+                5,
+                "observed",
+                tags,
+                retired_at,
+            ),
+        )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+class TestNightlyExcludesParkedAndRetired:
+    """NIGHTLY-DT-010..012：park 的目的是不讓未驗證教訓回到 rule 生成管線。"""
+
+    def test_nightly_dt_010_parked_and_retired_are_excluded(self, tmp_path: Path) -> None:
+        """NIGHTLY-DT-010: parked 與 retired 教訓不得進 nightly digest"""
+        make_db_with_parked_and_retired(tmp_path)
+
+        errors: list[str] = []
+        with patch(f"{CLI}.Path.home", return_value=tmp_path):
+            result = _load_mycelium_lessons(24, ["pitfall"], errors)
+
+        assert errors == []
+        assert [r["id"] for r in result] == ["active"], (
+            "parked / retired 教訓從側門進了 nightly rule 生成管線"
+        )
+
+    def test_nightly_dt_011_missing_columns_do_not_break_the_read(self, tmp_path: Path) -> None:
+        """NIGHTLY-DT-011: 舊 schema（無 tags / retired_at）仍可讀，且不過濾
+
+        缺欄位等同「park 與 retire 當時還不存在」，不過濾是正確的；重點是不得因為少了欄位
+        就整批讀取失敗。
+        """
+        make_handover_db(tmp_path, with_retrospective_id=False)
+
+        errors: list[str] = []
+        with patch(f"{CLI}.Path.home", return_value=tmp_path):
+            result = _load_mycelium_lessons(24, ["pitfall"], errors)
+
+        assert errors == []
+        assert len(result) == 1
+
+    def test_nightly_dt_012_read_path_stays_read_only(self, tmp_path: Path) -> None:
+        """NIGHTLY-DT-012: 讀取路徑不得留下**已 commit** 的 schema 或資料變更
+
+        涵蓋面精確描述（不要放大）：本測試前後快照 schema 與資料列，因此抓得到
+        `ALTER TABLE`（rule 07 點名的自我 migration，PR #210 的原始迴歸）與已 commit 的
+        `UPDATE` / `INSERT` / `DELETE`。**未 commit 的寫入嘗試不在本測試涵蓋內**——讀取路徑
+        不 commit，這類寫入會在連線關閉時回滾，快照自然看不到。
+
+        這一段曾經寫成「插一句 `UPDATE lessons SET confidence = 1` 就會被抓到」，
+        re-review 逐字照做後發現該 mutation **仍然存活**（不加 `conn.commit()` 就被回滾）
+        ——docstring 宣稱的涵蓋面大於實際做到的，正是本 PR 一路在治的同一種病。
+        未 commit 的那一面由下一條 `DT-013` 以 `PRAGMA query_only` 覆蓋。
+        """
+        db_path = make_db_with_parked_and_retired(tmp_path)
+
+        def snapshot() -> tuple[str, list[tuple[object, ...]]]:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                ddl = conn.execute("SELECT sql FROM sqlite_master WHERE name='lessons'").fetchone()[
+                    0
+                ]
+                rows = conn.execute(
+                    "SELECT id, ts, project, type, key, insight, confidence, source, "
+                    "tags, retired_at FROM lessons ORDER BY id"
+                ).fetchall()
+            finally:
+                conn.close()
+            return ddl, rows
+
+        before = snapshot()
+
+        errors: list[str] = []
+        with patch(f"{CLI}.Path.home", return_value=tmp_path):
+            _load_mycelium_lessons(24, ["pitfall"], errors)
+
+        after = snapshot()
+        assert after[0] == before[0], "讀取路徑改動了 schema"
+        assert after[1] == before[1], "讀取路徑改動了資料列"
+
+    def test_nightly_dt_013_read_path_survives_a_query_only_connection(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """NIGHTLY-DT-013: 讀取路徑在 `PRAGMA query_only` 下必須完全不嘗試寫入
+
+        補上 DT-012 抓不到的那一面：**未 commit** 的寫入嘗試。`query_only` 讓任何寫入直接
+        raise，因此連「寫了但被回滾」都會被抓到。rule 07 點名的真正危害（read-only mount、
+        被並行 writer 鎖住的 DB）恰恰在寫入被回滾時也會發生，所以這一面必須有覆蓋。
+        """
+        make_db_with_parked_and_retired(tmp_path)
+
+        real_connect = sqlite3.connect
+
+        def query_only_connect(database: str) -> sqlite3.Connection:
+            conn = real_connect(database)
+            conn.execute("PRAGMA query_only = ON")
+            return conn
+
+        monkeypatch.setattr(sqlite3, "connect", query_only_connect)
+
+        errors: list[str] = []
+        with patch(f"{CLI}.Path.home", return_value=tmp_path):
+            result = _load_mycelium_lessons(24, ["pitfall"], errors)
+
+        assert errors == [], f"唯讀連線下讀取路徑嘗試了寫入：{errors}"
+        assert [r["id"] for r in result] == ["active"]
+
+    def test_nightly_dt_014_integer_ids_are_normalized_before_exclusion(
+        self, tmp_path: Path
+    ) -> None:
+        """NIGHTLY-DT-014: id 以 INTEGER 寫入時，parked 過濾仍生效
+
+        SQLite 無強型別，任何以 int 寫入 `lessons.id` 的來源會讓 `"5" != 5`——排除集合是
+        `str`，比對端若不轉型就靜默漏過，parked 教訓回到 nightly 管線。兩端都 `str()` 的
+        那行改動在此之前零測試涵蓋（re-review 實證：改回不轉型仍全綠）。
+        """
+        db_dir = tmp_path / ".agents" / "handover"
+        db_dir.mkdir(parents=True)
+        conn = sqlite3.connect(str(db_dir / "handover.db"))
+        conn.execute(
+            "CREATE TABLE lessons ("
+            "id, ts TEXT NOT NULL, project TEXT NOT NULL, type TEXT NOT NULL, "
+            "key TEXT NOT NULL, insight TEXT NOT NULL, confidence INTEGER NOT NULL, "
+            "source TEXT NOT NULL, handover_id TEXT, retrospective_id TEXT, "
+            "tags TEXT NOT NULL DEFAULT '[]', retired_at TEXT)"
+        )
+        for lesson_id, tags in [(5, '["parked", "recurrence-1"]'), (6, "[]")]:
+            conn.execute(
+                "INSERT INTO lessons "
+                "(id, ts, project, type, key, insight, confidence, source, tags) "
+                "VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    lesson_id,
+                    "yibi-stack",
+                    "pitfall",
+                    f"k{lesson_id}",
+                    "insight",
+                    5,
+                    "observed",
+                    tags,
+                ),
+            )
+        conn.commit()
+        conn.close()
+
+        errors: list[str] = []
+        with patch(f"{CLI}.Path.home", return_value=tmp_path):
+            result = _load_mycelium_lessons(24, ["pitfall"], errors)
+
+        assert errors == []
+        assert [str(r["id"]) for r in result] == ["6"], (
+            "INTEGER id 的 parked 教訓漏過過濾——排除集合是 str，比對端未轉型"
+        )
+
+
 class TestFailureSignal:
     def test_nightly_failure_001_failed_run_writes_visible_marker(self, tmp_path: Path) -> None:
         """NIGHTLY-FAILURE-001：非預期失敗會寫入 marker 與 digest 的 FAIL 行。"""
