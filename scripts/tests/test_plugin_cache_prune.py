@@ -11,7 +11,7 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 - AC-6 刪除前重新確認：PCP-DT-007 / PCP-DT-008
 - 破壞半徑不得超出 cache root（symlink）：PCP-DT-009 / PCP-DT-014 / PCP-DT-015 / PCP-DT-016
 - 每個被排除項目都要帶原因回報，不得靜默丟棄：PCP-DT-017
-- 安裝中的目錄不得被刪（時間門檻，AC-6 的補強）：PCP-DT-018 / PCP-DT-019
+- 安裝中的目錄不得被刪（時間門檻，AC-6 的補強）：PCP-DT-018 / PCP-DT-019 / PCP-DT-020 / PCP-DT-021
 - 刪除失敗不得中斷整批且不得謊報：PCP-EG-005 / PCP-EG-006
 - CLI 介面必須拒絕未知旗標（AC-1 安全預設的一部分）：PCP-EG-007
 
@@ -265,10 +265,16 @@ class TestDeleteTimeReconfirmation:
     def test_pcp_dt_008_unreadable_manifest_at_delete_time_skips_instead_of_deleting(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """PCP-DT-008: 刪除前重讀清單失敗 -> 跳過該筆，不依舊快照刪除。"""
+        """PCP-DT-008: 刪除前重讀清單失敗 -> 中止整批、全部計入，不依舊快照刪除。
+
+        刻意放三個候選：清單一旦讀不到，後續每個候選都不可能確認成功，逐筆重試只會
+        刷出三行相同訊息。單一候選的情境無法分辨「中止」與「逐筆跳過」。
+        """
         cache_root = tmp_path / "cache"
         active = _make_version_dir(cache_root, "yibi-stack", "harness", "1.16.0")
         stale = _make_version_dir(cache_root, "yibi-stack", "harness", "1.14.0")
+        _make_version_dir(cache_root, "yibi-stack", "harness", "1.13.0")
+        _make_version_dir(cache_root, "yibi-stack", "harness", "1.12.0")
         _write_installed(tmp_path, [str(active)])
 
         calls = {"n": 0}
@@ -293,7 +299,12 @@ class TestDeleteTimeReconfirmation:
         )
         assert stale.exists(), "無法重新確認時必須跳過，不得依舊快照刪除"
         assert "[FAIL]" in captured.err
-        assert "無法重新確認而跳過" in captured.out
+        assert captured.err.count("[FAIL]") == 1, (
+            "清單讀不到之後每個候選都不可能成功，必須中止整批而非逐筆重試刷訊息"
+        )
+        assert "另有 3 個目錄無法重新確認而跳過" in captured.out, (
+            "中止時剩餘候選必須全部計入摘要，否則使用者看不出有多少沒被處理"
+        )
         assert "已重新釘選" not in captured.out, "不得把『無法確認』誤述為良性的『已被重新釘選』"
 
 
@@ -416,6 +427,61 @@ class TestRecentActivityGuard:
         assert not old_orphan.exists(), "守衛不得誤擋真正過期的目錄"
         assert active.exists()
         assert "可能是安裝中的目錄" in captured.err
+
+    def test_pcp_dt_020_install_starting_after_the_scan_is_not_deleted(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PCP-DT-020: 掃描時是孤兒、掃描後才被重新安裝的目錄不得被刪。
+
+        這是同時逃過兩道防線的情境：manifest 重讀看不到它（`installPath` 還沒寫），
+        掃描期的 mtime 也已是舊快照。只有在刪除當下重新量測 mtime 才擋得住。
+        以 `_dir_size` 當掛鉤——它剛好在掃描之後、rmtree 之前執行。
+        """
+        cache_root = tmp_path / "cache"
+        active = _make_version_dir(cache_root, "mkt", "pack", "1.0.0")
+        orphan = _make_version_dir(cache_root, "mkt", "pack", "0.9.0")
+        _write_installed(tmp_path, [str(active)])
+
+        real_dir_size = prune_plugin_cache._dir_size
+
+        def installing_dir_size(path: Path) -> int:
+            if path == orphan and orphan.exists():
+                (orphan / "freshly-installed.txt").write_text("mid-install", encoding="utf-8")
+            return real_dir_size(path)
+
+        with (
+            patch.object(Path, "home", return_value=tmp_path),
+            patch.object(prune_plugin_cache, "_dir_size", installing_dir_size),
+        ):
+            rc = prune_plugin_cache.prune(cache_root, dry_run=False)
+
+        captured = capsys.readouterr()
+        assert rc == 0
+        assert orphan.exists(), "掃描後才開始寫入的目錄不得被刪除"
+        assert active.exists()
+        assert "刪除前重新確認時發現近期異動" in captured.err
+
+    def test_pcp_dt_021_future_mtime_fails_loud_instead_of_silently_never_reclaiming(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PCP-DT-021: mtime 在未來時必須大聲拒絕（[FAIL] + 非零退出碼），不得靜默永久跳過。
+
+        `age = now - mtime` 沒有下界，負數永遠滿足 `age < 門檻`；若在掃描期就攔截，
+        該目錄會被永久跳過且附上「最近 N 秒內有異動」這則與事實相反的訊息。
+        """
+        cache_root = tmp_path / "cache"
+        active = _make_version_dir(cache_root, "mkt", "pack", "1.0.0")
+        skewed = _make_version_dir(cache_root, "mkt", "pack", "0.9.0", age_seconds=-86400)
+        _write_installed(tmp_path, [str(active)])
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            rc = prune_plugin_cache.prune(cache_root, dry_run=False)
+
+        captured = capsys.readouterr()
+        assert rc == 1, "無法判斷的目錄必須反映在退出碼上，否則使用者永遠不會發現"
+        assert skewed.exists(), "無法判斷時不刪"
+        assert "mtime 在未來" in captured.err
+        assert "秒內有異動" not in captured.err, "不得回報與事實相反的原因"
 
     def test_pcp_dt_019_unreadable_mtime_is_skipped_not_deleted(self, tmp_path: Path) -> None:
         """PCP-DT-019: 讀不到 mtime 時屬「無法確認」，跳過而非預設可刪。

@@ -110,7 +110,9 @@ def _is_within(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
 
 
-def _find_stale_dirs(cache_root: Path, active_paths: set[str]) -> tuple[list[Path], list[Path]]:
+def _find_stale_dirs(
+    cache_root: Path, active_paths: set[str]
+) -> tuple[list[Path], list[tuple[Path, str]]]:
     """回傳 (未被參照的版本目錄, [(被跳過的路徑, 原因)])。
 
     每個被排除的項目都帶明確原因並回報，不做靜默丟棄——使用者要能分辨
@@ -151,7 +153,11 @@ def _find_stale_dirs(cache_root: Path, active_paths: set[str]) -> tuple[list[Pat
                 except OSError as e:
                     skipped.append((version_dir, f"無法讀取 mtime（{e}），不確認就不刪"))
                     continue
-                if age < _RECENT_ACTIVITY_SECONDS:
+                # 只在「確定夠舊」時才排除候選。mtime 在未來（age < 0）不在此攔截：
+                # 那不是「近期有異動」，用時間門檻無法判斷，交由刪除前的確認以 [FAIL]
+                # 處理並反映在退出碼上——否則負數永遠滿足 age < 門檻，該目錄會被
+                # 永久跳過，還附上一則與事實相反的訊息。
+                if 0 <= age < _RECENT_ACTIVITY_SECONDS:
                     skipped.append(
                         (
                             version_dir,
@@ -192,7 +198,7 @@ def prune(cache_root: Path, dry_run: bool) -> int:
     skipped_repinned = 0
     skipped_unconfirmed = 0
 
-    for version_dir in stale_dirs:
+    for index, version_dir in enumerate(stale_dirs):
         size = _dir_size(version_dir)
 
         if dry_run:
@@ -204,11 +210,41 @@ def prune(cache_root: Path, dry_run: bool) -> int:
         try:
             current_active = _read_active_paths()
         except RuntimeError as e:
-            print(f"[FAIL] {version_dir} -- 無法重新確認安裝清單（{e}），跳過", file=sys.stderr)
-            skipped_unconfirmed += 1
-            continue
+            # 清單一旦讀不到，後續每個候選都不可能確認成功，逐筆重試只會刷出成百
+            # 上千行相同訊息並淹沒先前的 [REMOVE]。直接中止，把剩餘候選全部計入。
+            remaining = len(stale_dirs) - index
+            print(
+                f"[FAIL] 無法重新確認安裝清單（{e}）；中止刪除，剩餘 {remaining} 個候選全部跳過",
+                file=sys.stderr,
+            )
+            skipped_unconfirmed += remaining
+            break
         if str(version_dir.resolve()) in current_active:
             print(f"[SKIP] {version_dir} -- 掃描後已被重新釘選，跳過", file=sys.stderr)
+            skipped_repinned += 1
+            continue
+
+        # 時間門檻同樣必須在刪除當下重新量測：掃描時求得的 mtime 到這裡已是舊快照，
+        # 一個在掃描後才開始被重新安裝的目錄（re-install／降版回既有版本）會同時逃過
+        # manifest 重讀（它還沒被寫進去）與掃描期的時間門檻。
+        try:
+            age_now = time.time() - version_dir.stat().st_mtime
+        except OSError as e:
+            print(f"[FAIL] {version_dir} -- 刪除前無法讀取 mtime（{e}），跳過", file=sys.stderr)
+            skipped_unconfirmed += 1
+            continue
+        if age_now < 0:
+            print(
+                f"[FAIL] {version_dir} -- mtime 在未來，無法用時間門檻判斷是否安裝中，跳過",
+                file=sys.stderr,
+            )
+            skipped_unconfirmed += 1
+            continue
+        if age_now < _RECENT_ACTIVITY_SECONDS:
+            print(
+                f"[SKIP] {version_dir} -- 刪除前重新確認時發現近期異動，可能是安裝中",
+                file=sys.stderr,
+            )
             skipped_repinned += 1
             continue
 
