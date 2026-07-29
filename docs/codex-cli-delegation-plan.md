@@ -45,7 +45,15 @@
 
 契約隨 skill 走而不是寫進 repo 根目錄，有三個理由：`AGENTS.md` 不進 git 也會被覆寫（見上節）；
 契約的內容其實是通用的（禁讀路徑、不碰 git、語言規範、跑全量 CI），repo-specific 的部分本來
-就由動態挑 rules 承擔；skill 是 `scope: global`，契約隨它安裝才能跨 repo 生效。
+就由動態挑 rules 承擔；契約隨 skill 安裝才能跨 repo 生效。
+
+**「隨 skill 安裝」有兩條路徑，SKILL.md 必須兩條都解析**。本 skill 有兩個獨立的散佈管道：
+`make install` 把它 symlink 進 `~/.agents/skills/`，而 `claude plugin install 3rd-tools@yibi-stack`
+把整包放進 `~/.claude/plugins/cache/`。初版只查前者，於是**只用後者（也就是兩個 README
+宣傳的那個指令）安裝的使用者，第一次派工就會停在契約存在 gate**——skill 對它自己文件宣傳的
+安裝方式不可用。Step 0.6 因此改為以 `installed_plugins.json` 的 `installPath` 為第一候選、
+`~/.agents/skills/` 為次選、repo-local 路徑為末選，三者皆以 `contract.md` 可讀為判準
+（同 `plugins/sdd/skills/spectra-amplifier/SKILL.md` 的既有做法）。
 
 被否決的方案：
 
@@ -122,8 +130,15 @@ Step 5 的第二個檢查看似多餘，實則是本 repo 踩過的實帳（PR #
 - **Codex 可能不讀被指名的 rule**。契約要求它在報告中聲明讀了哪些 rule 檔，把「沒讀」
   從不可觀測變成可觀測，但無法強制。Claude 在 Step 6 review 時仍須自行對照規則。
 - **Prompt injection 經由 repo 內容**。與既有 `/codex-review` 同一信任邊界（trusted repo 假設），
-  `-s workspace-write` 讓風險高於唯讀路徑：Codex 可寫檔。branch gate 與工作區乾淨 gate 讓
-  任何非預期改動都能用 git 完整還原，這是主要的緩解。
+  `-s workspace-write` 讓風險高於唯讀路徑：Codex 可寫檔。branch gate 與工作區乾淨 gate 是主要
+  的緩解，讓**被 git 追蹤的**非預期改動都能完整還原。
+- **Gitignored 路徑不在 git 的保護範圍內**。上一條的還原保證只涵蓋 git 看得見的檔案。
+  `.env`（API key、加密金鑰）與 `.runtime/`（Fernet 加密密碼、SQLite DB）都在 workspace 內
+  但被 gitignore，於是 Step 0.4 的 `git status --porcelain`、Step 4 的 `git diff --cached`、
+  Step 5 的全量 CI **全部看不到**它們，`git checkout` 也還原不了。這不是 branch gate 或
+  工作區乾淨 gate 能涵蓋的面——兩道 gate 對這類檔案都無效。緩解改由契約層承擔：
+  `contract.md` 的 Prohibited actions 明令不得讀寫 gitignored 檔案，並說明理由（含機密、
+  且 git 無法還原）。殘留風險是這條同樣「要求但無法強制」，與第一條同性質。
 - **跨 repo 使用時無 `.claude/rules/`**。此時只有 skill 自帶的 `contract.md` 生效，
   repo-specific 的規範完全落空；skill 會 `[WARN]` 而非靜默跳過，讓使用者知道這次派工
   少了哪一層約束。

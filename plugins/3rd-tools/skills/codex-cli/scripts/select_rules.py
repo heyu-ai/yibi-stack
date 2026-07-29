@@ -105,6 +105,20 @@ def parse_paths(text: str) -> list[str] | None:
     return None
 
 
+def frontmatter_is_malformed(text: str) -> bool:
+    """frontmatter 有起始 `---` 但缺結束 `---` 時回 True。
+
+    這種檔案會被 `parse_paths` 當成「沒有 frontmatter」而回 None（即全量載入）。方向是
+    fail-safe——多載入一個 rule 不會讓 Codex 少收到規範——但它**靜默**，與同一個函式對
+    「有 `paths:` key 卻解析不出 pattern」會發 `[WARN]`（見 `select`）的處理不一致。
+    呼叫端用本函式補上那個 `[WARN]`，讓兩種「frontmatter 壞掉」得到相同的診斷待遇。
+    """
+    lines = text.lstrip("﻿").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return False
+    return next((i for i, line in enumerate(lines[1:], 1) if line.rstrip() == "---"), None) is None
+
+
 def title_of(text: str, fallback: str) -> str:
     for line in text.splitlines():
         if line.startswith("# "):
@@ -146,6 +160,12 @@ def select(rules_dir: Path, changed: list[str]) -> tuple[list[str], int]:
         title = title_of(text, rule_file.stem)
         patterns = parse_paths(text)
         if patterns is None:
+            if frontmatter_is_malformed(text):
+                print(
+                    f"[WARN] {rel} frontmatter 不完整（有起始 --- 但缺結束 ---），"
+                    "以全量載入計；請回頭修它的 frontmatter",
+                    file=sys.stderr,
+                )
             selected.append(f"- `{rel}` — {title}（always loaded）")
             continue
         if not patterns:

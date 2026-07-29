@@ -1,7 +1,7 @@
 {
   "name": "growth",
   "description": "Knowledge extraction and retention for Claude Code agents: mycelium, learn, PR retrospective/control log, CLAUDE.md pruning, and /pr-retro.",
-  "version": "1.18.0",
+  "version": "1.18.1",
   "author": {
     "name": "Howie Yu",
     "email": "2318485+howie@users.noreply.github.com"
