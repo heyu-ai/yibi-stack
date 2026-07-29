@@ -248,13 +248,19 @@ class TestSafeSymlink:
         assert dst.is_symlink()
         assert Path(os.readlink(dst)) == src
 
-    def test_ssl_dt_004_without_force_keeps_real_path_and_warns_on_stderr(
-        self, tmp_path: Path
-    ) -> None:
-        """SSL-DT-004: 無 --force 時保留實體路徑，且警告走 stderr 不污染 stdout。
+    def test_ssl_dt_004_without_force_keeps_real_path_and_fails_loud(self, tmp_path: Path) -> None:
+        """SSL-DT-004: 無 --force 時保留實體路徑，但必須 exit 2 而非靜默成功。
 
-        make install 的 stdout 可能被解析或重導；診斷訊息混進去會讓下游靜默失敗
-        （rule 13「Shell Script Diagnostics Must Go to stderr」）。
+        兩個獨立保證：
+
+        1. **不覆蓋**：實體路徑原封不動（破壞性動作只在 --force 時發生）。
+        2. **不 fail-open**：exit code 必須非零。舊版此分支只印警告就 exit 0，
+           於是 `make install` 整體回報成功卻少裝了一個 skill——失敗只存在於
+           一行 stderr，沒被任何 gate 讀到。實測踩到：`~/.agents/skills/investigate`
+           是一個殘留空目錄，擋掉 symlink 兩個月無人察覺。
+
+        訊息走 stderr 不污染 stdout（rule 13「Shell Script Diagnostics Must Go
+        to stderr」）——make install 的 stdout 可能被解析或重導。
         """
         src = tmp_path / "src.sh"
         src.write_text("x", encoding="utf-8")
@@ -262,10 +268,42 @@ class TestSafeSymlink:
         dst.mkdir(parents=True)
 
         result = _run(["bash", str(SAFE_SYMLINK), str(src), str(dst)])
-        assert result.returncode == 0
+        assert result.returncode == 2, "被實體路徑擋住卻回報成功 = fail-open"
         assert not dst.is_symlink(), "無 --force 不應覆蓋實體路徑"
-        assert "skipping" in result.stderr
-        assert "skipping" not in result.stdout
+        assert dst.is_dir(), "實體路徑內容不得被動到"
+        assert "--force" in result.stderr, "訊息必須指出修法"
+        assert result.stdout.strip() == "", "診斷訊息不得混入 stdout"
+
+    def test_ssl_dt_005_exit_codes_distinguish_blocked_from_hard_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """SSL-DT-005: exit code 三態——0 成功 / 2 被擋 / 1 真正失敗，互不重疊。
+
+        為什麼被擋不能沿用 exit 1：呼叫端要能分辨「操作者需要動手清掉一個路徑」
+        與「ln 壞了、參數錯了」。兩者混成同一碼，Makefile 就無法對前者給出
+        `--force` 這個專屬修法。本測試把三條路徑放在一起比對，避免日後有人
+        「順手」把 2 併回 1 而沒有任何測試變紅。
+        """
+        src = tmp_path / "src.sh"
+        src.write_text("x", encoding="utf-8")
+
+        ok_dst = tmp_path / "bin" / "ok.sh"
+        ok_dst.parent.mkdir()
+        blocked_dst = tmp_path / "bin" / "blocked.sh"
+        blocked_dst.mkdir()
+        # 父目錄不存在 -> ln 失敗（真正的執行失敗，非「被擋」）
+        broken_dst = tmp_path / "no_such_dir" / "src.sh"
+
+        codes = {
+            label: _run(["bash", str(SAFE_SYMLINK), str(src), str(dst)]).returncode
+            for label, dst in (
+                ("ok", ok_dst),
+                ("blocked", blocked_dst),
+                ("hard_failure", broken_dst),
+            )
+        }
+
+        assert codes == {"ok": 0, "blocked": 2, "hard_failure": 1}, codes
 
     def test_ssl_eg_002_failure_diagnostics_go_to_stderr(self, tmp_path: Path) -> None:
         """SSL-EG-002: ln 失敗時的 [FAIL] 訊息必須在 stderr，且 exit 1。"""
