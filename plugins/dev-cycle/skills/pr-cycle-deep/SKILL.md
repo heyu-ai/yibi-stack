@@ -604,19 +604,9 @@ absent evidence never activate R2.
 
 - Candidate blocking set empty **and** no blocking dispute → report
   `R2 skipped: no contract-blocking candidate or dispute`, skip Step 4, and aggregate R1 in Step 5.
-- Candidate blockers exist、**無 blocking dispute**、且 lead 承諾**全數照原評級採納並修復**
-  （不對任何一項辯論降級、不提出任何 DISAGREE）→ 得跳過 Step 4，回報
-  `R2 skipped: lead adopts all blockers`，並在 final.md 逐項記錄 disposition。理由：R2 的
-  功能是仲裁爭議與校準嚴重度；當處置已是辯論結果的超集（全部照單修復），跑 R2 唯一可能的
-  產出是降級已被接受的工作。**採納 ≠ 免驗證**：單一 voice 的 Critical 仍須依 Step 5
-  Evidence gate 由 lead 復現——openspectra PR #102 的實測反例：一個 Critical 經復現不成立，
-  沒有這道驗證「照單全收」會修一個不存在的缺陷。任何一項 lead 想降級、不修、或對
-  mapping / severity 有異議 → 本出口失效，照常跑 R2。
-- At least one candidate blocker the lead does **not** adopt as-graded, **or** any blocking
-  dispute → run Step 4 for all active voices.
+- Blockers exist、無 dispute、lead 承諾**全數照原評級採納並修復** → 可跳過 Step 4，回報 `R2 skipped: lead adopts all blockers`（**採納 ≠ 免驗證**：仍依 Evidence gate 復現；lead 降級/不修/有異議或任何 dispute → 照常跑 Step 4）。
 
-This gate applies on the initial review and every bounded re-review pass.
-（第二個出口來自 openspectra #100-#104 批次的實戰回饋，見 issue #361。）
+This gate applies on the initial review and every bounded re-review pass（第二個出口見 openspectra #100-#104／issue #361）。
 
 ---
 
