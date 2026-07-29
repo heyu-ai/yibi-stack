@@ -19,7 +19,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 RELEASE_SH = REPO_ROOT / "scripts" / "release-full.sh"
-AGY_RUN_SH = REPO_ROOT / "plugins" / "3rd-tools" / "skills" / "agy" / "scripts" / "run.sh"
+AGY_RUN_SH = REPO_ROOT / "plugins" / "3rd-tools" / "skills" / "agy-review" / "scripts" / "run.sh"
 
 # Matches a pipe into `agy --print` / `agy -p` with no prompt value of its own -- the broken
 # form. A comment line explaining the trap must not trip this, so callers strip comments first.

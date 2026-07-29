@@ -36,9 +36,9 @@ ship
 
 `harness`（`harness-eval` / `bash-anti-patterns` / hooks）不是週期上的一個步驟，是**貫穿整個
 週期的橫切關注點**：每一次 Bash 呼叫都可能觸發 AP1/AP2 hook；`harness-eval` 可以在週期的任何
-時間點被叫來量測 agent 執行環境本身的品質。`3rd-tools`（`codex-review` / `agy` /
-`codex-consult`）同樣是橫切——`/pr-cycle-deep` 的 mob review 階段會用到它們，但它們不專屬於
-這條週期的任何單一步驟。
+時間點被叫來量測 agent 執行環境本身的品質。`3rd-tools`（`codex-review` / `codex-consult` /
+`agy-review` / `agy-consult`）同樣是橫切——`/pr-cycle-deep` 的 mob review 階段會用到它們，
+但它們不專屬於這條週期的任何單一步驟。
 
 ## 三個真實的跨 Pack 執行期依賴
 

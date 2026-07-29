@@ -36,7 +36,14 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #   for that widening.
 #
 # Anyone raising this again: say what the added lines buy, in the same commit.
-LINE_BUDGET = 1239
+#
+# Raised 1239 -> 1246 (+7) for the agy-review/agy-consult split. Stage 1 and R2 both kept
+# --dangerously-skip-permissions after an empirical probe (agy 1.1.8) confirmed --sandbox
+# breaks --add-dir's exploratory reads via agy's own independent permission model -- the
+# 7 lines record that finding as a `subagent` permission-class note (own absolute-path
+# allow-list entry, not a bare Bash(agy:*)) so the next reader doesn't re-litigate the same
+# unverified assumption the original comment carried.
+LINE_BUDGET = 1246
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the
