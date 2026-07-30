@@ -71,10 +71,16 @@ fi
 # 主動探索 --add-dir 內容時，可能因 agy 自己的權限系統（與 Claude Code 的設定完全獨立）
 # 擋下探索指令；headless 模式沒有終端可以核准，agy 會直接無輸出退出。不偵測的話，這支
 # script 會把空白當成「完成的 review」原樣呈現。
-OUTPUT=$(agy -p "$PROMPT_CONTENT" --add-dir . --sandbox)
-AGY_EXIT=$?
+# if 條件本身會豁免 set -e（`if`/`while`/`until` 條件、或 `&&`/`||` 前的指令不受 set -e 管），
+# 這裡刻意用 if 包住賦值：agy 非零結束時若直接寫 `OUTPUT=$(...); AGY_EXIT=$?`，set -e 會在
+# 賦值那行就中止 script，下面這行 AGY_EXIT=$? 永遠執行不到，[FAIL] 診斷訊息變死碼（實測驗證）。
+if OUTPUT=$(agy -p "$PROMPT_CONTENT" --add-dir . --sandbox); then
+    AGY_EXIT=0
+else
+    AGY_EXIT=$?
+fi
 if [ "$AGY_EXIT" -ne 0 ]; then
-    echo "[FAIL] agy 執行失敗（exit $AGY_EXIT）" >&2
+    echo "[FAIL] agy 執行失敗（exit ${AGY_EXIT}）" >&2
     exit "$AGY_EXIT"
 fi
 if [ -z "$OUTPUT" ] || [ "${#OUTPUT}" -lt 20 ]; then

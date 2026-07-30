@@ -14,7 +14,9 @@ wrong behavior.
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -89,6 +91,84 @@ class TestAgyRunScriptContract:
         assert "[FAIL]" in src and '-z "$OUTPUT"' in src, (
             f"{script.name} must fail loud when agy's output is empty"
         )
+
+
+def _make_stub_agy(tmp_path: Path, *, exit_code: int, stdout: str) -> Path:
+    """Create a directory containing a stub `agy` executable for PATH injection."""
+    bin_dir = tmp_path / "stub-bin"
+    bin_dir.mkdir(exist_ok=True)
+    agy_stub = bin_dir / "agy"
+    agy_stub.write_text(f"#!/usr/bin/env bash\nprintf '%s' {stdout!r}\nexit {exit_code}\n")
+    agy_stub.chmod(0o755)
+    return bin_dir
+
+
+def _run_agy_script(
+    script: Path, tmp_path: Path, *, agy_exit: int, agy_stdout: str
+) -> subprocess.CompletedProcess[str]:
+    """Run run.sh or consult.sh against a stub `agy`, handling each script's own calling
+    convention (run.sh: positional mode/base/instruction args, invoked from the real repo so
+    `git diff origin/<base>...HEAD` resolves; consult.sh: no args, reads
+    $CLAUDE_JOB_DIR/agy-consult-question.txt)."""
+    bin_dir = _make_stub_agy(tmp_path, exit_code=agy_exit, stdout=agy_stdout)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}"}
+    if script.name == "run.sh":
+        args: list[str] = ["review", "main", ""]
+        cwd = REPO_ROOT
+    else:
+        (tmp_path / "agy-consult-question.txt").write_text("測試問題", encoding="utf-8")
+        env["CLAUDE_JOB_DIR"] = str(tmp_path)
+        args = []
+        cwd = REPO_ROOT
+    return subprocess.run(
+        ["bash", str(script), *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+        cwd=cwd,
+    )
+
+
+class TestAgyScriptExecutionContract:
+    """Execution-level regression tests using a stub `agy` binary (Codex R2 suggestion, PR
+    #367 mob review): the static AGYRUN-DT-004 check above cannot see the two real bugs only
+    actual execution surfaced -- `set -e` aborting the script at `OUTPUT=$(agy ...)` before
+    `AGY_EXIT=$?` could ever run, and a bare `$AGY_EXIT` immediately followed by a full-width
+    `）` folding into a different, unset variable name under `set -u` (rule 13 Quoting Rule 7:
+    a non-ASCII character directly after `$VAR` with no space/ASCII boundary)."""
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_006_nonzero_agy_exit_reports_fail_not_crash(
+        self, script: Path, tmp_path: Path
+    ) -> None:
+        """A failing agy must produce the script's own [FAIL] message and its exit code --
+        not a bash crash (e.g. "unbound variable") from set -e / set -u interacting badly
+        with the error-handling code that captures agy's exit status."""
+        result = _run_agy_script(script, tmp_path, agy_exit=7, agy_stdout="")
+        assert result.returncode == 7, (result.stdout, result.stderr)
+        assert "unbound variable" not in result.stderr, result.stderr
+        assert "[FAIL]" in result.stderr and "exit 7" in result.stderr, result.stderr
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_007_empty_agy_output_reports_fail(
+        self, script: Path, tmp_path: Path
+    ) -> None:
+        """agy exiting 0 with empty stdout must fail loud, not present a blank result."""
+        result = _run_agy_script(script, tmp_path, agy_exit=0, agy_stdout="")
+        assert result.returncode == 1, (result.stdout, result.stderr)
+        assert "[FAIL]" in result.stderr, result.stderr
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_008_successful_agy_output_is_presented(
+        self, script: Path, tmp_path: Path
+    ) -> None:
+        """A clean agy run must exit 0 and print its real answer to stdout."""
+        result = _run_agy_script(
+            script, tmp_path, agy_exit=0, agy_stdout="a genuine agy answer, long enough"
+        )
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        assert "a genuine agy answer" in result.stdout
 
 
 class TestReleaseRollbackContract:

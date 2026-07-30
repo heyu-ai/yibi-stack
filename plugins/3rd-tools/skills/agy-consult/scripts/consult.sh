@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
 # agy standalone consult runner -- no diff, just a technical question against the repo
-# Usage: consult.sh <question-file>
+# Usage: consult.sh (no arguments)
 #
-# 吃「問題檔案路徑」而不是問題本文（PR #367 mob review Critical）：SKILL.md 呼叫這支 script
-# 時是把整段指令當 bash 字串交給真正的 shell 執行；問題本文若直接 inline 進雙引號，
-# 雙引號不會擋 $()/backtick/$VAR 展開，問題內容裡的 shell 語法會在 consult.sh 啟動前就被
-# 外層 shell 執行（同一個 repo 的 codex-consult 早就靠「先寫檔、只傳檔案路徑」解過同個問題）。
-# 檔案路徑是 Claude 自己產生的字串，不是使用者可控的任意文字，才能安全 inline 進 bash 指令。
+# 不吃任何參數，固定讀 $CLAUDE_JOB_DIR/agy-consult-question.txt（PR #367 mob review Critical，
+# 第二輪發現）：第一輪的修法是「吃問題檔案路徑而不是問題本文」，解決了雙引號擋不住 shell
+# 展開的問題，但把路徑做成參數本身就是新的漏洞——這支 script 的 allow-list entry 是
+# `Bash(bash .../consult.sh:*)`（見 scripts/patch_agy_allow_list.py），`:*` 允許任意參數，
+# 一旦允許清單生效，`bash consult.sh ~/.ssh/id_rsa` 一樣會通過驗證、讀出私鑰內容、包進
+# prompt 傳給外部的 agy 行程——變成一個被預先核准、免確認的任意檔案讀取＋外傳原語。
+# 固定死路徑 + exact-match allow-list（不帶 `:*`）才能真正關掉這個面：呼叫端沒有任何
+# 參數可以塞，allow-list 也不再需要放行任何額外內容。
 set -euo pipefail
 
-QUESTION_FILE="${1:-}"
+if [ -z "${CLAUDE_JOB_DIR:-}" ]; then
+    echo "[FAIL] CLAUDE_JOB_DIR 未設定，無法定位問題檔案。請在有 CLAUDE_JOB_DIR 的 Claude Code session 執行。" >&2
+    exit 1
+fi
+QUESTION_FILE="$CLAUDE_JOB_DIR/agy-consult-question.txt"
 
-if [ -z "$QUESTION_FILE" ] || [ ! -f "$QUESTION_FILE" ]; then
-    echo "[FAIL] QUESTION_FILE missing or not found: $QUESTION_FILE. Pass the path to a file containing the question as the first argument." >&2
+if [ ! -f "$QUESTION_FILE" ]; then
+    echo "[FAIL] $QUESTION_FILE 不存在。請先用 Write tool 把問題寫進這個檔案，再執行本 script。" >&2
     exit 1
 fi
 
@@ -54,10 +61,16 @@ fi
 # 主動探索 --add-dir 內容時，可能因 agy 自己的權限系統（與 Claude Code 的設定完全獨立）
 # 擋下探索指令；headless 模式沒有終端可以核准，agy 會直接無輸出退出。不偵測的話，這支
 # script 會把空白當成「完成的回答」原樣呈現，使用者無法分辨是真的沒問題還是被靜默擋下。
-OUTPUT=$(agy -p "$PROMPT_CONTENT" --add-dir . --sandbox)
-AGY_EXIT=$?
+# if 條件本身會豁免 set -e（`if`/`while`/`until` 條件、或 `&&`/`||` 前的指令不受 set -e 管），
+# 這裡刻意用 if 包住賦值：agy 非零結束時若直接寫 `OUTPUT=$(...); AGY_EXIT=$?`，set -e 會在
+# 賦值那行就中止 script，下面這行 AGY_EXIT=$? 永遠執行不到，[FAIL] 診斷訊息變死碼（實測驗證）。
+if OUTPUT=$(agy -p "$PROMPT_CONTENT" --add-dir . --sandbox); then
+    AGY_EXIT=0
+else
+    AGY_EXIT=$?
+fi
 if [ "$AGY_EXIT" -ne 0 ]; then
-    echo "[FAIL] agy 執行失敗（exit $AGY_EXIT）" >&2
+    echo "[FAIL] agy 執行失敗（exit ${AGY_EXIT}）" >&2
     exit "$AGY_EXIT"
 fi
 if [ -z "$OUTPUT" ] || [ "${#OUTPUT}" -lt 20 ]; then

@@ -24,12 +24,15 @@ _PR_CYCLE_DEEP_SCRIPTS = [
     str(_SKILLS_DIR / "pr-cycle-deep" / "scripts" / "agy-r2.sh"),
 ]
 
-# run.sh / consult.sh 帶尾端 `:*`（吃位置參數，如 mode/base/question 檔案路徑）；
-# pr-cycle-deep 的 3 支 subagent script 不帶（依 SKILL.md 呼叫方式一律無參數，見各 SKILL.md
-# 的 GEMINI_ALLOW_LIST 檢查），故用 exact-match 不加萬用字元。
+# run.sh 帶尾端 `:*`（吃位置參數：mode/base/instruction）。consult.sh 與 pr-cycle-deep 的
+# 3 支 subagent script 都用 exact-match、不帶萬用字元——consult.sh 故意設計成不吃任何參數
+# （固定讀 $CLAUDE_JOB_DIR/agy-consult-question.txt，見 SKILL.md），因為帶 `:*` 的話允許
+# 任意參數，會讓「讀取任意檔案內容再傳給外部 agy」變成被預先核准、免確認的原語
+# （PR #367 mob review Critical，Round 2 發現）；pr-cycle-deep 的 3 支則是依 SKILL.md
+# 呼叫方式一律無參數（見各 SKILL.md 的 GEMINI_ALLOW_LIST 檢查）。
 ENTRIES_TO_ADD = [
     f"Bash(bash {_AGY_REVIEW_SCRIPT}:*)",
-    f"Bash(bash {_AGY_CONSULT_SCRIPT}:*)",
+    f"Bash(bash {_AGY_CONSULT_SCRIPT})",
     *(f"Bash(bash {p})" for p in _PR_CYCLE_DEEP_SCRIPTS),
 ]
 

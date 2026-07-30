@@ -51,19 +51,23 @@ python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".claude"/"settings.j
 ```
 
 MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）自動加入
-`Bash(bash ~/.agents/skills/agy-consult/scripts/consult.sh:*)` 這條絕對路徑 allow list 項目，但不阻斷。
+`Bash(bash ~/.agents/skills/agy-consult/scripts/consult.sh)` 這條絕對路徑 allow list 項目
+（exact-match，不帶 `:*`——`consult.sh` 不吃任何參數，見下方 Step 1 說明），但不阻斷。
 
 ---
 
 ## Step 1 — 執行
 
-> **執行說明**：`consult.sh` 吃**問題檔案路徑**，不是問題本文。先用 Write tool 把問題寫到
-> `$CLAUDE_JOB_DIR/agy-consult-question.txt`，再把這個路徑（不是問題內容本身）傳給 script。
+> **執行說明**：`consult.sh` **不吃任何參數**，固定讀 `$CLAUDE_JOB_DIR/agy-consult-question.txt`。
+> 先用 Write tool 把問題寫到這個固定檔案，再直接執行 script（不帶任何參數）。
 >
-> **不可把問題本文直接 inline 進 bash 指令**：這支 script 是由 Claude 組出一整段 bash 字串
-> 交給真正的 shell 執行；問題內容若含 backtick、`$(...)`、`$VAR`，雙引號**不會**阻止 shell
-> 在 `consult.sh` 啟動前就展開/執行它（同一個 repo 的 `codex-consult` 已用「先寫檔、只傳
-> 路徑」解過同個問題）。檔案路徑是 Claude 自己產生的字串，才能安全 inline。
+> **不可把問題本文直接 inline 進 bash 指令，也不可把問題檔案路徑當成參數傳入**：
+> (1) 問題本文若直接 inline 進雙引號，shell 不會阻止 `$()`/backtick/`$VAR` 展開，問題內容
+> 裡的 shell 語法會在 `consult.sh` 啟動前就被外層 shell 執行；(2) 若改成「吃檔案路徑參數」，
+> 這支 script 的 allow-list entry 若帶 `:*`（見 `scripts/patch_agy_allow_list.py`）會放行任意
+> 參數——一旦免確認生效，`bash consult.sh ~/.ssh/id_rsa` 一樣會通過，變成被預先核准的任意
+> 檔案讀取＋外傳原語。固定死路徑、不吃參數、allow-list 用 exact-match（不帶 `:*`），才能同時
+> 關掉這兩個面。
 >
 > Script 內部把「filesystem boundary 提醒 + 檔案內容」以 inline 形式當 `-p` 的值傳入
 > （`agy -p "$PROMPT_CONTENT" --add-dir . --sandbox`），沿用 `/agy-review` 的 `run.sh` 已驗證過的
@@ -73,16 +77,16 @@ MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）
 > 直接執行即可，不要外加 log capture。
 
 ```bash
-bash ~/.agents/skills/agy-consult/scripts/consult.sh "$CLAUDE_JOB_DIR/agy-consult-question.txt"
+bash ~/.agents/skills/agy-consult/scripts/consult.sh
 ```
 
 實際範例（先用 Write tool 把問題寫進
 `$CLAUDE_JOB_DIR/agy-consult-question.txt`，內容是
 `tasks/mycelium 的 db.py 裡 park_lesson 跟 finalize_reassessed_lesson 共享哪些不變量？`，
-再執行）：
+再不帶任何參數執行）：
 
 ```bash
-bash ~/.agents/skills/agy-consult/scripts/consult.sh "$CLAUDE_JOB_DIR/agy-consult-question.txt"
+bash ~/.agents/skills/agy-consult/scripts/consult.sh
 ```
 
 ---
