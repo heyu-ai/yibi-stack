@@ -22,6 +22,8 @@
       "line_start": 123,
       "line_end": 135,
       "issue": "問題描述",
+      "contract_mapping": "原文的 Contract mapping 欄位，逐字保留；raw 沒有就填空字串",
+      "evidence": "原文的 Evidence 欄位，逐字保留；raw 沒有就填空字串",
       "fix": "建議修法"
     }
   ]
@@ -29,6 +31,15 @@
 ```
 
 `line_start` / `line_end` 若原始輸出未提供，可省略（不填入）。
+
+**`contract_mapping` 與 `evidence` 兩欄必須逐字保留，不可摘要、不可省略欄位。** 它們是下游
+Evidence gate 的判斷依據，不是說明文字：R1 prompt 要求每個 critical / important finding 都附
+這兩欄，而 aggregation 階段的規則是「`Evidence:` 缺失或形式不符 → 立即降級」。這兩欄若在
+extract 階段被吃掉，**外部 voice 的每一個 finding 都會被誤判為「無證據」而降級**，只有不經
+extract 的 Claude voice 能通過那道 gate——跨家 review 的意義因此消失。
+
+raw 輸出**確實**沒有該欄時，填**空字串**而不是省略欄位：lead 需要能區分「reviewer 沒照格式給」
+與「extract 把它吃掉了」，前者是 reviewer 的問題、後者是這個 prompt 的 bug。
 
 ---
 
