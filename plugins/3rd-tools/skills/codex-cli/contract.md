@@ -32,6 +32,18 @@ the four prefixes into "avoid everything under `.claude/`".
   `pyproject.toml` dependency lists, or `package.json` dependency lists on your own initiative.
 - **No writes outside the working tree.** Everything you create or edit stays under the
   repository root you were given.
+- **Do not read, modify, or delete gitignored files**, unless the brief names the specific file
+  and says to. This covers `.env` / `.env.*`, `.runtime/`, `tmp/`, credential caches, and
+  anything else `git check-ignore` matches. Two reasons, both load-bearing:
+  - They hold secrets (API keys, encryption keys, encrypted passwords, local databases). Anything
+    you read may end up quoted in your own report, which the reviewer reads into their context.
+  - **Git cannot restore them.** The reviewer's entire verification chain — `git status`,
+    `git diff --cached`, the full CI run — is blind to gitignored paths, so a change there leaves
+    no trace in review *and* cannot be undone by `git checkout`. Every other file you touch is
+    recoverable; these are not.
+
+  If the task genuinely needs to know the shape of such a file (e.g. which keys `.env` defines),
+  say so in your report and let the reviewer supply it — do not read it yourself.
 
 ## Language convention
 

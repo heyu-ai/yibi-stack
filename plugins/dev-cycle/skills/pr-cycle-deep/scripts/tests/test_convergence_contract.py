@@ -35,6 +35,23 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #   reviewers cannot close that gap; only widening the surface can. The 19 lines buy the trigger
 #   for that widening.
 #
+# Raised 1239 -> 1256 (+17) for two Evidence-gate integrity fixes found by running this skill
+# against PR #360 after it merged. Both are cases where the skill's own machinery defeated itself:
+#
+#   (1) +6 lines, Stage 3 render: the extract schema dropped `Contract mapping` / `Evidence`, so
+#       Step 5's Evidence gate ("missing or not the required form -> demote immediately") fired on
+#       EVERY external-voice finding regardless of what the reviewer actually supplied. Only the
+#       Claude voice, which skips extract, could clear it. Measured on PR #360: all three Codex
+#       findings arrived with no evidence field and would have been deferred; the lead reproduced
+#       all three by hand and one was then upgraded to Critical in R2. A cross-family review whose
+#       gate structurally discards two of the three families is not a cross-family review.
+#
+#   (2) +11 lines, Step 3.2: the step dispatches four subagents at once, one of which
+#       (`pr-test-analyzer`) mutates files in the shared worktree while the other three read them
+#       -- directly contradicting rule 11's "finish the review round, collect every report, *then*
+#       mutate". The note tells pr-test-analyzer to sequence or copy, and to report
+#       `git status --porcelain`. A skill cannot instruct a violation of a rule it also cites.
+#
 # Anyone raising this again: say what the added lines buy, in the same commit.
 #
 # Raised 1239 -> 1246 (+7) for the agy-review/agy-consult split. Stage 1 and R2 both kept
@@ -43,7 +60,10 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 # 7 lines record that finding as a `subagent` permission-class note (own absolute-path
 # allow-list entry, not a bare Bash(agy:*)) so the next reader doesn't re-litigate the same
 # unverified assumption the original comment carried.
-LINE_BUDGET = 1246
+#
+# Merged with an independent 1239 -> 1256 (+17) raise from origin/main (two Evidence-gate
+# integrity fixes, landed in parallel via PR #368) -> combined budget 1263.
+LINE_BUDGET = 1263
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the

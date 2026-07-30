@@ -46,7 +46,14 @@ elif [ -e "$dst" ]; then
             && echo "  ✓ $name → $dir (forced)" \
             || { echo "  ✗ $name → force FAILED in $dir" >&2; exit 1; }
     else
-        echo "  ⚠ $name (real path exists, skipping $dir)" >&2
+        # 不覆蓋是對的——破壞性動作只在 --force 時發生。但**不能 exit 0**：
+        # 呼叫端（make install 的 for 迴圈）只讀 exit code，靜默成功會讓整個
+        # 安裝回報 OK 卻少裝一個 skill，失敗只存在於一行沒人讀的 stderr。
+        # exit 2 專表「被實體路徑擋住，需操作者介入」，與 exit 1 的「真正執行
+        # 失敗（ln 壞了、參數缺了）」分開，呼叫端才能對症給出 --force 修法。
+        echo "  ✗ $name → real path exists (not a symlink), NOT installed: $dst" >&2
+        echo "    Remove it, or re-run with --force to overwrite" >&2
+        exit 2
     fi
 else
     ln -sf "$src" "$dst" \

@@ -481,6 +481,16 @@ Launch four Task subagents in parallel (each produces independent findings; the 
 | `pr-test-analyzer` | Test coverage gaps |
 | `comment-analyzer` | Documentation / comment accuracy |
 
+> **Mutation isolation**: `pr-test-analyzer` verifies tests by mutation, which **edits files in
+> the shared worktree in place**, while the other three subagents are reading those same files.
+> `.claude/rules/11-skill-authoring.md` states it directly: "Do not run mutation tests on a shared
+> worktree file while a review agent is reading it. … Sequence them: finish the review round,
+> collect every report, *then* mutate." So instruct `pr-test-analyzer` to either **hold its
+> mutations until the other three have returned**, or run them on a copy outside the worktree.
+> Whichever it does, require it to restore each mutated file and report `git status --porcelain`
+> in its final output — dispatching all four at once without this note makes the skill's own
+> Step 3.2 contradict rule 11.
+
 After all four complete, the lead uses the Write tool to merge them into `$REVIEW_DIR/claude-r1.md` (following the output format above).
 
 ##### Codex voice (when CODEX_OK)
@@ -517,6 +527,13 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage2.sh
 Lead reads `$REVIEW_DIR/codex-r1.json` with the Read tool and branches on the result:
 
 **JSON valid** (valid JSON with `verdict` / `summary` / `findings` fields) → use the Write tool to render `$REVIEW_DIR/codex-r1.md` (compact markdown, sorted by severity: critical → important → actionable_nit).
+
+**Carry `contract_mapping` and `evidence` through to the rendered markdown** as
+`- Contract mapping:` / `- Evidence:` lines on each finding. Step 5's Evidence gate reads those
+two lines; dropping them here makes every Codex finding fail the structure check as "no evidence"
+even though the reviewer supplied it. If a finding's `evidence` is an empty string, render the
+line as `- Evidence: (reviewer did not supply)` rather than omitting it — the gate must be able
+to tell "reviewer gave none" from "the pipeline lost it".
 
 **JSON invalid** (not valid JSON or missing fields) → do not render; fall back: Read
 `$REVIEW_DIR/codex-r1-raw.md`, manually summarize in the main context, Write compact markdown to
@@ -573,7 +590,7 @@ Note: `agy` automatically selects a lightweight model in the extract stage to av
 
 Lead reads `$REVIEW_DIR/gemini-r1.json` with the Read tool and branches:
 
-**JSON valid** → use the Write tool to render `$REVIEW_DIR/gemini-r1.md` (same format as Codex compact markdown).
+**JSON valid** → use the Write tool to render `$REVIEW_DIR/gemini-r1.md` (same format as Codex compact markdown, **including the `Contract mapping:` / `Evidence:` carry-through** described above).
 
 **JSON invalid** → read `$REVIEW_DIR/gemini-r1-raw.md` with the Read tool, manually summarize
 in main context, write compact markdown with the Write tool; note in final.md:
@@ -610,9 +627,9 @@ absent evidence never activate R2.
 
 - Candidate blocking set empty **and** no blocking dispute → report
   `R2 skipped: no contract-blocking candidate or dispute`, skip Step 4, and aggregate R1 in Step 5.
-- At least one candidate blocker **or** blocking dispute → run Step 4 for all active voices.
+- Blockers exist、無 dispute、lead 承諾**全數照原評級採納並修復** → 可跳過 Step 4，回報 `R2 skipped: lead adopts all blockers`（**採納 ≠ 免驗證**：仍依 Evidence gate 復現；lead 降級/不修/有異議或任何 dispute → 照常跑 Step 4）。
 
-This gate applies on the initial review and every bounded re-review pass.
+This gate applies on the initial review and every bounded re-review pass（第二個出口見 openspectra #100-#104／issue #361）。
 
 ---
 
@@ -1232,7 +1249,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Round 2 ends with unresolved blocking findings | Trigger circuit breaker; hand remaining findings to user with the three-option decision (no third round) |
 | User chooses to ignore a disputed finding | Add a Known Issues section to the PR description with the reason |
 | User raises new concern during human quick pass | Reviewer lead (Claude main) responds immediately; unresolvable → return to Step 6; resolved → wait for user "ship" |
-| When does R2 run? | All active voices always run independent R1. Run R2 only when Step 3.4 finds a candidate blocker or blocking dispute; a clean R1 reports the required skip message and aggregates directly. |
+| When does R2 run? | All active voices always run independent R1. Run R2 only when Step 3.4 finds a candidate blocker the lead does not adopt as-graded, or a blocking dispute. Two legal skips: a clean R1 (`R2 skipped: no contract-blocking candidate or dispute`), and lead-adopts-all (`R2 skipped: lead adopts all blockers` — 採納 ≠ 免驗證，Evidence gate 照跑). |
 | Linter / type-check fails | `ruff check --fix` / `eslint --fix` / `mypy follow_imports = skip` etc. |
 | Security scanner fails | bandit `# nosec BXXX` etc. ignore comments; explain reason in PR |
 | spectra archive validation fails | `spectra analyze {{change_name}}`; fix then archive; `--no-validate` requires explicit user instruction |

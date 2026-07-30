@@ -114,6 +114,22 @@ def test_sr_fm_006_title_falls_back_when_no_heading() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # 有起始 `---` 但缺結束 `---` —— 唯一該回 True 的形狀。
+        ('---\npaths:\n  - "tasks/**"\n# Title\n', True),
+        # 負向控制。這三種都會讓 parse_paths 回 None，但它們是**正常的**全量載入，
+        # 不得誤報成 frontmatter 壞掉——否則每個 always-loaded rule 都會噴 [WARN]。
+        ('---\npaths:\n  - "tasks/**"\n---\n# Title\n', False),
+        ("# no frontmatter at all\n", False),
+        ("", False),
+    ],
+)
+def test_sr_fm_008_frontmatter_is_malformed(text: str, expected: bool) -> None:
+    assert select_rules.frontmatter_is_malformed(text) is expected
+
+
 # --- SR-SEL: selection ------------------------------------------------------
 
 
@@ -177,6 +193,63 @@ def test_sr_sel_005_unparseable_paths_key_warns_and_is_skipped(
     lines, _ = select_rules.select(rules_dir, ["tasks/a.py"])
     assert not any("99-broken.md" in line for line in lines)
     assert "99-broken.md" in capsys.readouterr().err
+
+
+def test_sr_sel_006_malformed_frontmatter_warns_but_still_counts_as_always_loaded(
+    rules_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """缺結束 `---` 的 rule：仍以全量載入計（fail-safe），但必須發 `[WARN]`。
+
+    這條路徑修正前是**靜默**的——與 SR-SEL-005（有 `paths:` key 卻解析不出 pattern）
+    同樣是「frontmatter 壞掉」，診斷待遇卻不同。SKILL.md Step 2 的 exit-code 表把它
+    列為一個具名結果，所以行為必須真的存在。
+    """
+    (rules_dir / "98-truncated.md").write_text(
+        '---\npaths:\n  - "tasks/**"\n# Truncated Scope\n', encoding="utf-8"
+    )
+    lines, _ = select_rules.select(rules_dir, ["scripts/x.py"])
+    # fail-safe 方向：多載入而非漏載入。
+    assert any("98-truncated.md" in line for line in lines)
+    assert "98-truncated.md" in capsys.readouterr().err
+
+
+def test_sr_sel_007_well_formed_always_loaded_rule_does_not_warn(
+    rules_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """負向控制：沒有 frontmatter 的 rule 是**正常**的全量載入，不得誤報 `[WARN]`。
+
+    少了這條，SR-SEL-006 就沒有資訊量——一個對每個 always-loaded rule 都開火的
+    `[WARN]` 同樣會讓它變綠。
+    """
+    lines, _ = select_rules.select(rules_dir, ["tasks/a.py"])
+    assert any("01-always.md" in line for line in lines)
+    assert "01-always.md" not in capsys.readouterr().err
+
+
+def test_sr_sel_008_unreadable_rule_warns_and_other_rules_survive(
+    rules_dir: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """讀檔失敗必須 `[WARN]` 並繼續處理其他 rule。
+
+    SKILL.md Step 2 的 exit-code 表把 `[WARN] 無法讀取 <rule>` 列為具名結果，但在加這條
+    之前該分支零測試覆蓋：把 `except OSError` 改成 `except ValueError` 的 mutation 是
+    **存活**的（整個 suite 照樣全綠），代表真的發生 OSError 時會直接 traceback 而沒有任何
+    測試會紅。
+    """
+    original_read_text = Path.read_text
+
+    def fake_read_text(self: Path, *args: object, **kwargs: object) -> str:
+        if self.name == "04-tasks.md":
+            raise OSError("permission denied")
+        return original_read_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+    lines, _ = select_rules.select(rules_dir, ["tasks/a.py"])
+    err = capsys.readouterr().err
+    assert "04-tasks.md" in err
+    assert "無法讀取" in err
+    # 單一 rule 讀取失敗不得中斷其餘選取。
+    assert any("01-always.md" in line for line in lines)
 
 
 # --- SR-CLI: command-line behavior ------------------------------------------
