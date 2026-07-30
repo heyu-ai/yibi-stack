@@ -18,6 +18,9 @@
 # issue #153：nested worktree 下 agy 無法解析 @file，靜默進入 agentic 模式（R2 實測觀察到
 # timeout 這個結局）。修法同 stage1：inline prompt 取代 @file、開頭清 scratch、跑 agy_validate.py。
 #
+# --dangerously-skip-permissions 與 subagent 權限等級的完整理由見 agy-r1-stage1.sh 開頭註解
+# （<!-- verified: probe, agy 1.1.8 -->）；allow-list 同樣用本 script 絕對路徑逐一放行。
+#
 # 退出碼：0 成功；非零失敗（每種失敗都附 [FAIL] stderr 訊息）。
 
 set -euo pipefail

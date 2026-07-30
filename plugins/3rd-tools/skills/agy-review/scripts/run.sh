@@ -59,10 +59,32 @@ PROMPT_CONTENT=$(
   printf '```diff\n%s\n```\n' "$DIFF"
 )
 
-PROMPT_BYTES=${#PROMPT_CONTENT}
+# 用實際位元組數而非字元數（PR #367 mob review Important：${#PROMPT_CONTENT} 在 UTF-8
+# locale 下數的是字元，中文 diff 會低估約 3 倍，讓這道 ARG_MAX 防線對主打的中文情境失效）。
+PROMPT_BYTES=$(printf '%s' "$PROMPT_CONTENT" | wc -c)
 if [ "$PROMPT_BYTES" -gt 256000 ]; then
   echo "[FAIL] review 輸入 ${PROMPT_BYTES}B 超過 256000B inline 上限，diff 過大不適合 agy inline 模式" >&2
   exit 1
 fi
 
-agy -p "$PROMPT_CONTENT" --add-dir . --sandbox
+# 空輸出偵測（PR #367 mob review Critical，agy 1.1.8 實測確認）：--sandbox 底下 agy 想
+# 主動探索 --add-dir 內容時，可能因 agy 自己的權限系統（與 Claude Code 的設定完全獨立）
+# 擋下探索指令；headless 模式沒有終端可以核准，agy 會直接無輸出退出。不偵測的話，這支
+# script 會把空白當成「完成的 review」原樣呈現。
+# if 條件本身會豁免 set -e（`if`/`while`/`until` 條件、或 `&&`/`||` 前的指令不受 set -e 管），
+# 這裡刻意用 if 包住賦值：agy 非零結束時若直接寫 `OUTPUT=$(...); AGY_EXIT=$?`，set -e 會在
+# 賦值那行就中止 script，下面這行 AGY_EXIT=$? 永遠執行不到，[FAIL] 診斷訊息變死碼（實測驗證）。
+if OUTPUT=$(agy -p "$PROMPT_CONTENT" --add-dir . --sandbox); then
+    AGY_EXIT=0
+else
+    AGY_EXIT=$?
+fi
+if [ "$AGY_EXIT" -ne 0 ]; then
+    echo "[FAIL] agy 執行失敗（exit ${AGY_EXIT}）" >&2
+    exit "$AGY_EXIT"
+fi
+if [ -z "$OUTPUT" ] || [ "${#OUTPUT}" -lt 20 ]; then
+    echo "[FAIL] agy 回傳空白或極短輸出（${#OUTPUT} 字元）。常見原因：--sandbox 底下 agy 想探索周邊檔案時被自己的權限系統擋下（見 ~/.gemini/antigravity-cli/settings.json permissions.allow），headless 模式無法跳出確認框。" >&2
+    exit 1
+fi
+printf '%s\n' "$OUTPUT"

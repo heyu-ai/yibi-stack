@@ -1,21 +1,23 @@
 ---
-name: agy
+name: agy-review
 type: tool
 scope: global
-description: Antigravity CLI（Gemini）第二意見：review（PASS/FAIL gate）、challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 Gemini reviewer。觸發須明確指名 Gemini / agy / antigravity；未指名的一般「幫我 review」「這樣對嗎」不觸發。要 OpenAI Codex（而非 Gemini）的 diff review 或第二意見請改用 /codex-review、/codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
+description: Antigravity CLI（Gemini）對 diff 做 code review（PASS/FAIL gate）或 challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 Gemini reviewer，全程 --sandbox（唯讀，無寫入權）。觸發須明確指名 Gemini / agy / antigravity 且要看 diff；未指名的一般「幫我 review」「這樣對嗎」不觸發。純問問題、沒有 diff 要看請改用 /agy-consult；要 OpenAI Codex（而非 Gemini）的 diff review 或第二意見請改用 /codex-review、/codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
 ---
 
-# /agy — Gemini 第二意見
+# /agy-review — Gemini diff review 第二意見
 
 獨立呼叫 Antigravity CLI（agy），出 Gemini code review 或對抗模式 bug hunt。
 比 `/pr-cycle-deep` 輕量，不做 R2 cross-debate，適合快速拿 Gemini 第二意見。
+全程 `--sandbox`（唯讀），不需要、也不會用 `--dangerously-skip-permissions`。
+純問技術問題、沒有 diff 要看請改用 `/agy-consult`。
 
 ## 觸發方式
 
 ```text
-/agy review [指示]       — Gemini code review，結尾含 [PASS] 或 [FAIL]
-/agy challenge [重點]    — 對抗模式：只找 bug / security / race condition
-/agy                     — 無參數時預設 review mode
+/agy-review [指示]       — Gemini code review，結尾含 [PASS] 或 [FAIL]
+/agy-review challenge [重點]  — 對抗模式：只找 bug / security / race condition
+/agy-review              — 無參數時預設 review mode
 ```
 
 ---
@@ -47,10 +49,12 @@ python3 -c 'import os,sys; sys.exit(0 if os.environ.get("GEMINI_API_KEY") or os.
 #### Step 0c: Allow-list 提示（非阻斷，只提示）
 
 ```bash
-python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".claude"/"settings.json"; d=json.loads(p.read_text()) if p.is_file() else {}; allow=d.get("permissions",{}).get("allow",[]); sys.exit(0 if any("agy" in x for x in allow) else 1)' && echo "AGY_ALLOW: OK" || echo "AGY_ALLOW: MISSING"
+python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".claude"/"settings.json"; d=json.loads(p.read_text()) if p.is_file() else {}; allow=d.get("permissions",{}).get("allow",[]); sys.exit(0 if any("agy-review" in x for x in allow) else 1)' && echo "AGY_ALLOW: OK" || echo "AGY_ALLOW: MISSING"
 ```
 
-MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）自動加入 `Bash(agy:*)` 與 `Bash(bash <run.sh 絕對路徑>:*)` 兩個 allow list 項目，但不阻斷。
+MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）自動加入
+`Bash(bash ~/.agents/skills/agy-review/scripts/run.sh:*)` 這條絕對路徑 allow list 項目，但不阻斷。
+（不使用裸 `Bash(agy:*)`：那是動詞級萬用字元，會涵蓋任何 agy 指令組合，見 rule 16 Red Flag 2。）
 
 #### Step 0d: Base branch 偵測（兩次獨立 bash call）
 
@@ -72,10 +76,10 @@ git rev-parse --abbrev-ref HEAD 2>/dev/null
 
 | 呼叫型態 | MODE | INSTRUCTION |
 |----------|------|-------------|
-| `/agy` 或 `/agy review` | `review` | 空 |
-| `/agy review 重點關注 auth` | `review` | `重點關注 auth` |
-| `/agy challenge` | `challenge` | 空 |
-| `/agy challenge 找 race condition` | `challenge` | `找 race condition` |
+| `/agy-review` | `review` | 空 |
+| `/agy-review 重點關注 auth` | `review` | `重點關注 auth` |
+| `/agy-review challenge` | `challenge` | 空 |
+| `/agy-review challenge 找 race condition` | `challenge` | `找 race condition` |
 
 ---
 
@@ -89,14 +93,14 @@ git rev-parse --abbrev-ref HEAD 2>/dev/null
 > `--add-dir .` 提供周邊程式碼 context。直接執行即可，不要外加 log capture。
 
 ```bash
-bash ~/.agents/skills/agy/scripts/run.sh "<MODE>" "<BASE>" "<INSTRUCTION>"
+bash ~/.agents/skills/agy-review/scripts/run.sh "<MODE>" "<BASE>" "<INSTRUCTION>"
 ```
 
 實際範例：
 
 ```bash
-bash ~/.agents/skills/agy/scripts/run.sh "review" "main" ""
-bash ~/.agents/skills/agy/scripts/run.sh "challenge" "main" "找 SQL injection"
+bash ~/.agents/skills/agy-review/scripts/run.sh "review" "main" ""
+bash ~/.agents/skills/agy-review/scripts/run.sh "challenge" "main" "找 SQL injection"
 ```
 
 腳本自動從 `git diff origin/<BASE>...HEAD` 取得 diff，組合 prompt，以 `--sandbox` 呼叫 agy。
@@ -129,4 +133,4 @@ challenge mode：找到問題時輸出 `[P0]`/`[P1]` 列表，找不到問題時
 | 無 API key 且 onboarding 未完成 | 在 `.env` 加入 `GEMINI_API_KEY=<your-key>` 或 `GOOGLE_API_KEY=<your-key>`（兩者均可） |
 | `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy auth` |
 | 輸出缺少 `[PASS]` / `[FAIL]` | 在 INSTRUCTION 加入「結尾必須輸出 [PASS] 或 [FAIL]」 |
-| diff 為空或 `origin/<base>` 不存在 | 確認已有 commit，或手動指定 base：`/agy review base=develop` |
+| diff 為空或 `origin/<base>` 不存在 | 確認已有 commit，或手動指定 base：`/agy-review base=develop` |

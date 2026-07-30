@@ -120,8 +120,8 @@ fi
 ```
 
 ```bash
-# Confirm Claude Code allow list (agy calls without confirmation dialog)
-python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".claude"/"settings.json"; d=json.loads(p.read_text()) if p.is_file() else {}; allow=d.get("permissions",{}).get("allow",[]); sys.exit(0 if "Bash(agy:*)" in allow else 1)' && echo "GEMINI_ALLOW_LIST: OK" || echo "GEMINI_ALLOW_LIST: MISSING"
+# Confirm allow list for the 3 pr-cycle-deep agy scripts (subagent class: per-script paths, not Bash(agy:*))
+python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".claude"/"settings.json"; d=json.loads(p.read_text()) if p.is_file() else {}; allow=d.get("permissions",{}).get("allow",[]); s=pathlib.Path.home()/".agents"/"skills"/"pr-cycle-deep"/"scripts"; names=["agy-r1-stage1.sh","agy-r1-stage2.sh","agy-r2.sh"]; sys.exit(0 if all(f"Bash(bash {s/n})" in allow for n in names) else 1)' && echo "GEMINI_ALLOW_LIST: OK" || echo "GEMINI_ALLOW_LIST: MISSING"
 ```
 
 ### Mode determination
@@ -552,6 +552,12 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 > review-only guard forbids edits and before/after `git status` emits `[WARN]` on mutation, but the
 > lead must audit and undo any unintended change. Stage 2 stays sandboxed. On failure, read
 > `$REVIEW_DIR/gemini-r1.stage1.log`; never trust a voice claiming it implemented a fix.
+>
+> **`subagent` permission class**: invoked by this skill, not the user — allow-list by this
+> script's own absolute path, never a bare `Bash(agy:*)`. `--sandbox` was empirically confirmed
+> (agy 1.1.8) to break `--add-dir` reads: agy's own permission model
+> (`~/.gemini/antigravity-cli/settings.json`, independent of Claude Code's) needs a `command(...)`
+> grant per tool, and headless `-p` mode can't prompt for one — re-verify after any agy upgrade.
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh
@@ -711,6 +717,7 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r2.sh
 
 > **Security note**: `agy-r2.sh` uses `--dangerously-skip-permissions` (for `--add-dir`, same as Stage 1)
 > and inlines the prompt (issue #153); it assumes a trusted repo — for external-fork PRs, evaluate prompt-injection risk first.
+> Same `subagent` permission class as Stage 1 (own absolute script path in the allow-list, not `Bash(agy:*)`).
 
 Only send to available voices (CODEX_OK / GEMINI_OK).
 

@@ -18,6 +18,13 @@
 #   - CWD 切換到 $WT_ROOT（--add-dir . 以 WT_ROOT 為 context 基準）
 #
 # 注意：使用 --dangerously-skip-permissions 而非 --sandbox（保留 --add-dir 周邊程式碼 context）。
+# 這是 subagent 權限等級（由 pr-cycle-deep 呼叫，非使用者直接呼叫），allow-list 用本 script
+# 的絕對路徑逐一放行，不共用 agy-review/agy-consult 的允許清單。
+# <!-- verified: probe, agy 1.1.8 --> --sandbox 底下 agy 想主動探索 --add-dir 內容時會嘗試
+# 執行類似 cat 的指令，但 agy 自己的權限系統（~/.gemini/antigravity-cli/settings.json
+# permissions.allow，與 Claude Code 的設定完全獨立）預設不含該指令；headless -p 模式沒有
+# 互動終端可以核准，直接整個 review 失敗、無輸出（agy_validate.py 會抓到空輸出）。升級 agy
+# 版本後應重新驗證這個結論是否仍成立。
 #
 # issue #153：nested worktree 下 agy 無法解析 @file，靜默進入 agentic 模式（wrong-target
 # review / brain-artifact / timeout）。修法：(1) inline prompt 取代 @file，移除 agentic

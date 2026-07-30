@@ -53,7 +53,17 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #       `git status --porcelain`. A skill cannot instruct a violation of a rule it also cites.
 #
 # Anyone raising this again: say what the added lines buy, in the same commit.
-LINE_BUDGET = 1256
+#
+# Raised 1239 -> 1246 (+7) for the agy-review/agy-consult split. Stage 1 and R2 both kept
+# --dangerously-skip-permissions after an empirical probe (agy 1.1.8) confirmed --sandbox
+# breaks --add-dir's exploratory reads via agy's own independent permission model -- the
+# 7 lines record that finding as a `subagent` permission-class note (own absolute-path
+# allow-list entry, not a bare Bash(agy:*)) so the next reader doesn't re-litigate the same
+# unverified assumption the original comment carried.
+#
+# Merged with an independent 1239 -> 1256 (+17) raise from origin/main (two Evidence-gate
+# integrity fixes, landed in parallel via PR #368) -> combined budget 1263.
+LINE_BUDGET = 1263
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the
