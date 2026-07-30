@@ -96,20 +96,14 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 	@mkdir -p $(CLAUDE_CMD_DIR)
 	@echo ""
 	@echo "  Installing commands → $(CLAUDE_CMD_DIR)/"
+	@# 改呼叫 safe_symlink.sh，取代原本手寫的四分支邏輯——後者是同一套規則的第二份
+	@# 實作，且落後於已修過的那份：(1) 實體檔案擋路時只印 [WARN] 到 stdout 就繼續，
+	@# 與 skill 迴圈同款 fail-open；(2) 既有 symlink 一律當 no-op，不比對 readlink
+	@# 目標，正是 PR #224 為 skill 修掉的「搬 checkout 後仍指向舊 repo」那個 bug。
+	@# 兩份實作各自漂移的成本就是這個，統一由被測試覆蓋的那份承擔。
 	@for f in $(CMD_DIR)/*.md; do \
 		name=$$(basename $$f); \
-		if [ -L "$(CLAUDE_CMD_DIR)/$$name" ] && [ ! -e "$(CLAUDE_CMD_DIR)/$$name" ]; then \
-			rm -f "$(CLAUDE_CMD_DIR)/$$name"; \
-			ln -sf $(CURDIR)/$$f $(CLAUDE_CMD_DIR)/$$name; \
-			echo "  [WARN] $$name -> relinked (was dangling)"; \
-		elif [ -L "$(CLAUDE_CMD_DIR)/$$name" ]; then \
-			echo "  ↻ $$name (already linked)"; \
-		elif [ -f "$(CLAUDE_CMD_DIR)/$$name" ]; then \
-			echo "  [WARN] $$name (exists as real file, skipping)"; \
-		else \
-			ln -sf $(CURDIR)/$$f $(CLAUDE_CMD_DIR)/$$name; \
-			echo "  [OK] $$name -> linked"; \
-		fi \
+		$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$$f" "$(CLAUDE_CMD_DIR)/$$name" || exit 1; \
 	done
 	@if [ -d "$(CMD_DIR)/scripts" ]; then \
 		$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(CMD_DIR)/scripts" "$(CLAUDE_CMD_DIR)/scripts" || exit 1; \
@@ -122,10 +116,11 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 	@mkdir -p "$$HOME/.agents/bin"
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/lessons" "$$HOME/.agents/bin/lessons"
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/resolve-skill-repo" "$$HOME/.agents/bin/resolve-skill-repo"
-	@# 安裝後驗收：safe_symlink.sh 遇到 dst 是「實體檔案」時只警告並 exit 0（不覆蓋），
-	@# 於是 make install 會成功結束卻留下一個任意檔案在 resolver 的位置，之後所有
-	@# 呼叫端都會執行它。resolver 是所有 skill 定位本 repo 的唯一入口，不能靠運氣。
-	@# 直接執行它並比對輸出，涵蓋「非 symlink」「指向舊 checkout」「不可執行」等所有情況。
+	@# 安裝後驗收。「dst 是實體檔案」這一種已由 safe_symlink.sh 自己 exit 2 擋下
+	@# （上方每個呼叫點都會讓 make 中止），不再需要靠這裡兜底；但本驗收仍保留，
+	@# 因為它涵蓋 symlink「建立成功之後」才顯現、safe_symlink.sh 看不到的情況：
+	@# 指向舊 checkout、目標不可執行。resolver 是所有 skill 定位本 repo 的唯一
+	@# 入口，不能靠運氣——直接執行它並比對輸出，是唯一能同時涵蓋這些的驗收方式。
 	@resolved=$$("$$HOME/.agents/bin/resolve-skill-repo" 2>/dev/null) \
 		|| { echo "  [FAIL] resolve-skill-repo 安裝後無法執行：$$HOME/.agents/bin/resolve-skill-repo" >&2; \
 		     echo "         若該路徑是實體檔案，請先移除再重跑 make install" >&2; exit 1; }; \
