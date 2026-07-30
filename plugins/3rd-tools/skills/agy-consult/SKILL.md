@@ -57,7 +57,15 @@ MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）
 
 ## Step 1 — 執行
 
-> **執行說明**：腳本把「filesystem boundary 提醒 + 使用者問題」以 inline 形式當 `-p` 的值傳入
+> **執行說明**：`consult.sh` 吃**問題檔案路徑**，不是問題本文。先用 Write tool 把問題寫到
+> `$CLAUDE_JOB_DIR/agy-consult-question.txt`，再把這個路徑（不是問題內容本身）傳給 script。
+>
+> **不可把問題本文直接 inline 進 bash 指令**：這支 script 是由 Claude 組出一整段 bash 字串
+> 交給真正的 shell 執行；問題內容若含 backtick、`$(...)`、`$VAR`，雙引號**不會**阻止 shell
+> 在 `consult.sh` 啟動前就展開/執行它（同一個 repo 的 `codex-consult` 已用「先寫檔、只傳
+> 路徑」解過同個問題）。檔案路徑是 Claude 自己產生的字串，才能安全 inline。
+>
+> Script 內部把「filesystem boundary 提醒 + 檔案內容」以 inline 形式當 `-p` 的值傳入
 > （`agy -p "$PROMPT_CONTENT" --add-dir . --sandbox`），沿用 `/agy-review` 的 `run.sh` 已驗證過的
 > 安全模式（issue #153 / PR #229 retro）：不用 `@file`（nested worktree 下解析失敗會讓 agy 靜默
 > 進入 agentic 模式）、不用 stdin pipe（`-p`/`--print` 不是 boolean，會把下一個 flag 當 prompt
@@ -65,13 +73,16 @@ MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）
 > 直接執行即可，不要外加 log capture。
 
 ```bash
-bash ~/.agents/skills/agy-consult/scripts/consult.sh "<問題>"
+bash ~/.agents/skills/agy-consult/scripts/consult.sh "$CLAUDE_JOB_DIR/agy-consult-question.txt"
 ```
 
-實際範例：
+實際範例（先用 Write tool 把問題寫進
+`$CLAUDE_JOB_DIR/agy-consult-question.txt`，內容是
+`tasks/mycelium 的 db.py 裡 park_lesson 跟 finalize_reassessed_lesson 共享哪些不變量？`，
+再執行）：
 
 ```bash
-bash ~/.agents/skills/agy-consult/scripts/consult.sh "tasks/mycelium 的 db.py 裡 park_lesson 跟 finalize_reassessed_lesson 共享哪些不變量？"
+bash ~/.agents/skills/agy-consult/scripts/consult.sh "$CLAUDE_JOB_DIR/agy-consult-question.txt"
 ```
 
 ---
@@ -93,5 +104,6 @@ Clean exit 後，呈現完整輸出，不截斷、不摘要。
 | Auth 失敗，`onboardingComplete` 為 false | 執行 `agy auth` 完成 OAuth 流程 |
 | 無 API key 且 onboarding 未完成 | 在 `.env` 加入 `GEMINI_API_KEY=<your-key>` 或 `GOOGLE_API_KEY=<your-key>`（兩者均可） |
 | `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy auth` |
-| 問題內容含雙引號 / `$VAR` / backtick | `consult.sh` 用單一位置參數傳入，Claude 呼叫時需確保問題字串本身用雙引號包住；複雜問題建議先簡化成一行敘述 |
+| 問題內容含雙引號 / `$VAR` / backtick | 不影響——問題本文透過 Write tool 寫進檔案，`consult.sh` 只吃檔案路徑，問題內容不會被 shell 展開或執行 |
+| `agy` 回傳空白或極短輸出 | `--sandbox` 底下 agy 想探索周邊檔案被自己的權限系統擋下，headless 無法跳出確認框；簡化問題避免需要額外讀檔，或評估是否需要放寬 `~/.gemini/antigravity-cli/settings.json` 的 `permissions.allow` |
 | 想看 diff review 而非問答 | 改用 `/agy-review` |

@@ -17,9 +17,19 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 RELEASE_SH = REPO_ROOT / "scripts" / "release-full.sh"
 AGY_RUN_SH = REPO_ROOT / "plugins" / "3rd-tools" / "skills" / "agy-review" / "scripts" / "run.sh"
+AGY_CONSULT_SH = (
+    REPO_ROOT / "plugins" / "3rd-tools" / "skills" / "agy-consult" / "scripts" / "consult.sh"
+)
+
+# Both scripts share the identical inline-`-p` calling contract (consult.sh was added in PR #367
+# specifically mirroring run.sh's already-verified safety pattern), so every AGYRUN-DT-* case
+# below runs against both -- a regression in either script must fail this suite.
+AGY_SCRIPTS = [AGY_RUN_SH, AGY_CONSULT_SH]
 
 # Matches a pipe into `agy --print` / `agy -p` with no prompt value of its own -- the broken
 # form. A comment line explaining the trap must not trip this, so callers strip comments first.
@@ -36,28 +46,49 @@ def _code_lines(path: Path) -> str:
 
 
 class TestAgyRunScriptContract:
-    def test_agyrun_dt_001_no_piped_print_form(self) -> None:
-        """AGYRUN-DT-001: run.sh must not pipe a prompt into `agy --print`.
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_001_no_piped_print_form(self, script: Path) -> None:
+        """AGYRUN-DT-001: run.sh/consult.sh must not pipe a prompt into `agy --print`.
 
         agy has no stdin prompt channel; the pipe form silently reviews nothing.
         """
-        assert not _PIPED_AGY_PRINT.search(_code_lines(AGY_RUN_SH)), (
-            "run.sh must not use the `| agy --print` form -- agy would take the following "
-            "flag as its prompt and never read the piped diff (silent failure, exit 0)"
+        assert not _PIPED_AGY_PRINT.search(_code_lines(script)), (
+            f"{script.name} must not use the `| agy --print` form -- agy would take the "
+            "following flag as its prompt and never read the piped input (silent failure, exit 0)"
         )
 
-    def test_agyrun_dt_002_prompt_inlined_as_p_value(self) -> None:
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_002_prompt_inlined_as_p_value(self, script: Path) -> None:
         """AGYRUN-DT-002: the prompt is passed as -p's value."""
-        assert 'agy -p "$PROMPT_CONTENT"' in AGY_RUN_SH.read_text(encoding="utf-8"), (
-            "run.sh must inline the prompt as -p's value"
+        assert 'agy -p "$PROMPT_CONTENT"' in script.read_text(encoding="utf-8"), (
+            f"{script.name} must inline the prompt as -p's value"
         )
 
-    def test_agyrun_dt_003_argmax_guard_present(self) -> None:
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_003_argmax_guard_present(self, script: Path) -> None:
         """AGYRUN-DT-003: inlining costs the ARG_MAX immunity stdin would have given, so an
         explicit size guard must gate the call (parity with pr-cycle-deep's agy scripts)."""
-        src = AGY_RUN_SH.read_text(encoding="utf-8")
-        assert "256000" in src, "run.sh must guard the 256000-byte inline limit"
-        assert "[FAIL]" in src, "the size guard must fail loud"
+        src = script.read_text(encoding="utf-8")
+        assert "256000" in src, f"{script.name} must guard the 256000-byte inline limit"
+        assert "[FAIL]" in src, f"{script.name}'s size guard must fail loud"
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_004_empty_output_is_fail_loud(self, script: Path) -> None:
+        """AGYRUN-DT-004: a near-empty agy stdout must not be presented as a clean result.
+
+        PR #367 mob review Critical, agy 1.1.8-verified: under `--sandbox`, agy's own
+        (independent) permission system can silently block an exploratory read in headless
+        mode, so agy exits with empty/near-empty stdout and no signal. Both scripts must
+        capture the output and fail loud rather than propagating it as-is.
+        """
+        src = _code_lines(script)
+        assert re.search(r'OUTPUT=\$\(agy -p "\$PROMPT_CONTENT"', src), (
+            f"{script.name} must capture agy's stdout into a variable, not stream it directly, "
+            "so it can be inspected for empty/near-empty output"
+        )
+        assert "[FAIL]" in src and '-z "$OUTPUT"' in src, (
+            f"{script.name} must fail loud when agy's output is empty"
+        )
 
 
 class TestReleaseRollbackContract:

@@ -308,7 +308,7 @@ patch-pr-review-agents: ## 為 pr-review-toolkit agents 加入 git -C 指令規�
 patch-gemini-allow-list: ## [DEPRECATED] 舊版 gemini:* allow list patch；請改用 patch-agy-allow-list
 	@python3 scripts/patch_gemini_allow_list.py
 
-patch-agy-allow-list: ## 將 agy:* 加入 ~/.claude/settings.json allow list（mob review 免確認框）
+patch-agy-allow-list: ## 移除 ~/.claude/settings.json 裡裸的 agy:*，改寫入各模式專屬 script 絕對路徑（agy-review/agy-consult/mob review 免確認框）
 	@python3 scripts/patch_agy_allow_list.py
 
 release: ## Release: make release TYPE=patch|minor|major

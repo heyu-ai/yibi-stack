@@ -24,6 +24,9 @@ _PR_CYCLE_DEEP_SCRIPTS = [
     str(_SKILLS_DIR / "pr-cycle-deep" / "scripts" / "agy-r2.sh"),
 ]
 
+# run.sh / consult.sh 帶尾端 `:*`（吃位置參數，如 mode/base/question 檔案路徑）；
+# pr-cycle-deep 的 3 支 subagent script 不帶（依 SKILL.md 呼叫方式一律無參數，見各 SKILL.md
+# 的 GEMINI_ALLOW_LIST 檢查），故用 exact-match 不加萬用字元。
 ENTRIES_TO_ADD = [
     f"Bash(bash {_AGY_REVIEW_SCRIPT}:*)",
     f"Bash(bash {_AGY_CONSULT_SCRIPT}:*)",
@@ -38,16 +41,16 @@ ENTRIES_TO_REMOVE = [
 ]
 
 
-def main() -> None:
-    if not SETTINGS_PATH.is_file():
+def main(settings_path: pathlib.Path = SETTINGS_PATH) -> None:
+    if not settings_path.is_file():
         print(
-            f"  [FAIL] {SETTINGS_PATH} 不存在 — 請先啟動 Claude Code 以產生設定檔，再重跑 make patch-agy-allow-list",
+            f"  [FAIL] {settings_path} 不存在 — 請先啟動 Claude Code 以產生設定檔，再重跑 make patch-agy-allow-list",
             file=sys.stderr,
         )
         sys.exit(1)
 
     try:
-        data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         print(f"  [FAIL] settings.json 格式錯誤：{e}", file=sys.stderr)
         sys.exit(1)
@@ -60,9 +63,11 @@ def main() -> None:
         allow = []
         perms["allow"] = allow
 
-    removed = [entry for entry in ENTRIES_TO_REMOVE if entry in allow]
-    for entry in removed:
-        allow.remove(entry)
+    # 過濾整個清單移除所有出現次數，而不是逐一 .remove()（只移除第一個匹配項，
+    # 重複項目會殘留——實測驗證過的 bug，見 PR #367 mob review）。
+    original_allow = list(allow)
+    allow[:] = [entry for entry in allow if entry not in ENTRIES_TO_REMOVE]
+    removed = sorted({entry for entry in ENTRIES_TO_REMOVE if entry in original_allow})
 
     added = []
     for entry in ENTRIES_TO_ADD:
@@ -71,10 +76,10 @@ def main() -> None:
             added.append(entry)
 
     if added or removed:
-        tmp = SETTINGS_PATH.with_name("settings.json.tmp")
+        tmp = settings_path.with_name("settings.json.tmp")
         tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        shutil.copymode(SETTINGS_PATH, tmp)
-        os.replace(tmp, SETTINGS_PATH)
+        shutil.copymode(settings_path, tmp)
+        os.replace(tmp, settings_path)
         for entry in removed:
             print(f"  [OK] Removed (over-broad, migrated to per-script entries): {entry}")
         for entry in added:

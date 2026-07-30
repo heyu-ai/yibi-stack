@@ -49,7 +49,7 @@ python3 -c 'import os,sys; sys.exit(0 if os.environ.get("GEMINI_API_KEY") or os.
 #### Step 0c: Allow-list 提示（非阻斷，只提示）
 
 ```bash
-python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".claude"/"settings.json"; d=json.loads(p.read_text()) if p.is_file() else {}; allow=d.get("permissions",{}).get("allow",[]); sys.exit(0 if any("agy" in x for x in allow) else 1)' && echo "AGY_ALLOW: OK" || echo "AGY_ALLOW: MISSING"
+python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".claude"/"settings.json"; d=json.loads(p.read_text()) if p.is_file() else {}; allow=d.get("permissions",{}).get("allow",[]); sys.exit(0 if any("agy-review" in x for x in allow) else 1)' && echo "AGY_ALLOW: OK" || echo "AGY_ALLOW: MISSING"
 ```
 
 MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）自動加入
