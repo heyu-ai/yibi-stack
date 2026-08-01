@@ -24,16 +24,17 @@ from tasks.skill_eval.service import (
 )
 
 
-def make_fixture(skill: str = "demo") -> TriggerEvalFixture:
-    return TriggerEvalFixture(
-        skill=skill,
-        direct=[TriggerPrompt(prompt="run demo", expect_trigger=True)],
-        indirect=[TriggerPrompt(prompt="start the demo", expect_trigger=True)],
-        negative=[
+def make_fixture(skill: str = "demo", **overrides: list[TriggerPrompt]) -> TriggerEvalFixture:
+    arrays: dict[str, list[TriggerPrompt]] = {
+        "direct": [TriggerPrompt(prompt="run demo", expect_trigger=True)],
+        "indirect": [TriggerPrompt(prompt="start the demo", expect_trigger=True)],
+        "negative": [
             TriggerPrompt(prompt="unrelated", expect_trigger=False),
             TriggerPrompt(prompt="sibling territory", expect_trigger=False),
         ],
-    )
+    }
+    arrays.update(overrides)
+    return TriggerEvalFixture(skill=skill, **arrays)
 
 
 def verdicts(fixture: TriggerEvalFixture, triggered: list[bool]) -> list[PromptVerdict]:
@@ -159,6 +160,29 @@ class TestCompareBaseline:
         results = score_verdicts(verdicts(make_fixture(), [False, False, True, True]))  # 全爛
         assert compare_baseline(results, {}, tolerance=0.1) == []
 
+    def test_seval_dt_005_emptied_class_counts_as_regression(self) -> None:
+        """SEVAL-DT-005: baseline 有基準、當前該類缺席 -> 回歸（不得靜默離開 gate）。
+
+        只走 results 的舊實作下，把 fixture 的 negative 整類刪光就能讓 precision 基準
+        無聲消失，且剩下兩類 pass rate 完全正常——gate 看起來全綠。issue #219。
+        spec: skill-trigger-eval#absent-class-is-a-regression"""
+        fixture = make_fixture(negative=[])  # negative 整類被清空
+        results = score_verdicts(verdicts(fixture, [True, True]))
+        regs = compare_baseline(
+            results, {"demo": {"direct": 1.0, "indirect": 1.0, "negative": 1.0}}, tolerance=0.1
+        )
+        assert [(r.cls, r.current) for r in regs] == [(TriggerPromptClass.NEGATIVE, None)]
+
+    def test_seval_dt_006_scope_limits_absent_class_detection(self) -> None:
+        """SEVAL-DT-006: 缺席偵測只涵蓋本次評測的 skill，不誤報未評到的 skill。
+
+        沒有這個界定，`--skill foo` 會把 baseline 裡其他每個 skill 都判成「缺席回歸」——
+        那不是回歸，只是沒評到，且會讓單一 skill 的評測永遠 exit 1。
+        spec: skill-trigger-eval#absent-class-is-a-regression"""
+        results = score_verdicts(verdicts(make_fixture(), [True, True, False, False]))
+        baseline = {"demo": {"direct": 1.0}, "other": {"direct": 1.0, "negative": 1.0}}
+        assert compare_baseline(results, baseline, tolerance=0.1, evaluated_skills={"demo"}) == []
+
 
 class TestRunEval:
     def test_seval_st_002_end_to_end_with_agent_judge(self) -> None:
@@ -190,7 +214,7 @@ class TestFixtureLoading:
     def test_seval_eg_003_missing_fixture_surfaced(self, tmp_path: object) -> None:
         """SEVAL-EG-003: fixture 缺失 -> RuntimeError（不當作通過）。
         spec: skill-trigger-eval#absent-fixture-fails-loud"""
-        with pytest.raises(RuntimeError, match="找不到 fixture"):
+        with pytest.raises(RuntimeError, match="找不到 skill .* 的 fixture"):
             load_fixture("nonexistent", skills_dir=tmp_path)  # type: ignore[arg-type]
 
     def test_seval_st_003_real_example_fixture_loads(self) -> None:

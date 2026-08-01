@@ -13,35 +13,9 @@ def cli() -> None:
     """skill 觸發準確度評測（trigger-eval runner + regression gate）。"""
 
 
-def _warn_orphan_fixtures(skills_dir: Path | None) -> None:
-    """--all 時顯式警告 plugins/ 底下未被涵蓋的 fixture，避免靜默漏評。
-
-    custom skills_dir（測試/非預設佈局）比對其 sibling `plugins/`，不誤報 repo 全域
-    plugins；預設佈局（skills_dir=None）比對 repo 的 PLUGINS_DIR。輸出相對路徑。
-    """
-    from tasks._paths import PROJECT_ROOT
-
-    from .config import orphan_plugin_fixtures
-
-    plugins_dir = (skills_dir.parent / "plugins") if skills_dir is not None else None
-    orphans = orphan_plugin_fixtures(skills_dir, plugins_dir)
-    if not orphans:
-        return
-    base = skills_dir.parent if skills_dir is not None else PROJECT_ROOT
-    # 只陳述可觀察事實（未被涵蓋），不斷言成因：巢狀 sub-skill 的 fixture 即使 symlink 存在，
-    # 也會因 discover_fixtures 只掃 skills/ 第一層而落在此清單——說「未 symlink」會叫使用者
-    # 去建一個早就存在的 symlink。
-    click.echo(
-        f"[WARN] --all 只涵蓋 skills/ 第一層的 fixture；下列 {len(orphans)} 個 plugin 底下的 "
-        "fixture 未被評測：",
-        err=True,
-    )
-    for path in orphans:
-        try:
-            shown: Path = path.relative_to(base)
-        except ValueError:
-            shown = path
-        click.echo(f"  {shown}", err=True)
+def _plugins_dir_for(skills_dir: Path | None) -> Path | None:
+    """custom skills_dir（測試/非預設佈局）配對其 sibling `plugins/`，避免掃到 repo 全域。"""
+    return (skills_dir.parent / "plugins") if skills_dir is not None else None
 
 
 def _assert_nonempty_fixtures(fixtures: list[TriggerEvalFixture]) -> None:
@@ -87,13 +61,13 @@ def _resolve_skills(skill: tuple[str, ...], all_skills: bool, skills_dir: Path |
     from .config import discover_fixtures
 
     if all_skills:
-        names = discover_fixtures(skills_dir)
-        # 先報 orphan 再判空：全部 fixture 都是 plugin-only 時 names 為空，此處若先 [FAIL]
-        # 就會告訴使用者「找不到任何 fixture」，而實際上有 N 個躺在 plugins/ 只是搆不到——
-        # 正是這個 [WARN] 存在的理由。
-        _warn_orphan_fixtures(skills_dir)
+        names = discover_fixtures(skills_dir, _plugins_dir_for(skills_dir))
         if not names:
-            click.echo("[FAIL] 找不到任何含 trigger_eval.json 的 skill（skills/ 底下）", err=True)
+            click.echo(
+                "[FAIL] 找不到任何含 trigger_eval.json 的 skill"
+                "（已掃 skills/ 與 plugins/*/skills/）",
+                err=True,
+            )
             raise SystemExit(1)
         return names
     if skill:
@@ -109,7 +83,7 @@ def _load_fixtures(names: list[str], skills_dir: Path | None) -> list[TriggerEva
     fixtures: list[TriggerEvalFixture] = []
     for name in names:
         try:
-            fixtures.append(load_fixture(name, skills_dir))
+            fixtures.append(load_fixture(name, skills_dir, _plugins_dir_for(skills_dir)))
         except RuntimeError as e:
             click.echo(f"[FAIL] {e}", err=True)
             raise SystemExit(1) from e
@@ -237,7 +211,7 @@ def eval(  # noqa: A001 — 對映 spec「eval subcommand」命名
     judge = AgentJudge()
     tol = DEFAULT_TOLERANCE if tolerance is None else _validate_tolerance(tolerance)
     try:
-        report = run_eval(judge, tasks, judgments, load_baseline(baseline_file), tol)
+        report = run_eval(judge, tasks, judgments, load_baseline(baseline_file), tol, set(names))
     except RuntimeError as e:
         click.echo(f"[FAIL] {e}", err=True)
         raise SystemExit(1) from e
@@ -249,10 +223,18 @@ def eval(  # noqa: A001 — 對映 spec「eval subcommand」命名
     if report.has_regression:
         click.echo("[FAIL] 偵測到觸發回歸：", err=True)
         for reg in report.regressions:
-            click.echo(
-                f"  {reg.skill} {reg.cls}: {reg.current:.2f} < baseline {reg.baseline:.2f} - {tol}",
-                err=True,
-            )
+            if reg.current is None:
+                click.echo(
+                    f"  {reg.skill} {reg.cls}: 本次無此類 prompt（baseline {reg.baseline:.2f}）"
+                    "——fixture 該類已被清空，等同繞過 gate",
+                    err=True,
+                )
+            else:
+                click.echo(
+                    f"  {reg.skill} {reg.cls}: {reg.current:.2f} < "
+                    f"baseline {reg.baseline:.2f} - {tol}",
+                    err=True,
+                )
         raise SystemExit(1)
     click.echo("[OK] 無回歸")
 
@@ -309,6 +291,8 @@ def baseline(
         click.echo(f"[FAIL] {e}", err=True)
         raise SystemExit(1) from e
 
+    # --all 是權威重寫（讓已刪 fixture 的陳舊條目消失）；--skill 只合併指名的 skill，
+    # 不再把其他 skill 的基準一併抹掉（issue #219）。
     baseline_data = results_to_baseline(score_verdicts(verdicts))
-    path = save_baseline(baseline_data, baseline_file)
-    click.echo(f"[OK] baseline 已寫入：{path}")
+    path = save_baseline(baseline_data, baseline_file, merge=not all_skills)
+    click.echo(f"[OK] baseline 已寫入：{path}（{len(baseline_data)} 個 skill）")
