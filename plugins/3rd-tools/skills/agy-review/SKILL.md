@@ -67,19 +67,30 @@ git rev-parse --abbrev-ref HEAD 2>/dev/null
 ```
 
 取得 upstream branch 名稱（如 `main`、`develop`）。無 upstream tracking 時，詢問使用者確認 base。
+呼叫指令若帶 `base=<branch>`（見 Step 1），以該值覆蓋此處的偵測結果。
 
 ---
 
-### Step 1 — 模式判斷
+### Step 1 — 模式與參數判斷
 
-從呼叫指令解析：
+從呼叫指令解析出 MODE、BASE、INSTRUCTION 三個值：
 
-| 呼叫型態 | MODE | INSTRUCTION |
-|----------|------|-------------|
-| `/agy-review` | `review` | 空 |
-| `/agy-review 重點關注 auth` | `review` | `重點關注 auth` |
-| `/agy-review challenge` | `challenge` | 空 |
-| `/agy-review challenge 找 race condition` | `challenge` | `找 race condition` |
+| 呼叫型態 | MODE | BASE | INSTRUCTION |
+|----------|------|------|-------------|
+| `/agy-review` | `review` | Step 0d 偵測值 | 空 |
+| `/agy-review 重點關注 auth` | `review` | Step 0d 偵測值 | `重點關注 auth` |
+| `/agy-review challenge` | `challenge` | Step 0d 偵測值 | 空 |
+| `/agy-review challenge 找 race condition` | `challenge` | Step 0d 偵測值 | `找 race condition` |
+| `/agy-review base=develop` | `review` | `develop` | 空 |
+| `/agy-review challenge base=develop 找 race condition` | `challenge` | `develop` | `找 race condition` |
+
+**`base=<branch>` 解析規則**：`base=` token 可出現在 `challenge` 之後的任意位置，
+解析出 `<branch>` 後**必須從 INSTRUCTION 移除該 token**，並覆蓋 Step 0d 的偵測值。
+`base=` 只接一個分支名（不含空白）；出現多個 `base=` 時取第一個並警告使用者其餘被忽略。
+
+> **為何要在這裡解析，而不是只寫在 FAQ**：BASE 是 `run.sh` 的第 2 個位置參數，
+> 若 `base=develop` 被當成自由指示，它會變成 prompt 裡的 `特別關注：base=develop`，
+> 而 BASE 仍是 Step 0d 偵測到的分支——diff 取錯 base 但 review 照樣跑完、exit 0、無任何警告。
 
 ---
 
