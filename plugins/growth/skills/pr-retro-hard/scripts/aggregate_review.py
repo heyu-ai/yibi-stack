@@ -9,7 +9,7 @@ SKILL.md **不得** 重新實作此處的彙整規則，只記錄「呼叫哪個
 
 退出碼：
   0  彙整完成，stdout 是 JSON 結果
-  2  輸入不合契約（未知列舉值、缺必要欄位、JSON 解析失敗）
+  2  輸入不合契約（未知列舉值、缺必要欄位、型別錯誤、JSON 解析失敗）
   1  執行期失敗（讀不到輸入檔）
 """
 
@@ -48,6 +48,8 @@ class CheckState(StrEnum):
     """settling check 的五種執行狀態，彼此不可折疊。
 
     `UNABLE_TO_EXECUTE` **不等於** `REFUTED`：證據無效不代表宣稱不成立。
+    `REFUTED` 意味著檢查真的跑過、宣稱不成立——它不得改變 confidence、不得計入 consensus、
+    不得產出降級建議，效力上等同「未提供檢查」，而非「已確認」。
     """
 
     NOT_EXECUTED = "not_executed"
@@ -73,12 +75,18 @@ class Source(StrEnum):
     INFERRED = "inferred"
 
 
-#: 除 AGREE 以外皆為異議。
-DISSENT = frozenset(c for c in Classification if c is not Classification.AGREE)
-
-
 class MalformedInput(Exception):
-    """輸入不符契約。訊息必須指名違規的 finding，不得只說「格式錯誤」。"""
+    """輸入不符契約。訊息必須指名違規的 finding 或欄位，不得只說「格式錯誤」。"""
+
+
+@dataclass(frozen=True)
+class LessonScore:
+    """一個 lesson target 的 confidence/source。輸入用來承接 original 值，輸出用來承接
+    彙整後的值——欄位同形但語意不同，由呼叫端依上下文解讀。
+    """
+
+    confidence: int
+    source: Source
 
 
 @dataclass(frozen=True)
@@ -92,23 +100,19 @@ class Finding:
     settling_check: str
     statement: str
     draft_digest: str
+    packet_digest: str
     check_state: CheckState = CheckState.NOT_EXECUTED
 
     @property
     def has_settling_check(self) -> bool:
         return self.settling_check != NO_CHECK
 
-    @property
-    def is_dissent(self) -> bool:
-        return self.classification in DISSENT
-
 
 @dataclass(frozen=True)
 class AggregationInput:
     draft_digest: str
     packet_digest: str
-    original_confidence: int
-    original_source: Source
+    lessons: dict[str, LessonScore]
     findings: tuple[Finding, ...]
     enable_demotion: bool = False
 
@@ -133,34 +137,35 @@ class Effect(StrEnum):
     的成員——雙向由 `tests/test_skill_contract.py` 斷言。
     """
 
-    #: 草稿語意已變更，此 finding 不套用。
+    #: 草稿或審查包語意已變更，此 finding 不套用。
     STALE = "stale"
-    #: 首輪交白卷的 voice 在交叉輪沒有共識資格。
+    #: 該 voice 對此 target 在首輪未曾發言，交叉輪不得為此 (target, voice) 建立新票。
     NO_CONSENSUS_ELIGIBILITY = "no_consensus_eligibility"
-    #: 交叉輪只能反證 / 降級 / 撤回 / 補 settling check，不新增獨立票。
-    CROSS_ROUND_REFUTATION = "cross_round_refutation"
-    #: 明確無異議。永不抬升任何評分。
+    #: 首輪 finding 被同一 (target, voice) 的合格交叉輪 finding 覆蓋，本身不再governing。
+    SUPERSEDED_BY_R2 = "superseded_by_r2"
+    #: 明確無異議。永遠不抬升任何評分。
     RECORDED_ONLY = "recorded_only"
     #: 針對「使用者自己說過的話」的異議：另行記錄，不降其 confidence 與 source。
     RECORDED_AGAINST_USER_STATED = "recorded_against_user_stated"
-    #: 對抗 voice 未附 settling check：非作用性註解，仍呈現給人。
+    #: 對抗 voice 未附 settling check：非作用性註解，仍呈現但不影響評分。
     NON_ACTIONABLE_COMMENTARY = "non_actionable_commentary"
     #: 對抗 voice 附了 settling check：假說，仍不計票，須由 lead 實跑該檢查。
     ADVERSARIAL_HYPOTHESIS = "adversarial_hypothesis"
-    #: 外部 voice 未附 settling check：上限為未決，不產出降級建議。
+    #: 外部 voice 未附 settling check，或 check 尚未確認：上限為未決，不產出降級建議。
     UNRESOLVED = "unresolved"
-    #: 外部 voice 首輪異議且附 settling check：可降低 confidence。
+    #: settling check 已執行且結果為 refuted：宣稱不成立，記錄但零效力——與未附檢查同效力。
+    NOT_REPRODUCED = "not_reproduced"
+    #: 外部 voice 首輪（或合格交叉輪覆蓋）異議，且 settling check 已執行且確認。
     ACTIONABLE = "actionable"
 
 
-#: 成立共識時計入的效力（對抗 voice 依建構不會落在這兩者）。
+#: 成立共識、且能降低 confidence 的效力。
 CONSENSUS_BEARING = frozenset({Effect.ACTIONABLE, Effect.UNRESOLVED})
 
 
 @dataclass
 class AggregationResult:
-    confidence: int
-    source: Source
+    lessons: dict[str, LessonScore] = field(default_factory=dict)
     outcomes: list[FindingOutcome] = field(default_factory=list)
     consensus: dict[str, list[str]] = field(default_factory=dict)
     demotion_recommendations: list[str] = field(default_factory=list)
@@ -168,11 +173,31 @@ class AggregationResult:
     stale_finding_ids: list[str] = field(default_factory=list)
 
 
-def _require(mapping: dict[str, Any], key: str, where: str) -> Any:
+def _require_key(mapping: dict[str, Any], key: str, where: str) -> Any:
+    """要求 key 存在，回傳其原始值——不對值的型別做任何假設。
+
+    給非字串欄位（陣列、物件、布林）用；型別檢查由呼叫端自己做，因為每個欄位的正確型別
+    都不同。**不要**把這個和 `_require_str` 搞混——這正是先前 null-coercion 那個問題的
+    根源：一個函式若同時肩負「key 存在」與「值是非空字串」兩種語意，呼叫端會在只需要前者
+    的地方誤用後者（或反之），而型別不合的值就會靜默通過。
+    """
     if key not in mapping:
         raise MalformedInput(f"[FAIL] {where} 缺少必要欄位 '{key}'")
-    value = mapping[key]
-    if isinstance(value, str) and not value.strip():
+    return mapping[key]
+
+
+def _require_str(mapping: dict[str, Any], key: str, where: str) -> str:
+    """要求 key 存在且值是非空字串。`None`（JSON null）與其他非字串型別一律拒絕——
+
+    `isinstance(value, str)` 為 False 時直接報錯，不落入「跳過空字串檢查、原樣回傳」的
+    路徑。這正是修復 null-coercion（`str(None) == "None"` 被當成合法字串放行）的地方。
+    """
+    value = _require_key(mapping, key, where)
+    if not isinstance(value, str):
+        raise MalformedInput(
+            f"[FAIL] {where} 的 '{key}' 必須是字串，收到 {type(value).__name__}：{value!r}"
+        )
+    if not value.strip():
         raise MalformedInput(f"[FAIL] {where} 的 '{key}' 是空字串")
     return value
 
@@ -196,35 +221,51 @@ def parse_finding(raw: Any, index: int) -> Finding:
         f"findings[{index}]" if not isinstance(ident, str) or not ident else f"finding '{ident}'"
     )
     return Finding(
-        id=str(_require(raw, "id", where)),
-        voice=str(_require(raw, "voice", where)),
-        voice_kind=_parse_enum(VoiceKind, _require(raw, "voice_kind", where), "voice_kind", where),
-        round=_parse_enum(Round, _require(raw, "round", where), "round", where),
-        target=str(_require(raw, "target", where)),
-        classification=_parse_enum(
-            Classification, _require(raw, "classification", where), "classification", where
+        id=_require_str(raw, "id", where),
+        voice=_require_str(raw, "voice", where),
+        voice_kind=_parse_enum(
+            VoiceKind, _require_str(raw, "voice_kind", where), "voice_kind", where
         ),
-        settling_check=str(_require(raw, "settling_check", where)),
-        statement=str(_require(raw, "statement", where)),
-        draft_digest=str(_require(raw, "draft_digest", where)),
+        round=_parse_enum(Round, _require_str(raw, "round", where), "round", where),
+        target=_require_str(raw, "target", where),
+        classification=_parse_enum(
+            Classification, _require_str(raw, "classification", where), "classification", where
+        ),
+        settling_check=_require_str(raw, "settling_check", where),
+        statement=_require_str(raw, "statement", where),
+        draft_digest=_require_str(raw, "draft_digest", where),
+        packet_digest=_require_str(raw, "packet_digest", where),
         check_state=_parse_enum(
             CheckState, raw.get("check_state", CheckState.NOT_EXECUTED.value), "check_state", where
         ),
     )
 
 
+def _parse_lesson_score(raw: Any, key: str) -> LessonScore:
+    if not isinstance(raw, dict):
+        raise MalformedInput(f"[FAIL] lessons['{key}'] 不是物件")
+    where = f"lessons['{key}']"
+    confidence = raw.get("original_confidence")
+    if not isinstance(confidence, int) or isinstance(confidence, bool) or not 1 <= confidence <= 10:
+        raise MalformedInput(
+            f"[FAIL] {where} 的 'original_confidence' 必須是 1-10 的整數，收到 {confidence!r}"
+        )
+    source = _parse_enum(
+        Source, _require_str(raw, "original_source", where), "original_source", where
+    )
+    return LessonScore(confidence=confidence, source=source)
+
+
 def parse_input(raw: Any) -> AggregationInput:
     if not isinstance(raw, dict):
         raise MalformedInput("[FAIL] 輸入頂層不是物件")
-    version = _require(raw, "version", "input")
+    version = _require_str(raw, "version", "input")
     if version != SCHEMA_VERSION:
         raise MalformedInput(
             f"[FAIL] 不支援的 version {version!r}；本模組只接受 {SCHEMA_VERSION!r}"
         )
-    confidence = _require(raw, "original_confidence", "input")
-    if not isinstance(confidence, int) or isinstance(confidence, bool) or not 1 <= confidence <= 10:
-        raise MalformedInput(f"[FAIL] original_confidence 必須是 1-10 的整數，收到 {confidence!r}")
-    findings_raw = _require(raw, "findings", "input")
+    # findings 是陣列，用 _require_key（只驗 key 存在）而非 _require_str（會誤判非字串型別）。
+    findings_raw = _require_key(raw, "findings", "input")
     if not isinstance(findings_raw, list):
         raise MalformedInput("[FAIL] findings 必須是陣列")
     seen: set[str] = set()
@@ -235,44 +276,30 @@ def parse_input(raw: Any) -> AggregationInput:
             raise MalformedInput(f"[FAIL] finding id 重複：'{finding.id}'")
         seen.add(finding.id)
         findings.append(finding)
+
+    lessons_raw = raw.get("lessons", {})
+    if not isinstance(lessons_raw, dict):
+        raise MalformedInput("[FAIL] lessons 必須是物件")
+    lessons = {key: _parse_lesson_score(value, key) for key, value in lessons_raw.items()}
+
     enable = raw.get("enable_demotion", False)
     if not isinstance(enable, bool):
         raise MalformedInput(f"[FAIL] enable_demotion 必須是布林值，收到 {enable!r}")
     return AggregationInput(
-        draft_digest=str(_require(raw, "draft_digest", "input")),
-        packet_digest=str(_require(raw, "packet_digest", "input")),
-        original_confidence=confidence,
-        original_source=_parse_enum(
-            Source, _require(raw, "original_source", "input"), "original_source", "input"
-        ),
+        draft_digest=_require_str(raw, "draft_digest", "input"),
+        packet_digest=_require_str(raw, "packet_digest", "input"),
+        lessons=lessons,
         findings=tuple(findings),
         enable_demotion=enable,
     )
 
 
-def _classify_effect(
-    finding: Finding,
-    *,
-    draft_digest: str,
-    source: Source,
-    r1_voices_with_findings: frozenset[str],
-) -> tuple[Effect, str]:
-    """決定單筆 finding 的效力。判定順序即優先序，先命中者勝。"""
-    if finding.draft_digest != draft_digest:
-        return Effect.STALE, "此 finding 產出時的草稿 digest 與現行草稿不符，不套用"
+def _intrinsic_effect(finding: Finding, lessons: dict[str, LessonScore]) -> tuple[Effect, str]:
+    """判定一筆 finding 若它是其 (target, voice) 的 governing finding，效力該是什麼。
 
-    if finding.round is Round.R2:
-        if finding.voice not in r1_voices_with_findings:
-            return (
-                Effect.NO_CONSENSUS_ELIGIBILITY,
-                "該 voice 首輪零 finding，在交叉輪沒有共識資格"
-                "（看過他家結果後的附和是錨定，不是佐證）",
-            )
-        return (
-            Effect.CROSS_ROUND_REFUTATION,
-            "交叉輪只能反證 / 降級 / 撤回 / 補 settling check，不新增獨立票",
-        )
-
+    只看 finding 自身內容（分類、voice 種類、check 狀態）與其 target 的 lesson 設定，
+    不涉及 round 或 supersession——那部分由呼叫端（aggregate）依上下文另行判定。
+    """
     if finding.classification is Classification.AGREE:
         return Effect.RECORDED_ONLY, "明確無異議；一致永不抬升 confidence 或改寫 source"
 
@@ -287,7 +314,8 @@ def _classify_effect(
             "對抗 voice 依建構單邊，不計票；此假說須由 lead 實跑其 settling check 後才採信",
         )
 
-    if source is Source.USER_STATED:
+    lesson = lessons.get(finding.target)
+    if lesson is not None and lesson.source is Source.USER_STATED:
         return (
             Effect.RECORDED_AGAINST_USER_STATED,
             "標的的 source 是使用者陳述；異議另行記錄，不降其 confidence、不改寫其 source",
@@ -296,86 +324,147 @@ def _classify_effect(
     if not finding.has_settling_check:
         return Effect.UNRESOLVED, "外部 voice 未附可定案的檢查；上限為未決，不產出降級建議"
 
-    return Effect.ACTIONABLE, "外部 voice 首輪異議且附可定案的檢查"
+    if finding.check_state is CheckState.REFUTED:
+        return (
+            Effect.NOT_REPRODUCED,
+            "settling check 已執行且宣稱不成立；記錄但零效力，與未附檢查同效力",
+        )
+
+    if finding.check_state is not CheckState.CONFIRMED:
+        return (
+            Effect.UNRESOLVED,
+            "settling check 尚未執行或無定論；上限為未決，不產出降級建議、不影響評分",
+        )
+
+    return Effect.ACTIONABLE, "外部 voice 異議且其 settling check 已執行且確認"
 
 
 def aggregate(data: AggregationInput) -> AggregationResult:
-    """純函式彙整。同一輸入永遠得到同一輸出，與 voice / finding 供入順序無關。"""
-    r1_voices_with_findings = frozenset(
-        f.voice
+    """純函式彙整。同一輸入永遠得到同一輸出，與 voice / finding 供入順序無關。
+
+    分三層判定，順序即優先序：
+    1. 過期（草稿或審查包語意已變更）
+    2. round / supersession（決定哪個 finding 是其 (target, voice) 的 governing finding）
+    3. intrinsic effect（governing finding 本身的內容決定效力）
+    """
+    live = [
+        f
         for f in data.findings
-        if f.round is Round.R1 and f.draft_digest == data.draft_digest
-    )
+        if f.draft_digest == data.draft_digest and f.packet_digest == data.packet_digest
+    ]
+    live_ids = {f.id for f in live}
+
+    # 首輪「已發言」的 (target, voice) 組合——交叉輪只能對這些組合覆蓋，不能新開。
+    r1_by_key: dict[tuple[str, str], Finding] = {}
+    for f in live:
+        if f.round is Round.R1:
+            r1_by_key[(f.target, f.voice)] = f
+
+    # governing finding：交叉輪對「已在首輪發言」的 (target, voice) 覆蓋首輪版本；
+    # 其餘一律以首輪版本為準。這不是新增獨立票——(target, voice) 這個組合本身
+    # 已經在首輪建立，交叉輪只是更新它的證據基礎。
+    governing_by_key: dict[tuple[str, str], Finding] = dict(r1_by_key)
+    for f in live:
+        if f.round is Round.R2 and (f.target, f.voice) in r1_by_key:
+            governing_by_key[(f.target, f.voice)] = f
+    governing_ids = {f.id for f in governing_by_key.values()}
 
     outcomes: list[FindingOutcome] = []
-    for finding in data.findings:
-        effect, reason = _classify_effect(
-            finding,
-            draft_digest=data.draft_digest,
-            source=data.original_source,
-            r1_voices_with_findings=r1_voices_with_findings,
-        )
+    effect_of: dict[str, Effect] = {}
+    for f in data.findings:
+        if f.id not in live_ids:
+            effect, reason = (
+                Effect.STALE,
+                "此 finding 產出時的草稿或審查包 digest 與現行不符，不套用",
+            )
+        elif f.round is Round.R2 and (f.target, f.voice) not in r1_by_key:
+            effect, reason = (
+                Effect.NO_CONSENSUS_ELIGIBILITY,
+                "該 voice 對此標的在首輪未曾發言，交叉輪不得為此 (target, voice) 建立新票"
+                "（看過他家結果後才對新標的表態是錨定，不是佐證）",
+            )
+        elif f.id not in governing_ids:
+            effect, reason = (
+                Effect.SUPERSEDED_BY_R2,
+                "此首輪 finding 已被同一 (target, voice) 的合格交叉輪 finding 覆蓋，"
+                "評分依交叉輪版本計算",
+            )
+        else:
+            effect, reason = _intrinsic_effect(f, data.lessons)
+
+        effect_of[f.id] = effect
         outcomes.append(
             FindingOutcome(
-                finding_id=finding.id,
-                target=finding.target,
-                voice=finding.voice,
-                voice_kind=finding.voice_kind,
-                round=finding.round,
-                classification=finding.classification,
-                check_state=finding.check_state,
+                finding_id=f.id,
+                target=f.target,
+                voice=f.voice,
+                voice_kind=f.voice_kind,
+                round=f.round,
+                classification=f.classification,
+                check_state=f.check_state,
                 effect=effect.value,
                 reason=reason,
             )
         )
 
-    effect_of = {o.finding_id: Effect(o.effect) for o in outcomes}
+    governing = list(governing_by_key.values())
 
-    # 共識只由獨立首輪的外部異議建立。
-    #
-    # 這裡刻意不再加一道 `finding.is_dissent`：`_classify_effect` 的 AGREE 分支在
-    # actionable / unresolved 之前，故 AGREE 依建構不可能落入 CONSENSUS_BEARING。多寫一道
-    # 會遮蔽「AGREE 分支被移除」這個突變，讓它存活而看不出來。該不變量改由
-    # AGG-DT-014 直接斷言（AGREE 永不得到 ACTIONABLE 或 UNRESOLVED）。
+    # 共識只由 governing finding 中落在 CONSENSUS_BEARING 的異議建立，依 target 分組。
     consensus: dict[str, set[str]] = {}
-    for finding in data.findings:
-        if effect_of[finding.id] in CONSENSUS_BEARING:
-            consensus.setdefault(finding.target, set()).add(finding.voice)
+    for f in governing:
+        if effect_of[f.id] in CONSENSUS_BEARING:
+            consensus.setdefault(f.target, set()).add(f.voice)
 
-    # confidence 只能被降，且降幅是「有多少個不同的外部 voice 提出可作用異議」的函式——
-    # 不是累加，故重跑同一集合結果相同。
-    lowering_voices = {f.voice for f in data.findings if effect_of[f.id] is Effect.ACTIONABLE}
-    confidence = max(1, data.original_confidence - len(lowering_voices))
+    # confidence 扣分依 target 獨立計算：每個 target 的扣分是「有多少個不同外部 voice
+    # 對該 target 提出 ACTIONABLE 異議」，不是全域計數、不是累加 finding 數。
+    lowering_voices_by_target: dict[str, set[str]] = {}
+    for f in governing:
+        if effect_of[f.id] is Effect.ACTIONABLE:
+            lowering_voices_by_target.setdefault(f.target, set()).add(f.voice)
+
+    result_lessons: dict[str, LessonScore] = {}
+    for target, original in data.lessons.items():
+        lowered = len(lowering_voices_by_target.get(target, set()))
+        result_lessons[target] = LessonScore(
+            confidence=max(1, original.confidence - lowered),
+            # source 永不被彙整改寫：三個 voice 讀同一份草稿、同一套 prompt，依建構相關而非
+            # 獨立，故其一致不構成 cross-model 證據。
+            source=original.source,
+        )
 
     # 只有「證據不支持」且其 settling check **已執行且確認** 才產出降級建議。
-    # 單純的分類標籤不足以觸發機械動作——未執行的標籤是價值判斷，屬人的裁決範圍。
+    # 單純的分類標籤不足以觸發機械動作——未執行或反駁過的標籤是價值判斷，屬人的裁決範圍。
+    #
+    # 這裡刻意不再加一道 `f.check_state is CheckState.CONFIRMED`：`_intrinsic_effect` 只有
+    # 通過兩道 check_state 關卡後才會回傳 ACTIONABLE，故 `effect_of[f.id] is Effect.ACTIONABLE`
+    # 本身已蘊含 `check_state == CONFIRMED`。多寫一道會遮蔽「check_state 關卡被移除」這個突變，
+    # 讓它存活而看不出來（與本檔 aggregate() 早先移除 `f.is_dissent` 冗餘述詞是同一類問題）。
+    # 該不變量改由 AGG-DT-066 直接斷言。
     recommendations = sorted(
         {
             f.target
-            for f in data.findings
+            for f in governing
             if effect_of[f.id] is Effect.ACTIONABLE
             and f.classification is Classification.UNSUPPORTED
-            and f.check_state is CheckState.CONFIRMED
         }
     )
 
     return AggregationResult(
-        confidence=confidence,
-        # source 永不被彙整改寫：三個 voice 讀同一份草稿、同一套 prompt，依建構相關而非
-        # 獨立，故其一致不構成 cross-model 證據。
-        source=data.original_source,
+        lessons=result_lessons,
         outcomes=sorted(outcomes, key=lambda o: (o.target, o.voice, o.finding_id)),
         consensus={t: sorted(v) for t, v in sorted(consensus.items())},
         demotion_recommendations=recommendations,
         demotion_applied=bool(recommendations) and data.enable_demotion,
-        stale_finding_ids=sorted(f.id for f in data.findings if effect_of[f.id] is Effect.STALE),
+        stale_finding_ids=sorted(f.id for f in data.findings if f.id not in live_ids),
     )
 
 
 def result_to_dict(result: AggregationResult) -> dict[str, Any]:
     return {
-        "confidence": result.confidence,
-        "source": result.source.value,
+        "lessons": {
+            key: {"confidence": v.confidence, "source": v.source.value}
+            for key, v in sorted(result.lessons.items())
+        },
         "consensus": result.consensus,
         "demotion_recommendations": result.demotion_recommendations,
         "demotion_applied": result.demotion_applied,
@@ -400,15 +489,16 @@ def result_to_dict(result: AggregationResult) -> dict[str, Any]:
 #: 每個 Effect 的一行語意。這份 mapping 是 SKILL.md 摘要表的**唯一來源**，
 #: 由 `--explain-policy` 輸出、由 contract test 雙向比對。
 EFFECT_MEANING: dict[str, str] = {
-    Effect.STALE.value: "草稿語意已變更，此 finding 不套用",
-    Effect.NO_CONSENSUS_ELIGIBILITY.value: "首輪零 finding 的 voice 在交叉輪無共識資格",
-    Effect.CROSS_ROUND_REFUTATION.value: "交叉輪僅反證 / 降級 / 撤回 / 補檢查，不新增獨立票",
+    Effect.STALE.value: "草稿或審查包語意已變更，此 finding 不套用",
+    Effect.NO_CONSENSUS_ELIGIBILITY.value: "該 voice 對此標的在首輪未曾發言，交叉輪不得新開票",
+    Effect.SUPERSEDED_BY_R2.value: "首輪 finding 已被同一 (target, voice) 的交叉輪覆蓋",
     Effect.RECORDED_ONLY.value: "明確無異議；不抬升任何評分",
     Effect.RECORDED_AGAINST_USER_STATED.value: "針對使用者陳述的異議另行記錄，不降其評分",
     Effect.NON_ACTIONABLE_COMMENTARY.value: "對抗 voice 無檢查：僅呈現，零效力",
     Effect.ADVERSARIAL_HYPOTHESIS.value: "對抗 voice 有檢查：不計票，須 lead 實跑後採信",
-    Effect.UNRESOLVED.value: "外部 voice 無檢查：上限未決，不產出降級建議",
-    Effect.ACTIONABLE.value: "外部 voice 首輪異議且有檢查：可降低 confidence",
+    Effect.UNRESOLVED.value: "無檢查或檢查未確認：上限未決，不產出降級建議、不影響評分",
+    Effect.NOT_REPRODUCED.value: "檢查已執行且宣稱不成立：記錄但零效力",
+    Effect.ACTIONABLE.value: "異議且其檢查已執行且確認：可降低該 target 的 confidence",
 }
 
 
@@ -422,11 +512,15 @@ def explain_policy() -> dict[str, Any]:
         "sources": [s.value for s in Source],
         "invariants": [
             "agreement never raises confidence and never rewrites source",
-            "consensus is established only by the independent first round",
+            "consensus is established only by the independent first round, per (target, voice)",
             "adversarial findings never count toward consensus",
+            "a refuted or unconfirmed check has the same zero effect as no check at all",
+            "each lesson target is scored independently; a dissent never moves another target's"
+            " score",
             "demotion requires classification UNSUPPORTED and check_state confirmed",
             "demotion is a recommendation consumed by the existing evidence gate",
             "draft items are annotated, never removed",
+            "an r2 finding can supersede its own (target, voice) r1 finding, never add a new vote",
         ],
     }
 

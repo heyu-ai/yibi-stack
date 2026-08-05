@@ -220,6 +220,37 @@ class TestExcludeRegistration:
         hasattr(os, "geteuid") and os.geteuid() == 0,
         reason="root bypasses file permission bits",
     )
+    def test_rrd_dt_014_unwritable_artifact_root_fails_with_the_right_message(
+        self, tmp_path: Path
+    ) -> None:
+        """RRD-DT-014 (pr-test-analyzer Important regression): when `.runtime/` itself is
+        unwritable, `mkdir -p "$PR_DIR"` fails before any PR subdirectory exists, and the
+        script must report THAT failure -- not let the error surface later inside
+        `mktemp -d` with a message that names the wrong cause.
+
+        pr-test-analyzer proved by mutation that swallowing this specific `mkdir -p`
+        failure (`... || true`) still leaves exit 1 (the later `mktemp -d` step fails on
+        the still-missing directory), so a bare exit-code check does not catch a mutation
+        that only degrades the diagnostic. This test pins the message, not just the code.
+        """
+        repo = _make_repo(tmp_path)
+        runtime_root = repo / ".runtime"
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        runtime_root.chmod(0o555)
+        try:
+            result = _run_script(repo, "--pr", "123")
+        finally:
+            runtime_root.chmod(0o755)
+        assert result.returncode == 1, result.stderr
+        assert "無法建立產物目錄" in result.stderr, (
+            f"must name the actual failure, not a downstream one: {result.stderr!r}"
+        )
+        assert "RETRO_REVIEW_DIR=" not in result.stdout
+
+    @pytest.mark.skipif(
+        hasattr(os, "geteuid") and os.geteuid() == 0,
+        reason="root bypasses file permission bits",
+    )
     def test_rrd_dt_005_unwritable_exclude_fails_loud(self, tmp_path: Path) -> None:
         """RRD-DT-005: an unwritable exclude file is an explicit [FAIL], not a silent
         continue -- otherwise artifacts pollute `git status` with no diagnostic.

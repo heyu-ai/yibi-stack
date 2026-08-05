@@ -5,14 +5,7 @@
   "description": "Input contract for aggregate_review.py. Every enumeration here is CLOSED and carries no catch-all member: an unknown value is a hard error, never a defaulted value. aggregate_review.py is the decision owner; this file is its data shape, and the two are asserted consistent by test_aggregate_review.py.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "version",
-    "draft_digest",
-    "packet_digest",
-    "original_confidence",
-    "original_source",
-    "findings"
-  ],
+  "required": ["version", "draft_digest", "packet_digest", "findings"],
   "properties": {
     "version": {
       "const": "1.0"
@@ -25,18 +18,30 @@
     "packet_digest": {
       "type": "string",
       "minLength": 1,
-      "description": "Digest of the review packet the voices were given."
+      "description": "Digest of the review packet the voices were given. A finding whose recorded packet_digest differs from this value is stale and is not applied -- this catches the case where the packet's source material changed (e.g. a new PR commit landed) while the draft text itself did not."
     },
-    "original_confidence": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 10,
-      "description": "The lesson confidence before aggregation. Aggregation can only lower this, never raise it."
-    },
-    "original_source": {
-      "type": "string",
-      "enum": ["user-stated", "cross-model", "inferred"],
-      "description": "The lesson source label before aggregation. Aggregation never rewrites this to cross-model: mob voices read one draft through one prompt and are correlated by construction, so their agreement is not independent cross-model evidence."
+    "lessons": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["original_confidence", "original_source"],
+        "properties": {
+          "original_confidence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "This lesson's confidence before aggregation. Aggregation can only lower this, never raise it."
+          },
+          "original_source": {
+            "type": "string",
+            "enum": ["user-stated", "cross-model", "inferred"],
+            "description": "This lesson's source label before aggregation. Aggregation never rewrites this to cross-model: mob voices read one draft through one prompt and are correlated by construction, so their agreement is not independent cross-model evidence."
+          }
+        }
+      },
+      "description": "Keyed by lesson target (the same string used as a finding's `target`, e.g. `lesson-<key>`). Only targets with an entry here carry a confidence/source score; Q1-Q5 narrative targets and rule-draft-N targets are never scored -- dissent against them is still recorded (outcomes, consensus) but produces no confidence delta. Each target is scored independently: a dissent against one lesson never moves another lesson's confidence."
     },
     "enable_demotion": {
       "type": "boolean",
@@ -63,7 +68,8 @@
         "classification",
         "settling_check",
         "statement",
-        "draft_digest"
+        "draft_digest",
+        "packet_digest"
       ],
       "properties": {
         "id": {
@@ -83,7 +89,7 @@
         "round": {
           "type": "string",
           "enum": ["r1", "r2"],
-          "description": "Consensus is established only by r1. r2 can refute, downgrade, withdraw, or supply a settling check, but never adds an independent vote."
+          "description": "Consensus is established only by an r1 finding on that exact (target, voice) pair. An r2 finding for a (target, voice) pair the same voice already spoke to in r1 supersedes it for scoring -- refuting, downgrading, or supplying a settling check the r1 finding lacked. An r2 finding for a NEW (target, voice) pair -- one that voice never spoke to in r1 -- never governs scoring; it is a new vote, which r2 cannot add."
         },
         "target": {
           "type": "string",
@@ -116,6 +122,11 @@
           "minLength": 1,
           "description": "The draft digest in force when this finding was produced. Compared against the top-level draft_digest to detect staleness."
         },
+        "packet_digest": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The packet digest in force when this finding was produced. Compared against the top-level packet_digest to detect staleness, independent of draft_digest -- the packet's source material can change (a new PR commit lands) while the draft text stays fixed."
+        },
         "check_state": {
           "type": "string",
           "enum": [
@@ -126,7 +137,7 @@
             "refuted"
           ],
           "default": "not_executed",
-          "description": "Five distinct states. unable_to_execute is NOT refuted: invalid evidence does not establish that the claim is false."
+          "description": "Five distinct states. unable_to_execute is NOT refuted: invalid evidence does not establish that the claim is false. refuted means the check was run and the claim did not hold -- it must not move confidence, count toward consensus, or recommend demotion, the same as if no check had been supplied."
         }
       }
     }

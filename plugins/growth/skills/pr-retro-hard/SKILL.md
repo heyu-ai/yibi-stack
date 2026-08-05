@@ -251,7 +251,10 @@ Class 的語意（封閉列舉，無 catch-all）：
 草稿」就啟動。審 inference 時沒有 ground-truth diff 可收斂，辯論的收益低於錨定的風險。
 
 啟動後只允許四種動作：**反證**既有 finding、**降級**、**撤回**、**補 settling check**。
-**不得新增獨立票。**
+**不得新增獨立票。**這四種動作是**真的有效果**：一個 voice 對自己在首輪已發言的 (target, voice)
+組合，在交叉輪補上 settling check 或改變 check 結果，彙整核心會用交叉輪版本覆蓋首輪版本計分——
+但僅限於該 voice **已在首輪發言過的同一個標的**；同一 voice 在交叉輪對*另一個*從未發言過的標的
+表態，不算覆蓋，也不建立新票。
 
 跳過時記錄理由，例如：
 
@@ -276,7 +279,12 @@ Class 的語意（封閉列舉，無 catch-all）：
 ### 呼叫彙整核心
 
 把結構化 findings 寫成 `$RETRO_REVIEW_DIR/aggregate-input-m1.json`
-（schema：`$HARD_ROOT/schemas/review-finding.schema.json`），然後：
+（schema：`$HARD_ROOT/schemas/review-finding.schema.json`）。**輸入是一次呼叫涵蓋整輪 M1 的
+所有標的**，不是每個 lesson 各呼叫一次：`lessons` 欄位是一個 map，key 是 lesson target（例如
+`lesson-<key>`），值是該 lesson 的 `original_confidence`/`original_source`；只有真正帶
+confidence/source 的 lesson 才需要在這個 map 裡出現——Q1–Q5 敘述性標的與 M2 的 rule-draft
+標的沒有 confidence 概念，不放進 `lessons`。**每個 target 的評分完全獨立**：對某個 lesson
+的異議不會動到另一個 lesson 的 confidence。
 
 ```bash
 python3 "$HARD_ROOT/scripts/aggregate_review.py" --input "$RETRO_REVIEW_DIR/aggregate-input-m1.json"
@@ -285,8 +293,12 @@ python3 "$HARD_ROOT/scripts/aggregate_review.py" --input "$RETRO_REVIEW_DIR/aggr
 **彙整規則的所有權在該 script，本檔不得重新實作。** 退出碼：
 
 - **exit 0** — stdout 是 JSON 結果，依下表解讀
-- **exit 2** — 輸入不合契約（未知列舉值、缺必要欄位、JSON 不合法）；修正 input 後重跑
+- **exit 2** — 輸入不合契約（未知列舉值、缺必要欄位、型別錯誤如 `null`、JSON 不合法）；
+  修正 input 後重跑
 - **exit 1** — 執行期失敗（讀不到 input 檔）
+
+`aggregate_review.py` exit 非 0 時，**不得手工推導彙整結果**——依上述退出碼修正 input 或
+環境後重跑；手工推導會讓「彙整核心是唯一決策所有者」這個設計在真正需要它的時候失效。
 
 ### 彙整結果的 outcome 對照表
 
@@ -296,22 +308,30 @@ outcome 都必須在此表出現，此表提到的每個 outcome 都必須存在
 
 | outcome | 意義 |
 |---------|------|
-| `stale` | 草稿語意已變更，此 finding 不套用 |
-| `no_consensus_eligibility` | 首輪零 finding 的 voice 在交叉輪無共識資格 |
-| `cross_round_refutation` | 交叉輪僅反證 / 降級 / 撤回 / 補檢查，不新增獨立票 |
+| `stale` | 草稿或審查包語意已變更，此 finding 不套用 |
+| `no_consensus_eligibility` | 該 voice 對此標的在首輪未曾發言，交叉輪不得新開票 |
+| `superseded_by_r2` | 首輪 finding 已被同一 (target, voice) 的交叉輪覆蓋 |
 | `recorded_only` | 明確無異議；不抬升任何評分 |
 | `recorded_against_user_stated` | 針對使用者陳述的異議另行記錄，不降其評分 |
 | `non_actionable_commentary` | 對抗 voice 無檢查：僅呈現，零效力 |
 | `adversarial_hypothesis` | 對抗 voice 有檢查：不計票，須 lead 實跑後採信 |
-| `unresolved` | 外部 voice 無檢查：上限未決，不產出降級建議 |
-| `actionable` | 外部 voice 首輪異議且有檢查：可降低 confidence |
+| `unresolved` | 無檢查或檢查未確認：上限未決，不產出降級建議、不影響評分 |
+| `not_reproduced` | 檢查已執行且宣稱不成立：記錄但零效力 |
+| `actionable` | 異議且其檢查已執行且確認：可降低該 target 的 confidence |
 
-**三條不變量**（由核心強制，本檔只是說明）：
+**四條不變量**（由核心強制，本檔只是說明）：
 
 - **一致永不抬升**：voice 之間的一致 **不得** 抬升 `confidence`、**不得** 把 `source` 改寫成
   `cross-model`。引擎的 `cross-model` 指「兩家在 PR review 階段各自從程式碼提出同一點」；
   本 skill 的三個 voice 讀同一份草稿、同一套 prompt，依建構相關而非獨立。
-- **共識只由獨立首輪建立**：首輪零 finding 的 voice 在交叉輪沒有共識資格。
+- **反駁或未確認的檢查零效力**：`refuted`（檢查真的跑過、宣稱不成立）與
+  `not_executed`/`unable_to_execute`/`inconclusive`（尚無定論）效力相同——都**不得**降低
+  confidence、**不得**計入 consensus、**不得**產出降級建議。只有 `confirmed` 才能。
+- **每個 lesson target 獨立計分**：對一個 lesson 的異議永不移動另一個 lesson 的 confidence。
+- **共識只由獨立首輪建立，且以 (target, voice) 為單位**：某 voice 對某標的在首輪未曾發言，
+  交叉輪不得為那個 (target, voice) 組合建立新票——即使該 voice 在首輪對*另一個*標的發過言。
+  交叉輪對同一 (target, voice) 的覆蓋不算新票，因為那個組合本身已在首輪建立；覆蓋後的內容
+  真的會影響評分（反證、降級、補檢查都有實際效果，不是空標籤）。
 - **降級只是建議**：`demotion_recommendations` 餵給引擎既有的 Evidence Gate，本 skill
   **不繞過、不重新定義其 tier 語意、不直接寫入任何 lesson 儲存**。且
   `demotion_applied` 預設為 `false`（shadow 出貨）。
@@ -331,7 +351,8 @@ Voices：codex / gemini / claude-adversary（實際回來的家數）
 1. **<lesson 1 原文逐字>**  — confidence 5 → 4，source inferred（未改寫）
    - `actionable` codex（OVERCLAIMED，check confirmed）：<statement>
    - `non_actionable_commentary` claude-adversary（check 為 none）：<statement>
-2. **<lesson 2 原文逐字>**  — confidence 不變
+2. **<lesson 2 原文逐字>**  — confidence 不變（此 lesson 的評分獨立於 lesson 1，
+   即使同一批送入的其他 lesson 有異議）
    - `recorded_only` codex / gemini：無異議
 
 > 降級建議：`lesson-<key>`（shadow 模式，本次**不生效**，僅供你判斷）

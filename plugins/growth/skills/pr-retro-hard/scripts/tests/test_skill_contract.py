@@ -31,8 +31,11 @@ SKILL_MD = SKILL_ROOT / "SKILL.md"
 
 #: Outcome identifiers are matched as inline-code spans, so prose that merely mentions a
 #: word cannot satisfy the check and a table row cannot be faked by a sentence.
-_CODE_SPAN = re.compile(r"`([a-z_]+)`")
-_TABLE_ROW = re.compile(r"^\| `([a-z_]+)` \|", flags=re.MULTILINE)
+#: `[a-z0-9_]+`, not `[a-z_]+`: an Effect name may contain a digit (e.g.
+#: `superseded_by_r2`), and a regex that excludes digits silently drops such a row from
+#: both directions of the cross-check -- caught live when that exact outcome was added.
+_CODE_SPAN = re.compile(r"`([a-z0-9_]+)`")
+_TABLE_ROW = re.compile(r"^\| `([a-z0-9_]+)` \|", flags=re.MULTILINE)
 
 
 def _skill_text() -> str:
