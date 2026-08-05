@@ -141,7 +141,7 @@ class Effect(StrEnum):
     STALE = "stale"
     #: 該 voice 對此 target 在首輪未曾發言，交叉輪不得為此 (target, voice) 建立新票。
     NO_CONSENSUS_ELIGIBILITY = "no_consensus_eligibility"
-    #: 首輪 finding 被同一 (target, voice) 的合格交叉輪 finding 覆蓋，本身不再governing。
+    #: 首輪 finding 被同一 (target, voice) 的合格交叉輪 finding 覆蓋，本身不再是 governing。
     SUPERSEDED_BY_R2 = "superseded_by_r2"
     #: 明確無異議。永遠不抬升任何評分。
     RECORDED_ONLY = "recorded_only"
@@ -160,7 +160,12 @@ class Effect(StrEnum):
 
 
 #: 成立共識、且能降低 confidence 的效力。
-CONSENSUS_BEARING = frozenset({Effect.ACTIONABLE, Effect.UNRESOLVED})
+#
+# 只有 ACTIONABLE。UNRESOLVED（無檢查或檢查未確認）刻意不在此列——這是 Round 2 mob review
+# 抓到的 Critical：多個 voice 都對某標的無檢查的異議，若計入 consensus，會讓「尚無定論」
+# 偽裝成「多家一致」，正是本設計從一開始就要防的錨定假訊號（見 SKILL.md 的「反駁或未確認的
+# 檢查零效力」不變量）。此常數在 v1 到 v2 的改寫中被原封不動帶過來，從未重新檢視過。
+CONSENSUS_BEARING = frozenset({Effect.ACTIONABLE})
 
 
 @dataclass
@@ -245,6 +250,15 @@ def _parse_lesson_score(raw: Any, key: str) -> LessonScore:
     if not isinstance(raw, dict):
         raise MalformedInput(f"[FAIL] lessons['{key}'] 不是物件")
     where = f"lessons['{key}']"
+    # schema 宣告 additionalProperties: false；kernel 必須拒絕同一組不合法輸入，而不是
+    # 靜默忽略多餘或拼錯的欄位（例如 original_confdence 這種 typo，若被忽略，呼叫端會
+    # 以為自己設定成功，實際上完全沒生效）。
+    allowed_keys = {"original_confidence", "original_source"}
+    extra_keys = set(raw) - allowed_keys
+    if extra_keys:
+        raise MalformedInput(
+            f"[FAIL] {where} 含未知欄位：{sorted(extra_keys)}；只允許 {sorted(allowed_keys)}"
+        )
     confidence = raw.get("original_confidence")
     if not isinstance(confidence, int) or isinstance(confidence, bool) or not 1 <= confidence <= 10:
         raise MalformedInput(
@@ -264,6 +278,9 @@ def parse_input(raw: Any) -> AggregationInput:
         raise MalformedInput(
             f"[FAIL] 不支援的 version {version!r}；本模組只接受 {SCHEMA_VERSION!r}"
         )
+    draft_digest = _require_str(raw, "draft_digest", "input")
+    packet_digest = _require_str(raw, "packet_digest", "input")
+
     # findings 是陣列，用 _require_key（只驗 key 存在）而非 _require_str（會誤判非字串型別）。
     findings_raw = _require_key(raw, "findings", "input")
     if not isinstance(findings_raw, list):
@@ -277,6 +294,28 @@ def parse_input(raw: Any) -> AggregationInput:
         seen.add(finding.id)
         findings.append(finding)
 
+    # 現行（非過期）findings 裡，同一個 (round, target, voice) 三元組最多只能出現一次。
+    # 這不是任意限制：彙整模型是「每個 (target, voice) 組合對應一個 governing finding」，
+    # 若同一輪同一 voice 對同一標的送入兩筆，沒有無歧義的規則可以決定哪一筆該 governing——
+    # 靜默用 dict overwrite 選最後一筆，會讓結果依供入順序而變，且把被丟棄的那筆錯誤標記
+    # 為「被交叉輪覆蓋」（根本沒有交叉輪 finding 存在）。故在此明確拒絕，而非留給彙整核心
+    # 隱性決定；若 voice 對同一標的有多個顧慮，SKILL.md 要求 lead 在組包前合併成一筆、
+    # 取最嚴重的分類。只檢查現行 findings：過期（draft/packet digest 不符前一輪）的舊
+    # finding 與新一輪的同標的 finding 本來就不衝突，那是校準後重跑的正常流程。
+    live_triples: dict[tuple[str, str, str], str] = {}
+    for f in findings:
+        if f.draft_digest != draft_digest or f.packet_digest != packet_digest:
+            continue
+        triple = (f.round.value, f.target, f.voice)
+        if triple in live_triples:
+            raise MalformedInput(
+                f"[FAIL] 同一 (round, target, voice) 組合出現一筆以上的現行 finding："
+                f"round={f.round.value} target={f.target!r} voice={f.voice!r}"
+                f"（finding '{live_triples[triple]}' 與 '{f.id}'）；若同一 voice 對同一標的"
+                "有多個顧慮，請在組包前合併成一筆、取最嚴重的分類"
+            )
+        live_triples[triple] = f.id
+
     lessons_raw = raw.get("lessons", {})
     if not isinstance(lessons_raw, dict):
         raise MalformedInput("[FAIL] lessons 必須是物件")
@@ -286,8 +325,8 @@ def parse_input(raw: Any) -> AggregationInput:
     if not isinstance(enable, bool):
         raise MalformedInput(f"[FAIL] enable_demotion 必須是布林值，收到 {enable!r}")
     return AggregationInput(
-        draft_digest=_require_str(raw, "draft_digest", "input"),
-        packet_digest=_require_str(raw, "packet_digest", "input"),
+        draft_digest=draft_digest,
+        packet_digest=packet_digest,
         lessons=lessons,
         findings=tuple(findings),
         enable_demotion=enable,

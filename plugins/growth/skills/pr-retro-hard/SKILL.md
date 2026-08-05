@@ -232,6 +232,11 @@ git status --porcelain
 <一句話總結>
 ```
 
+**同一輪對同一 Target 只能寫一筆 finding。** 彙整核心對「同一 (round, target, voice) 組合出現
+一筆以上」的現行 finding 會直接拒絕輸入（`MalformedInput`），不會替你挑一筆或合併。若某個
+voice 在同一輪對同一標的有多個顧慮，寫 finding 前先合併成一筆——取其中最嚴重的 Class，
+Statement 摘要涵蓋全部顧慮，Settling check 挑最具代表性或最先能定案的那個。
+
 Class 的語意（封閉列舉，無 catch-all）：
 
 | Class | 意義 |
@@ -319,7 +324,7 @@ outcome 都必須在此表出現，此表提到的每個 outcome 都必須存在
 | `not_reproduced` | 檢查已執行且宣稱不成立：記錄但零效力 |
 | `actionable` | 異議且其檢查已執行且確認：可降低該 target 的 confidence |
 
-**四條不變量**（由核心強制，本檔只是說明）：
+**六條不變量**（由核心強制，本檔只是說明）：
 
 - **一致永不抬升**：voice 之間的一致 **不得** 抬升 `confidence`、**不得** 把 `source` 改寫成
   `cross-model`。引擎的 `cross-model` 指「兩家在 PR review 階段各自從程式碼提出同一點」；
@@ -332,6 +337,10 @@ outcome 都必須在此表出現，此表提到的每個 outcome 都必須存在
   交叉輪不得為那個 (target, voice) 組合建立新票——即使該 voice 在首輪對*另一個*標的發過言。
   交叉輪對同一 (target, voice) 的覆蓋不算新票，因為那個組合本身已在首輪建立；覆蓋後的內容
   真的會影響評分（反證、降級、補檢查都有實際效果，不是空標籤）。
+- **同一 (round, target, voice) 至多一筆現行 finding**：若某 voice 對同一標的在同一輪有多個
+  顧慮，組包前必須合併成一筆、取最嚴重的分類——核心會**拒絕**（exit 2）而非默默選一筆生效。
+  這不是任意限制：沒有無歧義規則能決定兩筆衝突 finding 哪一筆該生效，靜默選擇會讓結果依
+  供入順序而變。
 - **降級只是建議**：`demotion_recommendations` 餵給引擎既有的 Evidence Gate，本 skill
   **不繞過、不重新定義其 tier 語意、不直接寫入任何 lesson 儲存**。且
   `demotion_applied` 預設為 `false`（shadow 出貨）。

@@ -283,15 +283,45 @@ class TestFindingContract:
             parse_input(_payload([bad]))
         assert "settling_check" in str(exc.value)
 
-    def test_agg_dt_017_non_string_type_rejected_for_required_fields(self) -> None:
-        """AGG-DT-017: a non-string, non-null value (a number) in a required string field
-        is rejected the same way null is -- the guard is a type check, not a null check.
+    #: every string field `Finding` carries. AGG-DT-015/016 above are the original,
+    #: narrative-documented Critical regressions for `target`/`settling_check`; this list
+    #: is the exhaustive sweep silent-failure-hunter's Round 2 finding asked for: mutating
+    #: `id` back to the pre-fix `str(_require_key(...))` pattern survived the full suite
+    #: because no test exercised anything but `target`/`settling_check`/`voice`/`statement`.
+    _ALL_FINDING_STRING_FIELDS = (
+        "id",
+        "voice",
+        "voice_kind",
+        "round",
+        "target",
+        "classification",
+        "settling_check",
+        "statement",
+        "draft_digest",
+        "packet_digest",
+    )
+
+    @pytest.mark.parametrize("field", _ALL_FINDING_STRING_FIELDS)
+    def test_agg_dt_017_non_string_type_rejected_for_every_required_field(self, field: str) -> None:
+        """AGG-DT-017: a non-string, non-null value (a number) in ANY required string
+        field is rejected the same way null is -- the guard is a type check, not a null
+        check, and it must cover every field, not just the ones a narrative example
+        happened to name.
         """
-        for field in ("target", "voice", "statement"):
-            bad = _finding(**{field: 12345})
-            with pytest.raises(MalformedInput) as exc:
-                parse_input(_payload([bad]))
-            assert field in str(exc.value), f"error for {field}=12345 must name the field"
+        bad = _finding(**{field: 12345})
+        with pytest.raises(MalformedInput) as exc:
+            parse_input(_payload([bad]))
+        assert field in str(exc.value), f"error for {field}=12345 must name the field"
+
+    @pytest.mark.parametrize("field", _ALL_FINDING_STRING_FIELDS)
+    def test_agg_dt_017b_null_rejected_for_every_required_field(self, field: str) -> None:
+        """AGG-DT-017b: the same exhaustive sweep for JSON `null` specifically -- the
+        exact value that produced the fabricated `"None"` string before this fix.
+        """
+        bad = _finding(**{field: None})
+        with pytest.raises(MalformedInput) as exc:
+            parse_input(_payload([bad]))
+        assert field in str(exc.value), f"error for {field}=None must name the field"
 
     def test_agg_dt_019_empty_string_rejected_not_just_field_absence(self) -> None:
         """AGG-DT-019 (Important #7 regression): a required string field supplied as an
@@ -324,6 +354,65 @@ class TestFindingContract:
             parse_input(_payload([_finding()], lessons={"lesson-x": {"original_confidence": None}}))
         with pytest.raises(MalformedInput):
             parse_input(_payload([_finding()], lessons={"lesson-x": _lesson(source="bogus")}))
+        # bool is a subclass of int in Python (`isinstance(True, int)` is True), so the
+        # int-type check alone would silently accept `original_confidence: true` (JSON)
+        # as confidence 1 -- the explicit `isinstance(confidence, bool)` exclusion this
+        # asserts guards exactly that.
+        with pytest.raises(MalformedInput):
+            parse_input(
+                _payload(
+                    [_finding()],
+                    lessons={
+                        "lesson-x": {"original_confidence": True, "original_source": "inferred"}
+                    },
+                )
+            )
+
+    def test_agg_dt_071_lesson_entry_rejects_unknown_properties(self) -> None:
+        """AGG-DT-071 (Round 2 Important regression): the schema declares
+        `additionalProperties: false` for a lesson entry, but the parser silently
+        ignored any extra or misspelled key -- a caller who typo'd
+        `original_confdence` would see their intended value silently discarded with no
+        error, and the kernel would fall back to whatever `original_confidence` (if
+        present) or a validation error said instead.
+        """
+        with pytest.raises(MalformedInput) as exc:
+            parse_input(
+                _payload(
+                    [_finding()],
+                    lessons={
+                        "lesson-x": {
+                            "original_confidence": 5,
+                            "original_source": "inferred",
+                            "original_confdence": 9,
+                        }
+                    },
+                )
+            )
+        assert "lesson-x" in str(exc.value)
+
+    def test_agg_dt_072_top_level_lessons_must_be_an_object(self) -> None:
+        """AGG-DT-072 (Round 2 Important regression): `lessons` being a non-object (a
+        list, a string) is a contract violation, not something that crashes past the
+        documented exit-2 path with a raw `AttributeError` from a missing `.items()`.
+        """
+        for bad_lessons in ([], "not-a-dict", 5):
+            payload = _payload([_finding()])
+            payload["lessons"] = bad_lessons
+            with pytest.raises(MalformedInput):
+                parse_input(payload)
+
+    def test_agg_dt_073_top_level_enable_demotion_must_be_bool(self) -> None:
+        """AGG-DT-073 (Round 2 Important regression): a non-bool `enable_demotion` (e.g.
+        the JSON string `"true"`) is rejected rather than flowing unchecked into
+        `demotion_applied = bool(recommendations) and data.enable_demotion` -- where
+        Python's `and` returns the second operand verbatim when the first is truthy,
+        silently producing the string `"true"` instead of the boolean the JSON output
+        contract promises.
+        """
+        for bad_value in ("true", 1, 0):
+            with pytest.raises(MalformedInput):
+                parse_input(_payload([_finding()], enable_demotion=bad_value))
 
 
 # --------------------------------------------------------------------------- #
@@ -455,6 +544,25 @@ class TestLessonScoring:
                 assert result.consensus == {}, "AGREE must never establish consensus"
                 assert _confidence_of(result, "lesson-x") == 5, "AGREE must never move the score"
 
+    def test_agg_dt_068_adversarial_branch_checked_before_user_stated(self) -> None:
+        """AGG-DT-068 (Round 2 Important regression): an adversarial finding against a
+        user-stated lesson is classified by the ADVERSARIAL branch, not the
+        RECORDED_AGAINST_USER_STATED branch -- `_intrinsic_effect` checks voice_kind
+        before checking the target's lesson source, and this pins that ordering so a
+        future edit that swaps them is caught (previously unverified: swapping the two
+        branches left the full suite green).
+        """
+        result = _run(
+            [
+                _finding(
+                    voice_kind=VoiceKind.ADVERSARIAL.value,
+                    classification=Classification.UNSUPPORTED.value,
+                )
+            ],
+            lessons={"lesson-x": _lesson(9, Source.USER_STATED.value)},
+        )
+        assert _effect_of(result, "f1") == Effect.ADVERSARIAL_HYPOTHESIS.value
+
     def test_agg_dt_060_only_confirmed_check_state_lowers_confidence(self) -> None:
         """AGG-DT-060 (Critical #1 regression): the full five-state matrix for
         CONFIDENCE, not just for the demotion recommendation. A refuted or unexecuted
@@ -533,19 +641,81 @@ class TestLessonScoring:
         assert _effect_of(result, "f1") == Effect.ACTIONABLE.value
         assert result.consensus == {"Q3": ["codex"]}
 
-    def test_agg_dt_065_same_voice_same_target_two_findings_counts_once(self) -> None:
-        """AGG-DT-065 (Important #6 regression, generalised to the per-target model): a
-        single voice submitting two findings against the SAME target must not double the
-        decrement. `lowering_voices_by_target` is a set of voices, not a tally of
-        findings.
+    def test_agg_dt_065_distinct_voices_same_target_counts_once_per_voice(self) -> None:
+        """AGG-DT-065 (Important #6 regression, generalised to the per-target model):
+        TWO DIFFERENT voices each submitting one dissent against the SAME target must
+        decrement by exactly the number of distinct voices, not accumulate further --
+        `lowering_voices_by_target` is a set of voices, not a running tally.
+
+        This test used to construct two findings from the SAME voice against the same
+        target to make this point. Round 2 mob review (4 independent voices: Codex, agy,
+        and two Claude subagents) found that shape was actually testing the wrong thing:
+        a single voice submitting two R1 findings for one (target, voice) pair is exactly
+        the ambiguous-input shape AGG-DT-069 now rejects outright, and the old version of
+        this test passed only because Python's dict-overwrite silently kept one of the two
+        findings and evaluated to the same confidence either way -- it could not tell
+        "correctly deduped both votes" from "silently discarded one vote", which is
+        precisely how the discarded-vote bug survived undetected through this round.
         """
         result = _run(
             [
                 _finding(id="f1", voice="codex", classification=Classification.OVERCLAIMED.value),
-                _finding(id="f2", voice="codex", classification=Classification.UNSUPPORTED.value),
+                _finding(id="f2", voice="agy", classification=Classification.UNSUPPORTED.value),
             ]
         )
-        assert _confidence_of(result, "lesson-x") == 4, "one distinct voice, decrement by 1"
+        assert _confidence_of(result, "lesson-x") == 3, (
+            "two distinct voices dissenting, decrement by 2"
+        )
+        assert result.consensus == {"lesson-x": ["agy", "codex"]}
+
+    def test_agg_dt_069_duplicate_round_target_voice_is_rejected(self) -> None:
+        """AGG-DT-069 (Round 2 Critical regression, 4 independent voices): a single voice
+        submitting two LIVE findings for the same (round, target, voice) triple is
+        rejected outright as malformed input, rather than silently resolved by keeping
+        whichever finding happens to be last in the input array.
+
+        Before this fix, the discarded finding was mislabeled `superseded_by_r2` even
+        though no R2 finding was involved at all, and which finding survived -- and
+        therefore the resulting confidence and demotion recommendations -- depended on
+        input order, breaking `aggregate()`'s own documented order-independence
+        guarantee. `AGG-DT-041`'s original fixture happened to contain exactly this
+        collision by accident (two findings both defaulting to voice="codex",
+        target="lesson-x") and still passed, because both directions of the permutation
+        hit the same silent-overwrite bug symmetrically.
+        """
+        with pytest.raises(MalformedInput) as exc:
+            parse_input(
+                _payload(
+                    [
+                        _finding(id="f1", voice="codex", classification=Classification.AGREE.value),
+                        _finding(
+                            id="f2",
+                            voice="codex",
+                            classification=Classification.OVERCLAIMED.value,
+                        ),
+                    ]
+                )
+            )
+        message = str(exc.value)
+        assert "f1" in message and "f2" in message, f"must name both colliding ids: {message}"
+        assert "lesson-x" in message
+        assert "codex" in message
+
+    def test_agg_dt_070_stale_duplicate_does_not_collide_with_live_finding(self) -> None:
+        """AGG-DT-070: a STALE finding sharing (round, target, voice) with a LIVE finding
+        is not a collision -- this is the ordinary calibration-then-rerun workflow (M1
+        reruns after the user edits the draft, producing a fresh finding for the same
+        target the earlier, now-stale finding also covered). Only LIVE duplicates are
+        rejected.
+        """
+        result = _run(
+            [
+                _finding(id="old", voice="codex", draft_digest="digest-from-before-calibration"),
+                _finding(id="new", voice="codex", classification=Classification.AGREE.value),
+            ]
+        )
+        assert _effect_of(result, "old") == Effect.STALE.value
+        assert _effect_of(result, "new") == Effect.RECORDED_ONLY.value
 
 
 # --------------------------------------------------------------------------- #
@@ -611,13 +781,30 @@ class TestPresentationInvariants:
     def test_agg_dt_023_every_finding_appears_in_the_output(self) -> None:
         """AGG-DT-023: aggregation annotates, it never removes. Every supplied finding
         has exactly one outcome, whatever its effect.
+
+        Each finding here targets a distinct (target, voice) pair -- since AGG-DT-069
+        pins that a duplicate (round, target, voice) triple is now a hard input error,
+        not something aggregate() resolves silently. Two findings defaulting to the same
+        target+voice by coincidence (both use `_finding()`'s defaults) previously slipped
+        past unnoticed here; this is the same accidental-collision shape Round 2 mob
+        review found in production code, reproduced by this very test fixture.
         """
         findings = [
-            _finding(id="f1", voice="codex"),
-            _finding(id="f2", voice="agy", settling_check="(none)"),
-            _finding(id="f3", voice="claude-adversary", voice_kind=VoiceKind.ADVERSARIAL.value),
-            _finding(id="f4", voice="codex", classification=Classification.AGREE.value),
-            _finding(id="f5", voice="ghost", draft_digest="some-older-digest"),
+            _finding(id="f1", voice="codex", target="lesson-a"),
+            _finding(id="f2", voice="agy", target="lesson-b", settling_check="(none)"),
+            _finding(
+                id="f3",
+                voice="claude-adversary",
+                target="lesson-c",
+                voice_kind=VoiceKind.ADVERSARIAL.value,
+            ),
+            _finding(
+                id="f4",
+                voice="gemini",
+                target="lesson-d",
+                classification=Classification.AGREE.value,
+            ),
+            _finding(id="f5", voice="ghost", target="lesson-e", draft_digest="some-older-digest"),
         ]
         result = _run(findings)
         assert len(result.outcomes) == len(findings), "one outcome per supplied finding"
