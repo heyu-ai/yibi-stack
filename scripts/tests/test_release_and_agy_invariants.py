@@ -27,6 +27,7 @@ AGY_RUN_SH = REPO_ROOT / "plugins" / "3rd-tools" / "skills" / "agy-review" / "sc
 AGY_CONSULT_SH = (
     REPO_ROOT / "plugins" / "3rd-tools" / "skills" / "agy-consult" / "scripts" / "consult.sh"
 )
+AGY_REVIEW_SKILL_MD = REPO_ROOT / "plugins" / "3rd-tools" / "skills" / "agy-review" / "SKILL.md"
 
 # Both scripts share the identical inline-`-p` calling contract (consult.sh was added in PR #367
 # specifically mirroring run.sh's already-verified safety pattern), so every AGYRUN-DT-* case
@@ -169,6 +170,69 @@ class TestAgyScriptExecutionContract:
         )
         assert result.returncode == 0, (result.stdout, result.stderr)
         assert "a genuine agy answer" in result.stdout
+
+
+def _skill_section(path: Path, heading_prefix: str) -> str:
+    """Return the body of the first section whose heading starts with `heading_prefix`.
+
+    The section ends at the next heading of the same or shallower depth, so a Step's body
+    cannot bleed into the following Step (or into the FAQ).
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    depth = heading_prefix.split(" ", 1)[0].count("#")
+    body: list[str] = []
+    inside = False
+    for line in lines:
+        if line.startswith(heading_prefix):
+            inside = True
+            continue
+        if inside and line.startswith("#"):
+            hashes = len(line) - len(line.lstrip("#"))
+            if 0 < hashes <= depth:
+                break
+        if inside:
+            body.append(line)
+    assert inside, f"{path.name} has no section starting with {heading_prefix!r}"
+    return "\n".join(body)
+
+
+class TestAgyReviewSkillDocContract:
+    """The runbook's argument-parsing step must cover every invocation form the doc advertises.
+
+    `run.sh` takes BASE as its second positional argument and `[FAIL]`s on an empty value, and
+    the FAQ tells the reader to override it with `/agy-review base=develop`. The Step 1 parse
+    table, however, listed only `review` / `challenge` + a free-form instruction -- so an agent
+    following the table verbatim matched `base=develop` against the free-instruction row, passed
+    it through as INSTRUCTION (`特別關注：base=develop` in the prompt), and left BASE at the
+    Step 0d auto-detected branch. Result: the diff is taken against the wrong base and the
+    review still completes, exit 0, no warning -- the documented-but-inert-flag failure this
+    repo's authoring rules forbid. The gap predates the agy -> agy-review split; the rename
+    carried it over unchanged, which is why it is pinned by a test rather than a re-read.
+    """
+
+    def test_agydoc_dt_001_run_sh_accepts_base_positional(self) -> None:
+        """Precondition: the capability the doc promises actually exists in the script."""
+        src = _code_lines(AGY_RUN_SH)
+        assert 'BASE="${2:-main}"' in src, (
+            "run.sh must take BASE as its second positional argument -- if this contract "
+            "changed, AGYDOC-DT-002 is asserting against a capability that no longer exists"
+        )
+
+    def test_agydoc_dt_002_base_override_is_parsed_in_step_1(self) -> None:
+        """AGYDOC-DT-002: `base=` must be parsed where the agent reads arguments, not only in
+        the FAQ. Rule 11 "Decision Table and Prose Consistency": an agent executes by table
+        row, so a form documented only in prose is silently unreachable."""
+        doc = AGY_REVIEW_SKILL_MD.read_text(encoding="utf-8")
+        assert "base=" in doc, (
+            "precondition: SKILL.md advertises a base= override somewhere. If the override was "
+            "deliberately dropped, remove it from every doc surface rather than deleting this test"
+        )
+        step_1 = _skill_section(AGY_REVIEW_SKILL_MD, "### Step 1")
+        assert "base=" in step_1, (
+            "Step 1 must state how to parse `base=<branch>` -- run.sh accepts it and the FAQ "
+            "advertises it, so leaving it out of the parse table makes the documented override "
+            "silently become part of INSTRUCTION while BASE stays auto-detected"
+        )
 
 
 class TestReleaseRollbackContract:
