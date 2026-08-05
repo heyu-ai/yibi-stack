@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-08-05
+
+### Added
+
+- `/pr-retro-hard`：`/pr-retro` 的加強版，在 Q1-Q5 草稿交給人判斷前、以及規則草稿被建議
+  寫檔前各插入一輪跨家 mob review。三個 voice——codex 與 agy 透過既有 `/codex-consult`、
+  `/agy-consult` 條件式取得（偵測與 auth gate 由該兩 skill 自有），加上一個無條件的 Claude
+  對抗式 subagent（「Make the strongest case that this is wrong」）。`pr-retrospective`
+  仍是流程引擎所有者，四道 gate 一律不在新 skill 重新推導 (#375)
+- `aggregate_review.py` policy kernel：彙整規則以純函式承載並作為 production path，
+  runbook 只記錄呼叫哪個 script、哪些回傳必須停止、哪些欄位交給人。`--explain-policy`
+  輸出 9 種 outcome，與 SKILL.md 摘要表雙向交叉檢查（實作能產生的每個 outcome 都有文件、
+  文件提到的每個 outcome 都存在於實作）
+- 三條由核心強制的不變量：voice 之間的一致**不得**抬升 `confidence`、不得改寫 `source` 為
+  `cross-model`（三個 voice 讀同一份草稿與同一套 prompt，依建構相關而非獨立）；共識只由
+  獨立首輪建立，首輪零 finding 的 voice 在交叉輪無資格；tier 降級只是餵給既有 Evidence Gate
+  的**建議**，且須該 finding 的 settling check 已執行且為 `confirmed`
+- settling check 五狀態（`not_executed` / `unable_to_execute` / `inconclusive` /
+  `confirmed` / `refuted`），`unable_to_execute` 不折疊為 `refuted`
+- Shadow 出貨：`demotion_applied` 預設 `false`，降級建議一律計算並回報但不生效；啟用條件
+  需要 false positive 與成本資料，屬 #375
+
+### Fixed
+
+- `skills/README.md` 的 `pr-retrospective` 列敘述：原稱「寫入 mycelium handover」，實際寫入
+  的是獨立的 retrospectives table
+
 ## [1.17.0] - 2026-07-27
 
 ### Added
