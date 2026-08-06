@@ -79,3 +79,33 @@ Do not mix half-width punctuation (, . : ; ! ?) into Chinese sentences.
 ## SKILL.md
 
 Code blocks, shell commands, and tool names use English; all other prose uses Traditional Chinese.
+
+## Rule Files (`.claude/rules/**`) — English
+
+The explanatory prose in **this repo's own rule files** is English. Identifiers, CLI flags, JSON
+keys and commands inside code fences stay English everywhere (see the first section); this one
+covers only the surrounding prose.
+
+**This is a per-repo declaration, not a global default.** `~/.claude/CLAUDE.md` deliberately gives
+no default for rule-file prose (corrected 2026-08-06 — it previously mandated English for every
+repo, which matched none of them). The resolution order is: (1) the repo's own language-policy
+file, if it declares one; (2) otherwise, the majority of that repo's existing rule files.
+
+Measured 2026-08-06 — this declaration matches current state, so **no existing file needs
+rewriting**:
+
+| repo | `.claude/rules/` | declared |
+|------|------------------|----------|
+| yibi-stack (this repo) | 14 / 14 English | English (here) |
+| ainization-skill | 18 / 18 Traditional Chinese | Traditional Chinese |
+| yibi-mvp | 20 zh / 6 en / 3 mixed | Traditional Chinese (`04-language-policy.md`) |
+
+**Sibling repos differ by design — do not "harmonize" across repos.** Each was already internally
+consistent; the only thing that disagreed was the old global rule, so the global rule is what
+changed.
+
+Why the old global rule was wrong: it used **file location** as the criterion ("it lives in
+`.claude/rules/`, so it is for agents, so English"). The working criterion is **whether the text
+is compared verbatim by a machine**. Rule files are read by humans as much as by agents — incident
+pointers, rejected alternatives and their reasons all need to be quickly readable — so their prose
+belongs to the human-readable class, and each repo picks the language its readers use.
