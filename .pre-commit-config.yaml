@@ -113,24 +113,41 @@ repos:
         files: ^(skills/.*/SKILL\.md|plugins/.*/skills/.*/SKILL\.md|scripts/lint_skill_overlap\.py)$
         verbose: true
 
-      # 阻擋型（非 warn-only）：違規的形狀單一且判準精確，負向對照已逐條測過
-      # （${N} / \$N / $10 / fence 外 / 非 shell fence 各一），誤報風險低。
-      # 這與 lint-skill-overlap 走 advisory 的理由相反——那個量的是 Jaccard 相似度，
-      # 本質上是啟發式；這個判的是「這個字面形式會不會被 substitution 換掉」，是事實。
+      # 阻擋型（非 warn-only）。rule 11:253-256 對機械 guard 的前提是「a lint that enforces
+      # an anti-pattern must itself be held to the anti-pattern's full truth table before it is
+      # allowed to block」——下表即為該 truth table，每一格都有探針實測，非推論：
       #
-      # 證據（issue #386）：verified on Claude Code 2.1.218，拋棄式 repo 探針，
-      # 以帶兩個 argument token 的呼叫渲染同一個 bash code fence 內的四種寫法：
-      #   $1   -> 381    （被替換，即本 lint 要擋的形狀）
-      #   \$1  -> $1     （跳脫形式有效，故不報）
-      #   ${1} -> ${1}   （完全不被碰，即建議修法）
-      #   $7   -> $7     （argument token 不足，故未替換 -> 部分損壞）
-      # 另有正向對照：把 pr-retrospective SKILL.md 還原成裸 $1，確認本 hook 由綠轉紅。
+      # 證據（issue #386）：verified on Claude Code 2.1.218，拋棄式 repo，
+      # 以 `/probe ALPHA BETA GAMMA`（三個 argument token）渲染同一個 bash code fence：
+      #
+      #   前提：此環境的 positional binding 是 **0-based**（與官方文件的「$1 is the first
+      #   argument」不符；.claude/rules/11 已記錄此偏差）。沒有這個前提，下表每一行都會被
+      #   讀成互相矛盾——PR #387 的 mob review 就有一個 voice 依 1-based 推出假的矛盾 finding。
+      #
+      #   $0          -> ALPHA          擋（0-based 下它是被綁定的位置）
+      #   $1          -> BETA           擋
+      #   $9          -> $9             擋（本次無此 token，換個呼叫就會中）
+      #   $10 / $12   -> 原樣           放行（實測，非從「digit」一詞推論）
+      #   $$1         -> $BETA          擋（內層 $1 照樣被換，是真缺陷不是誤報）
+      #   ${0} / ${1} -> 原樣           放行（本 lint 建議的修法）
+      #   \$1         -> $1             放行（官方跳脫形式）
+      #   $ARGUMENTS  -> ALPHA BETA GAMMA  放行（SKILL.md 內幾乎總是刻意使用）
+      #
+      # 與 lint-skill-overlap 走 advisory 的理由相反：那個量的是 Jaccard 相似度，本質上是
+      # 啟發式；這個判的是「這個字面形式會不會被 substitution 換掉」，上表即為事實依據。
+      #
+      # 正向對照：把 pr-retrospective SKILL.md 還原成裸 $1，確認本 hook 由綠轉紅；
+      # 另有 16 個隔離突變全數 killed（含 exit code 契約、掃描面塌陷、fence 狀態機各分支）。
+      #
+      # files: 的 commands 樣式刻意寫成任意深度，與 _targets() 的判準一致
+      # （`"commands" in path.parts`）——兩者若漂移，pass_filenames: false 會讓只改到
+      # 「_targets 掃得到但 regex 比對不到」的檔案時整個 gate 被跳過。
       - id: lint-skill-positional-refs
         name: lint-skill-positional-refs
         entry: python3 scripts/lint_skill_positional_refs.py
         language: system
         pass_filenames: false
-        files: ^(skills/.*/SKILL\.md|plugins/.*/(skills/.*/SKILL\.md|commands/.*\.md)|commands/.*\.md|scripts/lint_skill_positional_refs\.py)$
+        files: ^(.*/)?(SKILL\.md|commands/.*\.md)$|^scripts/lint_skill_positional_refs\.py$
 
       - id: check-blank-proposal
         name: check-blank-proposal

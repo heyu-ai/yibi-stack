@@ -11,15 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`pr-retrospective` Step 4b 範本的位置參數被 skill argument substitution 換掉**
   （issue #386）：`local key="$1"` 在磁碟上正確，但 agent 讀到的是 `local key="381"`
-  （以 `/pr-retro --pr 381` 呼叫時）。照著寫會讓每條 typed lesson 的 `--key` 都變成 PR 號，
-  破壞下游 `/knowledge-distill` 的 key-prefix 聚類。`$2`–`$7` 因 argument token 不足而未被
-  替換，故為**部分損壞**。改用 `${N}` braced form。
+  （以 `/pr-retro --pr 381` 呼叫時；此環境的 positional binding 是 **0-based**，故
+  `$0` 綁到 `--pr`、`$1` 綁到 `381`——見 `.claude/rules/11` 的 "Skill Body — Literal `$`
+  Escape"）。照著寫會讓每條 typed lesson 的 `--key` 都變成 PR 號，破壞下游
+  `/knowledge-distill` 的 key-prefix 聚類。`$2` 以上因 argument token 不足而未被替換，
+  故為**部分損壞**。改用 `${N}` braced form。
 
 ### Added
 
 - **`scripts/lint_skill_positional_refs.py`**（pre-commit `lint-skill-positional-refs`）：
-  阻擋 SKILL.md 與 `commands/*.md` 的 shell code fence 內出現裸 `$1`–`$9`。這個缺陷
-  grep 原始檔看不出來（磁碟上是對的），只有渲染層壞掉，所以需要機械 gate 而非散文規則。
+  阻擋 `SKILL.md` 與任意深度 `commands/*.md` 的 shell code fence 內出現裸 `$0`–`$9`。
+  這個缺陷 grep 原始檔看不出來（磁碟上是對的），只有渲染層壞掉，所以需要機械 gate 而非
+  散文規則。fence 辨識用逐行狀態機而非跨檔 regex——後者同時會漏報（`~~~bash`、
+  info-string metadata、`zsh`、未閉合 fence）與誤報（外層較長分隔符內的 ```bash 字面示例）。
+  退出碼分三種：`0` 乾淨（並印出掃描檔數，讓綠燈可被證偽）、`1` 有違規、`2` 工具失敗
+  （掃描面塌陷或檔案讀不到）——後者與「發現違規」分開，呼叫端才能分辨「跑不起來」與
+  「跑了有發現」。
 
 ## [1.20.0] - 2026-08-06
 
