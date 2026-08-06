@@ -122,6 +122,7 @@ R1/R2 prompts, the same sanity checks, and the same aggregation severity table**
 | --- | --- |
 | **Step 1.5** Parallel pre-review check | 3 Task agents in one message: `gh pr diff` / `gh pr checks` / `amplifier-verify.py --pr {{pr_number}}` |
 | **Step 2** Code review | `/code-review` (report-only) for defect detection |
+| **Step 3.0** Snapshot preflight | `preflight-review-snapshot.sh check` → **blocking**; no voice is dispatched until it exits 0 |
 | **Step 3** Round 1 | `setup-review-dir.sh origin/{{base_branch}}` → each voice reviews independently → `<voice>-r1.md` |
 | **Step 4** Round 2 | Build `r1-aggregate.md` → each voice cross-debates → `<voice>-r2.md` |
 | **Step 5** Aggregation | Lead synthesizes `final.md` per the RFC 2119 severity table |
@@ -129,9 +130,25 @@ R1/R2 prompts, the same sanity checks, and the same aggregation severity table**
 The script invocations are the same installed paths (shared with `/pr-cycle-deep`):
 
 ```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh check
 bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh origin/{{base_branch}}
 ```
 
+> **The preflight is blocking and runs first.** Reviewers read the **working tree**, which is not
+> an immutable snapshot: a concurrent session in the same worktree, or an in-progress merge, lets
+> a voice read an intermediate state and report a finding that does not hold for what actually
+> landed. Exit `2` (unmerged files) and exit `3` (merge in progress) both mean **do not dispatch**;
+> exit `3` can be overridden only by pinning an immutable SHA
+> (`check --sha <40-hex>`), which additionally requires every voice to read via
+> `git show <sha>:<path>` rather than the working tree. Full exit-code table: `/pr-cycle-deep`
+> Step 3.0 (the engine owner). Record the `HEAD=<sha>` line and re-run
+> `preflight-review-snapshot.sh verify <sha>` once all voices have returned — exit `4` means the
+> base moved mid-round and that round's findings must not be silently accepted.
+>
+> This is **especially** relevant here: reviewing someone else's PR usually means a
+> `gh pr checkout`, and switching branches under a session that is mid-merge is exactly how the
+> intermediate state arises.
+>
 > **Either `{{base_branch}}` or `origin/{{base_branch}}` works — the script normalizes both.**
 > `setup-review-dir.sh` `git fetch`es the base branch fresh and diffs against `FETCH_HEAD`; it
 > strips a leading `origin/` or `upstream/` prefix, so a stale or absent **local** base ref (the

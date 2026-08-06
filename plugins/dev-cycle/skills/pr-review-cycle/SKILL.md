@@ -161,6 +161,50 @@ Pre-review Check
 
 ---
 
+### Step 1.7 — Snapshot Preflight (blocking; run before any reviewer)
+
+Every reviewer from Step 2 onward reads files from the **working tree**, which is not an
+immutable snapshot. A concurrent session in the same worktree — or an in-progress merge in this
+one — lets a reviewer read an intermediate state and report a finding that **does not hold for
+what actually landed**. That costs a full fix + re-review round, and it reads exactly like a
+real finding.
+
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh check
+```
+
+Exit-code semantics — each is a **named outcome**, not a generic PASS/FAIL:
+
+| Exit | Meaning | Action |
+|------|---------|--------|
+| `0` | Snapshot stable | Record the `HEAD=<sha>` line from stdout; proceed to Step 2 |
+| `1` | Usage error / not in a git repo / pinned SHA does not exist | Fix the invocation; do not dispatch |
+| `2` | Unmerged files present | **Stop.** Resolve the conflict and commit, then re-run. No `--sha` overrides this — the tree is half-applied |
+| `3` | Merge in progress (`MERGE_HEAD` exists) | **Stop by default.** To review during a merge, re-run with `check --sha <40-hex>` and require reviewers to read via `git show <sha>:<path>`, never the working tree |
+| `4` | (verify mode only) HEAD moved | See below |
+
+After Step 3's parallel agents have **all** returned, confirm the base did not move:
+
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh verify {{head_sha_from_1_7}}
+```
+
+Exit `4` means the review base moved mid-round. Do **not** silently accept those findings:
+re-run the preflight and re-dispatch, or state explicitly in the summary that the findings were
+produced against a base that has since changed.
+
+> **The script ships with `/pr-cycle-deep`.** If it is missing, `/pr-cycle-deep` is not
+> installed — run `make install` in the yibi-stack repo, or
+> `claude plugin install dev-cycle@yibi-stack`. Verify with
+> `ls ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh`.
+>
+> **Why a review-entrypoint preflight rather than a global `PreToolUse` hook**: a hook would also
+> block "have a reviewer help me audit this conflict resolution", which is entirely legitimate,
+> and it cannot gate human review at all. Gating at the review entrypoint with an explicit-SHA
+> override has the lowest false-positive rate.
+
+---
+
 ### Step 2 — Code Review (defect detection)
 
 Run `/code-review` to scan all PR changes for correctness bugs:
