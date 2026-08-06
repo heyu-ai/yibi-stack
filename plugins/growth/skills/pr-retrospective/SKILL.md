@@ -282,12 +282,36 @@ Classifier → `--type` 對照表：
 >
 > - **`--confidence` 必須差異化，不可一律寫 7**。依來源與校準給分：
 >   `user-stated` 且使用者校準過 → 8–9；`cross-model`（codex/claude 兩家都提同一點）→ 8；
->   純 `inferred`（agent 單方推論）→ 5–6。**若 Step 5 Q5 查歷史發現此教訓重複犯（recurrence）→ 在原分數上 +1**（封頂 10），重複犯是「值得變 skill」的最強訊號。
+>   純 `inferred`（agent 單方推論）→ 5–6。**此教訓重複犯（recurrence）→ 在原分數上 +1**（封頂 10），
+>   重複犯是「值得變 skill」的最強訊號——但 recurrence 必須在**這一步**先查出來，見下方
+>   「recurrence 前置查詢」。
 > - **`--source` 必須與上面的 confidence 依據一致，不可一律 `inferred`**：使用者校準過填 `user-stated`、
 >   兩家模型都提填 `cross-model`、agent 單方推論才填 `inferred`。source 不只是標籤——
 >   `inferred`/`observed` 會隨時間 decay，`user-stated`/`cross-model` 不衰減；填錯會讓高信心教訓被錯誤衰減。
 > - **`--skill` 填「教訓的主題 skill」而非 `pr-retrospective`**（產生者）。例：教訓是關於 `gmail-billing` 的 parser → 填 `gmail-billing`；關於 bash/quoting 等泛用主題 → **留空**（`--skill` 省略），讓蒸餾以 type + 語意聚類。
 > - **`--key` slug 加領域前綴**（`bash-`、`pydantic-`、`gmail-billing-`、`cli-` …），讓同類教訓跨 PR 的 key 前綴一致，提升 dedup 與 cluster 收斂。
+>
+> **recurrence 前置查詢（必跑，在決定 `--confidence` 之前）**
+>
+> 這個查詢排在這裡不是順手，是**唯一**套得上 +1 的時機：`lessons add` 是無條件 INSERT，而
+> **沒有任何指令能原地改一筆 active lesson 的 confidence**——`lessons finalize` 是 compare-and-set，
+> 只吃「已解除 park 且帶 `recurrence-<n>` tag」的那一列（見下方 reassess 收尾段），直接以 active
+> 寫入的列不在其適用範圍；剩下的手段只有 `retire` + 重新 `add`，代價是換掉 id 並留一筆 tombstone，
+> 只為了改一個分數。Step 5 Q5 的「查歷史 lesson」排在寫入**之後**，照 runbook 順序執行時，寫入的
+> 那一刻還不知道有沒有 recurrence（issue #373，實例：PR #1169 的 `ci-local-timing-not-transferable`
+> 依規則該給 9，卻已用 8 寫入且補不回來）。
+>
+> 對每個候選 lesson 各跑一次。這是唯讀查詢，**不需要使用者在 Q5 勾選**：
+>
+> ```bash
+> mycelium lessons search "<候選 key 的領域關鍵字>" --project "$ORIG_PROJECT"
+> ```
+>
+> 命中同族既有教訓 → 該筆 `--confidence` +1（封頂 10），並在把候選 metadata 呈現給使用者確認時
+> **列出命中的是哪幾筆**（key + 日期），讓使用者能否決這個 +1。零命中也要說，那本身是有用的訊號。
+>
+> 這**不取代** Step 5 Q5：Q5 查的是 Q1 問題敘述的歷史，範圍較廣且由使用者決定要不要查；此處查的
+> 是**單筆 lesson 的同族前例**，只為定分數。兩者目的不同，都保留。
 
 確認後先把候選 metadata 寫進**同一個** `$CLAUDE_JOB_DIR/tmp/retro_lessons.sh`，但此時**不可執行**。
 Step 5 決定每筆的 `active|park` outcome 後，再用一個 shell function 包住重複邏輯並以單一 bash
@@ -310,12 +334,16 @@ RETRO_ID="<id from Step 4 output>"
 add_lesson() {
   local key="$1" type="$2" insight="$3" confidence="$4" source="$5" skill_flag_val="$6" state="$7"
   local skill_flag=()
-  local park_flag=()
+  local state_flag=()
   if [ -n "$skill_flag_val" ]; then
     skill_flag=(--skill "$skill_flag_val")
   fi
+  # --park 與 --skip-if-exists 互斥（tasks/mycelium/cli.py 直接 raise），故依 state 二擇一：
+  # active 走冪等的 --skip-if-exists；park 的重跑語意由下方「park 出口不可重試」那段負責。
   if [ "$state" = "park" ]; then
-    park_flag=(--park)
+    state_flag=(--park)
+  else
+    state_flag=(--skip-if-exists)
   fi
   mycelium lessons add \
     --key "$key" \
@@ -325,25 +353,45 @@ add_lesson() {
     --source "$source" \
     --project "$ORIG_PROJECT" \
     ${skill_flag[@]+"${skill_flag[@]}"} \
-    ${park_flag[@]+"${park_flag[@]}"} \
+    ${state_flag[@]+"${state_flag[@]}"} \
     --retro-pr "$PR_NUMBER" \
     --retrospective-id "$RETRO_ID"
 }
 
 # Step 5 完成後才加入呼叫；--skill 留空字串代表省略（避免把產生者誤記成主題）
+# 每個字面值一律用單引號，見下方「範本一律單引號」——雙引號會讓 insight 裡的 $ 觸發參數展開。
 add_lesson \
-  "{{domain-prefixed-slug}}" \
-  "{{pitfall|pattern|preference|architecture|tool|operational|investigation}}" \
-  "{{lesson body}}" \
-  "{{active: 5-10 依來源差異化；park: 1-4}}" \
-  "{{user-stated|cross-model|inferred；與 confidence 依據一致}}" \
-  "{{主題 skill 名；泛用教訓留空字串}}" \
-  "{{active|park；Tier 3 必須 park 且 confidence ≤ 4}}"
+  '{{domain-prefixed-slug}}' \
+  '{{pitfall|pattern|preference|architecture|tool|operational|investigation}}' \
+  '{{lesson body}}' \
+  '{{active: 5-10 依來源差異化；park: 1-4}}' \
+  '{{user-stated|cross-model|inferred；與 confidence 依據一致}}' \
+  '{{主題 skill 名；泛用教訓留空字串}}' \
+  '{{active|park；Tier 3 必須 park 且 confidence ≤ 4}}'
 ```
 
 > **`${skill_flag[@]+"${skill_flag[@]}"}` 而非 `"${skill_flag[@]}"`**：`set -u` 底下對空陣列
 > 直接展開 `"${skill_flag[@]}"` 在 macOS 系統 bash 3.2 會炸 `unbound variable`（homebrew
 > bash 5.x 沒事）；`${arr[@]+...}` 是可攜寫法，陣列為空時整段安全消失。
+>
+> **範本一律單引號**：呼叫端的字面值若用雙引號包，insight 內文出現 `$` 時 bash 會嘗試參數展開，
+> 在 `set -euo pipefail` 下直接中止整個 script（實測回報 `retro_lessons.sh: line 63: ?: unbound
+> variable`，環境 `GNU bash 3.2.57(1)-release (arm64-apple-darwin25)`，即 macOS 內建 `/bin/bash`）。
+> 引用 regex、YAML 片段、shell 字串的 insight 在 harness / CI 主題的 retro 裡是常態，不是邊緣案例。
+> 單引號完全不展開，是這裡的正解。**唯一例外**是內文本身含單引號——此時不要硬拗跳脫，改把內文寫進
+> 一個檔案再 `--insight "$(cat <path>)"`，或改寫措辭避開。函式**內部**的 `"$insight"` / `"$key"`
+> 維持雙引號不變，那些是真的變數展開。
+>
+> **`active` 路徑帶 `--skip-if-exists`，所以整個 script 可安全重跑**：`lessons add` 本身是無條件
+> INSERT，一個寫到一半才死的 script 若照 Step 4 的通用指示重跑，會把前面已成功的那幾筆再寫一次
+> （issue #373 實例：5 筆中第 4 筆炸掉，重跑會多出 3 筆重複 lesson）。加上 `--skip-if-exists` 後
+> 同 project/type/key 已存在即略過並 exit 0，重跑變成冪等。
+>
+> **但 `park` 路徑不適用——這兩個旗標互斥**：`mycelium lessons add` 對 `--park` + `--skip-if-exists`
+> 直接以 `--park 與 --skip-if-exists 不可同時使用` 失敗（強制點在 `tasks/mycelium/cli.py`），所以範本
+> 依 `state` 二擇一，**不是無條件都加**——無條件加會讓每一條 park 路徑乾淨失敗。park 的重跑危險性由下方「`--park` 這兩條出口不可重試」那段負責——那條
+> 警告仍然完全有效，**不因本節而放寬**。重跑前先 `mycelium lessons search "<key>" --project
+> "$ORIG_PROJECT"` 確認哪幾筆已寫入，再決定是重跑整個 script 還是只補跑失敗的那幾筆。
 
 此步驟到此為止**只寫檔、不執行**——因此這裡沒有「呼叫失敗」的處理，失敗處理屬於實際執行點
 （Step 5.0 與 Promotion Gate 之後），各自有自己的停止規則。
