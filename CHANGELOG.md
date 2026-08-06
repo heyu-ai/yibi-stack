@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.1] - 2026-08-06
+
+### Fixed
+
+- **`pr-retrospective` Step 4b 範本的位置參數被 skill argument substitution 換掉**
+  （issue #386）：`local key="$1"` 在磁碟上正確，但 agent 讀到的是 `local key="381"`
+  （以 `/pr-retro --pr 381` 呼叫時）。照著寫會讓每條 typed lesson 的 `--key` 都變成 PR 號，
+  破壞下游 `/knowledge-distill` 的 key-prefix 聚類。`$2`–`$7` 因 argument token 不足而未被
+  替換，故為**部分損壞**。改用 `${N}` braced form。
+
+### Added
+
+- **`scripts/lint_skill_positional_refs.py`**（pre-commit `lint-skill-positional-refs`）：
+  阻擋 SKILL.md 與 `commands/*.md` 的 shell code fence 內出現裸 `$1`–`$9`。這個缺陷
+  grep 原始檔看不出來（磁碟上是對的），只有渲染層壞掉，所以需要機械 gate 而非散文規則。
+
 ## [1.20.0] - 2026-08-06
 
 ### Added
