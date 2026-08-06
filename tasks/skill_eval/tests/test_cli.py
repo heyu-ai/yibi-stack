@@ -7,7 +7,7 @@ import pytest
 from click.testing import CliRunner
 
 from tasks.skill_eval.cli import cli
-from tasks.skill_eval.config import orphan_plugin_fixtures
+from tasks.skill_eval.config import resolve_fixture_index
 
 
 def write_fixture(skills_dir: Path, skill: str = "demo", **arrays: object) -> None:
@@ -285,6 +285,77 @@ class TestBaseline:
         assert data["demo"]["direct"] == 1.0
         assert data["demo"]["negative"] == 1.0
 
+    def test_seval_cli_019_baseline_skill_merges_not_clobbers(self, tmp_path: Path) -> None:
+        """SEVAL-CLI-019: `baseline --skill` 只更新該 skill，保留其他條目（issue #219）。
+
+        整檔覆寫等於把其他 skill 的基準一次抹掉，之後每個都變成「無基準」而靜默離開
+        gate——一次無害的單 skill 重取基準，就把整個回歸防護關掉。
+        spec: skill-trigger-eval#baseline-merge-preserves-other-skills"""
+        write_fixture(tmp_path)
+        manifest = emit_manifest(tmp_path)
+        judgments = tmp_path / "j.json"
+        judgments.write_text(json.dumps([True, True, False]), encoding="utf-8")
+        out = tmp_path / "baseline.json"
+        out.write_text(json.dumps({"other": {"direct": 1.0, "negative": 1.0}}), encoding="utf-8")
+
+        result = CliRunner().invoke(
+            cli,
+            # fmt: off
+            [
+                "baseline",
+                "--skill",
+                "demo",
+                "--skills-dir",
+                str(tmp_path),
+                "--manifest",
+                str(manifest),
+                "--judgments",
+                str(judgments),
+                "--baseline",
+                str(out),
+            ],
+            # fmt: on
+        )
+        assert result.exit_code == 0
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert data["other"] == {"direct": 1.0, "negative": 1.0}, "其他 skill 的基準不得被抹掉"
+        assert data["demo"]["direct"] == 1.0
+
+    def test_seval_cli_020_baseline_all_is_authoritative_rewrite(self, tmp_path: Path) -> None:
+        """SEVAL-CLI-020: `baseline --all` 為權威重寫，讓已刪 fixture 的陳舊條目消失。
+
+        與 --skill 的合併語意相對：留著陳舊條目會在 baseline ∪ current 比對下永遠回報
+        「該 skill 缺席」，使 gate 無法回到綠燈。
+        spec: skill-trigger-eval#baseline-merge-preserves-other-skills"""
+        write_fixture(tmp_path)
+        manifest = emit_manifest(tmp_path, "--all")
+        judgments = tmp_path / "j.json"
+        judgments.write_text(json.dumps([True, True, False]), encoding="utf-8")
+        out = tmp_path / "baseline.json"
+        out.write_text(json.dumps({"deleted": {"direct": 1.0}}), encoding="utf-8")
+
+        result = CliRunner().invoke(
+            cli,
+            # fmt: off
+            [
+                "baseline",
+                "--all",
+                "--skills-dir",
+                str(tmp_path),
+                "--manifest",
+                str(manifest),
+                "--judgments",
+                str(judgments),
+                "--baseline",
+                str(out),
+            ],
+            # fmt: on
+        )
+        assert result.exit_code == 0
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert "deleted" not in data, "--all 應為權威重寫，陳舊條目須消失"
+        assert "demo" in data
+
     def test_seval_cli_014_baseline_manifest_drift_fails(self, tmp_path: Path) -> None:
         """SEVAL-CLI-014: fixture 在 emit-manifest 後變動 -> baseline 核對失敗，不寫出污染基準。
 
@@ -340,136 +411,155 @@ class TestBaseline:
         assert "--manifest" in result.output
 
 
-class TestOrphanDiscovery:
-    def test_seval_eg_004_plugin_only_fixture_flagged_as_orphan(self, tmp_path: Path) -> None:
-        """SEVAL-EG-004: plugins/ 未 symlink 的 fixture 被列為 orphan（--all 漏評防護）。
-        spec: skill-trigger-eval#orphan-plugin-fixture-warned"""
+def write_plugin_fixture(plugins_dir: Path, *parts: str, skill: str) -> Path:
+    """在 plugins/<pack>/skills/<...> 建立一份 fixture，回傳該 skill 目錄。"""
+    d = plugins_dir.joinpath(*parts)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "trigger_eval.json").write_text(
+        json.dumps(
+            {
+                "skill": skill,
+                "direct": [{"prompt": f"run {skill}", "expect_trigger": True}],
+                "indirect": [],
+                "negative": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return d
+
+
+class TestFixtureIndex:
+    def test_seval_eg_004_plugin_only_fixture_is_indexed(self, tmp_path: Path) -> None:
+        """SEVAL-EG-004: plugins/ 未 symlink 的 fixture 仍進入索引（--all 不再漏評）。
+
+        這是讓 gate 從「結構上不可能運作」變成可運作的那一步：repo 唯一一份 fixture
+        （pr-cycle-fast）正是 plugin-only，只掃 skills/ 時 --all 掃不到任何東西。
+        spec: skill-trigger-eval#plugin-fixtures-are-evaluated"""
         skills_dir = tmp_path / "skills"
         plugins_dir = tmp_path / "plugins"
-        # skills/ 有一個一般 fixture（非 orphan）
         write_fixture(skills_dir, skill="covered")
-        # plugins/pack/skills/hidden/trigger_eval.json：未 symlink 到 skills/ -> orphan
-        hidden = plugins_dir / "pack" / "skills" / "hidden"
-        hidden.mkdir(parents=True)
-        (hidden / "trigger_eval.json").write_text(
-            json.dumps({"skill": "hidden", "direct": [], "indirect": [], "negative": []}),
-            encoding="utf-8",
-        )
-        orphans = orphan_plugin_fixtures(skills_dir=skills_dir, plugins_dir=plugins_dir)
-        assert len(orphans) == 1
-        assert orphans[0].name == "trigger_eval.json"
-        assert "hidden" in str(orphans[0])
+        write_plugin_fixture(plugins_dir, "pack", "skills", "hidden", skill="hidden")
 
-    def test_seval_eg_008_nested_sub_skill_fixture_flagged_as_orphan(self, tmp_path: Path) -> None:
-        """SEVAL-EG-008: plugins/ 巢狀 sub-skill 的 fixture 被列為 orphan（`**` 非 `*`）。
+        index = resolve_fixture_index(skills_dir=skills_dir, plugins_dir=plugins_dir)
+        assert sorted(index) == ["covered", "hidden"]
+        assert index["hidden"].parent.name == "hidden"
+
+    def test_seval_eg_008_nested_sub_skill_fixture_is_indexed(self, tmp_path: Path) -> None:
+        """SEVAL-EG-008: plugins/ 巢狀 sub-skill 的 fixture 進入索引（`**` 非 `*`）。
 
         釘住 config.py 的 `*/skills/**/trigger_eval.json`：rule 02「`*` 不跨 `/`」，改回 `*`
         會讓 <pack>/skills/<name>/<sub>/ 這層靜默漏掉且無測試會失敗（PR #190 同類事故）。
-        spec: skill-trigger-eval#orphan-plugin-fixture-warned"""
+        spec: skill-trigger-eval#plugin-fixtures-are-evaluated"""
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir(parents=True)
         plugins_dir = tmp_path / "plugins"
         # 真實形狀：plugins/growth/skills/mycelium/recap/ —— 比 <pack>/skills/<name>/ 多一層
-        nested = plugins_dir / "growth" / "skills" / "mycelium" / "recap"
-        nested.mkdir(parents=True)
-        (nested / "trigger_eval.json").write_text(
-            json.dumps({"skill": "recap", "direct": [], "indirect": [], "negative": []}),
-            encoding="utf-8",
-        )
-        orphans = orphan_plugin_fixtures(skills_dir=skills_dir, plugins_dir=plugins_dir)
-        assert len(orphans) == 1, "巢狀 sub-skill fixture 應被偵測為 orphan"
-        assert "recap" in str(orphans[0])
+        write_plugin_fixture(plugins_dir, "growth", "skills", "mycelium", "recap", skill="recap")
 
-    def test_seval_eg_005_symlinked_plugin_fixture_not_orphan(self, tmp_path: Path) -> None:
-        """SEVAL-EG-005: 已 symlink 到 skills/ 的 plugin fixture 不算 orphan（正向路徑）。
-        spec: skill-trigger-eval#orphan-plugin-fixture-warned"""
+        index = resolve_fixture_index(skills_dir=skills_dir, plugins_dir=plugins_dir)
+        assert list(index) == ["recap"], "巢狀 sub-skill fixture 應被索引"
+
+    def test_seval_eg_005_symlinked_plugin_fixture_indexed_once(self, tmp_path: Path) -> None:
+        """SEVAL-EG-005: 已 symlink 到 skills/ 的 plugin fixture 只登記一次（realpath 去重）。
+
+        skills/<name> 與其 plugin target 是同一個實體檔；若未以 realpath 去重，會被當成
+        名稱衝突而誤報 RuntimeError——27 個 symlink skill 全都會踩到。
+        spec: skill-trigger-eval#plugin-fixtures-are-evaluated"""
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir(parents=True)
         plugins_dir = tmp_path / "plugins"
-        real = plugins_dir / "pack" / "skills" / "linked"
-        real.mkdir(parents=True)
-        (real / "trigger_eval.json").write_text(
-            json.dumps({"skill": "linked", "direct": [], "indirect": [], "negative": []}),
-            encoding="utf-8",
-        )
+        real = write_plugin_fixture(plugins_dir, "pack", "skills", "linked", skill="linked")
         (skills_dir / "linked").symlink_to(real)
-        assert orphan_plugin_fixtures(skills_dir=skills_dir, plugins_dir=plugins_dir) == []
+
+        index = resolve_fixture_index(skills_dir=skills_dir, plugins_dir=plugins_dir)
+        assert list(index) == ["linked"]
+        # 保留 skills/ 這條路徑（先登記者優先），不是 plugin 內的實體路徑
+        assert index["linked"].parent.parent == skills_dir
+
+    def test_seval_eg_009_name_collision_fails_loud(self, tmp_path: Path) -> None:
+        """SEVAL-EG-009: 兩個不同實體檔同名 -> RuntimeError，不靜默留一個。
+
+        baseline 依 skill 名稱存放，靜默保留其中一個會讓另一個永久離開 gate，且兩者
+        會互相覆寫彼此的基準——正是 gate 靜默失效的形狀。
+        spec: skill-trigger-eval#plugin-fixtures-are-evaluated"""
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir(parents=True)
+        plugins_dir = tmp_path / "plugins"
+        write_plugin_fixture(plugins_dir, "growth", "skills", "mycelium", "recap", skill="recap")
+        write_plugin_fixture(plugins_dir, "other", "skills", "recap", skill="recap")
+
+        with pytest.raises(RuntimeError, match="名稱衝突"):
+            resolve_fixture_index(skills_dir=skills_dir, plugins_dir=plugins_dir)
 
 
 class TestAllScope:
-    def test_seval_cli_016_all_warns_orphan_even_when_skills_empty(self, tmp_path: Path) -> None:
-        """SEVAL-CLI-016: skills/ 無 fixture 但 plugins/ 有 orphan -> 仍印 [WARN] 才 [FAIL]。
+    def test_seval_cli_016_all_evaluates_plugin_only_when_skills_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """SEVAL-CLI-016: skills/ 無 fixture 但 plugins/ 有 -> 評測它，不再 [FAIL]。
 
-        [WARN] 必須排在 `if not names` 之前：全部 fixture 都是 plugin-only 時，若先 [FAIL]
-        就會告知「找不到任何 fixture」，而實際上有 N 個搆不到——正是此警告存在的理由。
-        spec: skill-trigger-eval#orphan-plugin-fixture-warned"""
+        這是 repo 的真實形狀（唯一的 fixture 是 plugin-only），也是舊行為下 --all
+        什麼都掃不到的原因。
+        spec: skill-trigger-eval#plugin-fixtures-are-evaluated"""
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir(parents=True)  # 存在但無任何 fixture
-        hidden = tmp_path / "plugins" / "pack" / "skills" / "hidden"
-        hidden.mkdir(parents=True)
-        (hidden / "trigger_eval.json").write_text(
-            json.dumps({"skill": "hidden", "direct": [{"prompt": "x", "expect_trigger": True}]}),
-            encoding="utf-8",
-        )
+        write_plugin_fixture(tmp_path / "plugins", "pack", "skills", "hidden", skill="hidden")
+
         result = CliRunner().invoke(
             cli, ["eval", "--all", "--skills-dir", str(skills_dir), "--emit-manifest"]
         )
-        assert result.exit_code == 1, "skills/ 無 fixture 仍應 [FAIL]"
-        assert "[WARN]" in result.output, "[FAIL] 前必須先報出搆不到的 plugin fixture"
-        assert "hidden" in result.output, "[WARN] 必須指名該 fixture，否則使用者無從得知"
+        assert result.exit_code == 0, f"plugin-only fixture 應被評測：{result.output}"
+        assert '"skill": "hidden"' in result.output
 
-    def test_seval_cli_010_all_warns_orphan_plugin_fixture(self, tmp_path: Path) -> None:
-        """SEVAL-CLI-010: eval --all 對 sibling plugins/ 的未涵蓋 fixture 印 [WARN]。
-        spec: skill-trigger-eval#orphan-plugin-fixture-warned"""
+    def test_seval_cli_010_all_covers_skills_and_plugins(self, tmp_path: Path) -> None:
+        """SEVAL-CLI-010: eval --all 同時涵蓋 skills/ 與 sibling plugins/ 的 fixture。
+        spec: skill-trigger-eval#plugin-fixtures-are-evaluated"""
         skills_dir = tmp_path / "skills"
         write_fixture(skills_dir, skill="covered")
-        hidden = tmp_path / "plugins" / "pack" / "skills" / "hidden"
-        hidden.mkdir(parents=True)
-        (hidden / "trigger_eval.json").write_text(
-            json.dumps({"skill": "hidden", "direct": [], "indirect": [], "negative": []}),
-            encoding="utf-8",
-        )
+        write_plugin_fixture(tmp_path / "plugins", "pack", "skills", "hidden", skill="hidden")
+
         result = CliRunner().invoke(
             cli, ["eval", "--all", "--skills-dir", str(skills_dir), "--emit-manifest"]
         )
         assert result.exit_code == 0
-        assert "[WARN]" in result.output
-        assert "pack/skills/hidden/trigger_eval.json" in result.output
-        # 關鍵斷言：絕對路徑「不得」出現。custom skills_dir 下 base=skills_dir.parent，
-        # 相對化應該成功。只斷言相對路徑存在是不夠的——絕對路徑本身就含該子字串，
-        # 故 base 恆用 PROJECT_ROOT 時（相對化失敗、改印絕對路徑）測試照樣會過。
-        assert str(hidden / "trigger_eval.json") not in result.output
+        assert '"skill": "covered"' in result.output
+        assert '"skill": "hidden"' in result.output
 
-    def test_seval_cli_017_default_layout_warns_orphan(
+    def test_seval_cli_018_all_fails_when_nothing_found(self, tmp_path: Path) -> None:
+        """SEVAL-CLI-018: skills/ 與 plugins/ 皆無 fixture -> [FAIL]，不是 vacuous [OK]。
+        spec: skill-trigger-eval#plugin-fixtures-are-evaluated"""
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir(parents=True)
+        result = CliRunner().invoke(
+            cli, ["eval", "--all", "--skills-dir", str(skills_dir), "--emit-manifest"]
+        )
+        assert result.exit_code == 1
+        assert "[FAIL]" in result.output
+        assert "plugins/" in result.output, "訊息須說明已掃過的兩個位置"
+
+    def test_seval_cli_017_default_layout_indexes_both_roots(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """SEVAL-CLI-017: 不給 --skills-dir 時走預設佈局分支（SKILLS_DIR / PLUGINS_DIR）。
 
         其餘測試皆顯式傳 --skills-dir，故 `skills_dir is None` 這條——正是 production
-        `--all` 實際走的路徑——從未被執行過。此處同時覆蓋 relative_to 的 ValueError
-        fallback：base 為真實 PROJECT_ROOT，orphan 卻在 tmp_path 下，相對化必然失敗而
-        改印絕對路徑。
-        spec: skill-trigger-eval#orphan-plugin-fixture-warned"""
+        `--all` 實際走的路徑——從未被執行過。
+        spec: skill-trigger-eval#plugin-fixtures-are-evaluated"""
         from tasks.skill_eval import config as config_mod
 
         skills_dir = tmp_path / "skills"
         write_fixture(skills_dir, skill="covered")
-        hidden = tmp_path / "plugins" / "pack" / "skills" / "hidden"
-        hidden.mkdir(parents=True)
-        (hidden / "trigger_eval.json").write_text(
-            json.dumps({"skill": "hidden", "direct": [{"prompt": "x", "expect_trigger": True}]}),
-            encoding="utf-8",
-        )
-        # 只 patch config 的模組級常數：_warn_orphan_fixtures 於函式內才
-        # `from tasks._paths import PROJECT_ROOT`，patch cli 的模組屬性不會生效。
+        write_plugin_fixture(tmp_path / "plugins", "pack", "skills", "hidden", skill="hidden")
+
+        # patch config 的模組級常數：解析於函式內才 import config，patch cli 的屬性不會生效。
         monkeypatch.setattr(config_mod, "SKILLS_DIR", skills_dir)
         monkeypatch.setattr(config_mod, "PLUGINS_DIR", tmp_path / "plugins")
 
         result = CliRunner().invoke(cli, ["eval", "--all", "--emit-manifest"])
         assert result.exit_code == 0
-        assert "[WARN]" in result.output
-        # base=PROJECT_ROOT 與 tmp_path 無共同前綴 -> ValueError -> 印絕對路徑
-        assert str(hidden / "trigger_eval.json") in result.output
+        assert '"skill": "covered"' in result.output
+        assert '"skill": "hidden"' in result.output
 
     def test_seval_cli_011_all_empty_skill_fails_not_vacuous(self, tmp_path: Path) -> None:
         """SEVAL-CLI-011: --all 夾帶一個空 fixture -> [FAIL] 指名該 skill（非 vacuous [OK]）。

@@ -79,13 +79,23 @@ def compare_baseline(
     results: list[SkillEvalResult],
     baseline: dict[str, dict[str, float]],
     tolerance: float = DEFAULT_TOLERANCE,
+    evaluated_skills: set[str] | None = None,
 ) -> list[Regression]:
     """比對每個 skill 每個類別的 pass rate 與 baseline；低於 baseline-tolerance 記回歸。
 
-    baseline 沒有該 skill/類別時視為無基準，不判回歸（首次評測不應誤報）。
+    baseline 沒有該 skill/類別時視為無基準，不判回歸（首次評測不應誤報）。反向則**是**
+    回歸：baseline 有、當前缺席，代表該類 prompt 被清空。走 baseline ∪ current 才能攔到，
+    只走 results 會讓清空某一類成為無聲的 gate 繞道（issue #219）。
+
+    `evaluated_skills` 界定 union 的範圍，必須是「本次真的有評的 skill」。少了它，
+    `--skill foo` 會把 baseline 裡其他 31 個 skill 全判成缺席——那不是回歸，只是沒評到。
+    預設取 results 的 skill 集合（等同舊行為的範圍）。
     """
+    scope = evaluated_skills if evaluated_skills is not None else {r.skill for r in results}
     regressions: list[Regression] = []
     for result in results:
+        if result.skill not in scope:
+            continue
         skill_base = baseline.get(result.skill, {})
         for score in result.scores:
             base = skill_base.get(str(score.cls))
@@ -100,6 +110,16 @@ def compare_baseline(
                         current=score.pass_rate,
                     )
                 )
+
+    scored: set[tuple[str, str]] = {
+        (result.skill, str(score.cls)) for result in results for score in result.scores
+    }
+    for skill in sorted(scope):
+        for cls in _CLASSES:
+            base = baseline.get(skill, {}).get(str(cls))
+            if base is None or (skill, str(cls)) in scored:
+                continue
+            regressions.append(Regression(skill=skill, cls=cls, baseline=base, current=None))
     return regressions
 
 
@@ -119,6 +139,7 @@ def run_eval(
     judgments: list[bool],
     baseline: dict[str, dict[str, float]],
     tolerance: float = DEFAULT_TOLERANCE,
+    evaluated_skills: set[str] | None = None,
 ) -> EvalReport:
     """完整評測流程：build_manifest -> score -> 計分 -> baseline 比對。
 
@@ -127,5 +148,5 @@ def run_eval(
     manifest = judge.build_manifest(tasks)
     verdicts = judge.score(manifest, judgments)
     results = score_verdicts(verdicts)
-    regressions = compare_baseline(results, baseline, tolerance)
+    regressions = compare_baseline(results, baseline, tolerance, evaluated_skills)
     return EvalReport(results=results, regressions=regressions)

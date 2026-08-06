@@ -103,12 +103,17 @@ class SkillEvalResult(BaseModel):
 
 
 class Regression(BaseModel):
-    """一筆 pass rate 回歸（current 低於 baseline - tolerance）。"""
+    """一筆 pass rate 回歸（current 低於 baseline - tolerance）。
+
+    current 為 None 代表該類別在本次評測中**缺席**——baseline 有基準、fixture 卻已無該類
+    prompt。這同樣是回歸：compare_baseline 過去只走當前 results，於是清空某一類（只刪
+    negative）就能讓它靜默離開 gate，而 pass rate 看起來完全正常（issue #219）。
+    """
 
     skill: str
     cls: TriggerPromptClass
     baseline: float
-    current: float
+    current: float | None = None
 
 
 class EvalReport(BaseModel):

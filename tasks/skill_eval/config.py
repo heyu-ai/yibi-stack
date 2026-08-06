@@ -6,13 +6,16 @@ from typing import Annotated
 
 from pydantic import Field, RootModel, ValidationError
 
-from tasks._paths import PROJECT_ROOT, RUNTIME_DIR
+from tasks._paths import PROJECT_ROOT
 
 from .models import TriggerEvalFixture, TriggerPromptClass
 
 SKILLS_DIR = PROJECT_ROOT / "skills"
 PLUGINS_DIR = PROJECT_ROOT / "plugins"
-BASELINE_PATH = RUNTIME_DIR / "skill_eval_baseline.json"
+# baseline 進 git（不放 .runtime/）：gitignore 掉的 baseline 讓回歸 gate 在結構上不可能存在——
+# 每次 clone / CI runner 都讀到空 baseline，compare_baseline 一律走 `base is None` 略過，
+# 於是 0.00 的 pass rate 也回報無回歸。issue #220。
+BASELINE_PATH = PROJECT_ROOT / "tasks" / "skill_eval" / "baselines" / "trigger_baseline.json"
 
 
 class _BaselineFile(RootModel[dict[str, dict[TriggerPromptClass, float]]]):
@@ -29,17 +32,63 @@ class _BaselineFile(RootModel[dict[str, dict[TriggerPromptClass, float]]]):
     root: dict[str, dict[TriggerPromptClass, Annotated[float, Field(ge=0.0, le=1.0)]]]
 
 
-def fixture_path(skill: str, skills_dir: Path | None = None) -> Path:
-    """回傳指定 skill 的 trigger_eval.json 路徑。"""
+def resolve_fixture_index(
+    skills_dir: Path | None = None, plugins_dir: Path | None = None
+) -> dict[str, Path]:
+    """建立 skill 名稱 -> trigger_eval.json 路徑索引，聯集 skills/ 第一層與 plugins/ 全深度。
+
+    只掃 skills/ 會漏掉 plugin-only skill：12 個 plugin skill 刻意沒有 skills/ symlink
+    （`spectra-amplifier` 是明確被降級為 plugin-only 的先例），而 repo 唯一一份 fixture
+    正好躺在其中之一（`plugins/dev-cycle/skills/pr-cycle-fast/`），使得 `--all` 曾經
+    掃不到任何東西。補 symlink 不是解法——那會違反那些 skill 被降級的理由。
+
+    plugins glob 用 `**`（rule 02：`*` 不跨 `/`，會漏 mycelium 的巢狀 sub-skill）。
+    skills/ 優先：symlink 與其 target 以 realpath 去重，同一個實體檔只留 skills/ 這個名字。
+
+    名稱衝突（兩個**不同**實體檔同名，如 plugin A 與 plugin B 各有一個 `recap/`）一律
+    RuntimeError：靜默留下其中一個會讓另一個永久離開 gate，而 baseline 是按名字存的，
+    兩者還會互相覆寫彼此的基準。
+    """
     root = skills_dir or SKILLS_DIR
-    return root / skill / "trigger_eval.json"
+    pdir = plugins_dir or PLUGINS_DIR
+
+    index: dict[str, Path] = {}
+    seen: dict[str, Path] = {}  # name -> realpath，用來判斷是否為同一實體檔
+
+    def _add(name: str, fixture: Path) -> None:
+        real = fixture.resolve()
+        prior = seen.get(name)
+        if prior is not None:
+            if prior == real:
+                return  # symlink 與 target 指向同一份，保留先登記的（skills/ 優先）
+            raise RuntimeError(
+                f"fixture 名稱衝突：`{name}` 同時對應 {index[name]} 與 {fixture}；"
+                "兩者是不同的實體檔，baseline 依名稱存放會互相覆寫。請改名其中之一"
+            )
+        seen[name] = real
+        index[name] = fixture
+
+    if root.is_dir():
+        for entry in sorted(root.iterdir()):
+            fixture = entry / "trigger_eval.json"
+            if fixture.is_file():
+                _add(entry.name, fixture)
+    if pdir.is_dir():
+        for fixture in sorted(pdir.glob("*/skills/**/trigger_eval.json")):
+            _add(fixture.parent.name, fixture)
+    return index
 
 
-def load_fixture(skill: str, skills_dir: Path | None = None) -> TriggerEvalFixture:
+def load_fixture(
+    skill: str, skills_dir: Path | None = None, plugins_dir: Path | None = None
+) -> TriggerEvalFixture:
     """載入並驗證單一 skill 的 fixture；缺檔或格式錯誤時抛 RuntimeError。"""
-    path = fixture_path(skill, skills_dir)
-    if not path.is_file():
-        raise RuntimeError(f"找不到 fixture：{path}（請在 skill 旁建立 trigger_eval.json）")
+    path = resolve_fixture_index(skills_dir, plugins_dir).get(skill)
+    if path is None:
+        raise RuntimeError(
+            f"找不到 skill `{skill}` 的 fixture（skills/ 與 plugins/*/skills/ 底下皆無）；"
+            "請在該 skill 的 SKILL.md 旁建立 trigger_eval.json"
+        )
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
@@ -47,43 +96,9 @@ def load_fixture(skill: str, skills_dir: Path | None = None) -> TriggerEvalFixtu
     return TriggerEvalFixture.model_validate(data)
 
 
-def discover_fixtures(skills_dir: Path | None = None) -> list[str]:
-    """列出 skills/ 底下所有含 trigger_eval.json 的 skill 名稱（依名稱排序）。
-
-    只涵蓋 skills/<name>/（含 symlink 到 plugin 的全域 skill），與 load_fixture 的
-    name-based 解析一致。**未** symlink 到 skills/ 的 plugin-only fixture 不在此列——
-    用 orphan_plugin_fixtures() 偵測那些會被漏掉的檔案，由 CLI 以 [WARN] 顯式回報，
-    避免 --all 靜默漏評（見 lint_skill_overlap.py 的 plugins/** 掃描先例）。
-    """
-    root = skills_dir or SKILLS_DIR
-    if not root.is_dir():
-        return []
-    return sorted(entry.name for entry in root.iterdir() if (entry / "trigger_eval.json").is_file())
-
-
-def orphan_plugin_fixtures(
-    skills_dir: Path | None = None, plugins_dir: Path | None = None
-) -> list[Path]:
-    """列出 plugins/ 底下未經 skills/ symlink 觸及的 trigger_eval.json（--all 會漏掉的）。
-
-    以 realpath 判斷是否已被 skills/ 的某個 entry（含 symlink）涵蓋；未涵蓋者即 orphan。
-    plugins glob 用 `**`（rule 02：`*` 不跨 `/`，會漏巢狀 sub-skill）。
-    """
-    root = skills_dir or SKILLS_DIR
-    pdir = plugins_dir or PLUGINS_DIR
-    reachable: set[Path] = set()
-    if root.is_dir():
-        for entry in root.iterdir():
-            fixture = entry / "trigger_eval.json"
-            if fixture.is_file():
-                reachable.add(fixture.resolve())
-    if not pdir.is_dir():
-        return []
-    orphans: list[Path] = []
-    for fixture in sorted(pdir.glob("*/skills/**/trigger_eval.json")):
-        if fixture.resolve() not in reachable:
-            orphans.append(fixture)
-    return orphans
+def discover_fixtures(skills_dir: Path | None = None, plugins_dir: Path | None = None) -> list[str]:
+    """列出所有含 trigger_eval.json 的 skill 名稱（依名稱排序），涵蓋 skills/ 與 plugins/。"""
+    return sorted(resolve_fixture_index(skills_dir, plugins_dir))
 
 
 def load_baseline(path: Path | None = None) -> dict[str, dict[str, float]]:
@@ -118,9 +133,22 @@ def load_baseline(path: Path | None = None) -> dict[str, dict[str, float]]:
     }
 
 
-def save_baseline(baseline: dict[str, dict[str, float]], path: Path | None = None) -> Path:
-    """寫入 baseline 檔並回傳路徑。"""
+def save_baseline(
+    baseline: dict[str, dict[str, float]], path: Path | None = None, merge: bool = False
+) -> Path:
+    """寫入 baseline 檔並回傳路徑。
+
+    merge=True 時只更新 `baseline` 內出現的 skill，其餘條目原樣保留——`baseline --skill foo`
+    過去整檔覆寫，等於把其他 31 個 skill 的基準一次抹掉，之後每個都變成「無基準」而靜默
+    離開 gate（issue #219）。merge=False 為 `--all` 的權威重寫，讓已刪除 fixture 的
+    陳舊條目能真的消失。
+
+    寫入後依 key 排序，讓 `git diff` 只顯示真正變動的 skill（dict 插入序會製造假 diff）。
+    """
     p = path or BASELINE_PATH
+    merged = dict(load_baseline(p)) if merge else {}
+    merged.update(baseline)
+    ordered = {skill: merged[skill] for skill in sorted(merged)}
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    p.write_text(json.dumps(ordered, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return p
