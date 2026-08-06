@@ -132,6 +132,18 @@ class TestOutcomeTableCrossCheck:
         _assert_phrases(_skill_text(), "--explain-policy")
         assert set(explain_policy()["effects"]) == {e.value for e in Effect}
 
+    def test_skc_dt_005_demotable_targets_is_documented_in_the_runbook(self) -> None:
+        """SKC-DT-005 (issue #379): the payload's eligibility field must be documented here.
+
+        The kernel filters demotion recommendations by an eligibility set
+        (`lessons` union `demotable_targets`). If the runbook does not tell the agent to
+        populate `demotable_targets` for M2, every rule-draft target silently loses its
+        demotion capability -- the field fails closed, so the symptom is "M2 never
+        recommends a demotion", with no error anywhere. Documenting it here is what makes
+        the fail-closed direction safe rather than merely quiet.
+        """
+        _assert_phrases(_skill_text(), "demotable_targets", "rule-draft")
+
 
 class TestDelegationContract:
     def test_skc_dt_010_names_the_engine_owner_and_forbids_re_deriving(self) -> None:

@@ -48,6 +48,15 @@
       "default": false,
       "description": "Whether a demotion recommendation is acted on. Defaults to false: the recommendation is always computed and reported, but shipping in shadow mode means it changes no tier."
     },
+    "demotable_targets": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Targets that are NOT in `lessons` but are still deliberately eligible for demotion -- in practice M2's `rule-draft-N` targets, which by design carry no confidence/source yet need the same demotion capability. The eligibility set is `lessons` union this array; a target outside it produces no demotion recommendation even from a confirmed UNSUPPORTED dissent, which is what keeps a typo'd target name or a narrative Q1-Q5 target out of the demotion path. Omitting a legitimate target fails closed (no recommendation). An explicit list rather than a `rule-draft-` prefix convention: a prefix typo would silently drop eligibility with no error."
+    },
     "findings": {
       "type": "array",
       "items": {

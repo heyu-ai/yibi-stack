@@ -115,6 +115,19 @@ class AggregationInput:
     lessons: dict[str, LessonScore]
     findings: tuple[Finding, ...]
     enable_demotion: bool = False
+    # 沒有 confidence / source、但仍**刻意**具備降級資格的標的（M2 的 rule-draft-<n>）。
+    # 與 `lessons` 分開是因為兩者回答不同問題：`lessons` 是「這個標的的分數是多少」，
+    # 本欄是「這個標的可不可以被降級」。M2 的 rule/hook 草稿只有後者。
+    #
+    # 為什麼是顯式集合而不是 `rule-draft-` 前綴慣例：前綴比對的失敗模式是**靜默**的——
+    # 一個 typo（`rule-drafts-1`）會讓該標的悄悄失去降級資格，零警告。顯式集合漏列時
+    # fail-closed（不產建議），方向安全且看得見。
+    demotable_targets: frozenset[str] = frozenset()
+
+    @property
+    def demotable(self) -> frozenset[str]:
+        """所有具降級資格的標的：有分數的 lesson，加上顯式登記的非 lesson 標的。"""
+        return frozenset(self.lessons) | self.demotable_targets
 
 
 @dataclass
@@ -324,12 +337,20 @@ def parse_input(raw: Any) -> AggregationInput:
     enable = raw.get("enable_demotion", False)
     if not isinstance(enable, bool):
         raise MalformedInput(f"[FAIL] enable_demotion 必須是布林值，收到 {enable!r}")
+
+    demotable_raw = raw.get("demotable_targets", [])
+    if not isinstance(demotable_raw, list) or not all(
+        isinstance(item, str) for item in demotable_raw
+    ):
+        raise MalformedInput(f"[FAIL] demotable_targets 必須是字串陣列，收到 {demotable_raw!r}")
+
     return AggregationInput(
         draft_digest=draft_digest,
         packet_digest=packet_digest,
         lessons=lessons,
         findings=tuple(findings),
         enable_demotion=enable,
+        demotable_targets=frozenset(demotable_raw),
     )
 
 
@@ -479,12 +500,23 @@ def aggregate(data: AggregationInput) -> AggregationResult:
     # 本身已蘊含 `check_state == CONFIRMED`。多寫一道會遮蔽「check_state 關卡被移除」這個突變，
     # 讓它存活而看不出來（與本檔 aggregate() 早先移除 `f.is_dissent` 冗餘述詞是同一類問題）。
     # 該不變量改由 AGG-DT-066 直接斷言。
+    # 第三個條件是**資格**，與前兩個（效力、分類）正交：一個標的必須先被登記為可降級，
+    # 才輪得到問它有沒有被有效異議。沒有這道約束時，任何 ACTIONABLE + UNSUPPORTED 的
+    # finding 都會產出降級建議——包含拼錯的標的名、以及 Q1–Q5 這類純敘述標的（它們沒有
+    # confidence 概念，「降級」對它們無意義）。實測可重現：對 `Q3` 的 confirmed UNSUPPORTED
+    # finding 會產出 `demotion_recommendations: ["Q3"]`，而 `Q3` 根本不在 `lessons` 裡。
+    #
+    # 不用 `f.target in data.lessons` 當條件：那會**誤殺** M2 的 rule-draft 標的——它們
+    # 合法需要降級能力，卻依設計不帶 confidence/source，故永遠不在 `lessons` 裡。
+    # 兩類標的都要涵蓋，所以資格集合是「lessons ∪ 顯式登記」，見 AggregationInput.demotable。
+    demotable = data.demotable
     recommendations = sorted(
         {
             f.target
             for f in governing
             if effect_of[f.id] is Effect.ACTIONABLE
             and f.classification is Classification.UNSUPPORTED
+            and f.target in demotable
         }
     )
 
@@ -557,6 +589,8 @@ def explain_policy() -> dict[str, Any]:
             "each lesson target is scored independently; a dissent never moves another target's"
             " score",
             "demotion requires classification UNSUPPORTED and check_state confirmed",
+            "demotion requires the target to be eligible: present in lessons, or explicitly"
+            " listed in demotable_targets (M2 rule-draft targets carry no confidence/source)",
             "demotion is a recommendation consumed by the existing evidence gate",
             "draft items are annotated, never removed",
             "an r2 finding can supersede its own (target, voice) r1 finding, never add a new vote",
