@@ -291,6 +291,26 @@ confidence/source 的 lesson 才需要在這個 map 裡出現——Q1–Q5 敘�
 標的沒有 confidence 概念，不放進 `lessons`。**每個 target 的評分完全獨立**：對某個 lesson
 的異議不會動到另一個 lesson 的 confidence。
 
+**`demotable_targets`（M2 必填，M1 通常留空）**：一個字串陣列，列出**不在 `lessons` 裡、但
+仍具降級資格**的標的。這是兩個不同的問題：`lessons` 回答「這個標的的分數是多少」，
+`demotable_targets` 回答「這個標的可不可以被降級」。M2 的 `rule-draft-<n>` 只有後者——它們
+依設計不帶 confidence/source，卻確實需要與 lesson 標的相同的降級能力。
+
+彙整核心的資格集合是 **`lessons` ∪ `demotable_targets`**；不在其中的標的即使拿到 confirmed
+的 `UNSUPPORTED` 異議也**不會**產出降級建議。這道約束擋掉的是拼錯的標的名與 Q1–Q5 這類純
+敘述標的（對它們而言「降級」無意義）。漏列時 **fail-closed**——不產建議，方向安全。
+
+```json
+{
+  "lessons": { "lesson-<key>": { "original_confidence": 6, "original_source": "inferred" } },
+  "demotable_targets": ["rule-draft-1", "rule-draft-2"]
+}
+```
+
+> **為什麼不用 `rule-draft-` 前綴慣例判定資格**：前綴比對的失敗模式是**靜默**的——一個 typo
+> （`rule-drafts-1`）會讓該標的悄悄失去降級資格，零警告零錯誤。顯式集合把「誰有資格」變成
+> 眼睛看得到的資料，而不是一條散落在程式碼裡的字串規則。
+
 ```bash
 python3 "$HARD_ROOT/scripts/aggregate_review.py" --input "$RETRO_REVIEW_DIR/aggregate-input-m1.json"
 ```

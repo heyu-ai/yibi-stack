@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.0] - 2026-08-06
+
+### Added
+
+- **review 入口 merge-state preflight**（issue #372）：新增
+  `pr-cycle-deep/scripts/preflight-review-snapshot.sh`，在派出任何 reviewer 之前確認工作區
+  是穩定快照。reviewer 讀的是工作區，而工作區不是 immutable snapshot——另一個 session 的併發
+  改動或進行中的 merge，會讓 reviewer 讀到中間狀態並回報對實際落地內容不成立的 finding。
+  兩個模式五個具名 exit code；未解衝突一律拒絕（`--sha` 不可 override），`MERGE_HEAD` 預設
+  拒絕但可釘選不可變 SHA。已接進 `/pr-cycle-deep`、`/mob-code-review-only`、
+  `/pr-review-cycle`、`/pr-cycle-fast` 四個入口。
+
+- **`demotable_targets` payload 欄位**（issue #379）：`pr-retro-hard` 的彙整核心新增顯式
+  降級資格集合。M2 的 `rule-draft-<n>` 標的依設計不帶 confidence/source，故永遠不在
+  `lessons` 裡，卻確實需要降級能力；資格集合為 `lessons ∪ demotable_targets`。
+
+### Fixed
+
+- **`pr-retro-hard` 彙整核心不再對任意標的產出降級建議**（issue #379）：先前
+  `demotion_recommendations` 只看 effect + classification，一個沒有 `lessons` entry 的敘述性
+  標的（如 `Q3`）拿到 confirmed `UNSUPPORTED` 異議時照樣會被建議降級，並在 `#375` Phase 4
+  解除 shadow 後真的生效。
+
+- **`/pr-retro` Step 4b 三個缺陷**（issue #373）：
+  - recurrence 的 `--confidence` +1 前移到 Step 4b，附可直接跑的 `lessons search` 指令。
+    原規則指向 Step 5，但 Step 5 在寫入之後，且 active lesson 的分數事後無法原地修改
+    （`lessons finalize` 只適用 parked→active），所以該規則從未被套用過。
+  - `active` 路徑的 `lessons add` 帶 `--skip-if-exists`，讓寫到一半失敗的 script 可安全重跑。
+    `park` 路徑不適用（兩旗標互斥），其重跑限制維持原有警告。
+  - 範本呼叫端字面值改單引號：雙引號讓 insight 內文的 `$` 觸發參數展開，在
+    `set -euo pipefail` 下中止整個 script。
+
 ## [1.19.0] - 2026-08-05
 
 ### Added

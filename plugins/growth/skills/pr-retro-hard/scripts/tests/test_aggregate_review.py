@@ -1023,6 +1023,129 @@ class TestDemotionGatedOnConfirmedCheck:
 
 
 # --------------------------------------------------------------------------- #
+# demotion eligibility (issue #379)
+# --------------------------------------------------------------------------- #
+
+
+class TestDemotionEligibility:
+    """Eligibility is a THIRD condition, orthogonal to effect and classification.
+
+    Before issue #379 the recommendation set was built from effect + classification alone,
+    so any confirmed UNSUPPORTED dissent produced a recommendation regardless of whether
+    the target was a thing that can meaningfully be demoted. The fix is an explicit
+    eligibility set (`lessons` union `demotable_targets`) rather than the reviewer's
+    suggested `target in lessons`, which would have silently broken M2's rule-draft
+    targets -- they legitimately need demotion but by design carry no confidence/source.
+    """
+
+    @staticmethod
+    def _unsupported(**overrides: Any) -> dict[str, Any]:
+        return _finding(
+            classification=Classification.UNSUPPORTED.value,
+            check_state=CheckState.CONFIRMED.value,
+            **overrides,
+        )
+
+    def test_agg_dt_070_narrative_target_produces_no_recommendation(self) -> None:
+        """AGG-DT-070 (issue #379 regression): a confirmed UNSUPPORTED dissent against a
+        narrative target with no `lessons` entry must produce NO demotion recommendation.
+
+        This is the exact case Codex reproduced in PR #376's Round 2 review: `Q3` has no
+        `lessons` entry, yet `demotion_recommendations` came back as `["Q3"]` -- and would
+        have set `demotion_applied: true` once shadow mode is lifted.
+        """
+        result = _run([self._unsupported(target="Q3")], lessons={})
+        assert result.demotion_recommendations == [], (
+            "a target with no lessons entry and no explicit eligibility must not be demotable"
+        )
+
+    def test_agg_dt_071_lesson_target_still_produces_recommendation(self) -> None:
+        """AGG-DT-071: the fix must not break the ordinary path -- a scored lesson target
+        is eligible by virtue of being in `lessons`, with no extra bookkeeping.
+        """
+        result = _run([self._unsupported(target="lesson-x")], lessons={"lesson-x": _lesson()})
+        assert result.demotion_recommendations == ["lesson-x"]
+
+    def test_agg_dt_072_explicitly_listed_target_is_eligible(self) -> None:
+        """AGG-DT-072: an M2 rule-draft target carries no confidence/source, so it can
+        never appear in `lessons` -- explicit registration is the only way it stays
+        demotable. Without this the reviewer's suggested fix would have silently disabled
+        M2's entire demotion capability.
+        """
+        result = _run(
+            [self._unsupported(target="rule-draft-1")],
+            lessons={},
+            demotable_targets=["rule-draft-1"],
+        )
+        assert result.demotion_recommendations == ["rule-draft-1"]
+        assert "rule-draft-1" not in result.lessons, (
+            "eligibility must not fabricate a score for a target that has none"
+        )
+
+    def test_agg_dt_073_unlisted_sibling_stays_ineligible(self) -> None:
+        """AGG-DT-073: registration is per-target, not a blanket unlock for similar names.
+
+        `rule-draft-2` is not listed, so it stays ineligible even though `rule-draft-1`
+        is -- this is what distinguishes an explicit set from a `rule-draft-` prefix
+        convention, whose typo failure mode is silent.
+        """
+        result = _run(
+            [
+                self._unsupported(id="f1", target="rule-draft-1"),
+                self._unsupported(id="f2", target="rule-draft-2", voice="agy"),
+            ],
+            lessons={},
+            demotable_targets=["rule-draft-1"],
+        )
+        assert result.demotion_recommendations == ["rule-draft-1"]
+
+    def test_agg_dt_074_ineligible_target_keeps_its_outcome_and_consensus(self) -> None:
+        """AGG-DT-074: ineligibility suppresses the RECOMMENDATION, not the record.
+
+        The dissent is still reported and still counts toward consensus -- suppressing it
+        entirely would hide a real reviewer objection from the human, which is a different
+        and worse failure than the one #379 fixes.
+        """
+        result = _run([self._unsupported(target="Q3")], lessons={})
+        assert _effect_of(result, "f1") == Effect.ACTIONABLE.value
+        assert result.consensus == {"Q3": ["codex"]}
+
+    def test_agg_dt_075_demotion_applied_stays_false_for_ineligible_target(self) -> None:
+        """AGG-DT-075: with demotion ENABLED, an ineligible target must not flip
+        `demotion_applied` -- shadow mode was masking this, and #375's Phase 4 lifts it.
+        """
+        result = _run([self._unsupported(target="Q3")], lessons={}, enable_demotion=True)
+        assert result.demotion_recommendations == []
+        assert result.demotion_applied is False
+
+    def test_agg_dt_076_demotable_targets_must_be_a_string_array(self) -> None:
+        """AGG-DT-076: a malformed `demotable_targets` is a hard error, not a silent
+        default -- silently falling back to `[]` would make every rule-draft target
+        ineligible with no diagnostic, i.e. M2 demotion quietly stops working.
+        """
+        for bad in ("rule-draft-1", {"rule-draft-1": True}, [1, 2], [None]):
+            with pytest.raises(MalformedInput) as exc:
+                parse_input(_payload([], demotable_targets=bad))
+            assert "demotable_targets" in str(exc.value)
+
+    def test_agg_dt_077_absent_demotable_targets_defaults_to_empty(self) -> None:
+        """AGG-DT-077: the field is optional -- M1 payloads have no rule-draft targets and
+        must keep working unchanged (backward compatibility with existing callers).
+        """
+        parsed = parse_input(_payload([], lessons={"lesson-x": _lesson()}))
+        assert parsed.demotable_targets == frozenset()
+        assert parsed.demotable == frozenset({"lesson-x"})
+
+    def test_agg_dt_078_explain_policy_names_the_eligibility_rule(self) -> None:
+        """AGG-DT-078: the invariant list is the documented contract, so a rule that
+        exists only in code is invisible to the SKILL.md cross-check.
+        """
+        invariants = " ".join(explain_policy()["invariants"])
+        assert "demotable_targets" in invariants
+        assert "eligible" in invariants
+
+
+# --------------------------------------------------------------------------- #
 # input hygiene
 # --------------------------------------------------------------------------- #
 
