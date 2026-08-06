@@ -63,7 +63,26 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #
 # Merged with an independent 1239 -> 1256 (+17) raise from origin/main (two Evidence-gate
 # integrity fixes, landed in parallel via PR #368) -> combined budget 1263.
-LINE_BUDGET = 1263
+#
+# Raised 1263 -> 1294 (+31) for Step 3.0, the snapshot preflight (issue #372). What the lines buy:
+#   * A blocking gate before any voice is dispatched. Voices read the WORKING TREE, which is not
+#     an immutable snapshot -- a concurrent session in the same worktree, or an in-progress merge,
+#     lets a voice read an intermediate state and report a finding that does not hold for what
+#     landed. First-hand evidence (yibi-mvp PR #1169, 2026-08-04): a code-reviewer subagent read
+#     .github/workflows/ci.yml while it was `UU` and reported a missing `needs` entry as Important;
+#     the landed `needs` contained it. That PR's aggregated review recorded the rejection.
+#   * 8 of the 31 lines are the exit-code table. Rule 11 ("Tool Exit Codes Must Be Listed in
+#     SKILL.md Branch Design") requires it: a PASS/FAIL-only runbook collapses exit 2 (unmerged,
+#     never overridable) and exit 3 (merge in progress, overridable only by pinning a SHA) into
+#     one outcome, and the agent then routes the recoverable case as a hard failure or skips it.
+#   * The remainder is the `verify` call and one blockquote stating the two boundaries readers
+#     otherwise re-litigate: why this is not a global PreToolUse hook (it would block the
+#     legitimate "review my conflict resolution" case and cannot gate human review), and that it
+#     does not replace the conflict-detector step (GitHub-side mergeability is a different
+#     question from local working-tree state).
+# The first draft was +46; the allow-list entry was folded into 3.1's existing block and the
+# rationale prose cut to one blockquote, since the script header carries the long form.
+LINE_BUDGET = 1294
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the

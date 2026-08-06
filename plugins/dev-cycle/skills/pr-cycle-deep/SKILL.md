@@ -355,6 +355,36 @@ the official /code-review docs, 2026-07-23, Claude Code 2.1.218.)
 other's findings**, to avoid anchoring bias. Each voice writes its findings to `<voice>-r1.md`
 in the review dir (referred to below as `$REVIEW_DIR`).
 
+#### 3.0 — Snapshot preflight (blocking; before any voice is dispatched)
+
+Voices read the **working tree**, which is not an immutable snapshot: a concurrent session in this
+worktree, or an in-progress merge, lets a voice read an intermediate state and report a finding
+that **does not hold for what landed** — costing a full fix + re-review round and reading exactly
+like a real finding.
+
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh check
+```
+
+| Exit | Meaning | Action |
+|------|---------|--------|
+| `0` | Snapshot stable | Record the `HEAD=<sha>` from stdout; proceed to 3.1 |
+| `1` | Usage error / not a git repo / pinned SHA absent | Fix the invocation; do not dispatch |
+| `2` | Unmerged files | **Stop.** Resolve + commit, re-run. `--sha` does **not** override — the tree is half-applied |
+| `3` | Merge in progress (`MERGE_HEAD`) | **Stop by default.** To review mid-merge, re-run `check --sha <40-hex>` and require every voice to read via `git show <sha>:<path>`, never the tree |
+| `4` | (verify) HEAD moved | Base moved mid-round: re-dispatch, or say so explicitly in `final.md`. Do not silently accept that round |
+
+Once **all** voices have returned their `<voice>-r1.md`:
+
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh verify {{head_sha_from_3_0}}
+```
+
+> A review-entrypoint gate, **not** a global `PreToolUse` hook: a hook would also block "have a
+> reviewer audit this conflict resolution" (legitimate) and cannot gate human review at all.
+> It also does **not** replace the conflict-detector step, which asks a different question —
+> **GitHub-side** PR mergeability, not local working-tree state.
+
 #### 3.1 — Prepare working directory and shared prompt
 
 Write all R1/R2 intermediate files to the review dir (`<worktree-root>/.pr-review/`, `$REVIEW_DIR`).
@@ -379,6 +409,7 @@ the expanded absolute path:
 ```text
 Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh *)
 Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh)
+Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh *)
 ```
 
 `setup-review-dir.sh` needs `*` for its branch argument; `codex-r1-stage1.sh` is exact. The extract

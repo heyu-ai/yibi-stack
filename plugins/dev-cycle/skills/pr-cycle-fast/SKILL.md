@@ -125,6 +125,45 @@ transition 後讀取新 state，自動循環推進，直到 BLOCKED / FAILED / C
 
 ### Step 3 — Dispatch Review Subagents (DETECTED → REVIEWING)
 
+#### 3.0 — 快照 preflight（阻擋性；在任何 subagent 派出去之前跑）
+
+code-review subagent 讀的是**工作區**檔案，而工作區不是 immutable snapshot。只要有另一個
+session 同時在同一個 worktree 動作，或本 session 正在解 merge 衝突，reviewer 就會讀到中間
+狀態，並回報**對實際落地內容不成立**的 finding——它吃掉一整輪 fix + re-review，而且讀起來
+和真 finding 一模一樣。
+
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh check
+```
+
+退出碼語意（每個都是具名結果，不是籠統的 PASS/FAIL）：
+
+| Exit | 意義 | 動作 |
+|------|------|------|
+| `0` | 快照穩定 | 記下 stdout 的 `HEAD=<sha>`，往下走 |
+| `1` | 用法錯誤 / 不在 git repo 內 / 指定的 SHA 不存在 | 修正呼叫，不要派 subagent |
+| `2` | 有未解衝突的檔案 | **停止。** 解完衝突並 commit 後重跑。`--sha` 不能 override——工作區此時是半套用狀態 |
+| `3` | merge 進行中（`MERGE_HEAD` 存在） | **預設停止。** 要在 merge 期間 review，改跑 `check --sha <40-hex>`，並要求 reviewer 一律用 `git show <sha>:<path>` 讀檔，不得讀工作區 |
+| `4` | （verify 模式）HEAD 已移動 | 見下方 |
+
+三個 subagent **全部**回來後，確認基準沒被搬走：
+
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh verify {{head_sha_from_3_0}}
+```
+
+exit `4` 代表 review 期間基準已改變。**不要**默默採信該輪 finding：重跑 preflight 並重新
+派工，或在回報時明講這輪是對一個已經改變的基準做的。
+
+> **本 script 隨 `/pr-cycle-deep` 出貨。** 找不到即代表 `/pr-cycle-deep` 未安裝——在
+> yibi-stack repo 跑 `make install`，或
+> `claude plugin install dev-cycle@yibi-stack`。驗證：
+> `ls ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh`。
+>
+> **與 conflict-detector subagent 不重複**：那個查的是 **GitHub 端**的 PR mergeability，
+> 與本地工作區狀態是兩個不同的問題，兩者不互相取代。本 preflight 是**前置**閘門，
+> conflict-detector 是三個並行 subagent 之一。
+
 先 transition 到 REVIEWING：
 
 ```bash
