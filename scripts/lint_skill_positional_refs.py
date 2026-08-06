@@ -67,8 +67,15 @@ from pathlib import Path
 # 視為 shell 的 fence 語言（info-string 的第一個 token）。刻意不含 `text`，理由見 docstring。
 _SHELL_LANGS = frozenset({"bash", "sh", "zsh", "shell", "shell-session", "console"})
 
-# fence 開頭：行首可有縮排，分隔符為 >=3 個 ` 或 ~，其後為 info string。
-_FENCE_OPEN = re.compile(r"^[ \t]*(?P<delim>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*)$")
+# fence 開頭：CommonMark 允許 **0-3 個空格**的縮排；4 個以上是 indented code block，
+# 其內容是字面文字而非 fence。寫成 `[ \t]*` 會讓一份用縮排展示 fence 寫法的文件被誤掃
+# （PR #387 Round 2，codex 與 agy 各自提出，lead 已重現）。
+_FENCE_OPEN = re.compile(r"^ {0,3}(?P<delim>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*?)[ \t]*$")
+
+# fence 結尾：**不得帶 info string**（CommonMark）。用開頭的 pattern 兼作結尾判定是
+# PR #387 Round 2 的 Critical——` ```text ` 會把一個等長的 ```bash fence 關掉，後續 shell
+# 內容整段逃出掃描面（fail-open）。兩家 voice 各自命中，lead 已重現。
+_FENCE_CLOSE = re.compile(r"^ {0,3}(?P<delim>`{3,}|~{3,})[ \t]*$")
 
 # 裸 `$0`-`$9`。兩個 lookaround，各有其職：
 #   (?<!\\)   -> `\$1` 是官方跳脫形式，合法，不報
@@ -78,7 +85,26 @@ _FENCE_OPEN = re.compile(r"^[ \t]*(?P<delim>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*)$"
 # braced form `${1}` 不匹配，是因為 `$` 後必須緊接數字而 `${1}` 接的是 `{`——這是 pattern 的
 # 自然結果，不需要額外的 lookbehind（若未來把 pattern 放寬成 `\$\{?[0-9]`，必須另外排除
 # braced form，否則 LSPR-EG-001 會紅）。
-_BARE_POSITIONAL = re.compile(r"(?<!\\)\$([0-9])(?![0-9])")
+_BARE_POSITIONAL = re.compile(r"\$([0-9])(?![0-9])")
+
+
+def _is_escaped(line: str, dollar_idx: int) -> bool:
+    """`$` 前的反斜線數量是奇數才算被跳脫。
+
+    不能用 `(?<!\\\\)` 單字元 lookbehind：`\\\\$1`（字面反斜線 + `$1`）前一個字元是 `\\`，
+    lookbehind 會誤判為已跳脫而放行，但實際上 `$1` 照樣被替換（PR #387 Round 2，agy 提出，
+    lead 已重現）。`re` 不支援變長 lookbehind，故改在 Python 端數。
+    """
+    n = 0
+    i = dollar_idx - 1
+    while i >= 0 and line[i] == "\\":
+        n += 1
+        i -= 1
+    return n % 2 == 1
+
+
+def _has_bare_positional(line: str) -> bool:
+    return any(not _is_escaped(line, m.start()) for m in _BARE_POSITIONAL.finditer(line))
 
 
 class ScanError(Exception):
@@ -103,8 +129,8 @@ def _shell_fence_spans(lines: list[str]) -> list[tuple[int, int]]:
     content_start = 0
 
     for i, line in enumerate(lines):
-        m = _FENCE_OPEN.match(line)
         if open_delim is None:
+            m = _FENCE_OPEN.match(line)
             if m:
                 open_delim = m.group("delim")
                 info = m.group("info").strip()
@@ -114,8 +140,14 @@ def _shell_fence_spans(lines: list[str]) -> list[tuple[int, int]]:
                 content_start = i + 1
             continue
 
-        # 已在 fence 內：只有「同字元且長度 >= 開頭」的分隔符能關閉它
-        if m and m.group("delim")[0] == open_delim[0] and len(m.group("delim")) >= len(open_delim):
+        # 已在 fence 內：關閉條件是「同字元、長度 >= 開頭、**且不帶 info string**」。
+        # 少了最後一項，` ```text ` 會關掉等長的 ```bash fence，後續內容整段逃出掃描。
+        close = _FENCE_CLOSE.match(line)
+        if (
+            close
+            and close.group("delim")[0] == open_delim[0]
+            and len(close.group("delim")) >= len(open_delim)
+        ):
             if open_is_shell:
                 spans.append((content_start, i))
             open_delim = None
@@ -137,7 +169,7 @@ def scan_text(text: str) -> list[tuple[int, str]]:
     violations: list[tuple[int, str]] = []
     for start, end in _shell_fence_spans(lines):
         for idx in range(start, end):
-            if _BARE_POSITIONAL.search(lines[idx]):
+            if _has_bare_positional(lines[idx]):
                 violations.append((idx + 1, lines[idx]))
     return violations
 
@@ -159,6 +191,12 @@ _EXCLUDED_PREFIXES: tuple[tuple[str, ...], ...] = (
 
 # 掃描面下限。低於此值代表排除規則或 traversal 出錯導致掃描面塌陷——那時的「零違規」
 # 沒有資訊量，必須 fail loud 而不是回報乾淨。本 repo 現況為 59 個目標。
+#
+# **已知殘餘（PR #387 Round 2，agy 提出）**：這是**粗糙的絆線，不是完整性保證**。
+# 部分塌陷只要仍高於下限就偵測不到——例如 repo 長到 100 個目標、一條錯的排除規則砍掉 75 個，
+# 剩下的 25 仍 >= 20 而放行。之所以仍採固定下限而非結構不變量（如「`skills/` 與 `commands/`
+# 都必須有產出」），是因為本 script 也會被指向任意 cwd 執行，那時要求特定目錄存在會變成誤報。
+# 這個取捨的方向是刻意的：寧可漏掉部分塌陷，也不要對合法用法開火。
 _MIN_SCAN_SURFACE = 20
 
 
@@ -202,7 +240,10 @@ def main(argv: list[str]) -> int:
     for path in paths:
         try:
             text = path.read_text(encoding="utf-8")
-        except OSError as e:
+        except (OSError, UnicodeError) as e:
+            # UnicodeError 必須與 OSError 一起接：`read_text(encoding="utf-8")` 對含 0xff 的
+            # 檔案會丟 UnicodeDecodeError（是 ValueError 不是 OSError），逸出後變成 traceback
+            # 並以 exit 1 結束——把工具失敗混進「發現違規」（PR #387 Round 2，codex 提出）。
             # 累積後繼續：中途 return 會讓後面的檔案完全沒被看過，而呼叫端只看到 exit 1，
             # 分不出「工具跑不起來」與「找到違規」。
             read_errors.append(f"{path}: {e}")
@@ -217,17 +258,8 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
 
-    for err in read_errors:
-        print(f"[FAIL] 無法讀取 {err}", file=sys.stderr)
-
-    if read_errors:
-        print(
-            f"[FAIL] {len(read_errors)} 個檔案讀取失敗——工具未能完整執行，"
-            "此結果不可當成「無違規」。",
-            file=sys.stderr,
-        )
-        return 2
-
+    # 修法建議要在 read_errors 的 early return **之前**印，否則同時有讀取失敗與違規時，
+    # 使用者只看到讀取失敗、拿不到怎麼修違規的指引（PR #387 Round 2 NIT，agy 提出）。
     if violations:
         print(
             f"[FAIL] 共 {len(violations)} 處。改用 ${{N}} braced form（見 issue #386）——"
@@ -235,6 +267,20 @@ def main(argv: list[str]) -> int:
             "若該 `$N` 屬於 awk / jq / sed 而非 shell 位置參數，改用跳脫形式 \\$N。",
             file=sys.stderr,
         )
+
+    for err in read_errors:
+        print(f"[FAIL] 無法讀取 {err}", file=sys.stderr)
+
+    if read_errors:
+        # 工具失敗優先於違規：exit 2 表示「沒跑完」，呼叫端不可把它讀成「跑完且有 N 個違規」。
+        print(
+            f"[FAIL] {len(read_errors)} 個檔案讀取失敗——工具未能完整執行，"
+            "此結果不可當成「無違規」，也不可當成「違規只有上列這些」。",
+            file=sys.stderr,
+        )
+        return 2
+
+    if violations:
         return 1
 
     # 印出掃描檔數，讓綠燈可被證偽——「零違規」與「什麼都沒掃」必須看得出差別。
