@@ -332,7 +332,10 @@ ORIG_PROJECT="<from Step 0>"
 RETRO_ID="<id from Step 4 output>"
 
 add_lesson() {
-  local key="$1" type="$2" insight="$3" confidence="$4" source="$5" skill_flag_val="$6" state="$7"
+  # 位置參數一律用 ${N} braced form，不可寫裸 $N（issue #386）：skill body 的 argument
+  # substitution 會在 agent 讀到之前把裸 $N 換成呼叫端的 argument token——磁碟上的檔案
+  # 完全正確，所以 grep 原始檔看不出問題。
+  local key="${1}" type="${2}" insight="${3}" confidence="${4}" source="${5}" skill_flag_val="${6}" state="${7}"
   local skill_flag=()
   local state_flag=()
   if [ -n "$skill_flag_val" ]; then
