@@ -17,10 +17,10 @@ def get_default_config_path() -> Path:
 
 
 def load_config(path: Path | None = None) -> NightlyAgentConfig:
-    """載入設定；檔案不存在時回傳預設值（首次執行免 setup）。"""
+    """載入設定；檔案不存在時自動偵測 origin remote 並落地（首次執行免 setup）。"""
     config_path = path or get_default_config_path()
     if not config_path.exists():
-        return NightlyAgentConfig()
+        generate_default_config(config_path)
     try:
         data = json.loads(config_path.read_text(encoding="utf-8"))
     except OSError as e:

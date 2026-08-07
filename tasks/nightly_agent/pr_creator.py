@@ -13,6 +13,19 @@ from tasks._paths import PROJECT_ROOT
 from .models import ArtifactProposal, ArtifactType, NightlyAgentConfig, PRRecord, TestResult
 
 
+def _slugify_title(title: str, cluster_id: str) -> str:
+    """把 title 轉成合法 git branch 片段。
+
+    title 過濾後為空（例如全中文標題）時，用 cluster_id 前 8 碼當 fallback，
+    避免產生空字串或以 `/` 結尾的非法 git ref。
+    """
+    safe = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40].strip("-")
+    if safe:
+        return safe
+    fallback = re.sub(r"[^a-z0-9]+", "-", cluster_id.lower()).strip("-")[:8]
+    return fallback or "untitled"
+
+
 def _get_main_repo() -> Path:
     """Return main repo root (resolves worktree → main via --git-common-dir)."""
     result = subprocess.run(  # nosec B603 B607
@@ -36,7 +49,7 @@ class PRCreator:
     def create_pr(self, proposal: ArtifactProposal, test_result: TestResult) -> PRRecord:
         """建立 PR，回傳 PRRecord。"""
         date_str = datetime.now().strftime("%Y-%m-%d")
-        safe = re.sub(r"[^a-z0-9-]", "-", proposal.title.lower())[:40].strip("-")
+        safe = _slugify_title(proposal.title, proposal.cluster_id)
         branch = f"{self.config.pr_branch_prefix}/{date_str}/{safe}"
 
         # All git operations run against main repo (not worktree)
@@ -145,25 +158,25 @@ class PRCreator:
         body_path.parent.mkdir(parents=True, exist_ok=True)
         body_path.write_text(body, encoding="utf-8")
 
+        cmd = ["gh", "pr", "create"]
+        if self.config.github_repo:
+            cmd += ["--repo", self.config.github_repo]
+        cmd += [
+            "--base",
+            "main",
+            "--head",
+            branch,
+            "--title",
+            title,
+            "--body-file",
+            str(body_path),
+            "--label",
+            "nightly-agent",
+        ]
+
         try:
             result = subprocess.run(  # nosec B603 B607
-                [
-                    "gh",
-                    "pr",
-                    "create",
-                    "--repo",
-                    self.config.github_repo or ".",
-                    "--base",
-                    "main",
-                    "--head",
-                    branch,
-                    "--title",
-                    title,
-                    "--body-file",
-                    str(body_path),
-                    "--label",
-                    "nightly-agent",
-                ],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=60,
