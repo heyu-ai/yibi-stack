@@ -188,6 +188,23 @@ class TestScanHooks:
         assert result.score == 4
         assert any("不存在" in f for f in result.findings)
 
+    def test_heval_dt_015_glob_arg_not_treated_as_missing_script(self, tmp_path: Path) -> None:
+        """HEVAL-DT-015: 命令參數中的 glob（如 *.py）不得被當成缺失的 script 檔。
+
+        `ruff check *.py` 的 `*.py` 是命令參數而非 script 路徑；舊版以 `.py` 結尾判定
+        誤把它當成登記的 script，回報「檔案不存在」假訊號。
+        """
+        hooks = {
+            "PreToolUse": [
+                {"matcher": "Edit", "hooks": [{"type": "command", "command": "ruff check *.py"}]}
+            ],
+        }
+        result = scan_hooks(make_settings(tmp_path, hooks=hooks))
+        # glob 參數不得產生「script 登記但檔案不存在」WARN
+        assert not any("不存在" in f for f in result.findings)
+        # 唯一像 .py 的 token 是 glob -> 該命令視為 inline，得 inline script 驗證分
+        assert any("inline" in f for f in result.findings)
+
 
 class TestScanSettings:
     def test_heval_dt_020_no_settings(self, tmp_path: Path) -> None:
@@ -262,6 +279,28 @@ class TestScanSettings:
         result = scan_settings(tmp_path)
         assert any("萬用字元" in f for f in result.findings)
         assert result.score < 6  # 過寬授權不得滿分
+
+    def test_heval_dt_026_middle_wildcard_and_find_delete_covered(self, tmp_path: Path) -> None:
+        """HEVAL-DT-026: find -delete 納入偵測，且中間萬用字元不破壞比對。
+
+        find -delete/-exec 必須屬於高風險操作集合；比對須容忍 verb 與危險 flag 之間的
+        萬用字元（如 Bash(find * -delete)、Bash(git reset * --hard *)）。
+        """
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir(exist_ok=True)
+        data = {
+            "permissions": {
+                "deny": [
+                    "Bash(find * -delete)",
+                    "Bash(git reset * --hard *)",
+                    "Bash(rm -rf *)",
+                ]
+            }
+        }
+        (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+        result = scan_settings(tmp_path)
+        assert result.score >= 3  # 3 個不同高風險操作 -> deny 滿分
+        assert any("find -delete" in f for f in result.findings)
 
 
 class TestScanSkills:
@@ -577,6 +616,20 @@ class TestScanRules:
         (skill_dir / "SKILL.md").write_text("---\nname: claude-md-prune\n---\n", encoding="utf-8")
         assert scan_rules(tmp_path).score >= 4
 
+    def test_heval_dt_066_prune_via_rule_content_marker(self, tmp_path: Path) -> None:
+        """HEVAL-DT-066: rule 內容引用維護佇列 marker（harness-queue）→ 認定有 prune/lesson 路由。
+
+        prune 機制在此 repo 由 plugin（claude-md-prune）與週結流程（harness-batch）驅動，
+        掃 target repo 的 .claude/skills/ 看不到；改以 rule 內容 marker 佐證維護循環存在。
+        """
+        rd = tmp_path / ".claude" / "rules"
+        make_rule(rd, "01-style.md", "# Style")
+        make_rule(rd, "02-maintenance.md", "# Maintenance\n見 harness-queue 週結流程回收既有規則。")
+        result = scan_rules(tmp_path)
+        assert any("維護循環" in f for f in result.findings)
+        # base(2) + numbered(2) + prune(2) = 6；未偵測 prune 則僅 4
+        assert result.score >= 6
+
 
 class TestScanSecurity:
     def test_heval_dt_070_no_gitignore(self, tmp_path: Path) -> None:
@@ -866,6 +919,32 @@ class TestScanTokenEconomy:
         always_on = int(result.extra["always_on_chars"][0])
         assert on_demand >= 3000
         assert always_on == 1000
+
+    # --- TE-DT-012: path-scoped rule is on-demand, not always-on ---
+
+    def test_te_dt_012_path_scoped_rule_not_always_on(self, tmp_path: Path) -> None:
+        """TE-DT-012: a rule file with a `paths:` frontmatter key counts as on-demand.
+
+        Per Claude Code loading semantics (CLAUDE.md, verified in PR #250): a rule
+        with a `paths:` key loads only when a tool touches a matching path, so its
+        chars are on-demand context. A rule with no `paths:` key is always-on.
+        """
+        (tmp_path / "CLAUDE.md").write_text("x" * 1000, encoding="utf-8")
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        # always-on: no frontmatter
+        (rules_dir / "01-global.md").write_text("y" * 500, encoding="utf-8")
+        # path-scoped: has a `paths:` key -> on-demand
+        scoped = '---\npaths:\n  - "tasks/**"\n---\n' + "z" * 800
+        (rules_dir / "04-scoped.md").write_text(scoped, encoding="utf-8")
+
+        result = scan_token_economy(tmp_path)
+        always_on = int(result.extra["always_on_chars"][0])
+        on_demand = int(result.extra["on_demand_chars"][0])
+        # always-on = CLAUDE.md(1000) + 01-global.md(500); the path-scoped rule excluded
+        assert always_on == 1500
+        # the path-scoped rule's full char count moves to on-demand (no skills here)
+        assert on_demand == len(scoped)
 
     # --- TE-DT-006: CLAUDE.md↔rules overlap WARN ---
 

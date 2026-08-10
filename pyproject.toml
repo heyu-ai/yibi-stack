@@ -147,6 +147,7 @@ max-locals = 40       # parser 函式天生需要大量區域變數
 max-branches = 35     # PDF 解析分支多
 max-statements = 120  # parser parse() 方法長
 max-attributes = 12
+max-public-methods = 30  # 決策表測試 class（每個分支一個 test 方法）天生方法多
 
 [tool.pylint.basic]
 # 允許 SCREAMING_SNAKE_CASE 私有常數（如 _TYPE_TO_FORMAT）

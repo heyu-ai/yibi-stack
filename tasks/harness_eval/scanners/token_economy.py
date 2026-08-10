@@ -128,14 +128,40 @@ def _read_chars(path: Path) -> int:
         return 0
 
 
-def _collect_always_on_chars(target_dir: Path) -> tuple[int, list[str]]:
-    """計算 always-on context 字元數估計。
+_PATHS_KEY_RE = re.compile(r"^\s*paths\s*:", re.MULTILINE)
 
-    來源：CLAUDE.md + .claude/rules/*.md + .claude/memory/*.md
-    回傳 (char_count, detail_findings)。
+
+def _rule_is_path_scoped(md_file: Path) -> bool:
+    """判斷 rule 檔是否為 path-scoped（frontmatter 內含 `paths:` key）。
+
+    依 Claude Code rule 載入語意（見 CLAUDE.md，PR #250 實測）：frontmatter 內有
+    `paths:` key 者只在工具碰到匹配路徑時載入（on-demand）；沒有 `paths:` key 者
+    （含完全沒有 frontmatter）每個 session 全量載入（always-on）。
+    值為 YAML list 或純量字串行為相同，故只偵測 key 存在與否，不解析其值。
+    """
+    try:
+        content = md_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    if not content.startswith("---"):
+        return False
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return False
+    return bool(_PATHS_KEY_RE.search(parts[1]))
+
+
+def _collect_always_on_chars(target_dir: Path) -> tuple[int, int, list[str]]:
+    """計算 always-on context 字元數估計，並分離 path-scoped rule 的 on-demand 字元。
+
+    來源：CLAUDE.md + .claude/rules/*.md（僅非 path-scoped）+ .claude/memory/*.md
+    path-scoped rule（frontmatter 含 `paths:` key）改計入 on-demand，見
+    `_rule_is_path_scoped`。
+    回傳 (always_on_chars, on_demand_rule_chars, detail_findings)。
     """
     findings: list[str] = []
     total = 0
+    on_demand_rule_chars = 0
 
     claude_md = target_dir / "CLAUDE.md"
     if claude_md.is_file():
@@ -145,15 +171,29 @@ def _collect_always_on_chars(target_dir: Path) -> tuple[int, list[str]]:
 
     rules_dir = target_dir / ".claude" / "rules"
     if rules_dir.is_dir():
-        rule_chars = 0
-        rule_count = 0
+        always_on_rule_chars = 0
+        always_on_rule_count = 0
+        scoped_rule_count = 0
         for f in rules_dir.iterdir():
             if f.suffix == ".md" and f.is_file():
-                rule_chars += _read_chars(f)
-                rule_count += 1
-        if rule_count:
-            total += rule_chars
-            findings.append(f".claude/rules/ ({rule_count} files): {rule_chars} chars")
+                chars = _read_chars(f)
+                if _rule_is_path_scoped(f):
+                    on_demand_rule_chars += chars
+                    scoped_rule_count += 1
+                else:
+                    always_on_rule_chars += chars
+                    always_on_rule_count += 1
+        if always_on_rule_count:
+            total += always_on_rule_chars
+            findings.append(
+                f".claude/rules/ always-on ({always_on_rule_count} files): "
+                f"{always_on_rule_chars} chars"
+            )
+        if scoped_rule_count:
+            findings.append(
+                f".claude/rules/ path-scoped on-demand ({scoped_rule_count} files): "
+                f"{on_demand_rule_chars} chars"
+            )
 
     memory_dir = target_dir / ".claude" / "memory"
     if memory_dir.is_dir():
@@ -167,7 +207,7 @@ def _collect_always_on_chars(target_dir: Path) -> tuple[int, list[str]]:
             total += mem_chars
             findings.append(f".claude/memory/ ({mem_count} files): {mem_chars} chars")
 
-    return total, findings
+    return total, on_demand_rule_chars, findings
 
 
 def _collect_on_demand_chars(target_dir: Path) -> tuple[int, list[str]]:
@@ -326,7 +366,7 @@ def scan_token_economy(target_dir: Path) -> MechanicalFinding:
     score = 0
 
     # --- always-on chars ---
-    always_on_chars, always_on_detail = _collect_always_on_chars(target_dir)
+    always_on_chars, on_demand_rule_chars, always_on_detail = _collect_always_on_chars(target_dir)
     score_adj = _always_on_score_adjustment(always_on_chars)
     score += score_adj
 
@@ -347,7 +387,8 @@ def scan_token_economy(target_dir: Path) -> MechanicalFinding:
     extra["always_on_chars"] = [str(always_on_chars)]
 
     # --- on-demand chars + progressive-disclosure ratio ---
-    on_demand_chars, on_demand_detail = _collect_on_demand_chars(target_dir)
+    on_demand_skill_chars, on_demand_detail = _collect_on_demand_chars(target_dir)
+    on_demand_chars = on_demand_skill_chars + on_demand_rule_chars
     total_chars = always_on_chars + on_demand_chars
     extra["on_demand_chars"] = [str(on_demand_chars)]
     extra["total_chars"] = [str(total_chars)]
