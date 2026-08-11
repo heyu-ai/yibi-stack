@@ -11,12 +11,14 @@ _MECH_MAX = 6
 # 高風險操作偵測樣式（regex, label）：deny list 應涵蓋這些；逐條比對，避免 join 跨條目誤匹配。
 # 使用 regex（比對已小寫化的 deny entry）而非純子字串，才能容忍 verb 與危險 flag 之間的
 # 萬用字元——例如 Bash(git reset * --hard *) 或 Bash(find * -delete)，純子字串會靜默漏判。
+# 詞界 `\b`：避免子字串誤中（`rm` in `confirm`、`force` in `enforce`、`drop` in `dropdown`）
+# 而虛報 deny 覆蓋。find/reset 用 `\b` + `.*` 容忍 verb 與危險 flag 之間的萬用字元。
 _DESTRUCTIVE_PATTERNS = [
-    (r"rm", "rm -rf 刪除防護"),
-    (r"force", "git push --force 防護"),
+    (r"\brm\b", "rm -rf 刪除防護"),
+    (r"\bforce\b", "git push --force 防護"),
     (r"reset\b.*--hard", "git reset --hard 防護"),
-    (r"drop", "DROP TABLE 防護"),
-    (r"alembic", "DB migration 防護"),
+    (r"\bdrop\b", "DROP TABLE 防護"),
+    (r"\balembic\b", "DB migration 防護"),
     (r"find\b.*-delete", "find -delete 批次刪除防護"),
     (r"find\b.*-exec", "find -exec 執行防護"),
 ]
@@ -31,8 +33,10 @@ def _deny_matches(pattern: re.Pattern[str], deny: list[object]) -> bool:
 def _check_deny_coverage(deny: list[object]) -> tuple[int, list[str]]:
     """回傳 (score, findings)：deny list 覆蓋多少高風險操作。
 
-    逐條比對每個 deny entry，避免 join 成單一字串時的跨條目誤匹配
-    （如 Bash(enforce*) 不應匹配 force 關鍵字）。
+    兩層防誤判：
+    - 逐條比對每個 deny entry（非 join 成單一字串），避免跨條目的接縫誤匹配。
+    - pattern 帶 word boundary（`\\bforce\\b` 等），避免子字串誤中——例如 `Bash(enforce*)`
+      的 "enforce" 不會被 `force` 命中、`Bash(confirm*)` 不會被 `rm` 命中。
     """
     covered = [label for pat, label in _DESTRUCTIVE_COMPILED if _deny_matches(pat, deny)]
     total = len(_DESTRUCTIVE_COMPILED)

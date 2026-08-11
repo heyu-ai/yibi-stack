@@ -128,16 +128,19 @@ def _read_chars(path: Path) -> int:
         return 0
 
 
-_PATHS_KEY_RE = re.compile(r"^\s*paths\s*:", re.MULTILINE)
+# 只匹配**頂層**（column 0）的 `paths:` key。不加 `^\s*`：帶前導空白會誤中巢狀 mapping
+# （`metadata:\n  paths:`）或 block scalar（`description: |\n  paths: ...`）內的縮排行，
+# 把它們誤判為 path-scoped。YAML 頂層 mapping key 必在 column 0，故錨定行首即為正解。
+_PATHS_KEY_RE = re.compile(r"^paths\s*:", re.MULTILINE)
 
 
 def _rule_is_path_scoped(md_file: Path) -> bool:
-    """判斷 rule 檔是否為 path-scoped（frontmatter 內含 `paths:` key）。
+    """判斷 rule 檔是否為 path-scoped（frontmatter 內含**頂層** `paths:` key）。
 
-    依 Claude Code rule 載入語意（見 CLAUDE.md，PR #250 實測）：frontmatter 內有
-    `paths:` key 者只在工具碰到匹配路徑時載入（on-demand）；沒有 `paths:` key 者
-    （含完全沒有 frontmatter）每個 session 全量載入（always-on）。
-    值為 YAML list 或純量字串行為相同，故只偵測 key 存在與否，不解析其值。
+    依 Claude Code rule 載入語意（見 CLAUDE.md，PR #250 實測）：frontmatter 內有頂層
+    `paths:` key 者只在工具碰到匹配路徑時載入（on-demand）；沒有頂層 `paths:` key 者
+    （含完全沒有 frontmatter、只在 body/巢狀鍵/block scalar 提及 paths）每個 session
+    全量載入（always-on）。值為 YAML list 或純量字串行為相同，故只偵測 key 存在與否。
     """
     try:
         content = md_file.read_text(encoding="utf-8", errors="replace")

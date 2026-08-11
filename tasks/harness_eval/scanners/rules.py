@@ -11,13 +11,12 @@ _NUMBER_RE = re.compile(r"^\d{2}-")
 # rule 維護循環（prune / lesson 路由）在 rule 內容中的佐證 marker。
 # prune 機制由 plugin（claude-md-prune）與週結流程（harness-queue / harness-batch）驅動，
 # 掃 target repo 的 .claude/skills/ 看不到 plugin，故改以 rule 內容 marker 佐證維護循環存在。
+# 只用**具體識別符**——泛用字（bare "prune" / "lesson routing"）會被偶然提及（`git remote
+# prune`、討論 pruning 的散文）誤中而虛報維護循環存在，故不列入。
 _PRUNE_CONTENT_MARKERS = (
     "harness-queue",
     "harness-batch",
     "claude-md-prune",
-    "lesson routing",
-    "lesson 路由",
-    "prune",
 )
 
 
@@ -55,13 +54,23 @@ def _has_prune_skill_dir(target_dir: Path) -> bool:
     ]
     plugins_dir = target_dir / "plugins"
     if plugins_dir.is_dir():
-        for plugin in plugins_dir.iterdir():
+        try:
+            plugin_entries = list(plugins_dir.iterdir())
+        except OSError:
+            plugin_entries = []
+        for plugin in plugin_entries:
             if plugin.is_dir():
                 skill_roots.append(plugin / "skills")
     for root in skill_roots:
         if not root.is_dir():
             continue
-        for d in root.iterdir():
+        try:
+            entries = list(root.iterdir())
+        except OSError:
+            # 不可讀的目錄（權限不足等）：略過，與 _rule_content_has_prune_marker 的容錯一致，
+            # 不讓單一目錄讓整個 scan_rules 崩潰。
+            continue
+        for d in entries:
             if d.is_dir() and "prune" in d.name.lower():
                 return True
     return False
