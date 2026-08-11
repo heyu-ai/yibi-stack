@@ -13,8 +13,10 @@ from ..models import MechanicalFinding
 
 _MECH_MAX = 8
 _REQUIRED_KEYS = {"name", "type", "scope", "description"}
-# 進階 scoping 欄位：有任一存在即視為「skill 有 path/tool scoping」
-_SCOPING_KEYS = ("allowed-tools", "allowed_tools", "glob", "files", "paths")
+# 進階 scoping 欄位：有任一存在即視為「skill 有 path/tool scoping」。
+# 不含 "glob"：Claude Code 不認得 glob:/globs:/path: 這些 key，會被靜默忽略（見
+# CLAUDE.md），列進來會讓沒有實際 scoping 效果的 skill 假獲得加分。
+_SCOPING_KEYS = ("allowed-tools", "allowed_tools", "files", "paths")
 
 # skills 可能的位置：.claude/skills/（symlink 安裝目標）或 skills/（source repo）
 _SKILL_DIRS = [".claude/skills", "skills"]
@@ -147,11 +149,11 @@ def scan_skills(target_dir: Path) -> MechanicalFinding:
             score += 1
             findings.append(
                 f"path/tool scoping：{scoped}/{len(skill_mds)} 個 skill 含 "
-                f"allowed-tools/glob/files 欄位（progressive disclosure）"
+                f"allowed-tools/paths/files 欄位（progressive disclosure）"
             )
         else:
             findings.append(
-                "WARN: 無 skill 含 allowed-tools/glob 等 scoping 欄位"
+                "WARN: 無 skill 含 allowed-tools/paths 等 scoping 欄位"
                 "（Anthropic 建議將 skill 綁定到特定路徑/工具，避免 context bloat）"
             )
 

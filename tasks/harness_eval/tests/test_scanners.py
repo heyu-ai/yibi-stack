@@ -422,6 +422,26 @@ class TestScanSkills:
         assert result.score == 5
         assert any("path/tool scoping" in f for f in result.findings)
 
+    def test_heval_dt_032c2_glob_key_not_scoping(self, tmp_path: Path) -> None:
+        """HEVAL-DT-032c2: `glob:` 不是 Claude Code 認得的 scoping key，不得計為
+        path/tool scoping——只有 allowed-tools/allowed_tools/files/paths 才算。"""
+        skill_dir = tmp_path / ".claude" / "skills" / "not-scoped-skill"
+        skill_dir.mkdir(parents=True)
+        fm = (
+            "---\n"
+            "name: not-scoped-skill\n"
+            "type: know\n"
+            "scope: global\n"
+            "description: test\n"
+            "glob: tasks/**\n"
+            "---\n"
+        )
+        (skill_dir / "SKILL.md").write_text(fm + "# Body\n", encoding="utf-8")
+        result = scan_skills(tmp_path)
+        # skills(2) + frontmatter(2) + scoping(0) = 4
+        assert result.score == 4
+        assert not any("path/tool scoping" in f for f in result.findings)
+
     def test_heval_dt_032d_plugins_detected(self, tmp_path: Path) -> None:
         """HEVAL-DT-032d: plugins/ 含 package.json 的子目錄 → plugins +1。"""
         # 必須先有 skill 才能進入主分支
@@ -668,11 +688,22 @@ class TestScanRules:
         make_rule(rd, "02-errors.md", "# Errors")
         assert scan_rules(tmp_path).score >= 4
 
-    def test_heval_dt_064_glob_frontmatter(self, tmp_path: Path) -> None:
-        """HEVAL-DT-064: 含 glob frontmatter → score >= 5。"""
+    def test_heval_dt_064_paths_frontmatter(self, tmp_path: Path) -> None:
+        """HEVAL-DT-064: 含頂層 paths: frontmatter → score >= 5。"""
         rd = tmp_path / ".claude" / "rules"
-        make_rule(rd, "01-python.md", "---\nglob: tasks/**\n---\n# Python rules")
+        make_rule(rd, "01-python.md", "---\npaths: tasks/**\n---\n# Python rules")
         assert scan_rules(tmp_path).score >= 5
+
+    def test_heval_dt_064b_glob_key_not_path_scoped(self, tmp_path: Path) -> None:
+        """HEVAL-DT-064b: `glob:`/`globs:`/`path:` 不是 Claude Code 認得的 key，不得計為
+        path-scoped——只有頂層 `paths:` 才算（見 CLAUDE.md）。"""
+        rd = tmp_path / ".claude" / "rules"
+        make_rule(rd, "01-style.md", "# Style")
+        make_rule(rd, "02-python.md", "---\nglob: tasks/**\n---\n# Python rules")
+        make_rule(rd, "03-node.md", "---\nglobs: web/**\n---\n# Node rules")
+        make_rule(rd, "04-go.md", "---\npath: services/**\n---\n# Go rules")
+        result = scan_rules(tmp_path)
+        assert not any("paths frontmatter" in f for f in result.findings)
 
     def test_heval_dt_065_prune_mechanism(self, tmp_path: Path) -> None:
         """HEVAL-DT-065: .claude/skills/ 含 prune skill → score >= 4。"""
