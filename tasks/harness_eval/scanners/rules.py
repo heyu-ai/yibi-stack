@@ -8,6 +8,19 @@ from ..models import MechanicalFinding
 _MECH_MAX = 7
 _NUMBER_RE = re.compile(r"^\d{2}-")
 
+# rule 維護循環（prune / lesson 路由）在 rule 內容中的佐證 marker。
+# prune 機制由**全域安裝的 plugin**（claude-md-prune）與週結流程（harness-queue /
+# harness-batch）驅動；全域 plugin 不在 target repo 的任何目錄下，任何目錄掃描都看不到，
+# 故以 rule 內容 marker 佐證。（vendored 進 repo 的 `plugins/*/skills/*prune*` 目錄則由
+# `_has_prune_skill_dir` 另行偵測，兩者為 OR 疊加。）
+# 只用**具體識別符**——泛用字（bare "prune" / "lesson routing"）會被偶然提及（`git remote
+# prune`、討論 pruning 的散文）誤中而虛報維護循環存在，故不列入。
+_PRUNE_CONTENT_MARKERS = (
+    "harness-queue",
+    "harness-batch",
+    "claude-md-prune",
+)
+
 
 def _has_glob_frontmatter(md_file: Path) -> bool:
     try:
@@ -18,6 +31,51 @@ def _has_glob_frontmatter(md_file: Path) -> bool:
         return False
     parts = content.split("---", 2)
     return len(parts) >= 3 and "glob:" in parts[1]
+
+
+def _rule_content_has_prune_marker(rule_files: list[Path]) -> bool:
+    """任一 rule 檔內容含維護循環 marker → 認定 prune / lesson 路由機制存在。"""
+    for f in rule_files:
+        try:
+            content = f.read_text(encoding="utf-8", errors="replace").lower()
+        except OSError:
+            continue
+        if any(marker in content for marker in _PRUNE_CONTENT_MARKERS):
+            return True
+    return False
+
+
+def _has_prune_skill_dir(target_dir: Path) -> bool:
+    """任一 skill 根目錄下存在名稱含 prune 的 skill dir → prune 機制存在。
+
+    掃 .claude/skills/、skills/、plugins/*/skills/，涵蓋 plugin 化與 symlink 掛載的 skill。
+    """
+    skill_roots = [
+        target_dir / ".claude" / "skills",
+        target_dir / "skills",
+    ]
+    plugins_dir = target_dir / "plugins"
+    if plugins_dir.is_dir():
+        try:
+            plugin_entries = list(plugins_dir.iterdir())
+        except OSError:
+            plugin_entries = []
+        for plugin in plugin_entries:
+            if plugin.is_dir():
+                skill_roots.append(plugin / "skills")
+    for root in skill_roots:
+        if not root.is_dir():
+            continue
+        try:
+            entries = list(root.iterdir())
+        except OSError:
+            # 不可讀的目錄（權限不足等）：略過，與 _rule_content_has_prune_marker 的容錯一致，
+            # 不讓單一目錄讓整個 scan_rules 崩潰。
+            continue
+        for d in entries:
+            if d.is_dir() and "prune" in d.name.lower():
+                return True
+    return False
 
 
 def scan_rules(target_dir: Path) -> MechanicalFinding:
@@ -59,11 +117,11 @@ def scan_rules(target_dir: Path) -> MechanicalFinding:
         score = min(score + 2, _MECH_MAX)
         findings.append("規則使用 topic 命名分類（yibi-stack 編號 + 交叉引用模式）")
 
-    skills_dir = target_dir / ".claude" / "skills"
-    has_prune = skills_dir.exists() and any(
-        "prune" in d.name.lower() for d in skills_dir.iterdir() if d.is_dir()
-    )
-    if has_prune:
+    # prune / lesson 路由機制：rule 內容 marker 佐證，或 skill 目錄佐證（任一即可）
+    if _rule_content_has_prune_marker(rule_files):
+        score = min(score + 2, _MECH_MAX)
+        findings.append("規則維護循環存在（rule 內容引用維護佇列 / lesson 路由 marker）")
+    elif _has_prune_skill_dir(target_dir):
         score = min(score + 2, _MECH_MAX)
         findings.append("規則維護循環存在（prune skill）")
     else:

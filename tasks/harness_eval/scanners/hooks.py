@@ -38,6 +38,21 @@ _REFLECTION_KEYWORDS = (
 _REFLECTION_EVENTS = ("Stop", "SessionEnd", "PreCompact", "SubagentStop")
 
 
+# glob 萬用字元：帶這些字元的 token 是命令參數（如 `*.py`），不是待驗證的 script 路徑
+_GLOB_CHARS = ("*", "?", "[", "]")
+
+
+def _is_script_token(token: str) -> bool:
+    """判斷 token 是否為真實 script 路徑（.sh/.py 結尾且不含 glob 萬用字元）。
+
+    排除 glob 樣式（`ruff check *.py` 的 `*.py`、`check?.sh` 等）——它們是命令參數，
+    不是登記的 script 檔案。舊版只看 `.py`/`.sh` 結尾，會把 glob 誤判成缺失的 script。
+    """
+    if not (token.endswith(".sh") or token.endswith(".py")):
+        return False
+    return not any(c in token for c in _GLOB_CHARS)
+
+
 def _collect_hook_script_paths(hooks: dict[str, object]) -> list[str]:
     """從 hooks 設定中收集 script 路徑。
 
@@ -58,15 +73,11 @@ def _collect_hook_script_paths(hooks: dict[str, object]) -> list[str]:
                     continue
                 cmd = hook.get("command", "")
                 if isinstance(cmd, str):
-                    for token in cmd.split():
-                        if token.endswith(".sh") or token.endswith(".py"):
-                            paths.append(token)
+                    paths.extend(token for token in cmd.split() if _is_script_token(token))
             # 舊版 / 部分使用者的 schema: {run: "script.sh ..."}
             run = entry.get("run", "")
             if isinstance(run, str):
-                for token in run.split():
-                    if token.endswith(".sh") or token.endswith(".py"):
-                        paths.append(token)
+                paths.extend(token for token in run.split() if _is_script_token(token))
     return paths
 
 
@@ -107,15 +118,11 @@ def _has_inline_hooks(hooks: dict[str, object]) -> bool:
                     if (
                         isinstance(cmd, str)
                         and cmd
-                        and not any(t.endswith(".sh") or t.endswith(".py") for t in cmd.split())
+                        and not any(_is_script_token(t) for t in cmd.split())
                     ):
                         return True
             run = entry.get("run", "")
-            if (
-                isinstance(run, str)
-                and run
-                and not any(t.endswith(".sh") or t.endswith(".py") for t in run.split())
-            ):
+            if isinstance(run, str) and run and not any(_is_script_token(t) for t in run.split()):
                 return True
     return False
 

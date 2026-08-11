@@ -1,6 +1,7 @@
 """harness_eval scanner 決策表測試。"""
 
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -188,6 +189,44 @@ class TestScanHooks:
         assert result.score == 4
         assert any("不存在" in f for f in result.findings)
 
+    def test_heval_dt_015_glob_arg_not_treated_as_missing_script(self, tmp_path: Path) -> None:
+        """HEVAL-DT-015: 命令參數中的 glob（如 *.py）不得被當成缺失的 script 檔。
+
+        `ruff check *.py` 的 `*.py` 是命令參數而非 script 路徑；舊版以 `.py` 結尾判定
+        誤把它當成登記的 script，回報「檔案不存在」假訊號。
+        """
+        hooks = {
+            "PreToolUse": [
+                {"matcher": "Edit", "hooks": [{"type": "command", "command": "ruff check *.py"}]}
+            ],
+        }
+        result = scan_hooks(make_settings(tmp_path, hooks=hooks))
+        # glob 參數不得產生「script 登記但檔案不存在」WARN
+        assert not any("不存在" in f for f in result.findings)
+        # 唯一像 .py 的 token 是 glob -> 該命令視為 inline，得 inline script 驗證分
+        assert any("inline" in f for f in result.findings)
+
+    def test_heval_dt_016_real_script_still_collected_alongside_glob(self, tmp_path: Path) -> None:
+        """HEVAL-DT-016: 命令同時含真實 script 與 glob 時，仍收集該 script（glob 過濾不誤傷）。
+
+        `hook.sh --scan *.py`：`hook.sh` 是登記 script（不存在 -> WARN），`*.py` 是 glob（排除）。
+        鎖住 `_is_script_token` 的 glob 過濾不會連帶把同列的真實 script 一起丟掉。
+        """
+        hooks = {
+            "PreToolUse": [
+                {
+                    "matcher": "Edit",
+                    "hooks": [{"type": "command", "command": ".claude/hooks/hook.sh --scan *.py"}],
+                }
+            ],
+        }
+        result = scan_hooks(make_settings(tmp_path, hooks=hooks))
+        # hook.sh 被當成登記 script 且檔案不存在 -> 出現「不存在」WARN，且只列 hook.sh（非 *.py）
+        missing_warn = next((f for f in result.findings if "不存在" in f), None)
+        assert missing_warn is not None
+        assert "hook.sh" in missing_warn
+        assert "*.py" not in missing_warn
+
 
 class TestScanSettings:
     def test_heval_dt_020_no_settings(self, tmp_path: Path) -> None:
@@ -237,16 +276,60 @@ class TestScanSettings:
         assert scan_settings(tmp_path).score == 6
 
     def test_heval_dt_024_no_false_positive_enforce(self, tmp_path: Path) -> None:
-        """HEVAL-DT-024: enforce 不應誤匹配 force 關鍵字（防 substring false positive）。"""
+        """HEVAL-DT-024: enforce 不應誤匹配 force 關鍵字（word-boundary 防 substring 誤判）。"""
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(exist_ok=True)
         data = {"permissions": {"deny": ["Bash(enforce-mode*)"]}}
         (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
         result = scan_settings(tmp_path)
-        # "enforce" 含 "force" 子字串，但逐條比對 "force" in "bash(enforce-mode*)" 仍為 True
-        # 此 test 確認不誤判：如果 force 被匹配，那是因為字串本身含 force，符合預期
-        # 主要驗證：不會因為 join 跨條目污染而誤匹配
-        assert result.score >= 0  # score 合法即可（不 crash）
+        # `\bforce\b` 不匹配 "enforce"（前無 word boundary）-> 未覆蓋任何高風險操作 -> deny 0 分
+        assert not any("已覆蓋" in f or "覆蓋 " in f for f in result.findings)
+        assert any("未覆蓋任何高風險操作" in f for f in result.findings)
+
+    def test_heval_dt_027_benign_deny_not_credited(self, tmp_path: Path) -> None:
+        """HEVAL-DT-027: 內含高風險關鍵字子字串的無害 deny 條目不得被算「已覆蓋」。
+
+        `confirm`(含 rm)、`enforce`(含 force)、`dropdown`(含 drop) 皆是無害命令，
+        word-boundary 之前這三條會虛報 3/3 deny 覆蓋（over-credit security 分）。
+        """
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir(exist_ok=True)
+        data = {
+            "permissions": {
+                "deny": [
+                    "Bash(confirm-action*)",
+                    "Bash(enforce-policy*)",
+                    "Bash(dropdown-gen*)",
+                ]
+            }
+        }
+        (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+        result = scan_settings(tmp_path)
+        # 無任何真實高風險操作 -> deny 覆蓋 0，score 不得因子字串誤中而 >= 1
+        assert result.score == 0
+        assert any("未覆蓋任何高風險操作" in f for f in result.findings)
+
+    def test_heval_dt_028_prefix_word_deny_not_credited(self, tmp_path: Path) -> None:
+        """HEVAL-DT-028: 帶前綴的無害詞（preset/refind/pathfind）不得誤中 reset/find pattern。
+
+        `reset\\b`/`find\\b` 只有尾端 `\\b`、缺前置 `\\b` 時，會匹配 `preset`/`refind`/`pathfind`
+        的尾段子字串而虛報 deny 覆蓋。
+        """
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir(exist_ok=True)
+        data = {
+            "permissions": {
+                "deny": [
+                    "Bash(preset --hard)",
+                    "Bash(refind -delete)",
+                    "Bash(pathfind -exec)",
+                ]
+            }
+        }
+        (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+        result = scan_settings(tmp_path)
+        assert result.score == 0
+        assert any("未覆蓋任何高風險操作" in f for f in result.findings)
 
     def test_heval_dt_025_wildcard_allow_detected(self, tmp_path: Path) -> None:
         """HEVAL-DT-025: allow list 含 Bash(git *) 應被偵測為萬用字元過寬授權。"""
@@ -262,6 +345,28 @@ class TestScanSettings:
         result = scan_settings(tmp_path)
         assert any("萬用字元" in f for f in result.findings)
         assert result.score < 6  # 過寬授權不得滿分
+
+    def test_heval_dt_026_middle_wildcard_and_find_delete_covered(self, tmp_path: Path) -> None:
+        """HEVAL-DT-026: find -delete 納入偵測，且中間萬用字元不破壞比對。
+
+        find -delete/-exec 必須屬於高風險操作集合；比對須容忍 verb 與危險 flag 之間的
+        萬用字元（如 Bash(find * -delete)、Bash(git reset * --hard *)）。
+        """
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir(exist_ok=True)
+        data = {
+            "permissions": {
+                "deny": [
+                    "Bash(find * -delete)",
+                    "Bash(git reset * --hard *)",
+                    "Bash(rm -rf *)",
+                ]
+            }
+        }
+        (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+        result = scan_settings(tmp_path)
+        assert result.score >= 3  # 3 個不同高風險操作 -> deny 滿分
+        assert any("find -delete" in f for f in result.findings)
 
 
 class TestScanSkills:
@@ -577,6 +682,43 @@ class TestScanRules:
         (skill_dir / "SKILL.md").write_text("---\nname: claude-md-prune\n---\n", encoding="utf-8")
         assert scan_rules(tmp_path).score >= 4
 
+    def test_heval_dt_066_prune_via_rule_content_marker(self, tmp_path: Path) -> None:
+        """HEVAL-DT-066: rule 內容引用維護佇列 marker（harness-queue）→ 認定有 prune/lesson 路由。
+
+        prune 機制在此 repo 由 plugin（claude-md-prune）與週結流程（harness-batch）驅動，
+        掃 target repo 的 .claude/skills/ 看不到；改以 rule 內容 marker 佐證維護循環存在。
+        """
+        rd = tmp_path / ".claude" / "rules"
+        make_rule(rd, "01-style.md", "# Style")
+        make_rule(rd, "02-maintenance.md", "# Maintenance\n見 harness-queue 週結流程回收既有規則。")
+        result = scan_rules(tmp_path)
+        assert any("維護循環" in f for f in result.findings)
+        # base(2) + numbered(2) + prune(2) = 6；未偵測 prune 則僅 4
+        assert result.score >= 6
+
+    def test_heval_dt_067_unreadable_skill_dir_no_crash(self, tmp_path: Path) -> None:
+        """HEVAL-DT-067: 不可讀的 skill 根目錄不得讓 scan_rules 崩潰（OSError 容錯）。"""
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("root 可讀任何目錄，chmod 000 無法模擬 PermissionError")
+        make_rule(tmp_path / ".claude" / "rules", "01-style.md", "# Style")  # 無 prune marker
+        skills = tmp_path / ".claude" / "skills"
+        skills.mkdir(parents=True)
+        os.chmod(skills, 0o000)
+        try:
+            result = scan_rules(tmp_path)  # 不得拋 PermissionError
+        finally:
+            os.chmod(skills, 0o755)
+        assert result.dimension == "D7"
+        assert any("未找到 rule prune 機制" in f for f in result.findings)
+
+    def test_heval_dt_068_incidental_prune_mention_not_credited(self, tmp_path: Path) -> None:
+        """HEVAL-DT-068: rule 僅偶然提及 prune（git remote prune）不得獲維護循環加分。"""
+        rd = tmp_path / ".claude" / "rules"
+        make_rule(rd, "01-git.md", "# Git\n每週 git remote prune origin 清理 stale refs。")
+        result = scan_rules(tmp_path)
+        assert not any("規則維護循環存在" in f for f in result.findings)
+        assert any("未找到 rule prune 機制" in f for f in result.findings)
+
 
 class TestScanSecurity:
     def test_heval_dt_070_no_gitignore(self, tmp_path: Path) -> None:
@@ -866,6 +1008,82 @@ class TestScanTokenEconomy:
         always_on = int(result.extra["always_on_chars"][0])
         assert on_demand >= 3000
         assert always_on == 1000
+
+    # --- TE-DT-012: path-scoped rule is on-demand, not always-on ---
+
+    def test_te_dt_012_path_scoped_rule_not_always_on(self, tmp_path: Path) -> None:
+        """TE-DT-012: a rule file with a `paths:` frontmatter key counts as on-demand.
+
+        Per Claude Code loading semantics (CLAUDE.md, verified in PR #250): a rule
+        with a `paths:` key loads only when a tool touches a matching path, so its
+        chars are on-demand context. A rule with no `paths:` key is always-on.
+        """
+        (tmp_path / "CLAUDE.md").write_text("x" * 1000, encoding="utf-8")
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        # always-on: no frontmatter
+        (rules_dir / "01-global.md").write_text("y" * 500, encoding="utf-8")
+        # path-scoped: has a `paths:` key -> on-demand
+        scoped = '---\npaths:\n  - "tasks/**"\n---\n' + "z" * 800
+        (rules_dir / "04-scoped.md").write_text(scoped, encoding="utf-8")
+
+        result = scan_token_economy(tmp_path)
+        always_on = int(result.extra["always_on_chars"][0])
+        on_demand = int(result.extra["on_demand_chars"][0])
+        # always-on = CLAUDE.md(1000) + 01-global.md(500); the path-scoped rule excluded
+        assert always_on == 1500
+        # the path-scoped rule's full char count moves to on-demand (no skills here)
+        assert on_demand == len(scoped)
+
+    # --- TE-DT-013: only a top-level `paths:` key is path-scoped ---
+
+    def test_te_dt_013_non_toplevel_paths_stays_always_on(self, tmp_path: Path) -> None:
+        """TE-DT-013: `paths:` that is not a top-level frontmatter key stays always-on.
+
+        A nested `metadata:\\n  paths:` or a `description: |` block-scalar line, a `paths:`
+        in the body, or a sibling `path:`/`globs:` key must NOT be misread as path-scoped
+        (which would silently move the rule's chars from always-on to on-demand).
+        """
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        cases = {
+            "01-nested.md": "---\nmetadata:\n  paths: whatever\n---\nbody\n",
+            "02-block.md": "---\ndescription: |\n  paths: documents the paths convention\n---\nb\n",
+            "03-body.md": "# Rule\n本檔在正文說明 paths: 慣例，但 frontmatter 沒有 paths key。\n",
+            "04-sibling.md": "---\npath: tasks/foo\nglobs: tasks/**\n---\nbody\n",
+        }
+        total = 0
+        for name, content in cases.items():
+            (rules_dir / name).write_text(content, encoding="utf-8")
+            total += len(content)
+
+        result = scan_token_economy(tmp_path)
+        always_on = int(result.extra["always_on_chars"][0])
+        on_demand = int(result.extra["on_demand_chars"][0])
+        # none is path-scoped -> every char stays always-on, nothing leaks to on-demand
+        assert always_on == total
+        assert on_demand == 0
+
+    # --- TE-DT-014: embedded '---' in a frontmatter value must not truncate parsing ---
+
+    def test_te_dt_014_embedded_dash_frontmatter_detects_real_paths(self, tmp_path: Path) -> None:
+        """TE-DT-014: 值內嵌 `---` 不得截斷 frontmatter 而漏掉其後的頂層 `paths:`。
+
+        `split("---", 2)` 會把值內的 `---` 子字串當結束分隔符；frontmatter 必須以「獨占一行
+        的 `---`」界定，否則此 path-scoped rule 會被誤計為 always-on。
+        """
+        (tmp_path / "CLAUDE.md").write_text("x" * 500, encoding="utf-8")
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        scoped = '---\ndescription: "separator---inside"\npaths: "src/**"\n---\n' + "z" * 300
+        (rules_dir / "04-scoped.md").write_text(scoped, encoding="utf-8")
+
+        result = scan_token_economy(tmp_path)
+        always_on = int(result.extra["always_on_chars"][0])
+        on_demand = int(result.extra["on_demand_chars"][0])
+        # the rule has a genuine top-level `paths:` -> on-demand; only CLAUDE.md stays always-on
+        assert always_on == 500
+        assert on_demand == len(scoped)
 
     # --- TE-DT-006: CLAUDE.md↔rules overlap WARN ---
 

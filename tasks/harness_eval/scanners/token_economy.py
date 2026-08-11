@@ -128,14 +128,57 @@ def _read_chars(path: Path) -> int:
         return 0
 
 
-def _collect_always_on_chars(target_dir: Path) -> tuple[int, list[str]]:
-    """計算 always-on context 字元數估計。
+# 只匹配**頂層**（column 0）的 `paths:` key。不加 `^\s*`：帶前導空白會誤中巢狀 mapping
+# （`metadata:\n  paths:`）或 block scalar（`description: |\n  paths: ...`）內的縮排行，
+# 把它們誤判為 path-scoped。YAML 頂層 mapping key 必在 column 0，故錨定行首即為正解。
+_PATHS_KEY_RE = re.compile(r"^paths\s*:", re.MULTILINE)
 
-    來源：CLAUDE.md + .claude/rules/*.md + .claude/memory/*.md
-    回傳 (char_count, detail_findings)。
+
+def _frontmatter_block(content: str) -> str | None:
+    """回傳 YAML frontmatter 區塊（第一組**獨占一行**的 `---` 之間），無則回 None。
+
+    以「行內容 strip 後恰為 `---`」界定分隔線，而非 `content.split("---", 2)`——後者會把
+    值內嵌的 `---` 子字串（如 `description: "a---b"`）誤當結束分隔，截斷 frontmatter 而漏掉
+    其後的 key。
+    """
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "\n".join(lines[1:i])
+    return None
+
+
+def _rule_is_path_scoped(md_file: Path) -> bool:
+    """判斷 rule 檔是否為 path-scoped（frontmatter 內含**頂層** `paths:` key）。
+
+    依 Claude Code rule 載入語意（見 CLAUDE.md，PR #250 實測）：frontmatter 內有頂層
+    `paths:` key 者只在工具碰到匹配路徑時載入（on-demand）；沒有頂層 `paths:` key 者
+    （含完全沒有 frontmatter、只在 body/巢狀鍵/block scalar 提及 paths）每個 session
+    全量載入（always-on）。值為 YAML list 或純量字串行為相同，故只偵測 key 存在與否。
+    """
+    try:
+        content = md_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    block = _frontmatter_block(content)
+    if block is None:
+        return False
+    return bool(_PATHS_KEY_RE.search(block))
+
+
+def _collect_always_on_chars(target_dir: Path) -> tuple[int, int, list[str]]:
+    """計算 always-on context 字元數估計，並分離 path-scoped rule 的 on-demand 字元。
+
+    來源：CLAUDE.md + .claude/rules/*.md（僅非 path-scoped）+ .claude/memory/*.md
+    path-scoped rule（frontmatter 含 `paths:` key）改計入 on-demand，見
+    `_rule_is_path_scoped`。
+    回傳 (always_on_chars, on_demand_rule_chars, detail_findings)。
     """
     findings: list[str] = []
     total = 0
+    on_demand_rule_chars = 0
 
     claude_md = target_dir / "CLAUDE.md"
     if claude_md.is_file():
@@ -145,15 +188,29 @@ def _collect_always_on_chars(target_dir: Path) -> tuple[int, list[str]]:
 
     rules_dir = target_dir / ".claude" / "rules"
     if rules_dir.is_dir():
-        rule_chars = 0
-        rule_count = 0
+        always_on_rule_chars = 0
+        always_on_rule_count = 0
+        scoped_rule_count = 0
         for f in rules_dir.iterdir():
             if f.suffix == ".md" and f.is_file():
-                rule_chars += _read_chars(f)
-                rule_count += 1
-        if rule_count:
-            total += rule_chars
-            findings.append(f".claude/rules/ ({rule_count} files): {rule_chars} chars")
+                chars = _read_chars(f)
+                if _rule_is_path_scoped(f):
+                    on_demand_rule_chars += chars
+                    scoped_rule_count += 1
+                else:
+                    always_on_rule_chars += chars
+                    always_on_rule_count += 1
+        if always_on_rule_count:
+            total += always_on_rule_chars
+            findings.append(
+                f".claude/rules/ always-on ({always_on_rule_count} files): "
+                f"{always_on_rule_chars} chars"
+            )
+        if scoped_rule_count:
+            findings.append(
+                f".claude/rules/ path-scoped on-demand ({scoped_rule_count} files): "
+                f"{on_demand_rule_chars} chars"
+            )
 
     memory_dir = target_dir / ".claude" / "memory"
     if memory_dir.is_dir():
@@ -167,7 +224,7 @@ def _collect_always_on_chars(target_dir: Path) -> tuple[int, list[str]]:
             total += mem_chars
             findings.append(f".claude/memory/ ({mem_count} files): {mem_chars} chars")
 
-    return total, findings
+    return total, on_demand_rule_chars, findings
 
 
 def _collect_on_demand_chars(target_dir: Path) -> tuple[int, list[str]]:
@@ -326,7 +383,7 @@ def scan_token_economy(target_dir: Path) -> MechanicalFinding:
     score = 0
 
     # --- always-on chars ---
-    always_on_chars, always_on_detail = _collect_always_on_chars(target_dir)
+    always_on_chars, on_demand_rule_chars, always_on_detail = _collect_always_on_chars(target_dir)
     score_adj = _always_on_score_adjustment(always_on_chars)
     score += score_adj
 
@@ -347,7 +404,8 @@ def scan_token_economy(target_dir: Path) -> MechanicalFinding:
     extra["always_on_chars"] = [str(always_on_chars)]
 
     # --- on-demand chars + progressive-disclosure ratio ---
-    on_demand_chars, on_demand_detail = _collect_on_demand_chars(target_dir)
+    on_demand_skill_chars, on_demand_detail = _collect_on_demand_chars(target_dir)
+    on_demand_chars = on_demand_skill_chars + on_demand_rule_chars
     total_chars = always_on_chars + on_demand_chars
     extra["on_demand_chars"] = [str(on_demand_chars)]
     extra["total_chars"] = [str(total_chars)]
