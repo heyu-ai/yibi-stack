@@ -22,15 +22,37 @@ _PRUNE_CONTENT_MARKERS = (
 )
 
 
-def _has_glob_frontmatter(md_file: Path) -> bool:
+# 只匹配**頂層**（column 0）的 `paths:` key，與 token_economy.py 的 `_PATHS_KEY_RE` 同一套
+# 語意：`globs:` / `glob:` / `path:` 都不是 Claude Code 認得的 key，會被靜默忽略（見
+# CLAUDE.md），檢查這些拼法一律不算 path-scoped，只有 `paths:` 才算。
+_PATHS_KEY_RE = re.compile(r"^paths\s*:", re.MULTILINE)
+
+
+def _frontmatter_block(content: str) -> str | None:
+    """回傳 YAML frontmatter 區塊（第一組**獨占一行**的 `---` 之間），無則回 None。
+
+    以「行內容 strip 後恰為 `---`」界定分隔線，而非 `content.split("---", 2)`——後者會把
+    值內嵌的 `---` 子字串誤當結束分隔，截斷 frontmatter 而漏掉其後的 key。
+    """
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "\n".join(lines[1:i])
+    return None
+
+
+def _has_paths_frontmatter(md_file: Path) -> bool:
+    """判斷 rule 檔是否為 path-scoped（frontmatter 內含**頂層** `paths:` key）。"""
     try:
-        content = md_file.read_text(encoding="utf-8")
+        content = md_file.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
-    if not content.startswith("---"):
+    block = _frontmatter_block(content)
+    if block is None:
         return False
-    parts = content.split("---", 2)
-    return len(parts) >= 3 and "glob:" in parts[1]
+    return bool(_PATHS_KEY_RE.search(block))
 
 
 def _rule_content_has_prune_marker(rule_files: list[Path]) -> bool:
@@ -109,10 +131,10 @@ def scan_rules(target_dir: Path) -> MechanicalFinding:
     else:
         findings.append("WARN: 規則未使用編號前綴（建議 01-*.md 格式）")
 
-    has_glob = any(_has_glob_frontmatter(f) for f in rule_files)
-    if has_glob:
+    has_paths = any(_has_paths_frontmatter(f) for f in rule_files)
+    if has_paths:
         score = min(score + 3, _MECH_MAX)
-        findings.append("規則含 glob frontmatter（path-scoped auto-load）")
+        findings.append("規則含 paths frontmatter（path-scoped auto-load）")
     elif len(rule_files) >= 3:
         score = min(score + 2, _MECH_MAX)
         findings.append("規則使用 topic 命名分類（yibi-stack 編號 + 交叉引用模式）")
