@@ -9,8 +9,10 @@ _MECH_MAX = 7
 _NUMBER_RE = re.compile(r"^\d{2}-")
 
 # rule 維護循環（prune / lesson 路由）在 rule 內容中的佐證 marker。
-# prune 機制由 plugin（claude-md-prune）與週結流程（harness-queue / harness-batch）驅動，
-# 掃 target repo 的 .claude/skills/ 看不到 plugin，故改以 rule 內容 marker 佐證維護循環存在。
+# prune 機制由**全域安裝的 plugin**（claude-md-prune）與週結流程（harness-queue /
+# harness-batch）驅動；全域 plugin 不在 target repo 的任何目錄下，任何目錄掃描都看不到，
+# 故以 rule 內容 marker 佐證。（vendored 進 repo 的 `plugins/*/skills/*prune*` 目錄則由
+# `_has_prune_skill_dir` 另行偵測，兩者為 OR 疊加。）
 # 只用**具體識別符**——泛用字（bare "prune" / "lesson routing"）會被偶然提及（`git remote
 # prune`、討論 pruning 的散文）誤中而虛報維護循環存在，故不列入。
 _PRUNE_CONTENT_MARKERS = (

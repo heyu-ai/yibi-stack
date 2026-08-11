@@ -134,6 +134,22 @@ def _read_chars(path: Path) -> int:
 _PATHS_KEY_RE = re.compile(r"^paths\s*:", re.MULTILINE)
 
 
+def _frontmatter_block(content: str) -> str | None:
+    """回傳 YAML frontmatter 區塊（第一組**獨占一行**的 `---` 之間），無則回 None。
+
+    以「行內容 strip 後恰為 `---`」界定分隔線，而非 `content.split("---", 2)`——後者會把
+    值內嵌的 `---` 子字串（如 `description: "a---b"`）誤當結束分隔，截斷 frontmatter 而漏掉
+    其後的 key。
+    """
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "\n".join(lines[1:i])
+    return None
+
+
 def _rule_is_path_scoped(md_file: Path) -> bool:
     """判斷 rule 檔是否為 path-scoped（frontmatter 內含**頂層** `paths:` key）。
 
@@ -146,12 +162,10 @@ def _rule_is_path_scoped(md_file: Path) -> bool:
         content = md_file.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
-    if not content.startswith("---"):
+    block = _frontmatter_block(content)
+    if block is None:
         return False
-    parts = content.split("---", 2)
-    if len(parts) < 3:
-        return False
-    return bool(_PATHS_KEY_RE.search(parts[1]))
+    return bool(_PATHS_KEY_RE.search(block))
 
 
 def _collect_always_on_chars(target_dir: Path) -> tuple[int, int, list[str]]:

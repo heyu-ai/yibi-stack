@@ -309,6 +309,28 @@ class TestScanSettings:
         assert result.score == 0
         assert any("未覆蓋任何高風險操作" in f for f in result.findings)
 
+    def test_heval_dt_028_prefix_word_deny_not_credited(self, tmp_path: Path) -> None:
+        """HEVAL-DT-028: 帶前綴的無害詞（preset/refind/pathfind）不得誤中 reset/find pattern。
+
+        `reset\\b`/`find\\b` 只有尾端 `\\b`、缺前置 `\\b` 時，會匹配 `preset`/`refind`/`pathfind`
+        的尾段子字串而虛報 deny 覆蓋。
+        """
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir(exist_ok=True)
+        data = {
+            "permissions": {
+                "deny": [
+                    "Bash(preset --hard)",
+                    "Bash(refind -delete)",
+                    "Bash(pathfind -exec)",
+                ]
+            }
+        }
+        (claude_dir / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+        result = scan_settings(tmp_path)
+        assert result.score == 0
+        assert any("未覆蓋任何高風險操作" in f for f in result.findings)
+
     def test_heval_dt_025_wildcard_allow_detected(self, tmp_path: Path) -> None:
         """HEVAL-DT-025: allow list 含 Bash(git *) 應被偵測為萬用字元過寬授權。"""
         claude_dir = tmp_path / ".claude"
@@ -1041,6 +1063,27 @@ class TestScanTokenEconomy:
         # none is path-scoped -> every char stays always-on, nothing leaks to on-demand
         assert always_on == total
         assert on_demand == 0
+
+    # --- TE-DT-014: embedded '---' in a frontmatter value must not truncate parsing ---
+
+    def test_te_dt_014_embedded_dash_frontmatter_detects_real_paths(self, tmp_path: Path) -> None:
+        """TE-DT-014: 值內嵌 `---` 不得截斷 frontmatter 而漏掉其後的頂層 `paths:`。
+
+        `split("---", 2)` 會把值內的 `---` 子字串當結束分隔符；frontmatter 必須以「獨占一行
+        的 `---`」界定，否則此 path-scoped rule 會被誤計為 always-on。
+        """
+        (tmp_path / "CLAUDE.md").write_text("x" * 500, encoding="utf-8")
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        scoped = '---\ndescription: "separator---inside"\npaths: "src/**"\n---\n' + "z" * 300
+        (rules_dir / "04-scoped.md").write_text(scoped, encoding="utf-8")
+
+        result = scan_token_economy(tmp_path)
+        always_on = int(result.extra["always_on_chars"][0])
+        on_demand = int(result.extra["on_demand_chars"][0])
+        # the rule has a genuine top-level `paths:` -> on-demand; only CLAUDE.md stays always-on
+        assert always_on == 500
+        assert on_demand == len(scoped)
 
     # --- TE-DT-006: CLAUDE.md↔rules overlap WARN ---
 

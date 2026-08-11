@@ -16,11 +16,11 @@ _MECH_MAX = 6
 _DESTRUCTIVE_PATTERNS = [
     (r"\brm\b", "rm -rf 刪除防護"),
     (r"\bforce\b", "git push --force 防護"),
-    (r"reset\b.*--hard", "git reset --hard 防護"),
+    (r"\breset\b.*--hard", "git reset --hard 防護"),
     (r"\bdrop\b", "DROP TABLE 防護"),
     (r"\balembic\b", "DB migration 防護"),
-    (r"find\b.*-delete", "find -delete 批次刪除防護"),
-    (r"find\b.*-exec", "find -exec 執行防護"),
+    (r"\bfind\b.*-delete", "find -delete 批次刪除防護"),
+    (r"\bfind\b.*-exec", "find -exec 執行防護"),
 ]
 _DESTRUCTIVE_COMPILED = [(re.compile(pat), label) for pat, label in _DESTRUCTIVE_PATTERNS]
 
