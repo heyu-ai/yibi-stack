@@ -43,5 +43,10 @@
     "direct": 1.0,
     "indirect": 1.0,
     "negative": 1.0
+  },
+  "spectra-amplifier": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
   }
 }

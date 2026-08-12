@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "skill": "spectra-amplifier",
+  "direct": [
+    { "prompt": "幫我把這個 user story 用五層展開成完整規格，含 delta spec 跟 AC", "expect_trigger": true },
+    { "prompt": "建立一個 spectra proposal，把需求規格跟驗收條件寫出來", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "我有個功能描述，想把它整理到工程師能直接照著實作的規格文件", "expect_trigger": true },
+    { "prompt": "這段需求講得太含糊，幫我釐清到每條驗收都定清楚再開工", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "這個 feature 規格已經定好了，用 TDD 一步步幫我寫出來", "expect_trigger": false },
+    { "prompt": "proposal 已經有了，逐一跑 tasks 幫我實作下去", "expect_trigger": false },
+    { "prompt": "幫我設計這個功能的測試案例，用 EP / BVA 那些技巧分析覆蓋", "expect_trigger": false },
+    { "prompt": "幫我看一下這段程式碼的功能到底是在做什麼", "expect_trigger": false }
+  ]
+}
