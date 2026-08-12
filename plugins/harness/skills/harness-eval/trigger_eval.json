@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "skill": "harness-eval",
+  "direct": [
+    { "prompt": "跑 harness-eval，評估這個 repo 的 Claude Code harness 就緒度", "expect_trigger": true },
+    { "prompt": "幫我做 claude code 健診，出 11 維度 PASS/WARN/FAIL 跟改善 TODO", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "看看我這個 repo 的 agentic 設定整體到位了沒，給我優先改善清單", "expect_trigger": true },
+    { "prompt": "幫我全面體檢一下這專案對 AI agent 友不友善，哪裡該補", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "只想深挖 D2 hook 那個維度的具體修法", "expect_trigger": false },
+    { "prompt": "幫我看 D3 權限設定哪裡有問題、該怎麼修", "expect_trigger": false },
+    { "prompt": "這個 PR merge 完了，幫我做收尾回顧寫教訓", "expect_trigger": false }
+  ]
+}

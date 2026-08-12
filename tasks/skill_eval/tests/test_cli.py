@@ -433,8 +433,8 @@ class TestFixtureIndex:
     def test_seval_eg_004_plugin_only_fixture_is_indexed(self, tmp_path: Path) -> None:
         """SEVAL-EG-004: plugins/ 未 symlink 的 fixture 仍進入索引（--all 不再漏評）。
 
-        這是讓 gate 從「結構上不可能運作」變成可運作的那一步：repo 唯一一份 fixture
-        （pr-cycle-fast）正是 plugin-only，只掃 skills/ 時 --all 掃不到任何東西。
+        這是讓 gate 從「結構上不可能運作」變成可運作的那一步：本測試上線時 repo 唯一一份
+        fixture（pr-cycle-fast）正是 plugin-only，只掃 skills/ 時 --all 掃不到任何東西。
         spec: skill-trigger-eval#plugin-fixtures-are-evaluated"""
         skills_dir = tmp_path / "skills"
         plugins_dir = tmp_path / "plugins"
@@ -499,7 +499,7 @@ class TestAllScope:
     ) -> None:
         """SEVAL-CLI-016: skills/ 無 fixture 但 plugins/ 有 -> 評測它，不再 [FAIL]。
 
-        這是 repo 的真實形狀（唯一的 fixture 是 plugin-only），也是舊行為下 --all
+        這曾是 repo 的真實形狀（當時唯一的 fixture 是 plugin-only），也是舊行為下 --all
         什麼都掃不到的原因。
         spec: skill-trigger-eval#plugin-fixtures-are-evaluated"""
         skills_dir = tmp_path / "skills"

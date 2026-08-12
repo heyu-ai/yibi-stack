@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "skill": "pr-retrospective",
+  "direct": [
+    { "prompt": "跑 pr-retro，這個 PR 收尾做五題回顧", "expect_trigger": true },
+    { "prompt": "merge 後檢討一下，what problem / value / lessons 都寫一寫", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "這個 PR 做完了，幫我回顧這次 session 學到什麼、哪裡可以更好", "expect_trigger": true },
+    { "prompt": "收個尾，把這次的問題、價值跟教訓整理成回顧", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "retro 結論交給我看之前，先讓 codex 跟 agy 對抗挑戰一輪", "expect_trigger": false },
+    { "prompt": "幫我做這個 PR 的 AI 行為審計，算 autonomy ratio 跟 spec deviation", "expect_trigger": false },
+    { "prompt": "找 codex + agy mob review 這個 PR 給建議", "expect_trigger": false }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "skill": "pr-retro-hard",
+  "direct": [
+    { "prompt": "跑 pr-retro-hard，retro 結論交給我之前先被跨家 LLM 對抗挑戰", "expect_trigger": true },
+    { "prompt": "加強版 retro，retro 草稿先被 codex / agy mob review 再給我", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "這次 retro 的 lesson 我不太信，先讓幾個模型挑戰它的證據再說", "expect_trigger": true },
+    { "prompt": "retro 結論有爭議，交給我之前先被對抗審查一輪", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "一般的 PR 回顧就好，不需要跨家挑戰", "expect_trigger": false },
+    { "prompt": "幫我做這個 PR 的 AI 行為審計 control log", "expect_trigger": false },
+    { "prompt": "完整 PR lifecycle 含 fix / merge / archive 幫我跑完", "expect_trigger": false },
+    { "prompt": "找 codex + agy mob review 別人這個 PR 給建議", "expect_trigger": false }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "skill": "agy-consult",
+  "direct": [
+    { "prompt": "問 gemini 這個 codebase 的設計有沒有問題", "expect_trigger": true },
+    { "prompt": "agy 諮詢：讓 Gemini 讀 repo 回答我的技術問題", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "讓 antigravity 那個 CLI 看一下 repo，給我第二意見", "expect_trigger": true },
+    { "prompt": "我想聽 Gemini 對這段邏輯設計的看法", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "問 codex 這段邏輯對不對", "expect_trigger": false },
+    { "prompt": "叫 gemini 對這個 branch diff 做 code review", "expect_trigger": false },
+    { "prompt": "幫我看一下這樣寫對嗎", "expect_trigger": false }
+  ]
+}

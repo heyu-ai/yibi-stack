@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "skill": "pr-control-log",
+  "direct": [
+    { "prompt": "跑 pr-control-log，做這個 PR 的 AI 行為審計", "expect_trigger": true },
+    { "prompt": "幫我算這次 PR 的 autonomy ratio 跟 spec deviation，出 control log", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "這個 PR 我想看 agent 自主決定了多少、有沒有偏離 spec，做個治理紀錄", "expect_trigger": true },
+    { "prompt": "幫我審計這次 AI 的行為，自主比例跟驗證分數整理出來", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "這個 PR 收尾做五題回顧寫教訓", "expect_trigger": false },
+    { "prompt": "retro 結論交給我之前先被跨家挑戰一輪", "expect_trigger": false },
+    { "prompt": "找 codex + agy mob review 這個 PR 給建議", "expect_trigger": false }
+  ]
+}

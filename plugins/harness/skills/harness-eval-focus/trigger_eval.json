@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "skill": "harness-eval-focus",
+  "direct": [
+    { "prompt": "harness-eval-focus D2，深挖 hook 維度的具體修法", "expect_trigger": true },
+    { "prompt": "幫我對 D3 權限維度做深度稽核，給具體修法", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "harness eval 跑出 D11 token economy 是 WARN，這一項到底怎麼修", "expect_trigger": true },
+    { "prompt": "只針對 codebase navigation 那個維度幫我挖問題跟改法", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "跑全面的 harness eval，11 維度都評一遍給 TODO", "expect_trigger": false },
+    { "prompt": "評估這個 repo 的整體 agentic 就緒度", "expect_trigger": false },
+    { "prompt": "這個 PR 收尾回顧一下寫教訓", "expect_trigger": false }
+  ]
+}

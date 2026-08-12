@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "skill": "pr-cycle-deep",
+  "direct": [
+    { "prompt": "跑 pr-cycle-deep，找 codex + agy 一起 mob review 這個高風險 PR，過了就一路帶到 merge", "expect_trigger": true },
+    { "prompt": "這個 SDD 專案的中型 PR，用跨家 LLM group review 走完整生命週期到 archive", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "這個改動風險高，找多個 frontier model 各自審一輪再交叉辯論，收斂後幫我合併並歸檔", "expect_trigger": true },
+    { "prompt": "我要對這個 PR 做最嚴格的多模型壓力測試，修完 CI 過就 merge", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "這個小 PR 幫我快速自動跑 review + CI + merge，不用外部模型", "expect_trigger": false },
+    { "prompt": "只想找 codex 跟 agy 給這個 PR 留言建議，不要動手改也不要 merge", "expect_trigger": false },
+    { "prompt": "用 4 個 pr-review-toolkit subagent 平行 review 這個 PR，不需要跨家模型", "expect_trigger": false }
+  ]
+}

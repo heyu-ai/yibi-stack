@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "skill": "codex-cli",
+  "direct": [
+    { "prompt": "派給 codex 寫這個功能，寫完你幫我驗收跑 CI", "expect_trigger": true },
+    { "prompt": "委託 codex 實作這個 module，最多修兩輪", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "讓 codex 動手把這個 feature 做出來，你負責規劃跟收貨", "expect_trigger": true },
+    { "prompt": "這個 task 交給 codex 寫 code，我要你收貨驗收", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "問 codex 這段程式邏輯對不對", "expect_trigger": false },
+    { "prompt": "叫 codex review 我剛寫的 diff 找 bug", "expect_trigger": false },
+    { "prompt": "派給 gemini 寫這個功能", "expect_trigger": false }
+  ]
+}

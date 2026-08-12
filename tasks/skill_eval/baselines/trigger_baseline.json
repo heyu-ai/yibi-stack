@@ -1,0 +1,77 @@
+{
+  "agy-consult": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "agy-review": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "codex-cli": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "codex-consult": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "codex-review": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "harness-eval": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "harness-eval-focus": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "mob-code-review-only": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-control-log": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-cycle-deep": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-cycle-fast": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-retro-hard": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-retrospective": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-review-cycle": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "spectra-amplifier": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  }
+}
