@@ -1,0 +1,47 @@
+{
+  "agy-consult": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "agy-review": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "codex-cli": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "codex-consult": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "codex-review": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "mob-code-review-only": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-cycle-deep": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-cycle-fast": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-review-cycle": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  }
+}
