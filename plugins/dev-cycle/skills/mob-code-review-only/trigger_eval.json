@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "skill": "mob-code-review-only",
+  "direct": [
+    { "prompt": "幫我 review 這個別人開的 PR，找 codex + agy 給建議留言，不要動手改", "expect_trigger": true },
+    { "prompt": "mob review only 這個外部貢獻者的 PR，當 code review approval gate", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "同事開了 PR，我想用多個模型審一遍給修改建議貼回去，但不要幫他改也不要 merge", "expect_trigger": true },
+    { "prompt": "跨家 LLM 幫我壓力測試這個 PR 的改動，只出報告給意見不落地", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "找 codex + agy mob review 我自己的 PR，過了幫我修完 merge 到 archive", "expect_trigger": false },
+    { "prompt": "這個 PR merge 完了，幫我做收尾回顧寫下教訓", "expect_trigger": false },
+    { "prompt": "只要 Gemini 一家對這個 branch diff 做 review", "expect_trigger": false }
+  ]
+}

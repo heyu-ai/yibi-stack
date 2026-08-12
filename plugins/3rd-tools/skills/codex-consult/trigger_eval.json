@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "skill": "codex-consult",
+  "direct": [
+    { "prompt": "問 codex 這段 auth 邏輯設計對不對", "expect_trigger": true },
+    { "prompt": "consult codex，給我這個 codebase 架構的第二意見", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "讓 OpenAI 那個 CLI 讀一下 repo，回答我為什麼這裡要這樣設計", "expect_trigger": true },
+    { "prompt": "我想聽 codex 對這個模組的看法，有沒有潛在問題", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "問 gemini 這段邏輯對不對", "expect_trigger": false },
+    { "prompt": "叫 codex 對這個 branch diff 做 code review 找 bug", "expect_trigger": false },
+    { "prompt": "派給 codex 去把這個功能寫出來", "expect_trigger": false },
+    { "prompt": "幫我看一下這樣寫對嗎", "expect_trigger": false }
+  ]
+}

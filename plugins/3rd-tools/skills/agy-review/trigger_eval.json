@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "skill": "agy-review",
+  "direct": [
+    { "prompt": "叫 gemini 對這個 branch diff 做 code review 出 PASS/FAIL", "expect_trigger": true },
+    { "prompt": "agy challenge 對抗模式找這個 diff 的 bug 跟 security 問題", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "讓 antigravity 獨立審一下我這次改動有沒有安全漏洞", "expect_trigger": true },
+    { "prompt": "用 Gemini 那個 CLI 對現在的 diff 出一份 review", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "問 gemini 這個設計為什麼這樣，有沒有更好的做法", "expect_trigger": false },
+    { "prompt": "叫 codex review 這個 diff", "expect_trigger": false },
+    { "prompt": "找 codex + agy 一起 mob review 這個 PR 給建議", "expect_trigger": false }
+  ]
+}

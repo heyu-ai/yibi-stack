@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "skill": "codex-review",
+  "direct": [
+    { "prompt": "codex review 這個 branch 的 diff，跑 [P1] gate", "expect_trigger": true },
+    { "prompt": "叫 codex 對抗模式找這個 diff 的 bug 跟安全漏洞", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "讓 codex 獨立審一下我這次改動，挑戰看看有沒有 bug", "expect_trigger": true },
+    { "prompt": "用 OpenAI 那個 CLI 對現在的 diff 做一輪嚴格 code review", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "問 codex 這個設計為什麼這樣做，有沒有更好的做法", "expect_trigger": false },
+    { "prompt": "叫 gemini review 這個 diff", "expect_trigger": false },
+    { "prompt": "找 codex 跟 agy 一起 mob review 這個 PR 給建議", "expect_trigger": false },
+    { "prompt": "派 codex 去實作這個功能", "expect_trigger": false }
+  ]
+}

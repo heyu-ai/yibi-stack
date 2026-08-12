@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "skill": "pr-review-cycle",
+  "direct": [
+    { "prompt": "跑 pr-review-cycle，完整 PR 流程從建立到 merge", "expect_trigger": true },
+    { "prompt": "用 4 個 pr-review-toolkit subagent 平行 review 這個 PR，再修再 CI 再 merge", "expect_trigger": true }
+  ],
+  "indirect": [
+    { "prompt": "幫我把這個一般專案的 PR 走完整流程：code review、修、CI、合併，不用外部模型", "expect_trigger": true },
+    { "prompt": "開多個 review subagent 平行審完這個 PR 就收掉", "expect_trigger": true }
+  ],
+  "negative": [
+    { "prompt": "找 codex + agy 跨家 mob review 這個高風險 PR", "expect_trigger": false },
+    { "prompt": "這個小 PR 全自動跑一跑，merge 完自動 retro", "expect_trigger": false },
+    { "prompt": "幫我 review 同事開的 PR 給建議就好，不要改也不要 merge", "expect_trigger": false }
+  ]
+}
