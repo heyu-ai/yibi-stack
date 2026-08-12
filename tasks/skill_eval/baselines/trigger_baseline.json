@@ -24,7 +24,22 @@
     "indirect": 1.0,
     "negative": 1.0
   },
+  "harness-eval": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "harness-eval-focus": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
   "mob-code-review-only": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-control-log": {
     "direct": 1.0,
     "indirect": 1.0,
     "negative": 1.0
@@ -35,6 +50,16 @@
     "negative": 1.0
   },
   "pr-cycle-fast": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-retro-hard": {
+    "direct": 1.0,
+    "indirect": 1.0,
+    "negative": 1.0
+  },
+  "pr-retrospective": {
     "direct": 1.0,
     "indirect": 1.0,
     "negative": 1.0
