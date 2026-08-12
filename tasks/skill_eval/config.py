@@ -38,9 +38,9 @@ def resolve_fixture_index(
     """建立 skill 名稱 -> trigger_eval.json 路徑索引，聯集 skills/ 第一層與 plugins/ 全深度。
 
     只掃 skills/ 會漏掉 plugin-only skill：12 個 plugin skill 刻意沒有 skills/ symlink
-    （`spectra-amplifier` 是明確被降級為 plugin-only 的先例），而 repo 唯一一份 fixture
-    正好躺在其中之一（`plugins/dev-cycle/skills/pr-cycle-fast/`），使得 `--all` 曾經
-    掃不到任何東西。補 symlink 不是解法——那會違反那些 skill 被降級的理由。
+    （`spectra-amplifier` 是明確被降級為 plugin-only 的先例）。此索引最初上線時 repo
+    唯一一份 fixture（`plugins/dev-cycle/skills/pr-cycle-fast/`）正躺在其中之一，使得
+    `--all` 曾經掃不到任何東西。補 symlink 不是解法——那會違反那些 skill 被降級的理由。
 
     plugins glob 用 `**`（rule 02：`*` 不跨 `/`，會漏 mycelium 的巢狀 sub-skill）。
     skills/ 優先：symlink 與其 target 以 realpath 去重，同一個實體檔只留 skills/ 這個名字。
