@@ -10,6 +10,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 HOOK = Path(__file__).parent.parent / "bash-ap1-inline-check.sh"
 
 # Pattern C canonical: python3 -c 單行讀取 skill_repo（jq 的安全替代方案）
@@ -608,3 +610,48 @@ class TestFixBashAntiPatternsPR:
             "fi"
         )
         assert run_hook(cmd) == 0
+
+
+# ── 攔截訊息輸出通道（回歸鎖：Claude Code 從 stderr 讀 block 原因）─────────
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+# 兩份獨立維護的 ap1 副本都要鎖：dogfood（.claude/hooks/）與 shipped（plugins/harness/hooks/，
+# 使用者實際載入的那份）。兩者已漂移（註解語言不同），互不覆蓋。
+_AP1_COPIES = [
+    HOOK,
+    _REPO_ROOT / "plugins" / "harness" / "hooks" / "bash-ap1-inline-check.sh",
+]
+
+
+def run_hook_full(hook_path: Path, command: str) -> subprocess.CompletedProcess[str]:
+    """執行指定的 hook 副本，回傳完整 CompletedProcess（含 stdout / stderr）。"""
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+    return subprocess.run(
+        [str(hook_path)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+class TestBlockOutputChannel:
+    """攔截時指引必須走 stderr、stdout 必須空。
+
+    Claude Code 的 PreToolUse 協定在 exit 2 時只從 stderr 讀 block 原因；印到
+    stdout 會讓 stderr 為空，顯示 generic "hook error: No stderr output"。
+    這個測試鎖住該不變量：把 block() 的 `echo "$msg" >&2` 改回 stdout 會讓本測試
+    變紅（既有測試只斷言 returncode，抓不到）。
+    """
+
+    @pytest.mark.parametrize(
+        "hook_path",
+        _AP1_COPIES,
+        ids=lambda p: "shipped" if p.relative_to(_REPO_ROOT).parts[0] == "plugins" else "dogfood",
+    )
+    def test_ap1_block_guidance_on_stderr_not_stdout(self, hook_path: Path) -> None:
+        cmd = 'python3 -c "\nimport sys\nprint(sys.version)\n"'
+        result = run_hook_full(hook_path, cmd)
+        assert result.returncode == 2
+        assert result.stderr.strip() != "", "block 指引必須輸出到 stderr"
+        assert result.stdout.strip() == "", "block 路徑不得輸出到 stdout"
