@@ -10,6 +10,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 HOOK = Path(__file__).parent.parent / "bash-ap2-check.py"
 
 
@@ -236,3 +238,44 @@ class TestOverExemptionBug:
     def test_ap2_overexempt_003_git_tag_commit_in_msg(self) -> None:
         """git tag -m 含 emoji + 'commit' 詞 -> 應攔截（目前誤豁免）"""
         assert run_hook('git tag -m "v1.0 ✓ commit" v1.0') == 2
+
+
+# ── 攔截訊息輸出通道（回歸鎖：Claude Code 從 stderr 讀 block 原因）─────────
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+# dogfood（.claude/hooks/）與 shipped（plugins/harness/hooks/）兩份 ap2 副本都要鎖。
+_AP2_COPIES = [
+    HOOK,
+    _REPO_ROOT / "plugins" / "harness" / "hooks" / "bash-ap2-check.py",
+]
+
+
+def run_hook_full(hook_path: Path, command: str) -> subprocess.CompletedProcess[str]:
+    """執行指定的 AP2 hook 副本，回傳完整 CompletedProcess（含 stdout / stderr）。"""
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+    return subprocess.run(
+        ["python3", str(hook_path)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+class TestAP2BlockOutputChannel:
+    """攔截時指引必須走 stderr、stdout 必須空。
+
+    把 print(_VIOLATION_MESSAGE) 改回 stdout（拿掉 file=sys.stderr）會讓本測試
+    變紅；既有測試只斷言 returncode，抓不到這個回歸。
+    """
+
+    @pytest.mark.parametrize(
+        "hook_path",
+        _AP2_COPIES,
+        ids=lambda p: "shipped" if p.relative_to(_REPO_ROOT).parts[0] == "plugins" else "dogfood",
+    )
+    def test_ap2_block_guidance_on_stderr_not_stdout(self, hook_path: Path) -> None:
+        result = run_hook_full(hook_path, "echo '✓ done'")
+        assert result.returncode == 2
+        assert result.stderr.strip() != "", "block 指引必須輸出到 stderr"
+        assert result.stdout.strip() == "", "block 路徑不得輸出到 stdout"

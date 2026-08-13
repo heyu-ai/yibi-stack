@@ -50,9 +50,11 @@ except Exception:
 
 # Helper: print block messages, record audit event, then exit 2.
 # Usage: block "reason-slug" "line1" "line2" ...
+# Messages MUST go to stderr: Claude Code reads a PreToolUse exit-2 block reason
+# from stderr, not stdout. Empty stderr surfaces as "hook error: No stderr output".
 block() {
     local reason="$1"; shift
-    for msg in "$@"; do echo "$msg"; done
+    for msg in "$@"; do echo "$msg" >&2; done
     audit_block "$reason" "$_RULE_ID" || true
     exit 2
 }

@@ -3,7 +3,7 @@
 
 Exit code:
   0 -> 放行
-  2 -> 攔截（block）並顯示 stdout 訊息
+  2 -> 攔截（block），指引輸出到 stderr（Claude Code 從 stderr 讀 block 原因）
 
 禁用字元範圍（bash 指令字串內）：
   - em dash (U+2014)、en dash (U+2013)、零寬字元 U+200B/U+200C/U+200D
@@ -149,7 +149,9 @@ def main() -> None:
     _log_event(
         "ap2", command, exit_code=2, block_reason="ap2-unicode", duration_ms=elapsed, rule_id="13"
     )
-    print(_VIOLATION_MESSAGE)
+    # stderr, not stdout: Claude Code reads a PreToolUse exit-2 block reason from
+    # stderr. Empty stderr surfaces as "hook error: No stderr output".
+    print(_VIOLATION_MESSAGE, file=sys.stderr)
     sys.exit(2)
 
 

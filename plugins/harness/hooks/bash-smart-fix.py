@@ -157,17 +157,20 @@ def _detect_rule2(cmd: str) -> tuple[str, str | None, int, int] | None:
 
 
 def _print_fix(header: str, detail: str, fix: str) -> None:
+    # All lines go to stderr: this hook exits 2 to block, and Claude Code reads a
+    # PreToolUse block reason from stderr. Printing to stdout leaves stderr empty,
+    # which surfaces as "hook error: No stderr output" instead of this guidance.
     sep = "  " + "-" * 50
     indented = "\n".join(f"  {line}" for line in fix.splitlines())
-    print(f"BLOCKED: {header}")
-    print()
+    print(f"BLOCKED: {header}", file=sys.stderr)
+    print(file=sys.stderr)
     if detail:
-        print(f"  {detail}")
-        print()
-    print("  Corrected command:")
-    print(sep)
-    print(indented)
-    print(sep)
+        print(f"  {detail}", file=sys.stderr)
+        print(file=sys.stderr)
+    print("  Corrected command:", file=sys.stderr)
+    print(sep, file=sys.stderr)
+    print(indented, file=sys.stderr)
+    print(sep, file=sys.stderr)
 
 
 def main() -> None:
