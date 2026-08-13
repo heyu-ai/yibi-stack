@@ -3,7 +3,7 @@
 
 Exit code:
   0 -> allow
-  2 -> block and display stdout message
+  2 -> block; guidance printed to stderr (Claude Code reads the block reason there)
 
 Prohibited characters in bash command strings:
   - em dash (U+2014), en dash (U+2013), zero-width chars U+200B/U+200C/U+200D
