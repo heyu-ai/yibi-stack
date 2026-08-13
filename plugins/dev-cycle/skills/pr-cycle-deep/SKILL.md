@@ -586,9 +586,9 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 >
 > **`subagent` permission class**: invoked by this skill, not the user — allow-list by this
 > script's own absolute path, never a bare `Bash(agy:*)`. `--sandbox` was empirically confirmed
-> (agy 1.1.8) to break `--add-dir` reads: agy's own permission model
-> (`~/.gemini/antigravity-cli/settings.json`, independent of Claude Code's) needs a `command(...)`
-> grant per tool, and headless `-p` mode can't prompt for one — re-verify after any agy upgrade.
+> (agy 1.1.8; re-verified 1.1.12, 2026-08-13) to auto-deny the `command`-class tool a review uses
+> to explore code — `read_file`/`ListDirectory` within `--add-dir` stay allowed, only `command` is
+> blocked, so widening `--add-dir` can't fix it; headless `-p` can't grant it. Re-verify on upgrade.
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh
