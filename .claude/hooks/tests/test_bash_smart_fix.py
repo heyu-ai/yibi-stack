@@ -6,6 +6,9 @@ smart-fix 只有 shipped 副本（plugins/harness/hooks/），無 .claude/hooks/
 
 Claude Code 的 PreToolUse 協定在 exit 2 時只從 stderr 讀 block 原因；印到 stdout
 會讓 stderr 為空，顯示 generic "hook error: No stderr output"。
+
+Probed. Mutation-verified in Source: PR #397 —— 把 _print_fix() 的一個 print 改回
+stdout 會讓本測試變紅（stdout 非空），還原後轉綠；隔離突變、git status 乾淨。
 """
 
 import json
