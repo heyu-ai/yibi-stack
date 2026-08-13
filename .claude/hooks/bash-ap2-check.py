@@ -149,7 +149,9 @@ def main() -> None:
     _log_event(
         "ap2", command, exit_code=2, block_reason="ap2-unicode", duration_ms=elapsed, rule_id="13"
     )
-    print(_VIOLATION_MESSAGE)
+    # stderr, not stdout: Claude Code reads a PreToolUse exit-2 block reason from
+    # stderr. Empty stderr surfaces as "hook error: No stderr output".
+    print(_VIOLATION_MESSAGE, file=sys.stderr)
     sys.exit(2)
 
 

@@ -15,7 +15,7 @@
 #
 # Exit code 規範：
 #   exit 0  → 放行
-#   exit 2  → 攔截，中止工具呼叫並顯示 stdout 訊息
+#   exit 2  → 攔截，中止工具呼叫並在 stderr 顯示訊息（Claude Code 從 stderr 讀 block 原因）
 #   （exit 1 不攔截，僅表示 hook 本身出錯）
 
 # fail-open 設計：hook 自身任何錯誤都放行，不誤擋正常操作
@@ -58,7 +58,7 @@ except Exception:
 # 用法：block "reason-slug" "行1" "行2" ...
 block() {
     local reason="$1"; shift
-    for msg in "$@"; do echo "$msg"; done
+    for msg in "$@"; do echo "$msg" >&2; done
     audit_block "$reason" "$_RULE_ID" || true
     exit 2
 }
