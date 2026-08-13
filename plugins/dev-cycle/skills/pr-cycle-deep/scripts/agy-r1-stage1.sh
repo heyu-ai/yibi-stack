@@ -20,11 +20,16 @@
 # 注意：使用 --dangerously-skip-permissions 而非 --sandbox（保留 --add-dir 周邊程式碼 context）。
 # 這是 subagent 權限等級（由 pr-cycle-deep 呼叫，非使用者直接呼叫），allow-list 用本 script
 # 的絕對路徑逐一放行，不共用 agy-review/agy-consult 的允許清單。
-# <!-- verified: probe, agy 1.1.8 --> --sandbox 底下 agy 想主動探索 --add-dir 內容時會嘗試
-# 執行類似 cat 的指令，但 agy 自己的權限系統（~/.gemini/antigravity-cli/settings.json
-# permissions.allow，與 Claude Code 的設定完全獨立）預設不含該指令；headless -p 模式沒有
-# 互動終端可以核准，直接整個 review 失敗、無輸出（agy_validate.py 會抓到空輸出）。升級 agy
-# 版本後應重新驗證這個結論是否仍成立。
+# <!-- verified: probe, agy 1.1.12（原註記 1.1.8，2026-08-13 於真實 worktree 重跑 stage1
+# 形式，結論不變）--> --sandbox 底下真正 review 時，agy 會呼叫 `command` 權限工具（跑 shell
+# 指令探索周邊程式碼）；headless -p 模式沒有互動終端可核准，agy 直接 auto-deny 並吐
+# 「jetski: no output produced -- a tool required the "command" permission that headless
+# mode cannot prompt for」，整個 review 無輸出（agy_validate.py 會抓到空輸出）。
+# 機制精確化（1.1.12 重驗）：agy 的 read_file / ListDirectory 檔案存取工具在 --add-dir 範圍
+# 內於 sandbox 下是放行的；被擋的專指 `command`（shell 執行）這一類，故放寬 --add-dir 無法
+# 解，只有 --dangerously-skip-permissions，或在 ~/.gemini/antigravity-cli/settings.json 的
+# permissions.allow 補 command(...) 唯讀項，才能讓 sandbox 下的 review 產出。升級 agy 版本
+# 後仍應重新驗證這個結論。
 #
 # issue #153：nested worktree 下 agy 無法解析 @file，靜默進入 agentic 模式（wrong-target
 # review / brain-artifact / timeout）。修法：(1) inline prompt 取代 @file，移除 agentic

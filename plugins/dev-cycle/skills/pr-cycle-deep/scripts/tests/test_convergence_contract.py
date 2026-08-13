@@ -55,11 +55,13 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 # Anyone raising this again: say what the added lines buy, in the same commit.
 #
 # Raised 1239 -> 1246 (+7) for the agy-review/agy-consult split. Stage 1 and R2 both kept
-# --dangerously-skip-permissions after an empirical probe (agy 1.1.8) confirmed --sandbox
-# breaks --add-dir's exploratory reads via agy's own independent permission model -- the
-# 7 lines record that finding as a `subagent` permission-class note (own absolute-path
-# allow-list entry, not a bare Bash(agy:*)) so the next reader doesn't re-litigate the same
-# unverified assumption the original comment carried.
+# --dangerously-skip-permissions after an empirical probe (agy 1.1.8; re-verified on agy
+# 1.1.12, 2026-08-13, real-worktree stage1 form) confirmed --sandbox auto-denies agy's
+# `command` permission-class tools in headless mode -- read_file/ListDirectory within
+# --add-dir ARE allowed, but the exploratory shell `command` a real review issues is denied,
+# yielding empty output. The 7 lines record that finding as a `subagent` permission-class
+# note (own absolute-path allow-list entry, not a bare Bash(agy:*)) so the next reader
+# doesn't re-litigate a settled, re-verified finding.
 #
 # Merged with an independent 1239 -> 1256 (+17) raise from origin/main (two Evidence-gate
 # integrity fixes, landed in parallel via PR #368) -> combined budget 1263.
