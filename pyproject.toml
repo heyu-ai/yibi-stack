@@ -23,12 +23,12 @@ tokens = ["tiktoken>=0.7"]
 # pandas 被 3 支 scripts 直接 import（compare_billing / report_2024_2025 / import_hsbc_missing），
 # 先前只靠 tabula-py 的 transitive 滿足；砍 tabula-py 而不明確宣告會靜默弄壞它們。
 ledger = [
-    "anthropic>=0.120.2",
+    "anthropic>=0.121.0",
     "pandas>=3.0.5",
     "pdfplumber>=0.11.10",
     "psycopg2-binary>=2.9.12",
     "requests>=2.34.2",
-    "sqlalchemy>=2.0.51",
+    "sqlalchemy>=2.0.52",
 ]
 
 [project.scripts]
@@ -50,10 +50,10 @@ exclude = ["tasks/**/tests/**"]
 [dependency-groups]
 dev = [
     "pytest>=8.0",
-    "ruff>=0.16.1",
+    "ruff>=0.16.2",
     "mypy>=2.3.0",
-    "pylint>=4.0.6",
-    "pre-commit>=4.6.1",
+    "pylint>=4.0.7",
+    "pre-commit>=4.6.2",
     "bandit[toml]",
 ]
 
