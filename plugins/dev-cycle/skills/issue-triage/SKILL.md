@@ -137,7 +137,8 @@ gh issue list --state open --limit 300 --json number,title,labels,body,createdAt
 searchJiraIssuesUsingJql({
   cloudId: "<cloudId from Step 1b>",
   jql: "project = <PROJECT> AND type = Bug AND statusCategory != Done ORDER BY updated DESC",
-  fields: ["summary", "status", "priority", "assignee", "created", "updated", "description", "comment", "labels", "components", "resolution"]
+  fields: ["summary", "status", "priority", "assignee", "created", "updated", "description", "comment", "labels", "components", "resolution"],
+  responseContentFormat: "markdown"
 })
 ```
 
@@ -157,7 +158,8 @@ searchJiraIssuesUsingJql({
 ```text
 getJiraIssue({
   cloudId: "<cloudId>",
-  issueIdOrKey: "YB-123"
+  issueIdOrKey: "YB-123",
+  responseContentFormat: "markdown"
 })
 ```
 
@@ -432,7 +434,8 @@ getTransitionsForJiraIssue({
 addCommentToJiraIssue({
   cloudId: "<cloudId>",
   issueIdOrKey: "<KEY>",
-  body: "<完成證據摘要>"
+  commentBody: "<完成證據摘要>",
+  contentFormat: "markdown"
 })
 ```
 
@@ -442,7 +445,7 @@ addCommentToJiraIssue({
 transitionJiraIssue({
   cloudId: "<cloudId>",
   issueIdOrKey: "<KEY>",
-  transitionId: "<transition id from Step 1>"
+  transition: { "id": "<transition id from Step 1>" }
 })
 ```
 
@@ -452,7 +455,8 @@ transitionJiraIssue({
 addCommentToJiraIssue({
   cloudId: "<cloudId>",
   issueIdOrKey: "<KEY>",
-  body: "<已做/未做摘要，或 label/priority 調整說明>"
+  commentBody: "<已做/未做摘要，或 label/priority 調整說明>",
+  contentFormat: "markdown"
 })
 ```
 
@@ -492,4 +496,5 @@ editJiraIssue({
 | Jira 站台的 JQL 限制 | 某些站台禁止無條件查詢；本 skill 的 JQL 帶 `project=` 子句，不受影響 |
 | Jira bug transition 失敗 | 用 `getTransitionsForJiraIssue` 先查可用 transition；無可用者 `[WARN]` 略過 |
 | Jira 寫入被 hook 擋 | 本 repo 的 `pre-jira-write.sh` hook 機械攔截特定條件的 Jira 寫入；不繞過，照 hook 回報的限制處理 |
+| JQL `type = Bug` 查不到東西 | 某些 Jira 專案的 issue type 叫 `Defect` 而非 `Bug`。確認專案的 issue type 名稱，必要時改 JQL 為 `type = Defect` |
 | 不帶 `--jira` 時會查 Jira 嗎 | 不會。Jira 盤點需明確帶 `--jira <PROJECT>` |
