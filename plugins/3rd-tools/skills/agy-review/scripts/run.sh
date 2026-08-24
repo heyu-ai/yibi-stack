@@ -25,6 +25,7 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 # Gemini 模型在台灣地區被 Google API 的 pre-invocation context summarization 擋下
 # （FAILED_PRECONDITION 400: User location is not supported for the API use），
 # 即使 agy auth 成功也無法使用。Claude 模型走不同的 API 路徑，不受地區限制。
+# 允許透過 AGY_MODEL 環境變數覆寫（如 Google 日後開放台灣或使用者有 VPN）。
 AGY_MODEL="${AGY_MODEL:-claude-sonnet-4-6}"
 
 # Get diff; fallback to HEAD~1 when no upstream tracking
