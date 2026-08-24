@@ -145,3 +145,4 @@ challenge mode：找到問題時輸出 `[P0]`/`[P1]` 列表，找不到問題時
 | `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy auth` |
 | 輸出缺少 `[PASS]` / `[FAIL]` | 在 INSTRUCTION 加入「結尾必須輸出 [PASS] 或 [FAIL]」 |
 | diff 為空或 `origin/<base>` 不存在 | 確認已有 commit，或手動指定 base：`/agy-review base=develop` |
+| Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 台灣地區限制；script 預設已改用 `claude-sonnet-4-6`。如需切回 Gemini（VPN 或 Google 開放後），設 `AGY_MODEL=gemini-3.7-flash-low` 環境變數 |

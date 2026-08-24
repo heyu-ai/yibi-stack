@@ -110,4 +110,5 @@ Clean exit 後，呈現完整輸出，不截斷、不摘要。
 | `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy auth` |
 | 問題內容含雙引號 / `$VAR` / backtick | 不影響——問題本文透過 Write tool 寫進檔案，`consult.sh` 只吃檔案路徑，問題內容不會被 shell 展開或執行 |
 | `agy` 回傳空白或極短輸出 | `--sandbox` 底下 agy 想探索周邊檔案被自己的權限系統擋下，headless 無法跳出確認框；簡化問題避免需要額外讀檔，或評估是否需要放寬 `~/.gemini/antigravity-cli/settings.json` 的 `permissions.allow` |
+| Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 台灣地區限制；script 預設已改用 `claude-sonnet-4-6`。如需切回 Gemini（VPN 或 Google 開放後），設 `AGY_MODEL=gemini-3.7-flash-low` 環境變數 |
 | 想看 diff review 而非問答 | 改用 `/agy-review` |
