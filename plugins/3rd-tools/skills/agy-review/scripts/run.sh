@@ -22,6 +22,11 @@ fi
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
 
+# Gemini 模型在台灣地區被 Google API 的 pre-invocation context summarization 擋下
+# （FAILED_PRECONDITION 400: User location is not supported for the API use），
+# 即使 agy auth 成功也無法使用。Claude 模型走不同的 API 路徑，不受地區限制。
+AGY_MODEL="${AGY_MODEL:-claude-sonnet-4-6}"
+
 # Get diff; fallback to HEAD~1 when no upstream tracking
 DIFF=$(git diff "origin/${BASE}...HEAD" 2>/dev/null || git diff HEAD~1 2>/dev/null || true)
 if [ -z "$DIFF" ]; then
@@ -74,7 +79,7 @@ fi
 # if 條件本身會豁免 set -e（`if`/`while`/`until` 條件、或 `&&`/`||` 前的指令不受 set -e 管），
 # 這裡刻意用 if 包住賦值：agy 非零結束時若直接寫 `OUTPUT=$(...); AGY_EXIT=$?`，set -e 會在
 # 賦值那行就中止 script，下面這行 AGY_EXIT=$? 永遠執行不到，[FAIL] 診斷訊息變死碼（實測驗證）。
-if OUTPUT=$(agy -p "$PROMPT_CONTENT" --add-dir . --sandbox); then
+if OUTPUT=$(agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir . --sandbox); then
     AGY_EXIT=0
 else
     AGY_EXIT=$?
