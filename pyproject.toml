@@ -92,7 +92,8 @@ ignore_missing_imports = true
 # ["tabula.*", "playwright.*", "markdownify.*", "bs4.*", "requests.*"]。前四個套件已隨本次
 # 依賴瘦身砍除，該區塊隨之失效。經實測後**整段刪除**而非改列 ledger 套件：
 #   - mypy 只掃 tasks/（.pre-commit-config.yaml:31 `entry: uv run mypy tasks/` + `files: ^tasks/`；
-#     Makefile:22 同），而 tasks/ 只 import click / pydantic / tiktoken——皆有型別資訊。
+#     Makefile:22 同），而 tasks/ 只 import click / pydantic / tiktoken——click 與 pydantic
+#     皆有型別資訊；tiktoken 是 optional extra，不一定裝（上方 override 處理）。
 #   - 對 scripts/ 亦不需要：實測 `uv sync --extra ledger` 後，在**停用本 override** 的情況下
 #     跑 `uv run mypy scripts/`，六個 ledger 套件零 import-not-found（mypy 確實有分析：
 #     回報 25 errors / 23 source files，其中多筆是 anthropic 真實型別產生的 union-attr，
