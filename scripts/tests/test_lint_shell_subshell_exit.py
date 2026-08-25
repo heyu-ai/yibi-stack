@@ -302,18 +302,22 @@ class TestLintShellSubshellExit:
             "  fi\n"
             '  echo "$1"\n'
             "}\n"
-            'local RESULT=$(_resolve "$DIR")\n'
-            'echo "$RESULT"\n',
+            "main() {\n"
+            '  local RESULT=$(_resolve "$DIR")\n'
+            '  echo "$RESULT"\n'
+            "}\n"
+            "main\n",
         )
         r = _run_lint(f)
         assert r.returncode == 1, f"未抓到 local 蓋掉 exit status 的 SC2155：{r.stdout!r}"
         assert "_resolve" in r.stderr
 
     def test_lsse_dt_006_quoted_substitution_is_flagged(self, tmp_path: Path) -> None:
-        """LSSE-DT-006: `X="$(fn)"` 加引號仍是 command substitution，必須報。
+        """LSSE-DT-006: `"$(fn)"` 加引號仍是 command substitution，必須報。
 
         舊版 _strip_noise 清掉雙引號內容，導致 bash 最佳實踐的加引號形式
-        對 lint 完全不可見——是最常見的漏報。
+        對 lint 完全不可見——是最常見的漏報。本 fixture 用 if-condition
+        形式測試（加引號 + unguarded 雙重命中）。
         """
         f = _write(
             tmp_path,
@@ -461,6 +465,69 @@ class TestLintShellSubshellExit:
         )
         r = _run_lint(f)
         assert r.returncode == 0, f"誤報：單引號內的 $() 不應被偵測：{r.stderr!r}"
+
+    def test_lsse_dt_008_bang_prefix_suppresses_set_e(self, tmp_path: Path) -> None:
+        """LSSE-DT-008: `! X=$(fn)` 的 `!` 前綴讓 set -e 不觸發，必須報。
+
+        POSIX：set -e 對 `!` 前綴的命令不觸發。
+        """
+        f = _write(
+            tmp_path,
+            "bang.sh",
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "_fn() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "ok"\n'
+            "}\n"
+            '! RESULT=$(_fn "$X")\n'
+            'echo "$RESULT"\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 1, f"未抓到 ! prefix 讓 set-e 失效：{r.stdout!r}"
+
+    def test_lsse_dt_009_set_positional_not_recognized_as_set_e(self, tmp_path: Path) -> None:
+        """LSSE-DT-009: `set -- -e` 設定位置參數，不是啟用 errexit，必須報。"""
+        f = _write(
+            tmp_path,
+            "set_positional.sh",
+            "#!/bin/bash\n"
+            'set -- -e "$@"\n'
+            "_fn() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "ok"\n'
+            "}\n"
+            'RESULT=$(_fn "$X")\n'
+            'echo "$RESULT"\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 1, f"未抓到 set -- -e（非 set -e）的漏報：{r.stdout!r}"
+
+    def test_lsse_eg_010_builtin_keyword_as_argument_not_flagged(self, tmp_path: Path) -> None:
+        """LSSE-EG-010: `echo export X=$(fn)` 的 export 是引數不是命令，不得報。
+
+        鎖住 `_masked_by_builtin` 的 `.match()` 精度：builtin 必須在 statement
+        開頭（命令位置），不是出現在任何位置。
+        """
+        f = _write(
+            tmp_path,
+            "builtin_arg.sh",
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "_fn() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "ok"\n'
+            "}\n"
+            'echo export RESULT=$(_fn "$X")\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 0, f"誤報：echo 後的 export 是引數不是命令：{r.stderr!r}"
 
     def test_lsse_st_001_whole_repo_is_clean(self) -> None:
         """LSSE-ST-001: 現有 repo 追蹤的 shell 檔必須零誤報。

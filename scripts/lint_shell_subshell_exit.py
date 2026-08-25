@@ -33,13 +33,18 @@ subshell，**不會結束腳本**。於是這種寫法：
 
 真正會 fail-open 的是**呼叫點讓 set -e 不觸發**的那些形式：
 
-    if X=$(fn); then ... fi             # if 條件 -> set -e 不觸發 -> 落到後面
-    X=$(fn) || RC=$?                    # || -> set -e 不觸發
-    X=$(fn) && ...                      # && -> set -e 不觸發
+    if X=$(fn); then ... fi             # if/elif/while/until 條件 -> set -e 不觸發
+    X=$(fn) || RC=$?                    # || -> 非最終位置 -> set -e 不觸發
+    X=$(fn) && ...                      # && -> 非最終位置 -> set -e 不觸發
+    ! X=$(fn)                           # ! 前綴 -> set -e 不觸發
+    local X=$(fn)                       # SC2155: builtin exit 0 蓋掉 $() 的非零
 
-或**腳本根本沒有 set -e**（此時裸賦值也會繼續往下跑）。
+但 `true && X=$(fn)` 的 `$(fn)` 在 AND-OR list **最終位置**——POSIX 規定 set -e
+對最終命令仍有效，故不報。
 
-本 lint 只報這兩種，故對 `bump.sh` 那種「裸賦值 + set -e」不吵。
+或**腳本根本沒有 set -e / set -o errexit**（此時裸賦值也會繼續往下跑）。
+
+本 lint 只報這些形式，故對 `bump.sh` 那種「裸賦值 + set -e」不吵。
 實測基準：對 PR #234 修法前的版本報、對修好後的版本不報、對現有 repo 0 誤報。
 
 ## 為什麼要 parse 而不是 regex
@@ -87,7 +92,8 @@ from pathlib import Path
 
 _FUNC_DEF = re.compile(r"^\s*(?:function\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{")
 _EXIT = re.compile(r"(?:^|;|\bthen\b|\bdo\b|&&|\|\|)\s*exit\b")
-_SET_E = re.compile(r"^\s*set\s+.*(?:-[a-z]*e|-o\s+errexit)")
+_SET_E = re.compile(r"^\s*set\s+[^#]*(?:-[a-z]*e|-o\s+errexit)")
+_SET_POSITIONAL = re.compile(r"^\s*set\s+--(?:\s|$)")
 _MASKING_BUILTINS = re.compile(r"(local|declare|export|readonly|typeset)\b")
 
 
@@ -162,7 +168,9 @@ def _strip_single_and_comments(line: str) -> str:
 
 
 def _has_set_e(lines: list[str]) -> bool:
-    return any(_SET_E.match(ln) for ln in lines[:20])
+    return any(
+        _SET_E.match(_strip_noise(ln)) and not _SET_POSITIONAL.match(ln) for ln in lines[:20]
+    )
 
 
 def _find_functions(lines: list[str]) -> dict[str, tuple[int, int]]:
@@ -210,11 +218,12 @@ def _unguarded_by_set_e(line: str, name: str) -> bool:
     if stmt.startswith("!"):
         return True
 
-    return bool(re.search(r"\|\||&&", after))
+    after_stmt = re.split(r";\s*|\bthen\s+|\bdo\s+", after)[0]
+    return bool(re.search(r"\|\||&&", after_stmt))
 
 
 def _masked_by_builtin(line: str, name: str) -> bool:
-    """``local``/``declare``/``export``/``readonly`` 的 exit status 蓋掉 $() 的 exit status。
+    """``local``/``declare``/``export``/``readonly``/``typeset`` 的 exit status 蓋掉 $() 的 exit status。
 
     即使有 set -e，``local X=$(fn)`` 的 exit status 永遠是 ``local`` 本身的 0，
     command substitution 的非零被靜默吞掉（ShellCheck SC2155）。

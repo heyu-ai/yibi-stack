@@ -233,8 +233,10 @@ in-PR repeats), continuing to write it down was an admission that writing it dow
 warns on the one shape that actually fail-opens:
 
 > `exit` inside a function **and** that function is called as the first token of a `$(…)` **and**
-> the call site is somewhere `set -e` will not catch (an `if`/`while`/`until` condition, or `||`
-> / `&&`), **or** the script has no `set -e` at all.
+> the call site is somewhere `set -e` will not catch (an `if`/`elif`/`while`/`until` condition,
+> `!` prefix, or `||`/`&&` where `$(…)` is not the final command), **or** a masking builtin
+> (`local`/`declare`/`export`/`readonly`/`typeset`) swallows the exit status (SC2155), **or**
+> the script has no `set -e` / `set -o errexit` at all.
 
 Both extra conjuncts are load-bearing, and each was learned from a false positive the first draft
 produced against real repo code: `bump.sh`'s `new_version=$(bump_semver …)` is a **bare
