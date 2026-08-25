@@ -138,6 +138,25 @@ class TestParkTransitions:
         assert "parked" not in second["lesson"]["tags"]
         assert second["lesson"]["insight"] == _INSIGHT
 
+    def test_lsn_park_dt_011_different_type_bumps_same_project_key(self, tmp_path: Path):
+        """LSN-PARK-DT-011: 分類改變時，同 project + key 仍遞增既有 recurrence"""
+        db_path = tmp_path / "lessons.db"
+        first = park_lesson(_lesson(type="pitfall"), db_path=db_path)
+        second = park_lesson(_lesson(type="operational"), db_path=db_path)
+
+        assert second["id"] == first["id"]
+        assert second["status"] == "reassess"
+        assert second["recurrence"] == 2
+
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        rows = db.conn.execute(
+            "SELECT id FROM lessons WHERE project = ? AND key = ?",
+            (_PROJECT, _KEY),
+        ).fetchall()
+        db.close()
+        assert len(rows) == 1, "分類改變時不應建立重複列"
+
     def test_lsn_park_dt_004_repark_after_failed_reassessment_does_not_double_bump(
         self, tmp_path: Path
     ):

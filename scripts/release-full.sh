@@ -47,6 +47,15 @@ if ! git diff --quiet HEAD || [ -n "$(git ls-files --others --exclude-standard)"
     exit 1
 fi
 
+git fetch origin main
+LOCAL_SHA=$(git rev-parse HEAD)
+REMOTE_SHA=$(git rev-parse origin/main)
+if [ "$LOCAL_SHA" != "$REMOTE_SHA" ]; then
+    echo "[FAIL] local main ($LOCAL_SHA) differs from origin/main ($REMOTE_SHA)" >&2
+    echo "       Run: git pull --rebase origin main" >&2
+    exit 1
+fi
+
 rollback() {
     echo "[WARN] Release failed — reverting version files" >&2
     git checkout -- pyproject.toml CHANGELOG.md 2>/dev/null || true

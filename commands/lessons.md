@@ -80,7 +80,7 @@ parked 教訓預設不進 `show` / `search` 與 tier 升降級。
 
 - `--confidence` **必須 ≤ 4**，超過時直接以 exit 1 拒絕（**不是**靜默夾到 4）。呼叫端要自己
   給對的分數，不要依賴系統幫忙修正。
-- 同一 `key` 已有**未 parked** 的教訓時，`--park` 會拒絕並保持原教訓不變——避免把已通過
+- 同一 `project` + `key` 已有**未 parked** 的教訓時，`--park` 會拒絕並保持原教訓不變——避免把已通過
   Tier 1/2 的教訓夾成低信心並掛上 parked 而從預設查詢中消失。
 - `--park` 與 `--skip-if-exists` 互斥。
 

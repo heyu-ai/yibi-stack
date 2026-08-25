@@ -16,7 +16,7 @@ _INJECTION_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"ignore.*previous.*(instructions|context|rules)", re.IGNORECASE | re.DOTALL),
     re.compile(r"you\s+are\s+now", re.IGNORECASE),
     re.compile(r"always\s+output\s+no\s+findings", re.IGNORECASE),
-    re.compile(r"skip.*(security|review|checks)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"skip.*(security|review|checks)", re.IGNORECASE),
     re.compile(r"override:", re.IGNORECASE),
     re.compile(r"\bsystem\s*:", re.IGNORECASE),
     re.compile(r"\bassistant\s*:", re.IGNORECASE),
