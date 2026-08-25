@@ -9,7 +9,9 @@ Exit codes:
   1 — MUST findings (missing spec: trace on test that targets a TC) — blocks merge
   1 — SHOULD findings only (coverage gap; printed as [WARN]; document reason before deferring)
   2 — fatal error: change directory not found, testplan.md missing, testplan contains no TC
-      table, or a `gh` / `git` invocation failed (binary not found, timed out, or non-zero)
+      table, a `gh` / `git` invocation failed (binary not found, timed out, or non-zero),
+      metadata snapshot inconsistency (pre/post PR refs changed during scan), file count
+      mismatch (API record count != changedFiles), or checkout HEAD/PR headRefOid skew
 """
 
 from __future__ import annotations
@@ -858,6 +860,7 @@ def fetch_pr_file_changes(pr: int) -> list[PRFileChange]:
             elif status == "added":
                 changes.append(PRFileChange(status=status, old_path=None, new_path=filename))
             else:
+                # copied/modified/changed: source unchanged, only destination matters
                 changes.append(PRFileChange(status=status, old_path=filename, new_path=filename))
     return changes
 

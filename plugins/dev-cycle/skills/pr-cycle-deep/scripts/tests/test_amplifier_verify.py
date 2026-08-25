@@ -1484,6 +1484,8 @@ diff --git a/openspec/changes/ghost/tasks.md b/openspec/changes/ghost/tasks.md
         ),
         ("src/openspec/changes/add-login/tasks.md", ("none", None)),
         ("openspec/changes/<name>/tasks.md", ("none", None)),
+        ("openspec/changes/README.md", ("none", None)),
+        ("docs/openspec/changes/.gitkeep", ("none", None)),
     ],
 )
 def test_classify_spectra_path_supports_both_layout_roots(path, expected):
@@ -1596,6 +1598,39 @@ def test_fetch_pr_metadata_uses_the_expected_fields(monkeypatch):
 
     assert metadata == amplifier_verify.PRMetadata("base", "head", 3)
     assert seen == [["gh", "pr", "view", "42", "--json", "baseRefOid,headRefOid,changedFiles"]]
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        [{"baseRefOid": "base", "headRefOid": "head", "changedFiles": 3}],
+        "not a dict",
+        42,
+    ],
+    ids=["list-not-dict", "string-not-dict", "int-not-dict"],
+)
+def test_fetch_pr_metadata_rejects_non_dict_response(monkeypatch, response):
+    monkeypatch.setattr(amplifier_verify, "_run_json", lambda args, timeout=180: response)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.fetch_pr_metadata(1)
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"baseRefOid": "base", "headRefOid": "head", "changedFiles": "3"},
+        {"baseRefOid": "base", "headRefOid": "head", "changedFiles": True},
+        {"baseRefOid": "base", "headRefOid": "head", "changedFiles": None},
+        {"baseRefOid": None, "headRefOid": "head", "changedFiles": 3},
+    ],
+    ids=["changedFiles-str", "changedFiles-bool", "changedFiles-none", "baseRefOid-none"],
+)
+def test_fetch_pr_metadata_rejects_wrong_field_types(monkeypatch, response):
+    monkeypatch.setattr(amplifier_verify, "_run_json", lambda args, timeout=180: response)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.fetch_pr_metadata(1)
+    assert exc.value.code == 2
 
 
 def test_get_repo_slug_caches_the_gh_lookup(monkeypatch):
