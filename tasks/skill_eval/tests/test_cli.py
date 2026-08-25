@@ -579,6 +579,92 @@ class TestAllScope:
         assert "無可評測項目" in result.output
         assert "empty" in result.output
 
+    def test_seval_cli_021_all_detects_deleted_fixture_via_baseline(self, tmp_path: Path) -> None:
+        """SEVAL-CLI-021: --all 已刪 fixture 仍在 baseline -> exit 1（#219 P2）。
+
+        fixture 被刪 → discover_fixtures 不含它 → 舊實作的 scope=set(names) 不含它 →
+        baseline entry 從不被讀 → gate 靜默放行。修法：--all 時 scope 擴展至
+        set(names) | set(baseline)，讓 compare_baseline 偵測到缺席的 skill。
+        spec: skill-trigger-eval#absent-class-is-a-regression"""
+        skills_dir = tmp_path / "skills"
+        write_fixture(skills_dir, skill="alive")
+        manifest = emit_manifest(skills_dir, "--all")
+        judgments = tmp_path / "j.json"
+        judgments.write_text(json.dumps([True, True, False]), encoding="utf-8")
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text(
+            json.dumps(
+                {
+                    "alive": {"direct": 1.0, "indirect": 1.0, "negative": 1.0},
+                    "deleted": {"direct": 1.0, "negative": 1.0},
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(
+            cli,
+            [
+                "eval",
+                "--all",
+                "--skills-dir",
+                str(skills_dir),
+                "--manifest",
+                str(manifest),
+                "--judgments",
+                str(judgments),
+                "--baseline",
+                str(baseline),
+            ],
+        )
+        assert result.exit_code == 1, (
+            f"fixture 被刪的 skill 仍在 baseline，--all 必須偵測到：{result.output}"
+        )
+        assert "deleted" in result.output
+
+    def test_seval_cli_022_skill_mode_does_not_report_other_baseline_skills(
+        self, tmp_path: Path
+    ) -> None:
+        """SEVAL-CLI-022: --skill foo 不把 baseline 裡其他 skill 判成缺席（反向保護）。
+
+        scope 擴展只在 --all 時生效；--skill 下 scope 仍 = set(names)，否則
+        單 skill 評測永遠 exit 1。
+        spec: skill-trigger-eval#absent-class-is-a-regression"""
+        skills_dir = tmp_path / "skills"
+        write_fixture(skills_dir, skill="focused")
+        manifest = emit_manifest(skills_dir, "--skill", "focused")
+        judgments = tmp_path / "j.json"
+        judgments.write_text(json.dumps([True, True, False]), encoding="utf-8")
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text(
+            json.dumps(
+                {
+                    "focused": {"direct": 1.0, "indirect": 1.0, "negative": 1.0},
+                    "other": {"direct": 1.0, "negative": 1.0},
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(
+            cli,
+            [
+                "eval",
+                "--skill",
+                "focused",
+                "--skills-dir",
+                str(skills_dir),
+                "--manifest",
+                str(manifest),
+                "--judgments",
+                str(judgments),
+                "--baseline",
+                str(baseline),
+            ],
+        )
+        assert result.exit_code == 0, (
+            f"--skill 不應因 baseline 裡有其他 skill 而失敗：{result.output}"
+        )
+        assert "[OK]" in result.output
+
 
 class TestToleranceValidation:
     def test_seval_vl_009_tolerance_nan_rejected(self, tmp_path: Path) -> None:
