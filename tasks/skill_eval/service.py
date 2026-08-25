@@ -88,7 +88,7 @@ def compare_baseline(
     只走 results 會讓清空某一類成為無聲的 gate 繞道（issue #219）。
 
     `evaluated_skills` 界定 union 的範圍，必須是「本次真的有評的 skill」。少了它，
-    `--skill foo` 會把 baseline 裡其他 31 個 skill 全判成缺席——那不是回歸，只是沒評到。
+    `--skill foo` 會把 baseline 裡其他所有 skill 全判成缺席——那不是回歸，只是沒評到。
     預設取 results 的 skill 集合（等同舊行為的範圍）。
     """
     scope = evaluated_skills if evaluated_skills is not None else {r.skill for r in results}

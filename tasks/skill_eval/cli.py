@@ -214,8 +214,8 @@ def eval(  # noqa: A001 — 對映 spec「eval subcommand」命名
         baseline_data = load_baseline(baseline_file)
         # --all 時 scope 擴展至 baseline ∪ fixtures：fixture 被刪的 skill 仍在 baseline 裡，
         # 不擴展就會讓它靜默離開 gate（issue #219 Path 2）。--skill 不擴展，否則單 skill
-        # 評測會把 baseline 裡其他 31 個 skill 全判缺席。
-        scope = set(names) | set(baseline_data) if all_skills else set(names)
+        # 評測會把 baseline 裡其他所有 skill 全判缺席。
+        scope = (set(names) | set(baseline_data)) if all_skills else set(names)
         report = run_eval(judge, tasks, judgments, baseline_data, tol, scope)
     except RuntimeError as e:
         click.echo(f"[FAIL] {e}", err=True)
