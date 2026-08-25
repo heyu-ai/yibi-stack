@@ -888,7 +888,7 @@ def _make_token_counter() -> Callable[[str], int]:
         # 只裝 dependency-groups；extras 要 --all-extras），故 pylint 的 import-error 是環境
         # 事實而非缺陷。用 inline 而非 [tool.pylint.main].ignored-modules：後者是 repo-wide，
         # 實測會連 member 檢查一起關掉（`tiktoken.get_encodig` 這種 typo 不再被 E1101 抓到）。
-        import tiktoken  # type: ignore[import-not-found]  # pylint: disable=import-error
+        import tiktoken  # pylint: disable=import-error
 
         enc = tiktoken.get_encoding(_TOKEN_BUDGET_ENCODING)
     except Exception as e:  # 網路／HTTP／快取權限／損壞的 tiktoken_ext；一律退化而非中斷
