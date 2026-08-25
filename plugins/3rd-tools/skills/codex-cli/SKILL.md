@@ -15,6 +15,11 @@ Claude 規劃 → Codex 寫 code → Claude 驗收。與同家族兩個 skill �
 
 **本 skill 不做 commit / push / PR** — 改動留在工作樹，由使用者或 `/pr-cycle-*` 接手。
 
+**本 skill 只適用 repo 內、會產生 code 改動、需 CI 驗收的委派。** 唯讀分析、或目標在任何
+git repo 之外（例：`~/Documents/` 的文件）不走本 skill——git gate 會卡在「不是 git repo」。
+改直接 `codex exec -s workspace-write --skip-git-repo-check -C <最小目錄>`，並把 `-C` 收到
+剛好涵蓋讀寫範圍的目錄以收緊 sandbox。<!-- verified: probe, codex-cli 0.142.5 -->
+
 ---
 
 ## Step 0.1: 確認 codex binary
