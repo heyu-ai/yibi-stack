@@ -671,9 +671,9 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         try:
             cur = self.conn.execute(
                 "SELECT * FROM lessons "
-                "WHERE project = ? AND type = ? AND key = ? AND retired_at IS NULL "
+                "WHERE project = ? AND key = ? AND retired_at IS NULL "
                 "ORDER BY ts DESC LIMIT 1",
-                (record.project, record.type.value, record.key),
+                (record.project, record.key),
             )
             row = cur.fetchone()
             if row is None:
@@ -985,6 +985,19 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         return [_decode_lesson_row(row) for row in cur.fetchall()]
 
     def find_latest_lesson_by_key(
+        self,
+        project: str,
+        key: str,
+    ) -> dict[str, Any] | None:
+        """回傳 project、key 精確相符的最新 typed lesson。"""
+        cur = self.conn.execute(
+            "SELECT * FROM lessons WHERE project = ? AND key = ? ORDER BY ts DESC LIMIT 1",
+            (project, key),
+        )
+        row = cur.fetchone()
+        return _decode_lesson_row(row) if row is not None else None
+
+    def find_latest_lesson_by_typed_key(
         self,
         project: str,
         lesson_type: str,

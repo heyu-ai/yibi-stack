@@ -194,7 +194,7 @@ def find_existing_lesson(
     db = AgentsDB(db_path=db_path)
     try:
         db.init_db()
-        return db.find_latest_lesson_by_key(project, lesson_type, key)
+        return db.find_latest_lesson_by_typed_key(project, lesson_type, key)
     finally:
         db.close()
 

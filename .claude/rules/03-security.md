@@ -88,8 +88,11 @@ re.compile(r"do\s+not\s+(report|flag|mention)", re.IGNORECASE)
 ```
 
 Note: `re.DOTALL` only changes `.` (dot) behavior — it does **not** make literal
-spaces match newlines. Both `re.DOTALL` (for `.*`-based patterns) AND `\s+` (for
-space-separated multi-word patterns) are needed for comprehensive coverage.
+spaces match newlines. Use `re.DOTALL` on `.*`-based patterns only when cross-line
+matching is genuinely needed (e.g. `ignore.*previous.*instructions`); patterns where
+cross-line `.*` causes false positives (e.g. `skip.*(security|review|checks)`, #369)
+should omit it. `\s+` (for space-separated multi-word patterns) remains needed
+regardless of DOTALL.
 
 ## bandit `# nosec` Must Be on the Flagged Line
 
