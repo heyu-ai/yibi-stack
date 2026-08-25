@@ -90,7 +90,7 @@ US-002 / AC-002-1, AC-002-2, AC-002-3. Tier 3 action item MUST NOT 寫入任何 
 
 recurrence 升級 MUST 遵循：同類 friction 於後續 retro 再現時 recurrence +1；recurrence ≥ 2 時該候選 MUST「解除 park」重新進入 Evidence Gate；解除 park **僅**使其重新受評，MUST 仍通過 Tier 1 或 Tier 2 證據要求才得寫入。recurrence MUST NOT 單獨構成寫入理由。若重評結論仍為 Tier 3，再次 `--park` MUST 只重套 `parked`、MUST NOT 再次 bump recurrence。
 
-同一 `key` 已存在**未 parked** 的 lesson 時，`--park` MUST 拒絕並以非零 exit 失敗，MUST NOT 覆寫該 lesson——否則會把已通過 Tier 1/2 的教訓夾成 `confidence ≤ 4` 並掛上 `parked`，使其從預設 recall 與 tier promotion 中消失。
+同一 `project` + `key` 已存在**未 parked** 的 lesson 時，`--park` MUST 拒絕並以非零 exit 失敗，MUST NOT 覆寫該 lesson——否則會把已通過 Tier 1/2 的教訓夾成 `confidence ≤ 4` 並掛上 `parked`，使其從預設 recall 與 tier promotion 中消失。
 
 #### Scenario: tier3-parked-not-always-loaded -- Tier 3 不碰 always-loaded 面
 
@@ -110,7 +110,7 @@ recurrence 升級 MUST 遵循：同類 friction 於後續 retro 再現時 recurr
 
 #### Scenario: park-refuses-to-overwrite-an-unparked-lesson -- 拒絕把已驗證教訓打成 Tier 3
 
-**GIVEN** 同一 `key` 已存在一筆未 parked 的 lesson（例如 `confidence=9`）
+**GIVEN** 同一 `project` + `key` 已存在一筆未 parked 的 lesson（例如 `confidence=9`）
 **WHEN** 對該 key 執行 `--park`
 **THEN** 系統 MUST 以非零 exit 拒絕
   AND 該既有 lesson 的 `confidence` 與 `tags` MUST 維持不變

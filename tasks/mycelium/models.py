@@ -11,7 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-# re.DOTALL 讓 .* 跨越換行，防止 multi-line payload 繞過匹配
+# re.DOTALL 只用於需要跨行偵測的 pattern（如 ignore.*previous）；
+# skip.*(security|review|checks) 刻意不加 DOTALL 以避免跨行 false positive（#369）
 _INJECTION_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"ignore.*previous.*(instructions|context|rules)", re.IGNORECASE | re.DOTALL),
     re.compile(r"you\s+are\s+now", re.IGNORECASE),
