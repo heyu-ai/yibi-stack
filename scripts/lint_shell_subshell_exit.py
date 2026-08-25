@@ -93,7 +93,6 @@ from pathlib import Path
 _FUNC_DEF = re.compile(r"^\s*(?:function\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{")
 _EXIT = re.compile(r"(?:^|;|\bthen\b|\bdo\b|&&|\|\|)\s*exit\b")
 _SET_E = re.compile(r"^\s*set\s+[^#]*(?:-[a-z]*e|-o\s+errexit)")
-_SET_POSITIONAL = re.compile(r"^\s*set\s+--(?:\s|$)")
 _MASKING_BUILTINS = re.compile(r"(local|declare|export|readonly|typeset)\b")
 
 
@@ -168,9 +167,12 @@ def _strip_single_and_comments(line: str) -> str:
 
 
 def _has_set_e(lines: list[str]) -> bool:
-    return any(
-        _SET_E.match(_strip_noise(ln)) and not _SET_POSITIONAL.match(ln) for ln in lines[:20]
-    )
+    for ln in lines[:20]:
+        clean = _strip_noise(ln)
+        opts = clean.split(" -- ")[0] if " -- " in clean else clean
+        if _SET_E.match(opts):
+            return True
+    return False
 
 
 def _find_functions(lines: list[str]) -> dict[str, tuple[int, int]]:

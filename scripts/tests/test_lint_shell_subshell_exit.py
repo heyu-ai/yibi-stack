@@ -507,6 +507,25 @@ class TestLintShellSubshellExit:
         r = _run_lint(f)
         assert r.returncode == 1, f"未抓到 set -- -e（非 set -e）的漏報：{r.stdout!r}"
 
+    def test_lsse_dt_010_set_option_then_positional_e_not_set_e(self, tmp_path: Path) -> None:
+        """LSSE-DT-010: `set -u -- -e` 的 -e 在 -- 之後是位置參數，不是 errexit。"""
+        f = _write(
+            tmp_path,
+            "set_u_pos.sh",
+            "#!/bin/bash\n"
+            'set -u -- -e "$@"\n'
+            "_fn() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "ok"\n'
+            "}\n"
+            'RESULT=$(_fn "$X")\n'
+            'echo "$RESULT"\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 1, f"未抓到 set -u -- -e（-e 是位置參數）的漏報：{r.stdout!r}"
+
     def test_lsse_eg_010_builtin_keyword_as_argument_not_flagged(self, tmp_path: Path) -> None:
         """LSSE-EG-010: `echo export X=$(fn)` 的 export 是引數不是命令，不得報。
 
