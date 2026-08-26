@@ -773,18 +773,36 @@ def _make_repo(tmp_path, active=(), archived=(), root="openspec/changes", testpl
     return tmp_path
 
 
-def _stub_run(monkeypatch, diff, repo_root):
-    """Replace _run so main() gets a canned `gh pr diff` and repo root."""
+def _stub_run(monkeypatch, diff, repo_root, file_changes=None):
+    """取代外部探測，讓 main() 取得固定的 PR 快照與 checkout。"""
+    if file_changes is None:
+        refs = amplifier_verify.detect_change_refs_from_diff(diff)
+        file_changes = []
+        for slug in refs.active_tree:
+            path = f"openspec/changes/{slug}/tasks.md"
+            file_changes.append(amplifier_verify.PRFileChange("modified", path, path))
+        for slug in refs.archive_tree:
+            path = f"openspec/changes/archive/{slug}/tasks.md"
+            file_changes.append(amplifier_verify.PRFileChange("modified", path, path))
+
+    metadata = amplifier_verify.PRMetadata("base-oid", "head-oid", len(file_changes))
+    calls = []
 
     def fake_run(args, timeout=180):
-        if args[0] == "gh":
+        calls.append(args)
+        if args[:3] == ["gh", "pr", "diff"]:
             return diff
-        if args[0] == "git":
+        if args == ["git", "rev-parse", "HEAD"]:
+            return "head-oid\n"
+        if args == ["git", "rev-parse", "--show-toplevel"]:
             return f"{repo_root}\n"
-        raise AssertionError(f"unexpected command: {args}")
+        raise AssertionError(f"非預期命令：{args}")
 
     monkeypatch.setattr(amplifier_verify, "_run", fake_run)
+    monkeypatch.setattr(amplifier_verify, "fetch_pr_metadata", lambda pr: metadata)
+    monkeypatch.setattr(amplifier_verify, "fetch_pr_file_changes", lambda pr: file_changes)
     monkeypatch.setattr(sys, "argv", ["amplifier-verify.py", "--pr", "1"])
+    return calls
 
 
 def _one_file_diff(path):
@@ -1444,3 +1462,379 @@ diff --git a/openspec/changes/ghost/tasks.md b/openspec/changes/ghost/tasks.md
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert "ghost" in err
+
+
+# ---------------------------------------------------------------------------
+# 結構化 GitHub PR 檔案探測。
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("openspec/changes/add-login/tasks.md", ("active", "add-login")),
+        ("docs/openspec/changes/add-login/design.md", ("active", "add-login")),
+        (
+            "openspec/changes/archive/2026-08-25-add-login/tasks.md",
+            ("archive", "2026-08-25-add-login"),
+        ),
+        (
+            "docs/openspec/changes/archive/2026-08-25-add-login/testplan.md",
+            ("archive", "2026-08-25-add-login"),
+        ),
+        ("src/openspec/changes/add-login/tasks.md", ("none", None)),
+        ("openspec/changes/<name>/tasks.md", ("none", None)),
+        ("openspec/changes/README.md", ("none", None)),
+        ("docs/openspec/changes/.gitkeep", ("none", None)),
+    ],
+)
+def test_classify_spectra_path_supports_both_layout_roots(path, expected):
+    assert amplifier_verify.classify_spectra_path(path) == expected
+
+
+def test_classify_spectra_path_rejects_archive_container_files():
+    assert amplifier_verify.classify_spectra_path("openspec/changes/archive/README.md") == (
+        "none",
+        None,
+    )
+
+
+def test_derive_change_refs_normalizes_mixed_file_change_types():
+    changes = [
+        amplifier_verify.PRFileChange(
+            "renamed",
+            "openspec/changes/old-name/tasks.md",
+            "openspec/changes/archive/2026-08-25-old-name/tasks.md",
+        ),
+        amplifier_verify.PRFileChange("added", None, "docs/openspec/changes/new-name/proposal.md"),
+        amplifier_verify.PRFileChange("removed", "openspec/changes/removed-name/design.md", None),
+        amplifier_verify.PRFileChange(
+            "modified",
+            "docs/openspec/changes/new-name/testplan.md",
+            "docs/openspec/changes/new-name/testplan.md",
+        ),
+    ]
+
+    refs = amplifier_verify.derive_change_refs(changes)
+
+    assert refs.active_tree == ["old-name", "new-name", "removed-name"]
+    assert refs.archive_tree == ["2026-08-25-old-name"]
+
+
+def test_derive_change_refs_processes_archive_to_active_rename_old_path_first():
+    refs = amplifier_verify.derive_change_refs(
+        [
+            amplifier_verify.PRFileChange(
+                "renamed",
+                "openspec/changes/archive/2026-08-25-add-login/tasks.md",
+                "openspec/changes/add-login/tasks.md",
+            )
+        ]
+    )
+    assert refs.archive_tree == ["2026-08-25-add-login"]
+    assert refs.active_tree == ["add-login"]
+
+
+def test_derive_change_refs_preserves_both_sides_of_active_to_archive_rename():
+    refs = amplifier_verify.derive_change_refs(
+        [
+            amplifier_verify.PRFileChange(
+                "renamed",
+                "openspec/changes/add-login/tasks.md",
+                "openspec/changes/archive/2026-08-25-add-login/tasks.md",
+            )
+        ]
+    )
+    assert refs.active_tree == ["add-login"]
+    assert refs.archive_tree == ["2026-08-25-add-login"]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_derive_change_refs_never_lets_archived_records_shadow_active_ones(reverse):
+    archived = amplifier_verify.PRFileChange(
+        "modified",
+        "openspec/changes/archive/2026-08-25-old/tasks.md",
+        "openspec/changes/archive/2026-08-25-old/tasks.md",
+    )
+    active = amplifier_verify.PRFileChange(
+        "modified",
+        "openspec/changes/new/tasks.md",
+        "openspec/changes/new/tasks.md",
+    )
+    changes = [archived, active]
+    if reverse:
+        changes.reverse()
+
+    refs = amplifier_verify.derive_change_refs(changes)
+
+    assert refs.active_tree == ["new"]
+    assert refs.archive_tree == ["2026-08-25-old"]
+
+
+def test_derive_change_refs_deduplicates_a_slug_across_files():
+    refs = amplifier_verify.derive_change_refs(
+        [
+            amplifier_verify.PRFileChange(
+                "modified",
+                "openspec/changes/add-login/tasks.md",
+                "openspec/changes/add-login/tasks.md",
+            ),
+            amplifier_verify.PRFileChange("added", None, "openspec/changes/add-login/testplan.md"),
+        ]
+    )
+    assert refs.active_tree == ["add-login"]
+
+
+def test_fetch_pr_metadata_uses_the_expected_fields(monkeypatch):
+    seen = []
+
+    def fake_run_json(args, timeout=180):
+        seen.append(args)
+        return {"baseRefOid": "base", "headRefOid": "head", "changedFiles": 3}
+
+    monkeypatch.setattr(amplifier_verify, "_run_json", fake_run_json)
+
+    metadata = amplifier_verify.fetch_pr_metadata(42)
+
+    assert metadata == amplifier_verify.PRMetadata("base", "head", 3)
+    assert seen == [["gh", "pr", "view", "42", "--json", "baseRefOid,headRefOid,changedFiles"]]
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        [{"baseRefOid": "base", "headRefOid": "head", "changedFiles": 3}],
+        "not a dict",
+        42,
+    ],
+    ids=["list-not-dict", "string-not-dict", "int-not-dict"],
+)
+def test_fetch_pr_metadata_rejects_non_dict_response(monkeypatch, response):
+    monkeypatch.setattr(amplifier_verify, "_run_json", lambda args, timeout=180: response)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.fetch_pr_metadata(1)
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"baseRefOid": "base", "headRefOid": "head", "changedFiles": "3"},
+        {"baseRefOid": "base", "headRefOid": "head", "changedFiles": True},
+        {"baseRefOid": "base", "headRefOid": "head", "changedFiles": None},
+        {"baseRefOid": None, "headRefOid": "head", "changedFiles": 3},
+    ],
+    ids=["changedFiles-str", "changedFiles-bool", "changedFiles-none", "baseRefOid-none"],
+)
+def test_fetch_pr_metadata_rejects_wrong_field_types(monkeypatch, response):
+    monkeypatch.setattr(amplifier_verify, "_run_json", lambda args, timeout=180: response)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.fetch_pr_metadata(1)
+    assert exc.value.code == 2
+
+
+def test_get_repo_slug_caches_the_gh_lookup(monkeypatch):
+    calls = []
+
+    def fake_run(args, timeout=180):
+        calls.append(args)
+        return "owner/repo\n"
+
+    monkeypatch.setattr(amplifier_verify, "_run", fake_run)
+    amplifier_verify._get_repo_slug.cache_clear()
+    try:
+        assert amplifier_verify._get_repo_slug() == "owner/repo"
+        assert amplifier_verify._get_repo_slug() == "owner/repo"
+    finally:
+        amplifier_verify._get_repo_slug.cache_clear()
+
+    assert calls == [["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]]
+
+
+def test_fetch_pr_file_changes_flattens_slurped_pages_and_normalizes(monkeypatch):
+    pages = [
+        [
+            {
+                "status": "renamed",
+                "filename": "openspec/changes/new/tasks.md",
+                "previous_filename": "openspec/changes/old/tasks.md",
+            },
+            {"status": "added", "filename": "src/new.py"},
+        ],
+        [
+            {"status": "removed", "filename": "src/old.py"},
+            {"status": "copied", "filename": "src/copy.py"},
+        ],
+    ]
+    seen = []
+
+    def fake_run_json(args, timeout=180):
+        seen.append(args)
+        return pages
+
+    monkeypatch.setattr(amplifier_verify, "_get_repo_slug", lambda: "heyu-ai/yibi-stack")
+    monkeypatch.setattr(amplifier_verify, "_run_json", fake_run_json)
+
+    changes = amplifier_verify.fetch_pr_file_changes(42)
+
+    assert changes == [
+        amplifier_verify.PRFileChange(
+            "renamed",
+            "openspec/changes/old/tasks.md",
+            "openspec/changes/new/tasks.md",
+        ),
+        amplifier_verify.PRFileChange("added", None, "src/new.py"),
+        amplifier_verify.PRFileChange("removed", "src/old.py", None),
+        amplifier_verify.PRFileChange("copied", "src/copy.py", "src/copy.py"),
+    ]
+    assert seen == [
+        [
+            "gh",
+            "api",
+            "repos/heyu-ai/yibi-stack/pulls/42/files?per_page=100",
+            "--paginate",
+            "--slurp",
+        ]
+    ]
+
+
+def test_fetch_pr_file_changes_rejects_rename_without_previous_filename(monkeypatch):
+    monkeypatch.setattr(amplifier_verify, "_get_repo_slug", lambda: "owner/repo")
+    monkeypatch.setattr(
+        amplifier_verify,
+        "_run_json",
+        lambda args, timeout=180: [[{"status": "renamed", "filename": "new.py"}]],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.fetch_pr_file_changes(1)
+
+    assert exc.value.code == 2
+
+
+def test_fetch_pr_file_changes_rejects_unknown_status(monkeypatch):
+    monkeypatch.setattr(amplifier_verify, "_get_repo_slug", lambda: "owner/repo")
+    monkeypatch.setattr(
+        amplifier_verify,
+        "_run_json",
+        lambda args, timeout=180: [[{"status": "mystery", "filename": "file.py"}]],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.fetch_pr_file_changes(1)
+
+    assert exc.value.code == 2
+
+
+def test_run_json_exits_two_for_malformed_output(monkeypatch):
+    monkeypatch.setattr(amplifier_verify, "_run", lambda args, timeout=180: "not-json")
+
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify._run_json(["gh", "api", "endpoint"])
+
+    assert exc.value.code == 2
+
+
+def test_main_rejects_metadata_that_changes_during_discovery(tmp_path, monkeypatch, capsys):
+    _stub_run(monkeypatch, "", tmp_path, file_changes=[])
+    snapshots = iter(
+        [
+            amplifier_verify.PRMetadata("base-a", "head-oid", 0),
+            amplifier_verify.PRMetadata("base-b", "head-oid", 0),
+        ]
+    )
+    monkeypatch.setattr(amplifier_verify, "fetch_pr_metadata", lambda pr: next(snapshots))
+
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+
+    assert exc.value.code == 2
+    assert "發生變更" in capsys.readouterr().err
+
+
+def test_main_rejects_file_count_mismatch(tmp_path, monkeypatch, capsys):
+    changes = [amplifier_verify.PRFileChange("modified", "src/app.py", "src/app.py")]
+    _stub_run(monkeypatch, "", tmp_path, file_changes=changes)
+    metadata = amplifier_verify.PRMetadata("base-oid", "head-oid", 2)
+    monkeypatch.setattr(amplifier_verify, "fetch_pr_metadata", lambda pr: metadata)
+
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+
+    assert exc.value.code == 2
+    assert "取得 1 筆，預期 2 筆" in capsys.readouterr().err
+
+
+def test_main_rejects_empty_file_list_when_metadata_reports_changes(tmp_path, monkeypatch, capsys):
+    _stub_run(monkeypatch, "", tmp_path, file_changes=[])
+    metadata = amplifier_verify.PRMetadata("base-oid", "head-oid", 1)
+    monkeypatch.setattr(amplifier_verify, "fetch_pr_metadata", lambda pr: metadata)
+
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+
+    assert exc.value.code == 2
+    assert "取得 0 筆，預期 1 筆" in capsys.readouterr().err
+
+
+def test_main_accepts_empty_file_list_when_metadata_reports_zero(tmp_path, monkeypatch, capsys):
+    calls = _stub_run(monkeypatch, "", tmp_path, file_changes=[])
+
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+
+    assert exc.value.code == 0
+    assert "no spectra change" in capsys.readouterr().out
+    assert ["gh", "pr", "diff", "1"] not in calls
+
+
+def test_main_rejects_checkout_that_is_not_the_pr_head(tmp_path, monkeypatch, capsys):
+    _stub_run(monkeypatch, "", tmp_path, file_changes=[])
+
+    def fake_run(args, timeout=180):
+        if args == ["git", "rev-parse", "HEAD"]:
+            return "different-head\n"
+        raise AssertionError(f"非預期命令：{args}")
+
+    monkeypatch.setattr(amplifier_verify, "_run", fake_run)
+
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+
+    assert exc.value.code == 2
+    assert "headRefOid 不一致" in capsys.readouterr().err
+
+
+def test_change_flag_skips_structured_discovery_but_still_fetches_diff(
+    tmp_path, monkeypatch, capsys
+):
+    repo = _make_repo(tmp_path, active=["add-login"])
+    diff = _one_file_diff("tests/test_login.py")
+    calls = []
+
+    def forbidden_fetch(pr):
+        raise AssertionError("--change 必須略過結構化探測")
+
+    def fake_run(args, timeout=180):
+        calls.append(args)
+        if args == ["gh", "pr", "diff", "1"]:
+            return diff
+        if args == ["git", "rev-parse", "--show-toplevel"]:
+            return f"{repo}\n"
+        raise AssertionError(f"非預期命令：{args}")
+
+    monkeypatch.setattr(amplifier_verify, "fetch_pr_metadata", forbidden_fetch)
+    monkeypatch.setattr(amplifier_verify, "fetch_pr_file_changes", forbidden_fetch)
+    monkeypatch.setattr(amplifier_verify, "_run", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["amplifier-verify.py", "--pr", "1", "--change", "add-login"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+
+    assert exc.value.code == 2
+    assert ["gh", "pr", "diff", "1"] in calls
+    assert "testplan.md not found" in capsys.readouterr().err

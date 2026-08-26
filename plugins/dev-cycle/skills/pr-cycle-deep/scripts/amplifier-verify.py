@@ -9,18 +9,23 @@ Exit codes:
   1 — MUST findings (missing spec: trace on test that targets a TC) — blocks merge
   1 — SHOULD findings only (coverage gap; printed as [WARN]; document reason before deferring)
   2 — fatal error: change directory not found, testplan.md missing, testplan contains no TC
-      table, or a `gh` / `git` invocation failed (binary not found, timed out, or non-zero)
+      table, a `gh` / `git` invocation failed (binary not found, timed out, or non-zero),
+      metadata snapshot inconsistency (pre/post PR refs changed during scan), file count
+      mismatch (API record count != changedFiles), or checkout HEAD/PR headRefOid skew
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess  # nosec B404
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -60,6 +65,20 @@ class Findings:
 
     def is_empty(self) -> bool:
         return not (self.must or self.should or self.info)
+
+
+@dataclass
+class PRMetadata:
+    base_oid: str
+    head_oid: str
+    changed_file_count: int
+
+
+@dataclass
+class PRFileChange:
+    status: str
+    old_path: str | None
+    new_path: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +396,41 @@ class DiffChangeRefs:
 
     active_tree: list[str] = field(default_factory=list)
     archive_tree: list[str] = field(default_factory=list)
+
+
+def classify_spectra_path(path: str) -> tuple[str, str | None]:
+    """將儲存庫相對路徑分類為啟用中、封存或非 Spectra 變更。"""
+    segments = path.split("/")
+    for root in _CHANGE_ROOTS:
+        root_segments = root.split("/")
+        if segments[: len(root_segments)] != root_segments:
+            continue
+        remainder = segments[len(root_segments) :]
+        if len(remainder) < 2:
+            return ("none", None)
+        if remainder[0] == _ARCHIVE_SEGMENT:
+            if len(remainder) < 3 or not _VALID_CHANGE_SLUG_RE.fullmatch(remainder[1]):
+                return ("none", None)
+            return ("archive", remainder[1])
+        if not _VALID_CHANGE_SLUG_RE.fullmatch(remainder[0]):
+            return ("none", None)
+        return ("active", remainder[0])
+    return ("none", None)
+
+
+def derive_change_refs(changes: list[PRFileChange]) -> DiffChangeRefs:
+    """依檔案變更的舊路徑再新路徑推導 Spectra 變更參照。"""
+    refs = DiffChangeRefs()
+    for change in changes:
+        for path in (change.old_path, change.new_path):
+            if path is None:
+                continue
+            tree, slug = classify_spectra_path(path)
+            if tree == "active" and slug is not None and slug not in refs.active_tree:
+                refs.active_tree.append(slug)
+            elif tree == "archive" and slug is not None and slug not in refs.archive_tree:
+                refs.archive_tree.append(slug)
+    return refs
 
 
 def detect_change_refs_from_diff(diff_text: str) -> DiffChangeRefs:
@@ -713,6 +767,104 @@ def _run(args: list[str], timeout: int = 180) -> str:
     return result.stdout
 
 
+def _run_json(args: list[str], timeout: int = 180) -> Any:
+    """執行命令並解析 JSON 標準輸出，失敗時以狀態碼 2 結束。"""
+    stdout = _run(args, timeout=timeout)
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError as e:
+        print(
+            f"[FAIL] 無法解析 {' '.join(args)} 的 JSON 輸出：{e}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+
+def fetch_pr_metadata(pr: int) -> PRMetadata:
+    """取得用於一致性驗證的 PR 中繼資料。"""
+    data = _run_json(["gh", "pr", "view", str(pr), "--json", "baseRefOid,headRefOid,changedFiles"])
+    if not isinstance(data, dict):
+        print("[FAIL] PR 中繼資料不是 JSON 物件。", file=sys.stderr)
+        sys.exit(2)
+    base_oid = data.get("baseRefOid")
+    head_oid = data.get("headRefOid")
+    changed_file_count = data.get("changedFiles")
+    if (
+        not isinstance(base_oid, str)
+        or not isinstance(head_oid, str)
+        or type(changed_file_count) is not int
+    ):
+        print(
+            "[FAIL] PR 中繼資料缺少有效的 baseRefOid、headRefOid 或 changedFiles。", file=sys.stderr
+        )
+        sys.exit(2)
+    return PRMetadata(
+        base_oid=base_oid,
+        head_oid=head_oid,
+        changed_file_count=changed_file_count,
+    )
+
+
+@lru_cache(maxsize=1)
+def _get_repo_slug() -> str:
+    """取得並快取目前儲存庫的 owner/name 識別字。"""
+    slug = _run(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).strip()
+    if not slug:
+        print("[FAIL] gh repo view 未回傳 repository 識別字。", file=sys.stderr)
+        sys.exit(2)
+    return slug
+
+
+def fetch_pr_file_changes(pr: int) -> list[PRFileChange]:
+    """取得並正規化 PR 的所有分頁檔案變更。"""
+    slug = _get_repo_slug()
+    pages = _run_json(
+        [
+            "gh",
+            "api",
+            f"repos/{slug}/pulls/{pr}/files?per_page=100",
+            "--paginate",
+            "--slurp",
+        ]
+    )
+    if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
+        print("[FAIL] PR 檔案 API 未回傳預期的分頁 JSON 陣列。", file=sys.stderr)
+        sys.exit(2)
+
+    changes: list[PRFileChange] = []
+    known_statuses = {"added", "removed", "renamed", "modified", "changed", "copied"}
+    for page in pages:
+        for record in page:
+            if not isinstance(record, dict):
+                print("[FAIL] PR 檔案 API 回傳非物件紀錄。", file=sys.stderr)
+                sys.exit(2)
+            status = record.get("status")
+            if not isinstance(status, str) or status not in known_statuses:
+                print(f"[FAIL] PR 檔案 API 回傳未知狀態：{status!r}。", file=sys.stderr)
+                sys.exit(2)
+            filename = record.get("filename")
+            if not isinstance(filename, str):
+                print("[FAIL] PR 檔案 API 紀錄缺少有效的 filename。", file=sys.stderr)
+                sys.exit(2)
+
+            if status == "renamed":
+                previous_filename = record.get("previous_filename")
+                if not isinstance(previous_filename, str):
+                    print("[FAIL] renamed 檔案缺少有效的 previous_filename。", file=sys.stderr)
+                    sys.exit(2)
+                changes.append(
+                    PRFileChange(status=status, old_path=previous_filename, new_path=filename)
+                )
+            elif status == "removed":
+                changes.append(PRFileChange(status=status, old_path=filename, new_path=None))
+            elif status == "added":
+                changes.append(PRFileChange(status=status, old_path=None, new_path=filename))
+            else:
+                # copied/modified/changed: source unchanged, only destination matters
+                changes.append(PRFileChange(status=status, old_path=filename, new_path=filename))
+    return changes
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Amplifier-verifier for /pr-cycle-deep")
     parser.add_argument("--pr", required=True, type=int, help="PR number")
@@ -724,14 +876,43 @@ def main() -> None:
     )
     opts = parser.parse_args()
 
-    # Step 1 — detect spectra change from diff if not provided
-    diff_text = _run(["gh", "pr", "diff", str(opts.pr)])
-
+    diff_text = ""
     if opts.change:
         candidates = [opts.change]
+        diff_text = _run(["gh", "pr", "diff", str(opts.pr)])
     else:
-        refs = detect_change_refs_from_diff(diff_text)
+        pre_meta = fetch_pr_metadata(opts.pr)
+        file_changes = fetch_pr_file_changes(opts.pr)
+        refs = derive_change_refs(file_changes)
         candidates = refs.active_tree
+        if candidates:
+            # 文字 diff 僅用於測試函式 docstring 的追溯分析。
+            diff_text = _run(["gh", "pr", "diff", str(opts.pr)])
+
+        post_meta = fetch_pr_metadata(opts.pr)
+        if pre_meta != post_meta:
+            print(
+                "[FAIL] PR 在檔案掃描期間發生變更，請重新執行驗證。"
+                f" 掃描前：{pre_meta}；掃描後：{post_meta}。",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if len(file_changes) != pre_meta.changed_file_count:
+            print(
+                "[FAIL] PR 檔案 API 回傳數量與 changedFiles 不一致："
+                f"取得 {len(file_changes)} 筆，預期 {pre_meta.changed_file_count} 筆。",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        checkout_head = _run(["git", "rev-parse", "HEAD"]).strip()
+        if checkout_head != pre_meta.head_oid:
+            print(
+                "[FAIL] 目前 checkout 的 HEAD 與 PR headRefOid 不一致："
+                f"本機 {checkout_head}，PR {pre_meta.head_oid}。",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
         if not candidates:
             # No obligation to verify. Distinguish "touched archived material" from "touched no
             # change at all": both are exit 0, but a reader debugging a gate that passed needs
