@@ -233,8 +233,10 @@ in-PR repeats), continuing to write it down was an admission that writing it dow
 warns on the one shape that actually fail-opens:
 
 > `exit` inside a function **and** that function is called as the first token of a `$(…)` **and**
-> the call site is somewhere `set -e` will not catch (an `if`/`while`/`until` condition, or `||`
-> / `&&`), **or** the script has no `set -e` at all.
+> the call site is somewhere `set -e` will not catch (an `if`/`elif`/`while`/`until` condition,
+> `!` prefix, or `||`/`&&` where `$(…)` is not the final command), **or** a masking builtin
+> (`local`/`declare`/`export`/`readonly`/`typeset`) swallows the exit status (SC2155), **or**
+> the script has no `set -e` / `set -o errexit` at all.
 
 Both extra conjuncts are load-bearing, and each was learned from a false positive the first draft
 produced against real repo code: `bump.sh`'s `new_version=$(bump_semver …)` is a **bare
@@ -245,16 +247,14 @@ substitution's first token clears it (see test EG-004's synthetic fixture — do
 tracked file's current contents, which drift). A lint that fires on correct code teaches people to
 disable it, so the negative controls are the important tests, not the positive one.
 
-**Ships advisory, not blocking (PR #241 mob review).** A cross-family mob review (Claude / Codex /
-agy) empirically found this lint is incomplete in **both** directions, so it defaults to warn-only
-(`--fail` opts into blocking for CI): it **false-positives** on the final-position `&&`/`||` case
-(`true && X=$(fn)` is caught by `set -e`, yet flagged) and on `set -o errexit`, and it
-**false-negatives** on the two most common real shapes — a quoted `X="$(fn)"` (best-practice
-quoting, invisible because `_strip_noise` drops double-quoted content) and `local/export X=$(fn)`
-(SC2155, which defeats `set -e`). The blockquote's "`||`/`&&`" clause above is therefore an
-**over-approximation**, not a precise gate. The lesson for future mechanical guards: a lint that
-enforces an anti-pattern must itself be held to the anti-pattern's full truth table before it is
-allowed to block — until then, advisory.
+**Ships advisory, not blocking (PR #241 mob review; correctness fixed in PR #407 / issue #282).**
+A cross-family mob review (Claude / Codex / agy) on PR #241 empirically found this lint was
+incomplete in both directions. The five correctness issues were fixed in PR #407:
+false-positives on final-position `&&`/`||`, `set -o errexit`, and if-body calls;
+false-negatives on quoted `X="$(fn)"` and `local`/`export X=$(fn)` (SC2155).
+The lint defaults to warn-only (`--fail` opts into blocking for CI) until advisory-mode runtime
+validates stability. The lesson for future mechanical guards: a lint that enforces an anti-pattern
+must itself be held to the anti-pattern's full truth table before it is allowed to block.
 
 **Do not run mutation tests on a shared worktree file while a review agent is reading it.**
 Mutation testing edits the real file in place; a reviewer dispatched against that path will read

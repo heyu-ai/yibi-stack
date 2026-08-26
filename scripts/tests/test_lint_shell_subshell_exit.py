@@ -285,32 +285,302 @@ class TestLintShellSubshellExit:
         assert "_check" in r.stderr, "advisory 仍須把 finding 印到 stderr"
         assert "[WARN]" in r.stderr, "advisory 模式應標 [WARN] 而非 [FAIL]"
 
+    def test_lsse_dt_005_local_masks_exit_status_sc2155(self, tmp_path: Path) -> None:
+        """LSSE-DT-005: `local X=$(fn)` 讓 set -e 失效（SC2155），必須報。
+
+        `local` 的 exit status 永遠為 0，蓋掉 command substitution 的非零，
+        即使有 set -e 也接不住。`declare`/`export`/`readonly` 同理。
+        """
+        f = _write(
+            tmp_path,
+            "sc2155.sh",
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "_resolve() {\n"
+            '  if [ ! -d "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "$1"\n'
+            "}\n"
+            "main() {\n"
+            '  local RESULT=$(_resolve "$DIR")\n'
+            '  echo "$RESULT"\n'
+            "}\n"
+            "main\n",
+        )
+        r = _run_lint(f)
+        assert r.returncode == 1, f"未抓到 local 蓋掉 exit status 的 SC2155：{r.stdout!r}"
+        assert "_resolve" in r.stderr
+
+    def test_lsse_dt_006_quoted_substitution_is_flagged(self, tmp_path: Path) -> None:
+        """LSSE-DT-006: `"$(fn)"` 加引號仍是 command substitution，必須報。
+
+        舊版 _strip_noise 清掉雙引號內容，導致 bash 最佳實踐的加引號形式
+        對 lint 完全不可見——是最常見的漏報。本 fixture 用 if-condition
+        形式測試（加引號 + unguarded 雙重命中）。
+        """
+        f = _write(
+            tmp_path,
+            "quoted.sh",
+            "#!/bin/bash\n"
+            "_lookup() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "found"\n'
+            "}\n"
+            'if RESULT="$(_lookup "$KEY")"; then\n'
+            '  echo "$RESULT"\n'
+            "fi\n",
+        )
+        r = _run_lint(f)
+        assert r.returncode == 1, f"未抓到加引號的 $() 漏報：{r.stdout!r}"
+        assert "_lookup" in r.stderr
+
+    def test_lsse_eg_006_final_position_and_or_not_flagged(self, tmp_path: Path) -> None:
+        """LSSE-EG-006: `true && X=$(fn)` 最後位置，set -e 仍有效，不得報。
+
+        POSIX：set -e 只對 AND-OR list 中「非最後一個」命令停用。
+        `$(fn)` 在 `&&` 之後的最終位置，失敗時 set -e 會接住。
+        """
+        f = _write(
+            tmp_path,
+            "final_pos.sh",
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "_check() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "ok"\n'
+            "}\n"
+            'true && RESULT=$(_check "$X")\n'
+            'echo "$RESULT"\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 0, f"誤報：final position && 的 set-e 有效：{r.stderr!r}"
+
+    def test_lsse_eg_007_set_o_errexit_recognized(self, tmp_path: Path) -> None:
+        """LSSE-EG-007: `set -o errexit` 長式等同 `set -e`，不得因不認而誤報。"""
+        f = _write(
+            tmp_path,
+            "errexit_long.sh",
+            "#!/usr/bin/env bash\n"
+            "set -o errexit\n"
+            "set -o nounset\n"
+            "set -o pipefail\n"
+            "_helper() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "ok"\n'
+            "}\n"
+            'RESULT=$(_helper "$X")\n'
+            'echo "$RESULT"\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 0, f"誤報：set -o errexit 未被識別：{r.stderr!r}"
+
+    def test_lsse_eg_008_if_body_not_flagged(self, tmp_path: Path) -> None:
+        """LSSE-EG-008: `if true; then X=$(fn); fi` body 呼叫受 set -e 保護，不得報。
+
+        if 條件位置讓 set -e 不觸發，但 `; then` 之後的 body 不受此影響。
+        舊版只看 before 有沒有 `if` 就判定，沒區分條件與 body。
+        """
+        f = _write(
+            tmp_path,
+            "if_body.sh",
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "_resolve() {\n"
+            '  if [ ! -d "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "$1"\n'
+            "}\n"
+            'if true; then RESULT=$(_resolve "$DIR"); fi\n'
+            'echo "$RESULT"\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 0, f"誤報：if body 受 set -e 保護：{r.stderr!r}"
+
+    def test_lsse_vl_003_unicode_decode_error_handled(self, tmp_path: Path) -> None:
+        """LSSE-VL-003: 非 UTF-8 檔案不中止整批掃描，印 [WARN] 並 exit 0。"""
+        f = tmp_path / "binary.sh"
+        f.write_bytes(b"#!/bin/bash\n\xff\xfe invalid utf-8\n")
+        r = _run_lint(f)
+        assert r.returncode == 0, "非 UTF-8 檔不應阻擋"
+        assert "[WARN]" in r.stderr
+
+    def test_lsse_dt_001_reports_correct_line_numbers(self, tmp_path: Path) -> None:
+        """LSSE-DT-001b: 偵測報告的行號必須對應 exit 實際位置與 call-site 位置。
+
+        DT-001 只驗 exit code；本測試加驗行號，防止 `i+1`→`i` 突變存活。
+        """
+        f = _write(
+            tmp_path,
+            "lineno.sh",
+            "#!/usr/bin/env bash\n"  # 1
+            "set -euo pipefail\n"  # 2
+            "_find() {\n"  # 3
+            '  if [ "$1" = "deep" ]; then\n'  # 4
+            "    exit 1\n"  # 5
+            "  fi\n"  # 6
+            "  return 1\n"  # 7
+            "}\n"  # 8
+            'if BROKEN=$(_find "$DIR"); then\n'  # 9
+            "  exit 1\n"  # 10
+            "fi\n"  # 11
+            "exit 0\n",  # 12
+        )
+        r = _run_lint(f)
+        assert r.returncode == 1
+        assert ":5:" in r.stderr, f"exit 行號應為 5：{r.stderr}"
+        assert "9" in r.stderr, f"call-site 行號應含 9：{r.stderr}"
+
+    def test_lsse_dt_007_export_masks_exit_status(self, tmp_path: Path) -> None:
+        """LSSE-DT-007: `export X=$(fn)` 同 local，builtin 蓋掉 exit status。"""
+        f = _write(
+            tmp_path,
+            "export_sc2155.sh",
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "_compute() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "value"\n'
+            "}\n"
+            'export RESULT=$(_compute "$X")\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 1, f"未抓到 export 蓋掉 exit status：{r.stdout!r}"
+
+    def test_lsse_eg_009_single_quoted_not_flagged(self, tmp_path: Path) -> None:
+        """LSSE-EG-009: 單引號內的 $(fn) 不展開，不得報。"""
+        f = _write(
+            tmp_path,
+            "single_quote.sh",
+            "#!/bin/bash\n_helper() {\n  exit 1\n}\necho 'do not expand $(_helper)'\n",
+        )
+        r = _run_lint(f)
+        assert r.returncode == 0, f"誤報：單引號內的 $() 不應被偵測：{r.stderr!r}"
+
+    def test_lsse_dt_008_bang_prefix_suppresses_set_e(self, tmp_path: Path) -> None:
+        """LSSE-DT-008: `! X=$(fn)` 的 `!` 前綴讓 set -e 不觸發，必須報。
+
+        POSIX：set -e 對 `!` 前綴的命令不觸發。
+        """
+        f = _write(
+            tmp_path,
+            "bang.sh",
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "_fn() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "ok"\n'
+            "}\n"
+            '! RESULT=$(_fn "$X")\n'
+            'echo "$RESULT"\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 1, f"未抓到 ! prefix 讓 set-e 失效：{r.stdout!r}"
+
+    def test_lsse_dt_009_set_positional_not_recognized_as_set_e(self, tmp_path: Path) -> None:
+        """LSSE-DT-009: `set -- -e` 設定位置參數，不是啟用 errexit，必須報。"""
+        f = _write(
+            tmp_path,
+            "set_positional.sh",
+            "#!/bin/bash\n"
+            'set -- -e "$@"\n'
+            "_fn() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "ok"\n'
+            "}\n"
+            'RESULT=$(_fn "$X")\n'
+            'echo "$RESULT"\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 1, f"未抓到 set -- -e（非 set -e）的漏報：{r.stdout!r}"
+
+    def test_lsse_dt_010_set_option_then_positional_e_not_set_e(self, tmp_path: Path) -> None:
+        """LSSE-DT-010: `set -u -- -e` 的 -e 在 -- 之後是位置參數，不是 errexit。"""
+        f = _write(
+            tmp_path,
+            "set_u_pos.sh",
+            "#!/bin/bash\n"
+            'set -u -- -e "$@"\n'
+            "_fn() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "ok"\n'
+            "}\n"
+            'RESULT=$(_fn "$X")\n'
+            'echo "$RESULT"\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 1, f"未抓到 set -u -- -e（-e 是位置參數）的漏報：{r.stdout!r}"
+
+    def test_lsse_eg_010_builtin_keyword_as_argument_not_flagged(self, tmp_path: Path) -> None:
+        """LSSE-EG-010: `echo export X=$(fn)` 的 export 是引數不是命令，不得報。
+
+        鎖住 `_masked_by_builtin` 的 `.match()` 精度：builtin 必須在 statement
+        開頭（命令位置），不是出現在任何位置。
+        """
+        f = _write(
+            tmp_path,
+            "builtin_arg.sh",
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "_fn() {\n"
+            '  if [ -z "$1" ]; then\n'
+            "    exit 1\n"
+            "  fi\n"
+            '  echo "ok"\n'
+            "}\n"
+            'echo export RESULT=$(_fn "$X")\n',
+        )
+        r = _run_lint(f)
+        assert r.returncode == 0, f"誤報：echo 後的 export 是引數不是命令：{r.stderr!r}"
+
     def test_lsse_st_001_whole_repo_is_clean(self) -> None:
-        """LSSE-ST-001: 現有 repo 追蹤的 `*.sh` 檔必須零誤報。
+        """LSSE-ST-001: 現有 repo 追蹤的 shell 檔必須零誤報。
 
-        這條是 lint 能否進 pre-commit 的門檻：對既有正確的碼吵，等於逼所有人加
-        # noqa 或關掉它。實測第一版報了 3 個檔案，全是誤報，判準因此重寫。
-
-        誠實標註（PR #241 mob review）：本測試只列舉 `*.sh`，但 pre-commit hook 用
-        `types: [shell]`（依 shebang 判定），範圍更廣，涵蓋無副檔名的 shell 檔
-        （如 scripts/lessons、scripts/resolve-skill-repo）。兩者範圍不一致是已知缺口，
-        待補（deferred-from-review）；在 advisory 模式下風險有限（不阻擋 commit）。
+        掃描範圍對齊 pre-commit hook（`types: [shell]`）：*.sh 檔 + shebang
+        含 bash/sh 的無副檔名檔（如 scripts/lessons、scripts/resolve-skill-repo）。
         """
         listed = subprocess.run(  # nosec B603
-            ["git", "-C", str(REPO_ROOT), "ls-files", "*.sh"],
+            ["git", "-C", str(REPO_ROOT), "ls-files"],
             capture_output=True,
             text=True,
             timeout=30,
             check=False,
         )
-        files = [
-            REPO_ROOT / line
-            for line in listed.stdout.splitlines()
-            if line and (REPO_ROOT / line).is_file()
-        ]
-        assert files, "測試前提不成立：repo 應有 .sh 檔"
+        files: list[Path] = []
+        for line in listed.stdout.splitlines():
+            if not line:
+                continue
+            p = REPO_ROOT / line
+            if not p.is_file():
+                continue
+            if p.suffix == ".sh":
+                files.append(p)
+            elif not p.suffix:
+                try:
+                    first = p.read_bytes()[:256]
+                    if first.startswith(b"#!") and (
+                        b"bash" in first.split(b"\n")[0] or b"/sh" in first.split(b"\n")[0]
+                    ):
+                        files.append(p)
+                except OSError:
+                    pass
+        assert files, "測試前提不成立：repo 應有 shell 檔"
 
-        # 用 --fail：exit 0 才真正代表「零 finding」；advisory 預設恆 0 會讓這條 gate vacuous。
         r = subprocess.run(  # nosec B603
             [sys.executable, str(LINT), "--fail", *[str(f) for f in files]],
             capture_output=True,

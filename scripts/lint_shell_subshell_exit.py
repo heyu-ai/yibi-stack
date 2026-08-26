@@ -33,13 +33,18 @@ subshell，**不會結束腳本**。於是這種寫法：
 
 真正會 fail-open 的是**呼叫點讓 set -e 不觸發**的那些形式：
 
-    if X=$(fn); then ... fi             # if 條件 -> set -e 不觸發 -> 落到後面
-    X=$(fn) || RC=$?                    # || -> set -e 不觸發
-    X=$(fn) && ...                      # && -> set -e 不觸發
+    if X=$(fn); then ... fi             # if/elif/while/until 條件 -> set -e 不觸發
+    X=$(fn) || RC=$?                    # || -> 非最終位置 -> set -e 不觸發
+    X=$(fn) && ...                      # && -> 非最終位置 -> set -e 不觸發
+    ! X=$(fn)                           # ! 前綴 -> set -e 不觸發
+    local X=$(fn)                       # SC2155: builtin exit 0 蓋掉 $() 的非零
 
-或**腳本根本沒有 set -e**（此時裸賦值也會繼續往下跑）。
+但 `true && X=$(fn)` 的 `$(fn)` 在 AND-OR list **最終位置**——POSIX 規定 set -e
+對最終命令仍有效，故不報。
 
-本 lint 只報這兩種，故對 `bump.sh` 那種「裸賦值 + set -e」不吵。
+或**腳本根本沒有 set -e / set -o errexit**（此時裸賦值也會繼續往下跑）。
+
+本 lint 只報這些形式，故對 `bump.sh` 那種「裸賦值 + set -e」不吵。
 實測基準：對 PR #234 修法前的版本報、對修好後的版本不報、對現有 repo 0 誤報。
 
 ## 為什麼要 parse 而不是 regex
@@ -60,26 +65,18 @@ regex 分不出三件事，每一件都會造成誤報：
 - 用大括號深度而非完整 bash parser：先移除註解與引號內容再算深度。
 - 只認 `name() {` 與 `function name {` 兩種定義形式。
 - 只認同檔案內的定義與呼叫；跨檔 source、`eval`、間接呼叫（`$fn`）不追。
-- `set -e` 只看檔案前 20 行的 `set -e` / `set -eu` / `set -euo pipefail`。
+- `set -e` 只看檔案前 20 行的 `set -e` / `set -eu` / `set -euo pipefail` / `set -o errexit`。
+- backtick 形式 `` X=`fn` `` 不偵測（只認 `$(...)` 語法）。
+- `else`/`case` pattern 後的 exit 不特別處理。
 
 ## 為什麼預設是 advisory（warn-only）而非 blocking（PR #241 mob review）
 
-跨家 mob review（Claude 4-subagent / Codex / agy）實測指出本 lint 目前**兩個方向都不完備**，
-故預設降為 advisory，correctness 逐步補強（追蹤見 deferred-from-review issue）：
+PR #241 跨家 mob review 實測指出的 correctness 問題已在 issue #282 修復：
 
-- 誤報（會擋掉合法碼，對 blocking hook 尤其致命）：
-  - `_unguarded_by_set_e` 用整行判斷 `&&`/`||`，但 set -e 只對「非 final 位置」的 list 成員
-    停用——`true && X=$(fn)`（fn 為最後一個命令）失敗仍會被 errexit 接住，卻被報 fail-open。
-  - `_SET_E` 不認 `set -o errexit` 長式，會誤判「無 set -e」而過度標記。
-  - 單行 `if true; then X=$(fn); fi` 的 body 呼叫被當成條件位置而誤判。
-- 漏報（看不見真 fail-open）：
-  - `_strip_noise` 清掉雙引號內容，於是「命令替換一律加引號」（bash 最佳實踐）的
-    `X="$(fn)"` 完全看不見——實測 `X=$(fn)` 報、`X="$(fn)"` 不報。
-  - `local`/`declare`/`export`/`readonly X=$(fn)`（ShellCheck SC2155）會讓 set -e 失效，
-    屬真 fail-open，但被判為安全的裸賦值。
+- 誤報（已修）：`&&`/`||` final-position、`set -o errexit` 長式、if-body 呼叫。
+- 漏報（已修）：quoted `"$(fn)"`、`local`/`declare`/`export`/`readonly` SC2155。
 
-上面的**誤報**是 PR #241 新確認、且與早期宣稱的「0 誤報」相牴觸，修正前不應作為阻擋式 gate。
-故本 lint 預設只警告不阻擋；CI 若要嚴格把關可加 `--fail`。
+預設仍為 advisory 直到經實際運行驗證穩定；CI 若要嚴格把關可加 `--fail`。
 
 exit code:
     預設（advisory / warn-only）：一律 exit 0，finding 印到 stderr
@@ -95,7 +92,8 @@ from pathlib import Path
 
 _FUNC_DEF = re.compile(r"^\s*(?:function\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{")
 _EXIT = re.compile(r"(?:^|;|\bthen\b|\bdo\b|&&|\|\|)\s*exit\b")
-_SET_E = re.compile(r"^\s*set\s+-[a-z]*e")
+_SET_E = re.compile(r"^\s*set\s+[^#]*(?:-[a-z]*e|-o\s+errexit)")
+_MASKING_BUILTINS = re.compile(r"(local|declare|export|readonly|typeset)\b")
 
 
 def _strip_noise(line: str) -> str:
@@ -124,8 +122,57 @@ def _strip_noise(line: str) -> str:
     return "".join(out)
 
 
+def _strip_single_and_comments(line: str) -> str:
+    """去除單引號內容與註解，保留雙引號內容（含 $()）。
+
+    用於 call-site 偵測與 guard 分析：bash 不展開單引號內的 $()，
+    但會展開雙引號內的 $()，故需保留後者。
+    """
+    out: list[str] = []
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if in_single:
+            if c == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            if c == "\\" and i + 1 < len(line):
+                out.append(c)
+                out.append(line[i + 1])
+                i += 2
+                continue
+            if c == '"':
+                in_double = False
+            out.append(c)
+            i += 1
+            continue
+        if c == "'":
+            in_single = True
+            i += 1
+            continue
+        if c == '"':
+            in_double = True
+            out.append(c)
+            i += 1
+            continue
+        if c == "#" and (not out or out[-1].isspace()):
+            break
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def _has_set_e(lines: list[str]) -> bool:
-    return any(_SET_E.match(ln) for ln in lines[:20])
+    for ln in lines[:20]:
+        clean = _strip_noise(ln)
+        opts = clean.split(" -- ")[0] if " -- " in clean else clean
+        if _SET_E.match(opts):
+            return True
+    return False
 
 
 def _find_functions(lines: list[str]) -> dict[str, tuple[int, int]]:
@@ -150,18 +197,46 @@ def _find_functions(lines: list[str]) -> dict[str, tuple[int, int]]:
     return funcs
 
 
-def _unguarded_by_set_e(clean_line: str, name: str) -> bool:
+def _unguarded_by_set_e(line: str, name: str) -> bool:
     """該行對 `name` 的 $() 呼叫，是否處在「set -e 不會觸發」的位置。
 
-    會讓 set -e 不觸發的形式：if 條件、|| 、&& 、! 前綴、while/until 條件。
+    POSIX：set -e 對 AND-OR list 中**非最後一個**命令不觸發，對
+    if/elif/while/until 的條件部分不觸發，對 ``!`` 前綴的命令不觸發。
     """
-    call = re.search(rf"\$\(\s*{re.escape(name)}\b", clean_line)
+    call = re.search(rf"\$\(\s*{re.escape(name)}\b", line)
     if not call:
         return False
-    before = clean_line[: call.start()]
-    if re.search(r"\b(if|while|until)\b", before) or before.lstrip().startswith("!"):
+    before = line[: call.start()]
+    after = line[call.end() :]
+
+    kw = re.search(r"\b(if|elif|while|until)\b", before)
+    if kw:
+        after_kw = before[kw.end() :]
+        if not re.search(r";\s*(then|do)\b", after_kw):
+            return True
+
+    parts = re.split(r";\s*|\bthen\s+|\bdo\s+", before)
+    stmt = parts[-1].lstrip() if parts else ""
+    if stmt.startswith("!"):
         return True
-    return bool(re.search(r"\|\||&&", clean_line))
+
+    after_stmt = re.split(r";\s*|\bthen\s+|\bdo\s+", after)[0]
+    return bool(re.search(r"\|\||&&", after_stmt))
+
+
+def _masked_by_builtin(line: str, name: str) -> bool:
+    """``local``/``declare``/``export``/``readonly``/``typeset`` 的 exit status 蓋掉 $() 的 exit status。
+
+    即使有 set -e，``local X=$(fn)`` 的 exit status 永遠是 ``local`` 本身的 0，
+    command substitution 的非零被靜默吞掉（ShellCheck SC2155）。
+    """
+    call = re.search(rf"\$\(\s*{re.escape(name)}\b", line)
+    if not call:
+        return False
+    before = line[: call.start()]
+    parts = re.split(r";\s*|\bthen\s+|\bdo\s+", before)
+    stmt = parts[-1].lstrip() if parts else ""
+    return bool(_MASKING_BUILTINS.match(stmt))
 
 
 def check_file(path: Path) -> list[str]:
@@ -169,6 +244,9 @@ def check_file(path: Path) -> list[str]:
         text = path.read_text(encoding="utf-8")
     except OSError as e:
         print(f"[WARN] 讀不到 {path}：{e}", file=sys.stderr)
+        return []
+    except UnicodeDecodeError as e:
+        print(f"[WARN] 非 UTF-8 編碼 {path}：{e}", file=sys.stderr)
         return []
 
     lines = text.splitlines()
@@ -187,18 +265,17 @@ def check_file(path: Path) -> list[str]:
         # 遞迴路徑的真陽性）且實務上惰性，故移除以求簡單，而非因為有測試逼它。
         call_sites: list[int] = []
         for idx, raw in enumerate(lines):
-            clean = _strip_noise(raw)
-            if re.search(rf"\$\(\s*{re.escape(name)}\b", clean):
+            vis = _strip_single_and_comments(raw)
+            if re.search(rf"\$\(\s*{re.escape(name)}\b", vis):
                 call_sites.append(idx)
         if not call_sites:
-            continue  # 沒被 $() 呼叫 -> 裡面的 exit 正常
+            continue
 
-        # 只有「呼叫點讓 set -e 不觸發」或「腳本沒 set -e」時，才會真的 fail-open
-        risky = [
-            i
-            for i in call_sites
-            if not has_set_e or _unguarded_by_set_e(_strip_noise(lines[i]), name)
-        ]
+        risky: list[int] = []
+        for i in call_sites:
+            vis = _strip_single_and_comments(lines[i])
+            if not has_set_e or _unguarded_by_set_e(vis, name) or _masked_by_builtin(vis, name):
+                risky.append(i)
         if not risky:
             continue
 
