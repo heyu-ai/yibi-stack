@@ -139,7 +139,7 @@ def save_baseline(
     """寫入 baseline 檔並回傳路徑。
 
     merge=True 時只更新 `baseline` 內出現的 skill，其餘條目原樣保留——`baseline --skill foo`
-    過去整檔覆寫，等於把其他 31 個 skill 的基準一次抹掉，之後每個都變成「無基準」而靜默
+    過去整檔覆寫，等於把其他所有 skill 的基準一次抹掉，之後每個都變成「無基準」而靜默
     離開 gate（issue #219）。merge=False 為 `--all` 的權威重寫，讓已刪除 fixture 的
     陳舊條目能真的消失。
 
