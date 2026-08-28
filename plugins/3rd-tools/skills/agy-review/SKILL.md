@@ -2,7 +2,7 @@
 name: agy-review
 type: tool
 scope: global
-description: Antigravity CLI（agy）對 diff 做 code review（PASS/FAIL gate）或 challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 reviewer，全程 --sandbox（唯讀，無寫入權）。注意實際 reviewer 預設不是 Gemini——Gemini 在台灣地區被 Google 擋下，script 預設改用 claude-sonnet-4-6，要真的用 Gemini 必須自行設 AGY_MODEL（見 FAQ）。觸發須明確指名 Gemini / agy / antigravity 且要看 diff；未指名的一般「幫我 review」「這樣對嗎」不觸發。純問問題、沒有 diff 要看請改用 /agy-consult；要 OpenAI Codex（而非 Gemini）的 diff review 或第二意見請改用 /codex-review、/codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
+description: Antigravity CLI（agy）對 diff 做 code review（PASS/FAIL gate）或 challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 reviewer，全程 --sandbox（唯讀，無寫入權）。注意實際 reviewer 預設不是 Gemini——script 預設 AGY_MODEL=claude-sonnet-4-6，要用 Gemini 必須自行設 AGY_MODEL（原因與限定範圍見 SKILL.md 開頭）。觸發須明確指名 Gemini / agy / antigravity 且要看 diff；未指名的一般「幫我 review」「這樣對嗎」不觸發。純問問題、沒有 diff 要看請改用 /agy-consult；要 OpenAI Codex（而非 Gemini）的 diff review 或第二意見請改用 /codex-review、/codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
 ---
 
 # /agy-review — Antigravity CLI diff review 第二意見
@@ -10,11 +10,15 @@ description: Antigravity CLI（agy）對 diff 做 code review（PASS/FAIL gate�
 獨立呼叫 Antigravity CLI（agy），出一份 code review 或對抗模式 bug hunt。
 比 `/pr-cycle-deep` 輕量，不做 R2 cross-debate，適合快速拿第二意見。
 
-> **實際 reviewer 是誰**：`run.sh` 預設 `AGY_MODEL=claude-sonnet-4-6`，**不是 Gemini**
-> （台灣地區 Google API 限制，詳見 FAQ）。這會影響跨廠商獨立性——把預設的 `/agy-review`
-> 結果當成「Gemini 的獨立意見」計入 mob review 的 consensus 是錯的，那是同一家投兩票。
-> 需要真正跨廠商請用 `/codex-review`，或設 `AGY_MODEL=gemini-3.7-flash-low`。
-> 腳本每次執行都會把實際模型以 `[INFO] agy 模型：<model>` 印到 stderr。
+> **實際 reviewer 是誰**：`run.sh` 預設 `AGY_MODEL=claude-sonnet-4-6`，**不是 Gemini**。
+> 這會影響跨廠商獨立性——把預設的 `/agy-review` 結果當成「Gemini 的獨立意見」計入 mob review
+> 的 consensus 是錯的，那是同一家投兩票。需要真正跨廠商請用 `/codex-review`。腳本每次執行
+> 都會把實際模型以 `[INFO] agy 模型：<model>` 印到 stderr。
+>
+> 預設值的由來是台灣地區 Google API 的 pre-invocation context summarization 限制（見 `run.sh`
+> 註解與 FAQ）。**但這不等於「agy 在台灣拿不到 Gemini」**：`/pr-cycle-deep` 的 agy 階段寫死
+> `--model 'Gemini 3.1 Pro (Low)'` 並實測可用。想在本 skill 用 Gemini 就設 `AGY_MODEL` 試，
+> 不要預設它一定失敗；界線未經探測，詳見 `/agy-consult` SKILL.md 同一段。
 全程 `--sandbox`（唯讀），不需要、也不會用 `--dangerously-skip-permissions`。
 純問技術問題、沒有 diff 要看請改用 `/agy-consult`。
 

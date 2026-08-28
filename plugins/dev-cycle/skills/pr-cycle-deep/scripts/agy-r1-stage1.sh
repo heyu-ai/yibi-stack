@@ -77,8 +77,10 @@ if ! cat "$REVIEW_DIR/prompt-r1.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/gemi
     exit 1
 fi
 
-# cd 到 worktree root：相對路徑的產物寫入與 git 操作以 WT_ROOT 為基準。
-# 注意此 cd 已不再是 agy context 的來源——--add-dir 傳的是 "$WT_ROOT" 絕對路徑（見下方註解）。
+# cd 到 worktree root：本檔在 cd 之後的 `git status --porcelain`（PRE_TREE／POST_TREE 越界
+# 編輯偵測）沒有帶 -C，需要 cwd 落在 worktree 內才會量到正確的樹。產物路徑則不依賴它——
+# $REVIEW_DIR 等全是絕對路徑。
+# 此 cd 亦**不再**是 agy context 的來源：--add-dir 傳的是 "$WT_ROOT" 絕對路徑（見下方註解）。
 cd "$WT_ROOT"
 
 # 防越界編輯（PR #194 retro）：agy 以權限繞過旗標執行，具 worktree 寫入權；review 階段

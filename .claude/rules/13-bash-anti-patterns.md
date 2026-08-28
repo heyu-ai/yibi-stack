@@ -1265,8 +1265,11 @@ agy -p "@.pr-review/input.md" --add-dir . --sandbox
 { printf '%s\n' "$PROMPT_AND_DIFF"; } | agy --print --add-dir . --sandbox
 agy --print --add-dir . --sandbox < "$WT_ROOT/.pr-review/input.md"
 
-# Also wrong (agy 1.1.22): --add-dir takes a RELATIVE path. agy no longer resolves `.` into an
-# active workspace, so it runs with NO file context at all -- and still exits 0. See below.
+# Also wrong (agy 1.1.22): this passes --add-dir a RELATIVE path. agy no longer resolves `.`
+# into an active workspace, so it runs with NO file context at all -- and still exits 0.
+# (Phrasing matters here: the line above says `-p` "takes the prompt AS ITS VALUE", a true
+# statement about that flag. Read in parallel, "--add-dir takes a relative path" would say the
+# flag wants one. It does not -- the CALL SITE is what is wrong.) See below.
 agy -p "$PROMPT_AND_DIFF" --add-dir . --sandbox
 
 # Fix: inline the whole prompt as -p's value (no agentic trigger) AND pass --add-dir an
@@ -1288,8 +1291,30 @@ Do **not** "fix" this by adding a refusal-phrase grep: that is the success-banne
 from earlier in this file, one layer over. Here it is worse than fragile — the exit code carries
 no verdict at all, so a phrase match is the *only* signal, and it breaks on the next rewording.
 Pass the absolute path and remove the failure mode instead. `pr-cycle-deep`'s
-`test_agy_scripts.py` pins the invariant repo-wide (`AGYS-DT-010` / `AGYS-DT-011`) by asserting
-every `--add-dir` argument starts with `/` or `"$`.
+`test_agy_scripts.py` pins the invariant (`AGYS-DT-010` / `AGYS-DT-011`). State its scope
+precisely, because an overstated guard is how the next call site goes unguarded:
+
+- **Covered**: every `*.sh` under the repo root, excluding `.git` / `.venv` / `node_modules` /
+  `__pycache__` and `.claude/worktrees/` (the last because it holds whole checkouts of other
+  branches, which would make the verdict depend on which worktrees exist locally).
+- **The argument check is not a spelling check.** A bare relative path fails; a quoted literal
+  absolute path passes; a `"$VAR"` form passes **only** when the same file assigns `VAR` from an
+  absoluteness-guaranteeing source (`git rev-parse --show-toplevel`, `cd …&& pwd`, a composition
+  on another absolute variable, or a literal absolute). `SCRATCH="."` + `--add-dir "$SCRATCH"`
+  is rejected — it would otherwise pass a `startswith('"$')` test while losing all context.
+- **Both agy spellings** are recognised (`--add-dir VALUE` and `--add-dir=VALUE`); agy's Go flag
+  parser accepts either, and matching only the first left the second invisible.
+- **Comments and strings are handled by a quote-state scan**, so an inline trailing comment
+  cannot *supply* the token that satisfies the check (the failure mode: the real command has no
+  `--add-dir` at all and the test still passes), and a diagnostic `echo` that merely mentions
+  `--add-dir .` does not falsely accuse a correct call site.
+- **Call sites are asserted as an exact set, not a `>=N` floor.** A floor only catches the count
+  falling; the sweep root drifting *upward* makes the count rise.
+- **Not covered**: a `--add-dir` inside a SKILL.md bash fence. That is a live execution path in
+  this repo (see the CLAUDE.md gotcha on the agent rewriting a slash-command bash block), but
+  scanning `*.md` would also match the deliberate "Wrong:" examples in this very file, so
+  telling live commands from counter-examples belongs in `scripts/lint_skill_bash.py`, which
+  already owns SKILL.md bash. Tracked as a follow-up, not silently assumed closed.
 
 **`trustedWorkspaces` is not the cause, despite looking exactly like it.** When the refusal
 mentions workspaces or "scratch directory", the obvious suspect is
@@ -1325,7 +1350,9 @@ it. The leading-`@` trap is handled by prepending guard text, so the content nev
 > family. (Source: PR #156/#157 original migration; falsified and corrected in PR #229 retro.)
 >
 > **Second instance on the same tool, same mechanism.** The `--add-dir` finding above was found
-> the same way: the five agy scripts carried comments stamped "agy 1.1.2 / 1.1.8 / 1.1.12 實測"
+> the same way: **four of the five** agy scripts carried comments stamped "agy 1.1.2 / 1.1.8 /
+> 1.1.12 實測" (the fifth, `agy-r1-stage2.sh`, carried no version stamp at all — equally a
+> probe-rot signal, since an unstamped claim cannot be re-checked either)
 > while the installed binary was **1.1.22**, and `--add-dir .` had stopped working somewhere in
 > between with no error. The pattern to internalise is not "agy is flaky" but **a version-stamped
 > probe expires**: when an agy script misbehaves, first compare `agy --version` against the

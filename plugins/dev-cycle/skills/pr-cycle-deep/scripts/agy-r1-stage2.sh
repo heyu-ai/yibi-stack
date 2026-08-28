@@ -56,10 +56,15 @@ fi
 
 printf '\n---END RAW OUTPUT---\n' >> "$REVIEW_DIR/gemini-extract-input.md"
 
-# cd 到 worktree root：相對路徑的產物寫入以 WT_ROOT 為基準。
-# 注意 --add-dir 本身傳的是 "$WT_ROOT" 絕對路徑而非 `.`——agy 1.1.22 不再把相對路徑解析成
-# active workspace，傳 `.` 會讓 agy 拿不到任何檔案 context 卻仍 exit 0（完整負向對照記錄見
-# 3rd-tools/skills/agy-consult/scripts/consult.sh）。此處的 cd 因此不再是 context 的來源。
+# cd 到 worktree root。**這個 cd 在本檔已無已知的功能依賴**，保留是保守作法而非需求：
+#   - 不是為了產物路徑：本檔在 cd 之後的每一個路徑都是絕對的（$REVIEW_DIR、$TMP_JSON、
+#     $SCRIPT_DIR），沒有任何相對路徑寫入。
+#   - 不是為了 git：與 stage1／r2 不同，本檔在 cd 之後沒有任何 git 呼叫（唯三個都在 cd 之前）。
+#   - 不是為了 agy context：--add-dir 傳的是 "$WT_ROOT" 絕對路徑（見下方註解）。
+# 保留的唯一理由是 agy 自身在 -p 模式下的 cwd 語意未經探測，移除屬未驗證的行為變更。
+# 要移除請先實測 agy 在不同 cwd 下的行為，不要因為「看起來沒用到」就刪。
+# （前一版註解寫「相對路徑的產物寫入以 WT_ROOT 為基準」——那是錯的，本檔沒有這種寫入；
+#   它取代掉了原本正確的理由（`--add-dir .` context），讓下一個作者失去判斷依據。）
 cd "$WT_ROOT"
 
 # issue #153 fix 1：inline prompt 取代 @file。萃取任務只需 raw 文字，--sandbox 即足夠
