@@ -2,13 +2,21 @@
 name: agy-consult
 type: tool
 scope: global
-description: Antigravity CLI（Gemini）第二意見：讓 Gemini 讀 repo 後回答技術問題，不看 diff。觸發須明確指名 Gemini / agy / antigravity 且是「問問題」而非「review 改動」：問 gemini、agy 第二意見、gemini 怎麼看、agy 諮詢。純粹「幫我看一下」「這樣對嗎」等未指名 Gemini/agy 的一般提問不觸發此 skill。要看 diff 或 PR 改動的 review 請改用 /agy-review；要 OpenAI Codex（而非 Gemini）的第二意見請改用 /codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
+description: Antigravity CLI（agy）第二意見：讓 agy 讀 repo 後回答技術問題，不看 diff。注意實際回答者預設不是 Gemini——Gemini 模型在台灣地區被 Google 擋下，script 預設改用 claude-sonnet-4-6，要真的問到 Gemini 必須自行設 AGY_MODEL（見 FAQ）。觸發須明確指名 Gemini / agy / antigravity 且是「問問題」而非「review 改動」：問 gemini、agy 第二意見、gemini 怎麼看、agy 諮詢。純粹「幫我看一下」「這樣對嗎」等未指名 Gemini/agy 的一般提問不觸發此 skill。要看 diff 或 PR 改動的 review 請改用 /agy-review；要 OpenAI Codex（而非 Gemini）的第二意見請改用 /codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
 ---
 
-# /agy-consult — 詢問 Gemini 技術問題
+# /agy-consult — 透過 Antigravity CLI 取得第二意見
 
-讓 Antigravity CLI（agy／Gemini）讀取 repo 後，回答你對 codebase 的技術問題。
+讓 Antigravity CLI（agy）讀取 repo 後，回答你對 codebase 的技術問題。
 適合「這段邏輯對嗎？」「為什麼這樣設計？」「有什麼潛在問題？」等開放式諮詢。
+
+> **實際回答者是誰**：`consult.sh` 預設 `AGY_MODEL=claude-sonnet-4-6`，**不是 Gemini**。
+> Gemini 模型在台灣地區被 Google API 擋下（`FAILED_PRECONDITION 400: User location is not
+> supported`），所以預設走 Claude。這件事會影響「跨廠商獨立性」這個使用本 skill 的主要理由：
+> 若你已經有 Claude 的意見，再跑一次預設的 `/agy-consult` 拿到的是**同一家投兩票**，不是兩個
+> 獨立聲音。要真正的跨廠商第二意見，請改用 `/codex-consult`，或設
+> `AGY_MODEL=gemini-3.7-flash-low`（需 VPN 或 Google 開放台灣）。
+> 腳本每次執行都會把實際使用的模型以 `[INFO] agy 模型：<model>` 印到 stderr，不要靠猜。
 
 和 `/agy-review` 的區別：`/agy-review` 吃 **diff**（branch 改動，PASS/FAIL gate）；
 `/agy-consult` 吃**任意問題**，不需要有待 review 的改動。
@@ -17,7 +25,7 @@ description: Antigravity CLI（Gemini）第二意見：讓 Gemini 讀 repo 後�
 ## 觸發方式
 
 ```text
-/agy-consult <問題>      — 讓 Gemini 讀 repo 回答這個問題
+/agy-consult <問題>      — 讓 agy 讀 repo 回答這個問題（預設模型 claude-sonnet-4-6）
 ```
 
 ---
@@ -70,10 +78,11 @@ MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）
 > 關掉這兩個面。
 >
 > Script 內部把「filesystem boundary 提醒 + 檔案內容」以 inline 形式當 `-p` 的值傳入
-> （`agy -p "$PROMPT_CONTENT" --add-dir . --sandbox`），沿用 `/agy-review` 的 `run.sh` 已驗證過的
+> （`agy -p "$PROMPT_CONTENT" --add-dir "$REPO_ROOT" --sandbox`），沿用 `/agy-review` 的 `run.sh` 已驗證過的
 > 安全模式（issue #153 / PR #229 retro）：不用 `@file`（nested worktree 下解析失敗會讓 agy 靜默
 > 進入 agentic 模式）、不用 stdin pipe（`-p`/`--print` 不是 boolean，會把下一個 flag 當 prompt
-> 吃掉；agy 1.1.2 起沒有 stdin prompt 通道）。`--add-dir .` 提供周邊程式碼 context。
+> 吃掉；agy 1.1.2 起沒有 stdin prompt 通道）。`--add-dir "$REPO_ROOT"` 提供周邊程式碼 context——
+> **必須是絕對路徑**，傳相對的 `.` 會讓 agy 1.1.22 拿不到任何檔案 context 卻仍 exit 0（見 FAQ）。
 > 直接執行即可，不要外加 log capture。
 
 ```bash
@@ -110,5 +119,7 @@ Clean exit 後，呈現完整輸出，不截斷、不摘要。
 | `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy auth` |
 | 問題內容含雙引號 / `$VAR` / backtick | 不影響——問題本文透過 Write tool 寫進檔案，`consult.sh` 只吃檔案路徑，問題內容不會被 shell 展開或執行 |
 | `agy` 回傳空白或極短輸出 | `--sandbox` 底下 agy 想探索周邊檔案被自己的權限系統擋下，headless 無法跳出確認框；簡化問題避免需要額外讀檔，或評估是否需要放寬 `~/.gemini/antigravity-cli/settings.json` 的 `permissions.allow` |
+| agy 回「沒有作用中的 workspace」／「這看起來是 scratch 目錄」，或語意完整但顯然沒讀到檔案（甚至給出幻覺數字），且 exit 0 | `--add-dir` 被傳了相對路徑。**agy 1.1.22 不再把相對的 `.` 解析成 active workspace**，即使呼叫端已 cd 到該目錄。修法：傳絕對路徑（`--add-dir "$REPO_ROOT"`）。這道坑攔不到——exit code 是 0、輸出 141B 遠超腳本的 20 字元下限，測試 `AGYS-DT-010/011` 就是為了鎖住這個不變量 |
+| 懷疑是 `trustedWorkspaces` 沒列到這個 repo 才被拒讀 | **不是這個原因。** 實測負向對照（agy 1.1.22）：已列在 `trustedWorkspaces` 的 repo 用相對 `.` 一樣失敗，未列入的 repo 用絕對路徑一樣成功。唯一的鑑別變數是 `--add-dir` 的路徑形式，不要為此去改 trust 清單（那會無效地放寬安全邊界） |
 | Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 台灣地區限制；script 預設已改用 `claude-sonnet-4-6`。如需切回 Gemini（VPN 或 Google 開放後），設 `AGY_MODEL=gemini-3.7-flash-low` 環境變數 |
 | 想看 diff review 而非問答 | 改用 `/agy-review` |

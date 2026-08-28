@@ -55,7 +55,7 @@ A PR number (or URL) is **required** — this skill always reviews an existing P
 
 ## Step 1 — Identify & fetch the target PR
 
-> **Why checkout**: codex (`codex review --base`) and agy (`--add-dir .`) need the PR's working
+> **Why checkout**: codex (`codex review --base`) and agy (`--add-dir <abs path>`) need the PR's working
 > tree for surrounding-code context, not just the diff. `gh pr checkout` is the standard way to
 > review a PR locally and handles fork-based PRs automatically.
 >

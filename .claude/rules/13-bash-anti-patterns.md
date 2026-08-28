@@ -1265,10 +1265,50 @@ agy -p "@.pr-review/input.md" --add-dir . --sandbox
 { printf '%s\n' "$PROMPT_AND_DIFF"; } | agy --print --add-dir . --sandbox
 agy --print --add-dir . --sandbox < "$WT_ROOT/.pr-review/input.md"
 
-# Fix: inline the whole prompt as -p's value; agy reads no file, so there is no agentic trigger
-cd "$WT_ROOT"
+# Also wrong (agy 1.1.22): --add-dir takes a RELATIVE path. agy no longer resolves `.` into an
+# active workspace, so it runs with NO file context at all -- and still exits 0. See below.
 agy -p "$PROMPT_AND_DIFF" --add-dir . --sandbox
+
+# Fix: inline the whole prompt as -p's value (no agentic trigger) AND pass --add-dir an
+# ABSOLUTE path (real file context). Both halves are required; either one alone still fails.
+cd "$WT_ROOT"
+agy -p "$PROMPT_AND_DIFF" --add-dir "$WT_ROOT" --sandbox
 ```
+
+**`--add-dir` must be an absolute path — a relative `.` silently yields zero file context**
+(verified on **agy 1.1.22**). agy no longer resolves a relative `--add-dir` into an active
+workspace, *even when the caller has already `cd`-ed into that directory*. The failure shape is
+the worst available: agy **exits 0** and returns a fully-formed answer produced without reading
+anything — either a ~141-byte "there is no active workspace" refusal, or (observed) a fabricated
+number *after* stating it has no workspace. So neither an exit-code gate nor a
+minimum-output-length guard can catch it, and for a review script it means shipping a review
+whose author never saw the code.
+
+Do **not** "fix" this by adding a refusal-phrase grep: that is the success-banner anti-pattern
+from earlier in this file, one layer over. Here it is worse than fragile — the exit code carries
+no verdict at all, so a phrase match is the *only* signal, and it breaks on the next rewording.
+Pass the absolute path and remove the failure mode instead. `pr-cycle-deep`'s
+`test_agy_scripts.py` pins the invariant repo-wide (`AGYS-DT-010` / `AGYS-DT-011`) by asserting
+every `--add-dir` argument starts with `/` or `"$`.
+
+**`trustedWorkspaces` is not the cause, despite looking exactly like it.** When the refusal
+mentions workspaces or "scratch directory", the obvious suspect is
+`~/.gemini/antigravity-cli/settings.json`'s `trustedWorkspaces` not listing the repo — and acting
+on that guess means widening a security boundary for nothing. A negative control settles it
+(agy 1.1.22, same question, same model, same flags, varying only `--add-dir`):
+
+| repo | in `trustedWorkspaces`? | `--add-dir` | result |
+|------|------------------------|-------------|--------|
+| yibi-stack | yes | `.` | `CANNOT_READ` — "no active workspace" |
+| yibi-stack | yes | absolute | correct answer |
+| openab-workspace | **no** | absolute | correct answer |
+
+A trusted repo fails on `.`; an untrusted repo succeeds on an absolute path. The trust list moves
+nothing; the path form moves everything. This is the general lesson of rule 15's
+`verify-probe-needs-negative-control` family: one observation of "it failed here" is equally
+compatible with "the trust list gates it" and "it fails everywhere", and only the control tells
+them apart. (Source: yibi-stack `/investigate` on a failed `/agy-consult` call, agy 1.1.22 — the
+reported root cause was `trustedWorkspaces`, and the control falsified it.)
 
 **`-p` / `--print` is NOT boolean and agy has no stdin prompt channel** (verified on **agy
 1.1.2**: `printf 'x' | agy --print` exits with `flag needs an argument: -print`; `--prompt` being
@@ -1283,6 +1323,13 @@ it. The leading-`@` trap is handled by prepending guard text, so the content nev
 > version, not a permanent fact — stamp the tool version next to it (as above), and re-run the
 > probe before trusting an old one after a CLI upgrade. See rule 11's verify-before-authoring
 > family. (Source: PR #156/#157 original migration; falsified and corrected in PR #229 retro.)
+>
+> **Second instance on the same tool, same mechanism.** The `--add-dir` finding above was found
+> the same way: the five agy scripts carried comments stamped "agy 1.1.2 / 1.1.8 / 1.1.12 實測"
+> while the installed binary was **1.1.22**, and `--add-dir .` had stopped working somewhere in
+> between with no error. The pattern to internalise is not "agy is flaky" but **a version-stamped
+> probe expires**: when an agy script misbehaves, first compare `agy --version` against the
+> versions its comments claim, and re-run the probe before debugging anything else.
 
 ## Quoting Rule 6: Python Comment with `"` Truncates Outer Shell Double-Quote (PR #23)
 

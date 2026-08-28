@@ -13,6 +13,7 @@ Two layers:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 from pathlib import Path
@@ -23,6 +24,12 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 STAGE1 = SCRIPTS_DIR / "agy-r1-stage1.sh"
 STAGE2 = SCRIPTS_DIR / "agy-r1-stage2.sh"
 R2 = SCRIPTS_DIR / "agy-r2.sh"
+
+# .../plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests/this_file.py
+#     ^ parents[5]                                    ^ parents[1]
+# Used by the repo-wide --add-dir sweep (AGYS-DT-011), which must reach the
+# sibling `3rd-tools` plugin, not just this skill's own scripts directory.
+PLUGINS_DIR = Path(__file__).resolve().parents[5]
 
 
 # --------------------------------------------------------------------------- #
@@ -144,6 +151,89 @@ class TestValidatorFlagContract:
         src = script.read_text(encoding="utf-8")
         assert 'SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)' in src
         assert '"$SCRIPT_DIR/agy_validate.py"' in src
+
+
+class TestWorkspaceContextContract:
+    """`--add-dir` must receive an absolute path, never a relative `.`.
+
+    agy 1.1.22 no longer resolves a relative `--add-dir .` into an active
+    workspace, even when the caller has already `cd`-ed into that directory and
+    the directory is listed in `~/.gemini/antigravity-cli/settings.json`'s
+    `trustedWorkspaces`. The failure is the worst possible shape: agy exits 0 and
+    returns a fully-formed answer produced with **no file context at all** — a
+    141-byte "there is no active workspace" refusal, or (observed) a fabricated
+    number after admitting it has no workspace. No exit-code gate and no
+    minimum-length guard can catch that, so the invariant has to be pinned here.
+
+    Measured with a negative control (agy 1.1.22): same question, same model,
+    same flags, varying only the `--add-dir` argument —
+      `--add-dir .`            -> CANNOT_READ (in a *trusted* repo)
+      `--add-dir <abs path>`   -> correct answer (same trusted repo)
+      `--add-dir <abs path>`   -> correct answer (an *untrusted* repo)
+    so `trustedWorkspaces` is not the discriminating variable; the path form is.
+    """
+
+    @staticmethod
+    def _add_dir_args(src: str) -> list[str]:
+        """Every `--add-dir` argument on a non-comment line.
+
+        Whole-line comments are skipped so that the explanatory notes in these
+        scripts (which quote the broken `--add-dir .` form on purpose) do not
+        register as violations. Inline trailing comments are not stripped —
+        cutting at `#` would corrupt any `#` inside a quoted string, and no
+        `--add-dir` call site in this repo carries one.
+        """
+        args: list[str] = []
+        for line in src.splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            args.extend(re.findall(r"--add-dir\s+(\S+)", line))
+        return args
+
+    @classmethod
+    def _assert_absolute(cls, script: Path) -> None:
+        found = cls._add_dir_args(script.read_text(encoding="utf-8"))
+        assert found, f"{script.name}: expected at least one --add-dir call site"
+        for arg in found:
+            assert arg.startswith(("/", '"$')), (
+                f"{script.name}: --add-dir got {arg!r}; agy 1.1.22 silently loses all "
+                "file context on a relative path and still exits 0. Pass an absolute "
+                'path or a quoted absolute variable (e.g. --add-dir "$WT_ROOT").'
+            )
+
+    @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
+    def test_agys_dt_010_add_dir_absolute(self, script: Path) -> None:
+        """AGYS-DT-010: pr-cycle-deep's agy stages pass an absolute --add-dir."""
+        self._assert_absolute(script)
+
+    def test_agys_dt_011_add_dir_absolute_repo_wide(self) -> None:
+        """AGYS-DT-011: no plugin script anywhere passes a relative --add-dir.
+
+        Repo-wide because the same defect shipped in five scripts across two
+        plugins (`3rd-tools/agy-consult`, `3rd-tools/agy-review`, and the three
+        `dev-cycle/pr-cycle-deep` stages), and a per-file test in this directory
+        would only ever have covered three of them.
+
+        `rglob` is correct here despite not following symlinks (rule 02): the real
+        script files live under `plugins/`, and the top-level `skills/` symlinks
+        that point into it are deliberately not traversed, so nothing is missed
+        and nothing is counted twice.
+        """
+        call_sites = [
+            path
+            for path in PLUGINS_DIR.rglob("*.sh")
+            if self._add_dir_args(path.read_text(encoding="utf-8"))
+        ]
+        # Positive control: a zero-hit or under-counting sweep would pass
+        # vacuously. Five known call sites exist today, so a lower count means
+        # discovery broke, not that the repo got cleaner.
+        assert len(call_sites) >= 5, (
+            f"expected >=5 --add-dir call sites under {PLUGINS_DIR}, found "
+            f"{len(call_sites)}: {[p.name for p in call_sites]}. Discovery is "
+            "broken; fix the sweep before trusting a pass."
+        )
+        for path in call_sites:
+            self._assert_absolute(path)
 
 
 # --------------------------------------------------------------------------- #

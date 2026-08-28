@@ -2,13 +2,19 @@
 name: agy-review
 type: tool
 scope: global
-description: Antigravity CLI（Gemini）對 diff 做 code review（PASS/FAIL gate）或 challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 Gemini reviewer，全程 --sandbox（唯讀，無寫入權）。觸發須明確指名 Gemini / agy / antigravity 且要看 diff；未指名的一般「幫我 review」「這樣對嗎」不觸發。純問問題、沒有 diff 要看請改用 /agy-consult；要 OpenAI Codex（而非 Gemini）的 diff review 或第二意見請改用 /codex-review、/codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
+description: Antigravity CLI（agy）對 diff 做 code review（PASS/FAIL gate）或 challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 reviewer，全程 --sandbox（唯讀，無寫入權）。注意實際 reviewer 預設不是 Gemini——Gemini 在台灣地區被 Google 擋下，script 預設改用 claude-sonnet-4-6，要真的用 Gemini 必須自行設 AGY_MODEL（見 FAQ）。觸發須明確指名 Gemini / agy / antigravity 且要看 diff；未指名的一般「幫我 review」「這樣對嗎」不觸發。純問問題、沒有 diff 要看請改用 /agy-consult；要 OpenAI Codex（而非 Gemini）的 diff review 或第二意見請改用 /codex-review、/codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
 ---
 
-# /agy-review — Gemini diff review 第二意見
+# /agy-review — Antigravity CLI diff review 第二意見
 
-獨立呼叫 Antigravity CLI（agy），出 Gemini code review 或對抗模式 bug hunt。
-比 `/pr-cycle-deep` 輕量，不做 R2 cross-debate，適合快速拿 Gemini 第二意見。
+獨立呼叫 Antigravity CLI（agy），出一份 code review 或對抗模式 bug hunt。
+比 `/pr-cycle-deep` 輕量，不做 R2 cross-debate，適合快速拿第二意見。
+
+> **實際 reviewer 是誰**：`run.sh` 預設 `AGY_MODEL=claude-sonnet-4-6`，**不是 Gemini**
+> （台灣地區 Google API 限制，詳見 FAQ）。這會影響跨廠商獨立性——把預設的 `/agy-review`
+> 結果當成「Gemini 的獨立意見」計入 mob review 的 consensus 是錯的，那是同一家投兩票。
+> 需要真正跨廠商請用 `/codex-review`，或設 `AGY_MODEL=gemini-3.7-flash-low`。
+> 腳本每次執行都會把實際模型以 `[INFO] agy 模型：<model>` 印到 stderr。
 全程 `--sandbox`（唯讀），不需要、也不會用 `--dangerously-skip-permissions`。
 純問技術問題、沒有 diff 要看請改用 `/agy-consult`。
 
@@ -96,12 +102,14 @@ git rev-parse --abbrev-ref HEAD 2>/dev/null
 
 ### Step 2 — 執行
 
-> **執行說明**：腳本把 prompt+diff 以 inline 形式當 `-p` 的值傳入（`agy -p "$PROMPT_CONTENT" --add-dir . --sandbox`），
+> **執行說明**：腳本把 prompt+diff 以 inline 形式當 `-p` 的值傳入（`agy -p "$PROMPT_CONTENT" --add-dir "$REPO_ROOT" --sandbox`），
 > 避免 nested worktree（`.claude/worktrees/<name>/`）下 `@file` 解析失敗讓 agy 靜默進入 agentic 模式（review 錯 target / timeout），
 > 並免去內容開頭 `@` 被誤判為檔案路徑、以及暫存檔殘留的風險。inline 會佔 ARG_MAX 參數預算，故腳本在呼叫前擋 256000 bytes 上限。
 > **不可改成 `{ ... } | agy --print`**：`-p`/`--print` 不是 boolean，會把下一個 token（`--add-dir`）當 prompt 吃掉、完全不讀 stdin，
 > 回一段無關文字後 exit 0（靜默失敗）；agy 1.1.2 沒有 stdin prompt 通道。
-> `--add-dir .` 提供周邊程式碼 context。直接執行即可，不要外加 log capture。
+> `--add-dir "$REPO_ROOT"` 提供周邊程式碼 context——**必須是絕對路徑**，傳相對的 `.` 會讓
+> agy 1.1.22 拿不到任何檔案 context 卻仍 exit 0，產出一份沒看過程式碼的 review（見 FAQ）。
+> 直接執行即可，不要外加 log capture。
 
 ```bash
 bash ~/.agents/skills/agy-review/scripts/run.sh "<MODE>" "<BASE>" "<INSTRUCTION>"
@@ -139,7 +147,9 @@ challenge mode：找到問題時輸出 `[P0]`/`[P1]` 列表，找不到問題時
 |------|------|
 | `agy: command not found` | `pip install antigravity-cli`，確認 `agy` 在 PATH |
 | agy 輸出 `call:read_file{...}` / agentic 旁白而非 review | nested worktree 下 `@file` 解析失敗的舊問題；腳本已改用 inline 餵入。若仍出現，確認 `run.sh` 的 agy 呼叫為 `agy -p "$PROMPT_CONTENT"` 而非 `-p "@.agy-review-tmp.md"` |
-| agy 回答「`--add-dir` 是什麼」之類與 diff 無關的內容，且 exit 0 | `-p`/`--print` 把下一個 flag 當 prompt 吃掉了。確認 `run.sh` 是 `agy -p "$PROMPT_CONTENT" --add-dir .`，不是 `{ ... } \| agy --print --add-dir .`（後者無 stdin 通道，靜默失敗） |
+| agy 回答「`--add-dir` 是什麼」之類與 diff 無關的內容，且 exit 0 | `-p`/`--print` 把下一個 flag 當 prompt 吃掉了。確認 `run.sh` 是 `agy -p "$PROMPT_CONTENT" --add-dir "$REPO_ROOT"`，不是 `{ ... } \| agy --print --add-dir ...`（後者無 stdin 通道，靜默失敗） |
+| agy 回「沒有作用中的 workspace」／review 內容明顯沒讀過周邊程式碼，且 exit 0 | `--add-dir` 被傳了相對路徑。**agy 1.1.22 不再把相對的 `.` 解析成 active workspace**，即使已 cd 到該目錄、即使該目錄在 `trustedWorkspaces` 內。修法：傳絕對路徑。這是本檔最危險的靜默失敗形態（review 看起來正常但沒看過 code），測試 `AGYS-DT-010/011` 鎖住此不變量 |
+| 以為是 `trustedWorkspaces` 沒列到這個 repo | **不是。** 負向對照實測（agy 1.1.22）：已列入的 repo 用相對 `.` 照樣失敗、未列入的 repo 用絕對路徑照樣成功。不要為此放寬 trust 清單 |
 | Auth 失敗，`onboardingComplete` 為 false | 執行 `agy auth` 完成 OAuth 流程 |
 | 無 API key 且 onboarding 未完成 | 在 `.env` 加入 `GEMINI_API_KEY=<your-key>` 或 `GOOGLE_API_KEY=<your-key>`（兩者均可） |
 | `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy auth` |

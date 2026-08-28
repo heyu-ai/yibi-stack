@@ -56,7 +56,10 @@ fi
 
 printf '\n---END RAW OUTPUT---\n' >> "$REVIEW_DIR/gemini-extract-input.md"
 
-# cd 到 worktree root：--add-dir . 以 WT_ROOT 為 context 基準。
+# cd 到 worktree root：相對路徑的產物寫入以 WT_ROOT 為基準。
+# 注意 --add-dir 本身傳的是 "$WT_ROOT" 絕對路徑而非 `.`——agy 1.1.22 不再把相對路徑解析成
+# active workspace，傳 `.` 會讓 agy 拿不到任何檔案 context 卻仍 exit 0（完整負向對照記錄見
+# 3rd-tools/skills/agy-consult/scripts/consult.sh）。此處的 cd 因此不再是 context 的來源。
 cd "$WT_ROOT"
 
 # issue #153 fix 1：inline prompt 取代 @file。萃取任務只需 raw 文字，--sandbox 即足夠
@@ -70,7 +73,7 @@ if [ "$EXTRACT_BYTES" -gt 256000 ]; then
 fi
 EXTRACT_CONTENT=$(cat "$REVIEW_DIR/gemini-extract-input.md")
 if ! agy -p "$EXTRACT_CONTENT" \
-    --add-dir . \
+    --add-dir "$WT_ROOT" \
     --sandbox \
     --print-timeout 10m \
     > "$TMP_JSON" \

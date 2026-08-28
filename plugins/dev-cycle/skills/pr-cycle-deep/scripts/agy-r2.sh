@@ -13,7 +13,7 @@
 #   - gemini-r2.md 寫到 $WT_ROOT/.pr-review/
 #   - stderr log 寫到 $WT_ROOT/.pr-review/gemini-r2.log
 #   - 暫存 gemini-r2-input.md（完成後自動刪除）
-#   - CWD 切換到 $WT_ROOT（--add-dir . 以 WT_ROOT 為 context 基準）
+#   - CWD 切換到 $WT_ROOT（--add-dir 傳的是 "$WT_ROOT" 絕對路徑，不是相對的 `.`）
 #
 # issue #153：nested worktree 下 agy 無法解析 @file，靜默進入 agentic 模式（R2 實測觀察到
 # timeout 這個結局）。修法同 stage1：inline prompt 取代 @file、開頭清 scratch、跑 agy_validate.py。
@@ -51,7 +51,8 @@ if ! cat "$REVIEW_DIR/prompt-r2.md" "$REVIEW_DIR/r1-aggregate.md" > "$REVIEW_DIR
     exit 1
 fi
 
-# cd 到 worktree root：--add-dir . 以 WT_ROOT 為 context 基準。
+# cd 到 worktree root：相對路徑的產物寫入與 git 操作以 WT_ROOT 為基準。
+# 注意此 cd 已不再是 agy context 的來源——--add-dir 傳的是 "$WT_ROOT" 絕對路徑（見下方註解）。
 cd "$WT_ROOT"
 
 # 防越界編輯（PR #194 retro）：agy 以權限繞過旗標執行，具 worktree 寫入權；review 階段
@@ -75,7 +76,10 @@ INPUT_CONTENT="$REVIEW_ONLY_GUARD
 
 $(cat "$REVIEW_DIR/gemini-r2-input.md")"
 
-if ! agy -p "$INPUT_CONTENT" --model 'Gemini 3.1 Pro (Low)' --add-dir . --dangerously-skip-permissions --print-timeout 10m \
+# --add-dir 傳 "$WT_ROOT" 絕對路徑，不可傳相對的 `.`（agy 1.1.22 實測，見 agy-r1-stage1.sh 與
+# 3rd-tools/skills/agy-consult/scripts/consult.sh）：相對路徑不再被解析成 active workspace，
+# agy 會在沒有任何檔案 context 的情況下 exit 0 回一段看似正常的 review。
+if ! agy -p "$INPUT_CONTENT" --model 'Gemini 3.1 Pro (Low)' --add-dir "$WT_ROOT" --dangerously-skip-permissions --print-timeout 10m \
     > "$REVIEW_DIR/gemini-r2.md" \
     2>"$REVIEW_DIR/gemini-r2.log"; then
     echo "[FAIL] agy R2 失敗，請查看 $REVIEW_DIR/gemini-r2.log" >&2
