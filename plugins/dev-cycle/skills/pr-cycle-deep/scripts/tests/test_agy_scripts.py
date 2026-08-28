@@ -369,7 +369,8 @@ class TestWorkspaceContextContract:
         is NOT covered here — scanning `*.md` would also match the deliberate "Wrong:"
         examples in `.claude/rules/13-bash-anti-patterns.md`, so distinguishing live
         commands from counter-examples belongs in `scripts/lint_skill_bash.py`, which
-        already owns SKILL.md bash blocks. Tracked as a follow-up.
+        already owns SKILL.md bash blocks. Tracked as issue #410 — update this docstring
+        when it lands, so the stated gap does not outlive the gap itself.
         """
         discovered = {
             path: args

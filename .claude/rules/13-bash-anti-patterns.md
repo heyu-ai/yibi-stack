@@ -1314,7 +1314,9 @@ precisely, because an overstated guard is how the next call site goes unguarded:
   this repo (see the CLAUDE.md gotcha on the agent rewriting a slash-command bash block), but
   scanning `*.md` would also match the deliberate "Wrong:" examples in this very file, so
   telling live commands from counter-examples belongs in `scripts/lint_skill_bash.py`, which
-  already owns SKILL.md bash. Tracked as a follow-up, not silently assumed closed.
+  already owns SKILL.md bash. Tracked as **issue #410**, not silently assumed closed — and when
+  that lands, this bullet is part of the change: a "Not covered" note that outlives the gap is
+  the same stale-claim defect this section's own probe-rot note warns about.
 
 **`trustedWorkspaces` is not the cause, despite looking exactly like it.** When the refusal
 mentions workspaces or "scratch directory", the obvious suspect is
