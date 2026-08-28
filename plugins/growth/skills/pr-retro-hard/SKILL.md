@@ -97,8 +97,16 @@ if ! test -n "$HARD_ROOT"; then echo "[FAIL] 讀不到 pr-retro-hard 的 scripts
 | Voice | 取得方式 | 條件 |
 |-------|---------|------|
 | Codex | `Skill(skill="codex-consult", args="…")` | 該 skill 自己偵測 binary 與 auth；失敗時它自己 `[FAIL]` |
-| Gemini | `Skill(skill="agy-consult", args="…")` | 同上 |
+| agy（**預設 Claude Sonnet 4.6，不是 Gemini**——見下方警告） | `Skill(skill="agy-consult", args="…")` | 同上 |
 | Claude 對抗式 | `Agent(subagent_type="general-purpose")` | **無條件**，永遠執行 |
+
+> **家族塌縮警告（比 prompt 相關更難察覺）**：下方已論證三 voice 因「同一份草稿、同一套
+> prompt」而依建構相關，故一致不構成 cross-model 證據。但還有第二層獨立性會失效，且它不會
+> 在輸出裡留下任何痕跡：`agy-consult` 的預設模型是 `claude-sonnet-4-6`（Gemini 在台灣地區被
+> Google API 擋下），所以預設情況下這三個 voice 是 **Claude、Claude、Codex**——不是三個家族。
+> `agy-consult` 的腳本每次執行都會把實際模型印到 stderr（`[INFO] agy 模型：<model>`）；**要把
+> 任何一致當成跨家族訊號之前，先讀那一行**。要真的取得 Gemini 需設
+> `AGY_MODEL=gemini-3.7-flash-low`（需 VPN 或 Google 開放台灣）。
 
 記錄哪幾家回來了。**外部 voice 為 0 時不 redirect**（與 `/pr-cycle-deep` 不同——對抗 voice
 本身仍有價值），輸出：

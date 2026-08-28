@@ -48,8 +48,8 @@ claude plugin install methodology@yibi-stack     # tdd-kentbeck + flutter-tdd + 
 | `codex-review` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | OpenAI Codex CLI 對當前 branch diff 做 code review（含 `[P1]` pass/fail gate）或 challenge 對抗模式找 bug；改用 `codex exec` + stdin packet，含 hijack 偵測 | [codex-review/SKILL.md](codex-review/SKILL.md) |
 | `codex-consult` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | OpenAI Codex CLI 第二意見：詢問 codebase 任何技術問題，由 Codex 閱讀程式碼後回答；不需要有待 review 的 diff | [codex-consult/SKILL.md](codex-consult/SKILL.md) |
 | `codex-cli` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | 委託 Codex 實作：Claude 規劃並打包 repo 規範 → Codex 以 `-s workspace-write` 寫 code → Claude 查 diff、跑全量 CI、回饋 finding 讓 Codex 修（最多 2 輪） | [codex-cli/SKILL.md](codex-cli/SKILL.md) |
-| `agy-review` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | Antigravity CLI（Gemini）對 diff 做 code review（PASS/FAIL gate）或 challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 Gemini reviewer，全程 `--sandbox` | [agy-review/SKILL.md](agy-review/SKILL.md) |
-| `agy-consult` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | Antigravity CLI（Gemini）第二意見：讓 Gemini 讀 repo 回答任意技術問題，不需要有待 review 的 diff | [agy-consult/SKILL.md](agy-consult/SKILL.md) |
+| `agy-review` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | Antigravity CLI（agy）對 diff 做 code review（PASS/FAIL gate）或 challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 reviewer，全程 `--sandbox`。**預設模型 `claude-sonnet-4-6`，不是 Gemini**（台灣地區限制），故不可逕自計為跨廠商聲音 | [agy-review/SKILL.md](agy-review/SKILL.md) |
+| `agy-consult` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | Antigravity CLI（agy）第二意見：讓 agy 讀 repo 回答任意技術問題，不需要有待 review 的 diff。**預設模型 `claude-sonnet-4-6`，不是 Gemini**；要真正的跨廠商第二意見請用 `codex-consult` 或設 `AGY_MODEL` | [agy-consult/SKILL.md](agy-consult/SKILL.md) |
 | `verify-gemini-models` | exec | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | 驗證 Gemini 模型在 Google AI Studio 與 Vertex AI 上的實際可用性（LLM / TTS / Live），支援 Gemini 3.x global 端點 | [verify-gemini-models/SKILL.md](verify-gemini-models/SKILL.md) |
 
 #### 知識型（方法論）
