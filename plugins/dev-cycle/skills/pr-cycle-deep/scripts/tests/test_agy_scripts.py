@@ -1,10 +1,14 @@
 """Tests for the agy shell scripts (agy-r1-stage1/-stage2, agy-r2).
 
-Two layers:
+Three layers:
   * Static contract tests — read each script's source and assert the issue #153
     invariants (inline prompt not @file, per-stage validator flags, scratch
     hygiene). These guard against silent regressions (e.g. someone reverting
     `-p "$CONTENT"` back to `-p "@file"`, or stage 2 gaining `--require-verdict`).
+  * Runtime `--add-dir` contract — run every agy script against a stub `agy` that
+    records its argv, and assert the value actually passed is absolute. Static text
+    analysis cannot decide this (see `TestWorkspaceContextContract`), so the static
+    layer is reduced to inventory for that invariant.
   * Behavioral integration test — run agy-r1-stage1.sh end-to-end in a throwaway
     git repo with a fake `agy` on PATH, exercising the inline call, the real
     agy_validate.py gate, and the 256KB size guard.
@@ -13,6 +17,7 @@ Two layers:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 from pathlib import Path
@@ -29,28 +34,18 @@ R2 = SCRIPTS_DIR / "agy-r2.sh"
 #   <repo>  / plugins / dev-cycle / skills / pr-cycle-deep / scripts / tests / this_file.py
 #   ^ [6]     ^ [5]     ^ [4]       ^ [3]    ^ [2]           ^ [1]     ^ [0]
 #
-# `tests` is parents[0], NOT parents[1] — an earlier revision of this comment put the
-# second caret on `tests` while labelling it parents[1], which invites the reader to
-# recount and land on parents[6] for `plugins`. That is the repo root, and a sweep rooted
-# there descends into `.claude/worktrees/` (gitignored but present on disk, hundreds of
-# .sh files across sibling branches), so the sweep would assert on other branches' copies.
-# The exact-set assertion in AGYS-DT-011 catches that direction; the anchor below catches
-# it sooner and names the cause.
+# `tests` is parents[0], NOT parents[1] — an earlier revision of this comment mislabelled
+# the second caret, which invites the reader to recount and land on the wrong index. The
+# anchors below turn a miscount into an immediate, self-naming failure.
 REPO_ROOT_DIR = Path(__file__).resolve().parents[6]
 PLUGINS_DIR = Path(__file__).resolve().parents[5]
 assert PLUGINS_DIR.name == "plugins", PLUGINS_DIR
 assert (REPO_ROOT_DIR / "pyproject.toml").is_file(), REPO_ROOT_DIR
 
-# Directories the repo-wide sweep must never descend into. `.claude/worktrees` holds
-# complete checkouts of other branches — sweeping them makes this test's result depend on
-# which worktrees happen to exist on the machine.
-_SWEEP_EXCLUDED = (".git", ".venv", "node_modules", "__pycache__")
-_SWEEP_EXCLUDED_RELATIVE = (Path(".claude") / "worktrees",)
-
-# Every agy `--add-dir` call site in the repo, as repo-relative paths. Asserted as an
-# EXACT set rather than a `>=N` floor: a floor only catches discovery breaking (count
-# falling), and the caret incident above is the count *rising*. Adding or removing an agy
-# call site is a deliberate act, so updating this set is part of that act.
+# Every agy call site in the repo, as repo-relative paths. Asserted as an EXACT set rather
+# than a `>=N` floor: a floor only catches the count falling (discovery broke) and is blind
+# to it rising. Adding or removing an agy call site is a deliberate act, so updating this
+# set — and `_RUNTIME_CASES` alongside it — is part of that act.
 _EXPECTED_ADD_DIR_CALL_SITES = frozenset(
     {
         "plugins/3rd-tools/skills/agy-consult/scripts/consult.sh",
@@ -227,18 +222,26 @@ class TestWorkspaceContextContract:
     # --- static layer: discovery / inventory only, no correctness claim --------------- #
 
     @staticmethod
-    def _add_dir_call_site(src: str) -> bool:
-        """Does this script mention `--add-dir` outside a whole-line comment?
+    def _invokes_agy(src: str) -> bool:
+        """Does this script appear to invoke `agy` outside a whole-line comment?
 
-        Intentionally naive. This is a *discovery screen* for the inventory assertion, not
-        a correctness check — correctness lives in the runtime test, so this function is
-        allowed to be approximate in a way the previous absoluteness scanner was not.
-        Over-matching (a mention inside a string) costs one inventory entry; under-matching
-        is bounded by the exact-set assertion, which fails when an expected file stops
-        matching.
+        Keys on the **invocation**, not on `--add-dir`. Keying on the flag would miss the
+        worst case: a new script that calls agy and forgets `--add-dir` entirely never
+        enters the inventory, so nothing ever tests it — and running agy with no
+        `--add-dir` is exactly the zero-file-context failure this whole guard is about.
+
+        Intentionally a heuristic (`agy` followed by whitespace and a flag). This is a
+        *discovery screen* for the inventory assertion, not a correctness check —
+        correctness lives in the runtime test, so this may be approximate in a way the
+        deleted absoluteness scanner must not have been. Measured against the tracked tree:
+        this matches exactly the five agy scripts, whereas a bare word-match on `agy` also
+        pulls in `commands/scripts/clean_wt.sh` and `scripts/assert_not_worktree.sh`, which
+        only mention the word.
         """
         return any(
-            "--add-dir" in line for line in src.splitlines() if not line.lstrip().startswith("#")
+            re.search(r"(^|[^A-Za-z0-9_-])agy\s+-", line)
+            for line in src.splitlines()
+            if not line.lstrip().startswith("#")
         )
 
     @classmethod
@@ -249,6 +252,12 @@ class TestWorkspaceContextContract:
         an untracked checkout under `worktrees/`, `.worktrees/`, or any ignored scratch
         directory would otherwise be discovered as an "undeclared call site" and fail CI on
         one machine while passing on another.
+
+        The trade-off, stated because it is this repo's own documented gotcha: a brand-new
+        agy script is invisible here until it is `git add`-ed, so `make ci` can be green on
+        an unstaged file that CI will later reject. That is the same shape as the
+        "`git add` first, then `make ci`" note in CLAUDE.md — the narrower failure mode was
+        chosen deliberately over a machine-dependent verdict.
         """
         proc = subprocess.run(  # nosec B603 B607
             ["git", "-C", str(REPO_ROOT_DIR), "ls-files", "-z", "--", "*.sh"],
@@ -280,7 +289,7 @@ class TestWorkspaceContextContract:
         actual = {
             str(path.relative_to(REPO_ROOT_DIR))
             for path in self._sweep_shell_scripts()
-            if self._add_dir_call_site(path.read_text(encoding="utf-8"))
+            if self._invokes_agy(path.read_text(encoding="utf-8"))
         }
         missing = _EXPECTED_ADD_DIR_CALL_SITES - actual
         unexpected = actual - _EXPECTED_ADD_DIR_CALL_SITES
@@ -316,14 +325,34 @@ _RUNTIME_CASES: dict[str, tuple[Path, list[str]]] = {
 }
 
 
-def _extract_add_dir(argv: list[str]) -> str | None:
-    """The `--add-dir` value from a recorded argv, honouring both agy spellings."""
+_ARGV_RECORD_SEP = "\x01"
+
+
+def _recorded_invocations(capture: Path) -> list[list[str]]:
+    """Decode the stub's capture file into one argv list per agy invocation.
+
+    Each record is `arg\\0arg\\0…arg\\0` and records are separated by `\\1`; the trailing
+    empty field from the final `\\0` is dropped. Lossless, unlike a line-based decode —
+    see `_FAKE_AGY` for the false PASS that motivated it.
+    """
+    raw = capture.read_text(encoding="utf-8")
+    return [record.split("\0")[:-1] for record in raw.split(_ARGV_RECORD_SEP) if record]
+
+
+def _extract_add_dir(argv: list[str]) -> tuple[bool, str | None]:
+    """`(flag_present, value)` for `--add-dir` in one recorded argv.
+
+    The two failure states are reported separately because they need different fixes and
+    a single `None` conflated them: "the script never passed --add-dir" sends the reader
+    looking for a missing flag, which is wrong when the flag is present but trailing with
+    no value after it.
+    """
     for i, token in enumerate(argv):
         if token == "--add-dir":
-            return argv[i + 1] if i + 1 < len(argv) else None
+            return True, (argv[i + 1] if i + 1 < len(argv) else None)
         if token.startswith("--add-dir="):
-            return token.split("=", 1)[1]
-    return None
+            return True, token.split("=", 1)[1]
+    return False, None
 
 
 @pytest.fixture
@@ -421,17 +450,26 @@ class TestAddDirRuntimeContract:
             f"stderr={result.stderr!r}). The runtime contract cannot be checked; fix the "
             "fixture's preconditions rather than deleting this assertion."
         )
-        argv = argv_capture.read_text(encoding="utf-8").splitlines()
-        value = _extract_add_dir(argv)
-        assert value is not None, (
-            f"{script.name} invoked agy without --add-dir. agy 1.1.22 then runs with NO "
-            f"file context and still exits 0. argv={argv!r}"
-        )
-        assert Path(value).is_absolute(), (
-            f"{script.name} passed agy a RELATIVE --add-dir ({value!r}). agy 1.1.22 does "
-            "not resolve a relative path into an active workspace: it silently loses all "
-            "file context and still exits 0."
-        )
+        invocations = _recorded_invocations(argv_capture)
+        assert invocations, f"{script.name}: capture file exists but decoded to no records"
+        # Every invocation, not just the last: a script that calls agy twice must not be
+        # able to hide a bad call behind a good one.
+        for n, argv in enumerate(invocations, start=1):
+            where = f"{script.name} (agy invocation {n} of {len(invocations)})"
+            present, value = _extract_add_dir(argv)
+            assert present, (
+                f"{where} invoked agy without --add-dir. agy 1.1.22 then runs with NO file "
+                f"context and still exits 0. argv={argv!r}"
+            )
+            assert value is not None, (
+                f"{where} passed --add-dir as the final argument, with no value after it. "
+                f"argv={argv!r}"
+            )
+            assert Path(value).is_absolute(), (
+                f"{where} passed agy a RELATIVE --add-dir ({value!r}). agy 1.1.22 does not "
+                "resolve a relative path into an active workspace: it silently loses all "
+                "file context and still exits 0."
+            )
 
     def test_agys_dt_013_runtime_covers_every_call_site(self) -> None:
         """AGYS-DT-013: every declared call site has a runtime case, and vice versa.
@@ -443,9 +481,22 @@ class TestAddDirRuntimeContract:
         untested = sorted(_EXPECTED_ADD_DIR_CALL_SITES - set(_RUNTIME_CASES))
         undeclared = sorted(set(_RUNTIME_CASES) - _EXPECTED_ADD_DIR_CALL_SITES)
         assert not untested and not undeclared, (
-            "every --add-dir call site must have a runtime case: "
+            "every agy call site must have a runtime case: "
             f"declared but untested at runtime = {untested}; "
             f"runtime case for an undeclared site = {undeclared}"
+        )
+        # Matching key sets is not enough: a copy-pasted Path constant would leave one
+        # script with no runtime check while both sets still agree, which is precisely the
+        # "declared but untested" hole this test exists to close.
+        mismatched = {
+            key: str(path)
+            for key, (path, _) in _RUNTIME_CASES.items()
+            if str(path.resolve().relative_to(REPO_ROOT_DIR)) != key
+        }
+        assert not mismatched, (
+            f"_RUNTIME_CASES keys must name the script they run: {mismatched}. A key "
+            "pointing at another script silently runs that script twice and leaves this "
+            "one unchecked."
         )
 
 
@@ -454,8 +505,20 @@ class TestAddDirRuntimeContract:
 # --------------------------------------------------------------------------- #
 
 _FAKE_AGY = """#!/usr/bin/env bash
-# Fake agy: record argv, then emit the canned review on stdout.
-printf '%s\\n' "$@" > "$AGY_FAKE_ARGV"
+# Fake agy: append this invocation's argv, NUL-delimited, then emit the canned review.
+#
+# NUL is the only byte that cannot occur inside an argv element, so this encoding is
+# lossless. A newline-delimited rendering is NOT: every one of these scripts passes the
+# whole review prompt -- including diff.patch -- as the `-p` value, and that argument sits
+# BEFORE --add-dir. Decoded by lines, a diff line reading `--add-dir` followed by a line
+# holding an absolute path is indistinguishable from the real flag and its value, so the
+# check reads PR-controlled content instead of the executed argument. That was a live
+# false PASS, not a hypothetical (PR #409 Round 2).
+#
+# \\1 terminates each record so a script invoking agy more than once stays inspectable;
+# appending rather than overwriting is what makes the second invocation visible at all.
+printf '%s\\0' "$@" >> "$AGY_FAKE_ARGV"
+printf '\\1' >> "$AGY_FAKE_ARGV"
 cat "$AGY_FAKE_OUTPUT"
 """
 

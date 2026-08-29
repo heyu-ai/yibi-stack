@@ -97,14 +97,17 @@ class TestAgyRunScriptContract:
     def test_agyrun_dt_005_model_announced_on_stderr(self, script: Path) -> None:
         """AGYRUN-DT-005: the resolved agy model is announced on stderr before the call.
 
-        Both scripts default `AGY_MODEL` to a Claude model because Gemini is blocked from
-        this region on the standalone `-p` path. That default is the whole reason the
-        announcement exists: without it a caller cannot tell whether an `/agy-consult` or
-        `/agy-review` answer came from Gemini or from Claude, and counting a Claude answer
-        as an independent cross-vendor voice in a mob consensus is a silent correctness
-        failure (two votes from one family, presented as two families).
+        Both scripts default `AGY_MODEL` to a Claude model. Do not restate a mechanism for
+        that here: `agy-r1-stage1.sh` runs `agy -p … --model 'Gemini 3.1 Pro (Low)'` on the
+        same `-p` path and works, so `-p` is not the discriminator, and the boundary is
+        unprobed (see `agy-consult/SKILL.md`, which forbids inventing one). What matters for
+        this test is only that the default is NOT Gemini: without the announcement a caller
+        cannot tell whether an `/agy-consult` or `/agy-review` answer came from Gemini or
+        from Claude, and counting a Claude answer as an independent cross-vendor voice in a
+        mob consensus is a silent correctness failure (two votes from one family, presented
+        as two families).
 
-        Five documents now instruct readers to rely on this line — `pr-retro-hard`'s
+        Four documents now instruct readers to rely on this line — `pr-retro-hard`'s
         SKILL.md makes reading it a procedural gate before treating agreement as
         cross-family evidence — so it is a contract, not a debug aid. Deleting it left the
         whole suite green before this test existed.
@@ -136,14 +139,29 @@ def _make_stub_agy(tmp_path: Path, *, exit_code: int, stdout: str) -> Path:
 
 
 def _run_agy_script(
-    script: Path, tmp_path: Path, *, agy_exit: int, agy_stdout: str
+    script: Path,
+    tmp_path: Path,
+    *,
+    agy_exit: int,
+    agy_stdout: str,
+    agy_model: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run run.sh or consult.sh against a stub `agy`, handling each script's own calling
     convention (run.sh: positional mode/base/instruction args, invoked from the real repo so
     `git diff origin/<base>...HEAD` resolves; consult.sh: no args, reads
-    $CLAUDE_JOB_DIR/agy-consult-question.txt)."""
+    $CLAUDE_JOB_DIR/agy-consult-question.txt).
+
+    `agy_model=None` means "test the default path": `AGY_MODEL` is **removed** from the
+    child environment rather than inherited. Inheriting it made these tests fail for anyone
+    who had set the variable — which this repo's own docs tell readers to do — so the
+    ambient value has to be controlled, not assumed absent.
+    """
     bin_dir = _make_stub_agy(tmp_path, exit_code=agy_exit, stdout=agy_stdout)
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}"}
+    if agy_model is None:
+        env.pop("AGY_MODEL", None)
+    else:
+        env["AGY_MODEL"] = agy_model
     if script.name == "run.sh":
         args: list[str] = ["review", "main", ""]
         cwd = REPO_ROOT
@@ -214,6 +232,34 @@ class TestAgyScriptExecutionContract:
         assert "[INFO]" not in result.stdout, (
             "the announcement must not reach stdout — the skills present stdout verbatim "
             "as the answer"
+        )
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_009_announcement_follows_agy_model_override(
+        self, script: Path, tmp_path: Path
+    ) -> None:
+        """AGYRUN-DT-009: the announcement reports the OVERRIDE, not the default.
+
+        The default-only test above cannot tell "prints the resolved model" from "prints a
+        hardcoded string" — and the override path is the one that matters: it is what a
+        reader follows to get an actual cross-vendor voice, and mis-reporting it re-creates
+        the exact mis-attribution the announcement exists to prevent.
+        """
+        override = "gemini-3.7-flash-low"
+        result = _run_agy_script(
+            script,
+            tmp_path,
+            agy_exit=0,
+            agy_stdout="a genuine agy answer, long enough",
+            agy_model=override,
+        )
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        assert override in result.stderr, (
+            f"{script.name} must announce the overridden model; stderr={result.stderr!r}"
+        )
+        assert "claude-sonnet-4-6" not in result.stderr, (
+            f"{script.name} announced the default while AGY_MODEL was {override!r} — the "
+            "line reports a hardcoded string, not the resolved model"
         )
 
 

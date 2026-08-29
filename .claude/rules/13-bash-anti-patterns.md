@@ -1293,14 +1293,19 @@ no verdict at all, so a phrase match is the *only* signal, and it breaks on the 
 Pass the absolute path and remove the failure mode instead. `pr-cycle-deep`'s
 `test_agy_scripts.py` pins the invariant — and **how** it pins it is the transferable lesson:
 
-- **`AGYS-DT-012` (authoritative) runs each script against a stub `agy` that records its argv**,
-  then asserts `Path(value).is_absolute()` on what bash actually passed. `AGYS-DT-013` asserts
-  every declared call site has such a case, so a new agy script cannot ship untested.
+- **`AGYS-DT-012` (authoritative) runs each script against a stub `agy` that records its argv**
+  NUL-delimited, then asserts `Path(value).is_absolute()` on every recorded invocation.
+  `AGYS-DT-013` asserts every declared call site has such a case **and** that each entry's key
+  names the script it actually runs — matching key sets alone would let a copy-pasted path leave
+  one script unchecked while both tests stayed green.
 - **`AGYS-DT-011` is inventory only.** It sweeps `git ls-files -- '*.sh'` and asserts the set of
-  files mentioning `--add-dir` equals a declared set. It makes **no** absoluteness claim; its job
-  is to fail when a *new* call site appears so that site gets a runtime case. Discovery goes
+  files that appear to *invoke agy* equals a declared set. It makes **no** absoluteness claim;
+  its job is to fail when a new call site appears so that site gets a runtime case. Keying on the
+  invocation rather than on `--add-dir` is deliberate: a new script that calls agy and omits the
+  flag entirely is the worst case, and a flag-keyed inventory would never see it. Discovery goes
   through git rather than a filesystem walk so an untracked scratch checkout cannot make the
-  verdict machine-dependent.
+  verdict machine-dependent — at the documented cost that a brand-new script is invisible until
+  `git add`, the same trade-off as CLAUDE.md's "`git add` first, then `make ci`".
 - **Not covered**: a `--add-dir` inside a SKILL.md bash fence — a live execution path here (see
   the CLAUDE.md gotcha on the agent rewriting a slash-command bash block). Scanning `*.md` would
   also match the deliberate "Wrong:" examples in this very file, so separating live commands from
@@ -1310,25 +1315,40 @@ Pass the absolute path and remove the failure mode instead. `pr-cycle-deep`'s
 
 **Why not just parse the scripts.** The first version of this guard did exactly that: a
 quote-state scanner plus regexes deciding whether a `"$VAR"` came from an
-"absoluteness-guaranteeing" source. It replaced three known evasions and introduced five more —
-each executing a relative `--add-dir` while the test stayed green:
+"absoluteness-guaranteeing" source. It replaced three known evasions and introduced four that let
+a **relative** `--add-dir` execute while the test stayed green:
 
 | Evasion | Why the text scanner missed it |
 |---|---|
 | `echo \# ; agy --add-dir .` | `\#` outside double quotes was not treated as escaped, so the line was cut as a comment |
-| heredoc body containing `--add-dir "$ABS"` | heredoc text was scanned as executable, supplying an acceptable token for a call site that had none |
+| heredoc body containing `--add-dir "$ABS"` | heredoc text was scanned as executable, supplying an acceptable token — so a call site with **no** flag at all passed |
 | `X="$RELATIVE/sub"` then `--add-dir "$X"` | the composition regex never checked the base variable |
 | `X=$(git rev-parse --show-toplevel); X=.` | the assignment search ignored order and later reassignment |
-| `--add-dir $VAR` (unquoted) | accepted despite the contract requiring the quoted form |
+
+Plus one contract-form deviation it accepted without executing anything relative: an unquoted
+`--add-dir $VAR`. (The heredoc row is worth reading twice — it is not "a relative path slipped
+through" but "the check was satisfied by text that was never an argument at all".)
 
 Two independent frontier-model reviewers found these on the same round. The generalizable point
 is not "write a better scanner": **absoluteness is a runtime property of an argument, and no
 amount of matching on source text decides it.** A static check over shell can honestly answer
-"does this file mention the flag" (inventory); asking it to answer "is the value correct" invites
-an unbounded sequence of parser patches. When a guard's claim is about what a command *does*,
-execute the command against a stub and inspect the real argv. (Source: PR #409 — the static
-version and its five evasions are recorded here because the same shape will be tempting the next
-time a shell invariant needs pinning.)
+"does this file appear to invoke the tool" (inventory); asking it to answer "is the value correct"
+invites an unbounded sequence of parser patches.
+
+**And the replacement had to earn the same scrutiny.** The first runtime version recorded argv
+with `printf '%s\n' "$@"` and decoded it with `splitlines()` — lossy, because every one of these
+scripts passes the whole review prompt (**including the diff**) as one `-p` argument, ahead of
+`--add-dir`. A diff line reading `--add-dir` followed by a line holding an absolute path decoded
+as the flag and its value, so the check read PR-controlled content and returned a false PASS on a
+script genuinely passing `--add-dir .`. The fix is the delimiter, not the parser: `printf '%s\0'`
+and split on NUL, the one byte that cannot appear inside an argv element. The lesson generalises
+past this file — **when a test reconstructs a data structure from a serialized form, the encoding
+has to be lossless before any assertion on it means anything**, and "it looked right in the
+fixture" is not that proof: the corruption was already present in the benign fixture (12 decoded
+entries for 8 real arguments) and merely had not yet aligned into a false PASS.
+
+(Source: PR #409 — both the static version's evasions and the runtime version's encoding bug are
+recorded here because both shapes will be tempting the next time a shell invariant needs pinning.)
 
 **`trustedWorkspaces` is not the cause, despite looking exactly like it.** When the refusal
 mentions workspaces or "scratch directory", the obvious suspect is
