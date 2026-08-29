@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.2] - 2026-08-29
+
+### Fixed
+
+- **agy 1.1.22 不再把相對的 `--add-dir .` 解析成 active workspace，五支 agy 腳本全數受影響**
+  （PR #409）：agy 在**沒有任何檔案 context** 的情況下 exit 0，回傳一段語意完整但沒讀過任何
+  檔案的答案——141B 的「沒有作用中的 workspace」拒答，或（實測到）先聲明沒有 workspace 再給出
+  幻覺數字。腳本既有的兩道守門（exit-code gate、輸出長度下限）在設計上就攔不到這種形狀。
+  對 `/agy-review` 與 `/pr-cycle-deep` 而言，這等於產出一份作者沒看過程式碼的 review。
+  修法：`consult.sh`、`agy-review/run.sh`、`agy-r1-stage1.sh`、`agy-r1-stage2.sh`、`agy-r2.sh`
+  一律改傳絕對路徑（`"$REPO_ROOT"` / `"$WT_ROOT"`，兩者皆來自 `git rev-parse --show-toplevel`）。
+  負向對照實測：已列在 `trustedWorkspaces` 的 repo 用相對 `.` 照樣失敗、未列入的 repo 用絕對
+  路徑照樣成功——**`trustedWorkspaces` 與此失敗無關**，不要為此放寬 trust 清單。
+
+- **`/agy-consult` 與 `/agy-review` 的實際模型不可見**（PR #409）：兩者預設
+  `AGY_MODEL=claude-sonnet-4-6` 而非 Gemini，但 6 份文件都承諾 Gemini。在 mob review 體系裡
+  這會讓「Claude + agy」成為同一家投兩票、卻被當成兩個獨立聲音計入 consensus。兩支腳本現在
+  每次執行都把實際模型以 `[INFO] agy 模型：<model>` 印到 **stderr**（不進 stdout，避免混入
+  要逐字呈現的答案）；相關 SKILL.md / README 描述同步更正，`pr-retro-hard` 新增家族塌縮警告。
+
+### Added
+
+- **agy `--add-dir` 的 runtime 契約測試**（PR #409）：`AGYS-DT-012` 用會記錄 argv 的 stub agy
+  實跑全部五支腳本，斷言 bash **實際傳出去**的值為絕對路徑；`AGYS-DT-013` 綁住「每個 call site
+  都有 runtime case」；`AGYS-DT-011` 降為盤點（以 agy 呼叫為鍵，`git ls-files` 發現）。
+  `AGYRUN-DT-005/009` 鎖住模型公告（含 `AGY_MODEL` override 路徑）。
+  先前的靜態文字掃描版本被兩家模型各自找出多條規避後整條移除——絕對性是引數的執行期性質，
+  對原始碼文字的比對不決定它。判準寫入 `.claude/rules/13-bash-anti-patterns.md`。
+
 ## [1.20.1] - 2026-08-06
 
 ### Fixed
