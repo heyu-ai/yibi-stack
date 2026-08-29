@@ -1291,32 +1291,44 @@ Do **not** "fix" this by adding a refusal-phrase grep: that is the success-banne
 from earlier in this file, one layer over. Here it is worse than fragile — the exit code carries
 no verdict at all, so a phrase match is the *only* signal, and it breaks on the next rewording.
 Pass the absolute path and remove the failure mode instead. `pr-cycle-deep`'s
-`test_agy_scripts.py` pins the invariant (`AGYS-DT-010` / `AGYS-DT-011`). State its scope
-precisely, because an overstated guard is how the next call site goes unguarded:
+`test_agy_scripts.py` pins the invariant — and **how** it pins it is the transferable lesson:
 
-- **Covered**: every `*.sh` under the repo root, excluding `.git` / `.venv` / `node_modules` /
-  `__pycache__` and `.claude/worktrees/` (the last because it holds whole checkouts of other
-  branches, which would make the verdict depend on which worktrees exist locally).
-- **The argument check is not a spelling check.** A bare relative path fails; a quoted literal
-  absolute path passes; a `"$VAR"` form passes **only** when the same file assigns `VAR` from an
-  absoluteness-guaranteeing source (`git rev-parse --show-toplevel`, `cd …&& pwd`, a composition
-  on another absolute variable, or a literal absolute). `SCRATCH="."` + `--add-dir "$SCRATCH"`
-  is rejected — it would otherwise pass a `startswith('"$')` test while losing all context.
-- **Both agy spellings** are recognised (`--add-dir VALUE` and `--add-dir=VALUE`); agy's Go flag
-  parser accepts either, and matching only the first left the second invisible.
-- **Comments and strings are handled by a quote-state scan**, so an inline trailing comment
-  cannot *supply* the token that satisfies the check (the failure mode: the real command has no
-  `--add-dir` at all and the test still passes), and a diagnostic `echo` that merely mentions
-  `--add-dir .` does not falsely accuse a correct call site.
-- **Call sites are asserted as an exact set, not a `>=N` floor.** A floor only catches the count
-  falling; the sweep root drifting *upward* makes the count rise.
-- **Not covered**: a `--add-dir` inside a SKILL.md bash fence. That is a live execution path in
-  this repo (see the CLAUDE.md gotcha on the agent rewriting a slash-command bash block), but
-  scanning `*.md` would also match the deliberate "Wrong:" examples in this very file, so
-  telling live commands from counter-examples belongs in `scripts/lint_skill_bash.py`, which
-  already owns SKILL.md bash. Tracked as **issue #410**, not silently assumed closed — and when
-  that lands, this bullet is part of the change: a "Not covered" note that outlives the gap is
-  the same stale-claim defect this section's own probe-rot note warns about.
+- **`AGYS-DT-012` (authoritative) runs each script against a stub `agy` that records its argv**,
+  then asserts `Path(value).is_absolute()` on what bash actually passed. `AGYS-DT-013` asserts
+  every declared call site has such a case, so a new agy script cannot ship untested.
+- **`AGYS-DT-011` is inventory only.** It sweeps `git ls-files -- '*.sh'` and asserts the set of
+  files mentioning `--add-dir` equals a declared set. It makes **no** absoluteness claim; its job
+  is to fail when a *new* call site appears so that site gets a runtime case. Discovery goes
+  through git rather than a filesystem walk so an untracked scratch checkout cannot make the
+  verdict machine-dependent.
+- **Not covered**: a `--add-dir` inside a SKILL.md bash fence — a live execution path here (see
+  the CLAUDE.md gotcha on the agent rewriting a slash-command bash block). Scanning `*.md` would
+  also match the deliberate "Wrong:" examples in this very file, so separating live commands from
+  counter-examples belongs in `scripts/lint_skill_bash.py`. Tracked as **issue #410**; when that
+  lands, this bullet is part of the change — a "Not covered" note that outlives the gap is the
+  same stale-claim defect this section's probe-rot note warns about.
+
+**Why not just parse the scripts.** The first version of this guard did exactly that: a
+quote-state scanner plus regexes deciding whether a `"$VAR"` came from an
+"absoluteness-guaranteeing" source. It replaced three known evasions and introduced five more —
+each executing a relative `--add-dir` while the test stayed green:
+
+| Evasion | Why the text scanner missed it |
+|---|---|
+| `echo \# ; agy --add-dir .` | `\#` outside double quotes was not treated as escaped, so the line was cut as a comment |
+| heredoc body containing `--add-dir "$ABS"` | heredoc text was scanned as executable, supplying an acceptable token for a call site that had none |
+| `X="$RELATIVE/sub"` then `--add-dir "$X"` | the composition regex never checked the base variable |
+| `X=$(git rev-parse --show-toplevel); X=.` | the assignment search ignored order and later reassignment |
+| `--add-dir $VAR` (unquoted) | accepted despite the contract requiring the quoted form |
+
+Two independent frontier-model reviewers found these on the same round. The generalizable point
+is not "write a better scanner": **absoluteness is a runtime property of an argument, and no
+amount of matching on source text decides it.** A static check over shell can honestly answer
+"does this file mention the flag" (inventory); asking it to answer "is the value correct" invites
+an unbounded sequence of parser patches. When a guard's claim is about what a command *does*,
+execute the command against a stub and inspect the real argv. (Source: PR #409 — the static
+version and its five evasions are recorded here because the same shape will be tempting the next
+time a shell invariant needs pinning.)
 
 **`trustedWorkspaces` is not the cause, despite looking exactly like it.** When the refusal
 mentions workspaces or "scratch directory", the obvious suspect is

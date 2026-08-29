@@ -13,7 +13,6 @@ Two layers:
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess  # nosec B404
 from pathlib import Path
@@ -185,218 +184,269 @@ class TestValidatorFlagContract:
 
 
 class TestWorkspaceContextContract:
-    """`--add-dir` must receive an absolute path, never a relative `.`.
+    """`--add-dir` must receive an absolute path, never a relative one.
 
-    agy 1.1.22 no longer resolves a relative `--add-dir .` into an active
-    workspace, even when the caller has already `cd`-ed into that directory and
-    the directory is listed in `~/.gemini/antigravity-cli/settings.json`'s
-    `trustedWorkspaces`. The failure is the worst possible shape: agy exits 0 and
-    returns a fully-formed answer produced with **no file context at all** — a
-    141-byte "there is no active workspace" refusal, or (observed) a fabricated
-    number after admitting it has no workspace. No exit-code gate and no
-    minimum-length guard can catch that, so the invariant has to be pinned here.
+    agy 1.1.22 no longer resolves a relative `--add-dir .` into an active workspace, even
+    when the caller has already `cd`-ed into that directory and the directory is listed in
+    `~/.gemini/antigravity-cli/settings.json`'s `trustedWorkspaces`. The failure is the
+    worst possible shape: agy exits 0 and returns a fully-formed answer produced with **no
+    file context at all** — a 141-byte "there is no active workspace" refusal, or (observed)
+    a fabricated number after admitting it has no workspace. No exit-code gate and no
+    minimum-length guard can catch that.
 
-    Measured with a negative control (agy 1.1.22): same question, same model,
-    same flags, varying only the `--add-dir` argument —
+    Measured with a negative control (agy 1.1.22): same question, same model, same flags,
+    varying only the `--add-dir` argument —
       `--add-dir .`            -> CANNOT_READ (in a *trusted* repo)
       `--add-dir <abs path>`   -> correct answer (same trusted repo)
       `--add-dir <abs path>`   -> correct answer (an *untrusted* repo)
     so `trustedWorkspaces` is not the discriminating variable; the path form is.
+
+    **Two layers, with the split chosen deliberately after a static-only version failed.**
+
+    An earlier revision tried to prove absoluteness by parsing the shell source: a
+    quote-state scanner plus a set of regexes deciding whether a `"$VAR"` was assigned from
+    an "absoluteness-guaranteeing" source. Two independent frontier-model reviewers plus a
+    local probe found five ways past it, each executing a relative `--add-dir` while the
+    test stayed green: a `\\#` outside quotes truncating the line as a comment; a heredoc
+    body supplying an acceptable token for a call site that had none; a composition
+    (`X="$RELATIVE/sub"`) whose base was never checked; a later reassignment to `.`; and an
+    unquoted `$VAR` argument. Patching those would invite a sixth — the property is a
+    *runtime* one, and no amount of text matching decides it.
+
+    So the layers are:
+
+    * **Runtime (authoritative)** — `AGYS-DT-012` runs each script against a stub `agy` that
+      records its argv, and asserts the value bash actually passed is absolute. Immune to
+      every evasion above by construction: it reads what was executed, not what was written.
+    * **Static (inventory only)** — `AGYS-DT-011` sweeps the repo for `--add-dir` call sites
+      and asserts the set equals `_EXPECTED_ADD_DIR_CALL_SITES`. It deliberately makes **no**
+      claim about absoluteness. Its job is to fail when a *new* call site appears, so that
+      call site gets a runtime test rather than silently having none.
     """
 
-    @staticmethod
-    def _scan_line(line: str) -> tuple[str, list[bool]]:
-        """Split a shell line into (code, quoted-mask), cutting an unquoted comment.
-
-        Returns the line truncated at the first `#` that is outside quotes, plus a mask
-        where `mask[i]` is True when index `i` of that code sits inside quotes. Content is
-        preserved verbatim — the mask, not blanking, is what lets the caller demand that
-        the `--add-dir` *flag token* be outside quotes while its *value* may be quoted
-        (`--add-dir "$WT_ROOT"`).
-
-        Two failure shapes motivate each half:
-          * skipping only whole-line comments lets an inline trailing comment *supply* the
-            token that satisfies the check while the real command has no `--add-dir` at all
-            → hence the unquoted-`#` cut;
-          * a plain `line.split("#")` corrupts a `#` inside a quoted string, and a
-            diagnostic `echo "never pass --add-dir . to agy"` would otherwise be reported
-            as a violation of a correct call site → hence the quote tracking.
-
-        Backslash escapes are honoured inside double quotes only, matching bash (rule 13's
-        "Single-Quote Semantics" note: a backslash inside single quotes is literal).
-        """
-        code: list[str] = []
-        quoted: list[bool] = []
-        in_single = in_double = False
-        i = 0
-        while i < len(line):
-            ch = line[i]
-            if ch == "\\" and in_double and i + 1 < len(line):
-                code.append(ch)
-                quoted.append(True)
-                code.append(line[i + 1])
-                quoted.append(True)
-                i += 2
-                continue
-            if ch == "'" and not in_double:
-                in_single = not in_single
-                code.append(ch)
-                quoted.append(True)
-            elif ch == '"' and not in_single:
-                in_double = not in_double
-                code.append(ch)
-                quoted.append(True)
-            elif ch == "#" and not in_single and not in_double:
-                break
-            else:
-                code.append(ch)
-                quoted.append(in_single or in_double)
-            i += 1
-        return "".join(code), quoted
-
-    @classmethod
-    def _add_dir_args(cls, src: str) -> list[str]:
-        """Every `--add-dir` argument whose flag token sits in executable code.
-
-        Both agy argument spellings are recognised. agy's flag parser is the Go one
-        (`flag needs an argument: -print`), which accepts `--flag=value` as well as
-        `--flag value`; matching only the whitespace form left the `=` spelling completely
-        invisible to this sweep, so a script whose only call site used it was silently
-        dropped from the results rather than flagged.
-        """
-        args: list[str] = []
-        for raw_line in src.splitlines():
-            code, quoted = cls._scan_line(raw_line)
-            if "--add-dir" not in code:
-                continue
-            for match in re.finditer(r"--add-dir(?:=|\s+)(\S+)", code):
-                if quoted[match.start()]:
-                    continue  # the flag itself is inside a string, not an invocation
-                args.append(match.group(1))
-        return args
+    # --- static layer: discovery / inventory only, no correctness claim --------------- #
 
     @staticmethod
-    def _assigns_absolute(src: str, var: str) -> bool:
-        """Does `src` assign `var` from a source that guarantees an absolute path?
+    def _add_dir_call_site(src: str) -> bool:
+        """Does this script mention `--add-dir` outside a whole-line comment?
 
-        `startswith('"$')` alone is a *spelling* check: `SCRATCH="."` followed by
-        `--add-dir "$SCRATCH"` passes it while losing all file context at runtime. The
-        accepted sources are the two this repo actually uses to obtain a root, plus a
-        composition on an already-verified absolute variable.
+        Intentionally naive. This is a *discovery screen* for the inventory assertion, not
+        a correctness check — correctness lives in the runtime test, so this function is
+        allowed to be approximate in a way the previous absoluteness scanner was not.
+        Over-matching (a mention inside a string) costs one inventory entry; under-matching
+        is bounded by the exact-set assertion, which fails when an expected file stops
+        matching.
         """
-        patterns = (
-            # WT_ROOT=$(git rev-parse --show-toplevel)  — also the `if ! WT_ROOT=$(...)` form
-            rf"{re.escape(var)}=\$\(\s*git rev-parse[^)]*--show-toplevel[^)]*\)",
-            # SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-            # `.*?` rather than `[^)]*`: the canonical form nests `$(dirname "$0")`, whose
-            # inner `)` stops any negated-paren class before it reaches `&& pwd`. Without
-            # DOTALL this still cannot cross a newline, so it stays anchored to one
-            # assignment. (This exact form is what AGYS-DT-006 pins, so rejecting it would
-            # be a false positive against the repo's own convention.)
-            rf"{re.escape(var)}=\$\(\s*cd\b.*?&&\s*pwd",
-            # REVIEW_DIR="$WT_ROOT/.pr-review"  — composed on another variable
-            rf'{re.escape(var)}="\$\{{?[A-Za-z_][A-Za-z0-9_]*\}}?/',
-            # literal absolute
-            rf'{re.escape(var)}="?/',
+        return any(
+            "--add-dir" in line for line in src.splitlines() if not line.lstrip().startswith("#")
         )
-        return any(re.search(p, src) for p in patterns)
-
-    @classmethod
-    def _assert_absolute(cls, script: Path) -> None:
-        src = script.read_text(encoding="utf-8")
-        found = cls._add_dir_args(src)
-        assert found, (
-            f"{script.name}: no --add-dir found in executable code. agy 1.1.22 runs with "
-            "NO file context when the flag is absent and still exits 0, so an agy "
-            "invocation without it is the very defect this test exists to catch. (A "
-            "trailing comment mentioning --add-dir no longer counts.)"
-        )
-        for arg in found:
-            unquoted = arg.strip("'\"")
-            if unquoted.startswith("/"):
-                continue
-            var_match = re.fullmatch(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", unquoted)
-            assert var_match, (
-                f"{script.name}: --add-dir got {arg!r}; agy 1.1.22 silently loses all "
-                "file context on a relative path and still exits 0. Pass an absolute "
-                'path or a quoted absolute variable (e.g. --add-dir "$WT_ROOT").'
-            )
-            var = var_match.group(1)
-            assert cls._assigns_absolute(src, var), (
-                f"{script.name}: --add-dir got {arg!r}, but {var} is not assigned from an "
-                "absoluteness-guaranteeing source in this file (git rev-parse "
-                "--show-toplevel, cd+pwd, a composition on another absolute variable, or "
-                "a literal absolute path). A quoted variable holding a relative value "
-                "passes a spelling check while still losing all file context at runtime."
-            )
-
-    @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
-    def test_agys_dt_010_add_dir_absolute(self, script: Path) -> None:
-        """AGYS-DT-010: pr-cycle-deep's agy stages pass an absolute --add-dir."""
-        self._assert_absolute(script)
 
     @classmethod
     def _sweep_shell_scripts(cls) -> list[Path]:
-        """Every `.sh` in the repo except vendored / per-branch / cache trees."""
-        keep: list[Path] = []
-        for path in REPO_ROOT_DIR.rglob("*.sh"):
-            rel = path.relative_to(REPO_ROOT_DIR)
-            if any(part in _SWEEP_EXCLUDED for part in rel.parts):
-                continue
-            if any(rel.is_relative_to(excluded) for excluded in _SWEEP_EXCLUDED_RELATIVE):
-                continue
-            keep.append(path)
-        return keep
+        """Every `.sh` tracked by git, so the sweep cannot see untracked scratch trees.
 
-    def test_agys_dt_011_add_dir_absolute_repo_wide(self) -> None:
-        """AGYS-DT-011: no shell script in the repo passes a relative --add-dir.
+        Asking git rather than walking the filesystem is what makes this machine-independent:
+        an untracked checkout under `worktrees/`, `.worktrees/`, or any ignored scratch
+        directory would otherwise be discovered as an "undeclared call site" and fail CI on
+        one machine while passing on another.
+        """
+        proc = subprocess.run(  # nosec B603 B607
+            ["git", "-C", str(REPO_ROOT_DIR), "ls-files", "-z", "--", "*.sh"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        if proc.returncode != 0:
+            pytest.fail(f"git ls-files failed: {proc.stderr.strip()}")
+        return [REPO_ROOT_DIR / rel for rel in proc.stdout.split("\0") if rel]
 
-        Rooted at the repo, not at `plugins/`: the same defect shipped in five scripts
-        across two plugins, and a `plugins/`-only sweep leaves every `.sh` under
-        `scripts/`, `commands/scripts/` and `.claude/hooks/` unguarded — exactly the
-        recurrence path this test exists to close. `.claude/worktrees/` is excluded
-        because it holds complete checkouts of other branches, which would make this
-        test's verdict depend on which worktrees happen to exist locally.
+    def test_agys_dt_011_add_dir_call_site_inventory(self) -> None:
+        """AGYS-DT-011: the set of `--add-dir` call sites is exactly the declared set.
 
-        `rglob` does not follow symlinks (rule 02). That is correct here rather than
-        merely tolerable: the real files live under `plugins/`, and the top-level
-        `skills/` entries are symlinks into it, so nothing is missed and nothing is
-        counted twice.
+        This is an inventory gate, not an absoluteness gate (see the class docstring). A new
+        agy call site must be declared here **and** given a runtime case in `AGYS-DT-012` —
+        `test_agys_dt_013_runtime_covers_every_call_site` asserts the two lists agree, so
+        declaring one without testing it fails too.
 
         Known gap, stated so it can be re-probed rather than assumed closed: this sweeps
-        `*.sh` only. A `--add-dir` inside a SKILL.md bash fence is a live execution path
-        in this repo (CLAUDE.md: "slash command bash code block rewritten by agent") and
-        is NOT covered here — scanning `*.md` would also match the deliberate "Wrong:"
-        examples in `.claude/rules/13-bash-anti-patterns.md`, so distinguishing live
-        commands from counter-examples belongs in `scripts/lint_skill_bash.py`, which
-        already owns SKILL.md bash blocks. Tracked as issue #410 — update this docstring
-        when it lands, so the stated gap does not outlive the gap itself.
+        `*.sh` only. A `--add-dir` inside a SKILL.md bash fence is a live execution path in
+        this repo (CLAUDE.md: "slash command bash code block rewritten by agent") and is NOT
+        covered — scanning `*.md` would also match the deliberate "Wrong:" examples in
+        `.claude/rules/13-bash-anti-patterns.md`, so telling live commands from
+        counter-examples belongs in `scripts/lint_skill_bash.py`, which already owns SKILL.md
+        bash. Tracked as issue #410; update this docstring when it lands.
         """
-        discovered = {
-            path: args
+        actual = {
+            str(path.relative_to(REPO_ROOT_DIR))
             for path in self._sweep_shell_scripts()
-            if (args := self._add_dir_args(path.read_text(encoding="utf-8")))
+            if self._add_dir_call_site(path.read_text(encoding="utf-8"))
         }
-        actual = {str(path.relative_to(REPO_ROOT_DIR)) for path in discovered}
-        # Exact set, not a `>=N` floor. A floor only catches the count falling
-        # (discovery broke); it cannot catch the count rising, which is what happens
-        # when the sweep root drifts upward and starts eating sibling worktrees.
         missing = _EXPECTED_ADD_DIR_CALL_SITES - actual
         unexpected = actual - _EXPECTED_ADD_DIR_CALL_SITES
         assert not missing, (
-            f"expected --add-dir call sites not discovered: {sorted(missing)}. Either "
-            "discovery broke (check _code_part / the regex) or the call site was removed "
-            "on purpose — if removed deliberately, delete it from "
-            "_EXPECTED_ADD_DIR_CALL_SITES in the same commit."
+            f"declared --add-dir call sites not found: {sorted(missing)}. Either discovery "
+            "broke, or the call site was removed on purpose — if removed deliberately, "
+            "delete it from _EXPECTED_ADD_DIR_CALL_SITES and from _RUNTIME_CASES in the "
+            "same commit."
         )
         assert not unexpected, (
-            f"undeclared --add-dir call sites discovered: {sorted(unexpected)}. If this "
-            "is a legitimate new agy call site, add it to _EXPECTED_ADD_DIR_CALL_SITES. "
-            "If these are paths outside the repo's own tree, the sweep root drifted — "
-            f"REPO_ROOT_DIR is {REPO_ROOT_DIR}."
+            f"undeclared --add-dir call sites: {sorted(unexpected)}. A new agy call site "
+            "needs an entry in _EXPECTED_ADD_DIR_CALL_SITES AND a runtime case in "
+            "_RUNTIME_CASES — a call site with no runtime test has no absoluteness "
+            "guarantee at all."
         )
-        for path in discovered:
-            self._assert_absolute(path)
+
+
+# --------------------------------------------------------------------------- #
+# Runtime --add-dir contract (authoritative)
+# --------------------------------------------------------------------------- #
+
+CONSULT_SH = PLUGINS_DIR / "3rd-tools/skills/agy-consult/scripts/consult.sh"
+RUN_SH = PLUGINS_DIR / "3rd-tools/skills/agy-review/scripts/run.sh"
+
+# script -> positional args it needs. Every entry in _EXPECTED_ADD_DIR_CALL_SITES must
+# appear here (AGYS-DT-013 asserts it), so a new agy call site cannot ship untested.
+_RUNTIME_CASES: dict[str, tuple[Path, list[str]]] = {
+    "plugins/3rd-tools/skills/agy-consult/scripts/consult.sh": (CONSULT_SH, []),
+    "plugins/3rd-tools/skills/agy-review/scripts/run.sh": (RUN_SH, ["review", "main", ""]),
+    "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh": (STAGE1, []),
+    "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh": (STAGE2, []),
+    "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r2.sh": (R2, []),
+}
+
+
+def _extract_add_dir(argv: list[str]) -> str | None:
+    """The `--add-dir` value from a recorded argv, honouring both agy spellings."""
+    for i, token in enumerate(argv):
+        if token == "--add-dir":
+            return argv[i + 1] if i + 1 < len(argv) else None
+        if token.startswith("--add-dir="):
+            return token.split("=", 1)[1]
+    return None
+
+
+@pytest.fixture
+def agy_runtime_env(tmp_path: Path) -> dict[str, object]:
+    """A throwaway repo seeded for **every** agy script, with an argv-recording stub agy.
+
+    Deliberately one fixture for all five: the scripts differ only in which input files
+    they demand, and seeding all of them keeps the per-script recipe to "arguments plus
+    cwd" instead of five near-identical fixtures that drift apart.
+    """
+    if shutil.which("git") is None or shutil.which("bash") is None:
+        pytest.skip("git/bash not available")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    (repo / "seed.txt").write_text("seed\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "seed")
+    # A second commit so run.sh's `git diff HEAD~1` fallback yields a non-empty diff.
+    (repo / "seed.txt").write_text("seed\nmore\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "second")
+
+    review = repo / ".pr-review"
+    review.mkdir()
+    (review / "prompt-r1.md").write_text("REVIEW PROMPT MARKER\n", encoding="utf-8")
+    (review / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (review / "changed-files.txt").write_text("seed.txt\n", encoding="utf-8")
+    (review / "gemini-r1-raw.md").write_text("## Verdict\nLGTM seed.txt\n", encoding="utf-8")
+    (review / "prompt-r2.md").write_text("R2 PROMPT\n", encoding="utf-8")
+    (review / "r1-aggregate.md").write_text("## Claude\nnothing\n", encoding="utf-8")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_agy = bin_dir / "agy"
+    fake_agy.write_text(_FAKE_AGY, encoding="utf-8")
+    fake_agy.chmod(0o755)
+
+    # stage2 resolves its extract prompt through `~`, which follows HOME.
+    home = tmp_path / "home"
+    prompts = home / ".agents/skills/pr-cycle-deep/prompts"
+    prompts.mkdir(parents=True)
+    (prompts / "extract-r1.md").write_text("EXTRACT PROMPT\n", encoding="utf-8")
+
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    (job_dir / "agy-consult-question.txt").write_text("測試問題\n", encoding="utf-8")
+
+    argv_capture = tmp_path / "agy_argv.txt"
+    out_file = tmp_path / "agy_out.md"
+    out_file.write_text(GOOD_REVIEW, encoding="utf-8")
+
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "HOME": str(home),
+        "CLAUDE_JOB_DIR": str(job_dir),
+        "AGY_FAKE_ARGV": str(argv_capture),
+        "AGY_FAKE_OUTPUT": str(out_file),
+    }
+    return {"repo": repo, "env": env, "argv_capture": argv_capture}
+
+
+class TestAddDirRuntimeContract:
+    """The authoritative `--add-dir` check: what bash actually passed to agy."""
+
+    @pytest.mark.parametrize("rel_path", sorted(_RUNTIME_CASES))
+    def test_agys_dt_012_add_dir_absolute_at_runtime(
+        self, rel_path: str, agy_runtime_env: dict[str, object]
+    ) -> None:
+        """AGYS-DT-012: every script passes agy an absolute `--add-dir` when executed.
+
+        The script's own exit code is deliberately NOT asserted: several stages run
+        `agy_validate.py` on the stub's canned output afterwards and may legitimately fail
+        there. What matters is the argv agy received, which is recorded before any of that.
+        """
+        script, args = _RUNTIME_CASES[rel_path]
+        argv_capture = Path(str(agy_runtime_env["argv_capture"]))
+        if argv_capture.exists():
+            argv_capture.unlink()
+
+        result = subprocess.run(  # nosec B603
+            ["bash", str(script), *args],
+            cwd=str(agy_runtime_env["repo"]),
+            env=agy_runtime_env["env"],  # type: ignore[arg-type]
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert argv_capture.exists(), (
+            f"{script.name} never invoked agy (stdout={result.stdout!r} "
+            f"stderr={result.stderr!r}). The runtime contract cannot be checked; fix the "
+            "fixture's preconditions rather than deleting this assertion."
+        )
+        argv = argv_capture.read_text(encoding="utf-8").splitlines()
+        value = _extract_add_dir(argv)
+        assert value is not None, (
+            f"{script.name} invoked agy without --add-dir. agy 1.1.22 then runs with NO "
+            f"file context and still exits 0. argv={argv!r}"
+        )
+        assert Path(value).is_absolute(), (
+            f"{script.name} passed agy a RELATIVE --add-dir ({value!r}). agy 1.1.22 does "
+            "not resolve a relative path into an active workspace: it silently loses all "
+            "file context and still exits 0."
+        )
+
+    def test_agys_dt_013_runtime_covers_every_call_site(self) -> None:
+        """AGYS-DT-013: every declared call site has a runtime case, and vice versa.
+
+        Without this, adding a call site to `_EXPECTED_ADD_DIR_CALL_SITES` would satisfy
+        the inventory gate while leaving the new script with no absoluteness guarantee at
+        all — the static layer makes no such claim by design.
+        """
+        untested = sorted(_EXPECTED_ADD_DIR_CALL_SITES - set(_RUNTIME_CASES))
+        undeclared = sorted(set(_RUNTIME_CASES) - _EXPECTED_ADD_DIR_CALL_SITES)
+        assert not untested and not undeclared, (
+            "every --add-dir call site must have a runtime case: "
+            f"declared but untested at runtime = {untested}; "
+            f"runtime case for an undeclared site = {undeclared}"
+        )
 
 
 # --------------------------------------------------------------------------- #
