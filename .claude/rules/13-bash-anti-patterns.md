@@ -1265,10 +1265,109 @@ agy -p "@.pr-review/input.md" --add-dir . --sandbox
 { printf '%s\n' "$PROMPT_AND_DIFF"; } | agy --print --add-dir . --sandbox
 agy --print --add-dir . --sandbox < "$WT_ROOT/.pr-review/input.md"
 
-# Fix: inline the whole prompt as -p's value; agy reads no file, so there is no agentic trigger
-cd "$WT_ROOT"
+# Also wrong (agy 1.1.22): this passes --add-dir a RELATIVE path. agy no longer resolves `.`
+# into an active workspace, so it runs with NO file context at all -- and still exits 0.
+# (Phrasing matters here: the line above says `-p` "takes the prompt AS ITS VALUE", a true
+# statement about that flag. Read in parallel, "--add-dir takes a relative path" would say the
+# flag wants one. It does not -- the CALL SITE is what is wrong.) See below.
 agy -p "$PROMPT_AND_DIFF" --add-dir . --sandbox
+
+# Fix: inline the whole prompt as -p's value (no agentic trigger) AND pass --add-dir an
+# ABSOLUTE path (real file context). Both halves are required; either one alone still fails.
+cd "$WT_ROOT"
+agy -p "$PROMPT_AND_DIFF" --add-dir "$WT_ROOT" --sandbox
 ```
+
+**`--add-dir` must be an absolute path — a relative `.` silently yields zero file context**
+(verified on **agy 1.1.22**). agy no longer resolves a relative `--add-dir` into an active
+workspace, *even when the caller has already `cd`-ed into that directory*. The failure shape is
+the worst available: agy **exits 0** and returns a fully-formed answer produced without reading
+anything — either a ~141-byte "there is no active workspace" refusal, or (observed) a fabricated
+number *after* stating it has no workspace. So neither an exit-code gate nor a
+minimum-output-length guard can catch it, and for a review script it means shipping a review
+whose author never saw the code.
+
+Do **not** "fix" this by adding a refusal-phrase grep: that is the success-banner anti-pattern
+from earlier in this file, one layer over. Here it is worse than fragile — the exit code carries
+no verdict at all, so a phrase match is the *only* signal, and it breaks on the next rewording.
+Pass the absolute path and remove the failure mode instead. `pr-cycle-deep`'s
+`test_agy_scripts.py` pins the invariant — and **how** it pins it is the transferable lesson:
+
+- **`AGYS-DT-012` (authoritative) runs each script against a stub `agy` that records its argv**
+  NUL-delimited, then asserts `Path(value).is_absolute()` on every recorded invocation.
+  `AGYS-DT-013` asserts every declared call site has such a case **and** that each entry's key
+  names the script it actually runs — matching key sets alone would let a copy-pasted path leave
+  one script unchecked while both tests stayed green.
+- **`AGYS-DT-011` is inventory only.** It sweeps `git ls-files -- '*.sh'` and asserts the set of
+  files that appear to *invoke agy* equals a declared set. It makes **no** absoluteness claim;
+  its job is to fail when a new call site appears so that site gets a runtime case. Keying on the
+  invocation rather than on `--add-dir` is deliberate: a new script that calls agy and omits the
+  flag entirely is the worst case, and a flag-keyed inventory would never see it. Discovery goes
+  through git rather than a filesystem walk so an untracked scratch checkout cannot make the
+  verdict machine-dependent — at the documented cost that a brand-new script is invisible until
+  `git add`, the same trade-off as CLAUDE.md's "`git add` first, then `make ci`".
+- **Not covered**: a `--add-dir` inside a SKILL.md bash fence — a live execution path here (see
+  the CLAUDE.md gotcha on the agent rewriting a slash-command bash block). Scanning `*.md` would
+  also match the deliberate "Wrong:" examples in this very file, so separating live commands from
+  counter-examples belongs in `scripts/lint_skill_bash.py`. Tracked as **issue #410**; when that
+  lands, this bullet is part of the change — a "Not covered" note that outlives the gap is the
+  same stale-claim defect this section's probe-rot note warns about.
+
+**Why not just parse the scripts.** The first version of this guard did exactly that: a
+quote-state scanner plus regexes deciding whether a `"$VAR"` came from an
+"absoluteness-guaranteeing" source. It replaced three known evasions and introduced four that let
+a **relative** `--add-dir` execute while the test stayed green:
+
+| Evasion | Why the text scanner missed it |
+|---|---|
+| `echo \# ; agy --add-dir .` | `\#` outside double quotes was not treated as escaped, so the line was cut as a comment |
+| heredoc body containing `--add-dir "$ABS"` | heredoc text was scanned as executable, supplying an acceptable token — so a call site with **no** flag at all passed |
+| `X="$RELATIVE/sub"` then `--add-dir "$X"` | the composition regex never checked the base variable |
+| `X=$(git rev-parse --show-toplevel); X=.` | the assignment search ignored order and later reassignment |
+
+Plus one contract-form deviation it accepted without executing anything relative: an unquoted
+`--add-dir $VAR`. (The heredoc row is worth reading twice — it is not "a relative path slipped
+through" but "the check was satisfied by text that was never an argument at all".)
+
+Two independent frontier-model reviewers found these on the same round. The generalizable point
+is not "write a better scanner": **absoluteness is a runtime property of an argument, and no
+amount of matching on source text decides it.** A static check over shell can honestly answer
+"does this file appear to invoke the tool" (inventory); asking it to answer "is the value correct"
+invites an unbounded sequence of parser patches.
+
+**And the replacement had to earn the same scrutiny.** The first runtime version recorded argv
+with `printf '%s\n' "$@"` and decoded it with `splitlines()` — lossy, because every one of these
+scripts passes the whole review prompt (**including the diff**) as one `-p` argument, ahead of
+`--add-dir`. A diff line reading `--add-dir` followed by a line holding an absolute path decoded
+as the flag and its value, so the check read PR-controlled content and returned a false PASS on a
+script genuinely passing `--add-dir .`. The fix is the delimiter, not the parser: `printf '%s\0'`
+and split on NUL, the one byte that cannot appear inside an argv element. The lesson generalises
+past this file — **when a test reconstructs a data structure from a serialized form, the encoding
+has to be lossless before any assertion on it means anything**, and "it looked right in the
+fixture" is not that proof: the corruption was already present in the benign fixture (12 decoded
+entries for 8 real arguments) and merely had not yet aligned into a false PASS.
+
+(Source: PR #409 — both the static version's evasions and the runtime version's encoding bug are
+recorded here because both shapes will be tempting the next time a shell invariant needs pinning.)
+
+**`trustedWorkspaces` is not the cause, despite looking exactly like it.** When the refusal
+mentions workspaces or "scratch directory", the obvious suspect is
+`~/.gemini/antigravity-cli/settings.json`'s `trustedWorkspaces` not listing the repo — and acting
+on that guess means widening a security boundary for nothing. A negative control settles it
+(agy 1.1.22, same question, same model, same flags, varying only `--add-dir`):
+
+| repo | in `trustedWorkspaces`? | `--add-dir` | result |
+|------|------------------------|-------------|--------|
+| yibi-stack | yes | `.` | `CANNOT_READ` — "no active workspace" |
+| yibi-stack | yes | absolute | correct answer |
+| openab-workspace | **no** | absolute | correct answer |
+
+A trusted repo fails on `.`; an untrusted repo succeeds on an absolute path. The trust list moves
+nothing; the path form moves everything. This is the general lesson of rule 15's
+`verify-probe-needs-negative-control` family: one observation of "it failed here" is equally
+compatible with "the trust list gates it" and "it fails everywhere", and only the control tells
+them apart. (Source: yibi-stack `/investigate` on a failed `/agy-consult` call, agy 1.1.22 — the
+reported root cause was `trustedWorkspaces`, and the control falsified it.)
 
 **`-p` / `--print` is NOT boolean and agy has no stdin prompt channel** (verified on **agy
 1.1.2**: `printf 'x' | agy --print` exits with `flag needs an argument: -print`; `--prompt` being
@@ -1283,6 +1382,15 @@ it. The leading-`@` trap is handled by prepending guard text, so the content nev
 > version, not a permanent fact — stamp the tool version next to it (as above), and re-run the
 > probe before trusting an old one after a CLI upgrade. See rule 11's verify-before-authoring
 > family. (Source: PR #156/#157 original migration; falsified and corrected in PR #229 retro.)
+>
+> **Second instance on the same tool, same mechanism.** The `--add-dir` finding above was found
+> the same way: **four of the five** agy scripts carried comments stamped "agy 1.1.2 / 1.1.8 /
+> 1.1.12 實測" (the fifth, `agy-r1-stage2.sh`, carried no version stamp at all — equally a
+> probe-rot signal, since an unstamped claim cannot be re-checked either)
+> while the installed binary was **1.1.22**, and `--add-dir .` had stopped working somewhere in
+> between with no error. The pattern to internalise is not "agy is flaky" but **a version-stamped
+> probe expires**: when an agy script misbehaves, first compare `agy --version` against the
+> versions its comments claim, and re-run the probe before debugging anything else.
 
 ## Quoting Rule 6: Python Comment with `"` Truncates Outer Shell Double-Quote (PR #23)
 

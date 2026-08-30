@@ -15,7 +15,7 @@
 #   - gemini-r1-raw.md 寫到 $WT_ROOT/.pr-review/
 #   - stderr log 寫到 $WT_ROOT/.pr-review/gemini-r1.stage1.log
 #   - 暫存 gemini-r1-input.md（完成後自動刪除）
-#   - CWD 切換到 $WT_ROOT（--add-dir . 以 WT_ROOT 為 context 基準）
+#   - CWD 切換到 $WT_ROOT（--add-dir 傳的是 "$WT_ROOT" 絕對路徑，不是相對的 `.`）
 #
 # 注意：使用 --dangerously-skip-permissions 而非 --sandbox（--sandbox 會 auto-deny review 探索
 # 周邊程式碼用的 command 工具，見下方 <!-- verified --> 機制註解；--add-dir 的檔案讀取本身在
@@ -77,7 +77,10 @@ if ! cat "$REVIEW_DIR/prompt-r1.md" "$REVIEW_DIR/diff.patch" > "$REVIEW_DIR/gemi
     exit 1
 fi
 
-# cd 到 worktree root：--add-dir . 以 WT_ROOT 為周邊程式碼 context 基準。
+# cd 到 worktree root：本檔在 cd 之後的 `git status --porcelain`（PRE_TREE／POST_TREE 越界
+# 編輯偵測）沒有帶 -C，需要 cwd 落在 worktree 內才會量到正確的樹。產物路徑則不依賴它——
+# $REVIEW_DIR 等全是絕對路徑。
+# 此 cd 亦**不再**是 agy context 的來源：--add-dir 傳的是 "$WT_ROOT" 絕對路徑（見下方註解）。
 cd "$WT_ROOT"
 
 # 防越界編輯（PR #194 retro）：agy 以權限繞過旗標執行，具 worktree 寫入權；review 階段
@@ -104,7 +107,15 @@ INPUT_CONTENT="$REVIEW_ONLY_GUARD
 
 $(cat "$REVIEW_DIR/gemini-r1-input.md")"
 
-if ! agy -p "$INPUT_CONTENT" --model 'Gemini 3.1 Pro (Low)' --add-dir . --dangerously-skip-permissions --print-timeout 10m \
+# --add-dir 傳 "$WT_ROOT" 絕對路徑，不可傳相對的 `.`（agy 1.1.22 實測，完整負向對照記錄見
+# 3rd-tools/skills/agy-consult/scripts/consult.sh）：agy 1.1.22 不再把相對路徑解析成 active
+# workspace，即使上方已 cd "$WT_ROOT"、且該路徑在 trustedWorkspaces 清單內。失敗時 agy exit 0
+# 並回一段語意完整、但完全沒讀到周邊程式碼的文字——對 review 就是「看起來有 review、實際沒看
+# 過 code」，且下游 agy_validate.py 只驗結構不驗 context，攔不到。
+# 注意：上述實測是在 --sandbox 下做的（--dangerously-skip-permissions 被 Claude Code 的 auto
+# mode classifier 擋下無法實跑）。鑑別變數是路徑解析、與權限旗標無關，故本檔同受影響為「依同
+# 一鑑別變數推論」，非本檔自身實測；日後有機會實跑請把結論回填到這裡。
+if ! agy -p "$INPUT_CONTENT" --model 'Gemini 3.1 Pro (Low)' --add-dir "$WT_ROOT" --dangerously-skip-permissions --print-timeout 10m \
     > "$REVIEW_DIR/gemini-r1-raw.md" \
     2>"$REVIEW_DIR/gemini-r1.stage1.log"; then
     echo "[FAIL] agy review 失敗，請查看 $REVIEW_DIR/gemini-r1.stage1.log" >&2

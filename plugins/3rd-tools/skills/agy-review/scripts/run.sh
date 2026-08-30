@@ -80,7 +80,13 @@ fi
 # if 條件本身會豁免 set -e（`if`/`while`/`until` 條件、或 `&&`/`||` 前的指令不受 set -e 管），
 # 這裡刻意用 if 包住賦值：agy 非零結束時若直接寫 `OUTPUT=$(...); AGY_EXIT=$?`，set -e 會在
 # 賦值那行就中止 script，下面這行 AGY_EXIT=$? 永遠執行不到，[FAIL] 診斷訊息變死碼（實測驗證）。
-if OUTPUT=$(agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir . --sandbox); then
+# --add-dir 必須傳絕對路徑，不可傳相對的 `.`（agy 1.1.22 實測，見 agy-consult/scripts/consult.sh
+# 的完整負向對照記錄）：agy 1.1.22 不再把相對路徑解析成 active workspace，即使已 cd 到該目錄、
+# 且該目錄就在 trustedWorkspaces 清單內。失敗時 agy exit 0 並回一段語意完整但沒讀到任何檔案的
+# 文字，下方 exit-code gate 與 20 字元下限都攔不住——對 review 而言等於產出一份沒看過程式碼的
+# review 卻看起來正常，是本檔最不該靜默失敗的地方。
+echo "[INFO] agy 模型：${AGY_MODEL}（可用 AGY_MODEL 環境變數覆寫）" >&2
+if OUTPUT=$(agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --sandbox); then
     AGY_EXIT=0
 else
     AGY_EXIT=$?

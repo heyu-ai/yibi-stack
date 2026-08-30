@@ -70,7 +70,18 @@ fi
 # if 條件本身會豁免 set -e（`if`/`while`/`until` 條件、或 `&&`/`||` 前的指令不受 set -e 管），
 # 這裡刻意用 if 包住賦值：agy 非零結束時若直接寫 `OUTPUT=$(...); AGY_EXIT=$?`，set -e 會在
 # 賦值那行就中止 script，下面這行 AGY_EXIT=$? 永遠執行不到，[FAIL] 診斷訊息變死碼（實測驗證）。
-if OUTPUT=$(agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir . --sandbox); then
+# --add-dir 必須傳絕對路徑，不可傳相對的 `.`（agy 1.1.22 實測）：agy 1.1.22 不再把相對路徑
+# 解析成 active workspace，即使呼叫端已經 cd 到該目錄、且該目錄就在 trustedWorkspaces 清單內。
+# 失敗形狀是最惡劣的一種——agy exit 0，回一段 141B 的合理拒答（「目前沒有作用中的 workspace」），
+# 或更糟：先聲明沒有 workspace 再給出一個幻覺數字。下面的 exit-code gate 與 20 字元下限都攔不住，
+# 於是整份無 context 的回答會被原樣當成諮詢結果呈現。
+# 實測（負向對照，agy 1.1.22）：同一個問題、同一個模型、同一組 flag，只變動 --add-dir 形式——
+#   --add-dir .                 -> CANNOT_READ「沒有作用中的 workspace」（yibi-stack，在 trust 清單內）
+#   --add-dir <絕對路徑>         -> 正確答出檔案行數（同一個 yibi-stack）
+#   --add-dir <絕對路徑>         -> 正確答出檔案行數（openab-workspace，不在 trust 清單內）
+# 故 trustedWorkspaces 與此失敗無關，唯一的鑑別變數是路徑形式。
+echo "[INFO] agy 模型：${AGY_MODEL}（可用 AGY_MODEL 環境變數覆寫）" >&2
+if OUTPUT=$(agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --sandbox); then
     AGY_EXIT=0
 else
     AGY_EXIT=$?
@@ -79,6 +90,11 @@ if [ "$AGY_EXIT" -ne 0 ]; then
     echo "[FAIL] agy 執行失敗（exit ${AGY_EXIT}）" >&2
     exit "$AGY_EXIT"
 fi
+# 這道守門只攔得住「空輸出／極短輸出」這一種形狀，攔不住 agy 帶著完整句子的無 context 回答
+# （上方註解的 141B 拒答就是實例，遠超 20 字元）。刻意不補「拒答關鍵字偵測」：那等同 rule 13
+# 的 success-banner grep 反模式——措辭會隨版本改，而 exit code 在此完全不帶判決資訊，靠字串比對
+# 只會生出另一個假綠。真正的防線是上方的絕對路徑修法（消除成因），這裡保留的是殘餘風險記錄：
+# 若日後又看到「語意完整但明顯沒讀到檔案」的回答，先驗 --add-dir 的解析行為，不要改這個門檻。
 if [ -z "$OUTPUT" ] || [ "${#OUTPUT}" -lt 20 ]; then
     echo "[FAIL] agy 回傳空白或極短輸出（${#OUTPUT} 字元）。常見原因：--sandbox 底下 agy 想探索周邊檔案時被自己的權限系統擋下（見 ~/.gemini/antigravity-cli/settings.json permissions.allow），headless 模式無法跳出確認框。請簡化問題避免需要額外讀檔，或改用 /agy-review（若有 diff 可看）。" >&2
     exit 1
