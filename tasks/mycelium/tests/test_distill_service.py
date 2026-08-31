@@ -496,3 +496,77 @@ class TestCandidateShape:
         assert "rule_draft" not in data
         assert "target_file" not in data
         assert "patch_surface" not in data
+
+
+class TestSupersededExclusion:
+    """harvest() 排除 superseded lessons。"""
+
+    def test_superseded_excluded(self, tmp_path: Path) -> None:
+        """被 supersede 的 lesson 不計入 cluster。"""
+        db = _make_db(tmp_path)
+        id_a = _insert(
+            db,
+            key="sup-a",
+            insight="Superseded lesson A for test",
+            confidence=8,
+            ltype=LessonType.pattern,
+            retro_pr=200,
+            age_days=5.0,
+        )
+        _insert(
+            db,
+            key="sup-b",
+            insight="Normal lesson B for supersede test",
+            confidence=8,
+            ltype=LessonType.pattern,
+            retro_pr=201,
+            age_days=4.0,
+        )
+        _insert(
+            db,
+            key="sup-c",
+            insight="Normal lesson C for supersede test",
+            confidence=8,
+            ltype=LessonType.pattern,
+            retro_pr=202,
+            age_days=3.0,
+        )
+        db.supersede_lesson(id_a, "correction-id")
+        db.close()
+
+        result = harvest(since="90d", db_path=str(tmp_path / "test.db"), now=NOW)
+        harvested_ids = [r["id"] for r in result.lessons]
+        assert id_a not in harvested_ids
+        assert len(result.lessons) == 2
+
+    def test_invalid_supersede_warning(self, tmp_path: Path, capsys: object) -> None:
+        """superseded_by 指向不存在 ID 時 log warning 但不 crash。"""
+        import io
+        import sys
+
+        db = _make_db(tmp_path)
+        id_a = _insert(
+            db,
+            key="warn-a",
+            insight="Lesson with invalid supersede target for test",
+            confidence=8,
+            ltype=LessonType.pattern,
+            retro_pr=300,
+            age_days=5.0,
+        )
+        db.conn.execute(
+            "UPDATE lessons SET superseded_by = ? WHERE id = ?", ("nonexistent-id", id_a)
+        )
+        db.conn.commit()
+        db.close()
+
+        captured = io.StringIO()
+        old_stderr = sys.stderr
+        sys.stderr = captured
+        try:
+            result = harvest(since="90d", db_path=str(tmp_path / "test.db"), now=NOW)
+        finally:
+            sys.stderr = old_stderr
+
+        assert id_a not in [r["id"] for r in result.lessons]
+        assert "nonexistent-id" in captured.getvalue()

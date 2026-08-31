@@ -87,7 +87,7 @@ class TestEpistemicStatusDB:
         self.db.conn.commit()
         row = self.db.get_lesson(lesson.id)
         assert row is not None
-        assert row["epistemic_status"] is None
+        assert row["epistemic_status"] == "episode"
 
 
 class TestEpistemicStatusIndependentOfTier:

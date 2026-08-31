@@ -157,7 +157,7 @@ def harvest(
 
                 print(
                     f"[WARN] lesson id={row.get('id', '?')} superseded_by={sup} "
-                    "指向不存在的 ID，排除此 lesson",
+                    "指向不在本次掃描範圍內的 ID，排除此 lesson",
                     file=sys.stderr,
                 )
             continue

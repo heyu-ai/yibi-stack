@@ -631,16 +631,24 @@ harness 改動當場寫檔＋開 PR，而是排進常設佇列 issue、每週由
    gh issue list --label harness-queue --state open --json number,title
    ```
 
-   若找到恰好 1 筆佇列 issue，使用者可自行用以下模板追加 comment：
+   若找到恰好 1 筆佇列 issue（假設編號為 N），使用者可自行操作：
 
-     ```markdown
-     ### [queue] <一句摘要>
-     - type: rule-prose | gate-script | claude-md | skill | memory | other
-     - 來源：PR #<n> retro / lesson key `<slug>`
-     - 建議落點：`<檔案路徑>`
-     - 建議 patch-surface：description | workflow-gate | reference-rule | script-helper
-     - 草稿：<1-3 句的改動內容草稿>
-     ```
+   1. 把以下模板存成暫存檔（替換 `<>` 佔位符）：
+
+      ```markdown
+      ### [queue] <一句摘要>
+      - type: rule-prose | gate-script | claude-md | skill | memory | other
+      - 來源：PR #<n> retro / lesson key `<slug>`
+      - 建議落點：`<檔案路徑>`
+      - 建議 patch-surface：description | workflow-gate | reference-rule | script-helper
+      - 草稿：<1-3 句的改動內容草稿>
+      ```
+
+   2. 發布到 queue issue：
+
+      ```bash
+      gh issue comment <N> --body-file <暫存檔路徑>
+      ```
 
    Agent 的職責到顯示上述提示為止。
 

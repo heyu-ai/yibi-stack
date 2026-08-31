@@ -917,7 +917,7 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
             conditions.append("trusted = 1")
 
         if epistemic_status:
-            conditions.append("epistemic_status = ?")
+            conditions.append("COALESCE(epistemic_status, 'episode') = ?")
             params.append(epistemic_status)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
@@ -991,7 +991,7 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
             conditions.append("trusted = 1")
 
         if epistemic_status:
-            conditions.append("epistemic_status = ?")
+            conditions.append("COALESCE(epistemic_status, 'episode') = ?")
             params.append(epistemic_status)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
@@ -1132,12 +1132,13 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
     def supersede_lesson(self, old_id: str, new_id: str) -> dict[str, Any] | None:
         """設定舊 lesson 的 superseded_by 為 new_id（append-only 修正）。
 
-        只更新尚未 retire 的 lesson；rowcount != 1 時回傳 None。
+        不限 retire 狀態——已退休的 lesson 也可能有事實需要修正。
+        已有 superseded_by 的 lesson 拒絕覆寫，回傳 None。
         原 lesson 的 insight 等內容不變。
         """
         with self.conn:
             updated_rows = self.conn.execute(
-                "UPDATE lessons SET superseded_by = ? WHERE id = ? AND retired_at IS NULL",
+                "UPDATE lessons SET superseded_by = ? WHERE id = ? AND superseded_by IS NULL",
                 (new_id, old_id),
             ).rowcount
         if updated_rows != 1:
@@ -1393,6 +1394,8 @@ def _decode_lesson_row(row: sqlite3.Row) -> dict[str, Any]:
                 )
                 out[col] = []
     out["trusted"] = bool(out.get("trusted", 0))
+    if out.get("epistemic_status") is None:
+        out["epistemic_status"] = "episode"
     return out
 
 
