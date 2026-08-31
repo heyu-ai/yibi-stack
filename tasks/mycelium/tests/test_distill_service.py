@@ -441,3 +441,58 @@ class TestRunDistill:
         )
         # 損壞 watermark -> 視為首跑 -> candidate 正常浮現（而非被當成已處理而靜默歸零）
         assert report.candidate_count == 1
+
+
+class TestCandidateShape:
+    """SkillCandidate 輸出包含 observation/evidence_ids/distinct_pr_count/recurrence_span_days。"""
+
+    def _seed_candidate(self, db: AgentsDB) -> list[str]:
+        ids = []
+        for i, pr in enumerate([100, 105, 110]):
+            ids.append(
+                _insert(
+                    db,
+                    key=f"obs-key-{i}",
+                    insight=f"Observation insight number {i} for testing candidate shape",
+                    confidence=8,
+                    ltype=LessonType.pattern,
+                    retro_pr=pr,
+                    age_days=float(14 - i * 5),
+                )
+            )
+        return ids
+
+    def test_candidate_shape(self, tmp_path: Path) -> None:
+        """candidate 含 observation/evidence_ids/distinct_pr_count/recurrence_span_days。"""
+        db = _make_db(tmp_path)
+        self._seed_candidate(db)
+        db.close()
+
+        report = run_distill(
+            since="90d",
+            db_path=str(tmp_path / "test.db"),
+            out_path=str(tmp_path / "d.json"),
+            now=NOW,
+        )
+        assert report.candidate_count >= 1
+        candidate = report.candidates[0]
+        data = candidate.model_dump()
+
+        assert "observation" in data
+        assert isinstance(data["observation"], str)
+        assert len(data["observation"]) > 0
+
+        assert "evidence_ids" in data
+        assert isinstance(data["evidence_ids"], list)
+        assert len(data["evidence_ids"]) >= 3
+
+        assert "distinct_pr_count" in data
+        assert isinstance(data["distinct_pr_count"], int)
+        assert data["distinct_pr_count"] >= 2
+
+        assert "recurrence_span_days" in data
+        assert isinstance(data["recurrence_span_days"], int)
+
+        assert "rule_draft" not in data
+        assert "target_file" not in data
+        assert "patch_surface" not in data

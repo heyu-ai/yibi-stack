@@ -219,6 +219,7 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
             "ALTER TABLE lessons ADD COLUMN retired_at TEXT",
             "ALTER TABLE lessons ADD COLUMN retired_reason TEXT",
             "ALTER TABLE lessons ADD COLUMN superseded_by TEXT",
+            "ALTER TABLE lessons ADD COLUMN epistemic_status TEXT DEFAULT 'episode'",
         ):
             try:
                 self.conn.execute(_alter)
@@ -300,7 +301,8 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
               archived_path   TEXT,
               retired_at      TEXT,
               retired_reason  TEXT,
-              superseded_by   TEXT
+              superseded_by   TEXT,
+              epistemic_status TEXT DEFAULT 'episode'
             );
 
             CREATE INDEX IF NOT EXISTS idx_lessons_proj_ts
@@ -631,8 +633,9 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
               id, ts, project, skill, type, key, insight, confidence,
               source, trusted, files, handover_id, retrospective_id, retro_pr,
               device, agent_type,
-              source_bot, tags, tier, last_accessed_at, access_count, archived_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              source_bot, tags, tier, last_accessed_at, access_count, archived_path,
+              epistemic_status, superseded_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.id,
@@ -657,6 +660,8 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
                 record.last_accessed_at,
                 record.access_count,
                 record.archived_path,
+                record.epistemic_status,
+                record.superseded_by,
             ),
         )
 
@@ -860,7 +865,7 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
             self.conn.rollback()
             raise
 
-    def query_lessons_typed(
+    def query_lessons_typed(  # pylint: disable=too-many-arguments
         self,
         project: str | None = None,
         lesson_type: str | None = None,
@@ -871,9 +876,11 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         limit: int = 20,
         include_retired: bool = False,
         include_parked: bool = False,
+        epistemic_status: str | None = None,
     ) -> list[dict[str, Any]]:
-        """查詢 typed lessons table，支援 type / source / confidence / trusted 過濾。
+        """查詢 typed lessons table。
 
+        支援 type / source / confidence / trusted / epistemic_status 過濾。
         cross_project=True 時忽略 project 限制，但只回傳 trusted=True 的記錄。
         include_retired=False（預設）時排除已 retire；include_parked=False 排除 parked。
         """
@@ -909,6 +916,10 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         if trusted_only:
             conditions.append("trusted = 1")
 
+        if epistemic_status:
+            conditions.append("epistemic_status = ?")
+            params.append(epistemic_status)
+
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
         sql = f"SELECT * FROM lessons {where} ORDER BY ts DESC LIMIT ?"  # nosec B608
         params.append(limit)
@@ -916,7 +927,7 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         cur = self.conn.execute(sql, params)
         return [_decode_lesson_row(row) for row in cur.fetchall()]
 
-    def search_lessons_typed(
+    def search_lessons_typed(  # pylint: disable=too-many-arguments
         self,
         query: str,
         project: str | None = None,
@@ -928,12 +939,14 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         limit: int = 20,
         include_retired: bool = False,
         include_parked: bool = False,
+        epistemic_status: str | None = None,
     ) -> list[dict[str, Any]]:
         """在 typed lessons 的 key、insight、files 欄位做 case-insensitive 搜尋。
 
         lesson_type、source、min_confidence、trusted_only、cross_project 等 filter
         全部在 SQL WHERE 子句套用，不在 Python 層後處理。
         include_retired=False（預設）時排除已 retire；include_parked=False 排除 parked。
+        epistemic_status 過濾 episode/observation/corroborated/contradicted。
         """
         if limit <= 0:
             raise ValueError("limit 必須為正整數")
@@ -976,6 +989,10 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
 
         if trusted_only:
             conditions.append("trusted = 1")
+
+        if epistemic_status:
+            conditions.append("epistemic_status = ?")
+            params.append(epistemic_status)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""  # nosec B608
         sql = f"SELECT * FROM lessons {where} ORDER BY ts DESC LIMIT ?"  # nosec B608
@@ -1111,6 +1128,21 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         if updated_rows != 1:
             return None
         return self.get_lesson(lesson_id)
+
+    def supersede_lesson(self, old_id: str, new_id: str) -> dict[str, Any] | None:
+        """設定舊 lesson 的 superseded_by 為 new_id（append-only 修正）。
+
+        只更新尚未 retire 的 lesson；rowcount != 1 時回傳 None。
+        原 lesson 的 insight 等內容不變。
+        """
+        with self.conn:
+            updated_rows = self.conn.execute(
+                "UPDATE lessons SET superseded_by = ? WHERE id = ? AND retired_at IS NULL",
+                (new_id, old_id),
+            ).rowcount
+        if updated_rows != 1:
+            return None
+        return self.get_lesson(old_id)
 
     def insert_event(self, event: HandoverEvent) -> None:
         """寫入一筆 handover_event。"""

@@ -915,6 +915,13 @@ def lessons_add(  # pylint: disable=too-many-arguments
 )
 @click.option("--include-retired", is_flag=True, help="同時顯示已 retire 的教訓（預設排除）")
 @click.option("--include-parked", is_flag=True, help="同時顯示 parked 教訓（預設排除）")
+@click.option(
+    "--status",
+    "epistemic_status",
+    default=None,
+    type=click.Choice(["episode", "observation", "corroborated", "contradicted"]),
+    help="只顯示指定認知成熟度的教訓",
+)
 @click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
 def lessons_show(  # pylint: disable=too-many-arguments
     project: str | None,
@@ -928,6 +935,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
     include_legacy: bool,
     include_retired: bool,
     include_parked: bool,
+    epistemic_status: str | None,
     as_json: bool,
 ) -> None:
     """顯示 handover 教訓與試過的方案（可選合併 insight）。"""
@@ -942,6 +950,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
         or not include_legacy
         or include_retired
         or include_parked
+        or epistemic_status
     )
     if _use_typed:
         _insights_path = None
@@ -961,6 +970,7 @@ def lessons_show(  # pylint: disable=too-many-arguments
             limit=last,
             include_retired=include_retired,
             include_parked=include_parked,
+            epistemic_status=epistemic_status,
             db_path=_ctl_db_path(),
         )
         if as_json:
@@ -973,9 +983,10 @@ def lessons_show(  # pylint: disable=too-many-arguments
             click.echo("─" * 60)
             eff = r.get("effective_confidence", r.get("confidence", ""))
             retired_tag = " [RETIRED]" if r.get("retired_at") else ""
+            es_tag = f" [{r.get('epistemic_status', 'episode')}]"
             click.echo(
                 f"[{r.get('ts', '')[:10]}] [{r.get('type', '')}] "
-                f"{r.get('key', '')} (conf={eff}){retired_tag}"
+                f"{r.get('key', '')} (conf={eff}){es_tag}{retired_tag}"
             )
             if r.get("project"):
                 click.echo(f"  project = {r['project']}")
@@ -1029,6 +1040,13 @@ def lessons_show(  # pylint: disable=too-many-arguments
 )
 @click.option("--include-retired", is_flag=True, help="同時搜尋已 retire 的教訓（預設排除）")
 @click.option("--include-parked", is_flag=True, help="同時搜尋 parked 教訓（預設排除）")
+@click.option(
+    "--status",
+    "epistemic_status",
+    default=None,
+    type=click.Choice(["episode", "observation", "corroborated", "contradicted"]),
+    help="只搜尋指定認知成熟度的教訓",
+)
 @click.option("--json", "as_json", is_flag=True, help="輸出 JSON")
 def lessons_search(  # pylint: disable=too-many-arguments
     query: str,
@@ -1043,6 +1061,7 @@ def lessons_search(  # pylint: disable=too-many-arguments
     include_legacy: bool,
     include_retired: bool,
     include_parked: bool,
+    epistemic_status: str | None,
     as_json: bool,
 ) -> None:
     """在 handover 教訓、試過的方案（與可選 insight）中搜尋關鍵字。"""
@@ -1057,6 +1076,7 @@ def lessons_search(  # pylint: disable=too-many-arguments
         or not include_legacy
         or include_retired
         or include_parked
+        or epistemic_status
     )
     if _use_typed:
         _insights_path = None
@@ -1077,6 +1097,7 @@ def lessons_search(  # pylint: disable=too-many-arguments
             limit=last,
             include_retired=include_retired,
             include_parked=include_parked,
+            epistemic_status=epistemic_status,
             db_path=_ctl_db_path(),
         )
         if as_json:
@@ -1089,9 +1110,10 @@ def lessons_search(  # pylint: disable=too-many-arguments
             click.echo("─" * 60)
             eff = r.get("effective_confidence", r.get("confidence", ""))
             retired_tag = " [RETIRED]" if r.get("retired_at") else ""
+            es_tag = f" [{r.get('epistemic_status', 'episode')}]"
             click.echo(
                 f"[{r.get('ts', '')[:10]}] [{r.get('type', '')}] "
-                f"{r.get('key', '')} (conf={eff}){retired_tag}"
+                f"{r.get('key', '')} (conf={eff}){es_tag}{retired_tag}"
             )
             if r.get("project"):
                 click.echo(f"  project = {r['project']}")
@@ -1235,6 +1257,34 @@ def lessons_finalize(lesson_id: str, confidence: int, source: str, insight: str 
 
     row = updated["lesson"]
     click.echo(f"id={updated['id']} status=active confidence={row.get('confidence')}")
+
+
+@lessons.command("supersede")
+@click.argument("old_id")
+@click.argument("new_id")
+def lessons_supersede(old_id: str, new_id: str) -> None:
+    """標記舊教訓被新教訓取代（append-only 修正，不覆寫原文）。
+
+    把 old_id 的 superseded_by 設為 new_id；原 lesson 的 insight 等內容不變。
+    被 supersede 的 lesson 會被 distill 排除在 cluster 聚合之外。
+    """
+    from .db import AgentsDB
+
+    db = AgentsDB(db_path=_ctl_db_path())
+    try:
+        db.init_db()
+        updated = db.supersede_lesson(old_id, new_id)
+    finally:
+        db.close()
+
+    if updated is None:
+        click.echo(f"錯誤：找不到 id={old_id} 或該 lesson 已 retired", err=True)
+        raise SystemExit(1)
+
+    click.echo(
+        f"id={updated['id']} superseded_by={updated.get('superseded_by')} "
+        f"insight={updated.get('insight', '')[:60]}"
+    )
 
 
 # ─── metrics ─────────────────────────────────────────────────────────────
