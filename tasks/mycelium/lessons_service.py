@@ -252,6 +252,7 @@ def show_lessons_typed(  # pylint: disable=too-many-arguments
     insights_path: str | Path | None = None,
     include_retired: bool = False,
     include_parked: bool = False,
+    epistemic_status: str | None = None,
 ) -> list[dict[str, Any]]:
     """查詢 typed lessons，可合併 legacy handovers.lessons_learned（include_legacy=True）。
 
@@ -274,6 +275,7 @@ def show_lessons_typed(  # pylint: disable=too-many-arguments
             limit=_SEARCH_INTERNAL_LIMIT,
             include_retired=include_retired,
             include_parked=include_parked,
+            epistemic_status=epistemic_status,
         )
     finally:
         db.close()
@@ -341,6 +343,7 @@ def search_lessons_typed(  # pylint: disable=too-many-arguments
     insights_path: str | Path | None = None,
     include_retired: bool = False,
     include_parked: bool = False,
+    epistemic_status: str | None = None,
 ) -> list[dict[str, Any]]:
     """在 typed lessons 中搜尋（含 legacy 合併，可套用 filter 和 dedup）。
 
@@ -362,6 +365,7 @@ def search_lessons_typed(  # pylint: disable=too-many-arguments
             limit=_SEARCH_INTERNAL_LIMIT,
             include_retired=include_retired,
             include_parked=include_parked,
+            epistemic_status=epistemic_status,
         )
     finally:
         db.close()

@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -95,6 +95,8 @@ class LessonRecord(BaseModel):
     last_accessed_at: str | None = None
     access_count: int = 0
     archived_path: str | None = None
+    epistemic_status: Literal["episode", "observation", "corroborated", "contradicted"] = "episode"
+    superseded_by: str | None = None
 
     @field_validator("ts")
     @classmethod
@@ -563,13 +565,17 @@ class DistilledCluster(BaseModel):
 
 
 class SkillCandidate(BaseModel):
-    """通過門檻、值得人類 review 是否升為 skill / rule 的 cluster。"""
+    """通過門檻、值得人類 review 是否升為 observation 的 cluster。"""
 
     candidate_id: str
     title: str
     recurrence_pr_count: int = 0
     has_new_evidence: bool = True
     cluster: DistilledCluster
+    observation: str = ""
+    evidence_ids: list[str] = Field(default_factory=list)
+    distinct_pr_count: int = 0
+    recurrence_span_days: int = 0
 
 
 class DigestReport(BaseModel):

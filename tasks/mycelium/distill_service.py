@@ -142,12 +142,24 @@ def harvest(
 
     out: list[dict[str, Any]] = []
     dropped = 0
+    all_ids = {row.get("id") for row in rows}
     for row in rows:
         ts = _parse_ts(row.get("ts", ""))
         if ts is None:
             dropped += 1  # ts 解析失敗：與「視窗外」分開計數，避免靜默丟失
             continue
         if ts < cutoff:
+            continue
+        sup = row.get("superseded_by")
+        if sup is not None:
+            if sup not in all_ids:
+                import sys
+
+                print(
+                    f"[WARN] lesson id={row.get('id', '?')} superseded_by={sup} "
+                    "指向不在本次掃描範圍內的 ID，排除此 lesson",
+                    file=sys.stderr,
+                )
             continue
         out.append(row)
     return HarvestResult(
@@ -295,6 +307,12 @@ def score(
         if not has_new:
             continue
 
+        span_days = 0
+        member_ts_list = [_parse_ts(m.get("ts")) for m in c.member_lessons]
+        valid_ts = [t for t in member_ts_list if t is not None]
+        if len(valid_ts) >= 2:
+            span_days = int((max(valid_ts) - min(valid_ts)).total_seconds() / 86400)
+
         candidates.append(
             SkillCandidate(
                 candidate_id=c.cluster_id,
@@ -302,6 +320,10 @@ def score(
                 recurrence_pr_count=len(c.retro_prs),
                 has_new_evidence=has_new,
                 cluster=c,
+                observation=c.representative_insight,
+                evidence_ids=list(c.lesson_ids),
+                distinct_pr_count=len(c.retro_prs),
+                recurrence_span_days=span_days,
             )
         )
 
