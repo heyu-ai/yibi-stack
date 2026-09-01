@@ -5,141 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.20.2] - 2026-08-29
-
-### Fixed
-
-- **agy 1.1.22 不再把相對的 `--add-dir .` 解析成 active workspace，五支 agy 腳本全數受影響**
-  （PR #409）：agy 在**沒有任何檔案 context** 的情況下 exit 0，回傳一段語意完整但沒讀過任何
-  檔案的答案——141B 的「沒有作用中的 workspace」拒答，或（實測到）先聲明沒有 workspace 再給出
-  幻覺數字。腳本既有的兩道守門（exit-code gate、輸出長度下限）在設計上就攔不到這種形狀。
-  對 `/agy-review` 與 `/pr-cycle-deep` 而言，這等於產出一份作者沒看過程式碼的 review。
-  修法：`consult.sh`、`agy-review/run.sh`、`agy-r1-stage1.sh`、`agy-r1-stage2.sh`、`agy-r2.sh`
-  一律改傳絕對路徑（`"$REPO_ROOT"` / `"$WT_ROOT"`，兩者皆來自 `git rev-parse --show-toplevel`）。
-  負向對照實測：已列在 `trustedWorkspaces` 的 repo 用相對 `.` 照樣失敗、未列入的 repo 用絕對
-  路徑照樣成功——**`trustedWorkspaces` 與此失敗無關**，不要為此放寬 trust 清單。
-
-- **`/agy-consult` 與 `/agy-review` 的實際模型不可見**（PR #409）：兩者預設
-  `AGY_MODEL=claude-sonnet-4-6` 而非 Gemini，但 6 份文件都承諾 Gemini。在 mob review 體系裡
-  這會讓「Claude + agy」成為同一家投兩票、卻被當成兩個獨立聲音計入 consensus。兩支腳本現在
-  每次執行都把實際模型以 `[INFO] agy 模型：<model>` 印到 **stderr**（不進 stdout，避免混入
-  要逐字呈現的答案）；相關 SKILL.md / README 描述同步更正，`pr-retro-hard` 新增家族塌縮警告。
+## [1.20.3] - 2026-09-01
 
 ### Added
 
-- **agy `--add-dir` 的 runtime 契約測試**（PR #409）：`AGYS-DT-012` 用會記錄 argv 的 stub agy
-  實跑全部五支腳本，斷言 bash **實際傳出去**的值為絕對路徑；`AGYS-DT-013` 綁住「每個 call site
-  都有 runtime case」；`AGYS-DT-011` 降為盤點（以 agy 呼叫為鍵，`git ls-files` 發現）。
-  `AGYRUN-DT-005/009` 鎖住模型公告（含 `AGY_MODEL` override 路徑）。
-  先前的靜態文字掃描版本被兩家模型各自找出多條規避後整條移除——絕對性是引數的執行期性質，
-  對原始碼文字的比對不決定它。判準寫入 `.claude/rules/13-bash-anti-patterns.md`。
+- Add plugin-migration-check skill for orphaned pack detection (#357)
+- Add plugin-cache-prune skill for stale plugin version cleanup (#358)
 
-## [1.20.1] - 2026-08-06
+### Changed
 
-### Fixed
-
-- **`pr-retrospective` Step 4b 範本的位置參數被 skill argument substitution 換掉**
-  （issue #386）：`local key="$1"` 在磁碟上正確，但 agent 讀到的是 `local key="381"`
-  （以 `/pr-retro --pr 381` 呼叫時；此環境的 positional binding 是 **0-based**，故
-  `$0` 綁到 `--pr`、`$1` 綁到 `381`——見 `.claude/rules/11` 的 "Skill Body — Literal `$`
-  Escape"）。照著寫會讓每條 typed lesson 的 `--key` 都變成 PR 號，破壞下游
-  `/knowledge-distill` 的 key-prefix 聚類。`$2` 以上因 argument token 不足而未被替換，
-  故為**部分損壞**。改用 `${N}` braced form。
-
-### Added
-
-- **`scripts/lint_skill_positional_refs.py`**（pre-commit `lint-skill-positional-refs`）：
-  阻擋 `SKILL.md` 與任意深度 `commands/*.md` 的 shell code fence 內出現裸 `$0`–`$9`。
-  這個缺陷 grep 原始檔看不出來（磁碟上是對的），只有渲染層壞掉，所以需要機械 gate 而非
-  散文規則。fence 辨識用逐行狀態機而非跨檔 regex——後者同時會漏報（`~~~bash`、
-  info-string metadata、`zsh`、未閉合 fence）與誤報（外層較長分隔符內的 ```bash 字面示例）。
-  退出碼分三種：`0` 乾淨（並印出掃描檔數，讓綠燈可被證偽）、`1` 有違規、`2` 工具失敗
-  （掃描面塌陷或檔案讀不到）——後者與「發現違規」分開，呼叫端才能分辨「跑不起來」與
-  「跑了有發現」。
-
-## [1.20.0] - 2026-08-06
-
-### Added
-
-- **review 入口 merge-state preflight**（issue #372）：新增
-  `pr-cycle-deep/scripts/preflight-review-snapshot.sh`，在派出任何 reviewer 之前確認工作區
-  是穩定快照。reviewer 讀的是工作區，而工作區不是 immutable snapshot——另一個 session 的併發
-  改動或進行中的 merge，會讓 reviewer 讀到中間狀態並回報對實際落地內容不成立的 finding。
-  兩個模式五個具名 exit code；未解衝突一律拒絕（`--sha` 不可 override），`MERGE_HEAD` 預設
-  拒絕但可釘選不可變 SHA。已接進 `/pr-cycle-deep`、`/mob-code-review-only`、
-  `/pr-review-cycle`、`/pr-cycle-fast` 四個入口。
-
-- **`demotable_targets` payload 欄位**（issue #379）：`pr-retro-hard` 的彙整核心新增顯式
-  降級資格集合。M2 的 `rule-draft-<n>` 標的依設計不帶 confidence/source，故永遠不在
-  `lessons` 裡，卻確實需要降級能力；資格集合為 `lessons ∪ demotable_targets`。
+- Archive add-review-gate-conformance-eval (#355)
+- Rule 15 加入 tri-state safety gate 教訓 (#356)
+- Complete Tier 3 lesson-park CLI/DB support and evidence-lint CI wiring (PR #339 follow-up) (#347)
+- 新增 /codex-cli 委託 Codex 實作並驗收的 skill (#360)
+- Extend rule 11 with two-function invariant-seam variant (#363)
+- Legal R2 skip when the lead adopts all blockers as-graded (#362)
+- Split agy into agy-review + agy-consult, tighten allow-list (#367)
+- Bump anthropic in the python-minor-patch group (#370)
+- Bump cryptography (#378)
+- Bump cryptography (#377)
+- 新增 /pr-retro-hard，對 retro 結論做跨家 mob review (#376)
+- Archive add-pr-retro-hard (#380)
+- Review 入口加上 merge-state preflight (#382)
+- 為 pr-retro-hard Phase 2 建立 change proposal (#384)
+- Declare rule-file prose language per-repo instead of inheriting a global default (#385)
+- Bump ruff in the python-minor-patch group (#389)
+- 更新 D7/D4 scanner 過時說明，反映 issue #252 已修復 (#395)
+- Refresh agy sandbox-flag rationale to agy 1.1.12 (#398)
+- 擴充支援 Jira Bug 盤點 (#401)
+- Bump the python-minor-patch group across 1 directory with 7 updates (#400)
+- 改用 gh api 結構化來源取代 diff 文字解析 (#342) (#408)
+- Bump ruff in the python-minor-patch group (#411)
+- Bump anthropic from 0.122.0 to 1.0.0 (#412)
+- Decouple retro retention from harness promotion (#413)
 
 ### Fixed
 
-- **`pr-retro-hard` 彙整核心不再對任意標的產出降級建議**（issue #379）：先前
-  `demotion_recommendations` 只看 effect + classification，一個沒有 `lessons` entry 的敘述性
-  標的（如 `Q3`）拿到 confirmed `UNSUPPORTED` 異議時照樣會被建議降級，並在 `#375` Phase 4
-  解除 shadow 後真的生效。
-
-- **`/pr-retro` Step 4b 三個缺陷**（issue #373）：
-  - recurrence 的 `--confidence` +1 前移到 Step 4b，附可直接跑的 `lessons search` 指令。
-    原規則指向 Step 5，但 Step 5 在寫入之後，且 active lesson 的分數事後無法原地修改
-    （`lessons finalize` 只適用 parked→active），所以該規則從未被套用過。
-  - `active` 路徑的 `lessons add` 帶 `--skip-if-exists`，讓寫到一半失敗的 script 可安全重跑。
-    `park` 路徑不適用（兩旗標互斥），其重跑限制維持原有警告。
-  - 範本呼叫端字面值改單引號：雙引號讓 insight 內文的 `$` 觸發參數展開，在
-    `set -euo pipefail` 下中止整個 script。
-
-## [1.19.0] - 2026-08-05
-
-### Added
-
-- `/pr-retro-hard`：`/pr-retro` 的加強版，在 Q1-Q5 草稿交給人判斷前、以及規則草稿被建議
-  寫檔前各插入一輪跨家 mob review。三個 voice——codex 與 agy 透過既有 `/codex-consult`、
-  `/agy-consult` 條件式取得（偵測與 auth gate 由該兩 skill 自有），加上一個無條件的 Claude
-  對抗式 subagent（「Make the strongest case that this is wrong」）。`pr-retrospective`
-  仍是流程引擎所有者，四道 gate 一律不在新 skill 重新推導 (#375)
-- `aggregate_review.py` policy kernel：彙整規則以純函式承載並作為 production path，
-  runbook 只記錄呼叫哪個 script、哪些回傳必須停止、哪些欄位交給人。`--explain-policy`
-  輸出 9 種 outcome，與 SKILL.md 摘要表雙向交叉檢查（實作能產生的每個 outcome 都有文件、
-  文件提到的每個 outcome 都存在於實作）
-- 三條由核心強制的不變量：voice 之間的一致**不得**抬升 `confidence`、不得改寫 `source` 為
-  `cross-model`（三個 voice 讀同一份草稿與同一套 prompt，依建構相關而非獨立）；共識只由
-  獨立首輪建立，首輪零 finding 的 voice 在交叉輪無資格；tier 降級只是餵給既有 Evidence Gate
-  的**建議**，且須該 finding 的 settling check 已執行且為 `confirmed`
-- settling check 五狀態（`not_executed` / `unable_to_execute` / `inconclusive` /
-  `confirmed` / `refuted`），`unable_to_execute` 不折疊為 `refuted`
-- Shadow 出貨：`demotion_applied` 預設 `false`，降級建議一律計算並回報但不生效；啟用條件
-  需要 false positive 與成本資料，屬 #375
-
-### Fixed
-
-- `skills/README.md` 的 `pr-retrospective` 列敘述：原稱「寫入 mycelium handover」，實際寫入
-  的是獨立的 retrospectives table
-
-## [1.17.0] - 2026-07-27
-
-### Added
-
-- Tier 3 lesson park 的可執行流程：`mycelium lessons add --park`（原子 park / recurrence
-  bump / recurrence ≥ 2 解除 park 重評）、`lessons finalize --id`（重評通過 Tier 1/2 後
-  原地升級為 active，compare-and-set 且冪等）、`lessons show|search --include-parked` (#347)
-- evidence lint 的 CI range mode：`--base`/`--head` 以三點 `base...head` 讀 PR / push
-  的實際 commit range。先前 workflow 已接上呼叫端但腳本沒有這個介面，CI 直接 exit 2 (#347)
-
-### Fixed
-
-- parked lesson 於四個消費面一致排除：`show` / `search` 兩條 recall 路徑、tier promotion
-  的升級與降級兩條分支、以及 `nightly_agent` 繞過 service 的直接 SQL 讀取——最後一個會讓
-  被 park 的教訓當晚從側門重回 rule 生成管線（同一 query 也一併補上遺漏的 retired 過濾）(#347)
-- `finalize` 不再讓 `trusted` 與 `source` 去同步。`trusted` 是 `source` 的衍生不變量，
-  去同步會使 user-stated 教訓在 cross-project recall 中隱形、或讓 inferred 教訓被當成可信
-  送給其他 project (#347)
-- CI contract test 改為解析 YAML 並綁到實際的 job / step / argv：`fetch-depth: 0` 綁 gate
-  job 的 checkout、`if:` 條件完全比對、逐一釘住哪個 SHA 餵給哪個 flag。先前皆為字串比對，
-  三個會造成假綠的改動（step 永久 skip、range 退化成 `head...head`、`--base=` 等號形式）
-  都能通過 (#347)
-- `spectra archive` 的 MODIFIED delta 若漏抄已部署 scenario 會靜默刪除它們，
-  `spectra validate` 與 archive 本身都不報錯；新增 `test_spec_delta_completeness.py` 擋住 (#347)
+- Port 清理改用 entrypoint 檔案檢查，避免殘留目錄誤判 (#354)
+- Safe_symlink 被實體路徑擋住時 exit 2，不再靜默略過 (#366)
+- 修 PR #360 事後 mob review 的 3 Critical + 6 Important (#368)
+- Step 1 解析 base= 覆蓋，不再只寫在 FAQ (#374)
+- 讓觸發回歸 gate 從結構上不可能運作變成可運作 (#371)
+- 修正 Step 4b 三個缺陷並以錨點測試釘住 (#381)
+- 降級建議加上顯式標的資格約束 (#383)
+- 位置參數改 ${N}，並加 lint 擋下這個渲染層缺陷 (#387)
+- 修正 4 個 scanner 假訊號 + 文件常數不一致 (#392)
+- 修正 D7/D4 scanner 對 paths: key 的偵測邏輯（#252） (#393)
+- Trigger fixtures + baseline gate for 5 skill families (#396)
+- Route bash-hygiene hook block messages to stderr (#397)
+- 修正 Atlassian MCP 參數名稱與格式 (#402)
+- 預設使用 Claude 模型繞過 Gemini API 台灣地區限制 (#403)
+- P0 triage 三筆修復（#369, #359, #330） (#404)
+- #394 codex-cli SKILL.md 加 out-of-repo 說明 + #334 fix hostname leak (#405)
+- Subshell-exit lint 誤報+漏報 correctness 修復 (#282) (#407)
+- --all 擴展 scope 至 baseline ∪ fixtures（#219 Path 2） (#406)
+- --add-dir 改傳絕對路徑，修復 agy 1.1.22 靜默失去檔案 context (#409)
+- Isolate agy-review DT-006/008/009 from ambient git state (#414)
 
 ## [1.16.0] - 2026-07-27
 
@@ -149,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Route two PR #339 mob-review lessons into rule 02 (#348)
 - Bump the python-minor-patch group with 4 updates (#341)
 - Pack taxonomy -- process/knowledge/methodology/harness axis (#351)
+- V1.16.0
 
 ### Fixed
 
@@ -774,6 +696,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove bash anti-patterns triggering CC confirmation dialogs (#137)
 - Remove unnecessary rm-f after git commit-F (#105)
 
+[1.20.3]: https://github.com/heyu-ai/yibi-stack/compare/v1.16.0..v1.20.3
 [1.16.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.15.2..v1.16.0
 [1.15.2]: https://github.com/heyu-ai/yibi-stack/compare/v1.15.0..v1.15.2
 [1.15.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.14.0..v1.15.0

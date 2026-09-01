@@ -1,6 +1,6 @@
 {
   "name": "growth",
-  "version": "1.20.2",
+  "version": "1.20.3",
   "description": "Knowledge extraction and retention plugin for Claude Code: mycelium, learn, PR retrospective/control log, CLAUDE.md pruning, and /pr-retro.",
   "keywords": [
     "mycelium",
