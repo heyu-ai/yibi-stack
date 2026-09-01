@@ -138,6 +138,40 @@ def _make_stub_agy(tmp_path: Path, *, exit_code: int, stdout: str) -> Path:
     return bin_dir
 
 
+def _make_isolated_git_repo(tmp_path: Path) -> Path:
+    """Create a throwaway git repo with a fake `origin/main` ref one commit behind HEAD.
+
+    run.sh resolves its diff via `git diff origin/<base>...HEAD` against whatever `cwd` it
+    is invoked from. Invoking it from the real yibi-stack checkout made the diff depend on
+    that checkout's ambient state: when local HEAD is git-identical to origin/main (a clean
+    sync, or the moment `make release`'s pytest gate runs -- before the version bump is
+    committed), the diff is empty, run.sh's own `[FAIL] diff is empty` guard fires first, and
+    every test below fails for a reason unrelated to what it is actually checking. An
+    isolated repo with its own `origin/main` ref and a divergent HEAD keeps the diff
+    non-empty regardless of the real checkout's state.
+    """
+    repo = tmp_path / "fake-repo"
+    repo.mkdir()
+
+    def run(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+    run("init", "-q")
+    run("config", "user.email", "test@example.com")
+    run("config", "user.name", "Test")
+    (repo / "README.md").write_text("base\n")
+    run("add", "-A")
+    run("commit", "-q", "-m", "base")
+    base_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    run("update-ref", "refs/remotes/origin/main", base_sha)
+    (repo / "README.md").write_text("base\nchanged\n")
+    run("add", "-A")
+    run("commit", "-q", "-m", "change")
+    return repo
+
+
 def _run_agy_script(
     script: Path,
     tmp_path: Path,
@@ -147,8 +181,9 @@ def _run_agy_script(
     agy_model: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run run.sh or consult.sh against a stub `agy`, handling each script's own calling
-    convention (run.sh: positional mode/base/instruction args, invoked from the real repo so
-    `git diff origin/<base>...HEAD` resolves; consult.sh: no args, reads
+    convention (run.sh: positional mode/base/instruction args, invoked from an isolated
+    throwaway git repo -- see `_make_isolated_git_repo` -- so `git diff origin/<base>...HEAD`
+    resolves independent of the real checkout's state; consult.sh: no args, reads
     $CLAUDE_JOB_DIR/agy-consult-question.txt).
 
     `agy_model=None` means "test the default path": `AGY_MODEL` is **removed** from the
@@ -164,7 +199,7 @@ def _run_agy_script(
         env["AGY_MODEL"] = agy_model
     if script.name == "run.sh":
         args: list[str] = ["review", "main", ""]
-        cwd = REPO_ROOT
+        cwd = _make_isolated_git_repo(tmp_path)
     else:
         (tmp_path / "agy-consult-question.txt").write_text("測試問題", encoding="utf-8")
         env["CLAUDE_JOB_DIR"] = str(tmp_path)
