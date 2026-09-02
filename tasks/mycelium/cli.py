@@ -416,7 +416,7 @@ def handover_search(
 @handover.command("normalize-language")
 @click.option("--audit", "audit_only", is_flag=True, help="只顯示 CJK 統計，不修改")
 @click.option("--apply", "do_apply", is_flag=True, help="實際翻譯並更新 DB")
-@click.option("--batch-size", default=20, type=int, help="每批次翻譯的 row 數")
+@click.option("--batch-size", default=20, type=click.IntRange(min=1), help="每批次翻譯的 row 數")
 @click.option("--json", "as_json", is_flag=True, help="JSON 輸出")
 def handover_normalize_language(
     audit_only: bool, do_apply: bool, batch_size: int, as_json: bool
@@ -424,8 +424,8 @@ def handover_normalize_language(
     """正規化 handover 文字欄位語言：CJK -> English。
 
     預設為 dry-run（顯示會變更的內容但不寫入）。
-    加 --apply 實際執行翻譯並更新 DB（需要 ANTHROPIC_API_KEY）。
-    加 --audit 只顯示 CJK 內容統計。
+    加 --apply 實際執行翻譯並更新 DB（需要 anthropic SDK + ANTHROPIC_API_KEY）。
+    加 --audit 只顯示 CJK 內容統計（不需要 anthropic SDK）。
     """
     from .handover_service import audit_handover_language, normalize_handover_language
 
@@ -455,13 +455,14 @@ def handover_normalize_language(
         return
 
     mode = "DRY-RUN" if dry_run else "APPLIED"
-    p, s, t = result["processed"], result["skipped"], result["total_cjk"]
-    click.echo(f"[{mode}] processed={p} skipped={s} total_cjk={t}")
+    p, sk, t = result["processed"], result["skipped"], result["total_cjk"]
+    f_count = result.get("failed", 0)
+    click.echo(f"[{mode}] processed={p} skipped={sk} failed={f_count} total_cjk={t}")
     if result.get("samples"):
         click.echo("Sample changes:")
-        for s in result["samples"]:
-            click.echo(f"  {s['id']}...")
-            for k, v in s["changes"].items():
+        for sample in result["samples"]:
+            click.echo(f"  {sample['id']}...")
+            for k, v in sample["changes"].items():
                 click.echo(f"    {k}: {v['from'][:50]}")
                 click.echo(f"      -> {v['to'][:50]}")
 

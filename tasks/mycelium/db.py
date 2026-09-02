@@ -511,12 +511,21 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
         cur = self.conn.execute("SELECT * FROM handovers ORDER BY timestamp DESC")
         return [_decode_row(row) for row in cur.fetchall()]
 
+    _UPDATABLE_COLS = {
+        "topic",
+        "conversation_summary",
+        *_JSON_ARRAY_COLS,
+    }
+
     def update_handover_text_fields(
         self, handover_id: str, updates: dict[str, str | list[str]]
     ) -> None:
         """更新 handover 的文字欄位（topic / conversation_summary / JSON array 欄位）。"""
         if not updates:
             return
+        bad = set(updates) - self._UPDATABLE_COLS
+        if bad:
+            raise ValueError(f"不允許更新的欄位：{bad}")
         set_parts: list[str] = []
         params: list[object] = []
         json_cols = set(_JSON_ARRAY_COLS)

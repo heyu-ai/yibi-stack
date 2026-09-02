@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import sqlite3
 import uuid
 from datetime import UTC, datetime
@@ -203,11 +204,14 @@ def _now_iso() -> str:
 
 # ---------------------------------------------------------------------------
 # Language normalization (one-time maintenance)
+# Scope: Traditional Chinese (CJK Unified Ideographs basic block U+4E00-U+9FFF).
+# Hiragana / Katakana / Hangul are not targeted -- issue #206 scope is zh-TW only.
 # ---------------------------------------------------------------------------
 
-_CJK_RE = __import__("re").compile(r"[一-鿿]")
+_CJK_RE = re.compile(r"[一-鿿]")
 
 _TEXT_FIELDS = ("topic", "conversation_summary")
+# tags / last_files intentionally excluded: metadata fields, not translatable prose.
 _JSON_ARRAY_FIELDS = (
     "completed",
     "decisions",
@@ -217,20 +221,20 @@ _JSON_ARRAY_FIELDS = (
     "attempted_approaches",
 )
 
+_ITEM_RE = re.compile(r'<item\s+index="(\d+)">(.*?)</item>', re.DOTALL)
+
 
 def _has_cjk(text: str) -> bool:
     return bool(_CJK_RE.search(text))
 
 
 def _record_has_cjk(row: dict[str, Any]) -> bool:
-    for f in _TEXT_FIELDS:
-        if _has_cjk(row.get(f) or ""):
-            return True
-    for f in _JSON_ARRAY_FIELDS:
-        items = row.get(f)
-        if isinstance(items, list) and any(_has_cjk(str(i)) for i in items):
-            return True
-    return False
+    return bool(_collect_cjk_texts(row))
+
+
+def _xml_escape(text: str) -> str:
+    """Escape XML special characters in user text before embedding in prompt."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def audit_handover_language(*, db_path: Path | None = None) -> dict[str, Any]:
@@ -264,8 +268,14 @@ def audit_handover_language(*, db_path: Path | None = None) -> dict[str, Any]:
 
 
 def _translate_batch(texts: list[str]) -> list[str]:
-    """Translate a list of Chinese texts to English using the Anthropic API."""
-    from anthropic import Anthropic  # pylint: disable=import-error
+    """Translate a list of Chinese texts to English using the Anthropic API.
+
+    Raises RuntimeError if the API response is missing items or truncated.
+    """
+    try:
+        from anthropic import Anthropic  # pylint: disable=import-error
+    except ImportError as exc:
+        raise RuntimeError("anthropic SDK 未安裝。請執行：uv sync --extra ledger") from exc
 
     if not texts:
         return []
@@ -273,12 +283,12 @@ def _translate_batch(texts: list[str]) -> list[str]:
     client = Anthropic()
     prompt_parts = []
     for i, t in enumerate(texts):
-        prompt_parts.append(f'<item index="{i}">{t}</item>')
+        prompt_parts.append(f'<item index="{i}">{_xml_escape(t)}</item>')
     items_xml = "\n".join(prompt_parts)
 
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=4096,
+        max_tokens=8192,
         messages=[
             {
                 "role": "user",
@@ -298,13 +308,21 @@ def _translate_batch(texts: list[str]) -> list[str]:
 
     first_block = response.content[0]
     result_text: str = first_block.text if hasattr(first_block, "text") else str(first_block)
-    import re
+
+    if hasattr(response, "stop_reason") and response.stop_reason == "max_tokens":
+        raise RuntimeError(f"API 回應被截斷（max_tokens）：預期 {len(texts)} 個項目")
 
     translated: dict[int, str] = {}
-    for m in re.finditer(r'<item\s+index="(\d+)">(.*?)</item>', result_text, re.DOTALL):
+    for m in _ITEM_RE.finditer(result_text):
         translated[int(m.group(1))] = m.group(2).strip()
 
-    return [translated.get(i, texts[i]) for i in range(len(texts))]
+    missing = [i for i in range(len(texts)) if i not in translated]
+    if missing:
+        raise RuntimeError(
+            f"API 回應缺少 {len(missing)}/{len(texts)} 個翻譯項目（缺少索引：{missing[:10]}）"
+        )
+
+    return [translated[i] for i in range(len(texts))]
 
 
 def _collect_cjk_texts(row: dict[str, Any]) -> list[tuple[str, int | None, str]]:
@@ -378,27 +396,32 @@ def normalize_handover_language(
 
     processed = 0
     skipped = 0
+    failed = 0
     samples: list[dict[str, Any]] = []
 
-    for batch_start in range(0, len(cjk_rows), batch_size):
-        batch = cjk_rows[batch_start : batch_start + batch_size]
+    db2 = AgentsDB(effective_db)
+    try:
+        db2.init_db()
+        for batch_start in range(0, len(cjk_rows), batch_size):
+            batch = cjk_rows[batch_start : batch_start + batch_size]
 
-        all_texts: list[str] = []
-        row_segments: list[list[tuple[str, int | None, str]]] = []
-        for row in batch:
-            segs = _collect_cjk_texts(row)
-            row_segments.append(segs)
-            all_texts.extend(t for _, _, t in segs)
+            all_texts: list[str] = []
+            row_segments: list[list[tuple[str, int | None, str]]] = []
+            for row in batch:
+                segs = _collect_cjk_texts(row)
+                row_segments.append(segs)
+                all_texts.extend(t for _, _, t in segs)
 
-        if not all_texts:
-            skipped += len(batch)
-            continue
+            if not all_texts:
+                skipped += len(batch)
+                continue
 
-        translated = _translate_batch(all_texts)
+            try:
+                translated = _translate_batch(all_texts)
+            except RuntimeError:
+                failed += len(batch)
+                continue
 
-        db2 = AgentsDB(effective_db)
-        try:
-            db2.init_db()
             offset = 0
             for row, segs in zip(batch, row_segments, strict=True):
                 n = len(segs)
@@ -408,7 +431,10 @@ def normalize_handover_language(
                 updates = _apply_translations(row, segs, row_translated)
                 if updates:
                     if len(samples) < 5:
-                        sample: dict[str, Any] = {"id": row["id"][:8], "changes": {}}
+                        sample: dict[str, Any] = {
+                            "id": row["id"][:8],
+                            "changes": {},
+                        }
                         for k, v in updates.items():
                             orig = row.get(k)
                             sample["changes"][k] = {
@@ -422,15 +448,16 @@ def normalize_handover_language(
                     processed += 1
                 else:
                     skipped += 1
-        finally:
-            db2.close()
 
-        if progress_callback:
-            progress_callback(batch_start + len(batch), len(cjk_rows))
+            if progress_callback:
+                progress_callback(batch_start + len(batch), len(cjk_rows))
+    finally:
+        db2.close()
 
     return {
         "processed": processed,
         "skipped": skipped,
+        "failed": failed,
         "total_cjk": len(cjk_rows),
         "dry_run": dry_run,
         "samples": samples,
