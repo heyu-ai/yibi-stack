@@ -411,11 +411,27 @@ class TestCheckChangedFiles:
         secret = tmp_path / "secret.py"
         secret.write_text("SECRET=1", encoding="utf-8")
 
-        text = "## Verdict\nNEEDS_CHANGES\nBug in repo/../secret.py at line 1."
+        text = "## Verdict\nNEEDS_CHANGES\nBug in ../secret.py at line 1."
         outcome = check_changed_files(
             text,
             ["tasks/foo/service.py"],
             repo_root=repo,
+        )
+        assert outcome is not None
+        assert not outcome.is_warning
+        assert "WRONG target" in outcome.message
+
+    def test_agyv_dt_029_bare_filename_with_repo_root_still_fails(self) -> None:
+        """AGYV-DT-029: a bare filename (no ``/``) still hard-fails even with repo_root.
+
+        Accepted residual: bare filenames cannot be verified for repo existence
+        because _PATH_REF only matches path-style refs with directory separators.
+        """
+        text = "## Verdict\nNEEDS_CHANGES\nBug in handler.go at line 5."
+        outcome = check_changed_files(
+            text,
+            ["tasks/foo/service.py"],
+            repo_root=Path("/nonexistent"),
         )
         assert outcome is not None
         assert not outcome.is_warning
@@ -561,6 +577,7 @@ class TestMain:
     def test_agyv_st_010_out_of_diff_finding_returns_zero(
         self,
         tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """AGYV-ST-010: out-of-diff finding with --repo-root exits 0 (warning).
 
@@ -598,6 +615,8 @@ class TestMain:
             ]
         )
         assert rc == 0
+        captured = capsys.readouterr()
+        assert "[WARN] R1 Stage 1:" in captured.err
 
     def test_agyv_st_011_true_wrong_target_with_repo_root_returns_one(
         self,
