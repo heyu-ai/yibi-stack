@@ -413,6 +413,62 @@ def handover_search(
         click.echo(f"  {r['conversation_summary'][:120]}")
 
 
+@handover.command("normalize-language")
+@click.option("--audit", "audit_only", is_flag=True, help="只顯示 CJK 統計，不修改")
+@click.option("--apply", "do_apply", is_flag=True, help="實際翻譯並更新 DB")
+@click.option("--batch-size", default=20, type=int, help="每批次翻譯的 row 數")
+@click.option("--json", "as_json", is_flag=True, help="JSON 輸出")
+def handover_normalize_language(
+    audit_only: bool, do_apply: bool, batch_size: int, as_json: bool
+) -> None:
+    """正規化 handover 文字欄位語言：CJK -> English。
+
+    預設為 dry-run（顯示會變更的內容但不寫入）。
+    加 --apply 實際執行翻譯並更新 DB（需要 ANTHROPIC_API_KEY）。
+    加 --audit 只顯示 CJK 內容統計。
+    """
+    from .handover_service import audit_handover_language, normalize_handover_language
+
+    if audit_only:
+        stats = audit_handover_language()
+        if as_json:
+            click.echo(json.dumps(stats, ensure_ascii=False, indent=2))
+        else:
+            click.echo(f"Handover records: {stats['total']}")
+            click.echo(f"Records with CJK: {stats['cjk_count']}")
+            click.echo("Per-field CJK counts:")
+            for field, count in stats["field_stats"].items():
+                click.echo(f"  {field}: {count}")
+        return
+
+    dry_run = not do_apply
+
+    def _progress(done: int, total: int) -> None:
+        click.echo(f"  progress: {done}/{total}", err=True)
+
+    result = normalize_handover_language(
+        dry_run=dry_run, batch_size=batch_size, progress_callback=_progress
+    )
+
+    if as_json:
+        click.echo(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+
+    mode = "DRY-RUN" if dry_run else "APPLIED"
+    p, s, t = result["processed"], result["skipped"], result["total_cjk"]
+    click.echo(f"[{mode}] processed={p} skipped={s} total_cjk={t}")
+    if result.get("samples"):
+        click.echo("Sample changes:")
+        for s in result["samples"]:
+            click.echo(f"  {s['id']}...")
+            for k, v in s["changes"].items():
+                click.echo(f"    {k}: {v['from'][:50]}")
+                click.echo(f"      -> {v['to'][:50]}")
+
+    if dry_run:
+        click.echo("\nTo apply: mycelium handover normalize-language --apply")
+
+
 # ─── hooks ───────────────────────────────────────────────────────────────
 
 
