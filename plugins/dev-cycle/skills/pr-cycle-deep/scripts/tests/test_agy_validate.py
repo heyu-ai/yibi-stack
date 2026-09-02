@@ -310,9 +310,10 @@ class TestCheckChangedFiles:
     def test_agyv_dt_015_no_match_fails_wrong_target(self) -> None:
         """AGYV-DT-015: citing other files but none of ours = wrong target."""
         text = "## Verdict\nLGTM\nReviewed src/unrelated/other.ts thoroughly."
-        err = check_changed_files(text, ["tasks/foo/service.py"])
-        assert err is not None
-        assert "WRONG target" in err
+        outcome = check_changed_files(text, ["tasks/foo/service.py"])
+        assert outcome is not None
+        assert not outcome.is_warning
+        assert "WRONG target" in outcome.message
 
     def test_agyv_eg_004_empty_list_never_blocks(self) -> None:
         """AGYV-EG-004: an empty changed-files list does not block."""
@@ -330,7 +331,9 @@ class TestCheckChangedFiles:
     def test_agyv_eg_006_other_file_refs_only_fails(self) -> None:
         """AGYV-EG-006: a review citing only foreign paths is wrong-target."""
         text = "## Verdict\nNEEDS_CHANGES\nBug in lib/other/handler.go at line 5."
-        assert check_changed_files(text, ["tasks/foo/service.py"]) is not None
+        outcome = check_changed_files(text, ["tasks/foo/service.py"])
+        assert outcome is not None
+        assert not outcome.is_warning
 
     def test_agyv_eg_009_no_redos_on_long_slash_run(self) -> None:
         """AGYV-EG-009: _FILE_REF is linear on a long slash-run (ReDoS regression).
@@ -345,29 +348,151 @@ class TestCheckChangedFiles:
         assert elapsed < 2.0, f"check_changed_files took {elapsed:.2f}s (possible ReDoS)"
         assert result is None  # no real file reference -> not wrong-target
 
+    def test_agyv_dt_025_out_of_diff_existing_file_is_warning(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """AGYV-DT-025: referencing a real repo file outside the diff is a warning.
+
+        Issue #208: a review that says 'you missed the sibling in Y' where Y is
+        a real file should not be auto-dropped. With --repo-root, this is a
+        warning, not a hard fail.
+        """
+        sibling = tmp_path / "backend/src/workers/content_generation.py"
+        sibling.parent.mkdir(parents=True, exist_ok=True)
+        sibling.write_text("# sibling call site", encoding="utf-8")
+
+        text = (
+            "## Verdict\nNEEDS_CHANGES\n"
+            "### [critical] Missed call site\n"
+            "backend/src/workers/content_generation.py:495 still has the old "
+            "inline byte-math `len(audio_data) * 8 // 128000`."
+        )
+        outcome = check_changed_files(
+            text,
+            ["tasks/foo/service.py"],
+            repo_root=tmp_path,
+        )
+        assert outcome is not None
+        assert outcome.is_warning
+        assert "out-of-diff finding" in outcome.message
+
+    def test_agyv_dt_026_out_of_diff_nonexistent_file_is_fail(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """AGYV-DT-026: referencing a file that doesn't exist in the repo is a fail.
+
+        True agentic drift: the review discusses files from a stale scratch
+        input that have no relationship to this repo.
+        """
+        text = "## Verdict\nNEEDS_CHANGES\nBug in completely/wrong/module.py at line 42."
+        outcome = check_changed_files(
+            text,
+            ["tasks/foo/service.py"],
+            repo_root=tmp_path,
+        )
+        assert outcome is not None
+        assert not outcome.is_warning
+        assert "WRONG target" in outcome.message
+
+    def test_agyv_dt_028_path_traversal_does_not_escape_repo_root(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """AGYV-DT-028: a ``..`` traversal that resolves outside repo_root is not a warning.
+
+        Defence against model-generated paths like ``tasks/../../.env`` that
+        resolve outside the repo root via ``..``. Even if the traversed path
+        exists on disk, the check must not downgrade to warning.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        secret = tmp_path / "secret.py"
+        secret.write_text("SECRET=1", encoding="utf-8")
+
+        text = "## Verdict\nNEEDS_CHANGES\nBug in ../secret.py at line 1."
+        outcome = check_changed_files(
+            text,
+            ["tasks/foo/service.py"],
+            repo_root=repo,
+        )
+        assert outcome is not None
+        assert not outcome.is_warning
+        assert "WRONG target" in outcome.message
+
+    def test_agyv_dt_029_bare_filename_with_repo_root_still_fails(self) -> None:
+        """AGYV-DT-029: a bare filename (no ``/``) still hard-fails even with repo_root.
+
+        Accepted residual: bare filenames cannot be verified for repo existence
+        because _PATH_REF only matches path-style refs with directory separators.
+        """
+        text = "## Verdict\nNEEDS_CHANGES\nBug in handler.go at line 5."
+        outcome = check_changed_files(
+            text,
+            ["tasks/foo/service.py"],
+            repo_root=Path("/nonexistent"),
+        )
+        assert outcome is not None
+        assert not outcome.is_warning
+        assert "WRONG target" in outcome.message
+
+    def test_agyv_dt_027_no_repo_root_preserves_original_behavior(self) -> None:
+        """AGYV-DT-027: without --repo-root, unmatched refs are a hard fail."""
+        text = "## Verdict\nLGTM\nReviewed src/unrelated/other.ts thoroughly."
+        outcome = check_changed_files(text, ["tasks/foo/service.py"])
+        assert outcome is not None
+        assert not outcome.is_warning
+        assert "WRONG target" in outcome.message
+
 
 class TestValidateAggregation:
     def test_agyv_vl_001_aggregates_multiple_errors(self) -> None:
         """AGYV-VL-001: timeout + missing verdict + wrong target all reported."""
-        # Needs a file reference (other/wrong.py) so the wrong-target check fires;
-        # the timeout marker must lead a line so the line-anchored check catches it.
         text = "Error: timed out waiting for response\nReviewed other/wrong.py instead."
-        errors = validate(
+        errors, warnings = validate(
             text,
             require_verdict=True,
             changed_files=["tasks/foo/service.py"],
         )
         # timeout + no-verdict + wrong-target
         assert len(errors) == 3
+        assert warnings == []
 
     def test_agyv_vl_002_clean_review_no_errors(self) -> None:
         """AGYV-VL-002: a clean review with all checks on yields no errors."""
-        errors = validate(
+        errors, warnings = validate(
             GOOD_REVIEW,
             require_verdict=True,
             changed_files=["tasks/foo/service.py"],
         )
         assert errors == []
+        assert warnings == []
+
+    def test_agyv_vl_004_out_of_diff_finding_is_warning_not_error(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """AGYV-VL-004: an out-of-diff finding routes to warnings, not errors.
+
+        Issue #208: validate() must separate warnings from errors so that the
+        caller (main) exits 0 and surfaces the finding for lead review instead
+        of auto-dropping it.
+        """
+        sibling = tmp_path / "lib/other/handler.go"
+        sibling.parent.mkdir(parents=True, exist_ok=True)
+        sibling.write_text("package other", encoding="utf-8")
+
+        text = "## Verdict\nNEEDS_CHANGES\nBug in lib/other/handler.go at line 5."
+        errors, warnings = validate(
+            text,
+            require_verdict=False,
+            changed_files=["tasks/foo/service.py"],
+            repo_root=tmp_path,
+        )
+        assert errors == []
+        assert len(warnings) == 1
+        assert "out-of-diff finding" in warnings[0]
 
 
 class TestMain:
@@ -448,6 +573,78 @@ class TestMain:
         raw.write_text(GOOD_REVIEW, encoding="utf-8")
         rc = main(["--raw", str(raw), "--changed-files", str(tmp_path / "nope.txt")])
         assert rc == 2
+
+    def test_agyv_st_010_out_of_diff_finding_returns_zero(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """AGYV-ST-010: out-of-diff finding with --repo-root exits 0 (warning).
+
+        Issue #208 end-to-end: a review citing a file outside the diff that
+        exists in the repo must not be auto-dropped. Exit 0 lets the caller
+        proceed; the [WARN] on stderr surfaces the finding for lead review.
+        """
+        repo = tmp_path / "repo"
+        sibling = repo / "backend/src/workers/content_generation.py"
+        sibling.parent.mkdir(parents=True, exist_ok=True)
+        sibling.write_text("# sibling", encoding="utf-8")
+
+        raw = tmp_path / "raw.md"
+        raw.write_text(
+            "## Verdict\nNEEDS_CHANGES\n"
+            "### [critical] Missed call site\n"
+            "backend/src/workers/content_generation.py:495 still has the bug.\n"
+            "The inline byte-math `len(audio_data) * 8 // 128000` was not fixed.",
+            encoding="utf-8",
+        )
+        changed = tmp_path / "changed.txt"
+        changed.write_text("tasks/audio/duration.py\n", encoding="utf-8")
+
+        rc = main(
+            [
+                "--raw",
+                str(raw),
+                "--changed-files",
+                str(changed),
+                "--repo-root",
+                str(repo),
+                "--require-verdict",
+                "--label",
+                "R1 Stage 1",
+            ]
+        )
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "[WARN] R1 Stage 1:" in captured.err
+
+    def test_agyv_st_011_true_wrong_target_with_repo_root_returns_one(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """AGYV-ST-011: true wrong-target with --repo-root still exits 1."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        raw = tmp_path / "raw.md"
+        raw.write_text(
+            "## Verdict\nLGTM\nReviewed src/other/unrelated.ts.",
+            encoding="utf-8",
+        )
+        changed = tmp_path / "changed.txt"
+        changed.write_text("tasks/foo/service.py\n", encoding="utf-8")
+
+        rc = main(
+            [
+                "--raw",
+                str(raw),
+                "--changed-files",
+                str(changed),
+                "--repo-root",
+                str(repo),
+            ]
+        )
+        assert rc == 1
 
     def test_agyv_st_007_unreadable_brain_artifact_returns_two(self, tmp_path: Path) -> None:
         """AGYV-ST-007: a present-but-unreadable brain artifact exits 2 (loud)."""
