@@ -140,7 +140,8 @@ fi
 
 # issue #153 fix 3+4：brain-artifact rescue + fail-loud 驗證。validator 會在偵測到
 # brain pointer 時就地改寫 gemini-r1-raw.md 為真正 review 內容，再驗證
-# timeout / agentic narration / 缺 Verdict / 沒提到任何 changed file（wrong-target）。
+# timeout / agentic narration / 缺 Verdict / changed-file content-sanity（issue #208：
+# 引用 repo 中存在但不在 diff 的檔案降級為 [WARN]，不存在的才 [FAIL]）。
 if ! python3 "$SCRIPT_DIR/agy_validate.py" \
     --raw "$REVIEW_DIR/gemini-r1-raw.md" \
     --changed-files "$REVIEW_DIR/changed-files.txt" \

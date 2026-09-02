@@ -91,9 +91,9 @@ fi
 
 # issue #153 fix 3+4：brain-artifact rescue + fail-loud 驗證。萃取若進入 agentic 模式，
 # 真正輸出會寫到 brain artifact，TMP_JSON 只剩 narration+pointer——validator 就地還原。
-# 不檢 Verdict（萃取輸出為 JSON，verdict 由下方 schema 把關），但帶 --changed-files：
-# content-sanity 只在「引用了檔案卻沒有一個是 changed path」時 fail，乾淨 JSON
-# （空 findings / 引用我們的檔案）皆放行，可擋住 agentic 亂引他檔的 wrong-target JSON。
+# 不檢 Verdict（萃取輸出為 JSON，verdict 由下方 schema 把關），但帶 --changed-files +
+# --repo-root：content-sanity 區分「引用了 repo 中存在但不在 diff 的檔案」（issue #208，
+# [WARN] 放行）與「引用了不存在的檔案」（[FAIL] 擋住 agentic drift wrong-target JSON）。
 if ! python3 "$SCRIPT_DIR/agy_validate.py" \
     --raw "$TMP_JSON" \
     --changed-files "$REVIEW_DIR/changed-files.txt" \
