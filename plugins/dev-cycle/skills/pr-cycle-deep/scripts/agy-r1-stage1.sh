@@ -144,6 +144,7 @@ fi
 if ! python3 "$SCRIPT_DIR/agy_validate.py" \
     --raw "$REVIEW_DIR/gemini-r1-raw.md" \
     --changed-files "$REVIEW_DIR/changed-files.txt" \
+    --repo-root "$WT_ROOT" \
     --require-verdict \
     --label "agy R1 Stage 1"; then
     echo "[FAIL] agy R1 Stage 1 輸出未通過 fail-loud 驗證（見上方 [FAIL] 訊息）" >&2

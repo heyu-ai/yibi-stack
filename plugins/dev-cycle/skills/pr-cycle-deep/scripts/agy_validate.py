@@ -25,8 +25,8 @@ residual silent failure into a loud one. It post-processes the raw output file
     always fail; a brain-pointer opener fails only when a brain-artifact path is
     present; an agentic-search or pointer-less brain-phrase opener fails only when
     no review-structure heading follows — see check_agentic_narration); missing
-    Verdict section; and content sanity (fails only when the review references file
-    paths yet none are the changed paths — a review with no file refs passes).
+    Verdict section; and content sanity — see check_changed_files for the
+    wrong-target vs out-of-diff-finding distinction (issue #208).
 
 Known limitation (accepted, defence-in-depth): the review-body heading is a *weak
 proxy* for "a real review followed the preamble". After an agentic-search preamble,
@@ -41,7 +41,8 @@ hard-fail; (3) in mob mode two other independent voices review the same diff, so
 single false LGTM here cannot merge a bug alone.
 
 Exit codes:
-  0 — output passed all enabled checks (after any rescue)
+  0 — output passed all enabled checks (after any rescue); warnings may have
+      been emitted but are advisory only
   1 — a check failed (message on stderr); the caller must treat the review as
       unusable
   2 — usage / IO error
@@ -52,7 +53,17 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+
+
+@dataclass(frozen=True)
+class CheckOutcome:
+    """Result of a single validation check that can be a hard fail or a warning."""
+
+    message: str
+    is_warning: bool = False
+
 
 # Brain-artifact pointer: agy in agentic mode writes the real review to
 # ~/.gemini/antigravity-cli/brain/<uuid-ish>/<name>.md and prints only a pointer.
@@ -149,6 +160,12 @@ _FILE_REF = re.compile(
     rf"|\b[\w\-]+\.(?:{_SRC_EXT})\b",  # a bare filename with a known extension
     re.IGNORECASE,
 )
+
+# Path-style references only (with directory separators). Used by the repo-root
+# existence check to distinguish out-of-diff sibling findings (issue #208) from
+# true agentic drift. Bare filenames are excluded because existence cannot be
+# cheaply verified without a full tree walk.
+_PATH_REF = re.compile(r"[\w.\-]+(?:/[\w.\-]+)+\.\w{1,5}\b")
 
 
 def find_brain_pointer(text: str) -> str | None:
@@ -292,7 +309,12 @@ def load_changed_files(path: Path) -> list[str]:
     return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
-def check_changed_files(text: str, changed: list[str]) -> str | None:
+def check_changed_files(
+    text: str,
+    changed: list[str],
+    *,
+    repo_root: Path | None = None,
+) -> CheckOutcome | None:
     """Content sanity: detect a review that targeted the WRONG files.
 
     Defence-in-depth against the wrong-target failure mode (agy reviewed a stale
@@ -303,7 +325,14 @@ def check_changed_files(text: str, changed: list[str]) -> str | None:
     - references a changed path (full path) or basename  -> pass (right target)
     - references no file at all (e.g. a terse clean LGTM) -> pass (cannot be
       wrong-target; nothing file-specific to be wrong about)
-    - references file paths but none are ours             -> fail (wrong target)
+    - references file paths outside the diff that EXIST in the repo -> warn
+      (issue #208: likely a legitimate out-of-diff finding, e.g. "you changed X
+      but missed the sibling copy in Y")
+    - references file paths but none are ours AND none exist in repo -> fail
+      (true wrong-target / agentic drift)
+
+    When ``repo_root`` is ``None``, the existence check is skipped and the
+    original behaviour is preserved (hard fail on any unmatched file ref).
 
     An empty changed list is treated as "nothing to check" and never blocks.
     Residual gap (accepted, defence-in-depth): a stale review of a *different*
@@ -320,11 +349,26 @@ def check_changed_files(text: str, changed: list[str]) -> str | None:
         return None
     if not _FILE_REF.search(text):
         return None  # no file references at all -> not a wrong-target review
+
     sample = ", ".join(sorted(changed)[:3])
-    return (
+    msg = (
         f"output references files but none of the {len(changed)} changed paths "
         f"({sample}) — likely reviewed the WRONG target"
     )
+
+    if repo_root is not None:
+        path_refs = _PATH_REF.findall(text)
+        if any((repo_root / ref).is_file() for ref in path_refs):
+            return CheckOutcome(
+                message=(
+                    f"output references files outside the diff but at least one "
+                    f"exists in the repo — likely a legitimate out-of-diff finding "
+                    f"(none of the {len(changed)} changed paths matched: {sample})"
+                ),
+                is_warning=True,
+            )
+
+    return CheckOutcome(message=msg)
 
 
 def validate(
@@ -332,9 +376,16 @@ def validate(
     *,
     require_verdict: bool,
     changed_files: list[str] | None,
-) -> list[str]:
-    """Run all enabled checks and return the list of failure messages."""
+    repo_root: Path | None = None,
+) -> tuple[list[str], list[str]]:
+    """Run all enabled checks and return ``(errors, warnings)``.
+
+    Errors are hard failures that should make the caller reject the review.
+    Warnings are advisory (e.g. out-of-diff file references that exist in the
+    repo — issue #208) and should be surfaced but not block the review.
+    """
     errors: list[str] = []
+    warnings: list[str] = []
     for check in (check_timeout, check_agentic_narration):
         err = check(content)
         if err:
@@ -344,10 +395,17 @@ def validate(
         if err:
             errors.append(err)
     if changed_files is not None:
-        err = check_changed_files(content, changed_files)
-        if err:
-            errors.append(err)
-    return errors
+        outcome = check_changed_files(
+            content,
+            changed_files,
+            repo_root=repo_root,
+        )
+        if outcome is not None:
+            if outcome.is_warning:
+                warnings.append(outcome.message)
+            else:
+                errors.append(outcome.message)
+    return errors, warnings
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -381,6 +439,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="override HOME for brain-artifact resolution (testing only)",
+    )
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=None,
+        help="repo root for out-of-diff file existence check (issue #208)",
     )
     return parser
 
@@ -428,11 +492,14 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
 
-    errors = validate(
+    errors, warnings = validate(
         content,
         require_verdict=args.require_verdict,
         changed_files=changed,
+        repo_root=args.repo_root,
     )
+    for warn in warnings:
+        print(f"[WARN] {args.label}: {warn}", file=sys.stderr)
     if errors:
         for err in errors:
             print(f"[FAIL] {args.label}: {err}", file=sys.stderr)

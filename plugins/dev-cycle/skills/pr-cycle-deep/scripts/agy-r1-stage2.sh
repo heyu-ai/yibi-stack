@@ -97,6 +97,7 @@ fi
 if ! python3 "$SCRIPT_DIR/agy_validate.py" \
     --raw "$TMP_JSON" \
     --changed-files "$REVIEW_DIR/changed-files.txt" \
+    --repo-root "$WT_ROOT" \
     --label "agy R1 Stage 2"; then
     echo "[FAIL] agy R1 Stage 2 萃取輸出未通過 fail-loud 驗證（見上方 [FAIL] 訊息）" >&2
     rm -f "$REVIEW_DIR/gemini-extract-input.md" "$TMP_JSON"
