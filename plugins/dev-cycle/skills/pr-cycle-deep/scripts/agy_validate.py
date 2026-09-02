@@ -325,9 +325,10 @@ def check_changed_files(
     - references a changed path (full path) or basename  -> pass (right target)
     - references no file at all (e.g. a terse clean LGTM) -> pass (cannot be
       wrong-target; nothing file-specific to be wrong about)
-    - references file paths outside the diff that EXIST in the repo -> warn
-      (issue #208: likely a legitimate out-of-diff finding, e.g. "you changed X
-      but missed the sibling copy in Y")
+    - references path-style file refs (with ``/``) outside the diff that EXIST
+      in the repo -> warn (issue #208: likely a legitimate out-of-diff finding,
+      e.g. "you changed X but missed the sibling copy in Y"; bare filenames
+      without a directory separator are not checked for existence — see _PATH_REF)
     - references file paths but none are ours AND none exist in repo -> fail
       (true wrong-target / agentic drift)
 
@@ -358,7 +359,12 @@ def check_changed_files(
 
     if repo_root is not None:
         path_refs = _PATH_REF.findall(text)
-        if any((repo_root / ref).is_file() for ref in path_refs):
+        resolved_root = repo_root.resolve()
+        if any(
+            (candidate := (repo_root / ref).resolve()).is_file()
+            and candidate.is_relative_to(resolved_root)
+            for ref in path_refs
+        ):
             return CheckOutcome(
                 message=(
                     f"output references files outside the diff but at least one "

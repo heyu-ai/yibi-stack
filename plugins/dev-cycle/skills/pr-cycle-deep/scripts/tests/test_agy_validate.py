@@ -348,11 +348,11 @@ class TestCheckChangedFiles:
         assert elapsed < 2.0, f"check_changed_files took {elapsed:.2f}s (possible ReDoS)"
         assert result is None  # no real file reference -> not wrong-target
 
-    def test_agyv_dt_020_out_of_diff_existing_file_is_warning(
+    def test_agyv_dt_025_out_of_diff_existing_file_is_warning(
         self,
         tmp_path: Path,
     ) -> None:
-        """AGYV-DT-020: referencing a real repo file outside the diff is a warning.
+        """AGYV-DT-025: referencing a real repo file outside the diff is a warning.
 
         Issue #208: a review that says 'you missed the sibling in Y' where Y is
         a real file should not be auto-dropped. With --repo-root, this is a
@@ -377,11 +377,11 @@ class TestCheckChangedFiles:
         assert outcome.is_warning
         assert "out-of-diff finding" in outcome.message
 
-    def test_agyv_dt_021_out_of_diff_nonexistent_file_is_fail(
+    def test_agyv_dt_026_out_of_diff_nonexistent_file_is_fail(
         self,
         tmp_path: Path,
     ) -> None:
-        """AGYV-DT-021: referencing a file that doesn't exist in the repo is a fail.
+        """AGYV-DT-026: referencing a file that doesn't exist in the repo is a fail.
 
         True agentic drift: the review discusses files from a stale scratch
         input that have no relationship to this repo.
@@ -396,8 +396,33 @@ class TestCheckChangedFiles:
         assert not outcome.is_warning
         assert "WRONG target" in outcome.message
 
-    def test_agyv_dt_022_no_repo_root_preserves_original_behavior(self) -> None:
-        """AGYV-DT-022: without --repo-root, unmatched refs are a hard fail."""
+    def test_agyv_dt_028_path_traversal_does_not_escape_repo_root(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """AGYV-DT-028: a ``..`` traversal that resolves outside repo_root is not a warning.
+
+        Defence against model-generated paths like ``tasks/../../.env`` that
+        resolve outside the repo root via ``..``. Even if the traversed path
+        exists on disk, the check must not downgrade to warning.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        secret = tmp_path / "secret.py"
+        secret.write_text("SECRET=1", encoding="utf-8")
+
+        text = "## Verdict\nNEEDS_CHANGES\nBug in repo/../secret.py at line 1."
+        outcome = check_changed_files(
+            text,
+            ["tasks/foo/service.py"],
+            repo_root=repo,
+        )
+        assert outcome is not None
+        assert not outcome.is_warning
+        assert "WRONG target" in outcome.message
+
+    def test_agyv_dt_027_no_repo_root_preserves_original_behavior(self) -> None:
+        """AGYV-DT-027: without --repo-root, unmatched refs are a hard fail."""
         text = "## Verdict\nLGTM\nReviewed src/unrelated/other.ts thoroughly."
         outcome = check_changed_files(text, ["tasks/foo/service.py"])
         assert outcome is not None
@@ -428,11 +453,11 @@ class TestValidateAggregation:
         assert errors == []
         assert warnings == []
 
-    def test_agyv_vl_003_out_of_diff_finding_is_warning_not_error(
+    def test_agyv_vl_004_out_of_diff_finding_is_warning_not_error(
         self,
         tmp_path: Path,
     ) -> None:
-        """AGYV-VL-003: an out-of-diff finding routes to warnings, not errors.
+        """AGYV-VL-004: an out-of-diff finding routes to warnings, not errors.
 
         Issue #208: validate() must separate warnings from errors so that the
         caller (main) exits 0 and surfaces the finding for lead review instead
@@ -533,11 +558,11 @@ class TestMain:
         rc = main(["--raw", str(raw), "--changed-files", str(tmp_path / "nope.txt")])
         assert rc == 2
 
-    def test_agyv_st_008_out_of_diff_finding_returns_zero(
+    def test_agyv_st_010_out_of_diff_finding_returns_zero(
         self,
         tmp_path: Path,
     ) -> None:
-        """AGYV-ST-008: out-of-diff finding with --repo-root exits 0 (warning).
+        """AGYV-ST-010: out-of-diff finding with --repo-root exits 0 (warning).
 
         Issue #208 end-to-end: a review citing a file outside the diff that
         exists in the repo must not be auto-dropped. Exit 0 lets the caller
@@ -574,11 +599,11 @@ class TestMain:
         )
         assert rc == 0
 
-    def test_agyv_st_009_true_wrong_target_with_repo_root_returns_one(
+    def test_agyv_st_011_true_wrong_target_with_repo_root_returns_one(
         self,
         tmp_path: Path,
     ) -> None:
-        """AGYV-ST-009: true wrong-target with --repo-root still exits 1."""
+        """AGYV-ST-011: true wrong-target with --repo-root still exits 1."""
         repo = tmp_path / "repo"
         repo.mkdir()
 
