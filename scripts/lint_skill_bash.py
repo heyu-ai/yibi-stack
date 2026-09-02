@@ -222,6 +222,11 @@ def main() -> int:
 
     active_hooks = _active_hooks()
     if not active_hooks:
+        print(
+            "[WARN] lint_skill_bash: no hook files found — skipping anti-pattern"
+            " validation (check HOOKS_DIR)",
+            file=sys.stderr,
+        )
         if add_dir_violations:
             level = "[FAIL]" if FAIL_MODE else "[WARN]"
             print(
@@ -241,11 +246,6 @@ def main() -> int:
                     file=sys.stderr,
                 )
             return 1 if FAIL_MODE else 0
-        print(
-            "[WARN] lint_skill_bash: no hook files found — skipping anti-pattern"
-            " validation (check HOOKS_DIR)",
-            file=sys.stderr,
-        )
         return 0
 
     all_violations: list[str] = list(add_dir_violations)

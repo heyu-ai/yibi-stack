@@ -352,4 +352,34 @@ class TestRelativeAddDir:
             f"Rule files under .claude/rules/ must not be scanned (AC-3). "
             f"stdout={result.stdout!r} stderr={result.stderr!r}"
         )
-        assert "[ADD-DIR]" not in self._combined(result), self._combined(result)
+        combined = self._combined(result)
+        assert "[ADD-DIR]" not in combined, combined
+
+    def test_lintbash_ad_014_no_hooks_fail_mode_exit_one(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-014: ADD-DIR violation + no hooks + --fail -> exit 1."""
+        root = _make_repo(tmp_path, with_hooks=False)
+        (root / "skills" / "agy-review").mkdir(parents=True)
+        (root / "skills" / "agy-review" / "SKILL.md").write_text(
+            '---\nname: agy-review\n---\n\n```bash\nagy -p "$P" --add-dir . --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root, "--fail")
+        assert "[ADD-DIR]" in self._combined(result), self._combined(result)
+        assert result.returncode == 1, (
+            f"no-hooks + --fail + violation should exit 1. rc={result.returncode}"
+        )
+
+    def test_lintbash_ad_015_no_hooks_hook_skip_warning_always_shown(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-015: hook-skip warning appears even when ADD-DIR violations exist."""
+        root = _make_repo(tmp_path, with_hooks=False)
+        (root / "skills" / "agy-review").mkdir(parents=True)
+        (root / "skills" / "agy-review" / "SKILL.md").write_text(
+            '---\nname: agy-review\n---\n\n```bash\nagy -p "$P" --add-dir . --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "no hook files found" in result.stderr, (
+            f"hook-skip warning should appear even with ADD-DIR violations. "
+            f"stderr={result.stderr!r}"
+        )
+        assert "[ADD-DIR]" in self._combined(result), self._combined(result)
