@@ -55,6 +55,20 @@ AP2_HOOK = HOOKS_DIR / "bash-ap2-check.py"
 
 BASH_FENCE = re.compile(r"^```bash\s*\n(.*?)\n```", re.DOTALL | re.MULTILINE)
 
+# --add-dir followed by a value that is NOT absolute (no leading / or $).
+# Captures: --add-dir . | --add-dir ./foo | --add-dir foo/bar
+# Safe (not matched): --add-dir "$VAR" | --add-dir /abs/path | --add-dir "${VAR}"
+_RELATIVE_ADD_DIR = re.compile(
+    r"--add-dir\s+"
+    r"(?:"
+    r'"([^/$][^"]*)"'  # double-quoted relative: --add-dir "."
+    r"|"
+    r"'([^/$][^']*)'"  # single-quoted relative: --add-dir '.'
+    r"|"
+    r"([^/$\s\"][^\s]*)"  # unquoted relative: --add-dir .
+    r")"
+)
+
 MD_GLOBS = [
     "commands/*.md",
     "skills/**/SKILL.md",
@@ -96,6 +110,19 @@ def extract_bash_blocks(path: Path) -> list[tuple[int, str]]:
         code = m.group(1)
         blocks.append((line_no, code))
     return blocks
+
+
+def check_relative_add_dir(block: str) -> str | None:
+    """Return a diagnostic if the block contains --add-dir with a relative path."""
+    m = _RELATIVE_ADD_DIR.search(block)
+    if m:
+        value = m.group(1) or m.group(2) or m.group(3)
+        return (
+            f"--add-dir 使用相對路徑 '{value}'；"
+            "agy 1.1.22 不再解析相對路徑，必須傳絕對路徑"
+            '（如 "$REPO_ROOT"）'
+        )
+    return None
 
 
 def _run_hook(hook_cmd: list[str], command: str) -> tuple[int, str]:
@@ -174,8 +201,32 @@ def main() -> int:
         )
         return 1
 
+    # --add-dir 相對路徑偵測：獨立於 hook，與 dangling symlink 同等級——安全性守門
+    # 不受 hook 可用性影響。在 hook-availability 檢查之前執行。
+    add_dir_violations: list[str] = []
+    for f in files:
+        rel = f.relative_to(REPO_ROOT)
+        try:
+            blocks = extract_bash_blocks(f)
+        except OSError:
+            continue  # TOCTOU：讀取失敗由下面的 lint_file() 再處理
+        for line_no, block in blocks:
+            diag = check_relative_add_dir(block)
+            if diag:
+                add_dir_violations.append(f"  {rel}:{line_no}: [ADD-DIR] {diag}")
+
     active_hooks = _active_hooks()
     if not active_hooks:
+        if add_dir_violations:
+            level = "[FAIL]" if FAIL_MODE else "[WARN]"
+            print(f"{level} --add-dir 相對路徑違規（{len(add_dir_violations)} 個）：")
+            for v in add_dir_violations:
+                print(v)
+            print()
+            print('修法：傳絕對路徑（如 "$REPO_ROOT"），見 .claude/rules/13-bash-anti-patterns.md')
+            if not FAIL_MODE:
+                print("提示：用 --fail 旗標可讓此 script 在有違規時 exit 1")
+            return 1 if FAIL_MODE else 0
         print(
             "[WARN] lint_skill_bash: no hook files found — skipping anti-pattern"
             " validation (check HOOKS_DIR)",
@@ -183,7 +234,7 @@ def main() -> int:
         )
         return 0
 
-    all_violations: list[str] = []
+    all_violations: list[str] = list(add_dir_violations)
     all_structural: list[str] = []
     for f in files:
         violations, structural = lint_file(f, active_hooks)

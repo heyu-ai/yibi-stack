@@ -1306,12 +1306,12 @@ Pass the absolute path and remove the failure mode instead. `pr-cycle-deep`'s
   through git rather than a filesystem walk so an untracked scratch checkout cannot make the
   verdict machine-dependent — at the documented cost that a brand-new script is invisible until
   `git add`, the same trade-off as CLAUDE.md's "`git add` first, then `make ci`".
-- **Not covered**: a `--add-dir` inside a SKILL.md bash fence — a live execution path here (see
-  the CLAUDE.md gotcha on the agent rewriting a slash-command bash block). Scanning `*.md` would
-  also match the deliberate "Wrong:" examples in this very file, so separating live commands from
-  counter-examples belongs in `scripts/lint_skill_bash.py`. Tracked as **issue #410**; when that
-  lands, this bullet is part of the change — a "Not covered" note that outlives the gap is the
-  same stale-claim defect this section's probe-rot note warns about.
+- **Covered by `scripts/lint_skill_bash.py`** (issue #410): SKILL.md bash fences containing
+  `--add-dir` with a relative path (`.`, `./subdir`, any non-absolute non-variable value) are
+  flagged as `[ADD-DIR]` violations. Rule files under `.claude/rules/` are naturally excluded
+  because `MD_GLOBS` only scans skill/command files — the deliberate "Wrong:" examples in this
+  file do not trigger the lint. Detection runs independently of hook availability (same design
+  as the dangling-symlink check).
 
 **Why not just parse the scripts.** The first version of this guard did exactly that: a
 quote-state scanner plus regexes deciding whether a `"$VAR"` came from an
