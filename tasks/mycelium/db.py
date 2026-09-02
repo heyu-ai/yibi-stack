@@ -506,6 +506,40 @@ class AgentsDB:  # pylint: disable=too-many-public-methods
             if "UNIQUE constraint failed: handovers.id" not in str(e):
                 raise  # 非重複 id 的 IntegrityError（如 NOT NULL、CHECK），照常拋出
 
+    def fetch_all_handovers(self) -> list[dict[str, Any]]:
+        """取出所有 handover 記錄（JSON array 欄位已 decode）。"""
+        cur = self.conn.execute("SELECT * FROM handovers ORDER BY timestamp DESC")
+        return [_decode_row(row) for row in cur.fetchall()]
+
+    _UPDATABLE_COLS = {
+        "topic",
+        "conversation_summary",
+        *_JSON_ARRAY_COLS,
+    }
+
+    def update_handover_text_fields(
+        self, handover_id: str, updates: dict[str, str | list[str]]
+    ) -> None:
+        """更新 handover 的文字欄位（topic / conversation_summary / JSON array 欄位）。"""
+        if not updates:
+            return
+        bad = set(updates) - self._UPDATABLE_COLS
+        if bad:
+            raise ValueError(f"不允許更新的欄位：{bad}")
+        set_parts: list[str] = []
+        params: list[object] = []
+        json_cols = set(_JSON_ARRAY_COLS)
+        for col, val in updates.items():
+            set_parts.append(f"{col} = ?")
+            if col in json_cols and isinstance(val, list):
+                params.append(json.dumps(val, ensure_ascii=False))
+            else:
+                params.append(val)
+        params.append(handover_id)
+        sql = f"UPDATE handovers SET {', '.join(set_parts)} WHERE id = ?"  # nosec B608
+        self.conn.execute(sql, params)
+        self.conn.commit()
+
     def read_recent(
         self,
         last: int = 4,

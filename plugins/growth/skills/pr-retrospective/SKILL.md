@@ -33,6 +33,27 @@ description: >
 
 ---
 
+## Language Convention — 顯示繁中 / 儲存英文
+
+| 層 | 語言 | 範例 |
+|---|---|---|
+| **Human-facing output**（Step 2 草稿、Step 3 校準提示、結尾摘要） | 繁體中文台灣用語 | 「這次 PR 解決的問題：……」 |
+| **Stored records**（`retro write` / `handover write` 的 topic / summary / decisions / lessons；`lessons add --insight` body / `--key` slug） | English | `topic="Retro: PR #42 - fix auth race"`；`--key bash-cd-before-git` |
+
+**Why**：mycelium `lessons` / `handovers` 是 `/knowledge-distill` 語意聚合的資料來源。
+語意相同的教訓若分別以中文和英文寫入，clustering 會分裂、dedup 失效。
+統一英文儲存同時讓 `key ↔ body` 對齊（key 是英文 kebab-case），
+且技術識別符（`actions/checkout`、`musl`、`symlink_metadata`）本就是英文——
+混合語言反而增加雜訊。
+
+Lesson 從儲存升級到 `.claude/rules/` 時也不需要再翻譯。
+
+**How**：agent 在 Step 2 以繁中呈現草稿（溝通層），
+使用者校準後 agent 在 Step 4 / 4b 以英文組裝 CLI 引數（儲存層）。
+兩層之間的翻譯由 agent 當場完成，不需使用者操作。
+
+---
+
 ## 步驟
 
 ### Step 0 — 環境與 PR 解析（只在 skill 啟動時跑一次）

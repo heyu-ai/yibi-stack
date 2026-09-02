@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import sqlite3
 import uuid
 from datetime import UTC, datetime
@@ -199,3 +200,284 @@ def _append_jsonl(record: HandoverRecord, path: Path) -> None:
 
 def _now_iso() -> str:
     return datetime.now(UTC).astimezone().replace(microsecond=0).isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Language normalization (one-time maintenance)
+# Scope: Traditional Chinese (CJK Unified Ideographs basic block U+4E00-U+9FFF).
+# Hiragana / Katakana / Hangul are not targeted -- issue #206 scope is zh-TW only.
+# ---------------------------------------------------------------------------
+
+_CJK_RE = re.compile(r"[一-鿿]")
+
+_TEXT_FIELDS = ("topic", "conversation_summary")
+# tags / last_files intentionally excluded: metadata fields, not translatable prose.
+_JSON_ARRAY_FIELDS = (
+    "completed",
+    "decisions",
+    "blocked",
+    "next_priorities",
+    "lessons_learned",
+    "attempted_approaches",
+)
+
+_ITEM_RE = re.compile(r'<item\s+index="(\d+)">(.*?)</item>', re.DOTALL)
+
+
+def _has_cjk(text: str) -> bool:
+    return bool(_CJK_RE.search(text))
+
+
+def _record_has_cjk(row: dict[str, Any]) -> bool:
+    return bool(_collect_cjk_texts(row))
+
+
+def _xml_escape(text: str) -> str:
+    """Escape XML special characters in user text before embedding in prompt."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _xml_unescape(text: str) -> str:
+    """Reverse _xml_escape: restore &amp; &lt; &gt; to their original characters."""
+    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+
+def audit_handover_language(*, db_path: Path | None = None) -> dict[str, Any]:
+    """Audit handover records for CJK content. Returns statistics dict."""
+    db = AgentsDB(db_path or HANDOVER_DB_PATH)
+    try:
+        db.init_db()
+        rows = db.fetch_all_handovers()
+    finally:
+        db.close()
+
+    total = len(rows)
+    cjk_count = sum(1 for r in rows if _record_has_cjk(r))
+
+    field_stats: dict[str, int] = {}
+    for f in (*_TEXT_FIELDS, *_JSON_ARRAY_FIELDS):
+        if f in _TEXT_FIELDS:
+            field_stats[f] = sum(1 for r in rows if _has_cjk(r.get(f) or ""))
+        else:
+            field_stats[f] = sum(
+                1
+                for r in rows
+                if isinstance(r.get(f), list) and any(_has_cjk(str(i)) for i in r[f])
+            )
+
+    return {
+        "total": total,
+        "cjk_count": cjk_count,
+        "field_stats": field_stats,
+    }
+
+
+def _translate_batch(texts: list[str]) -> list[str]:
+    """Translate a list of Chinese texts to English using the Anthropic API.
+
+    Raises RuntimeError if the API response is missing items or truncated.
+    """
+    try:
+        from anthropic import Anthropic  # pylint: disable=import-error
+    except ImportError as exc:
+        raise RuntimeError("anthropic SDK 未安裝。請執行：uv sync --extra ledger") from exc
+
+    if not texts:
+        return []
+
+    client = Anthropic()
+    prompt_parts = []
+    for i, t in enumerate(texts):
+        prompt_parts.append(f'<item index="{i}">{_xml_escape(t)}</item>')
+    items_xml = "\n".join(prompt_parts)
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=8192,
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "Translate each <item> from Traditional Chinese to English. "
+                    "Preserve technical identifiers (file paths, CLI flags, class names, "
+                    "variable names, PR numbers, issue numbers, branch names) verbatim. "
+                    "Keep the translation concise — same register as a developer handover note. "
+                    'Return each translation inside <item index="N">...</item> tags, '
+                    "matching the input indices exactly. "
+                    "Do not add explanations outside the tags.\n\n"
+                    f"{items_xml}"
+                ),
+            }
+        ],
+    )
+
+    first_block = response.content[0]
+    result_text: str = first_block.text if hasattr(first_block, "text") else str(first_block)
+
+    if hasattr(response, "stop_reason") and response.stop_reason == "max_tokens":
+        raise RuntimeError(f"API 回應被截斷（max_tokens）：預期 {len(texts)} 個項目")
+
+    translated: dict[int, str] = {}
+    for m in _ITEM_RE.finditer(result_text):
+        translated[int(m.group(1))] = _xml_unescape(m.group(2).strip())
+
+    missing = [i for i in range(len(texts)) if i not in translated]
+    if missing:
+        raise RuntimeError(
+            f"API 回應缺少 {len(missing)}/{len(texts)} 個翻譯項目（缺少索引：{missing[:10]}）"
+        )
+
+    return [translated[i] for i in range(len(texts))]
+
+
+def _collect_cjk_texts(row: dict[str, Any]) -> list[tuple[str, int | None, str]]:
+    """Collect all CJK text segments from a handover row.
+
+    Returns list of (field_name, array_index_or_None, text).
+    """
+    result: list[tuple[str, int | None, str]] = []
+    for f in _TEXT_FIELDS:
+        val = row.get(f) or ""
+        if _has_cjk(val):
+            result.append((f, None, val))
+    for f in _JSON_ARRAY_FIELDS:
+        items = row.get(f)
+        if isinstance(items, list):
+            for idx, item in enumerate(items):
+                s = str(item)
+                if _has_cjk(s):
+                    result.append((f, idx, s))
+    return result
+
+
+def _apply_translations(
+    row: dict[str, Any],
+    segments: list[tuple[str, int | None, str]],
+    translated: list[str],
+) -> dict[str, str | list[str]]:
+    """Build an updates dict from translated segments."""
+    updates: dict[str, str | list[str]] = {}
+    arr_copies: dict[str, list[str]] = {}
+
+    for (field, arr_idx, _orig), new_text in zip(segments, translated, strict=True):
+        if arr_idx is None:
+            updates[field] = new_text
+        else:
+            if field not in arr_copies:
+                arr_copies[field] = list(row.get(field) or [])
+            arr_copies[field][arr_idx] = new_text
+
+    for f, arr in arr_copies.items():
+        updates[f] = arr
+
+    return updates
+
+
+def normalize_handover_language(
+    *,
+    dry_run: bool = True,
+    batch_size: int = 20,
+    db_path: Path | None = None,
+    progress_callback: Any | None = None,
+) -> dict[str, Any]:
+    """Normalize CJK handover records to English.
+
+    Translates in batches of ``batch_size`` rows. Each batch collects all CJK
+    text segments, translates them in a single API call, then applies updates.
+
+    Returns a summary dict with counts and sample changes.
+    """
+    effective_db = db_path or HANDOVER_DB_PATH
+    db = AgentsDB(effective_db)
+    try:
+        db.init_db()
+        rows = db.fetch_all_handovers()
+    finally:
+        db.close()
+
+    cjk_rows = [r for r in rows if _record_has_cjk(r)]
+    if not cjk_rows:
+        return {
+            "processed": 0,
+            "skipped": 0,
+            "failed": 0,
+            "total_cjk": 0,
+            "dry_run": dry_run,
+            "samples": [],
+        }
+
+    processed = 0
+    skipped = 0
+    failed = 0
+    samples: list[dict[str, Any]] = []
+    errors: list[str] = []
+
+    db2 = AgentsDB(effective_db)
+    try:
+        db2.init_db()
+        for batch_start in range(0, len(cjk_rows), batch_size):
+            batch = cjk_rows[batch_start : batch_start + batch_size]
+
+            all_texts: list[str] = []
+            row_segments: list[list[tuple[str, int | None, str]]] = []
+            for row in batch:
+                segs = _collect_cjk_texts(row)
+                row_segments.append(segs)
+                all_texts.extend(t for _, _, t in segs)
+
+            if not all_texts:
+                skipped += len(batch)
+                if progress_callback:
+                    progress_callback(batch_start + len(batch), len(cjk_rows))
+                continue
+
+            try:
+                translated = _translate_batch(all_texts)
+            except RuntimeError as exc:
+                failed += len(batch)
+                errors.append(f"batch {batch_start}: {exc}")
+                if progress_callback:
+                    progress_callback(batch_start + len(batch), len(cjk_rows))
+                continue
+
+            offset = 0
+            for row, segs in zip(batch, row_segments, strict=True):
+                n = len(segs)
+                row_translated = translated[offset : offset + n]
+                offset += n
+
+                updates = _apply_translations(row, segs, row_translated)
+                if updates:
+                    if len(samples) < 5:
+                        sample: dict[str, Any] = {
+                            "id": row["id"][:8],
+                            "changes": {},
+                        }
+                        for k, v in updates.items():
+                            orig = row.get(k)
+                            sample["changes"][k] = {
+                                "from": str(orig)[:60] if orig else "",
+                                "to": str(v)[:60],
+                            }
+                        samples.append(sample)
+
+                    if not dry_run:
+                        db2.update_handover_text_fields(row["id"], updates)
+                    processed += 1
+                else:
+                    skipped += 1
+
+            if progress_callback:
+                progress_callback(batch_start + len(batch), len(cjk_rows))
+    finally:
+        db2.close()
+
+    return {
+        "processed": processed,
+        "skipped": skipped,
+        "failed": failed,
+        "total_cjk": len(cjk_rows),
+        "dry_run": dry_run,
+        "samples": samples,
+        "errors": errors,
+    }
