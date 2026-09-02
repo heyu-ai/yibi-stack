@@ -237,6 +237,11 @@ def _xml_escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _xml_unescape(text: str) -> str:
+    """Reverse _xml_escape: restore &amp; &lt; &gt; to their original characters."""
+    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+
 def audit_handover_language(*, db_path: Path | None = None) -> dict[str, Any]:
     """Audit handover records for CJK content. Returns statistics dict."""
     db = AgentsDB(db_path or HANDOVER_DB_PATH)
@@ -314,7 +319,7 @@ def _translate_batch(texts: list[str]) -> list[str]:
 
     translated: dict[int, str] = {}
     for m in _ITEM_RE.finditer(result_text):
-        translated[int(m.group(1))] = m.group(2).strip()
+        translated[int(m.group(1))] = _xml_unescape(m.group(2).strip())
 
     missing = [i for i in range(len(texts)) if i not in translated]
     if missing:
@@ -392,12 +397,20 @@ def normalize_handover_language(
 
     cjk_rows = [r for r in rows if _record_has_cjk(r)]
     if not cjk_rows:
-        return {"processed": 0, "skipped": 0, "total_cjk": 0}
+        return {
+            "processed": 0,
+            "skipped": 0,
+            "failed": 0,
+            "total_cjk": 0,
+            "dry_run": dry_run,
+            "samples": [],
+        }
 
     processed = 0
     skipped = 0
     failed = 0
     samples: list[dict[str, Any]] = []
+    errors: list[str] = []
 
     db2 = AgentsDB(effective_db)
     try:
@@ -414,12 +427,17 @@ def normalize_handover_language(
 
             if not all_texts:
                 skipped += len(batch)
+                if progress_callback:
+                    progress_callback(batch_start + len(batch), len(cjk_rows))
                 continue
 
             try:
                 translated = _translate_batch(all_texts)
-            except RuntimeError:
+            except RuntimeError as exc:
                 failed += len(batch)
+                errors.append(f"batch {batch_start}: {exc}")
+                if progress_callback:
+                    progress_callback(batch_start + len(batch), len(cjk_rows))
                 continue
 
             offset = 0
@@ -461,4 +479,5 @@ def normalize_handover_language(
         "total_cjk": len(cjk_rows),
         "dry_run": dry_run,
         "samples": samples,
+        "errors": errors,
     }

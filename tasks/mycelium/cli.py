@@ -452,12 +452,16 @@ def handover_normalize_language(
 
     if as_json:
         click.echo(json.dumps(result, ensure_ascii=False, indent=2))
+        if result.get("failed", 0) > 0:
+            raise SystemExit(1)
         return
 
     mode = "DRY-RUN" if dry_run else "APPLIED"
     p, sk, t = result["processed"], result["skipped"], result["total_cjk"]
     f_count = result.get("failed", 0)
     click.echo(f"[{mode}] processed={p} skipped={sk} failed={f_count} total_cjk={t}")
+    for err in result.get("errors", []):
+        click.echo(f"  [WARN] {err}", err=True)
     if result.get("samples"):
         click.echo("Sample changes:")
         for sample in result["samples"]:
@@ -468,6 +472,9 @@ def handover_normalize_language(
 
     if dry_run:
         click.echo("\nTo apply: mycelium handover normalize-language --apply")
+
+    if f_count > 0:
+        raise SystemExit(1)
 
 
 # ─── hooks ───────────────────────────────────────────────────────────────

@@ -272,3 +272,39 @@ class TestNormalizeHandoverLanguage:
         assert rows[0]["topic"] == "Fix the problem"
         assert rows[0]["completed"] == ["Completed task 1", "done task 2"]
         assert rows[0]["next_priorities"] == ["Next: write tests"]
+
+    @patch("tasks.mycelium.handover_service._translate_batch")
+    def test_nlang_st_014_failed_batch_continues_processing(
+        self, mock_translate: MagicMock, tmp_path: Path
+    ) -> None:
+        """NLANG-ST-014：翻譯失敗的 batch 計入 failed，後續 batch 繼續。"""
+        mock_translate.side_effect = RuntimeError("API error")
+
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path)
+        db.init_db()
+        _insert_handover(db, topic="修正問題", conversation_summary="修了")
+        db.close()
+
+        result = normalize_handover_language(dry_run=False, db_path=db_path)
+        assert result["failed"] == 1
+        assert result["processed"] == 0
+        assert len(result["errors"]) == 1
+        assert "API error" in result["errors"][0]
+
+    @patch("tasks.mycelium.handover_service._translate_batch")
+    def test_nlang_st_015_early_return_has_consistent_keys(
+        self, mock_translate: MagicMock, tmp_path: Path
+    ) -> None:
+        """NLANG-ST-015：無 CJK 時 early return 的 dict 包含所有 key。"""
+        db_path = tmp_path / "test.db"
+        db = AgentsDB(db_path)
+        db.init_db()
+        _insert_handover(db, topic="english", conversation_summary="ok")
+        db.close()
+
+        result = normalize_handover_language(dry_run=True, db_path=db_path)
+        assert "failed" in result
+        assert "dry_run" in result
+        assert "samples" in result
+        mock_translate.assert_not_called()
