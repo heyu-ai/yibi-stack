@@ -181,3 +181,205 @@ class TestStructuralReadFailure:
         )
         result = _run(root, "--fail")
         assert result.returncode == 1, result.stdout
+
+
+class TestRelativeAddDir:
+    """ADD-DIR detection: --add-dir with a relative path in bash fences.
+
+    Detection output lands on stdout (hooks-present path, merged with other violations)
+    or stderr (no-hooks path). Tests check combined output for detection presence.
+    """
+
+    @staticmethod
+    def _combined(result: subprocess.CompletedProcess[str]) -> str:
+        return result.stdout + result.stderr
+
+    def test_lintbash_ad_001_relative_dot_flagged(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-001: --add-dir . in a bash fence is flagged."""
+        root = _make_repo(tmp_path)
+        (root / "skills" / "agy-review").mkdir(parents=True)
+        (root / "skills" / "agy-review" / "SKILL.md").write_text(
+            '---\nname: agy-review\n---\n\n```bash\nagy -p "$P" --add-dir . --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "[ADD-DIR]" in self._combined(result), self._combined(result)
+
+    def test_lintbash_ad_002_absolute_var_not_flagged(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-002: --add-dir "$REPO_ROOT" is safe — must NOT flag."""
+        root = _make_repo(tmp_path)
+        (root / "skills" / "agy-review").mkdir(parents=True)
+        (root / "skills" / "agy-review" / "SKILL.md").write_text(
+            "---\nname: agy-review\n---\n\n```bash\n"
+            'agy -p "$P" --add-dir "$REPO_ROOT" --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "[ADD-DIR]" not in self._combined(result), self._combined(result)
+
+    def test_lintbash_ad_003_absolute_path_not_flagged(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-003: --add-dir /abs/path is safe — must NOT flag."""
+        root = _make_repo(tmp_path)
+        (root / "skills" / "test-skill").mkdir(parents=True)
+        (root / "skills" / "test-skill" / "SKILL.md").write_text(
+            "---\nname: test-skill\n---\n\n```bash\n"
+            'agy -p "$P" --add-dir /Users/me/repo --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "[ADD-DIR]" not in self._combined(result), self._combined(result)
+
+    def test_lintbash_ad_004_quoted_relative_flagged(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-004: --add-dir "." (double-quoted dot) is flagged."""
+        root = _make_repo(tmp_path)
+        (root / "skills" / "agy-review").mkdir(parents=True)
+        (root / "skills" / "agy-review" / "SKILL.md").write_text(
+            '---\nname: agy-review\n---\n\n```bash\nagy -p "$P" --add-dir "." --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "[ADD-DIR]" in self._combined(result), self._combined(result)
+
+    def test_lintbash_ad_005_relative_subdir_flagged(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-005: --add-dir ./subdir is flagged."""
+        root = _make_repo(tmp_path)
+        (root / "skills" / "test-skill").mkdir(parents=True)
+        (root / "skills" / "test-skill" / "SKILL.md").write_text(
+            "---\nname: test-skill\n---\n\n```bash\n"
+            'agy -p "$P" --add-dir ./subdir --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "[ADD-DIR]" in self._combined(result), self._combined(result)
+
+    def test_lintbash_ad_006_braced_var_not_flagged(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-006: --add-dir "${WT_ROOT}" is safe — must NOT flag."""
+        root = _make_repo(tmp_path)
+        (root / "skills" / "test-skill").mkdir(parents=True)
+        (root / "skills" / "test-skill" / "SKILL.md").write_text(
+            "---\nname: test-skill\n---\n\n```bash\n"
+            'agy -p "$P" --add-dir "${WT_ROOT}" --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "[ADD-DIR]" not in self._combined(result), self._combined(result)
+
+    def test_lintbash_ad_007_warn_only_exit_zero(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-007: ADD-DIR violation in warn-only mode -> exit 0."""
+        root = _make_repo(tmp_path)
+        (root / "skills" / "agy-review").mkdir(parents=True)
+        (root / "skills" / "agy-review" / "SKILL.md").write_text(
+            '---\nname: agy-review\n---\n\n```bash\nagy -p "$P" --add-dir . --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert result.returncode == 0, result.stderr
+
+    def test_lintbash_ad_008_fail_mode_exit_one(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-008: ADD-DIR violation with --fail -> exit 1."""
+        root = _make_repo(tmp_path)
+        (root / "skills" / "agy-review").mkdir(parents=True)
+        (root / "skills" / "agy-review" / "SKILL.md").write_text(
+            '---\nname: agy-review\n---\n\n```bash\nagy -p "$P" --add-dir . --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root, "--fail")
+        assert result.returncode == 1, result.stdout
+
+    def test_lintbash_ad_009_no_hooks_still_detects(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-009: ADD-DIR detection works even without hooks."""
+        root = _make_repo(tmp_path, with_hooks=False)
+        (root / "skills" / "agy-review").mkdir(parents=True)
+        (root / "skills" / "agy-review" / "SKILL.md").write_text(
+            '---\nname: agy-review\n---\n\n```bash\nagy -p "$P" --add-dir . --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "[ADD-DIR]" in self._combined(result), (
+            f"ADD-DIR detection should work independently of hooks. "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        assert result.returncode == 0, (
+            f"warn-only mode (no --fail) should exit 0 even with violations. rc={result.returncode}"
+        )
+
+    def test_lintbash_ad_010_equals_sign_relative_flagged(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-010: --add-dir=. (equals-sign form) is flagged."""
+        root = _make_repo(tmp_path)
+        (root / "skills" / "test-skill").mkdir(parents=True)
+        (root / "skills" / "test-skill" / "SKILL.md").write_text(
+            '---\nname: test-skill\n---\n\n```bash\nagy -p "$P" --add-dir=. --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "[ADD-DIR]" in self._combined(result), self._combined(result)
+
+    def test_lintbash_ad_011_equals_sign_absolute_not_flagged(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-011: --add-dir="$REPO_ROOT" (equals-sign) is safe."""
+        root = _make_repo(tmp_path)
+        (root / "skills" / "test-skill").mkdir(parents=True)
+        (root / "skills" / "test-skill" / "SKILL.md").write_text(
+            "---\nname: test-skill\n---\n\n```bash\n"
+            'agy -p "$P" --add-dir="$REPO_ROOT" --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "[ADD-DIR]" not in self._combined(result), self._combined(result)
+
+    def test_lintbash_ad_012_single_quoted_absolute_not_flagged(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-012: --add-dir '/abs/path' (single-quoted absolute) is safe."""
+        root = _make_repo(tmp_path)
+        (root / "skills" / "test-skill").mkdir(parents=True)
+        (root / "skills" / "test-skill" / "SKILL.md").write_text(
+            "---\nname: test-skill\n---\n\n```bash\n"
+            "agy -p \"$P\" --add-dir '/Users/me/repo' --sandbox\n```\n",
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "[ADD-DIR]" not in self._combined(result), self._combined(result)
+
+    def test_lintbash_ad_013_rule_file_excluded_ac3(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-013: AC-3 regression — .claude/rules/ files are NOT scanned."""
+        root = _make_repo(tmp_path)
+        rules_dir = root / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        (rules_dir / "13-bash-anti-patterns.md").write_text(
+            "# Wrong example\n\n```bash\nagy --add-dir . --sandbox\n```\n",
+            encoding="utf-8",
+        )
+        result = _run(root, "--fail")
+        assert result.returncode == 0, (
+            f"Rule files under .claude/rules/ must not be scanned (AC-3). "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        combined = self._combined(result)
+        assert "[ADD-DIR]" not in combined, combined
+
+    def test_lintbash_ad_014_no_hooks_fail_mode_exit_one(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-014: ADD-DIR violation + no hooks + --fail -> exit 1."""
+        root = _make_repo(tmp_path, with_hooks=False)
+        (root / "skills" / "agy-review").mkdir(parents=True)
+        (root / "skills" / "agy-review" / "SKILL.md").write_text(
+            '---\nname: agy-review\n---\n\n```bash\nagy -p "$P" --add-dir . --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root, "--fail")
+        assert "[ADD-DIR]" in self._combined(result), self._combined(result)
+        assert result.returncode == 1, (
+            f"no-hooks + --fail + violation should exit 1. rc={result.returncode}"
+        )
+
+    def test_lintbash_ad_015_no_hooks_hook_skip_warning_always_shown(self, tmp_path: Path) -> None:
+        """LINTBASH-AD-015: hook-skip warning appears even when ADD-DIR violations exist."""
+        root = _make_repo(tmp_path, with_hooks=False)
+        (root / "skills" / "agy-review").mkdir(parents=True)
+        (root / "skills" / "agy-review" / "SKILL.md").write_text(
+            '---\nname: agy-review\n---\n\n```bash\nagy -p "$P" --add-dir . --sandbox\n```\n',
+            encoding="utf-8",
+        )
+        result = _run(root)
+        assert "no hook files found" in result.stderr, (
+            f"hook-skip warning should appear even with ADD-DIR violations. "
+            f"stderr={result.stderr!r}"
+        )
+        assert "[ADD-DIR]" in self._combined(result), self._combined(result)

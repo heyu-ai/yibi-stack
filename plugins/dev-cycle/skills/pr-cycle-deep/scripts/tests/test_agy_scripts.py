@@ -278,13 +278,10 @@ class TestWorkspaceContextContract:
         `test_agys_dt_013_runtime_covers_every_call_site` asserts the two lists agree, so
         declaring one without testing it fails too.
 
-        Known gap, stated so it can be re-probed rather than assumed closed: this sweeps
-        `*.sh` only. A `--add-dir` inside a SKILL.md bash fence is a live execution path in
-        this repo (CLAUDE.md: "slash command bash code block rewritten by agent") and is NOT
-        covered — scanning `*.md` would also match the deliberate "Wrong:" examples in
-        `.claude/rules/13-bash-anti-patterns.md`, so telling live commands from
-        counter-examples belongs in `scripts/lint_skill_bash.py`, which already owns SKILL.md
-        bash. Tracked as issue #410; update this docstring when it lands.
+        SKILL.md bash fences are covered separately by `scripts/lint_skill_bash.py`
+        (issue #410), which detects relative `--add-dir` values in skill/command files while
+        naturally excluding `.claude/rules/` counter-examples via its `MD_GLOBS` scope. This
+        test continues to sweep `*.sh` only — the two checks are complementary.
         """
         actual = {
             str(path.relative_to(REPO_ROOT_DIR))
