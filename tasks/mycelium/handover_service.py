@@ -265,7 +265,7 @@ def audit_handover_language(*, db_path: Path | None = None) -> dict[str, Any]:
 
 def _translate_batch(texts: list[str]) -> list[str]:
     """Translate a list of Chinese texts to English using the Anthropic API."""
-    from anthropic import Anthropic  # deferred heavy import
+    from anthropic import Anthropic  # pylint: disable=import-error
 
     if not texts:
         return []

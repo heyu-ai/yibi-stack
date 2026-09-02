@@ -88,6 +88,10 @@ disallow_untyped_calls = false
 module = "tiktoken"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "anthropic"
+ignore_missing_imports = true
+
 # 註：原本此處有第二個 [[tool.mypy.overrides]]，列著
 # ["tabula.*", "playwright.*", "markdownify.*", "bs4.*", "requests.*"]。前四個套件已隨本次
 # 依賴瘦身砍除，該區塊隨之失效。經實測後**整段刪除**而非改列 ledger 套件：
