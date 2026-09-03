@@ -81,7 +81,7 @@ def _track(repo: Path, relative: str, content: str = "tracked\n") -> Path:
     path = repo / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-    _git(repo, "add", "--", relative)
+    _git(repo, "--literal-pathspecs", "add", "--", relative)
     return path
 
 
@@ -181,6 +181,16 @@ class TestTrackedTargets:
 
         assert result.returncode == 0
         assert result.stdout == ""
+
+    def test_ptrm_dt_047_pathspec_magic_filename_blocks(self, tmp_path: Path) -> None:
+        """Git pathspec magic 外觀的檔名仍須按字面值攔截。"""
+        repo = _repo(tmp_path / "repo")
+        _track(repo, ":(top)victim")
+
+        result = _run("rm -rf ':(top)victim'", repo)
+
+        assert result.returncode == 2
+        assert ":(top)victim" in result.stdout
 
 
 class TestWrappersAndGrouping:
@@ -394,6 +404,65 @@ class TestWrappersAndGrouping:
         assert result.returncode == 2
         assert "wrapper 或控制結構無法可靠分類遞迴 rm" in result.stdout
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'bash -c "bin/rm -rf tracked"',
+            'bash -c "./rm -rf tracked"',
+        ],
+    )
+    def test_ptrm_eg_043_relative_rm_path_in_indirect_executor_blocks(
+        self, tracked_repo: Path, command: str
+    ) -> None:
+        """間接 executor 內以相對路徑呼叫 rm 時不得靜默放行。"""
+        result = _run(command, tracked_repo)
+
+        assert result.returncode == 2
+        assert "將在執行期解析遞迴 rm" in result.stdout
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo tracked | xargs rm -rf",
+            "find . -name x | xargs rm -rf",
+        ],
+    )
+    def test_ptrm_eg_044_xargs_recursive_rm_blocks(self, tracked_repo: Path, command: str) -> None:
+        """xargs 將 stdin 補成 rm target 時須保守攔截。"""
+        result = _run(command, tracked_repo)
+
+        assert result.returncode == 2
+        assert "遞迴 rm 含動態或無法解析的目標" in result.stdout
+
+    def test_ptrm_dt_045_parallel_recursive_rm_blocks(self, tracked_repo: Path) -> None:
+        """parallel 後的 rm command template 須遞迴檢查。"""
+        result = _run("parallel rm -rf tracked", tracked_repo)
+
+        assert result.returncode == 2
+        assert "tracked/file.txt" in result.stdout
+
+    @pytest.mark.parametrize(
+        ("case_id", "command"),
+        [
+            ("xargs-replace-short", "xargs -I token rm -rf tracked"),
+            ("xargs-max-args", "xargs -n 1 rm -rf tracked"),
+            ("xargs-max-procs", "xargs -P 2 rm -rf tracked"),
+            ("xargs-null", "xargs -0 rm -rf tracked"),
+            ("xargs-replace-long", "xargs --replace rm -rf tracked"),
+            ("xargs-no-run-if-empty", "xargs -r rm -rf tracked"),
+            ("parallel-options", "parallel -n 1 -P 2 rm -rf tracked"),
+        ],
+    )
+    def test_ptrm_dt_049_xargs_and_parallel_options_reach_rm(
+        self, tracked_repo: Path, case_id: str, command: str
+    ) -> None:
+        """xargs 與 parallel 自身選項不得遮蔽後方的 rm。"""
+        assert case_id
+        result = _run(command, tracked_repo)
+
+        assert result.returncode == 2
+        assert "tracked/file.txt" in result.stdout
+
 
 class TestCwdScoping:
     def test_ptrm_dt_020_cd_other_repo_blocks_relative_target(self, tmp_path: Path) -> None:
@@ -458,6 +527,34 @@ class TestCwdScoping:
 
         assert result.returncode == 2
         assert f"目標（目錄）：{repo / 'tracked'}" in result.stdout
+
+    def test_ptrm_dt_046_symlinked_cd_parent_traversal_uses_physical_cwd(
+        self, tmp_path: Path
+    ) -> None:
+        """cd 進符號連結後的 .. target 須從實體 cwd 解算。"""
+        repo = _repo(tmp_path / "repo")
+        _track(repo, "actual/tracked/file.txt")
+        (repo / "actual" / "sub").mkdir()
+        (repo / "link").symlink_to("actual/sub", target_is_directory=True)
+
+        result = _run("cd link && rm -rf ../tracked", repo)
+
+        assert result.returncode == 2
+        assert str(repo / "actual" / "tracked") in result.stdout
+
+    def test_ptrm_dt_048_ordinary_cd_parent_traversal_does_not_false_positive(
+        self, tmp_path: Path
+    ) -> None:
+        """一般目錄中的 .. target 不得被錯解到其他 tracked 路徑。"""
+        repo = _repo(tmp_path / "repo")
+        _track(repo, "tracked/file.txt")
+        (repo / "ordinary" / "sub").mkdir(parents=True)
+        (repo / "ordinary" / "tracked").mkdir()
+
+        result = _run("cd ordinary/sub && rm -rf ../tracked", repo)
+
+        assert result.returncode == 0
+        assert result.stdout == ""
 
 
 class TestTriStateFailures:

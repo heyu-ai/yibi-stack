@@ -47,9 +47,7 @@ _REDIRECTION_RE = re.compile(r"^\d*(?:>>?|<<?|<>|>&|<&).*")
 _REDIRECTION_OPERATOR_RE = re.compile(r"^\d*(?:>>?|<<?|<>|>&|<&)$")
 _DYNAMIC_TARGET_RE = re.compile(r"[$`*?\[]")
 _INDIRECT_EXECUTORS = frozenset(("bash", "eval", "sh", "zsh"))
-_RECURSIVE_RM_TEXT_RE = re.compile(
-    r"(?:^|[;&|(){}\s])(?:/[^\s;|(){}]+/)?rm\s+[^;|(){}]*-\w*[rR]\w*"
-)
+_RECURSIVE_RM_TEXT_RE = re.compile(r"(?:^|[;&|(){}\s])(?:\S*/)?rm\b\s+[^;|(){}]*-\w*[rR]\w*")
 
 _WRAPPERS = frozenset(
     (
@@ -59,12 +57,14 @@ _WRAPPERS = frozenset(
         "ionice",
         "nice",
         "nohup",
+        "parallel",
         "setsid",
         "stdbuf",
         "sudo",
         "time",
         "timeout",
         "watch",
+        "xargs",
     )
 )
 
@@ -74,6 +74,7 @@ _WRAPPER_OPTIONS_WITH_VALUE: dict[str, frozenset[str]] = {
         ("-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid")
     ),
     "nice": frozenset(("-n", "--adjustment")),
+    "parallel": frozenset(("-I", "-n", "--max-args", "-P", "--jobs")),
     "stdbuf": frozenset(("-i", "--input", "-o", "--output", "-e", "--error")),
     "sudo": frozenset(
         (
@@ -101,6 +102,7 @@ _WRAPPER_OPTIONS_WITH_VALUE: dict[str, frozenset[str]] = {
     ),
     "timeout": frozenset(("-k", "--kill-after", "-s", "--signal")),
     "watch": frozenset(("-n", "--interval")),
+    "xargs": frozenset(("-I", "-n", "--max-args", "-P", "--max-procs")),
 }
 
 _WRAPPER_CWD_OPTIONS: dict[str, frozenset[str]] = {
@@ -247,7 +249,7 @@ def _tracked_files(
         return None
 
     pathspec = str(relative) if relative.parts else "."
-    listed = _run_git(["ls-files", "-z", "--", pathspec], repo_root, errors)
+    listed = _run_git(["--literal-pathspecs", "ls-files", "-z", "--", pathspec], repo_root, errors)
     if listed is None:
         return None
     if listed.returncode != 0:
@@ -606,7 +608,8 @@ def _resolve_target(raw_target: str, cwd: Path) -> Path:
     target = Path(expanded)
     if target.is_absolute():
         return Path(os.path.abspath(target))
-    return Path(os.path.abspath(cwd / target))
+    base_cwd = Path(os.path.realpath(cwd)) if ".." in target.parts else cwd
+    return Path(os.path.abspath(base_cwd / target))
 
 
 def _path_kind(path: Path) -> str:
