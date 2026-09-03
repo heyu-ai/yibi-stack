@@ -486,16 +486,35 @@ def _parse_rm_invocations(
     case_stack: list[tuple[bool, int]] = []
     brace_depth = 0
 
+    def clause_starts_with_rm_subcommand_tool(command_tokens: list[str]) -> bool:
+        """判斷 clause 的第一個實際指令 token 是否為已知擁有 rm 子指令的工具。
+
+        只看去除控制字（``_CONTROL_PREFIXES``）與 assignment 前綴後的第一個 token——
+        不是「clause 內任何位置出現過工具名稱」。後者會被拿來當誘餌繞過：例如把
+        ``git`` 塞進另一個 wrapper 選項的值、或直接當成 rm 的目標參數（both
+        empirically confirmed as bypasses in PR #418 round-2 review by agy）。
+        只信任「clause 第一個位置」，因為那才是實際會被 shell 解析為執行檔的位置。
+        """
+        index = 0
+        while index < len(command_tokens) and command_tokens[index] in _CONTROL_PREFIXES:
+            index += 1
+        while index < len(command_tokens) and _ASSIGNMENT_RE.match(command_tokens[index]):
+            index += 1
+        if index >= len(command_tokens):
+            return False
+        return os.path.basename(command_tokens[index]) in _RM_SUBCOMMAND_TOOLS
+
     def has_visible_recursive_rm(command_tokens: list[str]) -> bool:
         """掃描 clause 中仍清楚可見的遞迴 rm 意圖。
 
-        若同一個 clause 在 ``rm`` token 之前已出現已知擁有 ``rm`` 子指令的工具
-        （如 ``git``、``pnpm``、``cargo``、``docker``），則該 ``rm`` 視為該工具自己的
-        子指令名稱，不是 coreutils 的 rm 執行檔——例如 ``git -C <root> rm -r -- <path>``
-        （hook 自己在攔截訊息中建議的復原指令）。對這類子指令套用「clause 內任何位置
-        出現 -r flag 即視為遞迴」的保守掃描會誤擋大量正常操作，故整個 clause 略過此檢查。
+        若 clause 的第一個實際指令 token 是已知擁有 ``rm`` 子指令的工具
+        （如 ``git``、``pnpm``、``cargo``、``docker``），則該 clause 內的 ``rm`` token
+        視為該工具自己的子指令名稱，不是 coreutils 的 rm 執行檔——例如
+        ``git -C <root> rm -r -- <path>``（hook 自己在攔截訊息中建議的復原指令）。
+        對這類子指令套用「clause 內任何位置出現 -r flag 即視為遞迴」的保守掃描會誤擋
+        大量正常操作，故整個 clause 略過此檢查。
         """
-        if any(os.path.basename(word) in _RM_SUBCOMMAND_TOOLS for word in command_tokens):
+        if clause_starts_with_rm_subcommand_tool(command_tokens):
             return False
         for position, word in enumerate(command_tokens):
             if os.path.basename(word) != "rm":

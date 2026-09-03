@@ -466,6 +466,28 @@ class TestWrappersAndGrouping:
         assert result.stdout == ""
 
     @pytest.mark.parametrize(
+        ("case_id", "command"),
+        [
+            ("tool-name-as-target", "unrecognized_wrapper rm -rf tracked git"),
+            ("tool-name-as-decoy-option-value", "sudo -u git -p rm -rf tracked"),
+        ],
+    )
+    def test_ptrm_eg_052_rm_subcommand_tool_name_as_decoy_still_blocks(
+        self, tracked_repo: Path, case_id: str, command: str
+    ) -> None:
+        """rm 子指令工具名稱只有出現在 clause 第一個 token 時才豁免，不可被當誘餌。
+
+        迴歸測試：round-2 review（agy 獨立發現）指出，若把「clause 內任何位置出現
+        已知工具名稱」當豁免條件，攻擊者可把 ``git`` 塞進不相關的選項值或直接當成
+        rm 的目標參數，讓真正的遞迴 rm 逃過保守掃描而被靜默放行。
+        """
+        assert case_id
+
+        result = _run(command, tracked_repo)
+
+        assert result.returncode == 2
+
+    @pytest.mark.parametrize(
         "command",
         [
             'bash -c "bin/rm -rf tracked"',
