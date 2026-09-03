@@ -470,6 +470,7 @@ class TestWrappersAndGrouping:
         [
             ("tool-name-as-target", "unrecognized_wrapper rm -rf tracked git"),
             ("tool-name-as-decoy-option-value", "sudo -u git -p rm -rf tracked"),
+            ("tool-name-as-xargs-eof-marker", "printf x | xargs -E git rm -rf tracked"),
         ],
     )
     def test_ptrm_eg_052_rm_subcommand_tool_name_as_decoy_still_blocks(
@@ -477,9 +478,10 @@ class TestWrappersAndGrouping:
     ) -> None:
         """rm 子指令工具名稱只有出現在 clause 第一個 token 時才豁免，不可被當誘餌。
 
-        迴歸測試：round-2 review（agy 獨立發現）指出，若把「clause 內任何位置出現
-        已知工具名稱」當豁免條件，攻擊者可把 ``git`` 塞進不相關的選項值或直接當成
-        rm 的目標參數，讓真正的遞迴 rm 逃過保守掃描而被靜默放行。
+        迴歸測試：round-2 review（agy 與 Codex 各自獨立發現）指出，若把「clause 內
+        任何位置出現已知工具名稱」當豁免條件，攻擊者可把 ``git`` 塞進不相關的選項值、
+        直接當成 rm 的目標參數、或當成 ``xargs -E`` 的 EOF marker 值，讓真正的遞迴 rm
+        逃過保守掃描而被靜默放行。
         """
         assert case_id
 
