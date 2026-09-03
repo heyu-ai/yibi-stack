@@ -793,4 +793,7 @@ list the exact branches and get explicit confirmation before running `git push o
 
 This rule applies to all Claude Code agent sessions. It does not affect commands the user
 runs directly in a terminal.
-Doc-layer rule (v2): no `.claude/settings.json` deny-list entries; mechanical blocking planned for v3.
+Doc-layer rule (v2): no `.claude/settings.json` deny-list entries for most categories above;
+mechanical blocking for those remains planned for v3. The Category 4 `rm -rf`-against-tracked-content
+case is the one exception — `.claude/hooks/protect-tracked-rm.py` (a `PreToolUse` hook, not a
+deny-list entry) mechanically blocks it as of #238's redo.
