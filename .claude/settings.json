@@ -112,6 +112,17 @@
       {
         "hooks": [
           {
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-tracked-rm.py\" || exit 2 # <!-- verified: probe -->",
+            "statusMessage": "檢查遞迴 rm 的 Git 追蹤內容...",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
             "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-worktree.py || exit 2",
             "statusMessage": "Worktree branch 安全檢查...",
             "timeout": 10,
