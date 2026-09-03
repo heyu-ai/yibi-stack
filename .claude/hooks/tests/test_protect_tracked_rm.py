@@ -12,6 +12,7 @@ import shlex
 import subprocess
 import sys
 import time
+from io import StringIO
 from pathlib import Path
 from types import ModuleType
 
@@ -192,6 +193,23 @@ class TestTrackedTargets:
         assert result.returncode == 2
         assert ":(top)victim" in result.stdout
 
+    @pytest.mark.parametrize(
+        ("case_id", "command"),
+        [
+            ("long-recursive", "rm --recursive tracked"),
+            ("uppercase-recursive", "rm -R tracked"),
+        ],
+    )
+    def test_ptrm_dt_050_recursive_flag_forms_block(
+        self, tracked_repo: Path, case_id: str, command: str
+    ) -> None:
+        """長選項與單獨大寫 R 均須辨識為遞迴 rm。"""
+        assert case_id
+        result = _run(command, tracked_repo)
+
+        assert result.returncode == 2
+        assert "tracked/file.txt" in result.stdout
+
 
 class TestWrappersAndGrouping:
     @pytest.mark.parametrize(
@@ -204,6 +222,10 @@ class TestWrappersAndGrouping:
             ("env", "env rm -rf tracked"),
             ("env-assignment", "env FOO=1 rm -rf tracked"),
             ("time", "time rm -rf tracked"),
+            ("timeout", "timeout 5 rm -rf tracked"),
+            ("timeout-signal", "timeout -s KILL 5 rm -rf tracked"),
+            ("nice-option", "nice -n 5 rm -rf tracked"),
+            ("stdbuf-option", "stdbuf -o L rm -rf tracked"),
             ("nohup", "nohup rm -rf tracked"),
             ("watch", "watch rm -rf tracked"),
             ("watch-exec", "watch -x rm -rf tracked"),
@@ -315,6 +337,7 @@ class TestWrappersAndGrouping:
         [
             "rm -rf $TARGET",
             "rm -rf '$(printf tracked)'",
+            "rm -rf `echo tracked`",
             "rm -rf '*.tmp'",
             "bash -c 'rm -rf tracked'",
             "eval 'rm -rf tracked'",
@@ -658,6 +681,33 @@ class TestTriStateFailures:
         assert HOOK_MODULE._tracked_files(plain / "candidate", plain, errors) is None
         assert expected in capsys.readouterr().err
         assert expected in errors[-1]
+
+    def test_ptrm_eg_051_unexpected_main_exception_exits_two_without_traceback(
+        self,
+        tracked_repo: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """main 內未預期錯誤須由 hook 自身保守攔截，不得洩漏 traceback。"""
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "rm -rf tracked"},
+            "cwd": str(tracked_repo),
+        }
+
+        def raise_unexpected(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("未預期測試錯誤")
+
+        monkeypatch.setattr(HOOK_MODULE, "_parse_rm_invocations", raise_unexpected)
+        monkeypatch.setattr(HOOK_MODULE.sys, "stdin", StringIO(json.dumps(payload)))
+
+        with pytest.raises(SystemExit) as exited:
+            HOOK_MODULE.main()
+
+        assert exited.value.code == 2
+        captured = capsys.readouterr()
+        assert "hook 發生未預期錯誤：未預期測試錯誤" in captured.err
+        assert "Traceback" not in captured.err
 
 
 class TestInputBoundary:

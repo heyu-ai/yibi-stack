@@ -198,10 +198,10 @@ def _probe_start(path: Path, cwd: Path) -> Path | None:
     return _nearest_directory(start if start.is_absolute() else cwd / start)
 
 
-def _tracked_files(
+def _tracked_files_with_root(
     path: str | Path, cwd: str | Path, errors: list[str] | None = None
-) -> list[str] | None:
-    """回傳目標內的已追蹤檔案；[] 表示確認沒有，None 表示探測失敗。"""
+) -> tuple[Path | None, list[str]] | None:
+    """回傳 Git 根目錄與已追蹤檔案；None 表示探測失敗。"""
     base_cwd = Path(cwd)
     target = Path(path)
     if not target.is_absolute():
@@ -218,7 +218,7 @@ def _tracked_files(
     if inside.returncode != 0:
         detail = inside.stderr.strip() or f"git 結束碼 {inside.returncode}"
         if _NOT_A_REPOSITORY in detail.lower():
-            return []
+            return None, []
         _remember_failure(errors, f"無法確認 Git worktree：{detail}")
         return None
     if inside.stdout.strip() != "true":
@@ -256,25 +256,18 @@ def _tracked_files(
         detail = listed.stderr.strip() or f"git 結束碼 {listed.returncode}"
         _remember_failure(errors, f"無法列出 Git 已追蹤內容：{detail}")
         return None
-    return [item for item in listed.stdout.split("\0") if item]
+    return repo_root, [item for item in listed.stdout.split("\0") if item]
 
 
-def _repo_root(path: Path, errors: list[str] | None = None) -> Path | None:
-    """取得目標所屬 Git 根目錄；呼叫前須已成功執行 _tracked_files。"""
-    start = _probe_start(path, path.parent)
-    if start is None:
-        return None
-    result = _run_git(["rev-parse", "--show-toplevel"], start, errors)
+def _tracked_files(
+    path: str | Path, cwd: str | Path, errors: list[str] | None = None
+) -> list[str] | None:
+    """回傳目標內的已追蹤檔案；[] 表示確認沒有，None 表示探測失敗。"""
+    result = _tracked_files_with_root(path, cwd, errors)
     if result is None:
         return None
-    if result.returncode != 0:
-        detail = result.stderr.strip() or f"git 結束碼 {result.returncode}"
-        _remember_failure(errors, f"無法再次確認 Git 根目錄：{detail}")
-        return None
-    if not result.stdout.strip():
-        _remember_failure(errors, "再次確認時，git rev-parse 未回傳 Git 根目錄")
-        return None
-    return Path(result.stdout.strip())
+    _repo_root, files = result
+    return files
 
 
 def _split_punctuation(word: str) -> list[str]:
@@ -628,12 +621,12 @@ def _path_kind(path: Path) -> str:
 
 def _tracked_target(path: Path, cwd: Path, errors: list[str]) -> TrackedTarget | None | bool:
     """True-like TrackedTarget = 有追蹤內容；False = 無；None = 探測失敗。"""
-    files = _tracked_files(path, cwd, errors)
-    if files is None:
+    tracked = _tracked_files_with_root(path, cwd, errors)
+    if tracked is None:
         return None
+    root, files = tracked
     if not files:
         return False
-    root = _repo_root(path, errors)
     if root is None:
         _remember_failure(
             errors, f"已找到追蹤內容，但無法取得其 Git 根目錄：{shlex.quote(str(path))}"
@@ -689,7 +682,8 @@ def _payload_cwd(data: dict[str, object], tool_input: dict[str, object]) -> Path
     return Path(os.path.abspath(os.path.expanduser(raw_cwd)))
 
 
-def main() -> None:
+def _main() -> None:
+    """處理一筆 hook payload。"""
     try:
         data = json.load(sys.stdin)
     except (json.JSONDecodeError, OSError, ValueError) as e:
@@ -727,6 +721,15 @@ def main() -> None:
                 _print_tracked_block(result)
                 sys.exit(2)
     sys.exit(0)
+
+
+def main() -> None:
+    """執行 hook，未預期錯誤一律保守攔截。"""
+    try:
+        _main()
+    except Exception as e:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        _diagnose(f"hook 發生未預期錯誤：{e}")
+        sys.exit(2)
 
 
 if __name__ == "__main__":
