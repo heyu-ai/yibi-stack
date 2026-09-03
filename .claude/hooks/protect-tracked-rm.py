@@ -47,6 +47,7 @@ _REDIRECTION_RE = re.compile(r"^\d*(?:>>?|<<?|<>|>&|<&).*")
 _REDIRECTION_OPERATOR_RE = re.compile(r"^\d*(?:>>?|<<?|<>|>&|<&)$")
 _DYNAMIC_TARGET_RE = re.compile(r"[$`*?\[]")
 _INDIRECT_EXECUTORS = frozenset(("bash", "eval", "sh", "zsh"))
+_RM_SUBCOMMAND_TOOLS = frozenset(("git", "svn", "hg", "pnpm", "cargo", "docker", "podman"))
 _RECURSIVE_RM_TEXT_RE = re.compile(r"(?:^|[;&|(){}\s])(?:\S*/)?rm\b\s+[^;|(){}]*-\w*[rR]\w*")
 
 _WRAPPERS = frozenset(
@@ -462,7 +463,16 @@ def _parse_rm_invocations(
     brace_depth = 0
 
     def has_visible_recursive_rm(command_tokens: list[str]) -> bool:
-        """掃描 clause 中仍清楚可見的遞迴 rm 意圖。"""
+        """掃描 clause 中仍清楚可見的遞迴 rm 意圖。
+
+        若同一個 clause 在 ``rm`` token 之前已出現已知擁有 ``rm`` 子指令的工具
+        （如 ``git``、``pnpm``、``cargo``、``docker``），則該 ``rm`` 視為該工具自己的
+        子指令名稱，不是 coreutils 的 rm 執行檔——例如 ``git -C <root> rm -r -- <path>``
+        （hook 自己在攔截訊息中建議的復原指令）。對這類子指令套用「clause 內任何位置
+        出現 -r flag 即視為遞迴」的保守掃描會誤擋大量正常操作，故整個 clause 略過此檢查。
+        """
+        if any(os.path.basename(word) in _RM_SUBCOMMAND_TOOLS for word in command_tokens):
+            return False
         for position, word in enumerate(command_tokens):
             if os.path.basename(word) != "rm":
                 continue

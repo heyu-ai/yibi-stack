@@ -428,6 +428,44 @@ class TestWrappersAndGrouping:
         assert "wrapper 或控制結構無法可靠分類遞迴 rm" in result.stdout
 
     @pytest.mark.parametrize(
+        ("case_id", "command"),
+        [
+            ("git-rm", "git rm -r -- tracked"),
+            ("git-rm-cached", "git rm --cached -r -- tracked"),
+            ("pnpm-rm", "pnpm rm -r some-package"),
+            ("cargo-rm", "cargo rm --dry-run serde"),
+            ("docker-rm", "docker rm -f some-container"),
+        ],
+    )
+    def test_ptrm_dt_050_rm_subcommand_of_other_tool_allows(
+        self, tracked_repo: Path, case_id: str, command: str
+    ) -> None:
+        """git/pnpm/cargo/docker 等工具自己的 rm 子指令不得被誤判為 coreutils rm。
+
+        迴歸測試：Batch 2 為了修「無法分類 wrapper 選項時靜默放行」而加的保守文字
+        掃描（has_visible_recursive_rm）曾經只要在 clause 任何位置看到 "rm" token
+        後面接著含 r/R 的 flag，就一律攔截——連 hook 自己在攔截訊息裡建議的復原指令
+        ``git -C <root> rm -r -- <path>`` 都會被自己擋下。
+        """
+        assert case_id
+
+        result = _run(command, tracked_repo)
+
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+    def test_ptrm_dt_051_own_remediation_command_is_not_blocked(self, tracked_repo: Path) -> None:
+        """hook 攔截已追蹤內容後印出的復原指令本身不可被同一個 hook 擋下。"""
+        blocked = _run("rm -rf tracked", tracked_repo)
+        assert blocked.returncode == 2
+
+        remediation = f"git -C {tracked_repo} rm -r -- tracked"
+        result = _run(remediation, tracked_repo)
+
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+    @pytest.mark.parametrize(
         "command",
         [
             'bash -c "bin/rm -rf tracked"',
