@@ -133,6 +133,8 @@ class TestTrackedTargets:
 
         assert result.returncode == 2
         assert "目標（目錄）" in result.stdout
+        assert "[BLOCKED] 遞迴 rm 目標包含 Git 已追蹤內容" in result.stderr
+        assert "tracked/file.txt" in result.stderr
 
     def test_ptrm_dt_004_tracked_symlink_to_file_blocks(self, tmp_path: Path) -> None:
         """已追蹤、指向檔案的符號連結須按連結本身判定。"""
@@ -214,6 +216,44 @@ class TestWrappersAndGrouping:
     @pytest.mark.parametrize(
         ("case_id", "command"),
         [
+            ("env-short-value", "env -C other rm -rf tracked2"),
+            ("env-long-value", "env --chdir other rm -rf tracked2"),
+            ("env-long-equals", "env --chdir=other rm -rf tracked2"),
+            ("sudo-short-value", "sudo -D other rm -rf tracked2"),
+            ("sudo-long-value", "sudo --chdir other rm -rf tracked2"),
+            ("sudo-long-equals", "sudo --chdir=other rm -rf tracked2"),
+            ("sudo-chroot-value", "sudo -R other rm -rf tracked2"),
+            ("sudo-chroot-equals", "sudo --chroot=other rm -rf tracked2"),
+        ],
+    )
+    def test_ptrm_dt_017_wrapper_directory_option_changes_effective_cwd(
+        self, tmp_path: Path, case_id: str, command: str
+    ) -> None:
+        """wrapper 的目錄選項須決定內層 rm 的有效 cwd。"""
+        assert case_id
+        repo = _repo(tmp_path / "repo")
+        _track(repo, "other/tracked2/file.txt")
+
+        result = _run(command, repo)
+
+        assert result.returncode == 2
+        assert f"目標（目錄）：{repo / 'other' / 'tracked2'}" in result.stdout
+
+    def test_ptrm_dt_018_nested_wrapper_directory_options_are_relative(
+        self, tmp_path: Path
+    ) -> None:
+        """內層 wrapper 的相對目錄須從外層 wrapper 更新後的 cwd 解算。"""
+        repo = _repo(tmp_path / "repo")
+        _track(repo, "other/nested/tracked3/file.txt")
+
+        result = _run("env -C other sudo -D nested rm -rf tracked3", repo)
+
+        assert result.returncode == 2
+        assert f"目標（目錄）：{repo / 'other' / 'nested' / 'tracked3'}" in result.stdout
+
+    @pytest.mark.parametrize(
+        ("case_id", "command"),
+        [
             ("subshell", "(rm -rf tracked)"),
             ("brace", "{ rm -rf tracked; }"),
             ("if", "if true; then rm -rf tracked; fi"),
@@ -257,6 +297,7 @@ class TestWrappersAndGrouping:
         assert result.returncode == 2
         assert "無法解析 Bash 指令" in result.stdout
         assert "無法解析 Bash 指令" in result.stderr
+        assert "[BLOCKED] 無法確認 Git 追蹤狀態" in result.stderr
 
     @pytest.mark.parametrize(
         "command",
@@ -285,6 +326,29 @@ class TestWrappersAndGrouping:
         result = _run("echo 'rm -rf tracked'", tracked_repo)
 
         assert result.returncode == 0
+
+    def test_ptrm_dt_019_background_separator_exposes_following_rm(
+        self, tracked_repo: Path
+    ) -> None:
+        """單一 & 須切開 clause，讓後續遞迴 rm 被獨立檢查。"""
+        result = _run("true & rm -rf tracked", tracked_repo)
+
+        assert result.returncode == 2
+        assert "tracked/file.txt" in result.stdout
+
+    def test_ptrm_dt_026_unspaced_redirection_keeps_rm_target(self, tracked_repo: Path) -> None:
+        """未留空白的輸出重新導向不得與 rm target 黏成單一 token。"""
+        result = _run("rm -rf tracked>output.txt", tracked_repo)
+
+        assert result.returncode == 2
+        assert f"目標（目錄）：{tracked_repo / 'tracked'}" in result.stdout
+
+    @pytest.mark.parametrize("operator", [">>", "<<", "<>", ">&", "<&"])
+    def test_ptrm_ut_027_redirection_punctuation_stays_grouped(self, operator: str) -> None:
+        """雙字元重新導向運算子須保留成單一 token。"""
+        tokens = HOOK_MODULE._tokenize(f"rm -rf tracked{operator}output.txt")
+
+        assert tokens == ["rm", "-rf", "tracked", operator, "output.txt"]
 
 
 class TestCwdScoping:
@@ -339,6 +403,17 @@ class TestCwdScoping:
 
         assert result.returncode == 2
         assert str(caller / "tracked") in result.stdout
+
+    def test_ptrm_dt_025_background_cd_does_not_change_parent_cwd(self, tmp_path: Path) -> None:
+        """背景執行的 cd 不得改變後續 clause 的父 shell cwd。"""
+        repo = _repo(tmp_path / "repo")
+        _track(repo, "tracked/file.txt")
+        (repo / "sub").mkdir()
+
+        result = _run("cd sub & rm -rf tracked", repo)
+
+        assert result.returncode == 2
+        assert f"目標（目錄）：{repo / 'tracked'}" in result.stdout
 
 
 class TestTriStateFailures:

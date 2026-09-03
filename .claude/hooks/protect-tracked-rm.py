@@ -4,7 +4,7 @@
 
 Exit codes:
   0 -> 放行
-  2 -> 攔截，並把原因輸出到 stdout
+  2 -> 攔截，並把原因輸出到 stdout 與 stderr
 
 設計重點：
   - 以 ``git ls-files`` 查詢追蹤狀態，不把 ``git status`` 當成追蹤清單。
@@ -38,8 +38,8 @@ _GIT_TIMEOUT_SECONDS = 1.0
 _NOT_A_REPOSITORY = "not a git repository"
 _GIT_ENV_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 
-_PUNCTUATION = ";&|(){}\n"
-_SEPARATORS = frozenset((";", "&&", "||", "|"))
+_PUNCTUATION = ";&|(){}<>\n"
+_SEPARATORS = frozenset((";", "&", "&&", "||", "|"))
 _CONTROL_PREFIXES = frozenset(("!", "if", "then", "elif", "else", "while", "until", "do"))
 _HEADER_PREFIXES = frozenset(("for", "case", "select"))
 _ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -99,6 +99,11 @@ _WRAPPER_OPTIONS_WITH_VALUE: dict[str, frozenset[str]] = {
     ),
     "timeout": frozenset(("-k", "--kill-after", "-s", "--signal")),
     "watch": frozenset(("-n", "--interval")),
+}
+
+_WRAPPER_CWD_OPTIONS: dict[str, frozenset[str]] = {
+    "env": frozenset(("-C", "--chdir")),
+    "sudo": frozenset(("-D", "--chdir", "-R", "--chroot")),
 }
 
 
@@ -276,7 +281,7 @@ def _split_punctuation(word: str) -> list[str]:
     index = 0
     while index < len(word):
         pair = word[index : index + 2]
-        if pair in ("&&", "||", ";;"):
+        if pair in ("&&", "||", ";;", ">>", "<<", "<>", ">&", "<&"):
             result.append(";" if pair == ";;" else pair)
             index += 2
             continue
@@ -304,33 +309,59 @@ def _option_name(word: str) -> str:
     return word.split("=", 1)[0]
 
 
-def _skip_wrapper_options(tokens: list[str], index: int, wrapper: str) -> int | None:
-    """略過已知 wrapper 選項，回傳其實際 command 的索引。"""
+def _directory_result(raw_target: str, cwd: Path | None) -> Path | None:
+    """依目前 cwd 解析切換目錄選項；無法靜態確認時回傳 None。"""
+    if _DYNAMIC_TARGET_RE.search(raw_target) or raw_target == "-":
+        return None
+    target = Path(os.path.expanduser(raw_target))
+    if not target.is_absolute():
+        if cwd is None:
+            return None
+        target = cwd / target
+    target = Path(os.path.abspath(target))
+    try:
+        return target if target.is_dir() else cwd
+    except OSError:
+        return None
+
+
+def _skip_wrapper_options(
+    tokens: list[str], index: int, wrapper: str, cwd: Path | None
+) -> tuple[int, Path | None] | None:
+    """略過已知 wrapper 選項，回傳實際 command 的索引與有效 cwd。"""
     with_value = _WRAPPER_OPTIONS_WITH_VALUE.get(wrapper, frozenset())
+    cwd_options = _WRAPPER_CWD_OPTIONS.get(wrapper, frozenset())
+    effective_cwd = cwd
     while index < len(tokens):
         word = tokens[index]
         if wrapper == "env" and _ASSIGNMENT_RE.match(word):
             index += 1
             continue
         if word == "--":
-            return index + 1
+            return index + 1, effective_cwd
         if not word.startswith("-") or word == "-":
             break
         name = _option_name(word)
         index += 1
-        if name in with_value and "=" not in word:
-            if index >= len(tokens):
-                return None
-            index += 1
+        if name in with_value:
+            if "=" in word:
+                option_value = word.split("=", 1)[1]
+            else:
+                if index >= len(tokens):
+                    return None
+                option_value = tokens[index]
+                index += 1
+            if name in cwd_options:
+                effective_cwd = _directory_result(option_value, effective_cwd)
     if wrapper == "timeout":
         if index >= len(tokens):
             return None
         index += 1
-    return index
+    return index, effective_cwd
 
 
-def _command_index(tokens: list[str]) -> int | None:
-    """穿透控制字、assignment 與已知 wrapper，定位真正執行檔。"""
+def _command_location(tokens: list[str], cwd: Path | None) -> tuple[int, Path | None] | None:
+    """穿透控制字、assignment 與已知 wrapper，定位執行檔與有效 cwd。"""
     index = 0
     while index < len(tokens) and tokens[index] in _CONTROL_PREFIXES:
         index += 1
@@ -343,16 +374,23 @@ def _command_index(tokens: list[str]) -> int | None:
     while index < len(tokens):
         executable = os.path.basename(tokens[index])
         if executable not in _WRAPPERS:
-            return index
+            return index, cwd
         if index in seen_wrappers:
             return None
         seen_wrappers.add(index)
-        index = _skip_wrapper_options(tokens, index + 1, executable)
-        if index is None:
+        skipped = _skip_wrapper_options(tokens, index + 1, executable, cwd)
+        if skipped is None:
             return None
+        index, cwd = skipped
         while index < len(tokens) and _ASSIGNMENT_RE.match(tokens[index]):
             index += 1
     return None
+
+
+def _command_index(tokens: list[str]) -> int | None:
+    """穿透控制字、assignment 與已知 wrapper，定位真正執行檔。"""
+    location = _command_location(tokens, None)
+    return location[0] if location is not None else None
 
 
 def _rm_targets(tokens: list[str], command_index: int) -> tuple[str, ...] | None:
@@ -406,16 +444,7 @@ def _cd_result(tokens: list[str], cwd: Path) -> Path | None | bool:
         return None
     else:
         raw_target = tokens[index]
-    if _DYNAMIC_TARGET_RE.search(raw_target) or raw_target == "-":
-        return None
-    expanded = os.path.expanduser(raw_target)
-    target = Path(expanded)
-    if not target.is_absolute():
-        target = Path(os.path.abspath(cwd / target))
-    try:
-        return target if target.is_dir() else cwd
-    except OSError:
-        return None
+    return _directory_result(raw_target, cwd)
 
 
 def _parse_rm_invocations(
@@ -468,16 +497,18 @@ def _parse_rm_invocations(
             return True
 
         cd_result = _cd_result(command_tokens, current_cwd)
-        if cd_result is not False and terminator != "|":
-            current_cwd = cd_result
+        if cd_result is not False:
+            if terminator not in ("|", "&"):
+                current_cwd = cd_result
             return True
 
-        index = _command_index(command_tokens)
-        if index is None:
+        location = _command_location(command_tokens, current_cwd)
+        if location is None:
             if is_uncertain_destructive(command_tokens):
                 _remember_failure(errors, "wrapper 或控制結構無法可靠分類遞迴 rm")
                 return False
             return True
+        index, command_cwd = location
         executable = os.path.basename(command_tokens[index])
         if executable != "rm":
             if executable in _INDIRECT_EXECUTORS and any(
@@ -494,7 +525,10 @@ def _parse_rm_invocations(
             _remember_failure(errors, "遞迴 rm 含動態或無法解析的目標")
             return False
         if targets:
-            invocations.append(RmInvocation(targets=targets, cwd=current_cwd))
+            if command_cwd is None:
+                _remember_failure(errors, "wrapper 的目錄選項無法解析，無法確認 rm 的有效 cwd")
+                return False
+            invocations.append(RmInvocation(targets=targets, cwd=command_cwd))
         return True
 
     for word in tokens:
@@ -586,11 +620,13 @@ def _tracked_target(path: Path, cwd: Path, errors: list[str]) -> TrackedTarget |
 def _print_inconclusive(reason: str, target: Path | None = None) -> None:
     """輸出保守攔截訊息。"""
     target_line = f"\n目標：{shlex.quote(str(target))}" if target is not None else ""
-    print(
+    message = (
         "[BLOCKED] 無法確認 Git 追蹤狀態，已保守停止遞迴 rm。\n"
         f"原因：{reason}{target_line}\n\n"
         "請先排除探測或指令解析問題，再重新執行。"
     )
+    print(message)
+    print(message, file=sys.stderr)
 
 
 def _print_tracked_block(found: TrackedTarget) -> None:
@@ -601,7 +637,7 @@ def _print_tracked_block(found: TrackedTarget) -> None:
         listed += f"\n  ... 另有 {len(found.files) - 20} 個已追蹤項目"
     relative = found.path.relative_to(found.repo_root)
     pathspec = str(relative) if relative.parts else "."
-    print(
+    message = (
         f"[BLOCKED] 遞迴 rm 目標包含 Git 已追蹤內容。\n\n"
         f"目標（{kind}）：{shlex.quote(str(found.path))}\n"
         f"Git 根目錄：{shlex.quote(str(found.repo_root))}\n"
@@ -609,6 +645,8 @@ def _print_tracked_block(found: TrackedTarget) -> None:
         "若確實要從版本庫移除，請由人工確認後使用：\n"
         f"  git -C {shlex.quote(str(found.repo_root))} rm -r -- {shlex.quote(pathspec)}"
     )
+    print(message)
+    print(message, file=sys.stderr)
 
 
 def _payload_cwd(data: dict[str, object], tool_input: dict[str, object]) -> Path | None:
