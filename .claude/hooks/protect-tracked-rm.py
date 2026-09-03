@@ -11,16 +11,40 @@ Exit codes:
   - 探測結果是三態：有追蹤內容、確認沒有追蹤內容、無法確認。
   - 無法解析指令或無法完成 Git 探測時，一律明確攔截並把診斷寫到 stderr。
 
-Known limitations（靜態分析仍可被刻意繞過）：
+Known limitations（靜態分析仍可被刻意繞過，或已知的解析邊界）：
   - shell alias、函式、變數形式的執行檔名稱，以及刻意混淆後交給 eval 的指令無法完整展開。
   - 外部 script、Python、find -delete 等間接刪除方式不在本 hook 的 rm 掃描範圍。
   - tokenizer 不模擬完整 Bash 展開；明顯的 command substitution、glob 或動態目標會保守攔截，
     但刻意拆散或編碼後才在執行期組出的 rm 仍可能避開靜態分析。
   - Git 探測與真正執行 rm 之間仍有 TOCTOU 時窗；本 hook 不是檔案系統層的強制鎖。
   - 本 hook 只保護 Git 已追蹤內容；未追蹤或 gitignored 內容仍可能無法復原。
-  - 若 target 是非 Git 目錄、但內含更深層的 nested repo/worktree，本 hook 不會遞迴列舉其 index。
+  - 若 target 是非 Git 目錄、但內含更深層的 nested repo/worktree，本 hook 不會遞迴列舉其 index
+    （即使該非 Git 目錄本身被判定為「確認未追蹤」）——見 PR #418 Accepted Residual Risks。
   - wrapper 的罕見或平台特定 option 組合可能無法正確定位真正執行檔；無法分類但看得出
     遞迴 rm 意圖時會 block，刻意混淆後仍可能繞過。
+  - symlink 路徑解析僅在 `cd <symlink> && rm -rf ../<target>` 這個特定情境做保守攔截；
+    其餘穿越 symlink 的情境（rm target 字串本身以 symlink 元件開頭、`cd <symlink>` 後接
+    一般相對路徑〔無 `..`〕、target 字串中間夾帶 `<symlink>/../`）均僅做 lexical 路徑展開，
+    不會對中間的 symlink 元件做 realpath 解析，可能誤判為未追蹤而放行。
+  - `env -S '<command>'` 的值視為不透明字串直接略過，不會遞迴解析或掃描其中是否含遞迴 rm。
+  - `env -C<dir>`／`sudo -D<dir>` 等短選項貼著寫值（無空格）的形式目前不會被解析為目錄選項，
+    後續的 rm target 會對呼叫端原本的 cwd解算，而非該 wrapper 指定的目錄。
+  - `sudo --chroot=<dir>` 僅被當成 cwd 變更處理；inner command 的絕對路徑 target 仍對照
+    host 根目錄解算，而非該 chroot 內的根目錄。
+  - GNU `rm` 允許 `--recursive` 的唯一前綴縮寫（如 `--re`、`--rec`）；本 hook 目前只精確比對
+    `--recursive` 全稱，縮寫形式不會被辨識為遞迴旗標。
+  - `eval <command>`（不加引號、多個獨立 token）在語意上等同於把這些 token 以空白重組後
+    再執行，但本 hook 的間接執行器文字掃描是逐一 token 比對正則，不會重組後再掃描——
+    `eval rm -rf x`（不加引號）可能不會被偵測為遞迴 rm，即使等價的 `eval 'rm -rf x'`
+    （加引號）會被正確攔截。
+  - `cd` 出現在條件式（`&&`/`||`）中「不保證會執行」的分支、或管線（`|`，於 subshell 執行
+    不外洩）以外的其他非保證執行情境時，cwd 追蹤可能與 Bash 實際的條件執行語意不完全一致。
+  - `command cd <dir>`、`pushd <dir>`、`builtin cd <dir>` 目前不會被辨識為 `cd`，cwd 追蹤
+    對這些形式維持呼叫端原本的目錄，可能導致後續 target 對錯誤的目錄解算。
+  - 間接執行器（`bash -c`／`eval`）文字掃描與 wrapper 選項無法分類時的保守文字掃描
+    （`has_visible_recursive_rm`）皆為粗粒度的字面比對，可能對特定內容（如檔名恰好含
+    連字號後接 r/R 字元、或長選項名稱含 r/R 字母）產生安全方向的過度攔截（誤擋正常操作），
+    但不影響安全性本身。
 """
 
 from __future__ import annotations
