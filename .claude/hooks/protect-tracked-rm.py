@@ -47,7 +47,7 @@ _REDIRECTION_RE = re.compile(r"^\d*(?:>>?|<<?|<>|>&|<&).*")
 _DYNAMIC_TARGET_RE = re.compile(r"[$`*?\[]")
 _INDIRECT_EXECUTORS = frozenset(("bash", "eval", "sh", "zsh"))
 _RECURSIVE_RM_TEXT_RE = re.compile(
-    r"(?:^|[;&|(){}\s])(?:/[^\s;|(){}]+/)?rm\s+(?:[^\s;|(){}]*\s+)*-\w*[rR]\w*"
+    r"(?:^|[;&|(){}\s])(?:/[^\s;|(){}]+/)?rm\s+[^;|(){}]*-\w*[rR]\w*"
 )
 
 _WRAPPERS = frozenset(

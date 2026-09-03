@@ -11,6 +11,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import ModuleType
 
@@ -469,3 +470,18 @@ class TestInputBoundary:
         )
 
         assert result.returncode == 0
+
+    def test_ptrm_eg_042_indirect_rm_text_scan_is_not_exponential(self) -> None:
+        """_RECURSIVE_RM_TEXT_RE 不得對長重複輸入產生 catastrophic backtracking。
+
+        CodeQL 對舊版 `(?:[^\\s;|(){}]*\\s+)*` 巢狀量詞回報 high-severity
+        「Inefficient regular expression」（PR #418）：以 tab 重複組成、且結尾不構成
+        合法比對的字串會觸發指數級 backtracking。此測試直接對 regex 施加惡意輸入，
+        以極短的 wall-clock 上限斷言修正後的單一量詞版本維持線性時間。
+        """
+        malicious = "\t" * 100 + "rm\t" + "\t" * 4000
+        start = time.monotonic()
+        HOOK_MODULE._RECURSIVE_RM_TEXT_RE.search(malicious)
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 1.0
