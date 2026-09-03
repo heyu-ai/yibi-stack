@@ -199,6 +199,7 @@ class TestWrappersAndGrouping:
             ("watch-exec", "watch -x rm -rf tracked"),
             ("ionice", "ionice rm -rf tracked"),
             ("setsid", "setsid rm -rf tracked"),
+            ("exec", "exec rm -rf tracked"),
             ("assignment", "FOO=1 rm -rf tracked"),
             ("sudo-option", "sudo -u root rm -rf tracked"),
         ],
@@ -343,12 +344,55 @@ class TestWrappersAndGrouping:
         assert result.returncode == 2
         assert f"目標（目錄）：{tracked_repo / 'tracked'}" in result.stdout
 
-    @pytest.mark.parametrize("operator", [">>", "<<", "<>", ">&", "<&"])
+    @pytest.mark.parametrize("operator", [">", ">>", "<<", "<>", ">&", "<&"])
     def test_ptrm_ut_027_redirection_punctuation_stays_grouped(self, operator: str) -> None:
-        """雙字元重新導向運算子須保留成單一 token。"""
+        """重新導向運算子須保留成單一 token。"""
         tokens = HOOK_MODULE._tokenize(f"rm -rf tracked{operator}output.txt")
 
         assert tokens == ["rm", "-rf", "tracked", operator, "output.txt"]
+
+    def test_ptrm_dt_028_redirection_target_is_not_an_rm_target(self, tmp_path: Path) -> None:
+        """重新導向目的檔不得被誤判為 rm target。"""
+        repo = _repo(tmp_path / "repo")
+        _track(repo, "tracked_log.txt")
+        (repo / "untracked").mkdir()
+
+        result = _run("rm -rf untracked > tracked_log.txt", repo)
+
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+    def test_ptrm_dt_029_case_without_rm_allows(self, tracked_repo: Path) -> None:
+        """case pattern 的右括號不得因 confirm 內含 rm 字串而誤擋。"""
+        result = _run('case "$x" in a) echo confirm;; esac', tracked_repo)
+
+        assert result.returncode == 0
+        assert result.stdout == ""
+
+    def test_ptrm_dt_037_case_with_recursive_rm_still_blocks(self, tracked_repo: Path) -> None:
+        """case clause 內真正的遞迴 rm 仍須檢查追蹤內容。"""
+        result = _run("case $x in a) rm -rf tracked;; esac", tracked_repo)
+
+        assert result.returncode == 2
+        assert "tracked/file.txt" in result.stdout
+
+    @pytest.mark.parametrize(
+        ("case_id", "command"),
+        [
+            ("unlisted-long-option", "sudo --preserve-env VARLIST rm -rf tracked"),
+            ("option-value-is-rm", "sudo -p rm -rf tracked"),
+        ],
+    )
+    def test_ptrm_eg_038_unclassified_wrapper_blocks_conservatively(
+        self, tracked_repo: Path, case_id: str, command: str
+    ) -> None:
+        """wrapper 定位不可靠但仍可見遞迴 rm 意圖時須保守攔截。"""
+        assert case_id
+
+        result = _run(command, tracked_repo)
+
+        assert result.returncode == 2
+        assert "wrapper 或控制結構無法可靠分類遞迴 rm" in result.stdout
 
 
 class TestCwdScoping:

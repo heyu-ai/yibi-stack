@@ -44,6 +44,7 @@ _CONTROL_PREFIXES = frozenset(("!", "if", "then", "elif", "else", "while", "unti
 _HEADER_PREFIXES = frozenset(("for", "case", "select"))
 _ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _REDIRECTION_RE = re.compile(r"^\d*(?:>>?|<<?|<>|>&|<&).*")
+_REDIRECTION_OPERATOR_RE = re.compile(r"^\d*(?:>>?|<<?|<>|>&|<&)$")
 _DYNAMIC_TARGET_RE = re.compile(r"[$`*?\[]")
 _INDIRECT_EXECUTORS = frozenset(("bash", "eval", "sh", "zsh"))
 _RECURSIVE_RM_TEXT_RE = re.compile(
@@ -54,6 +55,7 @@ _WRAPPERS = frozenset(
     (
         "command",
         "env",
+        "exec",
         "ionice",
         "nice",
         "nohup",
@@ -403,6 +405,8 @@ def _rm_targets(tokens: list[str], command_index: int) -> tuple[str, ...] | None
         word = tokens[index]
         if _REDIRECTION_RE.match(word):
             index += 1
+            if _REDIRECTION_OPERATOR_RE.fullmatch(word) and index < len(tokens):
+                index += 1
             continue
         if not options_done and word == "--":
             options_done = True
@@ -459,30 +463,35 @@ def _parse_rm_invocations(
     current: list[str] = []
     current_cwd: Path | None = base_cwd
     subshell_stack: list[Path | None] = []
+    case_stack: list[tuple[bool, int]] = []
     brace_depth = 0
+
+    def has_visible_recursive_rm(command_tokens: list[str]) -> bool:
+        """掃描 clause 中仍清楚可見的遞迴 rm 意圖。"""
+        for position, word in enumerate(command_tokens):
+            if os.path.basename(word) != "rm":
+                continue
+            options = (
+                later[1:].lower()
+                for later in command_tokens[position + 1 :]
+                if later.startswith("-")
+            )
+            if any("r" in option for option in options):
+                return True
+        return False
 
     def is_uncertain_destructive(command_tokens: list[str]) -> bool:
         """判斷無法完整分類的 clause 是否仍帶有遞迴 rm 意圖。"""
         index = _command_index(command_tokens)
         if index is None:
-            for position, word in enumerate(command_tokens):
-                if os.path.basename(word) != "rm":
-                    continue
-                options = (
-                    later[1:].lower()
-                    for later in command_tokens[position + 1 :]
-                    if later.startswith("-")
-                )
-                if any("r" in option for option in options):
-                    return True
-            return False
+            return has_visible_recursive_rm(command_tokens)
         executable = os.path.basename(command_tokens[index])
         if executable == "rm":
             targets = _rm_targets(command_tokens, index)
             return targets is None or bool(targets)
-        return executable in _INDIRECT_EXECUTORS and any(
-            _RECURSIVE_RM_TEXT_RE.search(word) for word in command_tokens[index + 1 :]
-        )
+        if executable in _INDIRECT_EXECUTORS:
+            return any(_RECURSIVE_RM_TEXT_RE.search(word) for word in command_tokens[index + 1 :])
+        return has_visible_recursive_rm(command_tokens)
 
     def flush(terminator: str) -> bool:
         nonlocal current_cwd
@@ -519,6 +528,9 @@ def _parse_rm_invocations(
                     f"{executable} 將在執行期解析遞迴 rm，無法可靠判定其目標",
                 )
                 return False
+            if is_uncertain_destructive(command_tokens):
+                _remember_failure(errors, "wrapper 或控制結構無法可靠分類遞迴 rm")
+                return False
             return True
         targets = _rm_targets(command_tokens, index)
         if targets is None:
@@ -545,6 +557,10 @@ def _parse_rm_invocations(
             subshell_stack.append(current_cwd)
             continue
         if word == ")":
+            if case_stack and case_stack[-1][0] and len(subshell_stack) == case_stack[-1][1]:
+                if not flush(";"):
+                    return None
+                continue
             if not flush(";"):
                 return None
             if not subshell_stack:
@@ -568,6 +584,12 @@ def _parse_rm_invocations(
                 return None
             brace_depth -= 1
             continue
+        if word == "case" and not current:
+            case_stack.append((False, len(subshell_stack)))
+        elif word == "in" and case_stack and not case_stack[-1][0]:
+            case_stack[-1] = (True, case_stack[-1][1])
+        elif word == "esac" and case_stack and case_stack[-1][0]:
+            case_stack.pop()
         current.append(word)
 
     if not flush(";"):
