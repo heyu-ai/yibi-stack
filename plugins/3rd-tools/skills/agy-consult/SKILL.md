@@ -2,7 +2,7 @@
 name: agy-consult
 type: tool
 scope: global
-description: Antigravity CLI（agy）第二意見：讓 agy 讀 repo 後回答技術問題，不看 diff。注意實際回答者預設不是 Gemini——script 預設 AGY_MODEL=claude-sonnet-4-6，要問到 Gemini 必須自行設 AGY_MODEL（原因與限定範圍見 SKILL.md 開頭）。觸發須明確指名 Gemini / agy / antigravity 且是「問問題」而非「review 改動」：問 gemini、agy 第二意見、gemini 怎麼看、agy 諮詢。純粹「幫我看一下」「這樣對嗎」等未指名 Gemini/agy 的一般提問不觸發此 skill。要看 diff 或 PR 改動的 review 請改用 /agy-review；要 OpenAI Codex（而非 Gemini）的第二意見請改用 /codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
+description: Antigravity CLI（agy）第二意見：讓 Gemini 讀 repo 後回答技術問題，不看 diff。預設 AGY_MODEL=gemini-3.8-flash-high（2026-09-03 實測台灣可用）。觸發須明確指名 Gemini / agy / antigravity 且是「問問題」而非「review 改動」：問 gemini、agy 第二意見、gemini 怎麼看、agy 諮詢。純粹「幫我看一下」「這樣對嗎」等未指名 Gemini/agy 的一般提問不觸發此 skill。要看 diff 或 PR 改動的 review 請改用 /agy-review；要 OpenAI Codex（而非 Gemini）的第二意見請改用 /codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
 ---
 
 # /agy-consult — 透過 Antigravity CLI 取得第二意見
@@ -10,23 +10,26 @@ description: Antigravity CLI（agy）第二意見：讓 agy 讀 repo 後回答�
 讓 Antigravity CLI（agy）讀取 repo 後，回答你對 codebase 的技術問題。
 適合「這段邏輯對嗎？」「為什麼這樣設計？」「有什麼潛在問題？」等開放式諮詢。
 
-> **實際回答者是誰**：`consult.sh` 預設 `AGY_MODEL=claude-sonnet-4-6`，**不是 Gemini**。
-> 這會影響「跨廠商獨立性」這個使用本 skill 的主要理由：若你已經有 Claude 的意見，再跑一次
-> 預設的 `/agy-consult` 拿到的是**同一家投兩票**，不是兩個獨立聲音。要真正的跨廠商第二意見
-> 請改用 `/codex-consult`。腳本每次執行都會把實際模型以 `[INFO] agy 模型：<model>` 印到
-> stderr，**不要靠猜**。
+> **實際回答者是誰**：`consult.sh` 預設 `AGY_MODEL=gemini-3.8-flash-high`。腳本每次執行
+> 都會把實際模型以 `[INFO] agy 模型：<model>` 印到 stderr，**不要靠猜**——尤其在要把「兩邊
+> 說法一致」當成跨廠商證據時，先讀那一行確認回答者真的不是 Claude。
 >
-> **預設值的由來，以及它的限定範圍**（這一段刻意寫清楚界線，因為無限定的版本是錯的）：
-> 本檔第 40-42 行的既有註解記載 Gemini 模型在台灣地區被 Google API 的 **pre-invocation
-> context summarization** 擋下（`FAILED_PRECONDITION 400: User location is not supported`），
-> 這是把預設改成 Claude 的原因。**但不可據此推論「agy 在台灣完全拿不到 Gemini」**——
-> `/pr-cycle-deep` 的 `agy-r1-stage1.sh` / `agy-r2.sh` 寫死 `--model 'Gemini 3.1 Pro (Low)'`，
-> 而且 `AGYS-DT-008` 這個測試**要求**它是 Gemini tier；PR #409 的 mob review 實跑該路徑成功
-> 產出 Gemini review。所以至少有一個 Gemini 模型在此環境可用。
-> 兩者的差別（模型 tier？值的形式？API 路徑？）**未經探測**，不要在文件裡替它編一個機制。
-> 想在本 skill 用 Gemini 就設 `AGY_MODEL`（`agy models` 左欄是可接受的 id，如
-> `gemini-3.7-flash-low`；`--model` 亦接受右欄的顯示名如 `Gemini 3.1 Pro (Low)`），
-> 失敗時直接看 `FAILED_PRECONDITION` 有沒有出現，不要預設它一定會失敗。
+> **預設值的由來（2026-09-03 實測，agy 1.1.25，台灣）**：`gemini-3.8-flash-high`、
+> `3.8-flash-low`、`3.7-flash-low`、`3.6-flash-low`、`3.1-pro-low` 五個 model id 各發一次
+> 請求**全部成功**，未出現 `FAILED_PRECONDITION: User location is not supported`；四個模型
+> 各自回報與請求一致的名稱，排除靜默 fallback 到同一模型的可能。
+> 此前預設為 `claude-sonnet-4-6`，理由是該地區限制——**該前提已不成立**，故改回 Gemini，
+> 讓本 skill 的預設行為與它存在的理由（跨廠商第二意見）一致。
+> 注意 3.7 / 3.8 **只有 Flash 沒有 Pro**，Pro 最新仍是 3.1；要 Pro 級推理請用
+> `gemini-3.1-pro-high`。
+>
+> **反向提醒**：`AGY_MODEL=claude-sonnet-4-6` 仍可覆寫回 Claude，但那會讓本 skill 與你既有的
+> Claude 意見**同一家投兩票**——在 mob review 裡是家族塌縮，不是兩個獨立聲音。要 Claude 以外的
+> 第三家請用 `/codex-consult`。
+>
+> **這是版本相依的實測，不是永久事實**：agy 升版後若 Gemini 路徑再度失效，請重測後再改預設，
+> 並更新這裡的版本戳記（rule 13 probe-rot）。`agy models` 左欄是可接受的 id；`--model` 亦接受
+> 右欄的顯示名如 `Gemini 3.1 Pro (Low)`。
 
 和 `/agy-review` 的區別：`/agy-review` 吃 **diff**（branch 改動，PASS/FAIL gate）；
 `/agy-consult` 吃**任意問題**，不需要有待 review 的改動。
@@ -35,7 +38,7 @@ description: Antigravity CLI（agy）第二意見：讓 agy 讀 repo 後回答�
 ## 觸發方式
 
 ```text
-/agy-consult <問題>      — 讓 agy 讀 repo 回答這個問題（預設模型 claude-sonnet-4-6）
+/agy-consult <問題>      — 讓 agy 讀 repo 回答這個問題（預設模型 gemini-3.8-flash-high）
 ```
 
 ---
@@ -131,5 +134,5 @@ Clean exit 後，呈現完整輸出，不截斷、不摘要。
 | `agy` 回傳空白或極短輸出 | `--sandbox` 底下 agy 想探索周邊檔案被自己的權限系統擋下，headless 無法跳出確認框；簡化問題避免需要額外讀檔，或評估是否需要放寬 `~/.gemini/antigravity-cli/settings.json` 的 `permissions.allow` |
 | agy 回「沒有作用中的 workspace」／「這看起來是 scratch 目錄」，或語意完整但顯然沒讀到檔案（甚至給出幻覺數字），且 exit 0 | `--add-dir` 被傳了相對路徑。**agy 1.1.22 不再把相對的 `.` 解析成 active workspace**，即使呼叫端已 cd 到該目錄。修法：傳絕對路徑（`--add-dir "$REPO_ROOT"`）。這道坑攔不到——exit code 是 0，而輸出 141 bytes（中文拒答約 47 字元）遠超腳本的 20 **字元**下限（守門用 `${#OUTPUT}` 數字元，不是 bytes）。測試 `AGYS-DT-010/011` 就是為了鎖住這個不變量 |
 | 懷疑是 `trustedWorkspaces` 沒列到這個 repo 才被拒讀 | **不是這個原因。** 實測負向對照（agy 1.1.22）：已列在 `trustedWorkspaces` 的 repo 用相對 `.` 一樣失敗，未列入的 repo 用絕對路徑一樣成功。唯一的鑑別變數是 `--add-dir` 的路徑形式，不要為此去改 trust 清單（那會無效地放寬安全邊界） |
-| Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 台灣地區限制；script 預設已改用 `claude-sonnet-4-6`。如需切回 Gemini（VPN 或 Google 開放後），設 `AGY_MODEL=gemini-3.7-flash-low` 環境變數 |
+| Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 地區限制又出現了（2026-09-03 實測時已無此問題，見開頭區塊）。先試其他 Gemini id（`agy models` 左欄）；全部失敗才設 `AGY_MODEL=claude-sonnet-4-6` 暫時切回 Claude，並記得此時**失去跨廠商獨立性**，不可把它的意見當成第二家 |
 | 想看 diff review 而非問答 | 改用 `/agy-review` |

@@ -2,7 +2,7 @@
 name: agy-review
 type: tool
 scope: global
-description: Antigravity CLI（agy）對 diff 做 code review（PASS/FAIL gate）或 challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 reviewer，全程 --sandbox（唯讀，無寫入權）。注意實際 reviewer 預設不是 Gemini——script 預設 AGY_MODEL=claude-sonnet-4-6，要用 Gemini 必須自行設 AGY_MODEL（原因與限定範圍見 SKILL.md 開頭）。觸發須明確指名 Gemini / agy / antigravity 且要看 diff；未指名的一般「幫我 review」「這樣對嗎」不觸發。純問問題、沒有 diff 要看請改用 /agy-consult；要 OpenAI Codex（而非 Gemini）的 diff review 或第二意見請改用 /codex-review、/codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
+description: Antigravity CLI（agy）對 diff 做 code review（PASS/FAIL gate）或 challenge（對抗模式找 bug/security）；不啟動 mob 流程的輕量單一 reviewer，全程 --sandbox（唯讀，無寫入權）。預設 AGY_MODEL=gemini-3.8-flash-high（2026-09-03 實測台灣可用）。觸發須明確指名 Gemini / agy / antigravity 且要看 diff；未指名的一般「幫我 review」「這樣對嗎」不觸發。純問問題、沒有 diff 要看請改用 /agy-consult；要 OpenAI Codex（而非 Gemini）的 diff review 或第二意見請改用 /codex-review、/codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
 ---
 
 # /agy-review — Antigravity CLI diff review 第二意見
@@ -10,15 +10,16 @@ description: Antigravity CLI（agy）對 diff 做 code review（PASS/FAIL gate�
 獨立呼叫 Antigravity CLI（agy），出一份 code review 或對抗模式 bug hunt。
 比 `/pr-cycle-deep` 輕量，不做 R2 cross-debate，適合快速拿第二意見。
 
-> **實際 reviewer 是誰**：`run.sh` 預設 `AGY_MODEL=claude-sonnet-4-6`，**不是 Gemini**。
-> 這會影響跨廠商獨立性——把預設的 `/agy-review` 結果當成「Gemini 的獨立意見」計入 mob review
-> 的 consensus 是錯的，那是同一家投兩票。需要真正跨廠商請用 `/codex-review`。腳本每次執行
-> 都會把實際模型以 `[INFO] agy 模型：<model>` 印到 stderr。
+> **實際 reviewer 是誰**：`run.sh` 預設 `AGY_MODEL=gemini-3.8-flash-high`。腳本每次執行
+> 都會把實際模型以 `[INFO] agy 模型：<model>` 印到 stderr——把本 skill 的結果計入 mob review
+> consensus 前，先讀那一行確認 reviewer 真的不是 Claude。
 >
-> 預設值的由來是台灣地區 Google API 的 pre-invocation context summarization 限制（見 `run.sh`
-> 註解與 FAQ）。**但這不等於「agy 在台灣拿不到 Gemini」**：`/pr-cycle-deep` 的 agy 階段寫死
-> `--model 'Gemini 3.1 Pro (Low)'` 並實測可用。想在本 skill 用 Gemini 就設 `AGY_MODEL` 試，
-> 不要預設它一定失敗；界線未經探測，詳見 `/agy-consult` SKILL.md 同一段。
+> 預設值的由來是 2026-09-03 的實測（agy 1.1.25，台灣）：五個 Gemini model id 全部可用，
+> 未出現 `FAILED_PRECONDITION: User location is not supported`。此前預設 `claude-sonnet-4-6`
+> 的地區限制前提已不成立。完整實測記錄與版本戳記見 `/agy-consult` SKILL.md 開頭同一段。
+>
+> `AGY_MODEL=claude-sonnet-4-6` 仍可覆寫回 Claude，但那時它**不是**跨廠商聲音，不可當第二家
+> 計入 consensus；要 Claude 以外的第三家請用 `/codex-review`。
 全程 `--sandbox`（唯讀），不需要、也不會用 `--dangerously-skip-permissions`。
 純問技術問題、沒有 diff 要看請改用 `/agy-consult`。
 
@@ -159,4 +160,4 @@ challenge mode：找到問題時輸出 `[P0]`/`[P1]` 列表，找不到問題時
 | `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy auth` |
 | 輸出缺少 `[PASS]` / `[FAIL]` | 在 INSTRUCTION 加入「結尾必須輸出 [PASS] 或 [FAIL]」 |
 | diff 為空或 `origin/<base>` 不存在 | 確認已有 commit，或手動指定 base：`/agy-review base=develop` |
-| Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 台灣地區限制；script 預設已改用 `claude-sonnet-4-6`。如需切回 Gemini（VPN 或 Google 開放後），設 `AGY_MODEL=gemini-3.7-flash-low` 環境變數 |
+| Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 地區限制又出現了（2026-09-03 實測時已無此問題，見開頭區塊）。先試其他 Gemini id（`agy models` 左欄）；全部失敗才設 `AGY_MODEL=claude-sonnet-4-6` 暫時切回 Claude，並記得此時**失去跨廠商獨立性**，不可把它的 review 當成第二家 |
