@@ -97,18 +97,20 @@ if ! test -n "$HARD_ROOT"; then echo "[FAIL] 讀不到 pr-retro-hard 的 scripts
 | Voice | 取得方式 | 條件 |
 |-------|---------|------|
 | Codex | `Skill(skill="codex-consult", args="…")` | 該 skill 自己偵測 binary 與 auth；失敗時它自己 `[FAIL]` |
-| agy（**預設 Claude Sonnet 4.6，不是 Gemini**——見下方警告） | `Skill(skill="agy-consult", args="…")` | 同上 |
+| agy（預設 `gemini-3.8-flash-high`；可被 `AGY_MODEL` 覆寫——見下方警告） | `Skill(skill="agy-consult", args="…")` | 同上 |
 | Claude 對抗式 | `Agent(subagent_type="general-purpose")` | **無條件**，永遠執行 |
 
 > **家族塌縮警告（比 prompt 相關更難察覺）**：下方已論證三 voice 因「同一份草稿、同一套
-> prompt」而依建構相關，故一致不構成 cross-model 證據。但還有第二層獨立性會失效，且它不會
-> 在輸出裡留下任何痕跡：`agy-consult` 的預設模型是 `claude-sonnet-4-6`，所以預設情況下這三個
-> voice 是 **Claude、Claude、Codex**——不是三個家族。
-> `agy-consult` 的腳本每次執行都會把實際模型印到 stderr（`[INFO] agy 模型：<model>`）；**要把
-> 任何一致當成跨家族訊號之前，先讀那一行**。要在本流程取得真正的 Gemini voice 就設
-> `AGY_MODEL`（可接受值見 `agy models`）——注意「Gemini 在台灣一定被擋」是錯的：
-> `/pr-cycle-deep` 的 agy 階段寫死 `Gemini 3.1 Pro (Low)` 並實測可用，界線未經探測，
-> 詳見 `/agy-consult` SKILL.md 的「預設值的由來，以及它的限定範圍」。
+> prompt」而依建構相關，故一致不構成 cross-model 證據。第二層獨立性也會失效，且它不會在輸出
+> 裡留下任何痕跡——`agy-consult` 的模型決定了第二個 voice 究竟是 Gemini 還是 Claude，而三個
+> voice 若是 **Claude、Claude、Codex** 就不是三個家族。
+> 自 2026-09-03 起 `agy-consult` 預設 `gemini-3.8-flash-high`（台灣實測可用），所以**預設路徑
+> 不再塌縮**。但這只是把風險從「預設就錯」降成「被覆寫時才錯」，並未消除它：`AGY_MODEL`
+> 一經設成 Claude 模型，塌縮就無聲地回來。
+> 因此紀律不變：`agy-consult` 的腳本每次執行都會把實際模型印到 stderr
+> （`[INFO] agy 模型：<model>`），**要把任何一致當成跨家族訊號之前，先讀那一行**。
+> 不要改成「因為預設是 Gemini 所以可以省略這步」——那正是這條警告存在的理由。
+> 實測記錄與版本戳記見 `/agy-consult` SKILL.md 的「預設值的由來」。
 
 記錄哪幾家回來了。**外部 voice 為 0 時不 redirect**（與 `/pr-cycle-deep` 不同——對抗 voice
 本身仍有價值），輸出：

@@ -97,15 +97,19 @@ class TestAgyRunScriptContract:
     def test_agyrun_dt_005_model_announced_on_stderr(self, script: Path) -> None:
         """AGYRUN-DT-005: the resolved agy model is announced on stderr before the call.
 
-        Both scripts default `AGY_MODEL` to a Claude model. Do not restate a mechanism for
-        that here: `agy-r1-stage1.sh` runs `agy -p … --model 'Gemini 3.1 Pro (Low)'` on the
-        same `-p` path and works, so `-p` is not the discriminator, and the boundary is
-        unprobed (see `agy-consult/SKILL.md`, which forbids inventing one). What matters for
-        this test is only that the default is NOT Gemini: without the announcement a caller
-        cannot tell whether an `/agy-consult` or `/agy-review` answer came from Gemini or
-        from Claude, and counting a Claude answer as an independent cross-vendor voice in a
-        mob consensus is a silent correctness failure (two votes from one family, presented
-        as two families).
+        Both scripts now default `AGY_MODEL` to a Gemini model (2026-09-03, agy 1.1.25:
+        five Gemini model ids probed from Taiwan, all succeeded — the earlier
+        `FAILED_PRECONDITION: User location is not supported` premise that forced a Claude
+        default no longer holds).
+
+        The announcement contract does NOT depend on which vendor the default names, and
+        this test deliberately asserts nothing about that. It exists because the vendor is
+        overridable in both directions: a caller who cannot see the resolved model cannot
+        tell whether an `/agy-consult` or `/agy-review` answer came from Gemini or from
+        Claude, and counting two same-family answers as two independent vendor voices in a
+        mob consensus is a silent correctness failure. Flipping the default made that risk
+        larger, not smaller — `AGY_MODEL=claude-sonnet-4-6` is now the override a reader
+        might set, which re-creates the collapse the announcement exists to expose.
 
         Four documents now instruct readers to rely on this line — `pr-retro-hard`'s
         SKILL.md makes reading it a procedural gate before treating agreement as
@@ -261,7 +265,7 @@ class TestAgyScriptExecutionContract:
         assert result.returncode == 0, (result.stdout, result.stderr)
         assert "a genuine agy answer" in result.stdout
         assert "[INFO]" in result.stderr and "agy 模型" in result.stderr, result.stderr
-        assert "claude-sonnet-4-6" in result.stderr, (
+        assert "gemini-3.8-flash-high" in result.stderr, (
             "the announcement must name the resolved model, not just say a model was used"
         )
         assert "[INFO]" not in result.stdout, (
@@ -276,11 +280,17 @@ class TestAgyScriptExecutionContract:
         """AGYRUN-DT-009: the announcement reports the OVERRIDE, not the default.
 
         The default-only test above cannot tell "prints the resolved model" from "prints a
-        hardcoded string" — and the override path is the one that matters: it is what a
-        reader follows to get an actual cross-vendor voice, and mis-reporting it re-creates
-        the exact mis-attribution the announcement exists to prevent.
+        hardcoded string" — and the override path is the one that matters, because
+        mis-reporting it re-creates the exact mis-attribution the announcement exists to
+        prevent.
+
+        The override under test is deliberately `claude-sonnet-4-6`: since the default
+        flipped to Gemini, falling back to Claude is the override a reader actually sets,
+        and it is the one that silently collapses a mob's vendor diversity. Asserting the
+        cross-family direction also keeps the two strings free of any substring overlap, so
+        a passing result cannot come from one model name being contained in the other.
         """
-        override = "gemini-3.7-flash-low"
+        override = "claude-sonnet-4-6"
         result = _run_agy_script(
             script,
             tmp_path,
@@ -292,7 +302,7 @@ class TestAgyScriptExecutionContract:
         assert override in result.stderr, (
             f"{script.name} must announce the overridden model; stderr={result.stderr!r}"
         )
-        assert "claude-sonnet-4-6" not in result.stderr, (
+        assert "gemini-3.8-flash-high" not in result.stderr, (
             f"{script.name} announced the default while AGY_MODEL was {override!r} — the "
             "line reports a hardcoded string, not the resolved model"
         )

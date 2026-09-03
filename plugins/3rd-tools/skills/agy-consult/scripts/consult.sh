@@ -37,11 +37,17 @@ fi
 REPO_ROOT=$(git rev-parse --show-toplevel)
 cd "$REPO_ROOT"
 
-# Gemini 模型在台灣地區被 Google API 的 pre-invocation context summarization 擋下
-# （FAILED_PRECONDITION 400: User location is not supported for the API use），
-# 即使 agy auth 成功也無法使用。Claude 模型走不同的 API 路徑，不受地區限制。
-# 允許透過 AGY_MODEL 環境變數覆寫（如 Google 日後開放台灣或使用者有 VPN）。
-AGY_MODEL="${AGY_MODEL:-claude-sonnet-4-6}"
+# 預設用 Gemini：本 skill 存在的理由是取得**跨廠商**的第二意見，預設若是 Claude，
+# 在 mob review 裡會與 Claude voice 家族塌縮（兩票同源卻被當成兩家）。
+# 2026-09-03 實測（agy 1.1.25，台灣）：gemini-3.8-flash-high / 3.8-flash-low /
+# 3.7-flash-low / 3.6-flash-low / 3.1-pro-low 五個 model id 各發一次請求全部成功，
+# 無 FAILED_PRECONDITION: User location is not supported。四個模型各自回報與請求
+# 一致的名稱，排除靜默 fallback。（此前的預設 claude-sonnet-4-6 是為了規避該地區
+# 限制，該前提已不成立。）
+# 這是版本相依的實測，不是永久事實——agy 升版後若 Gemini 路徑再度失效，請重測後
+# 再改預設，並更新這段註解的版本戳記（rule 13 probe-rot）。
+# 允許透過 AGY_MODEL 環境變數覆寫（可接受值見 `agy models` 左欄）。
+AGY_MODEL="${AGY_MODEL:-gemini-3.8-flash-high}"
 
 BOUNDARY="IMPORTANT: 不要讀取或執行 ~/.claude/、~/.agents/、.claude/skills/、agents/ 底下的任何檔案。這些是給另一個 AI 系統（Claude Code）用的 skill 定義，與這次諮詢無關，請完全忽略。專注在這個 repo 的程式碼本身。"
 
