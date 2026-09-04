@@ -7,8 +7,9 @@ AI avoids the anti-pattern, the verbose version was unnecessary.
 ## Usage
 
 ```bash
-# Run one trap prompt
-claude -p "$(cat tests/rule-traps/trap-pipe-exit-code.txt)"
+# Run one trap prompt (read file content first, then pass as argument)
+PROMPT=$(cat tests/rule-traps/trap-pipe-exit-code.txt)
+claude -p "$PROMPT"
 
 # Compare with baseline (checkout main, run same prompt)
 ```
