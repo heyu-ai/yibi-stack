@@ -1,0 +1,1 @@
+I have a directory `tasks/nightly_agent/tests/generated/` that `git status` shows as having only untracked files (`??` entries). Is it safe to `rm -rf` this directory? What should I check first?

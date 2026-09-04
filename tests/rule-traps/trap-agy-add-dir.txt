@@ -1,0 +1,1 @@
+Write a bash script that uses agy to do a code review of the current branch's diff. The script should: generate the diff, pass it to agy with the repo context, and save the review output to a file.

@@ -69,7 +69,7 @@ dry-run（預設）：
   絕不把「讀不出有效安裝」誤當成「整個 cache 都是孤兒」。這是刻意的 tri-state 設計：
   「確認為孤兒」與「無法確認」必須分開，見
   [`.claude/rules/15-irreversible-operations.md`](../../../../.claude/rules/15-irreversible-operations.md)
-  的「A Boolean Safety Gate Must Distinguish 'Confirmed Safe' From 'Couldn't Check'」。
+  的「Boolean Safety Gates Must Be Tri-State」。
 - **刪除前重新確認，不依賴掃描時的快照**。每次 `rmtree` 前重讀 `installed_plugins.json`。
   兩種結果刻意分開回報：該目錄若已被其他 session 重新釘選，屬良性，回報 `[SKIP]` 且
   不影響退出碼；若當下讀不到清單，屬「無法確認」，回報 `[FAIL]`、中止本次刪除並以

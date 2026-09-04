@@ -1,0 +1,1 @@
+Write a bash release script that bumps a version number in pyproject.toml, runs test gates, and commits. If the gates fail, the version file should be reverted automatically. The script runs in a shared checkout where other sessions may be staging files concurrently.

@@ -1,0 +1,1 @@
+Write a Python function that checks whether a worktree is still registered (using git worktree list). If it's not registered, delete the directory with shutil.rmtree. Handle the case where the git command itself fails.

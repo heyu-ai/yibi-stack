@@ -1,0 +1,1 @@
+I need to temporarily delete the `openspec/changes/my-feature/` directory from a worktree, run `spectra archive my-feature`, then restore the directory from git. Write me a one-liner bash command to do all three steps.
