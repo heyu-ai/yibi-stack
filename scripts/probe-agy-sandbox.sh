@@ -58,22 +58,36 @@ PROBE2_OUT=$(agy -p "Run the shell command: echo PROBE_COMMAND_EXECUTED" \
     --add-dir "${PROBE_DIR}" \
     --sandbox \
     --print-timeout 2m 2>/dev/null || true)
-if echo "$PROBE2_OUT" | grep -q "PROBE_COMMAND_EXECUTED"; then
-    echo "[FAIL] sandbox-command-deny (agy ${AGY_VER}) -- --sandbox 下 command 未被 auto-deny（假設已失效，可考慮改回 --sandbox）" >&2
+if [ -z "$PROBE2_OUT" ]; then
+    echo "[FAIL] sandbox-command-deny (agy ${AGY_VER}) -- agy 無輸出（無法區分 auto-deny 與工具故障）" >&2
+    PROBE_FAIL=1
+elif echo "$PROBE2_OUT" | grep -q "PROBE_COMMAND_EXECUTED"; then
+    echo "[FAIL] sandbox-command-deny (agy ${AGY_VER}) -- --sandbox 下 command 未被 auto-deny（假設已失效）" >&2
     PROBE_FAIL=1
 else
-    echo "[PASS] sandbox-command-deny (agy ${AGY_VER}) -- command 仍被 auto-deny（假設成立）"
+    echo "[PASS] sandbox-command-deny (agy ${AGY_VER}) -- command 被 auto-deny，agy 回傳拒絕訊息（假設成立）"
 fi
 
 echo "--- Probe 3: bypass-full-access (agy ${AGY_VER}) ---"
-PROBE3_OUT=$(agy -p "Read probe-file.txt and also run: echo BYPASS_COMMAND_OK" \
+PROBE3_OUT=$(agy -p "Read probe-file.txt and reply with its content, then run: echo BYPASS_COMMAND_OK" \
     --add-dir "${PROBE_DIR}" \
     --dangerously-skip-permissions \
     --print-timeout 2m 2>/dev/null || true)
-if [ -n "$PROBE3_OUT" ]; then
+PROBE3_HAS_FILE=false
+PROBE3_HAS_CMD=false
+if echo "$PROBE3_OUT" | grep -q "seed content for probe"; then
+    PROBE3_HAS_FILE=true
+fi
+if echo "$PROBE3_OUT" | grep -q "BYPASS_COMMAND_OK"; then
+    PROBE3_HAS_CMD=true
+fi
+if [ "$PROBE3_HAS_FILE" = true ] && [ "$PROBE3_HAS_CMD" = true ]; then
     echo "[PASS] bypass-full-access (agy ${AGY_VER})"
-else
+elif [ -z "$PROBE3_OUT" ]; then
     echo "[FAIL] bypass-full-access (agy ${AGY_VER}) -- 權限繞過旗標下輸出為空" >&2
+    PROBE_FAIL=1
+else
+    echo "[FAIL] bypass-full-access (agy ${AGY_VER}) -- 部分能力未放行（file-read=${PROBE3_HAS_FILE}, command=${PROBE3_HAS_CMD}）" >&2
     PROBE_FAIL=1
 fi
 

@@ -53,6 +53,7 @@ _EXPECTED_ADD_DIR_CALL_SITES = frozenset(
         "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh",
         "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh",
         "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r2.sh",
+        "scripts/probe-agy-sandbox.sh",
     }
 )
 
@@ -310,6 +311,7 @@ class TestWorkspaceContextContract:
 
 CONSULT_SH = PLUGINS_DIR / "3rd-tools/skills/agy-consult/scripts/consult.sh"
 RUN_SH = PLUGINS_DIR / "3rd-tools/skills/agy-review/scripts/run.sh"
+PROBE_SH = REPO_ROOT_DIR / "scripts/probe-agy-sandbox.sh"
 
 # script -> positional args it needs. Every entry in _EXPECTED_ADD_DIR_CALL_SITES must
 # appear here (AGYS-DT-013 asserts it), so a new agy call site cannot ship untested.
@@ -319,6 +321,7 @@ _RUNTIME_CASES: dict[str, tuple[Path, list[str]]] = {
     "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh": (STAGE1, []),
     "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh": (STAGE2, []),
     "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r2.sh": (R2, []),
+    "scripts/probe-agy-sandbox.sh": (PROBE_SH, []),
 }
 
 
@@ -397,6 +400,13 @@ def agy_runtime_env(tmp_path: Path) -> dict[str, object]:
     prompts.mkdir(parents=True)
     (prompts / "extract-r1.md").write_text("EXTRACT PROMPT\n", encoding="utf-8")
 
+    # probe-agy-sandbox.sh checks onboardingComplete before calling agy.
+    onboarding_dir = home / ".gemini/antigravity-cli/cache"
+    onboarding_dir.mkdir(parents=True)
+    (onboarding_dir / "onboarding.json").write_text(
+        '{"onboardingComplete": true}', encoding="utf-8"
+    )
+
     job_dir = tmp_path / "job"
     job_dir.mkdir()
     (job_dir / "agy-consult-question.txt").write_text("測試問題\n", encoding="utf-8")
@@ -451,8 +461,15 @@ class TestAddDirRuntimeContract:
         assert invocations, f"{script.name}: capture file exists but decoded to no records"
         # Every invocation, not just the last: a script that calls agy twice must not be
         # able to hide a bad call behind a good one.
-        for n, argv in enumerate(invocations, start=1):
-            where = f"{script.name} (agy invocation {n} of {len(invocations)})"
+        # Skip version-query invocations (e.g. `agy --version`): they legitimately
+        # have no --add-dir and no file context is needed.
+        content_invocations = [argv for argv in invocations if argv != ["--version"]]
+        assert content_invocations, (
+            f"{script.name}: all {len(invocations)} agy invocations were version "
+            "queries — no content invocation to check"
+        )
+        for n, argv in enumerate(content_invocations, start=1):
+            where = f"{script.name} (agy invocation {n} of {len(content_invocations)})"
             present, value = _extract_add_dir(argv)
             assert present, (
                 f"{where} invoked agy without --add-dir. agy 1.1.22 then runs with NO file "
