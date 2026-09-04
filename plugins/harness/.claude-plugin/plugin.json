@@ -1,6 +1,6 @@
 {
   "name": "harness",
-  "description": "Claude Code harness engineering: 11-dimension readiness evaluation (harness-eval), single-dimension deep audit (harness-eval-focus), bash anti-pattern detection and enforcement hooks (AP1/AP2), bash-hygiene hook audit logging, worktree push protection, plugin migration check, and plugin cache pruning.",
+  "description": "Claude Code harness engineering: 11-dimension readiness evaluation (harness-eval), single-dimension deep audit (harness-eval-focus), bash anti-pattern detection and enforcement hooks (AP1/AP2), bash-hygiene hook audit logging, worktree push protection, fleet usage and burn-rate guarding, plugin migration check, and plugin cache pruning.",
   "version": "1.21.0",
   "author": {
     "name": "Howie Yu",
@@ -25,6 +25,8 @@
     "plugin-migration",
     "upgrade",
     "plugin-cache",
-    "disk-cleanup"
+    "disk-cleanup",
+    "usage-guard",
+    "burn-rate"
   ]
 }

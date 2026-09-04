@@ -1,7 +1,7 @@
 # harness
 
 Claude Code plugin for harness readiness evaluation, bash anti-pattern enforcement, hook audit
-logging, and worktree push protection.
+logging, worktree push protection, and fleet usage guarding.
 
 ## Prerequisites
 
@@ -42,6 +42,7 @@ claude plugin install harness@yibi-stack
 | `protect-push` skill | Git pre-push hook installer: blocks direct push to main/master from worktree branches |
 | `plugin-migration-check` skill | Detects installed yibi-stack packs that were renamed/merged/split/removed and prints the exact `claude plugin uninstall`/`install` commands to fix them |
 | `plugin-cache-prune` skill | Scans `~/.claude/plugins/cache/` across all marketplaces for stale plugin version directories no longer referenced by `installed_plugins.json`, and removes them on request |
+| `fleet-usage-guard` skill | Estimates recent fleet-wide transcript cost in USD/hour, deduplicates repeated request rows, and broadcasts a reason-specific stop when the user-owned threshold is exceeded |
 | AP1 PreToolUse hook | Blocks `python -c` multi-line, `osascript` heredoc, `grep "\|"` BRE, nested `$(outer "$(inner)")`, `$(jq '...')` subshell |
 | AP2 PreToolUse hook | Blocks em dash, en dash, emoji, zero-width chars in bash strings |
 | Smart-fix PreToolUse hook | Detects Rule 2 `"$(cmd)"` standalone token and shows corrected command inline |
@@ -60,6 +61,8 @@ claude plugin install harness@yibi-stack
 - Run `plugin-cache-prune` periodically to reclaim disk space from stale plugin version
   directories that accumulate under `~/.claude/plugins/cache/` every time a marketplace
   plugin is updated.
+- Run `fleet-usage-guard` from a monitoring session to stop active peers when either the
+  transcript-derived USD/hour rate or account quota reaches the configured boundary.
 
 ## Known Limitations
 

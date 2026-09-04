@@ -23,7 +23,7 @@ claude plugin marketplace add heyu-ai/yibi-stack  # 一次性註冊
 claude plugin install growth@yibi-stack          # mycelium + learn + PR 回顧/審計 + CLAUDE.md 精簡
 claude plugin install dev-cycle@yibi-stack       # PR 全流程 + newjob/handover + port/debug + ci-triage
 claude plugin install sdd@yibi-stack             # spectra-amplifier + figma-design-sync + /sdd:setup
-claude plugin install harness@yibi-stack        # harness-eval + harness-eval-focus + bash-hygiene-audit + bash-anti-patterns + protect-push + plugin-migration-check + plugin-cache-prune
+claude plugin install harness@yibi-stack        # harness-eval + bash hygiene + protect-push + fleet-usage-guard + plugin maintenance
 claude plugin install 3rd-tools@yibi-stack       # codex-review + codex-consult + codex-cli + agy-review + agy-consult + verify-gemini-models
 claude plugin install methodology@yibi-stack     # tdd-kentbeck + flutter-tdd + event-storming + problem-frames + qa-test-design
 ```
@@ -41,6 +41,7 @@ claude plugin install methodology@yibi-stack     # tdd-kentbeck + flutter-tdd + 
 | `protect-push` | tool | [plugins/harness/](../plugins/harness/README.md) | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
 | `plugin-migration-check` | exec | [plugins/harness/](../plugins/harness/README.md) | 偵測本機已安裝的 yibi-stack plugin 中，有哪些 pack 已改名／合併／拆分／移除但尚未跟著遷移，印出精確的 uninstall/install 修復指令 | [plugin-migration-check/SKILL.md](plugin-migration-check/SKILL.md) |
 | `plugin-cache-prune` | exec | [plugins/harness/](../plugins/harness/README.md) | 掃描 `~/.claude/plugins/cache/` 下所有 marketplace，找出未被 `installed_plugins.json` 參照的舊版本目錄並回報可回收空間，經確認後可實際刪除 | [plugin-cache-prune/SKILL.md](plugin-cache-prune/SKILL.md) |
+| `fleet-usage-guard` | exec | [plugins/harness/](../plugins/harness/README.md) | 依 `(message.id, requestId)` 去重本機 transcript，以 API list price 估算 fleet 的 USD/hour；超過使用者設定閾值或額度接近上限時廣播原因明確的停手訊息 | [fleet-usage-guard/SKILL.md](fleet-usage-guard/SKILL.md) |
 | `bash-hygiene-audit` | exec | [tasks/bash_hygiene_audit/](../tasks/bash_hygiene_audit/) | bash-hygiene hook audit log 管理：啟用/停用記錄、查看近期 hook 攔截事件、統計違規比例與熱點 pattern | [bash-hygiene-audit/SKILL.md](bash-hygiene-audit/SKILL.md) |
 | `harness-eval` | exec | [plugins/harness/](../plugins/harness/README.md) | Claude Code harness 就緒度評量：11 維度（D1–D11）滿分 123，PASS/WARN/FAIL 清單，優先改善 TODO。涵蓋 CLAUDE.md / hooks / settings / skills / testing / git / rules / security / subagents / codebase-navigation / token-economy | [harness-eval/SKILL.md](harness-eval/SKILL.md) |
 | `investigate` | tool | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | 系統化除錯：先根因調查（五階段 + Iron Law：沒找到根因不准修）再修，然後交棒給 PR 生命週期。改寫自 garrytan/gstack（MIT），剝除 gstack 產品 plumbing；Scope Lock 呼叫 `freeze` 鎖範圍 | [investigate/SKILL.md](investigate/SKILL.md) |
