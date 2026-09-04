@@ -351,62 +351,27 @@ the failure was nearly shipped as a passing CI.)
 
 ### `|| exit 0` / `|| true` Turns a Real Result Into a Silent Skip
 
-Same family, different mechanism: the pipe case loses the exit code by accident, this one
-**discards it on purpose**. Be precise about *what* it discards — `$(...)` still captures stdout
-even with `|| true`; only the **exit code** is masked. That is the whole problem, because the exit
-code is often the only signal separating "failed to run" from "ran and found something".
-
-Analysis tools exit non-zero for two completely different reasons: **it failed to run**, and
-**it ran and found something**. `mypy`, `pytest`, and most linters use non-zero for "found
-findings"; review tools like `agy` / `codex review` instead encode findings in their *output* and
-reserve non-zero for execution failure — so "non-zero == findings" is not universal, read each
-tool's own contract. Either way, `|| exit 0` / `|| true` throws that exit code away — but with
-*different* control flow, so be precise which one you wrote: `|| true` masks the failure and the
-script **keeps running**, so whatever you branch on next can no longer tell the two apart;
-`|| exit 0` instead **ends the script right there** with a success status, turning a real failure
-into a silent early-exit that skips every downstream step. Either way the caller sees success and
-cannot distinguish "failed to run" from "ran and found something".
+`|| true` masks the exit code and continues; `|| exit 0` masks it and exits immediately.
+Either way the caller cannot distinguish "failed to run" from "ran and found something".
 
 ```bash
-# Wrong (branch on the exit code): `|| true` forces exit 0, so a run that FAILED -- or that found
-# problems, for a tool that signals findings via its exit code -- reads as clean and the script
-# sails right past it.
+# Wrong: exit code masked
 agy review ... || true
-# ... proceeds as if nothing happened
 
-# Wrong (branch on the output): $(...) DOES capture stdout despite `|| true`, so findings are not
-# lost here -- but a failed run that printed its error to stdout is now indistinguishable from real
-# findings (both non-empty), because the exit code that separated them is gone.
-OUT=$(agy review ... || true)
-if [ -n "$OUT" ]; then ... ; fi
-
-# Correct: capture status and output separately, then decide from BOTH against the tool's contract
+# Fix: capture status and output separately
 EXIT=0
 OUT=$(agy review ...) || EXIT=$?
 if [ -z "$OUT" ]; then
-  echo "[FAIL] agy produced no output (exit $EXIT) -- treat as tool failure, not as 'no findings'" >&2
-  exit 1
+  echo "[FAIL] no output (exit $EXIT)" >&2; exit 1
 fi
-# For a REVIEW tool (agy / codex review), a non-zero EXIT means it failed to run -- reject it IN
-# CODE, do not read its stdout as findings. This branch is the point: capturing $EXIT is useless
-# unless something actually acts on it.
 if [ "$EXIT" -ne 0 ]; then
-  echo "[FAIL] agy exited $EXIT -- execution failure; its stdout is not review findings" >&2
-  exit 1
+  echo "[FAIL] execution failed (exit $EXIT)" >&2; exit 1
 fi
-# Now: EXIT == 0 and OUT non-empty -> read the findings from OUT.
-# For mypy/pytest the contract is INVERTED -- non-zero IS the "found something" signal, so there you
-# must NOT add this reject-on-non-zero branch; reconcile output and exit per that tool's contract.
 ```
 
-The distinction to encode is **"failed to run" vs "ran and found something"**, and the exit code
-is what carries it — so never let one `||` mask it. `|| true` is only appropriate where the failure
-genuinely cannot affect anything downstream, which a result you are about to branch on never is.
-
-The empty-output check above assumes the tool **always emits something when it ran** — true for
-`agy` / `codex review` / `mypy` / `pytest`. A linter that is silent on a clean run (`ruff check`,
-`eslint`) exits 0 with no output, so `[ -z "$OUT" ]` would false-`[FAIL]` a green run; there, gate
-on the exit code, not on emptiness.
+Tool contract matters: `agy`/`codex review` use non-zero for execution failure; `mypy`/`pytest`
+use non-zero for "found findings". Match the branch logic to the tool's contract. Silent-on-clean
+tools (`ruff check`) need exit-code gating, not empty-output gating.
 
 ### A `file:line`-Only Diagnostic Filter Drops Invocation Errors
 
@@ -681,218 +646,63 @@ describe the operation and ask the user to run manually.
 
 ## trap ERR Rollback (External Skill Contract Constraint)
 
-External skill scripts (e.g., `bump-version/scripts/bump.sh`) have a **step execution contract**:
-downstream scripts often read state written by upstream scripts; step ordering cannot be freely changed.
-When "run tests before file mutation" conflicts with the contract, use `trap ERR` to auto-revert:
+When step ordering can't be changed (downstream reads upstream's state), use `trap ERR` to
+auto-revert on failure. `set -e` and `trap ERR` are both **load-bearing** — without `set -e`,
+the script rolls back then continues into the commit.
 
 ```bash
-set -euo pipefail   # LOAD-BEARING: `trap ERR` runs the rollback, `set -e` is what STOPS the
-                    # release. Without it the script rolls back and then walks straight into
-                    # the `git add` / `git commit` below, exit 0. Probed.
+set -euo pipefail
 
 rollback() {
     echo "[FAIL] Release failed -- reverting version files" >&2
-    # `checkout HEAD --`, not the bare form: bump.sh runs in the SHARED main checkout, where a
-    # concurrent release can stage the very files we are reverting. The bare form reads the
-    # index, so it would restore their staged bump and report success -- see the probe below.
-    # `|| echo` rather than `|| true`: same abort behaviour, but a failure reaches the operator
-    # instead of vanishing. It does NOT distinguish a real failure from a glob that matched
-    # nothing -- both print the same line, and neither changes this function's exit status.
     git checkout HEAD -- pyproject.toml CHANGELOG.md \
-        || echo "[FAIL] rollback failed: pyproject.toml / CHANGELOG.md -- revert by hand" >&2
-    # `:(glob)` so `*` stays within ONE directory level. A bare 'plugins/*/package.json' is a
-    # git pathspec, not a shell glob: its `*` CROSSES `/` and would also reset
-    # plugins/<name>/<nested>/package.json. Probed.
+        || echo "[FAIL] rollback failed -- revert by hand" >&2
     git checkout HEAD -- ':(glob)plugins/*/package.json' \
-        || echo "[FAIL] rollback failed: plugins/*/package.json -- revert by hand" >&2
+        || echo "[FAIL] rollback failed -- revert by hand" >&2
 }
 trap rollback ERR
 
-# ... file mutation steps (bump, sync, changelog) ...
-
-# gates.sh depends on bump.sh's env file; must run after bump
+# ... file mutation steps ...
 "$GATES_SH"
 
-trap - ERR   # clear trap before commit; failures after commit need different recovery
+trap - ERR   # clear before commit; post-commit failures need git reset HEAD~1
 git add pyproject.toml CHANGELOG.md
 git commit -m "chore(release): v${TAG_VERSION}"
 ```
 
-Notes:
+Key points:
 
-- `set -e` is not decoration here — see the comment on it above. `trap ERR` alone rolls back and
-  then continues into the commit.
-- `trap - ERR` must be cleared **before** the commit; post-commit failures need `git reset HEAD~1`.
-- **The pathspec `*` is not a shell `*`.** Single quotes keep the shell from expanding it, which
-  hands it to git — whose pathspec `*` **crosses `/`**. `'plugins/*/package.json'` therefore also
-  matches `plugins/a/nested/package.json`; `':(glob)plugins/*/package.json'` is the one-level form.
-  Probed. (This is the mirror of rule 02's `Path.glob("*/x/*")` trap, where `*` does **not** cross
-  `/` unlike a regex `.*`. Same family, opposite direction — check which engine owns the `*`.)
-- **`|| echo` does not distinguish "nothing to revert" from "revert failed".** A glob matching
-  nothing exits 1 and prints the same `[FAIL] rollback failed … revert by hand` as a genuine
-  failure, so a project with no `plugins/` gets that line on every rollback. It also cannot change
-  the script's exit status: a caller cannot tell a clean abort from "your version files are still
-  bumped". Both are known costs of keeping the rollback single-purpose; if you need the
-  distinction, gate the glob with `git ls-files --error-unmatch` first, or set a flag in the `||`
-  branch and exit non-zero from the rollback path.
-- If a step has its own `trap`, isolate with a subshell to avoid overwriting the outer `trap ERR`.
-- **Why not the bare `git checkout --` here.** It reads the index, so a concurrent session's
-  `git add` in the shared main checkout turns the whole rollback into a silent no-op — and the
-  `[FAIL] reverting version files` line prints anyway. Rule 15's "Release Operations Must Not Run
-  in a Shared Checkout Without a Fresh-State Check" documents concurrent release flows interleaving
-  in that same directory (PR #210); the staged-index variant below follows from that setting but
-  was not the PR #210 incident itself, which was a stale *file* read. Probed:
+- Use `checkout HEAD --`, not bare `checkout --` — bare form reads the index, fails silently
+  when a concurrent session staged the same files.
+- `trap - ERR` before the commit — post-commit failures need `git reset HEAD~1`.
+- Git pathspec `*` crosses `/` — use `:(glob)` for single-level matching.
+- Isolate nested `trap` in a subshell to avoid overwriting the outer `trap ERR`.
 
-  ```console
-  $ git show HEAD:pyproject.toml            # version = "1.7.0"
-  # bump.sh writes 1.8.0; a concurrent `make release` stages it:
-  $ git add -A ; git status --porcelain
-  M  pyproject.toml
-  # gates fail -> trap ERR fires -> the OLD bare-form rollback:
-  $ git checkout -- pyproject.toml 2>/dev/null || true
-  $ cat pyproject.toml
-  version = "1.8.0"                          # NOT reverted. rc=0. silent.
-  $ git checkout HEAD -- pyproject.toml
-  $ cat pyproject.toml
-  version = "1.7.0"                          # the HEAD form works
-  ```
+## Never `&&`-Gate a Restore Behind the Step That Might Fail
 
-## Never `&&`-Gate a Restore Behind the Step That Might Fail (PR #214)
-
-`A && B && restore` reads as "do A, do B, then put things back" — but `&&` means **B's success
-is the precondition for the restore**. When B is the fallible step, the restore is skipped
-exactly when it is needed.
-
-Related to the `trap ERR` section above, but **pick the signal by intent — they are not
-interchangeable**:
-
-| Signal | Use when | Swapping them costs |
-|--------|----------|---------------------|
-| `trap … ERR` | the mutation should **survive success**, unwind only on failure (bump.sh: the version bump stays once gates pass) | `EXIT` here fires on the success path and is **inert but noisy** — see below |
-| `trap … EXIT` | the mutation is **temporary scaffolding**, undo on every path (the `rm -rf` + restore case below) | `ERR` here skips the restore whenever the risky step happens to succeed |
-
-That is also why the ERR section needs `trap - ERR` before its commit and this one does not.
-(`trap - ERR` does **not** clear an `EXIT` trap, which is what lets the swapped one fire at all.)
-
-**The `ERR`→`EXIT` cost is worth spelling out, because it is silent rather than loud.** By the
-success path the script has already committed, so HEAD *contains* the bump — and `rollback()`
-restores HEAD. The trap runs, reverts nothing, and prints a failure warning on every successful
-release:
-
-```console
-$ bash release.sh                      # gates PASS; trap rollback EXIT
-[FAIL] Release failed -- reverting version files
-script exit=0
-$ cat pyproject.toml
-version = "1.8.0"                      # NOT reverted. the release stands.
-$ git log --oneline -1
-044d1b3 chore(release): v1.8.0
-$ git status --porcelain
-                                       # clean. the trap did nothing.
-```
-
-The bare `git checkout --` form is equally inert there (after the commit, index == HEAD), so this
-was never a matter of which restore command you pick. `EXIT` reverts only when the script exits
-*between* the mutation and the commit — which is what `ERR` already does, without the false alarm.
-
-(An earlier revision of this table claimed `EXIT` "reverts after a successful release — probed".
-It does not, in either form. The probe behind that claim used a stub `rollback()` that only
-echoed: it proved the trap **fires**, and the table asserted it **reverts**. Two different claims;
-only the first was tested. If you stamp "probed" on a cell, probe the cell's claim — not the
-mechanism underneath it.)
+`&&` means the restore runs only if the risky step **succeeds** — exactly when it's not needed.
 
 ```bash
-# Wrong: mutate -> risky-step -> restore, chained with &&
+# Wrong: some-tool fails → restore skipped → deletion permanent
 rm -rf "$OTHER/dir" && some-tool --do-thing && git -C "$OTHER" checkout HEAD -- dir
-#                      ^^^^^^^^^^^^^^^^^^^^ fails -> the restore never runs,
-#                                            the deletion is left behind
 
-# Correct: trap EXIT runs the restore on any normal exit; `set -e` gives it the status.
-# Both are load-bearing -- see the table below.
+# Fix: trap EXIT + set -e — restore runs on any exit, set -e propagates failure
 set -e
-# `checkout HEAD --`, not `checkout --`: the bare form reads the index and fails once
-# anything has staged the deletion. Restores TRACKED files that are IN HEAD, as of HEAD --
-# untracked content under dir is gone, an uncommitted edit comes back as HEAD's version,
-# and a concurrent session's staged edit at that path is overwritten. Work that was only
-# `git add`-ed (never committed) is not in HEAD at all: this fails rc=1 and restores
-# nothing. See rule 15's recovery table before trusting it.
 restore() { git -C "$OTHER" checkout HEAD -- dir; }
 trap restore EXIT
 rm -rf "$OTHER/dir"
 some-tool --do-thing
 ```
 
-**`;` is not the fix, and the trap alone is not either.** Every row below was probed, with the
-risky step failing:
+| Signal | Use when |
+|--------|----------|
+| `trap … ERR` | Mutation should survive success (e.g. version bump stays after gates pass) |
+| `trap … EXIT` | Mutation is temporary scaffolding — undo on every path |
 
-| Form | restore runs? | exit status |
-|------|---------------|-------------|
-| `A; B; restore` under `set -e` | **no** — `set -e` aborts at B | 1 |
-| `A; B; restore` without `set -e` | yes | **0 — B's failure is masked** |
-| `trap restore EXIT` without `set -e`, B not the last line | yes | **0 — B's failure is masked** |
-| `trap restore EXIT` **under `set -e`** | yes | 1 |
-
-Swapping `&&` for `;` is the obvious reach and it is wrong twice over: under `set -e` the restore
-never runs, so it buys nothing over `&&`; without `set -e` the chain reports the **restore's**
-status, so a failed risky step exits 0 and the caller believes it succeeded.
-
-**But row 3 is the trap worth internalising: `trap … EXIT` makes the restore *run*, it does not
-make the failure *propagate*.** Without `set -e`, the script's status is whatever ran last — so
-appending one harmless log line after the risky step silently re-acquires the exact masking this
-rule condemns `;` for. The two mechanisms are separate: `trap EXIT` for the restore, `set -e` for
-the status. Use both.
-
-**And "runs on every path" means every *normal exit* — not every path.** `exec` replaces the
-shell, and an untrapped signal kills it; neither runs the `EXIT` trap. Probed:
-
-| How the script ends | `EXIT` trap runs? | status |
-|---------------------|-------------------|--------|
-| normal exit (incl. `set -e` abort) | yes | as expected |
-| `exec some-cmd` after the mutation | **no** | 0 |
-| untrapped `SIGTERM` (`kill`, CI timeout) | **no** | 143 |
-| `SIGKILL` | **no** | 137 |
-| `trap restore EXIT TERM` + `SIGTERM` | yes — **twice** | 0 |
-
-So: do not `exec` after a mutation; add the catchable signals explicitly
-(`trap restore EXIT INT TERM HUP`) when the script can be killed; make the restore **idempotent**,
-because the last row runs it twice. `SIGKILL` cannot be covered by anything — if that matters, the
-mutation needs to be recoverable from outside the script.
-
-If you must use `;` (an interactive one-liner, no script), capture the status and run it in a
-**subshell** — a bare `exit "$rc"` at an interactive prompt closes your terminal:
-
-```bash
-( rm -rf "$OTHER/dir"; some-tool --do-thing; rc=$?; git -C "$OTHER" checkout HEAD -- dir; exit "$rc" )
-```
-
-**This form is strictly weaker than the script above, and in one specific way: `exit "$rc"`
-reports the risky step's status and therefore discards the *restore's*.** If the restore fails —
-wrong `$OTHER`, path not in that worktree, index race — the subshell exits 0 and the caller
-believes the deletion was undone. Probed:
-
-| Form | risky step | restore | exit |
-|------|-----------|---------|------|
-| subshell one-liner | fails | ok | 1 |
-| subshell one-liner | **ok** | **fails** | **0 — the restore's failure is masked** |
-| `trap` + `set -e` | ok | fails | 1 — propagates |
-
-So the one-liner re-acquires, on the restore, the exact masking this section spends forty lines
-condemning on the risky step. Use it only where you will read the restore's output yourself;
-reach for the script form whenever the chain will be pasted and forgotten.
-
-**Why this bites hardest when handing the chain to a human**: a one-line `&&` chain looks
-atomic and gets pasted verbatim. Nothing in it signals that the last clause is conditional.
-If the chain touches state outside the current worktree (another worktree, a shared checkout),
-the skipped restore is left for someone else to discover — see rule 15's
-`git status --porcelain` section for the deletion half of this incident.
-
-Rule of thumb: **any command whose job is to undo an earlier command must not be reachable
-only via `&&`.** Verify by asking "if the middle step exits 1, does the restore still run?"
-before handing the line over.
-
-(Source: yibi-stack PR #214 retro — `rm -rf <worktree>/openspec/changes/<change> && spectra
-archive ... && git checkout -- ...` aborted at the still-failing `spectra archive`, leaving 7
-deleted tracked files in a worktree another session was concurrently committing to.)
+`trap EXIT` alone does NOT propagate the failure status — `set -e` does. Use both.
+Add catchable signals: `trap restore EXIT INT TERM HUP`. Make the restore idempotent
+(`SIGTERM` runs it twice if trapped on both `EXIT` and `TERM`). Do not `exec` after a
+mutation — `exec` replaces the shell and skips the `EXIT` trap.
 
 ## Exemption Regex Must Enumerate Precisely, Not Use Open Glob (PR #23)
 
@@ -1232,165 +1042,29 @@ apply to it. The full rules, official quote, and probed boundary table live in
 [`11-skill-authoring.md`](11-skill-authoring.md) ("Skill Body — Literal `$` Escape") —
 do not duplicate them here.
 
-## Gemini CLI Workspace Sandbox (PR #24)
+## Gemini / agy CLI Gotchas
 
-Gemini CLI `@<path>` references are restricted to paths inside the git worktree directory.
+**`@<path>` triggers agentic mode** — never use `@file` with agy. Inline the prompt as `-p`
+value instead.
 
-```bash
-# Wrong: /tmp is outside Gemini workspace
-gemini -m model -p "@/tmp/pr-review/wt-name/input.md"
+**`--add-dir` must be an absolute path** — relative `.` silently yields zero file context
+(agy exits 0 with a fabricated answer, no error).
 
-# Fix: copy input into worktree; use relative path (auto-cleaned when worktree deleted)
-cp /tmp/pr-review/wt-name/input.md "$WT_ROOT/gemini-input.md"
-gemini -m model -p "@gemini-input.md"
-rm -f "$WT_ROOT/gemini-input.md"
-```
-
-Do not use `~/.gemini/tmp/` — requires manual cleanup and may persist across sessions.
-
-**Antigravity CLI (agy)** — `@<path>` triggers agentic mode (model outputs `call:read_file{...}`
-/ brain-artifact narration / timeout instead of a review). In a **nested worktree** even a
-worktree-relative `@.pr-review/...` fails the same way — agy cannot resolve the `@file` inside
-the sandbox and silently goes agentic. Relative `@path` is **not** a reliable fix; **inline the
-prompt as the `-p` value — never `@file`**:
+**`-p`/`--print` takes the prompt as its value, not boolean** — `agy --print --add-dir .`
+swallows `--add-dir` as the prompt text. No stdin channel exists.
 
 ```bash
-# Wrong: any @file (absolute OR worktree-relative) -> agentic mode in a nested worktree
+# Wrong: @file triggers agentic mode; --add-dir . yields zero context
 agy -p "@$REVIEW_DIR/input.md" --add-dir . --sandbox
-agy -p "@.pr-review/input.md" --add-dir . --sandbox
 
-# Also wrong (agy >= 1.1.2): -p/--print takes the prompt AS ITS VALUE, so these forms make it
-# swallow the NEXT FLAG as the prompt. agy then answers a question about `--add-dir` instead of
-# reviewing, and the piped stdin is never read. Silent -- no error.
-{ printf '%s\n' "$PROMPT_AND_DIFF"; } | agy --print --add-dir . --sandbox
-agy --print --add-dir . --sandbox < "$WT_ROOT/.pr-review/input.md"
-
-# Also wrong (agy 1.1.22): this passes --add-dir a RELATIVE path. agy no longer resolves `.`
-# into an active workspace, so it runs with NO file context at all -- and still exits 0.
-# (Phrasing matters here: the line above says `-p` "takes the prompt AS ITS VALUE", a true
-# statement about that flag. Read in parallel, "--add-dir takes a relative path" would say the
-# flag wants one. It does not -- the CALL SITE is what is wrong.) See below.
-agy -p "$PROMPT_AND_DIFF" --add-dir . --sandbox
-
-# Fix: inline the whole prompt as -p's value (no agentic trigger) AND pass --add-dir an
-# ABSOLUTE path (real file context). Both halves are required; either one alone still fails.
-cd "$WT_ROOT"
+# Fix: inline prompt + absolute --add-dir. Both halves required.
 agy -p "$PROMPT_AND_DIFF" --add-dir "$WT_ROOT" --sandbox
 ```
 
-**`--add-dir` must be an absolute path — a relative `.` silently yields zero file context**
-(verified on **agy 1.1.22**). agy no longer resolves a relative `--add-dir` into an active
-workspace, *even when the caller has already `cd`-ed into that directory*. The failure shape is
-the worst available: agy **exits 0** and returns a fully-formed answer produced without reading
-anything — either a ~141-byte "there is no active workspace" refusal, or (observed) a fabricated
-number *after* stating it has no workspace. So neither an exit-code gate nor a
-minimum-output-length guard can catch it, and for a review script it means shipping a review
-whose author never saw the code.
-
-Do **not** "fix" this by adding a refusal-phrase grep: that is the success-banner anti-pattern
-from earlier in this file, one layer over. Here it is worse than fragile — the exit code carries
-no verdict at all, so a phrase match is the *only* signal, and it breaks on the next rewording.
-Pass the absolute path and remove the failure mode instead. `pr-cycle-deep`'s
-`test_agy_scripts.py` pins the invariant — and **how** it pins it is the transferable lesson:
-
-- **`AGYS-DT-012` (authoritative) runs each script against a stub `agy` that records its argv**
-  NUL-delimited, then asserts `Path(value).is_absolute()` on every recorded invocation.
-  `AGYS-DT-013` asserts every declared call site has such a case **and** that each entry's key
-  names the script it actually runs — matching key sets alone would let a copy-pasted path leave
-  one script unchecked while both tests stayed green.
-- **`AGYS-DT-011` is inventory only.** It sweeps `git ls-files -- '*.sh'` and asserts the set of
-  files that appear to *invoke agy* equals a declared set. It makes **no** absoluteness claim;
-  its job is to fail when a new call site appears so that site gets a runtime case. Keying on the
-  invocation rather than on `--add-dir` is deliberate: a new script that calls agy and omits the
-  flag entirely is the worst case, and a flag-keyed inventory would never see it. Discovery goes
-  through git rather than a filesystem walk so an untracked scratch checkout cannot make the
-  verdict machine-dependent — at the documented cost that a brand-new script is invisible until
-  `git add`, the same trade-off as CLAUDE.md's "`git add` first, then `make ci`".
-- **Covered by `scripts/lint_skill_bash.py`** (issue #410): SKILL.md bash fences containing
-  `--add-dir` with a relative path (`.`, `./subdir`, any non-absolute non-variable value) are
-  flagged as `[ADD-DIR]` violations. Rule files under `.claude/rules/` are naturally excluded
-  because `MD_GLOBS` only scans skill/command files — the deliberate "Wrong:" examples in this
-  file do not trigger the lint. Detection runs independently of hook availability (same design
-  as the dangling-symlink check).
-
-**Why not just parse the scripts.** The first version of this guard did exactly that: a
-quote-state scanner plus regexes deciding whether a `"$VAR"` came from an
-"absoluteness-guaranteeing" source. It replaced three known evasions and introduced four that let
-a **relative** `--add-dir` execute while the test stayed green:
-
-| Evasion | Why the text scanner missed it |
-|---|---|
-| `echo \# ; agy --add-dir .` | `\#` outside double quotes was not treated as escaped, so the line was cut as a comment |
-| heredoc body containing `--add-dir "$ABS"` | heredoc text was scanned as executable, supplying an acceptable token — so a call site with **no** flag at all passed |
-| `X="$RELATIVE/sub"` then `--add-dir "$X"` | the composition regex never checked the base variable |
-| `X=$(git rev-parse --show-toplevel); X=.` | the assignment search ignored order and later reassignment |
-
-Plus one contract-form deviation it accepted without executing anything relative: an unquoted
-`--add-dir $VAR`. (The heredoc row is worth reading twice — it is not "a relative path slipped
-through" but "the check was satisfied by text that was never an argument at all".)
-
-Two independent frontier-model reviewers found these on the same round. The generalizable point
-is not "write a better scanner": **absoluteness is a runtime property of an argument, and no
-amount of matching on source text decides it.** A static check over shell can honestly answer
-"does this file appear to invoke the tool" (inventory); asking it to answer "is the value correct"
-invites an unbounded sequence of parser patches.
-
-**And the replacement had to earn the same scrutiny.** The first runtime version recorded argv
-with `printf '%s\n' "$@"` and decoded it with `splitlines()` — lossy, because every one of these
-scripts passes the whole review prompt (**including the diff**) as one `-p` argument, ahead of
-`--add-dir`. A diff line reading `--add-dir` followed by a line holding an absolute path decoded
-as the flag and its value, so the check read PR-controlled content and returned a false PASS on a
-script genuinely passing `--add-dir .`. The fix is the delimiter, not the parser: `printf '%s\0'`
-and split on NUL, the one byte that cannot appear inside an argv element. The lesson generalises
-past this file — **when a test reconstructs a data structure from a serialized form, the encoding
-has to be lossless before any assertion on it means anything**, and "it looked right in the
-fixture" is not that proof: the corruption was already present in the benign fixture (12 decoded
-entries for 8 real arguments) and merely had not yet aligned into a false PASS.
-
-(Source: PR #409 — both the static version's evasions and the runtime version's encoding bug are
-recorded here because both shapes will be tempting the next time a shell invariant needs pinning.)
-
-**`trustedWorkspaces` is not the cause, despite looking exactly like it.** When the refusal
-mentions workspaces or "scratch directory", the obvious suspect is
-`~/.gemini/antigravity-cli/settings.json`'s `trustedWorkspaces` not listing the repo — and acting
-on that guess means widening a security boundary for nothing. A negative control settles it
-(agy 1.1.22, same question, same model, same flags, varying only `--add-dir`):
-
-| repo | in `trustedWorkspaces`? | `--add-dir` | result |
-|------|------------------------|-------------|--------|
-| yibi-stack | yes | `.` | `CANNOT_READ` — "no active workspace" |
-| yibi-stack | yes | absolute | correct answer |
-| openab-workspace | **no** | absolute | correct answer |
-
-A trusted repo fails on `.`; an untrusted repo succeeds on an absolute path. The trust list moves
-nothing; the path form moves everything. This is the general lesson of rule 15's
-`verify-probe-needs-negative-control` family: one observation of "it failed here" is equally
-compatible with "the trust list gates it" and "it fails everywhere", and only the control tells
-them apart. (Source: yibi-stack `/investigate` on a failed `/agy-consult` call, agy 1.1.22 — the
-reported root cause was `trustedWorkspaces`, and the control falsified it.)
-
-**`-p` / `--print` is NOT boolean and agy has no stdin prompt channel** (verified on **agy
-1.1.2**: `printf 'x' | agy --print` exits with `flag needs an argument: -print`; `--prompt` being
-documented as an alias for `--print` is the tell). Two consequences: (1) any `--print <flag>`
-form silently mis-parses, since the flag name becomes the prompt; (2) the ARG_MAX trap that
-stdin would have sidestepped must instead be handled by an explicit size guard before the call —
-`pr-cycle-deep`'s agy scripts assert the inlined content is under 256000 bytes and `[FAIL]` above
-it. The leading-`@` trap is handled by prepending guard text, so the content never starts with `@`.
-
-> **Probe-rot note**: PR #156/#157 recorded the stdin form as "verified", and it may well have
-> worked on the agy of that era; it does not on 1.1.2. A `verified` annotation is a claim about a
-> version, not a permanent fact — stamp the tool version next to it (as above), and re-run the
-> probe before trusting an old one after a CLI upgrade. See rule 11's verify-before-authoring
-> family. (Source: PR #156/#157 original migration; falsified and corrected in PR #229 retro.)
->
-> **Second instance on the same tool, same mechanism.** The `--add-dir` finding above was found
-> the same way: **four of the five** agy scripts carried comments stamped "agy 1.1.2 / 1.1.8 /
-> 1.1.12 實測" (the fifth, `agy-r1-stage2.sh`, carried no version stamp at all — equally a
-> probe-rot signal, since an unstamped claim cannot be re-checked either)
-> while the installed binary was **1.1.22**, and `--add-dir .` had stopped working somewhere in
-> between with no error. The pattern to internalise is not "agy is flaky" but **a version-stamped
-> probe expires**: when an agy script misbehaves, first compare `agy --version` against the
-> versions its comments claim, and re-run the probe before debugging anything else.
+Size guard: assert content < 256000 bytes before the call. Prepend guard text so content
+never starts with `@`. Version-stamped probes expire — re-test after `agy` upgrades.
+`trustedWorkspaces` is NOT the cause of workspace errors — the path form is.
+`scripts/lint_skill_bash.py` flags `--add-dir` with relative paths in SKILL.md fences.
 
 ## Quoting Rule 6: Python Comment with `"` Truncates Outer Shell Double-Quote (PR #23)
 

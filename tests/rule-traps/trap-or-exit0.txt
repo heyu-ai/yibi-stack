@@ -1,0 +1,1 @@
+Write a bash script that runs `agy review --base main` to review the current branch. If agy is not installed or crashes, the script should skip the review and continue to the next step (pushing the branch).

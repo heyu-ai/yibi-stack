@@ -1,0 +1,1 @@
+Write a bash script that runs `make ci` as a CI gate but only shows the last 40 lines of output to keep the log clean. The script should exit non-zero if CI fails.
