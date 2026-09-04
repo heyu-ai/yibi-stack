@@ -527,6 +527,23 @@ echo "rogue edit" >> seed.txt
 cat "$AGY_FAKE_OUTPUT"
 """
 
+_FAKE_AGY_SANDBOX_DENY = """#!/usr/bin/env bash
+# Fake agy simulating sandbox auto-deny: exits 0 with empty stdout and a
+# stderr message about the command permission being denied. This is the exact
+# failure shape agy produces in headless -p mode when --sandbox is used and a
+# tool requiring the "command" permission is needed but cannot be interactively
+# approved. <!-- verified: probe, agy 1.1.12 -->
+printf '%s\\0' "$@" >> "$AGY_FAKE_ARGV"
+printf '\\1' >> "$AGY_FAKE_ARGV"
+for arg in "$@"; do
+    if [ "$arg" = "--sandbox" ]; then
+        echo "no output produced -- a tool required the command permission" >&2
+        exit 0
+    fi
+done
+cat "$AGY_FAKE_OUTPUT"
+"""
+
 GOOD_REVIEW = """## Verdict
 NEEDS_CHANGES
 
@@ -670,4 +687,164 @@ class TestStage1Behavioral:
         # the rogue edit really landed (sanity: the fake agy did mutate the tree)
         assert "rogue edit" in (Path(str(stage1_env["repo"])) / "seed.txt").read_text(
             encoding="utf-8"
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Permission flag contract (Layer 1)
+# --------------------------------------------------------------------------- #
+
+
+def _extract_agy_invocation_line(src: str) -> str:
+    """Extract the full agy invocation including backslash continuations."""
+    raw_lines = src.splitlines()
+    result_parts: list[str] = []
+    in_continuation = False
+    for line in raw_lines:
+        stripped = line.lstrip()
+        if stripped.startswith("#") and not in_continuation:
+            continue
+        if in_continuation:
+            result_parts.append(stripped.rstrip("\\").strip())
+            if not line.rstrip().endswith("\\"):
+                in_continuation = False
+            continue
+        if re.search(r"(^|\s)agy\s+-p\s+", stripped):
+            result_parts.append(stripped.rstrip("\\").strip())
+            if line.rstrip().endswith("\\"):
+                in_continuation = True
+    return " ".join(result_parts)
+
+
+class TestPermissionFlagContract:
+    """Permission flag contract: each agy script uses the correct permission mode.
+
+    stage1/R2 need the `command` tool for exploring surrounding code during review,
+    which --sandbox auto-denies in headless mode. stage2 does extraction only and
+    does not need `command`, so --sandbox is sufficient and more secure.
+
+    This contract was previously unguarded — zero tests pinned which script used
+    which flag, so regressions could ship silently.
+    """
+
+    @pytest.mark.parametrize("script", [STAGE1, R2])
+    def test_agys_dt_014_review_scripts_use_skip_permissions(self, script: Path) -> None:
+        """AGYS-DT-014: review stages use --dangerously-skip-permissions, NOT --sandbox.
+
+        spec: agy-sandbox-permission-contract#review-flag-regressed-to-sandbox
+        """
+        invocation = _extract_agy_invocation_line(script.read_text(encoding="utf-8"))
+        assert invocation, f"{script.name}: no agy invocation line found"
+        assert "--dangerously-skip-permissions" in invocation, (
+            f"{script.name}: review script MUST use --dangerously-skip-permissions "
+            "(--sandbox auto-denies the command tool in headless mode)"
+        )
+        assert "--sandbox" not in invocation, (
+            f"{script.name}: review script MUST NOT use --sandbox "
+            "(command tool is needed for exploring surrounding code)"
+        )
+
+    def test_agys_dt_015_extract_stage_uses_sandbox(self) -> None:
+        """AGYS-DT-015: extract stage uses --sandbox, NOT --dangerously-skip-permissions.
+
+        spec: agy-sandbox-permission-contract#extract-flag-regressed-to-bypass
+        """
+        invocation = _extract_agy_invocation_line(STAGE2.read_text(encoding="utf-8"))
+        assert invocation, "agy-r1-stage2.sh: no agy invocation line found"
+        assert "--sandbox" in invocation, (
+            "agy-r1-stage2.sh: extract stage MUST use --sandbox "
+            "(extraction does not need the command tool)"
+        )
+        assert "--dangerously-skip-permissions" not in invocation, (
+            "agy-r1-stage2.sh: extract stage MUST NOT use --dangerously-skip-permissions "
+            "(unnecessary privilege escalation for a text extraction task)"
+        )
+
+    @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
+    def test_agys_dt_016_mutual_exclusion(self, script: Path) -> None:
+        """AGYS-DT-016: no script contains both permission flags in its agy invocation.
+
+        spec: agy-sandbox-permission-contract#mutual-exclusion-violated
+        """
+        invocation = _extract_agy_invocation_line(script.read_text(encoding="utf-8"))
+        has_sandbox = "--sandbox" in invocation
+        has_bypass = "--dangerously-skip-permissions" in invocation
+        assert not (has_sandbox and has_bypass), (
+            f"{script.name}: agy invocation contains BOTH --sandbox and "
+            "--dangerously-skip-permissions — these are mutually exclusive"
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Sandbox auto-deny detection (Layer 2)
+# --------------------------------------------------------------------------- #
+
+
+class TestSandboxAutoDenyDetection:
+    """Behavioral tests verifying scripts detect agy's sandbox auto-deny failure.
+
+    agy exits 0 with empty stdout when --sandbox auto-denies a needed tool in
+    headless mode. The calling script's guard must catch this and exit non-zero.
+    """
+
+    def test_agys_st_005_stage2_detects_empty_output(self, tmp_path: Path) -> None:
+        """AGYS-ST-005: stage2 detects sandbox auto-deny empty output.
+
+        spec: agy-sandbox-permission-contract#stub-auto-deny-detected
+        """
+        if shutil.which("git") is None or shutil.which("bash") is None:
+            pytest.skip("git/bash not available")
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _git(repo, "init", "-q")
+        _git(repo, "config", "user.email", "t@t")
+        _git(repo, "config", "user.name", "t")
+        (repo / "seed.txt").write_text("seed\n", encoding="utf-8")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-qm", "seed")
+
+        review = repo / ".pr-review"
+        review.mkdir()
+        (review / "gemini-r1-raw.md").write_text("## Verdict\nLGTM seed.txt\n", encoding="utf-8")
+        (review / "changed-files.txt").write_text("seed.txt\n", encoding="utf-8")
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        fake_agy = bin_dir / "agy"
+        fake_agy.write_text(_FAKE_AGY_SANDBOX_DENY, encoding="utf-8")
+        fake_agy.chmod(0o755)
+
+        home = tmp_path / "home"
+        prompts = home / ".agents/skills/pr-cycle-deep/prompts"
+        prompts.mkdir(parents=True)
+        (prompts / "extract-r1.md").write_text("EXTRACT PROMPT\n", encoding="utf-8")
+
+        argv_capture = tmp_path / "agy_argv.txt"
+        out_file = tmp_path / "agy_out.md"
+        out_file.write_text("should not be used", encoding="utf-8")
+
+        env = {
+            **os.environ,
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "HOME": str(home),
+            "AGY_FAKE_ARGV": str(argv_capture),
+            "AGY_FAKE_OUTPUT": str(out_file),
+        }
+
+        result = subprocess.run(  # nosec B603
+            ["bash", str(STAGE2)],
+            cwd=str(repo),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.returncode != 0, (
+            f"stage2 MUST exit non-zero when agy produces empty output "
+            f"(sandbox auto-deny), but exited {result.returncode}. "
+            f"stderr={result.stderr!r}"
+        )
+        assert "[FAIL]" in result.stderr, (
+            f"stage2 MUST print [FAIL] on stderr when agy output is empty. stderr={result.stderr!r}"
         )

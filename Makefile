@@ -1,4 +1,4 @@
-.PHONY: help lint lint-md format typecheck test check ci install install-project install-one install-force-one status status-own uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents patch-gemini-allow-list patch-agy-allow-list release
+.PHONY: help lint lint-md format typecheck test check ci probe-agy install install-project install-one install-force-one status status-own uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents patch-gemini-allow-list patch-agy-allow-list release
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +42,9 @@ ci: ## 本地 CI fallback（pre-commit + tests；AgentShield security-scan 略�
 	@echo "  ℹ  security-scan（AgentShield）：需 GitHub Actions 環境，本地略過"
 	@echo ""
 	@echo "[OK] 本地 CI 項目通過（pre-commit + tests）"
+
+probe-agy: ## Verify agy sandbox behavior assumptions (needs agy auth; manual, not CI)
+	bash scripts/probe-agy-sandbox.sh
 
 # ─── Build Tools ─────────────────────────────────────────────────────────────
 
