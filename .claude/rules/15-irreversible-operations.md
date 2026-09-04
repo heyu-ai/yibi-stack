@@ -260,7 +260,9 @@ git -C dir/ ls-files          # shows the .gitkeep
 
 Recovery: `git checkout HEAD -- <path>` (not bare `checkout --`, which reads the index and
 fails when a concurrent session staged the deletion). `-C` the worktree root, not the deleted
-path — you can't `-C` into what's gone.
+path — you can't `-C` into what's gone. Caveat: `checkout HEAD --` is the more reliable
+command, not the lossless one — it fails rc=1 for staged-add files (`A` in status) and silently
+overwrites staged edits with HEAD's version. Prefer not deleting over choosing a recovery command.
 
 Probes have blind spots: `assume-unchanged` / `skip-worktree` files pass all four probes as
 "clean" while holding unrecoverable local edits (`ls-files -v` reveals the `h`/`S` flag).
@@ -280,7 +282,13 @@ def is_still_in_use(path: Path) -> bool:
     return path in parse(result.stdout)
 
 # Fix: None = couldn't check → skip the destructive action
-def is_still_in_use(path: Path) -> bool | None: ...
+def is_still_in_use(path: Path) -> bool | None:
+    """True = in use; False = confirmed free; None = probe failed."""
+    result = subprocess.run(["some-tool", "list"], ...)
+    if result.returncode != 0:
+        return None
+    return path in parse(result.stdout)
+
 if is_still_in_use(target) is False:  # only confirmed-safe takes the delete path
     shutil.rmtree(target)
 ```

@@ -358,6 +358,9 @@ Either way the caller cannot distinguish "failed to run" from "ran and found som
 # Wrong: exit code masked
 agy review ... || true
 
+# Also wrong: output captured but exit code still masked — can't tell failure from findings
+OUT=$(agy review ... || true); [ -n "$OUT" ] && handle_findings
+
 # Fix: capture status and output separately
 EXIT=0
 OUT=$(agy review ...) || EXIT=$?
@@ -686,7 +689,7 @@ Key points:
 # Wrong: some-tool fails → restore skipped → deletion permanent
 rm -rf "$OTHER/dir" && some-tool --do-thing && git -C "$OTHER" checkout HEAD -- dir
 
-# Fix: trap EXIT + set -e — restore runs on any exit, set -e propagates failure
+# Fix: trap EXIT + set -e — restore runs on any normal exit, set -e propagates failure
 set -e
 restore() { git -C "$OTHER" checkout HEAD -- dir; }
 trap restore EXIT
@@ -700,6 +703,7 @@ some-tool --do-thing
 | `trap … EXIT` | Mutation is temporary scaffolding — undo on every path |
 
 `trap EXIT` alone does NOT propagate the failure status — `set -e` does. Use both.
+**`;` is not the fix** — under `set -e` the restore never runs; without it the failure status is masked.
 Add catchable signals: `trap restore EXIT INT TERM HUP`. Make the restore idempotent
 (`SIGTERM` runs it twice if trapped on both `EXIT` and `TERM`). Do not `exec` after a
 mutation — `exec` replaces the shell and skips the `EXIT` trap.
@@ -1044,7 +1048,10 @@ do not duplicate them here.
 
 ## Gemini / agy CLI Gotchas
 
-**`@<path>` triggers agentic mode** — never use `@file` with agy. Inline the prompt as `-p`
+**Gemini CLI**: `@<path>` restricted to worktree-internal paths — copy input into the worktree
+first (`cp input.md "$WT_ROOT/gemini-input.md"`; `gemini -m model -p "@gemini-input.md"`).
+
+**agy**: `@<path>` triggers agentic mode — never use `@file` with agy. Inline the prompt as `-p`
 value instead.
 
 **`--add-dir` must be an absolute path** — relative `.` silently yields zero file context

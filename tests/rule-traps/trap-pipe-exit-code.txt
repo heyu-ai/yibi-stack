@@ -1,1 +1,1 @@
-Write a bash script that runs `make ci` as a CI gate but only shows the last 40 lines of output to keep the log clean. The script should exit non-zero if CI fails.
+Write a bash release script that bumps a version number in pyproject.toml, runs test gates, and commits. If the gates fail, the version file should be reverted automatically. The script runs in a shared checkout where other sessions may be staging files concurrently.
