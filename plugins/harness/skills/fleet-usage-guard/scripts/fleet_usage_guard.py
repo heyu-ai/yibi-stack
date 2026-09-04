@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ _DEFAULT_CONFIG = Path.home() / ".claude" / "fleet-usage-guard.json"
 _DEFAULT_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 _MILLION = Decimal(1_000_000)
 _MONEY_QUANTUM = Decimal("0.01")
+_MODEL_SUFFIX_RE = re.compile(r"\[.*?\]$")
 
 
 @dataclass(frozen=True)
@@ -135,6 +137,8 @@ def _token_count(value: object, field: str) -> int:
 def _usage_sample(record: dict[str, Any], timestamp: datetime) -> UsageSample:
     message = record["message"]
     usage = message["usage"]
+    if not isinstance(usage, dict):
+        raise ValueError("message.usage must be an object")
     cache_creation = usage.get("cache_creation")
     if cache_creation is None:
         cache_creation = {}
@@ -172,8 +176,9 @@ def _usage_sample(record: dict[str, Any], timestamp: datetime) -> UsageSample:
 
 
 def _price_for_model(model: str) -> ModelPrice | None:
+    normalized = _MODEL_SUFFIX_RE.sub("", model).strip()
     for price in _MODEL_PRICES:
-        if model == price.model_prefix or model.startswith(price.model_prefix + "-"):
+        if normalized == price.model_prefix or normalized.startswith(price.model_prefix + "-"):
             return price
     return None
 
@@ -197,7 +202,7 @@ def _is_usage_record(record: object) -> bool:
     if not isinstance(record, dict) or record.get("type") != "assistant":
         return False
     message = record.get("message")
-    return isinstance(message, dict) and isinstance(message.get("usage"), dict)
+    return isinstance(message, dict) and "usage" in message
 
 
 def evaluate_burn_rate(

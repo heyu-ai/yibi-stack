@@ -6,8 +6,8 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 - 06:00 UTC 已知高用量小時 $216.78/hr：FUG-DT-001
 - 04:00 UTC 已知低用量小時 $0.54/hr：FUG-DT-002
 - (message.id, requestId) 去重不可移除：FUG-DT-003
-- Claude Fable 5.1 cache-read 特價、其他 Fable 標準價、視窗外推：FUG-DT-004..006
-- 未定價 model 與近期 malformed usage 不得靜默通過：FUG-EG-001..002
+- Claude Fable 特價／標準價、context suffix、視窗與全 pricing formula：FUG-DT-004..008
+- 未定價 model、缺欄位與非 object usage 不得靜默通過：FUG-EG-001..003
 - CLI 輸出可供 skill 決定廣播，設定缺失／時間戳無效會 fail loud：FUG-ST-001..002 / FUG-VL-001
 """
 
@@ -33,6 +33,7 @@ _SCRIPT_PATH = (
     / "fleet_usage_guard.py"
 )
 _FIXTURES = Path(__file__).parent / "fixtures" / "fleet_usage_guard"
+_DEFAULT_USAGE = object()
 
 _spec = importlib.util.spec_from_file_location("fleet_usage_guard", _SCRIPT_PATH)
 assert _spec is not None and _spec.loader is not None
@@ -53,9 +54,9 @@ def _write_usage_row(
     message_id: str = "msg_test",
     request_id: str = "req_test",
     timestamp: str = "2026-09-03T06:30:00Z",
-    usage_override: dict[str, object] | None = None,
+    usage_override: object = _DEFAULT_USAGE,
 ) -> None:
-    usage: dict[str, object] = (
+    usage: object = (
         {
             "input_tokens": 0,
             "output_tokens": 0,
@@ -66,7 +67,7 @@ def _write_usage_row(
                 "ephemeral_1h_input_tokens": 0,
             },
         }
-        if usage_override is None
+        if usage_override is _DEFAULT_USAGE
         else usage_override
     )
     row = {
@@ -214,6 +215,72 @@ class TestPricingRules:
             model="claude-opus-5",
             cache_read_tokens=0,
             usage_override={},
+        )
+
+        result = fleet_usage_guard.evaluate_burn_rate(
+            tmp_path,
+            now=_at(7),
+            window_minutes=60,
+            threshold_usd_per_hour=Decimal("50"),
+        )
+
+        assert result.status == "measurement_incomplete"
+        assert result.invalid_recent_rows == 1
+
+    def test_fug_dt_007_context_suffix_preserves_fable_5_1_discount(self, tmp_path: Path) -> None:
+        """FUG-DT-007: `[1m]` context suffix 不得讓 Fable 5.1 落到標準價。"""
+        _write_usage_row(
+            tmp_path / "project" / "session.jsonl",
+            model="claude-fable-5-1[1m]",
+            cache_read_tokens=1_000_000,
+        )
+
+        result = fleet_usage_guard.evaluate_burn_rate(
+            tmp_path,
+            now=_at(7),
+            window_minutes=60,
+            threshold_usd_per_hour=Decimal("1"),
+        )
+
+        assert result.status == "below_threshold"
+        assert result.estimated_cost_usd == Decimal("0.25")
+
+    def test_fug_dt_008_all_pricing_terms_contribute_to_exact_cost(self, tmp_path: Path) -> None:
+        """FUG-DT-008: input/output/read/5m-write/1h-write 任何一項消失都會變紅。"""
+        usage = {
+            "input_tokens": 1_000_000,
+            "output_tokens": 1_000_000,
+            "cache_read_input_tokens": 1_000_000,
+            "cache_creation_input_tokens": 2_000_000,
+            "cache_creation": {
+                "ephemeral_5m_input_tokens": 1_000_000,
+                "ephemeral_1h_input_tokens": 1_000_000,
+            },
+        }
+        _write_usage_row(
+            tmp_path / "project" / "session.jsonl",
+            model="claude-opus-5",
+            cache_read_tokens=0,
+            usage_override=usage,
+        )
+
+        result = fleet_usage_guard.evaluate_burn_rate(
+            tmp_path,
+            now=_at(7),
+            window_minutes=60,
+            threshold_usd_per_hour=Decimal("200"),
+        )
+
+        assert result.status == "below_threshold"
+        assert result.estimated_cost_usd == Decimal("140.25")
+
+    def test_fug_eg_003_non_object_usage_is_measurement_incomplete(self, tmp_path: Path) -> None:
+        """FUG-EG-003: `usage: null` 不得被當成沒有 usage 的普通 row。"""
+        _write_usage_row(
+            tmp_path / "project" / "session.jsonl",
+            model="claude-opus-5",
+            cache_read_tokens=0,
+            usage_override=None,
         )
 
         result = fleet_usage_guard.evaluate_burn_rate(
