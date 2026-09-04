@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.0] - 2026-09-04
+
+### Changed
+
+- Detect relative --add-dir in SKILL.md bash fences (#415)
+- Pr-retro 語言 codification + handover normalize-language CLI (#206) (#417)
+- Agy-review / agy-consult 預設模型改為 gemini-3.8-flash-high (#420)
+
+### Fixed
+
+- Downgrade out-of-diff file ref to warning (#208) (#416)
+- Redo protect-tracked-rm with fail-closed tri-state probe (#418)
+
 ## [1.20.3] - 2026-09-01
 
 ### Added
@@ -38,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bump ruff in the python-minor-patch group (#411)
 - Bump anthropic from 0.122.0 to 1.0.0 (#412)
 - Decouple retro retention from harness promotion (#413)
+- V1.20.3
 
 ### Fixed
 
@@ -696,6 +710,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove bash anti-patterns triggering CC confirmation dialogs (#137)
 - Remove unnecessary rm-f after git commit-F (#105)
 
+[1.21.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.20.3..v1.21.0
 [1.20.3]: https://github.com/heyu-ai/yibi-stack/compare/v1.16.0..v1.20.3
 [1.16.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.15.2..v1.16.0
 [1.15.2]: https://github.com/heyu-ai/yibi-stack/compare/v1.15.0..v1.15.2
