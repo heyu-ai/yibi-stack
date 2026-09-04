@@ -7,7 +7,7 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 - 04:00 UTC 已知低用量小時 $0.54/hr：FUG-DT-002
 - (message.id, requestId) 去重不可移除：FUG-DT-003
 - Claude Fable 特價／標準價、context suffix、視窗與全 pricing formula：FUG-DT-004..008
-- 未定價 model、缺欄位與非 object usage 不得靜默通過：FUG-EG-001..003
+- 未定價 model、未知 qualifier、缺欄位與非 object usage 不得靜默通過：FUG-EG-001..004
 - CLI 輸出可供 skill 決定廣播，設定缺失／時間戳無效會 fail loud：FUG-ST-001..002 / FUG-VL-001
 """
 
@@ -244,6 +244,27 @@ class TestPricingRules:
 
         assert result.status == "below_threshold"
         assert result.estimated_cost_usd == Decimal("0.25")
+
+    def test_fug_eg_004_unknown_model_suffix_is_measurement_incomplete(
+        self, tmp_path: Path
+    ) -> None:
+        """FUG-EG-004: 僅已知 context suffix 可沿用基礎 model 定價。"""
+        model = "claude-opus-5[unpriced-preview]"
+        _write_usage_row(
+            tmp_path / "project" / "session.jsonl",
+            model=model,
+            cache_read_tokens=1_000_000,
+        )
+
+        result = fleet_usage_guard.evaluate_burn_rate(
+            tmp_path,
+            now=_at(7),
+            window_minutes=60,
+            threshold_usd_per_hour=Decimal("100"),
+        )
+
+        assert result.status == "measurement_incomplete"
+        assert result.unpriced_models == (model,)
 
     def test_fug_dt_008_all_pricing_terms_contribute_to_exact_cost(self, tmp_path: Path) -> None:
         """FUG-DT-008: input/output/read/5m-write/1h-write 任何一項消失都會變紅。"""

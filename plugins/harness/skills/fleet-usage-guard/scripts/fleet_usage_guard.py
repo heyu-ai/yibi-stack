@@ -23,7 +23,7 @@ _DEFAULT_CONFIG = Path.home() / ".claude" / "fleet-usage-guard.json"
 _DEFAULT_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 _MILLION = Decimal(1_000_000)
 _MONEY_QUANTUM = Decimal("0.01")
-_MODEL_SUFFIX_RE = re.compile(r"\[.*?\]$")
+_MODEL_SUFFIX_RE = re.compile(r"\[1m\]$")
 
 
 @dataclass(frozen=True)
