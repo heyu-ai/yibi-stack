@@ -39,7 +39,7 @@ _MODEL_PRICES = tuple(
     sorted(
         (
             ModelPrice("claude-fable-5-1", Decimal("10"), Decimal("50"), Decimal("0.025")),
-            ModelPrice("claude-fable-5", Decimal("10"), Decimal("50"), Decimal("0.025")),
+            ModelPrice("claude-fable-5", Decimal("10"), Decimal("50")),
             ModelPrice("claude-opus-5", Decimal("15"), Decimal("75")),
             ModelPrice("claude-opus-4-8", Decimal("15"), Decimal("75")),
             ModelPrice("claude-opus-4-7", Decimal("15"), Decimal("75")),
@@ -163,11 +163,9 @@ def _usage_sample(record: dict[str, Any], timestamp: datetime) -> UsageSample:
     return UsageSample(
         timestamp=timestamp,
         model=model,
-        input_tokens=_token_count(usage.get("input_tokens", 0), "input_tokens"),
-        output_tokens=_token_count(usage.get("output_tokens", 0), "output_tokens"),
-        cache_read_tokens=_token_count(
-            usage.get("cache_read_input_tokens", 0), "cache_read_input_tokens"
-        ),
+        input_tokens=_token_count(usage["input_tokens"], "input_tokens"),
+        output_tokens=_token_count(usage["output_tokens"], "output_tokens"),
+        cache_read_tokens=_token_count(usage["cache_read_input_tokens"], "cache_read_input_tokens"),
         cache_creation_5m_tokens=creation_5m,
         cache_creation_1h_tokens=creation_1h,
     )
@@ -228,6 +226,12 @@ def evaluate_burn_rate(
 
     for transcript in projects_dir.rglob("*.jsonl"):
         try:
+            transcript_mtime = datetime.fromtimestamp(transcript.stat().st_mtime, UTC)
+        except OSError as exc:
+            scan_errors.append(f"{transcript}: {exc}")
+            continue
+        may_contain_recent_usage = transcript_mtime >= window_start
+        try:
             stream = transcript.open("r", encoding="utf-8", errors="replace")
         except OSError as exc:
             scan_errors.append(f"{transcript}: {exc}")
@@ -238,6 +242,8 @@ def evaluate_burn_rate(
                     record = json.loads(raw)
                 except json.JSONDecodeError:
                     invalid_timestamps += 1
+                    if may_contain_recent_usage:
+                        invalid_recent_rows += 1
                     continue
                 if not _is_usage_record(record):
                     continue
@@ -245,6 +251,8 @@ def evaluate_burn_rate(
                     timestamp = _parse_timestamp(record.get("timestamp"))
                 except (TypeError, ValueError):
                     invalid_timestamps += 1
+                    if may_contain_recent_usage:
+                        invalid_recent_rows += 1
                     continue
 
                 message = record["message"]

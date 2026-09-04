@@ -6,9 +6,9 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 - 06:00 UTC 已知高用量小時 $216.78/hr：FUG-DT-001
 - 04:00 UTC 已知低用量小時 $0.54/hr：FUG-DT-002
 - (message.id, requestId) 去重不可移除：FUG-DT-003
-- Claude Fable 5.1 cache-read 特價與視窗外推：FUG-DT-004 / FUG-DT-005
-- 未定價 model 不得靜默通過：FUG-EG-001
-- CLI 輸出可供 skill 決定廣播，且設定缺失會 fail loud：FUG-ST-001 / FUG-VL-001
+- Claude Fable 5.1 cache-read 特價、其他 Fable 標準價、視窗外推：FUG-DT-004..006
+- 未定價 model 與近期 malformed usage 不得靜默通過：FUG-EG-001..002
+- CLI 輸出可供 skill 決定廣播，設定缺失／時間戳無效會 fail loud：FUG-ST-001..002 / FUG-VL-001
 """
 
 from __future__ import annotations
@@ -52,20 +52,26 @@ def _write_usage_row(
     cache_read_tokens: int,
     message_id: str = "msg_test",
     request_id: str = "req_test",
+    timestamp: str = "2026-09-03T06:30:00Z",
+    usage_override: dict[str, object] | None = None,
 ) -> None:
-    usage = {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "cache_read_input_tokens": cache_read_tokens,
-        "cache_creation_input_tokens": 0,
-        "cache_creation": {
-            "ephemeral_5m_input_tokens": 0,
-            "ephemeral_1h_input_tokens": 0,
-        },
-    }
+    usage: dict[str, object] = (
+        {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_input_tokens": cache_read_tokens,
+            "cache_creation_input_tokens": 0,
+            "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 0,
+            },
+        }
+        if usage_override is None
+        else usage_override
+    )
     row = {
         "type": "assistant",
-        "timestamp": "2026-09-03T06:30:00Z",
+        "timestamp": timestamp,
         "requestId": request_id,
         "message": {
             "id": message_id,
@@ -181,6 +187,45 @@ class TestPricingRules:
         assert result.unpriced_models == ("claude-unknown-9000",)
         assert fleet_usage_guard.build_broadcast_message(result) is None
 
+    def test_fug_dt_006_non_5_1_fable_uses_standard_cache_read_rate(self, tmp_path: Path) -> None:
+        """FUG-DT-006: Fable 5.2 不得誤用 5.1 的 0.025x cache-read 特價。"""
+        _write_usage_row(
+            tmp_path / "project" / "session.jsonl",
+            model="claude-fable-5-2",
+            cache_read_tokens=1_000_000,
+        )
+
+        result = fleet_usage_guard.evaluate_burn_rate(
+            tmp_path,
+            now=_at(7),
+            window_minutes=60,
+            threshold_usd_per_hour=Decimal("0.5"),
+        )
+
+        assert result.status == "burn_rate_exceeded"
+        assert result.estimated_cost_usd == Decimal("1.0")
+
+    def test_fug_eg_002_missing_core_counters_is_measurement_incomplete(
+        self, tmp_path: Path
+    ) -> None:
+        """FUG-EG-002: 空 usage object 不得被當成零成本有效 request。"""
+        _write_usage_row(
+            tmp_path / "project" / "session.jsonl",
+            model="claude-opus-5",
+            cache_read_tokens=0,
+            usage_override={},
+        )
+
+        result = fleet_usage_guard.evaluate_burn_rate(
+            tmp_path,
+            now=_at(7),
+            window_minutes=60,
+            threshold_usd_per_hour=Decimal("50"),
+        )
+
+        assert result.status == "measurement_incomplete"
+        assert result.invalid_recent_rows == 1
+
 
 class TestSkillContract:
     def test_fug_st_001_cli_emits_distinct_burn_rate_broadcast(
@@ -213,6 +258,41 @@ class TestSkillContract:
         assert "燒錢速率" in payload["broadcast_message"]
         assert "$216.78/hr" in payload["broadcast_message"]
         assert "不是額度" in payload["broadcast_message"]
+
+    def test_fug_st_002_timezone_less_recent_usage_exits_incomplete(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """FUG-ST-002: 近期 transcript 的 timezone-less timestamp 必須 exit 3。"""
+        projects_dir = tmp_path / "projects"
+        _write_usage_row(
+            projects_dir / "project" / "session.jsonl",
+            model="claude-opus-5",
+            cache_read_tokens=1_000_000,
+            timestamp="2026-09-03T06:30:00",
+        )
+        config = tmp_path / "fleet-usage-guard.json"
+        config.write_text(
+            json.dumps({"window_minutes": 60, "max_usd_per_hour": 50}),
+            encoding="utf-8",
+        )
+
+        exit_code = fleet_usage_guard.main(
+            [
+                "--config",
+                str(config),
+                "--projects-dir",
+                str(projects_dir),
+                "--now",
+                "2026-09-03T07:00:00Z",
+            ]
+        )
+
+        payload = json.loads(capsys.readouterr().out)
+        assert exit_code == fleet_usage_guard.EXIT_MEASUREMENT_INCOMPLETE
+        assert payload["status"] == "measurement_incomplete"
+        assert payload["invalid_recent_rows"] == 1
 
     def test_fug_vl_001_missing_config_fails_loud(
         self,
