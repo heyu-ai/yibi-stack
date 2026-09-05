@@ -96,6 +96,34 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 			$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$$name" "$$dir/$$name" || exit 1; \
 		done \
 	done
+	@echo ""
+	@echo "  Installing plugin-only skills → $(INSTALL_DIR)/"
+	@for pack in plugins/*/; do \
+		[ -d "$$pack/skills" ] || continue; \
+		for s in $$pack/skills/*/; do \
+			[ -d "$$s" ] || continue; \
+			name=$$(basename $$s); \
+			if [ -d "$(SKILL_DIR)/$$name" ] || [ -L "$(SKILL_DIR)/$$name" ]; then continue; fi; \
+			skill_md="$$s/SKILL.md"; \
+			if [ ! -f "$$skill_md" ]; then continue; fi; \
+			scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
+			if [ "$$scope" != "global" ]; then continue; fi; \
+			$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$$s" "$(INSTALL_DIR)/$$name" || exit 1; \
+		done \
+	done
+	@echo ""
+	@echo "  Cleaning stale symlinks..."
+	@for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
+		for link in "$$dir/"*; do \
+			[ -L "$$link" ] || continue; \
+			[ -e "$$link" ] && continue; \
+			target=$$(readlink "$$link"); \
+			case "$$target" in \
+				$(CURDIR)/$(SKILL_DIR)/*|$(CURDIR)/plugins/*) \
+					rm "$$link" && echo "  [OK] removed stale: $$(basename $$link)" ;; \
+			esac \
+		done \
+	done
 	@mkdir -p $(CLAUDE_CMD_DIR)
 	@echo ""
 	@echo "  Installing commands → $(CLAUDE_CMD_DIR)/"
@@ -155,6 +183,19 @@ install-project: ## Install scope=project skills（本 repo 限定，ainization-
 		if [ "$$scope" != "project" ]; then continue; fi; \
 		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
 			$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$$name" "$$dir/$$name" || exit 1; \
+		done \
+	done
+	@for pack in plugins/*/; do \
+		[ -d "$$pack/skills" ] || continue; \
+		for s in $$pack/skills/*/; do \
+			[ -d "$$s" ] || continue; \
+			name=$$(basename $$s); \
+			if [ -d "$(SKILL_DIR)/$$name" ] || [ -L "$(SKILL_DIR)/$$name" ]; then continue; fi; \
+			skill_md="$$s/SKILL.md"; \
+			if [ ! -f "$$skill_md" ]; then continue; fi; \
+			scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
+			if [ "$$scope" != "project" ]; then continue; fi; \
+			$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$$s" "$(INSTALL_DIR)/$$name" || exit 1; \
 		done \
 	done
 
@@ -261,6 +302,26 @@ status-own: ## Show install status for skills in THIS repo only (excludes gstack
 			printf "  CC:%-2s AG:%-2s  %-30s [%s]\n" "$$cc_s" "$$ag_s" "$$name" "$$scope"; \
 		done; \
 	fi
+	@echo ""; \
+	echo "=== plugin-only skills (AG=~/.agents/skills) ==="; \
+	echo ""; \
+	for pack in plugins/*/; do \
+		[ -d "$$pack/skills" ] || continue; \
+		for s in $$pack/skills/*/; do \
+			[ -d "$$s" ] || continue; \
+			name=$$(basename $$s); \
+			if [ -d "$(SKILL_DIR)/$$name" ] || [ -L "$(SKILL_DIR)/$$name" ]; then continue; fi; \
+			skill_md="$$s/SKILL.md"; \
+			if [ ! -f "$$skill_md" ]; then continue; fi; \
+			scope=""; \
+			scope=$$(grep -m1 '^scope:' "$$skill_md" | sed -e 's/scope:[[:space:]]*//' -e 's/[[:space:]]*#.*//' | tr -d '[:space:]'); \
+			own="$(CURDIR)/$$s"; \
+			ag_target=$$(readlink "$(INSTALL_DIR)/$$name" 2>/dev/null); \
+			if [ "$$ag_target" = "$$own" ]; then ag_s="OK"; else ag_s="--"; fi; \
+			pack_name=$$(basename $$(dirname $$(dirname $$s))); \
+			printf "  AG:%-2s  %-30s [%s] (%s)\n" "$$ag_s" "$$name" "$$scope" "$$pack_name"; \
+		done \
+	done
 
 uninstall: ## Remove own symlinks from ~/.claude/skills/ and ~/.agents/skills/
 	@for s in $(SKILL_DIR)/*/; do \
@@ -274,6 +335,32 @@ uninstall: ## Remove own symlinks from ~/.claude/skills/ and ~/.agents/skills/
 			rm "$(INSTALL_DIR)/$$s" && echo "  [OK] $$s removed (agents)" \
 			    || echo "  [FAIL] $$s FAILED to remove from $(INSTALL_DIR)"; \
 		fi \
+	done
+	@for pack in plugins/*/; do \
+		[ -d "$$pack/skills" ] || continue; \
+		for s in $$pack/skills/*/; do \
+			[ -d "$$s" ] || continue; \
+			name=$$(basename $$s); \
+			if [ -L "$(INSTALL_DIR)/$$name" ]; then \
+				target=$$(readlink "$(INSTALL_DIR)/$$name"); \
+				case "$$target" in \
+					$(CURDIR)/plugins/*) \
+						rm "$(INSTALL_DIR)/$$name" && echo "  [OK] $$name removed (agents/plugin)" \
+						    || echo "  [FAIL] $$name FAILED to remove from $(INSTALL_DIR)" ;; \
+				esac \
+			fi \
+		done \
+	done
+	@for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
+		for link in "$$dir/"*; do \
+			[ -L "$$link" ] || continue; \
+			[ -e "$$link" ] && continue; \
+			target=$$(readlink "$$link"); \
+			case "$$target" in \
+				$(CURDIR)/$(SKILL_DIR)/*|$(CURDIR)/plugins/*) \
+					rm "$$link" && echo "  [OK] removed stale: $$(basename $$link)" ;; \
+			esac \
+		done \
 	done
 
 # LaunchAgent plist 的 WorkingDirectory 寫的是 PROJECT_ROOT（tasks/_paths.py 由
