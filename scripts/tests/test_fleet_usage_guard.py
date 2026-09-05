@@ -6,8 +6,8 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 - 06:00 UTC 已知高用量小時 $216.78/hr：FUG-DT-001
 - 04:00 UTC 已知低用量小時 $0.54/hr：FUG-DT-002
 - (message.id, requestId) 去重不可移除：FUG-DT-003
-- Claude Fable 特價／標準價、context suffix、視窗與全 pricing formula：FUG-DT-004..008
-- 未定價 model、未知 qualifier、缺欄位與非 object usage 不得靜默通過：FUG-EG-001..004
+- Claude Fable 特價／標準價、context suffix、視窗與全 pricing formula：FUG-DT-004..009
+- 未定價 model、未知 qualifier、缺欄位與非 object usage 不得靜默通過：FUG-EG-001..004, FUG-EG-007
 - 不一致 signature 的重複 request 排除且回報 incomplete：FUG-EG-005
 - 高用量超標 + 未定價 model 並存時超標判定不得被 incomplete 壓過：FUG-EG-006
 - CLI 輸出可供 skill 決定廣播，設定缺失／時間戳無效會 fail loud：FUG-ST-001..002 / FUG-VL-001
@@ -267,6 +267,43 @@ class TestPricingRules:
 
         assert result.status == "measurement_incomplete"
         assert result.unpriced_models == (model,)
+
+    def test_fug_eg_007_word_only_qualifier_is_measurement_incomplete(self, tmp_path: Path) -> None:
+        """FUG-EG-007: 非數值 context qualifier（如 [beta]）不得沿用基礎 model 定價。"""
+        model = "claude-opus-5[beta]"
+        _write_usage_row(
+            tmp_path / "project" / "session.jsonl",
+            model=model,
+            cache_read_tokens=1_000_000,
+        )
+
+        result = fleet_usage_guard.evaluate_burn_rate(
+            tmp_path,
+            now=_at(7),
+            window_minutes=60,
+            threshold_usd_per_hour=Decimal("100"),
+        )
+
+        assert result.status == "measurement_incomplete"
+        assert result.unpriced_models == (model,)
+
+    def test_fug_dt_009_numeric_context_suffix_inherits_base_pricing(self, tmp_path: Path) -> None:
+        """FUG-DT-009: 數值 context suffix（如 [200k]）沿用基礎 model 定價。"""
+        _write_usage_row(
+            tmp_path / "project" / "session.jsonl",
+            model="claude-opus-5[200k]",
+            cache_read_tokens=1_000_000,
+        )
+
+        result = fleet_usage_guard.evaluate_burn_rate(
+            tmp_path,
+            now=_at(7),
+            window_minutes=60,
+            threshold_usd_per_hour=Decimal("100"),
+        )
+
+        assert result.status == "below_threshold"
+        assert result.estimated_cost_usd == Decimal("1.50")
 
     def test_fug_dt_008_all_pricing_terms_contribute_to_exact_cost(self, tmp_path: Path) -> None:
         """FUG-DT-008: input/output/read/5m-write/1h-write 任何一項消失都會變紅。"""
