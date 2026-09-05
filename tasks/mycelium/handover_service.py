@@ -20,6 +20,10 @@ from .db import AgentsDB
 from .models import HandoverRecord, SessionType
 
 
+class HandoverBackupError(RuntimeError):
+    """Canonical DB commit succeeded, but its JSONL backup could not be written."""
+
+
 def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
     session_type: SessionType,
     topic: str,
@@ -52,7 +56,7 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
     if not summary.strip():
         raise ValueError("summary 不可為空")
 
-    # 統一計算有效工作目錄，確保 working_dir 與 project 來自同一路徑
+    # 統一有效工作目錄，確保 working_dir、project、branch 來自同一 caller context。
     effective_dir = Path(working_dir).resolve() if working_dir else Path.cwd().resolve()
 
     record = HandoverRecord(
@@ -73,7 +77,7 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
         agent_type=agent_type or detect_agent_type(),
         subscription_account=account
         or detect_account(agent_type=agent_type or "claude", warn=False),
-        branch=branch if branch is not None else detect_branch(),
+        branch=branch if branch is not None else detect_branch(effective_dir),
         working_dir=to_portable_path(str(effective_dir)),
         last_files=[to_portable_path(f) for f in (last_files or [])],
         test_status=test_status,
@@ -92,8 +96,8 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
     finally:
         db.close()
 
-    _append_jsonl(record, jsonl_path or HANDOVER_JSONL_PATH)
     _emit_handover_written_event(record, db_path=db_path)
+    _append_jsonl(record, jsonl_path or HANDOVER_JSONL_PATH)
     return record
 
 
@@ -192,7 +196,7 @@ def _append_jsonl(record: HandoverRecord, path: Path) -> None:
         with path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError as e:
-        raise RuntimeError(f"DB 資料已保存，但 JSONL 備份寫入失敗：{e}") from e
+        raise HandoverBackupError("DB 資料已保存，但 JSONL 備份寫入失敗") from e
 
 
 def _now_iso() -> str:

@@ -926,6 +926,7 @@ class TestMakefileWiring:
     # 不能只靠 install-all 串接 install 來擋——make -j 會平行跑 prerequisites。
     GUARDED_TARGETS = [
         "install",
+        "install-agent-wrappers",
         "install-project",
         "install-one",
         "install-force-one",

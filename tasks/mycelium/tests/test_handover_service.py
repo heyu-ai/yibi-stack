@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import json
+import subprocess  # nosec B404
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from tasks.mycelium.config import from_portable_path, to_portable_path
-from tasks.mycelium.handover_service import read_recent, search_handovers, write_handover
+from tasks.mycelium.handover_service import (
+    HandoverBackupError,
+    read_recent,
+    search_handovers,
+    write_handover,
+)
 from tasks.mycelium.models import SessionType
 
 
@@ -54,10 +60,9 @@ class TestWriteHandover:
     ) -> None:
         """AGENTS-ST-025：鏡像失敗須 raise，並明示先前 DB commit 已成功。"""
         paths["jsonl"].mkdir()
-
-        with pytest.raises(
-            RuntimeError,
-            match="DB 資料已保存，但 JSONL 備份寫入失敗",
+        with (
+            patch("tasks.mycelium.handover_service._emit_handover_written_event") as emit,
+            pytest.raises(HandoverBackupError) as exc_info,
         ):
             write_handover(
                 session_type=SessionType.debug,
@@ -66,6 +71,10 @@ class TestWriteHandover:
                 db_path=paths["db"],
                 jsonl_path=paths["jsonl"],
             )
+
+        assert str(exc_info.value) == "DB 資料已保存，但 JSONL 備份寫入失敗"
+        assert isinstance(exc_info.value.__cause__, IsADirectoryError)
+        emit.assert_called_once()
 
         rows = read_recent(last=1, db_path=paths["db"])
         assert len(rows) == 1
@@ -135,6 +144,45 @@ class TestWriteHandover:
         )
 
         assert record.project == "my-real-project"
+
+    def test_agents_st_031_branch_inferred_from_effective_workdir(
+        self,
+        paths: dict[str, Path],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """AGENTS-ST-031: uv 改變 process cwd 時，branch 仍取 caller repo。"""
+        for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"):
+            monkeypatch.delenv(key, raising=False)
+        caller = tmp_path / "caller-repo"
+        caller.mkdir()
+        commands = [
+            ["git", "init", "-q", str(caller)],
+            ["git", "-C", str(caller), "symbolic-ref", "HEAD", "refs/heads/feature/caller"],
+            ["git", "-C", str(caller), "config", "user.email", "test@example.com"],
+            ["git", "-C", str(caller), "config", "user.name", "test"],
+        ]
+        (caller / "README.md").write_text("caller\n", encoding="utf-8")
+        commands.extend(
+            [
+                ["git", "-C", str(caller), "add", "README.md"],
+                ["git", "-C", str(caller), "commit", "-qm", "initial"],
+            ]
+        )
+        for command in commands:
+            subprocess.run(command, capture_output=True, text=True, timeout=30, check=True)
+
+        record = write_handover(
+            session_type=SessionType.debug,
+            topic="caller branch",
+            summary="preserve caller metadata",
+            working_dir=str(caller),
+            db_path=paths["db"],
+            jsonl_path=paths["jsonl"],
+        )
+
+        assert record.project == "caller-repo"
+        assert record.branch == "feature/caller"
 
     def test_agents_st_012_explicit_override_metadata(self, paths: dict[str, Path]) -> None:
         """AGENTS-ST-012：明確提供 device/account 時覆蓋自動偵測。"""

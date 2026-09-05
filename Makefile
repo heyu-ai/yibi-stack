@@ -70,7 +70,9 @@ INSTALL_DIR := $(HOME)/.agents/skills
 CMD_DIR := commands
 CLAUDE_CMD_DIR := $(HOME)/.claude/commands
 
+# Public target writes global symlinks; guard must remain its literal first recipe line.
 install-agent-wrappers: ## Install shared DB CLI wrappers into ~/.agents/bin
+	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" "make install-agent-wrappers"
 	@mkdir -p "$$HOME/.agents/bin"
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/lessons" "$$HOME/.agents/bin/lessons"
 	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/handover" "$$HOME/.agents/bin/handover"
