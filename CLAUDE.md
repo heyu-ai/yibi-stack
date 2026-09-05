@@ -261,10 +261,12 @@ make install-all         # 等同 build-tools + install + install-project + inst
   `~/.cache/pre-commit` can report clean when a fresh environment would catch a real
   issue — run `pre-commit clean` before trusting a green local run (incident: PR #190).
 - **`make install` loop skip list requires 4 targets synced**: `install`, `install-project`,
-  `status-own`, and `uninstall` all scan `skills/*/`. Any non-skill directory created under
-  `skills/` (e.g., `spectra init --dir skills/openspec`) must be added to all four skip lists.
-  Failure modes: `install`/`install-project` exit 1; `status-own` silently continues; `uninstall`
-  silently skips.
+  `status-own`, and `uninstall` all scan `skills/*/` and `plugins/*/skills/*/`. Any non-skill
+  directory created under `skills/` (e.g., `spectra init --dir skills/openspec`) must be added
+  to all four skip lists. Plugin-only skills (those in `plugins/` but not in `skills/`) are
+  installed to `~/.agents/skills/` only (Claude Code uses the plugin mechanism for
+  `~/.claude/skills/`). Failure modes: `install`/`install-project` exit 1; `status-own` silently
+  continues; `uninstall` silently skips.
 - **`.gitignore` does not mean absent from disk** — see rule 02 for fix.
 - **`$CLAUDE_JOB_DIR` permission cannot be permanently allowed via session dialog** —
   see rule 16: Scenario 1 needs `Edit(/Users/<you>/.claude/jobs/*)` + `Write(/Users/<you>/.claude/jobs/*)`
