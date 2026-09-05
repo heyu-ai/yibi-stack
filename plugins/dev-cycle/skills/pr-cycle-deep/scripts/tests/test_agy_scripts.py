@@ -296,8 +296,8 @@ _RUNTIME_CASES: dict[str, tuple[Path, list[str]]] = {
 _EXPECTED_SKILL_MODELS = {
     "plugins/3rd-tools/skills/agy-consult/scripts/consult.sh": "gemini-3.8-flash-high",
     "plugins/3rd-tools/skills/agy-review/scripts/run.sh": "gemini-3.8-flash-high",
-    "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh": ("Gemini 3.8 Flash (High)"),
-    "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh": ("Gemini 3.8 Flash (High)"),
+    "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh": "Gemini 3.8 Flash (High)",
+    "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh": "Gemini 3.8 Flash (High)",
     "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r2.sh": "Gemini 3.8 Flash (High)",
 }
 _MODEL_PIN_EXEMPT_CALL_SITES = frozenset({"scripts/probe-agy-sandbox.sh"})
@@ -317,14 +317,15 @@ def _recorded_invocations(capture: Path) -> list[list[str]]:
     return [record.split("\0")[:-1] for record in raw.split(_ARGV_RECORD_SEP) if record]
 
 
-def _extract_flag_value(argv: list[str], flag: str) -> tuple[bool, str | None]:
-    """Return whether ``flag`` is present and the value passed to it."""
+def _extract_flag_values(argv: list[str], flag: str) -> list[str | None]:
+    """Return every value passed to ``flag``, preserving missing trailing values."""
+    values: list[str | None] = []
     for i, token in enumerate(argv):
         if token == flag:
-            return True, (argv[i + 1] if i + 1 < len(argv) else None)
-        if token.startswith(f"{flag}="):
-            return True, token.split("=", 1)[1]
-    return False, None
+            values.append(argv[i + 1] if i + 1 < len(argv) else None)
+        elif token.startswith(f"{flag}="):
+            values.append(token.split("=", 1)[1])
+    return values
 
 
 @pytest.fixture
@@ -443,11 +444,9 @@ class TestAgyRuntimeContract:
         )
         for n, argv in enumerate(content_invocations, start=1):
             where = f"{script.name} (agy invocation {n} of {len(content_invocations)})"
-            present, value = _extract_flag_value(argv, "--add-dir")
-            assert present, (
-                f"{where} invoked agy without --add-dir. agy 1.1.22 then runs with NO file "
-                f"context and still exits 0. argv={argv!r}"
-            )
+            add_dirs = _extract_flag_values(argv, "--add-dir")
+            assert len(add_dirs) == 1, f"{where} must pass exactly one --add-dir; argv={argv!r}"
+            value = add_dirs[0]
             assert value is not None, (
                 f"{where} passed --add-dir as the final argument, with no value after it. "
                 f"argv={argv!r}"
@@ -459,9 +458,10 @@ class TestAgyRuntimeContract:
             )
             expected_model = _EXPECTED_SKILL_MODELS.get(rel_path)
             if expected_model is not None:
-                model_present, model = _extract_flag_value(argv, "--model")
-                assert model_present and model == expected_model, (
-                    f"{where} must pass --model {expected_model!r}; argv={argv!r}"
+                models = _extract_flag_values(argv, "--model")
+                assert models == [expected_model], (
+                    f"{where} must pass exactly one --model {expected_model!r}; "
+                    f"actual values={models!r}; argv={argv!r}"
                 )
 
     def test_agys_dt_013_runtime_covers_every_call_site(self) -> None:
