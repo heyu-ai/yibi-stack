@@ -158,7 +158,7 @@ See [`skills/README.md`](skills/README.md) for the full index.
 
 | Plugin | Install | Description |
 |--------|---------|-------------|
-| `harness` | `claude plugin install harness@yibi-stack` | Harness readiness evaluation (11-dimension) plus pre-execution bash anti-pattern detection with auto-fix guidance and worktree push protection. |
+| `harness` | `claude plugin install harness@yibi-stack` | Harness readiness evaluation, pre-execution bash anti-pattern detection, worktree push protection, and fleet usage burn-rate guarding. |
 | `sdd` | `claude plugin install sdd@yibi-stack` | Spectra + OpenSpec spec-amplifier methodology |
 | `growth` | `claude plugin install growth@yibi-stack` | Knowledge extraction and retention: mycelium, learn, PR retro/control log, CLAUDE.md prune |
 | `dev-cycle` | `claude plugin install dev-cycle@yibi-stack` | Development workflow: PR cycles, CI triage, setup/handover, local port manager, debug |
