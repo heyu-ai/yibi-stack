@@ -1,7 +1,7 @@
 {
   "name": "sdd",
   "description": "Spec-Driven Development: Spectra amplifier methodology, figma-design-sync (Figma design context extraction + incremental sync into OpenSpec changes), OpenSpec change-management templates, QA/Gherkin subagents, and CLI dependency check for Claude Code agents.",
-  "version": "1.21.0",
+  "version": "1.22.0",
   "author": {
     "name": "Howie Yu",
     "email": "2318485+howie@users.noreply.github.com"

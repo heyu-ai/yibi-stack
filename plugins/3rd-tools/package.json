@@ -1,6 +1,6 @@
 {
   "name": "3rd-tools",
-  "version": "1.21.0",
+  "version": "1.22.0",
   "description": "Third-party AI tool integrations plugin for Claude Code",
   "omp": {}
 }
