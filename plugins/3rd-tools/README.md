@@ -24,10 +24,10 @@ claude plugin install 3rd-tools@yibi-stack
 
 | `verify-gemini-models` skill | 確認 Gemini 模型列表與 API 可用性 |
 
-> `agy-review`、`agy-consult` 與 `/pr-cycle-deep` 的 review/debate stages 都固定使用
+> `agy-review`、`agy-consult` 與 `/pr-cycle-deep` 的所有 agy stages 都固定使用
 > `gemini-3.8-flash-high`（2026-09-03 以 agy 1.1.25 在台灣實測可用）。
 > `/pr-cycle-deep` 使用完整 display name `Gemini 3.8 Flash (High)`，避免 auto-select
-> 選到 Claude 而破壞跨廠商 review 的獨立性。
+> 選到其他模型或 Claude 而破壞預期的模型與跨廠商 review 獨立性。
 
 ## Migration
 

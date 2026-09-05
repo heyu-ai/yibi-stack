@@ -29,7 +29,7 @@ description: Antigravity CLI（agy）第二意見：讓 Gemini 讀 repo 後回�
 >
 > **這是版本相依的實測，不是永久事實**：agy 升版後若 Gemini 路徑再度失效，請重測後再改預設，
 > 並更新這裡的版本戳記（rule 13 probe-rot）。`agy models` 左欄是可接受的 id；`--model` 亦接受
-> 右欄的顯示名如 `Gemini 3.1 Pro (Low)`。
+> 右欄的顯示名如 `Gemini 3.8 Flash (High)`。
 
 和 `/agy-review` 的區別：`/agy-review` 吃 **diff**（branch 改動，PASS/FAIL gate）；
 `/agy-consult` 吃**任意問題**，不需要有待 review 的改動。

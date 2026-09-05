@@ -603,7 +603,7 @@ newer Flash generation. `agy models` lists the valid display names; an invalid v
 prints the list. Raw output lands in `gemini-r1-raw.md` —
 **do not read it in the main context**.
 
-###### Stage 2: Extract (agy auto-selects lightweight model to extract JSON)
+###### Stage 2: Extract with Gemini 3.8 Flash (High)
 
 > **Execution note**: the script writes stderr to `$REVIEW_DIR/gemini-r1.extract.log`; stdout only
 > outputs "agy R1 Stage 2 complete". **Run directly — do not append `> $CLAUDE_JOB_DIR/foo.log 2>&1`**
@@ -614,7 +614,7 @@ prints the list. Raw output lands in `gemini-r1-raw.md` —
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh
 ```
 
-Note: `agy` automatically selects a lightweight model in the extract stage to avoid consuming more high-reasoning quota.
+The extract stage pins the same `Gemini 3.8 Flash (High)` model as review and debate, so every agy execution path in this skill uses the requested model rather than auto-selection.
 
 ###### Stage 3: Render (same as Codex voice: lead reads JSON → writes compact markdown)
 

@@ -88,33 +88,21 @@ class TestInlinePromptContract:
         """AGYS-DT-003: --print-timeout is raised to 10m."""
         assert "--print-timeout 10m" in script.read_text(encoding="utf-8")
 
-    @pytest.mark.parametrize("script", [STAGE1, R2])
-    def test_agys_dt_008_review_model_pinned_to_gemini_38_flash_high(self, script: Path) -> None:
-        """AGYS-DT-008: review stages pin Gemini 3.8 Flash at High effort.
+    @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
+    def test_agys_dt_008_all_stages_pin_gemini_38_flash_high(self, script: Path) -> None:
+        """AGYS-DT-008: every agy stage pins Gemini 3.8 Flash at High effort.
 
         Two failure modes if the flag is dropped or loosened. (1) agy's auto-select can
-        resolve to a lower reasoning tier. (2) `agy models` also offers Claude Sonnet/Opus
-        -- an auto-selected Claude would put this voice in the same family as the Claude
-        lead, collapsing the cross-family premise the whole mob review rests on, with no
-        warning anywhere. Assert the complete display name because both the model generation
-        and High effort tier are intentional parts of the review contract.
+        resolve to another model or reasoning tier. (2) `agy models` also offers Claude
+        Sonnet/Opus -- an auto-selected Claude would put this voice in the same family as
+        the Claude lead, collapsing the cross-family premise the whole mob review rests on,
+        with no warning anywhere. Assert the complete display name because the model
+        generation and High effort tier are both intentional parts of the skill contract.
         """
         src = script.read_text(encoding="utf-8")
         assert "--model 'Gemini 3.8 Flash (High)'" in src, (
             f"{script.name}: agy must pin Gemini 3.8 Flash (High) "
-            "(auto-select can lower reasoning effort or pick Claude)"
-        )
-
-    def test_agys_dt_009_extract_stage_not_pinned(self) -> None:
-        """AGYS-DT-009: the extract stage does NOT pin a model.
-
-        Stage 2 turns stage 1's raw markdown into JSON -- no reasoning -- and the script's
-        own comment says agy auto-picks a lightweight model there to preserve
-        high-reasoning quota. Pinning the review model here would spend that quota on a
-        mechanical transform; this test makes the asymmetry explicit rather than incidental.
-        """
-        assert "--model" not in STAGE2.read_text(encoding="utf-8"), (
-            "extract stage must leave model auto-selection alone (lightweight by design)"
+            "(auto-select can change the model, lower reasoning effort, or pick Claude)"
         )
 
     @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
