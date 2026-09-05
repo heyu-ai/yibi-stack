@@ -1,7 +1,7 @@
 {
   "name": "harness",
   "version": "1.21.0",
-  "description": "Claude Code harness engineering plugin: readiness evaluation, bash anti-pattern hooks, push protection, plugin migration check, and plugin cache pruning.",
+  "description": "Claude Code harness engineering plugin: readiness evaluation, bash anti-pattern hooks, push protection, fleet usage and burn-rate guarding, plugin migration check, and plugin cache pruning.",
   "keywords": [
     "harness",
     "readiness",
@@ -19,6 +19,8 @@
     "plugin-migration",
     "upgrade",
     "plugin-cache",
-    "disk-cleanup"
+    "disk-cleanup",
+    "usage-guard",
+    "burn-rate"
   ]
 }

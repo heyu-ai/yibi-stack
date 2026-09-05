@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "harness",
-      "description": "Claude Code harness engineering: readiness evaluation, bash anti-pattern detection and enforcement, worktree push protection, plugin migration check, and plugin cache pruning.",
+      "description": "Claude Code harness engineering: readiness evaluation, bash anti-pattern detection and enforcement, worktree push protection, fleet usage and burn-rate guarding, plugin migration check, and plugin cache pruning.",
       "author": {
         "name": "Howie Yu"
       },
