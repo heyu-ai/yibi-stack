@@ -390,8 +390,8 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh verify 
 Write all R1/R2 intermediate files to the review dir (`<worktree-root>/.pr-review/`, `$REVIEW_DIR`).
 The worktree-root namespace isolates concurrent sessions, overwrites old output on re-run, and keeps
 files off `/tmp/` (the sandbox rejects it). The agy scripts **inline** this content into
-`agy -p "$CONTENT"` rather than `@file` (issue #153: `@file` fails in nested worktrees and triggers
-agentic mode); `--add-dir "$WT_ROOT"` still lets agy look up surrounding code.
+`agy -p "$CONTENT" --model 'Gemini 3.8 Flash (High)'` rather than `@file` (issue #153:
+`@file` fails in nested worktrees and triggers agentic mode); `--add-dir "$WT_ROOT"` still lets agy look up surrounding code.
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}

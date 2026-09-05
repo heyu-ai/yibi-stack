@@ -91,7 +91,7 @@ MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）
 > 關掉這兩個面。
 >
 > Script 內部把「filesystem boundary 提醒 + 檔案內容」以 inline 形式當 `-p` 的值傳入
-> （`agy -p "$PROMPT_CONTENT" --add-dir "$REPO_ROOT" --sandbox`），沿用 `/agy-review` 的 `run.sh` 已驗證過的
+> （`agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --sandbox`），沿用 `/agy-review` 的 `run.sh` 已驗證過的
 > 安全模式（issue #153 / PR #229 retro）：不用 `@file`（nested worktree 下解析失敗會讓 agy 靜默
 > 進入 agentic 模式）、不用 stdin pipe（`-p`/`--print` 不是 boolean，會把下一個 flag 當 prompt
 > 吃掉；agy 1.1.2 起沒有 stdin prompt 通道）。`--add-dir "$REPO_ROOT"` 提供周邊程式碼 context——
