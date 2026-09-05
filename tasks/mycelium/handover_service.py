@@ -38,6 +38,7 @@ class HandoverBackupError(RuntimeError):
     def __init__(self, message: str) -> None:
         super().__init__(message)
         self.event_error: Exception | None = None
+        self.event_warnings: list[warnings.WarningMessage] = []
 
 
 def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
@@ -112,38 +113,50 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
     finally:
         db.close()
 
-    event_error = _emit_handover_written_event(record, db_path=db_path)
+    event_error, event_warnings = _emit_handover_written_event(record, db_path=db_path)
     try:
         _append_jsonl(record, jsonl_path or HANDOVER_JSONL_PATH)
     except HandoverBackupError as e:
         e.event_error = event_error
+        e.event_warnings = event_warnings
         raise
     if event_error is not None:
         warnings.warn(f"handover_written 事件寫入失敗：{event_error}", stacklevel=2)
+    for w in event_warnings:
+        warnings.warn_explicit(
+            message=w.message,
+            category=w.category,
+            filename=w.filename,
+            lineno=w.lineno,
+            source=w.source,
+        )
     return record
 
 
 def _emit_handover_written_event(
     record: HandoverRecord, *, db_path: Path | None
-) -> Exception | None:
-    """嘗試寫入 handover_written 事件；回傳內部錯誤供 caller 決定何時揭露。"""
+) -> tuple[Exception | None, list[warnings.WarningMessage]]:
+    """嘗試寫入 handover_written 事件；捕捉異常與 warnings 供 caller 決定何時揭露。"""
 
     from .metrics_service import _try_resolve_session_id, log_event
     from .models import EventType, SourceLayer
 
-    try:
-        log_event(
-            EventType.handover_written,
-            session_id=_try_resolve_session_id(),
-            source_layer=SourceLayer.cli,
-            handover_id=record.id,
-            project=record.project,
-            device=record.device,
-            db_path=db_path,
-        )
-    except Exception as e:  # noqa: BLE001  shadow logging 不影響主流程
-        return e
-    return None
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        err: Exception | None = None
+        try:
+            log_event(
+                EventType.handover_written,
+                session_id=_try_resolve_session_id(),
+                source_layer=SourceLayer.cli,
+                handover_id=record.id,
+                project=record.project,
+                device=record.device,
+                db_path=db_path,
+            )
+        except Exception as e:  # noqa: BLE001  shadow logging 不影響主流程
+            err = e
+        return err, list(captured)
 
 
 def read_recent(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess  # nosec B404
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
@@ -62,11 +63,12 @@ class TestWriteHandover:
         paths["jsonl"].mkdir()
         event_error = OSError("internal event diagnostic")
 
-        def observe_committed(record: HandoverRecord, *, db_path: Path | None) -> OSError:
-            assert db_path is not None
+        def observe_committed(
+            record: HandoverRecord, *, db_path: Path | None
+        ) -> tuple[OSError, list[warnings.WarningMessage]]:
             committed = read_recent(last=10, db_path=db_path)
             assert record.id in {row["id"] for row in committed}
-            return event_error
+            return event_error, []
 
         with (
             patch(

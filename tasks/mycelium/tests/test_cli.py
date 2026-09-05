@@ -64,7 +64,10 @@ class TestHandoverWriteCli:
         with (
             patch("tasks.mycelium.handover_service.HANDOVER_DB_PATH", db_path),
             patch("tasks.mycelium.handover_service.HANDOVER_JSONL_PATH", mirror_path),
-            patch("tasks.mycelium.handover_service._emit_handover_written_event"),
+            patch(
+                "tasks.mycelium.handover_service._emit_handover_written_event",
+                return_value=(None, []),
+            ),
         ):
             result = CliRunner().invoke(
                 cli,
@@ -98,13 +101,14 @@ class TestHandoverWriteCli:
         mirror_path = tmp_path / "private mirror path"
         event_path = tmp_path / "private event path"
         mirror_path.mkdir()
+        event_path.mkdir()
         with (
             patch("tasks.mycelium.handover_service.HANDOVER_DB_PATH", db_path),
             patch("tasks.mycelium.handover_service.HANDOVER_JSONL_PATH", mirror_path),
             patch(
-                "tasks.mycelium.metrics_service.log_event",
-                side_effect=OSError(f"cannot write {event_path}"),
-            ) as event,
+                "tasks.mycelium.metrics_service.HANDOVER_EVENTS_JSONL_PATH",
+                event_path,
+            ),
             warnings.catch_warnings(record=True) as caught,
         ):
             warnings.simplefilter("always")
@@ -128,7 +132,6 @@ class TestHandoverWriteCli:
         assert str(event_path) not in result.output
         assert "Errno" not in result.output
         assert "Traceback" not in result.output
-        event.assert_called_once()
         assert caught == []
         rows = read_recent(last=1, db_path=db_path)
         assert [row["topic"] for row in rows] == ["combined failure"]

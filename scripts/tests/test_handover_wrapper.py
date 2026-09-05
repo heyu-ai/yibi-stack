@@ -255,7 +255,34 @@ def test_how_dt_004_relative_workdir_resolves_from_caller(tmp_path: Path, form: 
     ]
 
 
-def test_how_dt_005_payload_token_named_workdir_is_not_an_option(tmp_path: Path) -> None:
+_VALUE_OPTIONS = [
+    "--session-type",
+    "-t",
+    "--topic",
+    "--summary",
+    "--operator",
+    "--completed",
+    "--decisions",
+    "--blocked",
+    "--next",
+    "--lessons",
+    "--approaches",
+    "--tags",
+    "--files",
+    "--test-status",
+    "--tokens",
+    "--device",
+    "--agent",
+    "--account",
+    "--branch",
+    "--project",
+]
+
+
+@pytest.mark.parametrize("option", _VALUE_OPTIONS)
+def test_how_dt_005_payload_token_named_workdir_is_not_an_option(
+    tmp_path: Path, option: str
+) -> None:
     """HOW-DT-005：option value 即使等於 --workdir，也仍須追加真正的 implicit option。"""
     caller = tmp_path / "caller repo"
     caller.mkdir()
@@ -264,9 +291,7 @@ def test_how_dt_005_payload_token_named_workdir_is_not_an_option(tmp_path: Path)
             "bash",
             str(WRAPPER),
             "write",
-            "--topic",
-            "topic with spaces",
-            "--summary",
+            option,
             "--workdir",
         ],
         cwd=caller,
@@ -277,6 +302,7 @@ def test_how_dt_005_payload_token_named_workdir_is_not_an_option(tmp_path: Path)
         env=_make_env(tmp_path),
     )
 
+    assert result.returncode == 0, result.stderr
     assert _argv(result) == [
         "run",
         "--directory",
@@ -286,9 +312,7 @@ def test_how_dt_005_payload_token_named_workdir_is_not_an_option(tmp_path: Path)
         "tasks.mycelium",
         "handover",
         "write",
-        "--topic",
-        "topic with spaces",
-        "--summary",
+        option,
         "--workdir",
         "--workdir",
         str(caller),
