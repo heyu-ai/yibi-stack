@@ -31,7 +31,7 @@ yibi-stack/
 │       └── cli.py                   → uv run python -m tasks.mycelium
 │
 ├── plugins/                         → Claude Code plugin packs（可透過 claude plugin install 安裝）
-│   ├── harness/                     → Harness 工程品質（harness-eval 評量 + AP1/AP2 lint + protect-push hook）
+│   ├── harness/                     → Harness 工程品質（harness-eval 評量 + AP1/AP2 lint + protect-push hook + fleet-usage-guard）
 │   ├── growth/                      → 成長工具（mycelium、scheduler skills）
 │   ├── dev-cycle/                   → PR 流程工具（review cycle、mob review）
 │   ├── sdd/                         → Subagent Driven Development 方法論
