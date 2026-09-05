@@ -1,7 +1,7 @@
 {
   "name": "methodology",
   "description": "Portable methodology skills for Claude Code agents: Kent Beck TDD, Flutter TDD, event storming (domain discovery), Jackson Problem Frames, and the six-technique QA test design framework. All scope: global, project-agnostic.",
-  "version": "1.21.0",
+  "version": "1.22.0",
   "author": {
     "name": "Howie Yu",
     "email": "2318485+howie@users.noreply.github.com"
