@@ -182,10 +182,9 @@ def _expand_paths(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _append_jsonl(record: HandoverRecord, path: Path) -> None:
-    """把 record 以單行 JSON 寫入 JSONL 檔案尾端。
+    """把 record 以單行 JSON 寫入 JSONL 備份尾端。
 
-    JSONL 為 DB 的備份副本。若寫入失敗（如磁碟空間不足），僅記錄警告，
-    不影響主要 DB 寫入（DB 已在呼叫端完成，資料不遺失）。
+    DB 已由呼叫端提交；備份失敗仍須 raise，並在訊息中明示 DB 資料已保存。
     """
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,9 +192,7 @@ def _append_jsonl(record: HandoverRecord, path: Path) -> None:
         with path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError as e:
-        import warnings
-
-        warnings.warn(f"JSONL 備份寫入失敗（DB 資料已保存）：{e}", stacklevel=2)
+        raise RuntimeError(f"DB 資料已保存，但 JSONL 備份寫入失敗：{e}") from e
 
 
 def _now_iso() -> str:

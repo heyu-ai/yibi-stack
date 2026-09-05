@@ -49,6 +49,28 @@ class TestWriteHandover:
         assert mirror["id"] == record.id
         assert mirror["session_type"] == "debug"
 
+    def test_agents_st_025_mirror_failure_reports_saved_database(
+        self, paths: dict[str, Path]
+    ) -> None:
+        """AGENTS-ST-025：鏡像失敗須 raise，並明示先前 DB commit 已成功。"""
+        paths["jsonl"].mkdir()
+
+        with pytest.raises(
+            RuntimeError,
+            match="DB 資料已保存，但 JSONL 備份寫入失敗",
+        ):
+            write_handover(
+                session_type=SessionType.debug,
+                topic="mirror failure",
+                summary="database must survive",
+                db_path=paths["db"],
+                jsonl_path=paths["jsonl"],
+            )
+
+        rows = read_recent(last=1, db_path=paths["db"])
+        assert len(rows) == 1
+        assert rows[0]["topic"] == "mirror failure"
+
     def test_agents_vl_002_empty_topic_raises(self, paths: dict[str, Path]) -> None:
         """AGENTS-VL-002：topic 為空字串應 raise。"""
         with pytest.raises(ValueError):

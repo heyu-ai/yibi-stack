@@ -1,4 +1,4 @@
-.PHONY: help lint lint-md format typecheck test check ci probe-agy install install-project install-one install-force-one status status-own uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents patch-gemini-allow-list patch-agy-allow-list release
+.PHONY: help lint lint-md format typecheck test check ci probe-agy install install-agent-wrappers install-project install-one install-force-one status status-own uninstall promote install-scheduler uninstall-scheduler scheduler-status build-tools install-handover-hooks uninstall-handover-hooks install-all patch-pr-review-agents patch-gemini-allow-list patch-agy-allow-list release
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -70,6 +70,12 @@ INSTALL_DIR := $(HOME)/.agents/skills
 CMD_DIR := commands
 CLAUDE_CMD_DIR := $(HOME)/.claude/commands
 
+install-agent-wrappers: ## Install shared DB CLI wrappers into ~/.agents/bin
+	@mkdir -p "$$HOME/.agents/bin"
+	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/lessons" "$$HOME/.agents/bin/lessons"
+	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/handover" "$$HOME/.agents/bin/handover"
+	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/resolve-skill-repo" "$$HOME/.agents/bin/resolve-skill-repo"
+
 # guard 必須是 recipe 的第一行（字面上，不是「第一個可執行動作」）：後面的步驟會把
 # $(CURDIR) 寫進全域 symlink，失敗得太晚就已經污染 ~/.claude/skills/ 與 ~/.agents/。
 # 說明寫在 target 宣告之上而非 recipe 內，好讓「第一行就是 guard」無須任何但書。
@@ -116,9 +122,7 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 	@python3 scripts/register_skill_repo.py '$(CURDIR)' '$(SKILL_REPO_KEY)' \
 	|| { echo "  [FAIL] 無法更新 ~/.agents/config.json（見上方錯誤）"; exit 1; }
 	@echo "  [OK] skill_repos[$(SKILL_REPO_KEY)] = $(CURDIR)"
-	@mkdir -p "$$HOME/.agents/bin"
-	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/lessons" "$$HOME/.agents/bin/lessons"
-	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/resolve-skill-repo" "$$HOME/.agents/bin/resolve-skill-repo"
+	@$(MAKE) install-agent-wrappers
 	@# 安裝後驗收。「dst 是實體檔案」這一種已由 safe_symlink.sh 自己 exit 2 擋下
 	@# （上方每個呼叫點都會讓 make 中止），不再需要靠這裡兜底；但本驗收仍保留，
 	@# 因為它涵蓋 symlink「建立成功之後」才顯現、safe_symlink.sh 看不到的情況：

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Wrapper: self-locate yibi-stack and forward to the DB-backed mycelium handover CLI.
+set -euo pipefail
+
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+
+if [ "${1:-}" = "write" ]; then
+  has_workdir=0
+  for arg in "$@"; do
+    case "$arg" in
+      --workdir|--workdir=*) has_workdir=1; break ;;
+    esac
+  done
+  if [ "$has_workdir" -eq 0 ]; then
+    exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium handover "$@" --workdir "$(pwd -P)"
+  fi
+fi
+
+exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium handover "$@"
