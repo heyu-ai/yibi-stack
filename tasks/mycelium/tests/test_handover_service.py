@@ -16,7 +16,7 @@ from tasks.mycelium.handover_service import (
     search_handovers,
     write_handover,
 )
-from tasks.mycelium.models import SessionType
+from tasks.mycelium.models import HandoverRecord, SessionType
 
 
 @pytest.fixture
@@ -60,8 +60,19 @@ class TestWriteHandover:
     ) -> None:
         """AGENTS-ST-025：鏡像失敗須 raise，並明示先前 DB commit 已成功。"""
         paths["jsonl"].mkdir()
+        event_error = OSError("internal event diagnostic")
+
+        def observe_committed(record: HandoverRecord, *, db_path: Path | None) -> OSError:
+            assert db_path is not None
+            committed = read_recent(last=10, db_path=db_path)
+            assert record.id in {row["id"] for row in committed}
+            return event_error
+
         with (
-            patch("tasks.mycelium.handover_service._emit_handover_written_event") as emit,
+            patch(
+                "tasks.mycelium.handover_service._emit_handover_written_event",
+                side_effect=observe_committed,
+            ) as emit,
             pytest.raises(HandoverBackupError) as exc_info,
         ):
             write_handover(
@@ -74,6 +85,7 @@ class TestWriteHandover:
 
         assert str(exc_info.value) == "DB 資料已保存，但 JSONL 備份寫入失敗"
         assert isinstance(exc_info.value.__cause__, IsADirectoryError)
+        assert exc_info.value.event_error is event_error
         emit.assert_called_once()
 
         rows = read_recent(last=1, db_path=paths["db"])

@@ -10,18 +10,34 @@ import json
 import re
 import sqlite3
 import uuid
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .account import detect_account, detect_agent_type, detect_branch, detect_device, detect_project
-from .config import HANDOVER_DB_PATH, HANDOVER_JSONL_PATH, from_portable_path, to_portable_path
+from .account import (
+    detect_account,
+    detect_agent_type,
+    detect_branch,
+    detect_device,
+    detect_project,
+)
+from .config import (
+    HANDOVER_DB_PATH,
+    HANDOVER_JSONL_PATH,
+    from_portable_path,
+    to_portable_path,
+)
 from .db import AgentsDB
 from .models import HandoverRecord, SessionType
 
 
 class HandoverBackupError(RuntimeError):
     """Canonical DB commit succeeded, but its JSONL backup could not be written."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.event_error: Exception | None = None
 
 
 def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
@@ -96,14 +112,21 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
     finally:
         db.close()
 
-    _emit_handover_written_event(record, db_path=db_path)
-    _append_jsonl(record, jsonl_path or HANDOVER_JSONL_PATH)
+    event_error = _emit_handover_written_event(record, db_path=db_path)
+    try:
+        _append_jsonl(record, jsonl_path or HANDOVER_JSONL_PATH)
+    except HandoverBackupError as e:
+        e.event_error = event_error
+        raise
+    if event_error is not None:
+        warnings.warn(f"handover_written 事件寫入失敗：{event_error}", stacklevel=2)
     return record
 
 
-def _emit_handover_written_event(record: HandoverRecord, *, db_path: Path | None) -> None:
-    """寫入 handover_written 事件，供成功率量測使用。永不 raise。"""
-    import warnings
+def _emit_handover_written_event(
+    record: HandoverRecord, *, db_path: Path | None
+) -> Exception | None:
+    """嘗試寫入 handover_written 事件；回傳內部錯誤供 caller 決定何時揭露。"""
 
     from .metrics_service import _try_resolve_session_id, log_event
     from .models import EventType, SourceLayer
@@ -119,7 +142,8 @@ def _emit_handover_written_event(record: HandoverRecord, *, db_path: Path | None
             db_path=db_path,
         )
     except Exception as e:  # noqa: BLE001  shadow logging 不影響主流程
-        warnings.warn(f"handover_written 事件寫入失敗：{e}", stacklevel=2)
+        return e
+    return None
 
 
 def read_recent(

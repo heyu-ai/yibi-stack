@@ -54,7 +54,7 @@ def _argv(result: subprocess.CompletedProcess[str]) -> list[str]:
 
 def _make_install_fixture(tmp_path: Path) -> Path:
     """建立非 worktree 的最小 checkout，讓 public make install 只寫隔離 HOME。"""
-    root = tmp_path / "main-checkout"
+    root = tmp_path / "main checkout"
     root.mkdir()
     shutil.copy2(REPO_ROOT / "Makefile", root / "Makefile")
     scripts = root / "scripts"
@@ -201,6 +201,143 @@ def test_how_dt_003_explicit_workdir_survives_once(tmp_path: Path, workdir_args:
     assert str(caller) not in argv
 
 
+@pytest.mark.parametrize("form", ["separate-token", "equals"])
+def test_how_dt_004_relative_workdir_resolves_from_caller(tmp_path: Path, form: str) -> None:
+    """HOW-DT-004：relative workdir 在 uv 改 cwd 前依 caller 實體路徑解析。"""
+    caller = tmp_path / "caller repo"
+    target = caller / "relative dir"
+    target.mkdir(parents=True)
+    relative = "relative dir"
+    workdir_args = (
+        ["--workdir", relative] if form == "separate-token" else [f"--workdir={relative}"]
+    )
+    expected_workdir = str(target.resolve())
+    expected_args = (
+        ["--workdir", expected_workdir]
+        if form == "separate-token"
+        else [f"--workdir={expected_workdir}"]
+    )
+
+    result = subprocess.run(  # nosec B603
+        [
+            "bash",
+            str(WRAPPER),
+            "write",
+            "--topic",
+            "topic with spaces",
+            "--summary",
+            "summary with spaces",
+            *workdir_args,
+        ],
+        cwd=caller,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env=_make_env(tmp_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert _argv(result) == [
+        "run",
+        "--directory",
+        str(tmp_path / "skill repo"),
+        "python",
+        "-m",
+        "tasks.mycelium",
+        "handover",
+        "write",
+        "--topic",
+        "topic with spaces",
+        "--summary",
+        "summary with spaces",
+        *expected_args,
+    ]
+
+
+def test_how_dt_005_payload_token_named_workdir_is_not_an_option(tmp_path: Path) -> None:
+    """HOW-DT-005：option value 即使等於 --workdir，也仍須追加真正的 implicit option。"""
+    caller = tmp_path / "caller repo"
+    caller.mkdir()
+    result = subprocess.run(  # nosec B603
+        [
+            "bash",
+            str(WRAPPER),
+            "write",
+            "--topic",
+            "topic with spaces",
+            "--summary",
+            "--workdir",
+        ],
+        cwd=caller,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env=_make_env(tmp_path),
+    )
+
+    assert _argv(result) == [
+        "run",
+        "--directory",
+        str(tmp_path / "skill repo"),
+        "python",
+        "-m",
+        "tasks.mycelium",
+        "handover",
+        "write",
+        "--topic",
+        "topic with spaces",
+        "--summary",
+        "--workdir",
+        "--workdir",
+        str(caller),
+    ]
+
+
+def test_how_dt_006_implicit_workdir_precedes_end_of_options(tmp_path: Path) -> None:
+    """HOW-DT-006：trailing -- 保留在尾端，implicit workdir 必須插在 delimiter 前。"""
+    caller = tmp_path / "caller repo"
+    caller.mkdir()
+    result = subprocess.run(  # nosec B603
+        [
+            "bash",
+            str(WRAPPER),
+            "write",
+            "--topic",
+            "topic",
+            "--summary",
+            "summary",
+            "--",
+        ],
+        cwd=caller,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env=_make_env(tmp_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert _argv(result) == [
+        "run",
+        "--directory",
+        str(tmp_path / "skill repo"),
+        "python",
+        "-m",
+        "tasks.mycelium",
+        "handover",
+        "write",
+        "--topic",
+        "topic",
+        "--summary",
+        "summary",
+        "--workdir",
+        str(caller),
+        "--",
+    ]
+
+
 def test_how_st_001_public_install_makes_all_wrappers_reachable(tmp_path: Path) -> None:
     """HOW-ST-001：隔離 HOME 的 public make install 可執行三支 wrapper 的 dispatch。"""
     fixture = _make_install_fixture(tmp_path)
@@ -310,10 +447,38 @@ def test_how_st_002_installed_wrapper_executes_real_db_cli(tmp_path: Path) -> No
             check=True,
             env=_clean_git_env(),
         )
+    hostile = tmp_path / "hostile-repo"
+    hostile.mkdir()
+    hostile_commands = [
+        ["git", "init", "-q", str(hostile)],
+        ["git", "-C", str(hostile), "symbolic-ref", "HEAD", "refs/heads/hostile-branch"],
+        ["git", "-C", str(hostile), "config", "user.email", "hostile@example.com"],
+        ["git", "-C", str(hostile), "config", "user.name", "hostile"],
+    ]
+    (hostile / "README.md").write_text("hostile\n", encoding="utf-8")
+    hostile_commands.extend(
+        [
+            ["git", "-C", str(hostile), "add", "README.md"],
+            ["git", "-C", str(hostile), "commit", "-qm", "hostile"],
+        ]
+    )
+    for args in hostile_commands:
+        subprocess.run(  # nosec B603
+            args,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+            env=_clean_git_env(),
+        )
     env = {
         **_clean_git_env(),
         "HOME": str(home),
         "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}",
+        "GIT_DIR": str(hostile / ".git"),
+        "GIT_WORK_TREE": str(hostile),
+        "GIT_COMMON_DIR": str(hostile / ".git"),
+        "GIT_INDEX_FILE": str(hostile / ".git" / "index"),
     }
     written = subprocess.run(  # nosec B603
         [

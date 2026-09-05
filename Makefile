@@ -74,9 +74,9 @@ CLAUDE_CMD_DIR := $(HOME)/.claude/commands
 install-agent-wrappers: ## Install shared DB CLI wrappers into ~/.agents/bin
 	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" "make install-agent-wrappers"
 	@mkdir -p "$$HOME/.agents/bin"
-	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/lessons" "$$HOME/.agents/bin/lessons"
-	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/handover" "$$HOME/.agents/bin/handover"
-	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/scripts/resolve-skill-repo" "$$HOME/.agents/bin/resolve-skill-repo"
+	@"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/scripts/lessons" "$$HOME/.agents/bin/lessons"
+	@"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/scripts/handover" "$$HOME/.agents/bin/handover"
+	@"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/scripts/resolve-skill-repo" "$$HOME/.agents/bin/resolve-skill-repo"
 
 # guard 必須是 recipe 的第一行（字面上，不是「第一個可執行動作」）：後面的步驟會把
 # $(CURDIR) 寫進全域 symlink，失敗得太晚就已經污染 ~/.claude/skills/ 與 ~/.agents/。
@@ -101,7 +101,7 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 		fi; \
 		if [ "$$scope" != "global" ]; then continue; fi; \
 		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
-			$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$$name" "$$dir/$$name" || exit 1; \
+			"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/$(SKILL_DIR)/$$name" "$$dir/$$name" || exit 1; \
 		done \
 	done
 	@mkdir -p $(CLAUDE_CMD_DIR)
@@ -114,10 +114,10 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 	@# 兩份實作各自漂移的成本就是這個，統一由被測試覆蓋的那份承擔。
 	@for f in $(CMD_DIR)/*.md; do \
 		name=$$(basename $$f); \
-		$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$$f" "$(CLAUDE_CMD_DIR)/$$name" || exit 1; \
+		"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/$$f" "$(CLAUDE_CMD_DIR)/$$name" || exit 1; \
 	done
 	@if [ -d "$(CMD_DIR)/scripts" ]; then \
-		$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(CMD_DIR)/scripts" "$(CLAUDE_CMD_DIR)/scripts" || exit 1; \
+		"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/$(CMD_DIR)/scripts" "$(CLAUDE_CMD_DIR)/scripts" || exit 1; \
 	fi
 	@echo ""
 	@echo "  Registering skill_repos[$(SKILL_REPO_KEY)] in ~/.agents/config.json"
@@ -160,7 +160,7 @@ install-project: ## Install scope=project skills（本 repo 限定，ainization-
 		fi; \
 		if [ "$$scope" != "project" ]; then continue; fi; \
 		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
-			$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$$name" "$$dir/$$name" || exit 1; \
+			"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/$(SKILL_DIR)/$$name" "$$dir/$$name" || exit 1; \
 		done \
 	done
 
@@ -169,8 +169,8 @@ install-one: ## Install one skill: make install-one SKILL=<name>
 	@if [ -z "$(SKILL)" ]; then echo "[FAIL] SKILL 未指定，用法：make install-one SKILL=<name>"; exit 1; fi
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR)"; exit 1; }
-	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(CLAUDE_SKILL_DIR)/$(SKILL)"
-	@$(CURDIR)/scripts/safe_symlink.sh "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(INSTALL_DIR)/$(SKILL)"
+	@"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(CLAUDE_SKILL_DIR)/$(SKILL)"
+	@"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(INSTALL_DIR)/$(SKILL)"
 	@echo "[OK] $(SKILL) -> done"
 
 install-force-one: ## 強制安裝單一 skill，覆蓋 real directory（搶回被 gstack 蓋過的 skill）: make install-force-one SKILL=<name>
@@ -178,8 +178,8 @@ install-force-one: ## 強制安裝單一 skill，覆蓋 real directory（搶回�
 	@if [ -z "$(SKILL)" ]; then echo "[FAIL] SKILL 未指定，用法：make install-force-one SKILL=<name>"; exit 1; fi
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR)"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR)"; exit 1; }
-	@$(CURDIR)/scripts/safe_symlink.sh --force "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(CLAUDE_SKILL_DIR)/$(SKILL)"
-	@$(CURDIR)/scripts/safe_symlink.sh --force "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(INSTALL_DIR)/$(SKILL)"
+	@"$(CURDIR)/scripts/safe_symlink.sh" --force "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(CLAUDE_SKILL_DIR)/$(SKILL)"
+	@"$(CURDIR)/scripts/safe_symlink.sh" --force "$(CURDIR)/$(SKILL_DIR)/$(SKILL)" "$(INSTALL_DIR)/$(SKILL)"
 	@echo "[OK] $(SKILL) -> done (forced)"
 
 status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.agents/skills/ (agents)
