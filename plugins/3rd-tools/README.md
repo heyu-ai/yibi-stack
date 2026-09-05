@@ -24,10 +24,10 @@ claude plugin install 3rd-tools@yibi-stack
 
 | `verify-gemini-models` skill | 確認 Gemini 模型列表與 API 可用性 |
 
-> `agy-review` / `agy-consult` 的預設模型不是 Gemini，原因是台灣地區 Google API 的
-> pre-invocation context summarization 限制。**但不要據此推論 agy 在此環境拿不到 Gemini**——
-> `/pr-cycle-deep` 的 agy 階段寫死 `--model 'Gemini 3.1 Pro (Low)'` 並實測可用（PR #409）。
-> 界線未經探測；細節見 `skills/agy-consult/SKILL.md` 的「預設值的由來，以及它的限定範圍」。
+> `agy-review`、`agy-consult` 預設使用 `gemini-3.8-flash-high`；`/pr-cycle-deep`
+> 的所有 agy stages 固定使用同一模型（2026-09-03 以 agy 1.1.25 在台灣實測可用）。
+> `/pr-cycle-deep` 使用完整 display name `Gemini 3.8 Flash (High)`，避免 auto-select
+> 選到其他模型或 Claude 而破壞預期的模型與跨廠商 review 獨立性。
 
 ## Migration
 

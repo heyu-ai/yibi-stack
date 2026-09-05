@@ -4,7 +4,7 @@
 # 用法：
 #   bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh
 #
-# agy 自動選擇輕量模型做 extract，避免再消耗高推理配額。
+# 模型固定為 Gemini 3.8 Flash (High)，與 review/debate stages 使用同一模型。
 #
 # 副作用：
 #   - gemini-r1.json 寫到 $WT_ROOT/.pr-review/
@@ -79,6 +79,7 @@ if [ "$EXTRACT_BYTES" -gt 256000 ]; then
 fi
 EXTRACT_CONTENT=$(cat "$REVIEW_DIR/gemini-extract-input.md")
 if ! agy -p "$EXTRACT_CONTENT" \
+    --model 'Gemini 3.8 Flash (High)' \
     --add-dir "$WT_ROOT" \
     --sandbox \
     --print-timeout 10m \

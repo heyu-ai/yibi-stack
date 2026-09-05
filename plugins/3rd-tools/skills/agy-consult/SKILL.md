@@ -29,7 +29,7 @@ description: Antigravity CLI（agy）第二意見：讓 Gemini 讀 repo 後回�
 >
 > **這是版本相依的實測，不是永久事實**：agy 升版後若 Gemini 路徑再度失效，請重測後再改預設，
 > 並更新這裡的版本戳記（rule 13 probe-rot）。`agy models` 左欄是可接受的 id；`--model` 亦接受
-> 右欄的顯示名如 `Gemini 3.1 Pro (Low)`。
+> 右欄的顯示名如 `Gemini 3.8 Flash (High)`。
 
 和 `/agy-review` 的區別：`/agy-review` 吃 **diff**（branch 改動，PASS/FAIL gate）；
 `/agy-consult` 吃**任意問題**，不需要有待 review 的改動。
@@ -91,7 +91,7 @@ MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）
 > 關掉這兩個面。
 >
 > Script 內部把「filesystem boundary 提醒 + 檔案內容」以 inline 形式當 `-p` 的值傳入
-> （`agy -p "$PROMPT_CONTENT" --add-dir "$REPO_ROOT" --sandbox`），沿用 `/agy-review` 的 `run.sh` 已驗證過的
+> （`agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --sandbox`），沿用 `/agy-review` 的 `run.sh` 已驗證過的
 > 安全模式（issue #153 / PR #229 retro）：不用 `@file`（nested worktree 下解析失敗會讓 agy 靜默
 > 進入 agentic 模式）、不用 stdin pipe（`-p`/`--print` 不是 boolean，會把下一個 flag 當 prompt
 > 吃掉；agy 1.1.2 起沒有 stdin prompt 通道）。`--add-dir "$REPO_ROOT"` 提供周邊程式碼 context——

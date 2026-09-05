@@ -88,36 +88,6 @@ class TestInlinePromptContract:
         """AGYS-DT-003: --print-timeout is raised to 10m."""
         assert "--print-timeout 10m" in script.read_text(encoding="utf-8")
 
-    @pytest.mark.parametrize("script", [STAGE1, R2])
-    def test_agys_dt_008_review_model_pinned_to_gemini_pro(self, script: Path) -> None:
-        """AGYS-DT-008: the review stages pin --model to a Gemini Pro tier.
-
-        Two failure modes if the flag is dropped. (1) agy's auto-select resolves to
-        Gemini 3.5 Flash, silently downgrading review depth. (2) `agy models` also offers
-        Claude Sonnet/Opus -- an auto-selected Claude would put this voice in the same
-        family as the Claude lead, collapsing the cross-family premise the whole mob review
-        rests on, with no warning anywhere. Asserting the Gemini prefix (not the full string)
-        keeps a Low/High effort swap from failing the test while still catching a
-        cross-family drift.
-        """
-        src = script.read_text(encoding="utf-8")
-        assert "--model 'Gemini" in src, (
-            f"{script.name}: agy must pin --model to a Gemini tier "
-            "(auto-select can pick Claude and break cross-family review)"
-        )
-
-    def test_agys_dt_009_extract_stage_not_pinned(self) -> None:
-        """AGYS-DT-009: the extract stage does NOT pin a model.
-
-        Stage 2 turns stage 1's raw markdown into JSON -- no reasoning -- and the script's
-        own comment says agy auto-picks a lightweight model there to preserve
-        high-reasoning quota. Pinning Pro here would spend that quota on a mechanical
-        transform; this test makes the asymmetry explicit rather than incidental.
-        """
-        assert "--model" not in STAGE2.read_text(encoding="utf-8"), (
-            "extract stage must leave model auto-selection alone (lightweight by design)"
-        )
-
     @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
     def test_agys_dt_007_inline_size_guard_present(self, script: Path) -> None:
         """AGYS-DT-007: every inlining script guards the 256000-byte argv limit.
@@ -323,6 +293,14 @@ _RUNTIME_CASES: dict[str, tuple[Path, list[str]]] = {
     "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r2.sh": (R2, []),
     "scripts/probe-agy-sandbox.sh": (PROBE_SH, []),
 }
+_EXPECTED_SKILL_MODELS = {
+    "plugins/3rd-tools/skills/agy-consult/scripts/consult.sh": "gemini-3.8-flash-high",
+    "plugins/3rd-tools/skills/agy-review/scripts/run.sh": "gemini-3.8-flash-high",
+    "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh": "Gemini 3.8 Flash (High)",
+    "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh": "Gemini 3.8 Flash (High)",
+    "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r2.sh": "Gemini 3.8 Flash (High)",
+}
+_MODEL_PIN_EXEMPT_CALL_SITES = frozenset({"scripts/probe-agy-sandbox.sh"})
 
 
 _ARGV_RECORD_SEP = "\x01"
@@ -339,29 +317,24 @@ def _recorded_invocations(capture: Path) -> list[list[str]]:
     return [record.split("\0")[:-1] for record in raw.split(_ARGV_RECORD_SEP) if record]
 
 
-def _extract_add_dir(argv: list[str]) -> tuple[bool, str | None]:
-    """`(flag_present, value)` for `--add-dir` in one recorded argv.
-
-    The two failure states are reported separately because they need different fixes and
-    a single `None` conflated them: "the script never passed --add-dir" sends the reader
-    looking for a missing flag, which is wrong when the flag is present but trailing with
-    no value after it.
-    """
+def _extract_flag_values(argv: list[str], flag: str) -> list[str | None]:
+    """Return every value passed to ``flag``, preserving missing trailing values."""
+    values: list[str | None] = []
     for i, token in enumerate(argv):
-        if token == "--add-dir":
-            return True, (argv[i + 1] if i + 1 < len(argv) else None)
-        if token.startswith("--add-dir="):
-            return True, token.split("=", 1)[1]
-    return False, None
+        if token == flag:
+            values.append(argv[i + 1] if i + 1 < len(argv) else None)
+        elif token.startswith(f"{flag}="):
+            values.append(token.split("=", 1)[1])
+    return values
 
 
 @pytest.fixture
 def agy_runtime_env(tmp_path: Path) -> dict[str, object]:
     """A throwaway repo seeded for **every** agy script, with an argv-recording stub agy.
 
-    Deliberately one fixture for all five: the scripts differ only in which input files
+    Deliberately one fixture for all six: the scripts differ only in which input files
     they demand, and seeding all of them keeps the per-script recipe to "arguments plus
-    cwd" instead of five near-identical fixtures that drift apart.
+    cwd" instead of six near-identical fixtures that drift apart.
     """
     if shutil.which("git") is None or shutil.which("bash") is None:
         pytest.skip("git/bash not available")
@@ -423,21 +396,22 @@ def agy_runtime_env(tmp_path: Path) -> dict[str, object]:
         "AGY_FAKE_ARGV": str(argv_capture),
         "AGY_FAKE_OUTPUT": str(out_file),
     }
+    env.pop("AGY_MODEL", None)
     return {"repo": repo, "env": env, "argv_capture": argv_capture}
 
 
-class TestAddDirRuntimeContract:
-    """The authoritative `--add-dir` check: what bash actually passed to agy."""
+class TestAgyRuntimeContract:
+    """Authoritative checks for the arguments bash actually passes to agy."""
 
     @pytest.mark.parametrize("rel_path", sorted(_RUNTIME_CASES))
-    def test_agys_dt_012_add_dir_absolute_at_runtime(
+    def test_agys_dt_012_invocation_contract_at_runtime(
         self, rel_path: str, agy_runtime_env: dict[str, object]
     ) -> None:
-        """AGYS-DT-012: every script passes agy an absolute `--add-dir` when executed.
+        """AGYS-DT-012: every call uses an absolute workspace and expected skill model.
 
         The script's own exit code is deliberately NOT asserted: several stages run
-        `agy_validate.py` on the stub's canned output afterwards and may legitimately fail
-        there. What matters is the argv agy received, which is recorded before any of that.
+        `agy_validate.py` on the stub's canned output afterwards and may legitimately fail.
+        What matters is the argv agy received, recorded before any validation.
         """
         script, args = _RUNTIME_CASES[rel_path]
         argv_capture = Path(str(agy_runtime_env["argv_capture"]))
@@ -470,11 +444,9 @@ class TestAddDirRuntimeContract:
         )
         for n, argv in enumerate(content_invocations, start=1):
             where = f"{script.name} (agy invocation {n} of {len(content_invocations)})"
-            present, value = _extract_add_dir(argv)
-            assert present, (
-                f"{where} invoked agy without --add-dir. agy 1.1.22 then runs with NO file "
-                f"context and still exits 0. argv={argv!r}"
-            )
+            add_dirs = _extract_flag_values(argv, "--add-dir")
+            assert len(add_dirs) == 1, f"{where} must pass exactly one --add-dir; argv={argv!r}"
+            value = add_dirs[0]
             assert value is not None, (
                 f"{where} passed --add-dir as the final argument, with no value after it. "
                 f"argv={argv!r}"
@@ -484,13 +456,20 @@ class TestAddDirRuntimeContract:
                 "resolve a relative path into an active workspace: it silently loses all "
                 "file context and still exits 0."
             )
+            expected_model = _EXPECTED_SKILL_MODELS.get(rel_path)
+            if expected_model is not None:
+                models = _extract_flag_values(argv, "--model")
+                assert models == [expected_model], (
+                    f"{where} must pass exactly one --model {expected_model!r}; "
+                    f"actual values={models!r}; argv={argv!r}"
+                )
 
     def test_agys_dt_013_runtime_covers_every_call_site(self) -> None:
-        """AGYS-DT-013: every declared call site has a runtime case, and vice versa.
+        """AGYS-DT-013: every call site has runtime coverage and a model disposition.
 
-        Without this, adding a call site to `_EXPECTED_ADD_DIR_CALL_SITES` would satisfy
-        the inventory gate while leaving the new script with no absoluteness guarantee at
-        all — the static layer makes no such claim by design.
+        Adding a call site must add both an execution recipe and either an expected skill
+        model or an explicit non-skill exemption. This prevents a new skill-owned agy path
+        from silently escaping the Gemini 3.8 Flash contract.
         """
         untested = sorted(_EXPECTED_ADD_DIR_CALL_SITES - set(_RUNTIME_CASES))
         undeclared = sorted(set(_RUNTIME_CASES) - _EXPECTED_ADD_DIR_CALL_SITES)
@@ -498,6 +477,15 @@ class TestAddDirRuntimeContract:
             "every agy call site must have a runtime case: "
             f"declared but untested at runtime = {untested}; "
             f"runtime case for an undeclared site = {undeclared}"
+        )
+        model_dispositions = set(_EXPECTED_SKILL_MODELS) | _MODEL_PIN_EXEMPT_CALL_SITES
+        assert model_dispositions == _EXPECTED_ADD_DIR_CALL_SITES, (
+            "every agy call site must declare its expected model or explicit exemption: "
+            f"missing={sorted(_EXPECTED_ADD_DIR_CALL_SITES - model_dispositions)}; "
+            f"unknown={sorted(model_dispositions - _EXPECTED_ADD_DIR_CALL_SITES)}"
+        )
+        assert not set(_EXPECTED_SKILL_MODELS) & _MODEL_PIN_EXEMPT_CALL_SITES, (
+            "a call site cannot require a model and be exempt simultaneously"
         )
         # Matching key sets is not enough: a copy-pasted Path constant would leave one
         # script with no runtime check while both sets still agree, which is precisely the

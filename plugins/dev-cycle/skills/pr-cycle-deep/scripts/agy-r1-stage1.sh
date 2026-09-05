@@ -4,11 +4,10 @@
 # 用法（在 worktree 目錄執行）：
 #   bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh
 #
-# 模型以 --model 固定為 Gemini 3.1 Pro (Low)：agy 的自動選型實測會挑 Gemini 3.5 Flash，
-# 且可選清單含 Claude Sonnet/Opus——auto-select 挑到 Claude 會讓「跨家 review」退化成與主
-# session 同源，且不會有任何警告。3.1 Pro 是清單中唯一的 Pro 等級（無 3.5 Pro）。
-# 原先固定 (High)，但實測在本機一律故障；改 (Low) 可穩定產出 review，且仍為 Pro 等級，
-# 推理深度足夠、跨家前提不受影響。（AGYS-DT-008 只斷言 Gemini 前綴，High↔Low 互換不影響測試。）
+# 模型以 --model 固定為 Gemini 3.8 Flash (High)：agy 的自動選型可能挑到其他 Gemini
+# tier，且可選清單含 Claude Sonnet/Opus——auto-select 挑到 Claude 會讓「跨家 review」退化成
+# 與主 session 同源，且不會有任何警告。2026-09-03 以 agy 1.1.25 在台灣實測
+# gemini-3.8-flash-high 可穩定回應；High tier 保留 mob review 所需的推理深度。
 # 值必須用 `agy models` 的完整 display name；無效值會 fail-loud 並列出可用清單。
 #
 # 副作用：
@@ -115,7 +114,7 @@ $(cat "$REVIEW_DIR/gemini-r1-input.md")"
 # 注意：上述實測是在 --sandbox 下做的（--dangerously-skip-permissions 被 Claude Code 的 auto
 # mode classifier 擋下無法實跑）。鑑別變數是路徑解析、與權限旗標無關，故本檔同受影響為「依同
 # 一鑑別變數推論」，非本檔自身實測；日後有機會實跑請把結論回填到這裡。
-if ! agy -p "$INPUT_CONTENT" --model 'Gemini 3.1 Pro (Low)' --add-dir "$WT_ROOT" --dangerously-skip-permissions --print-timeout 10m \
+if ! agy -p "$INPUT_CONTENT" --model 'Gemini 3.8 Flash (High)' --add-dir "$WT_ROOT" --dangerously-skip-permissions --print-timeout 10m \
     > "$REVIEW_DIR/gemini-r1-raw.md" \
     2>"$REVIEW_DIR/gemini-r1.stage1.log"; then
     echo "[FAIL] agy review 失敗，請查看 $REVIEW_DIR/gemini-r1.stage1.log" >&2

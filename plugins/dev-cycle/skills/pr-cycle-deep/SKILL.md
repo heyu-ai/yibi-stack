@@ -390,8 +390,8 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh verify 
 Write all R1/R2 intermediate files to the review dir (`<worktree-root>/.pr-review/`, `$REVIEW_DIR`).
 The worktree-root namespace isolates concurrent sessions, overwrites old output on re-run, and keeps
 files off `/tmp/` (the sandbox rejects it). The agy scripts **inline** this content into
-`agy -p "$CONTENT"` rather than `@file` (issue #153: `@file` fails in nested worktrees and triggers
-agentic mode); `--add-dir "$WT_ROOT"` still lets agy look up surrounding code.
+`agy -p "$CONTENT" --model 'Gemini 3.8 Flash (High)'` rather than `@file` (issue #153:
+`@file` fails in nested worktrees and triggers agentic mode); `--add-dir "$WT_ROOT"` still lets agy look up surrounding code.
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
@@ -594,17 +594,16 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage1.sh
 ```
 
-The script pins `--model 'Gemini 3.1 Pro (Low)'`. Do not remove the flag: `agy`'s auto-select
-resolves to Gemini 3.5 Flash, and its model list also contains Claude Sonnet/Opus — an
-auto-selected Claude would silently collapse this voice into the same family as the Claude lead,
-defeating the cross-family premise with no warning. The tier was `(High)` originally, but it
-failed consistently on this machine; `(Low)` produces reviews reliably and is still a Gemini Pro
-tier, so the cross-family premise holds (AGYS-DT-008 asserts only the `Gemini` prefix, so the
-High↔Low swap does not affect the test). `agy models` lists the valid display names;
-an invalid value fails loud and prints the list. Raw output lands in `gemini-r1-raw.md` —
+The script pins `--model 'Gemini 3.8 Flash (High)'`. Do not remove the flag: `agy`'s
+auto-select can choose another Gemini tier, and its model list also contains Claude Sonnet/Opus —
+an auto-selected Claude would silently collapse this voice into the same family as the Claude lead,
+defeating the cross-family premise with no warning. `gemini-3.8-flash-high` was verified with
+agy 1.1.25 in Taiwan on 2026-09-03; the High tier preserves review reasoning depth while using the
+newer Flash generation. `agy models` lists the valid display names; an invalid value fails loud and
+prints the list. Raw output lands in `gemini-r1-raw.md` —
 **do not read it in the main context**.
 
-###### Stage 2: Extract (agy auto-selects lightweight model to extract JSON)
+###### Stage 2: Extract with Gemini 3.8 Flash (High)
 
 > **Execution note**: the script writes stderr to `$REVIEW_DIR/gemini-r1.extract.log`; stdout only
 > outputs "agy R1 Stage 2 complete". **Run directly — do not append `> $CLAUDE_JOB_DIR/foo.log 2>&1`**
@@ -615,7 +614,7 @@ an invalid value fails loud and prints the list. Raw output lands in `gemini-r1-
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh
 ```
 
-Note: `agy` automatically selects a lightweight model in the extract stage to avoid consuming more high-reasoning quota.
+The extract stage pins the same `Gemini 3.8 Flash (High)` model as review and debate, so every agy execution path in this skill uses the requested model rather than auto-selection.
 
 ###### Stage 3: Render (same as Codex voice: lead reads JSON → writes compact markdown)
 

@@ -107,7 +107,7 @@ git rev-parse --abbrev-ref HEAD 2>/dev/null
 
 ### Step 2 — 執行
 
-> **執行說明**：腳本把 prompt+diff 以 inline 形式當 `-p` 的值傳入（`agy -p "$PROMPT_CONTENT" --add-dir "$REPO_ROOT" --sandbox`），
+> **執行說明**：腳本把 prompt+diff 以 inline 形式當 `-p` 的值傳入（`agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --sandbox`），
 > 避免 nested worktree（`.claude/worktrees/<name>/`）下 `@file` 解析失敗讓 agy 靜默進入 agentic 模式（review 錯 target / timeout），
 > 並免去內容開頭 `@` 被誤判為檔案路徑、以及暫存檔殘留的風險。inline 會佔 ARG_MAX 參數預算，故腳本在呼叫前擋 256000 bytes 上限。
 > **不可改成 `{ ... } | agy --print`**：`-p`/`--print` 不是 boolean，會把下一個 token（`--add-dir`）當 prompt 吃掉、完全不讀 stdin，
@@ -151,8 +151,8 @@ challenge mode：找到問題時輸出 `[P0]`/`[P1]` 列表，找不到問題時
 | 問題 | 解法 |
 |------|------|
 | `agy: command not found` | `pip install antigravity-cli`，確認 `agy` 在 PATH |
-| agy 輸出 `call:read_file{...}` / agentic 旁白而非 review | nested worktree 下 `@file` 解析失敗的舊問題；腳本已改用 inline 餵入。若仍出現，確認 `run.sh` 的 agy 呼叫為 `agy -p "$PROMPT_CONTENT"` 而非 `-p "@.agy-review-tmp.md"` |
-| agy 回答「`--add-dir` 是什麼」之類與 diff 無關的內容，且 exit 0 | `-p`/`--print` 把下一個 flag 當 prompt 吃掉了。確認 `run.sh` 是 `agy -p "$PROMPT_CONTENT" --add-dir "$REPO_ROOT"`，不是 `{ ... } \| agy --print --add-dir ...`（後者無 stdin 通道，靜默失敗） |
+| agy 輸出 `call:read_file{...}` / agentic 旁白而非 review | nested worktree 下 `@file` 解析失敗的舊問題；腳本已改用 inline 餵入。若仍出現，確認 `run.sh` 的 agy 呼叫為 `agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL"` 而非 `-p "@.agy-review-tmp.md"` |
+| agy 回答「`--add-dir` 是什麼」之類與 diff 無關的內容，且 exit 0 | `-p`/`--print` 把下一個 flag 當 prompt 吃掉了。確認 `run.sh` 是 `agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir "$REPO_ROOT"`，不是 `{ ... } \| agy --print --add-dir ...`（後者無 stdin 通道，靜默失敗） |
 | agy 回「沒有作用中的 workspace」／review 內容明顯沒讀過周邊程式碼，且 exit 0 | `--add-dir` 被傳了相對路徑。**agy 1.1.22 不再把相對的 `.` 解析成 active workspace**，即使已 cd 到該目錄、即使該目錄在 `trustedWorkspaces` 內。修法：傳絕對路徑。這是本檔最危險的靜默失敗形態（review 看起來正常但沒看過 code），測試 `AGYS-DT-010/011` 鎖住此不變量 |
 | 以為是 `trustedWorkspaces` 沒列到這個 repo | **不是。** 負向對照實測（agy 1.1.22）：已列入的 repo 用相對 `.` 照樣失敗、未列入的 repo 用絕對路徑照樣成功。不要為此放寬 trust 清單 |
 | Auth 失敗，`onboardingComplete` 為 false | 執行 `agy auth` 完成 OAuth 流程 |
