@@ -8,6 +8,8 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 - (message.id, requestId) 去重不可移除：FUG-DT-003
 - Claude Fable 特價／標準價、context suffix、視窗與全 pricing formula：FUG-DT-004..008
 - 未定價 model、未知 qualifier、缺欄位與非 object usage 不得靜默通過：FUG-EG-001..004
+- 不一致 signature 的重複 request 排除且回報 incomplete：FUG-EG-005
+- 高用量超標 + 未定價 model 並存時超標判定不得被 incomplete 壓過：FUG-EG-006
 - CLI 輸出可供 skill 決定廣播，設定缺失／時間戳無效會 fail loud：FUG-ST-001..002 / FUG-VL-001
 """
 
@@ -401,3 +403,133 @@ class TestSkillContract:
         assert exit_code == fleet_usage_guard.EXIT_CONFIG_ERROR
         assert payload["status"] == "config_error"
         assert "config not found" in payload["error"]
+
+
+class TestEdgeCaseDedup:
+    def test_fug_eg_005_inconsistent_signatures_excluded_and_flagged(self, tmp_path: Path) -> None:
+        """FUG-EG-005: 同 (message.id, requestId) 但 token 不同時排除並回報 incomplete。"""
+        projects = tmp_path / "projects"
+        transcript = projects / "project" / "session.jsonl"
+        transcript.parent.mkdir(parents=True)
+        row_a = json.dumps(
+            {
+                "type": "assistant",
+                "timestamp": "2026-09-03T06:30:00Z",
+                "requestId": "req_dup",
+                "message": {
+                    "id": "msg_dup",
+                    "model": "claude-opus-5",
+                    "role": "assistant",
+                    "content": [],
+                    "usage": {
+                        "input_tokens": 1000,
+                        "output_tokens": 500,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                        "cache_creation": {
+                            "ephemeral_5m_input_tokens": 0,
+                            "ephemeral_1h_input_tokens": 0,
+                        },
+                    },
+                },
+            }
+        )
+        row_b = json.dumps(
+            {
+                "type": "assistant",
+                "timestamp": "2026-09-03T06:31:00Z",
+                "requestId": "req_dup",
+                "message": {
+                    "id": "msg_dup",
+                    "model": "claude-opus-5",
+                    "role": "assistant",
+                    "content": [],
+                    "usage": {
+                        "input_tokens": 2000,
+                        "output_tokens": 500,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                        "cache_creation": {
+                            "ephemeral_5m_input_tokens": 0,
+                            "ephemeral_1h_input_tokens": 0,
+                        },
+                    },
+                },
+            }
+        )
+        transcript.write_text(row_a + "\n" + row_b + "\n", encoding="utf-8")
+
+        result = fleet_usage_guard.evaluate_burn_rate(
+            projects,
+            now=_at(7),
+            window_minutes=60,
+            threshold_usd_per_hour=Decimal("50"),
+        )
+
+        assert result.inconsistent_requests == 1
+        assert result.status == "measurement_incomplete"
+        assert result.estimated_cost_usd == Decimal(0)
+
+    def test_fug_eg_006_breach_wins_over_incomplete_measurement(self, tmp_path: Path) -> None:
+        """FUG-EG-006: 高用量超標同時有未定價 model 時，超標判定優先。"""
+        projects = tmp_path / "projects"
+        transcript = projects / "project" / "session.jsonl"
+        transcript.parent.mkdir(parents=True)
+        high_cost_row = json.dumps(
+            {
+                "type": "assistant",
+                "timestamp": "2026-09-03T06:30:00Z",
+                "requestId": "req_expensive",
+                "message": {
+                    "id": "msg_expensive",
+                    "model": "claude-opus-5",
+                    "role": "assistant",
+                    "content": [],
+                    "usage": {
+                        "input_tokens": 10_000_000,
+                        "output_tokens": 5_000_000,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                        "cache_creation": {
+                            "ephemeral_5m_input_tokens": 0,
+                            "ephemeral_1h_input_tokens": 0,
+                        },
+                    },
+                },
+            }
+        )
+        unpriced_row = json.dumps(
+            {
+                "type": "assistant",
+                "timestamp": "2026-09-03T06:31:00Z",
+                "requestId": "req_unknown",
+                "message": {
+                    "id": "msg_unknown",
+                    "model": "claude-mystery-99",
+                    "role": "assistant",
+                    "content": [],
+                    "usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 50,
+                        "cache_read_input_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                        "cache_creation": {
+                            "ephemeral_5m_input_tokens": 0,
+                            "ephemeral_1h_input_tokens": 0,
+                        },
+                    },
+                },
+            }
+        )
+        transcript.write_text(high_cost_row + "\n" + unpriced_row + "\n", encoding="utf-8")
+
+        result = fleet_usage_guard.evaluate_burn_rate(
+            projects,
+            now=_at(7),
+            window_minutes=60,
+            threshold_usd_per_hour=Decimal("50"),
+        )
+
+        assert result.status == "burn_rate_exceeded"
+        assert result.unpriced_models == ("claude-mystery-99",)
+        assert result.estimated_usd_per_hour > Decimal("50")

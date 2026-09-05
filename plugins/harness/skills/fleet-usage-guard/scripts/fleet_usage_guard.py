@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections.abc import Sequence
@@ -23,7 +24,7 @@ _DEFAULT_CONFIG = Path.home() / ".claude" / "fleet-usage-guard.json"
 _DEFAULT_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 _MILLION = Decimal(1_000_000)
 _MONEY_QUANTUM = Decimal("0.01")
-_MODEL_SUFFIX_RE = re.compile(r"\[1m\]$")
+_MODEL_SUFFIX_RE = re.compile(r"\[\w+\]$")
 
 
 @dataclass(frozen=True)
@@ -225,70 +226,74 @@ def evaluate_burn_rate(
     now = now.astimezone(UTC)
     window_start = now - timedelta(minutes=window_minutes)
     grouped: dict[tuple[str, str], tuple[UsageSample, int, bool]] = {}
-    invalid_timestamps = 0
+    skipped_rows_count = 0
     invalid_recent_rows = 0
     scan_errors: list[str] = []
 
-    for transcript in projects_dir.rglob("*.jsonl"):
-        try:
-            transcript_mtime = datetime.fromtimestamp(transcript.stat().st_mtime, UTC)
-        except OSError as exc:
-            scan_errors.append(f"{transcript}: {exc}")
-            continue
-        may_contain_recent_usage = transcript_mtime >= window_start
-        try:
-            stream = transcript.open("r", encoding="utf-8", errors="replace")
-        except OSError as exc:
-            scan_errors.append(f"{transcript}: {exc}")
-            continue
-        with stream:
-            for raw in stream:
-                try:
-                    record = json.loads(raw)
-                except json.JSONDecodeError:
-                    invalid_timestamps += 1
-                    if may_contain_recent_usage:
-                        invalid_recent_rows += 1
-                    continue
-                if not _is_usage_record(record):
-                    continue
-                try:
-                    timestamp = _parse_timestamp(record.get("timestamp"))
-                except (TypeError, ValueError):
-                    invalid_timestamps += 1
-                    if may_contain_recent_usage:
-                        invalid_recent_rows += 1
-                    continue
+    for root, _dirs, files in os.walk(projects_dir, followlinks=True):
+        for fname in files:
+            if not fname.endswith(".jsonl"):
+                continue
+            transcript = Path(root) / fname
+            try:
+                transcript_mtime = datetime.fromtimestamp(transcript.stat().st_mtime, UTC)
+            except OSError as exc:
+                scan_errors.append(f"{transcript}: {exc}")
+                continue
+            may_contain_recent_usage = transcript_mtime >= window_start
+            try:
+                stream = transcript.open("r", encoding="utf-8", errors="replace")
+            except OSError as exc:
+                scan_errors.append(f"{transcript}: {exc}")
+                continue
+            with stream:
+                for raw in stream:
+                    try:
+                        record = json.loads(raw)
+                    except json.JSONDecodeError:
+                        skipped_rows_count += 1
+                        if may_contain_recent_usage:
+                            invalid_recent_rows += 1
+                        continue
+                    if not _is_usage_record(record):
+                        continue
+                    try:
+                        timestamp = _parse_timestamp(record.get("timestamp"))
+                    except (TypeError, ValueError):
+                        skipped_rows_count += 1
+                        if may_contain_recent_usage:
+                            invalid_recent_rows += 1
+                        continue
 
-                message = record["message"]
-                message_id = message.get("id")
-                request_id = record.get("requestId")
-                if (
-                    not isinstance(message_id, str)
-                    or not message_id
-                    or not isinstance(request_id, str)
-                    or not request_id
-                ):
-                    if window_start <= timestamp <= now:
-                        invalid_recent_rows += 1
-                    continue
-                try:
-                    sample = _usage_sample(record, timestamp)
-                except (KeyError, TypeError, ValueError):
-                    if window_start <= timestamp <= now:
-                        invalid_recent_rows += 1
-                    continue
+                    message = record["message"]
+                    message_id = message.get("id")
+                    request_id = record.get("requestId")
+                    if (
+                        not isinstance(message_id, str)
+                        or not message_id
+                        or not isinstance(request_id, str)
+                        or not request_id
+                    ):
+                        if window_start <= timestamp <= now:
+                            invalid_recent_rows += 1
+                        continue
+                    try:
+                        sample = _usage_sample(record, timestamp)
+                    except (KeyError, TypeError, ValueError):
+                        if window_start <= timestamp <= now:
+                            invalid_recent_rows += 1
+                        continue
 
-                key = (message_id, request_id)
-                current = grouped.get(key)
-                if current is None:
-                    grouped[key] = (sample, 1, False)
-                    continue
-                earliest, row_count, inconsistent = current
-                inconsistent = inconsistent or earliest.signature != sample.signature
-                if sample.timestamp < earliest.timestamp:
-                    earliest = sample
-                grouped[key] = (earliest, row_count + 1, inconsistent)
+                    key = (message_id, request_id)
+                    current = grouped.get(key)
+                    if current is None:
+                        grouped[key] = (sample, 1, False)
+                        continue
+                    earliest, row_count, inconsistent = current
+                    inconsistent = inconsistent or earliest.signature != sample.signature
+                    if sample.timestamp < earliest.timestamp:
+                        earliest = sample
+                    grouped[key] = (earliest, row_count + 1, inconsistent)
 
     cost = Decimal(0)
     rows_with_usage = 0
@@ -332,7 +337,7 @@ def evaluate_burn_rate(
         rows_with_usage=rows_with_usage,
         unique_requests=unique_requests,
         duplicate_rows=duplicate_rows,
-        skipped_rows=invalid_timestamps,
+        skipped_rows=skipped_rows_count,
         unpriced_models=tuple(sorted(unpriced_models)),
         invalid_recent_rows=invalid_recent_rows,
         inconsistent_requests=inconsistent_requests,
