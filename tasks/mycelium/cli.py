@@ -275,30 +275,33 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
     workdir: str | None,
 ) -> None:
     """寫入一筆 handover。"""
-    from .handover_service import write_handover
+    from .handover_service import HandoverBackupError, write_handover
 
-    record = write_handover(
-        session_type=SessionType(session_type),
-        topic=topic,
-        summary=summary,
-        operator=operator,
-        completed=_parse_json_list(completed, "--completed"),
-        decisions=_parse_json_list(decisions, "--decisions"),
-        blocked=_parse_json_list(blocked, "--blocked"),
-        next_priorities=_parse_json_list(next_priorities, "--next"),
-        lessons_learned=_parse_json_list(lessons, "--lessons"),
-        attempted_approaches=_parse_json_list(approaches, "--approaches"),
-        tags=_parse_json_list(tags, "--tags"),
-        last_files=_parse_json_list(files, "--files"),
-        test_status=test_status,
-        token_usage_estimate=tokens,
-        device=device,
-        agent_type=agent,
-        account=account_opt,
-        branch=branch,
-        project=project,
-        working_dir=workdir,
-    )
+    try:
+        record = write_handover(
+            session_type=SessionType(session_type),
+            topic=topic,
+            summary=summary,
+            operator=operator,
+            completed=_parse_json_list(completed, "--completed"),
+            decisions=_parse_json_list(decisions, "--decisions"),
+            blocked=_parse_json_list(blocked, "--blocked"),
+            next_priorities=_parse_json_list(next_priorities, "--next"),
+            lessons_learned=_parse_json_list(lessons, "--lessons"),
+            attempted_approaches=_parse_json_list(approaches, "--approaches"),
+            tags=_parse_json_list(tags, "--tags"),
+            last_files=_parse_json_list(files, "--files"),
+            test_status=test_status,
+            token_usage_estimate=tokens,
+            device=device,
+            agent_type=agent,
+            account=account_opt,
+            branch=branch,
+            project=project,
+            working_dir=workdir,
+        )
+    except HandoverBackupError as e:
+        raise click.ClickException(str(e)) from None
 
     click.echo(f"✓ handover 已寫入：{record.id}")
     click.echo(f"  topic   = {record.topic}")

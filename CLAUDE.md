@@ -200,8 +200,9 @@ make install-all         # 等同 build-tools + install + install-project + inst
   dies. Neither the resolver's identity gate nor the Makefile's `resolved == $(CURDIR)` gate
   can catch this (a worktree is a complete checkout, and inside one those two paths are equal
   by definition). `scripts/assert_not_worktree.sh` now blocks it as the first line of every
-  target that writes global state: `install` / `install-project` / `install-one` /
-  `install-force-one` / `promote` / `install-scheduler` / `install-handover-hooks`. See rule 11
+  target that writes global state: `install` / `install-agent-wrappers` / `install-project` /
+  `install-one` / `install-force-one` / `promote` / `install-scheduler` /
+  `install-handover-hooks`. See rule 11
   for why it fails loud instead of auto-deriving the main repo, why its fail-open forgives only
   git's literal `not a git repository` **and only when `.git` is absent**, and why it normalizes
   with `pwd -P` rather than `--path-format=absolute`.

@@ -10,14 +10,35 @@ import json
 import re
 import sqlite3
 import uuid
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .account import detect_account, detect_agent_type, detect_branch, detect_device, detect_project
-from .config import HANDOVER_DB_PATH, HANDOVER_JSONL_PATH, from_portable_path, to_portable_path
+from .account import (
+    detect_account,
+    detect_agent_type,
+    detect_branch,
+    detect_device,
+    detect_project,
+)
+from .config import (
+    HANDOVER_DB_PATH,
+    HANDOVER_JSONL_PATH,
+    from_portable_path,
+    to_portable_path,
+)
 from .db import AgentsDB
 from .models import HandoverRecord, SessionType
+
+
+class HandoverBackupError(RuntimeError):
+    """Canonical DB commit succeeded, but its JSONL backup could not be written."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.event_error: Exception | None = None
+        self.event_warnings: list[warnings.WarningMessage] = []
 
 
 def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
@@ -52,7 +73,7 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
     if not summary.strip():
         raise ValueError("summary 不可為空")
 
-    # 統一計算有效工作目錄，確保 working_dir 與 project 來自同一路徑
+    # 統一有效工作目錄，確保 working_dir、project、branch 來自同一 caller context。
     effective_dir = Path(working_dir).resolve() if working_dir else Path.cwd().resolve()
 
     record = HandoverRecord(
@@ -73,7 +94,7 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
         agent_type=agent_type or detect_agent_type(),
         subscription_account=account
         or detect_account(agent_type=agent_type or "claude", warn=False),
-        branch=branch if branch is not None else detect_branch(),
+        branch=branch if branch is not None else detect_branch(effective_dir),
         working_dir=to_portable_path(str(effective_dir)),
         last_files=[to_portable_path(f) for f in (last_files or [])],
         test_status=test_status,
@@ -92,30 +113,50 @@ def write_handover(  # pylint: disable=too-many-arguments,too-many-locals
     finally:
         db.close()
 
-    _append_jsonl(record, jsonl_path or HANDOVER_JSONL_PATH)
-    _emit_handover_written_event(record, db_path=db_path)
+    event_error, event_warnings = _emit_handover_written_event(record, db_path=db_path)
+    try:
+        _append_jsonl(record, jsonl_path or HANDOVER_JSONL_PATH)
+    except HandoverBackupError as e:
+        e.event_error = event_error
+        e.event_warnings = event_warnings
+        raise
+    if event_error is not None:
+        warnings.warn(f"handover_written 事件寫入失敗：{event_error}", stacklevel=2)
+    for w in event_warnings:
+        warnings.warn_explicit(
+            message=w.message,
+            category=w.category,
+            filename=w.filename,
+            lineno=w.lineno,
+            source=w.source,
+        )
     return record
 
 
-def _emit_handover_written_event(record: HandoverRecord, *, db_path: Path | None) -> None:
-    """寫入 handover_written 事件，供成功率量測使用。永不 raise。"""
-    import warnings
+def _emit_handover_written_event(
+    record: HandoverRecord, *, db_path: Path | None
+) -> tuple[Exception | None, list[warnings.WarningMessage]]:
+    """嘗試寫入 handover_written 事件；捕捉異常與 warnings 供 caller 決定何時揭露。"""
 
     from .metrics_service import _try_resolve_session_id, log_event
     from .models import EventType, SourceLayer
 
-    try:
-        log_event(
-            EventType.handover_written,
-            session_id=_try_resolve_session_id(),
-            source_layer=SourceLayer.cli,
-            handover_id=record.id,
-            project=record.project,
-            device=record.device,
-            db_path=db_path,
-        )
-    except Exception as e:  # noqa: BLE001  shadow logging 不影響主流程
-        warnings.warn(f"handover_written 事件寫入失敗：{e}", stacklevel=2)
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        err: Exception | None = None
+        try:
+            log_event(
+                EventType.handover_written,
+                session_id=_try_resolve_session_id(),
+                source_layer=SourceLayer.cli,
+                handover_id=record.id,
+                project=record.project,
+                device=record.device,
+                db_path=db_path,
+            )
+        except Exception as e:  # noqa: BLE001  shadow logging 不影響主流程
+            err = e
+        return err, list(captured)
 
 
 def read_recent(
@@ -182,10 +223,9 @@ def _expand_paths(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _append_jsonl(record: HandoverRecord, path: Path) -> None:
-    """把 record 以單行 JSON 寫入 JSONL 檔案尾端。
+    """把 record 以單行 JSON 寫入 JSONL 備份尾端。
 
-    JSONL 為 DB 的備份副本。若寫入失敗（如磁碟空間不足），僅記錄警告，
-    不影響主要 DB 寫入（DB 已在呼叫端完成，資料不遺失）。
+    DB 已由呼叫端提交；備份失敗仍須 raise，並在訊息中明示 DB 資料已保存。
     """
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,9 +233,7 @@ def _append_jsonl(record: HandoverRecord, path: Path) -> None:
         with path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError as e:
-        import warnings
-
-        warnings.warn(f"JSONL 備份寫入失敗（DB 資料已保存）：{e}", stacklevel=2)
+        raise HandoverBackupError("DB 資料已保存，但 JSONL 備份寫入失敗") from e
 
 
 def _now_iso() -> str:

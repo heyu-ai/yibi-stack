@@ -926,6 +926,7 @@ class TestMakefileWiring:
     # 不能只靠 install-all 串接 install 來擋——make -j 會平行跑 prerequisites。
     GUARDED_TARGETS = [
         "install",
+        "install-agent-wrappers",
         "install-project",
         "install-one",
         "install-force-one",
@@ -996,6 +997,20 @@ class TestMakefileWiring:
         assert '"$(CURDIR)/scripts/assert_not_worktree.sh"' in guard_line, (
             f"{target} 的 guard 路徑未加引號：{guard_line}"
         )
+
+    def test_anw_dt_017_every_safe_symlink_executable_path_is_quoted(self) -> None:
+        """ANW-DT-017: 所有 helper 呼叫皆須支援含空格的 checkout path。"""
+        makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        calls = [
+            line.strip()
+            for line in makefile.splitlines()
+            if "/scripts/safe_symlink.sh" in line and "@#" not in line
+        ]
+        assert calls
+        for line in calls:
+            assert '"$(CURDIR)/scripts/safe_symlink.sh"' in line, (
+                f"safe_symlink.sh executable path 未加引號：{line}"
+            )
 
     def test_anw_dt_009_install_all_prereqs_are_each_guarded(self) -> None:
         """ANW-DT-009: install-all 的每個會寫全域狀態的 prerequisite 都要自己有 guard。

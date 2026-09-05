@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Wrapper: self-locate yibi-stack and forward to the DB-backed mycelium handover CLI.
+set -euo pipefail
+
+CALLER_CWD=$(pwd -P)
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+
+if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+
+args=("$@")
+if [ "${args[0]:-}" = "write" ]; then
+  has_workdir=0
+  delimiter_index=-1
+  incomplete_option=0
+  i=1
+  while [ "$i" -lt "${#args[@]}" ]; do
+    token="${args[$i]}"
+    case "$token" in
+      --)
+        delimiter_index=$i
+        break
+        ;;
+      --workdir)
+        has_workdir=1
+        if [ $((i + 1)) -ge "${#args[@]}" ]; then
+          incomplete_option=1
+          break
+        fi
+        value="${args[$((i + 1))]}"
+        case "$value" in
+          /*) ;;
+          *) args[$((i + 1))]="$CALLER_CWD/$value" ;;
+        esac
+        i=$((i + 2))
+        ;;
+      --workdir=*)
+        has_workdir=1
+        value="${token#--workdir=}"
+        case "$value" in
+          /*) ;;
+          *) args[$i]="--workdir=$CALLER_CWD/$value" ;;
+        esac
+        i=$((i + 1))
+        ;;
+      --session-type|-t|--topic|--summary|--operator|--completed|--decisions|--blocked|--next|--lessons|--approaches|--tags|--files|--test-status|--tokens|--device|--agent|--account|--branch|--project)
+        if [ $((i + 1)) -ge "${#args[@]}" ]; then
+          incomplete_option=1
+          break
+        fi
+        i=$((i + 2))
+        ;;
+      *)
+        i=$((i + 1))
+        ;;
+    esac
+  done
+
+  if [ "$has_workdir" -eq 0 ] && [ "$incomplete_option" -eq 0 ]; then
+    if [ "$delimiter_index" -ge 0 ]; then
+      args=(
+        "${args[@]:0:delimiter_index}"
+        --workdir "$CALLER_CWD"
+        "${args[@]:delimiter_index}"
+      )
+    else
+      args+=(--workdir "$CALLER_CWD")
+    fi
+  fi
+fi
+
+exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium handover "${args[@]}"

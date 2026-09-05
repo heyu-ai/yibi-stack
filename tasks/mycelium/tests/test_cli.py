@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import os
 import subprocess  # nosec B404
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -47,6 +49,92 @@ def _make_worktree(tmp_path: Path) -> Path:
     listed = _run(["git", "-C", str(repo), "worktree", "list", "--porcelain"]).stdout
     assert f"worktree {wt.resolve()}" in listed, f"fixture 未建出 linked worktree：{listed}"
     return wt
+
+
+class TestHandoverWriteCli:
+    def test_hwc_eg_001_mirror_failure_is_sanitized_and_db_remains_committed(
+        self, tmp_path: Path
+    ) -> None:
+        """HWC-EG-001：CLI 只印穩定錯誤，且失敗後 DB row 仍可讀。"""
+        from tasks.mycelium.handover_service import read_recent
+
+        db_path = tmp_path / "handover.db"
+        mirror_path = tmp_path / "private mirror path"
+        mirror_path.mkdir()
+        with (
+            patch("tasks.mycelium.handover_service.HANDOVER_DB_PATH", db_path),
+            patch("tasks.mycelium.handover_service.HANDOVER_JSONL_PATH", mirror_path),
+            patch(
+                "tasks.mycelium.handover_service._emit_handover_written_event",
+                return_value=(None, []),
+            ),
+        ):
+            result = CliRunner().invoke(
+                cli,
+                [
+                    "handover",
+                    "write",
+                    "--session-type",
+                    "debug",
+                    "--topic",
+                    "mirror failure",
+                    "--summary",
+                    "database survives",
+                ],
+            )
+
+        assert result.exit_code == 1
+        assert result.output == "Error: DB 資料已保存，但 JSONL 備份寫入失敗\n"
+        assert "private mirror path" not in result.output
+        assert "Errno" not in result.output
+        assert "Traceback" not in result.output
+        rows = read_recent(last=1, db_path=db_path)
+        assert [row["topic"] for row in rows] == ["mirror failure"]
+
+    def test_hwc_eg_002_event_and_mirror_failures_emit_one_sanitized_error(
+        self, tmp_path: Path
+    ) -> None:
+        """HWC-EG-002：event 診斷保留於內部，但不得污染 mirror failure 公開輸出。"""
+        from tasks.mycelium.handover_service import read_recent
+
+        db_path = tmp_path / "handover.db"
+        mirror_path = tmp_path / "private mirror path"
+        event_path = tmp_path / "private event path"
+        mirror_path.mkdir()
+        event_path.mkdir()
+        with (
+            patch("tasks.mycelium.handover_service.HANDOVER_DB_PATH", db_path),
+            patch("tasks.mycelium.handover_service.HANDOVER_JSONL_PATH", mirror_path),
+            patch(
+                "tasks.mycelium.metrics_service.HANDOVER_EVENTS_JSONL_PATH",
+                event_path,
+            ),
+            warnings.catch_warnings(record=True) as caught,
+        ):
+            warnings.simplefilter("always")
+            result = CliRunner().invoke(
+                cli,
+                [
+                    "handover",
+                    "write",
+                    "--session-type",
+                    "debug",
+                    "--topic",
+                    "combined failure",
+                    "--summary",
+                    "database survives both failures",
+                ],
+            )
+
+        assert result.exit_code == 1
+        assert result.output == "Error: DB 資料已保存，但 JSONL 備份寫入失敗\n"
+        assert str(mirror_path) not in result.output
+        assert str(event_path) not in result.output
+        assert "Errno" not in result.output
+        assert "Traceback" not in result.output
+        assert caught == []
+        rows = read_recent(last=1, db_path=db_path)
+        assert [row["topic"] for row in rows] == ["combined failure"]
 
 
 class TestLinkClaude:
