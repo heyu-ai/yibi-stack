@@ -84,7 +84,27 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #     question from local working-tree state).
 # The first draft was +46; the allow-list entry was folded into 3.1's existing block and the
 # rationale prose cut to one blockquote, since the script header carries the long form.
-LINE_BUDGET = 1294
+#
+# Raised 1294 -> 1307 (+14 lines added; old budget had 1 line of slack over 1293 actual)
+# for two lessons from yibi-firmware PR #44 (issue #437):
+#
+#   (1) +6 lines, Contract mapping validation: a blockquote in the Contract mapping gate
+#       requiring the lead to verify each mapping reference exists (AC-ID in the Contract,
+#       repo baseline path in the repo) before promoting to the blocking set. Without this,
+#       a voice can write a fabricated AC-ID or cite a nonexistent rule file and the finding
+#       enters the blocking set unchecked — caught only if another voice happens to DISAGREE.
+#
+#   (2) +8 lines, Evidence hallucination tell: a new tier row in the Evidence gate table plus a
+#       blockquote describing the hallucination tell pattern — evidence that describes what the
+#       result *should* look like rather than what it *does*. The structure check passes
+#       fabricated evidence in valid form; the Verify tier catches it for Critical (lead must
+#       reproduce), but Important findings slip through on Spot-check. The tell gives the lead
+#       a screening heuristic before spot-checking.
+#
+#   Both are Tier 2 (incident-cited): yibi-firmware PR #44 mob review, where a Claude NIT had
+#   no contract mapping and agy fabricated a Critical + evidence about a nonexistent heading
+#   rename. The first was caught by Codex DISAGREE in R2; the second was refuted by grep.
+LINE_BUDGET = 1307
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the
@@ -114,6 +134,10 @@ REQUIRED_ANCHORS: list[str] = [
     "### Follow-ups",  # contract: explicit non-blocking deferrals
     "frozen Review Contract",  # confirmed snapshot used by one review pass
     "Contract mapping:",  # finding -> AC / repo baseline / unaccepted risk
+    "Contract mapping validation",  # lead MUST verify mapping references exist
+    "lead MUST verify the reference exists",  # semantic: mandatory
+    "Evidence hallucination tell",  # screen for fabricated evidence in valid form
+    "describes what",  # semantic: hallucination-tell demotion
     "Accepted by:",  # a review voice cannot accept risk for a human
     "blocking set is the sole LGTM gate",  # raw voice verdict has no veto
     "R2 skipped: no contract-blocking candidate or dispute",  # clean R1 exit
