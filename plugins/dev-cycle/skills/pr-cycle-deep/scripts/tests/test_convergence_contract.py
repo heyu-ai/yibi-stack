@@ -85,7 +85,8 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 # The first draft was +46; the allow-list entry was folded into 3.1's existing block and the
 # rationale prose cut to one blockquote, since the script header carries the long form.
 #
-# Raised 1294 -> 1307 (+13) for two lessons from yibi-firmware PR #44 (issue #437):
+# Raised 1294 -> 1307 (+14 lines added; old budget had 1 line of slack over 1293 actual)
+# for two lessons from yibi-firmware PR #44 (issue #437):
 #
 #   (1) +6 lines, Contract mapping validation: a blockquote in the Contract mapping gate
 #       requiring the lead to verify each mapping reference exists (AC-ID in the Contract,
@@ -134,7 +135,9 @@ REQUIRED_ANCHORS: list[str] = [
     "frozen Review Contract",  # confirmed snapshot used by one review pass
     "Contract mapping:",  # finding -> AC / repo baseline / unaccepted risk
     "Contract mapping validation",  # lead MUST verify mapping references exist
+    "lead MUST verify the reference exists",  # semantic: mandatory
     "Evidence hallucination tell",  # screen for fabricated evidence in valid form
+    "describes what",  # semantic: hallucination-tell demotion
     "Accepted by:",  # a review voice cannot accept risk for a human
     "blocking set is the sole LGTM gate",  # raw voice verdict has no veto
     "R2 skipped: no contract-blocking candidate or dispute",  # clean R1 exit
