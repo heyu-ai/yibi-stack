@@ -795,7 +795,7 @@ any fixing, and is **tiered by cost** so most rejections execute nothing:
 | Tier | Applies to | Action |
 | --- | --- | --- |
 | Structure check | any finding | `Evidence:` missing or not the required form → **demote immediately, executing nothing** |
-| Hallucination tell | any with well-formed evidence | evidence describes what *should* appear rather than what *does* → **demote immediately** (see note below) |
+| Hallucination tell | any with well-formed evidence | evidence describes what *should* appear rather than what *does* → **screen and demote** if confirmed (see note below); Critical still reaches Verify as backstop |
 | Verify | Critical with well-formed evidence | lead **must** reproduce it (run the minimal repro / confirm the failure scenario) |
 | Spot-check | Important with well-formed evidence | lead **may** verify selectively; unverified Important stays blocking in Round 1 only |
 
