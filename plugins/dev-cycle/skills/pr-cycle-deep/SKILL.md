@@ -780,6 +780,12 @@ Non-goals, Follow-ups, or a documented accepted boundary is non-blocking. An acc
 five fields from Step 1, including `Accepted by:`; a voice or lead cannot accept it for the human.
 Repo security/data-integrity baselines cannot be waived by any Review Contract section.
 
+> **Contract mapping validation**: before promoting, lead MUST verify the reference exists —
+> the AC-ID is in the Review Contract, the `repo baseline:` path/rule exists in the repo, the
+> `unaccepted risk:` is not already accepted. Voices can write fabricated references; do not
+> rely on cross-debate to catch omissions. (Source: yibi-firmware PR #44 — a NIT carried no
+> mapping; caught only because Codex DISAGREEd in R2.)
+
 #### Evidence gate
 
 A Critical / Important finding blocks merge **only** if it carries a valid `Evidence:` in the form
@@ -789,6 +795,7 @@ any fixing, and is **tiered by cost** so most rejections execute nothing:
 | Tier | Applies to | Action |
 | --- | --- | --- |
 | Structure check | any finding | `Evidence:` missing or not the required form → **demote immediately, executing nothing** |
+| Hallucination tell | any with well-formed evidence | evidence describes what *should* appear rather than what *does* → **demote immediately** (see note below) |
 | Verify | Critical with well-formed evidence | lead **must** reproduce it (run the minimal repro / confirm the failure scenario) |
 | Spot-check | Important with well-formed evidence | lead **may** verify selectively; unverified Important stays blocking in Round 1 only |
 
@@ -815,6 +822,13 @@ Disposition by severity × evidence × round (every cell defined — no gaps, no
 | Actionable NIT | valid | non-blocking | non-blocking |
 | Actionable NIT | none | non-blocking | non-blocking |
 
+> **Evidence hallucination tell** — a reviewer can fabricate both defect and evidence in valid
+> form. The tell: evidence reads like a **template** ("one should see X") rather than **concrete
+> data** ("running `grep -rn '^## 7' docs/specs/` returns 0 hits"). Screen for this before
+> spot-checking Important findings; the Verify tier catches it for Critical. (Source:
+> yibi-firmware PR #44 — agy's `Evidence:` described the expected form, not actual output;
+> `grep` refuted the claim and the heading matched the template and 15 sibling specs.)
+>
 > **Single-voice [P0]/[Critical] → verify with a repro before acting — and re-verify before *citing* a past
 > verdict** (esp. CLI flag-parsing / runtime claims, which often reason from a plausible-but-wrong model).
 > **Record the tool version**: a stored verdict expires when the tool changes. Example (PR #157 → #229): agy's
