@@ -93,7 +93,7 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #       a voice can write a fabricated AC-ID or cite a nonexistent rule file and the finding
 #       enters the blocking set unchecked — caught only if another voice happens to DISAGREE.
 #
-#   (2) +7 lines, Evidence hallucination tell: a new tier row in the Evidence gate table plus a
+#   (2) +8 lines, Evidence hallucination tell: a new tier row in the Evidence gate table plus a
 #       blockquote describing the hallucination tell pattern — evidence that describes what the
 #       result *should* look like rather than what it *does*. The structure check passes
 #       fabricated evidence in valid form; the Verify tier catches it for Critical (lead must
@@ -133,6 +133,8 @@ REQUIRED_ANCHORS: list[str] = [
     "### Follow-ups",  # contract: explicit non-blocking deferrals
     "frozen Review Contract",  # confirmed snapshot used by one review pass
     "Contract mapping:",  # finding -> AC / repo baseline / unaccepted risk
+    "Contract mapping validation",  # lead MUST verify mapping references exist
+    "Evidence hallucination tell",  # screen for fabricated evidence in valid form
     "Accepted by:",  # a review voice cannot accept risk for a human
     "blocking set is the sole LGTM gate",  # raw voice verdict has no veto
     "R2 skipped: no contract-blocking candidate or dispute",  # clean R1 exit
