@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.1] - 2026-09-15
+
+### Fixed
+
+- agy-consult / agy-review：agy 1.2.3 print timeout 時 exit 0 並回半截輸出，改為以 exit 124 fail loud；加上 480 秒預算（低於 Bash tool 600 秒上限），並從 agy log 撈出 429 RESOURCE_EXHAUSTED 額度訊息
+
 ## [1.22.0] - 2026-09-05
 
 ### Added

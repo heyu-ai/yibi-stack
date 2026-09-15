@@ -34,6 +34,17 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 # 允許透過 AGY_MODEL 環境變數覆寫（可接受值見 `agy models` 左欄）。
 AGY_MODEL="${AGY_MODEL:-gemini-3.8-flash-high}"
 
+# agy print 模式的時間預算（整數秒），理由與 agy-consult/scripts/consult.sh 同段相同：
+# agy 1.2.3 的 --print-timeout 到期時 exit 0 並只回傳片段；預設 480 秒低於 Claude Code
+# Bash tool 的 600 秒上限，否則 harness 先砍掉 script，[FAIL] 診斷永遠印不出來。
+AGY_PRINT_TIMEOUT_SECS="${AGY_PRINT_TIMEOUT_SECS:-480}"
+case "$AGY_PRINT_TIMEOUT_SECS" in
+    ''|*[!0-9]*)
+        echo "[FAIL] AGY_PRINT_TIMEOUT_SECS 必須是整數秒（收到：${AGY_PRINT_TIMEOUT_SECS}），例如 480" >&2
+        exit 2
+        ;;
+esac
+
 # Get diff; fallback to HEAD~1 when no upstream tracking
 DIFF=$(git diff "origin/${BASE}...HEAD" 2>/dev/null || git diff HEAD~1 2>/dev/null || true)
 if [ -z "$DIFF" ]; then
@@ -91,18 +102,48 @@ fi
 # 且該目錄就在 trustedWorkspaces 清單內。失敗時 agy exit 0 並回一段語意完整但沒讀到任何檔案的
 # 文字，下方 exit-code gate 與 20 字元下限都攔不住——對 review 而言等於產出一份沒看過程式碼的
 # review 卻看起來正常，是本檔最不該靜默失敗的地方。
+#
+# stderr 與 agy log 分別落地、timeout 用兩個獨立訊號判定——完整理由與 agy 1.2.3 實測記錄見
+# agy-consult/scripts/consult.sh 同段註解。對 review 而言，把 timeout 的半截輸出當成完整
+# review 呈現，等於產出一份還沒看完 diff 的 [PASS]，是本檔最不該靜默失敗的另一處。
+AGY_STDERR_FILE=$(mktemp "${TMPDIR:-/tmp}/agy-review-stderr.XXXXXX")
+AGY_LOG_FILE=$(mktemp "${TMPDIR:-/tmp}/agy-review-log.XXXXXX")
 echo "[INFO] agy 模型：${AGY_MODEL}（可用 AGY_MODEL 環境變數覆寫）" >&2
-if OUTPUT=$(agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --sandbox); then
+AGY_START=$SECONDS
+if OUTPUT=$(agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --sandbox \
+    --print-timeout "${AGY_PRINT_TIMEOUT_SECS}s" --log-file "$AGY_LOG_FILE" 2>"$AGY_STDERR_FILE"); then
     AGY_EXIT=0
 else
     AGY_EXIT=$?
 fi
+AGY_ELAPSED=$((SECONDS - AGY_START))
+cat "$AGY_STDERR_FILE" >&2
+
+report_quota_if_any() {
+    if grep -q 'RESOURCE_EXHAUSTED' "$AGY_LOG_FILE"; then
+        echo "[FAIL] agy log 顯示 API 額度／容量不足（429 RESOURCE_EXHAUSTED），最後一筆：" >&2
+        grep 'RESOURCE_EXHAUSTED' "$AGY_LOG_FILE" | tail -n 1 >&2
+        echo "       'Individual quota reached' 是帳號額度用完（訊息內含重置時間），重試無效，請把 agy 切換到另一個登入帳號（例如 GCP 帳號）或等重置；'try again later' 是暫時性容量不足，減少同時執行的 agy 後重試。" >&2
+    fi
+}
+
 if [ "$AGY_EXIT" -ne 0 ]; then
     echo "[FAIL] agy 執行失敗（exit ${AGY_EXIT}）" >&2
+    report_quota_if_any
+    echo "       agy log：${AGY_LOG_FILE}" >&2
     exit "$AGY_EXIT"
+fi
+if grep -q 'print timeout after' "$AGY_STDERR_FILE" || [ "$AGY_ELAPSED" -gt "$AGY_PRINT_TIMEOUT_SECS" ]; then
+    echo "[FAIL] agy 在 ${AGY_PRINT_TIMEOUT_SECS} 秒內沒有完成（實際 ${AGY_ELAPSED} 秒，print timeout）。agy 此時仍 exit 0 並只回傳部分輸出，已丟棄不呈現。" >&2
+    report_quota_if_any
+    echo "       常見原因：diff 太大讓 agy 大量探索周邊檔案，或 API 額度不足（見上方）。可用 AGY_PRINT_TIMEOUT_SECS 調整，但不要 >= 600（會先被 Claude Code Bash tool 砍掉）。agy log：${AGY_LOG_FILE}" >&2
+    exit 124
 fi
 if [ -z "$OUTPUT" ] || [ "${#OUTPUT}" -lt 20 ]; then
     echo "[FAIL] agy 回傳空白或極短輸出（${#OUTPUT} 字元）。常見原因：--sandbox 底下 agy 想探索周邊檔案時被自己的權限系統擋下（見 ~/.gemini/antigravity-cli/settings.json permissions.allow），headless 模式無法跳出確認框。" >&2
+    report_quota_if_any
+    echo "       agy log：${AGY_LOG_FILE}" >&2
     exit 1
 fi
+rm -f "$AGY_STDERR_FILE" "$AGY_LOG_FILE"
 printf '%s\n' "$OUTPUT"
