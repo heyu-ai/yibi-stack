@@ -1030,6 +1030,121 @@ diff --git a/openspec/changes/add-login/tasks.md b/openspec/changes/add-login/ta
     assert "testplan.md not found" in err
 
 
+# ---------------------------------------------------------------------------
+# 缺 testplan.md 時依 change type 分級
+#
+# 只有 feat／refactor 必須有 testplan；其他類型（eng／ops／bug／poc／docs）缺檔只警告。
+# 讀不到 type（沒有 proposal.md、沒有 frontmatter、值無法辨識）時維持硬擋：
+# 放行會讓「忘了寫 frontmatter」變成繞過 gate 的方式。
+# ---------------------------------------------------------------------------
+
+
+def _write_proposal(repo, name, text, root="openspec/changes"):
+    """在指定 active change 目錄寫入 proposal.md。"""
+    path = repo.joinpath(*root.split("/"), name, "proposal.md")
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _single_change_diff(name):
+    return _one_file_diff(f"openspec/changes/{name}/tasks.md")
+
+
+@pytest.mark.parametrize("change_type", ["feat", "refactor"])
+def test_main_blocks_missing_testplan_for_types_that_require_one(
+    tmp_path, monkeypatch, capsys, change_type
+):
+    repo = _make_repo(tmp_path, active=["add-login"])
+    _write_proposal(repo, "add-login", f"---\ntype: {change_type}\n---\n\n## Why\n")
+    _stub_run(monkeypatch, _single_change_diff("add-login"), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "testplan.md not found for change 'add-login'" in err
+    assert f"type '{change_type}'" in err
+
+
+@pytest.mark.parametrize("change_type", ["eng", "ops", "bug", "poc", "docs"])
+def test_main_only_warns_on_missing_testplan_for_types_that_do_not_require_one(
+    tmp_path, monkeypatch, capsys, change_type
+):
+    repo = _make_repo(tmp_path, active=["sync-prd"])
+    _write_proposal(repo, "sync-prd", f"---\ntype: {change_type}\n---\n\n## Why\n")
+    _stub_run(monkeypatch, _single_change_diff("sync-prd"), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert "[FAIL]" not in captured.out + captured.err
+    assert "[WARN]" in captured.out
+    assert f"type '{change_type}'" in captured.out
+
+
+@pytest.mark.parametrize(
+    "proposal_text",
+    [
+        None,  # 沒有 proposal.md
+        "## Why\n\nno frontmatter here\n",
+        "---\nsource: x\n---\n",  # frontmatter 裡沒有 type
+        "---\ntype: feat | eng | docs\n---\n",  # 範本佔位值
+        "---\ntype: chore\n---\n",  # 不在已知清單
+    ],
+    ids=["no-proposal", "no-frontmatter", "no-type-key", "placeholder", "unknown-type"],
+)
+def test_main_still_blocks_missing_testplan_when_type_cannot_be_determined(
+    tmp_path, monkeypatch, capsys, proposal_text
+):
+    repo = _make_repo(tmp_path, active=["add-login"])
+    if proposal_text is not None:
+        _write_proposal(repo, "add-login", proposal_text)
+    _stub_run(monkeypatch, _single_change_diff("add-login"), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    assert "testplan.md not found for change 'add-login'" in capsys.readouterr().err
+
+
+def test_main_still_verifies_an_existing_testplan_for_a_type_that_does_not_require_one(
+    tmp_path, monkeypatch, capsys
+):
+    """豁免只針對「缺檔」：docs change 若附了 testplan，照樣要驗，壞的 testplan 照樣擋。"""
+    repo = _make_repo(tmp_path, active=["sync-prd"])
+    _write_proposal(repo, "sync-prd", "---\ntype: docs\n---\n")
+    (repo / "openspec/changes/sync-prd/testplan.md").write_text("no table\n", encoding="utf-8")
+    _stub_run(monkeypatch, _single_change_diff("sync-prd"), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    assert "contains no TC table" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("---\ntype: feat\n---\n", "feat"),
+        ("---\ntype:  Refactor  \n---\n", "refactor"),
+        ('---\ntype: "docs"\n---\n', "docs"),
+        ("---\ntype: eng  # engineering\n---\n", "eng"),
+        ("---\nsource: x\ntype: bug\nsource_version: v1\n---\n", "bug"),
+        ("﻿---\ntype: ops\n---\n", "ops"),
+        ("---\r\ntype: poc\r\n---\r\n", "poc"),
+        ("## Why\ntype: feat\n", None),  # 不在 frontmatter 內
+        ("---\nsource: x\n---\ntype: feat\n", None),  # frontmatter 結束後才出現
+        ("---\ntype: feat\n", None),  # frontmatter 沒有結束行
+        ("---\ntype:\n---\n", None),
+    ],
+)
+def test_read_change_type_parses_only_the_frontmatter_type(tmp_path, text, expected):
+    proposal = tmp_path / "proposal.md"
+    proposal.write_text(text, encoding="utf-8", newline="")
+    assert amplifier_verify.read_change_type(tmp_path) == expected
+
+
+def test_read_change_type_returns_none_without_a_proposal(tmp_path):
+    assert amplifier_verify.read_change_type(tmp_path) is None
+
+
 def test_main_verifies_the_active_change_despite_an_earlier_archive_header(
     tmp_path, monkeypatch, capsys
 ):
