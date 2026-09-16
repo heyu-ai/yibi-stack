@@ -41,6 +41,8 @@ AGY_MODEL="${AGY_MODEL:-gemini-3.8-flash-high}"
 # 上下界由程式強制，不只寫在文件：貼著 600 會原樣重現本 PR 要消滅的事故形狀，0 會讓耗時判定恆真。
 # 上界取 570 而非 599：預算計的是 agy 內部時間，牆鐘還要加上 language server 啟動（實測 20 秒
 # 預算的真 timeout 牆鐘 22 秒），599 + 啟動 ≈ 601 > 600，形同放行一個必然被 harness 砍掉的值。
+# 但這是**啟發式而非強制**（理由與 accepted residual risk 見 consult.sh 同段）：腳本無從保證
+# 啟動塞得進餘裕，也不知道呼叫端的 Bash tool timeout 設多少。
 AGY_PRINT_TIMEOUT_MAX=570
 AGY_PRINT_TIMEOUT_SECS="${AGY_PRINT_TIMEOUT_SECS:-480}"
 # 不需要 `''|`：上一行的 `:-` 對空字串也套用預設值。

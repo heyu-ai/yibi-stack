@@ -66,6 +66,12 @@ AGY_MODEL="${AGY_MODEL:-gemini-3.8-flash-high}"
 # （實測 20 秒預算的真 timeout 牆鐘 22 秒）。599 + 啟動 ≈ 601 > 600，等於腳本放行了一個必然
 # 被 harness 先砍掉的值——用自己宣稱合法的參數重現本 PR 要修的事故。30 秒餘裕涵蓋啟動與偶發
 # 抖動（`agy --help` 本身只要 0.27 秒，可忽略）。
+#
+# **這是啟發式，不是強制**（Codex 在 mob review 指出，已列為 contract 的 accepted residual
+# risk）：腳本沒有任何機制保證啟動真的塞得進那 30 秒，也無從得知呼叫端實際設定的 Bash tool
+# timeout（可能是預設 120 秒，那連 480 都不安全），所以任何固定上界都是同一類假設。要真正強制，
+# 需要腳本自帶 wall-clock watchdog（背景跑 agy、到自訂截止時間砍掉並先印診斷）——別把這段讀成
+# 「570 保證安全」。
 AGY_PRINT_TIMEOUT_MAX=570
 AGY_PRINT_TIMEOUT_SECS="${AGY_PRINT_TIMEOUT_SECS:-480}"
 # 不需要 `''|` 分支：上一行的 `:-` 對空字串也會套用預設值，變數到這裡永遠非空。
