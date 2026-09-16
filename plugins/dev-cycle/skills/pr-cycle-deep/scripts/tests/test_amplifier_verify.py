@@ -1046,8 +1046,8 @@ def _write_proposal(repo, name, text, root="openspec/changes"):
     return path
 
 
-def _single_change_diff(name):
-    return _one_file_diff(f"openspec/changes/{name}/tasks.md")
+def _single_change_diff(name, root="openspec/changes"):
+    return _one_file_diff(f"{root}/{name}/tasks.md")
 
 
 @pytest.mark.parametrize("change_type", ["feat", "refactor"])
@@ -1102,21 +1102,93 @@ def test_main_still_blocks_missing_testplan_when_type_cannot_be_determined(
     with pytest.raises(SystemExit) as exc:
         amplifier_verify.main()
     assert exc.value.code == 2
-    assert "testplan.md not found for change 'add-login'" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "testplan.md not found for change 'add-login'" in err
+    # 斷言走的是新分支，而不是任何舊的泛用失敗。讀不到 type 有兩種理由，訊息不同：
+    # 解析得到但不在已知清單（含範本佔位值），與完全解析不出值。
+    if proposal_text in ("---\ntype: chore\n---\n", "---\ntype: feat | eng | docs\n---\n"):
+        assert "unrecognised type '" in err
+    else:
+        assert "no `type:` could be read" in err
 
 
-def test_main_still_verifies_an_existing_testplan_for_a_type_that_does_not_require_one(
+def test_main_exempts_a_non_required_type_whose_testplan_has_no_parsable_tc_table(
     tmp_path, monkeypatch, capsys
 ):
-    """豁免只針對「缺檔」：docs change 若附了 testplan，照樣要驗，壞的 testplan 照樣擋。"""
-    repo = _make_repo(tmp_path, active=["sync-prd"])
-    _write_proposal(repo, "sync-prd", "---\ntype: docs\n---\n")
-    (repo / "openspec/changes/sync-prd/testplan.md").write_text("no table\n", encoding="utf-8")
-    _stub_run(monkeypatch, _single_change_diff("sync-prd"), repo)
+    """豁免不能只涵蓋「缺檔」。
+
+    只豁免缺檔的話，誘因會反過來：eng change 刪掉 testplan 就放行，附上一份 TC-ID 寫法不合
+    解析器胃口的 testplan 反而整個中止 review（真實案例：yibi-mvp 0126 用 TC-1~TC-5，
+    而 `_TC_ID_RE` 要求 2-4 位數字）。
+    """
+    repo = _make_repo(tmp_path, active=["nfc-wakeup"])
+    _write_proposal(repo, "nfc-wakeup", "---\ntype: eng\n---\n")
+    (repo / "openspec/changes/nfc-wakeup/testplan.md").write_text(
+        "| TC-ID | 驗證目的 |\n|---|---|\n| TC-1 | 人工檢查 |\n", encoding="utf-8"
+    )
+    _stub_run(monkeypatch, _single_change_diff("nfc-wakeup"), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert "[FAIL]" not in captured.out + captured.err
+    assert "contains no parsable TC table" in captured.out
+
+
+def test_main_still_blocks_a_required_type_whose_testplan_has_no_parsable_tc_table(
+    tmp_path, monkeypatch, capsys
+):
+    """上一個測試的正向對照：feat 不因為附了一份解析不出 TC 的 testplan 就被放行。"""
+    repo = _make_repo(tmp_path, active=["add-login"])
+    _write_proposal(repo, "add-login", "---\ntype: feat\n---\n")
+    (repo / "openspec/changes/add-login/testplan.md").write_text("no table\n", encoding="utf-8")
+    _stub_run(monkeypatch, _single_change_diff("add-login"), repo)
     with pytest.raises(SystemExit) as exc:
         amplifier_verify.main()
     assert exc.value.code == 2
     assert "contains no TC table" in capsys.readouterr().err
+
+
+def test_main_still_verifies_a_parsable_testplan_for_a_type_that_does_not_require_one(
+    tmp_path, monkeypatch, capsys
+):
+    """豁免只在缺檔或無法解析時生效：docs change 附了可解析的 testplan，照樣進入 TC 驗證。"""
+    repo = _make_repo(tmp_path, active=["sync-prd"], testplans=["sync-prd"])
+    _write_proposal(repo, "sync-prd", "---\ntype: docs\n---\n")
+    (repo / "openspec/changes/sync-prd/testplan.md").write_text(
+        "| TC-ID |\n|---|\n| TC-001 |\n", encoding="utf-8"
+    )
+    _stub_run(monkeypatch, _single_change_diff("sync-prd"), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "parsed 1 TCs" in out
+    assert "[WARN]" not in out
+
+
+def test_main_exemption_works_under_the_docs_openspec_layout_root(tmp_path, monkeypatch, capsys):
+    """消費端（yibi-mvp）走的是 docs/openspec/changes，兩個 layout root 都要有對照。"""
+    root = "docs/openspec/changes"
+    repo = _make_repo(tmp_path, active=["sync-prd"], root=root)
+    _write_proposal(repo, "sync-prd", "---\ntype: docs\n---\n", root=root)
+    _stub_run(monkeypatch, _single_change_diff("sync-prd", root=root), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert "[FAIL]" not in captured.out + captured.err
+    assert "type 'docs'" in captured.out
+
+
+def test_main_prints_the_detected_type_on_every_path(tmp_path, monkeypatch, capsys):
+    """type 是自填欄位且決定放行與否，必須每輪都印出來，讓標錯類型有機會被人眼抓到。"""
+    repo = _make_repo(tmp_path, active=["add-login"], testplans=["add-login"])
+    _write_proposal(repo, "add-login", "---\ntype: feat\n---\n")
+    _stub_run(monkeypatch, _single_change_diff("add-login"), repo)
+    with pytest.raises(SystemExit):
+        amplifier_verify.main()
+    assert "spectra change detected: add-login (type: feat)" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -1133,6 +1205,10 @@ def test_main_still_verifies_an_existing_testplan_for_a_type_that_does_not_requi
         ("---\nsource: x\n---\ntype: feat\n", None),  # frontmatter 結束後才出現
         ("---\ntype: feat\n", None),  # frontmatter 沒有結束行
         ("---\ntype:\n---\n", None),
+        # 以下三種是「有疑義」形狀，一律回 None 讓呼叫端硬擋：
+        ("---\ntype: feat\ntype: docs\n---\n", None),  # 重複鍵，後者是放行類型
+        ("---\ntype: docs\ntype: feat\n---\n", None),  # 重複鍵，反向順序
+        ("  ---\ntype: docs\n---\n", None),  # 分隔線未頂格，canonical YAML 視為沒有 frontmatter
     ],
 )
 def test_read_change_type_parses_only_the_frontmatter_type(tmp_path, text, expected):

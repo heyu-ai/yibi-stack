@@ -393,6 +393,11 @@ def read_change_type(change_dir: Path) -> str | None:
     只接受檔案第一行為 `---`、且有對應結束行 `---` 的 frontmatter；結束行之後或正文裡出現的
     `type:` 不算數，沒有結束行的 frontmatter 也不算數。回傳值已去除引號、行尾註解並轉小寫，
     但不檢查是否為已知類型——分級由呼叫端決定。
+
+    有疑義一律回 None（呼叫端據此硬擋），因為這個函式的輸出會決定 gate 放不放行：
+    分隔線要求頂格，與 YAML frontmatter 的定義一致——接受縮排的 `  ---` 會讓 canonical 工具
+    判定「沒有 frontmatter」的檔案在這裡被判成某個類型並放行；重複的 `type:` 鍵同理，
+    YAML 是後者勝，但那是典型的可疑形狀，不該用來放行。
     """
     proposal = change_dir / _PROPOSAL_NAME
     try:
@@ -401,16 +406,20 @@ def read_change_type(change_dir: Path) -> str | None:
         return None
 
     lines = text.splitlines()
-    if not lines or lines[0].strip() != _FRONTMATTER_DELIMITER:
+    if not lines or lines[0] != _FRONTMATTER_DELIMITER:
         return None
 
     change_type: str | None = None
+    seen_type_key = False
     for line in lines[1:]:
-        if line.strip() == _FRONTMATTER_DELIMITER:
+        if line == _FRONTMATTER_DELIMITER:
             return change_type
         match = _FRONTMATTER_TYPE_RE.match(line)
         if match is None:
             continue
+        if seen_type_key:
+            return None  # 重複的 type 鍵：有疑義，不放行
+        seen_type_key = True
         value = re.split(r"\s+#", match.group(1), maxsplit=1)[0].strip().strip("\"'").strip()
         change_type = value.lower() or None
     return None  # frontmatter 沒有結束行
@@ -1017,12 +1026,14 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    print(f"[OK]   spectra change detected: {change_name}")
-
     assert location.active_dir is not None  # nosec B101 — implied by is_active
+    # 無條件印出解析到的 type：它決定本次 gate 放不放行，而值是作者自填、無交叉驗證的，
+    # 只在豁免路徑才印會讓標錯類型的 change 在其他路徑完全看不出來。
+    change_type = read_change_type(location.active_dir)
+    print(f"[OK]   spectra change detected: {change_name} (type: {change_type or 'unknown'})")
+
     testplan_path = location.active_dir / _TESTPLAN_NAME
     if not testplan_path.is_file():
-        change_type = read_change_type(location.active_dir)
         if change_type in _TYPES_WITH_OPTIONAL_TESTPLAN:
             print(
                 f"[WARN] {_TESTPLAN_NAME} not found for change '{change_name}'"
@@ -1051,6 +1062,14 @@ def main() -> None:
     slug_conflicts: list[tuple[str, str, str]] = []
     tc_rows = parse_tc_table(testplan_text, conflicts_out=slug_conflicts)
     if not tc_rows:
+        # 同一張 type 表也要套在這裡，否則誘因是反的：不需要 testplan 的類型「刪掉檔案」可以放行，
+        # 「附上一份 TC-ID 寫法不合解析器胃口的 testplan」反而整個中止 review。
+        if change_type in _TYPES_WITH_OPTIONAL_TESTPLAN:
+            print(
+                f"[WARN] {_TESTPLAN_NAME} at {testplan_path} contains no parsable TC table"
+                f" (type '{change_type}' does not require one); skipping the TC traceability check."
+            )
+            sys.exit(0)
         print(
             f"[FAIL] testplan.md at {testplan_path} contains no TC table"
             f" (expected a table with an ID column header, e.g. 'TC-ID').",
