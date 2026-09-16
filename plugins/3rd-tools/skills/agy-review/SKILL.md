@@ -115,7 +115,7 @@ git rev-parse --abbrev-ref HEAD 2>/dev/null
 > 回一段無關文字後 exit 0（靜默失敗）；agy 1.1.2 沒有 stdin prompt 通道。
 > `--add-dir "$REPO_ROOT"` 提供周邊程式碼 context——**必須是絕對路徑**，傳相對的 `.` 會讓
 > agy 1.1.22 拿不到任何檔案 context 卻仍 exit 0，產出一份沒看過程式碼的 review（見 FAQ）。
-> 腳本帶 `--print-timeout 480s`（`AGY_PRINT_TIMEOUT_SECS` 可覆寫，**限 1-599 的整數秒**，
+> 腳本帶 `--print-timeout 480s`（`AGY_PRINT_TIMEOUT_SECS` 可覆寫，**限 1-570 的整數秒**，
 > 超出範圍在呼叫 agy 前就 exit 2）：agy 自 1.1.28 起超時時 **exit 0 並只回傳半截輸出**（1.2.3 複驗），
 > 腳本會偵測後以 exit 124 fail loud，並把被丟棄的輸出存檔、印出路徑——對 review 而言，半截輸出
 > 可能是一份還沒看完 diff 的 `[PASS]`。
@@ -163,7 +163,7 @@ challenge mode：找到問題時輸出 `[P0]`/`[P1]` 列表，找不到問題時
 | agy 回答「`--add-dir` 是什麼」之類與 diff 無關的內容，且 exit 0 | `-p`/`--print` 把下一個 flag 當 prompt 吃掉了。確認 `run.sh` 是 `agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir "$REPO_ROOT"`，不是 `{ ... } \| agy --print --add-dir ...`（後者無 stdin 通道，靜默失敗） |
 | agy 回「沒有作用中的 workspace」／review 內容明顯沒讀過周邊程式碼，且 exit 0 | `--add-dir` 被傳了相對路徑。**agy 1.1.22 不再把相對的 `.` 解析成 active workspace**，即使已 cd 到該目錄、即使該目錄在 `trustedWorkspaces` 內。修法：傳絕對路徑。這是本檔最危險的靜默失敗形態（review 看起來正常但沒看過 code），測試 `AGYS-DT-010/011` 鎖住此不變量 |
 | 以為是 `trustedWorkspaces` 沒列到這個 repo | **不是。** 負向對照實測（agy 1.1.22）：已列入的 repo 用相對 `.` 照樣失敗、未列入的 repo 用絕對路徑照樣成功。不要為此放寬 trust 清單 |
-| 一直 timeout、沒有任何輸出或原因 | 兩個常見成因（agy 1.2.3 實測）：(1) Bash tool timeout 沒設 600000，腳本在 agy 回來前就被砍（exit 143，agy 的 stderr 仍會由 trap 補送）；(2) agy 自己的 `--print-timeout` 到期——此時 agy **exit 0 並回半截輸出**，腳本以 exit 124 擋下並把該輸出存檔。diff 太大會讓 agy 大量探索周邊檔案，縮小 diff 或用 `AGY_PRINT_TIMEOUT_SECS` 調整，範圍 1-599（**>= 600 會被腳本擋下**） |
+| 一直 timeout、沒有任何輸出或原因 | 兩個常見成因（agy 1.2.3 實測）：(1) Bash tool timeout 沒設 600000，腳本在 agy 回來前就被砍（exit 143，agy 的 stderr 仍會由 trap 補送）；(2) agy 自己的 `--print-timeout` 到期——此時 agy **exit 0 並回半截輸出**，腳本以 exit 124 擋下並把該輸出存檔。diff 太大會讓 agy 大量探索周邊檔案，縮小 diff 或用 `AGY_PRINT_TIMEOUT_SECS` 調整，範圍 1-570（**再高會被腳本擋下**：牆鐘還要加上 agy 約 2 秒的啟動時間） |
 | review 看起來沒讀到 diff，但 exit 0 | 腳本在成功路徑也會印 `[INFO] agy log：<path>`；`--log-file` 是**改道**，`~/.gemini/antigravity-cli/log/` 不會有副本，所以查腳本印出的那個路徑 |
 | `[FAIL]` 訊息附帶 `RESOURCE_EXHAUSTED (code 429)` | agy 只把 429 重試寫進自己的 log（stderr 看不到），腳本失敗時才撈出來。`Individual quota reached ... Resets in <N>h` 是**帳號額度用完**，重試無效：把 agy 切換到另一個登入帳號（例如 GCP 帳號）或等重置；`try again later` 是暫時性容量不足，減少同時執行的 agy（mob review 會並行呼叫）後重試 |
 | Auth 失敗，`onboardingComplete` 為 false | 直接執行 `agy` 進互動模式完成瀏覽器 OAuth（agy 1.2.3 沒有 `auth` 子命令） |
