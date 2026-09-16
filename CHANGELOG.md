@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.1] - 2026-09-15
+
+### Fixed
+
+- agy-consult / agy-review：agy print timeout 時 exit 0 並回半截輸出（自 agy 1.1.28 起的行為，1.2.3 複驗），改為以 exit 124 fail loud 並保留被丟棄的輸出；預算 480 秒且強制 1-599（低於 Bash tool 600 秒上限），並從 agy log 撈出 429 RESOURCE_EXHAUSTED 額度訊息
+- agy-consult / agy-review：腳本被外部訊號中止時，agy 的 stderr 改由 trap 補送（先前改成緩衝後回放，會在這條路徑全數遺失）；agy log 一律保留並印出路徑（`--log-file` 是改道，預設目錄不會有副本）
+- agy-consult / agy-review：agy 版本太舊時在呼叫前給出升級指示，不再與 agy 自身的未知 flag exit 2 混淆；移除兩份 SKILL.md 共 4 處不存在的 `agy auth` 子命令
+
 ## [1.22.0] - 2026-09-05
 
 ### Added
