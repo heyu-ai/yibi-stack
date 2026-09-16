@@ -314,17 +314,33 @@ if [ "$HAS_GH" != "1" ]; then
   echo "[WARN] gh 不可用——報告中的 open PR 保護不會生效，KEEP 可能少列" >&2
 fi
 
-# 收集被 worktree 佔用的分支 -> 其路徑。`$_wt_raw` 是前面已檢查過 exit status 的輸出。
-WT_MAP=$(printf '%s\n' "$_wt_raw" | awk '
-  /^worktree /{ path=substr($0, 10) }
-  /^branch /   { br=$2; sub("refs/heads/", "", br); print br "\t" path }
-')
+# 當下讀取「分支 -> worktree 路徑 -> 是否 locked」，輸出 TSV：branch<TAB>path<TAB>0|1。
+# 讀取失敗 return 1，呼叫端必須 fail closed。
+# **不可以只在腳本開頭讀一次**（2026-09-16 實測事故）：開頭的快照與列舉分支之間隔著
+# fetch 與 gh 查詢（數秒），期間另一個 session 用 `worktree add --lock -b` 建立的分支會
+# 出現在分支清單、卻不在快照裡 -> 沒被檢查 -> 刪掉了活躍 session 的分支。
+read_wt_map() {
+  local raw
+  raw=$(git worktree list --porcelain 2>/dev/null) || return 1
+  printf '%s\n' "$raw" | awk '
+    function flush() { if (br != "") print br "\t" path "\t" locked; br = ""; locked = 0 }
+    BEGIN              { locked = 0 }
+    /^worktree /       { flush(); path = substr($0, 10) }
+    /^branch /         { br = $2; sub("refs/heads/", "", br) }
+    /^locked( |$)/     { locked = 1 }
+    END                { flush() }
+  '
+}
 
-# 用 ENVIRON 傳分支名，不用 awk -v：-v 會解讀反斜線跳脫。
-wt_path_for() {
-  br="$1" awk -F'\t' '$1==ENVIRON["br"] {print $2; exit}' <<EOF
-$WT_MAP
+# 用 ENVIRON 傳分支名，不用 awk -v：-v 會解讀反斜線跳脫。$1 = map、$2 = 分支、$3 = 欄位
+wt_field() {
+  br="$2" col="$3" awk -F'\t' '$1==ENVIRON["br"] {print $(ENVIRON["col"] + 0); exit}' <<EOF
+$1
 EOF
+}
+
+wt_path_for() {
+  wt_field "$WT_MAP" "$1" 2
 }
 
 has_open_pr() {
@@ -443,6 +459,13 @@ if ! BRANCHES=$(git for-each-ref --format='%(refname:strip=2)' refs/heads/ 2>&1)
   exit 1
 fi
 
+# worktree 快照必須在列舉分支**之後**拍：`worktree add -b` 先建分支、再登記 worktree，
+# 所以「分支清單有、worktree 快照沒有」只會發生在快照比分支清單舊的時候。
+if ! WT_MAP=$(read_wt_map); then
+  echo "[FAIL] 無法列舉 worktree" >&2
+  exit 1
+fi
+
 while IFS= read -r b; do
   [ -z "$b" ] && continue
   [ "$b" = "$BASE_BRANCH" ] && continue
@@ -458,6 +481,13 @@ while IFS= read -r b; do
   fi
 
   wt_path=$(wt_path_for "$b")
+
+  # locked = 有人（通常是 Claude Code 的 background session）宣告正在使用它。剛開工的
+  # session 分支停在 main 的 commit 上，E1 必然成立，只有 lock 能把它和「已合併的殘留」分開。
+  if [ -n "$wt_path" ] && [ "$(wt_field "$WT_MAP" "$b" 3)" = "1" ]; then
+    KEEP_LINES+=("  $b  (worktree 被 lock，可能有 session 正在使用：$wt_path)")
+    continue
+  fi
 
   if [ -n "$wt_path" ]; then
     # 已註冊但路徑不存在（被搬走／未掛載／被 rm -rf）-> 缺少證據。
@@ -671,10 +701,16 @@ for b in ${SAFE_BRANCHES[@]+"${SAFE_BRANCHES[@]}"}; do
   #
   # 注意 update-ref 與 branch -D 的一個**重要差異**（實測，PR #239 R2）：branch -D 會拒絕
   # 刪除「被 worktree 佔用」的分支，update-ref -d **不會**。上面已經先移除了 worktree，
-  # 所以到這裡不該還有佔用；但若 WT_MAP 因故沒抓到某個 worktree，這道 git 內建保護就不在了。
-  # 因此保留下面的佔用檢查——它補上 update-ref 沒有的那一層。
-  still_occupied=$(wt_path_for "$b")
-  if [ -n "$still_occupied" ] && [ -d "$still_occupied" ]; then
+  # 所以到這裡不該還有佔用；但分類之後才被 checkout 進新 worktree 的分支，分類時的 WT_MAP
+  # 看不到。因此這裡**當下重讀**——讀分類快照等於沒檢查（2026-09-16 事故的第二個缺口）。
+  # 不再要求路徑存在：登記還在就代表 git 認為它被佔用，路徑不見不構成可刪的證據。
+  if ! fresh_map=$(read_wt_map); then
+    echo "  [WARN] 無法重新讀取 worktree 清單，不刪除 ref：${b}" >&2
+    FAILED=1
+    continue
+  fi
+  still_occupied=$(wt_field "$fresh_map" "$b" 2)
+  if [ -n "$still_occupied" ]; then
     echo "  [WARN] 分支仍被 worktree 佔用，不刪除 ref：${b}（${still_occupied}）" >&2
     FAILED=1
     continue
