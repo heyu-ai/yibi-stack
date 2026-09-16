@@ -38,10 +38,14 @@ AGY_MODEL="${AGY_MODEL:-gemini-3.8-flash-high}"
 # `--print-timeout` 到期時回傳片段並 exit 0 的行為自 **agy 1.1.28** 起（changelog 1.1.28 原文
 # 「returns the partial output it has and exits successfully」），以 1.2.3 實測複驗；預設 480 秒
 # 低於 Claude Code Bash tool 的 600 秒上限，否則 harness 先砍掉 script，[FAIL] 診斷永遠印不出來。
-# 上下界由程式強制，不只寫在文件：>= 600 會原樣重現本 PR 要消滅的事故形狀，0 會讓耗時判定恆真。
+# 上下界由程式強制，不只寫在文件：貼著 600 會原樣重現本 PR 要消滅的事故形狀，0 會讓耗時判定恆真。
+# 上界取 570 而非 599：預算計的是 agy 內部時間，牆鐘還要加上 language server 啟動（實測 20 秒
+# 預算的真 timeout 牆鐘 22 秒），599 + 啟動 ≈ 601 > 600，形同放行一個必然被 harness 砍掉的值。
+AGY_PRINT_TIMEOUT_MAX=570
 AGY_PRINT_TIMEOUT_SECS="${AGY_PRINT_TIMEOUT_SECS:-480}"
+# 不需要 `''|`：上一行的 `:-` 對空字串也套用預設值。
 case "$AGY_PRINT_TIMEOUT_SECS" in
-    ''|*[!0-9]*)
+    *[!0-9]*)
         echo "[FAIL] AGY_PRINT_TIMEOUT_SECS 必須是整數秒（收到：${AGY_PRINT_TIMEOUT_SECS}），例如 480" >&2
         exit 2
         ;;
@@ -51,19 +55,28 @@ esac
 case "$AGY_PRINT_TIMEOUT_SECS" in
     ???|??|?) ;;
     *)
-        echo "[FAIL] AGY_PRINT_TIMEOUT_SECS 必須介於 1 與 599 之間（收到：${AGY_PRINT_TIMEOUT_SECS}）。" >&2
+        echo "[FAIL] AGY_PRINT_TIMEOUT_SECS 必須介於 1 與 ${AGY_PRINT_TIMEOUT_MAX} 之間（收到：${AGY_PRINT_TIMEOUT_SECS}）。" >&2
         exit 2
         ;;
 esac
-if [ "$AGY_PRINT_TIMEOUT_SECS" -lt 1 ] || [ "$AGY_PRINT_TIMEOUT_SECS" -ge 600 ]; then
-    echo "[FAIL] AGY_PRINT_TIMEOUT_SECS 必須介於 1 與 599 之間（收到：${AGY_PRINT_TIMEOUT_SECS}）。" >&2
-    echo "       >= 600 會讓 Claude Code Bash tool 先砍掉整支 script，所有診斷都印不出來；0 會讓耗時判定對任何回答都成立。" >&2
+if [ "$AGY_PRINT_TIMEOUT_SECS" -lt 1 ] || [ "$AGY_PRINT_TIMEOUT_SECS" -gt "$AGY_PRINT_TIMEOUT_MAX" ]; then
+    echo "[FAIL] AGY_PRINT_TIMEOUT_SECS 必須介於 1 與 ${AGY_PRINT_TIMEOUT_MAX} 之間（收到：${AGY_PRINT_TIMEOUT_SECS}）。" >&2
+    echo "       上界留了 30 秒餘裕給 agy 的啟動時間：預算是 agy 內部計時，牆鐘還要加上 language server 啟動（實測約 2 秒）；貼著 600 設會讓 Claude Code Bash tool 先砍掉整支 script，所有診斷都印不出來。0 則會讓耗時判定對任何回答都成立。" >&2
     exit 2
 fi
 
 # 參數驗證通過後才碰 agy（AC-5 要求參數無效時不呼叫 agy，而 `agy --help` 也算一次呼叫）。
 # 舊版 agy 不認得新 flag，且它對未知 flag 的退出碼也是 2，與上方驗證撞號，故在此先擋下。
-AGY_HELP=$(agy --help 2>&1 || true)
+# 退出碼與輸出分開判斷（理由見 consult.sh 同段：`|| true` 會讓「agy 在但 --help 因別的原因
+# 失敗」被誤報成「版本太舊請升級」，正是 rule 13「|| true Turns a Real Result Into a Silent
+# Skip」那一節的形狀）。
+AGY_HELP_EXIT=0
+AGY_HELP=$(agy --help 2>&1) || AGY_HELP_EXIT=$?
+if [ "$AGY_HELP_EXIT" -ne 0 ]; then
+    echo "[FAIL] agy --help 執行失敗（exit ${AGY_HELP_EXIT}），無法確認它是否支援本腳本需要的 flag。原始輸出：" >&2
+    printf '%s\n' "$AGY_HELP" >&2
+    exit 2
+fi
 for flag in --print-timeout --log-file; do
     case "$AGY_HELP" in
         *"$flag"*) ;;
@@ -143,7 +156,9 @@ AGY_STDERR_FILE=$(mktemp "${TMPDIR:-/tmp}/agy-review-stderr.XXXXXX")
 AGY_LOG_FILE=$(mktemp "${TMPDIR:-/tmp}/agy-review-log.XXXXXX")
 
 # 刪檔只掛在 EXIT，不掛在訊號路徑（理由見 consult.sh 同段：訊號 handler 先 rm 會讓主線的讀取
-# 在 set -e 下把 rc 從 143 變成 1）。
+# 在 set -e 下把 rc 從 143 變成 1）。同段也記錄了這個修法的實測邊界：bash 會把訊號處理延後到
+# 前景子行程結束，所以補送發生在 agy 返回時而非被砍當下；真正做事的是 EXIT trap，INT/TERM/HUP
+# 是冗餘的第二層；整組被砍或 SIGKILL 則兩者皆無效（已知殘餘）。
 AGY_STDERR_REPLAYED=0
 replay_agy_stderr() {
     if [ "$AGY_STDERR_REPLAYED" -eq 0 ] && [ -s "$AGY_STDERR_FILE" ]; then
@@ -155,12 +170,15 @@ on_agy_exit() {
     replay_agy_stderr
     rm -f "$AGY_STDERR_FILE"
 }
+# 退出碼按訊號給（128 + signo），理由見 consult.sh 同段。
 on_agy_signal() {
     replay_agy_stderr
-    exit 143
+    exit "$1"
 }
 trap on_agy_exit EXIT
-trap on_agy_signal INT TERM HUP
+trap 'on_agy_signal 130' INT
+trap 'on_agy_signal 143' TERM
+trap 'on_agy_signal 129' HUP
 
 echo "[INFO] agy 模型：${AGY_MODEL}（可用 AGY_MODEL 環境變數覆寫）" >&2
 AGY_START=$SECONDS
@@ -176,7 +194,9 @@ replay_agy_stderr
 
 report_quota_if_any() {
     if grep -q 'RESOURCE_EXHAUSTED' "$AGY_LOG_FILE"; then
-        echo "[FAIL] agy log 顯示 API 額度／容量不足（429 RESOURCE_EXHAUSTED），最後一筆：" >&2
+        # [INFO] 而非 [FAIL]：log 裡的 429 都是重試行，其中退避後成功的那種也會命中；主因的
+        # [FAIL] 由各分支自己印（理由見 consult.sh 同段）。
+        echo "[INFO] agy log 另有 429 RESOURCE_EXHAUSTED 重試紀錄（可能與本次失敗無關），最後一筆：" >&2
         grep 'RESOURCE_EXHAUSTED' "$AGY_LOG_FILE" | tail -n 1 >&2
         echo "       'Individual quota reached' 是帳號額度用完（訊息內含重置時間），重試無效，請把 agy 切換到另一個登入帳號（例如 GCP 帳號）或等重置；'try again later' 是暫時性容量不足，減少同時執行的 agy 後重試。" >&2
     fi
@@ -202,7 +222,7 @@ if [ -n "$AGY_TIMEOUT_REASON" ]; then
     printf '%s\n' "$OUTPUT" > "$AGY_DISCARDED_FILE"
     echo "[FAIL] agy 在 ${AGY_PRINT_TIMEOUT_SECS} 秒內沒有完成（實際 ${AGY_ELAPSED} 秒）：${AGY_TIMEOUT_REASON}。agy 此時仍 exit 0，其輸出可能只是半截 review，已不呈現。" >&2
     report_quota_if_any
-    echo "       常見原因：diff 太大讓 agy 大量探索周邊檔案，或 API 額度不足（見上方）。可用 AGY_PRINT_TIMEOUT_SECS 調整，範圍 1-599（>= 600 會先被 Claude Code Bash tool 砍掉）。" >&2
+    echo "       常見原因：diff 太大讓 agy 大量探索周邊檔案，或 API 額度不足（見上方）。可用 AGY_PRINT_TIMEOUT_SECS 調整，範圍 1-${AGY_PRINT_TIMEOUT_MAX}（再高會被 Claude Code Bash tool 先砍掉）。" >&2
     echo "       agy log：${AGY_LOG_FILE}；被丟棄的輸出：${AGY_DISCARDED_FILE}" >&2
     exit 124
 fi

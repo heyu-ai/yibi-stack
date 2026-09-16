@@ -133,6 +133,26 @@ class TestAgyRunScriptContract:
         )
 
 
+# How the stub answers `agy --help`, which the scripts probe before invoking agy for real.
+_HELP_MODES = {
+    # A current agy: help lists both flags the scripts depend on.
+    "ok": (
+        "  printf '%s\\n' '  --print-timeout  Timeout for print mode wait (default 5m0s)'\n"
+        "  printf '%s\\n' '  --log-file       Override CLI log file path'\n"
+        "  exit 0\n"
+    ),
+    # An agy predating 1.1.28: help works, but neither flag exists.
+    "missing_flags": (
+        "  printf '%s\\n' '  --sandbox  Run in a sandbox with terminal restrictions'\n  exit 0\n"
+    ),
+    # agy is installed but `--help` itself fails (broken runtime, missing node, a future
+    # version demanding auth first). Must NOT be reported as "your agy is too old".
+    "fail": (
+        "  printf '%s\\n' 'agy: failed to start language server: ENOENT node' >&2\n  exit 1\n"
+    ),
+}
+
+
 def _make_stub_agy(
     tmp_path: Path,
     *,
@@ -141,6 +161,7 @@ def _make_stub_agy(
     stderr: str = "",
     log_content: str = "",
     sleep_secs: int = 0,
+    help_mode: str = "ok",
 ) -> Path:
     """Create a directory containing a stub `agy` executable for PATH injection.
 
@@ -163,10 +184,8 @@ def _make_stub_agy(
         # and `agy --help` is an invocation. A stub that silently swallowed the probe made the
         # bounds tests pass while the preflight ran before validation (Codex re-review Critical).
         f'if [ "$1" = --help ]; then\n  : >> {str(tmp_path / "stub-help-called.txt")!r}\n'
-        "  printf '%s\\n' '  --print-timeout  Timeout for print mode wait (default 5m0s)'\n"
-        "  printf '%s\\n' '  --log-file       Override CLI log file path'\n"
-        "  exit 0\n"
-        "fi\n"
+        + _HELP_MODES[help_mode]
+        + "fi\n"
         f"printf '%s\\n' \"$@\" > {str(argv_file)!r}\n"
         "log=''; prev=''\n"
         'for a in "$@"; do [ "$prev" = --log-file ] && log="$a"; prev="$a"; done\n'
@@ -225,6 +244,7 @@ def _run_agy_script(
     agy_log: str = "",
     agy_sleep: int = 0,
     extra_env: dict[str, str] | None = None,
+    help_mode: str = "ok",
 ) -> subprocess.CompletedProcess[str]:
     """Run run.sh or consult.sh against a stub `agy`, handling each script's own calling
     convention (run.sh: positional mode/base/instruction args, invoked from an isolated
@@ -244,6 +264,7 @@ def _run_agy_script(
         stderr=agy_stderr,
         log_content=agy_log,
         sleep_secs=agy_sleep,
+        help_mode=help_mode,
     )
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}"}
     # 與 AGY_MODEL 同理：環境裡殘留的覆寫值不可影響「預設路徑」測試
@@ -509,6 +530,7 @@ class TestAgyTimeoutAndQuotaContract:
         "budget",
         [
             "0",
+            "571",  # one past the bound — pins the bound itself, not just far-away values
             "600",
             "900",
             # digit-only but past the shell's integer range: `[ "$v" -lt 1 ]` errors out with
@@ -523,11 +545,17 @@ class TestAgyTimeoutAndQuotaContract:
     ) -> None:
         """AGYRUN-DT-016: the budget's bounds are enforced by code, not only by prose.
 
-        `>= 600` reproduces this PR's own incident shape — the harness kills the script before
-        any `[FAIL]` can print, so the caller sees a bare timeout with no cause. `0` makes the
-        elapsed comparison true for every answer. Both were accepted by DT-014's integer-only
-        check, while the comment, the `[FAIL]` text and both SKILL.md files all claimed the
-        limit existed.
+        A budget at or near the 600s Bash cap reproduces this PR's own incident shape — the
+        harness kills the script before any `[FAIL]` can print, so the caller sees a bare
+        timeout with no cause. `0` makes the elapsed comparison true for every answer. Both
+        were accepted by DT-014's integer-only check, while the comment, the `[FAIL]` text and
+        both SKILL.md files all claimed the limit existed.
+
+        The bound is 570, not 599: the budget times agy's *internal* clock, so wall time adds
+        its language-server boot (~2s measured), and 599 + boot would exceed the 600s cap —
+        a value the script advertised as legal while guaranteeing the very failure it guards.
+        `571` is parametrized so the bound itself is pinned; `570` is the positive control in
+        DT-022 below.
         """
         result = _run_agy_script(
             script,
@@ -544,6 +572,211 @@ class TestAgyTimeoutAndQuotaContract:
         assert not (tmp_path / "stub-help-called.txt").exists(), (
             f"budget {budget} reached `agy --help`; AC-5 requires no agy invocation at all, "
             "so validation must precede the version preflight"
+        )
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_022_bound_value_itself_is_accepted(
+        self, script: Path, tmp_path: Path
+    ) -> None:
+        """AGYRUN-DT-022: positive control for DT-016 — the bound itself must still run.
+
+        Without this, tightening the guard to reject everything would pass DT-016 for the
+        wrong reason. `570` is the documented maximum and must reach agy unchanged.
+        """
+        result = _run_agy_script(
+            script,
+            tmp_path,
+            agy_exit=0,
+            agy_stdout="a genuine agy answer, ok",
+            extra_env={"AGY_PRINT_TIMEOUT_SECS": "570"},
+        )
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        argv = (tmp_path / "stub-argv.txt").read_text(encoding="utf-8").splitlines()
+        assert argv[argv.index("--print-timeout") + 1] == "570s", argv
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_017_old_agy_named_as_the_cause(self, script: Path, tmp_path: Path) -> None:
+        """AGYRUN-DT-017: an agy without the flags is told to upgrade, and agy is never asked
+        to answer the prompt.
+
+        Without this, deleting the whole preflight loop leaves the suite green — DT-014/016's
+        `stub-help-called.txt` assertions are negatives, which deletion also satisfies.
+        """
+        result = _run_agy_script(
+            script,
+            tmp_path,
+            agy_exit=0,
+            agy_stdout="a genuine agy answer, ok",
+            help_mode="missing_flags",
+        )
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert "--print-timeout" in result.stderr, result.stderr
+        assert "1.1.28" in result.stderr, (
+            "the message must name the version that introduced the flag, so the reader knows "
+            f"what to upgrade to: {result.stderr!r}"
+        )
+        assert not (tmp_path / "stub-argv.txt").exists(), (
+            "the prompt must never be sent to an agy that cannot honour --print-timeout"
+        )
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_018_broken_help_is_not_blamed_on_the_version(
+        self, script: Path, tmp_path: Path
+    ) -> None:
+        """AGYRUN-DT-018: `agy --help` failing for any other reason must not be reported as
+        "your agy is too old".
+
+        The preflight was written with `AGY_HELP=$(agy --help 2>&1 || true)`, which discards
+        the status; a broken runtime then produces help text without the flags and the script
+        confidently tells the user to upgrade — the wrong-actionable-reason shape the preflight
+        exists to remove (rule 13, "`|| true` Turns a Real Result Into a Silent Skip", whose
+        literal wrong example is `agy review ... || true`).
+        """
+        result = _run_agy_script(
+            script,
+            tmp_path,
+            agy_exit=0,
+            agy_stdout="a genuine agy answer, ok",
+            help_mode="fail",
+        )
+        assert result.returncode == 2, (result.stdout, result.stderr)
+        assert "agy --help" in result.stderr and "exit 1" in result.stderr, result.stderr
+        assert "ENOENT node" in result.stderr, (
+            f"the real help output must be surfaced verbatim: {result.stderr!r}"
+        )
+        assert "1.1.28" not in result.stderr, (
+            "a broken --help is not a version problem; naming an upgrade here is the "
+            f"misdiagnosis this test exists to prevent: {result.stderr!r}"
+        )
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    @pytest.mark.parametrize(
+        ("case", "agy_exit", "agy_stdout", "expected_rc"),
+        [
+            ("agy 非零退出", 7, "", 7),
+            ("agy 空輸出 exit 0", 0, "", 1),
+        ],
+        ids=["nonzero-exit", "empty-output"],
+    )
+    def test_agyrun_dt_019_quota_reported_at_every_failure_branch(
+        self,
+        script: Path,
+        case: str,
+        agy_exit: int,
+        agy_stdout: str,
+        expected_rc: int,
+        tmp_path: Path,
+    ) -> None:
+        """AGYRUN-DT-019: the quota diagnosis fires on all three failure branches, not just
+        the timeout one.
+
+        "Quota exhausted -> agy returns nothing and exits" is a realistic shape, and there the
+        empty-output branch's canned guidance blames sandbox permissions — an actionable reason
+        that is simply wrong. Deleting `report_quota_if_any` from either of these two branches
+        left the whole suite green (mutations M2 / M3).
+        """
+        result = _run_agy_script(
+            script,
+            tmp_path,
+            agy_exit=agy_exit,
+            agy_stdout=agy_stdout,
+            agy_log=_QUOTA_LOG_LINE,
+        )
+        assert result.returncode == expected_rc, (case, result.stdout, result.stderr)
+        assert _QUOTA_LOG_LINE.rstrip("\n") in result.stderr, (
+            f"{case}: the quota line from agy's log must reach the caller here too, not only "
+            f"on the timeout branch: {result.stderr!r}"
+        )
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_021_sigterm_replays_agy_stderr_exactly_once(
+        self, script: Path, tmp_path: Path
+    ) -> None:
+        """AGYRUN-DT-021: killing the script mid-run still hands agy's stderr to the caller,
+        with the right signal exit code and no duplication.
+
+        This is the commonest real failure — both SKILL.md files name "Bash tool timeout not
+        set to 600000" as cause #1 — and buffering stderr to a temp file made it strictly worse
+        than before the fix: measured, the caller got only the `[INFO]` line.
+
+        What this pins, stated no more strongly than it is: **bash defers signal handling until
+        the foreground child returns** (measured — SIGTERM at t=3s, the script exits only after
+        the stub's sleep ends, and replays a line the stub wrote at t=10s). So the guarantee is
+        "once agy returns, the caller that is still reading gets agy's stderr, exactly once,
+        with the signal's exit code" — not "stderr appears the instant the kill lands". A
+        harness that kills the whole process group, or sends SIGKILL, defeats both traps; that
+        residual has no shell-level fix.
+
+        Deleting `trap … TERM` does NOT fail this test: the EXIT trap independently covers the
+        replay, so the signal traps are a redundant second layer (they matter only when the
+        signal arrives while no foreground child is running, where bash does not defer).
+        """
+        marker = "[agy] exploring repository files..."
+        # 10s, not 60: the stub outlives the script and holds the wrapper's inherited fds, so
+        # the whole case costs its sleep. It only has to still be sleeping at t=3s.
+        bin_dir = _make_stub_agy(
+            tmp_path, exit_code=0, stdout="never reached", stderr=f"{marker}\n", sleep_secs=10
+        )
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}"}
+        env.pop("AGY_MODEL", None)
+        env.pop("AGY_PRINT_TIMEOUT_SECS", None)
+        if script.name == "run.sh":
+            args, cwd = ["review", "main", ""], _make_isolated_git_repo(tmp_path)
+        else:
+            (tmp_path / "agy-consult-question.txt").write_text("測試問題", encoding="utf-8")
+            env["CLAUDE_JOB_DIR"] = str(tmp_path)
+            args, cwd = [], REPO_ROOT
+
+        # Signal from a shell wrapper rather than `Popen.send_signal`: the script must be a
+        # background job whose parent then `wait`s for it, which is how a harness timeout
+        # actually reaches it. Driving it straight from Python leaves bash deferring the trap
+        # until its 60s foreground child returns, so the test would measure the harness, not
+        # the script. stderr goes to a file because the stub outlives the script and would
+        # hold a pipe open past its exit.
+        err_file = tmp_path / "sigterm-stderr.txt"
+        wrapper = (
+            f"bash {script!s} {' '.join(args)} > /dev/null 2> {err_file!s} &\n"
+            "pid=$!\n"
+            "sleep 3\n"
+            "kill -TERM $pid\n"
+            "wait $pid\n"
+        )
+        result = subprocess.run(  # nosec B603
+            ["bash", "-c", wrapper],
+            capture_output=True,
+            text=True,
+            timeout=90,
+            env=env,
+            cwd=cwd,
+            check=False,
+        )
+        err = err_file.read_text(encoding="utf-8")
+
+        assert result.returncode == 143, (result.returncode, err, result.stderr)
+        assert err.count(marker) == 1, (
+            f"agy's stderr must reach the caller exactly once on a kill (got {err.count(marker)} "
+            f"occurrences): {err!r}"
+        )
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    def test_agyrun_dt_020_elapsed_comparison_is_strictly_greater(self, script: Path) -> None:
+        """AGYRUN-DT-020: the elapsed check uses `-gt`, never `-ge`.
+
+        Accepted Residual Risk #2 argues this explicitly: agy's own timer starts after its
+        language server boots, so a real timeout always exceeds the budget, while `-ge` would
+        discard a complete answer that happened to finish exactly on the budget second.
+        Flipping the operator survived every execution-level test (mutation M1) because the
+        cases sit far from the boundary, and a runtime boundary case would be flaky by
+        construction (it depends on landing on an exact `SECONDS` tick) — so the decision is
+        pinned statically instead.
+        """
+        src = _code_lines(script)
+        assert '"$AGY_ELAPSED" -gt "$AGY_PRINT_TIMEOUT_SECS"' in src, (
+            f"{script.name} must compare elapsed time with -gt"
+        )
+        assert '"$AGY_ELAPSED" -ge' not in src, (
+            f"{script.name} uses -ge: a complete answer finishing on the budget second would "
+            "be discarded as a timeout, contradicting Accepted Residual Risk #2"
         )
 
     @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
