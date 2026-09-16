@@ -84,9 +84,19 @@ class TestInlinePromptContract:
         assert "2>/dev/null || true" not in src
 
     @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
-    def test_agys_dt_003_print_timeout_raised(self, script: Path) -> None:
-        """AGYS-DT-003: --print-timeout is raised to 10m."""
-        assert "--print-timeout 10m" in script.read_text(encoding="utf-8")
+    def test_agys_dt_003_print_timeout_budget_and_detection_wired(self, script: Path) -> None:
+        """AGYS-DT-003: the print timeout uses the validated budget and is detected (issue #443).
+
+        The old contract pinned `--print-timeout 10m`: 600 s equals the Claude Code Bash tool
+        cap, so the harness could kill the script before agy's own timeout, and on agy >= 1.1.28
+        an expired timeout returns partial output with exit 0 that nothing checked. The
+        behavioral side is pinned by AGYS-ST-006..010; this pins that each script is wired.
+        """
+        src = script.read_text(encoding="utf-8")
+        assert "--print-timeout 10m" not in src
+        assert '--print-timeout "${AGY_PRINT_TIMEOUT_SECS}s"' in src
+        assert '"$SCRIPT_DIR/agy_print_timeout.py" budget' in src
+        assert '"$SCRIPT_DIR/agy_print_timeout.py" check' in src
 
     @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
     def test_agys_dt_007_inline_size_guard_present(self, script: Path) -> None:
@@ -869,3 +879,161 @@ class TestSandboxAutoDenyDetection:
         assert "[FAIL]" in result.stderr, (
             f"stage2 MUST print [FAIL] on stderr when agy output is empty. stderr={result.stderr!r}"
         )
+
+
+# --------------------------------------------------------------------------- #
+# Print-timeout detection (issue #443)
+# --------------------------------------------------------------------------- #
+
+_FAKE_AGY_TIMEOUT = """#!/usr/bin/env bash
+# Fake agy reproducing the agy >= 1.1.28 print-timeout shape: exit 0, whatever output
+# was produced so far on stdout, and the marker line only on stderr. Measured on agy
+# 1.2.4: `[agy] print timeout after 40s with turn in progress; returning partial output`.
+# AGY_FAKE_SLEEP delays the return (drives the elapsed-time signal); AGY_FAKE_MARKER=1
+# emits the stderr marker.
+if [ "$1" = --help ]; then
+    printf '%s\\n' '  --print-timeout  Timeout for print mode wait (default 5m0s)'
+    printf '%s\\n' '  --log-file       Override CLI log file path'
+    exit 0
+fi
+printf '%s\\0' "$@" >> "$AGY_FAKE_ARGV"
+printf '\\1' >> "$AGY_FAKE_ARGV"
+if [ -n "${AGY_FAKE_SLEEP:-}" ]; then
+    sleep "$AGY_FAKE_SLEEP"
+fi
+cat "$AGY_FAKE_OUTPUT"
+if [ "${AGY_FAKE_MARKER:-0}" = 1 ]; then
+    echo "[agy] print timeout after 8m0s with turn in progress; returning partial output" >&2
+fi
+exit 0
+"""
+
+# A Round 2 response cut off mid-finding. Its FIRST heading already contains "verdict", so
+# agy_validate.py's substring check passes it -- the exact hole issue #443 describes.
+TRUNCATED_R2 = """## Cross-review verdict
+The other reviewers were broadly right about seed.txt.
+
+## Per-finding response
+### Other reviewer's finding: seed handling
+- Verdict: AGREE
+- Reason: the change in seed.txt is corr"""
+
+COMPLETE_R2 = (
+    TRUNCATED_R2
+    + """ect.
+
+## New findings (missed in R1)
+
+## Withdrawals (R1 items I'm retracting)
+
+## Final verdict
+- LGTM
+"""
+)
+
+_TIMEOUT_SCRIPTS = {"stage1": STAGE1, "stage2": STAGE2, "r2": R2}
+
+
+def _run_with_fake_timeout_agy(
+    runtime: dict[str, object], script: Path, output: str, **env_extra: str
+) -> subprocess.CompletedProcess[str]:
+    env = dict(runtime["env"])  # type: ignore[call-overload]
+    bin_dir = Path(env["AGY_FAKE_ARGV"]).parent / "bin"
+    fake = bin_dir / "agy"
+    fake.write_text(_FAKE_AGY_TIMEOUT, encoding="utf-8")
+    fake.chmod(0o755)
+    Path(env["AGY_FAKE_OUTPUT"]).write_text(output, encoding="utf-8")
+    env.pop("AGY_PRINT_TIMEOUT_SECS", None)
+    env.update(env_extra)
+    return subprocess.run(  # nosec B603
+        ["bash", str(script)],
+        cwd=str(runtime["repo"]),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+class TestPrintTimeoutDetection:
+    """issue #443: agy >= 1.1.28 returns partial output with exit 0 on --print-timeout."""
+
+    def test_agys_st_006_truncated_r2_with_marker_is_not_counted(
+        self, agy_runtime_env: dict[str, object]
+    ) -> None:
+        """AGYS-ST-006: a truncated R2 plus the stderr marker fails with exit 124.
+
+        Before the fix this exited 0: the truncated text passes agy_validate.py (its first
+        heading contains "verdict"), so a half-read debate counted as a full mob vote. The
+        partial output must also leave gemini-r2.md, where aggregation would pick it up.
+        """
+        result = _run_with_fake_timeout_agy(agy_runtime_env, R2, TRUNCATED_R2, AGY_FAKE_MARKER="1")
+        assert result.returncode == 124, result.stderr
+        assert "print timeout" in result.stderr
+        review = Path(str(agy_runtime_env["repo"])) / ".pr-review"
+        assert not (review / "gemini-r2.md").exists()
+        partial = review / "gemini-r2.timeout-partial.md"
+        assert partial.read_text(encoding="utf-8") == TRUNCATED_R2
+        assert partial.stat().st_mode & 0o777 == 0o600
+
+    @pytest.mark.parametrize("name", sorted(_TIMEOUT_SCRIPTS))
+    def test_agys_st_007_marker_with_empty_output_reports_timeout(
+        self, name: str, agy_runtime_env: dict[str, object]
+    ) -> None:
+        """AGYS-ST-007: every agy script reports the timeout, not "empty output".
+
+        agy 1.2.4 measured: a timeout during 429 retry backoff returns 0 bytes. The old
+        scripts then blamed an empty/invalid output, hiding the real cause.
+        """
+        script = _TIMEOUT_SCRIPTS[name]
+        result = _run_with_fake_timeout_agy(agy_runtime_env, script, "", AGY_FAKE_MARKER="1")
+        assert result.returncode == 124, f"{name}: {result.stderr}"
+        assert "print timeout" in result.stderr
+
+    def test_agys_st_008_elapsed_over_budget_without_marker_fails(
+        self, agy_runtime_env: dict[str, object]
+    ) -> None:
+        """AGYS-ST-008: exceeding the budget is a timeout even if agy prints no marker.
+
+        The marker is presentation and may change wording between agy versions; wall-clock
+        time over the budget is the second, wording-independent signal.
+        """
+        result = _run_with_fake_timeout_agy(
+            agy_runtime_env,
+            R2,
+            COMPLETE_R2,
+            AGY_PRINT_TIMEOUT_SECS="1",
+            AGY_FAKE_SLEEP="3",
+        )
+        assert result.returncode == 124, result.stderr
+
+    def test_agys_st_009_complete_r2_within_budget_passes(
+        self, agy_runtime_env: dict[str, object]
+    ) -> None:
+        """AGYS-ST-009: negative control -- a complete, in-budget R2 still passes."""
+        result = _run_with_fake_timeout_agy(agy_runtime_env, R2, COMPLETE_R2)
+        assert result.returncode == 0, result.stderr
+        review = Path(str(agy_runtime_env["repo"])) / ".pr-review"
+        assert (review / "gemini-r2.md").read_text(encoding="utf-8") == COMPLETE_R2
+        assert not (review / "gemini-r2.timeout-partial.md").exists()
+
+    @pytest.mark.parametrize("name", sorted(_TIMEOUT_SCRIPTS))
+    @pytest.mark.parametrize("budget", ["600", "0", "abc", "99999999999999999999"])
+    def test_agys_st_010_invalid_budget_fails_before_agy(
+        self, name: str, budget: str, agy_runtime_env: dict[str, object]
+    ) -> None:
+        """AGYS-ST-010: an out-of-range budget exits 2 without invoking agy.
+
+        600 would let the Claude Code Bash tool (600 s cap) kill the script before any
+        diagnostic prints; 0 would make the elapsed signal fire on every run.
+        """
+        script = _TIMEOUT_SCRIPTS[name]
+        argv_capture = Path(str(agy_runtime_env["argv_capture"]))
+        if argv_capture.exists():
+            argv_capture.unlink()
+        result = _run_with_fake_timeout_agy(
+            agy_runtime_env, script, COMPLETE_R2, AGY_PRINT_TIMEOUT_SECS=budget
+        )
+        assert result.returncode == 2, f"{name}/{budget}: {result.stderr}"
+        assert "AGY_PRINT_TIMEOUT_SECS" in result.stderr
+        assert not argv_capture.exists(), f"{name}/{budget}: agy was invoked"

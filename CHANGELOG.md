@@ -5,11 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.22.2] - 2026-09-16
+## [1.22.3] - 2026-09-16
 
 ### Fixed
 
-- pr-cycle-deep：Codex extract（`codex-r1-stage2.sh`）改為 `--ignore-user-config -m gpt-5.6-luna`，不再繼承 `~/.codex/config.toml`；先前 config 的 model 不被本機 codex-cli 支援時（實測 0.149.0 搭 `gpt-6-astra`）每次 extract 都回 400，整個 stage 失敗（#444）
+- pr-cycle-deep：三支 agy 腳本（R1 Stage 1／Stage 2、R2）在 agy print timeout 時改為 exit 124 fail loud。agy 自 1.1.28 起逾時會回傳半截輸出並 exit 0，半截的 R2 因第一個 heading 就含 verdict 而通過 `agy_validate.py`，會被當成完整一票計入 mob consensus（#443）
+- pr-cycle-deep：以 stderr 標記 ∨ 實際耗時超過預算雙訊號判定逾時，半截輸出改名為 `*.timeout-partial*`（0600）讓聚合讀不到；預算由 `10m` 改為預設 480 秒並強制 1-570（`AGY_PRINT_TIMEOUT_SECS`，低於 Bash tool 600 秒上限）；agy log 落地到 `.pr-review/*.agy.log`，逾時時印出最後一筆 429 `RESOURCE_EXHAUSTED`
 
 ## [1.22.1] - 2026-09-15
 

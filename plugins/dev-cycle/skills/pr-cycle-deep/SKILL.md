@@ -544,8 +544,8 @@ The script takes no base-branch argument — it reviews the shared `$REVIEW_DIR/
 Step 3.1 already produced, so all three voices review the identical diff. Raw output lands in
 `codex-r1-raw.md` — **do not read it in the main context**.
 
-Stage 1 pins `-m gpt-5.6-sol` (codex-cli >= 0.144); the Stage 2 extract pins the cheaper `-m gpt-5.6-luna` plus `--ignore-user-config` (issue #444).
-Neither takes the model from local config. If a log says the model needs a newer Codex, run `codex update`; confirm slugs in `models_cache.json`.
+The script pins `-m gpt-5.6-sol` (codex-cli >= 0.144) instead of local config. If the stage log says
+the model needs a newer Codex, run `codex update`; confirm frontier slugs in `models_cache.json`.
 
 ###### Stage 2: Extract (compress verbose raw markdown into structured JSON)
 
@@ -1283,7 +1283,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Step 0 detects only agy (no Codex) | Enter 2-voice mob (Claude + agy); normal workflow |
 | Codex detected but auth failed | `codex login`; or `export OPENAI_API_KEY=...` |
 | agy detected but auth failed | Run `agy` to complete OAuth; or `export GEMINI_API_KEY=...` |
-| agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | issue #153: agy could not resolve `@file` and entered agentic file-search. The agy scripts now **inline** the prompt (no `@file`), clear stale `~/.gemini/antigravity-cli/scratch/gemini-*-input.md` at start, and run `agy_validate.py` (fail-loud: timeout / agentic narration / missing Verdict / mentions no changed file = wrong target; a `brain/<uuid>/*.md` pointer is auto-rescued into the raw file). If `agy_validate.py` exits non-zero the voice is correctly marked failed — read the `[FAIL]` message for the reason |
+| agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | issue #153: agy could not resolve `@file` and entered agentic file-search. The agy scripts now **inline** the prompt (no `@file`), clear stale `~/.gemini/antigravity-cli/scratch/gemini-*-input.md` at start, and run `agy_validate.py` (fail-loud: timeout / agentic narration / missing Verdict / mentions no changed file = wrong target; a `brain/<uuid>/*.md` pointer is auto-rescued into the raw file). If `agy_validate.py` exits non-zero the voice is correctly marked failed — read the `[FAIL]` message for the reason. Exit **124** = agy print timeout (issue #443; agy >= 1.1.28 returns partial output with exit 0): the partial output was moved to `*.timeout-partial*`, never aggregate it; check `*.agy.log` for 429 `RESOURCE_EXHAUSTED`, or set `AGY_PRINT_TIMEOUT_SECS` (1-570, default 480) |
 | agy background bash `>` redirect output not updating target file (unverified) | If this occurs: switch to synchronous bash call (without `run_in_background`) |
 | Codex Stage 1 `codex-r1-raw.md` is empty (review missing) | Stage 1 now uses `codex exec ... > codex-r1-raw.md` (stdout); read `$REVIEW_DIR/codex-r1.stage1.log` (stderr) for the error. For the `codex exec \| tee` stages (Stage 2 / R2), `set -o pipefail` keeps `$?` reflecting the failing command in the pipeline (bash/zsh) |
 | Why Stage 1 uses `codex exec`, not `codex review --base` + a guard prompt | `codex review --base` and a positional `[PROMPT]` are mutually exclusive (codex-cli 0.142.5: `the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`), so the skill-hijack guard cannot ride on `codex review`. Stage 1 drives the review through `codex exec` with the guard on stdin instead (issue #194). Do not "fix" it back to `codex review --base` |
