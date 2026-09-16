@@ -519,6 +519,17 @@ _FAKE_AGY = """#!/usr/bin/env bash
 #
 # \\1 terminates each record so a script invoking agy more than once stays inspectable;
 # appending rather than overwriting is what makes the second invocation visible at all.
+#
+# `--help` is answered without recording: the 3rd-tools scripts probe `agy --help` for
+# --print-timeout / --log-file before invoking agy (an agy too old for those flags exits 2,
+# which would otherwise be indistinguishable from their own argument-validation exit 2).
+# That probe is not a content invocation, so recording it would make the --add-dir contract
+# check below fail on an argv that legitimately carries no --add-dir.
+if [ "$1" = --help ]; then
+    printf '%s\\n' '  --print-timeout  Timeout for print mode wait (default 5m0s)'
+    printf '%s\\n' '  --log-file       Override CLI log file path'
+    exit 0
+fi
 printf '%s\\0' "$@" >> "$AGY_FAKE_ARGV"
 printf '\\1' >> "$AGY_FAKE_ARGV"
 cat "$AGY_FAKE_OUTPUT"
@@ -538,6 +549,11 @@ _FAKE_AGY_SANDBOX_DENY = """#!/usr/bin/env bash
 # failure shape agy produces in headless -p mode when --sandbox is used and a
 # tool requiring the "command" permission is needed but cannot be interactively
 # approved. <!-- verified: probe, agy 1.1.12 -->
+if [ "$1" = --help ]; then
+    printf '%s\\n' '  --print-timeout  Timeout for print mode wait (default 5m0s)'
+    printf '%s\\n' '  --log-file       Override CLI log file path'
+    exit 0
+fi
 printf '%s\\0' "$@" >> "$AGY_FAKE_ARGV"
 printf '\\1' >> "$AGY_FAKE_ARGV"
 for arg in "$@"; do

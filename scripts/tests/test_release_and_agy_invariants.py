@@ -28,6 +28,7 @@ AGY_CONSULT_SH = (
     REPO_ROOT / "plugins" / "3rd-tools" / "skills" / "agy-consult" / "scripts" / "consult.sh"
 )
 AGY_REVIEW_SKILL_MD = REPO_ROOT / "plugins" / "3rd-tools" / "skills" / "agy-review" / "SKILL.md"
+AGY_CONSULT_SKILL_MD = REPO_ROOT / "plugins" / "3rd-tools" / "skills" / "agy-consult" / "SKILL.md"
 
 # Both scripts share the identical inline-`-p` calling contract (consult.sh was added in PR #367
 # specifically mirroring run.sh's already-verified safety pattern), so every AGYRUN-DT-* case
@@ -154,6 +155,15 @@ def _make_stub_agy(
     agy_stub = bin_dir / "agy"
     agy_stub.write_text(
         "#!/usr/bin/env bash\n"
+        # The scripts probe `agy --help` for --print-timeout / --log-file before invoking agy,
+        # so an old agy is rejected with its real cause instead of colliding with the scripts'
+        # own exit 2 (agy exits 2 on an unknown flag too). The stub answers that probe without
+        # recording argv — otherwise the "agy must not be called" assertions would see the probe.
+        'if [ "$1" = --help ]; then\n'
+        "  printf '%s\\n' '  --print-timeout  Timeout for print mode wait (default 5m0s)'\n"
+        "  printf '%s\\n' '  --log-file       Override CLI log file path'\n"
+        "  exit 0\n"
+        "fi\n"
         f"printf '%s\\n' \"$@\" > {str(argv_file)!r}\n"
         "log=''; prev=''\n"
         'for a in "$@"; do [ "$prev" = --log-file ] && log="$a"; prev="$a"; done\n'
@@ -418,7 +428,10 @@ class TestAgyTimeoutAndQuotaContract:
             agy_log=_QUOTA_LOG_LINE,
         )
         assert result.returncode == 124, (result.stdout, result.stderr)
-        assert "Individual quota reached" in result.stderr, result.stderr
+        # 逐字斷言整行，而不只是 `Individual quota reached` 子字串：只比對子字串的話，把生產端的
+        # `grep RESOURCE_EXHAUSTED | tail -n 1` 換成寫死的 echo 也會通過，AC-3 要求的「原始 log
+        # 行原樣呈現」（含 429 代碼與重置時間）就無人守著。（Codex R1 提出的存活突變。）
+        assert _QUOTA_LOG_LINE.rstrip("\n") in result.stderr, result.stderr
 
     @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
     def test_agyrun_dt_013_print_timeout_and_log_file_passed(
@@ -460,6 +473,32 @@ class TestAgyTimeoutAndQuotaContract:
         assert result.returncode == 2, (result.stdout, result.stderr)
         assert "[FAIL]" in result.stderr, result.stderr
         assert not (tmp_path / "stub-argv.txt").exists(), "agy must not run on a bad budget"
+
+    @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
+    @pytest.mark.parametrize("budget", ["0", "600", "900"])
+    def test_agyrun_dt_016_out_of_range_budget_rejected_before_agy(
+        self, script: Path, budget: str, tmp_path: Path
+    ) -> None:
+        """AGYRUN-DT-016: the budget's bounds are enforced by code, not only by prose.
+
+        `>= 600` reproduces this PR's own incident shape — the harness kills the script before
+        any `[FAIL]` can print, so the caller sees a bare timeout with no cause. `0` makes the
+        elapsed comparison true for every answer. Both were accepted by DT-014's integer-only
+        check, while the comment, the `[FAIL]` text and both SKILL.md files all claimed the
+        limit existed.
+        """
+        result = _run_agy_script(
+            script,
+            tmp_path,
+            agy_exit=0,
+            agy_stdout="a genuine agy answer, ok",
+            extra_env={"AGY_PRINT_TIMEOUT_SECS": budget},
+        )
+        assert result.returncode == 2, (budget, result.stdout, result.stderr)
+        assert "[FAIL]" in result.stderr, result.stderr
+        assert not (tmp_path / "stub-argv.txt").exists(), (
+            f"budget {budget} reached agy; it must be rejected before the call"
+        )
 
     @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
     def test_agyrun_dt_015_agy_stderr_still_reaches_caller(
@@ -533,6 +572,32 @@ class TestAgyReviewSkillDocContract:
             "Step 1 must state how to parse `base=<branch>` -- run.sh accepts it and the FAQ "
             "advertises it, so leaving it out of the parse table makes the documented override "
             "silently become part of INSTRUCTION while BASE stays auto-detected"
+        )
+
+    @pytest.mark.parametrize(
+        "skill_md", [AGY_CONSULT_SKILL_MD, AGY_REVIEW_SKILL_MD], ids=lambda p: p.parent.name
+    )
+    def test_agydoc_dt_003_no_agy_auth_subcommand(self, skill_md: Path) -> None:
+        """AGYDOC-DT-003: neither SKILL.md may tell the reader to run `agy auth`.
+
+        agy has no `auth` subcommand -- `agy help auth` answers `Error: unknown subcommand:
+        auth` and it is absent from `agy --help`'s subcommand list (probed on agy 1.2.3). Both
+        files carried that instruction in two places each; following it does not complete OAuth
+        and leaves the reader stuck on a command that does not exist. Pinned by a test because
+        nothing else notices a doc regressing: reverting the fix left the whole suite green.
+
+        The negated form ("agy 1.2.3 沒有 `auth` 子命令") and the probe command `agy help auth`
+        are both fine -- only the literal imperative `agy auth` is banned.
+        """
+        text = skill_md.read_text(encoding="utf-8")
+        offenders = [
+            line.strip()
+            for line in text.splitlines()
+            if "agy auth" in line.replace("agy help auth", "")
+        ]
+        assert not offenders, (
+            f"{skill_md.parent.name}/SKILL.md still instructs `agy auth`, which does not exist: "
+            f"{offenders}. Point the reader at plain `agy` (interactive browser OAuth) instead."
         )
 
 

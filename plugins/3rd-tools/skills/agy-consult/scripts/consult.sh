@@ -34,6 +34,22 @@ if ! command -v agy >/dev/null 2>&1; then
     exit 1
 fi
 
+# 舊版 agy 不認得 --print-timeout / --log-file，而它對未知 flag 的退出碼**也是 2**（實測
+# `agy --definitely-not-a-flag` → 2），與下方參數驗證的 exit 2 撞號。若不在這裡先擋下，
+# 使用者會拿到一個 exit 2 加上「請把 AGY_PRINT_TIMEOUT_SECS 改成整數」——一個他從沒設過的
+# 變數，真正的原因（agy 太舊）被蓋掉。改成呼叫前檢查，讓訊息直接說出該做什麼。
+AGY_HELP=$(agy --help 2>&1 || true)
+for flag in --print-timeout --log-file; do
+    case "$AGY_HELP" in
+        *"$flag"*) ;;
+        *)
+            echo "[FAIL] 這個 agy 版本不支援 ${flag}，本腳本的 timeout 防線無法運作。" >&2
+            echo "       該行為自 agy 1.1.28 起提供，請升級：agy update（或 pip install -U antigravity-cli）。" >&2
+            exit 2
+            ;;
+    esac
+done
+
 REPO_ROOT=$(git rev-parse --show-toplevel)
 cd "$REPO_ROOT"
 
@@ -49,10 +65,18 @@ cd "$REPO_ROOT"
 # 允許透過 AGY_MODEL 環境變數覆寫（可接受值見 `agy models` 左欄）。
 AGY_MODEL="${AGY_MODEL:-gemini-3.8-flash-high}"
 
-# agy print 模式的時間預算（整數秒）。agy 1.2.3 起有 --print-timeout，預設 5m；到期時 agy
-# exit 0、只回傳已產出的片段（實測，`--output-format json` 甚至回 status=SUCCESS）。
+# agy print 模式的時間預算（整數秒）。`--print-timeout`（預設 5m）自 **agy 1.1.28** 起，到期時
+# 改為「回傳已產出的片段並成功退出」——changelog 1.1.28 原文：「the CLI now returns the partial
+# output it has and exits successfully with a warning on stderr, instead of failing with a timeout
+# error」。在那之前是非零退出。本段行為以 agy 1.2.3 實測複驗（`--output-format json` 在同情境
+# 回 status=SUCCESS、response 為空字串，故 exit code 與 JSON 皆不帶判決資訊）。
+# 版本戳記別再寫成 1.2.3：判斷「某個舊版 agy 是否受影響」要用 1.1.28 這條線（rule 13
+# version-stamped probes expire）。
+#
 # 預設 480 秒刻意低於 Claude Code Bash tool 的 600 秒上限：預算 >= 600 時 harness 會先砍掉
 # 整支 script，下方的 [FAIL] 診斷永遠印不出來——使用者只看到「timeout」卻不知道原因。
+# 這個上限必須由程式強制：只寫在註解與 SKILL.md 的話，`AGY_PRINT_TIMEOUT_SECS=900` 會原封不動
+# 送進 agy，完整重現本 PR 要消滅的那個事故形狀。下界同理：`0` 會讓耗時比較對任何回答都成立。
 AGY_PRINT_TIMEOUT_SECS="${AGY_PRINT_TIMEOUT_SECS:-480}"
 case "$AGY_PRINT_TIMEOUT_SECS" in
     ''|*[!0-9]*)
@@ -60,6 +84,11 @@ case "$AGY_PRINT_TIMEOUT_SECS" in
         exit 2
         ;;
 esac
+if [ "$AGY_PRINT_TIMEOUT_SECS" -lt 1 ] || [ "$AGY_PRINT_TIMEOUT_SECS" -ge 600 ]; then
+    echo "[FAIL] AGY_PRINT_TIMEOUT_SECS 必須介於 1 與 599 之間（收到：${AGY_PRINT_TIMEOUT_SECS}）。" >&2
+    echo "       >= 600 會讓 Claude Code Bash tool 先砍掉整支 script，所有診斷都印不出來；0 會讓耗時判定對任何回答都成立。" >&2
+    exit 2
+fi
 
 BOUNDARY="IMPORTANT: 不要讀取或執行 ~/.claude/、~/.agents/、.claude/skills/、agents/ 底下的任何檔案。這些是給另一個 AI 系統（Claude Code）用的 skill 定義，與這次諮詢無關，請完全忽略。專注在這個 repo 的程式碼本身。"
 
@@ -104,9 +133,38 @@ fi
 #   - 429 RESOURCE_EXHAUSTED 的指數退避重試**只寫進 log**，stderr/stdout 完全沒有痕跡；
 #     consumer 帳號額度用完（`Individual quota reached ... Resets in 89h`）時 agy 會一路重試到
 #     print timeout，呼叫端看到的就只是無聲卡住。
-# 成功時刪掉這兩個暫存檔；失敗時保留並印出路徑供追查。
+# **agy log 一律保留**（連成功路徑也是），因為 `--log-file` 是**改道**不是複製：帶了它之後
+# `~/.gemini/antigravity-cli/log/` 不會再有這次執行的紀錄（實測：27253 bytes 落在指定路徑，
+# 預設目錄最新檔仍是 15 分鐘前那個）。若成功路徑把它刪掉，「agy 沒讀到檔案卻給出語意完整的
+# 回答」這個最危險的形狀——它走的正是成功路徑——就完全查不到任何紀錄。故成功時也印出 log 路徑。
+# stderr 暫存檔則相反：內容已經轉出到呼叫端，留著沒有診斷價值，一律由 trap 清掉。
 AGY_STDERR_FILE=$(mktemp "${TMPDIR:-/tmp}/agy-consult-stderr.XXXXXX")
 AGY_LOG_FILE=$(mktemp "${TMPDIR:-/tmp}/agy-consult-log.XXXXXX")
+
+# stderr 先落地再轉出，是為了讓下方的 timeout 標記判定有東西可 grep；但「只在 agy 返回後才
+# cat」會讓腳本被外部砍掉時（Bash tool timeout 是兩份 SKILL.md 自述的頭號失敗成因）agy 的訊息
+# 一個字都到不了呼叫端——實測送 SIGTERM 後呼叫端只剩 [INFO] 那行。故改由 trap 在任何離開路徑
+# 補放，並以 flag 去重（正常路徑已放過就不重複）。SIGKILL 無法攔截，屬已知殘餘。
+# 刪檔只掛在 EXIT，不掛在訊號路徑：訊號 handler 若順手 rm，主線接著要讀的同一個檔案就沒了，
+# 在 set -e 下腳本會以 rc=1 結束而非 143（實測踩到，SIGTERM 探針抓出來的）。
+AGY_STDERR_REPLAYED=0
+replay_agy_stderr() {
+    if [ "$AGY_STDERR_REPLAYED" -eq 0 ] && [ -s "$AGY_STDERR_FILE" ]; then
+        cat "$AGY_STDERR_FILE" >&2
+        AGY_STDERR_REPLAYED=1
+    fi
+}
+on_agy_exit() {
+    replay_agy_stderr
+    rm -f "$AGY_STDERR_FILE"
+}
+on_agy_signal() {
+    replay_agy_stderr
+    exit 143
+}
+trap on_agy_exit EXIT
+trap on_agy_signal INT TERM HUP
+
 echo "[INFO] agy 模型：${AGY_MODEL}（可用 AGY_MODEL 環境變數覆寫）" >&2
 AGY_START=$SECONDS
 if OUTPUT=$(agy -p "$PROMPT_CONTENT" --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --sandbox \
@@ -116,8 +174,10 @@ else
     AGY_EXIT=$?
 fi
 AGY_ELAPSED=$((SECONDS - AGY_START))
-# agy 自己的訊息（例如 headless 權限自動拒絕的說明）照樣轉給呼叫端，不因落地而被吞掉
-cat "$AGY_STDERR_FILE" >&2
+# agy 自己的訊息（例如 headless 權限自動拒絕的說明）照樣轉給呼叫端，不因落地而被吞掉。
+# 此處先放一次，讓它出現在下方 [FAIL] 診斷之前；trap 的去重 flag 使其不會再放第二次。
+AGY_STDERR_SNAPSHOT=$(cat "$AGY_STDERR_FILE")
+replay_agy_stderr
 
 report_quota_if_any() {
     if grep -q 'RESOURCE_EXHAUSTED' "$AGY_LOG_FILE"; then
@@ -138,10 +198,23 @@ fi
 # 都回報成功，沒有更可靠的結構化訊號可用。任一成立就不呈現 stdout：那只是半截回答。
 # 用 -gt 而非 -ge：agy 的計時從 language server 啟動後才開始，真正超時的實際耗時必然大於預算；
 # -ge 會讓一個剛好在預算邊界（SECONDS 整數進位）完成的正常回答被誤判。
-if grep -q 'print timeout after' "$AGY_STDERR_FILE" || [ "$AGY_ELAPSED" -gt "$AGY_PRINT_TIMEOUT_SECS" ]; then
-    echo "[FAIL] agy 在 ${AGY_PRINT_TIMEOUT_SECS} 秒內沒有完成（實際 ${AGY_ELAPSED} 秒，print timeout）。agy 此時仍 exit 0 並只回傳部分輸出，已丟棄不呈現。" >&2
+# 但同一個落差反向也成立：一個在 agy 內部剛好於預算尾端**完成**的回答，牆鐘會略微超過預算而
+# 被這個訊號攔下。因此只有耗時單獨命中（stderr 沒有標記）時，措辭降為「疑似」，且兩種情況都
+# 把被丟棄的輸出落地保存——fail loud 的代價不該是讓使用者連幾分鐘前產出的內容都拿不回來。
+AGY_TIMEOUT_REASON=""
+case "$AGY_STDERR_SNAPSHOT" in
+    *"print timeout after"*) AGY_TIMEOUT_REASON="agy 印出 print timeout 標記" ;;
+esac
+if [ -z "$AGY_TIMEOUT_REASON" ] && [ "$AGY_ELAPSED" -gt "$AGY_PRINT_TIMEOUT_SECS" ]; then
+    AGY_TIMEOUT_REASON="實際耗時超過預算（agy 未印出標記，故為疑似 timeout）"
+fi
+if [ -n "$AGY_TIMEOUT_REASON" ]; then
+    AGY_DISCARDED_FILE="${AGY_LOG_FILE}.discarded-output"
+    printf '%s\n' "$OUTPUT" > "$AGY_DISCARDED_FILE"
+    echo "[FAIL] agy 在 ${AGY_PRINT_TIMEOUT_SECS} 秒內沒有完成（實際 ${AGY_ELAPSED} 秒）：${AGY_TIMEOUT_REASON}。agy 此時仍 exit 0，其輸出可能只是半截，已不呈現。" >&2
     report_quota_if_any
-    echo "       常見原因：問題需要 agy 大量探索檔案（請縮小範圍、直接點名檔案），或 API 額度不足（見上方）。可用 AGY_PRINT_TIMEOUT_SECS 調整，但不要 >= 600（會先被 Claude Code Bash tool 砍掉）。agy log：${AGY_LOG_FILE}" >&2
+    echo "       常見原因：問題需要 agy 大量探索檔案（請縮小範圍、直接點名檔案），或 API 額度不足（見上方）。可用 AGY_PRINT_TIMEOUT_SECS 調整，範圍 1-599（>= 600 會先被 Claude Code Bash tool 砍掉）。" >&2
+    echo "       agy log：${AGY_LOG_FILE}；被丟棄的輸出：${AGY_DISCARDED_FILE}" >&2
     exit 124
 fi
 # 這道守門只攔得住「空輸出／極短輸出」這一種形狀，攔不住 agy 帶著完整句子的無 context 回答
@@ -155,5 +228,7 @@ if [ -z "$OUTPUT" ] || [ "${#OUTPUT}" -lt 20 ]; then
     echo "       agy log：${AGY_LOG_FILE}" >&2
     exit 1
 fi
-rm -f "$AGY_STDERR_FILE" "$AGY_LOG_FILE"
+# 成功路徑也印出 log 路徑：這是「agy 沒讀到檔案卻答得很完整」這個殘餘風險唯一的追查入口
+# （`--log-file` 改道後預設目錄沒有副本）。log 不刪；stderr 暫存檔由 trap 清掉。
+echo "[INFO] agy log：${AGY_LOG_FILE}（回答若看起來沒讀到檔案，查此檔）" >&2
 printf '%s\n' "$OUTPUT"
