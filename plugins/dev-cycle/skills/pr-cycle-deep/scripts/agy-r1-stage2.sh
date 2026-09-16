@@ -8,15 +8,23 @@
 #
 # 副作用：
 #   - gemini-r1.json 寫到 $WT_ROOT/.pr-review/
-#   - stderr log 寫到 $WT_ROOT/.pr-review/gemini-r1.extract.log
+#   - stderr log 寫到 $WT_ROOT/.pr-review/gemini-r1.extract.log；agy log 寫到 gemini-r1.extract.agy.log
+#   - print timeout 時半截輸出改名為 gemini-r1.json.timeout-partial.tmp（0600，issue #443）
 #   - 暫存 gemini-extract-input.md（完成後自動刪除）
 #
-# 退出碼：0 成功；非零失敗（每種失敗都附 [FAIL] stderr 訊息）。
+# 退出碼：0 成功；124 agy print timeout（輸出不完整）；2 AGY_PRINT_TIMEOUT_SECS 不合法；
+# 其他非零為其餘失敗（每種失敗都附 [FAIL] stderr 訊息）。
 
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 EXTRACT_PROMPT=~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md
+
+# 時間預算（issue #443）：agy 自 1.1.28 起 print timeout 到期時回傳半截輸出並 exit 0，
+# 預算與偵測的完整理由與實測見 agy_print_timeout.py。預算在碰 agy 之前驗證，不合法時 exit 2。
+if ! AGY_PRINT_TIMEOUT_SECS=$(python3 "$SCRIPT_DIR/agy_print_timeout.py" budget); then
+    exit 2
+fi
 
 # issue #153 fix 2：清掉殘留的 agy scratch input，避免 agentic 檔案搜尋撈到 stale input。
 # 不吞掉真實失敗（如權限錯誤）——清理失敗代表 stale-input 防線失效，須讓使用者看到 [WARN]。
@@ -78,15 +86,35 @@ if [ "$EXTRACT_BYTES" -gt 256000 ]; then
     exit 1
 fi
 EXTRACT_CONTENT=$(cat "$REVIEW_DIR/gemini-extract-input.md")
+AGY_START=$SECONDS
 if ! agy -p "$EXTRACT_CONTENT" \
     --model 'Gemini 3.8 Flash (High)' \
     --add-dir "$WT_ROOT" \
     --sandbox \
-    --print-timeout 10m \
+    --print-timeout "${AGY_PRINT_TIMEOUT_SECS}s" \
+    --log-file "$REVIEW_DIR/gemini-r1.extract.agy.log" \
     > "$TMP_JSON" \
     2>"$REVIEW_DIR/gemini-r1.extract.log"; then
     echo "[FAIL] agy extract 失敗，請查看 $REVIEW_DIR/gemini-r1.extract.log" >&2
     rm -f "$REVIEW_DIR/gemini-extract-input.md" "$TMP_JSON"
+    exit 1
+fi
+AGY_ELAPSED=$((SECONDS - AGY_START))
+
+# issue #443：逾時判定在 fail-loud 驗證與 JSON 萃取之前，否則逾時的空輸出會被誤報成
+# 「找不到有效的 JSON」。逾時時 helper 已把半截輸出改名移開，EXIT trap 只清 input 暫存檔。
+TIMEOUT_CHECK_EXIT=0
+python3 "$SCRIPT_DIR/agy_print_timeout.py" check \
+    --raw "$TMP_JSON" \
+    --stderr-log "$REVIEW_DIR/gemini-r1.extract.log" \
+    --agy-log "$REVIEW_DIR/gemini-r1.extract.agy.log" \
+    --elapsed-secs "$AGY_ELAPSED" \
+    --budget-secs "$AGY_PRINT_TIMEOUT_SECS" \
+    --label "agy R1 Stage 2" || TIMEOUT_CHECK_EXIT=$?
+if [ "$TIMEOUT_CHECK_EXIT" -eq 1 ]; then
+    exit 124
+elif [ "$TIMEOUT_CHECK_EXIT" -ne 0 ]; then
+    echo "[FAIL] agy R1 Stage 2 的 timeout 檢查本身失敗（exit ${TIMEOUT_CHECK_EXIT}），無法確認輸出是否完整" >&2
     exit 1
 fi
 
