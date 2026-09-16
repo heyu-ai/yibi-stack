@@ -1,4 +1,4 @@
-"""Tests for the codex shell scripts (codex-r1-stage1).
+"""Tests for the codex shell scripts (codex-r1-stage1, codex-r1-stage2, codex-r2).
 
 Two layers, mirroring test_agy_scripts.py / test_setup_review_dir.py:
   * Static contract tests -- read the script source and assert the skill-hijack guard
@@ -40,6 +40,13 @@ CODEX_BOUNDARY_SKILLS = (
 # (priority 1, "Latest frontier agentic coding model"), not from developers.openai.com/codex,
 # whose docs still listed gpt-5.5 as top days after the GPT-5.6 release.
 _FRONTIER_MODEL = "gpt-5.6-sol"
+
+# The extract stage (raw markdown -> JSON) is a mechanical transform, so it pins a cheap model
+# rather than the frontier tier. Sourced from ~/.codex/models_cache.json on codex-cli 0.149.0
+# ("Fast and affordable agentic coding model"). issue #444: leaving it unpinned made the stage
+# inherit ~/.codex/config.toml, whose model can be one the local CLI does not support.
+_EXTRACT_MODEL = "gpt-5.6-luna"
+STAGE2 = SCRIPTS_DIR / "codex-r1-stage2.sh"
 
 # The sensitive path prefixes the guard prompt must name (mirrors the canonical guard in
 # plugins/3rd-tools/skills/codex-review/SKILL.md). `agents/` is asserted separately as a standalone
@@ -160,17 +167,35 @@ class TestCodexGuardContract:
             f"{script.name}: codex exec must pin -m {_FRONTIER_MODEL}"
         )
 
-    def test_cdxs_dt_011_extract_stage_is_not_pinned_to_frontier(self) -> None:
-        """CDXS-DT-011: the extract stage does NOT pin the frontier model.
+    def test_cdxs_dt_011_extract_stage_pins_cheap_model_not_frontier(self) -> None:
+        """CDXS-DT-011: the extract stage pins a cheap model, not the frontier model.
 
         Stage 2 only reshapes stage 1's raw markdown into JSON -- no reasoning. Pinning the
-        frontier tier there would burn the expensive model on a mechanical transform. This
-        asserts the asymmetry is deliberate, so a later "make it consistent" refactor has to
-        confront the intent rather than silently upgrading the cheap stage.
+        frontier tier there would burn the expensive model on a mechanical transform, so the
+        asymmetry with stages 1/R2 is deliberate.
+
+        It must still pin *something* (issue #444): the earlier "do not pin at all" contract let
+        the stage inherit ~/.codex/config.toml, and a config model the local codex-cli does not
+        support (gpt-6-astra on 0.149.0) failed every extract with a 400. Unpinned also did not
+        keep the stage cheap -- it ran whatever tier the local config named.
+
+        Comment lines are skipped (parity with DT-007): the script's own explanatory comment
+        names both flags, and a mutation that dropped `--ignore-user-config` from the exec
+        line alone still passed this check before comments were excluded.
         """
-        src = (SCRIPTS_DIR / "codex-r1-stage2.sh").read_text(encoding="utf-8")
+        src = "\n".join(
+            line
+            for line in STAGE2.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
+        )
         assert f"-m {_FRONTIER_MODEL}" not in src, (
             "extract stage must not pin the frontier model; it is a mechanical transform"
+        )
+        assert f"-m {_EXTRACT_MODEL}" in src, (
+            f"extract stage must pin -m {_EXTRACT_MODEL} instead of inheriting local config"
+        )
+        assert "--ignore-user-config" in src, (
+            "extract stage must not load ~/.codex/config.toml (issue #444)"
         )
 
     def test_cdxs_dt_007_stage1_does_not_fetch(self) -> None:
@@ -397,3 +422,70 @@ class TestStage1Behavioral:
         )
         assert res.returncode != 0
         assert "[FAIL]" in res.stderr and "codex-r1-raw.md" in res.stderr
+
+
+class TestStage2Behavioral:
+    def test_cdxs_st_009_extract_argv_ignores_user_config(self, tmp_path: Path) -> None:
+        """CDXS-ST-009: stage 2 invokes codex with --ignore-user-config and -m gpt-5.6-luna.
+
+        issue #444: the static DT-011 check reads the script text, which a comment could
+        satisfy. This records the argv codex actually receives. The fake codex also fails
+        unless both flags are present, mirroring the real 400 an unsupported inherited
+        config model produced -- so a regression shows up as a stage failure, not only as
+        a missing token.
+        """
+        if not STAGE2.exists():
+            pytest.skip("codex-r1-stage2.sh not found")
+
+        home = tmp_path / "home"
+        prompts = home / ".agents" / "skills" / "pr-cycle-deep" / "prompts"
+        prompts.mkdir(parents=True)
+        (prompts / "extract-r1.md").write_text("Extract JSON.\n", encoding="utf-8")
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _git(repo, "init", "-q")
+        review = repo / ".pr-review"
+        review.mkdir()
+        (review / "codex-r1-raw.md").write_text(
+            "## Summary\nok\n## Verdict\nLGTM\n", encoding="utf-8"
+        )
+
+        argv_capture = tmp_path / "argv.txt"
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        codex = bindir / "codex"
+        codex.write_text(
+            (
+                "#!/usr/bin/env bash\n"
+                'printf "%s\\n" "$@" > "$CODEX_ARGV_CAPTURE"\n'
+                "cat > /dev/null\n"
+                'case " $* " in *" --ignore-user-config "*) ;; *)\n'
+                '  echo "ERROR: 400 model requires a newer version of Codex" >&2; exit 1 ;; esac\n'
+                'case " $* " in *" -m gpt-5.6-luna "*) ;; *)\n'
+                '  echo "ERROR: 400 model requires a newer version of Codex" >&2; exit 1 ;; esac\n'
+                'echo \'{"verdict": "LGTM", "summary": "ok", "findings": []}\'\n'
+            ),
+            encoding="utf-8",
+        )
+        codex.chmod(0o755)
+
+        env = {
+            **os.environ,
+            "HOME": str(home),
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "CODEX_ARGV_CAPTURE": str(argv_capture),
+        }
+        res = subprocess.run(  # nosec B603
+            ["bash", str(STAGE2)], cwd=str(repo), capture_output=True, text=True, env=env
+        )
+
+        assert res.returncode == 0, res.stderr
+        argv = argv_capture.read_text(encoding="utf-8").splitlines()
+        assert argv[0] == "exec"
+        assert "--ignore-user-config" in argv
+        assert argv[argv.index("-m") + 1] == _EXTRACT_MODEL
+        assert _FRONTIER_MODEL not in argv
+        assert (review / "codex-r1.json").read_text(encoding="utf-8").strip()
