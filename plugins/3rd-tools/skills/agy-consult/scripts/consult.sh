@@ -89,7 +89,7 @@ fi
 # `agy --help` 也是一次 agy 呼叫——把它排在驗證之前，無效參數就得先等 agy 啟動（它若卡住，
 # 連錯誤都報不出來）。舊版 agy 不認得 --print-timeout / --log-file，且它對未知 flag 的退出碼
 # **也是 2**（實測 `agy --definitely-not-a-flag` → 2），與上方驗證的 exit 2 撞號；不先擋下的話，
-# 使用者會拿到「請把 AGY_PRINT_TIMEOUT_SECS 改成整數」——一個他從沒設過的變數。
+# 那個 2 會被當成「agy 執行失敗」原樣轉出，真正的原因（agy 太舊、該升級）沒有任何地方說。
 AGY_HELP=$(agy --help 2>&1 || true)
 for flag in --print-timeout --log-file; do
     case "$AGY_HELP" in
