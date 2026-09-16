@@ -544,8 +544,8 @@ The script takes no base-branch argument — it reviews the shared `$REVIEW_DIR/
 Step 3.1 already produced, so all three voices review the identical diff. Raw output lands in
 `codex-r1-raw.md` — **do not read it in the main context**.
 
-The script pins `-m gpt-5.6-sol` (codex-cli >= 0.144) instead of local config. If the stage log says
-the model needs a newer Codex, run `codex update`; confirm frontier slugs in `models_cache.json`.
+Stage 1 pins `-m gpt-5.6-sol` (codex-cli >= 0.144); the Stage 2 extract pins the cheaper `-m gpt-5.6-luna` plus `--ignore-user-config` (issue #444).
+Neither takes the model from local config. If a log says the model needs a newer Codex, run `codex update`; confirm slugs in `models_cache.json`.
 
 ###### Stage 2: Extract (compress verbose raw markdown into structured JSON)
 

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.2] - 2026-09-16
+
+### Fixed
+
+- pr-cycle-deep：Codex extract（`codex-r1-stage2.sh`）改為 `--ignore-user-config -m gpt-5.6-luna`，不再繼承 `~/.codex/config.toml`；先前 config 的 model 不被本機 codex-cli 支援時（實測 0.149.0 搭 `gpt-6-astra`）每次 extract 都回 400，整個 stage 失敗（#444）
+
 ## [1.22.1] - 2026-09-15
 
 ### Fixed
