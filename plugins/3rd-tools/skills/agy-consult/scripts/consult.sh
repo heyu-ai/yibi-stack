@@ -77,7 +77,7 @@ case "$AGY_PRINT_TIMEOUT_SECS" in
 esac
 # 先擋長度再做數值比較：`[ "$v" -lt 1 ]` 對超出 shell 整數範圍的值會以「integer expression
 # expected」錯誤返回，而它位在 if 條件裡不受 set -e 管，於是兩個比較都失敗、條件為假——
-# 超大值反而被放行（實測 999999999999999999999999 → PASSED-THROUGH）。上限 599 只有三位數，
+# 超大值反而被放行（實測 999999999999999999999999 → PASSED-THROUGH）。上限 570 只有三位數，
 # 所以長度就是安全的前置判準。
 case "$AGY_PRINT_TIMEOUT_SECS" in
     ???|??|?) ;;
