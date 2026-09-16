@@ -919,17 +919,37 @@ class TestCleanWtApplyGates:
         """CWT-EG-008: 刪除失敗時 --apply 必須 exit 1，不得印成功後 exit 0。
 
         前一版的刪除迴圈跑在 pipeline 的 subshell 裡，失敗旗標傳不回主 shell，
-        於是任何失敗都被吞掉。locked worktree 是最容易觸發的真實情境。
+        於是任何失敗都被吞掉。
+
+        fixture 原本用 locked worktree 觸發失敗；locked worktree 現在分類時就歸 KEEP
+        （EG-023），走不到刪除，因此改用 git wrapper 讓 `worktree remove` 失敗。
         """
+        env_base = _env(tmp_path)
+        wt = tmp_path / "unremovable-wt"
+        _git(repo, "worktree", "add", "-q", "-b", "stuck-branch", str(wt), "HEAD", env=env_base)
+
+        real_git = shutil.which("git")
+        assert real_git, "fixture 失效：找不到 git"
+        git_stub = f"""#!/usr/bin/env bash
+PREV=""
+for a in "$@"; do
+  if [ "$PREV" = "worktree" ] && [ "$a" = "remove" ]; then
+    echo "fake worktree remove failure" >&2
+    exit 1
+  fi
+  PREV="$a"
+done
+exec "{real_git}" "$@"
+"""
+        _mkstub(tmp_path / "stubbin", "git", git_stub)
         env = _env(tmp_path)
-        wt = tmp_path / "locked-wt"
-        _git(repo, "worktree", "add", "-q", "-b", "locked-branch", str(wt), "HEAD", env=env)
-        _git(repo, "worktree", "lock", str(wt), env=env)
 
         r = _run(repo, env, "--apply")
 
+        # fixture 自我驗證：它確實被分類成 SAFE，失敗真的發生在刪除階段
+        assert "stuck-branch" in _section(r.stdout, "SAFE"), r.stdout
         assert r.returncode == 1, f"刪除失敗必須 exit 1:\n{r.stdout}\n{r.stderr}"
-        assert "locked-branch" in _git(repo, "branch", "--format=%(refname:short)", env=env)
+        assert "stuck-branch" in _git(repo, "branch", "--format=%(refname:short)", env=env_base)
 
 
 class TestCleanWtDeleteRace:
@@ -1096,6 +1116,116 @@ exec "{real_git}" "$@"
             f"\n{r.stdout}\n{r.stderr}"
         )
         assert r.returncode == 1, f"移除被拒必須 exit 1:\n{r.stdout}\n{r.stderr}"
+
+
+class TestCleanWtActiveSession:
+    """正在被別的 session 使用的 worktree 絕不可刪。
+
+    迴歸（2026-09-16 實測）：一個 background session 在 17:49:44 建立 worktree
+    `fix-444-codex-extract-pin`（`git worktree add --lock`，分支停在 main 的 commit 上），
+    幾秒內使用者跑了 `--apply`。腳本在 fetch/gh **之前**拍 worktree 快照、之後才列舉分支，
+    於是這個分支出現在分支清單、卻不在快照裡 -> 沒被檢查 -> E1 成立 -> 刪除前的佔用檢查
+    讀的是同一份過期快照 -> `update-ref -d` 刪掉了活躍 session 的分支。
+    """
+
+    def test_cwt_eg_023_locked_worktree_is_kept(self, repo: Path, tmp_path: Path) -> None:
+        """CWT-EG-023: 被 lock 的乾淨 worktree -> KEEP，即使分支內容已在 main（E1 成立）。"""
+        env = _env(tmp_path)
+        wt = tmp_path / "locked-wt"
+        _git(repo, "worktree", "add", "-q", "--lock", "-b", "busy-branch", str(wt), "HEAD", env=env)
+        # fixture 自我驗證：真的被 lock
+        assert "locked" in _git(repo, "worktree", "list", "--porcelain", env=env)
+
+        r = _run(repo, env, "--apply")
+
+        assert r.returncode == 0, f"locked worktree 不是刪除失敗:\n{r.stdout}\n{r.stderr}"
+        assert "busy-branch" in _section(r.stdout, "KEEP"), r.stdout
+        assert "busy-branch" not in _section(r.stdout, "SAFE"), r.stdout
+        assert wt.is_dir()
+        assert "busy-branch" in _git(repo, "branch", "--format=%(refname:short)", env=env)
+
+    def test_cwt_eg_024_worktree_created_during_gh_query_is_seen(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-EG-024: 在 fetch/gh 期間才建立的 locked worktree 必須被分類看到。
+
+        注入點：gh stub 的 `--state open` 查詢——它落在腳本啟動之後、列舉分支之前，
+        正是事故中「分支已存在、worktree 快照卻沒有它」的窗口。
+        """
+        env_base = _env(tmp_path)
+        wt = tmp_path / "session-wt"
+        marker = tmp_path / "gh-injected"
+        real_git = shutil.which("git")
+        assert real_git, "fixture 失效：找不到 git"
+        gh_stub = f"""#!/usr/bin/env bash
+PREV=""
+for a in "$@"; do
+  if [ "$PREV" = "--state" ] && [ "$a" = "open" ] && [ ! -f "{marker}" ]; then
+    : > "{marker}"
+    "{real_git}" -C "{repo}" worktree add -q --lock -b session-branch "{wt}" HEAD >/dev/null 2>&1
+  fi
+  PREV="$a"
+done
+exit 0
+"""
+        _mkstub(tmp_path / "stubbin", "gh", gh_stub)
+
+        r = _run(repo, env_base, "--apply")
+
+        assert marker.is_file(), "fixture 失效：gh stub 沒被呼叫到 `--state open`"
+        assert wt.is_dir(), "fixture 失效：注入的 worktree 沒建立"
+        assert "session-branch" in _git(
+            repo, "branch", "--format=%(refname:short)", env=env_base
+        ), f"活躍 session 的分支被刪了:\n{r.stdout}\n{r.stderr}"
+        assert "session-branch" in _section(r.stdout, "KEEP"), r.stdout
+
+    def test_cwt_eg_025_worktree_attached_after_classification_blocks_ref_delete(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-EG-025: 分類時沒有 worktree、刪除前才被 checkout 的分支 -> 不得刪 ref。
+
+        `update-ref -d` 不像 `branch -D` 會拒絕被 worktree 佔用的分支，所以刪除前的
+        佔用檢查是唯一防線——它必須**當下重新讀取** worktree 清單，不能用分類時的快照。
+
+        注入點：git wrapper 攔截 aaa-first 的 `worktree remove`，替 zzz-late（無 worktree、
+        SAFE）掛上一個 locked worktree。前綴 aaa-/zzz- 確保處理順序。
+        """
+        env_base = _env(tmp_path)
+        wt_a = tmp_path / "wt-aaa"
+        wt_late = tmp_path / "wt-late-attach"
+        _git(repo, "worktree", "add", "-q", "-b", "aaa-first", str(wt_a), "HEAD", env=env_base)
+        _git(repo, "branch", "zzz-late", "HEAD", env=env_base)
+
+        marker = tmp_path / "attach-injected"
+        real_git = shutil.which("git")
+        assert real_git, "fixture 失效：找不到 git"
+        git_stub = f"""#!/usr/bin/env bash
+IS_WT_REMOVE=0
+PREV=""
+for a in "$@"; do
+  if [ "$PREV" = "worktree" ] && [ "$a" = "remove" ]; then IS_WT_REMOVE=1; fi
+  PREV="$a"
+done
+if [ "$IS_WT_REMOVE" = "1" ] && [ ! -f "{marker}" ]; then
+  : > "{marker}"
+  "{real_git}" -C "{repo}" worktree add -q --lock "{wt_late}" zzz-late >/dev/null 2>&1
+fi
+exec "{real_git}" "$@"
+"""
+        _mkstub(tmp_path / "stubbin", "git", git_stub)
+        env = _env(tmp_path)
+
+        r = _run(repo, env, "--apply")
+
+        assert marker.is_file(), "fixture 失效：git stub 沒攔到 worktree remove"
+        assert wt_late.is_dir(), "fixture 失效：注入的 worktree 沒建立"
+        # fixture 自我驗證：分類時 zzz-late 確實是 SAFE（否則走不到刪除前檢查）
+        assert "zzz-late" in _section(r.stdout, "SAFE"), r.stdout
+        assert "zzz-late" in _git(repo, "branch", "--format=%(refname:short)", env=env_base), (
+            f"分類後才被 checkout 的分支被刪了:\n{r.stdout}\n{r.stderr}"
+        )
+        assert "仍被 worktree 佔用" in r.stderr, r.stderr
+        assert r.returncode == 1, f"略過項目必須 exit 1:\n{r.stdout}\n{r.stderr}"
 
 
 class TestCleanWtRemoteNote:

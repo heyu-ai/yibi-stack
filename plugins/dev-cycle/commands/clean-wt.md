@@ -49,7 +49,7 @@ bash ~/.claude/commands/scripts/clean_wt.sh --apply $ARGUMENTS
 | 分類 | 意義 | `--apply` 會刪嗎 |
 |------|------|-----------------|
 | **SAFE** | 有**正面證據**證明內容已在 `origin/main` | 會 |
-| **KEEP** | open PR、主 repo 目前 checkout 的分支、或**呼叫端所在的分支** | 不會 |
+| **KEEP** | open PR、主 repo 目前 checkout 的分支、**呼叫端所在的分支**、或 worktree **被 lock**（有 session 正在使用） | 不會 |
 | **BLOCKED** | 其 worktree 有未提交／untracked 變更，或狀態根本讀不到 | 不會 |
 | **REVIEW** | 拿不到證據（附年齡與獨有 commit 數供判斷） | 不會 |
 
@@ -195,6 +195,15 @@ worktree 一起消失。這是刻意接受的取捨——worktree 是暫時的�
   不擋刪除，但會反映在 exit code。此工具只存在於本 repo，在別的專案安靜跳過；但「module 在
   而 `uv` 不在」是錯誤狀態，會出聲 `[WARN]`。
 - **刪除前立即重掃**：分類到刪除之間有窗口，期間若 worktree 出現未提交變更，該項會被略過。
+- **被 lock 的 worktree 一律 KEEP**：Claude Code 的 background session 建立 worktree 時會
+  `git worktree add --lock`。剛開工的 session 分支停在 main 的 commit 上，E1 必然成立——
+  在證據上與「已合併的殘留」一模一樣，只有 lock 能分辨。
+- **worktree 清單一律「當下」讀取，不沿用舊快照**（2026-09-16 實測事故）：舊版在 fetch／gh
+  **之前**拍 worktree 快照、之後才列舉分支。另一個 session 恰好在這幾秒內建立的
+  branch + worktree 出現在分支清單、卻不在快照裡，於是沒被檢查就歸 SAFE；刪除前的「仍被
+  佔用」檢查讀的也是同一份過期快照，最後 `update-ref -d` 刪掉了活躍 session 的分支。
+  現在分類時的快照在列舉分支**之後**才拍，刪 ref 前也會再讀一次。
+  殘留窗口：刪除前重讀與 `update-ref -d` 之間仍有極短的間隔（兩個連續 git 指令），無法完全消除。
 
 ## FAQ
 
