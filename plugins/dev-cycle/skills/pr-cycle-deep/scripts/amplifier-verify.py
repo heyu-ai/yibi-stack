@@ -6,9 +6,12 @@ Exit codes:
   0 — the PR touches only archived material, or names a change that has since been
       archived (finished work; nothing to gate)
   0 — all TCs traced (only INFO gaps; non-blocking)
+  0 — testplan.md missing on a change whose proposal.md `type:` does not require one
+      (eng / ops / bug / poc / docs); printed as [WARN] and the TC check is skipped
   1 — MUST findings (missing spec: trace on test that targets a TC) — blocks merge
   1 — SHOULD findings only (coverage gap; printed as [WARN]; document reason before deferring)
-  2 — fatal error: change directory not found, testplan.md missing, testplan contains no TC
+  2 — fatal error: change directory not found, testplan.md missing on a feat / refactor change
+      (or one whose `type:` cannot be read), testplan contains no TC
       table, a `gh` / `git` invocation failed (binary not found, timed out, or non-zero),
       metadata snapshot inconsistency (pre/post PR refs changed during scan), file count
       mismatch (API record count != changedFiles), or checkout HEAD/PR headRefOid skew
@@ -373,6 +376,53 @@ _CHANGE_ROOTS = ("openspec/changes", "docs/openspec/changes")
 _ARCHIVE_SEGMENT = "archive"
 _ARCHIVE_DATE_PREFIX_RE = r"\d{4}-\d{2}-\d{2}-"
 _TESTPLAN_NAME = "testplan.md"
+_PROPOSAL_NAME = "proposal.md"
+
+# 缺 testplan.md 時依 proposal.md frontmatter 的 `type:` 分級。只有這兩類必須附 testplan；
+# 其餘已知類型缺檔只警告。讀不到 type、或值不在兩個清單內，一律比照「必須」處理：
+# 若改成放行，「忘了寫 frontmatter」就會變成繞過 gate 的方式。
+_TYPES_REQUIRING_TESTPLAN = frozenset({"feat", "refactor"})
+_TYPES_WITH_OPTIONAL_TESTPLAN = frozenset({"eng", "ops", "bug", "poc", "docs"})
+_FRONTMATTER_DELIMITER = "---"
+_FRONTMATTER_TYPE_RE = re.compile(r"^type:(.*)$")
+
+
+def read_change_type(change_dir: Path) -> str | None:
+    """讀取 change 目錄內 proposal.md frontmatter 的 `type:`，讀不到時回傳 None。
+
+    只接受檔案第一行為 `---`、且有對應結束行 `---` 的 frontmatter；結束行之後或正文裡出現的
+    `type:` 不算數，沒有結束行的 frontmatter 也不算數。回傳值已去除引號、行尾註解並轉小寫，
+    但不檢查是否為已知類型——分級由呼叫端決定。
+
+    有疑義一律回 None（呼叫端據此硬擋），因為這個函式的輸出會決定 gate 放不放行：
+    分隔線要求頂格，與 YAML frontmatter 的定義一致——接受縮排的 `  ---` 會讓 canonical 工具
+    判定「沒有 frontmatter」的檔案在這裡被判成某個類型並放行；重複的 `type:` 鍵同理，
+    YAML 是後者勝，但那是典型的可疑形狀，不該用來放行。
+    """
+    proposal = change_dir / _PROPOSAL_NAME
+    try:
+        text = proposal.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    lines = text.splitlines()
+    if not lines or lines[0] != _FRONTMATTER_DELIMITER:
+        return None
+
+    change_type: str | None = None
+    seen_type_key = False
+    for line in lines[1:]:
+        if line == _FRONTMATTER_DELIMITER:
+            return change_type
+        match = _FRONTMATTER_TYPE_RE.match(line)
+        if match is None:
+            continue
+        if seen_type_key:
+            return None  # 重複的 type 鍵：有疑義，不放行
+        seen_type_key = True
+        value = re.split(r"\s+#", match.group(1), maxsplit=1)[0].strip().strip("\"'").strip()
+        change_type = value.lower() or None
+    return None  # frontmatter 沒有結束行
 
 
 @dataclass
@@ -976,13 +1026,31 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    print(f"[OK]   spectra change detected: {change_name}")
-
     assert location.active_dir is not None  # nosec B101 — implied by is_active
+    # 無條件印出解析到的 type：它決定本次 gate 放不放行，而值是作者自填、無交叉驗證的，
+    # 只在豁免路徑才印會讓標錯類型的 change 在其他路徑完全看不出來。
+    change_type = read_change_type(location.active_dir)
+    print(f"[OK]   spectra change detected: {change_name} (type: {change_type or 'unknown'})")
+
     testplan_path = location.active_dir / _TESTPLAN_NAME
     if not testplan_path.is_file():
+        if change_type in _TYPES_WITH_OPTIONAL_TESTPLAN:
+            print(
+                f"[WARN] {_TESTPLAN_NAME} not found for change '{change_name}'"
+                f" (type '{change_type}' does not require one); skipping the TC traceability check."
+            )
+            sys.exit(0)
+        if change_type in _TYPES_REQUIRING_TESTPLAN:
+            type_note = f"type '{change_type}' requires a testplan"
+        elif change_type is None:
+            type_note = (
+                f"no `type:` could be read from {_PROPOSAL_NAME} frontmatter;"
+                " treated as requiring a testplan"
+            )
+        else:
+            type_note = f"unrecognised type '{change_type}'; treated as requiring a testplan"
         print(
-            f"[FAIL] {_TESTPLAN_NAME} not found for change '{change_name}'."
+            f"[FAIL] {_TESTPLAN_NAME} not found for change '{change_name}' ({type_note})."
             f" Expected at {testplan_path.relative_to(repo_root)}",
             file=sys.stderr,
         )
@@ -994,6 +1062,14 @@ def main() -> None:
     slug_conflicts: list[tuple[str, str, str]] = []
     tc_rows = parse_tc_table(testplan_text, conflicts_out=slug_conflicts)
     if not tc_rows:
+        # 同一張 type 表也要套在這裡，否則誘因是反的：不需要 testplan 的類型「刪掉檔案」可以放行，
+        # 「附上一份 TC-ID 寫法不合解析器胃口的 testplan」反而整個中止 review。
+        if change_type in _TYPES_WITH_OPTIONAL_TESTPLAN:
+            print(
+                f"[WARN] {_TESTPLAN_NAME} at {testplan_path} contains no parsable TC table"
+                f" (type '{change_type}' does not require one); skipping the TC traceability check."
+            )
+            sys.exit(0)
         print(
             f"[FAIL] testplan.md at {testplan_path} contains no TC table"
             f" (expected a table with an ID column header, e.g. 'TC-ID').",
