@@ -55,7 +55,8 @@ python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".gemini"/"antigravit
 python3 -c 'import os,sys; sys.exit(0 if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") else 1)' && echo "AGY_AUTH: ENV_KEY_OK" || echo "AGY_AUTH: NO_ENV_KEY"
 ```
 
-兩次均非 OK → 停止。提示：執行 `agy auth` 完成 OAuth，或在 `.env` 設定 `GEMINI_API_KEY`。
+兩次均非 OK → 停止。提示：直接執行 `agy`（互動模式）完成瀏覽器 OAuth，或在 `.env` 設定 `GEMINI_API_KEY`。
+（agy 1.2.3 **沒有** `auth` 子命令，實測 `agy help auth` 回 `Error: unknown subcommand: auth`。）
 
 #### Step 0c: Allow-list 提示（非阻斷，只提示）
 
@@ -161,9 +162,9 @@ challenge mode：找到問題時輸出 `[P0]`/`[P1]` 列表，找不到問題時
 | 以為是 `trustedWorkspaces` 沒列到這個 repo | **不是。** 負向對照實測（agy 1.1.22）：已列入的 repo 用相對 `.` 照樣失敗、未列入的 repo 用絕對路徑照樣成功。不要為此放寬 trust 清單 |
 | 一直 timeout、沒有任何輸出或原因 | 兩個常見成因（agy 1.2.3 實測）：(1) Bash tool timeout 沒設 600000，腳本在 agy 回來前就被砍；(2) agy 自己的 `--print-timeout` 到期——此時 agy **exit 0 並回半截輸出**，腳本以 exit 124 擋下。diff 太大會讓 agy 大量探索周邊檔案，縮小 diff 或用 `AGY_PRINT_TIMEOUT_SECS` 調整，但**不要 >= 600** |
 | `[FAIL]` 訊息附帶 `RESOURCE_EXHAUSTED (code 429)` | agy 只把 429 重試寫進自己的 log（stderr 看不到），腳本失敗時才撈出來。`Individual quota reached ... Resets in <N>h` 是**帳號額度用完**，重試無效：把 agy 切換到另一個登入帳號（例如 GCP 帳號）或等重置；`try again later` 是暫時性容量不足，減少同時執行的 agy（mob review 會並行呼叫）後重試 |
-| Auth 失敗，`onboardingComplete` 為 false | 執行 `agy auth` 完成 OAuth 流程 |
+| Auth 失敗，`onboardingComplete` 為 false | 直接執行 `agy` 進互動模式完成瀏覽器 OAuth（agy 1.2.3 沒有 `auth` 子命令） |
 | 無 API key 且 onboarding 未完成 | 在 `.env` 加入 `GEMINI_API_KEY=<your-key>` 或 `GOOGLE_API_KEY=<your-key>`（兩者均可） |
-| `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy auth` |
+| `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy` 完成 OAuth |
 | 輸出缺少 `[PASS]` / `[FAIL]` | 在 INSTRUCTION 加入「結尾必須輸出 [PASS] 或 [FAIL]」 |
 | diff 為空或 `origin/<base>` 不存在 | 確認已有 commit，或手動指定 base：`/agy-review base=develop` |
 | Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 地區限制又出現了（2026-09-03 實測時已無此問題，見開頭區塊）。先試其他 Gemini id（`agy models` 左欄）；全部失敗才設 `AGY_MODEL=claude-sonnet-4-6` 暫時切回 Claude，並記得此時**失去跨廠商獨立性**，不可把它的 review 當成第二家 |
