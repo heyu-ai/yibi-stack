@@ -20,21 +20,6 @@ if ! command -v agy >/dev/null 2>&1; then
     exit 1
 fi
 
-# 舊版 agy 不認得 --print-timeout / --log-file，而它對未知 flag 的退出碼**也是 2**（實測
-# `agy --definitely-not-a-flag` → 2），與下方參數驗證的 exit 2 撞號；不先擋下的話，使用者會
-# 拿到「請把 AGY_PRINT_TIMEOUT_SECS 改成整數」這個與真正成因無關的指示。
-AGY_HELP=$(agy --help 2>&1 || true)
-for flag in --print-timeout --log-file; do
-    case "$AGY_HELP" in
-        *"$flag"*) ;;
-        *)
-            echo "[FAIL] 這個 agy 版本不支援 ${flag}，本腳本的 timeout 防線無法運作。" >&2
-            echo "       該行為自 agy 1.1.28 起提供，請升級：agy update（或 pip install -U antigravity-cli）。" >&2
-            exit 2
-            ;;
-    esac
-done
-
 REPO_ROOT=$(git rev-parse --show-toplevel)
 
 # 預設用 Gemini：本 skill 存在的理由是取得**跨廠商**的第二意見，預設若是 Claude，
@@ -61,11 +46,34 @@ case "$AGY_PRINT_TIMEOUT_SECS" in
         exit 2
         ;;
 esac
+# 先擋長度再做數值比較（理由見 consult.sh 同段：超出 shell 整數範圍時 `[ -lt ]` 會以錯誤返回，
+# 在 if 條件裡不受 set -e 管，超大值反而被放行）。
+case "$AGY_PRINT_TIMEOUT_SECS" in
+    ???|??|?) ;;
+    *)
+        echo "[FAIL] AGY_PRINT_TIMEOUT_SECS 必須介於 1 與 599 之間（收到：${AGY_PRINT_TIMEOUT_SECS}）。" >&2
+        exit 2
+        ;;
+esac
 if [ "$AGY_PRINT_TIMEOUT_SECS" -lt 1 ] || [ "$AGY_PRINT_TIMEOUT_SECS" -ge 600 ]; then
     echo "[FAIL] AGY_PRINT_TIMEOUT_SECS 必須介於 1 與 599 之間（收到：${AGY_PRINT_TIMEOUT_SECS}）。" >&2
     echo "       >= 600 會讓 Claude Code Bash tool 先砍掉整支 script，所有診斷都印不出來；0 會讓耗時判定對任何回答都成立。" >&2
     exit 2
 fi
+
+# 參數驗證通過後才碰 agy（AC-5 要求參數無效時不呼叫 agy，而 `agy --help` 也算一次呼叫）。
+# 舊版 agy 不認得新 flag，且它對未知 flag 的退出碼也是 2，與上方驗證撞號，故在此先擋下。
+AGY_HELP=$(agy --help 2>&1 || true)
+for flag in --print-timeout --log-file; do
+    case "$AGY_HELP" in
+        *"$flag"*) ;;
+        *)
+            echo "[FAIL] 這個 agy 版本不支援 ${flag}，本腳本的 timeout 防線無法運作。" >&2
+            echo "       該行為自 agy 1.1.28 起提供，請升級：agy update（或 pip install -U antigravity-cli）。" >&2
+            exit 2
+            ;;
+    esac
+done
 
 # Get diff; fallback to HEAD~1 when no upstream tracking
 DIFF=$(git diff "origin/${BASE}...HEAD" 2>/dev/null || git diff HEAD~1 2>/dev/null || true)
@@ -188,7 +196,9 @@ if [ -z "$AGY_TIMEOUT_REASON" ] && [ "$AGY_ELAPSED" -gt "$AGY_PRINT_TIMEOUT_SECS
     AGY_TIMEOUT_REASON="實際耗時超過預算（agy 未印出標記，故為疑似 timeout）"
 fi
 if [ -n "$AGY_TIMEOUT_REASON" ]; then
-    AGY_DISCARDED_FILE="${AGY_LOG_FILE}.discarded-output"
+    # mktemp（0600）而非衍生檔名：後者權限隨 umask，022 下會是 0644，同機其他使用者可讀到
+    # 這段可能含整份 diff 的輸出（理由與實測見 consult.sh 同段）。
+    AGY_DISCARDED_FILE=$(mktemp "${TMPDIR:-/tmp}/agy-review-discarded.XXXXXX")
     printf '%s\n' "$OUTPUT" > "$AGY_DISCARDED_FILE"
     echo "[FAIL] agy 在 ${AGY_PRINT_TIMEOUT_SECS} 秒內沒有完成（實際 ${AGY_ELAPSED} 秒）：${AGY_TIMEOUT_REASON}。agy 此時仍 exit 0，其輸出可能只是半截 review，已不呈現。" >&2
     report_quota_if_any

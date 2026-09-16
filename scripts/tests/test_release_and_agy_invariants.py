@@ -157,9 +157,12 @@ def _make_stub_agy(
         "#!/usr/bin/env bash\n"
         # The scripts probe `agy --help` for --print-timeout / --log-file before invoking agy,
         # so an old agy is rejected with its real cause instead of colliding with the scripts'
-        # own exit 2 (agy exits 2 on an unknown flag too). The stub answers that probe without
-        # recording argv — otherwise the "agy must not be called" assertions would see the probe.
-        'if [ "$1" = --help ]; then\n'
+        # own exit 2 (agy exits 2 on an unknown flag too). The probe is recorded SEPARATELY:
+        # keeping it out of stub-argv.txt keeps the content-invocation assertions clean, but it
+        # must still be observable — AC-5 says an invalid argument may not invoke agy **at all**,
+        # and `agy --help` is an invocation. A stub that silently swallowed the probe made the
+        # bounds tests pass while the preflight ran before validation (Codex re-review Critical).
+        f'if [ "$1" = --help ]; then\n  : >> {str(tmp_path / "stub-help-called.txt")!r}\n'
         "  printf '%s\\n' '  --print-timeout  Timeout for print mode wait (default 5m0s)'\n"
         "  printf '%s\\n' '  --log-file       Override CLI log file path'\n"
         "  exit 0\n"
@@ -396,6 +399,29 @@ class TestAgyTimeoutAndQuotaContract:
         assert "[FAIL]" in result.stderr and "timeout" in result.stderr, result.stderr
         assert _PARTIAL_ANSWER not in result.stdout, result.stdout
 
+        # The discarded output is preserved so a false positive does not cost the user the
+        # whole run — but it can hold repo content (for agy-review, the entire diff), so it
+        # must be 0600. A plain `> "${LOG}.discarded-output"` is umask-dependent and lands
+        # 0644 under the common umask 022 (measured). Codex re-review Critical.
+        # The label and the path are glued by a full-width colon, so split on the CJK
+        # punctuation the message uses before looking for the path token.
+        discarded = [
+            Path(word)
+            for line in result.stderr.splitlines()
+            for word in line.replace("；", " ").replace("：", " ").split()
+            if "discarded" in word
+        ]
+        assert discarded, f"the timeout branch must name the preserved output: {result.stderr!r}"
+        saved = discarded[-1]
+        assert saved.is_file(), f"{saved} was named but not written"
+        assert _PARTIAL_ANSWER in saved.read_text(encoding="utf-8"), saved.read_text(
+            encoding="utf-8"
+        )
+        assert oct(saved.stat().st_mode)[-3:] == "600", (
+            f"{saved} is mode {oct(saved.stat().st_mode)[-3:]}; preserved output may contain "
+            "repository content and must not be readable by other local users"
+        )
+
     @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
     def test_agyrun_dt_011_elapsed_time_detects_timeout_without_marker(
         self, script: Path, tmp_path: Path
@@ -473,9 +499,25 @@ class TestAgyTimeoutAndQuotaContract:
         assert result.returncode == 2, (result.stdout, result.stderr)
         assert "[FAIL]" in result.stderr, result.stderr
         assert not (tmp_path / "stub-argv.txt").exists(), "agy must not run on a bad budget"
+        assert not (tmp_path / "stub-help-called.txt").exists(), (
+            "AC-5 says an invalid budget must not invoke agy at all — `agy --help` is an "
+            "invocation, so the validation must precede the version preflight"
+        )
 
     @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
-    @pytest.mark.parametrize("budget", ["0", "600", "900"])
+    @pytest.mark.parametrize(
+        "budget",
+        [
+            "0",
+            "600",
+            "900",
+            # digit-only but past the shell's integer range: `[ "$v" -lt 1 ]` errors out with
+            # "integer expression expected", and inside an `if` condition that error is not
+            # caught by set -e, so BOTH comparisons fail, the condition is false, and the value
+            # sails through to agy (measured: PASSED-THROUGH). Codex re-review Critical.
+            "999999999999999999999999",
+        ],
+    )
     def test_agyrun_dt_016_out_of_range_budget_rejected_before_agy(
         self, script: Path, budget: str, tmp_path: Path
     ) -> None:
@@ -498,6 +540,10 @@ class TestAgyTimeoutAndQuotaContract:
         assert "[FAIL]" in result.stderr, result.stderr
         assert not (tmp_path / "stub-argv.txt").exists(), (
             f"budget {budget} reached agy; it must be rejected before the call"
+        )
+        assert not (tmp_path / "stub-help-called.txt").exists(), (
+            f"budget {budget} reached `agy --help`; AC-5 requires no agy invocation at all, "
+            "so validation must precede the version preflight"
         )
 
     @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
