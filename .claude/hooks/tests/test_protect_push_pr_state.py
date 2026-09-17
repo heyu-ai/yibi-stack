@@ -1,5 +1,7 @@
 """protect_push_pr_state.py 測試：推到「PR 已 merged/closed」的分支要攔截。
 
+<!-- verified: incident PR#449 --> <!-- verified: probe -->
+
 分兩層：
   * 純函式層 — 解析 push 目標分支、由 PR 清單決定 verdict，不碰網路。
   * CLI 層 — 以 PATH 注入假的 `gh` 執行整支 helper，驗證 exit code（0 放行 / 2 攔截）
