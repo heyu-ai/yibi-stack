@@ -545,7 +545,7 @@ Step 3.1 already produced, so all three voices review the identical diff. Raw ou
 `codex-r1-raw.md` — **do not read it in the main context**.
 
 Both review stages pin `-m gpt-6-astra` instead of local config, and gate on codex-cli >= 0.154.0 before calling it (0.149.0 answers that model with a 400).
-If the gate fails, upgrade with `npm install -g @openai/codex@latest` (asdf-managed node also needs `asdf reshim nodejs`); confirm slugs in `~/.codex/models_cache.json`.
+If the gate fails: `npm install -g @openai/codex@latest` (asdf node also needs `asdf reshim nodejs`). A slug in `models_cache.json` only applies to the CLI matching that file's `client_version`.
 
 ###### Stage 2: Extract (compress verbose raw markdown into structured JSON)
 
