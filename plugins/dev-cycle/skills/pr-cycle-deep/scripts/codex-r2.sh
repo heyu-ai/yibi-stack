@@ -13,6 +13,13 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+# 版本門檻與下方 -m 的 pin 必須一起改，理由見 codex-r1-stage1.sh 同段。
+if ! python3 "$SCRIPT_DIR/codex_version_gate.py" --min-version 0.154.0 --model gpt-6-astra --label "Codex R2"; then
+    exit 1
+fi
+
 if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
     echo "[FAIL] 當前目錄不在 git repo 內（請在 worktree 目錄執行此 script）" >&2
     exit 1
@@ -39,7 +46,7 @@ fi
 # -m pins the frontier model; see codex-r1-stage1.sh for why this is not left to
 # ~/.codex/config.toml. R2 debate is the same reasoning-heavy workload as R1, so it gets
 # the same tier.
-if ! codex exec -C "$WT_ROOT" -s read-only -m gpt-5.6-sol -c 'model_reasoning_effort="high"' \
+if ! codex exec -C "$WT_ROOT" -s read-only -m gpt-6-astra -c 'model_reasoning_effort="high"' \
     < "$REVIEW_DIR/codex-r2-input.md" \
     2>"$REVIEW_DIR/codex-r2.log" \
     | tee "$REVIEW_DIR/codex-r2.md" > /dev/null; then

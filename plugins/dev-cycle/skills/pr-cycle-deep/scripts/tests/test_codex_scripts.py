@@ -37,9 +37,12 @@ CODEX_BOUNDARY_SKILLS = (
 )
 
 # The frontier model slug both review stages must pin. Sourced from ~/.codex/models_cache.json
-# (priority 1, "Latest frontier agentic coding model"), not from developers.openai.com/codex,
-# whose docs still listed gpt-5.5 as top days after the GPT-5.6 release.
-_FRONTIER_MODEL = "gpt-5.6-sol"
+# (codex-cli 0.154.0 catalog: priority 1, "Our most capable model for complex, demanding work"),
+# not from developers.openai.com/codex, whose docs lagged model releases before.
+_FRONTIER_MODEL = "gpt-6-astra"
+# gpt-6-astra is refused by older CLIs with a 400 "requires a newer version of Codex"
+# (measured: 0.149.0 refuses, 0.154.0-alpha.6.2 serves it), so both review stages gate on this.
+_MIN_CODEX_VERSION = "0.154.0"
 
 # The sensitive path prefixes the guard prompt must name (mirrors the canonical guard in
 # plugins/3rd-tools/skills/codex-review/SKILL.md). `agents/` is asserted separately as a standalone
@@ -147,8 +150,32 @@ class TestCodexGuardContract:
         assert '-C "$WT_ROOT"' in src, "codex exec must pin the repo root with -C"
 
     @pytest.mark.parametrize("script", [STAGE1, R2])
+    def test_cdxs_dt_013_version_gate_precedes_exec(self, script: Path) -> None:
+        """CDXS-DT-013: both review stages gate on codex >= 0.154.0 before `codex exec`.
+
+        Without the gate, a CLI older than the pinned model fails deep inside the review with a
+        400 buried in the stage log. Ordering matters: a gate placed after exec cannot prevent
+        that. Comment lines are skipped so the explanatory comment cannot satisfy the check.
+        """
+        lines = [
+            ln for ln in script.read_text(encoding="utf-8").splitlines()
+            if not ln.lstrip().startswith("#")
+        ]  # fmt: skip
+        gate = [
+            i for i, ln in enumerate(lines)
+            if '"$SCRIPT_DIR/codex_version_gate.py"' in ln
+            and f"--min-version {_MIN_CODEX_VERSION}" in ln
+        ]  # fmt: skip
+        exec_ = [i for i, ln in enumerate(lines) if "codex exec" in ln]
+        assert gate, (
+            f"{script.name}: must call codex_version_gate.py --min-version {_MIN_CODEX_VERSION}"
+        )
+        assert exec_, f"{script.name}: no codex exec line found"
+        assert gate[0] < exec_[0], f"{script.name}: version gate must run before codex exec"
+
+    @pytest.mark.parametrize("script", [STAGE1, R2])
     def test_cdxs_dt_010_frontier_model_pinned(self, script: Path) -> None:
-        """CDXS-DT-010: both review stages pin -m gpt-5.6-sol.
+        """CDXS-DT-010: both review stages pin -m gpt-6-astra.
 
         Without -m, codex inherits the reviewer's ~/.codex/config.toml, so which model
         reviews the PR silently depends on local config -- a skill shipped via the dev-cycle
@@ -244,6 +271,10 @@ def stage1_repo(tmp_path: Path) -> dict[str, Path]:
     codex.write_text(
         (
             "#!/usr/bin/env bash\n"
+            'if [ "$1" = --version ]; then\n'
+            '    echo "codex-cli ${CODEX_FAKE_VERSION:-0.154.0}"\n'
+            "    exit 0\n"
+            "fi\n"
             'cat > "$CODEX_STDIN_CAPTURE"\n'
             'cat "$CODEX_STDOUT_BODY"\n'
             'exit "${CODEX_EXIT:-0}"\n'
@@ -397,3 +428,41 @@ class TestStage1Behavioral:
         )
         assert res.returncode != 0
         assert "[FAIL]" in res.stderr and "codex-r1-raw.md" in res.stderr
+
+
+class TestVersionGateBehavioral:
+    """The review stages refuse a codex CLI too old for the pinned model before running exec."""
+
+    @pytest.mark.parametrize("script", [STAGE1, R2], ids=lambda p: p.name)
+    def test_cdxs_st_009_old_codex_fails_before_exec(
+        self, script: Path, stage1_repo: dict[str, Path]
+    ) -> None:
+        """CDXS-ST-009: codex 0.149.0 (measured to 400 on gpt-6-astra) fails loud, exec never runs.
+
+        The failure must name the upgrade, not a generic review failure, and codex must not
+        receive the prompt (the stdin capture stays absent).
+        """
+        review = stage1_repo["review"]
+        (review / "prompt-r2.md").write_text("R2 prompt\n", encoding="utf-8")
+        (review / "r1-aggregate.md").write_text("## Claude\nnothing\n", encoding="utf-8")
+        capture = stage1_repo["tmp"] / "stdin.txt"
+        env = {
+            **os.environ,
+            "PATH": f"{stage1_repo['bindir']}{os.pathsep}{os.environ['PATH']}",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "CODEX_STDIN_CAPTURE": str(capture),
+            "CODEX_STDOUT_BODY": str(stage1_repo["tmp"] / "unused.md"),
+            "CODEX_FAKE_VERSION": "0.149.0",
+        }
+        res = subprocess.run(  # nosec B603
+            ["bash", str(script)],
+            cwd=str(stage1_repo["repo"]),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert res.returncode != 0
+        assert "0.149.0" in res.stderr and _MIN_CODEX_VERSION in res.stderr
+        assert "npm install -g @openai/codex" in res.stderr
+        assert not capture.exists(), "codex exec ran despite the version gate"

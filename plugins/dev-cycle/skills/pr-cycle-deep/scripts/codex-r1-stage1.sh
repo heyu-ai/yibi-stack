@@ -27,6 +27,15 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+# 版本門檻與下方 -m 的 pin 必須一起改：gpt-6-astra 在 codex-cli 0.149.0 回 400「requires a
+# newer version of Codex」、0.154.0-alpha.6.2 正常（2026-09-16 實測）。在組裝輸入與呼叫
+# codex exec 之前就擋下，錯誤訊息直接給升級指令，而不是事後只看到「輸出空白」。
+if ! python3 "$SCRIPT_DIR/codex_version_gate.py" --min-version 0.154.0 --model gpt-6-astra --label "Codex R1 Stage 1"; then
+    exit 1
+fi
+
 if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
     echo "[FAIL] 當前目錄不在 git repo 內（請在 worktree 目錄執行此 script）" >&2
     exit 1
@@ -82,10 +91,10 @@ trap - ERR
 #
 # -m pins the model rather than inheriting ~/.codex/config.toml: this skill ships via the
 # dev-cycle plugin, so a reviewer's local config must not silently decide which model reviews
-# the PR. gpt-5.6-sol is the frontier tier (models_cache.json priority 1, "Latest frontier
-# agentic coding model"); requires codex-cli >= 0.144 -- older builds fail the request with
-# "requires a newer version of Codex".
-if ! codex exec -C "$WT_ROOT" -s read-only -m gpt-5.6-sol -c 'model_reasoning_effort="high"' \
+# the PR. gpt-6-astra is the most capable tier in the codex-cli 0.154.0 catalog
+# (models_cache.json priority 1, "Our most capable model for complex, demanding work");
+# requires codex-cli >= 0.154.0, enforced by codex_version_gate.py at the top of this script.
+if ! codex exec -C "$WT_ROOT" -s read-only -m gpt-6-astra -c 'model_reasoning_effort="high"' \
     < "$REVIEW_DIR/codex-r1-input.md" \
     > "$REVIEW_DIR/codex-r1-raw.md" \
     2>"$REVIEW_DIR/codex-r1.stage1.log"; then

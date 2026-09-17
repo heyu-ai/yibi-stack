@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.4] - 2026-09-16
+
+### Changed
+
+- pr-cycle-deep：Codex R1／R2 review 改 pin `gpt-6-astra`（codex-cli 0.154.0 catalog 的 priority 1，"Our most capable model for complex, demanding work"），取代 `gpt-5.6-sol`
+- pr-cycle-deep：新增 `codex_version_gate.py`，兩支 review 腳本在呼叫 `codex exec` 之前先確認 codex-cli >= 0.154.0。舊版（實測 0.149.0）會在送出請求後才回 400「requires a newer version of Codex」，錯誤埋在 stage log、腳本只回報「輸出空白」；門檻不足時改為直接給升級指令
+
 ## [1.22.3] - 2026-09-16
 
 ### Fixed
