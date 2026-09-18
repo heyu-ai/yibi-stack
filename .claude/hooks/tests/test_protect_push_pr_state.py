@@ -76,6 +76,30 @@ class TestPushTargets:
         """PPS-DT-009: 多個 refspec 全部都要檢查。"""
         assert push_targets("git push origin a:a b:b", current_branch="x") == ["a", "b"]
 
+    def test_pps_dt_010a_force_prefix_stripped(self) -> None:
+        """PPS-DT-010a: `+feat-a` 的 `+` 是 force marker，不是分支名。"""
+        assert push_targets("git push origin +feat-a", current_branch="other") == ["feat-a"]
+        assert push_targets("git push origin +feat-a:feat-b", current_branch="other") == ["feat-b"]
+        assert push_targets("git push origin +refs/heads/feat-a", current_branch="other") == [
+            "feat-a"
+        ]
+
+    def test_pps_dt_010b_delete_flag_is_not_a_push(self) -> None:
+        """PPS-DT-010b: `--delete` / `-d` 是刪除遠端分支，不是推送。"""
+        assert push_targets("git push origin --delete feat-a", current_branch="x") == []
+        assert push_targets("git push -d origin feat-a", current_branch="x") == []
+
+    def test_pps_dt_010c_tags_flag_does_not_fallback(self) -> None:
+        """PPS-DT-010c: `--tags` 推 tag 不推分支，不該 fallback 到 current_branch。"""
+        assert push_targets("git push origin --tags", current_branch="feat-a") == []
+        assert push_targets("git push --tags", current_branch="feat-a") == []
+
+    def test_pps_dt_010d_env_prefix_stripped(self) -> None:
+        """PPS-DT-010d: 環境變數賦值前綴不影響 git push 偵測。"""
+        assert push_targets(
+            "GIT_SSH_COMMAND=ssh git push origin feat-a:feat-a", current_branch="x"
+        ) == ["feat-a"]
+
 
 class TestDecide:
     def test_pps_dt_010_merged_only_blocks(self) -> None:
@@ -194,9 +218,7 @@ class TestCli:
         _fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": "MERGED"}]))
         assert _run_cli("git status", tmp_path / "bin", repo).returncode == 0
 
-    def test_pps_st_008_escape_hatch_allows(
-        self, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_pps_st_008_escape_hatch_allows(self, repo: Path, tmp_path: Path) -> None:
         """PPS-ST-008: PROTECT_PUSH_SKIP_PR_STATE=1 -> 完全跳過（逃生口）。"""
         _fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": "MERGED"}]))
         env = dict(os.environ)

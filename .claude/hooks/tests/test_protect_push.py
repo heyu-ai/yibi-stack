@@ -164,14 +164,16 @@ class TestBlockGitPushMain:
 # 未加保護的非零指令靜默變成放行，所以這個接線本身就是一個獨立的失效點。
 
 
-def run_hook_with_env(command: str, cwd: Path, extra_path: Path | None) -> int:
+def run_hook_with_env(
+    command: str, cwd: Path, extra_path: Path | None
+) -> subprocess.CompletedProcess[str]:
     """在指定 cwd 執行 hook，並可把假 gh 所在目錄放到 PATH 最前面。"""
     payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
     env = dict(os.environ)
     if extra_path is not None:
         env["PATH"] = f"{extra_path}{os.pathsep}{env['PATH']}"
     env.pop("PROTECT_PUSH_SKIP_PR_STATE", None)
-    result = subprocess.run(  # nosec B603
+    return subprocess.run(  # nosec B603
         [str(HOOK)],
         input=payload,
         capture_output=True,
@@ -180,7 +182,6 @@ def run_hook_with_env(command: str, cwd: Path, extra_path: Path | None) -> int:
         cwd=str(cwd),
         timeout=30,
     )
-    return result.returncode
 
 
 def _write_fake_gh(bin_dir: Path, payload: str) -> None:
@@ -216,29 +217,29 @@ class TestMergedPrPush:
         保護 4 掛在早退之前，而不是被早退繞過。
         """
         _write_fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": "MERGED"}]))
-        assert (
-            run_hook_with_env(
-                "git push origin feat-a:feat-a", _throwaway_repo(tmp_path), tmp_path / "bin"
-            )
-            == 2
+        res = run_hook_with_env(
+            "git push origin feat-a:feat-a", _throwaway_repo(tmp_path), tmp_path / "bin"
         )
+        assert res.returncode == 2
+        assert "448" in res.stdout
+        assert "MERGED" in res.stdout
 
     def test_pp_block_020_bare_push_to_merged_pr_branch(self, tmp_path: Path) -> None:
         """PR 已 merged 的分支 + 裸 push → 攔截。"""
         _write_fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": "MERGED"}]))
-        assert run_hook_with_env("git push", _throwaway_repo(tmp_path), tmp_path / "bin") == 2
+        res = run_hook_with_env("git push", _throwaway_repo(tmp_path), tmp_path / "bin")
+        assert res.returncode == 2
+        assert "448" in res.stdout
 
-    def test_pp_allow_020_open_pr_branch(self, tmp_path: Path) -> None:
+    def test_pp_allow_011_open_pr_branch(self, tmp_path: Path) -> None:
         """PR 仍 open → 放行（負向對照：證明上面兩個攔截不是無條件擋 push）。"""
         _write_fake_gh(tmp_path / "bin", json.dumps([{"number": 500, "state": "OPEN"}]))
-        assert (
-            run_hook_with_env(
-                "git push origin feat-a:feat-a", _throwaway_repo(tmp_path), tmp_path / "bin"
-            )
-            == 0
+        res = run_hook_with_env(
+            "git push origin feat-a:feat-a", _throwaway_repo(tmp_path), tmp_path / "bin"
         )
+        assert res.returncode == 0
 
-    def test_pp_allow_021_gh_missing_fails_open(self, tmp_path: Path) -> None:
+    def test_pp_allow_012_gh_missing_fails_open(self, tmp_path: Path) -> None:
         """PATH 上沒有 gh → 放行；離線不該讓所有 push 停擺。"""
         bin_dir = tmp_path / "emptybin"
         bin_dir.mkdir()

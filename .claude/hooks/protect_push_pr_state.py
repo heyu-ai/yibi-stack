@@ -41,9 +41,13 @@ import sys
 
 _GH_TIMEOUT_SECS = 8
 # 需要 argument 的 flag：解析 positional 時要連同它的值一起跳過
-_ARG_OPTS = {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
+_ARG_OPTS = {"-o", "--push-option", "--receive-pack", "--exec", "--repo", "-d", "--delete"}
 # 無法靜態解析的目標：shell 展開（$VAR / backtick）或 glob
 _UNRESOLVABLE = re.compile(r"[$`*?]")
+# 不推送分支內容的 flag：出現時不 fallback 到 current_branch
+_NO_BRANCH_PUSH_FLAGS = {"--tags", "--all", "--mirror", "-d", "--delete"}
+# 環境變數賦值前綴（與 protect-push.sh 的 _env_re 同步）
+_ENV_PREFIX = re.compile(r"^(?:\w+=(?:[^\s'\"]+|'[^']*'|\"[^\"]*\")\s+)*")
 
 
 def _strip_ref_prefix(name: str) -> str:
@@ -58,14 +62,20 @@ def push_targets(cmd: str, current_branch: str | None) -> list[str]:
     targets: list[str] = []
     for part in re.split(r"&&|\|\||[;|\n]", cmd):
         stripped = part.strip().lstrip("(").strip()
+        # strip env-variable assignment prefixes（與 protect-push.sh 的 _env_re 同步）
+        stripped = _ENV_PREFIX.sub("", stripped)
         if not re.match(r"git\s+push\b", stripped):
             continue
         tokens = stripped.split()
+        # --delete / -d 在 _ARG_OPTS 裡，會連同下一個 token（分支名）一起跳過
         positional: list[str] = []
+        has_no_branch_push_flag = False
         i = 0
         while i < len(tokens):
             token = tokens[i]
             if token.startswith("-"):
+                if token in _NO_BRANCH_PUSH_FLAGS:
+                    has_no_branch_push_flag = True
                 i += 2 if ("=" not in token and token in _ARG_OPTS) else 1
                 continue
             positional.append(token)
@@ -73,12 +83,14 @@ def push_targets(cmd: str, current_branch: str | None) -> list[str]:
         # positional = [git, push, [remote], [refspec...]]
         refspecs = positional[3:]
         if not refspecs:
-            if current_branch:
+            if current_branch and not has_no_branch_push_flag:
                 targets.append(current_branch)
             continue
         for refspec in refspecs:
             if _UNRESOLVABLE.search(refspec):
                 continue
+            # strip force-push prefix（Git refspec 的 `+` 前綴是 force marker，不是分支名的一部分）
+            refspec = refspec.lstrip("+")
             if ":" in refspec:
                 src, dest = refspec.rsplit(":", 1)
                 # `git push origin :branch` 是刪除遠端分支，不是推內容，不在守備範圍

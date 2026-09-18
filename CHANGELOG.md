@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.22.5] - 2026-09-17
 
-### Fixed
-
-- pr-cycle-deep：SKILL.md 的 codex 版本門檻說明不再叫讀者「去 `models_cache.json` 確認 slug」。該檔可能由機器上另一個較新的 codex binary 刷新（實測 ChatGPT app 內建 0.154.0-alpha.6.2 刷新了 cache，而 PATH 上的 0.149.0 呼叫其中列出的 `gpt-6-astra` 仍回 400），改為指出 slug 只適用於與該檔 `client_version` 相符的 CLI
-
 ### Added
 
 - protect-push 新增保護 4（`.claude/hooks/protect_push_pr_state.py`）：push 到「PR 已 merged/closed」的分支時 exit 2 攔截並說明後果。此失誤為同族第 4 次，且 2026-07-07 的教訓已預言「push 前無 PR state 自動檢查會持續復發」；逃生口 `PROTECT_PUSH_SKIP_PR_STATE=1`，查不到 PR 狀態（無 gh／離線／輸出無法解析）一律放行
+
+### Fixed
+
+- pr-cycle-deep：SKILL.md 的 codex 版本門檻說明不再叫讀者「去 `models_cache.json` 確認 slug」。該檔可能由機器上另一個較新的 codex binary 刷新（實測 ChatGPT app 內建 0.154.0-alpha.6.2 刷新了 cache，而 PATH 上的 0.149.0 呼叫其中列出的 `gpt-6-astra` 仍回 400），改為指出 slug 只適用於與該檔 `client_version` 相符的 CLI
 
 ## [1.22.4] - 2026-09-16
 
