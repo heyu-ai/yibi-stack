@@ -7,6 +7,8 @@
 #   1. gh pr merge → BLOCK（需使用者在 chat 中明確指示）
 #   2. git push 到 main/master → BLOCK（直推保護分支）
 #   3. worktree branch 追蹤 origin/main 時 git push → BLOCK
+#   4. push 到「PR 已 merged/closed」的分支 → BLOCK（委派給 protect_push_pr_state.py；
+#      該檔 docstring 有完整理由與逐條 fail-open 條件。逃生口：PROTECT_PUSH_SKIP_PR_STATE=1）
 #
 # Exit code 規範（Claude Code PreToolUse 約定）：
 #   exit 0  → 放行，工具正常執行
@@ -173,8 +175,25 @@ else:
     print('bare')
 " 2>/dev/null || echo "none")
 
-# 無實際 git push 指令（僅文字）或明確指定 non-main 目的地 -> 放行
+# 無實際 git push 指令（僅文字）-> 放行
 [ "${PUSH_MODE:-bare}" = "none" ] && exit 0
+
+# ── 保護 4：推到 PR 已 merged/closed 的分支 ──────────────────────────
+# 放在 explicit-other 早退「之前」：PR #449 的事故指令就是 explicit refspec
+# （git push origin B:B），保護 3 對它直接放行，所以擺在後面等於沒掛上。
+#
+# 必須用 `|| RC=$?` 承接非零退出：本檔開頭的 `trap 'exit 0' ERR` 會讓任何未加保護的
+# 非零指令直接以 0 結束，helper 的 exit 2 會被靜默吞掉、攔截完全失效。
+# （判定細節與逐條 fail-open 條件見 protect_push_pr_state.py 的 docstring。）
+PR_STATE_RC=0
+PR_STATE_OUT=$(echo "$CMD" | python3 "$(dirname "$0")/protect_push_pr_state.py" 2>/dev/null) \
+    || PR_STATE_RC=$?
+if [ "${PR_STATE_RC:-0}" -eq 2 ]; then
+    echo "${PR_STATE_OUT:-BLOCKED: 目標分支的 PR 已結束}"
+    exit 2
+fi
+
+# 明確指定 non-main 目的地 -> 放行（tracking 檢查只針對裸 push）
 [ "${PUSH_MODE:-bare}" = "explicit-other" ] && exit 0
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
