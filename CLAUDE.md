@@ -306,15 +306,17 @@ make install-all         # 等同 build-tools + install + install-project + inst
   Affects `nightly-self-improvement` (the only `enabled: true` job in `.runtime/schedules.json`)
   and any future ACP Gateway `skill:` job. (Cap-lift verified against the official changelog,
   2026-07-19; supersedes the earlier "always clamps to 15" wording.)
-  **`claude -p` internal error 從「無聲掛住」改為 exit code 1（v2.1.277）**：舊版行為是
-  內部錯誤時 session 靜默卡住直到 `timeout_seconds` 到期；新版改為回報錯誤並以 exit code 1
-  結束。影響：任何以 `timeout_seconds` 作為「內部錯誤偵測手段」的 gate 邏輯需要同時檢查
-  exit code（非零 = 失敗）與 timeout（超時 = 也是失敗），兩者不再是同一件事。
-  本 repo 的 `tasks/scheduler/runner.py` 透過 ACP Gateway 的結構化 JSON 回應
-  （`success`/`timed_out` 欄位）與 `claude -p` 互動，已涵蓋兩種失敗訊號，暫不受影響；
-  `nightly-self-improvement` 是 `command` type（直接跑 Python subprocess），也不經過
-  `claude -p`。未來若新增 `skill:` type job（ACP Gateway → `claude -p`），Gateway 層
-  需確認能區分 exit code 1（內部錯誤）與 exit code 0 + 任務失敗的差異。
+- **`claude -p` internal errors now exit 1 instead of hanging (v2.1.277)**: before 2.1.277,
+  an internal error caused `claude -p` to hang silently until `timeout_seconds` expired; from
+  2.1.277 it reports the error and exits with code 1. Any gate that relied on timeout as the
+  sole internal-error signal must now also check exit code (non-zero = failure) — the two
+  failure modes are no longer the same event.
+  This repo's `tasks/scheduler/runner.py` talks to `claude -p` through the ACP Gateway's HTTP
+  JSON response (`success`/`timed_out` fields at the Gateway layer, not `claude -p` exit codes
+  directly), so it is not directly affected for now; `nightly-self-improvement` is a `command`
+  type job (plain `subprocess.run` of `tasks.nightly_agent`), which does not go through
+  `claude -p` at all. A future `skill:` type job (ACP Gateway → `claude -p`) would need to
+  confirm the Gateway correctly translates exit code 1 into `success: false`.
 - **`!` bash command output now auto-triggers a Claude response** (v2.1.186): a `!`-prefixed
   bash command's output used to be context-only; it now makes Claude respond to that output by
   default. To restore the old "context only, no response" behavior, set
