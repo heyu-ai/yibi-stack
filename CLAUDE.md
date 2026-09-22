@@ -306,6 +306,17 @@ make install-all         # 等同 build-tools + install + install-project + inst
   Affects `nightly-self-improvement` (the only `enabled: true` job in `.runtime/schedules.json`)
   and any future ACP Gateway `skill:` job. (Cap-lift verified against the official changelog,
   2026-07-19; supersedes the earlier "always clamps to 15" wording.)
+- **`claude -p` internal errors now exit 1 instead of hanging (v2.1.277)**: before 2.1.277,
+  an internal error caused `claude -p` to hang silently until `timeout_seconds` expired; from
+  2.1.277 it reports the error and exits with code 1. Any gate that relied on timeout as the
+  sole internal-error signal must now also check exit code (non-zero = failure) — the two
+  failure modes are no longer the same event.
+  This repo's `tasks/scheduler/runner.py` talks to `claude -p` through the ACP Gateway's HTTP
+  JSON response (`success`/`timed_out` fields at the Gateway layer, not `claude -p` exit codes
+  directly), so it is not directly affected for now; `nightly-self-improvement` is a `command`
+  type job (plain `subprocess.run` of `tasks.nightly_agent`), which does not go through
+  `claude -p` at all. A future `skill:` type job (ACP Gateway → `claude -p`) would need to
+  confirm the Gateway correctly translates exit code 1 into `success: false`.
 - **`!` bash command output now auto-triggers a Claude response** (v2.1.186): a `!`-prefixed
   bash command's output used to be context-only; it now makes Claude respond to that output by
   default. To restore the old "context only, no response" behavior, set
