@@ -93,6 +93,10 @@ glob 非錨定，在任意路徑深度匹配。
 `skills-lock.json` 追蹤從外部安裝的 skill（版本、hash、來源）。
 安裝的外來 skill 透過 symlink 掛載到 `~/.agents/skills/`，內容不在 `skills/` 目錄維護。
 
+claude.ai 帳號的 skill/plugin 自動同步（2.1.275 起預設開啟）**已在 `.claude/settings.json`
+明確關閉**（`syncClaudeAiSkills: false`、`syncClaudeAiPlugins: false`），
+確保 `skills-lock.json` + symlink 是唯一的安裝路徑，盤點工具的涵蓋面不會出現缺口。
+
 ## 如何找到可用 Skill
 
 讀 [`skills/README.md`](skills/README.md)，裡面有所有 skill 的索引表格。
