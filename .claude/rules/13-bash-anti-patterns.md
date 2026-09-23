@@ -912,6 +912,14 @@ MAIN_REPO=$(dirname "$GIT_COMMON")
 
 Rule 2 direction: `"..." → $() → "$VAR"`. Rule 4 direction: `$() → "$(inner)"`. Same root cause.
 
+**Inside a worktree-isolated session the symptom may be a hard refusal, not a prompt.**
+Claude Code 2.1.274: "Fixed worktree-isolated sessions accepting Bash commands with certain
+nested shell expansions; these are now refused". The changelog does not list which expansions
+qualify, so do not assume this rule's two shapes are the complete set. The fix is unchanged —
+split into separate bash calls — but in a worktree you may see a refusal where the main checkout
+shows a confirmation dialog. Different symptom, same fix.
+(Source: Claude Code CHANGELOG 2.1.274, read 2026-09-21 for the W39 release-note review.)
+
 ## Quoting Rule 5: Variable Expansion False Positive (Case 24)
 
 Claude Code's built-in parser broadly intercepts all `expansion`/`simple_expansion` AST nodes
