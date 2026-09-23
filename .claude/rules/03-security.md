@@ -145,10 +145,9 @@ export OTEL_LOG_ASSISTANT_RESPONSES=0
 **This repo does not currently enable OTEL** — this is a preventive guard: the moment anyone
 turns on OTEL telemetry in CI or locally, the rule applies.
 
-v2.1.274 added a `claude_code.managed_settings_resolved` event. The event itself is always sent
-when OTEL is on and carries the managed-settings sources and policy helper state; no variable
-turns it off. `OTEL_LOG_MANAGED_SETTINGS=1` additionally attaches the redacted settings and their
-digests. That extra payload is opt-in, so the explicit `0` below guards against an `=1`
+v2.1.274 added a `claude_code.managed_settings_resolved` event carrying the managed-settings
+sources and policy helper state; the changelog names no switch for that base payload.
+`OTEL_LOG_MANAGED_SETTINGS=1` additionally attaches the redacted settings and their digests. That extra payload is opt-in, so the explicit `0` below guards against an `=1`
 inherited from a shell profile or CI environment rather than against a fallback, and it does
 not suppress the sources and policy state. If OTEL is ever enabled here, add it next to the
 reply switch above:
