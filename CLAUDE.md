@@ -318,9 +318,11 @@ make install-all         # 等同 build-tools + install + install-project + inst
   spawns `claude --print` to draft each artifact. It is unaffected because both failure modes
   already raise `RuntimeError` there (`subprocess.run(timeout=...)` for the old hang,
   `returncode != 0` for the new exit 1), which `cli.py` records in `fatal_errors` and turns into
-  `SystemExit(1)`; `test_drafter.py` pins the non-zero path. A future `skill:` type job (ACP
-  Gateway → `claude -p`) would need to confirm the Gateway correctly translates exit code 1
-  into `success: false`.
+  `SystemExit(1)`. Test coverage is weaker than that chain: `test_drafter.py` exercises a
+  non-zero exit only with empty stdout, so mutating the `returncode` check survives (the
+  empty-stdout guard raises the same wrapped error), and the timeout path has no test.
+  A future `skill:` type job (ACP Gateway → `claude -p`) would need to confirm the Gateway
+  correctly translates exit code 1 into `success: false`.
 - **`!` bash command output now auto-triggers a Claude response** (v2.1.186): a `!`-prefixed
   bash command's output used to be context-only; it now makes Claude respond to that output by
   default. To restore the old "context only, no response" behavior, set
