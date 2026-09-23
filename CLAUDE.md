@@ -319,8 +319,9 @@ make install-all         # 等同 build-tools + install + install-project + inst
   already raise `RuntimeError` there (`subprocess.run(timeout=...)` for the old hang,
   `returncode != 0` for the new exit 1), which `cli.py` records in `fatal_errors` and turns into
   `SystemExit(1)`. Test coverage is weaker than that chain: `test_drafter.py` exercises a
-  non-zero exit only with empty stdout, so mutating the `returncode` check survives (the
-  empty-stdout guard raises the same wrapped error), and the timeout path has no test.
+  non-zero exit only with empty stdout, so mutating the `returncode` check (`drafter.py:191`)
+  survives (the empty-stdout guard raises the same wrapped error), and the timeout path has no
+  test.
   A future `skill:` type job (ACP Gateway → `claude -p`) would need to confirm the Gateway
   correctly translates exit code 1 into `success: false`.
 - **`!` bash command output now auto-triggers a Claude response** (v2.1.186): a `!`-prefixed

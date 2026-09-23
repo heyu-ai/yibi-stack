@@ -916,8 +916,10 @@ Rule 2 direction: `"..." → $() → "$VAR"`. Rule 4 direction: `$() → "$(inne
 Claude Code 2.1.274: "Fixed worktree-isolated sessions accepting Bash commands with certain
 nested shell expansions; these are now refused". The changelog does not list which expansions
 qualify, so do not assume the shapes in Rules 2 and 4 are the complete set. In this repo
-`bash-ap1-inline-check.sh` already blocks Rule 4's shape (Case 26) in every session, so a
+`bash-ap1-inline-check.sh` already blocks Rule 4's shape (Case 26) wherever the hook runs, so a
 main-checkout-versus-worktree difference can only show up for shapes that hook does not catch.
+Two exceptions let Rule 4's shape through the hook: its `git commit -m "$(cat <<` exemption, and
+its fail-open on internal errors (`trap 'exit 0' ERR`).
 The fix is unchanged: split into separate bash calls.
 (Source: Claude Code CHANGELOG 2.1.274, read 2026-09-21 for the W39 release-note review.)
 
