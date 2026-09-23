@@ -912,6 +912,17 @@ MAIN_REPO=$(dirname "$GIT_COMMON")
 
 Rule 2 direction: `"..." → $() → "$VAR"`. Rule 4 direction: `$() → "$(inner)"`. Same root cause.
 
+**Inside a worktree-isolated session Claude Code itself may refuse, not prompt.**
+Claude Code 2.1.274: "Fixed worktree-isolated sessions accepting Bash commands with certain
+nested shell expansions; these are now refused". The changelog does not list which expansions
+qualify, so do not assume the shapes in Rules 2 and 4 are the complete set. In this repo
+`bash-ap1-inline-check.sh` already blocks Rule 4's shape (Case 26) wherever the hook runs, so a
+main-checkout-versus-worktree difference can only show up for shapes that hook does not catch.
+Two exceptions let Rule 4's shape through the hook: its `git commit -m "$(cat <<` exemption, and
+its fail-open on internal errors (`trap 'exit 0' ERR`).
+The fix is unchanged: split into separate bash calls.
+(Source: Claude Code CHANGELOG 2.1.274, read 2026-09-21 for the W39 release-note review.)
+
 ## Quoting Rule 5: Variable Expansion False Positive (Case 24)
 
 Claude Code's built-in parser broadly intercepts all `expansion`/`simple_expansion` AST nodes

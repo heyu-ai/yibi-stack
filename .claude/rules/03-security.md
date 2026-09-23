@@ -145,6 +145,28 @@ export OTEL_LOG_ASSISTANT_RESPONSES=0
 **This repo does not currently enable OTEL** — this is a preventive guard: the moment anyone
 turns on OTEL telemetry in CI or locally, the rule applies.
 
+v2.1.274 added a `claude_code.managed_settings_resolved` event carrying the managed-settings
+sources and policy helper state; the changelog names no switch for that base payload.
+`OTEL_LOG_MANAGED_SETTINGS=1` additionally attaches the redacted settings and their digests. That extra payload is opt-in, so the explicit `0` below guards against an `=1`
+inherited from a shell profile or CI environment rather than against a fallback, and it does
+not suppress the sources and policy state. If OTEL is ever enabled here, add it next to the
+reply switch above:
+
+```bash
+export OTEL_LOG_MANAGED_SETTINGS=0
+```
+
+(Source: Claude Code CHANGELOG 2.1.274, read 2026-09-21 for the W39 release-note review.)
+
+## Secret-Leak Fixes Are Reasons to Stay Upgraded (2.1.274 / 2.1.275)
+
+Two fixes from the same week close leaks that need no configuration change to trigger, so an
+older version keeps leaking regardless of settings: plugin/marketplace URLs containing a
+password or token were echoed in messages, logs and `claude plugin marketplace list` (fixed in
+2.1.275), and MCP connection errors plus the MCP login tool description showed
+`${VAR}`-resolved secrets (fixed in 2.1.274).
+(Source: Claude Code CHANGELOG 2.1.274 / 2.1.275, read 2026-09-21 for the W39 release-note review.)
+
 ## `sandbox.credentials`: Do Not Enable Globally (Financial Skills Need Their Keys)
 
 The `sandbox.credentials` setting (v2.1.187) blocks sandboxed commands from reading credential
