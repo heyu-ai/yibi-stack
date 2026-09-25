@@ -104,7 +104,16 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #   Both are Tier 2 (incident-cited): yibi-firmware PR #44 mob review, where a Claude NIT had
 #   no contract mapping and agy fabricated a Critical + evidence about a nonexistent heading
 #   rename. The first was caught by Codex DISAGREE in R2; the second was refuted by grep.
-LINE_BUDGET = 1307
+#
+# Raised 1307 -> 1327 (+20 lines; old budget had 0 slack) for Step 1.7, the red-first gate.
+# Evidence (yibi-mvp transcripts 2026-08-25 ~ 09-25, 789 sessions): three TDD skills were
+# invoked 0 times and 12 of 158 code-editing sessions were test-first, although spectra-apply
+# already instructed "write a failing test FIRST" — prose had no effect, so the step runs a
+# repo-provided checker that reverts production code to the merge-base and requires the PR's
+# tests to fail (feat/fix) or keep passing (refactor/perf). The first draft was +51; the
+# rationale, exit-code table and don'ts were folded into two paragraphs, since the checker's
+# docstring carries the long form.
+LINE_BUDGET = 1327
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the

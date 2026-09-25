@@ -474,12 +474,14 @@ so each member's `description` must carry an explicit negative boundary against 
   lifecycle skill.
 - **Harness** — `harness-eval` (full 11-dimension sweep) vs `harness-eval-focus` (deep-dive on one
   dimension). "評估 repo" → the former; "D2 hook 問題" → the latter. Neither should steal the other.
-- **TDD** — `tdd-kentbeck`'s `description` ends with `即使用戶只說「幫我寫這個功能」…也應觸發`,
-  which widens its trigger to *any* "build this feature" phrasing. That sentence is a **cautionary
-  example**: it is precisely the kind of unbounded clause a `negative` self-check should flag,
-  because it makes the skill claim prompts that belong to plain implementation work. `flutter-tdd`
-  (Flutter-specific) and `ci-triage` (CI failure diagnosis, not test authorship) are adjacent
-  skills whose boundaries against `tdd-kentbeck` must stay explicit.
+- **TDD** — the retired `tdd-kentbeck` (deleted 2026-09-25) had a `description` ending with
+  `即使用戶只說「幫我寫這個功能」…也應觸發`, which widened its trigger to *any* "build this feature"
+  phrasing. That sentence remains a **cautionary example**: it is precisely the kind of unbounded
+  clause a `negative` self-check should flag, because it makes the skill claim prompts that belong
+  to plain implementation work. Note the outcome, too: even with that widened trigger it was
+  invoked 0 times in a month of yibi-mvp transcripts, which is why TDD moved to the mechanical
+  red-first gate in `pr-cycle-deep` Step 1.7. `flutter-tdd` (Flutter-specific) and `ci-triage`
+  (CI failure diagnosis, not test authorship) remain adjacent skills with explicit boundaries.
 
 **Quantified detection now exists, but it is warn-only.** `scripts/lint_skill_overlap.py`
 measures pairwise `description` keyword overlap (Jaccard, threshold 0.12) and is wired into

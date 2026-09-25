@@ -164,6 +164,33 @@ exit `4` 代表 review 期間基準已改變。**不要**默默採信該輪 find
 > 與本地工作區狀態是兩個不同的問題，兩者不互相取代。本 preflight 是**前置**閘門，
 > conflict-detector 是三個並行 subagent 之一。
 
+#### 3.0b — Red-first preflight（阻擋性；3.0 通過後、派 subagent 之前跑）
+
+規則與 exit code 語意同 `/pr-cycle-deep` Step 1.7（該處為正本，本段不複述理由）。repo 有
+`scripts/red-first-check.py` 才跑，沒有就記 `[SKIP] red-first: repo provides no checker`。
+先取 PR 標題與 base branch，填入下一個指令的 `{{pr_title}}`、`{{base_branch}}`：
+
+```bash
+gh pr view {{pr_number}} --json title,baseRefName
+```
+
+```bash
+python3 scripts/red-first-check.py --base "origin/{{base_branch}}" --title "{{pr_title}}"
+```
+
+| Exit | 動作 |
+|------|------|
+| `0` | PASS 或 SKIP，記下判定行，往下走 |
+| `1` | 測試抓不到這次改動（或 refactor 改了期望值）。transition 到 `BLOCKED`，reason 寫 `red-first: <判定行>`，**不要**派 review subagent |
+| `2` | 前提不成立（HEAD 測試沒過、工作區不乾淨、缺環境）。原文回報並 transition 到 `BLOCKED` |
+
+```bash
+pr-orchestrator transition --pr {{pr_number}} --to BLOCKED --reason "red-first: <判定行>" --repo-root "$REPO_ROOT"
+```
+
+跑完後 `git status --short` 必須是空的；腳本會對測試工具的副作用（例如 `flutter test` 改寫
+`pubspec.lock`）印 `[WARN]`，先還原再往下走。
+
 先 transition 到 REVIEWING：
 
 ```bash

@@ -45,7 +45,7 @@ yibi-stack layers three forms of enforcement on top of Claude Code:
 | Multi-model PR review | `pr-cycle-deep` orchestrates Claude + Codex + Gemini in parallel independent review → cross-model debate → aggregate, catching issues no single model would flag |
 | Persistent work memory | `mycelium` skill auto-handovers before context compression and restores on next session start — no more losing track of multi-day work |
 | Release discipline | `bump-version`, `protect-push`, and `ci-triage` skills codify release workflow so Claude doesn't push to main without explicit intent |
-| Test methodology | `tdd-kentbeck` (Kent Beck Red→Green→Refactor) and `qa-test-design` (6 test design techniques) embed testing discipline into daily work |
+| Test methodology | `pr-cycle-deep` Step 1.7 red-first gate (tests must fail against the base production code) and `qa-test-design` (6 test design techniques) embed testing discipline into daily work |
 
 ### Architecture
 
@@ -140,7 +140,6 @@ make status-own
 | `pr-cycle-fast` | Fast lifecycle orchestrator: Python state machine, 1 reviewer, resumable |
 | `pr-cycle-deep` | Deep lifecycle: mob review (Claude + Codex + Gemini) + SDD amplifier-verifier |
 | `bash-anti-patterns` | AP1/AP2/AP3 detection guide + shell quoting hygiene reference |
-| `tdd-kentbeck` | Kent Beck TDD + Tidy First methodology |
 | `qa-test-design` | 6 test design techniques (equivalence, boundary, decision table...) |
 | `mycelium` | Cross-session work handover and insight collection |
 | `bump-version` | Version bump (Flutter/Python/Node/Go) + CHANGELOG + git tag |
@@ -202,7 +201,7 @@ yibi-stack 在 Claude Code 之上疊加三層約束：
 | 多模型 PR 審閱 | `pr-cycle-deep` 讓 Claude + Codex + Gemini 並行獨立審閱再交叉辯論，捕捉單一模型漏掉的問題 |
 | 持久化工作記憶 | `mycelium` skill 在對話壓縮前自動交班，下次 session 開啟時自動恢復工作上下文，多日開發不斷線 |
 | 發版紀律 | `bump-version` + `protect-push` + `ci-triage` 讓 Claude 不會在沒有明確意圖的情況下推上 main |
-| 測試方法論 | `tdd-kentbeck`（Kent Beck Red→Green→Refactor）和 `qa-test-design`（六大測試設計技術）把測試紀律內建到日常工作中 |
+| 測試方法論 | `pr-cycle-deep` Step 1.7 的 red-first gate（測試在 base 產品碼上必須失敗）和 `qa-test-design`（六大測試設計技術）把測試紀律內建到日常工作中 |
 
 ### 架構
 
@@ -296,7 +295,6 @@ make status-own
 | `pr-cycle-fast` | 快速 lifecycle orchestrator：Python state machine，可中斷 resume |
 | `pr-cycle-deep` | 深度 lifecycle：mob review（Claude + Codex + Gemini）+ SDD amplifier-verifier |
 | `bash-anti-patterns` | AP1/AP2/AP3 偵測指南 + shell 引號衛生參考 |
-| `tdd-kentbeck` | Kent Beck TDD + Tidy First 方法論 |
 | `qa-test-design` | 六大測試設計技術（等價類別、邊界值、決策表……） |
 | `mycelium` | 跨對話工作交班與洞察收集 |
 | `bump-version` | 版本 bump（Flutter/Python/Node/Go）+ CHANGELOG + git tag |

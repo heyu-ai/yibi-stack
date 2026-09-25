@@ -11,7 +11,7 @@ description: >
   「設計 API 規格」「建立 proposal」「需求變更追蹤」「寫 AC」「寫驗收條件」等場景。
   當用戶貼上功能描述或 User Story 要求產出完整開發規格文件時，必須觸發。
   即使用戶只說「怎麼定義完成條件」「spec 怎麼寫」「這個需求太模糊了」等規格意圖時也應觸發此 Skill。
-  但已進入實作階段：TDD 驅動實作請改用 /tdd-kentbeck、逐一跑 tasks 請改用 /spectra-apply，本 skill 不觸發；
+  但已進入實作階段：逐一跑 tasks 請改用 /spectra-apply，本 skill 不觸發；
   純「幫我把功能描述清楚」若無寫規格 / proposal / 需求展開意圖亦不觸發（屬一般溝通）。
 
 effort: high

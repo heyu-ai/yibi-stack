@@ -313,6 +313,26 @@ and CI does not check prose.
 
 ---
 
+### Step 1.7 — Red-first gate (the PR's tests must catch the PR's change)
+
+**Blocking.** With production code reverted to the merge-base and the branch's tests kept, a
+`feat`/`fix` PR's tests must **fail** and a `refactor`/`perf` PR's must still **pass** (other types
+`[SKIP]`). The checker is repo-provided — rationale and limits live in its docstring. If
+`scripts/red-first-check.py` is absent, record `[SKIP] red-first: no checker` in
+`pre-review-check.md`; do not hand-roll a revert-and-rerun (no restore guarantee, no HEAD control).
+
+```bash
+python3 scripts/red-first-check.py --base "origin/{{base_branch}}" --title "<PR title>"
+```
+
+Exit `0`: append the verdict to `pre-review-check.md`, continue. Exit `1`: **stop before Step 2**;
+add a test that fails on the base code (or restore the refactor's expectation), push, rerun.
+Retyping the title to dodge it (`fix` → `chore`) is a material amendment (Step 1), and reviewers
+cannot waive it — none of them ran the tests against base code. Exit `2`: report `[FAIL]` verbatim,
+stop. Afterwards `git status --short` must be empty; revert test-tool side effects listed as `[WARN]`.
+
+---
+
 ### Step 2 — Code Review (defect detection)
 
 Run `/code-review` to scan all PR changes for correctness bugs (`/code-review high` for stricter

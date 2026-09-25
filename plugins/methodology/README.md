@@ -21,12 +21,15 @@ claude plugin install methodology@yibi-stack
 > (note **two** install targets — `tdd` split across both). `sdd@yibi-stack` users who relied
 > on `event-storming`/`problem-frames`/`qa-test-design` should additionally run
 > `claude plugin install methodology@yibi-stack`.
+>
+> **Removed (2026-09-25):** `tdd-kentbeck` was deleted. Transcript measurement over one month
+> found it invoked 0 times; TDD is now enforced mechanically by the red-first gate in
+> `pr-cycle-deep` Step 1.7 instead of a knowledge skill.
 
 ## What you get
 
 | Component | Description |
 |-----------|-------------|
-| `tdd-kentbeck` skill | 以 Kent Beck 的 Test-Driven Development (TDD) 與 Tidy First 方法論驅動軟體開發 |
 | `flutter-tdd` skill | Flutter 行動應用的測試驅動開發（TDD）專家指引 |
 | `event-storming` skill | 領域發現前置 skill，在開始寫 spec 之前使用 |
 | `problem-frames` skill | Michael Jackson Problem Frames 方法論：在寫 spec 之前，把問題拆成 R（需求）/ S（規格）/ W（領域假設），並證明 S ∧ W ⟹ R，藉此把領域假設前置顯式化 |
