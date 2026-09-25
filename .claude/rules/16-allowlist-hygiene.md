@@ -111,7 +111,7 @@ Bash(git *)  Bash(npm *)  Bash(rm *)  Bash(curl *)
 
 Covers all subcommands. `Bash(git *)` includes `commit`, `push`, `reset --hard`, `filter-branch`.
 
-**Fix**: per-verb read-only patterns — `Bash(git status:*)`, `Bash(git log:*)`, etc.
+**Fix**: per-verb read-only patterns with no write flag — `Bash(git status:*)`, `Bash(git rev-parse:*)`.
 `rm` and `curl` must never be allow-listed (see Red Flag 4).
 
 ### Red Flag 3: Variable Expansion or Variable Assignment Prefix
@@ -161,10 +161,10 @@ General rule: **verb fixed at prefix, wildcard only at end, read-only or full ab
 |---------|----------|
 | `Bash(make ci)` | Exact match |
 | `Bash(git status:*)` | Verb locked at prefix; `:*` enforces word boundary |
-| `Bash(git log:*)` | Read-only |
-| `Bash(git diff:*)` | Read-only; does not modify filesystem |
+| `Bash(git log --oneline -5)` | Exact match. **Not** `git log:*` / `git diff:*` / `git show:*`: `--output=<file>` writes any file (probed git 2.55.0) |
+| `Bash(git branch --show-current)` | Exact match; no write flags |
 | `Bash(git rev-parse:*)` | Read-only |
-| `Bash(git fetch:*)` | Reads remote; does not touch working tree |
+| ~~`Bash(git fetch:*)`~~ | **Unsafe**: `--upload-pack=<cmd>` executes a command (PR #175, `setup-review-dir.sh`) |
 | `Bash(npm run *)` | Subcommand locked to `run` |
 | `Bash(bash /Users/<you>/.agents/skills/foo/scripts/setup.sh)` | Absolute path exact match; reviewing once = permanent trust |
 
@@ -199,23 +199,23 @@ Example (`<abs-path-to-git>`: run `which git`; typical: `/opt/homebrew/bin/git`,
    "allow": [
 -    "Bash(PATH=\"/Users/me/.asdf/shims:$PATH\" git *)",
 +    "Bash(<abs-path-to-git> status:*)",
-+    "Bash(<abs-path-to-git> log:*)",
-+    "Bash(<abs-path-to-git> diff:*)",
++    "Bash(<abs-path-to-git> branch --show-current)",
++    "Bash(<abs-path-to-git> log --oneline -5)",
 +    "Bash(<abs-path-to-git> rev-parse:*)",
-+    "Bash(<abs-path-to-git> fetch:*)",
++    "Bash(<abs-path-to-git> diff --stat)",
 +    "Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh)"
    ]
  }
 ```
 
 - Absolute path replaces `PATH=` so the first token is the binary itself.
-- `git *` split into per-verb read-only subcommands with trailing `:*` word boundary.
+- `git *` split into write-flag-free subcommands (`log`/`diff`/`show` only as exact forms; no `fetch`).
 - `git commit:*`, `git push:*`, `git reset:*` excluded intentionally (confirmation = safety net).
 
 ## Rule 13 / Rule 16 Relationship
 
 - Rule 13: how the agent **writes** bash (no fat commands, no same-type quote conflicts).
-- Rule 14: **shell quoting/variable expansion** hygiene (including `$?` — use `if ! cmd; then`).
+- Rule 13 "Shell Quoting Hygiene" (formerly rule 14): quoting/expansion (incl. `$?` — use `if ! cmd; then`).
 - Rule 16: how **users/agents configure** allow-list patterns (no middle wildcards, no variable prefixes).
 
 Rules 13+14 produce bash that allow-list patterns can precisely match.
@@ -250,7 +250,7 @@ Rewrite examples:
 
 | Auto-suggested (red flag) | Safe rewrite |
 |--------------------------|-------------|
-| `Bash(git *)` | `Bash(git status:*)` / `Bash(git log:*)` / `Bash(git diff:*)` |
+| `Bash(git *)` | `Bash(git status:*)` / `Bash(git rev-parse:*)` / exact `Bash(git log --oneline -5)` |
 | `Bash(npm *)` | `Bash(npm run:*)` / `Bash(npm ls:*)` |
 | `Bash(uv *)` | `Bash(uv run pytest:*)` / `Bash(uv sync)` |
 

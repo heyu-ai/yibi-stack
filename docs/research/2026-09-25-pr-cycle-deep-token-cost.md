@@ -95,9 +95,31 @@ subagent transcript（`<session>/subagents/*.jsonl`）另外計算。
 整體估算（推論）：指令層目前約 54k token，做完 A–I 後約 21k，第一個 turn 從 110–165k 降到約
 75–130k。其餘的量來自 system prompt、工具清單、skill 清單與 agent 類型描述，不在本方案範圍。
 
-順帶發現的矛盾（研究 subagent 回報）：rule 13 的 Quoting Rule 5 與全域 CLAUDE.md 都建議把
-`Bash(git -C *)` 加進 allow-list，但這個 pattern 允許 `git -C /x push --force`，正好違反 rule 16
-Red Flag 1／2。需要裁決以哪邊為準。
+### 3.4 rule 13 與 rule 16 的矛盾：以 rule 16 為準（已修正）
+
+rule 13 的 Quoting Rule 5 與全域 CLAUDE.md 都建議把 `Bash(git -C *)` 加進 allow-list，
+rule 16 則把 `Bash(git -C * status)` 列為 Red Flag 1。依 `/lessons` 的過去經驗判定 **rule 16 正確**：
+
+- `git-commit-allow-list-middle-wildcard`（yibi-mvp PR #436，三家 mob review 各自獨立指出）與
+  `git-commit-allow-list-never-permanent`（yibi-stack）：`git -C *` 的 `*` 會吞掉後面所有參數，
+  `git -C /x push --force origin main` 也會匹配。`Bash(git -C *)` 比被列為 Red Flag 的
+  `Bash(git -C * status)` 還寬，等同 Red Flag 2（verb 層級萬用字元）。
+- `bash-simple-expansion-allow-entry-not-structure`（conf 9，7 格 probe matrix）：rule 13 加這條的動機
+  是壓掉 `simple_expansion` 誤報。但實測顯示跳框與否取決於「該 verb 有沒有對應的 allow entry」，
+  正解是「verb 在第一個 token + 字面絕對路徑」，不需要開一條萬用規則。
+- 查證 rule 16 時，另外發現 rule 16 自己的「安全範例」也有兩處錯誤：
+  - `cc-allowlist-git-output-write-vector`（yibi-mvp，conf 8）指出 `Bash(git diff:*)`／`git log:*`
+    有 `--output=<file>` 寫檔向量；本機以 git 2.55.0 重測成立（兩者都寫出了檔案）。
+  - `Bash(git fetch:*)` 可經 `--upload-pack=<cmd>` 執行指令，這個 repo 的 `setup-review-dir.sh` 註解
+    （PR #175）早已實測過，但 rule 16 仍把它列為安全。
+
+已修正：rule 13 的範例改成 per-repo 精確 prefix；rule 16 的安全範例表、Red Flag 2 修法、remediation
+範例、`/less-permission-prompts` 改寫表都拿掉 `log:*`／`diff:*`／`fetch:*`；順帶修正過時的「Rule 14」
+引用。常駐行數淨增 0。
+
+**仍需使用者處理**：全域 `~/.claude/settings.json:60` 實際放行了 `Bash(git -C *)`，而 repo 的 deny 規則
+`Bash(git push --force*)` 只擋以 `git push` 開頭的形式，擋不到 `git -C <path> push --force`。
+全域 CLAUDE.md 的 Bash Patterns 段也還在建議這條。兩者都屬使用者的個人設定，agent 不自行修改。
 
 ## 4. 研究：`testplan.md` 有沒有被用到（原方案 #6）
 

@@ -946,7 +946,7 @@ test -n "${CODEX_API_KEY}" -o -n "${OPENAI_API_KEY}" && echo "AUTH: KEY_SET" || 
 
 ```json
 "Bash(rg *)",
-"Bash(git -C *)",
+"Bash(git -C /Users/<you>/<repo> status:*)",
 "Bash(basename *)",
 "Bash(dirname *)",
 "Bash(test -n *)",
