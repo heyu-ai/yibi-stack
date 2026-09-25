@@ -1,4 +1,4 @@
-"""CITEPATH-* tests for scripts/check_cited_paths.py。
+"""scripts/check_cited_paths.py 的 CITEPATH-* 測試。
 
 驗證路徑抽取（inline code、markdown 連結、fence 規則）、以 git ls-files 判斷存在、
 expected-absent 宣告，以及 exit code 契約（0／1／2／3）。
@@ -106,10 +106,17 @@ class TestExtractCandidates:
         """CITEPATH-EP-007: 同一路徑出現多次只列一次，保留首次出現順序"""
         assert _cands("`b/x.md` `a/y.md` `b/x.md`") == ["b/x.md", "a/y.md"]
 
-    def test_citepath_ep_008_schemeless_url_ignored_but_dotted_dir_kept(self) -> None:
-        """CITEPATH-EP-008: 第一段形似網域者不算路徑；`config.d/` 這種含點目錄仍要檢查"""
-        text = "`raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md` `config.d/app.toml`"
-        assert _cands(text) == ["config.d/app.toml"]
+    def test_citepath_ep_008_domain_like_first_segment_is_checked(self) -> None:
+        """CITEPATH-EP-008: 第一段形似網域者也要檢查（`Foo.app/`、無 scheme 網址），不可靜默略過"""
+        text = (
+            "`raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md` "
+            "`config.d/app.toml` `Foo.app/Contents/Info.plist`"
+        )
+        assert _cands(text) == [
+            "raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md",
+            "config.d/app.toml",
+            "Foo.app/Contents/Info.plist",
+        ]
 
     def test_citepath_ep_009_dot_leading_first_segment_is_kept(self) -> None:
         """CITEPATH-EP-009: 以點開頭的第一段（`.claude/`）不會被當成網域排除"""
@@ -203,6 +210,75 @@ class TestExtractCandidates:
         text = "用 `<!-- expected-absent: <path> -->` 宣告\n<!-- expected-absent: real.md -->\n"
         assert check_cited_paths.parse_expected_absent(text) == ["real.md"]
 
+    def test_citepath_ep_025_code_span_wrapped_across_lines(self) -> None:
+        """CITEPATH-EP-025: 段落內被換行切開的 inline code 仍要抽取（換行視為空白）"""
+        assert _cands("見 `CLAUDE.md`\n執行 `python3\nscripts/missing.py --x` 後再跑") == [
+            "CLAUDE.md",
+            "scripts/missing.py",
+        ]
+        assert "missing.py" in _cands("see `scripts/\nmissing.py` here")
+
+    def test_citepath_ep_026_link_text_wrapped_across_lines(self) -> None:
+        """CITEPATH-EP-026: 連結文字跨行時，連結目標仍要抽取"""
+        assert _cands("見 [週報產生器的說明文件\n與設定](docs/missing.md) 以及") == [
+            "docs/missing.md"
+        ]
+
+    def test_citepath_ep_027_reference_link_definitions(self) -> None:
+        """CITEPATH-EP-027: 參考式連結的定義行 `[ref]: path` 要抽取目標"""
+        text = '見 [說明][ref] 與 [其他][r2]\n\n[ref]: docs/missing.md\n  [r2]: <my dir/a.md> "t"\n'
+        assert _cands(text) == ["docs/missing.md", "my dir/a.md"]
+
+    def test_citepath_ep_028_parentheses_inside_path(self) -> None:
+        """CITEPATH-EP-028: 路徑內含成對括號時不截斷（連結目標與 inline code 都一樣）"""
+        assert sorted(_cands("[x](docs/a(1).md) 與 `x/b(2).py`")) == ["docs/a(1).md", "x/b(2).py"]
+
+    def test_citepath_ep_029_link_with_title(self) -> None:
+        """CITEPATH-EP-029: 帶 title 的連結 `[t](path "title")` 也要抽取目標"""
+        text = "[t](docs/missing.md \"title\") [u](<a b.md> 'x')"
+        assert _cands(text) == ["docs/missing.md", "a b.md"]
+
+    def test_citepath_ep_030_list_item_fence_closer_with_deeper_indent(self) -> None:
+        """CITEPATH-EP-030: list item 內縮排較深的 closer 仍會關閉 fence，後文照常抽取"""
+        text = "1. step\n   ```bash\n   echo `in/a.py`\n    ```\n2. 改 `out/b.py`\n"
+        assert _cands(text) == ["out/b.py"]
+
+    def test_citepath_ep_031_four_space_indented_backticks_do_not_open_fence(self) -> None:
+        """CITEPATH-EP-031: 縮排 4 格的 ``` 行不是 fence 開頭，後文照常抽取"""
+        assert _cands("    ```\n`out/b.py`\n") == ["out/b.py"]
+
+    def test_citepath_ep_032_unclosed_fence_raises(self) -> None:
+        """CITEPATH-EP-032: fence 到文件結尾仍未關閉時丟 ValueError，不可把後文靜默當成 fence 內"""
+        with pytest.raises(ValueError, match="fence"):
+            _cands("見 `CLAUDE.md`\n```\n改 `scripts/missing.py`\n")
+
+    def test_citepath_ep_033_dot_leading_two_segments_are_checked_not_skipped(self) -> None:
+        """CITEPATH-EP-033: 以點開頭的兩段路徑（`.github/workflows`）要檢查，不落入 owner/repo 略過"""
+        cands, skipped = check_cited_paths.extract_candidates("`.github/workflows`", _index())
+        assert cands == [".github/workflows"]
+        assert skipped == []
+
+    def test_citepath_ep_034_known_extensionless_name_is_not_owner_repo(self) -> None:
+        """CITEPATH-EP-034: 第二段是已知無副檔名檔名（`tools/Dockerfile`）時要檢查，不略過"""
+        cands, skipped = check_cited_paths.extract_candidates("`tools/Dockerfile`", _index())
+        assert cands == ["tools/Dockerfile"]
+        assert skipped == []
+
+    @pytest.mark.parametrize("name", sorted(check_cited_paths._EXTENSIONLESS_NAMES))
+    def test_citepath_ep_035_every_extensionless_name_is_extracted_bare(self, name: str) -> None:
+        """CITEPATH-EP-035: 清單內每一個已知無副檔名檔名，單獨出現也會被抽出"""
+        assert _cands(f"`{name}`") == [name]
+
+    def test_citepath_ep_036_declaration_inside_multiline_code_span_is_ignored(self) -> None:
+        """CITEPATH-EP-036: 跨行 inline code 內的 expected-absent 範例宣告不算數"""
+        text = "Example: `\n<!-- expected-absent: docs/missing.md -->\n`\n"
+        assert check_cited_paths.parse_expected_absent(text) == []
+
+    def test_citepath_ep_037_declaration_inside_paragraph_counts(self) -> None:
+        """CITEPATH-EP-037: 與散文同段落、不在 inline code 內的宣告仍算數"""
+        text = "前一行散文\n<!-- expected-absent: a.md -->\n後一行散文\n"
+        assert check_cited_paths.parse_expected_absent(text) == ["a.md"]
+
 
 class TestResolve:
     def _status(self, token: str, files: tuple[str, ...] = _BASE_FILES) -> str:
@@ -268,13 +344,26 @@ class TestResolve:
         """CITEPATH-RS-008: 正規化後跳出 repo 的路徑為 outside；`./` 與內部 `..` 正常解析"""
         assert self._status("../sibling/CLAUDE.md") == "outside"
         assert self._status("scripts/../../x.md") == "outside"
+        assert self._status("scripts/../..") == "outside"
         assert self._status("./scripts/lint.py") == "ok"
         assert self._status("scripts/cron/../lint.py") == "ok"
+
+    def test_citepath_rs_009_trailing_slash_glob_must_match_a_directory(self) -> None:
+        """CITEPATH-RS-009: `scripts/*/` 須命中目錄；只有檔案 `scripts/lint.py` 時為 missing"""
+        assert self._status("scripts/*/") == "ok"
+        assert self._status("scripts/*/", ("scripts/lint.py",)) == "missing"
+
+    def test_citepath_rs_010_question_mark_glob_matches_one_non_slash_char(self) -> None:
+        """CITEPATH-RS-010: `?` 只比對一個非 `/` 字元，含斜線與單獨檔名都一樣"""
+        assert self._status("scripts/lint.p?") == "ok"
+        assert self._status("scripts?lint.py") == "missing"
+        assert self._status("lint.p?") == "ok"
+        assert self._status("lint.p?", ("a/lint.pyc",)) == "missing"
 
 
 class TestLoadIndex:
     def test_citepath_li_001_only_tracked_files_count(self, tmp_path: Path) -> None:
-        """CITEPATH-LI-001: 未追蹤、gitignored、其他 worktree 目錄下的檔案都不在 index"""
+        """CITEPATH-LI-001: 未追蹤與 gitignored 的檔案都不在 index"""
         repo = _make_repo(tmp_path / "repo")
         (repo / ".gitignore").write_text(".runtime/\n", encoding="utf-8")
         _git(repo, "add", ".gitignore")
@@ -301,6 +390,17 @@ class TestLoadIndex:
         repo = _make_repo(tmp_path / "repo")
         with pytest.raises(RuntimeError, match="根目錄"):
             check_cited_paths.load_index(repo / "scripts")
+
+    def test_citepath_li_004_inherited_git_dir_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CITEPATH-LI-004: 繼承的 GIT_DIR 指向另一個 repo 時，仍讀 --repo 自己的 index"""
+        repo = _make_repo(tmp_path / "repo", ("a.md",))
+        other = _make_repo(tmp_path / "other", ("x.md",))
+        monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+        monkeypatch.setenv("GIT_WORK_TREE", str(other))
+        files = check_cited_paths.load_index(repo).files
+        assert files == {"a.md"}
 
 
 class TestMain:
@@ -387,7 +487,7 @@ class TestMain:
     def test_citepath_mn_007_stale_absent_when_not_cited(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """CITEPATH-MN-007: 宣告的檔案存在但內文沒有用反引號引用，仍要 exit 1（AC-3）"""
+        """CITEPATH-MN-007: 宣告的檔案存在但內文沒有用反引號引用，仍要 exit 1（AC-6）"""
         rc, _ = self._run(tmp_path, "<!-- expected-absent: CLAUDE.md -->\n本 repo 沒有 CLAUDE.md\n")
         assert rc == 1
         assert "[STALE-ABSENT] CLAUDE.md" in capsys.readouterr().out
@@ -482,3 +582,80 @@ class TestMain:
         )
         assert rc == 1
         assert "[STALE-ABSENT] SKILL.md" in capsys.readouterr().out
+
+    def test_citepath_mn_017_declared_and_cited_absent_path_is_waived(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """CITEPATH-MN-017: 唯一缺的引用已宣告 expected-absent 時 exit 0，且不印 [MISSING]"""
+        body = "<!-- expected-absent: .mcp.json -->\n本 repo 無 `.mcp.json`，見 `CLAUDE.md`\n"
+        rc, _ = self._run(tmp_path, body)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "[MISSING] .mcp.json" not in out
+        assert "[ABSENT-OK] .mcp.json" in out
+
+    def test_citepath_mn_018_outside_path_cannot_be_declared_absent(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """CITEPATH-MN-018: 跳出 repo 的路徑不可用 expected-absent 放行，仍印 [OUTSIDE] 並 exit 1"""
+        _make_repo(tmp_path / "sibling", ("x.md",))
+        body = "<!-- expected-absent: ../sibling/x.md -->\n見 `../sibling/x.md` 與 `CLAUDE.md`\n"
+        rc, _ = self._run(tmp_path, body)
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "[OUTSIDE] ../sibling/x.md" in out
+        assert "[ABSENT-OK]" not in out
+
+    def test_citepath_mn_019_unclosed_fence_exits_two(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """CITEPATH-MN-019: fence 未關閉時無法判斷後文，exit 2，不可當成通過"""
+        rc, _ = self._run(tmp_path, "見 `CLAUDE.md`\n```\n改 `scripts/missing.py`\n")
+        assert rc == 2
+        assert "[FAIL]" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("failure", ["ls-files-rc", "remote-rc", "timeout", "oserror"])
+    def test_citepath_mn_020_git_failures_exit_two(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        failure: str,
+    ) -> None:
+        """CITEPATH-MN-020: rev-parse 之後的 git 呼叫失敗（非零、逾時、OSError）一律 exit 2"""
+        repo = _make_repo(tmp_path / "repo")
+        doc = _write(tmp_path / "doc.md", "`CLAUDE.md`")
+        real_run = subprocess.run
+
+        def fake_run(cmd: list[str], *args: object, **kwargs: object) -> object:
+            if failure == "ls-files-rc" and "ls-files" in cmd:
+                return subprocess.CompletedProcess(cmd, 128, "", "fatal: boom")
+            if failure == "remote-rc" and "remote" in cmd:
+                return subprocess.CompletedProcess(cmd, 128, "", "fatal: boom")
+            if failure == "timeout" and "ls-files" in cmd:
+                raise subprocess.TimeoutExpired(cmd, 60)
+            if failure == "oserror" and "remote" in cmd:
+                raise OSError("git vanished")
+            return real_run(cmd, *args, **kwargs)  # type: ignore[call-overload]
+
+        monkeypatch.setattr(check_cited_paths.subprocess, "run", fake_run)
+        assert check_cited_paths.main([str(doc), "--repo", str(repo)]) == 2
+        assert "[FAIL]" in capsys.readouterr().err
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "見 `CLAUDE.md`\n執行 `python3\nscripts/missing.py --x`\n",
+            "見 [說明][ref] 與 `CLAUDE.md`\n\n[ref]: docs/missing.md\n",
+            "1. `CLAUDE.md`\n   ```bash\n   echo\n    ```\n2. 改 `scripts/missing.py`\n",
+            "`tasks/nightly_agent/*/` 與 `CLAUDE.md`\n",
+            "`Foo.app/Contents/Info.plist` 與 `CLAUDE.md`\n",
+        ],
+        ids=["wrapped-span", "reference-link", "list-fence", "dir-glob", "domain-like"],
+    )
+    def test_citepath_mn_021_formerly_fail_open_shapes_now_exit_one(
+        self, tmp_path: Path, body: str
+    ) -> None:
+        """CITEPATH-MN-021: R1 review 重現的 fail-open 形狀，缺席路徑都要讓閘門 exit 1"""
+        rc, _ = self._run(tmp_path, body)
+        assert rc == 1
