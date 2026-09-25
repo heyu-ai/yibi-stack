@@ -9,7 +9,9 @@ Exit codes:
   0 — testplan.md missing on a change whose proposal.md `type:` does not require one
       (eng / ops / bug / poc / docs); printed as [WARN] and the TC check is skipped
   1 — MUST findings (missing spec: trace on test that targets a TC) — blocks merge
-  1 — SHOULD findings only (coverage gap; printed as [WARN]; document reason before deferring)
+  1 — SHOULD findings only (coverage gap, or a TC mapped to an empty / undeclared Test Seam;
+      printed as [WARN]; document reason before deferring). A plan with no Test Seams table is
+      INFO only, so plans written before Check 4 existed are not retroactively flagged.
   2 — fatal error: change directory not found, testplan.md missing on a feat / refactor change
       (or one whose `type:` cannot be read), testplan contains no TC
       table, a `gh` / `git` invocation failed (binary not found, timed out, or non-zero),
@@ -295,6 +297,55 @@ def parse_tc_table(
             if conflicts_out is not None:
                 conflicts_out.append((tc_id, prev.slug, slug))
     return [by_tc_id[t] for t in order]
+
+
+# Test Seams (Check 4). A seam is the public boundary a test observes behaviour at; the idea is
+# mattpocock/skills' "test only at pre-agreed seams". Tables are told apart the same structural
+# way as above: a DECLARATION table has an exactly-`Seam` column and no ID column; a TC table that
+# carries a `Seam` column only REFERENCES a seam per TC.
+_SEAM_COL_RE = re.compile(r"^\s*seam\s*$", re.IGNORECASE)
+
+
+def _norm_seam(cell: str) -> str:
+    return cell.strip().strip("`").strip().lower()
+
+
+def parse_seams(testplan_text: str) -> list[str]:
+    """Return the seam names declared in the plan's seam table(s), in order, de-duplicated."""
+    lines = testplan_text.splitlines()
+    seams: list[str] = []
+    for i, header_cells in _iter_table_headers(lines):
+        seam_col = _find_col(header_cells, _SEAM_COL_RE)
+        if seam_col is None or _find_col(header_cells, _TC_ID_COL_RE) is not None:
+            continue
+        for cells in _parse_table_rows(lines, i):
+            if len(cells) > seam_col:
+                name = _norm_seam(cells[seam_col])
+                if name and name not in seams:
+                    seams.append(name)
+    return seams
+
+
+def parse_tc_seams(testplan_text: str) -> dict[str, str]:
+    """Map TC-ID -> seam for every TC row in a TC table that has a `Seam` column.
+
+    A TC absent from the result sits in a table with no Seam column (unmapped); a TC mapped to
+    "" has the column but an empty cell. Check 4 treats those two differently.
+    """
+    lines = testplan_text.splitlines()
+    out: dict[str, str] = {}
+    for i, header_cells in _iter_table_headers(lines):
+        tc_col = _find_col(header_cells, _TC_ID_COL_RE)
+        seam_col = _find_col(header_cells, _SEAM_COL_RE)
+        if tc_col is None or seam_col is None or _coverage_cols(header_cells) is not None:
+            continue
+        for cells in _parse_table_rows(lines, i):
+            if len(cells) <= max(tc_col, seam_col):
+                continue
+            m = _TC_ID_RE.search(cells[tc_col])
+            if m and m.group(0) not in out:
+                out[m.group(0)] = _norm_seam(cells[seam_col])
+    return out
 
 
 def parse_coverage_table(testplan_text: str) -> list[CoverageRow]:
@@ -702,9 +753,13 @@ def analyze(
     coverage_rows: list[CoverageRow],
     test_functions: list[TestFunction],
     slug_conflicts: list[tuple[str, str, str]] | None = None,
+    seams: list[str] | None = None,
+    tc_seams: dict[str, str] | None = None,
 ) -> Findings:
     findings = Findings()
     slug_conflicts = slug_conflicts or []
+    seams = seams or []
+    tc_seams = tc_seams or {}
 
     # Build slug → TC-ID map
     slug_to_tc: dict[str, str] = {}
@@ -776,6 +831,37 @@ def analyze(
             f"{slugless}/{len(tc_rows)} TCs have no Scenario Slug; Check 2 cannot match"
             f" tests to them by name, so their traceability is UNVERIFIED (not clean)."
         )
+
+    # Check 4 (SHOULD / INFO): Test Seams. Severity mirrors the slugless INFO above: a plan that
+    # declares no seams is describing its SHAPE (every plan written before this check existed has
+    # none), so it gets INFO -- a SHOULD would flag every older change regardless of quality.
+    # Only a plan that declares seams and then maps a TC to an undeclared or empty seam is wrong.
+    declared = {_norm_seam(s) for s in seams}
+    if not declared:
+        findings.info.append(
+            "testplan declares no Test Seams table; whether tests sit at agreed public"
+            " interfaces is UNVERIFIED (not clean)."
+        )
+    else:
+        for tc in tc_rows:
+            if tc.tc_id not in tc_seams:
+                continue
+            seam = tc_seams[tc.tc_id]
+            if not seam:
+                findings.should.append(
+                    f"{tc.tc_id} has an empty Seam cell; map it to a declared seam"
+                )
+            elif seam not in declared:
+                findings.should.append(
+                    f"{tc.tc_id} is mapped to seam '{seam}', which the Test Seams table does not"
+                    f" declare (declared: {', '.join(sorted(declared))})"
+                )
+        unmapped = sum(1 for tc in tc_rows if tc.tc_id not in tc_seams)
+        if unmapped:
+            findings.info.append(
+                f"{unmapped}/{len(tc_rows)} TCs sit in tables with no Seam column; their seam is"
+                f" UNVERIFIED."
+            )
 
     # Info: coverage map summary
     total_tcs = len(tc_rows)
@@ -1086,7 +1172,14 @@ def main() -> None:
     print(f"[OK]   found {len(test_functions)} new test function(s) in PR diff")
 
     # Step 5 — analyze
-    findings = analyze(tc_rows, coverage_rows, test_functions, slug_conflicts=slug_conflicts)
+    findings = analyze(
+        tc_rows,
+        coverage_rows,
+        test_functions,
+        slug_conflicts=slug_conflicts,
+        seams=parse_seams(testplan_text),
+        tc_seams=parse_tc_seams(testplan_text),
+    )
 
     # Step 6 — report
     print()

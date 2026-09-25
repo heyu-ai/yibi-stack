@@ -387,6 +387,22 @@ Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
 輸出：`openspec/changes/<name>/testplan.md`（格式見 `<sdd-root>/references/testplan-template.md`，
 `<sdd-root>` 解析見「Plugin 資源路徑解析」章節）
 
+### Step 2d — Test Seams 對照 codebase 並交給人確認
+
+qa-test-designer 沒有 codebase 存取權，它提的 seam 只是依 scenario 字面命名的介面。寫入 testplan 前：
+
+1. 對 `## Test Seams` 表的每一列，在 codebase 查出對應的公開介面（endpoint 路徑、public method、
+   畫面），把 `Public interface` 欄改成可 grep 的實際名稱；查不到的標 `（尚未存在，本 change 新增）`。
+2. 某個 seam 若必須 mock 本 repo 自己的模組才測得了，代表選錯層，改選它上一層的邊界。
+   mock 只能用在外部邊界（第三方 API、時間、亂數，有時是檔案系統或 DB）。
+3. 把 seam 表連同 proposal 一起給人確認。**沒有被確認的 seam 不得寫 TC**。背景執行、當下無人
+   可問時，在 testplan 的 seam 表上方加一行 `> 待人確認（尚未確認前不得依此寫測試）`，並在回報中列出。
+
+`/pr-cycle-deep` 的 amplifier-verify（Check 4）會檢查：有 seam 表時，每個 TC 的 `Seam` 欄必須是
+表中宣告的名稱，空白或未宣告的名稱列為 SHOULD。沒有 seam 表的舊 testplan 只記 INFO，不溯及既往。
+這個做法取自 mattpocock/skills 的 tdd skill（「只在事先約定的 seam 上寫測試」），差別是它在寫每個
+測試前停下來問人；我們在 propose 階段一次確認，因為實作多半在背景執行。
+
 ---
 
 ## Step 3 — 設計輔助層（按需，輸入 `design.md`）
