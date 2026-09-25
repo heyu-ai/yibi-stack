@@ -87,14 +87,15 @@ class TestExtractCandidates:
         ]
 
     def test_citepath_ep_005_non_path_tokens_are_ignored(self) -> None:
-        """CITEPATH-EP-005: remote ref、npm scope、版本號、網址、flag、絕對路徑、shell 片段都不算"""
+        """CITEPATH-EP-005: remote ref、npm scope、版本號、網址、flag、絕對路徑、shell 片段都不算；
+        `=` 是分隔字元，所以 `KEY=a/b.py` 仍會檢查等號右邊的路徑"""
         text = (
             "`origin/main` `@anthropic-ai/claude-code` `2.1.274` `https://x.com/a.md` `--park` "
             "`/Users/me/a.md` `~/a.md` `+32/-4` `3/3` `KEY=a/b.py` `$HOME/a.py` "
-            "`python3` `tasks.mycelium`"
+            "`python3` `tasks.mycelium` [m](mailto:a@b.c)"
         )
         cands, skipped = check_cited_paths.extract_candidates(text, _index(remotes=("origin",)))
-        assert cands == []
+        assert cands == ["a/b.py"]
         assert skipped == []
 
     def test_citepath_ep_006_backtick_and_tilde_fences_are_skipped(self) -> None:
@@ -187,8 +188,8 @@ class TestExtractCandidates:
         assert _cands(text) == ["scripts/missing.py", "docs/a.md", "my dir/f.md"]
 
     def test_citepath_ep_020_multi_backtick_span(self) -> None:
-        """CITEPATH-EP-020: 雙反引號包住的 inline code 也要抽取"""
-        assert _cands("`` a/b.md `` 與 ``c/`d`.md``") == ["a/b.md"]
+        """CITEPATH-EP-020: 雙反引號包住的 inline code 也要抽取；含反引號的路徑被切成片段各自檢查"""
+        assert _cands("`` a/b.md `` 與 ``c/`d`.md``") == ["a/b.md", "c/"]
 
     def test_citepath_ep_021_crlf_lines(self) -> None:
         """CITEPATH-EP-021: CRLF 換行的 fence 與引用都能正確處理"""
@@ -202,12 +203,12 @@ class TestExtractCandidates:
 
     def test_citepath_ep_023_expected_absent_inside_fence_is_ignored(self) -> None:
         """CITEPATH-EP-023: fence 內作為範例的 expected-absent 宣告不算數"""
-        text = "```\n<!-- expected-absent: a.md -->\n```\n<!-- expected-absent: b.md c.md -->\n"
+        text = "```\n\n<!-- expected-absent: a.md -->\n\n\n```\n\n<!-- expected-absent: b.md c.md -->\n\n"
         assert check_cited_paths.parse_expected_absent(text) == ["b.md", "c.md"]
 
     def test_citepath_ep_024_expected_absent_inside_inline_code_is_ignored(self) -> None:
         """CITEPATH-EP-024: inline code 內作為範例的 expected-absent 宣告不算數"""
-        text = "用 `<!-- expected-absent: <path> -->` 宣告\n<!-- expected-absent: real.md -->\n"
+        text = "用 `<!-- expected-absent: <path> -->` 宣告\n\n<!-- expected-absent: real.md -->\n\n"
         assert check_cited_paths.parse_expected_absent(text) == ["real.md"]
 
     def test_citepath_ep_025_code_span_wrapped_across_lines(self) -> None:
@@ -225,9 +226,9 @@ class TestExtractCandidates:
         ]
 
     def test_citepath_ep_027_reference_link_definitions(self) -> None:
-        """CITEPATH-EP-027: 參考式連結的定義行 `[ref]: path` 要抽取目標"""
+        """CITEPATH-EP-027: 參考式連結的定義行 `[ref]: path` 要抽取目標；含空白的路徑切成片段檢查"""
         text = '見 [說明][ref] 與 [其他][r2]\n\n[ref]: docs/missing.md\n  [r2]: <my dir/a.md> "t"\n'
-        assert _cands(text) == ["docs/missing.md", "my dir/a.md"]
+        assert _cands(text) == ["docs/missing.md", "dir/a.md"]
 
     def test_citepath_ep_028_parentheses_inside_path(self) -> None:
         """CITEPATH-EP-028: 路徑內含成對括號時不截斷（連結目標與 inline code 都一樣）"""
@@ -236,7 +237,7 @@ class TestExtractCandidates:
     def test_citepath_ep_029_link_with_title(self) -> None:
         """CITEPATH-EP-029: 帶 title 的連結 `[t](path "title")` 也要抽取目標"""
         text = "[t](docs/missing.md \"title\") [u](<a b.md> 'x')"
-        assert _cands(text) == ["docs/missing.md", "a b.md"]
+        assert _cands(text) == ["docs/missing.md", "b.md"]
 
     def test_citepath_ep_030_list_item_fence_closer_with_deeper_indent(self) -> None:
         """CITEPATH-EP-030: list item 內縮排較深的 closer 仍會關閉 fence，後文照常抽取"""
@@ -271,13 +272,60 @@ class TestExtractCandidates:
 
     def test_citepath_ep_036_declaration_inside_multiline_code_span_is_ignored(self) -> None:
         """CITEPATH-EP-036: 跨行 inline code 內的 expected-absent 範例宣告不算數"""
-        text = "Example: `\n<!-- expected-absent: docs/missing.md -->\n`\n"
+        text = "Example: `\n<!-- expected-absent: docs/missing.md -->\n\n`\n"
         assert check_cited_paths.parse_expected_absent(text) == []
 
-    def test_citepath_ep_037_declaration_inside_paragraph_counts(self) -> None:
-        """CITEPATH-EP-037: 與散文同段落、不在 inline code 內的宣告仍算數"""
-        text = "前一行散文\n<!-- expected-absent: a.md -->\n後一行散文\n"
+    def test_citepath_ep_037_declaration_must_be_its_own_paragraph(self) -> None:
+        """CITEPATH-EP-037: 宣告須單獨成段（前後空行或文件頭尾）；緊貼散文的宣告不算數"""
+        assert (
+            check_cited_paths.parse_expected_absent("前一行\n<!-- expected-absent: a.md -->\n\n")
+            == []
+        )
+        assert (
+            check_cited_paths.parse_expected_absent("<!-- expected-absent: a.md -->\n後一行\n")
+            == []
+        )
+        text = "前一行\n\n<!-- expected-absent: a.md -->\n\n後一行\n"
         assert check_cited_paths.parse_expected_absent(text) == ["a.md"]
+        assert check_cited_paths.parse_expected_absent("<!-- expected-absent: b.md -->") == ["b.md"]
+
+    def test_citepath_ep_038_prose_context_rules(self) -> None:
+        """CITEPATH-EP-038: 散文中看得出是路徑的斜線 token 要檢查；其他斜線詞列 skipped；
+        散文中的單獨檔名不查"""
+        text = "修改 scripts/missing.py 與 tasks/x，另見 A/B 測試、Read/Write/Edit 與 SKILL.md"
+        cands, skipped = check_cited_paths.extract_candidates(text, _index())
+        assert cands == ["scripts/missing.py", "tasks/x"]
+        assert skipped == ["A/B", "Read/Write/Edit"]
+
+    def test_citepath_ep_039_escaped_and_stray_backticks_do_not_hide_paths(self) -> None:
+        """CITEPATH-EP-039: 反斜線跳脫或落單的反引號不影響其他路徑的抽取"""
+        assert _cands("Use \\` then `scripts/missing.py`.") == ["scripts/missing.py"]
+        assert _cands("- 用 ` 分隔\n- 修改 `scripts/missing.py`") == ["scripts/missing.py"]
+
+    def test_citepath_ep_040_link_targets_are_always_checked(self) -> None:
+        """CITEPATH-EP-040: 連結目標不套 owner/repo 略過；巢狀括號、query string、巢狀中括號都抽得到"""
+        text = (
+            "[a](docs/a(b(c)).md) [b](scripts/x.py?plain=1) [the [docs]](scripts/y.py) "
+            "[c](docs/guide)"
+        )
+        cands = _cands(text)
+        assert "docs/a(b(c)).md" in cands
+        assert "scripts/y.py" in cands
+        assert "docs/guide" in cands
+        assert any(c.startswith("scripts/x.py") for c in cands)
+
+    def test_citepath_ep_041_sentence_punctuation_is_stripped(self) -> None:
+        """CITEPATH-EP-041: 句尾句點、冒號、粗體星號不算進路徑；`..` 不被剝掉"""
+        assert _cands("See scripts/a.py. Also **scripts/b.py** and `scripts/..`:") == [
+            "scripts/a.py",
+            "scripts/b.py",
+            "scripts/..",
+        ]
+
+    def test_citepath_ep_042_fence_closer_indent_is_relative_to_opener(self) -> None:
+        """CITEPATH-EP-042: 開頭行縮排 0 時，縮排 4 格的 ``` 是 fence 內容，不會提前關閉"""
+        text = "```markdown\n    ```\n    x\n    ```\n```\n\nSee `scripts/missing.py`.\n"
+        assert _cands(text) == ["scripts/missing.py"]
 
 
 class TestResolve:
@@ -464,7 +512,7 @@ class TestMain:
     ) -> None:
         """CITEPATH-MN-005: `expected-absent` 只放行明列的路徑，其他缺的仍 exit 1"""
         body = (
-            "<!-- expected-absent: .mcp.json scheduled_tasks.json -->\n"
+            "<!-- expected-absent: .mcp.json scheduled_tasks.json -->\n\n"
             "本 repo 實測無 `.mcp.json` 與 `scheduled_tasks.json`，但 `scripts/nope/` 應該存在\n"
         )
         rc, _ = self._run(tmp_path, body)
@@ -479,7 +527,7 @@ class TestMain:
     ) -> None:
         """CITEPATH-MN-006: 宣告為 expected-absent 且內文引用、卻實際存在時 exit 1"""
         rc, _ = self._run(
-            tmp_path, "<!-- expected-absent: CLAUDE.md -->\n本 repo 沒有 `CLAUDE.md`\n"
+            tmp_path, "<!-- expected-absent: CLAUDE.md -->\n\n本 repo 沒有 `CLAUDE.md`\n"
         )
         assert rc == 1
         assert "[STALE-ABSENT] CLAUDE.md" in capsys.readouterr().out
@@ -488,7 +536,9 @@ class TestMain:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """CITEPATH-MN-007: 宣告的檔案存在但內文沒有用反引號引用，仍要 exit 1（AC-6）"""
-        rc, _ = self._run(tmp_path, "<!-- expected-absent: CLAUDE.md -->\n本 repo 沒有 CLAUDE.md\n")
+        rc, _ = self._run(
+            tmp_path, "<!-- expected-absent: CLAUDE.md -->\n\n本 repo 沒有 CLAUDE.md\n"
+        )
         assert rc == 1
         assert "[STALE-ABSENT] CLAUDE.md" in capsys.readouterr().out
 
@@ -496,7 +546,7 @@ class TestMain:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """CITEPATH-MN-008: 只有宣告、宣告的都不存在時 exit 0（有檢查到東西，不是 exit 3）"""
-        rc, _ = self._run(tmp_path, "<!-- expected-absent: .mcp.json -->\n實測無此檔\n")
+        rc, _ = self._run(tmp_path, "<!-- expected-absent: .mcp.json -->\n\n實測無此檔\n")
         assert rc == 0
         assert "[ABSENT-OK] .mcp.json" in capsys.readouterr().out
 
@@ -577,7 +627,7 @@ class TestMain:
         """CITEPATH-MN-016: 宣告的單獨檔名其實同名多個（代表存在），也算宣告過時"""
         rc, _ = self._run(
             tmp_path,
-            "<!-- expected-absent: SKILL.md -->\n沒有 SKILL.md\n",
+            "<!-- expected-absent: SKILL.md -->\n\n沒有 SKILL.md\n",
             ("a/SKILL.md", "b/SKILL.md"),
         )
         assert rc == 1
@@ -587,7 +637,7 @@ class TestMain:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """CITEPATH-MN-017: 唯一缺的引用已宣告 expected-absent 時 exit 0，且不印 [MISSING]"""
-        body = "<!-- expected-absent: .mcp.json -->\n本 repo 無 `.mcp.json`，見 `CLAUDE.md`\n"
+        body = "<!-- expected-absent: .mcp.json -->\n\n本 repo 無 `.mcp.json`，見 `CLAUDE.md`\n"
         rc, _ = self._run(tmp_path, body)
         assert rc == 0
         out = capsys.readouterr().out
@@ -599,7 +649,7 @@ class TestMain:
     ) -> None:
         """CITEPATH-MN-018: 跳出 repo 的路徑不可用 expected-absent 放行，仍印 [OUTSIDE] 並 exit 1"""
         _make_repo(tmp_path / "sibling", ("x.md",))
-        body = "<!-- expected-absent: ../sibling/x.md -->\n見 `../sibling/x.md` 與 `CLAUDE.md`\n"
+        body = "<!-- expected-absent: ../sibling/x.md -->\n\n見 `../sibling/x.md` 與 `CLAUDE.md`\n"
         rc, _ = self._run(tmp_path, body)
         assert rc == 1
         out = capsys.readouterr().out
@@ -650,8 +700,35 @@ class TestMain:
             "1. `CLAUDE.md`\n   ```bash\n   echo\n    ```\n2. 改 `scripts/missing.py`\n",
             "`tasks/nightly_agent/*/` 與 `CLAUDE.md`\n",
             "`Foo.app/Contents/Info.plist` 與 `CLAUDE.md`\n",
+            "- 用 ` 分隔欄位\n- 修改 `scripts/missing.py`\n\n見 `CLAUDE.md`\n",
+            "# 標題含 ` 符號\n修改 `scripts/missing.py`\n\n見 `CLAUDE.md`\n",
+            "```markdown\n- item\n\n    ```\n    x\n    ```\n```\n\nSee `scripts/missing.py`.\n\n"
+            "```bash\necho hi\n```\n\nAlso `CLAUDE.md`.\n",
+            "`CLAUDE.md` [details](docs/a(b(c)).md)\n",
+            "`CLAUDE.md` [details][ref]\n\n[ref]:\n  docs/missing.md\n",
+            "See [the [docs]](scripts/missing.py) and `CLAUDE.md`.\n",
+            "Use \\` then `scripts/missing.py`.\n\nSee `CLAUDE.md`.\n",
+            "See [x](scripts/missing.py?plain=1) and `CLAUDE.md`.\n",
+            "修改 scripts/missing.py 即可，見 `CLAUDE.md`\n",
+            "Example: `\n<!-- expected-absent: docs/missing.md -->\n`\n\n`docs/missing.md` `CLAUDE.md`\n",
         ],
-        ids=["wrapped-span", "reference-link", "list-fence", "dir-glob", "domain-like"],
+        ids=[
+            "wrapped-span",
+            "reference-link",
+            "list-fence",
+            "dir-glob",
+            "domain-like",
+            "stray-backtick-list",
+            "stray-backtick-heading",
+            "fence-deep-closer",
+            "nested-parens",
+            "refdef-next-line",
+            "nested-brackets",
+            "escaped-backtick",
+            "query-string",
+            "prose-path",
+            "decl-in-span",
+        ],
     )
     def test_citepath_mn_021_formerly_fail_open_shapes_now_exit_one(
         self, tmp_path: Path, body: str

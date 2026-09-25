@@ -21,22 +21,28 @@ Exit code：
 內容——本機分支獨有、或只 git add 還沒 push 的檔案也算存在；要對齊 GitHub，`--repo` 必須
 指向已 pull 的 main checkout。
 
-抽取範圍（fenced code block 以外，以段落為單位，段落內的換行視為空白）：
-- inline code（任意數量反引號包住的片段，可跨行），內容依空白切成多個 token，所以
-  `python3 scripts/a.py --x` 會抽出 `scripts/a.py`
-- markdown 連結 `[文字](path)`（可帶 title、目標可含成對括號）與參考式連結定義
-  `[ref]: path` 的相對路徑（有 scheme 的網址與純錨點不算）
+抽取範圍：fenced code block 以外的全文（散文、inline code、連結都算），逐行以空白、markdown
+標點（反引號、中括號、角括號、引號、`{}|,;=!`）與 CJK 字元切成 token。刻意不做 code span
+配對——落單或跳脫的反引號、巢狀括號、跨行的 span 或連結都不可能藏起路徑，配錯最多多檢查。
+路徑本身含上述字元時會被切成片段各自檢查（可能誤擋，不會漏放）。括號不切開，只剝掉外圍或
+不成對的首尾括號，所以 `docs/a(1).md` 保持完整。
 
-fence：開頭行縮排至多 3 格；關閉行只要去掉前後空白後全是同一種 fence 字元且長度不短於開頭，
-不論縮排都算關閉（list item 內的 fence 常常縮排較深）。到文件結尾仍未關閉時 exit 2。
+fence：開頭行縮排至多 3 格；關閉行去掉前後空白後全是同一種 fence 字元、長度不短於開頭，
+且縮排不超過開頭行縮排 + 3（list item 內的 fence 會整體縮排）。到文件結尾仍未關閉時 exit 2。
 
-每個 token 先去掉結尾的 `:行`、`:行:欄`、`:起-迄`、`#L12`、`#錨點`、`::pytest-node`，再判斷：
-- 排除：flag（`-` 開頭）、`@` 開頭、絕對路徑（`/`、`~`）、含 `://` 或 shell 符號（`=`、`$` 等）、
-  不含任何字母（版本號、`3/3`、`+32/-4`）、第一段是目標 repo 的 git remote 名稱（`origin/main`）
-- 不含斜線：有已知副檔名、或是已知無副檔名檔名（`Makefile` 等）才算路徑；其餘視為一般字詞
-- 含斜線：預設一律算路徑（第一段形似網域者也檢查）。唯一例外是「兩段、最後一段沒有點也不是
-  已知無副檔名檔名、第一段不是 repo 的頂層項目也不以點開頭」（`owner/repo` 的形狀，例如
-  `heyu-ai/yibi-stack`）：不檢查，但印 `[SKIPPED]` 到 stderr
+每個 token 先去掉外圍括號、首尾冒號、粗體的 `**`、句尾句點，以及結尾的 `:行`、`:行:欄`、
+`:起-迄`、`#L12`、`#錨點`、`::pytest-node`，再依語境判斷：
+- 語境：緊鄰反引號或角括號、或是連結目標（緊接在 `]` 之後的 `(`）的 token 屬「程式碼語境」，
+  其餘屬「散文語境」。只看緊貼 token 的一個字元，不做配對
+- 排除（兩種語境皆同）：flag（`-` 開頭）、`@` 開頭、絕對路徑（`/`、`~`）、含 `://`、
+  `mailto:` 等 scheme、含 shell 符號（`$`、`&`、`\\`）、不含任何字母（版本號、`3/3`）、
+  第一段是目標 repo 的 git remote 名稱（`origin/main`）
+- 連結目標：一律算路徑
+- 不含斜線：程式碼語境中有已知副檔名、或是已知無副檔名檔名（`Makefile` 等）才算路徑；
+  散文語境一律不算（散文的 `SKILL.md` 多半是泛稱）
+- 含斜線：看得出是路徑者一律檢查——結尾斜線、第一段是 repo 頂層項目或以點開頭、第二段起
+  任一段含點、最後一段是已知無副檔名檔名。其餘在程式碼語境中三段以上也檢查；剩下的
+  （`owner/repo`、`Read/Write/Edit` 這類斜線詞）不檢查，但印 `[SKIPPED]` 到 stderr
 
 判斷存在：
 - 結尾斜線：必須是 repo 根目錄起算的目錄；含 glob 時也只比對目錄
@@ -49,10 +55,11 @@ fence：開頭行縮排至多 3 格；關閉行只要去掉前後空白後全是
 文件本來就在說明「某檔不存在」時，用 `<!-- expected-absent: <path> <path> -->` 明確宣告，
 寫法須與 `[MISSING]` 行印出的字串完全相同。宣告的每一條都會被檢查，不論內文有沒有引用：
 缺席時印 [ABSENT-OK]；其實存在時印 [STALE-ABSENT] 並 exit 1；跳出 repo 的路徑不可宣告，
-仍印 [OUTSIDE] 並 exit 1。fence 或 inline code 內的宣告不算數（那通常是在示範寫法）。
+仍印 [OUTSIDE] 並 exit 1。宣告必須在 fence 以外單獨一行，且前後都是空行（或文件頭尾）：
+CommonMark 的 inline code 不會跨空行，所以這樣的宣告不可能是 inline code 內的示範寫法。
 
-已知限制：散文寫法（「rule 12」）、fence 內的路徑、不含斜線也沒有已知副檔名的字詞不會被檢查；
-`owner/repo` 形狀的兩段路徑只列為 [SKIPPED]，不會讓閘門失敗。
+已知限制：fence 內的路徑、散文寫法（「rule 12」）、散文中的單獨檔名不會被檢查；看不出是
+路徑的斜線 token 只列為 [SKIPPED]，不會讓閘門失敗。
 """
 
 import argparse
@@ -132,17 +139,15 @@ _EXTENSIONLESS_NAMES = {
     "CODEOWNERS",
 }
 
-_FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-_BACKTICK_RUN_RE = re.compile(r"`+")
-_LINK_RE = re.compile(
-    r"\[[^\]]*\]\(\s*(<[^>]*>|(?:[^()\s]|\([^()\s]*\))+)"
-    r"(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)"
-)
-_REF_DEF_RE = re.compile(r"^ {0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)")
-_EXPECTED_ABSENT_RE = re.compile(r"<!--\s*expected-absent:\s*(.*?)\s*-->")
+_FENCE_OPEN_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
+# 路徑不會含這些字元；真的含時會被切成片段各自檢查，只會多擋、不會漏放
+_TOKEN_SPLIT_RE = re.compile(r"[\s`\[\]{}<>\"'|,;=!　-〿぀-ヿ㐀-䶿一-鿿＀-￯]+")
+_SPLIT_KEEP_RE = re.compile(f"({_TOKEN_SPLIT_RE.pattern})")
+_DECLARATION_RE = re.compile(r"^\s*<!--\s*expected-absent:\s*(.*?)\s*-->\s*$")
 _SUFFIX_RE = re.compile(r"(?:::\S+|#.*|(?::\d+)+(?:-\d+)?)$")
-_SHELL_CHARS = set("=$`{}<>|&;!\"'\\")
-_STRIP_CHARS = "\"'`,;:()[]"
+_SENTENCE_DOT_RE = re.compile(r"(?<=[^./])\.$")
+_SCHEME_RE = re.compile(r"^(?:mailto|tel|data|javascript|about):", re.IGNORECASE)
+_SHELL_CHARS = set("$&\\")
 _NUMBERED_RE = re.compile(r"^\d+$")
 
 
@@ -209,10 +214,24 @@ def load_index(repo: Path) -> RepoIndex:
     return RepoIndex(files=files, remotes=remotes)
 
 
+def _strip_parens(token: str) -> str:
+    """剝掉外圍成對的括號與不成對的首尾括號；路徑內成對的括號（`a(1).md`）保留。"""
+    while token.startswith("(") and token.endswith(")") and len(token) > 1:
+        token = token[1:-1]
+    while token.startswith("(") and token.count("(") > token.count(")"):
+        token = token[1:]
+    while token.endswith(")") and token.count(")") > token.count("("):
+        token = token[:-1]
+    return token
+
+
 def _clean(token: str) -> str:
-    token = token.strip().strip(_STRIP_CHARS)
-    token = _SUFFIX_RE.sub("", token)
-    return token.strip(_STRIP_CHARS)
+    token = _strip_parens(token.strip(":"))
+    if len(token) > 4 and token.startswith("**") and token.endswith("**"):
+        token = token[2:-2]
+    token = _SUFFIX_RE.sub("", token).rstrip(":")
+    token = _SENTENCE_DOT_RE.sub("", token)
+    return unquote(token) if "%" in token else token
 
 
 def _ext(segment: str) -> str | None:
@@ -222,123 +241,109 @@ def _ext(segment: str) -> str | None:
     return stem.rsplit(".", 1)[1].lower()
 
 
-def _classify(token: str, index: RepoIndex) -> str:
-    """回傳 path / skipped / ignore。"""
+def _classify(token: str, index: RepoIndex, in_code: bool = True, is_link: bool = False) -> str:
+    """回傳 path / skipped / ignore。
+
+    is_link（markdown 連結目標）一律當路徑；in_code=False（散文語境）時只認看得出是路徑的
+    斜線 token，單獨檔名不查。
+    """
     if not token or token.startswith(("-", "@", "/", "~")):
         return "ignore"
-    if "://" in token or any(c in _SHELL_CHARS for c in token):
+    if "://" in token or _SCHEME_RE.match(token) or any(c in _SHELL_CHARS for c in token):
         return "ignore"
     if not any(c.isalpha() for c in token):
         return "ignore"
+    if is_link:
+        return "path"
     segments = [s for s in token.split("/") if s]
     if not segments:
         return "ignore"
     if "/" not in token:
-        if token in _EXTENSIONLESS_NAMES or _ext(token) in _EXTS:
+        if in_code and (token in _EXTENSIONLESS_NAMES or _ext(token) in _EXTS):
             return "path"
         return "ignore"
     first = segments[0]
     if first in index.remotes:
         return "ignore"
-    if (
-        len(segments) == 2
-        and not token.endswith("/")
-        and first not in index.top_level
-        and not first.startswith(".")
-        and "." not in segments[1]
-        and segments[1] not in _EXTENSIONLESS_NAMES
-    ):
-        return "skipped"
-    return "path"
+    looks_like_path = (
+        token.endswith("/")
+        or first in index.top_level
+        or first.startswith(".")
+        or any("." in s for s in segments[1:])
+        or segments[-1] in _EXTENSIONLESS_NAMES
+    )
+    if looks_like_path:
+        return "path"
+    if in_code and len(segments) > 2:
+        return "path"
+    return "skipped"
 
 
-def _paragraphs(text: str) -> list[list[str]]:
-    """回傳 fence 以外的段落（以空白行分隔的連續行）；fence 到文件結尾仍未關閉時丟 ValueError。"""
-    paragraphs: list[list[str]] = []
-    current: list[str] = []
-    fence: str | None = None
-    for line in text.splitlines():
+def _scan(text: str) -> tuple[list[str], list[str]]:
+    """回傳（fence 以外的行、獨立成段的 expected-absent 宣告行內容）。
+
+    fence 關閉行的縮排不得超過開頭行縮排 + 3（CommonMark 規則相對於所在容器，這裡以開頭行縮排
+    近似 list item 的容器縮排）。fence 到文件結尾仍未關閉時丟 ValueError。
+    """
+    lines = text.splitlines()
+    outside: list[str] = []
+    declarations: list[str] = []
+    fence: tuple[int, str] | None = None
+    for i, line in enumerate(lines):
         if fence is not None:
+            indent, marker = fence
             stripped = line.strip()
-            if stripped and set(stripped) == {fence[0]} and len(stripped) >= len(fence):
+            if (
+                stripped
+                and set(stripped) == {marker[0]}
+                and len(stripped) >= len(marker)
+                and len(line) - len(line.lstrip(" ")) <= indent + 3
+            ):
                 fence = None
             continue
         m = _FENCE_OPEN_RE.match(line)
-        if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
-            fence = m.group(1)
-            if current:
-                paragraphs.append(current)
-                current = []
+        if m and not (m.group(2)[0] == "`" and "`" in m.group(3)):
+            fence = (len(m.group(1)), m.group(2))
             continue
-        if line.strip():
-            current.append(line)
-        elif current:
-            paragraphs.append(current)
-            current = []
-    if fence is not None:
-        raise ValueError(f"fence（{fence}）到文件結尾仍未關閉，無法判斷後文是否為程式碼")
-    if current:
-        paragraphs.append(current)
-    return paragraphs
-
-
-def _split_code_spans(text: str) -> tuple[list[str], str]:
-    """依 CommonMark 規則切出 code span：回傳（span 內容清單、去掉 span 後的其餘文字）。
-
-    反引號序列只與「長度相同」的下一個序列配對；找不到配對者視為字面反引號。
-    """
-    runs = [(m.start(), m.end()) for m in _BACKTICK_RUN_RE.finditer(text)]
-    spans: list[str] = []
-    rest: list[str] = []
-    last = 0
-    i = 0
-    while i < len(runs):
-        start, end = runs[i]
-        length = end - start
-        close = next(
-            (k for k in range(i + 1, len(runs)) if runs[k][1] - runs[k][0] == length), None
+        outside.append(line)
+        decl = _DECLARATION_RE.match(line)
+        isolated = (i == 0 or not lines[i - 1].strip()) and (
+            i == len(lines) - 1 or not lines[i + 1].strip()
         )
-        if close is None:
-            i += 1
-            continue
-        spans.append(text[end : runs[close][0]])
-        rest.append(text[last:start])
-        last = runs[close][1]
-        i = close + 1
-    rest.append(text[last:])
-    return spans, "".join(rest)
-
-
-def _raw_tokens(paragraph: list[str]) -> list[str]:
-    joined = " ".join(paragraph)
-    tokens: list[str] = []
-    spans, _ = _split_code_spans(joined)
-    for span in spans:
-        tokens.extend(span.split())
-    for m in _LINK_RE.finditer(joined):
-        tokens.append(unquote(m.group(1).strip("<>")))
-    for line in paragraph:
-        m = _REF_DEF_RE.match(line)
-        if m:
-            tokens.append(unquote(m.group(1).strip("<>")))
-    return tokens
+        if decl and isolated:
+            declarations.append(decl.group(1))
+    if fence is not None:
+        raise ValueError(f"fence（{fence[1]}）到文件結尾仍未關閉，無法判斷後文是否為程式碼")
+    return outside, declarations
 
 
 def extract_candidates(text: str, index: RepoIndex) -> tuple[list[str], list[str]]:
     """回傳（要檢查的路徑、以 owner/repo 形狀略過的 token），皆依首次出現順序去重。
 
-    fence 到文件結尾仍未關閉時丟 ValueError。
+    fence 以外全文都抽取（散文、inline code、連結），不依賴 code span 配對，因此配對錯誤
+    只會多檢查、不會漏檢。fence 到文件結尾仍未關閉時丟 ValueError。
     """
     candidates: list[str] = []
     skipped: list[str] = []
     seen: set[str] = set()
-    for paragraph in _paragraphs(text):
-        for raw in _raw_tokens(paragraph):
+    for line in _scan(text)[0]:
+        # 捕捉群組讓 split 保留分隔字元：parts 為 token、分隔、token、分隔…交錯
+        parts = _SPLIT_KEEP_RE.split(line)
+        for i in range(0, len(parts), 2):
+            raw = parts[i]
             token = _clean(raw)
-            if token in seen:
-                continue
-            kind = _classify(token, index)
+            before = parts[i - 1] if i > 0 else ""
+            after = parts[i + 1] if i + 1 < len(parts) else ""
+            # 只看緊貼 token 的字元：CJK 與反引號都是分隔字元，會被合併成同一段分隔
+            is_link = before.endswith("]") and raw.startswith("(")
+            in_code = is_link or before.endswith(("`", "<")) or after.startswith(("`", ">"))
+            kind = _classify(token, index, in_code, is_link)
             if kind == "ignore":
+                continue
+            if token in seen:
+                if kind == "path" and token in skipped:
+                    skipped.remove(token)
+                    candidates.append(token)
                 continue
             seen.add(token)
             (candidates if kind == "path" else skipped).append(token)
@@ -346,14 +351,16 @@ def extract_candidates(text: str, index: RepoIndex) -> tuple[list[str], list[str
 
 
 def parse_expected_absent(text: str) -> list[str]:
-    """收集 fence 與 inline code 以外 `<!-- expected-absent: a b -->` 宣告的路徑，依出現順序去重。"""
+    """收集 fence 以外、獨立成段的 `<!-- expected-absent: a b -->` 宣告路徑，依出現順序去重。
+
+    宣告須單獨一行且前後為空行（或文件開頭／結尾）：CommonMark 的 inline code 不會跨空行，
+    所以這樣的宣告不可能落在 inline code 內，不需判斷反引號配對。
+    """
     found: list[str] = []
-    for paragraph in _paragraphs(text):
-        _, outside_spans = _split_code_spans(" ".join(paragraph))
-        for m in _EXPECTED_ABSENT_RE.finditer(outside_spans):
-            for token in m.group(1).split():
-                if token not in found:
-                    found.append(token)
+    for decl in _scan(text)[1]:
+        for token in decl.split():
+            if token not in found:
+                found.append(token)
     return found
 
 
