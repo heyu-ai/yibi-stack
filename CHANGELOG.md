@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0] - 2026-09-25
+
+### Added
+
+- pr-cycle-deep：新增 `/pr-cycle-deep #<PR> --resume` 與 `.pr-review/state.md` checkpoint。Step 5 起每個 step 邊界都會更新 `next:`，所以在等人裁決 Disputed 的停頓點可以 `/compact` 或開新 session 接續，不必把整個生命週期留在同一個主 context
+- pr-cycle-deep：新增 `scripts/pre_review_check.py`，一次 Bash call 取得 diff 統計、CI 狀態與 amplifier-verify 結果，完整輸出寫進 `.pr-review/pre-review-check.md`
+
+### Changed
+
+- pr-cycle-deep／mob-code-review-only：Step 1.5 改用 `pre_review_check.py`，取代原本的 3 個 Task agent。每個 agent 只跑一行固定指令，卻都要重新載入 110-165k token 的基底 context。`gh` 失敗（auth、PR 不存在）一律 exit 2，不會被當成「CI 沒問題」
+- pr-cycle-deep：Step 6 Fix 改派一個 subagent 執行讀碼、改檔、跑 CI，lead 只收 15 行以內的摘要；lead 自己看 `git log` 並自己重跑 CI（只 gate exit code），不採信 subagent 的「CI passed」。實測這類 session 主 context 達 99-367 turn、峰值 322k-947k，output 只佔 input 的 0.1-0.3%，成本乘數是「turn 數 × context 長度」
+
 ## [1.22.5] - 2026-09-17
 
 ### Added
