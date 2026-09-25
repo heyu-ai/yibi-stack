@@ -269,28 +269,26 @@ Step 3.1, paste the confirmed contract into `prompt-r1.md` (the copy the reviewe
 
 ---
 
-### Step 1.5 — Parallel Pre-review Check (3 agents, same message)
+### Step 1.5 — Pre-review Check (one script, blocking)
 
-This step is **blocking** — do not proceed to Step 2 if any agent fails or returns no usable output.
+One Bash call — **not** Task agents: each would reload the full base context just to run a fixed
+command. The script fetches diff stats and CI state from GitHub (never local `main`), runs
+`amplifier-verify.py --pr`, prints a short summary, and writes the full amplifier stdout/stderr
+to `.pr-review/pre-review-check.md` (path on the `REPORT=` line):
 
-Spawn three Task agents **in a single message** to gather baseline information in parallel:
-
-| Agent | Task |
-|-------|------|
-| **diff-reviewer** | Run `gh pr diff {{pr_number}}`; summarise changed files and line counts. **Do not use local `main`** — always fetch from GitHub. If the command exits non-zero, report `[FAIL] gh pr diff: <exact error>` and stop. |
-| **ci-checker** | Run `gh pr checks {{pr_number}}`; report pass / fail / pending per check. If the list is empty, report "CI: not yet triggered". If the command exits non-zero, report `[FAIL] gh pr checks: <exact error>` and stop. |
-| **amplifier-verifier** | Run TC coverage + docstring traceability check: `python3 ~/.agents/skills/pr-cycle-deep/scripts/amplifier-verify.py --pr {{pr_number}}`. Exit 0 = no spectra change (including a PR that touches only archived material, or names a change that has since been archived — finished work with nothing to gate) or all TCs traced, or `testplan.md` is missing / has no parsable TC table on a change whose `proposal.md` frontmatter `type:` does not require one (`eng` / `ops` / `bug` / `poc` / `docs`; printed as `[WARN]`, TC check skipped); exit 1 = MUST or SHOULD findings present; exit 2 = fatal error (change directory not found, missing testplan or unparsable TC table on a `feat` / `refactor` change or on one whose `type:` cannot be read, or a `gh` / `git` invocation failure). The detected `type:` is printed on the `spectra change detected` line every run — it is author-declared and decides whether the gate blocks, so check it matches the change. A `[WARN]` on stderr naming several active change dirs means the diff touched more than one **that resolved to an active directory**, and only the first of those was verified (candidates that resolve to the archive are excused, not counted). Report the full stdout. On exit 2, stop with `[FAIL]`. On exit 1, **do not stop** — write MUST findings to `$REVIEW_DIR/final.md` Critical section and SHOULD findings to Important section, then continue to Step 2. |
-
-If any agent reports `[FAIL]` (exit 2 or explicit `[FAIL]` in output), stop and report the failure explicitly; do not proceed to Step 2.
-
-Once all three return successfully, write `$CLAUDE_JOB_DIR/pre-review-check.md` (distinct from `$REVIEW_DIR/final.md` used in later steps) and report inline:
-
-```text
-Pre-review Check
-- Diff: <file count> files, <line count> lines changed
-- CI: <pass / fail / pending / not yet triggered — list any failing checks by name>
-- Amplifier: <MUST: N findings / SHOULD: N findings / OK: all TCs traced / no spectra change / only archived material touched (nothing to gate) / named change has since been archived>
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py --pr {{pr_number}}
 ```
+
+| Exit | Meaning | Action |
+|------|---------|--------|
+| `0` | Baseline OK; amplifier clean (no spectra change, all TCs traced, or TC check skipped for a non-`feat`/`refactor` `type:`) | Relay the summary; CI fail/pending is informational here; continue to Step 1.6 |
+| `1` | amplifier-verify MUST/SHOULD findings | **Do not stop.** Read the report; write MUST findings to `$REVIEW_DIR/final.md` Critical and SHOULD to Important; continue |
+| `2` | `gh` failed (auth / PR not found), or amplifier-verify exit 2 (change dir missing, missing/unparsable testplan on `feat`/`refactor`, HEAD ≠ PR head) | **Stop** with `[FAIL]`; read the report's stderr section for the cause |
+
+In the report, check the detected `type:` on the `spectra change detected` line (author-declared;
+it decides whether the gate blocks) and any `[WARN]` naming several active change dirs (only the
+first was verified). Allow-list: `Bash(python3 /Users/<you>/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py *)`.
 
 ---
 
