@@ -41,7 +41,12 @@ a few minutes and the lead responds on the spot — faster than two senior engin
 ```text
 /pr-cycle-deep
 /pr-cycle-deep #<PR number>   ← skip PR creation, but still run the Step 1 Review Contract gate
+/pr-cycle-deep #<PR number> --resume   ← continue from .pr-review/state.md (see Step 5 Checkpoint)
 ```
+
+`--resume`: run Step 0a, Read `state.md` + `final.md`, re-check live PR state (Step 6 recheck
+table), then jump to its `next:` step. `state.md` missing or naming another PR → `[FAIL]`; rerun
+without `--resume`.
 
 ---
 
@@ -872,6 +877,12 @@ group-review ({{N}}/3 voices active)
 
 Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 5b.
 
+**Checkpoint (context lifetime).** With the Write tool, write `$REVIEW_DIR/state.md`: PR number,
+base branch, baseline SHA, re-review round, `next: Step 5b`; rewrite `next:` at every later step
+boundary. Later steps need nothing beyond `$REVIEW_DIR` (`prompt-r1.md` = frozen contract,
+`final.md` = blocking set), so this human pause is the cheapest place to shed context: tell the
+user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> --resume`.
+
 ---
 
 ### Step 5b — Post review summary to PR
@@ -923,38 +934,24 @@ gh issue create --repo {{owner/repo}} --label deferred-from-review --title "Defe
 
 ### Step 6 — Fix (Critical → Important → NIT)
 
-Process in order:
+Delegate the fix loop to **one** `general-purpose` Task subagent. Reading code, editing and
+iterating on CI are the most turn-heavy part of the cycle; in the lead's context every one of
+those turns re-reads the whole review history. Prompt (fill in the real `$REVIEW_DIR`):
 
-1. Modify the code.
-2. Run local CI (read the project to find the CI command first):
+```text
+Fix the blocking findings in $REVIEW_DIR/final.md in order: Consensus Critical, then Consensus
+Important; Actionable NIT only if trivial. The frozen Review Contract is in $REVIEW_DIR/prompt-r1.md
+— do not expand scope. Find the repo's CI command (Makefile ci/test target, else the stack default:
+uv run pytest / npm test / go test ./... / flutter test) and fix until it passes. Commit each batch
+with a message describing what was fixed (never "fix review comments"), then git push. Do not
+touch .pr-review/. Reply in <=15 lines: commit SHAs, each finding FIXED / NOT FIXED + reason,
+the CI command and its exit code.
+```
 
-   ```bash
-   grep -E "^(ci|test|check):" Makefile 2>/dev/null | head -5
-   ```
-
-   Common mappings:
-
-   | Stack | Local CI |
-   | --- | --- |
-   | Python (make) | `make ci` |
-   | Python (bare) | `uv run pytest` |
-   | Node | `npm test` |
-   | Go | `go test ./...` |
-   | Flutter | `flutter test` |
-
-   Fix before continuing if CI fails — do not skip.
-
-3. Commit (describe what was fixed; do not write "fix review comments"):
-
-   ```bash
-   git commit -m "fix(...): ..."
-   ```
-
-   ```bash
-   git push
-   ```
-
-Commit after each batch of fixes to make it easier for group re-review to see the corresponding diff.
+Task call errors or returns empty → `[FAIL]` stop. Then **verify, do not trust the summary**:
+`git log --oneline <baseline>..HEAD`, and re-run the CI command yourself as
+`<ci-command> > "$REVIEW_DIR/ci-step6.log" 2>&1`, gating on its exit code (Read the log only on
+failure). A NOT FIXED blocking item goes to the user; the subagent's "CI passed" is never the gate.
 
 **Recheck PR status before looping back into re-review.** A group re-review (Step 7) is
 expensive — do not spend it on a PR that is no longer open or mergeable. After pushing, re-query
