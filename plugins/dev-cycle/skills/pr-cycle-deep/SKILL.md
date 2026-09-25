@@ -321,8 +321,11 @@ and CI does not check prose.
 `scripts/red-first-check.py` is absent, record `[SKIP] red-first: no checker` in
 `pre-review-check.md`; do not hand-roll a revert-and-rerun (no restore guarantee, no HEAD control).
 
+Save the PR body first (`gh pr view {{pr_number}} --json body -q .body` → Write to
+`$CLAUDE_JOB_DIR/pr-body.md`), so an exemption line in it is honoured:
+
 ```bash
-python3 scripts/red-first-check.py --base "origin/{{base_branch}}" --title "<PR title>"
+python3 scripts/red-first-check.py --base "origin/{{base_branch}}" --title "<PR title>" --pr-body-file "$CLAUDE_JOB_DIR/pr-body.md"
 ```
 
 Exit `0`: append the verdict to `pre-review-check.md`, continue. Exit `1`: **stop before Step 2**;
@@ -330,6 +333,10 @@ add a test that fails on the base code (or restore the refactor's expectation), 
 Retyping the title to dodge it (`fix` → `chore`) is a material amendment (Step 1), and reviewers
 cannot waive it — none of them ran the tests against base code. Exit `2`: report `[FAIL]` verbatim,
 stop. Afterwards `git status --short` must be empty; revert test-tool side effects listed as `[WARN]`.
+Two exit-0 markers carry forward: `[WEAK-RED]` (red came only from an import/compile error, which
+cannot show the assertion is meaningful) — paste those lines into `prompt-r1.md` under the frozen
+contract so every voice inspects the listed tests; `[EXEMPT]` (a `Red-first-exempt: <reason>` line)
+— the lead may not accept it, so list it as a Step 8 hotspot for the human to confirm.
 
 ---
 
@@ -488,7 +495,8 @@ Severity (RFC 2119 — grade by merge consequence, not by how bad it feels):
 
 Focus on:
 - Logic errors, race conditions, security holes, silent failures, resource leaks
-- Test coverage gaps (critical paths not tested)
+- Test coverage gaps (critical paths not tested); tests whose expected value is computed the way the
+  code computes it, or that mock this repo's own modules (mocks belong at external boundaries only)
 - Documentation / comment inconsistency with implementation
 - A Critical / Important item can block only when Contract mapping uses one of the three listed
   sources. Do not invent an Acceptance Criterion or expand Goal scope.
@@ -506,6 +514,7 @@ required:
 | --- | --- |
 | Logic / functional error, security hole | A concrete failure scenario: the input or state that triggers it and the wrong output / crash that results. |
 | Test coverage gap | The production line left unverified plus a mutation that would survive the current tests (what you could break with the tests still green). |
+| Tautological or implementation-coupled test | The assertion line plus either the production line its expected value re-computes, or the in-repo module it mocks / the call count it asserts / the DB row it reads instead of the interface. |
 | Doc / comment factual error | The single command output or diff line that proves the statement wrong. |
 | Naming / structural inconsistency | A grep result showing at least 2 sibling occurrences of the convention this diff departs from. |
 | Precision / subjective quality ("unclear", "not precise enough") | No acceptable evidence form exists — always deferred, never a merge gate. |
@@ -529,7 +538,7 @@ Launch four Task subagents in parallel (each produces independent findings; the 
 | --- | --- |
 | `code-reviewer` | Convention compliance, bugs, logic errors |
 | `silent-failure-hunter` | Silent failures, swallowed exceptions |
-| `pr-test-analyzer` | Test coverage gaps |
+| `pr-test-analyzer` | Test coverage gaps; tautological / implementation-coupled tests, starting with any `[WEAK-RED]` tests from Step 1.7 |
 | `comment-analyzer` | Documentation / comment accuracy |
 
 > **Mutation isolation**: `pr-test-analyzer` verifies tests by mutation, which **edits files in

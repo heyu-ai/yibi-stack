@@ -168,19 +168,20 @@ exit `4` 代表 review 期間基準已改變。**不要**默默採信該輪 find
 
 規則與 exit code 語意同 `/pr-cycle-deep` Step 1.7（該處為正本，本段不複述理由）。repo 有
 `scripts/red-first-check.py` 才跑，沒有就記 `[SKIP] red-first: repo provides no checker`。
-先取 PR 標題與 base branch，填入下一個指令的 `{{pr_title}}`、`{{base_branch}}`：
+先取 PR 標題、base branch 與 body，填入下一個指令的 `{{pr_title}}`、`{{base_branch}}`，
+body 用 Write 寫到 `$CLAUDE_JOB_DIR/pr-body.md`（豁免 marker 在 body 裡）：
 
 ```bash
-gh pr view {{pr_number}} --json title,baseRefName
+gh pr view {{pr_number}} --json title,baseRefName,body
 ```
 
 ```bash
-python3 scripts/red-first-check.py --base "origin/{{base_branch}}" --title "{{pr_title}}"
+python3 scripts/red-first-check.py --base "origin/{{base_branch}}" --title "{{pr_title}}" --pr-body-file "$CLAUDE_JOB_DIR/pr-body.md"
 ```
 
 | Exit | 動作 |
 |------|------|
-| `0` | PASS 或 SKIP，記下判定行，往下走 |
+| `0` | PASS、SKIP 或 EXEMPT，記下判定行，往下走。`[WEAK-RED]` 列出的測試檔要交給 review subagent 優先檢查是否 tautological；`[EXEMPT]` 由 agent 提議、不得自行認可，到 Step 6 Ship Gate 時列給 user 確認 |
 | `1` | 測試抓不到這次改動（或 refactor 改了期望值）。transition 到 `BLOCKED`，reason 寫 `red-first: <判定行>`，**不要**派 review subagent |
 | `2` | 前提不成立（HEAD 測試沒過、工作區不乾淨、缺環境）。原文回報並 transition 到 `BLOCKED` |
 

@@ -113,7 +113,18 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 # tests to fail (feat/fix) or keep passing (refactor/perf). The first draft was +51; the
 # rationale, exit-code table and don'ts were folded into two paragraphs, since the checker's
 # docstring carries the long form.
-LINE_BUDGET = 1327
+#
+# Raised 1327 -> 1336 (+9 lines) for two lessons taken from mattpocock/skills' tdd skill
+# (skills/engineering/tdd/, read 2026-09-25):
+#   (1) +6, Step 1.7 carries two exit-0 markers forward: [WEAK-RED] (red from an import/compile
+#       error only — a tautological `assert total(xs) == sum(...)` goes red the same way, so the
+#       listed tests are pasted into prompt-r1.md for every voice) and [EXEMPT] (config / wiring
+#       with no independent truth to assert, mattpocock issue #746 — the lead may not accept it,
+#       it becomes a Step 8 hotspot). Plus the --pr-body-file argument that makes [EXEMPT]
+#       reachable.
+#   (2) +3, the R1 prompt gains a "Tautological or implementation-coupled test" evidence form and
+#       one focus bullet; the gate otherwise demotes such findings as having no valid form.
+LINE_BUDGET = 1336
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the
