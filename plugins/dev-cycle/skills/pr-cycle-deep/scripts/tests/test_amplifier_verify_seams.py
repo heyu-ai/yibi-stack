@@ -87,7 +87,10 @@ def test_tc_mapped_to_an_undeclared_seam_is_should():
 
 def test_tc_with_an_empty_seam_cell_is_should_when_seams_are_declared():
     f = av.analyze([_tc("INV-API-001")], [], [], seams=["invite-api"], tc_seams={"INV-API-001": ""})
-    assert any("INV-API-001" in s for s in f.should)
+    # Assert the finding CLASS, not just the TC-ID: without this the "undeclared seam" branch
+    # also catches "" and reports "mapped to seam ''" -- mutation S3 survived on exactly that.
+    assert any("INV-API-001" in s and "empty Seam cell" in s for s in f.should)
+    assert not any("mapped to seam ''" in s for s in f.should)
 
 
 def test_tcs_absent_from_every_seam_column_are_info():
