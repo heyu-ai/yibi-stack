@@ -195,6 +195,8 @@ Business: default values, upstream/downstream cascade, historical data compat.
   spec's `##### Example:` values — never a value re-computed the way the code would compute it
   (`expected = sum(prices)` for a total is tautological: it passes by construction)
 - Every TC's `Seam` = a name from the Test Seams table
+- No TC mocks this repo's own modules — mocks only at external boundaries (third-party APIs,
+  time, randomness, sometimes the filesystem or DB); needing more means the seam is too low
 - All steps = specific enough for a newcomer to follow
 - Each TC marked with the technique used
 

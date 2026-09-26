@@ -73,7 +73,7 @@ docs/openspec/changes/<feature-name>/
 | `design-template.md` | Design 空骨架（Step 3） |
 | `tasks-template.md` | Implementation checklist 空骨架（含 pytest -k 驗收）|
 | `spec-delta-template.md` | Delta spec 骨架（GIVEN/WHEN/THEN + [ADDED]/[MODIFIED]/[REMOVED]） |
-| `testplan-template.md` | testplan.md 空骨架（Step 2 TC 表格 + Coverage Analysis, **NEW v1.3**）|
+| `testplan-template.md` | testplan.md 空骨架（Step 2 Test Seams + TC 表格 + Coverage Analysis, **NEW v1.3**）|
 | `spectra-archive-snippet.md` | PR 收尾 Spectra Archive + Jira Sync 完整步驟 |
 
 ## License

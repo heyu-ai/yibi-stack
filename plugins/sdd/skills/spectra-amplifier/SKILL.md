@@ -356,14 +356,15 @@ prompt:
 
 Expected output from sdd:qa-test-designer:
 
-- TC table（TC-ID, Test Purpose, Technique, Risk, Precondition, Steps, Test Data, Expected Result）
+- Test Seams table（Seam, Public interface, Why here）
+- TC table（TC-ID, Seam, Test Purpose, Technique, Risk, Precondition, Steps, Test Data, Expected Result）
 - Coverage Analysis（Covered / Partial / Missing / Redundant）
 
 If sdd:qa-test-designer not available:
 `[FAIL] Stop. sdd:qa-test-designer subagent 未找到。本專案需安裝 sdd plugin：claude plugin marketplace add heyu-ai/yibi-stack && claude plugin install sdd@yibi-stack（安裝後重新執行 spectra-amplifier）。`
 
 若 subagent 回傳內容以 `[FAIL]` 開頭，或 Task tool 本身執行失敗（timeout/error）：
-Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
+Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c/2d。
 
 ### Step 2b — Coverage Analysis
 
@@ -389,7 +390,8 @@ Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
 
 ### Step 2d — Test Seams 對照 codebase 並交給人確認
 
-qa-test-designer 沒有 codebase 存取權，它提的 seam 只是依 scenario 字面命名的介面。寫入 testplan 前：
+qa-test-designer 沒有 codebase 存取權，它提的 seam 只是依 scenario 字面命名的介面。Step 2c 寫出
+testplan.md 後、交人 review proposal 前，更新其中的 `## Test Seams` 表：
 
 1. 對 `## Test Seams` 表的每一列，在 codebase 查出對應的公開介面（endpoint 路徑、public method、
    畫面），把 `Public interface` 欄改成可 grep 的實際名稱；查不到的標 `（尚未存在，本 change 新增）`。
@@ -398,8 +400,10 @@ qa-test-designer 沒有 codebase 存取權，它提的 seam 只是依 scenario �
 3. 把 seam 表連同 proposal 一起給人確認。**沒有被確認的 seam 不得寫 TC**。背景執行、當下無人
    可問時，在 testplan 的 seam 表上方加一行 `> 待人確認（尚未確認前不得依此寫測試）`，並在回報中列出。
 
-`/pr-cycle-deep` 的 amplifier-verify（Check 4）會檢查：有 seam 表時，每個 TC 的 `Seam` 欄必須是
-表中宣告的名稱，空白或未宣告的名稱列為 SHOULD。沒有 seam 表的舊 testplan 只記 INFO，不溯及既往。
+`/pr-cycle-deep` 的 amplifier-verify（Check 4）會檢查：有 seam 表時，TC 表 `Seam` 欄的每個值都必須是
+表中宣告的名稱，空白、未宣告、或同一 TC 在不同表對到不同 seam，都列為 SHOULD；TC 表帶 `Seam` 欄卻
+認不出宣告表（宣告表需有 `Seam` 與 `Public interface` 兩欄、不可有 ID 欄）也列為 SHOULD。整張 TC 表
+沒有 `Seam` 欄的 TC 只記 INFO；既沒有 seam 表也沒有 `Seam` 欄的舊 testplan 只記 INFO，不溯及既往。
 這個做法取自 mattpocock/skills 的 tdd skill（「只在事先約定的 seam 上寫測試」），差別是它在寫每個
 測試前停下來問人；我們在 propose 階段一次確認，因為實作多半在背景執行。
 
