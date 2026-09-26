@@ -56,7 +56,7 @@ plugins/          Claude Code plugin packs (installable via claude plugin instal
   growth/         Knowledge extraction: mycelium, learn, PR retro/control log, CLAUDE.md prune
   dev-cycle/      Development flow: PR cycles, CI triage, setup/handover, local port manager, debug
   3rd-tools/      Third-party AI: Codex, Antigravity CLI (agy/Gemini), model verification
-  methodology/    Portable TDD, event-storming, problem-frames, QA test design methodology
+  methodology/    Portable event-storming, problem-frames, QA test design methodology
 
 skills/           Agent execution layer -- SKILL.md runbooks (installed via make install)
   <skill-name>/   Each skill is a flat directory with a SKILL.md runbook (or a symlink)
@@ -212,7 +212,7 @@ plugins/          Claude Code plugin packs（可透過 claude plugin install 安
   growth/         知識萃取與留存：mycelium、learn、PR 回顧／審計、CLAUDE.md 精簡
   dev-cycle/      開發流程：PR cycles、CI 診斷、工作區設定／交班、本機 port 管理、debug
   3rd-tools/      第三方 AI：Codex、Antigravity CLI（agy/Gemini）、模型驗證
-  methodology/    可攜方法論：TDD、event-storming、problem-frames、qa-test-design
+  methodology/    可攜方法論：event-storming、problem-frames、qa-test-design
 
 skills/           Agent 執行介面層（SKILL.md runbook，透過 make install 安裝）
   <skill-name>/   每個 skill 是一個目錄（或指向 plugins/ 的 symlink）
