@@ -970,7 +970,7 @@ Route by the result. The decision table is authoritative — do not proceed on a
 
 | `state` | `mergeStateStatus` / `mergeable` | Meaning | Action |
 | --- | --- | --- | --- |
-| `MERGED` | any | Someone merged the PR out-of-band | **STOP the cycle** — skip re-review; go straight to Step 9 (archive / retro). Do not push more. |
+| `MERGED` | any | Someone merged the PR out-of-band | **STOP the cycle** — skip re-review; go straight to Step 11 (archive / Jira). Do not push more. |
 | `CLOSED` | any | PR closed without merging | **STOP** — surface to the user and wait; do not continue. |
 | `OPEN` | `DIRTY` / `mergeable=CONFLICTING` | Fixes (or a base advance) created merge conflicts | Resolve conflicts against `{{base_branch}}`, commit, push, then re-run this recheck before Step 7. |
 | `OPEN` | `BEHIND` | Base branch advanced since this branch forked | Update the branch from `{{base_branch}}` (merge or rebase per repo convention) and push, so Step 7 R1/R2 review against the current base — otherwise findings are computed against a stale base. |
@@ -1147,10 +1147,10 @@ Local CI is authoritative: when CI and local differ, trust local; check for CI e
 
 ### Step 10 — Merge
 
-### Pre-merge gate: confirm PR is still OPEN
-
-Re-run the Step 6 PR-state check and decision table. MERGED → skip bump/merge, go to Step 11;
-CLOSED → stop. (Incident: market-scout PR #4 — bump commit silently recreated a deleted branch.)
+**Pre-merge gate: confirm PR is still OPEN.** Re-run Step 6's "Recheck PR status" `gh pr view` query, but route as below, **not** by Step 6's table (it routes to Step 7).
+Why: a bump push after an out-of-band merge silently recreates the deleted branch (issue #462).
+`MERGED` → **STOP**: no bump, merge, or push; go to Step 11. `CLOSED` → **STOP**; surface to the user and wait. `gh pr view` error → stop and report (empty ≠ OPEN).
+`OPEN` + `DIRTY` / `CONFLICTING` / `BEHIND` → update from `{{base_branch}}`, push, return to Step 9 (CI), then re-run this gate. Any other `OPEN` → continue to the version-bump check below.
 
 ### Pre-merge check: version bump
 
@@ -1301,7 +1301,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Linter / type-check fails | `ruff check --fix` / `eslint --fix` / `mypy follow_imports = skip` etc. |
 | Security scanner fails | bandit `# nosec BXXX` etc. ignore comments; explain reason in PR |
 | spectra archive validation fails | `spectra analyze {{change_name}}`; fix then archive; `--no-validate` requires explicit user instruction |
-| Jira: cannot detect key / transition unclear / MCP auth error | Ask user for the key (`PROJECT-123`) or skip; list transitions and ask user to confirm; Atlassian MCP requires OAuth — prompt user to authorize on claude.ai |
-| Codex/Gemini extract returns invalid JSON | Follow Stage 3 if/else: Read `*-r1-raw.md`, manually summarize in main context as compact markdown, Write to `*-r1.md` (do not cp raw → compact — verbose raw would enter r1-aggregate); note in final.md. 2 consecutive failures → fall back to path C (lead reads raw, no re-call). |
-| Extract prompt path missing (`~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md`) | Skill not installed; run `make install` in yibi-stack to create the symlink |
+| Jira: cannot detect key / transition unclear / MCP auth error | Ask user for the key (`PROJECT-123`), or confirm there is no associated ticket and skip; list transitions and ask user to confirm; Atlassian MCP requires OAuth — prompt user to authorize on claude.ai |
+| Codex/Gemini extract returns invalid JSON, JSON missing schema fields (`verdict` / `summary` / `findings`), or extract fails 2× in a row | Follow Stage 3 if/else: Read `$REVIEW_DIR/{codex,gemini}-r1-raw.md`, manually summarize in main context as compact markdown, Write to `$REVIEW_DIR/{codex,gemini}-r1.md` (do not cp raw → compact — verbose raw would enter r1-aggregate); note in final.md "{{voice}} voice used raw form this round, main context load higher". 2 consecutive extract failures → path C: lead extracts the compact form from raw in the main session without calling codex/agy again (slower, workflow not blocked) |
+| Extract prompt path missing (`~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md`) | Skill not installed; run `make install` in yibi-stack to create the symlink; verify: `ls ~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` should return the path, not "No such file" |
 | User skipped bump but needs a version tag later | Create a release branch, run [`/bump-version`](../bump-version/SKILL.md) on it, then open a PR to merge into main (CI pass + CHANGELOG confirmed is sufficient; no full review cycle needed; if main has new commits, CHANGELOG may include extra entries — verify manually) |
