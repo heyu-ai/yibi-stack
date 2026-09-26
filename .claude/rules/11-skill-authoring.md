@@ -758,7 +758,7 @@ above). Re-query with the same command, route every state in the gate, and say e
 referenced table does not apply. Adding a caller is also a good moment to re-check the referenced
 table's step numbers. (Source: PR #464 — the Step 10 gate routed `MERGED → Step 11` inline, but
 Step 6's authoritative table sent MERGED to "Step 9 (archive / retro)" — Step 9 is actually CI
-Check, and that row had been wrong since PR #351 — and every OPEN state back to Step 7.)
+Check, and that row had been wrong since it was written in PR #193 — and every OPEN state back to Step 7.)
 
 ## FAQ Fix Command Format
 
