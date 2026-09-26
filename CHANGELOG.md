@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.1] - 2026-09-26
+
+### Fixed
+
+- pr-cycle-deep／pr-cycle-fast：red-first gate 照字面執行時會靜默失效。1.23.0 的 runbook 要 agent 分多個 Bash call，並用 shell 變數（`PR_TITLE`、`WT_ROOT`、`BASE_REMOTE`）在 call 之間傳值，但 Bash tool 不保留變數：checker 路徑變成 `/scripts/red-first-check.py` 而誤判 `[SKIP] no checker`，或收到空的 `--title`。PR #469 mob review Round 2 由 Claude 與 Codex 4 個來源獨立指出，且 lead 已復現
+- 改為共用的 `scripts/red-first.sh` 單一呼叫：fetch base（有 upstream 先用 upstream）、PR 標題只經變數傳入（`${N}`、反引號不會被展開或執行）、執行前後檢查工作區，並收斂成 0 繼續／1 判定失敗／2 前提或工具錯誤（含 traceback）／3 工作區沒還原四個具名 exit code；PR 自己改了 checker 時印 `[WARN]`
+- pr-cycle-fast：有 checker 時一律把輸出貼成帶 head SHA 標記的 PR comment（貼失敗就 `BLOCKED`），Step 6 只讀最新一則；BLOCKED／REVIEWING reason 改用腳本輸出的固定 token，resume 時看得出失敗原因
+- `test_convergence_contract.py` 的錨點改為守指令本身與只出現一次的句子；新增 `test_red_first_sh.py`（17 個案例，7 個單點 mutation 全數被抓到）
+
 ## [1.23.0] - 2026-09-26
 
 ### Added
