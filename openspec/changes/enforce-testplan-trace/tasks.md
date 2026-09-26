@@ -28,4 +28,4 @@
 
 ## 5. 收尾
 
-- [ ] 5.1 依 lockstep 慣例 bump 版本並更新 CHANGELOG（若 #471 已先 merge 則接續其版號）；驗證：`bash scripts/sync-plugin-versions.sh` 輸出全部 `[OK]`，`make ci` 通過且 `git diff --name-only` 為空
+- [x] 5.1 依 lockstep 慣例處理版本並更新 CHANGELOG（若 #471 已先 merge 則接續其版號）；實際情況：main 已是尚未打 tag 的 1.23.0（v1.23.0 無 tag，最新 release 為 v1.22.0），故不升版，條目併入 `[1.23.0]`；驗證：`bash scripts/sync-plugin-versions.sh 1.23.0` 對全部 plugin 回報 `[SKIP] already at 1.23.0`（已同步），`make ci` 通過且 `git diff --name-only` 為空
