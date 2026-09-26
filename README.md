@@ -33,7 +33,7 @@ Without guardrails, Claude Code tends to:
 yibi-stack layers three forms of enforcement on top of Claude Code:
 
 1. **Automated hooks** — catch problems before execution, not after
-2. **Methodology skills** — runbooks that embed TDD, spec-writing, and review discipline into Claude's workflow
+2. **Methodology skills** — runbooks that embed spec-writing, test-design, and review discipline into Claude's workflow (test-first is enforced by the PR cycle's red-first gate, not a skill)
 3. **Persistent tooling** — mycelium, scheduler, and port registry that survive across conversations
 
 ### Benefits
@@ -45,7 +45,7 @@ yibi-stack layers three forms of enforcement on top of Claude Code:
 | Multi-model PR review | `pr-cycle-deep` orchestrates Claude + Codex + Gemini in parallel independent review → cross-model debate → aggregate, catching issues no single model would flag |
 | Persistent work memory | `mycelium` skill auto-handovers before context compression and restores on next session start — no more losing track of multi-day work |
 | Release discipline | `bump-version`, `protect-push`, and `ci-triage` skills codify release workflow so Claude doesn't push to main without explicit intent |
-| Test methodology | `pr-cycle-deep` Step 1.7 red-first gate (tests must fail against the base production code) and `qa-test-design` (6 test design techniques) embed testing discipline into daily work |
+| Test methodology | `pr-cycle-deep` Step 1.7 red-first gate — when the repo provides `scripts/red-first-check.py` (otherwise recorded as `[SKIP]`; yibi-stack itself ships none), `feat`/`fix` tests must fail against the base production code and `refactor`/`perf` tests must still pass — plus `qa-test-design` (6 test design techniques) |
 
 ### Architecture
 
@@ -189,7 +189,7 @@ yibi-stack 是一套專為以 Claude Code 作為主力開發工具的工程師�
 yibi-stack 在 Claude Code 之上疊加三層約束：
 
 1. **自動化 hook** — 在執行前攔截問題，而不是事後除錯
-2. **方法論 skill** — 把 TDD、規格撰寫、PR 審閱的紀律嵌入 Claude 的工作流程
+2. **方法論 skill** — 把規格撰寫、測試設計、PR 審閱的紀律嵌入 Claude 的工作流程（先寫測試由 PR 流程的 red-first gate 執行，不是靠 skill）
 3. **持久化工具** — 跨對話的 session 記憶、定期排程器、port 登記表
 
 ### 主要好處
@@ -201,7 +201,7 @@ yibi-stack 在 Claude Code 之上疊加三層約束：
 | 多模型 PR 審閱 | `pr-cycle-deep` 讓 Claude + Codex + Gemini 並行獨立審閱再交叉辯論，捕捉單一模型漏掉的問題 |
 | 持久化工作記憶 | `mycelium` skill 在對話壓縮前自動交班，下次 session 開啟時自動恢復工作上下文，多日開發不斷線 |
 | 發版紀律 | `bump-version` + `protect-push` + `ci-triage` 讓 Claude 不會在沒有明確意圖的情況下推上 main |
-| 測試方法論 | `pr-cycle-deep` Step 1.7 的 red-first gate（測試在 base 產品碼上必須失敗）和 `qa-test-design`（六大測試設計技術）把測試紀律內建到日常工作中 |
+| 測試方法論 | `pr-cycle-deep` Step 1.7 的 red-first gate：repo 有提供 `scripts/red-first-check.py` 時才執行（沒有就記 `[SKIP]`；yibi-stack 本身沒有附），`feat`／`fix` 的測試在 base 產品碼上必須失敗、`refactor`／`perf` 必須仍通過；另有 `qa-test-design`（六大測試設計技術） |
 
 ### 架構
 

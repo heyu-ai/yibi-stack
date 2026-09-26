@@ -318,25 +318,34 @@ and CI does not check prose.
 **Blocking.** With production code reverted to the merge-base and the branch's tests kept, a
 `feat`/`fix` PR's tests must **fail** and a `refactor`/`perf` PR's must still **pass** (other types
 `[SKIP]`). The checker is repo-provided — rationale and limits live in its docstring. If
-`scripts/red-first-check.py` is absent, record `[SKIP] red-first: no checker` in
-`pre-review-check.md`; do not hand-roll a revert-and-rerun (no restore guarantee, no HEAD control).
+`$WT_ROOT/scripts/red-first-check.py` is absent (`WT_ROOT=$(git rev-parse --show-toplevel)`), record
+`[SKIP] red-first: no checker` in `pre-review-check.md`; do not hand-roll a revert-and-rerun. If the
+PR diff itself changes the checker, record `[WARN] red-first: checker modified by this PR` (it grades itself).
 
-Save the PR body first (`gh pr view {{pr_number}} --json body -q .body` → Write to
-`$CLAUDE_JOB_DIR/pr-body.md`), so an exemption line in it is honoured:
+Run these as separate calls — never paste the title into a command (`$`, backticks, `"` expand or
+execute). Any non-zero `git`/`gh` exit: `[FAIL] <cmd>: <error>`, stop. `>|` overwrites Step 1's draft
+body (plain `>` fails under noclobber); `BASE_REMOTE` is `upstream` if that remote exists, else `origin`:
 
 ```bash
-python3 scripts/red-first-check.py --base "origin/{{base_branch}}" --title "<PR title>" --pr-body-file "$CLAUDE_JOB_DIR/pr-body.md"
+git fetch "$BASE_REMOTE" {{base_branch}}
+PR_TITLE=$(gh pr view {{pr_number}} --json title -q .title)
+gh pr view {{pr_number}} --json body -q .body >| "$CLAUDE_JOB_DIR/pr-body.md"
+python3 "$WT_ROOT/scripts/red-first-check.py" --base FETCH_HEAD --title "$PR_TITLE" --pr-body-file "$CLAUDE_JOB_DIR/pr-body.md"
 ```
 
-Exit `0`: append the verdict to `pre-review-check.md`, continue. Exit `1`: **stop before Step 2**;
-add a test that fails on the base code (or restore the refactor's expectation), push, rerun.
+Give the checker Bash `timeout: 600000` (it runs the suite twice). **First, whatever the exit code,
+timeout included:** `git status --short` must be empty except paths the checker printed as `[WARN]`
+(ask the user before `git checkout HEAD -- <path>` on those, rule 15); anything else means the revert
+may not be restored — `[FAIL]`, show it, stop, do not restore by hand. Then: exit `0` → append the
+verdict to `pre-review-check.md`, continue. Exit `1` with a red-first verdict line → **stop before
+Step 2**; add a test that fails on the base code (or restore the refactor's expectation), push, rerun.
 Retyping the title to dodge it (`fix` → `chore`) is a material amendment (Step 1), and reviewers
-cannot waive it — none of them ran the tests against base code. Exit `2`: report `[FAIL]` verbatim,
-stop. Afterwards `git status --short` must be empty; revert test-tool side effects listed as `[WARN]`.
-Two exit-0 markers carry forward: `[WEAK-RED]` (red came only from an import/compile error, which
-cannot show the assertion is meaningful) — paste those lines into `prompt-r1.md` under the frozen
-contract so every voice inspects the listed tests; `[EXEMPT]` (a `Red-first-exempt: <reason>` line)
-— the lead may not accept it, so list it as a Step 8 hotspot for the human to confirm.
+cannot waive it — none of them ran the tests against base code. Exit `2`, exit `1` without a verdict
+(a traceback), or any other code → `[FAIL]` with stderr verbatim, stop.
+Two exit-0 markers carry forward in `pre-review-check.md`: `[WEAK-RED]` (red came only from an
+import/compile error, which cannot show the assertion is meaningful) — Step 3.1 pastes them into
+`prompt-r1.md`; `[EXEMPT]` (a `Red-first-exempt: <reason>` line) — the lead may not accept it; Step 8
+shows it, and any `[WARN] red-first:` line, for the human to confirm.
 
 ---
 
@@ -460,6 +469,7 @@ Changed files: see {{REVIEW_DIR}}/changed-files.txt
 
 ## Frozen Review Contract
 <paste the exact human-confirmed ## Review Contract section from the PR body>
+<if pre-review-check.md has [WEAK-RED] lines: "## Weak-red tests (inspect for tautology)" + those lines>
 
 Output format (strictly follow, for downstream aggregation):
 
@@ -1140,6 +1150,9 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 - Claude: LGTM / NEEDS_CHANGES
 - Codex: LGTM / NEEDS_CHANGES / N/A
 - Gemini: LGTM / NEEDS_CHANGES / N/A
+
+## Red-first (always shown; from pre-review-check.md)
+- <verdict / [SKIP] reason>; <each [EXEMPT] or [WARN] red-first: line — needs your confirmation>
 
 ## Change hotspots (top 3 places most worth human eyes)
 1. <file:line> — <why it's a hotspot>

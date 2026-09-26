@@ -12,7 +12,7 @@ claude plugin marketplace add heyu-ai/yibi-stack
 claude plugin install methodology@yibi-stack
 ```
 
-> **Upgrade note:** `tdd-kentbeck` and `flutter-tdd` moved from `tdd@yibi-stack` to
+> **Upgrade note (historical, pre-1.23.0):** `tdd-kentbeck` and `flutter-tdd` (both since removed, see below) moved from `tdd@yibi-stack` to
 > `methodology@yibi-stack`; `event-storming`, `problem-frames`, and `qa-test-design` moved
 > from `sdd@yibi-stack` to `methodology@yibi-stack`. `ci-triage` moved from `tdd@yibi-stack`
 > to `dev-cycle@yibi-stack` (it is operational, not methodology, and stayed out of this pack).
@@ -22,7 +22,7 @@ claude plugin install methodology@yibi-stack
 > on `event-storming`/`problem-frames`/`qa-test-design` should additionally run
 > `claude plugin install methodology@yibi-stack`.
 >
-> **Removed (2026-09-25):** `tdd-kentbeck` and `flutter-tdd` were deleted. Transcript
+> **Removed (v1.23.0, 2026-09-26):** `tdd-kentbeck` and `flutter-tdd` were deleted. Transcript
 > measurement over one month found the TDD skills invoked 0 times; TDD is now enforced
 > mechanically by the red-first gate in `pr-cycle-deep` Step 1.7 instead of a knowledge skill.
 > Whether a project wants a stack-specific TDD skill (e.g. Flutter) is left to that project to

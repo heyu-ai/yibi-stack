@@ -124,7 +124,20 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #       reachable.
 #   (2) +3, the R1 prompt gains a "Tautological or implementation-coupled test" evidence form and
 #       one focus bullet; the gate otherwise demotes such findings as having no valid form.
-LINE_BUDGET = 1336
+#
+# Raised 1336 -> 1349 (+13 lines) for PR #469's own mob review (Claude + Codex, R1 2026-09-26),
+# which found the Step 1.7 text could skip or misroute the gate silently:
+#   (1) Step 1.7: the PR title went through `--title "<PR title>"`, so `${N}` in a real
+#       title (PR #387) expanded to nothing and backticks executed — now fetched into a variable;
+#       base is fetched (upstream-first, issue #196) instead of a possibly stale origin ref; the
+#       git-status restore check runs on every exit incl. timeout, not only after exit 0; exit 1
+#       counts as a verdict only with a verdict line (a traceback also exits 1); a PR that edits
+#       the checker is flagged, since it grades itself.
+#   (2) The carried-forward markers have a slot in the templates the lead actually fills:
+#       a [WEAK-RED] line in the Step 3.1 prompt template, a Red-first block in Step 8.
+#   (3) The `gh` failure stop and the noclobber-safe `>|` body overwrite.
+# The mutation run that motivated the anchors below: deleting all of Step 1.7 left this suite green.
+LINE_BUDGET = 1349
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the
@@ -163,6 +176,17 @@ REQUIRED_ANCHORS: list[str] = [
     "R2 skipped: no contract-blocking candidate or dispute",  # clean R1 exit
     "material amendment",  # semantic contract change restarts full-diff R1
     "editorial amendment",  # non-semantic correction keeps the current pass
+    "### Step 1.7 — Red-first gate",  # the gate step exists
+    "[SKIP] red-first: no checker",  # a checker-less repo is recorded, not silently passed
+    "red-first verdict line → **stop before",  # exit 1 with a verdict blocks before Step 2
+    "whatever the exit code",  # restore check runs on every exit, timeout included
+    "never paste the title into a command",  # title reaches the checker only via a variable
+    '--pr-body-file "$CLAUDE_JOB_DIR/pr-body.md"',  # makes [EXEMPT] reachable
+    "[WEAK-RED]",  # weak red is carried to every voice
+    "Weak-red tests (inspect for tautology)",  # ... via a slot in the Step 3.1 template
+    "the lead may not accept it",  # an exemption needs a human
+    "## Red-first (always shown",  # ... via a slot in the Step 8 template
+    "Tautological or implementation-coupled test",  # the evidence form for such findings
 ]
 
 # Strings that MUST be absent. The NIT-must-be-cleaned convention (any spelling) and the old
@@ -180,6 +204,7 @@ FORBIDDEN_STRINGS: list[str] = [
     "All voices LGTM",
     "Every active voice's latest round outputs",
     "Want to skip R2 and run only R1 | Not allowed",
+    '--title "<PR title>"',  # PR #469 review: title pasted into shell source
 ]
 
 

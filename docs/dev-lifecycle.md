@@ -83,7 +83,7 @@ mycelium、`pr-retrospective` 讀 PR context）目前只在文件層說明，未
 | `dev-cycle` | 流程 | `/newjob` 起始、`/pr-cycle-deep` 等 PR 生命週期、`/handover` 中斷續接 |
 | `growth` | 知識 | `/pr-retro` 收尾、`mycelium` 跨 session 記憶 |
 | `sdd` | SDD 實作工具（不動） | `/spectra-propose` → amplifier → apply，插在 `/newjob` 之後 |
-| `methodology` | 方法論 | 依需要在任何步驟被引用（TDD、event-storming、problem-frames、qa-test-design） |
+| `methodology` | 方法論 | 依需要在任何步驟被引用（event-storming、problem-frames、qa-test-design） |
 | `harness` | 環境品質 | 貫穿全程的橫切關注點（量測 / 強制 / 稽核） |
 | `3rd-tools` | 第三方工具整合 | `/pr-cycle-deep` mob review 階段等處被呼叫，不專屬單一步驟 |
 
