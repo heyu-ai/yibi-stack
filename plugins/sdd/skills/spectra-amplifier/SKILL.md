@@ -497,7 +497,7 @@ Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c。
 
 此功能視為「完成」的條件：
 - [ ] 所有 User Stories 的 AC 均已實作
-- [ ] testplan.md 所有 TC 均有對應測試（check_spec_coverage.py 驗證）
+- [ ] testplan.md 所有 auto TC 均有以 `tc:` 綁定的測試、Manual Verification 全數勾選（`check_testplan_trace.py --strict --change <name>` exit 0）
 - [ ] 冒煙測試全數通過
 - [ ] 程式碼已 code review 並合併
 ```
