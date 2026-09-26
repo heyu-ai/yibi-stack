@@ -970,7 +970,7 @@ Route by the result. The decision table is authoritative — do not proceed on a
 
 | `state` | `mergeStateStatus` / `mergeable` | Meaning | Action |
 | --- | --- | --- | --- |
-| `MERGED` | any | Someone merged the PR out-of-band | **STOP the cycle** — skip re-review; go straight to Step 9 (archive / retro). Do not push more. |
+| `MERGED` | any | Someone merged the PR out-of-band | **STOP the cycle** — skip re-review; go straight to Step 11 (archive / Jira). Do not push more. |
 | `CLOSED` | any | PR closed without merging | **STOP** — surface to the user and wait; do not continue. |
 | `OPEN` | `DIRTY` / `mergeable=CONFLICTING` | Fixes (or a base advance) created merge conflicts | Resolve conflicts against `{{base_branch}}`, commit, push, then re-run this recheck before Step 7. |
 | `OPEN` | `BEHIND` | Base branch advanced since this branch forked | Update the branch from `{{base_branch}}` (merge or rebase per repo convention) and push, so Step 7 R1/R2 review against the current base — otherwise findings are computed against a stale base. |
@@ -1147,6 +1147,11 @@ Local CI is authoritative: when CI and local differ, trust local; check for CI e
 
 ### Step 10 — Merge
 
+**Pre-merge gate: confirm PR is still OPEN.** Re-run Step 6's "Recheck PR status" `gh pr view` query, but route as below, **not** by Step 6's table (it routes to Step 7).
+Why: a bump push after an out-of-band merge silently recreates the deleted branch (issue #462).
+`MERGED` → **STOP**: no bump, merge, or push; go to Step 11. `CLOSED` → **STOP**; surface to the user and wait. `gh pr view` error → stop and report (empty ≠ OPEN).
+`OPEN` + `DIRTY` / `CONFLICTING` / `BEHIND` → update from `{{base_branch}}`, push, return to Step 9 (CI), then re-run this gate. Any other `OPEN` → continue to the version-bump check below.
+
 ### Pre-merge check: version bump
 
 Before `gh pr merge`, ask the user whether this change needs a version bump (pre-evaluate first):
@@ -1279,8 +1284,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Step 0 zero available (all NOT_FOUND or auth failed) | This skill terminates; run `/pr-review-cycle` instead (Claude-only is sufficient) |
 | Step 0 detects `KEY_WHITESPACE_PREFIX` | Key has a leading space (e.g. copied from terminal); run `export CODEX_API_KEY="${CODEX_API_KEY# }"` or the corresponding key name to strip leading space, then re-run Step 0 |
 | `GEMINI_AUTH: NOT_AUTHED` (agy not configured) | Run `agy` to complete browser OAuth; `onboarding.json`'s `onboardingComplete` will become true; or `export GEMINI_API_KEY=...` |
-| Step 0 detects only Codex (no agy) | Enter 2-voice mob (Claude + Codex); normal workflow |
-| Step 0 detects only agy (no Codex) | Enter 2-voice mob (Claude + agy); normal workflow |
+| Step 0 detects only one external voice (Codex or agy, not both) | Enter 2-voice mob (Claude + that voice); normal workflow |
 | Codex detected but auth failed | `codex login`; or `export OPENAI_API_KEY=...` |
 | agy detected but auth failed | Run `agy` to complete OAuth; or `export GEMINI_API_KEY=...` |
 | agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | issue #153: agy could not resolve `@file` and entered agentic file-search. The agy scripts now **inline** the prompt (no `@file`), clear stale `~/.gemini/antigravity-cli/scratch/gemini-*-input.md` at start, and run `agy_validate.py` (fail-loud: timeout / agentic narration / missing Verdict / mentions no changed file = wrong target; a `brain/<uuid>/*.md` pointer is auto-rescued into the raw file). If `agy_validate.py` exits non-zero the voice is correctly marked failed — read the `[FAIL]` message for the reason. Exit **124** = agy print timeout (issue #443; agy >= 1.1.28 returns partial output with exit 0): the partial output was moved to `*.timeout-partial*`, never aggregate it; check `*.agy.log` for 429 `RESOURCE_EXHAUSTED`, or set `AGY_PRINT_TIMEOUT_SECS` (1-570, default 480) |
@@ -1292,16 +1296,12 @@ Report back to the user: spectra archive status, Jira ticket status.
 | R2 receives r1-aggregate that is too large for voice to process | Remove raw diff from r1-aggregate; keep only findings; diff was already processed in the r1 prompt |
 | Round 2 ends with unresolved blocking findings | Trigger circuit breaker; hand remaining findings to user with the three-option decision (no third round) |
 | User chooses to ignore a disputed finding | Add a Known Issues section to the PR description with the reason |
-| User raises new concern during human quick pass | Reviewer lead (Claude main) responds immediately; unresolvable → return to Step 6; resolved → wait for user "ship" |
+| User raises new concern during human quick pass | Reviewer lead responds immediately; unresolvable → Step 6; resolved → wait for "ship" |
 | When does R2 run? | All active voices always run independent R1. Run R2 only when Step 3.4 finds a candidate blocker the lead does not adopt as-graded, or a blocking dispute. Two legal skips: a clean R1 (`R2 skipped: no contract-blocking candidate or dispute`), and lead-adopts-all (`R2 skipped: lead adopts all blockers` — 採納 ≠ 免驗證，Evidence gate 照跑). |
 | Linter / type-check fails | `ruff check --fix` / `eslint --fix` / `mypy follow_imports = skip` etc. |
 | Security scanner fails | bandit `# nosec BXXX` etc. ignore comments; explain reason in PR |
 | spectra archive validation fails | `spectra analyze {{change_name}}`; fix then archive; `--no-validate` requires explicit user instruction |
-| Cannot detect Jira key | Ask user to provide (format: `PROJECT-123`), or confirm no associated ticket and skip |
-| Jira transition options unclear | List all transitions and ask user to confirm |
-| Jira MCP auth error | Atlassian MCP requires OAuth; prompt user to authorize on claude.ai |
-| Codex extract returns invalid JSON | Follow Stage 3 if/else branch: Read `$REVIEW_DIR/codex-r1-raw.md`, manually summarize in main context as compact markdown, Write to `$REVIEW_DIR/codex-r1.md`; note in final.md "Codex voice used raw form this round, main context load higher" (do not cp raw → compact directly; verbose raw would enter r1-aggregate) |
-| Gemini extract JSON doesn't match schema | Same as above; manually summarize `$REVIEW_DIR/gemini-r1-raw.md` → `$REVIEW_DIR/gemini-r1.md` (do not cp) |
-| Extract step keeps failing (2 consecutive) | Fall back to path C: Claude lead reads raw with Read tool, manually extracts compact form in main session without calling codex/agy again; less efficient but workflow not blocked |
-| Extract prompt path missing (`~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md`) | Skill not installed; run `make install` in the yibi-stack directory to create the symlink; verify: `ls ~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` should return the path, not "No such file" |
+| Jira: cannot detect key / transition unclear / MCP auth error | Ask user for the key (`PROJECT-123`), or confirm there is no associated ticket and skip; list transitions and ask user to confirm; Atlassian MCP requires OAuth — prompt user to authorize on claude.ai |
+| Codex/Gemini extract returns invalid JSON, JSON missing schema fields (`verdict` / `summary` / `findings`), or extract fails 2× in a row | Follow Stage 3 if/else: Read `$REVIEW_DIR/{codex,gemini}-r1-raw.md`, manually summarize in main context as compact markdown, Write to `$REVIEW_DIR/{codex,gemini}-r1.md` (do not cp raw → compact — verbose raw would enter r1-aggregate); note in final.md "{{voice}} voice used raw form this round, main context load higher". 2 consecutive extract failures → path C: lead extracts the compact form from raw in the main session without calling codex/agy again (slower, workflow not blocked) |
+| Extract prompt path missing (`~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md`) | Skill not installed; run `make install` in yibi-stack to create the symlink; verify: `ls ~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` should return the path, not "No such file" |
 | User skipped bump but needs a version tag later | Create a release branch, run [`/bump-version`](../bump-version/SKILL.md) on it, then open a PR to merge into main (CI pass + CHANGELOG confirmed is sufficient; no full review cycle needed; if main has new commits, CHANGELOG may include extra entries — verify manually) |
