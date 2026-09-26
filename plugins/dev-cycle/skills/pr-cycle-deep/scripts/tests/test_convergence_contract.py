@@ -125,19 +125,19 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #   (2) +3, the R1 prompt gains a "Tautological or implementation-coupled test" evidence form and
 #       one focus bullet; the gate otherwise demotes such findings as having no valid form.
 #
-# Raised 1336 -> 1349 (+13 lines) for PR #469's own mob review (Claude + Codex, R1 2026-09-26),
-# which found the Step 1.7 text could skip or misroute the gate silently:
-#   (1) Step 1.7: the PR title went through `--title "<PR title>"`, so `${N}` in a real
-#       title (PR #387) expanded to nothing and backticks executed — now fetched into a variable;
-#       base is fetched (upstream-first, issue #196) instead of a possibly stale origin ref; the
-#       git-status restore check runs on every exit incl. timeout, not only after exit 0; exit 1
-#       counts as a verdict only with a verdict line (a traceback also exits 1); a PR that edits
-#       the checker is flagged, since it grades itself.
-#   (2) The carried-forward markers have a slot in the templates the lead actually fills:
-#       a [WEAK-RED] line in the Step 3.1 prompt template, a Red-first block in Step 8.
-#   (3) The `gh` failure stop and the noclobber-safe `>|` body overwrite.
-# The mutation run that motivated the anchors below: deleting all of Step 1.7 left this suite green.
-LINE_BUDGET = 1349
+# Set to 1340 (+4 over the pre-review 1336; an interim 1349 was lowered again) after PR #469's
+# own mob review (Claude + Codex, 2026-09-26).
+# Round 1 found the Step 1.7 prose could skip or misroute the gate silently (title pasted into
+# `--title "<PR title>"` so `${N}` from real PR #387 expanded to nothing; stale origin base; restore
+# check reachable only after exit 0; a traceback's exit 1 read as a verdict). Round 2 found the
+# first fix told the agent to run separate Bash calls while passing PR_TITLE / WT_ROOT between
+# them, which the Bash tool does not keep. All of that logic moved into scripts/red-first.sh (one
+# call, tested by test_red_first_sh.py), so Step 1.7 shrank; the +4 are the template slots that
+# carry [WEAK-RED] into the Step 3.1 prompt and a Red-first block into Step 8.
+# The anchors below guard command text and single-occurrence sentences, not repeated tokens:
+# Round 2's mutation run showed a "[WEAK-RED]" anchor (3 occurrences) and prose-only anchors let
+# single-point regressions through.
+LINE_BUDGET = 1340
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the
@@ -177,16 +177,18 @@ REQUIRED_ANCHORS: list[str] = [
     "material amendment",  # semantic contract change restarts full-diff R1
     "editorial amendment",  # non-semantic correction keeps the current pass
     "### Step 1.7 — Red-first gate",  # the gate step exists
-    "[SKIP] red-first: no checker",  # a checker-less repo is recorded, not silently passed
-    "red-first verdict line → **stop before",  # exit 1 with a verdict blocks before Step 2
-    "whatever the exit code",  # restore check runs on every exit, timeout included
-    "never paste the title into a command",  # title reaches the checker only via a variable
-    '--pr-body-file "$CLAUDE_JOB_DIR/pr-body.md"',  # makes [EXEMPT] reachable
-    "[WEAK-RED]",  # weak red is carried to every voice
+    # the gate runs as ONE call to the tested wrapper (title/base/restore logic lives there)
+    'scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR"',
+    "never as hand-split steps",  # Bash calls do not share shell variables
+    "(`RED_FIRST_RESULT=fail`) → **stop before Step 2**",  # a verdict FAIL blocks review
+    "do not restore by hand (rule 15)",  # exit 3 / killed call hands the tree to a human
+    "Step 3.1 pastes them into `prompt-r1.md`",  # [WEAK-RED] is carried to every voice
     "Weak-red tests (inspect for tautology)",  # ... via a slot in the Step 3.1 template
     "the lead may not accept it",  # an exemption needs a human
     "## Red-first (always shown",  # ... via a slot in the Step 8 template
     "Tautological or implementation-coupled test",  # the evidence form for such findings
+    "starting with any `[WEAK-RED]` tests from Step 1.7",  # pr-test-analyzer focus (AC-3)
+    "tests whose expected value is computed the way the",  # R1 prompt focus bullet (AC-3)
 ]
 
 # Strings that MUST be absent. The NIT-must-be-cleaned convention (any spelling) and the old
@@ -204,7 +206,8 @@ FORBIDDEN_STRINGS: list[str] = [
     "All voices LGTM",
     "Every active voice's latest round outputs",
     "Want to skip R2 and run only R1 | Not allowed",
-    '--title "<PR title>"',  # PR #469 review: title pasted into shell source
+    '--title "<PR title>"',  # PR #469 R1: title pasted into shell source
+    "Run these as separate calls",  # PR #469 R2: variables do not survive between Bash calls
 ]
 
 
