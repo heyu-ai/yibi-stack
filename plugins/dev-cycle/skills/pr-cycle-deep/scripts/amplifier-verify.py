@@ -8,8 +8,10 @@ Exit codes:
   0 — all TCs traced (only INFO gaps; non-blocking)
   0 — testplan.md missing on a change whose proposal.md `type:` does not require one
       (eng / ops / bug / poc / docs); printed as [WARN] and the TC check is skipped
-  1 — MUST findings (missing spec: trace on test that targets a TC) — blocks merge
-  1 — SHOULD findings only (coverage gap, or a TC mapped to an empty / undeclared / conflicting
+  1 — MUST findings (missing spec: trace on test that targets a TC, or a FAIL line from the sdd
+      plugin's check_testplan_trace.py — one MUST per FAIL line) — blocks merge
+  1 — SHOULD findings only (check_testplan_trace.py WARN lines, summarised into one SHOULD with
+      per-kind counts; coverage gap, or a TC mapped to an empty / undeclared / conflicting
       Test Seam, or TCs carrying a Seam column with no recognised declaration; printed as [WARN];
       document reason before deferring). A plan with neither a Test Seams table nor a Seam
       column is INFO only, so plans written before Check 4 existed are not retroactively flagged.
@@ -17,7 +19,8 @@ Exit codes:
       (or one whose `type:` cannot be read), testplan contains no TC
       table, a `gh` / `git` invocation failed (binary not found, timed out, or non-zero),
       metadata snapshot inconsistency (pre/post PR refs changed during scan), file count
-      mismatch (API record count != changedFiles), or checkout HEAD/PR headRefOid skew
+      mismatch (API record count != changedFiles), or checkout HEAD/PR headRefOid skew, or the
+      sdd plugin's check_testplan_trace.py cannot be located or exits with a configuration error
 """
 
 from __future__ import annotations
@@ -1045,6 +1048,105 @@ def fetch_pr_file_changes(pr: int) -> list[PRFileChange]:
     return changes
 
 
+# ---------------------------------------------------------------------------
+# testplan trace（sdd plugin 的 check_testplan_trace.py）
+# ---------------------------------------------------------------------------
+
+_TRACE_CHECKER_REL = Path("scripts") / "check_testplan_trace.py"
+_TRACE_LINE_RE = re.compile(r"^\[(?P<sev>FAIL|WARN)\] (?P<kind>[a-z-]+): (?P<rest>.*)$")
+# 與 check_testplan_trace.py 的 _ENFORCED_RE 同一個宣告；只用來決定 WARN 彙總是 SHOULD 還是 INFO
+_TRACE_ENFORCED_RE = re.compile(r"^(?:>\s*)?trace:\s*enforced\s*$", re.MULTILINE)
+
+
+def locate_trace_checker(repo_root: Path, home: Path | None = None) -> Path | None:
+    """找 sdd plugin 的 check_testplan_trace.py；找不到回傳 None（呼叫端必須 fail-closed）。
+
+    dev-cycle 與 sdd 是分開安裝的 plugin，不能互相 import，所以以子程序呼叫。候選順序與
+    spectra-amplifier 的「Plugin 資源路徑解析」相同：installed_plugins.json 記錄的生效版本，
+    其次是 repo 內的 plugins/sdd（在 yibi-stack 源碼 repo 開發時）。每個候選都以
+    「檔案讀得到」為準，不只檢查目錄存在。
+    """
+    home = home if home is not None else Path.home()
+    candidates: list[Path] = []
+    registry = home / ".claude" / "plugins" / "installed_plugins.json"
+    try:
+        data = json.loads(registry.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    entries = data.get("plugins", {}).get("sdd@yibi-stack", []) if isinstance(data, dict) else []
+    for entry in entries if isinstance(entries, list) else []:
+        install_path = entry.get("installPath") if isinstance(entry, dict) else None
+        if isinstance(install_path, str) and install_path:
+            candidates.append(Path(install_path) / _TRACE_CHECKER_REL)
+    candidates.append(repo_root / "plugins" / "sdd" / _TRACE_CHECKER_REL)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+@dataclass
+class TraceResult:
+    """check_testplan_trace.py 的執行結果。"""
+
+    returncode: int | None
+    fails: list[str]
+    warns: list[str]
+    stderr: str
+
+
+def run_trace_checker(checker: Path, repo_root: Path, change_name: str) -> TraceResult:
+    """以非 strict 模式對單一 change 執行 checker，並拆出 FAIL／WARN 行。"""
+    try:
+        proc = subprocess.run(  # nosec B603
+            [sys.executable, str(checker), "--repo-root", str(repo_root), "--change", change_name],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return TraceResult(None, [], [], f"無法執行 {checker}：{e}")
+    fails: list[str] = []
+    warns: list[str] = []
+    for line in proc.stdout.splitlines():
+        m = _TRACE_LINE_RE.match(line)
+        if m is None:
+            continue
+        (fails if m.group("sev") == "FAIL" else warns).append(line)
+    return TraceResult(proc.returncode, fails, warns, proc.stderr)
+
+
+def apply_trace_result(findings: Findings, result: TraceResult, *, enforced: bool) -> str | None:
+    """把 checker 結果併入 findings；回傳錯誤訊息代表呼叫端要 exit 2。
+
+    FAIL 逐行成為 MUST。WARN 彙總成一筆（各 kind 的數量）：逐筆列出會把 review 的 final.md
+    淹掉。enforced testplan 的彙總是 SHOULD；legacy testplan（未宣告 trace: enforced）只記
+    INFO，比照同檔 Check 4 的判準，不追溯標記寫於本規則之前的 plan。exit 1 卻沒有任何 FAIL
+    行、或 exit 0／1 以外的值，都不是可信的結果。
+    """
+    if result.returncode not in (0, 1):
+        detail = result.stderr.strip() or "（沒有 stderr）"
+        return f"check_testplan_trace.py 以 exit {result.returncode} 結束：{detail}"
+    if result.returncode == 1 and not result.fails:
+        return "check_testplan_trace.py 回傳 exit 1 但沒有任何 [FAIL] 行，結果不可信"
+    for line in result.fails:
+        findings.must.append(f"testplan trace {line}")
+    if result.warns:
+        counts: dict[str, int] = {}
+        for line in result.warns:
+            m = _TRACE_LINE_RE.match(line)
+            kind = m.group("kind") if m else "unknown"
+            counts[kind] = counts.get(kind, 0) + 1
+        summary = ", ".join(f"{kind} {n}" for kind, n in sorted(counts.items()))
+        message = (
+            f"testplan trace: {len(result.warns)} WARN ({summary}) -- "
+            "run check_testplan_trace.py --report --change <name> for the per-TC list"
+        )
+        (findings.should if enforced else findings.info).append(message)
+    return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Amplifier-verifier for /pr-cycle-deep")
     parser.add_argument("--pr", required=True, type=int, help="PR number")
@@ -1224,6 +1326,24 @@ def main() -> None:
         seams=parse_seams(testplan_text),
         tc_seams=parse_tc_seams(testplan_text),
     )
+
+    # Step 5b — testplan trace（sdd plugin 的 checker；找不到或設定錯誤一律 fail-closed）
+    checker = locate_trace_checker(repo_root)
+    if checker is None:
+        print(
+            "[FAIL] 找不到 sdd plugin 的 check_testplan_trace.py；spectra change 無法做 testplan"
+            " 追溯檢查。請執行 claude plugin install sdd@yibi-stack",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    trace_error = apply_trace_result(
+        findings,
+        run_trace_checker(checker, repo_root, change_name),
+        enforced=bool(_TRACE_ENFORCED_RE.search(testplan_text)),
+    )
+    if trace_error is not None:
+        print(f"[FAIL] {trace_error}", file=sys.stderr)
+        sys.exit(2)
 
     # Step 6 — report
     print()

@@ -134,12 +134,24 @@ With `--report`, the checker SHALL print, for each TC, its Kind, its bound test 
 
 ### Requirement: Every entry point runs the same checker
 
-The checker SHALL be the single implementation of these checks and SHALL be invoked from: a pre-commit hook in non-strict mode, the CI workflow in non-strict mode, pr-cycle-deep Step 1.5 through amplifier-verify, and pr-cycle-deep Step 11a in strict mode before archiving. amplifier-verify SHALL map FAIL findings to MUST findings and WARN findings to SHOULD findings, and SHALL exit 2 when it detects a spectra change but cannot locate the checker.
+The checker SHALL be the single implementation of these checks and SHALL be invoked from: a pre-commit hook in non-strict mode, the CI workflow in non-strict mode, pr-cycle-deep Step 1.5 through amplifier-verify, and pr-cycle-deep Step 11a in strict mode before archiving. amplifier-verify SHALL map each FAIL finding to its own MUST finding, SHALL summarise all WARN findings into a single finding carrying per-kind counts — a SHOULD finding when the testplan declares `trace: enforced`, an INFO finding otherwise, so that testplans written before this capability do not turn amplifier-verify from exit 0 into exit 1 — and SHALL exit 2 when it detects a spectra change but cannot locate the checker, or when the checker exits with any code other than 0 or 1, or exits 1 without a FAIL line.
 
 #### Scenario: archive-blocked-by-strict-failure
 
 - **WHEN** pr-cycle-deep reaches Step 11a and the checker run with `--strict --change <name>` exits 1
 - **THEN** the lead stops before running the archive and reports the FAIL findings
+
+#### Scenario: warn-summary-severity-follows-enforcement
+
+- **WHEN** the checker reports 23 WARN lines for a change
+- **THEN** amplifier-verify records exactly one summary finding for them
+
+##### Example: summary placement
+
+| testplan declares trace: enforced | Summary finding | amplifier-verify exit (no other findings) |
+| --- | --- | --- |
+| yes | one SHOULD: "23 WARN (collision 2, missing 20, orphan 1)" | 1 |
+| no | one INFO with the same counts | 0 |
 
 #### Scenario: amplifier-verify-fails-closed-without-checker
 
