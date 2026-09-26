@@ -753,6 +753,15 @@ Correct approach:
 Anti-pattern: prose says "stop when state X is detected", but the `count=0` row in the table
 says "redirect terminate" — the agent follows the table and the prose intent is completely overridden.
 
+**Cross-referencing another step's table imports its routing.** A gate that says "re-run Step X's
+decision table" inherits every Action cell, and those were written for Step X's context. Routing the
+gate also states inline still loses when that table calls itself authoritative (the anti-pattern
+above). Re-query with the same command, route every state in the gate, and say explicitly that the
+referenced table does not apply. Adding a caller is also a good moment to re-check the referenced
+table's step numbers. (Source: PR #464 — the Step 10 gate routed `MERGED → Step 11` inline, but
+Step 6's authoritative table sent MERGED to "Step 9 (archive / retro)" — Step 9 is actually CI
+Check, and that row had been wrong since it was written in PR #193 — and every OPEN state back to Step 7.)
+
 ## FAQ Fix Command Format
 
 Fix commands in FAQ tables must meet three requirements:
