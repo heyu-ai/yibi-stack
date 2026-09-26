@@ -41,7 +41,12 @@ a few minutes and the lead responds on the spot — faster than two senior engin
 ```text
 /pr-cycle-deep
 /pr-cycle-deep #<PR number>   ← skip PR creation, but still run the Step 1 Review Contract gate
+/pr-cycle-deep #<PR number> --resume   ← continue from .pr-review/state.md (see Step 5 Checkpoint)
 ```
+
+`--resume`: run Step 0a, Read `state.md` + `final.md`, re-check live PR state (Step 6 recheck
+table), then jump to its `next:` step. `state.md` missing or naming another PR → `[FAIL]`; rerun
+without `--resume`.
 
 ---
 
@@ -269,28 +274,26 @@ Step 3.1, paste the confirmed contract into `prompt-r1.md` (the copy the reviewe
 
 ---
 
-### Step 1.5 — Parallel Pre-review Check (3 agents, same message)
+### Step 1.5 — Pre-review Check (one script, blocking)
 
-This step is **blocking** — do not proceed to Step 2 if any agent fails or returns no usable output.
+One Bash call — **not** Task agents: each would reload the full base context just to run a fixed
+command. The script fetches diff stats and CI state from GitHub (never local `main`), runs
+`amplifier-verify.py --pr` (TC coverage + traceability + Test Seam mapping, Check 4), prints a short summary, and writes the full amplifier stdout/stderr
+to `.pr-review/pre-review-check.md` (path on the `REPORT=` line):
 
-Spawn three Task agents **in a single message** to gather baseline information in parallel:
-
-| Agent | Task |
-|-------|------|
-| **diff-reviewer** | Run `gh pr diff {{pr_number}}`; summarise changed files and line counts. **Do not use local `main`** — always fetch from GitHub. If the command exits non-zero, report `[FAIL] gh pr diff: <exact error>` and stop. |
-| **ci-checker** | Run `gh pr checks {{pr_number}}`; report pass / fail / pending per check. If the list is empty, report "CI: not yet triggered". If the command exits non-zero, report `[FAIL] gh pr checks: <exact error>` and stop. |
-| **amplifier-verifier** | Run TC coverage + docstring traceability + Test Seam mapping (Check 4) check: `python3 ~/.agents/skills/pr-cycle-deep/scripts/amplifier-verify.py --pr {{pr_number}}`. Exit 0 = no spectra change (including a PR that touches only archived material, or names a change that has since been archived — finished work with nothing to gate) or all TCs traced, or `testplan.md` is missing / has no parsable TC table on a change whose `proposal.md` frontmatter `type:` does not require one (`eng` / `ops` / `bug` / `poc` / `docs`; printed as `[WARN]`, TC check skipped); exit 1 = MUST or SHOULD findings present; exit 2 = fatal error (change directory not found, missing testplan or unparsable TC table on a `feat` / `refactor` change or on one whose `type:` cannot be read, or a `gh` / `git` invocation failure). The detected `type:` is printed on the `spectra change detected` line every run — it is author-declared and decides whether the gate blocks, so check it matches the change. A `[WARN]` on stderr naming several active change dirs means the diff touched more than one **that resolved to an active directory**, and only the first of those was verified (candidates that resolve to the archive are excused, not counted). Report the full stdout. On exit 2, stop with `[FAIL]`. On exit 1, **do not stop** — write MUST findings to `$REVIEW_DIR/final.md` Critical section and SHOULD findings to Important section, then continue to Step 2. |
-
-If any agent reports `[FAIL]` (exit 2 or explicit `[FAIL]` in output), stop and report the failure explicitly; do not proceed to Step 2.
-
-Once all three return successfully, write `$CLAUDE_JOB_DIR/pre-review-check.md` (distinct from `$REVIEW_DIR/final.md` used in later steps) and report inline:
-
-```text
-Pre-review Check
-- Diff: <file count> files, <line count> lines changed
-- CI: <pass / fail / pending / not yet triggered — list any failing checks by name>
-- Amplifier: <MUST: N findings / SHOULD: N findings / OK: all TCs traced / no spectra change / only archived material touched (nothing to gate) / named change has since been archived>
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py --pr {{pr_number}}
 ```
+
+| Exit | Meaning | Action |
+|------|---------|--------|
+| `0` | Baseline OK; amplifier clean (no spectra change, all TCs traced, or TC check skipped for a non-`feat`/`refactor` `type:`) | Relay the summary; CI fail/pending is informational here; continue to Step 1.6 |
+| `1` | amplifier-verify MUST/SHOULD findings | **Do not stop.** Read the report; write MUST findings to `$REVIEW_DIR/final.md` Critical and SHOULD to Important; continue |
+| `2` | `gh` failed (auth / PR not found), or amplifier-verify exit 2 (change dir missing, missing/unparsable testplan on `feat`/`refactor`, HEAD ≠ PR head) | **Stop** with `[FAIL]`; read the report's stderr section for the cause |
+
+In the report, check the detected `type:` on the `spectra change detected` line (author-declared;
+it decides whether the gate blocks) and any `[WARN]` naming several active change dirs (only the
+first was verified). Allow-list: `Bash(python3 /Users/<you>/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py *)`.
 
 ---
 
@@ -913,6 +916,12 @@ group-review ({{N}}/3 voices active)
 
 Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 5b.
 
+**Checkpoint (context lifetime).** With the Write tool, write `$REVIEW_DIR/state.md`: PR number,
+base branch, baseline SHA, re-review round, `next: Step 5b`; rewrite `next:` at every later step
+boundary. Later steps need nothing beyond `$REVIEW_DIR` (`prompt-r1.md` = frozen contract,
+`final.md` = blocking set), so this human pause is the cheapest place to shed context: tell the
+user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> --resume`.
+
 ---
 
 ### Step 5b — Post review summary to PR
@@ -964,38 +973,24 @@ gh issue create --repo {{owner/repo}} --label deferred-from-review --title "Defe
 
 ### Step 6 — Fix (Critical → Important → NIT)
 
-Process in order:
+Delegate the fix loop to **one** `general-purpose` Task subagent. Reading code, editing and
+iterating on CI are the most turn-heavy part of the cycle; in the lead's context every one of
+those turns re-reads the whole review history. Prompt (fill in the real `$REVIEW_DIR`):
 
-1. Modify the code.
-2. Run local CI (read the project to find the CI command first):
+```text
+Fix the blocking findings in $REVIEW_DIR/final.md in order: Consensus Critical, then Consensus
+Important; Actionable NIT only if trivial. The frozen Review Contract is in $REVIEW_DIR/prompt-r1.md
+— do not expand scope. Find the repo's CI command (Makefile ci/test target, else the stack default:
+uv run pytest / npm test / go test ./... / flutter test) and fix until it passes. Commit each batch
+with a message describing what was fixed (never "fix review comments"), then git push. Do not
+touch .pr-review/. Reply in <=15 lines: commit SHAs, each finding FIXED / NOT FIXED + reason,
+the CI command and its exit code.
+```
 
-   ```bash
-   grep -E "^(ci|test|check):" Makefile 2>/dev/null | head -5
-   ```
-
-   Common mappings:
-
-   | Stack | Local CI |
-   | --- | --- |
-   | Python (make) | `make ci` |
-   | Python (bare) | `uv run pytest` |
-   | Node | `npm test` |
-   | Go | `go test ./...` |
-   | Flutter | `flutter test` |
-
-   Fix before continuing if CI fails — do not skip.
-
-3. Commit (describe what was fixed; do not write "fix review comments"):
-
-   ```bash
-   git commit -m "fix(...): ..."
-   ```
-
-   ```bash
-   git push
-   ```
-
-Commit after each batch of fixes to make it easier for group re-review to see the corresponding diff.
+Task call errors or returns empty → `[FAIL]` stop. Then **verify, do not trust the summary**:
+`git log --oneline <baseline>..HEAD`, and re-run the CI command yourself as
+`<ci-command> > "$REVIEW_DIR/ci-step6.log" 2>&1`, gating on its exit code (Read the log only on
+failure). A NOT FIXED blocking item goes to the user; the subagent's "CI passed" is never the gate.
 
 **Recheck PR status before looping back into re-review.** A group re-review (Step 7) is
 expensive — do not spend it on a PR that is no longer open or mergeable. After pushing, re-query
