@@ -175,10 +175,12 @@ def _iter_table_headers(lines: list[str]) -> Iterator[tuple[int, list[str]]]:
     into the blocking check, which then demands a `spec:` trace for a test whose name
     happens to match an illustration.
 
-    Fences follow CommonMark: ``` and ~~~ both open one, and only a bare run of the SAME
-    character at least as long as the opener closes it. A plain ```-toggle read a `~~~`
-    example table as real (so its example seams became declared) and let an inner ```
-    close an outer ````.
+    Fences follow CommonMark's character and length rules: ``` and ~~~ both open one, and
+    only a bare run of the SAME character at least as long as the opener closes it. A plain
+    ```-toggle read a `~~~` example table as real (so its example seams became declared) and
+    let an inner ``` close an outer ````. NOT modelled: the 0-3 space indent limit, and a
+    backtick info string that itself contains a backtick (which CommonMark reads as inline
+    code) -- both still open a fence here and hide the tables after it.
     """
     fence: str | None = None
     for i, line in enumerate(lines):

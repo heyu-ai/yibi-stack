@@ -106,7 +106,22 @@ def test_example_tables_in_tilde_fences_are_not_declarations():
 
 
 def test_an_inner_fence_does_not_close_an_outer_longer_one():
-    fenced = "````markdown\n```\nx\n```\n" + SEAMS_TABLE + "````\n"
+    # ONE inner ``` (odd count): an even count re-opens under a plain toggle and hides the table
+    # for the wrong reason, so the length rule would go unpinned.
+    fenced = "````markdown\n```\n" + SEAMS_TABLE + "````\n"
+    assert av.parse_seams(fenced) == []
+
+
+def test_a_backtick_line_does_not_close_a_tilde_fence():
+    # Same-character rule: the ``` inside the ~~~ example is content, so ~~~ closes the fence
+    # and the real declaration after it is read.
+    plan = "~~~\n```\n~~~\n\n" + SEAMS_TABLE
+    assert av.parse_seams(plan) == ["invite-api", "invite-service"]
+
+
+def test_a_fence_line_with_an_info_string_does_not_close_a_fence():
+    # Bare-closer rule: "```python" inside an open ``` fence opens nothing and closes nothing.
+    fenced = "```\n```python\n" + SEAMS_TABLE + "```\n"
     assert av.parse_seams(fenced) == []
 
 
@@ -213,7 +228,7 @@ def test_seam_matching_ignores_case():
     assert not _seam_should(f)
 
 
-# --- end to end: shapes that used to fall silent -----------------------------------------------
+# --- end to end: multi-table and table-shape handling (most of these used to fall silent) ------
 
 
 def test_an_undeclared_seam_in_a_later_table_is_reported_in_either_order():
