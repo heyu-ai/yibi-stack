@@ -1,14 +1,10 @@
 {
   "name": "methodology",
   "version": "1.22.5",
-  "description": "Portable methodology plugin for Claude Code: TDD, event storming, problem frames, and QA test design.",
+  "description": "Portable methodology plugin for Claude Code: event storming, problem frames, and QA test design.",
   "omp": {},
   "keywords": [
     "methodology",
-    "tdd",
-    "test-driven-development",
-    "kent-beck",
-    "flutter",
     "event-storming",
     "domain-discovery",
     "problem-frames",

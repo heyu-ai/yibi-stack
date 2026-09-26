@@ -162,7 +162,7 @@ See [`skills/README.md`](skills/README.md) for the full index.
 | `growth` | `claude plugin install growth@yibi-stack` | Knowledge extraction and retention: mycelium, learn, PR retro/control log, CLAUDE.md prune |
 | `dev-cycle` | `claude plugin install dev-cycle@yibi-stack` | Development workflow: PR cycles, CI triage, setup/handover, local port manager, debug |
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex, Antigravity CLI (agy/Gemini), model verification |
-| `methodology` | `claude plugin install methodology@yibi-stack` | Portable methodology: Kent Beck TDD, Flutter TDD, event storming, problem frames, QA test design. |
+| `methodology` | `claude plugin install methodology@yibi-stack` | Portable methodology: event storming, problem frames, QA test design. |
 
 ---
 
@@ -317,7 +317,7 @@ make status-own
 | `growth` | `claude plugin install growth@yibi-stack` | 知識萃取與留存：mycelium、learn、PR 回顧／審計、CLAUDE.md 精簡 |
 | `dev-cycle` | `claude plugin install dev-cycle@yibi-stack` | 開發流程：PR cycles、CI 診斷、工作區設定／交班、本機 port 管理、debug |
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex、Antigravity CLI（agy/Gemini）、模型驗證 |
-| `methodology` | `claude plugin install methodology@yibi-stack` | 可攜方法論：Kent Beck TDD、Flutter TDD、event storming、problem frames、QA test design。 |
+| `methodology` | `claude plugin install methodology@yibi-stack` | 可攜方法論：event storming、problem frames、QA test design。 |
 
 ---
 

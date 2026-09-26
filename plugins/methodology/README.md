@@ -22,22 +22,22 @@ claude plugin install methodology@yibi-stack
 > on `event-storming`/`problem-frames`/`qa-test-design` should additionally run
 > `claude plugin install methodology@yibi-stack`.
 >
-> **Removed (2026-09-25):** `tdd-kentbeck` was deleted. Transcript measurement over one month
-> found it invoked 0 times; TDD is now enforced mechanically by the red-first gate in
-> `pr-cycle-deep` Step 1.7 instead of a knowledge skill.
+> **Removed (2026-09-25):** `tdd-kentbeck` and `flutter-tdd` were deleted. Transcript
+> measurement over one month found the TDD skills invoked 0 times; TDD is now enforced
+> mechanically by the red-first gate in `pr-cycle-deep` Step 1.7 instead of a knowledge skill.
+> Whether a project wants a stack-specific TDD skill (e.g. Flutter) is left to that project to
+> decide and maintain in its own repo.
 
 ## What you get
 
 | Component | Description |
 |-----------|-------------|
-| `flutter-tdd` skill | Flutter 行動應用的測試驅動開發（TDD）專家指引 |
 | `event-storming` skill | 領域發現前置 skill，在開始寫 spec 之前使用 |
 | `problem-frames` skill | Michael Jackson Problem Frames 方法論：在寫 spec 之前，把問題拆成 R（需求）/ S（規格）/ W（領域假設），並證明 S ∧ W ⟹ R，藉此把領域假設前置顯式化 |
 | `qa-test-design` skill | Senior QA test design techniques using structured methods to produce high-quality test cases；涵蓋 Equivalence Partitioning、Boundary Value Analysis、Decision Table、State Transition、Pairwise / Combinatorial Testing 與 Risk-Based Testing |
 
 ## Use cases
 
-- Use Kent Beck TDD or Flutter-specific TDD to drive implementation through disciplined test-first cycles.
 - Discover domain events and system boundaries before writing a specification.
 - Separate requirements, specifications, and domain assumptions with Jackson Problem Frames.
 - Design and review test coverage with six structured QA techniques.
