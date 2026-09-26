@@ -12,8 +12,8 @@ Exit code：
     0  每一條檢查到的引用都存在（缺的也都已用 expected-absent 宣告）。stderr 的 `[SKIPPED]`
        token 沒有檢查，須人工確認
     1  有路徑不存在、跳出 repo、單獨檔名同名多個，或 expected-absent 宣告的檔案其實存在
-    2  無法判斷：檔案讀不到或不是 UTF-8、fence 到文件結尾仍未關閉、--repo 不是 git repo 的
-       根目錄、git 執行失敗（非零、逾時、找不到 git）
+    2  無法判斷：檔案讀不到或不是 UTF-8、--repo 不是 git repo 的根目錄、git 執行失敗
+       （非零、逾時、找不到 git）
     3  沒有抽到任何路徑引用，無法判斷——停下人工確認，不可當成通過
 
 「存在」以 `--repo` 目前 checkout 的 git index（`git ls-files`）為準，並逐字比對大小寫：
@@ -21,28 +21,29 @@ Exit code：
 內容——本機分支獨有、或只 git add 還沒 push 的檔案也算存在；要對齊 GitHub，`--repo` 必須
 指向已 pull 的 main checkout。
 
-抽取範圍：fenced code block 以外的全文（散文、inline code、連結都算），逐行以空白、markdown
-標點（反引號、中括號、角括號、引號、`{}|,;=!`）與 CJK 字元切成 token。刻意不做 code span
-配對——落單或跳脫的反引號、巢狀括號、跨行的 span 或連結都不可能藏起路徑，配錯最多多檢查。
-路徑本身含上述字元時會被切成片段各自檢查（可能誤擋，不會漏放）。括號不切開，只剝掉外圍或
-不成對的首尾括號，所以 `docs/a(1).md` 保持完整。
+設計原則：這是閘門，寧可多擋不可漏放，所以刻意不去「理解」markdown 結構——任何會把一段
+文字判定為「不用檢查」的解析（fence、code span 配對、縮排程式碼區塊）只要判錯就會藏起路徑。
+因此：
+- 全文都抽取，包含 fenced code block 內的內容（範例裡的相對路徑多半是真實路徑）
+- 逐行以硬分隔字元切 token：空白、markdown 標點（反引號、中括號、角括號、引號、`{}|,;=!`）
+  與全形標點。中文、日文字不是硬分隔（路徑可能含中文），只在 token 頭尾且不緊貼 `/` 時剝掉
+- markdown 反斜線跳脫（`\\_`、`\\``）先還原成原字元再切
+- 連結目標另外用 regex 從全文補抓：`](目標)`（目標前可有空白、換行或 `<`）與參考式連結
+  定義 `[ref]: 目標`（目標可在下一行）；註腳定義 `[^1]:` 不算。連結目標的 `?query` 會先去掉
 
-fence：開頭行縮排至多 3 格；關閉行去掉前後空白後全是同一種 fence 字元、長度不短於開頭，
-且縮排不超過開頭行縮排 + 3（list item 內的 fence 會整體縮排）。到文件結尾仍未關閉時 exit 2。
-
-每個 token 先去掉外圍括號、首尾冒號、粗體的 `**`、句尾句點，以及結尾的 `:行`、`:行:欄`、
-`:起-迄`、`#L12`、`#錨點`、`::pytest-node`，再依語境判斷：
-- 語境：緊鄰反引號或角括號、或是連結目標（緊接在 `]` 之後的 `(`）的 token 屬「程式碼語境」，
-  其餘屬「散文語境」。只看緊貼 token 的一個字元，不做配對
-- 排除（兩種語境皆同）：flag（`-` 開頭）、`@` 開頭、絕對路徑（`/`、`~`）、含 `://`、
-  `mailto:` 等 scheme、含 shell 符號（`$`、`&`、`\\`）、不含任何字母（版本號、`3/3`）、
-  第一段是目標 repo 的 git remote 名稱（`origin/main`）
+每個 token 依語境判斷：緊鄰反引號或角括號的屬「程式碼語境」，其餘屬「散文語境」——只看緊貼
+token 的一個字元，不做配對。清理：去掉外圍或不成對的括號、首尾冒號、句尾句點，以及結尾的
+`:行`、`:行:欄`、`:起-迄`、`#L12`、`#錨點`、`::pytest-node`；散文語境另外去掉首尾的強調符號
+（`*`、`_`、`~~`，緊貼 `/` 時視為 glob 保留）與句尾問號，避免斜體或粗體被當成 glob。
+- 排除：flag（`-` 開頭）、`@` 開頭、絕對路徑（`/`、`~/`）、含 `://` 或 `mailto:` 等 scheme、
+  含 shell 符號（`$`、`&`、`\\`）、不含任何字母（版本號、`3/3`）；非連結目標且第一段是目標
+  repo 的 git remote 名稱（`origin/main`）
 - 連結目標：一律算路徑
 - 不含斜線：程式碼語境中有已知副檔名、或是已知無副檔名檔名（`Makefile` 等）才算路徑；
-  散文語境一律不算（散文的 `SKILL.md` 多半是泛稱）
+  散文語境一律不算（散文的 SKILL.md 多半是泛稱）
 - 含斜線：看得出是路徑者一律檢查——結尾斜線、第一段是 repo 頂層項目或以點開頭、第二段起
   任一段含點、最後一段是已知無副檔名檔名。其餘在程式碼語境中三段以上也檢查；剩下的
-  （`owner/repo`、`Read/Write/Edit` 這類斜線詞）不檢查，但印 `[SKIPPED]` 到 stderr
+  （owner/repo、Read/Write/Edit 這類斜線詞）不檢查，但印 `[SKIPPED]` 到 stderr
 
 判斷存在：
 - 結尾斜線：必須是 repo 根目錄起算的目錄；含 glob 時也只比對目錄
@@ -53,13 +54,14 @@ fence：開頭行縮排至多 3 格；關閉行去掉前後空白後全是同一
 - 正規化後跳出 repo 的路徑（`../`）印 `[OUTSIDE]`
 
 文件本來就在說明「某檔不存在」時，用 `<!-- expected-absent: <path> <path> -->` 明確宣告，
-寫法須與 `[MISSING]` 行印出的字串完全相同。宣告的每一條都會被檢查，不論內文有沒有引用：
-缺席時印 [ABSENT-OK]；其實存在時印 [STALE-ABSENT] 並 exit 1；跳出 repo 的路徑不可宣告，
-仍印 [OUTSIDE] 並 exit 1。宣告必須在 fence 以外單獨一行，且前後都是空行（或文件頭尾）：
-CommonMark 的 inline code 不會跨空行，所以這樣的宣告不可能是 inline code 內的示範寫法。
+寫法須與 `[MISSING]` 行印出的字串完全相同。宣告只認文件最開頭的宣告區塊：從第一行起、
+只由第 0 欄的宣告行與空白行組成，遇到第一個其他內容即結束。文件開頭不可能落在 fence、
+inline code 或縮排程式碼區塊內，所以不需要任何結構判斷。宣告的每一條都會被檢查，不論內文
+有沒有引用：缺席時印 [ABSENT-OK]；其實存在時印 [STALE-ABSENT] 並 exit 1；跳出 repo 的路徑
+不可宣告，仍印 [OUTSIDE] 並 exit 1。
 
-已知限制：fence 內的路徑、散文寫法（「rule 12」）、散文中的單獨檔名不會被檢查；看不出是
-路徑的斜線 token 只列為 [SKIPPED]，不會讓閘門失敗。
+已知限制：散文寫法（「rule 12」）與散文中的單獨檔名不會被檢查；看不出是路徑的斜線 token
+只列為 [SKIPPED]，不會讓閘門失敗；路徑含空白時會被切成片段各自判斷。
 """
 
 import argparse
@@ -139,11 +141,20 @@ _EXTENSIONLESS_NAMES = {
     "CODEOWNERS",
 }
 
-_FENCE_OPEN_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
-# 路徑不會含這些字元；真的含時會被切成片段各自檢查，只會多擋、不會漏放
-_TOKEN_SPLIT_RE = re.compile(r"[\s`\[\]{}<>\"'|,;=!　-〿぀-ヿ㐀-䶿一-鿿＀-￯]+")
+_CJK = "\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff"
+_TOKEN_SPLIT_RE = re.compile(r"[\s`\[\]{}<>\"'|,;=!\u3000-\u303f\uff00-\uffef]+")
 _SPLIT_KEEP_RE = re.compile(f"({_TOKEN_SPLIT_RE.pattern})")
-_DECLARATION_RE = re.compile(r"^\s*<!--\s*expected-absent:\s*(.*?)\s*-->\s*$")
+# CommonMark 只認 \n、\r、\r\n 為換行；str.splitlines() 另會切 NEL、U+2028 等字元
+_LINE_BREAK_RE = re.compile(r"\r\n|\r|\n")
+_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
+_DEST = r"<?([^\s<>`\"'　-〿＀-￯]+)"
+_LINK_DEST_RE = re.compile(r"\]\(\s*" + _DEST)
+_REF_DEF_RE = re.compile(r"^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*(?:\r?\n[ \t]*)?" + _DEST, re.M)
+_LEADING_EMPHASIS_RE = re.compile(r"^(?:[*_]+|~~)(?=[^/*_~])")
+_TRAILING_EMPHASIS_RE = re.compile(r"(?<=[^/*_~])(?:[*_]+|~~)$")
+_DECLARATION_RE = re.compile(r"^<!--\s*expected-absent:\s*(.*?)\s*-->\s*$")
+_LEADING_CJK_RE = re.compile(rf"^[{_CJK}]+(?=[^/{_CJK}])")
+_TRAILING_CJK_RE = re.compile(rf"(?<=[^/{_CJK}])[{_CJK}]+$")
 _SUFFIX_RE = re.compile(r"(?:::\S+|#.*|(?::\d+)+(?:-\d+)?)$")
 _SENTENCE_DOT_RE = re.compile(r"(?<=[^./])\.$")
 _SCHEME_RE = re.compile(r"^(?:mailto|tel|data|javascript|about):", re.IGNORECASE)
@@ -225,12 +236,21 @@ def _strip_parens(token: str) -> str:
     return token
 
 
-def _clean(token: str) -> str:
-    token = _strip_parens(token.strip(":"))
-    if len(token) > 4 and token.startswith("**") and token.endswith("**"):
-        token = token[2:-2]
-    token = _SUFFIX_RE.sub("", token).rstrip(":")
-    token = _SENTENCE_DOT_RE.sub("", token)
+def _clean(token: str, prose: bool) -> str:
+    """剝掉 token 首尾不屬於路徑的字元，反覆套用直到不再變化。"""
+    previous = None
+    while token != previous:
+        previous = token
+        token = _strip_parens(token.strip(":"))
+        token = _TRAILING_CJK_RE.sub("", _LEADING_CJK_RE.sub("", token))
+        token = _SUFFIX_RE.sub("", token).rstrip(":")
+        token = _SENTENCE_DOT_RE.sub("", token)
+        if prose:
+            # 強調符號緊貼 `/` 時是 glob（`dir/*`、`**/x`），不剝
+            token = _LEADING_EMPHASIS_RE.sub("", _TRAILING_EMPHASIS_RE.sub("", token))
+            token = token.rstrip("?")
+        elif len(token) > 4 and token.startswith("**") and token.endswith("**"):
+            token = token[2:-2]
     return unquote(token) if "%" in token else token
 
 
@@ -247,7 +267,7 @@ def _classify(token: str, index: RepoIndex, in_code: bool = True, is_link: bool 
     is_link（markdown 連結目標）一律當路徑；in_code=False（散文語境）時只認看得出是路徑的
     斜線 token，單獨檔名不查。
     """
-    if not token or token.startswith(("-", "@", "/", "~")):
+    if not token or token.startswith(("-", "@", "/", "~/")) or token == "~":
         return "ignore"
     if "://" in token or _SCHEME_RE.match(token) or any(c in _SHELL_CHARS for c in token):
         return "ignore"
@@ -279,86 +299,66 @@ def _classify(token: str, index: RepoIndex, in_code: bool = True, is_link: bool 
     return "skipped"
 
 
-def _scan(text: str) -> tuple[list[str], list[str]]:
-    """回傳（fence 以外的行、獨立成段的 expected-absent 宣告行內容）。
-
-    fence 關閉行的縮排不得超過開頭行縮排 + 3（CommonMark 規則相對於所在容器，這裡以開頭行縮排
-    近似 list item 的容器縮排）。fence 到文件結尾仍未關閉時丟 ValueError。
-    """
-    lines = text.splitlines()
-    outside: list[str] = []
-    declarations: list[str] = []
-    fence: tuple[int, str] | None = None
-    for i, line in enumerate(lines):
-        if fence is not None:
-            indent, marker = fence
-            stripped = line.strip()
-            if (
-                stripped
-                and set(stripped) == {marker[0]}
-                and len(stripped) >= len(marker)
-                and len(line) - len(line.lstrip(" ")) <= indent + 3
-            ):
-                fence = None
-            continue
-        m = _FENCE_OPEN_RE.match(line)
-        if m and not (m.group(2)[0] == "`" and "`" in m.group(3)):
-            fence = (len(m.group(1)), m.group(2))
-            continue
-        outside.append(line)
-        decl = _DECLARATION_RE.match(line)
-        isolated = (i == 0 or not lines[i - 1].strip()) and (
-            i == len(lines) - 1 or not lines[i + 1].strip()
-        )
-        if decl and isolated:
-            declarations.append(decl.group(1))
-    if fence is not None:
-        raise ValueError(f"fence（{fence[1]}）到文件結尾仍未關閉，無法判斷後文是否為程式碼")
-    return outside, declarations
+def _link_destinations(text: str) -> list[str]:
+    """從全文抓出 inline 連結與參考式連結定義的目標（去掉 `?query`），依出現順序。"""
+    found = [(m.start(), m.group(1)) for m in _LINK_DEST_RE.finditer(text)]
+    found += [(m.start(), m.group(1)) for m in _REF_DEF_RE.finditer(text)]
+    return [dest.split("?", 1)[0] for _, dest in sorted(found)]
 
 
 def extract_candidates(text: str, index: RepoIndex) -> tuple[list[str], list[str]]:
-    """回傳（要檢查的路徑、以 owner/repo 形狀略過的 token），皆依首次出現順序去重。
+    """回傳（要檢查的路徑、未檢查只列 [SKIPPED] 的 token），皆依首次出現順序去重。
 
-    fence 以外全文都抽取（散文、inline code、連結），不依賴 code span 配對，因此配對錯誤
-    只會多檢查、不會漏檢。fence 到文件結尾仍未關閉時丟 ValueError。
+    全文都抽取（含 fence 內容），不做任何 markdown 結構判斷，所以解析錯誤只會多檢查、
+    不會漏檢；連結目標另外補抓並一律檢查。
     """
     candidates: list[str] = []
     skipped: list[str] = []
     seen: set[str] = set()
-    for line in _scan(text)[0]:
+
+    def add(token: str, kind: str) -> None:
+        if kind == "ignore":
+            return
+        if token in seen:
+            if kind == "path" and token in skipped:
+                skipped.remove(token)
+                candidates.append(token)
+            return
+        seen.add(token)
+        (candidates if kind == "path" else skipped).append(token)
+
+    text = _ESCAPE_RE.sub(r"\1", text)
+    for line in _LINE_BREAK_RE.split(text):
         # 捕捉群組讓 split 保留分隔字元：parts 為 token、分隔、token、分隔…交錯
         parts = _SPLIT_KEEP_RE.split(line)
         for i in range(0, len(parts), 2):
-            raw = parts[i]
-            token = _clean(raw)
             before = parts[i - 1] if i > 0 else ""
             after = parts[i + 1] if i + 1 < len(parts) else ""
-            # 只看緊貼 token 的字元：CJK 與反引號都是分隔字元，會被合併成同一段分隔
-            is_link = before.endswith("]") and raw.startswith("(")
-            in_code = is_link or before.endswith(("`", "<")) or after.startswith(("`", ">"))
-            kind = _classify(token, index, in_code, is_link)
-            if kind == "ignore":
-                continue
-            if token in seen:
-                if kind == "path" and token in skipped:
-                    skipped.remove(token)
-                    candidates.append(token)
-                continue
-            seen.add(token)
-            (candidates if kind == "path" else skipped).append(token)
+            in_code = before.endswith(("`", "<")) or after.startswith(("`", ">"))
+            token = _clean(parts[i], prose=not in_code)
+            add(token, _classify(token, index, in_code))
+    for dest in _link_destinations(text):
+        # scheme 要在清理前判斷：`tel:123` 清理時會被當成行號後綴剝成 `tel`
+        if "://" in dest or _SCHEME_RE.match(dest):
+            continue
+        token = _clean(dest, prose=False)
+        add(token, _classify(token, index, in_code=True, is_link=True))
     return candidates, skipped
 
 
 def parse_expected_absent(text: str) -> list[str]:
-    """收集 fence 以外、獨立成段的 `<!-- expected-absent: a b -->` 宣告路徑，依出現順序去重。
+    """收集文件開頭宣告區塊內 `<!-- expected-absent: a b -->` 的路徑，依出現順序去重。
 
-    宣告須單獨一行且前後為空行（或文件開頭／結尾）：CommonMark 的 inline code 不會跨空行，
-    所以這樣的宣告不可能落在 inline code 內，不需判斷反引號配對。
+    宣告區塊從第一行起，只由第 0 欄的宣告行與空白行組成，遇到第一個其他內容即結束。
     """
     found: list[str] = []
-    for decl in _scan(text)[1]:
-        for token in decl.split():
+    for line in _LINE_BREAK_RE.split(text):
+        if not line.strip():
+            continue
+        m = _DECLARATION_RE.match(line)
+        if not m:
+            break
+        for token in m.group(1).split():
             if token not in found:
                 found.append(token)
     return found
@@ -421,6 +421,13 @@ def resolve(token: str, index: RepoIndex) -> Resolution:
     return Resolution("missing")
 
 
+def _skip_reason(token: str, index: RepoIndex) -> str:
+    """[SKIPPED] 行的說明：程式碼語境下仍會略過的是 owner/repo 形狀，其餘是散文斜線詞。"""
+    if _classify(token, index, in_code=True) == "skipped":
+        return "形似 owner/repo，未檢查；若是路徑請寫到檔名或加結尾斜線"
+    return "散文中看不出是路徑，未檢查；若是路徑請用反引號包住"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="檢查 markdown 引用的路徑是否存在於目標 repo 的版控內"
@@ -445,15 +452,11 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as e:
         print(f"[FAIL] {e}", file=sys.stderr)
         return 2
-    try:
-        candidates, skipped = extract_candidates(text, index)
-        declared = parse_expected_absent(text)
-    except ValueError as e:
-        print(f"[FAIL] {args.file}：{e}。補上關閉的 fence 後重跑。", file=sys.stderr)
-        return 2
 
+    candidates, skipped = extract_candidates(text, index)
+    declared = parse_expected_absent(text)
     for token in skipped:
-        print(f"[SKIPPED] {token}（形似 owner/repo，未檢查；若是路徑請寫完整）", file=sys.stderr)
+        print(f"[SKIPPED] {token}（{_skip_reason(token, index)}）", file=sys.stderr)
 
     if not candidates and not declared:
         print(
@@ -502,8 +505,8 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"[FAIL] {len(missing)} 條引用的路徑不在目標 repo 的版控內：可能屬於另一個 repo、"
             "已被搬走、還沒 git add，或是筆誤。先修正文件或改開到正確的 repo 再開票。若文件本來"
-            "就在說明「此檔不存在」，在文件內加 <!-- expected-absent: <與 [MISSING] 行相同的字串> "
-            "--> 明確宣告。",
+            "就在說明「此檔不存在」，在文件最開頭加 <!-- expected-absent: <與 [MISSING] 行相同的"
+            "字串> --> 明確宣告。",
             file=sys.stderr,
         )
     if other_bad:
