@@ -59,7 +59,7 @@ docs/openspec/changes/<feature-name>/
 │   └── <name>.md  (Step 1c Gherkin scenarios，#### Scenario: <slug> -- <title>)
 ├── testplan.md    (Step 2 TC 表格 + Coverage Analysis, NEW in v1.3)
 ├── design.md      (Step 3 data model + API schema, 按需)
-└── tasks.md       (Phase 結構任務拆解, per-US pytest -k 驗收)
+└── tasks.md       (Phase 結構任務拆解, 每個 US 以 red-first 測試開頭, trace checker 驗收)
 ```
 
 參見 `references/openspec-layout.md` 取得完整格式說明與 CLI 指令對照。
@@ -71,7 +71,7 @@ docs/openspec/changes/<feature-name>/
 | `openspec-layout.md` | 目錄結構指引 + Spectra CLI 指令速查 + amplifier Step 0-5 對應 |
 | `proposal-template.md` | Proposal 空骨架（Step 1b US+AC + Step 4 + Step 5） |
 | `design-template.md` | Design 空骨架（Step 3） |
-| `tasks-template.md` | Implementation checklist 空骨架（含 pytest -k 驗收）|
+| `tasks-template.md` | Implementation checklist 空骨架（每個 US 以綁定 `tc:` 的 red-first 測試開頭）|
 | `spec-delta-template.md` | Delta spec 骨架（GIVEN/WHEN/THEN + [ADDED]/[MODIFIED]/[REMOVED]） |
 | `testplan-template.md` | testplan.md 空骨架（Step 2 Test Seams + TC 表格 + Coverage Analysis, **NEW v1.3**）|
 | `spectra-archive-snippet.md` | PR 收尾 Spectra Archive + Jira Sync 完整步驟 |

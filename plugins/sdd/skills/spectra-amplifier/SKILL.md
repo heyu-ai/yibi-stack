@@ -44,7 +44,7 @@ openspec/changes/<name>/
 │       └── spec.md   # Step 1c Gherkin scenarios（#### Scenario: <slug>）
 ├── testplan.md   # Step 2 TC 表格 + Coverage Analysis（NEW）
 ├── design.md     # Step 3 資料模型 + API（按需）
-└── tasks.md      # Phase 結構任務拆解，含 per-US pytest -k 驗收指令
+└── tasks.md      # Phase 結構任務拆解，每個 US 以 red-first 測試開頭，以 trace checker 驗收
 ```
 
 > 若 `openspec/changes/` 不存在，先建立。路徑可依專案調整。
@@ -591,13 +591,13 @@ testplan.md 後、交人 review proposal 前，更新其中的 `## Test Seams` �
 
 ### US-001：[標題]（P1 — Actor 涉及金流）
 **Story Goal**：[一句話說明]
-**Test traceability**: AC-001-1~3 → TC LOGIN-VL-001~005, SMK-001
-  Verification: `pytest -k "LOGIN-VL-001 or LOGIN-VL-002 or SMK-001"`
+**Test traceability**: AC-001-1~3 → TC LOGIN-VL-001~005, LOGIN-SMK-001
+  Verification: `check_testplan_trace.py --report --change [feature-name]` 中上述 TC 皆為 `bound`
 
-- [ ] T010 [P] [US1] 實作 Service 層 — target: src/services/[name]_service.py
-- [ ] T011 [US1] 實作 API endpoint（依賴 T010）— target: src/routes/[name].py
-- [ ] T012 [P] [US1] 單元測試 — target: tests/unit/test_[name]_service.py
-- [ ] T013 [US1] 整合測試 — target: tests/integration/test_[name]_flow.py
+- [ ] T010 [US1] Red-first：撰寫綁定 `tc: LOGIN-VL-001, LOGIN-VL-002` 的失敗單元測試（實作前須為紅燈）— target: tests/unit/test_[name]_service.py
+- [ ] T011 [US1] Red-first：撰寫綁定 `tc: LOGIN-VL-003, LOGIN-SMK-001` 的失敗整合測試 — target: tests/integration/test_[name]_flow.py
+- [ ] T012 [US1] 實作 Service 層，讓 T010 轉綠（依賴 T010）— target: src/services/[name]_service.py
+- [ ] T013 [US1] 實作 API endpoint，讓 T011 轉綠（依賴 T011、T012）— target: src/routes/[name].py
 
 ## Phase 4：Polish
 - [ ] T020 [P] 新增 logging 埋點
@@ -764,7 +764,7 @@ openspec/changes/<name>/
 ├── specs/        （Step 1c Gherkin scenarios）
 ├── testplan.md   （Step 2 TC + coverage）
 ├── design.md     （Step 3 按需）
-└── tasks.md      （Phase 結構 + pytest -k 驗收）
+└── tasks.md      （Phase 結構 + red-first 測試任務 + trace checker 驗收）
 ```
 
 修訂時：在所有修改處加上 `[ADDED]` / `[MODIFIED]` / `[REMOVED]` 標記。

@@ -17,10 +17,13 @@
 ### {{US-title}}（P1 - 核心路徑）
 
 **Story Goal**：{{goal}}
-**Test Criteria**：{{scenario slugs}} 通過
+**Test Criteria**：{{scenario slugs}} 通過；`check_testplan_trace.py --report --change {{change-name}}` 中本 US 的 auto TC 皆為 `bound`
 
-- [ ] T010 [P] {{task-description}} — target: `{{file-path}}`
-- [ ] T011 [P] 撰寫測試 — target: `{{test-file-path}}`
+- [ ] T010 [USn] Red-first：撰寫綁定 `tc: {{auto TC-IDs of this US}}` 的失敗測試，確認在實作前為紅燈 — target: `{{test-file-path}}`
+- [ ] T011 [USn] {{task-description}}（依賴 T010）— target: `{{file-path}}`
+
+> 每個 US 的第一個任務固定是 red-first 測試：測試的 docstring 同時寫 `spec: <cap>#<slug>` 與
+> `tc: <TC-ID>`，實作前必須是紅燈（與 pr-cycle-deep Step 1.7 red-first gate 一致：PR 的測試要抓得到 PR 的改動）。
 
 ## Phase 4：Integration
 
