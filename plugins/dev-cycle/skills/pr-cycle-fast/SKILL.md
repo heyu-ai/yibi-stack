@@ -164,6 +164,42 @@ exit `4` 代表 review 期間基準已改變。**不要**默默採信該輪 find
 > 與本地工作區狀態是兩個不同的問題，兩者不互相取代。本 preflight 是**前置**閘門，
 > conflict-detector 是三個並行 subagent 之一。
 
+#### 3.0b — Red-first preflight（阻擋性；3.0 通過後、派 subagent 之前跑）
+
+規則、exit code 語意與各項防護同 `/pr-cycle-deep` Step 1.7（該處為正本，本段不複述理由）。
+`"$REPO_ROOT/scripts/red-first-check.py"` 存在才跑（不要用相對路徑，cwd 不對會誤判成缺席），
+沒有就記 `[SKIP] red-first: no checker`；PR diff 改到 checker 本身時記 `[WARN] red-first: checker modified by this PR`。
+以下各自獨立呼叫。PR 標題只經變數傳入，**不要**把標題文字貼進指令（`$`、反引號、`"` 會被展開或執行）；
+任一 `git`／`gh` 非零退出或 `PR_TITLE`／`BASE` 為空：`[FAIL] <cmd>: <error>`，停止。
+`BASE_REMOTE` 有 `upstream` remote 時用它，否則用 `origin`：
+
+```bash
+BASE=$(gh pr view {{pr_number}} --json baseRefName -q .baseRefName)
+git -C "$REPO_ROOT" fetch "$BASE_REMOTE" "$BASE"
+PR_TITLE=$(gh pr view {{pr_number}} --json title -q .title)
+gh pr view {{pr_number}} --json body -q .body >| "$CLAUDE_JOB_DIR/pr-body.md"
+python3 "$REPO_ROOT/scripts/red-first-check.py" --base FETCH_HEAD --title "$PR_TITLE" --pr-body-file "$CLAUDE_JOB_DIR/pr-body.md"
+```
+
+checker 會跑兩次測試，Bash 要給 `timeout: 600000`。**不論 exit code（含逾時），先檢查**
+`git -C "$REPO_ROOT" status --short`：除了 checker 印成 `[WARN]` 的路徑（還原前先問 user，rule 15）
+之外必須是空的；有其他變動代表產品碼可能沒還原 → 視同 exit 2，顯示給 user，不要自行還原。
+
+| Exit | 動作 |
+|------|------|
+| `0` | PASS、SKIP 或 EXEMPT，往下走。有 `[EXEMPT]`、`[WEAK-RED]` 或 `[WARN] red-first:` 行時，用 Write 寫到 `$CLAUDE_JOB_DIR/red-first.md`，再 `gh pr comment {{pr_number}} --body-file "$CLAUDE_JOB_DIR/red-first.md"` 貼成 PR comment（跨 session resume 仍讀得到）。`[WEAK-RED]` 的測試交給 code-review subagent 優先檢查是否 tautological；`[EXEMPT]` 不得自行認可，Step 6 列給 user 確認 |
+| `1` 且有 red-first 判定行 | 測試抓不到這次改動（或 refactor 改了期望值）。transition 到 `BLOCKED`，**不要**派 review subagent |
+| `2`、沒有判定行的 `1`（traceback）或其他 exit code | 前提不成立或 checker 本身出錯。stderr 原文回報並 transition 到 `BLOCKED` |
+
+reason 只寫固定字串，判定行的原文放在給 user 的回報裡，不塞進指令：
+
+```bash
+pr-orchestrator transition --pr {{pr_number}} --to BLOCKED --reason "red-first gate failed; see session report" --repo-root "$REPO_ROOT"
+```
+
+3.0 走 `check --sha`（merge 進行中仍 review）時工作區不乾淨，checker 會 exit 2 → `BLOCKED`；這是預期行為，
+red-first 要等 merge 完成、工作區乾淨後再跑。
+
 先 transition 到 REVIEWING：
 
 ```bash
@@ -180,7 +216,7 @@ pr-orchestrator write-manifest --pr {{pr_number}} --repo-root "$REPO_ROOT"
 
 > **重要**：所有三個 subagent 必須在同一個 message 中 dispatch（一個 Task tool call 一個），不得拆成多個 turn。
 
-1. **code-review subagent**（`pr-review-toolkit:code-reviewer`）：review PR #{pr_number}，結果寫到 `$REVIEW_DIR`
+1. **code-review subagent**（`pr-review-toolkit:code-reviewer`）：review PR #{pr_number}，結果寫到 `$REVIEW_DIR`；3.0b 有 `[WEAK-RED]` 時把那幾行附進 prompt（從 REVIEWING resume 時從 red-first PR comment 取回）
 2. **ci-monitor subagent**（`general-purpose`）：`gh pr checks {{pr_number}} --watch`，完成後回傳 CI_PASS 或 CI_FAIL
 3. **conflict-detector subagent**（`general-purpose`）：`gh pr view {{pr_number}} --json mergeable,mergeStateStatus`，回傳 OK 或 CONFLICT
 
@@ -237,10 +273,17 @@ pr-orchestrator auto-fix --pr {{pr_number}} --repo-root "$REPO_ROOT"
 
 ⚠️ **Irreversible Operation（Rule 15）**：`gh pr merge` 是不可逆操作。
 
-顯示給 user：
+先讀 3.0b 貼的 red-first comment（resume 進來的 session 也一樣，不要依賴對話記憶）：
+
+```bash
+gh pr view {{pr_number}} --json comments -q '.comments[].body'
+```
+
+顯示給 user（有 `[EXEMPT]` 或 `[WARN] red-first:` 行時，第二行必填；沒有就省略）：
 
 ```text
 PR #{{pr_number}} 已通過 code review 與 CI。
+red-first 待你確認：<[EXEMPT] / [WARN] red-first: 原文>
 準備 merge：gh pr merge {{pr_number}} --squash --delete-branch
 請確認後手動執行，或輸入 "ship" 確認由 skill 代為執行。
 ```

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0] - 2026-09-26
+
+### Added
+
+- pr-cycle-deep：新增 Step 1.7 red-first gate。repo 有 `scripts/red-first-check.py` 時，在 R1 之前把產品碼退回 merge-base、保留分支的測試：`feat`／`fix` 的測試必須轉紅，`refactor`／`perf` 必須仍綠；沒有 checker 則記 `[SKIP]`。`[WEAK-RED]` 列出的測試貼進 R1 prompt 讓每個 voice 檢查，`[EXEMPT]` 列為 Step 8 hotspot 交給人確認（#469）
+- pr-cycle-fast：新增 3.0b red-first preflight，規則同上，exit 1／2 時 transition 到 `BLOCKED`（#469）
+- pr-cycle-deep：R1 prompt 的 Evidence forms 新增「Tautological or implementation-coupled test」，focus 與 `pr-test-analyzer` 焦點同步（#469）
+
+### Removed
+
+- methodology：刪除 `tdd-kentbeck` 與 `flutter-tdd`。一個月的 yibi-mvp transcript 實測 TDD skill 被呼叫 0 次，TDD 改由 red-first gate 機械執行；需要特定技術棧 TDD skill 的專案請在自己的 repo 維護。已安裝者合併後跑 `make install` 或手動刪除 `~/.claude/skills/tdd-kentbeck`、`~/.claude/skills/flutter-tdd` symlink（#469）
+
 ## [1.22.5] - 2026-09-17
 
 ### Added

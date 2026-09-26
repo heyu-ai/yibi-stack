@@ -25,7 +25,7 @@ claude plugin install dev-cycle@yibi-stack       # PR 全流程 + newjob/handove
 claude plugin install sdd@yibi-stack             # spectra-amplifier + figma-design-sync + /sdd:setup
 claude plugin install harness@yibi-stack        # harness-eval + bash hygiene + protect-push + fleet-usage-guard + plugin maintenance
 claude plugin install 3rd-tools@yibi-stack       # codex-review + codex-consult + codex-cli + agy-review + agy-consult + verify-gemini-models
-claude plugin install methodology@yibi-stack     # tdd-kentbeck + flutter-tdd + event-storming + problem-frames + qa-test-design
+claude plugin install methodology@yibi-stack     # event-storming + problem-frames + qa-test-design
 ```
 
 ---
@@ -68,8 +68,6 @@ claude plugin install methodology@yibi-stack     # tdd-kentbeck + flutter-tdd + 
 | `mob-code-review-only` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | Mob review **別人的 PR**（只給建議、不修改）：與 pr-cycle-deep 共用 R1+R2+aggregate 引擎，但鎖定他人 PR、產出彙整建議貼回 PR，**不**改 code、**不** re-review loop、**不** merge / archive。適用 review 同事 / 外部貢獻者的 PR | [mob-code-review-only/SKILL.md](mob-code-review-only/SKILL.md) |
 | `issue-triage` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | GitHub **Issue**（非 PR）定期盤點治理，預設唯讀產報告：逐 issue 研判 CLOSE / UPDATE-SCOPE / MERGE / RELABEL / KEEP 並給優先排序。三原則：逐症狀對照現有程式碼（不看「PR 有沒有合併」）、綁 openspec change 以 tasks.md checkbox 為準、尊重留言的 keep-open 意圖。寫入需 `--apply` 逐項確認 | [issue-triage/SKILL.md](issue-triage/SKILL.md) |
 | `bash-anti-patterns` | [plugins/harness/](../plugins/harness/README.md) | Claude Code agent 下 bash 指令三層防線：AP1 過度複雜單行 / AP2 bash 字串 Unicode / AP3 stateful cd；Rule 14 shell 引號衛生；Rule 15 不可逆操作邊界；含判斷標準、對策決策樹與可選裝 PreToolUse hook | [bash-anti-patterns/SKILL.md](bash-anti-patterns/SKILL.md) |
-| `tdd-kentbeck` | [plugins/methodology/](../plugins/methodology/README.md) | Kent Beck TDD + Tidy First 方法論，Red→Green→Refactor 循環與 commit 紀律 | [tdd-kentbeck/SKILL.md](tdd-kentbeck/SKILL.md) |
-| `flutter-tdd` | [plugins/methodology/](../plugins/methodology/README.md) | Flutter 行動應用 TDD 專家指引：unit/widget/BLoC/integration/golden 五類測試 | [flutter-tdd/SKILL.md](flutter-tdd/SKILL.md) |
 | `ci-triage` | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | CI 失敗快速診斷漏斗（Lint → Type → Security → Tests），含 Python / JS / Go 工具範例 | [ci-triage/SKILL.md](ci-triage/SKILL.md) |
 
 ---
