@@ -156,7 +156,7 @@ _DEST = r"<?([^\s<>`\"'　-〿＀-￯]+)"
 _LINK_DEST_RE = re.compile(r"\]\(\s*" + _DEST)
 # 不限定行首：定義可在 blockquote、清單、續行內；標籤可含跳脫字元。多抓只會多檢查
 _REF_DEF_RE = re.compile(r"\[(?!\^)(?:\\.|[^\]\\\n])+\]:[ \t]*(?:\r?\n[ \t>]*)?" + _DEST)
-_HTML_ATTR_RE = re.compile(r"\b(?:href|src)\s*=\s*[\"']?([^\"'\s<>]+)", re.IGNORECASE)
+_HTML_ATTR_RE = re.compile(r"\b(?:href|src)\s*=\s*[\"']?\s*([^\"'\s<>]+)", re.IGNORECASE)
 _LEADING_EMPHASIS_RE = re.compile(r"^[*_~]+(?=[^/*_~])")
 _TRAILING_EMPHASIS_RE = re.compile(r"(?<=[^/*_~])[*_~]+$")
 _DECLARATION_RE = re.compile(r"^<!--\s*expected-absent:\s*(.*?)\s*-->\s*$")
@@ -323,11 +323,27 @@ def _link_destinations(raw: str, unescaped: str) -> list[str]:
         found += [_ESCAPE_RE.sub(r"\1", m.group(1)) for m in _REF_DEF_RE.finditer(text)]
     dests = []
     for dest in found:
-        dest = dest.split("?", 1)[0]
+        # 先截在未成對的 `)`：`](a.md)|[b](https://x)` 不可被抓成一整串再因含 `://` 被丟掉
+        dest = _until_unbalanced_paren(dest).split("?", 1)[0]
+        # 先解碼再處理開頭斜線：`%2Fa.md` 解碼後才看得出是根目錄起算
+        dest = unquote(dest) if "%" in dest else dest
         if dest.startswith("/") and not dest.startswith("//"):
             dest = dest.lstrip("/")
         dests.append(dest)
     return dests
+
+
+def _until_unbalanced_paren(dest: str) -> str:
+    """回傳 dest 在第一個未成對 `)` 之前的部分；路徑內成對的括號（`a(1).md`）保留。"""
+    depth = 0
+    for i, c in enumerate(dest):
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            if depth == 0:
+                return dest[:i]
+            depth -= 1
+    return dest
 
 
 def extract_candidates(text: str, index: RepoIndex) -> tuple[list[str], list[str]]:
@@ -351,20 +367,26 @@ def extract_candidates(text: str, index: RepoIndex) -> tuple[list[str], list[str
         seen.add(token)
         (candidates if kind == "path" else skipped).append(token)
 
-    raw = text.removeprefix("﻿")
-    text = _ESCAPE_RE.sub(r"\1", raw)
+    original = text.removeprefix("﻿")
+    text = _ESCAPE_RE.sub(r"\1", original)
     for line in _LINE_BREAK_RE.split(text):
         # 捕捉群組讓 split 保留分隔字元：parts 為 token、分隔、token、分隔…交錯
         parts = _SPLIT_KEEP_RE.split(line)
         for i in range(0, len(parts), 2):
             before = parts[i - 1] if i > 0 else ""
             after = parts[i + 1] if i + 1 < len(parts) else ""
-            if before.endswith("]") and parts[i].startswith("("):
-                continue  # inline 連結目標，交給 _link_destinations（會去掉 ?query）
-            in_code = before.endswith(("`", "<")) or after.startswith(("`", ">"))
-            token = _clean(parts[i], prose=not in_code)
-            add(token, _classify(token, index, in_code))
-    for dest in _link_destinations(raw, text):
+            piece = parts[i]
+            # inline 連結目標在這裡也檢查一次（去掉 ?query），不只依賴 _link_destinations：
+            # 兩道獨立的抽取，任一道的 regex 判錯都不會讓路徑漏檢
+            is_link = before.endswith("]") and piece.startswith("(")
+            if is_link:
+                piece = piece.split("?", 1)[0]
+                if _SCHEME_RE.match(piece.lstrip("(")):
+                    continue  # `(tel:123)` 清理時會被當成行號後綴剝成 `tel`，先排除
+            in_code = is_link or before.endswith(("`", "<")) or after.startswith(("`", ">"))
+            token = _clean(piece, prose=not in_code)
+            add(token, _classify(token, index, in_code, is_link))
+    for dest in _link_destinations(original, text):
         # scheme 要在清理前判斷：`tel:123` 清理時會被當成行號後綴剝成 `tel`
         if "://" in dest or _SCHEME_RE.match(dest):
             continue

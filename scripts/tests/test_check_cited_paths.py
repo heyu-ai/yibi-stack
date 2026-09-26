@@ -402,7 +402,7 @@ class TestExtractCandidates:
             "新增scripts/x.py",
             "scripts/cron月報",
         ]
-        assert _cands("[x](docs/說明) 見 說明/x.md") == ["說明/x.md", "docs/說明"]
+        assert set(_cands("[x](docs/說明) 見 說明/x.md")) == {"說明/x.md", "docs/說明"}
 
     @pytest.mark.parametrize("esc", ["\\<", "\\>", "\\|", "\\~", "\\[", "\\!"])
     def test_citepath_ep_052_every_escape_range_is_restored(self, esc: str) -> None:
@@ -415,10 +415,11 @@ class TestExtractCandidates:
 
     def test_citepath_ep_054_absolute_link_and_shell_chars_in_link(self) -> None:
         """CITEPATH-EP-054: 以 `/` 開頭的連結目標視為 repo 根目錄起算；連結目標含 `&` 仍檢查"""
-        assert _cands("[x](/newdir/guide.md) [y](newdir/a&b.md) [z](//cdn.x/y)") == [
+        assert set(_cands("[x](/newdir/guide.md) [y](newdir/a&b.md) [z](//cdn.x/y)")) == {
             "newdir/guide.md",
             "newdir/a&b.md",
-        ]
+        }
+        assert set(_cands("[x](%2Fnewdir/guide.md)")) == {"newdir/guide.md"}
 
     def test_citepath_ep_055_remote_name_only_excludes_ref_shapes(self) -> None:
         """CITEPATH-EP-055: 第一段是 remote 名稱時，只在看不出是路徑時排除"""
@@ -431,7 +432,18 @@ class TestExtractCandidates:
     def test_citepath_ep_056_query_and_second_clean_pass(self) -> None:
         """CITEPATH-EP-056: 連結目標的 `?query` 會去掉；清理反覆套用到不再變化；`_` 強調也剝掉"""
         cands = _cands("[x](scripts/a.py?plain=1) see **scripts/b.py.** and _scripts/c.py_")
-        assert cands == ["scripts/b.py", "scripts/c.py", "scripts/a.py"]
+        assert set(cands) == {"scripts/b.py", "scripts/c.py", "scripts/a.py"}
+
+    def test_citepath_ep_059_link_target_ends_at_unbalanced_paren(self) -> None:
+        """CITEPATH-EP-059: 連結目標在第一個未成對的 `)` 截斷，緊鄰的網址連結不會把它吞掉"""
+        for text in (
+            "|[a](newdir/x.md)|[b](https://x)|",
+            "[a](newdir/x.md)![b](https://x/y.svg)",
+            "[a](newdir/x.md),[b](https://x)",
+            "[a](newdir/x.md)[b](https://x)",
+        ):
+            assert _cands(text) == ["newdir/x.md"], text
+        assert check_cited_paths._until_unbalanced_paren("a(1).md)x") == "a(1).md"
 
     def test_citepath_ep_057_bom_does_not_hide_declarations(self) -> None:
         """CITEPATH-EP-057: 以 BOM 開頭的文件，開頭區塊的宣告照常生效"""
@@ -862,6 +874,12 @@ class TestMain:
             "`CLAUDE.md` [g][a\\]b]\n\n[a\\]b]: newdir/guide\n",
             '`CLAUDE.md` <a href="newdir/sub/tool">tool</a>\n',
             "`CLAUDE.md` [x](/newdir/guide.md)\n",
+            "`CLAUDE.md`\n\n|[a](newdir/missing.md)|[b](https://example.com)|\n",
+            "`CLAUDE.md` [a](newdir/sub/tool)![b](https://img.shields.io/x.svg)\n",
+            "`CLAUDE.md` [a](newdir/missing.md),[b](https://x.com/)\n",
+            "`CLAUDE.md` [a](newdir/missing.md)[b](https://x.com)\n",
+            "`CLAUDE.md`\n[x](%2Fnewdir/guide.md)\n",
+            '`CLAUDE.md` <a href=" newdir/sub/tool">t</a>\n',
         ],
         ids=[
             "wrapped-span",
@@ -902,6 +920,12 @@ class TestMain:
             "escaped-label-refdef",
             "html-href",
             "absolute-link",
+            "table-adjacent-url",
+            "badge-adjacent-url",
+            "comma-adjacent-url",
+            "back-to-back-links",
+            "pct-encoded-slash",
+            "href-leading-space",
         ],
     )
     def test_citepath_mn_021_formerly_fail_open_shapes_now_exit_one(
