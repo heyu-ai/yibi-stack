@@ -279,7 +279,7 @@ Spawn three Task agents **in a single message** to gather baseline information i
 |-------|------|
 | **diff-reviewer** | Run `gh pr diff {{pr_number}}`; summarise changed files and line counts. **Do not use local `main`** — always fetch from GitHub. If the command exits non-zero, report `[FAIL] gh pr diff: <exact error>` and stop. |
 | **ci-checker** | Run `gh pr checks {{pr_number}}`; report pass / fail / pending per check. If the list is empty, report "CI: not yet triggered". If the command exits non-zero, report `[FAIL] gh pr checks: <exact error>` and stop. |
-| **amplifier-verifier** | Run TC coverage + docstring traceability check: `python3 ~/.agents/skills/pr-cycle-deep/scripts/amplifier-verify.py --pr {{pr_number}}`. Exit 0 = no spectra change (including a PR that touches only archived material, or names a change that has since been archived — finished work with nothing to gate) or all TCs traced, or `testplan.md` is missing / has no parsable TC table on a change whose `proposal.md` frontmatter `type:` does not require one (`eng` / `ops` / `bug` / `poc` / `docs`; printed as `[WARN]`, TC check skipped); exit 1 = MUST or SHOULD findings present; exit 2 = fatal error (change directory not found, missing testplan or unparsable TC table on a `feat` / `refactor` change or on one whose `type:` cannot be read, or a `gh` / `git` invocation failure). The detected `type:` is printed on the `spectra change detected` line every run — it is author-declared and decides whether the gate blocks, so check it matches the change. A `[WARN]` on stderr naming several active change dirs means the diff touched more than one **that resolved to an active directory**, and only the first of those was verified (candidates that resolve to the archive are excused, not counted). Report the full stdout. On exit 2, stop with `[FAIL]`. On exit 1, **do not stop** — write MUST findings to `$REVIEW_DIR/final.md` Critical section and SHOULD findings to Important section, then continue to Step 2. |
+| **amplifier-verifier** | Run TC coverage + docstring traceability + Test Seam mapping (Check 4) check: `python3 ~/.agents/skills/pr-cycle-deep/scripts/amplifier-verify.py --pr {{pr_number}}`. Exit 0 = no spectra change (including a PR that touches only archived material, or names a change that has since been archived — finished work with nothing to gate) or all TCs traced, or `testplan.md` is missing / has no parsable TC table on a change whose `proposal.md` frontmatter `type:` does not require one (`eng` / `ops` / `bug` / `poc` / `docs`; printed as `[WARN]`, TC check skipped); exit 1 = MUST or SHOULD findings present; exit 2 = fatal error (change directory not found, missing testplan or unparsable TC table on a `feat` / `refactor` change or on one whose `type:` cannot be read, or a `gh` / `git` invocation failure). The detected `type:` is printed on the `spectra change detected` line every run — it is author-declared and decides whether the gate blocks, so check it matches the change. A `[WARN]` on stderr naming several active change dirs means the diff touched more than one **that resolved to an active directory**, and only the first of those was verified (candidates that resolve to the archive are excused, not counted). Report the full stdout. On exit 2, stop with `[FAIL]`. On exit 1, **do not stop** — write MUST findings to `$REVIEW_DIR/final.md` Critical section and SHOULD findings to Important section, then continue to Step 2. |
 
 If any agent reports `[FAIL]` (exit 2 or explicit `[FAIL]` in output), stop and report the failure explicitly; do not proceed to Step 2.
 
@@ -310,6 +310,42 @@ and CI does not check prose.
 > Why it is a step and not advice (yibi-mvp PR #933, docs-only, 3 voices × 2 rounds, 25 findings):
 > the two worst defects were found by **no voice** — a store data-safety under-declaration and an
 > App Store 5.1.1(v) rejection, both asserted in a runbook sitting outside the diff.
+
+---
+
+### Step 1.7 — Red-first gate (the PR's tests must catch the PR's change)
+
+**Blocking.** With production code reverted to the merge-base and the branch's tests kept, a
+`feat`/`fix` PR's tests must **fail** and a `refactor`/`perf` PR's must still **pass** (other types
+`[SKIP]`). The checker is repo-provided — rationale and limits live in its docstring. If
+`$WT_ROOT/scripts/red-first-check.py` is absent (`WT_ROOT=$(git rev-parse --show-toplevel)`), record
+`[SKIP] red-first: no checker` in `pre-review-check.md`; do not hand-roll a revert-and-rerun. If the
+PR diff itself changes the checker, record `[WARN] red-first: checker modified by this PR` (it grades itself).
+
+Run these as separate calls — never paste the title into a command (`$`, backticks, `"` expand or
+execute). Any non-zero `git`/`gh` exit: `[FAIL] <cmd>: <error>`, stop. `>|` overwrites Step 1's draft
+body (plain `>` fails under noclobber); `BASE_REMOTE` is `upstream` if that remote exists, else `origin`:
+
+```bash
+git fetch "$BASE_REMOTE" {{base_branch}}
+PR_TITLE=$(gh pr view {{pr_number}} --json title -q .title)
+gh pr view {{pr_number}} --json body -q .body >| "$CLAUDE_JOB_DIR/pr-body.md"
+python3 "$WT_ROOT/scripts/red-first-check.py" --base FETCH_HEAD --title "$PR_TITLE" --pr-body-file "$CLAUDE_JOB_DIR/pr-body.md"
+```
+
+Give the checker Bash `timeout: 600000` (it runs the suite twice). **First, whatever the exit code,
+timeout included:** `git status --short` must be empty except paths the checker printed as `[WARN]`
+(ask the user before `git checkout HEAD -- <path>` on those, rule 15); anything else means the revert
+may not be restored — `[FAIL]`, show it, stop, do not restore by hand. Then: exit `0` → append the
+verdict to `pre-review-check.md`, continue. Exit `1` with a red-first verdict line → **stop before
+Step 2**; add a test that fails on the base code (or restore the refactor's expectation), push, rerun.
+Retyping the title to dodge it (`fix` → `chore`) is a material amendment (Step 1), and reviewers
+cannot waive it — none of them ran the tests against base code. Exit `2`, exit `1` without a verdict
+(a traceback), or any other code → `[FAIL]` with stderr verbatim, stop.
+Two exit-0 markers carry forward in `pre-review-check.md`: `[WEAK-RED]` (red came only from an
+import/compile error, which cannot show the assertion is meaningful) — Step 3.1 pastes them into
+`prompt-r1.md`; `[EXEMPT]` (a `Red-first-exempt: <reason>` line) — the lead may not accept it; Step 8
+shows it, and any `[WARN] red-first:` line, for the human to confirm.
 
 ---
 
@@ -433,6 +469,7 @@ Changed files: see {{REVIEW_DIR}}/changed-files.txt
 
 ## Frozen Review Contract
 <paste the exact human-confirmed ## Review Contract section from the PR body>
+<if pre-review-check.md has [WEAK-RED] lines: "## Weak-red tests (inspect for tautology)" + those lines>
 
 Output format (strictly follow, for downstream aggregation):
 
@@ -468,7 +505,8 @@ Severity (RFC 2119 — grade by merge consequence, not by how bad it feels):
 
 Focus on:
 - Logic errors, race conditions, security holes, silent failures, resource leaks
-- Test coverage gaps (critical paths not tested)
+- Test coverage gaps (critical paths not tested); tests whose expected value is computed the way the
+  code computes it, or that mock this repo's own modules (mocks belong at external boundaries only)
 - Documentation / comment inconsistency with implementation
 - A Critical / Important item can block only when Contract mapping uses one of the three listed
   sources. Do not invent an Acceptance Criterion or expand Goal scope.
@@ -486,6 +524,7 @@ required:
 | --- | --- |
 | Logic / functional error, security hole | A concrete failure scenario: the input or state that triggers it and the wrong output / crash that results. |
 | Test coverage gap | The production line left unverified plus a mutation that would survive the current tests (what you could break with the tests still green). |
+| Tautological or implementation-coupled test | The assertion line plus either the production line its expected value re-computes, or the in-repo module it mocks / the call count it asserts / the DB row it reads instead of the interface. |
 | Doc / comment factual error | The single command output or diff line that proves the statement wrong. |
 | Naming / structural inconsistency | A grep result showing at least 2 sibling occurrences of the convention this diff departs from. |
 | Precision / subjective quality ("unclear", "not precise enough") | No acceptable evidence form exists — always deferred, never a merge gate. |
@@ -509,7 +548,7 @@ Launch four Task subagents in parallel (each produces independent findings; the 
 | --- | --- |
 | `code-reviewer` | Convention compliance, bugs, logic errors |
 | `silent-failure-hunter` | Silent failures, swallowed exceptions |
-| `pr-test-analyzer` | Test coverage gaps |
+| `pr-test-analyzer` | Test coverage gaps; tautological / implementation-coupled tests, starting with any `[WEAK-RED]` tests from Step 1.7 |
 | `comment-analyzer` | Documentation / comment accuracy |
 
 > **Mutation isolation**: `pr-test-analyzer` verifies tests by mutation, which **edits files in
@@ -970,7 +1009,7 @@ Route by the result. The decision table is authoritative — do not proceed on a
 
 | `state` | `mergeStateStatus` / `mergeable` | Meaning | Action |
 | --- | --- | --- | --- |
-| `MERGED` | any | Someone merged the PR out-of-band | **STOP the cycle** — skip re-review; go straight to Step 9 (archive / retro). Do not push more. |
+| `MERGED` | any | Someone merged the PR out-of-band | **STOP the cycle** — skip re-review; go straight to Step 11 (archive / Jira). Do not push more. |
 | `CLOSED` | any | PR closed without merging | **STOP** — surface to the user and wait; do not continue. |
 | `OPEN` | `DIRTY` / `mergeable=CONFLICTING` | Fixes (or a base advance) created merge conflicts | Resolve conflicts against `{{base_branch}}`, commit, push, then re-run this recheck before Step 7. |
 | `OPEN` | `BEHIND` | Base branch advanced since this branch forked | Update the branch from `{{base_branch}}` (merge or rebase per repo convention) and push, so Step 7 R1/R2 review against the current base — otherwise findings are computed against a stale base. |
@@ -1112,6 +1151,9 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 - Codex: LGTM / NEEDS_CHANGES / N/A
 - Gemini: LGTM / NEEDS_CHANGES / N/A
 
+## Red-first (always shown; from pre-review-check.md)
+- <verdict / [SKIP] reason>; <each [EXEMPT] or [WARN] red-first: line — needs your confirmation>
+
 ## Change hotspots (top 3 places most worth human eyes)
 1. <file:line> — <why it's a hotspot>
 2. ...
@@ -1153,6 +1195,11 @@ Local CI is authoritative: when CI and local differ, trust local; check for CI e
 ---
 
 ### Step 10 — Merge
+
+**Pre-merge gate: confirm PR is still OPEN.** Re-run Step 6's "Recheck PR status" `gh pr view` query, but route as below, **not** by Step 6's table (it routes to Step 7).
+Why: a bump push after an out-of-band merge silently recreates the deleted branch (issue #462).
+`MERGED` → **STOP**: no bump, merge, or push; go to Step 11. `CLOSED` → **STOP**; surface to the user and wait. `gh pr view` error → stop and report (empty ≠ OPEN).
+`OPEN` + `DIRTY` / `CONFLICTING` / `BEHIND` → update from `{{base_branch}}`, push, return to Step 9 (CI), then re-run this gate. Any other `OPEN` → continue to the version-bump check below.
 
 ### Pre-merge check: version bump
 
@@ -1294,8 +1341,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Step 0 zero available (all NOT_FOUND or auth failed) | This skill terminates; run `/pr-review-cycle` instead (Claude-only is sufficient) |
 | Step 0 detects `KEY_WHITESPACE_PREFIX` | Key has a leading space (e.g. copied from terminal); run `export CODEX_API_KEY="${CODEX_API_KEY# }"` or the corresponding key name to strip leading space, then re-run Step 0 |
 | `GEMINI_AUTH: NOT_AUTHED` (agy not configured) | Run `agy` to complete browser OAuth; `onboarding.json`'s `onboardingComplete` will become true; or `export GEMINI_API_KEY=...` |
-| Step 0 detects only Codex (no agy) | Enter 2-voice mob (Claude + Codex); normal workflow |
-| Step 0 detects only agy (no Codex) | Enter 2-voice mob (Claude + agy); normal workflow |
+| Step 0 detects only one external voice (Codex or agy, not both) | Enter 2-voice mob (Claude + that voice); normal workflow |
 | Codex detected but auth failed | `codex login`; or `export OPENAI_API_KEY=...` |
 | agy detected but auth failed | Run `agy` to complete OAuth; or `export GEMINI_API_KEY=...` |
 | agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | issue #153: agy could not resolve `@file` and entered agentic file-search. The agy scripts now **inline** the prompt (no `@file`), clear stale `~/.gemini/antigravity-cli/scratch/gemini-*-input.md` at start, and run `agy_validate.py` (fail-loud: timeout / agentic narration / missing Verdict / mentions no changed file = wrong target; a `brain/<uuid>/*.md` pointer is auto-rescued into the raw file). If `agy_validate.py` exits non-zero the voice is correctly marked failed — read the `[FAIL]` message for the reason. Exit **124** = agy print timeout (issue #443; agy >= 1.1.28 returns partial output with exit 0): the partial output was moved to `*.timeout-partial*`, never aggregate it; check `*.agy.log` for 429 `RESOURCE_EXHAUSTED`, or set `AGY_PRINT_TIMEOUT_SECS` (1-570, default 480) |
@@ -1307,16 +1353,12 @@ Report back to the user: spectra archive status, Jira ticket status.
 | R2 receives r1-aggregate that is too large for voice to process | Remove raw diff from r1-aggregate; keep only findings; diff was already processed in the r1 prompt |
 | Round 2 ends with unresolved blocking findings | Trigger circuit breaker; hand remaining findings to user with the three-option decision (no third round) |
 | User chooses to ignore a disputed finding | Add a Known Issues section to the PR description with the reason |
-| User raises new concern during human quick pass | Reviewer lead (Claude main) responds immediately; unresolvable → return to Step 6; resolved → wait for user "ship" |
+| User raises new concern during human quick pass | Reviewer lead responds immediately; unresolvable → Step 6; resolved → wait for "ship" |
 | When does R2 run? | All active voices always run independent R1. Run R2 only when Step 3.4 finds a candidate blocker the lead does not adopt as-graded, or a blocking dispute. Two legal skips: a clean R1 (`R2 skipped: no contract-blocking candidate or dispute`), and lead-adopts-all (`R2 skipped: lead adopts all blockers` — 採納 ≠ 免驗證，Evidence gate 照跑). |
 | Linter / type-check fails | `ruff check --fix` / `eslint --fix` / `mypy follow_imports = skip` etc. |
 | Security scanner fails | bandit `# nosec BXXX` etc. ignore comments; explain reason in PR |
 | spectra archive validation fails | `spectra analyze {{change_name}}`; fix then archive; `--no-validate` requires explicit user instruction |
-| Cannot detect Jira key | Ask user to provide (format: `PROJECT-123`), or confirm no associated ticket and skip |
-| Jira transition options unclear | List all transitions and ask user to confirm |
-| Jira MCP auth error | Atlassian MCP requires OAuth; prompt user to authorize on claude.ai |
-| Codex extract returns invalid JSON | Follow Stage 3 if/else branch: Read `$REVIEW_DIR/codex-r1-raw.md`, manually summarize in main context as compact markdown, Write to `$REVIEW_DIR/codex-r1.md`; note in final.md "Codex voice used raw form this round, main context load higher" (do not cp raw → compact directly; verbose raw would enter r1-aggregate) |
-| Gemini extract JSON doesn't match schema | Same as above; manually summarize `$REVIEW_DIR/gemini-r1-raw.md` → `$REVIEW_DIR/gemini-r1.md` (do not cp) |
-| Extract step keeps failing (2 consecutive) | Fall back to path C: Claude lead reads raw with Read tool, manually extracts compact form in main session without calling codex/agy again; less efficient but workflow not blocked |
-| Extract prompt path missing (`~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md`) | Skill not installed; run `make install` in the yibi-stack directory to create the symlink; verify: `ls ~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` should return the path, not "No such file" |
+| Jira: cannot detect key / transition unclear / MCP auth error | Ask user for the key (`PROJECT-123`), or confirm there is no associated ticket and skip; list transitions and ask user to confirm; Atlassian MCP requires OAuth — prompt user to authorize on claude.ai |
+| Codex/Gemini extract returns invalid JSON, JSON missing schema fields (`verdict` / `summary` / `findings`), or extract fails 2× in a row | Follow Stage 3 if/else: Read `$REVIEW_DIR/{codex,gemini}-r1-raw.md`, manually summarize in main context as compact markdown, Write to `$REVIEW_DIR/{codex,gemini}-r1.md` (do not cp raw → compact — verbose raw would enter r1-aggregate); note in final.md "{{voice}} voice used raw form this round, main context load higher". 2 consecutive extract failures → path C: lead extracts the compact form from raw in the main session without calling codex/agy again (slower, workflow not blocked) |
+| Extract prompt path missing (`~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md`) | Skill not installed; run `make install` in yibi-stack to create the symlink; verify: `ls ~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` should return the path, not "No such file" |
 | User skipped bump but needs a version tag later | Create a release branch, run [`/bump-version`](../bump-version/SKILL.md) on it, then open a PR to merge into main (CI pass + CHANGELOG confirmed is sufficient; no full review cycle needed; if main has new commits, CHANGELOG may include extra entries — verify manually) |

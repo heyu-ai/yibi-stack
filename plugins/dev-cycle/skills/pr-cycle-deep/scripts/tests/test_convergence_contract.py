@@ -105,7 +105,40 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #   no contract mapping and agy fabricated a Critical + evidence about a nonexistent heading
 #   rename. The first was caught by Codex DISAGREE in R2; the second was refuted by grep.
 #
-# Raised 1307 -> 1322 (+15) for enforce-testplan-trace (testplan TCs made verifiable):
+# Raised 1307 -> 1327 (+20 lines; old budget had 0 slack) for Step 1.7, the red-first gate.
+# Evidence (yibi-mvp transcripts 2026-08-25 ~ 09-25, 789 sessions): three TDD skills were
+# invoked 0 times and 12 of 158 code-editing sessions were test-first, although spectra-apply
+# already instructed "write a failing test FIRST" — prose had no effect, so the step runs a
+# repo-provided checker that reverts production code to the merge-base and requires the PR's
+# tests to fail (feat/fix) or keep passing (refactor/perf). The first draft was +51; the
+# rationale, exit-code table and don'ts were folded into two paragraphs, since the checker's
+# docstring carries the long form.
+#
+# Raised 1327 -> 1336 (+9 lines) for two lessons taken from mattpocock/skills' tdd skill
+# (skills/engineering/tdd/, read 2026-09-25):
+#   (1) +6, Step 1.7 carries two exit-0 markers forward: [WEAK-RED] (red from an import/compile
+#       error only — a tautological `assert total(xs) == sum(...)` goes red the same way, so the
+#       listed tests are pasted into prompt-r1.md for every voice) and [EXEMPT] (config / wiring
+#       with no independent truth to assert, mattpocock issue #746 — the lead may not accept it,
+#       it becomes a Step 8 hotspot). Plus the --pr-body-file argument that makes [EXEMPT]
+#       reachable.
+#   (2) +3, the R1 prompt gains a "Tautological or implementation-coupled test" evidence form and
+#       one focus bullet; the gate otherwise demotes such findings as having no valid form.
+#
+# Raised 1336 -> 1349 (+13 lines) for PR #469's own mob review (Claude + Codex, R1 2026-09-26),
+# which found the Step 1.7 text could skip or misroute the gate silently:
+#   (1) Step 1.7: the PR title went through `--title "<PR title>"`, so `${N}` in a real
+#       title (PR #387) expanded to nothing and backticks executed — now fetched into a variable;
+#       base is fetched (upstream-first, issue #196) instead of a possibly stale origin ref; the
+#       git-status restore check runs on every exit incl. timeout, not only after exit 0; exit 1
+#       counts as a verdict only with a verdict line (a traceback also exits 1); a PR that edits
+#       the checker is flagged, since it grades itself.
+#   (2) The carried-forward markers have a slot in the templates the lead actually fills:
+#       a [WEAK-RED] line in the Step 3.1 prompt template, a Red-first block in Step 8.
+#   (3) The `gh` failure stop and the noclobber-safe `>|` body overwrite.
+# The mutation run that motivated the anchors below: deleting all of Step 1.7 left this suite green.
+#
+# Raised 1349 -> 1364 (+15) for enforce-testplan-trace (testplan TCs made verifiable):
 #   (1) +6 lines, Step 8: a Manual Verification section in human-summary.md plus the instruction
 #       to confirm each unchecked MV item with the human, post the result as a PR comment, and
 #       tick it. Measured before this change: [manual]/[doc] TCs across 13 testplans were almost
@@ -114,7 +147,7 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #   (2) +9 lines, Step 11a: run check_testplan_trace.py --strict before archiving, with its exit
 #       codes. Without it the trace gate has no enforcement point at the moment a change claims to
 #       be finished -- the only moment its FAIL severity is meant to bite.
-LINE_BUDGET = 1322
+LINE_BUDGET = 1364
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the
@@ -153,6 +186,17 @@ REQUIRED_ANCHORS: list[str] = [
     "R2 skipped: no contract-blocking candidate or dispute",  # clean R1 exit
     "material amendment",  # semantic contract change restarts full-diff R1
     "editorial amendment",  # non-semantic correction keeps the current pass
+    "### Step 1.7 — Red-first gate",  # the gate step exists
+    "[SKIP] red-first: no checker",  # a checker-less repo is recorded, not silently passed
+    "red-first verdict line → **stop before",  # exit 1 with a verdict blocks before Step 2
+    "whatever the exit code",  # restore check runs on every exit, timeout included
+    "never paste the title into a command",  # title reaches the checker only via a variable
+    '--pr-body-file "$CLAUDE_JOB_DIR/pr-body.md"',  # makes [EXEMPT] reachable
+    "[WEAK-RED]",  # weak red is carried to every voice
+    "Weak-red tests (inspect for tautology)",  # ... via a slot in the Step 3.1 template
+    "the lead may not accept it",  # an exemption needs a human
+    "## Red-first (always shown",  # ... via a slot in the Step 8 template
+    "Tautological or implementation-coupled test",  # the evidence form for such findings
 ]
 
 # Strings that MUST be absent. The NIT-must-be-cleaned convention (any spelling) and the old
@@ -170,6 +214,7 @@ FORBIDDEN_STRINGS: list[str] = [
     "All voices LGTM",
     "Every active voice's latest round outputs",
     "Want to skip R2 and run only R1 | Not allowed",
+    '--title "<PR title>"',  # PR #469 review: title pasted into shell source
 ]
 
 

@@ -53,7 +53,7 @@
     },
     {
       "name": "methodology",
-      "description": "Portable methodology skills: Kent Beck TDD, Flutter TDD, event storming, Jackson Problem Frames, and QA test design. All project-agnostic.",
+      "description": "Portable methodology skills: event storming, Jackson Problem Frames, and QA test design. All project-agnostic.",
       "author": {
         "name": "Howie Yu"
       },

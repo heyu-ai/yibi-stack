@@ -36,7 +36,7 @@ yibi-stack/
 │   ├── dev-cycle/                   → PR 流程工具（review cycle、mob review）
 │   ├── sdd/                         → Subagent Driven Development 方法論
 │   ├── 3rd-tools/                   → 第三方工具整合（Gemini、Codex）
-│   └── methodology/                 → 可攜方法論（TDD、event-storming、problem-frames、qa-test-design）
+│   └── methodology/                 → 可攜方法論（event-storming、problem-frames、qa-test-design）
 │
 ├── commands/                        → Claude Code slash commands（symlink 到 ~/.claude/commands/）
 │   ├── pr.md                        → /pr

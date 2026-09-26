@@ -1,6 +1,6 @@
 ## 1. 前置確認
 
-- [ ] 1.1 確認 PR #470 已 merge，本分支 rebase 到含 Test Seams 的 origin/main；驗證：`plugins/sdd/references/testplan-template.md` 含 `## Test Seams` 區段與 TC 表 `Seam` 欄，且 `uv run pytest plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests/test_amplifier_verify_seams.py` 全綠
+- [x] 1.1 確認 PR #470 已 merge，本分支 rebase 到含 Test Seams 的 origin/main；驗證：`plugins/sdd/references/testplan-template.md` 含 `## Test Seams` 區段與 TC 表 `Seam` 欄，且 `uv run pytest plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests/test_amplifier_verify_seams.py` 全綠
 
 ## 2. Checker 核心（先寫失敗測試）
 
