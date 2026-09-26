@@ -132,6 +132,15 @@ With `--report`, the checker SHALL print, for each TC, its Kind, its bound test 
 - **WHEN** the checker runs with `--report` on a repository with missing bindings
 - **THEN** it prints the binding table, leaves every tracked file unchanged, and exits 0
 
+### Requirement: Summary mode keeps FAILs visible without flooding
+
+With `--summary`, the checker SHALL print every FAIL finding on its own line and SHALL print WARN findings as a single line per change carrying the WARN total and per-kind counts, followed by the `--report --change <name>` command that lists them. The exit code SHALL be the same as without `--summary`. The pre-commit hook SHALL run in summary mode.
+
+#### Scenario: summary-collapses-warn-lines
+
+- **WHEN** the checker runs with `--summary` on a change with 20 missing and 3 collision WARN findings and one FAIL finding
+- **THEN** it prints the FAIL line unchanged and one line `[WARN] <change>: 23 WARN (collision 3, missing 20) -- run check_testplan_trace.py --report --change <change>`
+
 ### Requirement: Every entry point runs the same checker
 
 The checker SHALL be the single implementation of these checks and SHALL be invoked from: a pre-commit hook in non-strict mode, the CI workflow in non-strict mode, pr-cycle-deep Step 1.5 through amplifier-verify, and pr-cycle-deep Step 11a in strict mode before archiving. amplifier-verify SHALL map each FAIL finding to its own MUST finding, SHALL summarise all WARN findings into a single finding carrying per-kind counts — a SHOULD finding when the testplan declares `trace: enforced`, an INFO finding otherwise, so that testplans written before this capability do not turn amplifier-verify from exit 0 into exit 1 — and SHALL exit 2 when it detects a spectra change but cannot locate the checker, or when the checker exits with any code other than 0 or 1, or exits 1 without a FAIL line.

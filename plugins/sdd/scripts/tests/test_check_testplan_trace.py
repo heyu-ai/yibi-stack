@@ -452,3 +452,21 @@ class TestCli:
         assert before == after
         assert "tests/test_demo.py::test_bound" in proc.stdout
         assert "DEMO-VL-002" in proc.stdout and "missing" in proc.stdout
+
+    def test_tpt_st_007_summary_collapses_warns_per_change(self, tmp_path: Path) -> None:
+        """TPT-ST-007: --summary prints one WARN line per change with per-kind counts."""
+        repo = _repo(tmp_path)
+        proc = _run("--repo-root", str(repo), "--summary")
+        assert proc.returncode == 0, proc.stderr
+        lines = proc.stdout.splitlines()
+        assert lines == [
+            "[WARN] demo: 1 WARN (missing 1) -- run check_testplan_trace.py --report --change demo"
+        ]
+
+    def test_tpt_st_008_summary_still_lists_every_fail(self, tmp_path: Path) -> None:
+        """TPT-ST-008: --summary never collapses FAIL lines; each stays its own line and exits 1."""
+        repo = _repo(tmp_path)
+        proc = _run("--repo-root", str(repo), "--summary", "--strict")
+        assert proc.returncode == 1
+        assert "[FAIL] missing: demo DEMO-VL-002" in proc.stdout
+        assert "WARN" not in proc.stdout

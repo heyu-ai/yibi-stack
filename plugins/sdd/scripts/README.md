@@ -118,6 +118,7 @@ uv run python plugins/sdd/scripts/check_testplan_trace.py --report
 | `--tests-dir` | repo root | Repeatable; scans `test_*.py` and `*_test.py` below it |
 | `--strict` | false | Treat every enforced finding as FAIL and require all Manual Verification items checked |
 | `--report` | false | Print the TC-to-test-nodeid table; always exits 0 unless configuration is invalid |
+| `--summary` | false | Print every FAIL line, but collapse WARNs into one line per change with per-kind counts (used by the pre-commit hook) |
 
 ### Findings
 
@@ -147,7 +148,7 @@ project's `.pre-commit-config.yaml`:
   hooks:
     - id: check-testplan-trace
       name: check-testplan-trace
-      entry: python3 <sdd-plugin-installPath>/scripts/check_testplan_trace.py --openspec-dir openspec
+      entry: python3 <sdd-plugin-installPath>/scripts/check_testplan_trace.py --summary --openspec-dir openspec
       language: system
       pass_filenames: false
       files: (^|/)(testplan\.md|tasks\.md|test_[^/]*\.py|[^/]*_test\.py)$

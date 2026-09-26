@@ -110,7 +110,7 @@ repos:
       # 才會 exit 1 擋下。CI 的 `pre-commit run --all-files` 也會跑到這支，故 ci.yml 不另設 step。
       - id: check-testplan-trace
         name: check-testplan-trace
-        entry: python3 plugins/sdd/scripts/check_testplan_trace.py
+        entry: python3 plugins/sdd/scripts/check_testplan_trace.py --summary
         language: system
         pass_filenames: false
         files: (^|/)(testplan\.md|tasks\.md|test_[^/]*\.py|[^/]*_test\.py)$

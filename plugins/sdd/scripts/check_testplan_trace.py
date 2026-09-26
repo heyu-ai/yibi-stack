@@ -504,6 +504,28 @@ def render_report(active: list[ChangeInput], bindings: list[Binding]) -> list[st
     return lines
 
 
+def render_summary(findings: list[Finding]) -> list[str]:
+    """摘要模式：FAIL 逐行保留；WARN 依 change 彙總成一行，附各 kind 的數量。
+
+    每次 commit 都印出數十行 WARN 會讓人習慣性略過輸出，連同真正的 FAIL 一起被忽略。
+    """
+    lines = [f.render() for f in findings if f.severity == SEVERITY_FAIL]
+    per_change: dict[str, dict[str, int]] = {}
+    for f in findings:
+        if f.severity != SEVERITY_WARN:
+            continue
+        counts = per_change.setdefault(f.change, {})
+        counts[f.kind] = counts.get(f.kind, 0) + 1
+    for change, counts in per_change.items():
+        total = sum(counts.values())
+        detail = ", ".join(f"{kind} {n}" for kind, n in sorted(counts.items()))
+        command = "check_testplan_trace.py --report"
+        if change != "-":
+            command += f" --change {change}"
+        lines.append(f"[WARN] {change}: {total} WARN ({detail}) -- run {command}")
+    return lines
+
+
 def _git_toplevel() -> Path | None:
     import subprocess  # nosec B404
 
@@ -531,6 +553,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tests-dir", type=Path, action="append", default=None)
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--report", action="store_true")
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="FAIL 逐行列出，WARN 每個 change 彙總成一行（pre-commit 用，避免每次 commit 洗版）",
+    )
     args = parser.parse_args(argv)
 
     repo_root = args.repo_root if args.repo_root is not None else _git_toplevel()
@@ -552,8 +579,9 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(render_report(active, bindings)))
         return 0
 
-    for finding in findings:
-        print(finding.render())
+    lines = render_summary(findings) if args.summary else [f.render() for f in findings]
+    for line in lines:
+        print(line)
     return 1 if any(f.severity == SEVERITY_FAIL for f in findings) else 0
 
 

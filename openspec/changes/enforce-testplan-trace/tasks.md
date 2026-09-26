@@ -18,6 +18,8 @@
 - [x] 3.2 pr-cycle-deep SKILL.md（人工驗證改為 Manual Verification checklist 的流程端）：Step 11a archive 前以 `--strict --change <name>` 執行 checker，exit 1 即停止；Step 8 human quick pass 列出未勾選的 Manual Verification 項目、結果以 PR comment 留痕並勾選；驗證：`test_convergence_contract.py` 通過（行數上限內），並以 grep 確認 Step 8 與 Step 11a 都出現 checker 呼叫
 - [x] 3.3 接上 pre-commit（非 strict，`verbose: true`，觸發檔案為 testplan.md、tasks.md、Python 測試）與 CI（非 strict，全 repo）；驗證：`git add` 後執行 `make ci` 通過，且在暫存的 testplan 副本注入改名的 tc 綁定時，pre-commit hook 輸出 orphan 與 missing
 
+- [x] 3.4 讓「Summary mode keeps FAILs visible without flooding」成立：checker 新增 `--summary`（FAIL 逐行、WARN 每個 change 一行附各 kind 數量），pre-commit hook 改用此模式；驗證：`test_tpt_st_007_summary_collapses_warns_per_change` 與 `test_tpt_st_008_summary_still_lists_every_fail` 由紅轉綠，對本 repo 執行時 79 行 WARN 收斂為 4 行、exit code 不變
+
 ## 4. 生成端
 
 - [ ] 4.1 讓「Testplan generation follows the single TC-ID convention and writes the file directly」成立：TC-ID 格式以 test-convention 為唯一 owner（qa-test-designer 改用 Convention Detection 選出的約定，Technique 只放 Technique 欄）；qa-test-designer 直接寫 testplan 檔（增加 Write tool，產出 `trace: enforced`、Kind 欄、Manual Verification 區段，只回傳摘要）；同步更新 testplan 模板與 spectra-amplifier Step 2a／2b／2c；驗證：以模板本身跑 checker `--report` 可解析且 exit 0，並以 grep 確認 qa-test-designer.md 不再出現 `[CAP-ABBREV]-[TECHNIQUE-ABBREV]`
