@@ -106,7 +106,7 @@ Test cases that cannot be automated SHALL be listed in a `## Manual Verification
 
 ### Requirement: Checker exit codes separate findings from configuration errors
 
-The checker SHALL exit 0 when no FAIL finding exists, 1 when at least one FAIL finding exists, and 2 on a configuration error: a repository root that does not exist, a `--change` name with no matching active change directory, or a testplan whose TC table cannot be parsed. A configuration error SHALL NOT be reported as a clean result.
+The checker SHALL exit 0 when no FAIL finding exists, 1 when at least one FAIL finding exists, and 2 on a configuration error: a repository root that does not exist, a `--change` name with no matching active change directory, or a testplan containing `trace: enforced` whose TC table cannot be parsed. A legacy testplan (without `trace: enforced`) whose TC table cannot be parsed SHALL produce an `unparsable` WARN finding instead. A configuration error SHALL NOT be reported as a clean result. The OpenSpec root SHALL default to `openspec/` and SHALL be overridable with `--openspec-dir` for host projects that keep it elsewhere.
 
 #### Scenario: unknown-change-is-config-error
 
@@ -117,6 +117,11 @@ The checker SHALL exit 0 when no FAIL finding exists, 1 when at least one FAIL f
 
 - **WHEN** an enforced testplan has no parsable TC table
 - **THEN** the checker exits 2 rather than reporting zero findings
+
+#### Scenario: unparsable-legacy-testplan-warns
+
+- **WHEN** a testplan without `trace: enforced` has no parsable TC table
+- **THEN** the checker reports an `unparsable` WARN for that change and does not exit 2 because of it
 
 ### Requirement: Report mode lists bindings without modifying files
 

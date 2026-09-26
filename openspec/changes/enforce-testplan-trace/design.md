@@ -107,9 +107,10 @@ lead 以 `check_testplan_trace.py --report --change <name>` 驗證檔案可解�
 
 ## Implementation Contract
 
-**CLI**：`python3 <sdd-root>/scripts/check_testplan_trace.py [--repo-root <path>] [--change <name>] [--tests-dir <path> ...] [--strict] [--report]`
+**CLI**：`python3 <sdd-root>/scripts/check_testplan_trace.py [--repo-root <path>] [--openspec-dir <path>] [--change <name>] [--tests-dir <path> ...] [--strict] [--report]`
 
-- `--repo-root` 預設為 cwd 的 git toplevel；active change 為 `openspec/changes/<name>/`（排除 `archive/`），archived 為 `openspec/changes/archive/*/`。
+- `--repo-root` 預設為 cwd 的 git toplevel；`--openspec-dir` 預設為 `openspec`（相對於 repo root，host 專案例如 yibi-mvp 放在 `docs/` 下時可覆寫）；active change 為 `<openspec-dir>/changes/<name>/`（排除 `archive/`），archived 為 `<openspec-dir>/changes/archive/*/`。
+- TC 表的辨識：表頭第一欄為 `TC-ID`，且表頭含 `Test Purpose` 或 `Expected Result`（排除只有 TC-ID 的冗餘表等其他表格）。TC 對 scenario slug 的映射取自所有同時含 slug 欄與 TC-ID 欄的表（Coverage Analysis、Traceability Matrix、以及帶 `Scenario Slug` 欄的 TC 表）。
 - `--change` 未指定時檢查所有帶 testplan.md 的 active change。
 - `--tests-dir` 可重複；未指定時掃描 repo 內所有 `test_*.py` 與 `*_test.py`（排除 `.venv`、`node_modules`、`.git`）。
 
@@ -126,7 +127,7 @@ lead 以 `check_testplan_trace.py --report --change <name>` 驗證檔案可解�
 **嚴重度**：非 enforced testplan 的所有 finding 為 WARN；enforced testplan 依 ratchet 決策為 WARN 或 FAIL；orphan 與 collision 不隸屬單一
 enforced change 時一律 WARN。
 
-**Exit code**：`0` = 無 FAIL（可能有 WARN）；`1` = 至少一筆 FAIL；`2` = 設定錯誤（repo root 不存在、指定的 change 不存在、testplan 無法解析出 TC 表）。
+**Exit code**：`0` = 無 FAIL（可能有 WARN）；`1` = 至少一筆 FAIL；`2` = 設定錯誤（repo root 不存在、指定的 change 不存在、enforced testplan 無法解析出 TC 表）。legacy testplan 無法解析時只報 `unparsable` WARN，避免舊格式讓 gate 一上線就轉紅。
 stderr 只放 `[FAIL]` 設定錯誤與診斷訊息。
 
 **純函式核心**：`check_trace(testplans, bindings, tasks_state, strict) -> list[Finding]` 不做 I/O，供測試以合成資料驗證每一種 finding 與負向對照。

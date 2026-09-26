@@ -4,11 +4,11 @@
 
 ## 2. Checker 核心（先寫失敗測試）
 
-- [ ] 2.1 先寫失敗測試，涵蓋「Tests declare TC bindings through a docstring tc line」（以 docstring 的 tc 行作為唯一綁定語法：ast 解析、fixture 字串不算綁定）與「TC table declares a Kind for every test case」（TC 表新增 Kind 欄取代自由文字標記、無 Kind 欄為 legacy）；驗證：`plugins/sdd/scripts/tests/test_check_testplan_trace.py` 中這些案例在實作前為紅燈，紅燈原因是函式尚不存在或斷言失敗，而非 import 錯誤以外的環境問題
-- [ ] 2.2 實作 `check_testplan_trace.py` 的解析層：從測試檔以 ast 取出 tc／spec 綁定與 test nodeid、從 testplan 取出 TC 表（含 Kind、Seam）、Coverage 表的 TC 對 slug 映射、Manual Verification 項目、`trace: enforced` 宣告；驗證：2.1 的測試全綠
-- [ ] 2.3 先寫失敗測試再實作純函式 `check_trace`：「Unbound automated test cases are reported as missing」「Bindings to unknown TC-IDs are reported as orphans」（含 FREG／REG 改名案例）「Bindings must agree with the test case's scenario」（含 spec 行缺席案例）「A TC-ID is defined by exactly one testplan」（含 active 對 archived）；驗證：每一種 finding 各有正向與負向測試，且對每個判斷分支各做一次 mutation（拿掉判斷後至少一個測試轉紅），mutation 結果記錄在 PR 描述
-- [ ] 2.4 先寫失敗測試再實作「Severity ratchets from WARN to FAIL when a change claims completion」：以 testplan 內的 trace 宣告做前向式 opt-in，嚴重度 ratchet 依 tasks.md 完成度與 strict 旗標決定；驗證：spec 的 ratchet 範例表 5 列各對應一個參數化測試案例，含「0 個 checkbox 為 WARN」邊界
-- [ ] 2.5 先寫失敗測試再實作「Manual verification items have a tracked lifecycle」的 checker 端：strict 模式下未勾選的 MV 項目報 manual-open FAIL，已勾選不報；驗證：對應測試由紅轉綠
+- [x] 2.1 先寫失敗測試，涵蓋「Tests declare TC bindings through a docstring tc line」（以 docstring 的 tc 行作為唯一綁定語法：ast 解析、fixture 字串不算綁定）與「TC table declares a Kind for every test case」（TC 表新增 Kind 欄取代自由文字標記、無 Kind 欄為 legacy）；驗證：`plugins/sdd/scripts/tests/test_check_testplan_trace.py` 中這些案例在實作前為紅燈，紅燈原因是函式尚不存在或斷言失敗，而非 import 錯誤以外的環境問題
+- [x] 2.2 實作 `check_testplan_trace.py` 的解析層：從測試檔以 ast 取出 tc／spec 綁定與 test nodeid、從 testplan 取出 TC 表（含 Kind、Seam）、Coverage 表的 TC 對 slug 映射、Manual Verification 項目、`trace: enforced` 宣告；驗證：2.1 的測試全綠
+- [x] 2.3 先寫失敗測試再實作純函式 `check_trace`：「Unbound automated test cases are reported as missing」「Bindings to unknown TC-IDs are reported as orphans」（含 FREG／REG 改名案例）「Bindings must agree with the test case's scenario」（含 spec 行缺席案例）「A TC-ID is defined by exactly one testplan」（含 active 對 archived）；驗證：每一種 finding 各有正向與負向測試，且對每個判斷分支各做一次 mutation（拿掉判斷後至少一個測試轉紅），mutation 結果記錄在 PR 描述
+- [x] 2.4 先寫失敗測試再實作「Severity ratchets from WARN to FAIL when a change claims completion」：以 testplan 內的 trace 宣告做前向式 opt-in，嚴重度 ratchet 依 tasks.md 完成度與 strict 旗標決定；驗證：spec 的 ratchet 範例表 5 列各對應一個參數化測試案例，含「0 個 checkbox 為 WARN」邊界
+- [x] 2.5 先寫失敗測試再實作「Manual verification items have a tracked lifecycle」的 checker 端：strict 模式下未勾選的 MV 項目報 manual-open FAIL，已勾選不報；驗證：對應測試由紅轉綠
 - [ ] 2.6 實作 CLI 與「Checker exit codes separate findings from configuration errors」：exit 0／1／2 語意，未知 change、repo root 不存在、無法解析 TC 表都是 exit 2 且 stderr 有 `[FAIL]`；驗證：以 subprocess 執行 CLI 的測試覆蓋三種 exit code，且「無法解析的 enforced testplan」案例斷言 exit 2 而不是 0
 - [ ] 2.7 實作「Report mode lists bindings without modifying files」：報告模式不回寫任何檔案，輸出 TC、Kind、nodeid、狀態；驗證：測試斷言執行前後 `git status --porcelain` 相同且 exit 0，並對本 repo 真實執行一次 `--report`，確認 4 個既有 active change 只產生 WARN
 
