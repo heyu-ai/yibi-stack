@@ -335,3 +335,120 @@ class TestManualAndUnparsable:
         plan = Testplan(enforced=True, parse_ok=False)
         with pytest.raises(ConfigError):
             check_trace([_change("c", plan)], {}, [], strict=False)
+
+
+# ---------------------------------------------------------------------------
+# CLI：以 subprocess 實際執行，驗證 exit code 與報告模式
+# ---------------------------------------------------------------------------
+
+SCRIPT = Path(__file__).resolve().parents[1] / "check_testplan_trace.py"
+
+CLI_TESTPLAN = """\
+# demo — Test Plan
+
+trace: enforced
+
+| TC-ID | Kind | Test Purpose | Expected Result |
+|-------|------|--------------|-----------------|
+| DEMO-VL-001 | auto | bound case | ok |
+| DEMO-VL-002 | auto | unbound case | ok |
+
+## Coverage Analysis
+
+| Scenario slug | TC-ID(s) |
+|---|---|
+| `demo-slug` | DEMO-VL-001, DEMO-VL-002 |
+"""
+
+CLI_TEST = '''\
+def test_bound():
+    """
+    spec: demo#demo-slug
+    tc: DEMO-VL-001
+    """
+'''
+
+
+def _repo(tmp_path: Path, testplan: str = CLI_TESTPLAN, tasks: str = "- [ ] 1.1 x\n") -> Path:
+    change = tmp_path / "openspec" / "changes" / "demo"
+    _write(tmp_path, "openspec/changes/demo/testplan.md", testplan)
+    (change / "tasks.md").write_text(tasks, encoding="utf-8")
+    _write(tmp_path, "tests/test_demo.py", CLI_TEST)
+    return tmp_path
+
+
+def _run(*args: str):
+    import subprocess
+    import sys
+
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+
+class TestCli:
+    def test_tpt_st_001_warn_only_exits_0(self, tmp_path: Path) -> None:
+        """TPT-ST-001: tasks unfinished -> missing is WARN and the exit code is 0."""
+        repo = _repo(tmp_path)
+        proc = _run("--repo-root", str(repo))
+        assert proc.returncode == 0, proc.stderr
+        assert "[WARN] missing: demo DEMO-VL-002" in proc.stdout
+
+    def test_tpt_st_002_strict_missing_exits_1(self, tmp_path: Path) -> None:
+        """TPT-ST-002: --strict turns the same missing TC into FAIL and exits 1."""
+        repo = _repo(tmp_path)
+        proc = _run("--repo-root", str(repo), "--strict", "--change", "demo")
+        assert proc.returncode == 1
+        assert "[FAIL] missing: demo DEMO-VL-002" in proc.stdout
+        assert "DEMO-VL-001" not in proc.stdout
+
+    def test_tpt_st_003_unknown_change_exits_2(self, tmp_path: Path) -> None:
+        """TPT-ST-003: an unknown --change is a config error."""
+        repo = _repo(tmp_path)
+        proc = _run("--repo-root", str(repo), "--change", "does-not-exist")
+        assert proc.returncode == 2
+        assert "[FAIL]" in proc.stderr and "does-not-exist" in proc.stderr
+
+    def test_tpt_st_004_missing_repo_root_exits_2(self, tmp_path: Path) -> None:
+        """TPT-ST-004: a repo root that does not exist is a config error."""
+        proc = _run("--repo-root", str(tmp_path / "nope"))
+        assert proc.returncode == 2
+        assert "[FAIL]" in proc.stderr
+
+    def test_tpt_st_005_unparsable_enforced_exits_2_not_0(self, tmp_path: Path) -> None:
+        """TPT-ST-005: an enforced plan with no TC table exits 2, never a clean 0."""
+        repo = _repo(tmp_path, testplan="# demo\n\ntrace: enforced\n\nno table\n")
+        proc = _run("--repo-root", str(repo))
+        assert proc.returncode == 2
+        assert "[FAIL]" in proc.stderr
+
+    def test_tpt_st_006_report_is_read_only(self, tmp_path: Path) -> None:
+        """TPT-ST-006: --report prints bindings, changes no file, exits 0."""
+        import subprocess
+
+        repo = _repo(tmp_path, tasks="- [x] 1.1 x\n")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True, timeout=30)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, timeout=30)
+        before = subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        ).stdout
+        proc = _run("--repo-root", str(repo), "--report")
+        after = subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        ).stdout
+        assert proc.returncode == 0, proc.stderr
+        assert before == after
+        assert "tests/test_demo.py::test_bound" in proc.stdout
+        assert "DEMO-VL-002" in proc.stdout and "missing" in proc.stdout

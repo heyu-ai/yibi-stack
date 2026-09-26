@@ -429,3 +429,133 @@ def check_trace(
             )
 
     return findings
+
+
+# ---------------------------------------------------------------------------
+# I/O 與 CLI
+# ---------------------------------------------------------------------------
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise ConfigError(f"無法讀取 {path}：{e}") from e
+
+
+def load_changes(
+    openspec_root: Path, only: str | None
+) -> tuple[list[ChangeInput], dict[str, Testplan]]:
+    """讀取 active change（含 testplan.md 者）與 archived testplan。"""
+    changes_dir = openspec_root / "changes"
+    active: list[ChangeInput] = []
+    if changes_dir.is_dir():
+        for change_dir in sorted(p for p in changes_dir.iterdir() if p.is_dir()):
+            if change_dir.name == "archive":
+                continue
+            if only is not None and change_dir.name != only:
+                continue
+            testplan = change_dir / "testplan.md"
+            if not testplan.is_file():
+                continue
+            tasks = change_dir / "tasks.md"
+            total, done = parse_tasks_state(_read(tasks)) if tasks.is_file() else (0, 0)
+            active.append(
+                ChangeInput(change_dir.name, parse_testplan(_read(testplan)), total, done)
+            )
+    if only is not None and not active:
+        raise ConfigError(
+            f"找不到 active change：{only}（{changes_dir}/{only}/testplan.md 不存在）"
+        )
+
+    archived: dict[str, Testplan] = {}
+    archive_dir = changes_dir / "archive"
+    if archive_dir.is_dir():
+        for testplan in sorted(archive_dir.glob("*/testplan.md")):
+            archived[testplan.parent.name] = parse_testplan(_read(testplan))
+    return active, archived
+
+
+def load_bindings(roots: list[Path], repo_root: Path) -> list[Binding]:
+    """解析所有測試檔的綁定；語法錯誤的檔案回報 [WARN] 後略過（pytest 自己會紅）。"""
+    import sys
+
+    bindings: list[Binding] = []
+    for path in discover_test_files(roots):
+        try:
+            bindings.extend(parse_bindings(path, repo_root))
+        except (SyntaxError, UnicodeDecodeError, OSError) as e:
+            print(f"[WARN] 無法解析測試檔 {path}：{e}", file=sys.stderr)
+    return bindings
+
+
+def render_report(active: list[ChangeInput], bindings: list[Binding]) -> list[str]:
+    """報告模式：每個 TC 的 Kind、綁定的 nodeid 與狀態。"""
+    by_tc: dict[str, list[str]] = {}
+    for binding in bindings:
+        for tc_id in binding.tc_ids:
+            by_tc.setdefault(tc_id, []).append(binding.nodeid)
+    lines = ["change\tTC-ID\tkind\tstatus\ttests"]
+    for change in active:
+        for tc_id, kind in change.plan.tcs.items():
+            tests = by_tc.get(tc_id, [])
+            status = "manual" if kind == KIND_MANUAL else ("bound" if tests else "missing")
+            lines.append(f"{change.name}\t{tc_id}\t{kind}\t{status}\t{', '.join(tests) or '-'}")
+    return lines
+
+
+def _git_toplevel() -> Path | None:
+    import subprocess  # nosec B404
+
+    try:
+        proc = subprocess.run(  # nosec B603
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return Path(proc.stdout.strip()) if proc.returncode == 0 else None
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="testplan 與測試之間的雙向追溯檢查")
+    parser.add_argument("--repo-root", type=Path, default=None)
+    parser.add_argument("--openspec-dir", default="openspec")
+    parser.add_argument("--change", default=None)
+    parser.add_argument("--tests-dir", type=Path, action="append", default=None)
+    parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--report", action="store_true")
+    args = parser.parse_args(argv)
+
+    repo_root = args.repo_root if args.repo_root is not None else _git_toplevel()
+    if repo_root is None or not repo_root.is_dir():
+        print(f"[FAIL] repo root 不存在或無法判定：{repo_root}", file=sys.stderr)
+        return 2
+    openspec_root = repo_root / args.openspec_dir
+    test_roots = [p if p.is_absolute() else repo_root / p for p in (args.tests_dir or [repo_root])]
+
+    try:
+        active, archived = load_changes(openspec_root, args.change)
+        bindings = load_bindings(test_roots, repo_root)
+        findings = check_trace(active, archived, bindings, strict=args.strict)
+    except ConfigError as e:
+        print(f"[FAIL] {e}", file=sys.stderr)
+        return 2
+
+    if args.report:
+        print("\n".join(render_report(active, bindings)))
+        return 0
+
+    for finding in findings:
+        print(finding.render())
+    return 1 if any(f.severity == SEVERITY_FAIL for f in findings) else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
