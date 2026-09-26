@@ -26,19 +26,24 @@ Exit code：
 因此：
 - 全文都抽取，包含 fenced code block 內的內容（範例裡的相對路徑多半是真實路徑）
 - 逐行以硬分隔字元切 token：空白、markdown 標點（反引號、中括號、角括號、引號、`{}|,;=!`）
-  與全形標點。中文、日文字不是硬分隔（路徑可能含中文），只在 token 頭尾且不緊貼 `/` 時剝掉
-- markdown 反斜線跳脫（`\\_`、`\\``）先還原成原字元再切
-- 連結目標另外用 regex 從全文補抓：`](目標)`（目標前可有空白、換行或 `<`）與參考式連結
-  定義 `[ref]: 目標`（目標可在下一行）；註腳定義 `[^1]:` 不算。連結目標的 `?query` 會先去掉
+  與全形標點。中文、日文字不是硬分隔（路徑可能含中文）；只在散文語境、位於 token 頭尾且
+  不緊貼 `/` 時剝掉，反引號與連結內的中文一律保留
+- markdown 反斜線跳脫（`\\_`、`\\``）先還原成原字元再切；文件開頭的 BOM 先去掉
+- 連結目標另外用 regex 從全文補抓，一律檢查：inline 連結（右中括號接左括號，目標前可有空白、
+  換行或左角括號）、參考式連結定義（`[ref]:` 之後，不限行首——blockquote、清單、續行內都算，
+  標籤可含跳脫字元，目標可在下一行）、HTML 的 `href`／`src`。註腳定義 `[^1]:` 不算。連結目標
+  的 `?query` 先去掉；以 `/` 開頭者依 GitHub 語意視為 repo 根目錄起算
 
 每個 token 依語境判斷：緊鄰反引號或角括號的屬「程式碼語境」，其餘屬「散文語境」——只看緊貼
 token 的一個字元，不做配對。清理：去掉外圍或不成對的括號、首尾冒號、句尾句點，以及結尾的
 `:行`、`:行:欄`、`:起-迄`、`#L12`、`#錨點`、`::pytest-node`；散文語境另外去掉首尾的強調符號
-（`*`、`_`、`~~`，緊貼 `/` 時視為 glob 保留）與句尾問號，避免斜體或粗體被當成 glob。
+（`*`、`_`、`~`，緊貼 `/` 時視為 glob 保留）與句尾問號，避免斜體或粗體被當成 glob。
 - 排除：flag（`-` 開頭）、`@` 開頭、絕對路徑（`/`、`~/`）、含 `://` 或 `mailto:` 等 scheme、
-  含 shell 符號（`$`、`&`、`\\`）、不含任何字母（版本號、`3/3`）；非連結目標且第一段是目標
-  repo 的 git remote 名稱（`origin/main`）
-- 連結目標：一律算路徑
+  不含任何字母（版本號、`3/3`）
+- 連結目標：一律算路徑（不套下面的 shell 符號與 remote 排除）
+- 非連結目標另外排除：含 shell 符號（`$`、`&`、`\\`）；看不出是路徑（見下）且第一段是目標
+  repo 的 git remote 名稱（`origin/main`）。remote 名稱剛好也是 repo 頂層目錄時，看得出是
+  路徑的寫法照常檢查（寧可多擋）
 - 不含斜線：程式碼語境中有已知副檔名、或是已知無副檔名檔名（`Makefile` 等）才算路徑；
   散文語境一律不算（散文的 SKILL.md 多半是泛稱）
 - 含斜線：看得出是路徑者一律檢查——結尾斜線、第一段是 repo 頂層項目或以點開頭、第二段起
@@ -149,9 +154,11 @@ _LINE_BREAK_RE = re.compile(r"\r\n|\r|\n")
 _ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _DEST = r"<?([^\s<>`\"'　-〿＀-￯]+)"
 _LINK_DEST_RE = re.compile(r"\]\(\s*" + _DEST)
-_REF_DEF_RE = re.compile(r"^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*(?:\r?\n[ \t]*)?" + _DEST, re.M)
-_LEADING_EMPHASIS_RE = re.compile(r"^(?:[*_]+|~~)(?=[^/*_~])")
-_TRAILING_EMPHASIS_RE = re.compile(r"(?<=[^/*_~])(?:[*_]+|~~)$")
+# 不限定行首：定義可在 blockquote、清單、續行內；標籤可含跳脫字元。多抓只會多檢查
+_REF_DEF_RE = re.compile(r"\[(?!\^)(?:\\.|[^\]\\\n])+\]:[ \t]*(?:\r?\n[ \t>]*)?" + _DEST)
+_HTML_ATTR_RE = re.compile(r"\b(?:href|src)\s*=\s*[\"']?([^\"'\s<>]+)", re.IGNORECASE)
+_LEADING_EMPHASIS_RE = re.compile(r"^[*_~]+(?=[^/*_~])")
+_TRAILING_EMPHASIS_RE = re.compile(r"(?<=[^/*_~])[*_~]+$")
 _DECLARATION_RE = re.compile(r"^<!--\s*expected-absent:\s*(.*?)\s*-->\s*$")
 _LEADING_CJK_RE = re.compile(rf"^[{_CJK}]+(?=[^/{_CJK}])")
 _TRAILING_CJK_RE = re.compile(rf"(?<=[^/{_CJK}])[{_CJK}]+$")
@@ -242,10 +249,11 @@ def _clean(token: str, prose: bool) -> str:
     while token != previous:
         previous = token
         token = _strip_parens(token.strip(":"))
-        token = _TRAILING_CJK_RE.sub("", _LEADING_CJK_RE.sub("", token))
         token = _SUFFIX_RE.sub("", token).rstrip(":")
         token = _SENTENCE_DOT_RE.sub("", token)
         if prose:
+            # 散文才剝頭尾中文：反引號與連結內的中文是路徑本身
+            token = _TRAILING_CJK_RE.sub("", _LEADING_CJK_RE.sub("", token))
             # 強調符號緊貼 `/` 時是 glob（`dir/*`、`**/x`），不剝
             token = _LEADING_EMPHASIS_RE.sub("", _TRAILING_EMPHASIS_RE.sub("", token))
             token = token.rstrip("?")
@@ -269,12 +277,14 @@ def _classify(token: str, index: RepoIndex, in_code: bool = True, is_link: bool 
     """
     if not token or token.startswith(("-", "@", "/", "~/")) or token == "~":
         return "ignore"
-    if "://" in token or _SCHEME_RE.match(token) or any(c in _SHELL_CHARS for c in token):
+    if "://" in token or _SCHEME_RE.match(token):
         return "ignore"
     if not any(c.isalpha() for c in token):
         return "ignore"
     if is_link:
         return "path"
+    if any(c in _SHELL_CHARS for c in token):
+        return "ignore"
     segments = [s for s in token.split("/") if s]
     if not segments:
         return "ignore"
@@ -283,8 +293,6 @@ def _classify(token: str, index: RepoIndex, in_code: bool = True, is_link: bool 
             return "path"
         return "ignore"
     first = segments[0]
-    if first in index.remotes:
-        return "ignore"
     looks_like_path = (
         token.endswith("/")
         or first in index.top_level
@@ -294,16 +302,32 @@ def _classify(token: str, index: RepoIndex, in_code: bool = True, is_link: bool 
     )
     if looks_like_path:
         return "path"
+    # remote ref（`origin/main`）只在看不出是路徑時才排除，否則同名頂層目錄下的路徑會被略過
+    if first in index.remotes:
+        return "ignore"
     if in_code and len(segments) > 2:
         return "path"
     return "skipped"
 
 
-def _link_destinations(text: str) -> list[str]:
-    """從全文抓出 inline 連結與參考式連結定義的目標（去掉 `?query`），依出現順序。"""
-    found = [(m.start(), m.group(1)) for m in _LINK_DEST_RE.finditer(text)]
-    found += [(m.start(), m.group(1)) for m in _REF_DEF_RE.finditer(text)]
-    return [dest.split("?", 1)[0] for _, dest in sorted(found)]
+def _link_destinations(raw: str, unescaped: str) -> list[str]:
+    """抓出 inline 連結、參考式連結定義、HTML href/src 的目標（去掉 `?query`）。
+
+    參考式定義在跳脫還原前後的文字各抓一次：還原後才認得出 `\\]` 以外的一般寫法，
+    還原前才認得出標籤含跳脫 `]` 的寫法。以 `/` 開頭的連結目標依 GitHub 語意視為 repo
+    根目錄起算。
+    """
+    found = [m.group(1) for m in _LINK_DEST_RE.finditer(unescaped)]
+    found += [m.group(1) for m in _HTML_ATTR_RE.finditer(unescaped)]
+    for text in (raw, unescaped):
+        found += [_ESCAPE_RE.sub(r"\1", m.group(1)) for m in _REF_DEF_RE.finditer(text)]
+    dests = []
+    for dest in found:
+        dest = dest.split("?", 1)[0]
+        if dest.startswith("/") and not dest.startswith("//"):
+            dest = dest.lstrip("/")
+        dests.append(dest)
+    return dests
 
 
 def extract_candidates(text: str, index: RepoIndex) -> tuple[list[str], list[str]]:
@@ -327,17 +351,20 @@ def extract_candidates(text: str, index: RepoIndex) -> tuple[list[str], list[str
         seen.add(token)
         (candidates if kind == "path" else skipped).append(token)
 
-    text = _ESCAPE_RE.sub(r"\1", text)
+    raw = text.removeprefix("﻿")
+    text = _ESCAPE_RE.sub(r"\1", raw)
     for line in _LINE_BREAK_RE.split(text):
         # 捕捉群組讓 split 保留分隔字元：parts 為 token、分隔、token、分隔…交錯
         parts = _SPLIT_KEEP_RE.split(line)
         for i in range(0, len(parts), 2):
             before = parts[i - 1] if i > 0 else ""
             after = parts[i + 1] if i + 1 < len(parts) else ""
+            if before.endswith("]") and parts[i].startswith("("):
+                continue  # inline 連結目標，交給 _link_destinations（會去掉 ?query）
             in_code = before.endswith(("`", "<")) or after.startswith(("`", ">"))
             token = _clean(parts[i], prose=not in_code)
             add(token, _classify(token, index, in_code))
-    for dest in _link_destinations(text):
+    for dest in _link_destinations(raw, text):
         # scheme 要在清理前判斷：`tel:123` 清理時會被當成行號後綴剝成 `tel`
         if "://" in dest or _SCHEME_RE.match(dest):
             continue
@@ -352,7 +379,7 @@ def parse_expected_absent(text: str) -> list[str]:
     宣告區塊從第一行起，只由第 0 欄的宣告行與空白行組成，遇到第一個其他內容即結束。
     """
     found: list[str] = []
-    for line in _LINE_BREAK_RE.split(text):
+    for line in _LINE_BREAK_RE.split(text.removeprefix("﻿")):
         if not line.strip():
             continue
         m = _DECLARATION_RE.match(line)

@@ -126,8 +126,8 @@ class TestExtractCandidates:
             "./scripts/lint.py",
         ]
 
-    def test_citepath_ep_012_backtick_info_string_line_is_not_a_fence(self) -> None:
-        """CITEPATH-EP-012: 同一行開關的 ```bash x``` 是 inline code，不是 fence"""
+    def test_citepath_ep_012_inline_triple_backticks_do_not_affect_other_tokens(self) -> None:
+        """CITEPATH-EP-012: 行內的三反引號不影響同一行與下一行其他 token 的抽取"""
         text = "```bash scripts/x.sh```\n`out/b.py`\n"
         assert _cands(text) == ["scripts/x.sh", "out/b.py"]
 
@@ -175,7 +175,7 @@ class TestExtractCandidates:
             "[a](scripts/missing.py) [b](docs/a.md#sec) [c](https://x.com/a.md) "
             "[d](#anchor) [e](<my%20dir/f.md>)"
         )
-        assert _cands(text) == ["scripts/missing.py", "docs/a.md", "my dir/f.md"]
+        assert set(_cands(text)) == {"scripts/missing.py", "docs/a.md", "my dir/f.md"}
 
     def test_citepath_ep_020_multi_backtick_span(self) -> None:
         """CITEPATH-EP-020: 雙反引號包住的 inline code 也要抽取；含反引號的路徑被切成片段各自檢查"""
@@ -362,6 +362,87 @@ class TestExtractCandidates:
         assert _cands("[m](mailto:a@b.c) [t](TEL:123) note:scripts/missing.py") == [
             "note:scripts/missing.py"
         ]
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "> [r]: newdir/foo",
+            "- [r]: newdir/foo",
+            "1. item\n\n    [r]: newdir/foo",
+            "[a\\]b]: newdir/foo",
+            "[r]:\tnewdir/foo",
+            "[r]:\n\tnewdir/foo",
+            "[r]:\n> newdir/foo",
+            "  [r]: newdir/foo",
+            '<a href="newdir/foo">x</a>',
+            "<img src='newdir/foo'>",
+        ],
+        ids=[
+            "blockquote",
+            "list",
+            "continuation",
+            "escaped-label",
+            "tab-after-colon",
+            "tab-next-line",
+            "blockquote-next-line",
+            "indented",
+            "href",
+            "src",
+        ],
+    )
+    def test_citepath_ep_050_reference_and_html_targets_are_link_targets(self, text: str) -> None:
+        """CITEPATH-EP-050: 任何容器內的參考式定義與 HTML href/src 目標都當連結目標檢查"""
+        cands, skipped = check_cited_paths.extract_candidates(text, _index())
+        assert "newdir/foo" in cands
+        assert "newdir/foo" not in skipped
+
+    def test_citepath_ep_051_cjk_kept_in_code_and_links(self) -> None:
+        """CITEPATH-EP-051: 反引號與連結內的中文是路徑本身，不剝；散文中第一段為中文也保留"""
+        assert _cands("`新增scripts/x.py` `scripts/cron月報`") == [
+            "新增scripts/x.py",
+            "scripts/cron月報",
+        ]
+        assert _cands("[x](docs/說明) 見 說明/x.md") == ["說明/x.md", "docs/說明"]
+
+    @pytest.mark.parametrize("esc", ["\\<", "\\>", "\\|", "\\~", "\\[", "\\!"])
+    def test_citepath_ep_052_every_escape_range_is_restored(self, esc: str) -> None:
+        """CITEPATH-EP-052: `_ESCAPE_RE` 每個字元範圍的跳脫都會還原，反斜線不會讓路徑被當成 shell 片段"""
+        assert "newdir/x.md" in _cands(f"見 {esc}newdir/x.md{esc} 即可")
+
+    def test_citepath_ep_053_single_tilde_is_not_home(self) -> None:
+        """CITEPATH-EP-053: 只有 `~/` 開頭算家目錄；單一 `~` 的刪除線會剝掉後照常檢查"""
+        assert _cands("已移除 ~newdir/x.md~ 與 `~/home.md`") == ["newdir/x.md"]
+
+    def test_citepath_ep_054_absolute_link_and_shell_chars_in_link(self) -> None:
+        """CITEPATH-EP-054: 以 `/` 開頭的連結目標視為 repo 根目錄起算；連結目標含 `&` 仍檢查"""
+        assert _cands("[x](/newdir/guide.md) [y](newdir/a&b.md) [z](//cdn.x/y)") == [
+            "newdir/guide.md",
+            "newdir/a&b.md",
+        ]
+
+    def test_citepath_ep_055_remote_name_only_excludes_ref_shapes(self) -> None:
+        """CITEPATH-EP-055: 第一段是 remote 名稱時，只在看不出是路徑時排除"""
+        index = _index(files=("upstream/patch.md",), remotes=("upstream", "origin"))
+        cands, _ = check_cited_paths.extract_candidates(
+            "`upstream/missing.md` `origin/main` `origin/v1.2/x`", index
+        )
+        assert cands == ["upstream/missing.md", "origin/v1.2/x"]
+
+    def test_citepath_ep_056_query_and_second_clean_pass(self) -> None:
+        """CITEPATH-EP-056: 連結目標的 `?query` 會去掉；清理反覆套用到不再變化；`_` 強調也剝掉"""
+        cands = _cands("[x](scripts/a.py?plain=1) see **scripts/b.py.** and _scripts/c.py_")
+        assert cands == ["scripts/b.py", "scripts/c.py", "scripts/a.py"]
+
+    def test_citepath_ep_057_bom_does_not_hide_declarations(self) -> None:
+        """CITEPATH-EP-057: 以 BOM 開頭的文件，開頭區塊的宣告照常生效"""
+        text = "﻿<!-- expected-absent: a/b.md -->\n\n內文 `a/b.md`\n"
+        assert check_cited_paths.parse_expected_absent(text) == ["a/b.md"]
+        assert _cands(text) == ["a/b.md"]
+
+    def test_citepath_ep_058_declaration_block_uses_commonmark_line_breaks(self) -> None:
+        """CITEPATH-EP-058: 宣告行後接 NEL 再接內文時不算獨立的宣告行，宣告不生效"""
+        text = "<!-- expected-absent: newdir/x.md -->\x85See `newdir/x.md`\n"
+        assert check_cited_paths.parse_expected_absent(text) == []
 
 
 class TestResolve:
@@ -635,9 +716,16 @@ class TestMain:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """CITEPATH-MN-013: owner/repo 形狀的 token 在 stderr 印 [SKIPPED]，本身不讓閘門失敗"""
-        rc, _ = self._run(tmp_path, "`heyu-ai/yibi-stack` 的 `CLAUDE.md`")
+        rc, _ = self._run(tmp_path, "`heyu-ai/yibi-stack` 的 `CLAUDE.md`，另見 newdir/sub/tool")
         assert rc == 0
-        assert "[SKIPPED] heyu-ai/yibi-stack" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert (
+            "[SKIPPED] heyu-ai/yibi-stack（形似 owner/repo，未檢查；若是路徑請寫到檔名或加結尾斜線）"
+            in err
+        )
+        assert (
+            "[SKIPPED] newdir/sub/tool（散文中看不出是路徑，未檢查；若是路徑請用反引號包住）" in err
+        )
 
     def test_citepath_mn_014_untracked_file_is_missing(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -767,6 +855,13 @@ class TestMain:
             "`CLAUDE.md` and ~~newdir/x.md~~ here\n",
             "`CLAUDE.md`\n\nnewdir/foo\\_bar.md\n",
             "改 `scripts/說明.md` 與 `CLAUDE.md`\n",
+            "`CLAUDE.md`\n\n`新增scripts/lint.py`\n",
+            "`CLAUDE.md` and `scripts/cron月報`\n",
+            "`CLAUDE.md`\n\n> [details][r]\n>\n> [r]: newdir/guide\n",
+            "`CLAUDE.md`\n\n- [r]: newdir/guide\n",
+            "`CLAUDE.md` [g][a\\]b]\n\n[a\\]b]: newdir/guide\n",
+            '`CLAUDE.md` <a href="newdir/sub/tool">tool</a>\n',
+            "`CLAUDE.md` [x](/newdir/guide.md)\n",
         ],
         ids=[
             "wrapped-span",
@@ -800,6 +895,13 @@ class TestMain:
             "strikethrough",
             "escaped-underscore",
             "cjk-in-path",
+            "cjk-prefix-in-code",
+            "cjk-suffix-in-code",
+            "blockquote-refdef",
+            "list-refdef",
+            "escaped-label-refdef",
+            "html-href",
+            "absolute-link",
         ],
     )
     def test_citepath_mn_021_formerly_fail_open_shapes_now_exit_one(
