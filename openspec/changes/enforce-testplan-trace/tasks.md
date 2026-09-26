@@ -15,7 +15,7 @@
 ## 3. 各入口接線
 
 - [ ] 3.1 讓「Every entry point runs the same checker」在 pr-cycle-deep 成立：checker 放在 sdd plugin，amplifier-verify 以子程序呼叫（以 installed_plugins.json 的 installPath 解析 sdd 根目錄，開發時 fallback 到 plugins/sdd），FAIL 併入 MUST、WARN 併入 SHOULD，找不到 checker 時 exit 2；驗證：`test_amplifier_verify.py` 新增案例覆蓋三種映射與「找不到 checker 即 fail-closed」，並做一次拿掉 fail-closed 分支的 mutation
-- [ ] 3.2 pr-cycle-deep SKILL.md（人工驗證改為 Manual Verification checklist 的流程端）：Step 11a archive 前以 `--strict --change <name>` 執行 checker，exit 1 即停止；Step 8 human quick pass 列出未勾選的 Manual Verification 項目、結果以 PR comment 留痕並勾選；驗證：`test_convergence_contract.py` 通過（行數上限內），並以 grep 確認 Step 8 與 Step 11a 都出現 checker 呼叫
+- [x] 3.2 pr-cycle-deep SKILL.md（人工驗證改為 Manual Verification checklist 的流程端）：Step 11a archive 前以 `--strict --change <name>` 執行 checker，exit 1 即停止；Step 8 human quick pass 列出未勾選的 Manual Verification 項目、結果以 PR comment 留痕並勾選；驗證：`test_convergence_contract.py` 通過（行數上限內），並以 grep 確認 Step 8 與 Step 11a 都出現 checker 呼叫
 - [ ] 3.3 接上 pre-commit（非 strict，`verbose: true`，觸發檔案為 testplan.md、tasks.md、Python 測試）與 CI（非 strict，全 repo）；驗證：`git add` 後執行 `make ci` 通過，且在暫存的 testplan 副本注入改名的 tc 綁定時，pre-commit hook 輸出 orphan 與 missing
 
 ## 4. 生成端

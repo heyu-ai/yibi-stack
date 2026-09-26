@@ -1115,7 +1115,14 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 ## Change hotspots (top 3 places most worth human eyes)
 1. <file:line> — <why it's a hotspot>
 2. ...
+
+## Manual Verification (unchecked `- [ ] MV-NNN` items of the change's testplan.md; omit if none)
+- MV-NNN: <observable check> — human result: pass / fail
 ```
+
+Manual Verification items are testplan TCs no test can automate: list them by running Step 11a's
+`check_testplan_trace.py --strict` command now (its `manual-open` lines), ask the human to confirm
+each, post the results as one PR comment, then mark confirmed items `- [x]` in testplan.md.
 
 Show the summary and hotspots to the user. Get the path, then reply conversationally so they can `cat` it:
 
@@ -1218,7 +1225,15 @@ Find the matching change (name is usually close to the feature branch), **report
 
 > Found a likely matching spectra change: `{{change_name}}`. Confirm archive?
 
-After confirmation:
+Before archiving, gate on the testplan trace (resolve `SDD_ROOT` with spectra-amplifier's
+"Plugin 資源路徑解析" block; add `--openspec-dir <dir>` if openspec is not at the repo root):
+
+```bash
+python3 "$SDD_ROOT/scripts/check_testplan_trace.py" --strict --change "{{change_name}}"
+```
+
+Exit 1 → stop and report the FAIL lines (unbound auto TC, orphan, mismatch, collision, open MV
+item); exit 2 → configuration error, stop and report stderr. After exit 0 and confirmation:
 
 ```bash
 spectra archive "{{change_name}}" --yes

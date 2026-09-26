@@ -104,7 +104,17 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #   Both are Tier 2 (incident-cited): yibi-firmware PR #44 mob review, where a Claude NIT had
 #   no contract mapping and agy fabricated a Critical + evidence about a nonexistent heading
 #   rename. The first was caught by Codex DISAGREE in R2; the second was refuted by grep.
-LINE_BUDGET = 1307
+#
+# Raised 1307 -> 1322 (+15) for enforce-testplan-trace (testplan TCs made verifiable):
+#   (1) +6 lines, Step 8: a Manual Verification section in human-summary.md plus the instruction
+#       to confirm each unchecked MV item with the human, post the result as a PR comment, and
+#       tick it. Measured before this change: [manual]/[doc] TCs across 13 testplans were almost
+#       never executed -- they were written into an 8-column table nobody ran. This is the one
+#       place in the lifecycle where a human is already present to run them.
+#   (2) +9 lines, Step 11a: run check_testplan_trace.py --strict before archiving, with its exit
+#       codes. Without it the trace gate has no enforcement point at the moment a change claims to
+#       be finished -- the only moment its FAIL severity is meant to bite.
+LINE_BUDGET = 1322
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the
