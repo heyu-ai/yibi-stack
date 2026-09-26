@@ -218,7 +218,7 @@ Example (`<abs-path-to-git>`: run `which git`; typical: `/opt/homebrew/bin/git`,
 - Rule 13 "Shell Quoting Hygiene" (formerly rule 14): quoting/expansion (incl. `$?` — use `if ! cmd; then`).
 - Rule 16: how **users/agents configure** allow-list patterns (no middle wildcards, no variable prefixes).
 
-Rules 13+14 produce bash that allow-list patterns can precisely match.
+Rule 13 (incl. its quoting section) produces bash that allow-list patterns can precisely match.
 Rule 16 ensures the allow-list is not broader than intended.
 Without both sides, either unexpected commands slip through or users face endless confirmation fatigue.
 
