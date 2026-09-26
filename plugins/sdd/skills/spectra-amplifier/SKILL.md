@@ -44,7 +44,7 @@ openspec/changes/<name>/
 │       └── spec.md   # Step 1c Gherkin scenarios（#### Scenario: <slug>）
 ├── testplan.md   # Step 2 TC 表格 + Coverage Analysis（NEW）
 ├── design.md     # Step 3 資料模型 + API（按需）
-└── tasks.md      # Phase 結構任務拆解，含 per-US pytest -k 驗收指令
+└── tasks.md      # Phase 結構任務拆解，每個 US 以 red-first 測試開頭，以 trace checker 驗收
 ```
 
 > 若 `openspec/changes/` 不存在，先建立。路徑可依專案調整。
@@ -347,6 +347,12 @@ prompt:
   ## Effort Level
   <low | medium | high>
 
+  ## Output Path
+  <openspec/changes/<name>/testplan.md 的絕對路徑>
+
+  ## TC-ID Convention
+  <Convention Detection 選出的約定全文（host 的 09-test-conventions.md，或 plugin 的 test-convention.md）>
+
   ## Gherkin Scenarios（所有 non-BLOCKED capabilities 的 Step 1c 輸出）
   <Step 1c 產生的所有 non-blocked Scenario blocks>
 
@@ -354,43 +360,41 @@ prompt:
   <所有 non-blocked capabilities 的 AC 清單>
 ```
 
-Expected output from sdd:qa-test-designer:
-
-- Test Seams table（Seam, Public interface, Why here）
-- TC table（TC-ID, Seam, Test Purpose, Technique, Risk, Precondition, Steps, Test Data, Expected Result）
-- Coverage Analysis（Covered / Partial / Missing / Redundant）
+sdd:qa-test-designer 直接把完整 testplan 寫到 Output Path（格式見 `<sdd-root>/references/testplan-template.md`，
+含 `trace: enforced`、`Kind` 欄、Manual Verification），**只回傳一段摘要**（TC 數、MV 數、seam 數、覆蓋缺口數與路徑）。
+lead 不要把 testplan 內容讀回 context。
 
 If sdd:qa-test-designer not available:
 `[FAIL] Stop. sdd:qa-test-designer subagent 未找到。本專案需安裝 sdd plugin：claude plugin marketplace add heyu-ai/yibi-stack && claude plugin install sdd@yibi-stack（安裝後重新執行 spectra-amplifier）。`
 
-若 subagent 回傳內容以 `[FAIL]` 開頭，或 Task tool 本身執行失敗（timeout/error）：
-Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c/2d。
+若 subagent 回傳內容以 `[FAIL]` 開頭，或 Task tool 本身執行失敗（timeout/error），或回傳不是
+`[OK] testplan written:` 開頭的摘要：Stop，將完整錯誤訊息回報給使用者，不執行 Step 2b/2c/2d。
 
-### Step 2b — Coverage Analysis
+### Step 2b — 驗證 testplan 可被追溯檢查解析
 
-依 sdd:qa-test-designer 輸出分析每個 Scenario slug 的覆蓋狀態：
+不讀整份 testplan；以 checker 確認 subagent 寫出的檔案結構正確：
 
-| 狀態 | 說明 |
-|------|------|
-| ✓ covered | 有對應 TC，且涵蓋 Scenario 的主要路徑 |
-| △ partial | 有 TC 但只涵蓋部分 AC（如缺少 error path）|
-| ✗ missing | 無對應 TC |
-| — redundant | 多個 TC 涵蓋同一 Scenario，無額外測試價值 |
+```bash
+python3 "$SDD_ROOT/scripts/check_testplan_trace.py" --report --change "<name>"
+```
 
-### Step 2c — TC-ID 分配（依 Convention）
+- exit 0，且每個 auto TC 都列出（此時狀態都是 `missing`，因為測試尚未寫）→ 繼續 Step 2c
+- exit 2（例如找不到 TC 表）→ testplan 格式錯誤：把 stderr 交給 subagent 重寫一次；再失敗就 Stop 回報
+- 摘要中的 coverage gaps > 0 → 在最終回報列出，由人決定是否補 TC
 
-套用偵測到的 test convention（見「Convention Detection」章節）
-為每個 TC 分配正式 ID（格式：`[FEATURE]-[CATEGORY]-[NUMBER]`）。
+Coverage Analysis 的判定（✓ covered／△ partial／✗ missing／redundant）由 subagent 寫在檔案內，lead 不重做。
+
+### Step 2c — TC-ID 約定
+
+TC-ID 由 subagent 依 prompt 中的 TC-ID Convention 分配，lead 只抽查：`--report` 列出的 ID 不含 technique
+縮寫（EP／BVA／PW／RB），且字首專屬於本 change（`SMK-001` 這類通用 ID 會與其他 testplan collision）。
 
 **Smoke Test 特殊命名**：Step 5 的冒煙測試使用 `SMK-NNN`（而非 `ST-NNN`）。
 `ST` 在 qa-test-design 中代表 State Transition，為避免歧義，冒煙測試統一用 `SMK`。
 
-輸出：`openspec/changes/<name>/testplan.md`（格式見 `<sdd-root>/references/testplan-template.md`，
-`<sdd-root>` 解析見「Plugin 資源路徑解析」章節）
-
 ### Step 2d — Test Seams 對照 codebase 並交給人確認
 
-qa-test-designer 沒有 codebase 存取權，它提的 seam 只是依 scenario 字面命名的介面。Step 2c 寫出
+qa-test-designer 沒有 codebase 存取權，它提的 seam 只是依 scenario 字面命名的介面。Step 2a 寫出
 testplan.md 後、交人 review proposal 前，更新其中的 `## Test Seams` 表：
 
 1. 對 `## Test Seams` 表的每一列，在 codebase 查出對應的公開介面（endpoint 路徑、public method、
@@ -517,7 +521,7 @@ testplan.md 後、交人 review proposal 前，更新其中的 `## Test Seams` �
 
 此功能視為「完成」的條件：
 - [ ] 所有 User Stories 的 AC 均已實作
-- [ ] testplan.md 所有 TC 均有對應測試（check_spec_coverage.py 驗證）
+- [ ] testplan.md 所有 auto TC 均有以 `tc:` 綁定的測試、Manual Verification 全數勾選（`check_testplan_trace.py --strict --change <name>` exit 0）
 - [ ] 冒煙測試全數通過
 - [ ] 程式碼已 code review 並合併
 ```
@@ -587,13 +591,13 @@ testplan.md 後、交人 review proposal 前，更新其中的 `## Test Seams` �
 
 ### US-001：[標題]（P1 — Actor 涉及金流）
 **Story Goal**：[一句話說明]
-**Test traceability**: AC-001-1~3 → TC LOGIN-VL-001~005, SMK-001
-  Verification: `pytest -k "LOGIN-VL-001 or LOGIN-VL-002 or SMK-001"`
+**Test traceability**: AC-001-1~3 → TC LOGIN-VL-001~005, LOGIN-SMK-001
+  Verification: `check_testplan_trace.py --report --change [feature-name]` 中上述 TC 皆為 `bound`
 
-- [ ] T010 [P] [US1] 實作 Service 層 — target: src/services/[name]_service.py
-- [ ] T011 [US1] 實作 API endpoint（依賴 T010）— target: src/routes/[name].py
-- [ ] T012 [P] [US1] 單元測試 — target: tests/unit/test_[name]_service.py
-- [ ] T013 [US1] 整合測試 — target: tests/integration/test_[name]_flow.py
+- [ ] T010 [US1] Red-first：撰寫綁定 `tc: LOGIN-VL-001, LOGIN-VL-002` 的失敗單元測試（實作前須為紅燈）— target: tests/unit/test_[name]_service.py
+- [ ] T011 [US1] Red-first：撰寫綁定 `tc: LOGIN-VL-003, LOGIN-SMK-001` 的失敗整合測試 — target: tests/integration/test_[name]_flow.py
+- [ ] T012 [US1] 實作 Service 層，讓 T010 轉綠（依賴 T010）— target: src/services/[name]_service.py
+- [ ] T013 [US1] 實作 API endpoint，讓 T011 轉綠（依賴 T011、T012）— target: src/routes/[name].py
 
 ## Phase 4：Polish
 - [ ] T020 [P] 新增 logging 埋點
@@ -760,7 +764,7 @@ openspec/changes/<name>/
 ├── specs/        （Step 1c Gherkin scenarios）
 ├── testplan.md   （Step 2 TC + coverage）
 ├── design.md     （Step 3 按需）
-└── tasks.md      （Phase 結構 + pytest -k 驗收）
+└── tasks.md      （Phase 結構 + red-first 測試任務 + trace checker 驗收）
 ```
 
 修訂時：在所有修改處加上 `[ADDED]` / `[MODIFIED]` / `[REMOVED]` 標記。
