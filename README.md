@@ -33,7 +33,7 @@ Without guardrails, Claude Code tends to:
 yibi-stack layers three forms of enforcement on top of Claude Code:
 
 1. **Automated hooks** — catch problems before execution, not after
-2. **Methodology skills** — runbooks that embed TDD, spec-writing, and review discipline into Claude's workflow
+2. **Methodology skills** — runbooks that embed spec-writing, test-design, and review discipline into Claude's workflow (test-first is enforced by the PR cycle's red-first gate, not a skill)
 3. **Persistent tooling** — mycelium, scheduler, and port registry that survive across conversations
 
 ### Benefits
@@ -45,7 +45,7 @@ yibi-stack layers three forms of enforcement on top of Claude Code:
 | Multi-model PR review | `pr-cycle-deep` orchestrates Claude + Codex + Gemini in parallel independent review → cross-model debate → aggregate, catching issues no single model would flag |
 | Persistent work memory | `mycelium` skill auto-handovers before context compression and restores on next session start — no more losing track of multi-day work |
 | Release discipline | `bump-version`, `protect-push`, and `ci-triage` skills codify release workflow so Claude doesn't push to main without explicit intent |
-| Test methodology | `tdd-kentbeck` (Kent Beck Red→Green→Refactor) and `qa-test-design` (6 test design techniques) embed testing discipline into daily work |
+| Test methodology | `pr-cycle-deep` Step 1.7 red-first gate — when the repo provides `scripts/red-first-check.py` (otherwise recorded as `[SKIP]`; yibi-stack itself ships none), `feat`/`fix` tests must fail against the base production code and `refactor`/`perf` tests must still pass — plus `qa-test-design` (6 test design techniques) |
 
 ### Architecture
 
@@ -56,7 +56,7 @@ plugins/          Claude Code plugin packs (installable via claude plugin instal
   growth/         Knowledge extraction: mycelium, learn, PR retro/control log, CLAUDE.md prune
   dev-cycle/      Development flow: PR cycles, CI triage, setup/handover, local port manager, debug
   3rd-tools/      Third-party AI: Codex, Antigravity CLI (agy/Gemini), model verification
-  methodology/    Portable TDD, event-storming, problem-frames, QA test design methodology
+  methodology/    Portable event-storming, problem-frames, QA test design methodology
 
 skills/           Agent execution layer -- SKILL.md runbooks (installed via make install)
   <skill-name>/   Each skill is a flat directory with a SKILL.md runbook (or a symlink)
@@ -140,7 +140,6 @@ make status-own
 | `pr-cycle-fast` | Fast lifecycle orchestrator: Python state machine, 1 reviewer, resumable |
 | `pr-cycle-deep` | Deep lifecycle: mob review (Claude + Codex + Gemini) + SDD amplifier-verifier |
 | `bash-anti-patterns` | AP1/AP2/AP3 detection guide + shell quoting hygiene reference |
-| `tdd-kentbeck` | Kent Beck TDD + Tidy First methodology |
 | `qa-test-design` | 6 test design techniques (equivalence, boundary, decision table...) |
 | `mycelium` | Cross-session work handover and insight collection |
 | `bump-version` | Version bump (Flutter/Python/Node/Go) + CHANGELOG + git tag |
@@ -163,7 +162,7 @@ See [`skills/README.md`](skills/README.md) for the full index.
 | `growth` | `claude plugin install growth@yibi-stack` | Knowledge extraction and retention: mycelium, learn, PR retro/control log, CLAUDE.md prune |
 | `dev-cycle` | `claude plugin install dev-cycle@yibi-stack` | Development workflow: PR cycles, CI triage, setup/handover, local port manager, debug |
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex, Antigravity CLI (agy/Gemini), model verification |
-| `methodology` | `claude plugin install methodology@yibi-stack` | Portable methodology: Kent Beck TDD, Flutter TDD, event storming, problem frames, QA test design. |
+| `methodology` | `claude plugin install methodology@yibi-stack` | Portable methodology: event storming, problem frames, QA test design. |
 
 ---
 
@@ -190,7 +189,7 @@ yibi-stack 是一套專為以 Claude Code 作為主力開發工具的工程師�
 yibi-stack 在 Claude Code 之上疊加三層約束：
 
 1. **自動化 hook** — 在執行前攔截問題，而不是事後除錯
-2. **方法論 skill** — 把 TDD、規格撰寫、PR 審閱的紀律嵌入 Claude 的工作流程
+2. **方法論 skill** — 把規格撰寫、測試設計、PR 審閱的紀律嵌入 Claude 的工作流程（先寫測試由 PR 流程的 red-first gate 執行，不是靠 skill）
 3. **持久化工具** — 跨對話的 session 記憶、定期排程器、port 登記表
 
 ### 主要好處
@@ -202,7 +201,7 @@ yibi-stack 在 Claude Code 之上疊加三層約束：
 | 多模型 PR 審閱 | `pr-cycle-deep` 讓 Claude + Codex + Gemini 並行獨立審閱再交叉辯論，捕捉單一模型漏掉的問題 |
 | 持久化工作記憶 | `mycelium` skill 在對話壓縮前自動交班，下次 session 開啟時自動恢復工作上下文，多日開發不斷線 |
 | 發版紀律 | `bump-version` + `protect-push` + `ci-triage` 讓 Claude 不會在沒有明確意圖的情況下推上 main |
-| 測試方法論 | `tdd-kentbeck`（Kent Beck Red→Green→Refactor）和 `qa-test-design`（六大測試設計技術）把測試紀律內建到日常工作中 |
+| 測試方法論 | `pr-cycle-deep` Step 1.7 的 red-first gate：repo 有提供 `scripts/red-first-check.py` 時才執行（沒有就記 `[SKIP]`；yibi-stack 本身沒有附），`feat`／`fix` 的測試在 base 產品碼上必須失敗、`refactor`／`perf` 必須仍通過；另有 `qa-test-design`（六大測試設計技術） |
 
 ### 架構
 
@@ -213,7 +212,7 @@ plugins/          Claude Code plugin packs（可透過 claude plugin install 安
   growth/         知識萃取與留存：mycelium、learn、PR 回顧／審計、CLAUDE.md 精簡
   dev-cycle/      開發流程：PR cycles、CI 診斷、工作區設定／交班、本機 port 管理、debug
   3rd-tools/      第三方 AI：Codex、Antigravity CLI（agy/Gemini）、模型驗證
-  methodology/    可攜方法論：TDD、event-storming、problem-frames、qa-test-design
+  methodology/    可攜方法論：event-storming、problem-frames、qa-test-design
 
 skills/           Agent 執行介面層（SKILL.md runbook，透過 make install 安裝）
   <skill-name>/   每個 skill 是一個目錄（或指向 plugins/ 的 symlink）
@@ -296,7 +295,6 @@ make status-own
 | `pr-cycle-fast` | 快速 lifecycle orchestrator：Python state machine，可中斷 resume |
 | `pr-cycle-deep` | 深度 lifecycle：mob review（Claude + Codex + Gemini）+ SDD amplifier-verifier |
 | `bash-anti-patterns` | AP1/AP2/AP3 偵測指南 + shell 引號衛生參考 |
-| `tdd-kentbeck` | Kent Beck TDD + Tidy First 方法論 |
 | `qa-test-design` | 六大測試設計技術（等價類別、邊界值、決策表……） |
 | `mycelium` | 跨對話工作交班與洞察收集 |
 | `bump-version` | 版本 bump（Flutter/Python/Node/Go）+ CHANGELOG + git tag |
@@ -319,7 +317,7 @@ make status-own
 | `growth` | `claude plugin install growth@yibi-stack` | 知識萃取與留存：mycelium、learn、PR 回顧／審計、CLAUDE.md 精簡 |
 | `dev-cycle` | `claude plugin install dev-cycle@yibi-stack` | 開發流程：PR cycles、CI 診斷、工作區設定／交班、本機 port 管理、debug |
 | `3rd-tools` | `claude plugin install 3rd-tools@yibi-stack` | Codex、Antigravity CLI（agy/Gemini）、模型驗證 |
-| `methodology` | `claude plugin install methodology@yibi-stack` | 可攜方法論：Kent Beck TDD、Flutter TDD、event storming、problem frames、QA test design。 |
+| `methodology` | `claude plugin install methodology@yibi-stack` | 可攜方法論：event storming、problem frames、QA test design。 |
 
 ---
 

@@ -5,6 +5,18 @@
 
 ---
 
+## Test Seams
+
+The public boundaries this change is tested at. Confirmed by a human during propose review; no TC
+may target a seam missing from this table (amplifier-verify Check 4). Mocks only at external
+boundaries — a seam that needs this repo's own modules mocked is the wrong seam.
+
+| Seam | Public interface | Why here |
+|------|------------------|----------|
+| `login-api` | `POST /api/v1/auth/login` | the contract the mobile client depends on |
+
+---
+
 ## Coverage Analysis
 
 | Scenario slug | Covered | Technique | TC-ID(s) | Notes |
@@ -19,9 +31,9 @@ Legend: ✓ covered · △ partial · ✗ missing
 
 ## TC Table
 
-| TC-ID | Test Purpose | Technique | Risk | Precondition | Steps | Test Data | Expected Result |
-|-------|-------------|-----------|------|-------------|-------|-----------|----------------|
-| LOGIN-VL-001 | Verify empty password rejected | BVA | High | User not logged in | 1. Submit empty password | password='' | Return 422 Unprocessable |
+| TC-ID | Seam | Test Purpose | Technique | Risk | Precondition | Steps | Test Data | Expected Result |
+|-------|------|-------------|-----------|------|-------------|-------|-----------|----------------|
+| LOGIN-VL-001 | `login-api` | Verify empty password rejected | BVA | High | User not logged in | 1. Submit empty password | password='' | Return 422 Unprocessable |
 
 ---
 

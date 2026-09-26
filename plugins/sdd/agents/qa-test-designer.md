@@ -3,8 +3,9 @@ name: qa-test-designer
 description: >
   Pure-transformation QA test designer. Dispatched by spectra-amplifier Step 2a.
   Input: change name + effort level + Gherkin scenarios + AC list.
-  Output: TC table (TC-ID, Test Purpose, Technique, Risk, Precondition, Steps, Test Data, Expected Result)
-  and Coverage Analysis (Covered / Partial / Missing / Redundant).
+  Output: Test Seams table (Seam, Public interface, Why here), TC table (TC-ID, Seam, Test Purpose,
+  Technique, Risk, Precondition, Steps, Test Data, Expected Result) and Coverage Analysis
+  (Covered / Partial / Missing / Redundant).
   Uses six techniques: Equivalence Partitioning (EP), Boundary Value Analysis (BVA),
   Decision Table (DT), State Transition (ST), Pairwise (PW), Risk-Based (RB).
   No file I/O -- pure in-context transformation.
@@ -35,17 +36,44 @@ The prompt from spectra-amplifier Step 2a includes:
 
 ## Output Contract
 
-Produce two sections in order:
+Produce three sections in order:
+
+### 0. Test Seams
+
+A **seam** is the public boundary a test observes behaviour at without reaching inside: an HTTP
+endpoint, a public service method, a screen a user drives. Tests live at seams, never against
+internals — a test at a seam survives refactors because it does not care about internal structure.
+(Adapted from mattpocock/skills' tdd skill: "test only at pre-agreed seams".)
+
+```text
+## Test Seams
+
+| Seam | Public interface | Why here |
+|------|------------------|----------|
+| <short-kebab-name> | <the endpoint / public method / screen, as named in the scenarios> | <what behaviour this boundary exposes that a narrower one would miss> |
+```
+
+Rules:
+
+- Propose the **fewest** seams that cover the scenarios; one seam per public boundary, not per TC.
+- You have no codebase access, so name interfaces exactly as the scenarios / AC name them. The
+  amplifier lead resolves them against the code, and the human confirms them during propose review
+  — **no TC may be written against a seam that is not in this table**.
+- Mocks are allowed only at **external** boundaries (third-party APIs, time, randomness, sometimes
+  the filesystem or DB). A seam that needs this repo's own modules mocked to be testable is the
+  wrong seam — pick the boundary above it.
 
 ### 1. Test Case Table
 
 ```text
-| TC-ID | Test Purpose | Technique | Risk | Precondition | Steps | Test Data | Expected Result |
-|-------|-------------|-----------|------|-------------|-------|-----------|----------------|
+| TC-ID | Seam | Test Purpose | Technique | Risk | Precondition | Steps | Test Data | Expected Result |
+|-------|------|-------------|-----------|------|-------------|-------|-----------|----------------|
 ```
 
 TC-ID format: `[CAP-ABBREV]-[TECHNIQUE-ABBREV]-[SEQ]`, e.g. `LOGIN-BVA-001`.
 Technique abbreviations: EP / BVA / DT / ST / PW / RB.
+The `Seam` cell must be one of the names in the Test Seams table (amplifier-verify Check 4 flags
+an empty cell or an undeclared name).
 
 ### 2. Coverage Analysis
 
@@ -163,6 +191,12 @@ Business: default values, upstream/downstream cascade, historical data compat.
 
 - All TC test data = concrete values (not "a valid value")
 - All expected results = verifiable (not "shows success")
+- All expected results = an **independent** source of truth — a literal, a worked example, or the
+  spec's `##### Example:` values — never a value re-computed the way the code would compute it
+  (`expected = sum(prices)` for a total is tautological: it passes by construction)
+- Every TC's `Seam` = a name from the Test Seams table
+- No TC mocks this repo's own modules — mocks only at external boundaries (third-party APIs,
+  time, randomness, sometimes the filesystem or DB); needing more means the seam is too low
 - All steps = specific enough for a newcomer to follow
 - Each TC marked with the technique used
 

@@ -9,7 +9,10 @@ Exit codes:
   0 — testplan.md missing on a change whose proposal.md `type:` does not require one
       (eng / ops / bug / poc / docs); printed as [WARN] and the TC check is skipped
   1 — MUST findings (missing spec: trace on test that targets a TC) — blocks merge
-  1 — SHOULD findings only (coverage gap; printed as [WARN]; document reason before deferring)
+  1 — SHOULD findings only (coverage gap, or a TC mapped to an empty / undeclared / conflicting
+      Test Seam, or TCs carrying a Seam column with no recognised declaration; printed as [WARN];
+      document reason before deferring). A plan with neither a Test Seams table nor a Seam
+      column is INFO only, so plans written before Check 4 existed are not retroactively flagged.
   2 — fatal error: change directory not found, testplan.md missing on a feat / refactor change
       (or one whose `type:` cannot be read), testplan contains no TC
       table, a `gh` / `git` invocation failed (binary not found, timed out, or non-zero),
@@ -90,6 +93,7 @@ class PRFileChange:
 
 _TABLE_ROW_RE = re.compile(r"^\|(.+)\|$")
 _SEPARATOR_RE = re.compile(r"^\|[-:\s|]+\|$")
+_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 # Markdown escapes a literal pipe inside a cell as `\|`. Splitting on a bare "|"
 # injects a phantom cell and shifts every column to its right, so a slug read from
@@ -170,13 +174,26 @@ def _iter_table_headers(lines: list[str]) -> Iterator[tuple[int, list[str]]]:
     contains example tables; reading those as real ones puts example TC-IDs and slugs
     into the blocking check, which then demands a `spec:` trace for a test whose name
     happens to match an illustration.
+
+    Fences follow CommonMark's character and length rules: ``` and ~~~ both open one, and
+    only a bare run of the SAME character at least as long as the opener closes it. A plain
+    ```-toggle read a `~~~` example table as real (so its example seams became declared) and
+    let an inner ``` close an outer ````. NOT modelled: the 0-3 space indent limit, and a
+    backtick info string that itself contains a backtick (which CommonMark reads as inline
+    code) -- both still open a fence here and hide the tables after it.
     """
-    in_fence = False
+    fence: str | None = None
     for i, line in enumerate(lines):
-        if line.strip().startswith("```"):
-            in_fence = not in_fence
-            continue
-        if in_fence:
+        m = _FENCE_RE.match(line)
+        if m:
+            marker = m.group(1)
+            if fence is None:
+                fence = marker
+                continue
+            if marker[0] == fence[0] and len(marker) >= len(fence) and line.strip() == marker:
+                fence = None
+                continue
+        if fence is not None:
             continue
         if _header_cells(line) is None:
             continue
@@ -295,6 +312,66 @@ def parse_tc_table(
             if conflicts_out is not None:
                 conflicts_out.append((tc_id, prev.slug, slug))
     return [by_tc_id[t] for t in order]
+
+
+# Test Seams (Check 4). A seam is the public boundary a test observes behaviour at; the idea is
+# mattpocock/skills' "test only at pre-agreed seams". Tables are told apart the same structural
+# way as above: a DECLARATION table has an exactly-`Seam` column, an exactly-`Public interface`
+# column and no ID column; a TC table that carries a `Seam` column only REFERENCES a seam per TC.
+# Requiring `Public interface` is what keeps a traceability summary such as `| Seam | TC-IDs |`
+# from silently declaring every seam it lists -- including the undeclared one under review.
+_SEAM_COL_RE = re.compile(r"^\s*seam\s*$", re.IGNORECASE)
+_PUBLIC_IFACE_COL_RE = re.compile(r"^\s*public\s+interface\s*$", re.IGNORECASE)
+
+
+def _norm_seam(cell: str) -> str:
+    return cell.strip().strip("`").strip().lower()
+
+
+def parse_seams(testplan_text: str) -> list[str]:
+    """Return the seam names declared in the plan's seam table(s), in order, de-duplicated."""
+    lines = testplan_text.splitlines()
+    seams: list[str] = []
+    for i, header_cells in _iter_table_headers(lines):
+        seam_col = _find_col(header_cells, _SEAM_COL_RE)
+        if (
+            seam_col is None
+            or _find_col(header_cells, _PUBLIC_IFACE_COL_RE) is None
+            or _find_col(header_cells, _TC_ID_COL_RE) is not None
+        ):
+            continue
+        for cells in _parse_table_rows(lines, i):
+            if len(cells) > seam_col:
+                name = _norm_seam(cells[seam_col])
+                if name and name not in seams:
+                    seams.append(name)
+    return seams
+
+
+def parse_tc_seams(testplan_text: str) -> dict[str, list[str]]:
+    """Map TC-ID -> every seam cell it carries, across ALL TC tables that have a `Seam` column.
+
+    A TC absent from the result sits only in tables with no Seam column (unmapped); a TC whose
+    list holds only "" has the column but no value. Every occurrence is kept, in document order:
+    real plans restate a TC across tables, and keeping only the first one let an undeclared seam
+    in a later table go unreported (and an empty overview cell outvote a real seam). A row that
+    stops before its Seam cell renders as an empty cell, so it records "" rather than vanishing.
+    """
+    lines = testplan_text.splitlines()
+    out: dict[str, list[str]] = {}
+    for i, header_cells in _iter_table_headers(lines):
+        tc_col = _find_col(header_cells, _TC_ID_COL_RE)
+        seam_col = _find_col(header_cells, _SEAM_COL_RE)
+        if tc_col is None or seam_col is None or _coverage_cols(header_cells) is not None:
+            continue
+        for cells in _parse_table_rows(lines, i):
+            if len(cells) <= tc_col:
+                continue
+            m = _TC_ID_RE.search(cells[tc_col])
+            if m:
+                seam = _norm_seam(cells[seam_col]) if len(cells) > seam_col else ""
+                out.setdefault(m.group(0), []).append(seam)
+    return out
 
 
 def parse_coverage_table(testplan_text: str) -> list[CoverageRow]:
@@ -702,9 +779,13 @@ def analyze(
     coverage_rows: list[CoverageRow],
     test_functions: list[TestFunction],
     slug_conflicts: list[tuple[str, str, str]] | None = None,
+    seams: list[str] | None = None,
+    tc_seams: dict[str, list[str]] | None = None,
 ) -> Findings:
     findings = Findings()
     slug_conflicts = slug_conflicts or []
+    seams = seams or []
+    tc_seams = tc_seams or {}
 
     # Build slug → TC-ID map
     slug_to_tc: dict[str, str] = {}
@@ -776,6 +857,55 @@ def analyze(
             f"{slugless}/{len(tc_rows)} TCs have no Scenario Slug; Check 2 cannot match"
             f" tests to them by name, so their traceability is UNVERIFIED (not clean)."
         )
+
+    # Check 4 (SHOULD / INFO): Test Seams. Severity mirrors the slugless INFO above: a plan that
+    # declares no seams is describing its SHAPE (every plan written before this check existed has
+    # none), so it gets INFO -- a SHOULD would flag every older change regardless of quality.
+    # Only a plan that declares seams and then maps a TC to an undeclared or empty seam is wrong.
+    # "No declaration" must still be split in two: a plan whose TC tables carry NO Seam column is
+    # an older plan (INFO), but one whose TC tables DO carry it opted into seams -- if its
+    # declaration table is empty or was not recognised (header variant, an extra ID column), the
+    # INFO branch would silently waive every TC mapping, so that is a SHOULD.
+    declared = {_norm_seam(s) for s in seams}
+    if not declared:
+        if tc_seams:
+            findings.should.append(
+                f"{len(tc_seams)} TC(s) carry a Seam column, but no Test Seams declaration was"
+                " recognised (needs a table with `Seam` and `Public interface` columns, no ID"
+                " column, and at least one seam); their seams are unchecked"
+            )
+        else:
+            findings.info.append(
+                "testplan declares no Test Seams table; whether tests sit at agreed public"
+                " interfaces is UNVERIFIED (not clean)."
+            )
+    else:
+        for tc in tc_rows:
+            if tc.tc_id not in tc_seams:
+                continue
+            named = list(dict.fromkeys(s for s in tc_seams[tc.tc_id] if s))
+            if not named:
+                findings.should.append(
+                    f"{tc.tc_id} has an empty Seam cell; map it to a declared seam"
+                )
+                continue
+            for seam in named:
+                if seam not in declared:
+                    findings.should.append(
+                        f"{tc.tc_id} is mapped to seam '{seam}', which the Test Seams table does"
+                        f" not declare (declared: {', '.join(sorted(declared))})"
+                    )
+            if len(named) > 1:
+                findings.should.append(
+                    f"{tc.tc_id} is mapped to different seams across tables"
+                    f" ({', '.join(named)}); one TC tests at one seam"
+                )
+        unmapped = sum(1 for tc in tc_rows if tc.tc_id not in tc_seams)
+        if unmapped:
+            findings.info.append(
+                f"{unmapped}/{len(tc_rows)} TCs sit in tables with no Seam column; their seam is"
+                f" UNVERIFIED (add a `Seam` column to map them)."
+            )
 
     # Info: coverage map summary
     total_tcs = len(tc_rows)
@@ -1086,7 +1216,14 @@ def main() -> None:
     print(f"[OK]   found {len(test_functions)} new test function(s) in PR diff")
 
     # Step 5 — analyze
-    findings = analyze(tc_rows, coverage_rows, test_functions, slug_conflicts=slug_conflicts)
+    findings = analyze(
+        tc_rows,
+        coverage_rows,
+        test_functions,
+        slug_conflicts=slug_conflicts,
+        seams=parse_seams(testplan_text),
+        tc_seams=parse_tc_seams(testplan_text),
+    )
 
     # Step 6 — report
     print()
