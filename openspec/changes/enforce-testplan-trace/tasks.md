@@ -22,7 +22,7 @@
 
 ## 4. 生成端
 
-- [ ] 4.1 讓「Testplan generation follows the single TC-ID convention and writes the file directly」成立：TC-ID 格式以 test-convention 為唯一 owner（qa-test-designer 改用 Convention Detection 選出的約定，Technique 只放 Technique 欄）；qa-test-designer 直接寫 testplan 檔（增加 Write tool，產出 `trace: enforced`、Kind 欄、Manual Verification 區段，只回傳摘要）；同步更新 testplan 模板與 spectra-amplifier Step 2a／2b／2c；驗證：以模板本身跑 checker `--report` 可解析且 exit 0，並以 grep 確認 qa-test-designer.md 不再出現 `[CAP-ABBREV]-[TECHNIQUE-ABBREV]`
+- [x] 4.1 讓「Testplan generation follows the single TC-ID convention and writes the file directly」成立：TC-ID 格式以 test-convention 為唯一 owner（qa-test-designer 改用 Convention Detection 選出的約定，Technique 只放 Technique 欄）；qa-test-designer 直接寫 testplan 檔（增加 Write tool，產出 `trace: enforced`、Kind 欄、Manual Verification 區段，只回傳摘要）；同步更新 testplan 模板與 spectra-amplifier Step 2a／2b／2c；驗證：以模板本身跑 checker `--report` 可解析且 exit 0，並以 grep 確認 qa-test-designer.md 不再出現 `[CAP-ABBREV]-[TECHNIQUE-ABBREV]`
 - [ ] 4.2 讓「Generated tasks put a failing bound test first」成立：tasks.md 產生 red-first 測試任務（每個 US 的第一個任務列出該 US 的 auto TC-ID）；更新 tasks 模板與 spectra-amplifier 的 tasks.md 格式段；驗證：內容 review 確認模板每個 US 區塊第一項為綁定 tc 的失敗測試任務，且與 PR #469 的 red-first gate 用語一致
 - [x] 4.3 修正 spectra-amplifier SKILL.md 完工標準中「testplan.md 所有 TC 均有對應測試（check_spec_coverage.py 驗證）」的不實宣稱，改為指向 `check_testplan_trace.py --strict`；更新 bdd-trace-convention.md 與 plugins/sdd/scripts/README.md 說明 tc 行與 checker 用法、以及 host 專案的手動接線步驟；驗證：以 grep 確認 SKILL.md 不再宣稱 check_spec_coverage.py 驗證 TC，且 README 範例指令實際執行成功
 

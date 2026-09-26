@@ -43,7 +43,7 @@ claude plugin install sdd@yibi-stack
 |-----------|-------------|
 | `spectra-amplifier` skill | Wave D Plugin Edition：Step 0-5 規格展開，含 BDD Gherkin scenarios（多 capability 平行展開）、qa-test-design dispatch、docstring trace |
 | `figma-design-sync` skill | Figma 設計擷取（extract）與增量同步（sync）：把設計上下文落地到 `openspec/changes/<name>/design/`（文字進 git、截圖留本地），供 amplifier Step 1a 引用；schema 與模板詳見 `skills/figma-design-sync/manifest-schema.md`、`skills/figma-design-sync/design-context-template.md` |
-| `qa-test-designer` agent | Step 2a 自動 subagent：由 spectra-amplifier 平行 dispatch，model: opus，pure-transformation TC 生成 |
+| `qa-test-designer` agent | Step 2a 自動 subagent：由 spectra-amplifier dispatch，model: opus，直接寫出 testplan.md（`trace: enforced`、Kind 欄、Manual Verification），只回傳摘要 |
 | `gherkin-scenario-writer` agent | Step 1c 平行 subagent：為單一 capability 撰寫 Gherkin scenarios（RFC 2119 GIVEN/WHEN/THEN）；多 capability 時由 spectra-amplifier 平行 dispatch |
 | `scripts/check_spec_coverage.py` | BDD Spec-Test Traceability Scanner（ADR-0008）；`--specs-dir`/`--tests-dir` 參數化 |
 | SessionStart hook | Detects whether `spectra` CLI is in PATH; injects a nudge when absent (silent when present) |
