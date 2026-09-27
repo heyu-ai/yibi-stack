@@ -40,7 +40,7 @@ claude plugin install harness@yibi-stack
 | `bash-hygiene-audit` skill | 管理 hook audit log：啟用／停用記錄、查看攔截事件、統計違規比例與熱點 pattern |
 | `bash-anti-patterns` skill | Full methodology guide for AP1/AP2/AP3 detection and shell quoting hygiene |
 | `protect-push` skill | Git pre-push hook installer: blocks direct push to main/master from worktree branches |
-| `plugin-migration-check` skill | Detects installed yibi-stack packs that were renamed/merged/split/removed and prints the exact `claude plugin uninstall`/`install` commands to fix them |
+| `plugin-migration-check` skill | Detects installed yibi-stack packs that were renamed/merged/split/removed and prints the exact `claude plugin uninstall`/`install` commands to fix them; also notes skills removed from a still-installed pack (with the replacement) and dangling skill symlinks |
 | `plugin-cache-prune` skill | Scans `~/.claude/plugins/cache/` across all marketplaces for stale plugin version directories no longer referenced by `installed_plugins.json`, and removes them on request |
 | `fleet-usage-guard` skill | Estimates recent fleet-wide transcript cost in USD/hour, deduplicates repeated request rows, and broadcasts a reason-specific stop when the user-owned threshold is exceeded |
 | AP1 PreToolUse hook | Blocks `python -c` multi-line, `osascript` heredoc, `grep "\|"` BRE, nested `$(outer "$(inner)")`, `$(jq '...')` subshell |

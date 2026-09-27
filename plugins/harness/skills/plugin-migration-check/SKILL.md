@@ -20,6 +20,15 @@ Claude Code 的 plugin 系統沒有 pack 改名／合併／拆分的遷移機制
 這個 skill 讀取本機安裝清單，比對本 repo 已知的遷移歷史，把「哪個舊 pack 對應到哪個
 新 pack」翻譯成可以直接複製貼上的指令。
 
+另一種情況是 **pack 還在，但裡面的某支 skill 被刪了**（例如 1.23.0 從 `methodology`
+刪掉 `tdd-kentbeck`、`flutter-tdd`）。pack 層級的比對看不到這種變化，所以另外檢查兩件事：
+
+- **`[notice]`**：裝了曾經收容被刪 skill 的 pack，就說明哪支 skill 被刪了、原本該用什麼替代。
+  這只是資訊，不計入待處理數量
+- **`[stale-link]`**：`~/.claude/skills/`、`~/.agents/skills/` 底下指向已刪除目錄的 symlink
+  （`make install` 留下的殘留）。這需要使用者動手清，計入待處理數量；沒裝任何 plugin、
+  只用 `make install` 的使用者也會被檢查到
+
 ## 用法
 
 ```bash
@@ -41,8 +50,14 @@ plugin 自己的 cache 目錄下，直接呼叫本檔同目錄的 `scripts/check
 [removed] <RETIRED_PACK>@yibi-stack（目前安裝版本 X.Y.Z）已移除，無替代方案：
     claude plugin uninstall <RETIRED_PACK>@yibi-stack
 
+[stale-link] /Users/<you>/.claude/skills/<REMOVED_SKILL> 指向已刪除的 skill，建議移除這個 symlink：
+    rm /Users/<you>/.claude/skills/<REMOVED_SKILL>
+
+[notice] <REMOVED_SKILL>（你裝了 <PACK>）已於 <PACK> X.Y.Z 移除。
+    替代做法：<說明>
+
 === 摘要 ===
-2 個孤兒安裝需要處理，3 個正常
+3 個孤兒安裝需要處理，3 個正常
 ```
 
 **不會自動執行任何 `claude plugin` 指令**——只印出建議，交由使用者自行決定並執行。
@@ -53,10 +68,11 @@ plugin 自己的 cache 目錄下，直接呼叫本檔同目錄的 `scripts/check
   已經被完全清除（不留痕跡），這個工具無法回推「使用者曾經裝過它」，因此也無法建議
   對應的新 pack。這是本工具唯一的資料來源限制——它讀的是「現在還看得到什麼」，不是
   「歷史上裝過什麼」。
-- **遷移歷史（`MIGRATION_MAP`）是手動維護的常數**，不會自動從 git history 推導。每次
-  本 repo 的 pack 進行 rename / split / merge / delete，都必須同步更新
-  `scripts/check_migration.py` 裡的 `MIGRATION_MAP` 與 `CURRENT_PACKS_FALLBACK`，
-  否則這個工具本身也會對新的遷移視而不見。
+- **遷移歷史（`MIGRATION_MAP`、`REMOVED_SKILLS`）是手動維護的常數**，不會自動從 git history
+  推導。每次本 repo 的 pack 進行 rename / split / merge / delete，都必須同步更新
+  `scripts/check_migration.py` 裡的 `MIGRATION_MAP` 與 `CURRENT_PACKS_FALLBACK`；從某個 pack
+  **刪除 skill** 時，則要在 `REMOVED_SKILLS` 登記 skill 名稱、所屬 pack、移除版本、曾收容它的
+  pack 與替代做法。否則這個工具本身也會對新的遷移視而不見。
 - **只檢查 pack 層級的存在性，不驗證 hook 是否仍在生效**。例如 `bash-hygiene` 併入
   `harness` 之後，即使成功改裝 `harness@yibi-stack`，仍建議依 `plugins/harness/README.md`
   的 Upgrade note 額外跑一次「故意違反 AP2，確認被擋下」的正向對照，才算真的裝好。
