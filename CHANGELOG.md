@@ -7,12 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.23.1] - 2026-09-26
 
+### TDD 方法改變（1.23.0 + 1.23.1）與待觀察指標
+
+這兩版把 TDD 從「知識型 skill」改成「PR 流程裡的機械檢查」：
+
+- **之前**：`tdd-kentbeck`、`flutter-tdd` 兩支 skill 用散文教 Red→Green→Refactor，靠 agent 自己決定要不要用
+- **之後**：兩支 skill 刪除；`pr-cycle-deep` Step 1.7、`pr-cycle-fast` 3.0b 在 review 之前執行 repo 提供的 `scripts/red-first-check.py`：把產品碼退回 merge-base、保留 PR 的測試，`feat`／`fix` 的測試必須轉紅，`refactor`／`perf` 必須仍綠。repo 沒有 checker 時記 `[SKIP]`，**不會生效**（yibi-stack 本身目前就沒有；參考實作在 heyu-ai/yibi-mvp#2017）
+
+改變的理由與基準值（yibi-mvp transcript，2026-08-25 ~ 09-25，789 個 session）：三支 TDD skill 被呼叫 **0 次**；158 個有改程式碼的 session 只有 **12 個（7.6%）** 是先寫測試。
+
+這個改變**還沒有被證明有效**。建議在 **2026-10-27** 用同一套方法、同樣長度的期間重新量測，看兩件事是否改善：
+
+**1. 開發正確性**
+
+| 指標 | 基準 | 怎麼量 |
+| --- | --- | --- |
+| 先寫測試的 session 比例 | 12 / 158（7.6%） | 用同一套 transcript 分析重跑 |
+| red-first 判定分布 | 無（新指標） | 統計 `pre-review-check.md` 與 PR 上 `<!-- red-first:` comment 的 PASS／FAIL／SKIP／EXEMPT／WEAK-RED 次數。FAIL 代表 gate 攔下了「測試抓不到改動」的 PR；SKIP 太多代表 gate 沒在作用 |
+| 合併後的修正 PR | 待取基準 | 統計 merge 後 30 天內因同一功能回頭修 bug 的 `fix:` PR 數，與改變前同期比較 |
+| review 輪數 | 待取基準 | pr-cycle-deep 每個 PR 走到 Round 2 的比例；gate 若在 R1 前攔下假測試，這個比例應該下降 |
+
+**2. token 消耗**（以下是位元組數實測，不是 token 實測；只計 #469 與 #481 兩個 commit 自己的增量，不含同期 #470、#471 的改動）
+
+| 項目 | 變化 | 影響範圍 |
+| --- | --- | --- |
+| skill 清單裡的 description | −1,053 字元（tdd-kentbeck 660 + flutter-tdd 393） | 裝了 methodology plugin 的**每個** session |
+| `pr-cycle-deep/SKILL.md` | +2,581 bytes（+3.6%，以 #469 前的 71,945 為基準） | 每次呼叫 `/pr-cycle-deep` |
+| `pr-cycle-fast/SKILL.md` | +3,584 bytes（+22.8%，以 #469 前的 15,741 為基準） | 每次呼叫 `/pr-cycle-fast` |
+| red-first checker 的輸出 | 依 repo 而定（會跑兩次測試） | 有 checker 的 repo，每個 PR 一次 |
+| 修正輪數 | 若 gate 讓 review 少一輪，可省下整輪 mob review | 待量測 |
+
+淨效果要看兩邊的比例：一般 session 每次省一點；PR 流程每次多一點，但如果因此少一輪 fix + re-review，省下的會遠大於多出來的。量測時請用 retrospective 記錄的 token 用量（`token_input_tokens`、`token_output_tokens`、`token_total_cost_usd`，需在寫 retro 時加 `--auto-tokens` 才會填入；`token_usage_source` 標示資料來源），比較改變前後 pr-cycle session 的平均值，並分開看「有 checker」和「`[SKIP]`」的 repo。同期的 #471 另外降低了 pr-cycle-deep 的 token 成本，比較時要把它的效果分開。
+
 ### Fixed
 
 - pr-cycle-deep／pr-cycle-fast：red-first gate 照字面執行時會靜默失效。1.23.0 的 runbook 要 agent 分多個 Bash call，並用 shell 變數（`PR_TITLE`、`WT_ROOT`、`BASE_REMOTE`）在 call 之間傳值，但 Bash tool 不保留變數：checker 路徑變成 `/scripts/red-first-check.py` 而誤判 `[SKIP] no checker`，或收到空的 `--title`。PR #469 mob review Round 2 由 Claude 與 Codex 4 個來源獨立指出，且 lead 已復現
 - 改為共用的 `scripts/red-first.sh` 單一呼叫：fetch base（有 upstream 先用 upstream）、PR 標題只經變數傳入（`${N}`、反引號不會被展開或執行）、執行前後檢查工作區，並收斂成 0 繼續／1 判定失敗／2 前提或工具錯誤（含 traceback）／3 工作區沒還原四個具名 exit code；未預期的指令失敗（例如 base 與 PR 沒有共同祖先）由 `ERR` trap 收斂成 2，不會以 1 被誤讀成判定失敗；PR 自己改了 checker 時印 `[WARN]`
 - pr-cycle-fast：有 checker 時一律把輸出貼成帶 head SHA 標記的 PR comment（貼失敗就 `BLOCKED`），Step 6 只讀最新一則；BLOCKED／REVIEWING reason 改用腳本輸出的固定 token，resume 時看得出失敗原因
-- `test_convergence_contract.py` 的錨點改為守指令本身與只出現一次的句子；新增 `test_red_first_sh.py`（17 個案例，7 個單點 mutation 全數被抓到）
+- `test_convergence_contract.py` 的錨點改為守指令本身與只出現一次的句子；新增 `test_red_first_sh.py`（18 個案例，7 個單點 mutation 全數被抓到）
 
 ## [1.23.0] - 2026-09-26
 
