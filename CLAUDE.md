@@ -63,7 +63,7 @@ Agentic skill stack for Claude Code — bash hygiene, Spectra/OpenSpec methodolo
 
 ## 編碼慣例
 
-詳細規範在 `.claude/rules/`（14 個檔案：01-11、13、15、16）。載入時機由 frontmatter 決定：
+詳細規範在 `.claude/rules/`（15 個檔案：01-11、13、15、16、17）。載入時機由 frontmatter 決定：
 **frontmatter 內有 `paths:` key 者，只在工具碰到匹配路徑時載入；沒有 `paths:` key 者（包含
 完全沒有 frontmatter、以及有 frontmatter 但只寫了別的 key）每個 session 全量載入**。
 glob 非錨定，在任意路徑深度匹配。
@@ -87,6 +87,8 @@ glob 非錨定，在任意路徑深度匹配。
 - **`tasks/**/tests/**`**（09）：測試命名與結構化 Test ID
 - **`tasks/**/parsers/**`**（10）：abstract base + registry pattern
 - **`skills/**`**（11）：SKILL.md 格式與撰寫規範（非錨定，`plugins/*/skills/**` 亦匹配）
+- **`**/*.sh`、`scripts/**`、`.claude/hooks/**`、`Makefile`、CI 設定**（17）：寫 shell script／hook／gate
+  才需要的細節（exit code 判讀、自我定位、`trap`、stderr 診斷、Quoting Rule 6-7 等），自 rule 13 拆出
 
 ## 外來 Skill 管理
 
@@ -109,7 +111,7 @@ claude.ai 帳號的 skill/plugin 自動同步（2.1.275 起預設開啟）**已�
 
 - 共用路徑常數：@tasks/_paths.py
 - Bash lint 工具：@scripts/lint_skill_bash.py
-- 編碼慣例總覽：@.claude/rules/（14 個檔案；01-03/13/15/16 全量載入，04-11 依 `paths:` 觸發）
+- 編碼慣例總覽：@.claude/rules/（15 個檔案；01-03/13/15/16 全量載入，04-11、17 依 `paths:` 觸發）
 
 ## Dev 指令
 
@@ -151,7 +153,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
 
 - **suspect a hook/skill/rule is interfering → `claude --safe-mode` first**: this repo carries
   many hooks and rules (protect-push, bash-ap2-check, bash-ap1-inline-check, protect-worktree,
-  pre-commit, plus 14 rule files). When something behaves unexpectedly and you suspect the
+  pre-commit, plus 15 rule files). When something behaves unexpectedly and you suspect the
   customization layer, launch `claude --safe-mode` (or set `CLAUDE_CODE_SAFE_MODE=1`): it
   disables all CLAUDE.md / skills / plugins / hooks / MCP / custom commands & agents, while
   authentication, model, built-in tools, and permissions still work. If the problem disappears
@@ -185,7 +187,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   and the Edit-tool escape.
 - **`Path.rglob()` does not follow symlinks** — see rule 02 for fix.
 - **`Path.glob("*/x/*")` doesn't cross `/` like regex `.*` does** — see rule 02 for fix.
-- **bootstrap script `[SKIP]` should be `[WARN]` for missing prerequisites** — see rule 13 for fix.
+- **bootstrap script `[SKIP]` should be `[WARN]` for missing prerequisites** — see rule 17 for fix.
 - **agy auth detection uses `onboardingComplete`, not `installation_id`**:
   `~/.gemini/antigravity-cli/installation_id` exists before OAuth completes (false positive).
   Check `~/.gemini/antigravity-cli/cache/onboarding.json` for `onboardingComplete: true` instead.

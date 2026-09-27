@@ -11,6 +11,7 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 - AC-6 刪除前重新確認：PCP-DT-007 / PCP-DT-008
 - 破壞半徑不得超出 cache root（symlink）：PCP-DT-009 / PCP-DT-014 / PCP-DT-015 / PCP-DT-016
 - 每個被排除項目都要帶原因回報，不得靜默丟棄：PCP-DT-017
+- cache root 下非 marketplace 的目錄（如 `temp_git_*/.git`）不得被當成三層結構刪除：PCP-DT-022
 - 安裝中的目錄不得被刪（時間門檻，AC-6 的補強）：PCP-DT-018 / PCP-DT-019 / PCP-DT-020 / PCP-DT-021
 - 刪除失敗不得中斷整批且不得謊報：PCP-EG-005 / PCP-EG-006
 - CLI 介面必須拒絕未知旗標（AC-1 安全預設的一部分）：PCP-EG-007
@@ -393,6 +394,34 @@ class TestSymlinkContainment:
 
         assert (stray, "非目錄，不列入版本目錄候選") in skipped
         assert stale == []
+
+    def test_pcp_dt_022_non_marketplace_dir_in_cache_root_is_not_gutted(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PCP-DT-022: cache root 下沒有任何釘選版本的目錄不當成 marketplace 掃描。
+
+        實際形狀：Claude Code 抓 marketplace 失敗後留下的 `temp_git_<ts>_<id>/.git/`。
+        舊版把它當成 marketplace、`.git` 當成 plugin，於是把 `objects`／`refs`／`hooks`
+        列為「版本目錄」刪掉，留下殘缺的 `.git` 空殼。
+        """
+        cache_root = tmp_path / "cache"
+        active = _make_version_dir(cache_root, "yibi-stack", "pr-flow", "1.15.2")
+        stale = _make_version_dir(cache_root, "yibi-stack", "pr-flow", "1.14.0")
+        temp_git = cache_root / "temp_git_1790473054675_8rpo82"
+        git_objects = _make_version_dir(cache_root, temp_git.name, ".git", "objects")
+        git_refs = _make_version_dir(cache_root, temp_git.name, ".git", "refs")
+        _backdate(temp_git, 3600)
+        _write_installed(tmp_path, [str(active)])
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            rc = prune_plugin_cache.prune(cache_root, dry_run=False)
+
+        captured = capsys.readouterr()
+        assert rc == 0
+        assert not stale.exists(), "正常 marketplace 的孤兒版本仍須被回收（正向對照）"
+        assert git_objects.exists() and git_refs.exists(), "非 marketplace 目錄的內容不得被刪"
+        assert str(git_objects) not in captured.out
+        assert f"[SKIP] {temp_git} -- " in captured.err, "被排除的目錄必須帶原因回報"
 
     def test_pcp_dt_016_is_within_predicate_bounds_the_blast_radius(self, tmp_path: Path) -> None:
         """PCP-DT-016: `_is_within` 述詞本身的雙向驗證（belt-and-braces 防線的單元測試）。"""

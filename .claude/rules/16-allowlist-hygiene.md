@@ -112,7 +112,7 @@ Bash(git *)  Bash(npm *)  Bash(rm *)  Bash(curl *)
 Covers all subcommands. `Bash(git *)` includes `commit`, `push`, `reset --hard`, `filter-branch`.
 
 **Fix**: per-verb read-only patterns with no write flag — `Bash(git status:*)`, `Bash(git rev-parse:*)`.
-`rm` and `curl` must never be allow-listed (see Red Flag 4).
+`rm` and `curl` must never be allow-listed (see Red Flag 4); nor `rg *` (`--pre=<cmd>` executes a command).
 
 ### Red Flag 3: Variable Expansion or Variable Assignment Prefix
 

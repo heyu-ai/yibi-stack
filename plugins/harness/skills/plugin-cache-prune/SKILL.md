@@ -76,6 +76,11 @@ dry-run（預設）：
   非零退出碼結束（同一份壞掉的清單，不該因為壞在初次載入還是刪除當下而給出相反答案）。
 - **不跟隨 symlink**。marketplace／plugin／version 三層皆拒絕 symlink，並斷言每個刪除
   候選解析後仍位於 cache root 內，避免刪到 cache 之外的真實目錄；被排除者以 `[SKIP]` 回報。
+- **只掃描有釘選版本的 marketplace 目錄**。cache root 第一層只有「至少一個 `installPath`
+  落在其下」的目錄才套用 `<marketplace>/<plugin>/<version>` 三層結構。實測 cache root 下
+  會出現 Claude Code 抓 marketplace 失敗後留下的 `temp_git_<ts>_<id>/.git/`；舊版把它當成
+  marketplace，把 `.git/objects`、`.git/refs` 當成版本目錄刪除，留下殘缺的 `.git` 空殼。
+  代價是全部 plugin 都已解除安裝的 marketplace 不會被回收，同樣以 `[SKIP]` 回報。
 - **近期有異動的目錄一律不碰，且時間在刪除當下重新量測**。安裝流程會先建立並填充版本
   目錄、之後才把 `installPath` 寫進 `installed_plugins.json`；在那段窗口內該目錄在
   **任何一次 manifest 重讀**下都長得像孤兒。因此加一道時間門檻：mtime 在 300 秒內的
@@ -108,6 +113,7 @@ dry-run（預設）：
 | `[FAIL] ... 有一筆安裝缺少 installPath` | 該筆安裝無法確認釘選哪個目錄，工具中止以免誤刪。先 `claude plugin update` 或重裝該 plugin 讓清單完整，再重跑 |
 | `[SKIP] ... symlink，不跟隨以免刪到 cache root 之外` | cache 內有 symlink（例如本機 plugin 開發把 checkout 連進來）。工具刻意不跟隨，以免刪到 cache 之外的真實目錄；該目錄需自行處理 |
 | `[SKIP] ... 可能是安裝中的目錄` / `[SKIP] ... 刪除前重新確認時發現近期異動` | 該目錄 mtime 在 300 秒內。可能正好有 `claude plugin install/update`（含背景 autoUpdate）在寫入它。等幾分鐘後重跑即可；若確定沒有安裝在跑，該目錄下次執行就會被回收 |
+| `[SKIP] ... 沒有任何 installPath 落在此目錄下，不視為 marketplace` | 該目錄不是任何已安裝 plugin 的來源。常見兩種：`temp_git_*`（marketplace 抓取失敗的暫存 clone，確認沒有 `claude plugin install/update` 在跑後可整個手動刪除），或所有 plugin 都已解除安裝的 marketplace（確認不再使用後可整個手動刪除） |
 | `[SKIP] ... 非目錄，不列入版本目錄候選` | cache 樹裡有雜項檔案（macOS 的 `.DS_Store` 最常見）。工具只處理目錄，回報後略過；不需處理，也可自行刪除該檔 |
 | `[SKIP] ... 解析後位於 cache root 之外` | 該候選解析後不在 cache root 內。這是 symlink 拒絕之外的第二道邊界防線，正常情況不會出現；若出現代表 cache 結構被外部改動過，請人工檢查 |
 | `[FAIL] ... mtime 在未來` | 該目錄的時間戳晚於現在（備份還原、`cp -p`、時鐘校正皆會造成）。時間門檻無法判斷它是否安裝中，工具拒絕刪除並以非零退出碼提示。用 `touch` 修正時間戳後重跑即可 |
