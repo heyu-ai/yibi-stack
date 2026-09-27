@@ -17,6 +17,8 @@ scope 各一筆），每筆帶自己的 `installPath`；未被任何一筆參照
   若當下讀不到清單，同樣跳過該筆而非依舊快照刪除。
 - **不跟隨 symlink**：marketplace／plugin／version 三層皆拒絕 symlink，並斷言每個刪除
   候選解析後仍位於 cache root 內，避免刪到 cache 之外的真實目錄。
+- **只掃描有釘選版本的 marketplace**：cache root 下沒有任何 `installPath` 落在其內的
+  目錄（例如抓取失敗留下的 `temp_git_*/.git/`）不套用三層結構，以 [SKIP] 回報。
 
 不會在沒有 --apply 的情況下刪除任何檔案。
 """
@@ -126,6 +128,19 @@ def _find_stale_dirs(
     root_resolved = cache_root.resolve()
     now = time.time()
 
+    # 只有「至少有一個 installPath 落在其下」的第一層目錄才算 marketplace。
+    # cache root 底下還會出現別的東西——實測有 Claude Code 抓 marketplace 失敗後留下的
+    # `temp_git_<ts>_<id>/.git/`；若照三層結構硬套，`.git` 會被當成 plugin、
+    # `objects`／`refs` 被當成版本目錄刪掉，留下殘缺的 `.git` 空殼。
+    # 從 installPath 反推而非讀 manifest 鍵名，是因為這裡要判斷的是「哪個磁碟目錄」，
+    # 鍵名只給 marketplace 名稱、不保證等於目錄名。代價是全部 plugin 都解除安裝的
+    # marketplace 不會被回收——方向是「不刪」，且會以 [SKIP] 回報。
+    known_marketplaces: set[str] = set()
+    for active in active_paths:
+        active_path = Path(active)
+        if _is_within(active_path, root_resolved) and active_path != root_resolved:
+            known_marketplaces.add(active_path.relative_to(root_resolved).parts[0])
+
     def _walk(parent: Path) -> list[Path]:
         children: list[Path] = []
         for child in sorted(parent.iterdir()):
@@ -139,6 +154,11 @@ def _find_stale_dirs(
         return children
 
     for marketplace_dir in _walk(cache_root):
+        if marketplace_dir.name not in known_marketplaces:
+            skipped.append(
+                (marketplace_dir, "沒有任何 installPath 落在此目錄下，不視為 marketplace")
+            )
+            continue
         for plugin_dir in _walk(marketplace_dir):
             for version_dir in _walk(plugin_dir):
                 resolved = version_dir.resolve()
