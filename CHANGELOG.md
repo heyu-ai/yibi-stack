@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - sdd：`spectra-amplifier` 完工標準原本宣稱「testplan.md 所有 TC 均有對應測試（check_spec_coverage.py 驗證）」，但該工具不讀 testplan；改為指向 `check_testplan_trace.py --strict`。tasks 範例的 `pytest -k "<TC-ID>"` 驗收指令比對的是測試名稱而非 docstring，改用 trace checker（#474）
 
+## [1.23.3] - 2026-09-27
+
+### Fixed
+
+- pr-cycle-deep：`pre_review_check.py` 崩潰不再被當成「有 finding、繼續」。Python 對未捕捉例外也是 exit 1，實測子程序吐非 UTF-8 位元組時就會發生；現在子程序輸出以 `errors="replace"` 解碼、amplifier exit 1 須有 `[MUST]`／`[SHOULD]` 行才算 finding，其餘與任何內部例外都 exit 2（PR #471 mob review）
+- pr-cycle-deep：`--resume` 不再越過尚未裁決的 Disputed，`state.md` 的 `head:` 與 PR 實際 head 不符時 `[FAIL]`；Step 6 由 lead 決定 CI 指令，並驗證工作區乾淨、有新 commit、push 真的落地，CI log 改用 `>|`（PR #471 mob review）
+- mob-code-review-only：略過 Step 5 的 checkpoint，不再引導使用者 resume 進會 commit／push 的 Step 6
+- rule 13／16：allow-list 範例拿掉 `Bash(rg *)`（`rg --pre=<cmd>` 會執行指令）
+
 ## [1.23.2] - 2026-09-27
 
 ### Added

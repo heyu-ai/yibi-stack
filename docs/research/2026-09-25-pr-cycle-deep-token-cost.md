@@ -47,8 +47,8 @@ subagent transcript（`<session>/subagents/*.jsonl`）另外計算。
 
 | 項目 | 做法 | 驗證 |
 |---|---|---|
-| Step 1.5 | `scripts/pre_review_check.py` 一次 Bash call 取代 3 個 Task agent；完整輸出寫 `.pr-review/pre-review-check.md`，stdout 只印 4 行 | 22 個測試；把「no checks reported」判斷短路成永遠放行後，EG-002／EG-003 共 4 個測試轉紅；對真實 PR #469 端對端跑過 |
-| 切 context | Step 6 fix 改派 subagent，lead 自己看 `git log`、自己重跑 CI（只 gate exit code）；Step 5 起寫 `.pr-review/state.md` checkpoint；新增 `--resume` | convergence contract 36 個測試全過；SKILL.md 1305 → 1302 行 |
+| Step 1.5 | `scripts/pre_review_check.py` 一次 Bash call 取代 3 個 Task agent；完整輸出寫 `.pr-review/pre-review-check.md`，stdout 只印 5 行（4 行摘要 + `REPORT=`） | 22 個測試（fix round 後 32 個）；把「no checks reported」判斷短路成永遠放行後，EG-002／EG-003 共 4 個測試轉紅；對真實 PR #469 端對端跑過 |
+| 切 context | Step 6 fix 改派 subagent，lead 自己看 `git log`、自己重跑 CI（只 gate exit code）；Step 5 起寫 `.pr-review/state.md` checkpoint；新增 `--resume` | convergence contract 36 個測試全過；SKILL.md 1307 → 1302 行（merge main 前；merge 後上限 1349） |
 
 被否決的做法：在 SKILL.md 寫「在這裡執行 `/compact`」。`/compact` 是內建 CLI 指令，agent 無法
 自行觸發，寫了等於沒寫。所以改成「subagent 吸收高 turn 數的階段」加上「checkpoint 讓人類在既有的
@@ -137,7 +137,7 @@ rule 16 則把 `Bash(git -C * status)` 列為 Red Flag 1。依 `/lessons` 的過
 ### 4.2 誰會讀 testplan.md
 
 - `plugins/sdd/scripts/check_spec_coverage.py`：**完全不讀 testplan**（實測：檔案內 `testplan` 出現 0 次），
-  只比對 spec slug 與 `spec: cap#slug` docstring。因此 `spectra-amplifier/SKILL.md:500` 的
+  只比對 spec slug 與 `spec: cap#slug` docstring。因此 `spectra-amplifier/SKILL.md:520` 的
   「testplan.md 所有 TC 均有對應測試（check_spec_coverage.py 驗證）」是**不實宣稱**（實測）。
 - CI、pre-commit、Makefile 都沒有呼叫 `amplifier-verify.py` 或 `check_spec_coverage.py`（實測）。
 - `amplifier-verify.py`（pr-cycle-deep Step 1.5）是唯一會解析 testplan 的程式，但它做的是
@@ -166,5 +166,5 @@ TC 幾乎都沒落地，編號脫鉤後也沒人維護。
    把整張 TC 表留在 context。代價是 Step 2b／2c 要一起移進 agent，並補上 rule 11 的三條失敗路徑。
 2. **不建議整個移除 Step 2**，改成降級：只產 `[mech]` TC 並加 slug 欄（讓 amplifier-verify 的
    docstring 檢查能生效）；`[doc]`／`[manual]` 縮成 Coverage 表的備註列。
-3. **修正 `spectra-amplifier/SKILL.md:500` 的不實宣稱**，或真的讓某支工具去比對 TC-ID。否則
+3. **修正 `spectra-amplifier/SKILL.md:520` 的不實宣稱**，或真的讓某支工具去比對 TC-ID。否則
    testplan 會一直被當成「有保障」，實際上沒有任何東西在把關。
