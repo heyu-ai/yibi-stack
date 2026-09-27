@@ -96,7 +96,13 @@ Non-zero exit → `[FAIL]` and stop (e.g. local branch name collision; show the 
 Run **`/pr-cycle-deep` Step 0** exactly as written there (Step 0a cache reuse + auth re-verify, or
 Step 0b full detection + `~/.claude/mob-detection-cache` write). The detection logic, the
 `BINARY_OK + NOT_AUTHED` stop behavior, and the mode table are **owned by `/pr-cycle-deep`** — do
-not re-derive them here.
+not re-derive them here. The detection itself is a single script call — never re-type it as
+inline bash:
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/detect_voices.py              # Step 0b
+python3 ~/.agents/skills/pr-cycle-deep/scripts/detect_voices.py --auth-only  # Step 0a warm path
+```
 
 Outcome mapping for this skill:
 

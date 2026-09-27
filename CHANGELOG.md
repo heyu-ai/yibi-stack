@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.4] - 2026-09-27
+
+### Changed
+
+- pr-cycle-deep／mob-code-review-only：Step 0 的外部 reviewer 偵測（codex／agy 的 binary、auth、agy allow-list）改由 `scripts/detect_voices.py` 一次完成，`--auth-only` 給 cache warm path 重驗 auth 用。原本是 SKILL.md 裡 5 段 inline bash，agent 每次照意圖重寫一份，跑的版本沒有測試守著，多行指令也無法用 prefix allow-list 覆蓋，每次 mob review 都要手動確認。輸出字串與原本相同，mode 判斷表與 `~/.claude/mob-detection-cache` 不受影響；allow-list 加兩條精確 entry 即可免確認（見 SKILL.md Step 0b）
+
 ## [1.23.3] - 2026-09-27
 
 ### Fixed
