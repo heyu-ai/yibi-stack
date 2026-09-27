@@ -586,6 +586,9 @@ If the gate fails: `npm install -g @openai/codex@latest` (asdf node also needs `
 bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage2.sh
 ```
 
+The extract stage pins the cheaper `-m gpt-reserve` rather than the frontier model, because it only reshapes raw markdown into JSON.
+It must still pin *something*: with no `-m` it inherits `~/.codex/config.toml`, and a model the ChatGPT-account login does not support (e.g. `gpt-6-sol`) makes every extract return a 400.
+
 ###### Stage 3: Render (lead reads JSON → writes compact markdown)
 
 Lead reads `$REVIEW_DIR/codex-r1.json` with the Read tool and branches on the result:

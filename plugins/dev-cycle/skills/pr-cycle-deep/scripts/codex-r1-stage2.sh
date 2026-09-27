@@ -40,7 +40,10 @@ fi
 
 printf '\n---END RAW OUTPUT---\n' >> "$REVIEW_DIR/codex-extract-input.md"
 
-if ! codex exec -C "$WT_ROOT" -s read-only -c 'model_reasoning_effort="low"' \
+# -m 必須明寫：省略不是「維持便宜」，而是繼承 ~/.codex/config.toml；該處若是 ChatGPT 帳號
+# 不支援的 model（如 gpt-6-sol），每次 extract 都會 400。extract 只是把 raw 轉成 JSON，
+# 因此 pin catalog 的平價檔 gpt-reserve 而非 stage1／R2 的 gpt-6-astra（codex-cli 0.154.0 實測可用）。
+if ! codex exec -C "$WT_ROOT" -s read-only -m gpt-reserve -c 'model_reasoning_effort="low"' \
     < "$REVIEW_DIR/codex-extract-input.md" \
     2>"$REVIEW_DIR/codex-r1.extract.log" \
     | tee "$REVIEW_DIR/codex-r1.json" > /dev/null; then

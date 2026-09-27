@@ -43,6 +43,9 @@ _FRONTIER_MODEL = "gpt-6-astra"
 # gpt-6-astra is refused by older CLIs with a 400 "requires a newer version of Codex"
 # (measured: 0.149.0 refuses, 0.154.0-alpha.6.2 serves it), so both review stages gate on this.
 _MIN_CODEX_VERSION = "0.154.0"
+# The extract stage's own pin: the catalog's "fast and affordable" tier (priority 3), probed to
+# answer on a ChatGPT-account login with codex-cli 0.154.0.
+_EXTRACT_MODEL = "gpt-reserve"
 
 # The sensitive path prefixes the guard prompt must name (mirrors the canonical guard in
 # plugins/3rd-tools/skills/codex-review/SKILL.md). `agents/` is asserted separately as a standalone
@@ -198,6 +201,24 @@ class TestCodexGuardContract:
         src = (SCRIPTS_DIR / "codex-r1-stage2.sh").read_text(encoding="utf-8")
         assert f"-m {_FRONTIER_MODEL}" not in src, (
             "extract stage must not pin the frontier model; it is a mechanical transform"
+        )
+
+    def test_cdxs_dt_014_extract_stage_pins_a_model(self) -> None:
+        """CDXS-DT-014: the extract stage pins its own cheap model instead of inheriting config.
+
+        Leaving -m off is not "stay cheap" -- it inherits ~/.codex/config.toml. With
+        model = "gpt-6-sol" there, a ChatGPT-account login gets a 400 "not supported when
+        using Codex with a ChatGPT account" (codex-cli 0.154.0), so every extract failed
+        and the lead had to hand-parse the raw review.
+        """
+        src = (SCRIPTS_DIR / "codex-r1-stage2.sh").read_text(encoding="utf-8")
+        exec_lines = [
+            ln for ln in src.splitlines()
+            if "codex exec" in ln and not ln.lstrip().startswith("#")
+        ]  # fmt: skip
+        assert exec_lines, "extract stage has no codex exec line"
+        assert all(f"-m {_EXTRACT_MODEL}" in ln for ln in exec_lines), (
+            f"extract stage codex exec must pin -m {_EXTRACT_MODEL}"
         )
 
     def test_cdxs_dt_007_stage1_does_not_fetch(self) -> None:
