@@ -108,6 +108,9 @@ repos:
       # testplan 與測試的雙向追溯（openspec change enforce-testplan-trace）。非 strict：legacy
       # testplan 與開發中的 change 只報 [WARN]；宣告 trace: enforced 且 tasks.md 全勾的 change
       # 才會 exit 1 擋下。CI 的 `pre-commit run --all-files` 也會跑到這支，故 ci.yml 不另設 step。
+      # 證據：verified on pre-commit 4.6.2——本 repo `pre-commit run check-testplan-trace --all-files`
+      # 得 Passed（legacy change 只 [WARN]）；拋棄式 repo 放一個 trace: enforced、tasks.md 全勾、
+      # auto TC 未綁定的 change，`--summary` 得 `[FAIL] missing` 且 rc=1，補上 `tc:` 後 rc=0。
       - id: check-testplan-trace
         name: check-testplan-trace
         entry: python3 plugins/sdd/scripts/check_testplan_trace.py --summary
