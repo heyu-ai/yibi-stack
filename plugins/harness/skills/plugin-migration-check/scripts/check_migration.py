@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 MARKETPLACE_SLUG = "yibi-stack"
 
@@ -34,6 +35,79 @@ MIGRATION_MAP: dict[str, list[str]] = {
 CURRENT_PACKS_FALLBACK = frozenset(
     {"harness", "sdd", "growth", "dev-cycle", "3rd-tools", "methodology"}
 )
+
+
+class RemovedSkill(NamedTuple):
+    """pack 仍在、但其中某支 skill 被刪除的紀錄。MIGRATION_MAP 只管整個 pack，看不到這種情況。"""
+
+    pack: str  # 目前（最後）收容它的 pack
+    removed_in: tuple[int, int, int]  # 從哪個版本起不再提供
+    former_packs: frozenset[str]  # 歷史上曾收容它的 pack；裝了其中任一個就提示
+    replacement: str  # 給使用者看的替代做法
+
+
+# skill 層級的移除歷史（刪除 pack 內的 skill 時，務必同步更新此表）。
+REMOVED_SKILLS: dict[str, RemovedSkill] = {
+    "tdd-kentbeck": RemovedSkill(
+        pack="methodology",
+        removed_in=(1, 23, 0),
+        former_packs=frozenset({"methodology", "tdd"}),
+        replacement=(
+            "TDD 改由 /pr-cycle-deep、/pr-cycle-fast 的 red-first gate 在 review 前機械檢查；"
+            "專案需提供 scripts/red-first-check.py 才會生效（參考 heyu-ai/yibi-mvp#2017）"
+        ),
+    ),
+    "flutter-tdd": RemovedSkill(
+        pack="methodology",
+        removed_in=(1, 23, 0),
+        former_packs=frozenset({"methodology", "tdd"}),
+        replacement="技術棧專屬的 TDD skill 改由各專案自行決定並在自己的 repo 維護",
+    ),
+}
+
+# make install 會把 skill symlink 到這兩處；skill 被刪後 symlink 會指向不存在的目錄
+SKILL_LINK_DIRS = (Path(".claude") / "skills", Path(".agents") / "skills")
+
+
+def _parse_version(text: str) -> tuple[int, int, int] | None:
+    parts = text.split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return None
+    return int(parts[0]), int(parts[1]), int(parts[2])
+
+
+def _fmt(version: tuple[int, int, int]) -> str:
+    return ".".join(str(n) for n in version)
+
+
+def _removed_skill_notices(yibi_installed: dict[str, list[dict]]) -> list[str]:
+    """已安裝的 pack 若曾收容被刪的 skill，回傳給使用者的提示行（只是資訊，不計入待處理）。"""
+    lines: list[str] = []
+    for skill, info in sorted(REMOVED_SKILLS.items()):
+        holders = sorted(info.former_packs & yibi_installed.keys())
+        if not holders:
+            continue
+        removed = _fmt(info.removed_in)
+        entries = yibi_installed.get(info.pack) or []
+        version = _parse_version(str(entries[0].get("version", ""))) if entries else None
+        if info.pack in yibi_installed and version is not None and version < info.removed_in:
+            when = f"更新到 {info.pack} {removed} 後會消失"
+        else:
+            when = f"已於 {info.pack} {removed} 移除"
+        lines.append(f"[notice] {skill}（你裝了 {', '.join(holders)}）{when}。")
+        lines.append(f"    替代做法：{info.replacement}")
+    return lines
+
+
+def _dangling_skill_links() -> list[Path]:
+    """被刪 skill 殘留、指向不存在目錄的 symlink（make install 使用者也適用）。"""
+    found: list[Path] = []
+    for base in SKILL_LINK_DIRS:
+        for skill in sorted(REMOVED_SKILLS):
+            link = Path.home() / base / skill
+            if link.is_symlink() and not link.exists():
+                found.append(link)
+    return found
 
 
 def _load_installed_plugins() -> dict[str, list[dict]]:
@@ -87,7 +161,9 @@ def check() -> int:
         if name.endswith(suffix)
     }
 
-    if not yibi_installed:
+    dangling_links = _dangling_skill_links()
+
+    if not yibi_installed and not dangling_links:
         print(f"[OK] 未安裝任何 {MARKETPLACE_SLUG} plugin，無需檢查")
         return 0
 
@@ -128,6 +204,18 @@ def check() -> int:
             )
             print(f"    claude plugin uninstall {pack}@{MARKETPLACE_SLUG}")
             print(f"    claude plugin install {install_targets}")
+        print()
+
+    for link in dangling_links:
+        stale_count += 1
+        print(f"[stale-link] {link} 指向已刪除的 skill，建議移除這個 symlink：")
+        print(f"    rm {link}")
+        print()
+
+    notices = _removed_skill_notices(yibi_installed)
+    for line in notices:
+        print(line)
+    if notices:
         print()
 
     print("=== 摘要 ===")

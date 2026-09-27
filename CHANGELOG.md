@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.2] - 2026-09-27
+
+### Added
+
+- harness／`plugin-migration-check`：新增 skill 層級的移除偵測。原本只比對整個 pack 的改名／合併／移除，看不到「pack 還在、但裡面的 skill 被刪了」；1.23.0 從 `methodology` 刪掉 `tdd-kentbeck`、`flutter-tdd` 就屬於這種情況，其他安裝的專案只看 release note 很可能不會注意到
+  - `[notice]`：裝了 `methodology`（或舊的 `tdd` pack）時，說明哪支 skill 被刪、原本該用什麼替代（TDD 改由 pr-cycle 的 red-first gate 執行；技術棧專屬的 TDD skill 由各專案自行維護）。版本還沒更新到 1.23.0 的，會提示「更新後會消失」。只是資訊，不影響 exit code
+  - `[stale-link]`：找出 `~/.claude/skills/`、`~/.agents/skills/` 底下指向已刪除 skill 的 symlink（`make install` 留下的殘留），計入待處理數量；沒裝任何 plugin、只用 `make install` 的使用者也會被檢查到
+  - 移除紀錄集中在 `check_migration.py` 的 `REMOVED_SKILLS`；之後從 pack 刪 skill 時要在這裡登記
+
 ## [1.23.1] - 2026-09-26
 
 ### TDD 方法改變（1.23.0 + 1.23.1）與待觀察指標
