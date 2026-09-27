@@ -16,8 +16,10 @@ turn 就有 110-165k token），換來的只是三個固定指令的輸出。這
 
 退出碼：
   0 = 基線取得成功，amplifier 無 MUST／SHOULD finding（CI 失敗或 pending 只是資訊，不在此阻斷）
-  1 = amplifier-verify 回報 MUST／SHOULD finding：不要停，讀報告檔把 finding 寫進 final.md
-  2 = 致命錯誤（gh 失敗、PR 不存在、amplifier-verify exit 2 或無法執行）：停下並回報 [FAIL]
+  1 = amplifier-verify 回報 MUST／SHOULD finding（exit 1 且 stdout 有 `[MUST]`／`[SHOULD]` 行）：
+      不要停，讀報告檔把 finding 寫進 final.md
+  2 = 致命錯誤（gh 失敗、PR 不存在、amplifier-verify exit 2／沒有 finding 行的 exit 1／無法執行、
+      報告寫不進去、本 script 內部例外）：停下並回報 [FAIL]
 """
 
 from __future__ import annotations
@@ -54,6 +56,10 @@ def run(cmd: list[str], cwd: Path) -> RunResult:
             cwd=cwd,
             capture_output=True,
             text=True,
+            # 子程序可能吐非 UTF-8 位元組（例如 Big5 的 testplan 內容）；不取代的話
+            # UnicodeDecodeError 會以未捕捉例外的 exit 1 逃出，被 Step 1.5 誤讀成「有 finding」
+            encoding="utf-8",
+            errors="replace",
             timeout=_TIMEOUT,
             check=False,
             # gh 的錯誤訊息會在地化，比對 _NO_CHECKS_MARKER 前固定英文
@@ -104,19 +110,27 @@ def summarize_checks(result: RunResult) -> tuple[str | None, str | None]:
     return None, f"gh pr checks：{result.stderr.strip() or '無輸出'}"
 
 
+def _has_finding_line(stdout: str) -> bool:
+    """amplifier-verify.py 的 finding 行以 `[MUST]` / `[SHOULD]` 開頭（其 Step 6 report）。"""
+    return any(line.startswith(("[MUST]", "[SHOULD]")) for line in stdout.splitlines())
+
+
 def classify_amplifier(result: RunResult) -> tuple[str, int]:
     """把 amplifier-verify.py 的 exit code 對應成 (摘要, 本 script 的 exit code)。"""
     if result.returncode == 0:
         return "OK (exit 0: no spectra change / all TCs traced / TC check skipped)", 0
     if result.returncode == 1:
-        return "MUST/SHOULD findings present (exit 1) -- read the report", 1
+        # Python 對任何未捕捉例外也是 exit 1；只有真的印出 finding 行才算「有 finding」
+        if _has_finding_line(result.stdout):
+            return "MUST/SHOULD findings present (exit 1) -- read the report", 1
+        return "[FAIL] exit 1 without a [MUST]/[SHOULD] line (crash?) -- read the report", 2
     if result.returncode == 2:
         return "[FAIL] fatal (exit 2) -- read the report", 2
     return f"[FAIL] amplifier-verify did not run cleanly (exit {result.returncode})", 2
 
 
 def ensure_review_dir(repo_root: Path) -> Path:
-    """建立 .pr-review/ 並加入 git exclude；失敗時 raise RuntimeError。"""
+    """建立 .pr-review/ 並加入 git exclude；失敗時 raise RuntimeError 或 OSError。"""
     review_dir = repo_root / ".pr-review"
     review_dir.mkdir(parents=True, exist_ok=True)
     res = run(["git", "rev-parse", "--git-path", "info/exclude"], repo_root)
@@ -143,7 +157,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pr", required=True, type=int)
     parser.add_argument("--repo-root", type=Path, default=None)
     args = parser.parse_args(argv)
+    try:
+        return _check(args)
+    except Exception as e:  # noqa: BLE001 -- 未捕捉例外的 exit 1 會被讀成「有 finding、繼續」
+        print(f"[FAIL] pre_review_check 內部錯誤：{type(e).__name__}: {e}", file=sys.stderr)
+        return 2
 
+
+def _check(args: argparse.Namespace) -> int:
     if args.repo_root is None:
         top = run(["git", "rev-parse", "--show-toplevel"], Path.cwd())
         if top.returncode != 0:
@@ -186,6 +207,10 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
     except (OSError, RuntimeError) as e:
+        # 沒有報告可讀，摘要與 gh 錯誤只能從 stderr 看到
+        print("\n".join(lines), file=sys.stderr)
+        for err in errors:
+            print(f"[FAIL] {err}", file=sys.stderr)
         print(f"[FAIL] 無法寫入 pre-review 報告：{e}", file=sys.stderr)
         return 2
 

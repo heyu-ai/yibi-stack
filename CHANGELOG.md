@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.1] - 2026-09-27
+
+### Fixed
+
+- pr-cycle-deep：`pre_review_check.py` 崩潰不再被當成「有 finding、繼續」。Python 對未捕捉例外也是 exit 1，實測子程序吐非 UTF-8 位元組時就會發生；現在子程序輸出以 `errors="replace"` 解碼、amplifier exit 1 須有 `[MUST]`／`[SHOULD]` 行才算 finding，其餘與任何內部例外都 exit 2（PR #471 mob review）
+- pr-cycle-deep：`--resume` 不再越過尚未裁決的 Disputed，`state.md` 的 `head:` 與 PR 實際 head 不符時 `[FAIL]`；Step 6 由 lead 決定 CI 指令，並驗證工作區乾淨、有新 commit、push 真的落地，CI log 改用 `>|`（PR #471 mob review）
+- mob-code-review-only：略過 Step 5 的 checkpoint，不再引導使用者 resume 進會 commit／push 的 Step 6
+- rule 13／16：allow-list 範例拿掉 `Bash(rg *)`（`rg --pre=<cmd>` 會執行指令）
+
 ## [1.23.0] - 2026-09-26
 
 ### Added

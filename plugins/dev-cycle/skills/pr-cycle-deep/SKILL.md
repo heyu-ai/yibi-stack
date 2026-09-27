@@ -45,8 +45,8 @@ a few minutes and the lead responds on the spot — faster than two senior engin
 ```
 
 `--resume`: run Step 0a, Read `state.md` + `final.md`, re-check live PR state (Step 6 recheck
-table), then jump to its `next:` step. `state.md` missing or naming another PR → `[FAIL]`; rerun
-without `--resume`.
+table), then jump to its `next:` step. `state.md` missing, naming another PR, or its `head:` ≠ the
+live `gh pr view --json headRefOid` (unreviewed commits) → `[FAIL]`; rerun without `--resume`.
 
 ---
 
@@ -288,8 +288,8 @@ python3 ~/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py --pr {{pr_num
 | Exit | Meaning | Action |
 |------|---------|--------|
 | `0` | Baseline OK; amplifier clean (no spectra change, all TCs traced, or TC check skipped for a non-`feat`/`refactor` `type:`) | Relay the summary; CI fail/pending is informational here; continue to Step 1.6 |
-| `1` | amplifier-verify MUST/SHOULD findings | **Do not stop.** Read the report; write MUST findings to `$REVIEW_DIR/final.md` Critical and SHOULD to Important; continue |
-| `2` | `gh` failed (auth / PR not found), or amplifier-verify exit 2 (change dir missing, missing/unparsable testplan on `feat`/`refactor`, HEAD ≠ PR head) | **Stop** with `[FAIL]`; read the report's stderr section for the cause |
+| `1` | amplifier-verify exit 1 **with** a `[MUST]`/`[SHOULD]` line (a bare exit 1 / traceback is mapped to `2`) | **Do not stop.** Read the report; write MUST findings to `$REVIEW_DIR/final.md` Critical and SHOULD to Important; continue |
+| `2` | `gh` failed (auth / PR not found); amplifier-verify exit 2 (change dir missing, missing/unparsable testplan on `feat`/`refactor`, HEAD ≠ PR head), exit 1 without a finding line, or did not run; report unwritable; internal error | **Stop** with `[FAIL]`. `gh` causes are the `[FAIL]` lines on stderr and the `- Diff:` / `- CI:` lines; an amplifier cause is in the report's amplifier-verify stderr section |
 
 In the report, check the detected `type:` on the `spectra change detected` line (author-declared;
 it decides whether the gate blocks) and any `[WARN]` naming several active change dirs (only the
@@ -917,8 +917,9 @@ group-review ({{N}}/3 voices active)
 Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 5b.
 
 **Checkpoint (context lifetime).** With the Write tool, write `$REVIEW_DIR/state.md`: PR number,
-base branch, baseline SHA, re-review round, `next: Step 5b`; rewrite `next:` at every later step
-boundary. Later steps need nothing beyond `$REVIEW_DIR` (`prompt-r1.md` = frozen contract,
+base branch, baseline SHA, `head:` (PR `headRefOid`), re-review round, `ci_command:` (Step 6),
+`disputed:` (each Disputed item + the user's ruling), and `next: Step 5` while any Disputed item
+lacks a ruling, else `next: Step 5b`; rewrite `head:` / `next:` at every later step boundary. Later steps need nothing beyond `$REVIEW_DIR` (`prompt-r1.md` = frozen contract,
 `final.md` = blocking set), so this human pause is the cheapest place to shed context: tell the
 user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> --resume`.
 
@@ -975,22 +976,26 @@ gh issue create --repo {{owner/repo}} --label deferred-from-review --title "Defe
 
 Delegate the fix loop to **one** `general-purpose` Task subagent. Reading code, editing and
 iterating on CI are the most turn-heavy part of the cycle; in the lead's context every one of
-those turns re-reads the whole review history. Prompt (fill in the real `$REVIEW_DIR`):
+those turns re-reads the whole review history. First pick the CI command yourself (Makefile
+`ci`/`test` target, else `uv run pytest` / `npm test` / `go test ./...` / `flutter test`) and record
+it as `ci_command:` in `state.md`. Prompt (fill in the real `$REVIEW_DIR` and `<ci_command>`):
 
 ```text
-Fix the blocking findings in $REVIEW_DIR/final.md in order: Consensus Critical, then Consensus
-Important; Actionable NIT only if trivial. The frozen Review Contract is in $REVIEW_DIR/prompt-r1.md
-— do not expand scope. Find the repo's CI command (Makefile ci/test target, else the stack default:
-uv run pytest / npm test / go test ./... / flutter test) and fix until it passes. Commit each batch
-with a message describing what was fixed (never "fix review comments"), then git push. Do not
-touch .pr-review/. Reply in <=15 lines: commit SHAs, each finding FIXED / NOT FIXED + reason,
-the CI command and its exit code.
+Fix the blocking findings in $REVIEW_DIR/final.md in order: Consensus Critical, Consensus
+Important, then the Disputed items ruled "fix" in $REVIEW_DIR/state.md `disputed:`; Actionable NIT
+only if trivial. The frozen Review Contract is in $REVIEW_DIR/prompt-r1.md — do not expand scope.
+Run <ci_command> and fix until it passes. Commit each batch with a message describing what was
+fixed (never "fix review comments"), then git push. Do not touch .pr-review/. Reply in <=15 lines:
+commit SHAs, each finding FIXED / NOT FIXED + reason, the CI exit code.
 ```
 
-Task call errors or returns empty → `[FAIL]` stop. Then **verify, do not trust the summary**:
-`git log --oneline <baseline>..HEAD`, and re-run the CI command yourself as
-`<ci-command> > "$REVIEW_DIR/ci-step6.log" 2>&1`, gating on its exit code (Read the log only on
-failure). A NOT FIXED blocking item goes to the user; the subagent's "CI passed" is never the gate.
+Task call errors or returns empty → `[FAIL]` stop. Then **verify, do not trust the summary** —
+any mismatch is `[FAIL]` stop: `git status --porcelain` empty; `git log --oneline <baseline>..HEAD`
+non-empty if anything is FIXED; `gh pr view {{pr_number}} --json headRefOid -q .headRefOid` equals
+`git rev-parse HEAD` (the push landed). Re-run CI yourself in one call, gating on its exit code
+(`>|`: plain `>` fails under noclobber on a second Step 6 pass; Read the log only on failure):
+`REVIEW_DIR="$(git rev-parse --show-toplevel)/.pr-review"; <ci_command> >| "$REVIEW_DIR/ci-step6.log" 2>&1`.
+A NOT FIXED blocking item goes to the user; the subagent's "CI passed" is never the gate.
 
 **Recheck PR status before looping back into re-review.** A group re-review (Step 7) is
 expensive — do not spend it on a PR that is no longer open or mergeable. After pushing, re-query

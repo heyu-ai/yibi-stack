@@ -945,7 +945,7 @@ test -n "${CODEX_API_KEY}" -o -n "${OPENAI_API_KEY}" && echo "AUTH: KEY_SET" || 
 **A. Single-line command (`cmd "$VAR"`) → add to allow list** (settings.json):
 
 ```json
-"Bash(rg *)",
+"Bash(test -f *)",
 "Bash(git -C /Users/<you>/<repo> status:*)",
 "Bash(basename *)",
 "Bash(dirname *)",
