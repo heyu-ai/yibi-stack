@@ -40,10 +40,19 @@ fi
 
 printf '\n---END RAW OUTPUT---\n' >> "$REVIEW_DIR/codex-extract-input.md"
 
-# -m 必須明寫：省略不是「維持便宜」，而是繼承 ~/.codex/config.toml；該處若是 ChatGPT 帳號
-# 不支援的 model（如 gpt-6-sol），每次 extract 都會 400。extract 只是把 raw 轉成 JSON，
-# 因此 pin catalog 的平價檔 gpt-reserve 而非 stage1／R2 的 gpt-6-astra（codex-cli 0.154.0 實測可用）。
-if ! codex exec -C "$WT_ROOT" -s read-only -m gpt-reserve -c 'model_reasoning_effort="low"' \
+# 模型固定為 gpt-reserve 並帶 --ignore-user-config（issue #444）：
+#   - 萃取只是把 raw markdown 轉成 JSON，不需推理，故不用 stage1／R2 pin 的 frontier tier
+#     （CDXS-DT-011）；但也不能不 pin。不 pin 等於繼承 ~/.codex/config.toml，實測 codex-cli
+#     0.149.0 搭 config 裡的 gpt-6-astra 回 400「requires a newer version of Codex」，0.154.0
+#     以 ChatGPT 帳號登入搭 gpt-6-sol 回 400「not supported when using Codex with a ChatGPT
+#     account」；而且繼承到的反而可能是比 frontier 更貴的 tier。
+#   - --ignore-user-config 連同 config 裡的 MCP server、plugin 一起不載入：這個機械轉換用不到
+#     它們，#444 實測 token 用量從 16,645 降到 9,339。auth 不受影響（仍讀 CODEX_HOME）。
+# gpt-reserve 取自 ~/.codex/models_cache.json（codex-cli 0.154.0，priority 3，「Fast and
+# affordable agentic coding model」；0.149.0 時這個描述屬於 gpt-5.6-luna）。codex 升級後若回報
+# model 不存在，先查該檔的 slug 清單再更新這裡與測試常數。
+if ! codex exec --ignore-user-config -m gpt-reserve \
+    -C "$WT_ROOT" -s read-only -c 'model_reasoning_effort="low"' \
     < "$REVIEW_DIR/codex-extract-input.md" \
     2>"$REVIEW_DIR/codex-r1.extract.log" \
     | tee "$REVIEW_DIR/codex-r1.json" > /dev/null; then

@@ -577,7 +577,7 @@ The script takes no base-branch argument — it reviews the shared `$REVIEW_DIR/
 Step 3.1 already produced, so all three voices review the identical diff. Raw output lands in
 `codex-r1-raw.md` — **do not read it in the main context**.
 
-Both review stages pin `-m gpt-6-astra` instead of local config, and gate on codex-cli >= 0.154.0 before calling it (0.149.0 answers that model with a 400).
+Review stages pin `-m gpt-6-astra` and gate on codex-cli >= 0.154.0 (0.149.0 answers it with a 400); the extract pins the cheap `-m gpt-reserve` plus `--ignore-user-config` (#444).
 If the gate fails: `npm install -g @openai/codex@latest` (asdf node also needs `asdf reshim nodejs`). A slug in `models_cache.json` only applies to the CLI matching that file's `client_version`.
 
 ###### Stage 2: Extract (compress verbose raw markdown into structured JSON)
@@ -585,9 +585,6 @@ If the gate fails: `npm install -g @openai/codex@latest` (asdf node also needs `
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage2.sh
 ```
-
-The extract stage pins the cheaper `-m gpt-reserve` rather than the frontier model, because it only reshapes raw markdown into JSON.
-It must still pin *something*: with no `-m` it inherits `~/.codex/config.toml`, and a model the ChatGPT-account login does not support (e.g. `gpt-6-sol`) makes every extract return a 400.
 
 ###### Stage 3: Render (lead reads JSON → writes compact markdown)
 
