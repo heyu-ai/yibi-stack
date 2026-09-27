@@ -128,7 +128,7 @@ fi
 mkdir -p "$(dirname "$STATE_FILE")"
 if [ -n "$CURRENT_ID" ]; then
   if ! echo "$CURRENT_ID" > "$STATE_FILE"; then
-    echo "  [WARN] 識別 ID 無法寫入 state file：$STATE_FILE（patch 已套用，但下次仍會重跑）" >&2
+    echo "  [WARN] 識別 ID 無法寫入 state file：${STATE_FILE}（patch 已套用，但下次仍會重跑）" >&2
   fi
   echo "  [OK] $PATCHED agent(s) patched，識別 ID：${CURRENT_ID:0:12}"
 else
