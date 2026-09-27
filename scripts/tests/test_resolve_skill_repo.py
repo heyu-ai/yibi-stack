@@ -259,7 +259,7 @@ class TestSafeSymlink:
            一行 stderr，沒被任何 gate 讀到。實測踩到：`~/.agents/skills/investigate`
            是一個殘留空目錄，擋掉 symlink 兩個月無人察覺。
 
-        訊息走 stderr 不污染 stdout（rule 13「Shell Script Diagnostics Must Go
+        訊息走 stderr 不污染 stdout（rule 13b「Shell Script Diagnostics Must Go
         to stderr」）——make install 的 stdout 可能被解析或重導。
         """
         src = tmp_path / "src.sh"

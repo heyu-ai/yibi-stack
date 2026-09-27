@@ -11,6 +11,7 @@ set -euo pipefail
 #
 # Only propagates generic rules:
 #   13-bash-anti-patterns.md  -- AP1/AP2/AP3 + quoting hygiene
+#   13b-shell-scripting.md    -- script/hook authoring rules split out of 13 (paths:-scoped)
 #   15-irreversible-operations.md
 #   16-allowlist-hygiene.md
 #
@@ -41,7 +42,7 @@ fi
 
 mkdir -p "$TARGET_RULES_DIR"
 
-for RULE in 13-bash-anti-patterns.md 15-irreversible-operations.md 16-allowlist-hygiene.md; do
+for RULE in 13-bash-anti-patterns.md 13b-shell-scripting.md 15-irreversible-operations.md 16-allowlist-hygiene.md; do
     SRC="$YIBI_RULES_DIR/$RULE"
     DST="$TARGET_RULES_DIR/$RULE"
 

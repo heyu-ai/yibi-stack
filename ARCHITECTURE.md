@@ -51,10 +51,11 @@ yibi-stack/
 │   └── openspec/                    → OpenSpec live example（changes/ 目錄）
 │
 └── .claude/
-    ├── rules/                       → 編碼慣例（14 個檔案；01-03/13/15/16 全量載入，
-    │                                   04-11 依 `paths:` frontmatter 觸發）
+    ├── rules/                       → 編碼慣例（15 個檔案；01/03/13/15/16 全量載入，
+    │                                   02、04-11、13b 依 `paths:` frontmatter 觸發）
     │   ├── 01-language-and-tone.md
     │   ├── 13-bash-anti-patterns.md → AP1/AP2 + bash-to-script subagent 觸發條件
+    │   ├── 13b-shell-scripting.md   → 寫 script／hook 檔的 shell 規則（scoped）
     │   └── 16-allowlist-hygiene.md  → Allow-list 衛生準則
     ├── agents/                      → Subagent 定義
     │   ├── bash-to-script.md        → AP1 修法：抽 bash 邏輯到 scripts/

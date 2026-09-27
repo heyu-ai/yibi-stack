@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "release-full.sh"
 
 # 同 test_lessons_wrapper.py：從 pre-commit hook context 跑測試時 git 會 export
-# GIT_DIR，蓋掉 fixture 想釘住的 tmp repo，必須清掉（rule 13「GIT_DIR / GIT_WORK_TREE
+# GIT_DIR，蓋掉 fixture 想釘住的 tmp repo，必須清掉（rule 13b「GIT_DIR / GIT_WORK_TREE
 # Override git -C」）。
 _GIT_ENV_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 

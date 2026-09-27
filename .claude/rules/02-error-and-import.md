@@ -1,3 +1,10 @@
+---
+paths:
+  - "**/*.py"
+  - "**/*.sh"
+  - "Makefile"
+---
+
 # Error Handling & Imports
 
 ## Exception Type Selection

@@ -120,7 +120,7 @@ trap 'rm -f "$GIT_ERR"' EXIT
 # 為何不用 --path-format=absolute：該 flag 是 git 2.31（2021）才加入。舊 git 上會回
 # fatal，而 fatal 會被 fail-open 分支吃掉，讓整個 gate 靜默失效（PR #234 review 用
 # git shim 實測：guard 從 exit 1 變 exit 0）。本 repo 明文在意舊 macOS 工具鏈
-# （rule 13 記載 realpath 在 macOS < Ventura 不存在）。
+# （rule 13b 記載 realpath 在 macOS < Ventura 不存在）。
 #
 # 為何也不能直接比對 raw 輸出（mob review 中 agy 的提案，實測後已由它自己撤回）：
 # raw 格式不一致。實測主 repo 「子目錄」下：
@@ -128,7 +128,7 @@ trap 'rm -f "$GIT_ERR"' EXIT
 #   git -C <main>/scripts rev-parse --git-common-dir -> ../.git            （相對）
 # 兩者不等 -> 會誤擋主 repo 的安裝。--path-format 存在的理由正是正規化這件事。
 #
-# cd+pwd -P 同時滿足兩者：可攜（rule 13 已背書的寫法）且格式無關。
+# cd+pwd -P 同時滿足兩者：可攜（rule 13b 已背書的寫法）且格式無關。
 #
 # 必須是 `pwd -P`（實體路徑）不能是 `pwd`（邏輯路徑）：git 對這兩個 flag 回傳的
 # 路徑分屬不同命名空間。實測 symlink 化的 main repo 子目錄下：

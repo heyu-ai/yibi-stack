@@ -175,7 +175,7 @@ def _git_env() -> dict[str, str]:
     """複製 environ 並清掉 GIT_DIR/GIT_WORK_TREE 等 selector，鎖定 LC_ALL=C。
 
     清 selector 避免 hook 執行環境（可能繼承自 git hook 情境）把解析導向別的 repo
-    （見 rule 13「GIT_DIR / GIT_WORK_TREE Override」）。
+    （見 rule 13b「GIT_DIR / GIT_WORK_TREE Override」）。
     """
     env = os.environ.copy()
     for key in _GIT_ENV_KEYS:

@@ -57,7 +57,7 @@ MAX_SHARED_KEYWORDS_SHOWN = 12
 
 _ASCII_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
 _CJK_RUN_RE = re.compile(r"[一-鿿]{2,}")
-# 剝除兄弟 skill 參照分兩條，缺一不可（rule 13「exemption regex 要精確枚舉、不用 open glob」）。
+# 剝除兄弟 skill 參照分兩條，缺一不可（rule 13b「exemption regex 要精確枚舉、不用 open glob」）。
 # 被導向的 skill 名是 over-trigger 的『解法』不是觸發詞：把它算進關鍵字會讓兩個互相 redirect
 # 的 skill 因彼此的名字成為共享 token 而 Jaccard 虛高，等於懲罰 rule 11 指定的正確修法
 # （作者被逼去刪 redirect 子句來讓 lint 過關）。故 tokenize 前先剝除這些參照。

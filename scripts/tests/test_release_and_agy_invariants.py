@@ -297,7 +297,7 @@ class TestAgyScriptExecutionContract:
     #367 mob review): the static AGYRUN-DT-004 check above cannot see the two real bugs only
     actual execution surfaced -- `set -e` aborting the script at `OUTPUT=$(agy ...)` before
     `AGY_EXIT=$?` could ever run, and a bare `$AGY_EXIT` immediately followed by a full-width
-    `）` folding into a different, unset variable name under `set -u` (rule 13 Quoting Rule 7:
+    `）` folding into a different, unset variable name under `set -u` (rule 13b Quoting Rule 7:
     a non-ASCII character directly after `$VAR` with no space/ASCII boundary)."""
 
     @pytest.mark.parametrize("script", AGY_SCRIPTS, ids=lambda p: p.parent.parent.name)
