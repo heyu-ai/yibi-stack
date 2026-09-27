@@ -125,7 +125,7 @@ R1/R2 prompts, the same sanity checks, and the same aggregation severity table**
 | **Step 3.0** Snapshot preflight | `preflight-review-snapshot.sh check` → **blocking**; no voice is dispatched until it exits 0 |
 | **Step 3** Round 1 | `setup-review-dir.sh origin/{{base_branch}}` → each voice reviews independently → `<voice>-r1.md` |
 | **Step 4** Round 2 | Build `r1-aggregate.md` → each voice cross-debates → `<voice>-r2.md` |
-| **Step 5** Aggregation | Lead synthesizes `final.md` per the RFC 2119 severity table |
+| **Step 5** Aggregation | Lead synthesizes `final.md` per the RFC 2119 severity table. **Skip Step 5's Checkpoint paragraph** — no `state.md`, no `/pr-cycle-deep --resume` hint: resuming leads into Step 6, which commits and pushes to someone else's PR |
 
 The script invocations are the same installed paths (shared with `/pr-cycle-deep`):
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pre_review_check as prc
@@ -85,13 +86,52 @@ class TestSummarizeChecks:
 
 class TestClassifyAmplifier:
     @pytest.mark.parametrize(
-        ("code", "expected"),
-        [(0, 0), (1, 1), (2, 2), (3, 2), (None, 2)],
+        ("code", "stdout", "expected"),
+        [
+            (0, "", 0),
+            (1, "[MUST]   TC-001 untraced\n", 1),
+            (1, "[SHOULD] TC-002 weak\n", 1),
+            (2, "", 2),
+            (3, "", 2),
+            (None, "", 2),
+        ],
     )
-    def test_prck_dt_005_exit_code_mapping(self, code: int | None, expected: int) -> None:
-        """PRCK-DT-005: 0 pass, 1 findings (continue), 2 fatal; anything unexpected is fatal."""
-        _, mapped = classify_amplifier(RunResult(code, "", ""))
+    def test_prck_dt_005_exit_code_mapping(
+        self, code: int | None, stdout: str, expected: int
+    ) -> None:
+        """PRCK-DT-005: 0 pass, 1 + finding line = continue, 2 fatal; anything else is fatal."""
+        _, mapped = classify_amplifier(RunResult(code, stdout, ""))
         assert mapped == expected
+
+    @pytest.mark.parametrize(
+        "stderr",
+        ["Traceback (most recent call last):\n  ...\nKeyError: 'x'\n", ""],
+    )
+    def test_prck_eg_005_exit_1_without_finding_line_is_fatal(self, stderr: str) -> None:
+        """PRCK-EG-005: Python exits 1 on any uncaught exception; exit 1 counts as findings only
+        when amplifier-verify printed a [MUST]/[SHOULD] line, otherwise it is a crash (exit 2)."""
+        _, mapped = classify_amplifier(RunResult(1, "=== Amplifier-Verifier Report", stderr))
+        assert mapped == 2
+
+
+class TestRun:
+    def test_prck_eg_006_missing_binary_returns_none(self, tmp_path: Path) -> None:
+        """PRCK-EG-006: a command that cannot start becomes returncode=None, not an exception."""
+        assert prc.run(["definitely-not-a-binary-xyz"], tmp_path).returncode is None
+
+    def test_prck_eg_007_timeout_returns_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PRCK-EG-007: a hung command (e.g. gh pr checks) becomes returncode=None."""
+        monkeypatch.setattr(prc, "_TIMEOUT", 0.2)
+        res = prc.run([sys.executable, "-c", "import time; time.sleep(5)"], tmp_path)
+        assert res.returncode is None
+
+    def test_prck_eg_008_non_utf8_output_does_not_raise(self, tmp_path: Path) -> None:
+        """PRCK-EG-008: non-UTF-8 child output (e.g. Big5 from a testplan) must not raise
+        UnicodeDecodeError, which would escape as an uncaught exit 1."""
+        res = prc.run(["printf", "\\xa4\\xa4"], tmp_path)
+        assert res.returncode == 0
 
 
 class TestMain:
@@ -142,11 +182,67 @@ class TestMain:
         """PRCK-DT-006: amplifier exit 1 propagates as 1 (continue, read the report)."""
         repo = _git_repo(tmp_path)
         responses = self._ok()
-        responses["amplifier"] = RunResult(1, "MUST: TC-001 untraced", "")
+        responses["amplifier"] = RunResult(1, "[MUST]   TC-001 untraced", "")
         monkeypatch.setattr(prc, "run", self._fake_run(responses))
         assert prc.main(["--pr", "7", "--repo-root", str(repo)]) == 1
         report = (repo / ".pr-review" / "pre-review-check.md").read_text(encoding="utf-8")
-        assert "MUST: TC-001 untraced" in report
+        assert "[MUST]   TC-001 untraced" in report
+
+    def test_prck_eg_009_amplifier_fatal_stderr_lands_in_report(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PRCK-EG-009: amplifier exit 2 propagates as 2 and its stderr (the fatal reason, e.g.
+        HEAD mismatch) is preserved in the report -- SKILL.md tells the lead to read it there."""
+        repo = _git_repo(tmp_path)
+        responses = self._ok()
+        responses["amplifier"] = RunResult(2, "amp-stdout-marker", "[FAIL] HEAD mismatch xyz")
+        monkeypatch.setattr(prc, "run", self._fake_run(responses))
+        assert prc.main(["--pr", "7", "--repo-root", str(repo)]) == 2
+        report = (repo / ".pr-review" / "pre-review-check.md").read_text(encoding="utf-8")
+        assert "amp-stdout-marker" in report
+        assert "[FAIL] HEAD mismatch xyz" in report
+
+    def test_prck_eg_010_unexpected_exception_is_exit_2(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """PRCK-EG-010: any unexpected exception exits 2 with [FAIL], never Python's exit 1
+        (which Step 1.5 would read as "findings, continue")."""
+        repo = _git_repo(tmp_path)
+
+        def boom(cmd: list[str], cwd: Path) -> RunResult:
+            raise ValueError("unexpected")
+
+        monkeypatch.setattr(prc, "run", boom)
+        assert prc.main(["--pr", "7", "--repo-root", str(repo)]) == 2
+        assert "[FAIL]" in capsys.readouterr().err
+
+    def test_prck_eg_011_report_write_failure_is_exit_2_and_keeps_errors(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """PRCK-EG-011: if the report cannot be written, exit 2 and still print the summary and
+        gh errors (there is no report to read them from)."""
+        repo = _git_repo(tmp_path)
+        (repo / ".pr-review").write_text("not a dir", encoding="utf-8")
+        responses = self._ok()
+        responses["checks"] = RunResult(1, "", "HTTP 401: Bad credentials")
+        monkeypatch.setattr(prc, "run", self._fake_run(responses))
+        assert prc.main(["--pr", "7", "--repo-root", str(repo)]) == 2
+        err = capsys.readouterr().err
+        assert "[FAIL] 無法寫入" in err
+        assert "HTTP 401: Bad credentials" in err
+
+    def test_prck_eg_012_exclude_lookup_failure_is_exit_2(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PRCK-EG-012: `git rev-parse --git-path info/exclude` failing (no git repo) is exit 2."""
+        monkeypatch.setattr(prc, "run", self._fake_run(self._ok()))
+        assert prc.main(["--pr", "7", "--repo-root", str(tmp_path)]) == 2
 
     @pytest.mark.parametrize("broken", ["view", "checks"])
     def test_prck_eg_003_gh_failure_overrides_amplifier_ok(
