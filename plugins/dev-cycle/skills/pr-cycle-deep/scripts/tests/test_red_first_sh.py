@@ -258,6 +258,18 @@ class TestBehaviour:
         assert proc.returncode == EXIT_CONTINUE, proc.stderr
         assert "[WARN] red-first: checker modified by this PR" in proc.stdout
 
+    def test_rfs_st_014_unexpected_git_failure_is_error_not_verdict(self, tmp_path: Path) -> None:
+        """base 與 PR 沒有共同祖先時 merge-base 失敗；必須是 exit 2，不能以 1 被讀成判定失敗。"""
+        repo = _setup(tmp_path)
+        _git(repo, "checkout", "-q", "--orphan", "island")
+        _git(repo, "commit", "-q", "--allow-empty", "-m", "island")
+        _git(repo, "push", "-q", "origin", "island")
+        _git(repo, "checkout", "-q", "feature")
+        proc, argv_out = _run(tmp_path, repo, FAKE_GH_BASE="island")
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert "RED_FIRST_RESULT=error" in proc.stdout
+        assert not argv_out.exists()
+
     def test_rfs_st_013_checker_on_base_is_not_flagged(self, tmp_path: Path) -> None:
         """RFS-ST-012 的對照：checker 不在 PR diff 裡時不得誤報。"""
         repo = _setup(tmp_path)

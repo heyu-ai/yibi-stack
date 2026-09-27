@@ -33,6 +33,11 @@
 
 set -euo pipefail
 
+# 任何沒被 `if !` / `|| X=$?` 保護到的指令失敗（例如 base 與 PR 沒有共同祖先時的
+# git merge-base），在 set -e 下會以該指令自己的 exit code 結束；那可能剛好是 1，
+# 被呼叫端讀成「判定失敗」並要求作者補測試。統一收斂成 exit 2（工具錯誤）。
+trap 'echo "[FAIL] red-first: 未預期的指令失敗（line ${LINENO}）" >&2; echo "RED_FIRST_RESULT=error"; exit 2' ERR
+
 PR=""
 REPO_ROOT=""
 OUT_DIR=""
@@ -130,7 +135,10 @@ BASE_SHA=$(git rev-parse FETCH_HEAD)
 
 # PR 自己改了 checker 時，等於自己幫自己打分數：照跑，但標出來交給人
 MERGE_BASE=$(git merge-base "$BASE_SHA" HEAD)
-if git diff --name-only "$MERGE_BASE" HEAD -- scripts/red-first-check.py | grep -q .; then
+# 先取輸出再判斷：`git diff | grep -q .` 在 pipefail 下，grep 提早結束會讓 git diff
+# 收到 SIGPIPE，整條 pipeline 變非零，警告就靜默消失
+CHECKER_DIFF=$(git diff --name-only "$MERGE_BASE" HEAD -- scripts/red-first-check.py)
+if [ -n "$CHECKER_DIFF" ]; then
     echo "[WARN] red-first: checker modified by this PR（判定由 PR 自己改過的 checker 產生，須由人確認）"
 fi
 
