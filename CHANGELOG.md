@@ -5,13 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.23.0] - 2026-09-26
+## [Unreleased]
 
 ### Added
 
-- pr-cycle-deep：新增 Step 1.7 red-first gate。repo 有 `scripts/red-first-check.py` 時，在 R1 之前把產品碼退回 merge-base、保留分支的測試：`feat`／`fix` 的測試必須轉紅，`refactor`／`perf` 必須仍綠；沒有 checker 則記 `[SKIP]`。`[WEAK-RED]` 列出的測試貼進 R1 prompt 讓每個 voice 檢查，`[EXEMPT]` 列為 Step 8 hotspot 交給人確認（#469）
-- pr-cycle-fast：新增 3.0b red-first preflight，規則同上，exit 1／2 時 transition 到 `BLOCKED`（#469）
-- pr-cycle-deep：R1 prompt 的 Evidence forms 新增「Tautological or implementation-coupled test」，focus 與 `pr-test-analyzer` 焦點同步（#469）
 - sdd：新增 `scripts/check_testplan_trace.py`，雙向檢查 testplan 的 TC 與測試。測試以 docstring 的 `tc: <TC-ID>` 行宣告綁定（以 `ast` 解析，測試資料與註解裡的 ID 不算）；報出 missing／orphan／mismatch／collision／manual-open，legacy testplan 無法解析時報 unparsable。只有宣告 `trace: enforced` 且有 `Kind` 欄的 testplan 會在 `--strict` 或 tasks.md 全勾時報 FAIL，舊 testplan 一律 WARN。`--report` 列出 TC 對 test nodeid，`--summary` 把 WARN 收成每個 change 一行（#474）
 - 新增 pre-commit hook `check-testplan-trace`（摘要模式）；CI 經 `pre-commit run --all-files` 執行（#474）
 - pr-cycle-deep：Step 1.5 的 amplifier-verify 以子程序呼叫 trace checker，FAIL 逐筆成為 MUST，WARN 彙總成一筆（enforced 為 SHOULD、legacy 為 INFO），找不到 checker 即 exit 2；Step 8 以 `--strict` 列出未勾選的 Manual Verification 請人確認並留 PR comment；Step 11a 在 archive 前以 `--strict` 擋下（#474）
@@ -23,6 +20,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - sdd：`spectra-amplifier` 完工標準原本宣稱「testplan.md 所有 TC 均有對應測試（check_spec_coverage.py 驗證）」，但該工具不讀 testplan；改為指向 `check_testplan_trace.py --strict`。tasks 範例的 `pytest -k "<TC-ID>"` 驗收指令比對的是測試名稱而非 docstring，改用 trace checker（#474）
+
+## [1.23.2] - 2026-09-27
+
+### Added
+
+- harness／`plugin-migration-check`：新增 skill 層級的移除偵測。原本只比對整個 pack 的改名／合併／移除，看不到「pack 還在、但裡面的 skill 被刪了」；1.23.0 從 `methodology` 刪掉 `tdd-kentbeck`、`flutter-tdd` 就屬於這種情況，其他安裝的專案只看 release note 很可能不會注意到
+  - `[notice]`：裝了 `methodology`（或舊的 `tdd` pack）時，說明哪支 skill 被刪、原本該用什麼替代（TDD 改由 pr-cycle 的 red-first gate 執行；技術棧專屬的 TDD skill 由各專案自行維護）。版本還沒更新到 1.23.0 的，會提示「更新後會消失」。只是資訊，不影響 exit code
+  - `[stale-link]`：找出 `~/.claude/skills/`、`~/.agents/skills/` 底下指向已刪除 skill 的 symlink（`make install` 留下的殘留），計入待處理數量；沒裝任何 plugin、只用 `make install` 的使用者也會被檢查到
+  - 移除紀錄集中在 `check_migration.py` 的 `REMOVED_SKILLS`；之後從 pack 刪 skill 時要在這裡登記
+
+## [1.23.1] - 2026-09-26
+
+### TDD 方法改變（1.23.0 + 1.23.1）與待觀察指標
+
+這兩版把 TDD 從「知識型 skill」改成「PR 流程裡的機械檢查」：
+
+- **之前**：`tdd-kentbeck`、`flutter-tdd` 兩支 skill 用散文教 Red→Green→Refactor，靠 agent 自己決定要不要用
+- **之後**：兩支 skill 刪除；`pr-cycle-deep` Step 1.7、`pr-cycle-fast` 3.0b 在 review 之前執行 repo 提供的 `scripts/red-first-check.py`：把產品碼退回 merge-base、保留 PR 的測試，`feat`／`fix` 的測試必須轉紅，`refactor`／`perf` 必須仍綠。repo 沒有 checker 時記 `[SKIP]`，**不會生效**（yibi-stack 本身目前就沒有；參考實作在 heyu-ai/yibi-mvp#2017）
+
+改變的理由與基準值（yibi-mvp transcript，2026-08-25 ~ 09-25，789 個 session）：三支 TDD skill 被呼叫 **0 次**；158 個有改程式碼的 session 只有 **12 個（7.6%）** 是先寫測試。
+
+這個改變**還沒有被證明有效**。建議在 **2026-10-27** 用同一套方法、同樣長度的期間重新量測，看兩件事是否改善：
+
+**1. 開發正確性**
+
+| 指標 | 基準 | 怎麼量 |
+| --- | --- | --- |
+| 先寫測試的 session 比例 | 12 / 158（7.6%） | 用同一套 transcript 分析重跑 |
+| red-first 判定分布 | 無（新指標） | 統計 `pre-review-check.md` 與 PR 上 `<!-- red-first:` comment 的 PASS／FAIL／SKIP／EXEMPT／WEAK-RED 次數。FAIL 代表 gate 攔下了「測試抓不到改動」的 PR；SKIP 太多代表 gate 沒在作用 |
+| 合併後的修正 PR | 待取基準 | 統計 merge 後 30 天內因同一功能回頭修 bug 的 `fix:` PR 數，與改變前同期比較 |
+| review 輪數 | 待取基準 | pr-cycle-deep 每個 PR 走到 Round 2 的比例；gate 若在 R1 前攔下假測試，這個比例應該下降 |
+
+**2. token 消耗**（以下是位元組數實測，不是 token 實測；只計 #469 與 #481 兩個 commit 自己的增量，不含同期 #470、#471 的改動）
+
+| 項目 | 變化 | 影響範圍 |
+| --- | --- | --- |
+| skill 清單裡的 description | −1,053 字元（tdd-kentbeck 660 + flutter-tdd 393） | 裝了 methodology plugin 的**每個** session |
+| `pr-cycle-deep/SKILL.md` | +2,581 bytes（+3.6%，以 #469 前的 71,945 為基準） | 每次呼叫 `/pr-cycle-deep` |
+| `pr-cycle-fast/SKILL.md` | +3,584 bytes（+22.8%，以 #469 前的 15,741 為基準） | 每次呼叫 `/pr-cycle-fast` |
+| red-first checker 的輸出 | 依 repo 而定（會跑兩次測試） | 有 checker 的 repo，每個 PR 一次 |
+| 修正輪數 | 若 gate 讓 review 少一輪，可省下整輪 mob review | 待量測 |
+
+淨效果要看兩邊的比例：一般 session 每次省一點；PR 流程每次多一點，但如果因此少一輪 fix + re-review，省下的會遠大於多出來的。量測時請用 retrospective 記錄的 token 用量（`token_input_tokens`、`token_output_tokens`、`token_total_cost_usd`，需在寫 retro 時加 `--auto-tokens` 才會填入；`token_usage_source` 標示資料來源），比較改變前後 pr-cycle session 的平均值，並分開看「有 checker」和「`[SKIP]`」的 repo。同期的 #471 另外降低了 pr-cycle-deep 的 token 成本，比較時要把它的效果分開。
+
+### Fixed
+
+- pr-cycle-deep／pr-cycle-fast：red-first gate 照字面執行時會靜默失效。1.23.0 的 runbook 要 agent 分多個 Bash call，並用 shell 變數（`PR_TITLE`、`WT_ROOT`、`BASE_REMOTE`）在 call 之間傳值，但 Bash tool 不保留變數：checker 路徑變成 `/scripts/red-first-check.py` 而誤判 `[SKIP] no checker`，或收到空的 `--title`。PR #469 mob review Round 2 由 Claude 與 Codex 4 個來源獨立指出，且 lead 已復現
+- 改為共用的 `scripts/red-first.sh` 單一呼叫：fetch base（有 upstream 先用 upstream）、PR 標題只經變數傳入（`${N}`、反引號不會被展開或執行）、執行前後檢查工作區，並收斂成 0 繼續／1 判定失敗／2 前提或工具錯誤（含 traceback）／3 工作區沒還原四個具名 exit code；未預期的指令失敗（例如 base 與 PR 沒有共同祖先）由 `ERR` trap 收斂成 2，不會以 1 被誤讀成判定失敗；PR 自己改了 checker 時印 `[WARN]`
+- pr-cycle-fast：有 checker 時一律把輸出貼成帶 head SHA 標記的 PR comment（貼失敗就 `BLOCKED`），Step 6 只讀最新一則；BLOCKED／REVIEWING reason 改用腳本輸出的固定 token，resume 時看得出失敗原因
+- `test_convergence_contract.py` 的錨點改為守指令本身與只出現一次的句子；新增 `test_red_first_sh.py`（18 個案例，7 個單點 mutation 全數被抓到）
+
+## [1.23.0] - 2026-09-26
+
+### Added
+
+- pr-cycle-deep：新增 Step 1.7 red-first gate。repo 有 `scripts/red-first-check.py` 時，在 R1 之前把產品碼退回 merge-base、保留分支的測試：`feat`／`fix` 的測試必須轉紅，`refactor`／`perf` 必須仍綠；沒有 checker 則記 `[SKIP]`。`[WEAK-RED]` 列出的測試貼進 R1 prompt 讓每個 voice 檢查，`[EXEMPT]` 列為 Step 8 hotspot 交給人確認（#469）
+- pr-cycle-fast：新增 3.0b red-first preflight，規則同上，exit 1／2 時 transition 到 `BLOCKED`（#469）
+- pr-cycle-deep：R1 prompt 的 Evidence forms 新增「Tautological or implementation-coupled test」，focus 與 `pr-test-analyzer` 焦點同步（#469）
+- pr-cycle-deep：新增 `/pr-cycle-deep #<PR> --resume` 與 `.pr-review/state.md` checkpoint。Step 5 起每個 step 邊界都會更新 `next:`，所以在等人裁決 Disputed 的停頓點可以 `/compact` 或開新 session 接續，不必把整個生命週期留在同一個主 context
+- pr-cycle-deep：新增 `scripts/pre_review_check.py`，一次 Bash call 取得 diff 統計、CI 狀態與 amplifier-verify 結果，完整輸出寫進 `.pr-review/pre-review-check.md`
+
+### Changed
+
+- pr-cycle-deep／mob-code-review-only：Step 1.5 改用 `pre_review_check.py`，取代原本的 3 個 Task agent。每個 agent 只跑一行固定指令，卻都要重新載入 110-165k token 的基底 context。`gh` 失敗（auth、PR 不存在）一律 exit 2，不會被當成「CI 沒問題」
+- pr-cycle-deep：Step 6 Fix 改派一個 subagent 執行讀碼、改檔、跑 CI，lead 只收 15 行以內的摘要；lead 自己看 `git log` 並自己重跑 CI（只 gate exit code），不採信 subagent 的「CI passed」。實測這類 session 主 context 達 99-367 turn、峰值 322k-947k，output 只佔 input 的 0.1-0.3%，成本乘數是「turn 數 × context 長度」
 
 ### Removed
 

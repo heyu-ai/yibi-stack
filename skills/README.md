@@ -39,7 +39,7 @@ claude plugin install methodology@yibi-stack     # event-storming + problem-fram
 | Skill | 類型 | 住址 | 描述 | SKILL.md |
 |-------|------|------|------|----------|
 | `protect-push` | tool | [plugins/harness/](../plugins/harness/README.md) | 安裝 Claude Code PreToolUse hook，防止 worktree branch 的 git push 直推 origin/main | [protect-push/SKILL.md](protect-push/SKILL.md) |
-| `plugin-migration-check` | exec | [plugins/harness/](../plugins/harness/README.md) | 偵測本機已安裝的 yibi-stack plugin 中，有哪些 pack 已改名／合併／拆分／移除但尚未跟著遷移，印出精確的 uninstall/install 修復指令 | [plugin-migration-check/SKILL.md](plugin-migration-check/SKILL.md) |
+| `plugin-migration-check` | exec | [plugins/harness/](../plugins/harness/README.md) | 偵測本機已安裝的 yibi-stack plugin 中，有哪些 pack 已改名／合併／拆分／移除但尚未跟著遷移，印出精確的 uninstall/install 修復指令；也會提示 pack 內被刪除的 skill 與替代做法，並找出指向已刪除 skill 的殘留 symlink | [plugin-migration-check/SKILL.md](plugin-migration-check/SKILL.md) |
 | `plugin-cache-prune` | exec | [plugins/harness/](../plugins/harness/README.md) | 掃描 `~/.claude/plugins/cache/` 下所有 marketplace，找出未被 `installed_plugins.json` 參照的舊版本目錄並回報可回收空間，經確認後可實際刪除 | [plugin-cache-prune/SKILL.md](plugin-cache-prune/SKILL.md) |
 | `fleet-usage-guard` | exec | [plugins/harness/](../plugins/harness/README.md) | 依 `(message.id, requestId)` 去重本機 transcript，以 API list price 估算 fleet 的 USD/hour；超過使用者設定閾值或額度接近上限時廣播原因明確的停手訊息 | [fleet-usage-guard/SKILL.md](fleet-usage-guard/SKILL.md) |
 | `bash-hygiene-audit` | exec | [tasks/bash_hygiene_audit/](../tasks/bash_hygiene_audit/) | bash-hygiene hook audit log 管理：啟用/停用記錄、查看近期 hook 攔截事件、統計違規比例與熱點 pattern | [bash-hygiene-audit/SKILL.md](bash-hygiene-audit/SKILL.md) |

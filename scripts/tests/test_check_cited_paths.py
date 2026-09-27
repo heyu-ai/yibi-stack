@@ -1,6 +1,6 @@
 """scripts/check_cited_paths.py 的 CITEPATH-* 測試。
 
-驗證路徑抽取（inline code、markdown 連結、fence 規則）、以 git ls-files 判斷存在、
+驗證全文路徑抽取（程式碼／散文語境、連結目標、清理規則）、以 git ls-files 判斷存在、
 expected-absent 宣告，以及 exit code 契約（0／1／2／3）。
 scripts/ 非 package，故以 importlib 依路徑載入模組，不污染 pythonpath。
 fixture repo 是真的 git repo（git init + git add），因為「存在」以 git 版控為準。
@@ -98,10 +98,10 @@ class TestExtractCandidates:
         assert cands == ["a/b.py"]
         assert skipped == []
 
-    def test_citepath_ep_006_backtick_and_tilde_fences_are_skipped(self) -> None:
-        """CITEPATH-EP-006: ``` 與 ~~~ fence 內的路徑都不抽取"""
-        text = "```bash\n`in/a.py`\n```\n~~~\n`in/b.py`\n~~~\n`out/c.py`\n"
-        assert _cands(text) == ["out/c.py"]
+    def test_citepath_ep_006_fence_content_is_extracted(self) -> None:
+        """CITEPATH-EP-006: fence 內容也抽取——不追蹤 fence，fence 判斷錯位就不可能藏起路徑"""
+        text = "```bash\nbash in/a.sh\n```\n~~~\n`in/b.py`\n~~~\n`out/c.py`\n"
+        assert _cands(text) == ["in/a.sh", "in/b.py", "out/c.py"]
 
     def test_citepath_ep_007_duplicates_are_reported_once(self) -> None:
         """CITEPATH-EP-007: 同一路徑出現多次只列一次，保留首次出現順序"""
@@ -126,18 +126,8 @@ class TestExtractCandidates:
             "./scripts/lint.py",
         ]
 
-    def test_citepath_ep_010_longer_fence_containing_shorter_fence_line(self) -> None:
-        """CITEPATH-EP-010: 4 反引號 fence 內的 3 反引號行不會提前關閉 fence"""
-        text = "````markdown\n```\n`in/a.py`\n```\n````\n`out/b.py`\n"
-        assert _cands(text) == ["out/b.py"]
-
-    def test_citepath_ep_011_tilde_fence_ignores_backtick_lines(self) -> None:
-        """CITEPATH-EP-011: ~~~ fence 只會被 ~~~ 關閉，內含的 ``` 行不影響"""
-        text = "~~~\n```\n`in/a.py`\n~~~\n`out/b.py`\n"
-        assert _cands(text) == ["out/b.py"]
-
-    def test_citepath_ep_012_backtick_info_string_line_is_not_a_fence(self) -> None:
-        """CITEPATH-EP-012: 同一行開關的 ```bash x``` 是 inline code，不是 fence"""
+    def test_citepath_ep_012_inline_triple_backticks_do_not_affect_other_tokens(self) -> None:
+        """CITEPATH-EP-012: 行內的三反引號不影響同一行與下一行其他 token 的抽取"""
         text = "```bash scripts/x.sh```\n`out/b.py`\n"
         assert _cands(text) == ["scripts/x.sh", "out/b.py"]
 
@@ -185,30 +175,36 @@ class TestExtractCandidates:
             "[a](scripts/missing.py) [b](docs/a.md#sec) [c](https://x.com/a.md) "
             "[d](#anchor) [e](<my%20dir/f.md>)"
         )
-        assert _cands(text) == ["scripts/missing.py", "docs/a.md", "my dir/f.md"]
+        assert set(_cands(text)) == {"scripts/missing.py", "docs/a.md", "my dir/f.md"}
 
     def test_citepath_ep_020_multi_backtick_span(self) -> None:
         """CITEPATH-EP-020: 雙反引號包住的 inline code 也要抽取；含反引號的路徑被切成片段各自檢查"""
         assert _cands("`` a/b.md `` 與 ``c/`d`.md``") == ["a/b.md", "c/"]
 
-    def test_citepath_ep_021_crlf_lines(self) -> None:
-        """CITEPATH-EP-021: CRLF 換行的 fence 與引用都能正確處理"""
-        text = "```\r\n`in/a.py`\r\n```\r\n`out/b.py`\r\n"
-        assert _cands(text) == ["out/b.py"]
+    def test_citepath_ep_021_line_breaks(self) -> None:
+        """CITEPATH-EP-021: CRLF、CR 換行都能處理；NEL（U+0085）不是換行，但仍是空白分隔"""
+        assert _cands("`in/a.py`\r\n`out/b.py`\r`out/c.py`\n") == [
+            "in/a.py",
+            "out/b.py",
+            "out/c.py",
+        ]
+        assert _cands("See `a/b.md`.\x85```\n`newdir/x.md`\n") == ["a/b.md", "newdir/x.md"]
 
     @pytest.mark.parametrize("ext", sorted(check_cited_paths._EXTS))
     def test_citepath_ep_022_every_known_extension_is_extracted_bare(self, ext: str) -> None:
         """CITEPATH-EP-022: 清單內每一個副檔名，不含斜線的檔名也會被抽出"""
         assert _cands(f"`name.{ext}`") == [f"name.{ext}"]
 
-    def test_citepath_ep_023_expected_absent_inside_fence_is_ignored(self) -> None:
-        """CITEPATH-EP-023: fence 內作為範例的 expected-absent 宣告不算數"""
-        text = "```\n\n<!-- expected-absent: a.md -->\n\n\n```\n\n<!-- expected-absent: b.md c.md -->\n\n"
+    def test_citepath_ep_023_declaration_after_other_content_is_ignored(self) -> None:
+        """CITEPATH-EP-023: fence 內或文件中段的 expected-absent 宣告不算數，只認開頭區塊"""
+        text = "```\n<!-- expected-absent: a.md -->\n```\n\n<!-- expected-absent: b.md -->\n"
+        assert check_cited_paths.parse_expected_absent(text) == []
+        text = "<!-- expected-absent: b.md c.md -->\n\n內文\n\n<!-- expected-absent: d.md -->\n"
         assert check_cited_paths.parse_expected_absent(text) == ["b.md", "c.md"]
 
-    def test_citepath_ep_024_expected_absent_inside_inline_code_is_ignored(self) -> None:
-        """CITEPATH-EP-024: inline code 內作為範例的 expected-absent 宣告不算數"""
-        text = "用 `<!-- expected-absent: <path> -->` 宣告\n\n<!-- expected-absent: real.md -->\n\n"
+    def test_citepath_ep_024_example_declaration_in_body_is_ignored(self) -> None:
+        """CITEPATH-EP-024: 內文示範的宣告寫法不算數；開頭區塊的宣告照常生效"""
+        text = "<!-- expected-absent: real.md -->\n\n用 `<!-- expected-absent: <path> -->` 宣告\n"
         assert check_cited_paths.parse_expected_absent(text) == ["real.md"]
 
     def test_citepath_ep_025_code_span_wrapped_across_lines(self) -> None:
@@ -228,7 +224,11 @@ class TestExtractCandidates:
     def test_citepath_ep_027_reference_link_definitions(self) -> None:
         """CITEPATH-EP-027: 參考式連結的定義行 `[ref]: path` 要抽取目標；含空白的路徑切成片段檢查"""
         text = '見 [說明][ref] 與 [其他][r2]\n\n[ref]: docs/missing.md\n  [r2]: <my dir/a.md> "t"\n'
-        assert _cands(text) == ["docs/missing.md", "dir/a.md"]
+        cands = _cands(text)
+        assert "docs/missing.md" in cands
+        assert "dir/a.md" in cands
+        text = "見 [說明][r]\n\n[r]:\n  newdir/guide\n\n[^1]: 註腳內文不是連結目標\n"
+        assert _cands(text) == ["newdir/guide"]
 
     def test_citepath_ep_028_parentheses_inside_path(self) -> None:
         """CITEPATH-EP-028: 路徑內含成對括號時不截斷（連結目標與 inline code 都一樣）"""
@@ -237,21 +237,16 @@ class TestExtractCandidates:
     def test_citepath_ep_029_link_with_title(self) -> None:
         """CITEPATH-EP-029: 帶 title 的連結 `[t](path "title")` 也要抽取目標"""
         text = "[t](docs/missing.md \"title\") [u](<a b.md> 'x')"
-        assert _cands(text) == ["docs/missing.md", "b.md"]
+        cands = _cands(text)
+        assert "docs/missing.md" in cands
+        assert "b.md" in cands
 
-    def test_citepath_ep_030_list_item_fence_closer_with_deeper_indent(self) -> None:
-        """CITEPATH-EP-030: list item 內縮排較深的 closer 仍會關閉 fence，後文照常抽取"""
-        text = "1. step\n   ```bash\n   echo `in/a.py`\n    ```\n2. 改 `out/b.py`\n"
-        assert _cands(text) == ["out/b.py"]
-
-    def test_citepath_ep_031_four_space_indented_backticks_do_not_open_fence(self) -> None:
-        """CITEPATH-EP-031: 縮排 4 格的 ``` 行不是 fence 開頭，後文照常抽取"""
-        assert _cands("    ```\n`out/b.py`\n") == ["out/b.py"]
-
-    def test_citepath_ep_032_unclosed_fence_raises(self) -> None:
-        """CITEPATH-EP-032: fence 到文件結尾仍未關閉時丟 ValueError，不可把後文靜默當成 fence 內"""
-        with pytest.raises(ValueError, match="fence"):
-            _cands("見 `CLAUDE.md`\n```\n改 `scripts/missing.py`\n")
+    def test_citepath_ep_032_unclosed_fence_does_not_hide_rest(self) -> None:
+        """CITEPATH-EP-032: fence 到文件結尾仍未關閉時，後文照常抽取"""
+        assert _cands("見 `CLAUDE.md`\n```\n改 `scripts/missing.py`\n") == [
+            "CLAUDE.md",
+            "scripts/missing.py",
+        ]
 
     def test_citepath_ep_033_dot_leading_two_segments_are_checked_not_skipped(self) -> None:
         """CITEPATH-EP-033: 以點開頭的兩段路徑（`.github/workflows`）要檢查，不落入 owner/repo 略過"""
@@ -275,19 +270,15 @@ class TestExtractCandidates:
         text = "Example: `\n<!-- expected-absent: docs/missing.md -->\n\n`\n"
         assert check_cited_paths.parse_expected_absent(text) == []
 
-    def test_citepath_ep_037_declaration_must_be_its_own_paragraph(self) -> None:
-        """CITEPATH-EP-037: 宣告須單獨成段（前後空行或文件頭尾）；緊貼散文的宣告不算數"""
-        assert (
-            check_cited_paths.parse_expected_absent("前一行\n<!-- expected-absent: a.md -->\n\n")
-            == []
-        )
-        assert (
-            check_cited_paths.parse_expected_absent("<!-- expected-absent: a.md -->\n後一行\n")
-            == []
-        )
-        text = "前一行\n\n<!-- expected-absent: a.md -->\n\n後一行\n"
-        assert check_cited_paths.parse_expected_absent(text) == ["a.md"]
-        assert check_cited_paths.parse_expected_absent("<!-- expected-absent: b.md -->") == ["b.md"]
+    def test_citepath_ep_037_declarations_only_in_leading_block(self) -> None:
+        """CITEPATH-EP-037: 宣告只認文件開頭、第 0 欄、只由宣告行與空白行組成的區塊"""
+        parse = check_cited_paths.parse_expected_absent
+        assert parse("前一行\n\n<!-- expected-absent: a.md -->\n") == []
+        assert parse("<!-- expected-absent: a.md -->\n後一行\n") == ["a.md"]
+        text = "\n\n<!-- expected-absent: a.md -->\n<!-- expected-absent: b.md -->\n\n內文\n"
+        assert parse(text) == ["a.md", "b.md"]
+        assert parse("    <!-- expected-absent: a.md -->\n") == []
+        assert parse("<!-- expected-absent: b.md -->") == ["b.md"]
 
     def test_citepath_ep_038_prose_context_rules(self) -> None:
         """CITEPATH-EP-038: 散文中看得出是路徑的斜線 token 要檢查；其他斜線詞列 skipped；
@@ -322,10 +313,148 @@ class TestExtractCandidates:
             "scripts/..",
         ]
 
-    def test_citepath_ep_042_fence_closer_indent_is_relative_to_opener(self) -> None:
-        """CITEPATH-EP-042: 開頭行縮排 0 時，縮排 4 格的 ``` 是 fence 內容，不會提前關閉"""
-        text = "```markdown\n    ```\n    x\n    ```\n```\n\nSee `scripts/missing.py`.\n"
-        assert _cands(text) == ["scripts/missing.py"]
+    def test_citepath_ep_042_prose_emphasis_is_stripped_but_globs_kept(self) -> None:
+        """CITEPATH-EP-042: 散文的粗體、斜體、刪除線與句尾問號會剝掉；緊貼 `/` 的星號是 glob，保留"""
+        text = (
+            "**a/one.md 過時** *a/two.md* ~~a/three.md~~ a/four.md? "
+            "Read **a/five.md**. 例如 dir/* 與 **/x.md"
+        )
+        cands, skipped = check_cited_paths.extract_candidates(text, _index())
+        assert cands == ["a/one.md", "a/two.md", "a/three.md", "a/four.md", "a/five.md", "**/x.md"]
+        assert skipped == ["dir/*"]
+
+    def test_citepath_ep_043_cjk_is_trimmed_only_at_token_edges(self) -> None:
+        """CITEPATH-EP-043: 中文不是硬分隔——路徑內的中文保留，只剝頭尾且不緊貼 `/` 的中文"""
+        text = "改 `docs/說明.md` 與 `skills/月報/SKILL.md`，另修改scripts/x.py後即可，見docs/說明"
+        cands, skipped = check_cited_paths.extract_candidates(text, _index())
+        assert cands == ["docs/說明.md", "skills/月報/SKILL.md", "scripts/x.py"]
+        assert skipped == ["docs/說明"]
+
+    def test_citepath_ep_044_markdown_escapes_are_restored(self) -> None:
+        """CITEPATH-EP-044: markdown 反斜線跳脫先還原，`foo\\_bar.md` 不會被當成 shell 片段略過"""
+        assert _cands("見 newdir/foo\\_bar.md 與 `a\\*b/c.md`") == ["newdir/foo_bar.md", "a*b/c.md"]
+
+    def test_citepath_ep_045_skipped_token_promoted_when_later_seen_as_path(self) -> None:
+        """CITEPATH-EP-045: 先以散文出現被略過的 token，之後在連結中出現時改為檢查"""
+        cands, skipped = check_cited_paths.extract_candidates(
+            "see foo/bar, then [x](foo/bar)", _index()
+        )
+        assert cands == ["foo/bar"]
+        assert skipped == []
+
+    @pytest.mark.parametrize("sep", ["|", ",", ";", "{", "}", '"', "'", "!", "=", "「", "，"])
+    def test_citepath_ep_046_every_hard_separator_splits(self, sep: str) -> None:
+        """CITEPATH-EP-046: 每個硬分隔字元都會切開 token，網址或其他字串不會把路徑黏住吞掉"""
+        assert "scripts/missing.py" in _cands(f"https://x.com{sep}scripts/missing.py")
+
+    def test_citepath_ep_047_code_context_by_either_adjacent_backtick(self) -> None:
+        """CITEPATH-EP-047: 只有前面或只有後面緊貼反引號，都算程式碼語境（三段以上會檢查）"""
+        assert _cands("`newdir/sub/tool --x`") == ["newdir/sub/tool"]
+        assert _cands("`--x newdir/sub/tool`") == ["newdir/sub/tool"]
+        assert _cands("<newdir/sub/tool x>") == ["newdir/sub/tool"]
+
+    def test_citepath_ep_048_middle_segment_dot_counts_in_prose(self) -> None:
+        """CITEPATH-EP-048: 散文中只有中段含點（`newdir/v1.2/name`）也看得出是路徑"""
+        assert _cands("改 newdir/v1.2/name 即可") == ["newdir/v1.2/name"]
+
+    def test_citepath_ep_049_only_listed_schemes_are_ignored(self) -> None:
+        """CITEPATH-EP-049: 只有明列的 scheme 排除；`note:path` 這種前綴仍要檢查"""
+        assert _cands("[m](mailto:a@b.c) [t](TEL:123) note:scripts/missing.py") == [
+            "note:scripts/missing.py"
+        ]
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "> [r]: newdir/foo",
+            "- [r]: newdir/foo",
+            "1. item\n\n    [r]: newdir/foo",
+            "[a\\]b]: newdir/foo",
+            "[r]:\tnewdir/foo",
+            "[r]:\n\tnewdir/foo",
+            "[r]:\n> newdir/foo",
+            "  [r]: newdir/foo",
+            '<a href="newdir/foo">x</a>',
+            "<img src='newdir/foo'>",
+        ],
+        ids=[
+            "blockquote",
+            "list",
+            "continuation",
+            "escaped-label",
+            "tab-after-colon",
+            "tab-next-line",
+            "blockquote-next-line",
+            "indented",
+            "href",
+            "src",
+        ],
+    )
+    def test_citepath_ep_050_reference_and_html_targets_are_link_targets(self, text: str) -> None:
+        """CITEPATH-EP-050: 任何容器內的參考式定義與 HTML href/src 目標都當連結目標檢查"""
+        cands, skipped = check_cited_paths.extract_candidates(text, _index())
+        assert "newdir/foo" in cands
+        assert "newdir/foo" not in skipped
+
+    def test_citepath_ep_051_cjk_kept_in_code_and_links(self) -> None:
+        """CITEPATH-EP-051: 反引號與連結內的中文是路徑本身，不剝；散文中第一段為中文也保留"""
+        assert _cands("`新增scripts/x.py` `scripts/cron月報`") == [
+            "新增scripts/x.py",
+            "scripts/cron月報",
+        ]
+        assert set(_cands("[x](docs/說明) 見 說明/x.md")) == {"說明/x.md", "docs/說明"}
+
+    @pytest.mark.parametrize("esc", ["\\<", "\\>", "\\|", "\\~", "\\[", "\\!"])
+    def test_citepath_ep_052_every_escape_range_is_restored(self, esc: str) -> None:
+        """CITEPATH-EP-052: `_ESCAPE_RE` 每個字元範圍的跳脫都會還原，反斜線不會讓路徑被當成 shell 片段"""
+        assert "newdir/x.md" in _cands(f"見 {esc}newdir/x.md{esc} 即可")
+
+    def test_citepath_ep_053_single_tilde_is_not_home(self) -> None:
+        """CITEPATH-EP-053: 只有 `~/` 開頭算家目錄；單一 `~` 的刪除線會剝掉後照常檢查"""
+        assert _cands("已移除 ~newdir/x.md~ 與 `~/home.md`") == ["newdir/x.md"]
+
+    def test_citepath_ep_054_absolute_link_and_shell_chars_in_link(self) -> None:
+        """CITEPATH-EP-054: 以 `/` 開頭的連結目標視為 repo 根目錄起算；連結目標含 `&` 仍檢查"""
+        assert set(_cands("[x](/newdir/guide.md) [y](newdir/a&b.md) [z](//cdn.x/y)")) == {
+            "newdir/guide.md",
+            "newdir/a&b.md",
+        }
+        assert set(_cands("[x](%2Fnewdir/guide.md)")) == {"newdir/guide.md"}
+
+    def test_citepath_ep_055_remote_name_only_excludes_ref_shapes(self) -> None:
+        """CITEPATH-EP-055: 第一段是 remote 名稱時，只在看不出是路徑時排除"""
+        index = _index(files=("upstream/patch.md",), remotes=("upstream", "origin"))
+        cands, _ = check_cited_paths.extract_candidates(
+            "`upstream/missing.md` `origin/main` `origin/v1.2/x`", index
+        )
+        assert cands == ["upstream/missing.md", "origin/v1.2/x"]
+
+    def test_citepath_ep_056_query_and_second_clean_pass(self) -> None:
+        """CITEPATH-EP-056: 連結目標的 `?query` 會去掉；清理反覆套用到不再變化；`_` 強調也剝掉"""
+        cands = _cands("[x](scripts/a.py?plain=1) see **scripts/b.py.** and _scripts/c.py_")
+        assert set(cands) == {"scripts/b.py", "scripts/c.py", "scripts/a.py"}
+
+    def test_citepath_ep_059_link_target_ends_at_unbalanced_paren(self) -> None:
+        """CITEPATH-EP-059: 連結目標在第一個未成對的 `)` 截斷，緊鄰的網址連結不會把它吞掉"""
+        for text in (
+            "|[a](newdir/x.md)|[b](https://x)|",
+            "[a](newdir/x.md)![b](https://x/y.svg)",
+            "[a](newdir/x.md),[b](https://x)",
+            "[a](newdir/x.md)[b](https://x)",
+        ):
+            assert _cands(text) == ["newdir/x.md"], text
+        assert check_cited_paths._until_unbalanced_paren("a(1).md)x") == "a(1).md"
+
+    def test_citepath_ep_057_bom_does_not_hide_declarations(self) -> None:
+        """CITEPATH-EP-057: 以 BOM 開頭的文件，開頭區塊的宣告照常生效"""
+        text = "﻿<!-- expected-absent: a/b.md -->\n\n內文 `a/b.md`\n"
+        assert check_cited_paths.parse_expected_absent(text) == ["a/b.md"]
+        assert _cands(text) == ["a/b.md"]
+
+    def test_citepath_ep_058_declaration_block_uses_commonmark_line_breaks(self) -> None:
+        """CITEPATH-EP-058: 宣告行後接 NEL 再接內文時不算獨立的宣告行，宣告不生效"""
+        text = "<!-- expected-absent: newdir/x.md -->\x85See `newdir/x.md`\n"
+        assert check_cited_paths.parse_expected_absent(text) == []
 
 
 class TestResolve:
@@ -599,9 +728,16 @@ class TestMain:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """CITEPATH-MN-013: owner/repo 形狀的 token 在 stderr 印 [SKIPPED]，本身不讓閘門失敗"""
-        rc, _ = self._run(tmp_path, "`heyu-ai/yibi-stack` 的 `CLAUDE.md`")
+        rc, _ = self._run(tmp_path, "`heyu-ai/yibi-stack` 的 `CLAUDE.md`，另見 newdir/sub/tool")
         assert rc == 0
-        assert "[SKIPPED] heyu-ai/yibi-stack" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert (
+            "[SKIPPED] heyu-ai/yibi-stack（形似 owner/repo，未檢查；若是路徑請寫到檔名或加結尾斜線）"
+            in err
+        )
+        assert (
+            "[SKIPPED] newdir/sub/tool（散文中看不出是路徑，未檢查；若是路徑請用反引號包住）" in err
+        )
 
     def test_citepath_mn_014_untracked_file_is_missing(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -656,13 +792,13 @@ class TestMain:
         assert "[OUTSIDE] ../sibling/x.md" in out
         assert "[ABSENT-OK]" not in out
 
-    def test_citepath_mn_019_unclosed_fence_exits_two(
+    def test_citepath_mn_019_unclosed_fence_still_checks_rest(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """CITEPATH-MN-019: fence 未關閉時無法判斷後文，exit 2，不可當成通過"""
+        """CITEPATH-MN-019: fence 未關閉時後文照常檢查，缺席路徑讓閘門 exit 1"""
         rc, _ = self._run(tmp_path, "見 `CLAUDE.md`\n```\n改 `scripts/missing.py`\n")
-        assert rc == 2
-        assert "[FAIL]" in capsys.readouterr().err
+        assert rc == 1
+        assert "[MISSING] scripts/missing.py" in capsys.readouterr().out
 
     @pytest.mark.parametrize("failure", ["ls-files-rc", "remote-rc", "timeout", "oserror"])
     def test_citepath_mn_020_git_failures_exit_two(
@@ -711,6 +847,39 @@ class TestMain:
             "See [x](scripts/missing.py?plain=1) and `CLAUDE.md`.\n",
             "修改 scripts/missing.py 即可，見 `CLAUDE.md`\n",
             "Example: `\n<!-- expected-absent: docs/missing.md -->\n`\n\n`docs/missing.md` `CLAUDE.md`\n",
+            "`CLAUDE.md`\n\n[details][ref]\n\n[ref]: missing.md\n",
+            "`CLAUDE.md` [details](<newdir/foo>)\n",
+            "`CLAUDE.md` [x]( newdir/foo )\n",
+            "`CLAUDE.md` [x](\nnewdir/foo)\n",
+            "`CLAUDE.md`\n\n[x][r]\n\n[r]:\n  newdir/foo\n",
+            "```markdown\n\t```\n\tx\n\t```\n```\nSee `scripts/missing.py`.\n\n"
+            "```bash\necho hi\n```\n\nAlso `CLAUDE.md`.\n",
+            "See `CLAUDE.md`.\n\n- ```bash\n  run.sh\n  ```\n\nSee `newdir/sub/missing.md`.\n\n"
+            "```bash\necho hi\n```\n",
+            "`CLAUDE.md`\n\n   ```md\n      ```\n   ```\n\nSee `scripts/missing.py`.\n\n"
+            "```bash\necho hi\n```\n",
+            "See `CLAUDE.md`.\x85```\nSee `newdir/sub/missing.md`.\n```\n",
+            "Declare like this:\n\n    <!-- expected-absent: scripts/missing.py -->\n\n"
+            "Then edit `scripts/missing.py` and `CLAUDE.md`.\n",
+            "`CLAUDE.md`\n\n**agent/drafter.py 已過時**\n",
+            "`CLAUDE.md` Read *scripts/lint.p* now\n",
+            "`CLAUDE.md` Is it scripts/lint.p? yes\n",
+            "`CLAUDE.md` and ~~newdir/x.md~~ here\n",
+            "`CLAUDE.md`\n\nnewdir/foo\\_bar.md\n",
+            "改 `scripts/說明.md` 與 `CLAUDE.md`\n",
+            "`CLAUDE.md`\n\n`新增scripts/lint.py`\n",
+            "`CLAUDE.md` and `scripts/cron月報`\n",
+            "`CLAUDE.md`\n\n> [details][r]\n>\n> [r]: newdir/guide\n",
+            "`CLAUDE.md`\n\n- [r]: newdir/guide\n",
+            "`CLAUDE.md` [g][a\\]b]\n\n[a\\]b]: newdir/guide\n",
+            '`CLAUDE.md` <a href="newdir/sub/tool">tool</a>\n',
+            "`CLAUDE.md` [x](/newdir/guide.md)\n",
+            "`CLAUDE.md`\n\n|[a](newdir/missing.md)|[b](https://example.com)|\n",
+            "`CLAUDE.md` [a](newdir/sub/tool)![b](https://img.shields.io/x.svg)\n",
+            "`CLAUDE.md` [a](newdir/missing.md),[b](https://x.com/)\n",
+            "`CLAUDE.md` [a](newdir/missing.md)[b](https://x.com)\n",
+            "`CLAUDE.md`\n[x](%2Fnewdir/guide.md)\n",
+            '`CLAUDE.md` <a href=" newdir/sub/tool">t</a>\n',
         ],
         ids=[
             "wrapped-span",
@@ -728,11 +897,40 @@ class TestMain:
             "query-string",
             "prose-path",
             "decl-in-span",
+            "refdef-bare-name",
+            "angle-link",
+            "spaced-link",
+            "newline-link",
+            "refdef-next-line-2seg",
+            "tab-fence",
+            "list-marker-fence",
+            "indented-opener-fence",
+            "nel-fence",
+            "decl-in-indented-code",
+            "unbalanced-bold",
+            "italic-glob",
+            "prose-question-glob",
+            "strikethrough",
+            "escaped-underscore",
+            "cjk-in-path",
+            "cjk-prefix-in-code",
+            "cjk-suffix-in-code",
+            "blockquote-refdef",
+            "list-refdef",
+            "escaped-label-refdef",
+            "html-href",
+            "absolute-link",
+            "table-adjacent-url",
+            "badge-adjacent-url",
+            "comma-adjacent-url",
+            "back-to-back-links",
+            "pct-encoded-slash",
+            "href-leading-space",
         ],
     )
     def test_citepath_mn_021_formerly_fail_open_shapes_now_exit_one(
         self, tmp_path: Path, body: str
     ) -> None:
-        """CITEPATH-MN-021: R1 review 重現的 fail-open 形狀，缺席路徑都要讓閘門 exit 1"""
+        """CITEPATH-MN-021: 歷輪 review 重現的 fail-open 形狀，缺席路徑都要讓閘門 exit 1"""
         rc, _ = self._run(tmp_path, body)
         assert rc == 1

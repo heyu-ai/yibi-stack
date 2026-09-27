@@ -120,7 +120,7 @@ R1/R2 prompts, the same sanity checks, and the same aggregation severity table**
 
 | Engine step (owned by `/pr-cycle-deep`) | What runs |
 | --- | --- |
-| **Step 1.5** Parallel pre-review check | 3 Task agents in one message: `gh pr diff` / `gh pr checks` / `amplifier-verify.py --pr {{pr_number}}` |
+| **Step 1.5** Pre-review check | One Bash call (no Task agents): `pre_review_check.py --pr {{pr_number}}` — diff stats + CI state + `amplifier-verify.py`; exit 0 continue / 1 findings, continue / 2 stop |
 | **Step 2** Code review | `/code-review` (report-only) for defect detection |
 | **Step 3.0** Snapshot preflight | `preflight-review-snapshot.sh check` → **blocking**; no voice is dispatched until it exits 0 |
 | **Step 3** Round 1 | `setup-review-dir.sh origin/{{base_branch}}` → each voice reviews independently → `<voice>-r1.md` |

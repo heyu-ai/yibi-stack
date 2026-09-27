@@ -41,7 +41,12 @@ a few minutes and the lead responds on the spot — faster than two senior engin
 ```text
 /pr-cycle-deep
 /pr-cycle-deep #<PR number>   ← skip PR creation, but still run the Step 1 Review Contract gate
+/pr-cycle-deep #<PR number> --resume   ← continue from .pr-review/state.md (see Step 5 Checkpoint)
 ```
+
+`--resume`: run Step 0a, Read `state.md` + `final.md`, re-check live PR state (Step 6 recheck
+table), then jump to its `next:` step. `state.md` missing or naming another PR → `[FAIL]`; rerun
+without `--resume`.
 
 ---
 
@@ -269,28 +274,26 @@ Step 3.1, paste the confirmed contract into `prompt-r1.md` (the copy the reviewe
 
 ---
 
-### Step 1.5 — Parallel Pre-review Check (3 agents, same message)
+### Step 1.5 — Pre-review Check (one script, blocking)
 
-This step is **blocking** — do not proceed to Step 2 if any agent fails or returns no usable output.
+One Bash call — **not** Task agents: each would reload the full base context just to run a fixed
+command. The script fetches diff stats and CI state from GitHub (never local `main`), runs
+`amplifier-verify.py --pr` (TC coverage + traceability + Test Seam mapping, Check 4), prints a short summary, and writes the full amplifier stdout/stderr
+to `.pr-review/pre-review-check.md` (path on the `REPORT=` line):
 
-Spawn three Task agents **in a single message** to gather baseline information in parallel:
-
-| Agent | Task |
-|-------|------|
-| **diff-reviewer** | Run `gh pr diff {{pr_number}}`; summarise changed files and line counts. **Do not use local `main`** — always fetch from GitHub. If the command exits non-zero, report `[FAIL] gh pr diff: <exact error>` and stop. |
-| **ci-checker** | Run `gh pr checks {{pr_number}}`; report pass / fail / pending per check. If the list is empty, report "CI: not yet triggered". If the command exits non-zero, report `[FAIL] gh pr checks: <exact error>` and stop. |
-| **amplifier-verifier** | Run TC coverage + docstring traceability + Test Seam mapping (Check 4) check: `python3 ~/.agents/skills/pr-cycle-deep/scripts/amplifier-verify.py --pr {{pr_number}}`. Exit 0 = no spectra change (including a PR that touches only archived material, or names a change that has since been archived — finished work with nothing to gate) or all TCs traced, or `testplan.md` is missing / has no parsable TC table on a change whose `proposal.md` frontmatter `type:` does not require one (`eng` / `ops` / `bug` / `poc` / `docs`; printed as `[WARN]`, TC check skipped); exit 1 = MUST or SHOULD findings present; exit 2 = fatal error (change directory not found, missing testplan or unparsable TC table on a `feat` / `refactor` change or on one whose `type:` cannot be read, or a `gh` / `git` invocation failure). The detected `type:` is printed on the `spectra change detected` line every run — it is author-declared and decides whether the gate blocks, so check it matches the change. A `[WARN]` on stderr naming several active change dirs means the diff touched more than one **that resolved to an active directory**, and only the first of those was verified (candidates that resolve to the archive are excused, not counted). Report the full stdout. On exit 2, stop with `[FAIL]`. On exit 1, **do not stop** — write MUST findings to `$REVIEW_DIR/final.md` Critical section and SHOULD findings to Important section, then continue to Step 2. |
-
-If any agent reports `[FAIL]` (exit 2 or explicit `[FAIL]` in output), stop and report the failure explicitly; do not proceed to Step 2.
-
-Once all three return successfully, write `$CLAUDE_JOB_DIR/pre-review-check.md` (distinct from `$REVIEW_DIR/final.md` used in later steps) and report inline:
-
-```text
-Pre-review Check
-- Diff: <file count> files, <line count> lines changed
-- CI: <pass / fail / pending / not yet triggered — list any failing checks by name>
-- Amplifier: <MUST: N findings / SHOULD: N findings / OK: all TCs traced / no spectra change / only archived material touched (nothing to gate) / named change has since been archived>
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py --pr {{pr_number}}
 ```
+
+| Exit | Meaning | Action |
+|------|---------|--------|
+| `0` | Baseline OK; amplifier clean (no spectra change, all TCs traced, or TC check skipped for a non-`feat`/`refactor` `type:`) | Relay the summary; CI fail/pending is informational here; continue to Step 1.6 |
+| `1` | amplifier-verify MUST/SHOULD findings | **Do not stop.** Read the report; write MUST findings to `$REVIEW_DIR/final.md` Critical and SHOULD to Important; continue |
+| `2` | `gh` failed (auth / PR not found), or amplifier-verify exit 2 (change dir missing, missing/unparsable testplan on `feat`/`refactor`, HEAD ≠ PR head) | **Stop** with `[FAIL]`; read the report's stderr section for the cause |
+
+In the report, check the detected `type:` on the `spectra change detected` line (author-declared;
+it decides whether the gate blocks) and any `[WARN]` naming several active change dirs (only the
+first was verified). Allow-list: `Bash(python3 /Users/<you>/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py *)`.
 
 ---
 
@@ -317,35 +320,26 @@ and CI does not check prose.
 
 **Blocking.** With production code reverted to the merge-base and the branch's tests kept, a
 `feat`/`fix` PR's tests must **fail** and a `refactor`/`perf` PR's must still **pass** (other types
-`[SKIP]`). The checker is repo-provided — rationale and limits live in its docstring. If
-`$WT_ROOT/scripts/red-first-check.py` is absent (`WT_ROOT=$(git rev-parse --show-toplevel)`), record
-`[SKIP] red-first: no checker` in `pre-review-check.md`; do not hand-roll a revert-and-rerun. If the
-PR diff itself changes the checker, record `[WARN] red-first: checker modified by this PR` (it grades itself).
-
-Run these as separate calls — never paste the title into a command (`$`, backticks, `"` expand or
-execute). Any non-zero `git`/`gh` exit: `[FAIL] <cmd>: <error>`, stop. `>|` overwrites Step 1's draft
-body (plain `>` fails under noclobber); `BASE_REMOTE` is `upstream` if that remote exists, else `origin`:
+`[SKIP]`). The checker is repo-provided — rationale and limits live in its docstring. Run it only
+through this one call (Bash `timeout: 600000`), never as hand-split steps: shell variables do not
+survive between Bash calls, and a title pasted into a command expands (`${N}`, backticks). The
+script fetches the base, passes the title only as a variable and checks the tree before and after:
 
 ```bash
-git fetch "$BASE_REMOTE" {{base_branch}}
-PR_TITLE=$(gh pr view {{pr_number}} --json title -q .title)
-gh pr view {{pr_number}} --json body -q .body >| "$CLAUDE_JOB_DIR/pr-body.md"
-python3 "$WT_ROOT/scripts/red-first-check.py" --base FETCH_HEAD --title "$PR_TITLE" --pr-body-file "$CLAUDE_JOB_DIR/pr-body.md"
+bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR"
 ```
 
-Give the checker Bash `timeout: 600000` (it runs the suite twice). **First, whatever the exit code,
-timeout included:** `git status --short` must be empty except paths the checker printed as `[WARN]`
-(ask the user before `git checkout HEAD -- <path>` on those, rule 15); anything else means the revert
-may not be restored — `[FAIL]`, show it, stop, do not restore by hand. Then: exit `0` → append the
-verdict to `pre-review-check.md`, continue. Exit `1` with a red-first verdict line → **stop before
-Step 2**; add a test that fails on the base code (or restore the refactor's expectation), push, rerun.
+Append its output to `pre-review-check.md`. Exit `0` → continue (includes `[SKIP] red-first: no
+checker`). Exit `1` (`RED_FIRST_RESULT=fail`) → **stop before Step 2**; add a test that fails on the
+base code (or restore the refactor's expectation), push, rerun.
 Retyping the title to dodge it (`fix` → `chore`) is a material amendment (Step 1), and reviewers
-cannot waive it — none of them ran the tests against base code. Exit `2`, exit `1` without a verdict
-(a traceback), or any other code → `[FAIL]` with stderr verbatim, stop.
-Two exit-0 markers carry forward in `pre-review-check.md`: `[WEAK-RED]` (red came only from an
-import/compile error, which cannot show the assertion is meaningful) — Step 3.1 pastes them into
-`prompt-r1.md`; `[EXEMPT]` (a `Red-first-exempt: <reason>` line) — the lead may not accept it; Step 8
-shows it, and any `[WARN] red-first:` line, for the human to confirm.
+cannot waive it — none of them ran the tests against base code. Exit `2` (tool or precondition
+error, incl. a traceback) → `[FAIL]` verbatim, stop. Exit `3` or a killed call → the revert may not
+be restored: show `git status --short`, stop, do not restore by hand (rule 15).
+Exit-0 lines carry forward: `[WEAK-RED]` (red came only from an import/compile error, which cannot
+show the assertion is meaningful) — Step 3.1 pastes them into `prompt-r1.md`; `[EXEMPT]` (a
+`Red-first-exempt: <reason>` line) — the lead may not accept it; Step 8 shows it, and any
+`[WARN] red-first:` line (checker edited by the PR, tool side effects), for the human to confirm.
 
 ---
 
@@ -913,6 +907,12 @@ group-review ({{N}}/3 voices active)
 
 Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 5b.
 
+**Checkpoint (context lifetime).** With the Write tool, write `$REVIEW_DIR/state.md`: PR number,
+base branch, baseline SHA, re-review round, `next: Step 5b`; rewrite `next:` at every later step
+boundary. Later steps need nothing beyond `$REVIEW_DIR` (`prompt-r1.md` = frozen contract,
+`final.md` = blocking set), so this human pause is the cheapest place to shed context: tell the
+user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> --resume`.
+
 ---
 
 ### Step 5b — Post review summary to PR
@@ -964,38 +964,24 @@ gh issue create --repo {{owner/repo}} --label deferred-from-review --title "Defe
 
 ### Step 6 — Fix (Critical → Important → NIT)
 
-Process in order:
+Delegate the fix loop to **one** `general-purpose` Task subagent. Reading code, editing and
+iterating on CI are the most turn-heavy part of the cycle; in the lead's context every one of
+those turns re-reads the whole review history. Prompt (fill in the real `$REVIEW_DIR`):
 
-1. Modify the code.
-2. Run local CI (read the project to find the CI command first):
+```text
+Fix the blocking findings in $REVIEW_DIR/final.md in order: Consensus Critical, then Consensus
+Important; Actionable NIT only if trivial. The frozen Review Contract is in $REVIEW_DIR/prompt-r1.md
+— do not expand scope. Find the repo's CI command (Makefile ci/test target, else the stack default:
+uv run pytest / npm test / go test ./... / flutter test) and fix until it passes. Commit each batch
+with a message describing what was fixed (never "fix review comments"), then git push. Do not
+touch .pr-review/. Reply in <=15 lines: commit SHAs, each finding FIXED / NOT FIXED + reason,
+the CI command and its exit code.
+```
 
-   ```bash
-   grep -E "^(ci|test|check):" Makefile 2>/dev/null | head -5
-   ```
-
-   Common mappings:
-
-   | Stack | Local CI |
-   | --- | --- |
-   | Python (make) | `make ci` |
-   | Python (bare) | `uv run pytest` |
-   | Node | `npm test` |
-   | Go | `go test ./...` |
-   | Flutter | `flutter test` |
-
-   Fix before continuing if CI fails — do not skip.
-
-3. Commit (describe what was fixed; do not write "fix review comments"):
-
-   ```bash
-   git commit -m "fix(...): ..."
-   ```
-
-   ```bash
-   git push
-   ```
-
-Commit after each batch of fixes to make it easier for group re-review to see the corresponding diff.
+Task call errors or returns empty → `[FAIL]` stop. Then **verify, do not trust the summary**:
+`git log --oneline <baseline>..HEAD`, and re-run the CI command yourself as
+`<ci-command> > "$REVIEW_DIR/ci-step6.log" 2>&1`, gating on its exit code (Read the log only on
+failure). A NOT FIXED blocking item goes to the user; the subagent's "CI passed" is never the gate.
 
 **Recheck PR status before looping back into re-review.** A group re-review (Step 7) is
 expensive — do not spend it on a PR that is no longer open or mergeable. After pushing, re-query

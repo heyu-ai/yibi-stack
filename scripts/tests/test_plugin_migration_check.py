@@ -180,6 +180,109 @@ class TestMarketplaceCacheFallback:
         assert "讀不到本機 marketplace 快取" not in out
 
 
+_ALL_PACKS = ["harness", "sdd", "growth", "dev-cycle", "3rd-tools", "methodology"]
+
+
+def _dangling_link(home: Path, base: str, name: str) -> Path:
+    """在 ~/<base>/<name> 建一個指向不存在目錄的 symlink（模擬 skill 被刪後殘留）。"""
+    parent = home / base
+    parent.mkdir(parents=True, exist_ok=True)
+    link = parent / name
+    link.symlink_to(home / "deleted-checkout" / name)
+    return link
+
+
+class TestRemovedSkills:
+    def test_pmc_dt_009_old_methodology_gets_upcoming_removal_notice(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PMC-DT-009: methodology 版本早於移除版 -> [notice] 說更新後會消失，列出替代做法；不影響 exit code。"""
+        _write_installed(tmp_path, {"methodology": "1.22.5"})
+        _write_marketplace_cache(tmp_path, _ALL_PACKS)
+        with patch.object(Path, "home", return_value=tmp_path):
+            rc = check_migration.check()
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "[notice] tdd-kentbeck" in out
+        assert "[notice] flutter-tdd" in out
+        assert "更新到 methodology 1.23.0 後會消失" in out
+        assert "red-first gate" in out
+
+    def test_pmc_dt_010_current_methodology_gets_removed_notice(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PMC-DT-010: methodology 已是移除版之後 -> [notice] 說已移除。"""
+        _write_installed(tmp_path, {"methodology": "1.23.1"})
+        _write_marketplace_cache(tmp_path, _ALL_PACKS)
+        with patch.object(Path, "home", return_value=tmp_path):
+            rc = check_migration.check()
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "已於 methodology 1.23.0 移除" in out
+
+    def test_pmc_dt_011_old_tdd_pack_also_gets_notice(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PMC-DT-011: 舊的 tdd pack 當初也裝了這兩支 skill -> 同樣提示。"""
+        _write_installed(tmp_path, {"tdd": "1.15.2"})
+        _write_marketplace_cache(tmp_path, _ALL_PACKS)
+        with patch.object(Path, "home", return_value=tmp_path):
+            check_migration.check()
+        assert "[notice] tdd-kentbeck" in capsys.readouterr().out
+
+    def test_pmc_dt_012_unrelated_packs_get_no_notice(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PMC-DT-012: 沒裝 methodology／tdd -> 不印 skill 移除提示（對照組）。"""
+        _write_installed(tmp_path, {"growth": "1.23.1"})
+        _write_marketplace_cache(tmp_path, _ALL_PACKS)
+        with patch.object(Path, "home", return_value=tmp_path):
+            check_migration.check()
+        assert "[notice]" not in capsys.readouterr().out
+
+    @pytest.mark.parametrize("base", [".claude/skills", ".agents/skills"])
+    def test_pmc_dt_013_dangling_skill_symlink_is_stale(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], base: str
+    ) -> None:
+        """PMC-DT-013: 已移除 skill 的 symlink 指向不存在目錄 -> [stale-link]，exit 1，計入待處理。"""
+        _write_installed(tmp_path, {"growth": "1.23.1"})
+        _write_marketplace_cache(tmp_path, _ALL_PACKS)
+        link = _dangling_link(tmp_path, base, "tdd-kentbeck")
+        with patch.object(Path, "home", return_value=tmp_path):
+            rc = check_migration.check()
+        out = capsys.readouterr().out
+        assert rc == 1
+        assert f"[stale-link] {link}" in out
+        assert "1 個孤兒安裝需要處理" in out
+
+    def test_pmc_dt_014_live_skill_symlink_is_not_stale(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PMC-DT-014: symlink 指向仍存在的目錄 -> 不算殘留（DT-013 的對照組）。"""
+        _write_installed(tmp_path, {"growth": "1.23.1"})
+        _write_marketplace_cache(tmp_path, _ALL_PACKS)
+        target = tmp_path / "checkout" / "tdd-kentbeck"
+        target.mkdir(parents=True)
+        (tmp_path / ".claude" / "skills").mkdir(parents=True)
+        (tmp_path / ".claude" / "skills" / "tdd-kentbeck").symlink_to(target)
+        with patch.object(Path, "home", return_value=tmp_path):
+            rc = check_migration.check()
+        assert rc == 0
+        assert "[stale-link]" not in capsys.readouterr().out
+
+    def test_pmc_dt_015_dangling_link_reported_without_any_plugin(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PMC-DT-015: 只用 make install（沒裝任何 yibi-stack plugin）也要報殘留 symlink，不可提早回 [OK]。"""
+        _write_installed(tmp_path, {})
+        _dangling_link(tmp_path, ".claude/skills", "flutter-tdd")
+        with patch.object(Path, "home", return_value=tmp_path):
+            rc = check_migration.check()
+        out = capsys.readouterr().out
+        assert rc == 1
+        assert "[stale-link]" in out
+
+
 class TestFailureModes:
     def test_pmc_eg_001_missing_installed_plugins_json_exits_1(self, tmp_path: Path) -> None:
         """PMC-EG-001: installed_plugins.json 不存在 -> sys.exit(1)。"""
