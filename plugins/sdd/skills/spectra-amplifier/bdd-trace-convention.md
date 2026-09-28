@@ -50,6 +50,29 @@ def test_password_change_requires_current_password() -> None:
 | `<slug>` | Matches the slug in the spec heading exactly | `require-current-password` |
 | Prefix | No `scenario-` prefix | correct: `spec: login#require-password` |
 
+### TC Binding Line (`tc:`)
+
+A test that implements testplan test cases declares them on a separate docstring line,
+next to the `spec:` line:
+
+```python
+def test_password_change_requires_current_password() -> None:
+    """
+    spec: account-settings-page#require-current-password
+    tc: ACCOUNT-VL-001, ACCOUNT-VL-002
+    """
+```
+
+| Rule | Detail |
+|------|--------|
+| Position | The line must start with `tc:` inside the test function's docstring |
+| Value | One or more TC-IDs from the change's testplan, comma-separated |
+| Not a binding | TC-IDs in comments, test data, or docstring prose |
+| Agreement | The `spec:` slug must be one the testplan's Coverage table maps to that TC |
+
+`plugins/sdd/scripts/check_testplan_trace.py` verifies these bindings in both directions
+(see `plugins/sdd/scripts/README.md`).
+
 ### Cap Naming
 
 - Cap = **direct parent directory** of `spec.md`, not the grandparent

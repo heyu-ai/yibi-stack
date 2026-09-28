@@ -9,6 +9,12 @@ in host projects that do not have their own test-convention rules.
 [FEATURE]-[CATEGORY]-[NUMBER]   e.g. LOGIN-VL-001
 ```
 
+This file (or the host's `.claude/rules/09-test-conventions.md`, when present) is the **single owner**
+of the TC-ID format. `qa-test-designer` receives it in its prompt and must not invent another one:
+test techniques (EP / BVA / DT / ST / PW / RB) belong in the testplan's `Technique` column, never in
+the ID. Use a `[FEATURE]` prefix specific to the change — generic IDs such as `SMK-001` defined in
+several testplans are reported as `collision` by `check_testplan_trace.py`.
+
 ## Category Abbreviations
 
 | Code | Name | Scope | Description |

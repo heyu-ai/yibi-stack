@@ -25,6 +25,11 @@ amplifier_verify = importlib.util.module_from_spec(_spec)
 sys.modules["amplifier_verify"] = amplifier_verify
 _spec.loader.exec_module(amplifier_verify)
 
+# tests -> scripts -> pr-cycle-deep -> skills -> dev-cycle -> plugins -> repo root
+_REPO_TRACE_CHECKER = (
+    Path(__file__).resolve().parents[6] / "plugins" / "sdd" / "scripts" / "check_testplan_trace.py"
+)
+
 
 def test_tc_id_regex_accepts_two_part_ids():
     rx = amplifier_verify._TC_ID_RE
@@ -799,6 +804,10 @@ def _stub_run(monkeypatch, diff, repo_root, file_changes=None):
         raise AssertionError(f"非預期命令：{args}")
 
     monkeypatch.setattr(amplifier_verify, "_run", fake_run)
+    # 固定用 repo 內的 checker，不讀本機 installed_plugins.json（測試結果不能隨機器而變）
+    monkeypatch.setattr(
+        amplifier_verify, "locate_trace_checker", lambda root, home=None: _REPO_TRACE_CHECKER
+    )
     monkeypatch.setattr(amplifier_verify, "fetch_pr_metadata", lambda pr: metadata)
     monkeypatch.setattr(amplifier_verify, "fetch_pr_file_changes", lambda pr: file_changes)
     monkeypatch.setattr(sys, "argv", ["amplifier-verify.py", "--pr", "1"])
@@ -1165,6 +1174,67 @@ def test_main_still_verifies_a_parsable_testplan_for_a_type_that_does_not_requir
     out = capsys.readouterr().out
     assert "parsed 1 TCs" in out
     assert "[WARN]" not in out
+
+
+def _parsable_repo(tmp_path):
+    repo = _make_repo(tmp_path, active=["trace-demo"], testplans=["trace-demo"])
+    (repo / "openspec/changes/trace-demo/testplan.md").write_text(
+        "trace: enforced\n\n| TC-ID | Kind | Test Purpose | Expected Result |\n"
+        "|---|---|---|---|\n| TD-VL-001 | auto | x | y |\n",
+        encoding="utf-8",
+    )
+    (repo / "openspec/changes/trace-demo/tasks.md").write_text("- [x] 1.1 done\n", encoding="utf-8")
+    return repo
+
+
+def test_main_fails_closed_when_trace_checker_is_missing(tmp_path, monkeypatch, capsys):
+    """AVT-ST-020: a spectra change with no locatable trace checker exits 2, never 0 or 1."""
+    repo = _parsable_repo(tmp_path)
+    _stub_run(monkeypatch, _single_change_diff("trace-demo"), repo)
+    monkeypatch.setattr(amplifier_verify, "locate_trace_checker", lambda root, home=None: None)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    assert "check_testplan_trace.py" in capsys.readouterr().err
+
+
+def test_main_turns_enforced_trace_fail_into_must(tmp_path, monkeypatch, capsys):
+    """AVT-ST-021: end to end, an enforced change with an unbound auto TC is a MUST (exit 1)."""
+    repo = _parsable_repo(tmp_path)
+    _stub_run(monkeypatch, _single_change_diff("trace-demo"), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 1
+    assert "[MUST]   testplan trace [FAIL] missing: trace-demo TD-VL-001" in capsys.readouterr().out
+
+
+def test_main_exits_2_when_trace_checker_reports_config_error(tmp_path, monkeypatch, capsys):
+    """AVT-ST-023: a checker that exits 2 makes main() exit 2 too, with the checker's stderr."""
+    repo = _parsable_repo(tmp_path)
+    fake = tmp_path / "fake_checker.py"
+    fake.write_text(
+        'import sys\nprint("[FAIL] 設定錯誤 demo", file=sys.stderr)\nsys.exit(2)\n',
+        encoding="utf-8",
+    )
+    _stub_run(monkeypatch, _single_change_diff("trace-demo"), repo)
+    monkeypatch.setattr(amplifier_verify, "locate_trace_checker", lambda root, home=None: fake)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 2
+    assert "設定錯誤 demo" in capsys.readouterr().err
+
+
+def test_main_enforced_unfinished_change_warn_is_should(tmp_path, monkeypatch, capsys):
+    """AVT-ST-022: enforced + tasks unfinished -> the checker WARNs, summarised as one SHOULD."""
+    repo = _parsable_repo(tmp_path)
+    (repo / "openspec/changes/trace-demo/tasks.md").write_text("- [ ] 1.1 todo\n", encoding="utf-8")
+    _stub_run(monkeypatch, _single_change_diff("trace-demo"), repo)
+    with pytest.raises(SystemExit) as exc:
+        amplifier_verify.main()
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "[SHOULD] testplan trace: 1 WARN (missing 1)" in out
+    assert "[MUST]" not in out
 
 
 def test_main_exemption_works_under_the_docs_openspec_layout_root(tmp_path, monkeypatch, capsys):

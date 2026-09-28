@@ -43,7 +43,7 @@ claude plugin install sdd@yibi-stack
 |-----------|-------------|
 | `spectra-amplifier` skill | Wave D Plugin Edition：Step 0-5 規格展開，含 BDD Gherkin scenarios（多 capability 平行展開）、qa-test-design dispatch、docstring trace |
 | `figma-design-sync` skill | Figma 設計擷取（extract）與增量同步（sync）：把設計上下文落地到 `openspec/changes/<name>/design/`（文字進 git、截圖留本地），供 amplifier Step 1a 引用；schema 與模板詳見 `skills/figma-design-sync/manifest-schema.md`、`skills/figma-design-sync/design-context-template.md` |
-| `qa-test-designer` agent | Step 2a 自動 subagent：由 spectra-amplifier 平行 dispatch，model: opus，pure-transformation TC 生成 |
+| `qa-test-designer` agent | Step 2a 自動 subagent：由 spectra-amplifier dispatch，model: opus，直接寫出 testplan.md（`trace: enforced`、Kind 欄、Manual Verification），只回傳摘要 |
 | `gherkin-scenario-writer` agent | Step 1c 平行 subagent：為單一 capability 撰寫 Gherkin scenarios（RFC 2119 GIVEN/WHEN/THEN）；多 capability 時由 spectra-amplifier 平行 dispatch |
 | `scripts/check_spec_coverage.py` | BDD Spec-Test Traceability Scanner（ADR-0008）；`--specs-dir`/`--tests-dir` 參數化 |
 | SessionStart hook | Detects whether `spectra` CLI is in PATH; injects a nudge when absent (silent when present) |
@@ -59,7 +59,7 @@ docs/openspec/changes/<feature-name>/
 │   └── <name>.md  (Step 1c Gherkin scenarios，#### Scenario: <slug> -- <title>)
 ├── testplan.md    (Step 2 TC 表格 + Coverage Analysis, NEW in v1.3)
 ├── design.md      (Step 3 data model + API schema, 按需)
-└── tasks.md       (Phase 結構任務拆解, per-US pytest -k 驗收)
+└── tasks.md       (Phase 結構任務拆解, 每個 US 以 red-first 測試開頭, trace checker 驗收)
 ```
 
 參見 `references/openspec-layout.md` 取得完整格式說明與 CLI 指令對照。
@@ -71,7 +71,7 @@ docs/openspec/changes/<feature-name>/
 | `openspec-layout.md` | 目錄結構指引 + Spectra CLI 指令速查 + amplifier Step 0-5 對應 |
 | `proposal-template.md` | Proposal 空骨架（Step 1b US+AC + Step 4 + Step 5） |
 | `design-template.md` | Design 空骨架（Step 3） |
-| `tasks-template.md` | Implementation checklist 空骨架（含 pytest -k 驗收）|
+| `tasks-template.md` | Implementation checklist 空骨架（每個 US 以綁定 `tc:` 的 red-first 測試開頭）|
 | `spec-delta-template.md` | Delta spec 骨架（GIVEN/WHEN/THEN + [ADDED]/[MODIFIED]/[REMOVED]） |
 | `testplan-template.md` | testplan.md 空骨架（Step 2 Test Seams + TC 表格 + Coverage Analysis, **NEW v1.3**）|
 | `spectra-archive-snippet.md` | PR 收尾 Spectra Archive + Jira Sync 完整步驟 |

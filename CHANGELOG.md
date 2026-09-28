@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.5] - 2026-09-28
+
+### Added
+
+- sdd：新增 `scripts/check_testplan_trace.py`，雙向檢查 testplan 的 TC 與測試。測試以 docstring 的 `tc: <TC-ID>` 行宣告綁定（以 `ast` 解析，測試資料與註解裡的 ID 不算）；報出 missing／orphan／mismatch／collision／manual-open，legacy testplan 無法解析時報 unparsable。只有宣告 `trace: enforced` 且有 `Kind` 欄的 testplan 會在 `--strict` 或 tasks.md 全勾時報 FAIL，舊 testplan 一律 WARN。`--report` 列出 TC 對 test nodeid，`--summary` 把 WARN 收成每個 change 一行（#474）
+- 新增 pre-commit hook `check-testplan-trace`（摘要模式）；CI 經 `pre-commit run --all-files` 執行（#474）
+- pr-cycle-deep：Step 1.5 的 amplifier-verify 以子程序呼叫 trace checker，FAIL 逐筆成為 MUST，WARN 彙總成一筆（enforced 為 SHOULD、legacy 為 INFO），找不到 checker 即 exit 2；Step 8 以 `--strict` 列出未勾選的 Manual Verification 請人確認並留 PR comment；Step 11a 在 archive 前以 `--strict` 擋下（#474）
+
+### Changed
+
+- sdd：`qa-test-designer` 直接寫出 testplan.md，只回傳摘要；TC-ID 改依 Convention Detection 的約定（technique 只放 Technique 欄），無法自動化的檢查改列 Manual Verification。testplan 模板加入 `trace: enforced`、`Kind` 欄與 Manual Verification；tasks 模板的每個 US 以綁定 `tc:` 的 red-first 測試開頭（#474）
+
+### Fixed
+
+- sdd：`spectra-amplifier` 完工標準原本宣稱「testplan.md 所有 TC 均有對應測試（check_spec_coverage.py 驗證）」，但該工具不讀 testplan；改為指向 `check_testplan_trace.py --strict`。tasks 範例的 `pytest -k "<TC-ID>"` 驗收指令比對的是測試名稱而非 docstring，改用 trace checker（#474）
+
 ## [1.23.4] - 2026-09-27
 
 ### Changed
