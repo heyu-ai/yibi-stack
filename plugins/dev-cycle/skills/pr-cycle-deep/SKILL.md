@@ -568,7 +568,7 @@ The script takes no base-branch argument — it reviews the shared `$REVIEW_DIR/
 Step 3.1 already produced, so all three voices review the identical diff. Raw output lands in
 `codex-r1-raw.md` — **do not read it in the main context**.
 
-Review stages pin `-m gpt-6-astra` and gate on codex-cli >= 0.154.0 (0.149.0 answers it with a 400); the extract pins the cheap `-m gpt-reserve` plus `--ignore-user-config` (#444).
+Review stages pin `-m gpt-6-astra` and gate on codex-cli >= 0.154.0 (0.149.0 answers it with a 400); the extract pins the cheap `-m gpt-5.6-luna` plus `--ignore-user-config` (issue #444).
 If the gate fails: `npm install -g @openai/codex@latest` (asdf node also needs `asdf reshim nodejs`). A slug in `models_cache.json` only applies to the CLI matching that file's `client_version`.
 
 ###### Stage 2: Extract (compress verbose raw markdown into structured JSON)

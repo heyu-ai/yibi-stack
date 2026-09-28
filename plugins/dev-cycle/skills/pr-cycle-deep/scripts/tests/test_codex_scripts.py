@@ -3,9 +3,10 @@
 Two layers, mirroring test_agy_scripts.py / test_setup_review_dir.py:
   * Static contract tests -- read the script source and assert the skill-hijack guard
     invariants for the `codex exec` rewrite (issue #194).
-  * Behavioral tests -- run codex-r1-stage1.sh end-to-end with a fake `codex` on PATH,
-    verifying the guard actually reaches codex on stdin, the missing-input guards fire,
-    and the agentic-output detector rejects non-review output.
+  * Behavioral tests -- run the scripts end-to-end with a fake `codex` on PATH: stage 1's
+    guard actually reaches codex on stdin, its missing-input guards fire, and the
+    agentic-output detector rejects non-review output; both review stages refuse a too-old
+    codex before exec (ST-009); and stage 2's argv, stdin and failure paths (ST-010/ST-011).
 
 Background: `codex review --base` rejects a positional prompt on codex-cli 0.142.5
 (`error: the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`), so the guard
@@ -44,11 +45,13 @@ _FRONTIER_MODEL = "gpt-6-astra"
 # (measured: 0.149.0 refuses, 0.154.0-alpha.6.2 serves it), so both review stages gate on this.
 _MIN_CODEX_VERSION = "0.154.0"
 # The extract stage (raw markdown -> JSON) is a mechanical transform, so it pins a cheap model
-# rather than the frontier tier. Sourced from ~/.codex/models_cache.json on codex-cli 0.154.0
-# (priority 3, "Fast and affordable agentic coding model" -- the description gpt-5.6-luna carried
-# on 0.149.0 when issue #444 first pinned it). Leaving it unpinned made the stage inherit
-# ~/.codex/config.toml, whose model can be one the local CLI or account does not support.
-_EXTRACT_MODEL = "gpt-reserve"
+# rather than the frontier tier. gpt-5.6-luna is the catalog's visible cheap tier in
+# ~/.codex/models_cache.json on codex-cli 0.154.0 (visibility "list", priority 8, "Older fast and
+# efficient model"); on 0.149.0, when issue #444 pinned it, it read "Fast and affordable agentic
+# coding model". gpt-reserve now carries that description but was rejected: its visibility is
+# "hide", i.e. a hidden model. Leaving the stage unpinned made it inherit ~/.codex/config.toml,
+# whose model can be one the local CLI or account does not support.
+_EXTRACT_MODEL = "gpt-5.6-luna"
 STAGE2 = SCRIPTS_DIR / "codex-r1-stage2.sh"
 
 # The sensitive path prefixes the guard prompt must name (mirrors the canonical guard in
@@ -205,8 +208,10 @@ class TestCodexGuardContract:
         ~/.codex/config.toml, and a config model the local CLI or account does not support fails
         every extract with a 400 (gpt-6-astra on codex-cli 0.149.0; gpt-6-sol on a ChatGPT-account
         login with 0.154.0). Unpinned also does not keep the stage cheap -- it runs whatever tier
-        the local config names. This contract was silently reverted once (PR #446 resolved against
-        a pre-#445 base); keep all three assertions together so a revert fails here.
+        the local config names. This contract was silently reverted once: PR #446's conflict
+        resolution kept the pre-#445 contents of both this file and the script. Limit: this test
+        only catches a revert of the script alone -- a revert that also restores this test file
+        is not caught here (that needs a separate mechanical gate).
 
         Comment lines are skipped (parity with DT-007): the script's own explanatory comment
         names both flags, and a mutation that dropped `--ignore-user-config` from the exec
@@ -219,6 +224,9 @@ class TestCodexGuardContract:
         )
         assert f"-m {_FRONTIER_MODEL}" not in src, (
             "extract stage must not pin the frontier model; it is a mechanical transform"
+        )
+        assert "-m gpt-reserve" not in src, (
+            "extract stage must not pin gpt-reserve: it is a hidden model in the codex catalog"
         )
         assert f"-m {_EXTRACT_MODEL}" in src, (
             f"extract stage must pin -m {_EXTRACT_MODEL} instead of inheriting local config"
@@ -495,58 +503,71 @@ class TestVersionGateBehavioral:
         assert not capture.exists(), "codex exec ran despite the version gate"
 
 
+def _run_stage2(
+    tmp_path: Path, codex_body: str, env_extra: dict[str, str] | None = None
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """Run codex-r1-stage2.sh in a fresh repo against a fake `codex` whose body is codex_body.
+
+    Returns the completed process and the repo's .pr-review/ directory.
+    """
+    home = tmp_path / "home"
+    prompts = home / ".agents" / "skills" / "pr-cycle-deep" / "prompts"
+    prompts.mkdir(parents=True)
+    (prompts / "extract-r1.md").write_text("Extract JSON.\n", encoding="utf-8")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    review = repo / ".pr-review"
+    review.mkdir()
+    (review / "codex-r1-raw.md").write_text("## Summary\nok\n## Verdict\nLGTM\n", encoding="utf-8")
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    codex = bindir / "codex"
+    codex.write_text("#!/usr/bin/env bash\n" + codex_body, encoding="utf-8")
+    codex.chmod(0o755)
+
+    env = {
+        **os.environ,
+        "HOME": str(home),
+        "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_SYSTEM": "/dev/null",
+        **(env_extra or {}),
+    }
+    res = subprocess.run(  # nosec B603
+        ["bash", str(STAGE2)], cwd=str(repo), capture_output=True, text=True, env=env
+    )
+    return res, review
+
+
 class TestStage2Behavioral:
     def test_cdxs_st_010_extract_argv_ignores_user_config(self, tmp_path: Path) -> None:
-        """CDXS-ST-010: stage 2 invokes codex with --ignore-user-config and -m gpt-reserve.
+        """CDXS-ST-010: stage 2 invokes codex with --ignore-user-config and -m gpt-5.6-luna.
 
-        issue #444: the static DT-011 check reads the script text. This records the argv codex
-        actually receives. The fake codex also fails unless both flags are present, mirroring
-        the real 400 an unsupported inherited config model produces -- so a regression shows up
-        as a stage failure, not only as a missing token.
+        issue #444: the static DT-011 check reads the script text. This records the argv and
+        stdin codex actually receives. The fake codex is deliberately stricter than real codex:
+        it fails unless both flags are present, so a flag regression surfaces as a stage
+        failure, not only as a missing token.
         """
-        home = tmp_path / "home"
-        prompts = home / ".agents" / "skills" / "pr-cycle-deep" / "prompts"
-        prompts.mkdir(parents=True)
-        (prompts / "extract-r1.md").write_text("Extract JSON.\n", encoding="utf-8")
-
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git(repo, "init", "-q")
-        review = repo / ".pr-review"
-        review.mkdir()
-        (review / "codex-r1-raw.md").write_text(
-            "## Summary\nok\n## Verdict\nLGTM\n", encoding="utf-8"
-        )
-
         argv_capture = tmp_path / "argv.txt"
-        bindir = tmp_path / "bin"
-        bindir.mkdir()
-        codex = bindir / "codex"
-        codex.write_text(
+        stdin_capture = tmp_path / "stdin.txt"
+        res, review = _run_stage2(
+            tmp_path,
             (
-                "#!/usr/bin/env bash\n"
                 'printf "%s\\n" "$@" > "$CODEX_ARGV_CAPTURE"\n'
-                "cat > /dev/null\n"
+                'cat > "$CODEX_STDIN_CAPTURE"\n'
                 'case " $* " in *" --ignore-user-config "*) ;; *)\n'
                 '  echo "ERROR: 400 model is not supported" >&2; exit 1 ;; esac\n'
                 f'case " $* " in *" -m {_EXTRACT_MODEL} "*) ;; *)\n'
                 '  echo "ERROR: 400 model is not supported" >&2; exit 1 ;; esac\n'
                 'echo \'{"verdict": "LGTM", "summary": "ok", "findings": []}\'\n'
             ),
-            encoding="utf-8",
-        )
-        codex.chmod(0o755)
-
-        env = {
-            **os.environ,
-            "HOME": str(home),
-            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_CONFIG_SYSTEM": "/dev/null",
-            "CODEX_ARGV_CAPTURE": str(argv_capture),
-        }
-        res = subprocess.run(  # nosec B603
-            ["bash", str(STAGE2)], cwd=str(repo), capture_output=True, text=True, env=env
+            {
+                "CODEX_ARGV_CAPTURE": str(argv_capture),
+                "CODEX_STDIN_CAPTURE": str(stdin_capture),
+            },
         )
 
         assert res.returncode == 0, res.stderr
@@ -555,4 +576,36 @@ class TestStage2Behavioral:
         assert "--ignore-user-config" in argv
         assert argv[argv.index("-m") + 1] == _EXTRACT_MODEL
         assert _FRONTIER_MODEL not in argv
+        fed = stdin_capture.read_text(encoding="utf-8")
+        assert "Extract JSON." in fed, "extract prompt must reach codex on stdin"
+        assert "## Summary" in fed, "stage 1 raw output must reach codex on stdin"
+        assert "---END RAW OUTPUT---" in fed, "raw-output terminator must reach codex on stdin"
         assert (review / "codex-r1.json").read_text(encoding="utf-8").strip()
+
+    @pytest.mark.parametrize("variant", ["codex_400", "empty_stdout"])
+    def test_cdxs_st_011_extract_failure_paths_fail_loud(
+        self, variant: str, tmp_path: Path
+    ) -> None:
+        """CDXS-ST-011: stage 2 fails loud when codex errors or returns nothing.
+
+        codex_400: codex exits 1 with a 400 on stderr -- the stage must exit non-zero with
+        [FAIL], keep the 400 in codex-r1.extract.log for the operator, and still remove the
+        temporary codex-extract-input.md. empty_stdout: codex exits 0 but prints nothing --
+        the stage must not treat an empty codex-r1.json as success.
+        """
+        if variant == "codex_400":
+            body = 'cat > /dev/null\necho "ERROR: 400 model is not supported" >&2\nexit 1\n'
+        else:
+            body = "cat > /dev/null\nexit 0\n"
+        res, review = _run_stage2(tmp_path, body)
+
+        assert res.returncode != 0, f"{variant}: stage 2 must fail, got 0: {res.stderr}"
+        assert "[FAIL]" in res.stderr, f"{variant}: failure must be reported with [FAIL]"
+        if variant == "codex_400":
+            log = (review / "codex-r1.extract.log").read_text(encoding="utf-8")
+            assert "400" in log, "codex's stderr must be kept in codex-r1.extract.log"
+            assert not (review / "codex-extract-input.md").exists(), (
+                "temporary extract input must be removed on the failure path"
+            )
+        else:
+            assert "codex-r1.json 空白" in res.stderr
