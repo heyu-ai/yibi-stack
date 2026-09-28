@@ -325,6 +325,7 @@ Full methodology: skill bash-anti-patterns.
 
 ### Rule 14: shell quoting hygiene
 
+這是給**其他 repo** 的範本（yibi-stack 本身沒有 rule 14；它把 quoting 規範併在 rule 13）。
 Store as `.claude/rules/14-shell-quoting-hygiene.md`:
 
 ```markdown

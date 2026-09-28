@@ -37,8 +37,8 @@ if [ -f ~/.agents/ports.json ]; then echo "exists"; else echo "需要初始化";
 > 因此 `--version` 在這裡的定位是**診斷**（人看的、貼 bug report 用的），不是閘門；閘門是
 > 上面兩道 fail-loud：指令存在、安裝未損毀。
 >
-> ADR-0004 的「能力／版本檢查」要求中「版本」那一半已由 ADR-0005（能力探測取代 semver 比對，
-> 目前 status: proposed）取代。`portman` 只存在於 >= 1.9.0，故 `command -v portman` 成功就已
+> ADR-0004 的「能力／版本檢查」要求中「版本」那一半，ADR-0005 提議改以能力探測取代 semver 比對
+> （目前 status: proposed，尚未裁決）。`portman` 只存在於 >= 1.9.0，故 `command -v portman` 成功就已
 > 蘊含版本下限，再比一次 `MIN_VERSION` 守不到任何東西。
 
 若 ports.json 不存在：

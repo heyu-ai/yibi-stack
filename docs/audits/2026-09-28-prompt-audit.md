@@ -57,6 +57,13 @@
 - `make ci`（在 `git add` 之後跑）：exit 0，3367 passed、13 skipped；pre-commit 沒有就地改寫檔案。
 - G4 新增 `NLANG-ST-016`、`NLANG-EG-017`、`NLANG-EG-018`。對 ST-016 做了 mutation：把「按 type
   取 text block」改回「取第一個 block」，測試轉紅；用反向替換還原後轉綠。
+- PR #502 review 後補：`_translate_batch` 改以 stop_reason 白名單（僅 `end_turn`）判定，schema 不符的
+  `ValidationError` 轉成 `RuntimeError`，拒絕重複／越界 index，並還原輸入時做的 XML escape；新增
+  `NLANG-EG-019`～`026`、`NLANG-ST-023`～`024`。把白名單改回只檢查 text block 是否存在的 mutation
+  會讓 EG-019 與 EG-021 轉紅。
+- `classify_batch` 新增 `scripts/tests/test_categorize_hsbc.py`（`HSBC-*-001`～`008`，以假 client 與
+  `sys.modules` 替身測試，不打真實 API）；`PROMPT_CATEGORIES` 的不變式改在模組載入時檢查，不符即
+  raise `RuntimeError`。
 - 沒有對模型做行為探測（沒有花 API 費用）。Group 1 的刪除項屬於「移除是假設」，需要在實際
   session 中觀察（見文末）。
 
@@ -110,6 +117,9 @@ guarded target、`gh pr merge` 在各檔的說法一致、rule 13 → 17 的搬�
 
 附帶修正（在提案 diff 內）：rule 11 寫 nightly-agent「runs at 03:00」，`.runtime/schedules.json`
 是 21:00（C-F27）；搬到 rule 17 的段落補了一句前導說明，否則會缺少前情。
+A-F7 搬移後，面向 SKILL.md 撰寫者的三段（`resolve-skill-repo` 是唯一實作、`pwd -P` 不解析檔案
+symlink 的指標、錯誤處理寫法）移回 rule 11，因為它們要在編輯 `skills/**` 時載入；rule 17 內重複的
+檔案 symlink 段落刪掉，只保留「Self-Location and Portability」那一份。
 
 ---
 
@@ -126,7 +136,7 @@ clean-wt、handover、handover-back、codex-consult；agy／pr-cycle-deep 腳本
 | B-F4 | `commands/pr-cycle-deep.md:9` | `PR 已存在，直接跳到 mob review` | 2 衝突 | SKILL.md:43（較新）規定仍要跑 Step 1 Review Contract gate | High | rewrite |
 | B-F5 | `codex-cli/SKILL.md:531-535` | 引用的 rule 15 原文 | 2 volatile | rule 15 已在 #426 改寫，這段引文已不存在 | High | rewrite |
 | B-F6 | `local-port-manager/SKILL.md:33` | `recorded release tag v1.11.0` | 2 volatile | 同檔的安裝指令 pin 的是另一個 tag | High | rewrite → `v1.23.2`（全檔統一） |
-| B-F7 | `local-port-manager/SKILL.md:40-43` | `正由 issue #256 追蹤裁決` | 2 volatile | #256 已 closed，決議記錄在 ADR-0005 | High | rewrite |
+| B-F7 | `local-port-manager/SKILL.md:40-43` | `正由 issue #256 追蹤裁決` | 2 volatile | #256 已 closed；後續方向寫在 ADR-0005，但其 status 仍為 proposed（提案，尚未裁決） | High | rewrite |
 | B-F8 | `commands/debug-to-pr.md:70-75` | `/tmp/pr-body.md … rm -f` | 2 衝突 | 專案與全域規範都要求 `$CLAUDE_JOB_DIR`、不要 rm | High | rewrite |
 | B-F9 | `pr-cycle-deep/prompts/extract-r1.md:56-58` | `[P1] … → critical`，沒有 `[P0]` | 2 volatile | repo 定義 P0=critical、P1=important（codex-review:152、agy run.sh、pr-cycle-deep:856） | High | rewrite |
 | B-F10 | `issue-triage/SKILL.md:230-265, 579` | `docs/openspec/…`、`backend/src/ mobile/lib/`、`#1014`、`pre-jira-write.sh` | 2 volatile | global skill 寫死 yibi-mvp 的路徑；在其他 repo grep 到零命中時，會被誤判成「未實作」 | High | rewrite（加路徑解析說明、改成通用措辭） |
@@ -191,7 +201,7 @@ problem-frames、new-task-module、recap、debug-report、security-scanner、pr-
   `/investigate` 請留意是否出現「沒找到 root cause 就直接修」；若有，用一句平實的話加回來，
   不要恢復全大寫的版本。
 - **G4-5**：分類 schema 的 enum 取自 `SYSTEM_PROMPT` 裡有說明的 21 個科目（`PROMPT_CATEGORIES`，
-  已驗證全部對得到 `EXPENSE_ACCOUNTS` 的 ID），所以合法集合和原本 prompt 一致；`餐飲`、
+  模組載入時會檢查數量等於條列行、且全部對得到 `EXPENSE_ACCOUNTS`），所以合法集合和原本 prompt 一致；`餐飲`、
   `家庭三餐` 等只存在於科目表的別名不會被選到。行為上的差異是：原本行數對不上時會靜默塞成
   「其他支出」再寫入 DB，現在會在寫入前 fail loud。
 - **G4-1～4**：沒有打真實 API。第一次在 Sonnet 5 上跑 `normalize_handover_language` 時，請確認

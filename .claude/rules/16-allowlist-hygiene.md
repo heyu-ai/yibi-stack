@@ -253,7 +253,7 @@ Rewrite examples:
 
 ### Never Do This
 
-**Never blindly accept all suggestions from `/fewer-permission-prompts` with "Yes, and don't ask again".**
+**Never keep the `.claude/settings.json` diff that `/fewer-permission-prompts` writes without reviewing it.**
 The tool attempts to filter read-only calls but does so incompletely: commands with ambiguous semantics like `git reset *` or `curl *` may still appear.
 More critically: even when only genuinely read-only calls are listed, the generated pattern may be `Bash(git *)` — a
 verb-level wildcard covering all subcommands of the entire binary, including destructive operations.

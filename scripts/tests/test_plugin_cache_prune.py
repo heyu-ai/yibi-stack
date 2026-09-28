@@ -17,7 +17,7 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 - CLI 介面必須拒絕未知旗標（AC-1 安全預設的一部分）：PCP-EG-007
 
 這份對映表本身是 canonical claim，新增測試時必須同步更新
-（見 .claude/rules/18-single-source-of-truth.md）。
+（本 repo 沒有獨立的 single-source-of-truth rule 檔，此要求以本段文字為準）。
 """
 
 from __future__ import annotations

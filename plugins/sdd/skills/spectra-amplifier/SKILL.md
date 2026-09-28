@@ -708,7 +708,7 @@ single-source 維護（owner）。Step 0.5 產出 `problem-frame.md` 時依該�
 | **AC 直接當 Scenario**（沒有 GIVEN/WHEN/THEN）| 無法機器解析，trace rate 0% | 每條 AC 至少對應一個 Gherkin scenario |
 | **Scenario 缺少 slug**（無 `#### Scenario: <slug>`）| scanner 無法追蹤 | 每個 Scenario heading 加顯式 slug |
 | **略過 Step 2 qa-test-design**（只產 Gherkin 不產 TC）| Scenario 有規格沒測試設計 | Step 2 必須真正 dispatch sdd:qa-test-designer Task subagent |
-| **Smoke Test 用 ST-NNN**（應用 SMK-NNN）| 與 qa-test-design ST=State Transition 衝突 | 冒煙測試統一用 SMK |
+| **Smoke Test 用 ST-NNN**（應用 `<FEATURE>-SMK-NNN`）| 與 qa-test-design ST=State Transition 衝突 | 冒煙測試統一用 SMK |
 | **OOS 無理由** | 日後範疇爭議無法收斂 | 每項 OOS 附原因 + 未來考量 |
 | **無標記修訂** | 變更歷史消失 | 第二次起每次加 `[ADDED/MODIFIED/REMOVED]` |
 | **事後補 spec** | spec 繼承實作假設，失去獨立需求基線 | spec 必須在實作前完成 |
@@ -743,7 +743,7 @@ RFC 2119 嵌入 GIVEN/WHEN/THEN
   ▼ Step 2: Task tool dispatch → sdd:qa-test-designer
 TC 表格 + Coverage Analysis
 TC-ID 分配（依 host/plugin convention）
-SMK-NNN for smoke tests
+<FEATURE>-SMK-NNN for smoke tests
 → 輸入 testplan.md
   │
   ▼ Step 3（按需）: 資料模型 + API Schema + 衝突偵測

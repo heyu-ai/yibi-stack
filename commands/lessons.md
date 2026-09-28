@@ -122,10 +122,10 @@ tombstone（含完整 snapshot + `deleted_at`）保留 audit trail：
 
 ## Skill integration contract
 
-以下 skills 在對應時機呼叫 `lessons add`：
+目前只有 `/pr-retro` 與 `/investigate` 在對應時機呼叫 `lessons add`；`/handover` 列為預留介面，尚未實作：
 
 | Skill | 時機 | source | 額外參數 |
 |-------|------|--------|---------|
 | `/pr-retro` | AskUserQuestion 收集 type+confidence 後 | `user-stated` | `--skill pr-retro --retro-pr <N>` |
-| `/handover` | session 結束時的 lessons_learned[] | `observed` | `--skill handover --handover-id <id>` |
+| `/handover`（**尚未實作**：目前以 `handover write --lessons` 把 lessons_learned 存進 handover 記錄，不呼叫 `lessons add`） | session 結束時的 lessons_learned[] | `observed` | `--skill handover --handover-id <id>` |
 | `/investigate` | DEBUG REPORT 後的 root-cause patterns | `observed` | `--skill investigate` |

@@ -232,11 +232,18 @@ pr-orchestrator write-manifest --pr {{pr_number}} --repo-root "$REPO_ROOT"
 等待所有三個 subagent 完成後：
 
 - 若有 CONFLICT → transition `CONFLICT` → `BLOCKED`（等人工解）
-- 若 code-review 完成 → transition `REVIEWING` → `REVIEW_DONE`
-- 再 transition → `CI_WAIT`（Step 4）
+- 若 code-review 回傳任何 Critical／Important finding → 逐條列給 user（檔案:行號 + 問題摘要），
+  transition `REVIEWING` → `BLOCKED`，停下等 user 決定修正或接受；**不得**進入 `REVIEW_DONE`：
+
+  ```bash
+  pr-orchestrator transition --pr {{pr_number}} --to BLOCKED --reason "code-review findings" --repo-root "$REPO_ROOT"
+  ```
+
+- 只有 code-review 沒有 Critical／Important finding（只剩 NIT 或無 finding）時 → transition
+  `REVIEWING` → `REVIEW_DONE`，再 transition → `CI_WAIT`（Step 4）：
 
 ```bash
-pr-orchestrator transition --pr {{pr_number}} --to REVIEW_DONE --reason "all reviewers done" --repo-root "$REPO_ROOT"
+pr-orchestrator transition --pr {{pr_number}} --to REVIEW_DONE --reason "all reviewers done; no Critical/Important findings" --repo-root "$REPO_ROOT"
 pr-orchestrator transition --pr {{pr_number}} --to CI_WAIT --reason "entering CI wait" --repo-root "$REPO_ROOT"
 ```
 
@@ -287,10 +294,12 @@ gh pr view {{pr_number}} --json comments -q '[.comments[].body | select(startswi
 卻讀不到這則 comment → 視為「3.0b 沒有記錄」，告訴 user，不要當成沒有要確認的項目。
 comment 第一行的 SHA 與目前 HEAD 不同（例如 auto-fix 之後又 push 了），就在第二行註明它是對哪個 SHA 跑的。
 
-顯示給 user（有 `[EXEMPT]` 或 `[WARN] red-first:` 行、或上述任一例外時，第二行必填；否則省略）：
+顯示給 user（有 `[EXEMPT]` 或 `[WARN] red-first:` 行、或上述任一例外時，第二行必填；否則省略）。
+第一行依 Step 3 實際結果填寫：code-review 無任何 finding 時寫「無 finding」；只有 NIT 時寫「僅剩 N 個 NIT（未修）」。
+Critical／Important finding 在 Step 3 已轉 BLOCKED，不會走到這裡：
 
 ```text
-PR #{{pr_number}} 已通過 code review 與 CI。
+PR #{{pr_number}} CI 已通過；code review：<無 finding / 僅剩 N 個 NIT（未修）>。
 red-first 待你確認：<[EXEMPT] / [WARN] red-first: 原文>
 準備 merge：gh pr merge {{pr_number}} --squash --delete-branch
 請確認後手動執行，或輸入 "ship" 確認由 skill 代為執行。
