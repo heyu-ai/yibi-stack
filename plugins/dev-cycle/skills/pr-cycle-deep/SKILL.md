@@ -77,6 +77,7 @@ Use the Read tool to try reading `~/.claude/mob-detection-cache`:
     or broke. Do **not** proceed and do **not** silently drop the voice. Show the fix command for
     that voice (see the Step 0b report block / Troubleshooting), wait for the user to
     re-authenticate, then re-run Step 0 from **0b** (full re-detect + refresh cache).
+  - **Non-zero exit, or not exactly 2 lines** → `[FAIL]`, stop; see **Script failure** in Step 0b.
 - **File does not exist** (Read tool returns error): run Step 0b directly.
 
 > **Why re-verify instead of asking**: valid auth is the common case, so silent reuse is the
@@ -107,7 +108,7 @@ It prints five lines, always in this order, and exits 0 whatever the detection r
 | `GEMINI_AUTH:` | `ONBOARDED` / `KEY_SET` / `KEY_WHITESPACE_PREFIX` / `NOT_AUTHED` | agy `onboarding.json` `onboardingComplete: true`, else `GEMINI_API_KEY` / `GOOGLE_API_KEY` |
 | `GEMINI_ALLOW_LIST:` | `OK` / `MISSING` | all 3 agy script paths are allow-listed in `~/.claude/settings.json` |
 
-A `[WARN]` on stderr means `~/.codex/auth.json`, agy `onboarding.json` or `settings.json` exists but could not be
+A `[WARN]` on stderr means `~/.codex/auth.json`, agy `onboarding.json` or `settings.json` could not be checked,
 read or parsed, or has the wrong shape; the script treats it as absent — relay the `[WARN]` text to the user.
 It never prints a key's value.
 **Script failure (Step 0a and 0b)**: any non-zero exit (2 = bad argument, or python could not find the script),

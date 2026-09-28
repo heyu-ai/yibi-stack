@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - pr-cycle-deep：codex extract stage 改 pin `gpt-reserve`，恢復 #445 的修正（#495）
+- shell 腳本 bare `$VAR` 接全形字元導致 unbound variable／吞字（`Makefile` 與 bump-version、protect-push 等 7 支 shell 腳本）（#493）
 
 ## [1.23.3] - 2026-09-27
 

@@ -111,15 +111,28 @@ class TestCodexAuth:
         assert dv.codex_auth({"OPENAI_API_KEY": " sk"}, tmp_path) == "KEY_WHITESPACE_PREFIX"
 
     @pytest.mark.parametrize("prefix", [" ", "\t", "\n", "\r", "\v", "\f"])
-    def test_dv_dt_009_posix_space_set_is_whitespace_prefix(
-        self, tmp_path: Path, prefix: str
-    ) -> None:
-        """DV-DT-009: bash `[[:space:]]`（C locale）的六個字元開頭都算 KEY_WHITESPACE_PREFIX。"""
+    def test_dv_dt_009_ascii_space_is_whitespace_prefix(self, tmp_path: Path, prefix: str) -> None:
+        """DV-DT-009: ASCII 空白字元開頭都算 KEY_WHITESPACE_PREFIX。
+
+        `\\n` 開頭是與原 `env | grep` 刻意的差異（見 `_key_state` docstring），
+        其餘五個與原 bash 一致。
+        """
         assert dv.codex_auth({"CODEX_API_KEY": prefix + "sk"}, tmp_path) == "KEY_WHITESPACE_PREFIX"
 
-    def test_dv_dt_009b_nbsp_prefix_is_key_set(self, tmp_path: Path) -> None:
-        """DV-DT-009b: U+00A0 不在 bash `[[:space:]]`（C locale）內，與原 bash 一致判為 KEY_SET。"""
-        assert dv.codex_auth({"CODEX_API_KEY": " sk"}, tmp_path) == "KEY_SET"
+    def test_dv_dt_009b_nbsp_prefix_is_whitespace_prefix(self, tmp_path: Path) -> None:
+        """DV-DT-009b: U+00A0 開頭 → KEY_WHITESPACE_PREFIX。
+
+        原 inline bash 在使用者的 UTF-8 locale 下跑，macOS grep 的 `[[:space:]]` 會匹配 U+00A0
+        （`LANG=en_US.UTF-8` 實測；只有 `LANG=C` 不匹配），所以原本也是判成 key 設壞了。
+        """
+        assert dv.codex_auth({"CODEX_API_KEY": "\u00a0sk"}, tmp_path) == "KEY_WHITESPACE_PREFIX"
+
+    def test_dv_dt_009c_absent_auth_file_is_silent(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """DV-DT-009c: 沒有 key、也沒有 ~/.codex/auth.json 是正常情況（沒裝 codex），不 [WARN]。"""
+        assert dv.codex_auth({}, tmp_path) == "NOT_AUTHED"
+        assert capsys.readouterr().err == ""
 
 
 # --------------------------------------------------------------------------- #
@@ -180,6 +193,33 @@ class TestGeminiAuth:
         assert dv.gemini_auth({}, tmp_path) == "NOT_AUTHED"
         assert capsys.readouterr().err == ""
 
+    def test_dv_dt_018_null_onboarding_warns(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """DV-DT-018: onboarding.json 內容是 JSON null → 形狀不對，[WARN]。
+
+        不可與「檔案不存在」混為一談。
+        """
+        _write_onboarding(tmp_path, None)
+        assert dv.gemini_auth({}, tmp_path) == "NOT_AUTHED"
+        assert "[WARN]" in capsys.readouterr().err
+
+    def test_dv_dt_019_unreadable_agy_cache_dir_warns(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """DV-DT-019: agy cache 目錄無權限 → [WARN]，不可靜默當成「不存在」。
+
+        Python 3.14 的 `Path.is_file()` 遇到權限錯誤會回 False 而不 raise，
+        所以判斷存在與否不能靠 `is_file()`。
+        """
+        p = _write_onboarding(tmp_path, {"onboardingComplete": True})
+        p.parent.chmod(0)
+        try:
+            assert dv.gemini_auth({}, tmp_path) == "NOT_AUTHED"
+        finally:
+            p.parent.chmod(stat.S_IRWXU)
+        assert "[WARN]" in capsys.readouterr().err
+
 
 # --------------------------------------------------------------------------- #
 # agy allow-list
@@ -215,6 +255,7 @@ class TestAllowList:
         "payload",
         [
             ["x"],  # 頂層不是 object
+            None,  # 頂層是 JSON null（檔案存在，不是「沒有檔案」）
             {"permissions": ["x"]},  # permissions 不是 object
             {"permissions": None},  # permissions 存在但是 null
             {"permissions": {"allow": "x"}},  # allow 不是 list
@@ -367,15 +408,18 @@ class TestCli:
         assert "[WARN]" in result.stderr
 
     def test_dv_dt_038_unreadable_dirs_end_to_end(self, tmp_path: Path) -> None:
-        """DV-DT-038: ~/.codex 與 ~/.claude 都無權限 → exit 0、5 行齊全、NOT_AUTHED／MISSING。"""
+        """DV-DT-038: ~/.codex 與 ~/.claude 都無權限 → exit 0、5 行齊全、NOT_AUTHED／MISSING。
+
+        兩個檔案都要在 stderr 各留一行 [WARN]（不能因為讀不到就當成不存在而靜默）。
+        """
         locked = [tmp_path / ".codex", tmp_path / ".claude"]
         for d in locked:
             d.mkdir()
         (tmp_path / ".codex" / "auth.json").write_text("{}")
         (tmp_path / ".claude" / "settings.json").write_text("{}")
-        for d in locked:
-            d.chmod(0)
         try:
+            for d in locked:
+                d.chmod(0)
             result = _run(tmp_path, os.defpath)
         finally:
             for d in locked:
@@ -385,6 +429,8 @@ class TestCli:
         assert len(lines) == 5
         assert lines[1] == "CODEX_AUTH: NOT_AUTHED"
         assert lines[-1] == "GEMINI_ALLOW_LIST: MISSING"
+        assert "auth.json" in result.stderr
+        assert "settings.json" in result.stderr
 
 
 SKILLS_DIR = SCRIPT.parent.parent.parent

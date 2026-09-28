@@ -40,9 +40,8 @@ from pathlib import Path
 CODEX_KEYS = ("CODEX_API_KEY", "OPENAI_API_KEY")
 GEMINI_KEYS = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
 AGY_SCRIPTS = ("agy-r1-stage1.sh", "agy-r1-stage2.sh", "agy-r2.sh")
-# bash `[[:space:]]` 在 C locale 下的字元集；str.isspace() 較寬（含 U+00A0 等），
-# 用它會與原 bash 判斷不一致
-POSIX_SPACE = " \t\n\r\v\f"
+# 「讀不到檔案」與「JSON 內容是 null」要分開：前者是正常的沒安裝，後者是形狀錯誤要警告
+_ABSENT = object()
 
 
 def _key_state(env: Mapping[str, str], keys: tuple[str, ...]) -> str | None:
@@ -50,17 +49,17 @@ def _key_state(env: Mapping[str, str], keys: tuple[str, ...]) -> str | None:
     KEY_WHITESPACE_PREFIX；都沒有 → None。
 
     空字串視為未設定（對應原 bash 的 `=[^[:space:]]` / `=[[:space:]]` 兩者都不匹配空值）。
-    「空白」只認 POSIX_SPACE（bash `[[:space:]]` 的 C locale 字元集），
-    所以 U+00A0 開頭仍是 KEY_SET。
+    「空白」用 `str.isspace()`：原 inline bash 在使用者的 UTF-8 locale 下跑，macOS grep 的
+    `[[:space:]]` 也匹配 U+00A0 等 Unicode 空白（`LANG=en_US.UTF-8` 實測），兩者一致。
 
     與原 `env | grep` 唯一刻意的差異：值以換行開頭時，原本逐行比對的 grep 看到的是 `KEY=` 後面
     沒有字元的一行，兩個 pattern 都不匹配而往下掉；這裡直接看值的首字元，判為
     KEY_WHITESPACE_PREFIX（較合理：使用者確實設了一把壞掉的 key）。
     """
     values = [env.get(k) or "" for k in keys]
-    if any(v and v[0] not in POSIX_SPACE for v in values):
+    if any(v and not v[0].isspace() for v in values):
         return "KEY_SET"
-    if any(v and v[0] in POSIX_SPACE for v in values):
+    if any(v and v[0].isspace() for v in values):
         return "KEY_WHITESPACE_PREFIX"
     return None
 
@@ -69,26 +68,28 @@ def _warn(msg: str) -> None:
     print(f"[WARN] {msg}", file=sys.stderr)
 
 
-def _read_json(path: Path, label: str) -> object | None:
-    """讀 JSON；檔案不存在回 None（正常情況，不警告），讀取或解析失敗回 None 並在 stderr 警告。
+def _read_json(path: Path, label: str) -> object:
+    """讀 JSON，回傳解析結果（可能是 None，代表檔案內容是 JSON null）。
 
-    `is_file()` 也放在 try 內：上層目錄無權限時它本身就會丟 PermissionError。
+    檔案不存在或不是一般檔案回 `_ABSENT`（正常情況，不警告）；讀取或解析失敗也回 `_ABSENT`，
+    但在 stderr 警告。存在與否用 `stat()` 判斷而不用 `is_file()`：Python 3.14 的 `is_file()`
+    遇到權限錯誤會回 False 而不 raise，會把「讀不到」誤當成「不存在」而靜默。
     ValueError 同時涵蓋 JSONDecodeError 與非 UTF-8 的 UnicodeDecodeError。
     """
     try:
-        if not path.is_file():
-            return None
+        if not stat.S_ISREG(path.stat().st_mode):
+            return _ABSENT
         return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        # is_file() 與 read_text() 之間檔案被刪（TOCTOU）：等同不存在，不警告
-        return None
+    except (FileNotFoundError, NotADirectoryError):
+        # 不存在，或 stat() 與 read_text() 之間被刪（TOCTOU）：等同沒安裝，不警告
+        return _ABSENT
     except (OSError, ValueError) as e:
         _warn(f"無法讀取 {label}（{path}）：{e}")
-        return None
+        return _ABSENT
 
 
 def _nonempty_file(path: Path) -> bool:
-    """對應 bash `test -s`：存在、是一般檔案、大小 > 0。
+    """近似 bash `test -s`：存在且大小 > 0；刻意多要求是一般檔案（名為 auth.json 的目錄不算登入）。
 
     只 stat 一次（避免 is_file() 與 stat() 之間的 TOCTOU）；不存在時靜默回 False，
     其他讀取錯誤（例如上層目錄無權限）印 [WARN] 後同樣回 False。
@@ -117,7 +118,7 @@ def gemini_auth(env: Mapping[str, str], home: Path) -> str:
     onboarding = _read_json(
         home / ".gemini" / "antigravity-cli" / "cache" / "onboarding.json", "agy onboarding.json"
     )
-    if onboarding is not None and not isinstance(onboarding, dict):
+    if onboarding is not _ABSENT and not isinstance(onboarding, dict):
         _warn("agy onboarding.json 頂層不是 object，視為未完成 onboarding")
     elif isinstance(onboarding, dict) and onboarding.get("onboardingComplete"):
         return "ONBOARDED"
@@ -132,7 +133,7 @@ def agy_allow_list(home: Path) -> str:
     """
     label = "~/.claude/settings.json"
     settings = _read_json(home / ".claude" / "settings.json", label)
-    if settings is None:
+    if settings is _ABSENT:
         return "MISSING"
     if not isinstance(settings, dict):
         _warn(f"{label} 頂層不是 object，視為沒有 allow-list")
