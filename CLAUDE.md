@@ -77,7 +77,9 @@ glob 非錨定，在任意路徑深度匹配。
 >
 > `scripts/lint_rule_frontmatter.py` 與 pre-commit hook 會阻擋錯 key。
 
-- **全域**（01-03、13、15、16）：雙語規範、錯誤處理、安全性、bash 反模式、不可逆操作、allow-list 衛生
+- **全域**（01、03、13、15、16）：雙語規範、安全性、bash 反模式、不可逆操作、allow-list 衛生
+- **`**/*.py`、`**/*.sh`、`Makefile`**（02）：錯誤處理、import、pathlib 陷阱（為了讓常駐指令檔
+  總量留在 150k 字元上限內而改為 scoped）
 - **`tasks/**`**（04）：module 結構
 - **`tasks/**/<models|config|db|cli>.py`**（05-08）：Pydantic、config、DB、CLI
   （各自宣告獨立 pattern，此處合寫僅為摘要，`<>` 不是可複製的 glob 語法）
@@ -108,7 +110,7 @@ claude.ai 帳號的 skill/plugin 自動同步（2.1.275 起預設開啟）**已�
 
 - 共用路徑常數：@tasks/_paths.py
 - Bash lint 工具：@scripts/lint_skill_bash.py
-- 編碼慣例總覽：@.claude/rules/（15 個檔案；01-03/13/15/16 全量載入，04-11、17 依 `paths:` 觸發）
+- 編碼慣例總覽：@.claude/rules/（15 個檔案；01/03/13/15/16 全量載入，02、04-11、17 依 `paths:` 觸發）
 
 ## Dev 指令
 
