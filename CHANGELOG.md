@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.6] - 2026-09-28
+
+### Fixed
+
+- 依 2026-09-28 prompt audit（`docs/audits/2026-09-28-prompt-audit.md`）修正指令檔中過期的事實與互相矛盾的規則。主要項目：
+  - pr-cycle-deep 的 `extract-r1.md` 補上 `[P0]`，P-tag 嚴重度對照改為 P0=critical、P1=important
+  - mob-code-review-only 明列只跑哪些引擎步驟，排除會改碼或推送的 Step 1.6／1.7
+  - growth skill 的安裝提示改 pin 到 `v1.23.2`（`v1.14.0` 缺 `--park`／`finalize`）
+  - mycelium 文件中的 CLI 名稱統一為 `mycelium`
+  - Makefile／install guard 規則從 rule 11 搬到 rule 17，讓改 Makefile 時會載入
+  - 移除與內建 Explore 重複的 `explorer` agent
+- handover 翻譯改用 `claude-sonnet-5` 與 structured outputs，並依 block type 讀取回應（原本的 `content[0]` 在 adaptive thinking 預設開啟時會讀到 thinking block）。HSBC 分類改用 enum schema，編號缺漏時會在寫入 DB 前報錯，不再靜默歸入「其他支出」。
+
 ## [1.23.5] - 2026-09-28
 
 ### Added

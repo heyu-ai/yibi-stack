@@ -158,7 +158,7 @@ problem-frames、new-task-module、recap、debug-report、security-scanner、pr-
 |---|---|---|---|---|---|---|
 | C-F1 | growth 各 skill 的安裝提示 + README | `yibi-stack@v1.14.0` | 2 volatile | v1.14.0 沒有 pr-retrospective 用到的 `--park`／`lessons finalize`（lead 以 `git show` 確認）；最新 tag v1.23.2 有 | High | rewrite → `v1.23.2`（`openspec/specs` 是歷史 spec，不動） |
 | C-F2 | `mycelium/SKILL.md:30-32, 196`；insight:143；handover:12, 15 | `agents handover write/read/search` | 2 volatile | `pyproject` 只定義了 `mycelium` binary | High | rewrite |
-| C-F3 | `claude-md-prune/SKILL.md:149` | `rules/ 沒有 200 行限制（path-scoped，不是全域載入）` | 2 衝突 | 它自己的路由表送去的 01/02/03/13/15/16 都是每 session 全量載入 | High | rewrite |
+| C-F3 | `claude-md-prune/SKILL.md:149` | `rules/ 沒有 200 行限制（path-scoped，不是全域載入）` | 2 衝突 | 它自己的路由表送去的 03/13/15 都是每 session 全量載入 | High | rewrite |
 | C-F4 | ~~fleet-usage-guard:264~~ | — | — | **被推翻**：該測試檔存在 | — | 剔除 |
 | C-F5 | `bash-anti-patterns/SKILL.md:333, 337, 453` | `"${VAR}" … -> use "$VAR" plain form instead`、`rules/14-shell-quoting-hygiene.md` | 2 衝突 | rule 13 實測兩種寫法都會觸發誤判，照舊寫法修不掉；rule 14 已經不存在 | High | rewrite |
 | C-F6 | `bash-anti-patterns/SKILL.md:321` | `(class F1 hook intercepts)` | 2 衝突 | rule 13（較新）說已經沒有機械防護 | High | rewrite |
