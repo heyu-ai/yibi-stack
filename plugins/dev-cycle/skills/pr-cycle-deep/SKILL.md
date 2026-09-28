@@ -97,7 +97,7 @@ run prompted):
 python3 ~/.agents/skills/pr-cycle-deep/scripts/detect_voices.py
 ```
 
-It prints five lines, always in this order (exit 0 whatever the result; exit 2 = bad argument):
+It prints five lines, always in this order, and exits 0 whatever the detection result:
 
 | Line | Values | Meaning |
 |------|--------|---------|
@@ -107,8 +107,14 @@ It prints five lines, always in this order (exit 0 whatever the result; exit 2 =
 | `GEMINI_AUTH:` | `ONBOARDED` / `KEY_SET` / `KEY_WHITESPACE_PREFIX` / `NOT_AUTHED` | agy `onboarding.json` `onboardingComplete: true`, else `GEMINI_API_KEY` / `GOOGLE_API_KEY` |
 | `GEMINI_ALLOW_LIST:` | `OK` / `MISSING` | all 3 agy script paths are allow-listed in `~/.claude/settings.json` |
 
-A `[WARN]` on stderr means an agy `onboarding.json` or `settings.json` file exists but could not be
-parsed; the script then treats it as absent. It never prints a key's value.
+A `[WARN]` on stderr means `~/.codex/auth.json`, agy `onboarding.json` or `settings.json` exists but could not be
+read or parsed, or has the wrong shape; the script treats it as absent — relay the `[WARN]` text to the user.
+It never prints a key's value.
+**Script failure (Step 0a and 0b)**: any non-zero exit (2 = bad argument, or python could not find the script),
+or a line count other than 5 (2 with `--auth-only`), is `[FAIL]` — stop and show stderr verbatim.
+stderr containing `can't open file` means the installed skill copy is missing or stale (update the plugin /
+re-run `make install` from the main repo). Never fall back to re-typing the checks as inline bash,
+and never count a failed run as 0 voices.
 Allow-list it once with two exact entries (no wildcard needed):
 `Bash(python3 /Users/<you>/.agents/skills/pr-cycle-deep/scripts/detect_voices.py)` and
 `Bash(python3 /Users/<you>/.agents/skills/pr-cycle-deep/scripts/detect_voices.py --auth-only)`.

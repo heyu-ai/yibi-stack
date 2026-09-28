@@ -16,6 +16,7 @@ import os
 import stat
 import subprocess  # nosec B404
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import detect_voices as dv
@@ -32,10 +33,10 @@ def _write_onboarding(home: Path, payload: object) -> Path:
     return p
 
 
-def _write_settings(home: Path, allow: list[str]) -> None:
+def _write_settings(home: Path, allow: Sequence[object]) -> None:
     p = home / ".claude" / "settings.json"
     p.parent.mkdir(parents=True)
-    p.write_text(json.dumps({"permissions": {"allow": allow}}))
+    p.write_text(json.dumps({"permissions": {"allow": list(allow)}}))
 
 
 def _agy_allow_entries(home: Path) -> list[str]:
@@ -79,6 +80,47 @@ class TestCodexAuth:
         """DV-DT-006: 空字串 key 不算設定，繼續看 auth.json，最後 NOT_AUTHED。"""
         assert dv.codex_auth({"CODEX_API_KEY": ""}, tmp_path) == "NOT_AUTHED"
 
+    def test_dv_dt_007_unreadable_codex_dir_warns_not_authed(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """DV-DT-007: ~/.codex 無權限（chmod 000）不 crash，視為沒有 auth.json。
+
+        結果 NOT_AUTHED，stderr 留 [WARN]。
+
+        對應原 bash 的 `test -s`：讀不到就是不成立，不會讓整段偵測失敗。
+        """
+        codex_dir = tmp_path / ".codex"
+        codex_dir.mkdir()
+        (codex_dir / "auth.json").write_text("{}")
+        codex_dir.chmod(0)
+        try:
+            assert dv.codex_auth({}, tmp_path) == "NOT_AUTHED"
+        finally:
+            codex_dir.chmod(stat.S_IRWXU)
+        assert "[WARN]" in capsys.readouterr().err
+
+    def test_dv_dt_008_whitespace_key_beats_auth_file(self, tmp_path: Path) -> None:
+        """DV-DT-008: 帶前導空白的 key 優先於非空 auth.json → KEY_WHITESPACE_PREFIX。
+
+        對應原 bash 的 elif 順序。
+
+        使用者設了 key 卻設壞了，要讓他知道 key 壞掉，而不是被 auth.json 蓋過。
+        """
+        (tmp_path / ".codex").mkdir()
+        (tmp_path / ".codex" / "auth.json").write_text("{}")
+        assert dv.codex_auth({"OPENAI_API_KEY": " sk"}, tmp_path) == "KEY_WHITESPACE_PREFIX"
+
+    @pytest.mark.parametrize("prefix", [" ", "\t", "\n", "\r", "\v", "\f"])
+    def test_dv_dt_009_posix_space_set_is_whitespace_prefix(
+        self, tmp_path: Path, prefix: str
+    ) -> None:
+        """DV-DT-009: bash `[[:space:]]`（C locale）的六個字元開頭都算 KEY_WHITESPACE_PREFIX。"""
+        assert dv.codex_auth({"CODEX_API_KEY": prefix + "sk"}, tmp_path) == "KEY_WHITESPACE_PREFIX"
+
+    def test_dv_dt_009b_nbsp_prefix_is_key_set(self, tmp_path: Path) -> None:
+        """DV-DT-009b: U+00A0 不在 bash `[[:space:]]`（C locale）內，與原 bash 一致判為 KEY_SET。"""
+        assert dv.codex_auth({"CODEX_API_KEY": " sk"}, tmp_path) == "KEY_SET"
+
 
 # --------------------------------------------------------------------------- #
 # Gemini (agy) auth
@@ -112,10 +154,31 @@ class TestGeminiAuth:
         assert dv.gemini_auth({}, tmp_path) == "NOT_AUTHED"
         assert "[WARN]" in capsys.readouterr().err
 
-    def test_dv_dt_015_non_dict_onboarding(self, tmp_path: Path) -> None:
-        """DV-DT-015: onboarding.json 是合法 JSON 但不是 object，也不算 onboarded。"""
+    def test_dv_dt_015_non_dict_onboarding(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """DV-DT-015: onboarding.json 是合法 JSON 但不是 object → 不算 onboarded，stderr [WARN]。"""
         _write_onboarding(tmp_path, [True])
         assert dv.gemini_auth({}, tmp_path) == "NOT_AUTHED"
+        err = capsys.readouterr().err
+        assert "[WARN]" in err
+        assert "onboarding.json" in err
+
+    def test_dv_dt_016_non_utf8_onboarding_warns(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """DV-DT-016: onboarding.json 不是 UTF-8 → 不 crash，往下看 env key，stderr [WARN]。"""
+        p = _write_onboarding(tmp_path, "{}")
+        p.write_bytes(b"\xff\xfe{")
+        assert dv.gemini_auth({"GEMINI_API_KEY": "abc"}, tmp_path) == "KEY_SET"
+        assert "[WARN]" in capsys.readouterr().err
+
+    def test_dv_dt_017_absent_onboarding_is_silent(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """DV-DT-017: onboarding.json 不存在是正常情況（沒裝 agy），不印任何 [WARN]。"""
+        assert dv.gemini_auth({}, tmp_path) == "NOT_AUTHED"
+        assert capsys.readouterr().err == ""
 
 
 # --------------------------------------------------------------------------- #
@@ -148,12 +211,42 @@ class TestAllowList:
         assert dv.agy_allow_list(tmp_path) == "MISSING"
         assert "[WARN]" in capsys.readouterr().err
 
-    def test_dv_dt_024_permissions_wrong_shape(self, tmp_path: Path) -> None:
-        """DV-DT-024: permissions 不是 object 時不 crash，回 MISSING。"""
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            ["x"],  # 頂層不是 object
+            {"permissions": ["x"]},  # permissions 不是 object
+            {"permissions": None},  # permissions 存在但是 null
+            {"permissions": {"allow": "x"}},  # allow 不是 list
+        ],
+    )
+    def test_dv_dt_024_wrong_shape_warns(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], payload: object
+    ) -> None:
+        """DV-DT-024: settings.json 形狀不對時不 crash，回 MISSING，stderr [WARN] 並指名檔案。"""
         p = tmp_path / ".claude" / "settings.json"
         p.parent.mkdir(parents=True)
-        p.write_text(json.dumps({"permissions": ["x"]}))
+        p.write_text(json.dumps(payload))
         assert dv.agy_allow_list(tmp_path) == "MISSING"
+        err = capsys.readouterr().err
+        assert "[WARN]" in err
+        assert "settings.json" in err
+
+    @pytest.mark.parametrize("payload", [{}, {"permissions": {}}])
+    def test_dv_dt_025_missing_key_is_silent_missing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], payload: object
+    ) -> None:
+        """DV-DT-025: 沒有 permissions／allow key 是「沒設 allow-list」，回 MISSING 但不警告。"""
+        p = tmp_path / ".claude" / "settings.json"
+        p.parent.mkdir(parents=True)
+        p.write_text(json.dumps(payload))
+        assert dv.agy_allow_list(tmp_path) == "MISSING"
+        assert capsys.readouterr().err == ""
+
+    def test_dv_dt_026_unhashable_allow_entry(self, tmp_path: Path) -> None:
+        """DV-DT-026: allow 內有 dict 等不可 hash 的元素也不 crash，其餘 entry 照常比對。"""
+        _write_settings(tmp_path, [{"a": 1}, *_agy_allow_entries(tmp_path)])
+        assert dv.agy_allow_list(tmp_path) == "OK"
 
 
 # --------------------------------------------------------------------------- #
@@ -238,12 +331,98 @@ class TestCli:
         assert secret not in result.stdout
         assert secret not in result.stderr
 
+    def test_dv_dt_035_unhashable_allow_entry_end_to_end(self, tmp_path: Path) -> None:
+        """DV-DT-035: allow 含 dict → 仍 exit 0、5 行齊全，最後一行 MISSING（不 traceback）。"""
+        p = tmp_path / ".claude" / "settings.json"
+        p.parent.mkdir(parents=True)
+        p.write_text(json.dumps({"permissions": {"allow": [{"a": 1}]}}))
+        result = _run(tmp_path, os.defpath)
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.splitlines()
+        assert len(lines) == 5
+        assert lines[-1] == "GEMINI_ALLOW_LIST: MISSING"
+
+    def test_dv_dt_036_non_utf8_settings_end_to_end(self, tmp_path: Path) -> None:
+        """DV-DT-036: settings.json 不是 UTF-8 → exit 0、MISSING、stderr [WARN]。"""
+        p = tmp_path / ".claude" / "settings.json"
+        p.parent.mkdir(parents=True)
+        p.write_bytes(b'{"permissions": "\xb4\xfa"}')
+        result = _run(tmp_path, os.defpath)
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.splitlines()
+        assert len(lines) == 5
+        assert lines[-1] == "GEMINI_ALLOW_LIST: MISSING"
+        assert "[WARN]" in result.stderr
+
+    def test_dv_dt_037_non_utf8_onboarding_end_to_end(self, tmp_path: Path) -> None:
+        """DV-DT-037: onboarding.json 不是 UTF-8 → exit 0、退回 env key 判斷、stderr [WARN]。"""
+        p = _write_onboarding(tmp_path, "{}")
+        p.write_bytes(b"\xff")
+        result = _run(tmp_path, os.defpath, "--auth-only", extra_env={"GOOGLE_API_KEY": "k"})
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [
+            "CODEX_AUTH: NOT_AUTHED",
+            "GEMINI_AUTH: KEY_SET",
+        ]
+        assert "[WARN]" in result.stderr
+
+    def test_dv_dt_038_unreadable_dirs_end_to_end(self, tmp_path: Path) -> None:
+        """DV-DT-038: ~/.codex 與 ~/.claude 都無權限 → exit 0、5 行齊全、NOT_AUTHED／MISSING。"""
+        locked = [tmp_path / ".codex", tmp_path / ".claude"]
+        for d in locked:
+            d.mkdir()
+        (tmp_path / ".codex" / "auth.json").write_text("{}")
+        (tmp_path / ".claude" / "settings.json").write_text("{}")
+        for d in locked:
+            d.chmod(0)
+        try:
+            result = _run(tmp_path, os.defpath)
+        finally:
+            for d in locked:
+                d.chmod(stat.S_IRWXU)
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.splitlines()
+        assert len(lines) == 5
+        assert lines[1] == "CODEX_AUTH: NOT_AUTHED"
+        assert lines[-1] == "GEMINI_ALLOW_LIST: MISSING"
+
+
+SKILLS_DIR = SCRIPT.parent.parent.parent
+WIRED_SKILL_MDS = [
+    SKILLS_DIR / "pr-cycle-deep" / "SKILL.md",
+    SKILLS_DIR / "mob-code-review-only" / "SKILL.md",
+]
+# 被 detect_voices.py 取代的舊 inline 偵測 bash 的特徵字串；任何一個回到 SKILL.md 就代表回流。
+REMOVED_INLINE_MARKERS = [
+    'echo "CODEX_AUTH:',
+    'echo "GEMINI_AUTH:',
+    'echo "GEMINI_ALLOW_LIST:',
+    'echo "CODEX: BINARY_OK',
+    "env | grep -qE",
+]
+
 
 class TestSkillMdWiring:
-    def test_dv_dt_040_skill_md_calls_script_not_inline_bash(self) -> None:
-        """DV-DT-040: SKILL.md 不再內嵌 auth 偵測 bash，改呼叫 script——防止 inline 區塊回流。"""
-        skill_md = SCRIPT.parent.parent / "SKILL.md"
+    @pytest.mark.parametrize("skill_md", WIRED_SKILL_MDS, ids=lambda p: p.parent.name)
+    def test_dv_dt_040_skill_md_calls_script_not_inline_bash(self, skill_md: Path) -> None:
+        """DV-DT-040: 兩份 SKILL.md 都呼叫 detect_voices.py，且不含舊 inline 偵測 bash 的特徵字串。
+
+        只檢查字串層級的接線：script 名稱出現、舊區塊的 echo／env grep 形狀不出現。
+        不驗證 agent 實際照做（那是執行期行為，文件測試證明不了）。
+        """
         src = skill_md.read_text(encoding="utf-8")
         assert "detect_voices.py" in src
-        assert 'echo "CODEX_AUTH:' not in src
-        assert 'echo "GEMINI_AUTH:' not in src
+        for marker in REMOVED_INLINE_MARKERS:
+            assert marker not in src, (
+                f"{skill_md.parent.name}/SKILL.md 出現舊 inline 偵測：{marker}"
+            )
+
+    def test_dv_dt_041_step_0a_uses_auth_only(self) -> None:
+        """DV-DT-041: pr-cycle-deep Step 0a warm path 實際呼叫 `detect_voices.py --auth-only`。
+
+        比對完整的 `python3 ~/.agents/...` 呼叫字串，而不是只找 `--auth-only`——
+        allow-list 說明段落也含 `detect_voices.py --auth-only`（`/Users/<you>/` 形式），
+        只找片段的話 Step 0a 呼叫被刪掉測試仍會綠。
+        """
+        src = WIRED_SKILL_MDS[0].read_text(encoding="utf-8")
+        assert "python3 ~/.agents/skills/pr-cycle-deep/scripts/detect_voices.py --auth-only" in src
