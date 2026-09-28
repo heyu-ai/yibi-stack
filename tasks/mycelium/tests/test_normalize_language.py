@@ -6,12 +6,15 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from tasks.mycelium.db import AgentsDB
 from tasks.mycelium.handover_service import (
     _apply_translations,
     _collect_cjk_texts,
     _has_cjk,
     _record_has_cjk,
+    _translate_batch,
     audit_handover_language,
     normalize_handover_language,
 )
@@ -152,6 +155,51 @@ class TestApplyTranslations:
         updates = _apply_translations(row, segments, translated)
         assert updates["topic"] == "Fix the issue"
         assert updates["completed"] == ["Completed task 1", "done task 2"]
+
+
+def _fake_anthropic_module(response: object) -> MagicMock:
+    """建立假的 anthropic module：Anthropic().messages.create() 回傳指定 response。"""
+    module = MagicMock()
+    module.Anthropic.return_value.messages.create.return_value = response
+    return module
+
+
+def _block(block_type: str, text: str = "") -> MagicMock:
+    block = MagicMock()
+    block.type = block_type
+    block.text = text
+    return block
+
+
+class TestTranslateBatch:
+    def test_nlang_st_016_reads_text_block_after_thinking(self) -> None:
+        """NLANG-ST-016：thinking block 排在前面時，仍從 text block 解析 structured output。"""
+        payload = {"items": [{"index": 1, "text": "Second"}, {"index": 0, "text": " First "}]}
+        response = MagicMock(
+            stop_reason="end_turn",
+            content=[_block("thinking"), _block("text", json.dumps(payload))],
+        )
+        with patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}):
+            assert _translate_batch(["第一", "第二"]) == ["First", "Second"]
+
+    def test_nlang_eg_017_missing_index_raises(self) -> None:
+        """NLANG-EG-017：回應缺少任一 index 時 fail loud，不回傳部分結果。"""
+        payload = {"items": [{"index": 0, "text": "First"}]}
+        response = MagicMock(stop_reason="end_turn", content=[_block("text", json.dumps(payload))])
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="缺少"),
+        ):
+            _translate_batch(["第一", "第二"])
+
+    def test_nlang_eg_018_refusal_raises(self) -> None:
+        """NLANG-EG-018：stop_reason=refusal 且無 text block 時 fail loud。"""
+        response = MagicMock(stop_reason="refusal", content=[])
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="refusal"),
+        ):
+            _translate_batch(["第一"])
 
 
 class TestAuditHandoverLanguage:

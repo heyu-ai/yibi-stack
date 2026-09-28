@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 import sys
 import time
 
@@ -69,9 +71,10 @@ SYSTEM_PROMPT = """你是一個記帳分類助手。根據信用卡交易描述�
 - 稅：稅款
 - 公司款項：公司相關報銷
 - 一般代刷：幫別人代刷
-- 其他支出：以上都不符合時使用
+- 其他支出：以上都不符合時使用"""
 
-只回傳科目名稱，不加任何解釋或標點。"""
+# structured output 的合法科目 = 上方 prompt 有說明的科目（不含 EXPENSE_ACCOUNTS 的別名）。
+PROMPT_CATEGORIES = re.findall(r"^- (\S+?)：", SYSTEM_PROMPT, re.MULTILINE)
 
 # ── 讀取待分類交易 ───────────────────────────────────────────────────────────
 
@@ -107,19 +110,46 @@ def classify_batch(client: anthropic.Anthropic, txns: list[dict]) -> dict[str, s
     lines = "\n".join(
         f"{i + 1}. [{t['date']}] {t['desc']} (${t['amount']:.0f})" for i, t in enumerate(txns)
     )
+    # structured output：以編號對應交易、以 enum 限定科目，避免逐行解析錯位。
+    schema = {
+        "type": "object",
+        "properties": {
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "no": {"type": "integer"},
+                        "category": {"type": "string", "enum": PROMPT_CATEGORIES},
+                    },
+                    "required": ["no", "category"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["results"],
+        "additionalProperties": False,
+    }
     resp = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
+        max_tokens=4096,
         system=SYSTEM_PROMPT,
+        output_config={"format": {"type": "json_schema", "schema": schema}},
         messages=[
             {
                 "role": "user",
-                "content": f"請分類以下交易，每行只輸出科目名稱（共 {len(txns)} 行）：\n\n{lines}",
+                "content": f"請為以下 {len(txns)} 筆交易各選一個科目（no 對應行首編號）：\n\n{lines}",
             }
         ],
     )
-    cats = [line.strip() for line in resp.content[0].text.strip().split("\n") if line.strip()]
-    return {txns[i]["id"]: cats[i] if i < len(cats) else "其他支出" for i in range(len(txns))}
+    body = next((b.text for b in resp.content if b.type == "text"), None)
+    if resp.stop_reason != "end_turn" or body is None:
+        raise RuntimeError(f"分類回應異常（stop_reason={resp.stop_reason}）")
+    by_no = {r["no"]: r["category"] for r in json.loads(body)["results"]}
+    missing = [i + 1 for i in range(len(txns)) if i + 1 not in by_no]
+    if missing:
+        raise RuntimeError(f"分類結果缺少編號：{missing}")
+    return {txns[i]["id"]: by_no[i + 1] for i in range(len(txns))}
 
 
 # ── 批次更新 to_account_id（直接 SQL） ─────────────────────────────────────
