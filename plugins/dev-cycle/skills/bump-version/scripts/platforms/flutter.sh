@@ -7,7 +7,7 @@ set -euo pipefail
 
 RESULT_ENV="/tmp/bump_version_result.env"
 if [ ! -f "$RESULT_ENV" ]; then
-  echo "[FAIL] 找不到 $RESULT_ENV，請先執行 bump.sh" >&2
+  echo "[FAIL] 找不到 ${RESULT_ENV}，請先執行 bump.sh" >&2
   exit 1
 fi
 source "$RESULT_ENV"

@@ -41,7 +41,7 @@ uv pip install --quiet --python "$WORK/venv/bin/python" "$WHEEL"
 echo "=== 4. 確認前提：驗證目錄不得含 checkout 痕跡 ==="
 for marker in tasks pyproject.toml .git; do
     if [ -e "$WORK/$marker" ]; then
-        echo "[FAIL] 驗證目錄含 $marker，「無 checkout」前提不成立" >&2
+        echo "[FAIL] 驗證目錄含 ${marker}，「無 checkout」前提不成立" >&2
         exit 1
     fi
 done
