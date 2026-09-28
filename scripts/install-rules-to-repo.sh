@@ -13,6 +13,7 @@ set -euo pipefail
 #   13-bash-anti-patterns.md  -- AP1/AP2/AP3 + quoting hygiene
 #   15-irreversible-operations.md
 #   16-allowlist-hygiene.md
+#   17-shell-script-authoring.md  -- 自 13 拆出；少了它，目標 repo 會靜默失去被搬走的段落
 #
 # yibi-stack-specific rules (04-11, scoped to tasks/**) are NOT propagated.
 
@@ -41,7 +42,8 @@ fi
 
 mkdir -p "$TARGET_RULES_DIR"
 
-for RULE in 13-bash-anti-patterns.md 15-irreversible-operations.md 16-allowlist-hygiene.md; do
+RULES=(13-bash-anti-patterns.md 15-irreversible-operations.md 16-allowlist-hygiene.md 17-shell-script-authoring.md)
+for RULE in "${RULES[@]}"; do
     SRC="$YIBI_RULES_DIR/$RULE"
     DST="$TARGET_RULES_DIR/$RULE"
 
@@ -59,7 +61,7 @@ for RULE in 13-bash-anti-patterns.md 15-irreversible-operations.md 16-allowlist-
     fi
 done
 
-echo "[OK] 3 rules installed to $TARGET_RULES_DIR (mode=$MODE)"
+echo "[OK] ${#RULES[@]} rules installed to $TARGET_RULES_DIR (mode=$MODE)"
 echo ""
 echo "Next steps for target repo:"
 if [ "$MODE" = "--copy" ]; then

@@ -57,7 +57,7 @@ TICKET_PATTERN=$(parse_config_value "ticket_pattern" "")
 
 # 驗證 MAX_SUBJECT_LENGTH 是數字
 if ! echo "$MAX_SUBJECT_LENGTH" | grep -qE '^[0-9]+$'; then
-  echo "[WARN] max_subject_length 設定值無效（$MAX_SUBJECT_LENGTH），使用預設值 72" >&2
+  echo "[WARN] max_subject_length 設定值無效（${MAX_SUBJECT_LENGTH}），使用預設值 72" >&2
   MAX_SUBJECT_LENGTH="72"
 fi
 
@@ -122,7 +122,7 @@ fi
 # 驗證 ticket pattern
 if [ -n "$TICKET_PATTERN" ]; then
   if ! echo "$COMMIT_MSG" | grep -qE "$TICKET_PATTERN"; then
-    echo "[FAIL] commit message 找不到必要的 ticket 編號（pattern：$TICKET_PATTERN）"
+    echo "[FAIL] commit message 找不到必要的 ticket 編號（pattern：${TICKET_PATTERN}）"
     echo "      可在 message body 加入 ticket 編號，例如："
     echo "      Refs: PROJ-123"
     exit 1

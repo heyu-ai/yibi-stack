@@ -97,7 +97,7 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 			echo "  [FAIL] $$name 缺少 scope frontmatter（global|project），請在 SKILL.md 補上"; exit 1; \
 		fi; \
 		if [ "$$scope" != "global" ] && [ "$$scope" != "project" ]; then \
-			echo "  [FAIL] $$name 的 scope 值無效（$$scope），只接受 global 或 project"; exit 1; \
+			echo "  [FAIL] $$name 的 scope 值無效（$${scope}），只接受 global 或 project"; exit 1; \
 		fi; \
 		if [ "$$scope" != "global" ]; then continue; fi; \
 		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
@@ -186,7 +186,7 @@ install-project: ## Install scope=project skills（本 repo 限定，ainization-
 			echo "  [FAIL] $$name 缺少 scope frontmatter（global|project），請在 SKILL.md 補上"; exit 1; \
 		fi; \
 		if [ "$$scope" != "global" ] && [ "$$scope" != "project" ]; then \
-			echo "  [FAIL] $$name 的 scope 值無效（$$scope），只接受 global 或 project"; exit 1; \
+			echo "  [FAIL] $$name 的 scope 值無效（$${scope}），只接受 global 或 project"; exit 1; \
 		fi; \
 		if [ "$$scope" != "project" ]; then continue; fi; \
 		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \

@@ -49,7 +49,7 @@ fi
 PARSE_EXIT=0
 GIT_DIR=$(python3 "$SCRIPT_DIR/parse_git_dir.py" "$CMD" 2>/dev/null) || PARSE_EXIT=$?
 if [ "$PARSE_EXIT" -ne 0 ]; then
-    block_push "BLOCKED: protect-push: git -C target 無法解析（exit $PARSE_EXIT）\n請改用 literal path 或先把 worktree 路徑指定給變數再執行 push。"
+    block_push "BLOCKED: protect-push: git -C target 無法解析（exit ${PARSE_EXIT}）\n請改用 literal path 或先把 worktree 路徑指定給變數再執行 push。"
 fi
 
 # 包裝 git 指令，依據是否有 GIT_DIR 決定是否加 -C
