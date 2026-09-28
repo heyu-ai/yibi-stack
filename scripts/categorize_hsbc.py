@@ -84,6 +84,9 @@ if not PROMPT_CATEGORIES or len(PROMPT_CATEGORIES) != len(_PROMPT_BULLETS):
         f"PROMPT_CATEGORIES 解析不完整：抓到 {len(PROMPT_CATEGORIES)} 個科目，"
         f"但 SYSTEM_PROMPT 有 {len(_PROMPT_BULLETS)} 行條列（條列須為「- 科目：說明」）"
     )
+_DUPLICATE_CATEGORIES = sorted({c for c in PROMPT_CATEGORIES if PROMPT_CATEGORIES.count(c) > 1})
+if _DUPLICATE_CATEGORIES:
+    raise RuntimeError(f"SYSTEM_PROMPT 重複列出科目：{_DUPLICATE_CATEGORIES}")
 _UNKNOWN_CATEGORIES = [c for c in PROMPT_CATEGORIES if c not in EXPENSE_ACCOUNTS]
 if _UNKNOWN_CATEGORIES:
     raise RuntimeError(f"SYSTEM_PROMPT 列出 EXPENSE_ACCOUNTS 沒有的科目：{_UNKNOWN_CATEGORIES}")
@@ -157,13 +160,17 @@ def classify_batch(client: anthropic.Anthropic, txns: list[dict]) -> dict[str, s
     body = next((b.text for b in resp.content if b.type == "text"), None)
     if resp.stop_reason != "end_turn" or body is None:
         raise RuntimeError(f"分類回應異常（stop_reason={resp.stop_reason}）")
+    try:
+        results = [(r["no"], r["category"]) for r in json.loads(body)["results"]]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise RuntimeError(f"分類回應格式不符 schema：{body[:200]!r}") from e
     by_no: dict[int, str] = {}
-    for r in json.loads(body)["results"]:
-        if not 1 <= r["no"] <= len(txns):
-            raise RuntimeError(f"分類結果編號超出範圍：{r['no']}（共 {len(txns)} 筆）")
-        if r["no"] in by_no:
-            raise RuntimeError(f"分類結果含重複編號：{r['no']}")
-        by_no[r["no"]] = r["category"]
+    for no, category in results:
+        if not 1 <= no <= len(txns):
+            raise RuntimeError(f"分類結果編號超出範圍：{no}（共 {len(txns)} 筆）")
+        if no in by_no:
+            raise RuntimeError(f"分類結果含重複編號：{no}")
+        by_no[no] = category
     missing = [i + 1 for i in range(len(txns)) if i + 1 not in by_no]
     if missing:
         raise RuntimeError(f"分類結果缺少編號：{missing}")
