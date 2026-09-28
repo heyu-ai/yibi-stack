@@ -76,6 +76,18 @@ SYSTEM_PROMPT = """你是一個記帳分類助手。根據信用卡交易描述�
 # structured output 的合法科目 = 上方 prompt 有說明的科目（不含 EXPENSE_ACCOUNTS 的別名）。
 PROMPT_CATEGORIES = re.findall(r"^- (\S+?)：", SYSTEM_PROMPT, re.MULTILINE)
 
+# 不變式：prompt 每一行條列都必須被 regex 抓到（全形冒號），且都對得到 EXPENSE_ACCOUNTS；
+# 否則 enum 會靜默少掉科目，或分類出無法寫入的科目名稱。
+_PROMPT_BULLETS = re.findall(r"^- ", SYSTEM_PROMPT, re.MULTILINE)
+if not PROMPT_CATEGORIES or len(PROMPT_CATEGORIES) != len(_PROMPT_BULLETS):
+    raise RuntimeError(
+        f"PROMPT_CATEGORIES 解析不完整：抓到 {len(PROMPT_CATEGORIES)} 個科目，"
+        f"但 SYSTEM_PROMPT 有 {len(_PROMPT_BULLETS)} 行條列（條列須為「- 科目：說明」）"
+    )
+_UNKNOWN_CATEGORIES = [c for c in PROMPT_CATEGORIES if c not in EXPENSE_ACCOUNTS]
+if _UNKNOWN_CATEGORIES:
+    raise RuntimeError(f"SYSTEM_PROMPT 列出 EXPENSE_ACCOUNTS 沒有的科目：{_UNKNOWN_CATEGORIES}")
+
 # ── 讀取待分類交易 ───────────────────────────────────────────────────────────
 
 
@@ -145,7 +157,13 @@ def classify_batch(client: anthropic.Anthropic, txns: list[dict]) -> dict[str, s
     body = next((b.text for b in resp.content if b.type == "text"), None)
     if resp.stop_reason != "end_turn" or body is None:
         raise RuntimeError(f"分類回應異常（stop_reason={resp.stop_reason}）")
-    by_no = {r["no"]: r["category"] for r in json.loads(body)["results"]}
+    by_no: dict[int, str] = {}
+    for r in json.loads(body)["results"]:
+        if not 1 <= r["no"] <= len(txns):
+            raise RuntimeError(f"分類結果編號超出範圍：{r['no']}（共 {len(txns)} 筆）")
+        if r["no"] in by_no:
+            raise RuntimeError(f"分類結果含重複編號：{r['no']}")
+        by_no[r["no"]] = r["category"]
     missing = [i + 1 for i in range(len(txns)) if i + 1 not in by_no]
     if missing:
         raise RuntimeError(f"分類結果缺少編號：{missing}")

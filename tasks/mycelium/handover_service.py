@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .account import (
     detect_account,
@@ -304,6 +304,11 @@ def _xml_escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _xml_unescape(text: str) -> str:
+    """還原 `_xml_escape` 產生的三個 entity（`&amp;` 最後處理，避免二次還原）。"""
+    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+
 def audit_handover_language(*, db_path: Path | None = None) -> dict[str, Any]:
     """Audit handover records for CJK content. Returns statistics dict."""
     db = AgentsDB(db_path or HANDOVER_DB_PATH)
@@ -335,9 +340,13 @@ def audit_handover_language(*, db_path: Path | None = None) -> dict[str, Any]:
 
 
 def _translate_batch(texts: list[str]) -> list[str]:
-    """Translate a list of Chinese texts to English using the Anthropic API.
+    """以 Anthropic API 把一批中文段落翻成英文。
 
-    Raises RuntimeError if the API response is missing items or truncated.
+    原文先經 `_xml_escape` 再放進 `<item>`，讓內容裡的 `<`、`>`、`&` 不會破壞分隔；
+    模型被要求逐字保留識別符，因此譯文會帶回這些 entity，寫回前以 `_xml_unescape` 還原。
+
+    任何非 `end_turn` 的 stop_reason（含 max_tokens、refusal）、缺少 text block、
+    回應不符 schema、index 缺漏／重複／超出範圍，一律 raise RuntimeError。
     """
     try:
         from anthropic import Anthropic  # pylint: disable=import-error
@@ -381,11 +390,22 @@ def _translate_batch(texts: list[str]) -> list[str]:
         raise RuntimeError(f"API 回應被截斷（max_tokens）：預期 {len(texts)} 個項目")
     # 依 block type 取文字：thinking block 可能排在前面，不可假設 content[0] 是 text。
     result_text = next((b.text for b in response.content if b.type == "text"), None)
-    if response.stop_reason == "refusal" or result_text is None:
+    # 白名單：只有 end_turn 代表完整回應；refusal、context window 超限等其他值一律視為失敗。
+    if response.stop_reason != "end_turn" or result_text is None:
         raise RuntimeError(f"API 未回傳翻譯結果（stop_reason={response.stop_reason}）")
 
-    parsed = _Translations.model_validate_json(result_text)
-    translated: dict[int, str] = {item.index: item.text.strip() for item in parsed.items}
+    try:
+        parsed = _Translations.model_validate_json(result_text)
+    except ValidationError as e:
+        raise RuntimeError(f"API 回應格式不符 schema：{result_text[:200]!r}") from e
+
+    translated: dict[int, str] = {}
+    for item in parsed.items:
+        if not 0 <= item.index < len(texts):
+            raise RuntimeError(f"API 回應的索引超出範圍：{item.index}（共 {len(texts)} 個項目）")
+        if item.index in translated:
+            raise RuntimeError(f"API 回應含重複索引：{item.index}")
+        translated[item.index] = _xml_unescape(item.text).strip()
 
     missing = [i for i in range(len(texts)) if i not in translated]
     if missing:
