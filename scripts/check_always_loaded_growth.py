@@ -2,7 +2,7 @@
 """檢查一個 change 是否讓 always-loaded rule 面淨增。
 
 `.claude/rules/*.md` 中 frontmatter **無** `paths:` key 者，每個 session 全量載入
-（本 repo 目前為 01/02/03/13/15/16）。retro-evidence-gate 的自我約束要求：治規則
+（本 repo 目前為 01/03/13/15/16）。retro-evidence-gate 的自我約束要求：治規則
 通膨的 change 不得自己讓 always-loaded 面變肥——規範應寫進 scoped rule（如 rule 11，
 `paths: skills/**`），而非全量載入檔。
 
@@ -227,7 +227,7 @@ def main(argv: list[str]) -> int:
         print(
             f"[FAIL] always-loaded 面淨增 {growth} 行（應為 0）。"
             "規範內容請寫進 scoped rule（如 rule 11，paths: skills/**），"
-            "而非全量載入檔（01/02/03/13/15/16）。",
+            "而非全量載入檔（01/03/13/15/16）。",
             file=sys.stderr,
         )
         return 1
