@@ -225,6 +225,9 @@ class TestCodexGuardContract:
         assert f"-m {_FRONTIER_MODEL}" not in src, (
             "extract stage must not pin the frontier model; it is a mechanical transform"
         )
+        assert "-m gpt-reserve" not in src, (
+            "extract stage must not pin gpt-reserve: it is a hidden model in the codex catalog"
+        )
         assert f"-m {_EXTRACT_MODEL}" in src, (
             f"extract stage must pin -m {_EXTRACT_MODEL} instead of inheriting local config"
         )
@@ -597,8 +600,8 @@ class TestStage2Behavioral:
         res, review = _run_stage2(tmp_path, body)
 
         assert res.returncode != 0, f"{variant}: stage 2 must fail, got 0: {res.stderr}"
+        assert "[FAIL]" in res.stderr, f"{variant}: failure must be reported with [FAIL]"
         if variant == "codex_400":
-            assert "[FAIL]" in res.stderr
             log = (review / "codex-r1.extract.log").read_text(encoding="utf-8")
             assert "400" in log, "codex's stderr must be kept in codex-r1.extract.log"
             assert not (review / "codex-extract-input.md").exists(), (
