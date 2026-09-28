@@ -37,7 +37,7 @@ Insight Collector 以 Stop hook 的方式在每次 Claude 完成回應時靜默�
 > esac
 > unset _gcd
 > if ! command -v mycelium >/dev/null 2>&1; then
->   echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2
+>   echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2
 >   exit 1
 > fi
 > ```
@@ -140,4 +140,4 @@ jq -r '.project' ~/.agents/insight/insights.jsonl | sort | uniq -c | sort -rn
 | `insights.jsonl` 找不到 | 正常——首次收到 Insight 時才建立 |
 | 想確認 hook 是否正確安裝 | 見 Step 2 的驗證指令 |
 | 想停用但不移除 | 編輯 `~/.claude/settings.json` 手動移除對應 entry |
-| 所有記錄 account 都是 unknown | 設定 `AGENT_ACCOUNT` env var 或 `agents account set-default` |
+| 所有記錄 account 都是 unknown | 設定 `AGENT_ACCOUNT` env var 或 `mycelium account set-default` |

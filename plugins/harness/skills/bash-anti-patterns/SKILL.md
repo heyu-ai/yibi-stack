@@ -318,7 +318,7 @@ Replacements: [SKIP] / [OK] / [WARN] / [FAIL] / -- / -
 Three failure modes of cd <path> && cmd, each with a different fix:
 - cd ... && git <cmd>         -> git -C <path> <cmd>  (class C hook intercepts)
 - cd ... && uv run            -> uv run --directory <path>  (no hook; silent blind spot)
-- cd ... && cmd 2>/dev/null   -> use absolute path, remove cd  (class F1 hook intercepts)
+- cd ... && cmd 2>/dev/null   -> use absolute path, remove cd  (no hook or built-in prompt catches this; discipline is the only guard)
 
 Full methodology: skill bash-anti-patterns.
 ```
@@ -330,11 +330,11 @@ Store as `.claude/rules/14-shell-quoting-hygiene.md`:
 ```markdown
 # Shell Quoting Hygiene
 
-Rule 1: $VAR inside $(cmd $VAR) must always be quoted -> "$VAR" (prevents simple_expansion; avoid bracket form "${VAR}", see Rule 5)
+Rule 1: $VAR inside $(cmd $VAR) must always be quoted -> "$VAR" (prevents word-splitting; "$VAR" and "${VAR}" both work, see Rule 5)
 Rule 2: "$(cmd "$VAR")" same-type quote conflict -> split into separate bash call (prevents class D)
 Rule 3: grep "pat\|pat2" double-quote BRE -> fix in priority order: A) Claude Code Grep tool (recommended); B) grep -Ei 'pat1|pat2' (ERE, GNU-recommended); C) grep -i 'pat1\|pat2' (BRE single-quote, valid but backslash-prone) — prevents class D
 Rule 4: $(outer "$(inner)") reverse-nested subshell -> split into two separate bash calls (prevents class D)
-Rule 5: "${VAR}" bracket form triggers expansion false positive -> use "$VAR" plain form instead
+Rule 5: both "${VAR}" and "$VAR" trigger an expansion false positive (the parser intercepts quoted expansions too) -> single-line command: add to allow list; >=2 expansions in one call: split calls or extract to a script
 
 Full methodology and decision flow: skill bash-anti-patterns.
 ```
@@ -446,13 +446,13 @@ No need to understand the implementation details — knowing the threshold and f
 
 ## Relationship to This Repo
 
-This skill is the complete cross-project version. The three rule files in yibi-stack are
+This skill is the complete cross-project version. The two rule files in yibi-stack are
 a condensed subset:
 
 - `.claude/rules/13-bash-anti-patterns.md`: AP1/AP2/AP3 thresholds and quick reference
-- `.claude/rules/14-shell-quoting-hygiene.md`: five quoting error types, Rules 1-5
+- `.claude/rules/13-bash-anti-patterns.md` (Shell Quoting Hygiene section): quoting error types, Rules 1-5
 - `.claude/rules/15-irreversible-operations.md`: five categories of irreversible operation boundaries
 
 Maintenance discipline: when changing core threshold criteria in a rule, sync the skill;
 when adding examples or technical background to the skill, the rule does not need to change.
-The three rules can each be maintained independently.
+The two rules can each be maintained independently.

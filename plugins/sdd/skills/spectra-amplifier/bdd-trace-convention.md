@@ -70,8 +70,8 @@ def test_password_change_requires_current_password() -> None:
 | Not a binding | TC-IDs in comments, test data, or docstring prose |
 | Agreement | The `spec:` slug must be one the testplan's Coverage table maps to that TC |
 
-`plugins/sdd/scripts/check_testplan_trace.py` verifies these bindings in both directions
-(see `plugins/sdd/scripts/README.md`).
+`$SDD_ROOT/scripts/check_testplan_trace.py` verifies these bindings in both directions
+(see `$SDD_ROOT/scripts/README.md`).
 
 ### Cap Naming
 
@@ -96,22 +96,24 @@ def test_password_change_requires_current_password() -> None:
 
 ## Scanner
 
-Use `check_spec_coverage.py` to verify coverage:
+Use `check_spec_coverage.py` to verify coverage.
+`$SDD_ROOT` is resolved per the spectra-amplifier SKILL.md "Plugin 資源路徑解析" section;
+do not hardcode `plugins/sdd/` (host projects do not have that path).
 
 ```bash
 # Limit to one spec directory (recommended during development)
-uv run python plugins/sdd/scripts/check_spec_coverage.py \
+uv run python "$SDD_ROOT/scripts/check_spec_coverage.py" \
   --specs-dir openspec/changes/<name>/specs \
   --tests-dir tests/ \
   --cap <feature-name>
 
 # Full scan (use when coverage is mostly complete)
-uv run python plugins/sdd/scripts/check_spec_coverage.py \
+uv run python "$SDD_ROOT/scripts/check_spec_coverage.py" \
   --specs-dir openspec/changes/<name>/specs \
   --tests-dir tests/
 ```
 
-See `plugins/sdd/scripts/README.md` for full usage.
+See `$SDD_ROOT/scripts/README.md` for full usage.
 
 ### Scanner Output Semantics
 
@@ -131,5 +133,5 @@ Specs written before this convention may use `**ST-001:**` for Smoke Tests.
 These are valid legacy format. For new specs:
 
 - Use `#### Scenario: <slug> -- <title>` (BDD heading format)
-- Use `SMK-NNN` for Smoke Test TC-IDs in `testplan.md`
+- Use `<FEATURE>-SMK-NNN` (e.g. `LOGIN-SMK-001`) for Smoke Test TC-IDs in `testplan.md`
 - Do not rename existing `ST-NNN` entries in active specs (creates orphan traces)

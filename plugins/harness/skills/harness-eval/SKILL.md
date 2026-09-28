@@ -206,5 +206,5 @@ uv run --directory "$SKILL_REPO" python -m tasks.harness_eval scan --target-dir 
 | target 不存在 | 確認路徑；預設為 `$PWD` |
 | Python 掃描失敗 | `uv sync` 後重試 |
 | 掃描其他 repo | `/harness-eval --target /path/to/repo` |
-| 找到 WARN 想深挖 | `/harness-eval-focus D2`（或 D1~D10）|
+| 找到 WARN 想深挖 | `/harness-eval-focus D2`（支援 D1–D4、D7–D11）|
 | D10 找不到目錄樹但其實有 | 確認用 `├──` `└──` 或多行 `dir/ → 說明` 格式；其他格式（純 markdown list）尚未自動辨識 |

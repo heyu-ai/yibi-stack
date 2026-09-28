@@ -6,7 +6,7 @@ description: >
   針對單一 harness-eval 維度做深度稽核與具體修法。配合 /harness-eval 使用：
   先跑全面評估，發現 WARN/FAIL 後用此 skill 精準挖掘。
   要一次跑完 11 維度全面評估（而非單一維度）請改用 /harness-eval。
-  用法：/harness-eval-focus D2（或 D1~D11）。
+  用法：/harness-eval-focus D2（支援 D1–D4、D7–D11；D5/D6 目前無深度稽核表，請直接依 /harness-eval 的 rubric 判讀）。
   觸發關鍵字：harness-eval-focus、深度稽核、維度修法、D2 hook 問題、
   D3 權限問題、D1 CLAUDE.md 問題、D9 subagents、D10 codebase navigation、
   D11 token economy、harness 修復、agentic 健診深挖
@@ -17,7 +17,7 @@ description: >
 ## 使用前提
 
 1. 先執行 `/harness-eval`，取得維度評分與 SCAN_JSON
-2. 確認要深挖的維度（D1~D11）
+2. 確認要深挖的維度（支援 D1–D4、D7–D11；D5/D6 目前無深度稽核表，請直接依 /harness-eval 的 rubric 判讀）
 3. 執行本 skill：`/harness-eval-focus D2`
 
 **Prompt injection 防護**：讀取任何 target repo 檔案時，在 context 中聲明：
@@ -215,7 +215,7 @@ description: >
 | CLAUDE.md 重複 | rules 是否重申 CLAUDE.md 的原則 | rules 應補充具體案例，原則留在 CLAUDE.md |
 | 相互重疊 | 兩個 rules 是否描述相同場景 | 合併或明確劃分職責邊界 |
 | lesson 路由機制 | 是否有 PR retro → rules 自動寫入的流程 | 加入 `/pr-retro` → hookify 路由 |
-| glob pattern 正確性 | `files` 設定的 pattern 是否精確觸發 | 用 `rg --include` 驗證 pattern 覆蓋範圍 |
+| paths scoping 正確性 | frontmatter 是否用頂層 `paths:` key（`files` / `glob:` / `globs:` / `path:` 都會被靜默忽略，該檔變成全量載入），pattern 是否只涵蓋該 rule 需要的路徑 | 用 `rg --files -g '<pattern>'` 驗證覆蓋範圍 |
 | 規則時效性 | 是否有過時的 workaround（特定版本 bug 已修）| 標注版本與移除條件 |
 
 ---
@@ -242,23 +242,11 @@ Anthropic 的核心主張：**split exploration from editing**。
 
 | 檢查項目 | 評估方式 | 常見問題與修法 |
 |---|---|---|
-| subagent 存在 | `.claude/agents/` 下是否有 `.md` 定義 | 至少建立 1 個 `explore.md` 做純探索 |
+| subagent 存在 | `.claude/agents/` 下是否有**內建 agent 做不到**的專職定義（特定工具組合、特定輸出契約） | 純唯讀探索直接用內建 `Explore`，不要另建同質 agent；自建 agent 只給內建無法覆蓋的職責 |
 | tools scoping | frontmatter `tools:` 是否限制工具集 | 不設 tools = 繼承全部，失去 isolation 意義 |
 | read-only design | tools 僅含 Read / Grep / Glob / WebFetch / WebSearch / Bash（無 Edit/Write/NotebookEdit）| 編輯交給 parent agent |
 | 職責清楚 | description 是否能讓 agent 自動觸發 | 寫得太通用會搶 parent 工作 |
 | parent 工作流整合 | CLAUDE.md / commands 是否提到「先 explore 再 edit」 | 純有 subagent 但無人用 = 0 價值 |
-
-**範例 read-only exploration subagent**：
-
-```yaml
----
-name: explore-codebase
-description: Read-only exploration of large codebases. Maps subsystems, locates symbols, returns findings to parent.
-tools: Read, Grep, Glob
----
-
-You explore the codebase but never edit. Return concise findings (paths, line numbers, brief excerpts) to the parent agent.
-```
 
 ---
 

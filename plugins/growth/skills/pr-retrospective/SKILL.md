@@ -72,7 +72,7 @@ PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.hom
 RETRO_ROOT=""
 if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="$PR_FLOW_CACHED/skills/pr-retrospective"; elif [ -r "$HOME/.claude/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="$HOME/.claude/skills/pr-retrospective"; elif [ -r "plugins/growth/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="plugins/growth/skills/pr-retrospective"; fi
 if ! test -n "$RETRO_ROOT"; then echo "[FAIL] 讀不到 pr-retrospective bootstrap.sh；請執行 claude plugin install growth@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
-if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2; exit 1; fi
+if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2; exit 1; fi
 ```
 
 再執行環境檢查 + 專案偵測（prereqs check / case-free project detection / config）：
@@ -714,30 +714,6 @@ mycelium retro read --last 1 --project "$ORIG_PROJECT"
 > ```
 >
 > 或透過 `/learn` 聚合視圖（retro 的 lessons 會被自動納入）：`/learn search "<keyword>"`
-
----
-
-## PostToolUse Hook 延伸
-
-PostToolUse hook 現在支援所有工具輸出替換（`hookSpecificOutput.updatedToolOutput`），
-不再只限 MCP 工具。可考慮在高價值工具（如 `Write`、`Bash`）執行後自動記錄 insight，
-在 retro 時提供更豐富的素材：
-
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Write",
-        "hooks": [{ "type": "command", "command": "python3 ~/.agents/scripts/capture-write-insight.py" }]
-      }
-    ]
-  }
-}
-```
-
-> 評估建議：只為「寫入重要產出」的工具加 hook，避免 Bash/Read 等高頻工具造成過多雜訊。
-> 此 hook 主要補強 mycelium Stop hook 尚未收到的 mid-session insight。
 
 ---
 

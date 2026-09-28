@@ -67,11 +67,10 @@ git push -u origin <branch>:<branch>
 
 ## Step 6: Create PR
 
-用 Write tool 把 PR body 寫到 `/tmp/pr-body.md`（避免 `"$(cat <<'EOF')"` 觸發 parser 錯誤），再執行：
+用 Write tool 把 PR body 寫到 `$CLAUDE_JOB_DIR/pr-body.md`（job dir 自動清理，不需 rm），再執行：
 
 ```bash
-gh pr create --title "fix(scope): 描述" --body-file /tmp/pr-body.md
-rm -f /tmp/pr-body.md
+gh pr create --title "fix(scope): 描述" --body-file "$CLAUDE_JOB_DIR/pr-body.md"
 ```
 
 回報 PR URL。

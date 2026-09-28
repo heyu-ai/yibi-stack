@@ -146,7 +146,7 @@ wc -l CLAUDE.md
 |------|----------|
 | 不確定某段落歸哪個 rule | 看「動詞 / 操作對象」：bash 指令與 shell quoting 相關一律 rule 13（原 rule 14 已併入）；SKILL.md 格式 rule 11；危險操作 rule 15 |
 | 已有相同內容在 rules/ | 直接刪除 CLAUDE.md 的重複段落（rule 是正本，不需保留副本）|
-| 遷移後 rules/ 太長 | rules/ 沒有 200 行限制（path-scoped，不是全域載入），不需擔心 |
+| 遷移後 rules/ 太長 | 先看目的檔 frontmatter：有 `paths:` 的 rule 只在觸及對應路徑時載入；沒有 `paths:` 的（本 repo 為 01/02/03/13/15/16）每 session 全量載入，搬進去不省 context，且 `scripts/check_always_loaded_growth.py` 會對淨增 FAIL。這類內容優先刪除或改路由到有 `paths:` 的 rule |
 | 想同時 prune 兩個 CLAUDE.md | Step 2-5 對兩個檔案分別執行一次 |
 | 在其他 repo 執行，整個 `.claude/rules/` 目錄不存在 | 跳過所有「遷移到 rules/」項目；若屬個人偏好類別，仍路由到 `~/.claude/CLAUDE.md`（此檔永遠可用）；其餘改走「保留 or 刪除」或寫入 `<repo>/CLAUDE.md` |
 | 找不到對應的 .claude/rules/ 分類 | 若沒有對應 rule 類別，保留在 CLAUDE.md 即可（metadata / preference 本就屬於此處）|

@@ -43,11 +43,10 @@ description: 夜間自我改善 Agent — 讀取 transcript/mycelium friction ev
 ```bash
 uv --version
 gh --version
-test -n "$ANTHROPIC_API_KEY" && echo "API key set" || echo "[WARN] ANTHROPIC_API_KEY not set"
+command -v claude || echo "[WARN] claude CLI not found (draft needs Claude Code; ~/.local/bin/claude is also checked)"
 ```
 
-確認 `ANTHROPIC_API_KEY` 已設定（draft 功能需要）；
-若只做 `analyze` 則不需要。
+draft 以 `claude --print`（Claude Code 訂閱）執行，需可找到 `claude` CLI；只做 `analyze` 則不需要。
 
 ### Step 2 — Setup（首次執行）
 
@@ -69,7 +68,7 @@ uv run python -m tasks.nightly_agent run --hours 24
 2. 讀取 mycelium pitfall/pattern lessons
 3. 分類 friction events（AP2、worktree conflict、wrong approach、buggy code、language mismatch）
 4. Jaccard 聚類（預設 threshold=0.25）
-5. 對 count ≥ 2 的 cluster 呼叫 Claude API 草擬 artifact
+5. 對 count ≥ 2 的 cluster 以 `claude --print` 草擬 artifact
 6. 執行 failing→passing test 驗證（拒絕未通過的）
 7. 建立 PR branch 並呼叫 `gh pr create`
 
@@ -133,7 +132,7 @@ uv run python -m tasks.nightly_agent digest
 
 | 問題 | 解法 |
 |------|------|
-| `ANTHROPIC_API_KEY 未設定` | 在 `.env` 加入 `ANTHROPIC_API_KEY=sk-...` |
+| `找不到 claude CLI` | 安裝 Claude Code 並確認 `claude` 在 PATH 或 `~/.local/bin/claude` |
 | `gh pr create 失敗` | 執行 `gh auth login` 確認已登入 |
 | Artifact 草擬後 test 未通過 | 查看 `.runtime/nightly-agent/digests/` 中的 digest，確認 `after_output` 錯誤訊息 |
 | 沒有 eligible clusters | 過去 24h 沒有重複 friction（正常）；可用 `--hours 72` 擴大視窗 |

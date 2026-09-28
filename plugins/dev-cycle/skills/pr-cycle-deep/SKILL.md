@@ -346,14 +346,6 @@ effort; add `--comment` to post findings as GitHub PR inline comments):
 - **No findings** → proceed to Step 3.
 - **Has findings** → bring into Step 6 (Fix) with the mob results. `/code-review` **does not modify code**; findings are review comments, no separate commit needed.
 
-> **Fallback (Claude Code < 2.1.146)**: if `/code-review` reports `Unknown skill: code-review`,
-> use `pr-review-toolkit:code-reviewer` agent instead (same behavior — report only, no code changes):
->
-> ```text
-> Agent(subagent_type=pr-review-toolkit:code-reviewer,
->       prompt="Code review all diffs in this PR; report bugs / convention violations / logic errors")
-> ```
-
 #### Auto-apply cleanups (optional)
 
 The default stays report-only — run this sub-step only when the user explicitly asks for
@@ -967,8 +959,8 @@ Fix the blocking findings in $REVIEW_DIR/final.md in order: Consensus Critical, 
 Important, then the Disputed items ruled "fix" in $REVIEW_DIR/state.md `disputed:`; Actionable NIT
 only if trivial. The frozen Review Contract is in $REVIEW_DIR/prompt-r1.md — do not expand scope.
 Run <ci_command> and fix until it passes. Commit each batch with a message describing what was
-fixed (never "fix review comments"), then git push. Do not touch .pr-review/. Reply in <=15 lines:
-commit SHAs, each finding FIXED / NOT FIXED + reason, the CI exit code.
+fixed (never "fix review comments"), then git push. Do not touch .pr-review/. Reply with only:
+commit SHAs, each finding FIXED / NOT FIXED + one-line reason, the CI exit code.
 ```
 
 Task call errors or returns empty → `[FAIL]` stop. Then **verify, do not trust the summary** —

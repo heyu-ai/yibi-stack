@@ -55,7 +55,7 @@ A PR number (or URL) is **required** — this skill always reviews an existing P
 
 ## Step 1 — Identify & fetch the target PR
 
-> **Why checkout**: codex (`codex review --base`) and agy (`--add-dir <abs path>`) need the PR's working
+> **Why checkout**: codex (`codex exec -C <worktree>`) and agy (`--add-dir <abs path>`) need the PR's working
 > tree for surrounding-code context, not just the diff. `gh pr checkout` is the standard way to
 > review a PR locally and handles fork-based PRs automatically.
 >
@@ -121,8 +121,13 @@ Report the detected mode and wait for the user to confirm before continuing.
 
 ## Step 3 — Run the mob review engine (produce the report)
 
-Execute **`/pr-cycle-deep` Steps 1.5 → 5 exactly as written**, using the **same scripts, the same
-R1/R2 prompts, the same sanity checks, and the same aggregation severity table**.
+Execute these `/pr-cycle-deep` engine steps, and only these: Step 1.5, Step 2, Step 3.0, Step 3 (R1),
+Step 3.4 (R2 activation gate), Step 4 (only if 3.4 activates it), Step 5. Skip Step 1.6 and Step 1.7 —
+both edit or push to the PR branch. Because Step 1 is skipped, paste the PR body's `## Review Contract`
+into `prompt-r1.md` if one exists; otherwise write
+`No Review Contract (third-party PR): map blocking findings to repo baseline or unaccepted risk only.`
+Use the **same scripts, the same R1/R2 prompts, the same sanity checks, and the same aggregation
+severity table**.
 
 | Engine step (owned by `/pr-cycle-deep`) | What runs |
 | --- | --- |
@@ -176,20 +181,20 @@ exactly as `/pr-cycle-deep` specifies.
 > **Single-voice [Critical] → empirically verify BEFORE writing it into the report.** This matters
 > *more* here than in `/pr-cycle-deep`: a wrong Critical posted to someone else's PR is a public
 > false accusation. Construct a minimal repro and run it; confirmed → keep, refuted → drop with the
-> evidence noted, can't-test → label "unverified — needs author input" in the report. (Same rule as
-> `/pr-cycle-deep` Step 5 single-voice handling.)
+> evidence noted, can't-test → label "unverified — needs author input" in the report. (Stricter than
+> `/pr-cycle-deep` Step 5, which demotes on a zero-hit grep; here a public comment needs a repro.)
 
 **Review-only reframing — the only behavioral change to the engine:**
 
 - The `final.md` severity grades are **the author's to-do list, not yours.** Note that the engine's
   `final.md` template uses self-directed, imperative section headers (`## Consensus Critical (must
-  fix)`, `## Actionable NIT (must fix — user requires all NITs cleaned up)`) — those belong to
+  fix)`) — those belong to
   *your own* PR lifecycle and are presumptuous on a contributor's PR. **Do not post `final.md`
   verbatim**; Step 4 rewrites it into author-facing suggestion language before posting (see Step 4a).
   Internally `final.md` is still graded normally; only the *delivered* wording softens.
 - **Do NOT** run `/pr-cycle-deep` Step 6 (Fix), Step 7 (re-review loop), Step 8 (human pass to ship),
   Step 9 (CI watch), Step 10 (merge), or Step 11 (archive / Jira). The engine stops at `final.md`.
-- There is **no convergence loop**: this is a single R1 + R2 + aggregate pass. You are not waiting
+- There is **no convergence loop**: this is a single R1 (+ R2 when Step 3.4 activates it) + aggregate pass. You are not waiting
   for LGTM because you are not fixing anything.
 
 Report the `final.md` summary to the user. For any **Disputed** item, surface both sides and let the
@@ -205,7 +210,7 @@ confirmation before posting (the user may want to edit tone or drop disputed ite
 
 ### 4a — Build the author-facing comment (rewrite `final.md` headers)
 
-Do **not** post `final.md` verbatim — its `must fix` / `user requires all NITs cleaned up` headers
+Do **not** post `final.md` verbatim — its `must fix` headers
 are self-directed and presumptuous on a contributor's PR. Use the Write tool to produce
 `$REVIEW_DIR/review-comment.md` from `final.md`, keeping every finding's content and file:line
 intact but rewriting the section headers into suggestion language:
@@ -214,7 +219,7 @@ intact but rewriting the section headers into suggestion language:
 | --- | --- |
 | `## Consensus Critical (must fix)` | `## Blocking concerns (strongly recommend addressing before merge)` |
 | `## Consensus Important (must fix)` | `## Important suggestions` |
-| `## Actionable NIT (must fix — user requires all NITs cleaned up)` | `## Minor suggestions (nits)` |
+| `## Actionable NIT (deferred — never blocks; fix opportunistically)` | `## Minor suggestions (nits)` |
 | `## Disputed (user decides)` | `## Points the reviewers disagreed on (your call)` |
 | `## Voices unavailable` | `## Voices unavailable` (unchanged) |
 

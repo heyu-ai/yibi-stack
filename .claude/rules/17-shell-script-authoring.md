@@ -552,3 +552,329 @@ Common cure: never expand a name/positional/array under `set -u` without first m
 boundary-explicit (`${VAR}`), bounded (`$#` check), or defaulted (`${x:-}` / `${ARR[@]+...}`).
 When a `set -u` script aborts with `<name>: unbound variable` and the name *looks* assigned,
 suspect one of these three before assuming a real logic bug.
+
+## Global-State Install Guard
+
+Skills locate this repo through the `~/.agents/bin/resolve-skill-repo` symlink that `make install`
+creates (see rule 11, "Never locate this repo via `~/.agents/config.json`"). The sections below
+cover the install targets that write that kind of machine-level state.
+
+### `make install` must run from the main repo, never from a worktree
+
+Self-locating is what makes a worktree install dangerous, and the danger is a direct
+consequence of the property that makes the resolver correct: it faithfully resolves to
+**the checkout that installed it**. Install from `.claude/worktrees/<name>/` and every
+global symlink points into that worktree; once the branch merges and `/clean-wt --apply`
+removes it, the symlinks dangle and every skill dies.
+
+**Keep "the guard is the first recipe line" as a literal, testable invariant** — do not relax it
+to "the guard precedes the first *mutation*". A reviewer proposed moving each target's
+`[ -z "$(SKILL)" ]` usage check above the guard, so that forgetting `SKILL=` inside a worktree
+reports the usage error rather than the (longer) worktree error. Declined, deliberately: the
+usage check mutates nothing today, but "guard first" is checkable by a test that anyone can read,
+while "guard before the first mutation" requires every future editor to correctly classify their
+own line — and the cost of one wrong classification is the silent global-state corruption this
+whole gate exists to prevent. The UX gain is also thin: a caller inside a worktree must fix that
+first regardless of the missing argument.
+
+**Guard every target that writes global state individually — a prerequisite chain is not a
+gate.** `install-all` lists `install` before `install-scheduler`, but `make -j` runs
+prerequisites **in parallel**, so the scheduler can finish writing a worktree path into its
+LaunchAgent plist before `install`'s guard aborts the build. The same applies to
+`install-handover-hooks`, which embeds the repo path into `~/.claude/settings.json` hook
+commands. Neither goes through a symlink — both self-locate in Python from `__file__` — so the
+symlink-shaped reasoning does not cover them; what they share is "writes the repo path into
+machine-level state", and that is the property to guard on.
+
+Nothing in the resolver can detect this — by construction:
+
+- The identity gate passes: a worktree is a **complete checkout**, so `tasks/mycelium` is there.
+- The Makefile's post-install gate (`resolved == $(CURDIR)`) passes: inside a worktree those
+  two **are** equal. That gate catches "points at another checkout"; it cannot catch "points at
+  a checkout that is about to be deleted".
+
+This is also a **regression risk introduced by retiring config.json**, and it must not be
+re-litigated as "the old way was safer": the old lookup was rewritten by `register_skill_repo.py`
+on *every* `make install`, so a moved or deleted checkout self-corrected on the next run. A
+symlink does not self-correct. The resolver traded a silent-wrong-answer failure mode for one
+that needs an explicit up-front gate — which is `scripts/assert_not_worktree.sh`, wired as the
+**first recipe line** of every target that writes machine-level state (first, because those
+targets write global symlinks before they reach the resolver step — failing late leaves
+`~/.claude/skills/` already polluted). The authoritative list is `GUARDED_TARGETS` in
+`scripts/tests/test_assert_not_worktree.py`, which the tests enumerate — do not re-list the
+targets here; an enumeration copied into prose is one more claim that decays silently (this
+paragraph said "four targets" for three PRs after the count became seven).
+
+Detection is `--git-dir != --git-common-dir` (in a worktree the former is
+`<main>/.git/worktrees/<name>`, the latter `<main>/.git`; in the main repo they are equal).
+Do **not** substring-match `.claude/worktrees` — a worktree may be created at any path.
+
+**A fail-open must name the single condition it forgives, never "the call failed"** — and then
+check that the condition it names is actually single. This one bit twice, one level apart:
+
+1. The guard's non-git pass-through is deliberate (an unpacked zip cannot be a worktree), but the
+   first implementation expressed it as "if `git rev-parse` fails, exit 0", silently forgiving a
+   much larger set: git older than 2.31 (`--path-format` unknown), dubious ownership under
+   `sudo make install`, permission errors, git missing from `PATH`, an unreadable directory. Each
+   made the gate cease to exist with no warning. All three mob-review voices flagged it.
+2. Narrowing it to "git's stderr says `not a git repository`" looked exact — but **git says the
+   same sentence for two different conditions**. A linked worktree whose admin dir is gone
+   (pruned, or the main repo moved/re-cloned) reports `fatal: not a git repository: (null)`, so
+   the narrowed match still waved through a directory that is unmistakably a worktree *and*
+   already doomed — precisely what the gate exists to catch. Measured, not theorised:
+   `rm -rf <main>/.git/worktrees/<name>` and `mv <main> <elsewhere>` both reproduce it.
+
+   The disambiguator is the filesystem, not the message: the legitimate case (unpacked zip) has
+   **no `.git` at all**. A `.git` that exists while git denies the repo means broken, not absent.
+3. `[ ! -e "$DIR/.git" ]` then looked exact, and was not either: **`-e` follows symlinks**, so a
+   *dangling* `.git` symlink (link present, target gone) satisfies `! -e` and fail-opened again.
+   Reproduced on a real worktree whose `.git` was replaced by a dangling link. The predicate has
+   to be `[ ! -e "$DIR/.git" ] && [ ! -L "$DIR/.git" ]` — `-L` is what asks "does the entry
+   itself exist".
+
+4. `[ ! -e ] && [ ! -L ]` on `$DIR` was still not it: `$DIR` can be a **subdirectory** of the
+   broken worktree, where no `.git` lives — it sits at the worktree root. Blocked at the root,
+   fail-open one level down. The predicate has to walk ancestors.
+
+Four rounds, one shape: **each time the fail-open was narrowed, the new condition still covered
+more than its name suggested.** When you write a fail-open, do not stop at naming the condition —
+enumerate the states that satisfy the predicate you actually typed, and probe each. Reading it as
+prose is how all four survived review.
+
+**Then the fix for the fail-open grew its own fail-opens — twice, in shapes already fixed
+elsewhere in the same file.** Round 5 added a "is this path a registered worktree?" check on the
+pass path; round 6 found it (a) skipped itself entirely when `git worktree list` failed, because
+it was written as `if REGISTERED=$(...); then …; fi` with `exit 0` below, and (b) compared `$DIR`
+by **equality** with each worktree root, so a **subdirectory** walked straight past it. Both are
+verbatim repeats: (a) is the round-1 "command failed → pass" shape, (b) is the round-4 "the
+marker is at the root, not at `$DIR`" shape that the ancestor walk twelve lines away exists to
+solve. Two reviewers named the repeat explicitly.
+
+The generalizable rule: **after fixing a class of bug, grep your own new code for that class
+before shipping it.** Recency does not inoculate — the round-5 code was written *by the author
+of the round-4 fix, hours later*. Fixing a bug creates new code, and new code is where the same
+bug goes next. Concretely, for a gate: every new `if cmd; then check; fi` needs "what happens
+when `cmd` fails?", and every new path comparison needs "what if the input is *under* this path?"
+
+**A third occurrence, one level removed: two functions that share an invariant, fixed one at a
+time.** The bug above is the *same* defect shape reappearing in new code. The variant is a
+*different* defect shape appearing in a function you did not touch, because the fix broke an
+invariant that function silently depended on. Three consecutive mob-review rounds (R1+R2,
+re-review R1, re-review R2) each opened with "the most important finding is one the previous
+round's own fix introduced" — every time in the same seam: `park_lesson()` and
+`finalize_reassessed_lesson()` shared an implicit contract (the `confidence` watermark that marks
+"still Tier 3", the meaning of a `recurrence-<n>` tag, `trusted` as a derived function of
+`source`), and each round's fix satisfied its own function's half of the contract while silently
+breaking the other function's assumption about it. Reading the diff of either function in
+isolation looked correct every time. The mitigation is not "read more carefully" — it is
+structural: **when editing one side of a two-function seam a second time, enumerate every
+invariant the *other* function assumes about the data this function writes, and check each one
+explicitly**, rather than re-verifying only the line you just changed. (Source: PR #347 —
+`park_lesson()` / `finalize_reassessed_lesson()`, `tasks/mycelium/db.py`.)
+
+**The documented residual is a claim too, and it decays with each fix.** State the limit
+explicitly — but re-probe it every time the predicate changes, because a stale residual note is
+worse than none: it tells the next reader (and reviewer) that a hole is known and accepted when
+in fact it has moved. This rule was itself learned twice on the same PR, which is the point:
+
+- Round 2's note said "only outright `.git` deletion is undetectable". By round 4 that was false
+  twice over — the dangling-symlink and subdirectory cases both slipped past while the note
+  claimed otherwise, and a reviewer caught the contradiction between code and note before
+  catching the code.
+- The note was then rewritten to say an in-tree worktree with a deleted `.git` "passes safely,
+  and that is fine". Round 5 added a registration check that **blocks exactly that case** — and
+  the note still claimed the old behavior until round 7, when a reviewer flagged the code/doc
+  contradiction. The lesson had already been written into this very file by then. Writing the
+  rule does not execute it.
+
+The honest residual, re-probed: a worktree whose `.git` is deleted outright **and** which lives
+outside the main repo's tree — there it is byte-identical to an unpacked zip. In-tree cases are
+caught by the `git worktree list` registration check.
+
+Operationally: treat a residual note like a test. When you change the predicate, the note is part
+of the diff — if you did not re-run the scenario it describes, you do not know whether it is still
+true.
+
+**The subshell-`exit` trap is now enforced mechanically, not by memory.** After the fail-loud
+principle recurred across three dated lessons (2026-07-07, 2026-07-14, and PR #234's four
+in-PR repeats), continuing to write it down was an admission that writing it down does not work.
+`scripts/lint_shell_subshell_exit.py` (pre-commit, `types: [shell]`) parses shell scripts and
+warns on the one shape that actually fail-opens:
+
+> `exit` inside a function **and** that function is called as the first token of a `$(…)` **and**
+> the call site is somewhere `set -e` will not catch (an `if`/`elif`/`while`/`until` condition,
+> `!` prefix, or `||`/`&&` where `$(…)` is not the final command), **or** a masking builtin
+> (`local`/`declare`/`export`/`readonly`/`typeset`) swallows the exit status (SC2155), **or**
+> the script has no `set -e` / `set -o errexit` at all.
+
+Both extra conjuncts are load-bearing, and each was learned from a false positive the first draft
+produced against real repo code: `bump.sh`'s `new_version=$(bump_semver …)` is a **bare
+assignment under `set -e`**, so the subshell's `exit 1` does abort the script — no fail-open;
+a call like `LOG=$(python3 logger.py block …)` only *mentions* a same-named token inside an
+unrelated `$(…)` while `block()` itself is called **directly**, so requiring the name to be the
+substitution's first token clears it (see test EG-004's synthetic fixture — do not cite a specific
+tracked file's current contents, which drift). A lint that fires on correct code teaches people to
+disable it, so the negative controls are the important tests, not the positive one.
+
+**Ships advisory, not blocking (PR #241 mob review; correctness fixed in PR #407 / issue #282).**
+A cross-family mob review (Claude / Codex / agy) on PR #241 empirically found this lint was
+incomplete in both directions. The five correctness issues were fixed in PR #407:
+false-positives on final-position `&&`/`||`, `set -o errexit`, and if-body calls;
+false-negatives on quoted `X="$(fn)"` and `local`/`export X=$(fn)` (SC2155).
+The lint defaults to warn-only (`--fail` opts into blocking for CI) until advisory-mode runtime
+validates stability. The lesson for future mechanical guards: a lint that enforces an anti-pattern
+must itself be held to the anti-pattern's full truth table before it is allowed to block.
+
+**Do not run mutation tests on a shared worktree file while a review agent is reading it.**
+Mutation testing edits the real file in place; a reviewer dispatched against that path will read
+whatever state the file happens to be in. On this PR a reviewer read the script mid-mutation, got
+one **false clean result**, and had to flag the race instead of reviewing. The global CLAUDE.md
+already records this incident in the opposite direction (a verification subagent editing the file
+the lead was reading) — it is symmetric, and the lead is not exempt. Sequence them: finish the
+review round, collect every report, *then* mutate. If you must do both, mutate a copy outside the
+worktree. Corollary for reviewers: pin any report on a mutable file to a SHA.
+
+**An error message's hint must share the predicate of the branch it explains.** The guard's
+"this repo is broken — pruned admin dir? main repo moved?" hint was gated only on "`.git`
+exists", not on "git actually said *not a git repository*". So any other git failure inside a
+directory that has a `.git` printed a confident, fabricated cause — reproduced against a
+perfectly **healthy main repo** with a shimmed dubious-ownership error. Fail-closed was right;
+naming a cause it had not established was not. This is the same rule as the `dirname` fallback
+above, one level in: that fallback pointed at a possibly-wrong *directory*, this hint at a
+possibly-wrong *reason*.
+
+Because git localises its messages, any such match must pin `LC_ALL=C`, or it silently misses on
+a non-English machine and starts blocking legitimate installs instead.
+
+**Clear `CDPATH` before using `cd` to normalize a path.** POSIX has `cd` search `CDPATH` whenever
+the target's first component is neither `.` nor `..` — which is exactly what git returns
+(`.git`). On a hit, `cd` also **prints the destination to stdout**, so a `$(cd … && pwd -P)`
+capture silently gains a second line. Measured on this repo's guard. It was not yet exploitable
+there, but only because of which paths git happens to emit relative vs absolute — not a property
+worth resting a safety gate on. `export CDPATH=` removes the dependency.
+
+**Under `set -e` + `pipefail`, a bare `X=$(cmd | awk …)` kills the script and makes any fallback
+below it dead code.** The guard resolved the main repo that way with a `dirname` fallback
+underneath; when `git worktree list` failed, the script died at that line — exit 128, **no output
+at all** — after it had already decided the directory was a worktree, so the `[FAIL]` never
+printed and the fallback was unreachable. Wrap it in `if !`. Relatedly, do not let `awk` `exit`
+early in such a pipeline: the producer gets SIGPIPE and `pipefail` turns a successful command
+into a failure. Use a flag (`!seen`) and consume the whole stream.
+
+**Normalizing git paths: use `cd`+`pwd -P`, not `--path-format=absolute`.** Two traps, both
+measured on this repo during PR #234's review:
+
+- `--path-format=absolute` needs git >= 2.31 (2021). Using it puts the gate's correctness on a
+  version floor this repo does not otherwise require (rule 13 already documents caring about
+  macOS < Ventura toolchains). `(cd "$dir" && cd "$raw" && pwd -P)` is portable and
+  format-independent.
+- Comparing the **raw** `rev-parse` outputs (the obvious way to avoid `--path-format`) is wrong:
+  the two flags do not answer in the same spelling. From a main-repo **subdirectory**,
+  `--git-dir` returns an absolute path while `--git-common-dir` returns `../.git`; from a
+  **symlinked** path, `--git-dir` returns the *physical* path while a relative `--git-common-dir`
+  resolves *logically*. Either asymmetry makes the two compare unequal and **falsely blocks a
+  legitimate main-repo install**. `pwd -P` (physical, not logical) collapses both into one
+  namespace. macOS's own `/var` → `/private/var` symlink is enough to trigger this.
+
+**Report the main repo from `git worktree list --porcelain`, not `dirname` of the common dir.**
+Its first `worktree` entry is authoritative. The common dir's parent is not necessarily the main
+work tree (`git clone --separate-git-dir`, submodules), so `dirname` can print a `cd` target that
+does not exist — an error message that misdirects is worse than a terse one.
+
+**And when the authoritative lookup fails, print no recommendation at all** — do not fall back to
+the guess you just rejected. The guard originally kept `dirname` as a fallback under exactly the
+comment explaining why `dirname` is wrong; a reviewer caught it by holding the code to the
+sentence above. A fallback that re-introduces the defect its own comment documents is worse than
+having no fallback: say "could not determine the main repo" and let the operator look.
+
+**Any new `git` call added to the resolver family must clear inherited git env vars.** This
+is a shared trap, not a per-script detail: `GIT_DIR` / `GIT_WORK_TREE` / `GIT_COMMON_DIR`
+outrank `git -C`, so git answers about *that* repo and ignores the `-C` directory entirely.
+Both `resolve-skill-repo` (PR #233) and `assert_not_worktree.sh` therefore route every call
+through `env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git`. Measured
+on the guard before it was hardened: with `GIT_DIR=<main>/.git` set, it flipped from `exit 1`
+to `exit 0` inside a worktree — the gate silently ceased to exist. This path is routine, not
+exotic: git sets `GIT_DIR` while running hooks, and this repo leans heavily on pre-commit.
+
+The guard **fails loud rather than auto-deriving** the main repo via `--git-common-dir`, even
+though that would "just work" for the user. Auto-deriving would install the *main repo's*
+checkout while the user is looking at their worktree's code — possibly a different branch or
+an older commit. That is a silent wrong answer, the exact failure class this whole resolver
+design exists to eliminate. A non-git directory (an unpacked zip) is passed through, not
+blocked: it cannot be a worktree, so blocking it would be a pure regression.
+
+`scripts/resolve-skill-repo` is the single implementation — do not inline a copy of its
+logic into a SKILL.md. If you need this in a script that already lives in the repo, that
+script can self-locate directly instead of shelling out (see
+`plugins/growth/skills/pr-control-log/scripts/bootstrap.sh` for the in-script form).
+
+**Gotcha — `pwd -P` does not resolve a *file* symlink.** The in-script form
+`SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)` only works when the symlink is
+on a **directory** in the path (as with `~/.claude/skills/<name>` → `<repo>/skills/<name>`).
+`resolve-skill-repo` is exposed as a **file** symlink under `~/.agents/bin/`, where that form
+silently returns `~/.agents/bin` instead of the real directory — no error, just a wrong
+answer. It therefore walks the symlink chain with `readlink` in a loop (macOS has no
+`readlink -f`). Copy the right form for your symlink shape; verify by executing through the
+symlink, not just directly.
+
+**Note (error handling form)**: `cmd || { echo '[FAIL]' >&2; exit 1; }` contains a `'` quote
+inside `{}`, triggering the "brace with quote character" confirmation dialog.
+Always use `if ! cmd; then echo '[FAIL]' >&2; exit 1; fi` instead (the canonical form above
+already uses this).
+
+### A gate belongs at every entrance, and the tool that documents an entrance owns it
+
+PR #234 wired the guard into 7 make targets and recorded the residual honestly: "the guard lives
+in the Makefile, so calling the Python module directly bypasses it." Issue #237 closed it. Two
+things are worth keeping from how that went:
+
+**The "unrealistic" bypass was in our own help text.** The residual was defensible only if nobody
+calls the module directly. But `tasks/scheduler/cli.py`'s `setup` command *prints*
+`uv run python -m tasks.scheduler install` as the user's next step. The unguarded entrance was not
+hypothetical — it was the documented one. Before accepting "nobody invokes it that way", grep for
+the invocation in your own `--help`, `echo`s, SKILL.md, and README; a tool that teaches a path owns
+that path.
+
+**Guard the sink, and find all of them before choosing the altitude.** The issue named two
+entry points; the repo had five. `insight install-hook` and `recap install-hook` build the same
+`Path(__file__).resolve().parents[2]` command string into `~/.claude/settings.json` and have **no
+make target at all** — the most exposed sinks were the ones nobody listed, precisely because the
+Makefile inventory was the search index. The property to enumerate on is not "which CLI did the
+issue mention" but **"what writes a repo path into state that outlives the checkout"**. Grep the
+class (`parents[` / `PROJECT_ROOT` reaching a `~/…` write), not the ticket.
+
+Three altitudes, and why the entry point wins here:
+
+| Altitude | Verdict |
+|----------|---------|
+| Path source (`_paths.py`) | **No** — `PROJECT_ROOT` is imported by `status` / `tick` / tests; an import-time gate breaks read-only work inside a worktree, which is legitimate |
+| Library install function | **No** — its destination is injectable (tests pass `settings_path=tmp`); gating it means either breaking every test or inventing a test-only bypass |
+| Process entry point (CLI command / `main()`) | **Yes** — where install intent is expressed *and* where the real machine-level destination is chosen |
+
+Residual, stated so it can be re-probed: importing an install function directly in Python still
+bypasses this. That is an in-repo API consumer, not the documented surface — but if a future caller
+appears, the guard moves down with it.
+
+### A shared helper's message is part of its interface — a hardcoded caller idiom becomes a lie
+
+`assert_not_worktree.sh` took `<make-target-name>` and printed `不可執行 make ${TARGET}` plus
+`cd <main> && make ${TARGET}`. Correct while make was the only caller. The moment Python called it,
+every message became a fabricated command: "不可執行 **make** uv run python -m tasks.scheduler
+install", and a `cd … && make uv run python …` that fails on copy-paste. The detection was
+caller-agnostic; the **message** silently was not.
+
+The fix is the seam, not the string: the script now takes a `<recovery-command>` — the complete
+command, program name included — and never prefixes anything. Callers own their idiom
+(`"make install"`, `"uv run python -m tasks.mycelium insight install-hook"`). Its rationale line
+was equally caller-specific ("symlink 會指向不存在的路徑，所有 skill 失效") and now names the
+whole class it guards: symlinks, LaunchAgent plist, and settings.json hooks.
+
+This is the same principle the script already enforced three times against *itself* — a misleading
+message is worse than a terse one — applied one level out: **when a second caller arrives, re-read
+every string the helper emits and ask which caller it was written for.** Reusing battle-tested
+detection does not mean the prose around it transfers.
+
+Pin it with a test, not a convention: `ANW-DT-016` asserts every Makefile call site passes a
+command that **names its own target** (`"make <target>…"`), so dropping the prefix — or copying a
+guard line to a new target and forgetting to change it — fails loudly instead of shipping a hint
+that is uncopyable or points at the wrong target.

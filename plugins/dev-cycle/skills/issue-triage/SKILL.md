@@ -221,6 +221,8 @@ issue/bug 數量多時，**平行 dispatch 一個唯讀探索 subagent**（不�
 
 對以下三類 issue，**不能只靠 label 判 KEEP**：
 
+路徑依目標 repo 解析：openspec 根目錄預設 `openspec/`（repo 用 `docs/openspec/` 則改用之）；程式碼與 gate script 目錄依該 repo 實際結構填入。grep 零命中前先確認目錄存在，不存在不可當成「未實作」。
+
 #### (a) `waiting-pm` / `spec: waiting-pm` / `wait-PM` 類
 
 逐一交叉查：
@@ -256,9 +258,7 @@ OQ 可能仍開放。
 
 逐一判斷是否仍有效：
 
-1. **流程改制**：harness-queue（#1014）已於 2026-08-31 退場，從該佇列遷移出的
-   「寫散文加進 rule」類 issue 的正確做法現在是走 Mycelium typed lesson，不再即發 PR。
-   這類 issue 若只剩「寫一段散文」→ 可 CLOSE（改走 Mycelium）。
+1. **流程改制**：該 repo 若已退場某個追蹤佇列（例如改走 Mycelium typed lesson），從該佇列遷出、只剩「寫一段散文」的 issue 可 CLOSE。
 2. **工具改版**：issue 追蹤的 bug 是否已被 CLI / plugin 新版修復？
    查法：`spectra --version` 比對 issue 建立時的版本
 3. **gate 是否已建**：issue 要求的 gate script 是否已存在？
@@ -576,7 +576,7 @@ editJiraIssue({
 | Jira MCP 回傳太大、token 爆 | MCP 回傳約 74K 字元/15 筆（含膨脹欄位）；bug 數量多時限制 JQL `AND updated >= -90d` 或分批 |
 | Jira 站台的 JQL 限制 | 某些站台禁止無條件查詢；本 skill 的 JQL 帶 `project=` 子句，不受影響 |
 | Jira bug transition 失敗 | 用 `getTransitionsForJiraIssue` 先查可用 transition；無可用者 `[WARN]` 略過 |
-| Jira 寫入被 hook 擋 | 本 repo 的 `pre-jira-write.sh` hook 機械攔截特定條件的 Jira 寫入；不繞過，照 hook 回報的限制處理 |
+| Jira 寫入被 hook 擋 | 目標 repo 若有 `pre-jira-write.sh` 之類 hook（如 yibi-mvp），不繞過，照 hook 回報的限制處理 |
 | JQL `type = Bug` 查不到東西 | 某些 Jira 專案的 issue type 叫 `Defect` 而非 `Bug`。確認專案的 issue type 名稱，必要時改 JQL 為 `type = Defect` |
 | 不帶 `--jira` 時會查 Jira 嗎 | 不會。Jira 盤點需明確帶 `--jira <PROJECT>` |
 | `--depth fast` 和 `deep` 差在哪 | `fast` 只查 code 症狀（Step 3b/3c）；`deep`（預設）額外交叉比對 openspec archive / ADR / 流程改制（Step 3c′），能抓到 label 過時的 waiting-pm / spec-gap / harness issue |

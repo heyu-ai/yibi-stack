@@ -27,9 +27,9 @@ description: >
 
 | 子 skill | 用途 |
 |---|---|
-| `handover` | 結構化交班：`agents handover write/read/search` |
-| `insight`  | 自動收集 ★ Insight 區塊（Stop hook）：`agents insight install-hook` / `collect` / `list` |
-| `recap`    | 自動收集 Claude Code away_summary（Stop hook）：`agents recap install-hook` / `collect` / `list` |
+| `handover` | 結構化交班：`mycelium handover write/read/search` |
+| `insight`  | 自動收集 ★ Insight 區塊（Stop hook）：`mycelium insight install-hook` / `collect` / `list` |
+| `recap`    | 自動收集 Claude Code away_summary（Stop hook）：`mycelium recap install-hook` / `collect` / `list` |
 | `debug-report` | 解完 bug 後主動萃取除錯知識、清理過渡產物，寫入 `debugs/*.md` 與 `~/.agents/debugs/debug-reports.jsonl` |
 
 ## 目錄結構
@@ -71,7 +71,7 @@ description: >
 > esac
 > unset _gcd
 > if ! command -v mycelium >/dev/null 2>&1; then
->   echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2
+>   echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2
 >   exit 1
 > fi
 > ```
@@ -94,7 +94,7 @@ case "$_gcd" in
 esac
 unset _gcd
 if ! command -v mycelium >/dev/null 2>&1; then
-  echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2
+  echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2
   exit 1
 fi
 ```
@@ -125,25 +125,6 @@ mycelium migrate
 ```bash
 mycelium insight install-hook
 ```
-
-> **延伸（PostToolUse hook 升級）**：PostToolUse hook 現在支援所有工具輸出替換
-> （`hookSpecificOutput.updatedToolOutput`），不再只限 MCP 工具。
-> 可考慮在特定高價值工具（如 `Write`、`Bash`）執行後自動記錄 insight：
->
-> ```json
-> {
->   "hooks": {
->     "PostToolUse": [
->       {
->         "matcher": "Write",
->         "hooks": [{ "type": "command", "command": "python3 ~/.agents/scripts/capture-write-insight.py" }]
->       }
->     ]
->   }
-> }
-> ```
->
-> 評估建議：只為「寫入重要產出」的工具加 hook，避免 Bash/Read 等高頻工具造成過多雜訊。
 
 ### Step 5 — 驗證
 
@@ -193,5 +174,5 @@ mycelium account set-default claude-pro
 | `init` 後 config.json 已存在 | 用 `--force` 覆蓋，或手動編輯 `~/.agents/config.json` |
 | Stop hook 不觸發 | 確認 `~/.claude/settings.json` 有 entry；用 `insight install-hook` 重新註冊 |
 | `migrate` 跑兩次會重複嗎 | 不會，以 `id` 去重 |
-| 想讓 account 自動偵測 | 已支援：`detect_account(agent_type=...)` 自動讀取 Gemini/Codex credential；Claude 需先執行 `agents account link-claude` 建立 hash 對照 |
+| 想讓 account 自動偵測 | 已支援：`detect_account(agent_type=...)` 自動讀取 Gemini/Codex credential；Claude 需先執行 `mycelium account link-claude` 建立 hash 對照 |
 | Syncthing 衝突 | 單台機器每天寫入次數低，衝突機率極低；真的衝突會以 `.sync-conflict-*` 副本保留 |

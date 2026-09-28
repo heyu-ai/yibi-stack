@@ -57,10 +57,6 @@ These follow the same middle-wildcard caution as Bash patterns: a `value` wildca
 broad (e.g. `Tool(arg:*)`) re-creates the over-broad-pattern problem from the Red Flags below.
 Constrain the value as tightly as the use case allows.
 
-> **Note**: an earlier internal cross-reference pointed this material at a `rule 14`
-> (shell-quoting-hygiene). That file no longer exists — its content was merged into
-> `13-bash-anti-patterns.md`. Permission-rule syntax lives here in rule 16.
->
 > **Applying it here**: if `.claude/settings.local.json` accumulates several hosts under one
 > parent domain, consolidating them into `*.domain` form is optional, not required — check the
 > current entries before assuming the form.
@@ -215,22 +211,23 @@ Example (`<abs-path-to-git>`: run `which git`; typical: `/opt/homebrew/bin/git`,
 ## Rule 13 / Rule 16 Relationship
 
 - Rule 13: how the agent **writes** bash (no fat commands, no same-type quote conflicts).
-- Rule 13 "Shell Quoting Hygiene" (formerly rule 14): quoting/expansion (incl. `$?` — use `if ! cmd; then`).
+- Rule 13 "Shell Quoting Hygiene": quoting/expansion (incl. `$?` — use `if ! cmd; then`).
 - Rule 16: how **users/agents configure** allow-list patterns (no middle wildcards, no variable prefixes).
 
 Rule 13 (incl. its quoting section) produces bash that allow-list patterns can precisely match.
 Rule 16 ensures the allow-list is not broader than intended.
 Without both sides, either unexpected commands slip through or users face endless confirmation fatigue.
 
-## Built-in `/less-permission-prompts` — Usage Warning
+## Built-in `/fewer-permission-prompts` — Usage Warning
 
-Since Claude Code 2.1.111, the built-in `/less-permission-prompts` skill scans the current transcript for frequently used
-read-only Bash/MCP calls and **automatically generates a sorted allowlist suggestion**. Understand the following limitations
-before using it:
+The built-in `/fewer-permission-prompts` skill scans transcripts for frequently used read-only
+Bash/MCP calls and adds a prioritized allowlist to the project `.claude/settings.json`. Review the
+resulting diff against the Red Flag criteria below before keeping it; revert and hand-rewrite any
+entry that fails.
 
 ### Common Red-Flag Patterns in Automatic Suggestions
 
-`/less-permission-prompts` sorts by execution frequency, so high-frequency commands (`git`, `npm`, `uv`) often produce:
+`/fewer-permission-prompts` sorts by execution frequency, so high-frequency commands (`git`, `npm`, `uv`) often produce:
 
 ```json
 "Bash(git *)",
@@ -242,7 +239,7 @@ All of these are **Red Flag 2 (verb-level wildcard)** — covering all subcomman
 
 ### Correct Workflow
 
-1. Run `/less-permission-prompts` to get the suggestion list
+1. Run `/fewer-permission-prompts`, then open the resulting `.claude/settings.json` diff
 2. **Review each pattern against the Red Flag criteria (1–5) in this rule**
 3. Approve only patterns that pass; **manually rewrite** those that fail before adding them
 
@@ -256,7 +253,7 @@ Rewrite examples:
 
 ### Never Do This
 
-**Never blindly accept all suggestions from `/less-permission-prompts` with "Yes, and don't ask again".**
+**Never blindly accept all suggestions from `/fewer-permission-prompts` with "Yes, and don't ask again".**
 The tool attempts to filter read-only calls but does so incompletely: commands with ambiguous semantics like `git reset *` or `curl *` may still appear.
 More critically: even when only genuinely read-only calls are listed, the generated pattern may be `Bash(git *)` — a
 verb-level wildcard covering all subcommands of the entire binary, including destructive operations.

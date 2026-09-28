@@ -219,7 +219,7 @@ pr-orchestrator write-manifest --pr {{pr_number}} --repo-root "$REPO_ROOT"
 
 > **重要**：所有三個 subagent 必須在同一個 message 中 dispatch（一個 Task tool call 一個），不得拆成多個 turn。
 
-1. **code-review subagent**（`pr-review-toolkit:code-reviewer`）：review PR #{pr_number}，結果寫到 `$REVIEW_DIR`；3.0b 有 `[WEAK-RED]` 時把那幾行附進 prompt（從 REVIEWING resume 時從 red-first PR comment 取回）
+1. **code-review subagent**（`pr-review-toolkit:code-reviewer`）：review PR #{{pr_number}}，findings 直接回傳給 lead；3.0b 有 `[WEAK-RED]` 時把那幾行附進 prompt（從 REVIEWING resume 時從 red-first PR comment 取回）
 2. **ci-monitor subagent**（`general-purpose`）：`gh pr checks {{pr_number}} --watch`，完成後回傳 CI_PASS 或 CI_FAIL
 3. **conflict-detector subagent**（`general-purpose`）：`gh pr view {{pr_number}} --json mergeable,mergeStateStatus`，回傳 OK 或 CONFLICT
 
@@ -377,8 +377,8 @@ FAILED（terminal）
 
 | 問題 | 修復方式 |
 |------|---------|
-| `[FAIL] 缺少 pr-orchestrator`（exit 1） | 執行 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"` |
-| `[FAIL] 已安裝的 pr-orchestrator 缺少 --repo-root`（exit 2） | 版本過舊。執行 `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"`；帶 `--force` 是因為它在「已安裝」與「未安裝」兩種狀態下都成立，不需要先判斷目前狀態 |
+| `[FAIL] 缺少 pr-orchestrator`（exit 1） | 執行 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"` |
+| `[FAIL] 已安裝的 pr-orchestrator 缺少 --repo-root`（exit 2） | 版本過舊。執行 `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"`；帶 `--force` 是因為它在「已安裝」與「未安裝」兩種狀態下都成立，不需要先判斷目前狀態 |
 | `[FAIL] pr-orchestrator <sub> --help 無法執行`（exit 2） | 安裝損毀，非版本問題。同樣以 `--force` 重裝；若仍失敗，先 `uv tool uninstall yibi-stack` 再安裝 |
 | `[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh` | 執行 `claude plugin install dev-cycle@yibi-stack`，或在 yibi-stack checkout 執行 `make install` |
 | `分支沒有對應的 open PR` | 先 `gh pr create` 建立 PR |

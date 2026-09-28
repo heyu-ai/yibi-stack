@@ -6,7 +6,7 @@ description: >
   PR 完成後的 AI 行為審計 control log：agent 從 git log / PR diff / PR body 推論
   autonomous_decision、assumption、spec_deviation 等 7 類行為 entries，
   使用者最多 3 輪校準後寫入 mycelium DB，並產生 .runtime/control-logs/pr-<N>.md
-  markdown artifact（含 11 個 section）。統計 autonomy_ratio / deviation_ratio /
+  markdown artifact（含 12 個 section，編號 0–11）。統計 autonomy_ratio / deviation_ratio /
   verification_score，依閾值給出 rule/hook/skill 補充建議。
   觸發關鍵字：control log、行為審計、autonomy ratio、AI 自主決定比例、
   spec deviation、pr control log、ai governance
@@ -47,7 +47,7 @@ PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.hom
 CL_ROOT=""
 if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$PR_FLOW_CACHED/skills/pr-control-log"; elif [ -r "$HOME/.claude/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$HOME/.claude/skills/pr-control-log"; elif [ -r "plugins/growth/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="plugins/growth/skills/pr-control-log"; fi
 if ! test -n "$CL_ROOT"; then echo "[FAIL] 讀不到 pr-control-log bootstrap.sh；請執行 claude plugin install growth@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
-if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2; exit 1; fi
+if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2; exit 1; fi
 ```
 
 再執行 bootstrap：
@@ -72,7 +72,7 @@ bash "$CL_ROOT/scripts/detect-pr.sh"
 
 從以下三個 context 來源推論 entries：
 
-1. `git log --oneline origin/main..HEAD` — 取得 agent-authored commits
+1. `gh pr view "$PR_NUMBER" --json commits -q '.commits[] | "\(.oid[0:7]) \(.messageHeadline)"'` — 取得本 PR 的 commits（PR-keyed，不依賴 current checkout）
 2. PR diff 重點（`gh pr diff`）— 找到 tradeoff comments / nosec / TODO
 3. PR body（`gh pr view --json body -q .body`）— 找到 assumption / decision 陳述
 
@@ -97,7 +97,7 @@ user_requested: <0 = AI 自主 | 1 = 使用者明確要求>
 | `pytest` / `make ci` / smoke test runs | verification | 0 |
 | revert commit | rollback | 0 |
 
-至少一個 entry 的 category 必須為 `autonomous_decision`（若 PR 有 agent-authored commits）。
+每筆 entry 都要能指回 commit / diff / PR body 的具體依據；agent-authored commits 中若找不到任何非使用者要求的決定，就明說「本 PR 無可辨識的 autonomous_decision」，不要為了填類別而新增 entry。
 
 ### Step 2 — 使用者校準 loop（最多 3 輪，AC-002）
 

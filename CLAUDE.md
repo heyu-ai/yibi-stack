@@ -75,10 +75,7 @@ glob 非錨定，在任意路徑深度匹配。
 > 值可以是 YAML list（`- "tasks/**"`）或純量字串（`paths: tasks/**`）——**兩者實測行為相同**，
 > 本 repo 統一用 list 形式，這是風格選擇不是正確性要求。
 >
-> `scripts/lint_rule_frontmatter.py` 與 pre-commit hook 會阻擋錯 key；`tasks/harness_eval`
-> 的兩個 scanner 原本也誤把失效的 `glob:` 當成 path-scoping 訊號——D7 的 `scanners/rules.py`
-> 與 D4 的 `scanners/skills.py`。已修正：`_PATHS_KEY_RE` 只認頂層 `paths:`，`_SCOPING_KEYS`
-> 已不含 `glob`，修法追蹤在 issue #252（已 closed）。
+> `scripts/lint_rule_frontmatter.py` 與 pre-commit hook 會阻擋錯 key。
 
 - **全域**（01-03、13、15、16）：雙語規範、錯誤處理、安全性、bash 反模式、不可逆操作、allow-list 衛生
 - **`tasks/**`**（04）：module 結構
@@ -115,9 +112,7 @@ claude.ai 帳號的 skill/plugin 自動同步（2.1.275 起預設開啟）**已�
 
 ## Dev 指令
 
-> **小技巧**：`/config key=value` 可即時改設定，省去開 `/config` 選單
-> （如 `/config thinking=false`）；在 interactive、`-p` headless、Remote Control 皆可用
-> （Claude Code v2.1.181+）。`/config --help` 列出所有 shorthand key（v2.1.183+）。
+> **小技巧**：`/config key=value` 可即時改設定，省去開 `/config` 選單；在 interactive、`-p` headless、Remote Control 皆可用。`/config --help` 列出所有 shorthand key。
 
 完整 target 清單跑 `make help`（Makefile 為 self-documenting，每個 target 都有 `##` 說明）。
 以下只記錄 `make help` 一行說明看不出來的語意：
@@ -133,7 +128,7 @@ uv sync --extra ledger   # 額外裝 scripts/ 帳務工具的依賴（pandas/sql
 
 # Plugin 發布（lockstep 版本：所有 plugin 同步升版）
 make release TYPE=patch  # patch / minor / major
-# 流程：bump pyproject.toml -> sync plugins/*/package.json -> changelog -> test gates -> commit -> tag + GitHub Release
+# 流程：bump pyproject.toml -> sync plugins/*/package.json + .claude-plugin/plugin.json -> changelog -> test gates -> commit -> tag + GitHub Release
 
 # 新環境一次到位
 make install-all         # 等同 build-tools + install + install-project + install-handover-hooks + install-scheduler + patch-pr-review-agents + patch-agy-allow-list
@@ -208,7 +203,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   by definition). `scripts/assert_not_worktree.sh` now blocks it as the first line of every
   target that writes global state: `install` / `install-agent-wrappers` / `install-project` /
   `install-one` / `install-force-one` / `promote` / `install-scheduler` /
-  `install-handover-hooks`. See rule 11
+  `install-handover-hooks`. See rule 17
   for why it fails loud instead of auto-deriving the main repo, why its fail-open forgives only
   git's literal `not a git repository` **and only when `.git` is absent**, and why it normalizes
   with `pwd -P` rather than `--path-format=absolute`.
@@ -225,7 +220,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   Python would re-open the six fail-opens PR #234 closed. `insight` / `recap install-hook` have no
   make target at all, so the Python guard is their **only** line of defence (issue #237).
   Residual: importing an install function directly in Python still bypasses this — the guard sits
-  at the process entry point, not in the library (rule 11 explains why that altitude, and what
+  at the process entry point, not in the library (rule 17 explains why that altitude, and what
   would move it down).
 - **installed skills go stale when local `main` is behind `origin/main`**: `make install` copies
   skill scripts to `~/.agents/skills/`; if you don't pull main + re-run `make install`, those
@@ -284,9 +279,10 @@ make install-all         # 等同 build-tools + install + install-project + inst
   `~/.claude/settings.json` and project `settings.json` still reference the old name, causing
   `No module named tasks.<old_name>.__main__`. After every module rename, search both settings
   files for the old name and update manually.
-- **sdd plugin version lockstep (package.json vs plugin.json)**: `plugins/sdd/package.json`
-  and `plugins/sdd/.claude-plugin/plugin.json` must be bumped together — no CI cross-check.
-  After bumping `package.json`, sync the `"version"` field in `.claude-plugin/plugin.json`.
+- **plugin version lockstep (package.json vs .claude-plugin/plugin.json)**: every plugin carries
+  its version in both files and no CI check compares them. Bump with
+  `scripts/sync-plugin-versions.sh <version>` (or `make release`), which writes both for all
+  plugins; do not hand-edit one file.
 - **`gh` CLI `--json` field names must be verified before use**: fields like `databaseId` do
   not exist in `gh pr checks` (some fields only exist in `gh pr list` or other commands).
   Passing a non-existent field name returns empty values silently — any function consuming that
@@ -298,16 +294,11 @@ make install-all         # 等同 build-tools + install + install-project + inst
   Local environments with older pylint pass silently; CI with a newer version catches it.
   After upgrading pylint, always run `uv run pylint --generate-toml-config | grep max-` to
   verify the current option names.
-- **unattended/scheduled retries use `CLAUDE_CODE_RETRY_WATCHDOG`, not a large
-  `CLAUDE_CODE_MAX_RETRIES`**: Claude Code v2.1.186 capped bare
-  `CLAUDE_CODE_MAX_RETRIES` at 15 (setting it higher silently clamps). v2.1.199 then made
-  `CLAUDE_CODE_RETRY_WATCHDOG` **lift that cap of 15** and raise the default retry count to 300
-  for non-capacity transient errors (429s unrelated to the usage limit are also auto-retried with
-  backoff for subscribers). So the watchdog is not merely "the alternative" — it is what actually
-  restores long auto-retry; a large `CLAUDE_CODE_MAX_RETRIES` **alone** still clamps to 15.
-  Affects `nightly-self-improvement` (the only `enabled: true` job in `.runtime/schedules.json`)
-  and any future ACP Gateway `skill:` job. (Cap-lift verified against the official changelog,
-  2026-07-19; supersedes the earlier "always clamps to 15" wording.)
+- **unattended/scheduled retries: set `CLAUDE_CODE_RETRY_WATCHDOG`**: a bare
+  `CLAUDE_CODE_MAX_RETRIES` silently clamps to 15; the watchdog lifts that cap and raises the
+  default to 300 retries for non-capacity transient errors. Applies to `nightly-self-improvement`
+  (the only `enabled: true` job in `.runtime/schedules.json`) and any future ACP Gateway `skill:`
+  job. (Verified against the Claude Code changelog, 2026-07-19.)
 - **`claude -p` internal errors now exit 1 instead of hanging (v2.1.277)**: before 2.1.277,
   an internal error caused `claude -p` to hang silently until `timeout_seconds` expired; from
   2.1.277 it reports the error and exits with code 1. Any gate that relied on timeout as the
@@ -326,10 +317,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   test.
   A future `skill:` type job (ACP Gateway → `claude -p`) would need to confirm the Gateway
   correctly translates exit code 1 into `success: false`.
-- **`!` bash command output now auto-triggers a Claude response** (v2.1.186): a `!`-prefixed
-  bash command's output used to be context-only; it now makes Claude respond to that output by
-  default. To restore the old "context only, no response" behavior, set
-  `"respondToBashCommands": false` in `settings.json`. This does not change the protect-push
-  gotcha's conclusion (the agent still cannot merge; the user runs `! gh pr merge <n>` manually)
-  — but the agent will now speak to the merge output rather than staying silent, so expect a
-  follow-up message after a manual `!` command.
+- **`!` bash command output triggers a Claude response**: a `!`-prefixed command's output is
+  followed by a Claude reply by default; `"respondToBashCommands": false` in `settings.json` makes
+  it context-only. After the user runs `! gh pr merge <n>` (see protect-push above), expect to
+  comment on the merge output.

@@ -323,7 +323,7 @@ Each test case must include:
 
 | Field | Description |
 |-------|-------------|
-| TC-ID | Numbering convention: `[Feature-Abbrev]-[Technique-Abbrev]-[Seq]`, e.g. `LOGIN-BVA-001` |
+| TC-ID | Follow the project's TC-ID convention (default `[FEATURE]-[CATEGORY]-[NUMBER]`); never encode the technique in the ID |
 | Test Purpose | One sentence describing what is being verified |
 | Technique Used | Mark which testing design technique this case comes from |
 | Risk Level | High / Medium / Low |

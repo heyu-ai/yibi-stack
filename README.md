@@ -98,7 +98,7 @@ claude plugin install methodology@yibi-stack
 Use this track to install the `mycelium`, `pr-orchestrator`, and `portman` console scripts consumed by tasks-backed skills:
 
 ```bash
-uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"
+uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"
 ```
 
 Track 2 is required by these six skills, grouped by their plugin pack:
@@ -253,7 +253,7 @@ claude plugin install methodology@yibi-stack
 這條安裝軌提供 tasks-backed skill 使用的 `mycelium`、`pr-orchestrator` 與 `portman` console script：
 
 ```bash
-uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"
+uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"
 ```
 
 以下六個 skill 需要 Track 2，依所屬 plugin pack 分組如下：
