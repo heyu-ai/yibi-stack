@@ -536,7 +536,7 @@ Launch four Task subagents in parallel (each produces independent findings; the 
 > mutations until the other three have returned**, or run them on a copy outside the worktree.
 > Whichever it does, require it to restore each mutated file and report `git status --porcelain`
 > in its final output — dispatching all four at once without this note makes the skill's own
-> Step 3.2 contradict rule 11.
+> Step 3.2 contradict rule 17.
 
 After all four complete, the lead uses the Write tool to merge them into `$REVIEW_DIR/claude-r1.md` (following the output format above).
 

@@ -4,7 +4,7 @@ type: know
 scope: global
 description: >
   Multi-frontier-model mob review of someone ELSE's PR — review-only, never modifies their code.
-  自動偵測 codex / agy，≥1 家即啟動 R1 獨立 + R2 交叉 debate + aggregate，產出彙整 review 報告
+  自動偵測 codex / agy，≥1 家即啟動 R1 獨立 + conditional R2 交叉 debate + aggregate，產出彙整 review 報告
   並（經確認後）貼回 PR 作為建議留言。與 `/pr-cycle-deep` 共用同一套 mob review 引擎，差別在於：
   目標是**別人的 PR**、只給修改建議、**不**動手改 code、**不** re-review loop、**不** merge / archive。
   適用：review 同事 / 外部貢獻者的 PR、code review approval gate、跨家 LLM 壓力測試他人改動。
@@ -312,8 +312,8 @@ switch to `/pr-cycle-deep` — that skill owns the fix → re-review → merge l
 | --- | --- | --- | --- |
 | `/pr-review-cycle` | Your own PR | Yes (then merge) | Claude pr-review-toolkit 4 subagents |
 | `/pr-cycle-fast` | Your own PR | Yes (then merge) | Claude (state machine, 1 reviewer) |
-| `/pr-cycle-deep` | Your own PR | Yes (then merge) | Claude + Codex + agy (mob, R1+R2) |
-| **`/mob-code-review-only`** (this skill) | **Someone else's PR** | **No — suggestions only** | Claude + Codex + agy (mob, R1+R2) |
+| `/pr-cycle-deep` | Your own PR | Yes (then merge) | Claude + Codex + agy (mob, R1 + conditional R2) |
+| **`/mob-code-review-only`** (this skill) | **Someone else's PR** | **No — suggestions only** | Claude + Codex + agy (mob, R1 + conditional R2) |
 | `/agy-review`, `/codex-review` | Any PR / diff | No | Single external model |
 
 This skill requires ≥1 external reviewer (Codex or agy) to start; with 0, it points you to

@@ -48,7 +48,7 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #
 #   (2) +11 lines, Step 3.2: the step dispatches four subagents at once, one of which
 #       (`pr-test-analyzer`) mutates files in the shared worktree while the other three read them
-#       -- directly contradicting rule 11's "finish the review round, collect every report, *then*
+#       -- directly contradicting rule 17's "finish the review round, collect every report, *then*
 #       mutate". The note tells pr-test-analyzer to sequence or copy, and to report
 #       `git status --porcelain`. A skill cannot instruct a violation of a rule it also cites.
 #

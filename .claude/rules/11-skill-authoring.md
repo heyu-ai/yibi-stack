@@ -92,11 +92,18 @@ present; plain `tasks/` does not discriminate — the sibling repo has one too).
 
 `scripts/resolve-skill-repo` is the single implementation — do not inline a copy of its
 logic into a SKILL.md. If you need this in a script that already lives in the repo, that
-script can self-locate directly instead of shelling out (see
-`plugins/growth/skills/pr-control-log/scripts/bootstrap.sh` for the in-script form).
+script can self-locate directly instead of shelling out. Two forms exist, and the shape of the
+symlink that reaches the script decides which one is correct; both live in rule 17,
+[Self-Location and Portability](17-shell-script-authoring.md#self-location-and-portability):
 
-**Gotcha — `pwd -P` does not resolve a *file* symlink.** The in-script form above works only
-when the symlink sits on a **directory** in the path; `resolve-skill-repo` is a **file** symlink
+- **Directory-symlink form**: `SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)`.
+  Correct only when every symlink on the way sits on a **directory** (e.g.
+  `~/.claude/skills/<name>` → `<repo>/skills/<name>`).
+- **Symlink-walking form**: required when the script file itself is a symlink. The reference
+  implementation is `scripts/resolve-skill-repo`.
+
+**Gotcha — `pwd -P` does not resolve a *file* symlink.** The directory-symlink form above works
+only when the symlink sits on a **directory** in the path; `resolve-skill-repo` is a **file** symlink
 under `~/.agents/bin/`, where it silently returns the wrong directory. See rule 17,
 [`pwd -P` Does Not Resolve a *File* Symlink](17-shell-script-authoring.md#pwd--p-does-not-resolve-a-file-symlink-silent-wrong-directory),
 for the symlink-walking form and how to verify it.

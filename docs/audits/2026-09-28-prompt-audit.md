@@ -58,12 +58,19 @@
 - G4 新增 `NLANG-ST-016`、`NLANG-EG-017`、`NLANG-EG-018`。對 ST-016 做了 mutation：把「按 type
   取 text block」改回「取第一個 block」，測試轉紅；用反向替換還原後轉綠。
 - PR #502 review 後補：`_translate_batch` 改以 stop_reason 白名單（僅 `end_turn`）判定，schema 不符的
-  `ValidationError` 轉成 `RuntimeError`，拒絕重複／越界 index，並還原輸入時做的 XML escape；新增
-  `NLANG-EG-019`～`026`、`NLANG-ST-023`～`024`。把白名單改回只檢查 text block 是否存在的 mutation
+  `ValidationError` 轉成 `RuntimeError`，拒絕重複／越界 index；新增 `NLANG-EG-019`～`022`、
+  `EG-025`～`026`、`NLANG-ST-023`～`024`。把白名單改回只檢查 text block 是否存在的 mutation
   會讓 EG-019 與 EG-021 轉紅。
-- `classify_batch` 新增 `scripts/tests/test_categorize_hsbc.py`（`HSBC-*-001`～`008`，以假 client 與
-  `sys.modules` 替身測試，不打真實 API）；`PROMPT_CATEGORIES` 的不變式改在模組載入時檢查，不符即
-  raise `RuntimeError`。
+- PR #502 第二輪 review 後補：`_translate_batch` 不再做 XML escape／unescape，改把原文以含 index 的
+  JSON 陣列放進 user message、譯文從 structured output 的 JSON 直接讀回，避免字面的 `&lt;div&gt;`
+  被解碼成 `<div>`。`NLANG-ST-024` 改為同時涵蓋字面 entity 與原始 `<`、`>`、`&`，並斷言請求內容帶
+  原文而非 entity；新增 `NLANG-EG-027`（index == 項目數的上界邊界）。ST-024 在舊實作上先確認為紅。
+- `classify_batch` 新增 `scripts/tests/test_categorize_hsbc.py`（`HSBC-*-001`～`012`，以假 client 與
+  `sys.modules` 替身測試，不打真實 API）；`PROMPT_CATEGORIES` 的不變式改在模組載入時檢查（含重複
+  科目），不符即 raise `RuntimeError`。`HSBC-DT-001` 改為比對寫死的 21 個科目清單；`HSBC-ST-011`
+  斷言請求的 json_schema、category enum 與 `system`；`HSBC-EG-010` 測上界邊界；`HSBC-EG-012` 確認
+  body 格式錯誤轉成 `RuntimeError`。enum、system、schema type、上界與重複檢查各做一次 mutation，
+  全數轉紅。
 - 沒有對模型做行為探測（沒有花 API 費用）。Group 1 的刪除項屬於「移除是假設」，需要在實際
   session 中觀察（見文末）。
 
