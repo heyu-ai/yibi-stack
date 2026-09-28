@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.23.5] - 2026-09-28
 
 ### Added
 
@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - sdd：`spectra-amplifier` 完工標準原本宣稱「testplan.md 所有 TC 均有對應測試（check_spec_coverage.py 驗證）」，但該工具不讀 testplan；改為指向 `check_testplan_trace.py --strict`。tasks 範例的 `pytest -k "<TC-ID>"` 驗收指令比對的是測試名稱而非 docstring，改用 trace checker（#474）
+
+## [1.23.4] - 2026-09-27
+
+### Changed
+
+- pr-cycle-deep／mob-code-review-only：Step 0 的外部 reviewer 偵測（codex／agy 的 binary、auth、agy allow-list）改由 `scripts/detect_voices.py` 一次完成，`--auth-only` 給 cache warm path 重驗 auth 用。原本是 SKILL.md 裡 5 段 inline bash，agent 每次照意圖重寫一份，跑的版本沒有測試守著，多行指令也無法用 prefix allow-list 覆蓋，每次 mob review 都要手動確認。輸出字串與原本相同，mode 判斷表與 `~/.claude/mob-detection-cache` 不受影響；allow-list 加兩條精確 entry 即可免確認（見 SKILL.md Step 0b）。設定檔讀不到（權限不足、非 UTF-8）、JSON 壞掉或形狀不對時，script 印 `[WARN]` 並視為不存在，不會中斷偵測；script 自身失敗（exit 非 0、行數不符）時 SKILL.md 要求 `[FAIL]` 停止，不得退回 inline bash（PR #494 mob review）
+
+### Fixed
+
+- pr-cycle-deep：codex extract stage 改 pin `gpt-reserve`，恢復 #445 的修正（#495）
+- shell 腳本 bare `$VAR` 接全形字元導致 unbound variable／吞字（`Makefile` 與 bump-version、protect-push 等 7 支 shell 腳本）（#493）
 
 ## [1.23.3] - 2026-09-27
 

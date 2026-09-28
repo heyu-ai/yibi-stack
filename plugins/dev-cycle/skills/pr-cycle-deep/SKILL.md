@@ -58,11 +58,13 @@ Use the Read tool to try reading `~/.claude/mob-detection-cache`:
 
 - **File exists** (warm path): **do not ask whether to use the cache** — the default is silent
   reuse. Trust the cached binary detection + mode, but **re-verify the auth tokens** for the
-  cached-available voices (auth can go stale even when the binary is unchanged). Run only the auth
-  detection checks from Step 0b for each voice the cache marks available (`CODEX_OK=1` /
-  `GEMINI_OK=1`):
-  - the `CODEX_AUTH:` bash block (Codex)
-  - the `GEMINI_AUTH:` bash block (agy)
+  cached-available voices (auth can go stale even when the binary is unchanged). Run the detection
+  script in auth-only mode and read only the lines for the voices the cache marks available
+  (`CODEX_AUTH:` when `CODEX_OK=1`, `GEMINI_AUTH:` when `GEMINI_OK=1`):
+
+  ```bash
+  python3 ~/.agents/skills/pr-cycle-deep/scripts/detect_voices.py --auth-only
+  ```
 
   Then branch on the result:
   - **All cached-available voices still auth OK** → report one line and **go directly to Step 1**:
@@ -75,6 +77,7 @@ Use the Read tool to try reading `~/.claude/mob-detection-cache`:
     or broke. Do **not** proceed and do **not** silently drop the voice. Show the fix command for
     that voice (see the Step 0b report block / Troubleshooting), wait for the user to
     re-authenticate, then re-run Step 0 from **0b** (full re-detect + refresh cache).
+  - **Non-zero exit, or not exactly 2 lines** → `[FAIL]`, stop; see **Script failure** in Step 0b.
 - **File does not exist** (Read tool returns error): run Step 0b directly.
 
 > **Why re-verify instead of asking**: valid auth is the common case, so silent reuse is the
@@ -86,48 +89,36 @@ Use the Read tool to try reading `~/.claude/mob-detection-cache`:
 
 ### Step 0b — Run detection
 
-Four bash calls for quick detection (binary detection and auth detection separated; auth uses if/elif/else to ensure mutually exclusive output):
+One call runs the whole detection. **Run the script as written — do not re-type its checks as
+inline bash**: the detection used to live here as five bash blocks, and agents rewrote them on
+every run (untested, and a multi-line block cannot be matched by any prefix allow-list, so every
+run prompted):
 
 ```bash
-# Codex CLI binary
-which codex >/dev/null 2>&1 && echo "CODEX: BINARY_OK" || echo "CODEX: NOT_FOUND"
+python3 ~/.agents/skills/pr-cycle-deep/scripts/detect_voices.py
 ```
 
-```bash
-# Codex auth (KEY_SET or FILE_EXISTS either satisfies)
-if env | grep -qE '^(CODEX_API_KEY|OPENAI_API_KEY)=[^[:space:]]'; then
-  echo "CODEX_AUTH: KEY_SET"
-elif env | grep -qE '^(CODEX_API_KEY|OPENAI_API_KEY)=[[:space:]]'; then
-  echo "CODEX_AUTH: KEY_WHITESPACE_PREFIX"
-elif test -s ~/.codex/auth.json; then
-  echo "CODEX_AUTH: FILE_EXISTS"
-else
-  echo "CODEX_AUTH: NOT_AUTHED"
-fi
-```
+It prints five lines, always in this order, and exits 0 whatever the detection result:
 
-```bash
-# Antigravity CLI (agy) binary (output keeps GEMINI: prefix for mob-detection-cache GEMINI_OK key compatibility)
-which agy >/dev/null 2>&1 && echo "GEMINI: BINARY_OK" || echo "GEMINI: NOT_FOUND"
-```
+| Line | Values | Meaning |
+|------|--------|---------|
+| `CODEX:` | `BINARY_OK` / `NOT_FOUND` | `codex` on `PATH` |
+| `CODEX_AUTH:` | `KEY_SET` / `KEY_WHITESPACE_PREFIX` / `FILE_EXISTS` / `NOT_AUTHED` | `CODEX_API_KEY` or `OPENAI_API_KEY`, else non-empty `~/.codex/auth.json` |
+| `GEMINI:` | `BINARY_OK` / `NOT_FOUND` | `agy` on `PATH` (the `GEMINI` prefix is kept for the cache's `GEMINI_OK` key) |
+| `GEMINI_AUTH:` | `ONBOARDED` / `KEY_SET` / `KEY_WHITESPACE_PREFIX` / `NOT_AUTHED` | agy `onboarding.json` `onboardingComplete: true`, else `GEMINI_API_KEY` / `GOOGLE_API_KEY` |
+| `GEMINI_ALLOW_LIST:` | `OK` / `MISSING` | all 3 agy script paths are allow-listed in `~/.claude/settings.json` |
 
-```bash
-# Antigravity CLI (agy) auth (onboardingComplete is the reliable indicator that OAuth completed)
-if python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".gemini"/"antigravity-cli"/"cache"/"onboarding.json"; sys.exit(0 if p.is_file() and json.loads(p.read_text()).get("onboardingComplete") else 1)'; then
-  echo "GEMINI_AUTH: ONBOARDED"
-elif env | grep -qE '^(GEMINI_API_KEY|GOOGLE_API_KEY)=[^[:space:]]'; then
-  echo "GEMINI_AUTH: KEY_SET"
-elif env | grep -qE '^(GEMINI_API_KEY|GOOGLE_API_KEY)=[[:space:]]'; then
-  echo "GEMINI_AUTH: KEY_WHITESPACE_PREFIX"
-else
-  echo "GEMINI_AUTH: NOT_AUTHED"
-fi
-```
-
-```bash
-# Confirm allow list for the 3 pr-cycle-deep agy scripts (subagent class: per-script paths, not Bash(agy:*))
-python3 -c 'import json,pathlib,sys; p=pathlib.Path.home()/".claude"/"settings.json"; d=json.loads(p.read_text()) if p.is_file() else {}; allow=d.get("permissions",{}).get("allow",[]); s=pathlib.Path.home()/".agents"/"skills"/"pr-cycle-deep"/"scripts"; names=["agy-r1-stage1.sh","agy-r1-stage2.sh","agy-r2.sh"]; sys.exit(0 if all(f"Bash(bash {s/n})" in allow for n in names) else 1)' && echo "GEMINI_ALLOW_LIST: OK" || echo "GEMINI_ALLOW_LIST: MISSING"
-```
+A `[WARN]` on stderr means `~/.codex/auth.json`, agy `onboarding.json` or `settings.json` could not be checked,
+read or parsed, or has the wrong shape; the script treats it as absent — relay the `[WARN]` text to the user.
+It never prints a key's value.
+**Script failure (Step 0a and 0b)**: any non-zero exit (2 = bad argument, or python could not find the script),
+or a line count other than 5 (2 with `--auth-only`), is `[FAIL]` — stop and show stderr verbatim.
+stderr containing `can't open file` means the installed skill copy is missing or stale (update the plugin /
+re-run `make install` from the main repo). Never fall back to re-typing the checks as inline bash,
+and never count a failed run as 0 voices.
+Allow-list it once with two exact entries (no wildcard needed):
+`Bash(python3 /Users/<you>/.agents/skills/pr-cycle-deep/scripts/detect_voices.py)` and
+`Bash(python3 /Users/<you>/.agents/skills/pr-cycle-deep/scripts/detect_voices.py --auth-only)`.
 
 ### Mode determination
 
@@ -577,7 +568,7 @@ The script takes no base-branch argument — it reviews the shared `$REVIEW_DIR/
 Step 3.1 already produced, so all three voices review the identical diff. Raw output lands in
 `codex-r1-raw.md` — **do not read it in the main context**.
 
-Both review stages pin `-m gpt-6-astra` instead of local config, and gate on codex-cli >= 0.154.0 before calling it (0.149.0 answers that model with a 400).
+Review stages pin `-m gpt-6-astra` and gate on codex-cli >= 0.154.0 (0.149.0 answers it with a 400); the extract pins the cheap `-m gpt-reserve` plus `--ignore-user-config` (#444).
 If the gate fails: `npm install -g @openai/codex@latest` (asdf node also needs `asdf reshim nodejs`). A slug in `models_cache.json` only applies to the CLI matching that file's `client_version`.
 
 ###### Stage 2: Extract (compress verbose raw markdown into structured JSON)

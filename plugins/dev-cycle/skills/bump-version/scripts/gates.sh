@@ -20,7 +20,7 @@ if [ "$SKIP_GATES" = "true" ]; then
 fi
 
 if [ ! -f "$RESULT_ENV" ]; then
-  echo "[FAIL] 找不到 $RESULT_ENV，請先執行 bump.sh" >&2
+  echo "[FAIL] 找不到 ${RESULT_ENV}，請先執行 bump.sh" >&2
   exit 1
 fi
 
@@ -34,7 +34,7 @@ esac
 SCRIPT_DIR=$(dirname "$0")
 GATE_SCRIPT="${SCRIPT_DIR}/gates/${PROJECT_TYPE}.sh"
 if [ ! -x "$GATE_SCRIPT" ]; then
-  echo "[WARN] 無 gate script：$GATE_SCRIPT，跳過測試"
+  echo "[WARN] 無 gate script：${GATE_SCRIPT}，跳過測試"
   exit 0
 fi
 
