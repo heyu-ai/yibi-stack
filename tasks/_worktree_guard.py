@@ -21,7 +21,7 @@ worktree 的子目錄、`$()` subshell 吞 exit code、CDPATH 干擾。在 Pytho
 這裡沒有任何偵測邏輯，只有「怎麼呼叫」與「失敗時怎麼辦」。
 
 該腳本的測試數量請看 `scripts/tests/test_assert_not_worktree.py` 本身，不在此複述——
-數字會隨每次補測而變，寫死在這裡只會變成又一個過期的宣稱（rule 11：documented residual
+數字會隨每次補測而變，寫死在這裡只會變成又一個過期的宣稱（rule 17：documented residual
 也是一種 claim，會隨每次修改而衰減）。
 
 ## 為什麼用 `__file__` 定位 script 不是同一個 bug
@@ -70,7 +70,7 @@ def assert_not_worktree(command: str, repo_root: Path | None = None) -> None:
         repo_root: 要檢查的 repo 根；預設為本 checkout 的 `PROJECT_ROOT`。
 
     這個函式必須在**寫入任何檔案之前**呼叫。寫到一半才擋下來，機器層級設定已經被
-    污染了——rule 11 的「guard 是第一個動作」在 Python 這側的對應寫法。
+    污染了——rule 17 的「guard 是第一個動作」在 Python 這側的對應寫法。
     """
     root = repo_root if repo_root is not None else PROJECT_ROOT
 

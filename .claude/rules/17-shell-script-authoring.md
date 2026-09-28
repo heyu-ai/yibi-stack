@@ -740,7 +740,7 @@ exists", not on "git actually said *not a git repository*". So any other git fai
 directory that has a `.git` printed a confident, fabricated cause — reproduced against a
 perfectly **healthy main repo** with a shimmed dubious-ownership error. Fail-closed was right;
 naming a cause it had not established was not. This is the same rule as the `dirname` fallback
-above, one level in: that fallback pointed at a possibly-wrong *directory*, this hint at a
+below, one level in: that fallback pointed at a possibly-wrong *directory*, this hint at a
 possibly-wrong *reason*.
 
 Because git localises its messages, any such match must pin `LC_ALL=C`, or it silently misses on
@@ -765,8 +765,8 @@ into a failure. Use a flag (`!seen`) and consume the whole stream.
 measured on this repo during PR #234's review:
 
 - `--path-format=absolute` needs git >= 2.31 (2021). Using it puts the gate's correctness on a
-  version floor this repo does not otherwise require (rule 13 already documents caring about
-  macOS < Ventura toolchains). `(cd "$dir" && cd "$raw" && pwd -P)` is portable and
+  version floor this repo does not otherwise require (the `realpath` section above documents
+  caring about macOS < Ventura toolchains). `(cd "$dir" && cd "$raw" && pwd -P)` is portable and
   format-independent.
 - Comparing the **raw** `rev-parse` outputs (the obvious way to avoid `--path-format`) is wrong:
   the two flags do not answer in the same spelling. From a main-repo **subdirectory**,
@@ -802,25 +802,6 @@ checkout while the user is looking at their worktree's code — possibly a diffe
 an older commit. That is a silent wrong answer, the exact failure class this whole resolver
 design exists to eliminate. A non-git directory (an unpacked zip) is passed through, not
 blocked: it cannot be a worktree, so blocking it would be a pure regression.
-
-`scripts/resolve-skill-repo` is the single implementation — do not inline a copy of its
-logic into a SKILL.md. If you need this in a script that already lives in the repo, that
-script can self-locate directly instead of shelling out (see
-`plugins/growth/skills/pr-control-log/scripts/bootstrap.sh` for the in-script form).
-
-**Gotcha — `pwd -P` does not resolve a *file* symlink.** The in-script form
-`SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)` only works when the symlink is
-on a **directory** in the path (as with `~/.claude/skills/<name>` → `<repo>/skills/<name>`).
-`resolve-skill-repo` is exposed as a **file** symlink under `~/.agents/bin/`, where that form
-silently returns `~/.agents/bin` instead of the real directory — no error, just a wrong
-answer. It therefore walks the symlink chain with `readlink` in a loop (macOS has no
-`readlink -f`). Copy the right form for your symlink shape; verify by executing through the
-symlink, not just directly.
-
-**Note (error handling form)**: `cmd || { echo '[FAIL]' >&2; exit 1; }` contains a `'` quote
-inside `{}`, triggering the "brace with quote character" confirmation dialog.
-Always use `if ! cmd; then echo '[FAIL]' >&2; exit 1; fi` instead (the canonical form above
-already uses this).
 
 ### A gate belongs at every entrance, and the tool that documents an entrance owns it
 

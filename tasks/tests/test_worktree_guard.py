@@ -352,7 +352,7 @@ class TestGuardedSinkInventory:
     釘住已知清單，並用命名慣例強制新的 install 指令入列。
 
     殘留（明說以便日後 re-probe。這段被 round 2 與 round 3 各修正過一次，兩次都是因為
-    它比實情樂觀——殘留說明本身也是一種會衰減的宣稱，rule 11）：
+    它比實情樂觀——殘留說明本身也是一種會衰減的宣稱，rule 17）：
     - 新 sink 若**不叫 install\\***（如 `setup-agent`、`link-hook`）仍抓不到。這是刻意的
       取捨——窄而可信，勝過寬而必然被關掉。
     - 非 click 的進入點（獨立腳本的 main()）掃不到，故 `_GUARDED_SCRIPTS` 手動列出。

@@ -127,7 +127,7 @@ repos:
         files: ^(skills/.*/SKILL\.md|plugins/.*/skills/.*/SKILL\.md|scripts/lint_skill_overlap\.py)$
         verbose: true
 
-      # 阻擋型（非 warn-only）。rule 11:253-256 對機械 guard 的前提是「a lint that enforces
+      # 阻擋型（非 warn-only）。rule 17「Global-State Install Guard」對機械 guard 的前提是「a lint that enforces
       # an anti-pattern must itself be held to the anti-pattern's full truth table before it is
       # allowed to block」——下表即為該 truth table，每一格都有探針實測，非推論：
       #

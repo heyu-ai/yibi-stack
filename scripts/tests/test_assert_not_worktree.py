@@ -336,7 +336,7 @@ class TestAssertNotWorktree:
         assert "[FAIL]" in result.stderr
         assert "worktree" in result.stderr
         # 問不出主 repo 時**不得**印出 cd 建議：dirname 猜測在 --separate-git-dir
-        # 等佈局下會指到不存在或無關的目錄，而誤導的訊息比簡短的更糟（rule 11）。
+        # 等佈局下會指到不存在或無關的目錄，而誤導的訊息比簡短的更糟（rule 17）。
         # 由 mob review 的 codex voice 以本 PR 自己寫下的原則反過來檢驗而發現。
         assert "無法從 git 問出主 repo 路徑" in result.stderr
         assert "cd " not in result.stderr
@@ -939,7 +939,7 @@ class TestMakefileWiring:
     def _recipe_lines(target: str) -> list[str]:
         """取出單一 target 的 recipe 行——**不排除任何行**，含 @# 註解行。
 
-        刻意不跳過 @# 註解：rule 11 要求「guard 是 recipe 的第一行」是**字面的**
+        刻意不跳過 @# 註解：rule 17 要求「guard 是 recipe 的第一行」是**字面的**
         不變量，跳過註解等於把它偷偷降級成較弱的「第一個可執行動作」，測試於是
         掩蓋了違規（由 mob review 的 codex voice 指出——當時四個 target 的 guard
         前面都擺了 @# 說明行，測試卻全綠）。說明文字現已移到 target 宣告之上，

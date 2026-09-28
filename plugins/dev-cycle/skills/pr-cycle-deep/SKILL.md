@@ -530,7 +530,7 @@ Launch four Task subagents in parallel (each produces independent findings; the 
 
 > **Mutation isolation**: `pr-test-analyzer` verifies tests by mutation, which **edits files in
 > the shared worktree in place**, while the other three subagents are reading those same files.
-> `.claude/rules/11-skill-authoring.md` states it directly: "Do not run mutation tests on a shared
+> `.claude/rules/17-shell-script-authoring.md` states it directly: "Do not run mutation tests on a shared
 > worktree file while a review agent is reading it. … Sequence them: finish the review round,
 > collect every report, *then* mutate." So instruct `pr-test-analyzer` to either **hold its
 > mutations until the other three have returned**, or run them on a copy outside the worktree.

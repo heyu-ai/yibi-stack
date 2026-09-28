@@ -1385,7 +1385,7 @@ class TestCleanWtPortRelease:
     ) -> None:
         """CWT-EG-014: module 在但 uv 不在 -> [WARN]，不可與「別的 repo 沒這個 module」共用沉默。
 
-        fail-open 必須逐一列出它寬恕的條件（rule 11）：「別的 repo 沒有 local_port_manager」
+        fail-open 必須逐一列出它寬恕的條件（rule 17）：「別的 repo 沒有 local_port_manager」
         是正常狀態（安靜跳過），但「本 repo 有 module 卻沒有 uv」是錯誤狀態，會讓 port 登記
         永久洩漏，必須出聲。
         """

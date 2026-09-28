@@ -55,7 +55,7 @@ not re-installed has skills calling a resolver that does not exist yet, and they
   the *failure mode was silence*.
 - The alternative — giving each in-repo script its own fallback copy of the symlink-resolution
   preamble — would re-scatter the exact logic this rule consolidates into one implementation, and
-  every copy is a place for the file-symlink trap below to be re-introduced.
+  every copy is a place for the file-symlink trap (see the gotcha below) to be re-introduced.
 
 "pull → `make install`" is already the standing requirement for this repo's skills (see the
 CLAUDE.md gotcha on installed skills going stale); the resolver makes it enforced rather than
@@ -89,6 +89,22 @@ location (`BASH_SOURCE` → resolve symlink chain → `git rev-parse --show-topl
 answer is always "the checkout that installed this script" — no shared mutable state is
 consulted. It then verifies **identity, not mere existence** (`tasks/mycelium` must be
 present; plain `tasks/` does not discriminate — the sibling repo has one too).
+
+`scripts/resolve-skill-repo` is the single implementation — do not inline a copy of its
+logic into a SKILL.md. If you need this in a script that already lives in the repo, that
+script can self-locate directly instead of shelling out (see
+`plugins/growth/skills/pr-control-log/scripts/bootstrap.sh` for the in-script form).
+
+**Gotcha — `pwd -P` does not resolve a *file* symlink.** The in-script form above works only
+when the symlink sits on a **directory** in the path; `resolve-skill-repo` is a **file** symlink
+under `~/.agents/bin/`, where it silently returns the wrong directory. See rule 17,
+[`pwd -P` Does Not Resolve a *File* Symlink](17-shell-script-authoring.md#pwd--p-does-not-resolve-a-file-symlink-silent-wrong-directory),
+for the symlink-walking form and how to verify it.
+
+**Note (error handling form)**: `cmd || { echo '[FAIL]' >&2; exit 1; }` contains a `'` quote
+inside `{}`, triggering the "brace with quote character" confirmation dialog.
+Always use `if ! cmd; then echo '[FAIL]' >&2; exit 1; fi` instead (the canonical call-site form
+at the top of this file already uses this).
 
 Makefile / install-guard rules (worktree guard, gate at every entrance, shared helper messages) live in [rule 17](17-shell-script-authoring.md#global-state-install-guard).
 

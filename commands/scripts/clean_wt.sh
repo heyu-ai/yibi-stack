@@ -271,7 +271,7 @@ MAIN_BRANCH_CHECKED_OUT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
 
 # E2 需要 `merge-tree --write-tree`（git >= 2.38）。舊 git 會把 --write-tree 當成 rev 而報錯。
 # 保留 stderr：探測失敗有很多可能（版本、object DB 損毀、磁碟滿），不可吞掉它再斷言一個
-# 從未證實的原因（rule 11：錯誤訊息的提示必須與它所解釋的分支共用同一個判斷式）。
+# 從未證實的原因（rule 17：錯誤訊息的提示必須與它所解釋的分支共用同一個判斷式）。
 MERGE_TREE_OK=0
 if _probe=$(git merge-tree --write-tree "$BASE_SHA" "$BASE_SHA" 2>&1) && [ -n "$_probe" ]; then
   MERGE_TREE_OK=1
@@ -601,7 +601,7 @@ if [ -f "$MAIN_REPO/tasks/local_port_manager/__main__.py" ]; then
   #
   # 這個 module 只存在於本 repo；不在就安靜跳過（別的 repo 沒有它，是正常狀態）。
   # 但 module 在而 uv 不在，是**錯誤狀態**，不可用同一個沉默處理掉：
-  # fail-open 必須逐一列出它寬恕的條件（rule 11）。
+  # fail-open 必須逐一列出它寬恕的條件（rule 17）。
   if command -v uv >/dev/null 2>&1; then
     PM_AVAILABLE=1
   else
