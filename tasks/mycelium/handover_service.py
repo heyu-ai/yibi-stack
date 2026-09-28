@@ -299,16 +299,6 @@ def _record_has_cjk(row: dict[str, Any]) -> bool:
     return bool(_collect_cjk_texts(row))
 
 
-def _xml_escape(text: str) -> str:
-    """Escape XML special characters in user text before embedding in prompt."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def _xml_unescape(text: str) -> str:
-    """還原 `_xml_escape` 產生的三個 entity（`&amp;` 最後處理，避免二次還原）。"""
-    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
-
-
 def audit_handover_language(*, db_path: Path | None = None) -> dict[str, Any]:
     """Audit handover records for CJK content. Returns statistics dict."""
     db = AgentsDB(db_path or HANDOVER_DB_PATH)
@@ -342,8 +332,9 @@ def audit_handover_language(*, db_path: Path | None = None) -> dict[str, Any]:
 def _translate_batch(texts: list[str]) -> list[str]:
     """以 Anthropic API 把一批中文段落翻成英文。
 
-    原文先經 `_xml_escape` 再放進 `<item>`，讓內容裡的 `<`、`>`、`&` 不會破壞分隔；
-    模型被要求逐字保留識別符，因此譯文會帶回這些 entity，寫回前以 `_xml_unescape` 還原。
+    原文以 JSON 陣列（`[{"index": i, "text": ...}]`）放進 user message，譯文從 structured
+    output 的 JSON 讀回，兩端都不做 entity 編碼／解碼：原文的 `<`、`>`、`&` 與字面的
+    `&lt;`、`&amp;` 都逐字送出，模型逐字保留的內容也逐字存回（不會把字面 entity 解碼掉）。
 
     任何非 `end_turn` 的 stop_reason（含 max_tokens、refusal）、缺少 text block、
     回應不符 schema、index 缺漏／重複／超出範圍，一律 raise RuntimeError。
@@ -357,10 +348,9 @@ def _translate_batch(texts: list[str]) -> list[str]:
         return []
 
     client = Anthropic()
-    prompt_parts = []
-    for i, t in enumerate(texts):
-        prompt_parts.append(f'<item index="{i}">{_xml_escape(t)}</item>')
-    items_xml = "\n".join(prompt_parts)
+    items_json = json.dumps(
+        [{"index": i, "text": t} for i, t in enumerate(texts)], ensure_ascii=False, indent=1
+    )
 
     # 翻譯不需深度推理：Sonnet 5 預設開 adaptive thinking，以 effort=low 壓低 thinking 花費；
     # thinking 會計入 max_tokens，故上限留足。
@@ -375,12 +365,12 @@ def _translate_batch(texts: list[str]) -> list[str]:
             {
                 "role": "user",
                 "content": (
-                    "Translate each <item> from Traditional Chinese to English, "
-                    "returning one entry per input index. "
+                    'Translate the "text" of each entry in the JSON array below from '
+                    "Traditional Chinese to English, returning one entry per input index. "
                     "Preserve technical identifiers (file paths, CLI flags, class names, "
                     "variable names, PR numbers, issue numbers, branch names) verbatim. "
                     "Keep the translation concise — same register as a developer handover note."
-                    f"\n\n{items_xml}"
+                    f"\n\n{items_json}"
                 ),
             }
         ],
@@ -405,7 +395,7 @@ def _translate_batch(texts: list[str]) -> list[str]:
             raise RuntimeError(f"API 回應的索引超出範圍：{item.index}（共 {len(texts)} 個項目）")
         if item.index in translated:
             raise RuntimeError(f"API 回應含重複索引：{item.index}")
-        translated[item.index] = _xml_unescape(item.text).strip()
+        translated[item.index] = item.text.strip()
 
     missing = [i for i in range(len(texts)) if i not in translated]
     if missing:

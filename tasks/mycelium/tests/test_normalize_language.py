@@ -257,22 +257,33 @@ class TestTranslateBatch:
         item_schema = fmt["schema"]["properties"]["items"]["items"]
         assert sorted(item_schema["required"]) == ["index", "text"]
 
-    def test_nlang_st_024_special_chars_round_trip_unescaped(self) -> None:
-        """NLANG-ST-024：原文含 < > & 時，存回的譯文不含 XML entity。"""
-        source = "修正 List<str> 與 a && b 2>/dev/null"
-        module = MagicMock()
+    def test_nlang_st_024_special_chars_and_literal_entities_round_trip(self) -> None:
+        """NLANG-ST-024：原文含 < > & 與字面 entity（&lt;div&gt;、&amp;）時，逐字送出並逐字存回。
 
-        def _echo(**kwargs: object) -> MagicMock:
-            # 模擬逐字保留識別符的模型：把 prompt 中 <item> 內容原樣回傳
-            content = kwargs["messages"][0]["content"]  # type: ignore[index]
-            start = content.index('<item index="0">') + len('<item index="0">')
-            end = content.index("</item>", start)
-            payload = {"items": [{"index": 0, "text": content[start:end]}]}
-            return MagicMock(stop_reason="end_turn", content=[_block("text", json.dumps(payload))])
-
-        module.Anthropic.return_value.messages.create.side_effect = _echo
+        模型把原文逐字回傳時，存回的譯文必須與原文完全相同：字面的 `&lt;div&gt;`
+        不可被解碼成 `<div>`，原始的 `<`、`>`、`&` 也不可被編碼成 entity。
+        """
+        sources = [
+            "修正 List<str> 與 a && b 2>/dev/null",
+            "修正字串 &lt;div&gt; 的顯示，並保留 &amp; 原樣",
+        ]
+        payload = {"items": [{"index": i, "text": t} for i, t in enumerate(sources)]}
+        response = MagicMock(
+            stop_reason="end_turn",
+            content=[_block("text", json.dumps(payload, ensure_ascii=False))],
+        )
+        module = _fake_anthropic_module(response)
         with patch.dict("sys.modules", {"anthropic": module}):
-            assert _translate_batch([source]) == [source]
+            assert _translate_batch(sources) == sources
+
+        content = module.Anthropic.return_value.messages.create.call_args.kwargs["messages"][0][
+            "content"
+        ]
+        # 請求內容必須帶原文本身（JSON 字串內不轉義 < > &），而非 entity 化的版本
+        for source in sources:
+            assert json.dumps(source, ensure_ascii=False) in content
+        assert "&lt;str&gt;" not in content
+        assert "&amp;&amp;" not in content
 
     def test_nlang_eg_025_duplicate_index_raises(self) -> None:
         """NLANG-EG-025：重複 index 時 fail loud，不靜默以後者覆蓋前者。"""
@@ -287,6 +298,16 @@ class TestTranslateBatch:
     def test_nlang_eg_026_out_of_range_index_raises(self) -> None:
         """NLANG-EG-026：超出範圍的 index 時 fail loud。"""
         payload = {"items": [{"index": 0, "text": "A"}, {"index": 5, "text": "B"}]}
+        response = MagicMock(stop_reason="end_turn", content=[_block("text", json.dumps(payload))])
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="超出範圍"),
+        ):
+            _translate_batch(["第一"])
+
+    def test_nlang_eg_027_index_equal_to_len_raises(self) -> None:
+        """NLANG-EG-027：index == len(texts)（上界外第一個值）時 fail loud。"""
+        payload = {"items": [{"index": 0, "text": "A"}, {"index": 1, "text": "B"}]}
         response = MagicMock(stop_reason="end_turn", content=[_block("text", json.dumps(payload))])
         with (
             patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
