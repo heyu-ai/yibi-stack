@@ -30,8 +30,12 @@ jobs:
             pyproject.toml
             uv.lock
 
+      # --locked：uv.lock 與 pyproject.toml 不一致時直接失敗。不加的話 uv 會在 runner 內
+      # 靜默重新解析並改寫 uv.lock，測試照樣全綠，commit 的 lock 過期也不會被發現
+      # （yibi-tts-service PR #21 實測）。手改 uv.lock 版本行的 bump 流程仍可通過，
+      # 只 bump pyproject.toml 不改 lock 則會被擋下（uv 0.8.18 實測）。
       - name: Install Python dependencies
-        run: uv sync --all-groups
+        run: uv sync --locked --all-groups
 
       - name: Cache pre-commit environments
         uses: actions/cache@v6
