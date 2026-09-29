@@ -131,7 +131,7 @@ class TestPreflightSourceContract:
     def test_pfs_dt_003_does_not_clear_caller_git_env(self) -> None:
         """PFS-DT-003: 本 script 不得清除呼叫端的 GIT_DIR / GIT_WORK_TREE
 
-        rule 11 的 `env -u GIT_DIR ...` 慣例只適用於「這個 script 自己住在哪個 repo」
+        rule 17 的 `env -u GIT_DIR ...` 慣例只適用於「這個 script 自己住在哪個 repo」
         那一族（resolve-skill-repo）。本 script 問的是「呼叫端正在哪個 repo 工作」，
         清掉會回答錯的 repo——方向相反，不可照抄。
         """

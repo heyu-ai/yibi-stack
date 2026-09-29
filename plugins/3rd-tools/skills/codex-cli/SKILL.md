@@ -530,8 +530,8 @@ original                        # 還原成功
 
 這條與 `.claude/rules/15-irreversible-operations.md` 的 recovery 段落一致：
 
-> **Recovery: use `git checkout HEAD -- <path>`, not `git checkout -- <path>`.** The bare form
-> reads the **index**, not HEAD
+> Recovery: `git checkout HEAD -- <path>` (not bare `checkout --`, which reads the index and
+> fails when a concurrent session staged the deletion).
 
 同一份 recovery 表也記載了本節第二列的例外：staged add（HEAD 中不存在的新檔）用
 `checkout HEAD --` 會失敗，只能從 index 移除後刪檔。

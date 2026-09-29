@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 import sys
 import time
 
@@ -69,9 +71,25 @@ SYSTEM_PROMPT = """你是一個記帳分類助手。根據信用卡交易描述�
 - 稅：稅款
 - 公司款項：公司相關報銷
 - 一般代刷：幫別人代刷
-- 其他支出：以上都不符合時使用
+- 其他支出：以上都不符合時使用"""
 
-只回傳科目名稱，不加任何解釋或標點。"""
+# structured output 的合法科目 = 上方 prompt 有說明的科目（不含 EXPENSE_ACCOUNTS 的別名）。
+PROMPT_CATEGORIES = re.findall(r"^- (\S+?)：", SYSTEM_PROMPT, re.MULTILINE)
+
+# 不變式：prompt 每一行條列都必須被 regex 抓到（全形冒號），且都對得到 EXPENSE_ACCOUNTS；
+# 否則 enum 會靜默少掉科目，或分類出無法寫入的科目名稱。
+_PROMPT_BULLETS = re.findall(r"^- ", SYSTEM_PROMPT, re.MULTILINE)
+if not PROMPT_CATEGORIES or len(PROMPT_CATEGORIES) != len(_PROMPT_BULLETS):
+    raise RuntimeError(
+        f"PROMPT_CATEGORIES 解析不完整：抓到 {len(PROMPT_CATEGORIES)} 個科目，"
+        f"但 SYSTEM_PROMPT 有 {len(_PROMPT_BULLETS)} 行條列（條列須為「- 科目：說明」）"
+    )
+_DUPLICATE_CATEGORIES = sorted({c for c in PROMPT_CATEGORIES if PROMPT_CATEGORIES.count(c) > 1})
+if _DUPLICATE_CATEGORIES:
+    raise RuntimeError(f"SYSTEM_PROMPT 重複列出科目：{_DUPLICATE_CATEGORIES}")
+_UNKNOWN_CATEGORIES = [c for c in PROMPT_CATEGORIES if c not in EXPENSE_ACCOUNTS]
+if _UNKNOWN_CATEGORIES:
+    raise RuntimeError(f"SYSTEM_PROMPT 列出 EXPENSE_ACCOUNTS 沒有的科目：{_UNKNOWN_CATEGORIES}")
 
 # ── 讀取待分類交易 ───────────────────────────────────────────────────────────
 
@@ -107,19 +125,56 @@ def classify_batch(client: anthropic.Anthropic, txns: list[dict]) -> dict[str, s
     lines = "\n".join(
         f"{i + 1}. [{t['date']}] {t['desc']} (${t['amount']:.0f})" for i, t in enumerate(txns)
     )
+    # structured output：以編號對應交易、以 enum 限定科目，避免逐行解析錯位。
+    schema = {
+        "type": "object",
+        "properties": {
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "no": {"type": "integer"},
+                        "category": {"type": "string", "enum": PROMPT_CATEGORIES},
+                    },
+                    "required": ["no", "category"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["results"],
+        "additionalProperties": False,
+    }
     resp = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
+        max_tokens=4096,
         system=SYSTEM_PROMPT,
+        output_config={"format": {"type": "json_schema", "schema": schema}},
         messages=[
             {
                 "role": "user",
-                "content": f"請分類以下交易，每行只輸出科目名稱（共 {len(txns)} 行）：\n\n{lines}",
+                "content": f"請為以下 {len(txns)} 筆交易各選一個科目（no 對應行首編號）：\n\n{lines}",
             }
         ],
     )
-    cats = [line.strip() for line in resp.content[0].text.strip().split("\n") if line.strip()]
-    return {txns[i]["id"]: cats[i] if i < len(cats) else "其他支出" for i in range(len(txns))}
+    body = next((b.text for b in resp.content if b.type == "text"), None)
+    if resp.stop_reason != "end_turn" or body is None:
+        raise RuntimeError(f"分類回應異常（stop_reason={resp.stop_reason}）")
+    try:
+        results = [(r["no"], r["category"]) for r in json.loads(body)["results"]]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise RuntimeError(f"分類回應格式不符 schema：{body[:200]!r}") from e
+    by_no: dict[int, str] = {}
+    for no, category in results:
+        if not 1 <= no <= len(txns):
+            raise RuntimeError(f"分類結果編號超出範圍：{no}（共 {len(txns)} 筆）")
+        if no in by_no:
+            raise RuntimeError(f"分類結果含重複編號：{no}")
+        by_no[no] = category
+    missing = [i + 1 for i in range(len(txns)) if i + 1 not in by_no]
+    if missing:
+        raise RuntimeError(f"分類結果缺少編號：{missing}")
+    return {txns[i]["id"]: by_no[i + 1] for i in range(len(txns))}
 
 
 # ── 批次更新 to_account_id（直接 SQL） ─────────────────────────────────────

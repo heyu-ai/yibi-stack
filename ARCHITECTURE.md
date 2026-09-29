@@ -34,12 +34,12 @@ yibi-stack/
 │   ├── harness/                     → Harness 工程品質（harness-eval 評量 + AP1/AP2 lint + protect-push hook + fleet-usage-guard）
 │   ├── growth/                      → 成長工具（mycelium、scheduler skills）
 │   ├── dev-cycle/                   → PR 流程工具（review cycle、mob review）
-│   ├── sdd/                         → Subagent Driven Development 方法論
+│   ├── sdd/                         → Spec-Driven Development 方法論（Spectra amplifier、OpenSpec 模板、QA/Gherkin subagents）
 │   ├── 3rd-tools/                   → 第三方工具整合（Gemini、Codex）
 │   └── methodology/                 → 可攜方法論（event-storming、problem-frames、qa-test-design）
 │
 ├── commands/                        → Claude Code slash commands（symlink 到 ~/.claude/commands/）
-│   ├── pr.md                        → /pr
+│   ├── pr-retro.md                  → /pr-retro
 │   ├── debug-to-pr.md               → /debug-to-pr
 │   └── ...
 │
@@ -58,7 +58,6 @@ yibi-stack/
     │   └── 16-allowlist-hygiene.md  → Allow-list 衛生準則
     ├── agents/                      → Subagent 定義
     │   ├── bash-to-script.md        → AP1 修法：抽 bash 邏輯到 scripts/
-    │   ├── explorer.md              → 唯讀探索（Read/Grep/Glob only）
     │   ├── handover-context.md      → 交班摘要產生
     │   └── security-scanner.md      → Secret 掃描
     └── hooks/                       → PreToolUse / PostToolUse hooks（共 ~10 個）
@@ -87,7 +86,7 @@ yibi-stack/
 
 | 任務 | 指令 |
 |------|------|
-| 執行所有 CI 檢查 | `make check` |
+| 執行 CI 等效檢查（push 前） | `make ci` |
 | 跑 harness 評分 | `uv run python -m tasks.harness_eval scan --path .` |
 | 跑 bash lint | `uv run python scripts/lint_skill_bash.py --fail` |
 | 安裝 global skills | `make install` |

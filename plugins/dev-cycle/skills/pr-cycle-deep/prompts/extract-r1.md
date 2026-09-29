@@ -53,9 +53,9 @@ severity 以 [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) 強度關鍵字�
 
 | 原始輸出標記 | 輸出 severity |
 |-------------|---------------|
-| `[P1]`、`[ERROR]`、`[BUG]`、`Critical`、`bug`、安全漏洞、data loss | `critical` |
-| `[P2]`、`[WARNING]`、`Important`、race condition、silent failure、測試覆蓋缺口 | `important` |
-| `[P3]`、`[NIT]`、`[Minor]`、`Actionable NIT`、具體命名修正、typo、import 順序、comment 拼字 | `actionable_nit` |
+| `[P0]`、`[ERROR]`、`[BUG]`、`Critical`、`bug`、安全漏洞、data loss | `critical` |
+| `[P1]`、`[WARNING]`、`Important`、race condition、silent failure、測試覆蓋缺口 | `important` |
+| `[P2]`、`[P3]`、`[NIT]`、`[Minor]`、`Actionable NIT`、具體命名修正、typo、import 順序、comment 拼字 | `actionable_nit` |
 
 **丟棄規則（不放入 findings）**：
 

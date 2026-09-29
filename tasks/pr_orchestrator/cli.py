@@ -318,7 +318,8 @@ def _next_command_hint(state: OrchestratorState) -> str:
         PRState.DETECTED: f"transition --pr {pr} --to REVIEWING",
         PRState.REVIEWING: (
             f"write-manifest --pr {pr}  "
-            "(然後 dispatch subagents，完成後 transition --to REVIEW_DONE)"
+            "(然後 dispatch subagents；code-review 無 finding 才 transition --to REVIEW_DONE，"
+            "否則 transition --to BLOCKED)"
         ),
         PRState.REVIEW_DONE: f"transition --pr {pr} --to CI_WAIT",
         PRState.CI_WAIT: f"(等待 CI) → 失敗時 transition --pr {pr} --to AUTO_FIX",

@@ -9,10 +9,10 @@ description: >
   「我要換到另一台電腦繼續」、「切到 Gemini/Codex 繼續」、「context 快滿了」。
   讀取情境：用戶說「handover back」、「讀取上次進度」、「我回來了」、「上次做到哪」、
   「show handover」、「resume from handover」、「帶我回到上次的工作」。
-  是 `agents` skill 的子 skill。
+  是 `mycelium` skill 的子 skill。
 ---
 
-# agents handover：跨對話工作交班系統
+# mycelium handover：跨對話工作交班系統
 
 ## 設計哲學
 
@@ -81,7 +81,7 @@ case "$_gcd" in
 esac
 unset _gcd
 if ! command -v mycelium >/dev/null 2>&1; then
-  echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2
+  echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2
   exit 1
 fi
 ls ~/.agents/handover/handover.db

@@ -122,7 +122,7 @@ git -C /path/to/repo log --oneline -5
 git -C /path/to/repo rev-parse --short HEAD
 ```
 
-### AP3 Sub-class C: Path Resolution Hiding (built-in prompt removed in 2.1.207 — no mechanical guard left)
+### AP3 Sub-class C: Path Resolution Hiding (no mechanical guard)
 
 **Trigger**: `cd <path> && <command> ... 2>/dev/null` — cd makes relative path resolution
 depend on CWD; `2>/dev/null` swallows errors, causing path issues to fail silently.
@@ -140,13 +140,11 @@ find /path/to/project -name "*.py"
 # Glob: /path/to/project/**/*.py
 ```
 
-> **Update (Claude Code 2.1.207)**: the built-in confirmation that used to fire on this pattern
-> was removed — the changelog reads "Fixed compound commands with `cd` prompting for permission
-> when the only output redirect was to `/dev/null`". AP3-C therefore has **no mechanical guard
-> left**: the F1 class no longer prompts, and this repo's own hooks (`bash-ap1-inline-check.sh`,
-> `bash-ap2-check.py`) target AP1/AP2 forms, not this one. Agent discipline — absolute path or
-> the Read/Grep tool — is now the **sole** defence, which is why this sub-class stays
-> highest-priority. (Verified against the official changelog, 2026-07-19.)
+> No hook or built-in prompt catches this pattern: `bash-ap1-inline-check.sh` and
+> `bash-ap2-check.py` target AP1/AP2 forms, and Claude Code does not prompt for `cd` compounds
+> whose only redirect is to `/dev/null`. Using an absolute path or the Read/Grep tool is the only
+> defence, which is why this sub-class stays highest-priority. (Checked against the Claude Code
+> changelog, 2026-07-19.)
 
 ### AP3 Summary
 
@@ -154,7 +152,7 @@ find /path/to/project -name "*.py"
 |-----------|------|-------|-----|
 | A: CWD pollution | None (silent) | 4/17/18 | `--directory` flag or subshell |
 | B: cd-before-git | Class C (partial) | 7/9/12 | `git -C <path>` |
-| C: path resolution hiding | None since 2.1.207 (was Class F1) | 10/11/15 | Absolute path / Read/Grep tool |
+| C: path resolution hiding | None | 10/11/15 | Absolute path / Read/Grep tool |
 
 ## Prefer Claude Built-in Tools for Code Search
 
@@ -282,7 +280,7 @@ ASCRIPT
 osascript scripts/check_windows.applescript
 ```
 
-`$(cat <<'EOF')` for commit message plain text is exempt; osascript/DSL heredoc is **not**.
+Commit messages get no exemption: write a multi-line message with the Write tool and run `git commit -F <file>` (see CLAUDE.md "Commit Message Convention"). osascript/DSL heredocs are violations too.
 
 ### `cd /abs/path && cmd` (Stateful cd)
 
@@ -486,8 +484,6 @@ agent self-check checklist, technical background, optional PreToolUse hook).
 ---
 
 ## Shell Quoting Hygiene
-
-> **Note**: This section was originally rule 14 and was merged into rule 13 in PR-B to reduce always-loaded token count.
 
 Six quoting error categories from Cases 3/8/16/17/24/25/26; hook classes E (`simple_expansion`), D (parser failure), or E-false-positive.
 

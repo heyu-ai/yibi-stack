@@ -8,7 +8,7 @@
 #
 # 為什麼抽成 script：
 #   1. SKILL.md 的 bash code block 容易被 agent 重寫成 fat command（rule 13 AP1）
-#   2. 多個 "$VAR" 展開混在 compound script 觸發 rule 14 Quoting Rule 5
+#   2. 多個 "$VAR" 展開混在 compound script 觸發 rule 13 Quoting Rule 5
 #   3. 原本 fat command 觸發多個確認框（`$?`、多 `"$VAR"`、寫入 .git/info/exclude）；
 #      獨立 script 只需 allow-list 一次（rule 16 安全 pattern：完整絕對路徑）
 #
@@ -122,7 +122,7 @@ if ! mkdir -p "$EXCLUDE_DIR"; then
 fi
 
 # 把 .pr-review/ 加進 git exclude（不污染 committed .gitignore）。
-# 用 if-then 而非 ||：避免 rule 14 Quoting Rule 5 與 `||` 條件分支觸發 AP1 計分。
+# 用 if-then 而非 ||：避免 rule 13 Quoting Rule 5 與 `||` 條件分支觸發 AP1 計分。
 # grep 退出碼 1（not found）與 2（read error）都走 then-branch；read error 情境下
 # 後續 echo >> 會因 set -e 失敗並停止——可接受（exotic case，不值得額外 case 分支）。
 if ! grep -qF '.pr-review/' "$EXCLUDE_FILE" 2>/dev/null; then

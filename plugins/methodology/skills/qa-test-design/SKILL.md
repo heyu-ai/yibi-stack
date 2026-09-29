@@ -57,9 +57,9 @@ AI-generated case review workflow, and test case output standard.
 
 ## TC-ID Convention
 
-Format: `[Feature-Abbrev]-[Technique-Abbrev]-[Seq]`, e.g. `LOGIN-BVA-001`
-
-Technique abbreviations: EP / BVA / DT / ST / PW / RB
+TC-ID format is owned by the host's `.claude/rules/09-test-conventions.md`, or by default the
+sdd plugin's `test-convention.md` (`[FEATURE]-[CATEGORY]-[NUMBER]`, e.g. `LOGIN-VL-001`).
+Techniques (EP / BVA / DT / ST / PW / RB) go in the `Technique` column, never in the ID.
 
 > **Note**: `ST` here means State Transition (ISTQB standard). In spectra-amplifier,
-> smoke tests use `SMK-NNN` (not `ST-NNN`) to avoid this collision.
+> smoke tests use `<FEATURE>-SMK-NNN` (e.g. `LOGIN-SMK-001`, not `ST-NNN`) to avoid this collision.

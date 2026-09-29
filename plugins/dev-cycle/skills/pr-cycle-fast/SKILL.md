@@ -219,7 +219,7 @@ pr-orchestrator write-manifest --pr {{pr_number}} --repo-root "$REPO_ROOT"
 
 > **重要**：所有三個 subagent 必須在同一個 message 中 dispatch（一個 Task tool call 一個），不得拆成多個 turn。
 
-1. **code-review subagent**（`pr-review-toolkit:code-reviewer`）：review PR #{pr_number}，結果寫到 `$REVIEW_DIR`；3.0b 有 `[WEAK-RED]` 時把那幾行附進 prompt（從 REVIEWING resume 時從 red-first PR comment 取回）
+1. **code-review subagent**（`pr-review-toolkit:code-reviewer`）：review PR #{{pr_number}}，findings 直接回傳給 lead；3.0b 有 `[WEAK-RED]` 時把那幾行附進 prompt（從 REVIEWING resume 時從 red-first PR comment 取回）
 2. **ci-monitor subagent**（`general-purpose`）：`gh pr checks {{pr_number}} --watch`，完成後回傳 CI_PASS 或 CI_FAIL
 3. **conflict-detector subagent**（`general-purpose`）：`gh pr view {{pr_number}} --json mergeable,mergeStateStatus`，回傳 OK 或 CONFLICT
 
@@ -232,11 +232,23 @@ pr-orchestrator write-manifest --pr {{pr_number}} --repo-root "$REPO_ROOT"
 等待所有三個 subagent 完成後：
 
 - 若有 CONFLICT → transition `CONFLICT` → `BLOCKED`（等人工解）
-- 若 code-review 完成 → transition `REVIEWING` → `REVIEW_DONE`
-- 再 transition → `CI_WAIT`（Step 4）
+- `pr-review-toolkit:code-reviewer` 只回報 Critical／Important 等級，因此它回傳的**任何** finding 都擋下；
+  改用 `/code-review` fallback 時，它回報的任何 correctness finding 同樣擋下。
+- 若 code-review 回傳任何 finding → 逐條列給 user（檔案:行號 + 問題摘要），
+  transition `REVIEWING` → `BLOCKED`，停下等 user 修正；**不得**進入 `REVIEW_DONE`：
+
+  ```bash
+  pr-orchestrator transition --pr {{pr_number}} --to BLOCKED --reason "code-review findings" --repo-root "$REPO_ROOT"
+  ```
+
+  修正後依 BLOCKED 的下一步 transition 回 `DETECTED` 重跑 review。本 skill **沒有**「接受 finding 不修」
+  的出口，也無法記錄這種決定：user 若檢視後決定接受某個 finding 不修，須自行手動 merge，不經本 skill。
+
+- 只有 code-review 沒有任何 finding 時 → transition `REVIEWING` → `REVIEW_DONE`，
+  再 transition → `CI_WAIT`（Step 4）：
 
 ```bash
-pr-orchestrator transition --pr {{pr_number}} --to REVIEW_DONE --reason "all reviewers done" --repo-root "$REPO_ROOT"
+pr-orchestrator transition --pr {{pr_number}} --to REVIEW_DONE --reason "all reviewers done; no findings" --repo-root "$REPO_ROOT"
 pr-orchestrator transition --pr {{pr_number}} --to CI_WAIT --reason "entering CI wait" --repo-root "$REPO_ROOT"
 ```
 
@@ -287,10 +299,11 @@ gh pr view {{pr_number}} --json comments -q '[.comments[].body | select(startswi
 卻讀不到這則 comment → 視為「3.0b 沒有記錄」，告訴 user，不要當成沒有要確認的項目。
 comment 第一行的 SHA 與目前 HEAD 不同（例如 auto-fix 之後又 push 了），就在第二行註明它是對哪個 SHA 跑的。
 
-顯示給 user（有 `[EXEMPT]` 或 `[WARN] red-first:` 行、或上述任一例外時，第二行必填；否則省略）：
+顯示給 user（有 `[EXEMPT]` 或 `[WARN] red-first:` 行、或上述任一例外時，第二行必填；否則省略）。
+code-review 有任何 finding 時 Step 3 已轉 BLOCKED，不會走到這裡，所以第一行固定寫「無 finding」：
 
 ```text
-PR #{{pr_number}} 已通過 code review 與 CI。
+PR #{{pr_number}} CI 已通過；code review：無 finding。
 red-first 待你確認：<[EXEMPT] / [WARN] red-first: 原文>
 準備 merge：gh pr merge {{pr_number}} --squash --delete-branch
 請確認後手動執行，或輸入 "ship" 確認由 skill 代為執行。
@@ -377,8 +390,8 @@ FAILED（terminal）
 
 | 問題 | 修復方式 |
 |------|---------|
-| `[FAIL] 缺少 pr-orchestrator`（exit 1） | 執行 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"` |
-| `[FAIL] 已安裝的 pr-orchestrator 缺少 --repo-root`（exit 2） | 版本過舊。執行 `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"`；帶 `--force` 是因為它在「已安裝」與「未安裝」兩種狀態下都成立，不需要先判斷目前狀態 |
+| `[FAIL] 缺少 pr-orchestrator`（exit 1） | 執行 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"` |
+| `[FAIL] 已安裝的 pr-orchestrator 缺少 --repo-root`（exit 2） | 版本過舊。執行 `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"`；帶 `--force` 是因為它在「已安裝」與「未安裝」兩種狀態下都成立，不需要先判斷目前狀態 |
 | `[FAIL] pr-orchestrator <sub> --help 無法執行`（exit 2） | 安裝損毀，非版本問題。同樣以 `--force` 重裝；若仍失敗，先 `uv tool uninstall yibi-stack` 再安裝 |
 | `[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh` | 執行 `claude plugin install dev-cycle@yibi-stack`，或在 yibi-stack checkout 執行 `make install` |
 | `分支沒有對應的 open PR` | 先 `gh pr create` 建立 PR |

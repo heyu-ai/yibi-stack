@@ -47,17 +47,11 @@ the four prefixes into "avoid everything under `.claude/`".
 
 ## Language convention
 
-This repository writes code identifiers in English and everything a human reads in Traditional
-Chinese (Taiwan). Match it:
-
-| Surface | Language |
-|---|---|
-| Variable / function / class / module names, CLI flags, JSON keys | English |
-| Docstrings, code comments, error messages, CLI output strings | 繁體中文（台灣用語） |
-| Commit-message-style prose, if the brief asks for any | 繁體中文（台灣用語） |
-
-Never mix languages inside one document. Use full-width punctuation（，、。：「」）in Chinese
-prose, not half-width.
+Follow the target repository's language policy (its `.claude/rules/` language file or CLAUDE.md,
+listed under `## Rules you must read`). If none is given: code identifiers in English; docstrings,
+comments, error messages and CLI output in Traditional Chinese (Taiwan). Within a single prose
+passage use one language; English identifiers inside Chinese prose are expected. Use full-width
+punctuation（，、。：「」）in Chinese prose.
 
 ## Shell code you write into files
 

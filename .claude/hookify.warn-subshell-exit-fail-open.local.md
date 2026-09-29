@@ -59,4 +59,4 @@ fi
 
 **Source**: PR #234。三個 review voice（Claude / codex / agy）都沒抓到，是突變測試抓到的：
 深度上限「保險」自己就是 fail-open，實測印出了 `[FAIL]` 卻仍 `exit 0`，
-還連帶讓一條測試變成假測試（兩個 bug 互相抵銷）。詳見 `.claude/rules/11-skill-authoring.md`。
+還連帶讓一條測試變成假測試（兩個 bug 互相抵銷）。詳見 `.claude/rules/17-shell-script-authoring.md`。

@@ -346,14 +346,6 @@ effort; add `--comment` to post findings as GitHub PR inline comments):
 - **No findings** → proceed to Step 3.
 - **Has findings** → bring into Step 6 (Fix) with the mob results. `/code-review` **does not modify code**; findings are review comments, no separate commit needed.
 
-> **Fallback (Claude Code < 2.1.146)**: if `/code-review` reports `Unknown skill: code-review`,
-> use `pr-review-toolkit:code-reviewer` agent instead (same behavior — report only, no code changes):
->
-> ```text
-> Agent(subagent_type=pr-review-toolkit:code-reviewer,
->       prompt="Code review all diffs in this PR; report bugs / convention violations / logic errors")
-> ```
-
 #### Auto-apply cleanups (optional)
 
 The default stays report-only — run this sub-step only when the user explicitly asks for
@@ -538,13 +530,13 @@ Launch four Task subagents in parallel (each produces independent findings; the 
 
 > **Mutation isolation**: `pr-test-analyzer` verifies tests by mutation, which **edits files in
 > the shared worktree in place**, while the other three subagents are reading those same files.
-> `.claude/rules/11-skill-authoring.md` states it directly: "Do not run mutation tests on a shared
+> `.claude/rules/17-shell-script-authoring.md` states it directly: "Do not run mutation tests on a shared
 > worktree file while a review agent is reading it. … Sequence them: finish the review round,
 > collect every report, *then* mutate." So instruct `pr-test-analyzer` to either **hold its
 > mutations until the other three have returned**, or run them on a copy outside the worktree.
 > Whichever it does, require it to restore each mutated file and report `git status --porcelain`
 > in its final output — dispatching all four at once without this note makes the skill's own
-> Step 3.2 contradict rule 11.
+> Step 3.2 contradict rule 17.
 
 After all four complete, the lead uses the Write tool to merge them into `$REVIEW_DIR/claude-r1.md` (following the output format above).
 
@@ -967,8 +959,8 @@ Fix the blocking findings in $REVIEW_DIR/final.md in order: Consensus Critical, 
 Important, then the Disputed items ruled "fix" in $REVIEW_DIR/state.md `disputed:`; Actionable NIT
 only if trivial. The frozen Review Contract is in $REVIEW_DIR/prompt-r1.md — do not expand scope.
 Run <ci_command> and fix until it passes. Commit each batch with a message describing what was
-fixed (never "fix review comments"), then git push. Do not touch .pr-review/. Reply in <=15 lines:
-commit SHAs, each finding FIXED / NOT FIXED + reason, the CI exit code.
+fixed (never "fix review comments"), then git push. Do not touch .pr-review/. Reply with only:
+commit SHAs, each finding FIXED / NOT FIXED + one-line reason, the CI exit code.
 ```
 
 Task call errors or returns empty → `[FAIL]` stop. Then **verify, do not trust the summary** —

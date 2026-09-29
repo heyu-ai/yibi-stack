@@ -35,10 +35,7 @@ triggers:
 
 Five phases: investigate, analyze, hypothesize, implement, verify. Iron Law: no
 fixes without root cause. Use when asked to "debug this", "fix this bug", "why is
-this broken", "investigate this error", or "root cause analysis". Invoke this
-skill (do NOT debug directly) when the user reports errors, 500s, stack traces,
-unexpected behavior, "it was working yesterday", or is troubleshooting why
-something stopped working.
+this broken", "investigate this error", or "root cause analysis".
 
 Investigation is the front of a flow: once the fix is confirmed and verified,
 hand off to the PR lifecycle (`/pr-cycle-fast` for small changes,
@@ -53,7 +50,7 @@ is not a licence to guess.
 
 ## Iron Law
 
-**NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST.**
+**Find the root cause before changing code.**
 
 Fixing symptoms creates whack-a-mole debugging. Every fix that does not address
 the root cause makes the next bug harder to find. Find the root cause, then fix it.
@@ -166,7 +163,7 @@ skip and proceed to hypothesis testing.
 
 ## Phase 3: Hypothesis Testing
 
-Before writing ANY fix, verify your hypothesis.
+Before writing a fix, verify your hypothesis.
 
 1. **Confirm the hypothesis:** Add a temporary log statement, assertion, or debug
    output at the suspected root cause. Run the reproduction. Does the evidence
@@ -231,7 +228,7 @@ Once root cause is confirmed:
 ## Phase 5: Verification & Report
 
 **Fresh verification:** Reproduce the original bug scenario and confirm it is
-fixed. This is not optional. Run the test suite and paste the output.
+fixed. Run the test suite and paste the output.
 
 Report evidence concretely: name the files, functions, line numbers, commands,
 and actual output. "auth.ts:47 returned undefined when the session cookie
@@ -278,16 +275,7 @@ surfaces there — the loop that makes the store compound over time.
 
 ## Important Rules
 
-- **3 failed hypotheses (not fix attempts) → STOP and question the architecture.**
-  Under the Iron Law you should not have applied a fix yet; it is failed
-  *diagnostic approaches* that trigger the stop. Wrong architecture, not wrong
-  hypothesis.
-- **Detect loops early.** Circling the same file/diagnostic without three distinct
-  hypotheses still means STOP.
-- **Never apply a fix you cannot verify.** If you cannot reproduce and confirm,
-  do not ship it.
-- **Never say "this should fix it."** Verify and prove it. Run the tests.
-- **If a fix touches >5 files → AskUserQuestion** about blast radius first.
+- Recap: 3 failed hypotheses or a detected loop → stop and escalate; >5 files → ask about blast radius; unverifiable fix → do not ship.
 - **High-stakes ambiguity or security-sensitive uncertainty → STOP and ask/escalate.**
 - **Completion status:**
   - `DONE` — root cause found, fix applied, regression test written, all tests pass.

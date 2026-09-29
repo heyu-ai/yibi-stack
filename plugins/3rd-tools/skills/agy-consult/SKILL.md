@@ -18,12 +18,12 @@ description: Antigravity CLI（agy）第二意見：讓 Gemini 讀 repo 後回�
 > `3.8-flash-low`、`3.7-flash-low`、`3.6-flash-low`、`3.1-pro-low` 五個 model id 各發一次
 > 請求**全部成功**，未出現 `FAILED_PRECONDITION: User location is not supported`；四個模型
 > 各自回報與請求一致的名稱，排除靜默 fallback 到同一模型的可能。
-> 此前預設為 `claude-sonnet-4-6`，理由是該地區限制——**該前提已不成立**，故改回 Gemini，
+> 此前預設為一個 Claude id（見 `agy models`），理由是該地區限制——**該前提已不成立**，故改回 Gemini，
 > 讓本 skill 的預設行為與它存在的理由（跨廠商第二意見）一致。
 > 注意 3.7 / 3.8 **只有 Flash 沒有 Pro**，Pro 最新仍是 3.1；要 Pro 級推理請用
 > `gemini-3.1-pro-high`。
 >
-> **反向提醒**：`AGY_MODEL=claude-sonnet-4-6` 仍可覆寫回 Claude，但那會讓本 skill 與你既有的
+> **反向提醒**：把 `AGY_MODEL` 設成一個 Claude id（見 `agy models`）仍可覆寫回 Claude，但那會讓本 skill 與你既有的
 > Claude 意見**同一家投兩票**——在 mob review 裡是家族塌縮，不是兩個獨立聲音。要 Claude 以外的
 > 第三家請用 `/codex-consult`。
 >
@@ -153,5 +153,5 @@ Clean exit 後，呈現完整輸出，不截斷、不摘要。
 | `agy` 回傳空白或極短輸出 | `--sandbox` 底下 agy 想探索周邊檔案被自己的權限系統擋下，headless 無法跳出確認框；簡化問題避免需要額外讀檔，或評估是否需要放寬 `~/.gemini/antigravity-cli/settings.json` 的 `permissions.allow` |
 | agy 回「沒有作用中的 workspace」／「這看起來是 scratch 目錄」，或語意完整但顯然沒讀到檔案（甚至給出幻覺數字），且 exit 0 | `--add-dir` 被傳了相對路徑。**agy 1.1.22 不再把相對的 `.` 解析成 active workspace**，即使呼叫端已 cd 到該目錄。修法：傳絕對路徑（`--add-dir "$REPO_ROOT"`）。這道坑攔不到——exit code 是 0，而輸出 141 bytes（中文拒答約 47 字元）遠超腳本的 20 **字元**下限（守門用 `${#OUTPUT}` 數字元，不是 bytes）。測試 `AGYS-DT-010/011` 就是為了鎖住這個不變量 |
 | 懷疑是 `trustedWorkspaces` 沒列到這個 repo 才被拒讀 | **不是這個原因。** 實測負向對照（agy 1.1.22）：已列在 `trustedWorkspaces` 的 repo 用相對 `.` 一樣失敗，未列入的 repo 用絕對路徑一樣成功。唯一的鑑別變數是 `--add-dir` 的路徑形式，不要為此去改 trust 清單（那會無效地放寬安全邊界） |
-| Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 地區限制又出現了（2026-09-03 實測時已無此問題，見開頭區塊）。先試其他 Gemini id（`agy models` 左欄）；全部失敗才設 `AGY_MODEL=claude-sonnet-4-6` 暫時切回 Claude，並記得此時**失去跨廠商獨立性**，不可把它的意見當成第二家 |
+| Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 地區限制又出現了（2026-09-03 實測時已無此問題，見開頭區塊）。先試其他 Gemini id（`agy models` 左欄）；全部失敗才把 `AGY_MODEL` 設成 `agy models` 左欄裡的任一 Claude id 暫時切回 Claude，並記得此時失去跨廠商獨立性，不可把它的意見當成第二家 |
 | 想看 diff review 而非問答 | 改用 `/agy-review` |

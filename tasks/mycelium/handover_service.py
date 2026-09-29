@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, ValidationError
+
 from .account import (
     detect_account,
     detect_agent_type,
@@ -259,7 +261,34 @@ _JSON_ARRAY_FIELDS = (
     "attempted_approaches",
 )
 
-_ITEM_RE = re.compile(r'<item\s+index="(\d+)">(.*?)</item>', re.DOTALL)
+
+class _TranslatedItem(BaseModel):
+    index: int
+    text: str
+
+
+class _Translations(BaseModel):
+    """翻譯結果的 structured output schema。"""
+
+    items: list[_TranslatedItem]
+
+
+_TRANSLATIONS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"index": {"type": "integer"}, "text": {"type": "string"}},
+                "required": ["index", "text"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["items"],
+    "additionalProperties": False,
+}
 
 
 def _has_cjk(text: str) -> bool:
@@ -268,16 +297,6 @@ def _has_cjk(text: str) -> bool:
 
 def _record_has_cjk(row: dict[str, Any]) -> bool:
     return bool(_collect_cjk_texts(row))
-
-
-def _xml_escape(text: str) -> str:
-    """Escape XML special characters in user text before embedding in prompt."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def _xml_unescape(text: str) -> str:
-    """Reverse _xml_escape: restore &amp; &lt; &gt; to their original characters."""
-    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
 
 def audit_handover_language(*, db_path: Path | None = None) -> dict[str, Any]:
@@ -311,9 +330,14 @@ def audit_handover_language(*, db_path: Path | None = None) -> dict[str, Any]:
 
 
 def _translate_batch(texts: list[str]) -> list[str]:
-    """Translate a list of Chinese texts to English using the Anthropic API.
+    """以 Anthropic API 把一批中文段落翻成英文。
 
-    Raises RuntimeError if the API response is missing items or truncated.
+    原文以 JSON 陣列（`[{"index": i, "text": ...}]`）放進 user message，譯文從 structured
+    output 的 JSON 讀回，兩端都不做 entity 編碼／解碼：原文的 `<`、`>`、`&` 與字面的
+    `&lt;`、`&amp;` 都逐字送出，模型逐字保留的內容也逐字存回（不會把字面 entity 解碼掉）。
+
+    任何非 `end_turn` 的 stop_reason（含 max_tokens、refusal）、缺少 text block、
+    回應不符 schema、index 缺漏／重複／超出範圍，一律 raise RuntimeError。
     """
     try:
         from anthropic import Anthropic  # pylint: disable=import-error
@@ -324,40 +348,54 @@ def _translate_batch(texts: list[str]) -> list[str]:
         return []
 
     client = Anthropic()
-    prompt_parts = []
-    for i, t in enumerate(texts):
-        prompt_parts.append(f'<item index="{i}">{_xml_escape(t)}</item>')
-    items_xml = "\n".join(prompt_parts)
+    items_json = json.dumps(
+        [{"index": i, "text": t} for i, t in enumerate(texts)], ensure_ascii=False, indent=1
+    )
 
+    # 翻譯不需深度推理：Sonnet 5 預設開 adaptive thinking，以 effort=low 壓低 thinking 花費；
+    # thinking 會計入 max_tokens，故上限留足。
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=8192,
+        model="claude-sonnet-5",
+        max_tokens=16000,
+        output_config={
+            "effort": "low",
+            "format": {"type": "json_schema", "schema": _TRANSLATIONS_SCHEMA},
+        },
         messages=[
             {
                 "role": "user",
                 "content": (
-                    "Translate each <item> from Traditional Chinese to English. "
+                    'Translate the "text" of each entry in the JSON array below from '
+                    "Traditional Chinese to English, returning one entry per input index. "
                     "Preserve technical identifiers (file paths, CLI flags, class names, "
                     "variable names, PR numbers, issue numbers, branch names) verbatim. "
-                    "Keep the translation concise — same register as a developer handover note. "
-                    'Return each translation inside <item index="N">...</item> tags, '
-                    "matching the input indices exactly. "
-                    "Do not add explanations outside the tags.\n\n"
-                    f"{items_xml}"
+                    "Keep the translation concise — same register as a developer handover note."
+                    f"\n\n{items_json}"
                 ),
             }
         ],
     )
 
-    first_block = response.content[0]
-    result_text: str = first_block.text if hasattr(first_block, "text") else str(first_block)
-
-    if hasattr(response, "stop_reason") and response.stop_reason == "max_tokens":
+    if response.stop_reason == "max_tokens":
         raise RuntimeError(f"API 回應被截斷（max_tokens）：預期 {len(texts)} 個項目")
+    # 依 block type 取文字：thinking block 可能排在前面，不可假設 content[0] 是 text。
+    result_text = next((b.text for b in response.content if b.type == "text"), None)
+    # 白名單：只有 end_turn 代表完整回應；refusal、context window 超限等其他值一律視為失敗。
+    if response.stop_reason != "end_turn" or result_text is None:
+        raise RuntimeError(f"API 未回傳翻譯結果（stop_reason={response.stop_reason}）")
+
+    try:
+        parsed = _Translations.model_validate_json(result_text)
+    except ValidationError as e:
+        raise RuntimeError(f"API 回應格式不符 schema：{result_text[:200]!r}") from e
 
     translated: dict[int, str] = {}
-    for m in _ITEM_RE.finditer(result_text):
-        translated[int(m.group(1))] = _xml_unescape(m.group(2).strip())
+    for item in parsed.items:
+        if not 0 <= item.index < len(texts):
+            raise RuntimeError(f"API 回應的索引超出範圍：{item.index}（共 {len(texts)} 個項目）")
+        if item.index in translated:
+            raise RuntimeError(f"API 回應含重複索引：{item.index}")
+        translated[item.index] = item.text.strip()
 
     missing = [i for i in range(len(texts)) if i not in translated]
     if missing:

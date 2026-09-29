@@ -4,7 +4,7 @@ type: know
 scope: global
 description: >
   Multi-frontier-model mob review of someone ELSE's PR — review-only, never modifies their code.
-  自動偵測 codex / agy，≥1 家即啟動 R1 獨立 + R2 交叉 debate + aggregate，產出彙整 review 報告
+  自動偵測 codex / agy，≥1 家即啟動 R1 獨立 + conditional R2 交叉 debate + aggregate，產出彙整 review 報告
   並（經確認後）貼回 PR 作為建議留言。與 `/pr-cycle-deep` 共用同一套 mob review 引擎，差別在於：
   目標是**別人的 PR**、只給修改建議、**不**動手改 code、**不** re-review loop、**不** merge / archive。
   適用：review 同事 / 外部貢獻者的 PR、code review approval gate、跨家 LLM 壓力測試他人改動。
@@ -55,7 +55,7 @@ A PR number (or URL) is **required** — this skill always reviews an existing P
 
 ## Step 1 — Identify & fetch the target PR
 
-> **Why checkout**: codex (`codex review --base`) and agy (`--add-dir <abs path>`) need the PR's working
+> **Why checkout**: codex (`codex exec -C <worktree>`) and agy (`--add-dir <abs path>`) need the PR's working
 > tree for surrounding-code context, not just the diff. `gh pr checkout` is the standard way to
 > review a PR locally and handles fork-based PRs automatically.
 >
@@ -121,8 +121,13 @@ Report the detected mode and wait for the user to confirm before continuing.
 
 ## Step 3 — Run the mob review engine (produce the report)
 
-Execute **`/pr-cycle-deep` Steps 1.5 → 5 exactly as written**, using the **same scripts, the same
-R1/R2 prompts, the same sanity checks, and the same aggregation severity table**.
+Execute these `/pr-cycle-deep` engine steps, and only these: Step 1.5, Step 2, Step 3.0, Step 3 (R1),
+Step 3.4 (R2 activation gate), Step 4 (only if 3.4 activates it), Step 5. Skip Step 1.6 and Step 1.7 —
+both edit or push to the PR branch. Because Step 1 is skipped, paste the PR body's `## Review Contract`
+into `prompt-r1.md` if one exists; otherwise write
+`No Review Contract (third-party PR): map blocking findings to repo baseline or unaccepted risk only.`
+Use the **same scripts, the same R1/R2 prompts, the same sanity checks, and the same aggregation
+severity table**.
 
 | Engine step (owned by `/pr-cycle-deep`) | What runs |
 | --- | --- |
@@ -130,7 +135,8 @@ R1/R2 prompts, the same sanity checks, and the same aggregation severity table**
 | **Step 2** Code review | `/code-review` (report-only) for defect detection |
 | **Step 3.0** Snapshot preflight | `preflight-review-snapshot.sh check` → **blocking**; no voice is dispatched until it exits 0 |
 | **Step 3** Round 1 | `setup-review-dir.sh origin/{{base_branch}}` → each voice reviews independently → `<voice>-r1.md` |
-| **Step 4** Round 2 | Build `r1-aggregate.md` → each voice cross-debates → `<voice>-r2.md` |
+| **Step 3.4** R2 activation gate | Decide from the R1 results whether Round 2 runs at all (the gate's criteria live in `/pr-cycle-deep` Step 3.4) |
+| **Step 4** Round 2 (conditional) | **Only when Step 3.4 activates it**: build `r1-aggregate.md` → each voice cross-debates → `<voice>-r2.md` |
 | **Step 5** Aggregation | Lead synthesizes `final.md` per the RFC 2119 severity table. **Skip Step 5's Checkpoint paragraph** — no `state.md`, no `/pr-cycle-deep --resume` hint: resuming leads into Step 6, which commits and pushes to someone else's PR |
 
 The script invocations are the same installed paths (shared with `/pr-cycle-deep`):
@@ -176,20 +182,20 @@ exactly as `/pr-cycle-deep` specifies.
 > **Single-voice [Critical] → empirically verify BEFORE writing it into the report.** This matters
 > *more* here than in `/pr-cycle-deep`: a wrong Critical posted to someone else's PR is a public
 > false accusation. Construct a minimal repro and run it; confirmed → keep, refuted → drop with the
-> evidence noted, can't-test → label "unverified — needs author input" in the report. (Same rule as
-> `/pr-cycle-deep` Step 5 single-voice handling.)
+> evidence noted, can't-test → label "unverified — needs author input" in the report. (Stricter than
+> `/pr-cycle-deep` Step 5, which demotes on a zero-hit grep; here a public comment needs a repro.)
 
 **Review-only reframing — the only behavioral change to the engine:**
 
 - The `final.md` severity grades are **the author's to-do list, not yours.** Note that the engine's
   `final.md` template uses self-directed, imperative section headers (`## Consensus Critical (must
-  fix)`, `## Actionable NIT (must fix — user requires all NITs cleaned up)`) — those belong to
+  fix)`) — those belong to
   *your own* PR lifecycle and are presumptuous on a contributor's PR. **Do not post `final.md`
   verbatim**; Step 4 rewrites it into author-facing suggestion language before posting (see Step 4a).
   Internally `final.md` is still graded normally; only the *delivered* wording softens.
 - **Do NOT** run `/pr-cycle-deep` Step 6 (Fix), Step 7 (re-review loop), Step 8 (human pass to ship),
   Step 9 (CI watch), Step 10 (merge), or Step 11 (archive / Jira). The engine stops at `final.md`.
-- There is **no convergence loop**: this is a single R1 + R2 + aggregate pass. You are not waiting
+- There is **no convergence loop**: this is a single R1 (+ R2 when Step 3.4 activates it) + aggregate pass. You are not waiting
   for LGTM because you are not fixing anything.
 
 Report the `final.md` summary to the user. For any **Disputed** item, surface both sides and let the
@@ -205,7 +211,7 @@ confirmation before posting (the user may want to edit tone or drop disputed ite
 
 ### 4a — Build the author-facing comment (rewrite `final.md` headers)
 
-Do **not** post `final.md` verbatim — its `must fix` / `user requires all NITs cleaned up` headers
+Do **not** post `final.md` verbatim — its `must fix` headers
 are self-directed and presumptuous on a contributor's PR. Use the Write tool to produce
 `$REVIEW_DIR/review-comment.md` from `final.md`, keeping every finding's content and file:line
 intact but rewriting the section headers into suggestion language:
@@ -214,7 +220,7 @@ intact but rewriting the section headers into suggestion language:
 | --- | --- |
 | `## Consensus Critical (must fix)` | `## Blocking concerns (strongly recommend addressing before merge)` |
 | `## Consensus Important (must fix)` | `## Important suggestions` |
-| `## Actionable NIT (must fix — user requires all NITs cleaned up)` | `## Minor suggestions (nits)` |
+| `## Actionable NIT (deferred — never blocks; fix opportunistically)` | `## Minor suggestions (nits)` |
 | `## Disputed (user decides)` | `## Points the reviewers disagreed on (your call)` |
 | `## Voices unavailable` | `## Voices unavailable` (unchanged) |
 
@@ -306,8 +312,8 @@ switch to `/pr-cycle-deep` — that skill owns the fix → re-review → merge l
 | --- | --- | --- | --- |
 | `/pr-review-cycle` | Your own PR | Yes (then merge) | Claude pr-review-toolkit 4 subagents |
 | `/pr-cycle-fast` | Your own PR | Yes (then merge) | Claude (state machine, 1 reviewer) |
-| `/pr-cycle-deep` | Your own PR | Yes (then merge) | Claude + Codex + agy (mob, R1+R2) |
-| **`/mob-code-review-only`** (this skill) | **Someone else's PR** | **No — suggestions only** | Claude + Codex + agy (mob, R1+R2) |
+| `/pr-cycle-deep` | Your own PR | Yes (then merge) | Claude + Codex + agy (mob, R1 + conditional R2) |
+| **`/mob-code-review-only`** (this skill) | **Someone else's PR** | **No — suggestions only** | Claude + Codex + agy (mob, R1 + conditional R2) |
 | `/agy-review`, `/codex-review` | Any PR / diff | No | Single external model |
 
 This skill requires ≥1 external reviewer (Codex or agy) to start; with 0, it points you to

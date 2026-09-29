@@ -19,28 +19,27 @@ description: 本地開發 Port 分配登錄。查詢/登記/釋放各專案服�
 ```bash
 if ! command -v portman >/dev/null 2>&1; then
   echo '[FAIL] 找不到 portman 指令。請先安裝：' >&2
-  echo '       uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2
+  echo '       uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2
   exit 1
 fi
 if ! portman --version; then
   echo '[FAIL] portman 安裝損毀（--version 非零退出）。請重裝：' >&2
-  echo '       uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"' >&2
+  echo '       uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2
   exit 1
 fi
 if [ -f ~/.agents/ports.json ]; then echo "exists"; else echo "需要初始化"; fi
 ```
 
-> **為何沒有最低版本比對**：唯一支援的安裝路徑已固定到 recorded release tag `v1.11.0`。
+> **為何沒有最低版本比對**：唯一支援的安裝路徑已固定到 recorded release tag `v1.23.2`。
 > `command -v portman` 驗證 console script 存在，`portman --version` 驗證 entry point 可啟動；
 > 若行為與本文件不同，重裝同一個 recorded tag 並回報，不改追蹤未記錄版本。
 >
 > 因此 `--version` 在這裡的定位是**診斷**（人看的、貼 bug report 用的），不是閘門；閘門是
 > 上面兩道 fail-loud：指令存在、安裝未損毀。
 >
-> ADR-0004 現行文字要求「能力／**版本**檢查」，與此實作有**已知歧異**——該要求的可行性正由
-> issue #256 追蹤裁決（是否改為 capability/protocol revision 或行為 probe）。在裁決前不預先
-> 加一道恆真的比較：`portman` 只存在於 >= 1.9.0，故 `command -v portman` 成功就已蘊含版本
-> 下限，再比一次 `MIN_VERSION="1.9.0"` 守不到任何東西。
+> ADR-0004 的「能力／版本檢查」要求中「版本」那一半，ADR-0005 提議改以能力探測取代 semver 比對
+> （目前 status: proposed，尚未裁決）。`portman` 只存在於 >= 1.9.0，故 `command -v portman` 成功就已
+> 蘊含版本下限，再比一次 `MIN_VERSION` 守不到任何東西。
 
 若 ports.json 不存在：
 
@@ -119,9 +118,9 @@ REDIS_PORT := $(or $(shell portman get $(PROJECT) redis),$(error [FAIL] $(PROJEC
 
 | 問題 | 解法 |
 |------|------|
-| `找不到 portman 指令` | `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"` |
-| `portman --version` 非零退出（安裝損毀） | `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"` |
-| `portman` 行為與本文件不符（疑似版本落差） | 重裝 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"`，若仍不符則回報 |
+| `找不到 portman 指令` | `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"` |
+| `portman --version` 非零退出（安裝損毀） | `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"` |
+| `portman` 行為與本文件不符（疑似版本落差） | 重裝 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"`，若仍不符則回報 |
 | `Registry 不存在` | 執行 `portman init` 建立**空** registry（不含任何預載專案），再用 `reserve` 登記 |
 | `port 已被佔用` | 先執行 `suggest` 取得可用 port，再 `reserve` |
 | Makefile 整合 | 見下方「Makefile 整合」——**不要**直接用裸的 `$(shell ...)`，它會吞掉失敗 |

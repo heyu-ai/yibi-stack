@@ -6,7 +6,7 @@
 ## 用法
 
 - `/pr-cycle-deep` — 從當前 branch 開始（含建立 PR）
-- `/pr-cycle-deep #<PR number>` — PR 已存在，直接跳到 mob review
+- `/pr-cycle-deep #<PR number>` — PR 已存在：略過建立 PR，但仍先跑 Step 1 Review Contract gate，再進 mob review
 
 ## 執行
 

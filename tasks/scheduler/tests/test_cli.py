@@ -174,7 +174,7 @@ class TestInstallWorktreeGuard:
         """SCHED-DT-002: guard 必須早於**所有**寫入，不只早於 plist。
 
         install 在寫 plist 之前還會 init DB 與生成預設 config。guard 若擺在那之後，
-        機器層級狀態雖然乾淨，但 .runtime/ 已被動過 —— rule 11「guard 是第一個動作」
+        機器層級狀態雖然乾淨，但 .runtime/ 已被動過 —— rule 17「guard 是第一個動作」
         在 Python 這側的對應斷言。
         """
         runner.invoke(cli, ["install"])

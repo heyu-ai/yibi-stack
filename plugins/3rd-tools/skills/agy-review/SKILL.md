@@ -15,10 +15,10 @@ description: Antigravity CLI（agy）對 diff 做 code review（PASS/FAIL gate�
 > consensus 前，先讀那一行確認 reviewer 真的不是 Claude。
 >
 > 預設值的由來是 2026-09-03 的實測（agy 1.1.25，台灣）：五個 Gemini model id 全部可用，
-> 未出現 `FAILED_PRECONDITION: User location is not supported`。此前預設 `claude-sonnet-4-6`
+> 未出現 `FAILED_PRECONDITION: User location is not supported`。此前預設一個 Claude id（見 `agy models`）
 > 的地區限制前提已不成立。完整實測記錄與版本戳記見 `/agy-consult` SKILL.md 開頭同一段。
 >
-> `AGY_MODEL=claude-sonnet-4-6` 仍可覆寫回 Claude，但那時它**不是**跨廠商聲音，不可當第二家
+> 把 `AGY_MODEL` 設成一個 Claude id（見 `agy models`）仍可覆寫回 Claude，但那時它**不是**跨廠商聲音，不可當第二家
 > 計入 consensus；要 Claude 以外的第三家請用 `/codex-review`。
 全程 `--sandbox`（唯讀），不需要、也不會用 `--dangerously-skip-permissions`。
 純問技術問題、沒有 diff 要看請改用 `/agy-consult`。
@@ -134,7 +134,7 @@ bash ~/.agents/skills/agy-review/scripts/run.sh "review" "main" ""
 bash ~/.agents/skills/agy-review/scripts/run.sh "challenge" "main" "找 SQL injection"
 ```
 
-腳本自動從 `git diff origin/<BASE>...HEAD` 取得 diff，組合 prompt，以 `--sandbox` 呼叫 agy。
+腳本以本地 `origin/<BASE>` 算 `git diff origin/<BASE>...HEAD`（**不會先 fetch**）；該 ref 不存在時會**靜默改審 `HEAD~1` 單一 commit**。執行前先 `git fetch origin <BASE>`，並確認審的是整個 branch。腳本組合 prompt 後以 `--sandbox` 呼叫 agy。
 
 ---
 
@@ -170,5 +170,5 @@ challenge mode：找到問題時輸出 `[P0]`/`[P1]` 列表，找不到問題時
 | 無 API key 且 onboarding 未完成 | 在 `.env` 加入 `GEMINI_API_KEY=<your-key>` 或 `GOOGLE_API_KEY=<your-key>`（兩者均可） |
 | `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy` 完成 OAuth |
 | 輸出缺少 `[PASS]` / `[FAIL]` | 在 INSTRUCTION 加入「結尾必須輸出 [PASS] 或 [FAIL]」 |
-| diff 為空或 `origin/<base>` 不存在 | 確認已有 commit，或手動指定 base：`/agy-review base=develop` |
-| Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 地區限制又出現了（2026-09-03 實測時已無此問題，見開頭區塊）。先試其他 Gemini id（`agy models` 左欄）；全部失敗才設 `AGY_MODEL=claude-sonnet-4-6` 暫時切回 Claude，並記得此時**失去跨廠商獨立性**，不可把它的 review 當成第二家 |
+| diff 為空或 `origin/<base>` 不存在 | 腳本不會先 fetch，且 ref 不存在時會**靜默改審 `HEAD~1` 單一 commit**：先 `git fetch origin <base>`，確認已有 commit，或手動指定 base：`/agy-review base=develop` |
+| Gemini 模型回 `FAILED_PRECONDITION: User location is not supported` | 地區限制又出現了（2026-09-03 實測時已無此問題，見開頭區塊）。先試其他 Gemini id（`agy models` 左欄）；全部失敗才把 `AGY_MODEL` 設成 `agy models` 左欄裡的任一 Claude id 暫時切回 Claude，並記得此時**失去跨廠商獨立性**，不可把它的 review 當成第二家 |

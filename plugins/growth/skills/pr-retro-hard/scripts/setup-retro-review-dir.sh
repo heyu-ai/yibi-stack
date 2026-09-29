@@ -97,7 +97,7 @@ if [ "$NEEDS_APPEND" -eq 1 ]; then
     # （突變驗證實測：把預檢換成 no-op，行為測試仍全綠）。
     #
     # 訊息不指名「檔案」或「目錄」哪一個不可寫——此分支的判定條件無從區分兩者，
-    # 指名未經證實的原因會誤導讀者（rule 11：提示必須與其分支的判定條件一致）。
+    # 指名未經證實的原因會誤導讀者（rule 17：提示必須與其分支的判定條件一致）。
     if ! echo "$EXCLUDE_LINE" >> "$EXCLUDE_FILE"; then
         echo "[FAIL] 無法寫入 exclude：${EXCLUDE_FILE}（請確認該檔與其目錄的權限；未註冊 ${EXCLUDE_LINE} 會讓 review 產物持續污染 git status）" >&2
         exit 1

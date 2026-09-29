@@ -133,7 +133,7 @@ def _detect_rule2(cmd: str) -> tuple[str, str | None, int, int] | None:
 
     # Check embedded matches (manual guidance only).
     # Rule 2B: "$(cmd)" without inner double-quotes still triggers Claude Code's
-    # parser (documented in .claude/rules/14-shell-quoting-hygiene.md).
+    # parser (documented in .claude/rules/13-bash-anti-patterns.md, Shell Quoting Hygiene).
     # Exception: standalone "$(cmd)" in an assignment context (VAR="$(cmd)") with
     # no inner double-quotes is valid bash — skip to avoid false positives.
     for m in _RULE2_EMBEDDED.finditer(cmd):

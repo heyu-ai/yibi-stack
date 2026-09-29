@@ -115,7 +115,7 @@ Note the PR number as `{{pr_number}}` for later steps.
 After creating the PR, check: "Did it do what it should — not too much, not too little?"
 
 ```bash
-git diff main...HEAD --stat
+gh pr diff {{pr_number}} --name-only
 ```
 
 Also read the PR description (stated intent):
@@ -228,14 +228,6 @@ Optional: add `--comment` to post findings directly as GitHub PR inline comments
 - **No findings** → proceed to Step 3.
 - **Has findings** → bring into Step 4 (Fix) and handle together with parallel review results.
   `/code-review` **does not modify code**; findings are review comments and do not need a separate commit.
-
-> **Fallback (Claude Code < 2.1.146)**: if `/code-review` reports `Unknown skill: code-review`,
-> use `pr-review-toolkit:code-reviewer` agent instead (same behavior — report only, no code changes):
->
-> ```text
-> Agent(subagent_type=pr-review-toolkit:code-reviewer,
->       prompt="Code review all diffs in this PR; report bugs / convention violations / logic errors")
-> ```
 
 #### Auto-apply cleanups (optional)
 
@@ -370,7 +362,7 @@ Process **Critical** → **Important** in order:
 Re-run the Step 3 agents on **files modified in this round**:
 
 ```bash
-git diff main...HEAD --name-only   # confirm scope
+gh pr diff {{pr_number}} --name-only   # confirm scope (GitHub's view of the PR base)
 ```
 
 Confirm all Critical / Important issues are resolved. If new issues appear, return to Step 4.

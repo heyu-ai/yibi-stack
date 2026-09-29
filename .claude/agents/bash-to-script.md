@@ -65,7 +65,7 @@ set -euo pipefail
 
 - 修正所有 AP1 違規（不要帶入 for-loop-pipe、inline Python 等）
 - 所有變數都要加引號（`"$VAR"`）
-- 遵守 rules/13-bash-anti-patterns.md 與 rules/14-shell-quoting-hygiene.md
+- 遵守 `.claude/rules/13-bash-anti-patterns.md`（含其 Shell Quoting Hygiene 段）
 - Header comment 說明用途和基本用法
 
 ### Step 4：設定執行權限

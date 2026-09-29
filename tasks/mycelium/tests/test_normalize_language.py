@@ -6,12 +6,15 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from tasks.mycelium.db import AgentsDB
 from tasks.mycelium.handover_service import (
     _apply_translations,
     _collect_cjk_texts,
     _has_cjk,
     _record_has_cjk,
+    _translate_batch,
     audit_handover_language,
     normalize_handover_language,
 )
@@ -152,6 +155,165 @@ class TestApplyTranslations:
         updates = _apply_translations(row, segments, translated)
         assert updates["topic"] == "Fix the issue"
         assert updates["completed"] == ["Completed task 1", "done task 2"]
+
+
+def _fake_anthropic_module(response: object) -> MagicMock:
+    """建立假的 anthropic module：Anthropic().messages.create() 回傳指定 response。"""
+    module = MagicMock()
+    module.Anthropic.return_value.messages.create.return_value = response
+    return module
+
+
+def _block(block_type: str, text: str = "") -> MagicMock:
+    block = MagicMock()
+    block.type = block_type
+    block.text = text
+    return block
+
+
+class TestTranslateBatch:
+    def test_nlang_st_016_reads_text_block_after_thinking(self) -> None:
+        """NLANG-ST-016：thinking block 排在前面時，仍從 text block 解析 structured output。"""
+        payload = {"items": [{"index": 1, "text": "Second"}, {"index": 0, "text": " First "}]}
+        response = MagicMock(
+            stop_reason="end_turn",
+            content=[_block("thinking"), _block("text", json.dumps(payload))],
+        )
+        with patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}):
+            assert _translate_batch(["第一", "第二"]) == ["First", "Second"]
+
+    def test_nlang_eg_017_missing_index_raises(self) -> None:
+        """NLANG-EG-017：回應缺少任一 index 時 fail loud，不回傳部分結果。"""
+        payload = {"items": [{"index": 0, "text": "First"}]}
+        response = MagicMock(stop_reason="end_turn", content=[_block("text", json.dumps(payload))])
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="缺少"),
+        ):
+            _translate_batch(["第一", "第二"])
+
+    def test_nlang_eg_018_refusal_raises(self) -> None:
+        """NLANG-EG-018：stop_reason=refusal 且無 text block 時 fail loud。"""
+        response = MagicMock(stop_reason="refusal", content=[])
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="refusal"),
+        ):
+            _translate_batch(["第一"])
+
+    def test_nlang_eg_019_truncated_body_with_non_end_turn_raises(self) -> None:
+        """NLANG-EG-019：非 end_turn 且 JSON 截斷時 raise RuntimeError，不外洩 ValidationError。"""
+        response = MagicMock(
+            stop_reason="model_context_window_exceeded",
+            content=[_block("text", '{"items": [{"index": 0, "te')],
+        )
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="model_context_window_exceeded"),
+        ):
+            _translate_batch(["第一"])
+
+    def test_nlang_eg_020_end_turn_invalid_json_raises_runtime_error(self) -> None:
+        """NLANG-EG-020：end_turn 但 body 不符 schema 時轉成 RuntimeError（保留 cause）。"""
+        response = MagicMock(stop_reason="end_turn", content=[_block("text", "not json")])
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="格式") as excinfo,
+        ):
+            _translate_batch(["第一"])
+        assert excinfo.value.__cause__ is not None
+
+    def test_nlang_eg_021_refusal_with_text_block_raises(self) -> None:
+        """NLANG-EG-021：refusal 即使附帶非空 text block 也 fail loud。"""
+        payload = {"items": [{"index": 0, "text": "First"}]}
+        response = MagicMock(stop_reason="refusal", content=[_block("text", json.dumps(payload))])
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="refusal"),
+        ):
+            _translate_batch(["第一"])
+
+    def test_nlang_eg_022_max_tokens_raises_truncation(self) -> None:
+        """NLANG-EG-022：stop_reason=max_tokens 時以「截斷」訊息 fail loud。"""
+        response = MagicMock(
+            stop_reason="max_tokens", content=[_block("text", '{"items": [{"index": 0')]
+        )
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="截斷"),
+        ):
+            _translate_batch(["第一"])
+
+    def test_nlang_st_023_requests_json_schema_output(self) -> None:
+        """NLANG-ST-023：請求帶 json_schema structured output，且 item 必填 index 與 text。"""
+        payload = {"items": [{"index": 0, "text": "First"}]}
+        response = MagicMock(stop_reason="end_turn", content=[_block("text", json.dumps(payload))])
+        module = _fake_anthropic_module(response)
+        with patch.dict("sys.modules", {"anthropic": module}):
+            _translate_batch(["第一"])
+        kwargs = module.Anthropic.return_value.messages.create.call_args.kwargs
+        fmt = kwargs["output_config"]["format"]
+        assert fmt["type"] == "json_schema"
+        item_schema = fmt["schema"]["properties"]["items"]["items"]
+        assert sorted(item_schema["required"]) == ["index", "text"]
+
+    def test_nlang_st_024_special_chars_and_literal_entities_round_trip(self) -> None:
+        """NLANG-ST-024：原文含 < > & 與字面 entity（&lt;div&gt;、&amp;）時，逐字送出並逐字存回。
+
+        模型把原文逐字回傳時，存回的譯文必須與原文完全相同：字面的 `&lt;div&gt;`
+        不可被解碼成 `<div>`，原始的 `<`、`>`、`&` 也不可被編碼成 entity。
+        """
+        sources = [
+            "修正 List<str> 與 a && b 2>/dev/null",
+            "修正字串 &lt;div&gt; 的顯示，並保留 &amp; 原樣",
+        ]
+        payload = {"items": [{"index": i, "text": t} for i, t in enumerate(sources)]}
+        response = MagicMock(
+            stop_reason="end_turn",
+            content=[_block("text", json.dumps(payload, ensure_ascii=False))],
+        )
+        module = _fake_anthropic_module(response)
+        with patch.dict("sys.modules", {"anthropic": module}):
+            assert _translate_batch(sources) == sources
+
+        content = module.Anthropic.return_value.messages.create.call_args.kwargs["messages"][0][
+            "content"
+        ]
+        # 請求內容必須帶原文本身（JSON 字串內不轉義 < > &），而非 entity 化的版本
+        for source in sources:
+            assert json.dumps(source, ensure_ascii=False) in content
+        assert "&lt;str&gt;" not in content
+        assert "&amp;&amp;" not in content
+
+    def test_nlang_eg_025_duplicate_index_raises(self) -> None:
+        """NLANG-EG-025：重複 index 時 fail loud，不靜默以後者覆蓋前者。"""
+        payload = {"items": [{"index": 0, "text": "A"}, {"index": 0, "text": "B"}]}
+        response = MagicMock(stop_reason="end_turn", content=[_block("text", json.dumps(payload))])
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="重複"),
+        ):
+            _translate_batch(["第一"])
+
+    def test_nlang_eg_026_out_of_range_index_raises(self) -> None:
+        """NLANG-EG-026：超出範圍的 index 時 fail loud。"""
+        payload = {"items": [{"index": 0, "text": "A"}, {"index": 5, "text": "B"}]}
+        response = MagicMock(stop_reason="end_turn", content=[_block("text", json.dumps(payload))])
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="超出範圍"),
+        ):
+            _translate_batch(["第一"])
+
+    def test_nlang_eg_027_index_equal_to_len_raises(self) -> None:
+        """NLANG-EG-027：index == len(texts)（上界外第一個值）時 fail loud。"""
+        payload = {"items": [{"index": 0, "text": "A"}, {"index": 1, "text": "B"}]}
+        response = MagicMock(stop_reason="end_turn", content=[_block("text", json.dumps(payload))])
+        with (
+            patch.dict("sys.modules", {"anthropic": _fake_anthropic_module(response)}),
+            pytest.raises(RuntimeError, match="超出範圍"),
+        ):
+            _translate_batch(["第一"])
 
 
 class TestAuditHandoverLanguage:

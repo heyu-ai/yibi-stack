@@ -145,7 +145,7 @@ gemini-3.1-flash-live-preview  | AI Studio  | ❌ 404      | ❌ 404      | 🟡
 - **模型可用性會改變** —— 每次重要部署前重新驗證，不要只驗一次
 - **`-001` 後綴** = 固定版本；無後綴 = rolling latest（非 Live 場景可接受）
 
-## 已知 Gemini 模型狀態（2026-04）
+## 模型狀態快照（2026-04-25 實測；只作名稱格式與失效模式範例，現況以 Step 3 腳本輸出為準）
 
 ```text
 # Vertex AI — global 端點（Gemini 3.x preview，2026-04-25 實測 project=heyu-voice-lab）：
@@ -173,7 +173,7 @@ gemini-3.1-flash-lite-preview # LLM ✅ (僅 AI Studio，Vertex global 亦 FUNCT
 # Live（Vertex us-central1，2026-04-25 實測 project=heyu-voice-lab）：
 # gemini-live-* 前綴 = Live-only 模型；只走 WebSocket，REST 回 HTTP 400（正常）
 gemini-live-2.5-flash-native-audio               # ✅ LIVE OK（11,114 audio bytes）；LLM 🔵（Live-only，無 REST）
-gemini-live-2.5-flash-preview-native-audio-09-2025  # ✅ LIVE OK（11,114 audio bytes）；⚠️ 將於 2026-03-19 淘汰，改用上方
+gemini-live-2.5-flash-preview-native-audio-09-2025  # ✅ LIVE OK（11,114 audio bytes）
 
 # Live（Vertex 需要 allowlist；下列模型在 heyu-voice-lab 1008 policy violation）：
 gemini-3.1-flash-live-preview  # ❌ 1008 policy violation（heyu-voice-lab 未加入 allowlist）
@@ -187,7 +187,7 @@ gemini-2.5-flash-001          # ❌ 固定版本號不在 AI Studio v1beta
 gemini-2.5-flash-native-audio-preview-12-2025  # ❌ 非 gemini-live-* 前綴，Vertex 回 404
 ```
 
-每次驗證後更新此區塊 —— 這是你的實際可用性真相來源。
+實際可用性以 Step 3 腳本當次輸出為準；此快照只在名稱格式或失效模式有變時才需更新。
 
 ## 常見問題
 

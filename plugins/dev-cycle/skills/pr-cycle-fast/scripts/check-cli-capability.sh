@@ -19,8 +19,8 @@ set -euo pipefail
 # scripts/tests/test_pr_cycle_fast_capability.py 會斷言兩者不漂移。
 SUBCOMMANDS=(detect resume status transition write-manifest log-view auto-fix)
 
-INSTALL_CMD='uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"'
-UPGRADE_CMD='uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.14.0"'
+INSTALL_CMD='uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"'
+UPGRADE_CMD='uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"'
 
 if ! command -v pr-orchestrator >/dev/null 2>&1; then
   echo "[FAIL] 缺少 pr-orchestrator，請執行：${INSTALL_CMD}" >&2

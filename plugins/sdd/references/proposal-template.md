@@ -75,7 +75,7 @@
 
 ### 冒煙測試情境
 
-### SMK-001：{{scenario-title}}
+### {{FEATURE}}-SMK-001：{{scenario-title}}
 
 - GIVEN {{前置條件}}
 - WHEN {{操作}}

@@ -84,7 +84,7 @@ openspec/changes/<name>/
 **`CLAUDE_PLUGIN_ROOT` 在 skill bash 不可用**（實測 unset；它只在 hook context 有值）。
 故不能只靠它，必須依序嘗試三個候選，且**每個候選都用「能力檢查」把關**——驗
 `scripts/check_spec_coverage.py` 真的讀得到，而不是只驗目錄存在（目錄存在檢查會讓錯的 root
-靜默通過；見 rule 11/18 與 PR #215）。
+靜默通過；見 rule 11「Never locate this repo via `~/.agents/config.json`」與 PR #215）。
 
 執行以下區塊解析 `SDD_ROOT`（整段執行一次）：
 
@@ -389,7 +389,7 @@ Coverage Analysis 的判定（✓ covered／△ partial／✗ missing／redundan
 TC-ID 由 subagent 依 prompt 中的 TC-ID Convention 分配，lead 只抽查：`--report` 列出的 ID 不含 technique
 縮寫（EP／BVA／PW／RB），且字首專屬於本 change（`SMK-001` 這類通用 ID 會與其他 testplan collision）。
 
-**Smoke Test 特殊命名**：Step 5 的冒煙測試使用 `SMK-NNN`（而非 `ST-NNN`）。
+**Smoke Test 特殊命名**：冒煙測試用 `<FEATURE>-SMK-NNN`（不用 `ST`，也不省略 feature 前綴，否則跨 testplan collision）。
 `ST` 在 qa-test-design 中代表 State Transition，為避免歧義，冒煙測試統一用 `SMK`。
 
 ### Step 2d — Test Seams 對照 codebase 並交給人確認
@@ -526,23 +526,23 @@ testplan.md 後、交人 review proposal 前，更新其中的 `## Test Seams` �
 - [ ] 程式碼已 code review 並合併
 ```
 
-### 冒煙測試情境（3-5 個，使用 SMK-NNN）
+### 冒煙測試情境（3-5 個，使用 `<FEATURE>-SMK-NNN`）
 
 ```markdown
-#### Scenario: smk-happy-path -- SMK-001 正常路徑
+#### Scenario: smk-happy-path -- LOGIN-SMK-001 正常路徑
 
 **GIVEN** 系統處於正常狀態，且 [前置條件]
 **WHEN** 用戶執行 [操作]
 **THEN** 系統 MUST 回傳 [預期結果]
 
-#### Scenario: smk-error-path -- SMK-002 異常路徑
+#### Scenario: smk-error-path -- LOGIN-SMK-002 異常路徑
 
 **GIVEN** [異常前提]
 **WHEN** 用戶執行 [操作]
 **THEN** 系統 MUST 回傳 [錯誤訊息] 且 MUST NOT 影響 [既有狀態]
 ```
 
-> **SMK-NNN** 是冒煙測試的 TC-ID 前綴（不用 `ST-NNN` 以避免與 State Transition 縮寫衝突）。
+> **`<FEATURE>-SMK-NNN`** 是冒煙測試的 TC-ID 格式（不用 `ST-NNN` 以避免與 State Transition 縮寫衝突；保留 feature 前綴以避免跨 testplan collision）。
 
 ### Traceability Matrix（輸入 `proposal.md` 末段）
 
@@ -552,7 +552,7 @@ testplan.md 後、交人 review proposal 前，更新其中的 `## Test Seams` �
 | US | Gherkin Scenario slug | TC-ID | pytest docstring |
 |----|----------------------|-------|-----------------|
 | US-001 | `require-current-password` | LOGIN-VL-001 | `spec: login#require-current-password` |
-| US-001 | `smk-happy-path` | SMK-001 | `spec: login#smk-happy-path` |
+| US-001 | `smk-happy-path` | LOGIN-SMK-001 | `spec: login#smk-happy-path` |
 ```
 
 依 `bdd-trace-convention.md` 格式，trace 欄位即為 pytest function docstring 內容。
@@ -708,7 +708,7 @@ single-source 維護（owner）。Step 0.5 產出 `problem-frame.md` 時依該�
 | **AC 直接當 Scenario**（沒有 GIVEN/WHEN/THEN）| 無法機器解析，trace rate 0% | 每條 AC 至少對應一個 Gherkin scenario |
 | **Scenario 缺少 slug**（無 `#### Scenario: <slug>`）| scanner 無法追蹤 | 每個 Scenario heading 加顯式 slug |
 | **略過 Step 2 qa-test-design**（只產 Gherkin 不產 TC）| Scenario 有規格沒測試設計 | Step 2 必須真正 dispatch sdd:qa-test-designer Task subagent |
-| **Smoke Test 用 ST-NNN**（應用 SMK-NNN）| 與 qa-test-design ST=State Transition 衝突 | 冒煙測試統一用 SMK |
+| **Smoke Test 用 ST-NNN**（應用 `<FEATURE>-SMK-NNN`）| 與 qa-test-design ST=State Transition 衝突 | 冒煙測試統一用 SMK |
 | **OOS 無理由** | 日後範疇爭議無法收斂 | 每項 OOS 附原因 + 未來考量 |
 | **無標記修訂** | 變更歷史消失 | 第二次起每次加 `[ADDED/MODIFIED/REMOVED]` |
 | **事後補 spec** | spec 繼承實作假設，失去獨立需求基線 | spec 必須在實作前完成 |
@@ -743,7 +743,7 @@ RFC 2119 嵌入 GIVEN/WHEN/THEN
   ▼ Step 2: Task tool dispatch → sdd:qa-test-designer
 TC 表格 + Coverage Analysis
 TC-ID 分配（依 host/plugin convention）
-SMK-NNN for smoke tests
+<FEATURE>-SMK-NNN for smoke tests
 → 輸入 testplan.md
   │
   ▼ Step 3（按需）: 資料模型 + API Schema + 衝突偵測

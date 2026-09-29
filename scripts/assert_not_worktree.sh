@@ -9,7 +9,7 @@
 #   Python CLI：    "uv run python -m tasks.mycelium insight install-hook"
 # 本腳本刻意**不**替字串補上 "make " 前綴——它現在有非 make 的呼叫者（tasks/ 底下的
 # CLI 經 tasks/_worktree_guard.py 呼叫），硬編前綴會讓那些呼叫者印出一條照抄必失敗的
-# 假指令，正是本腳本三度援引 rule 11 反對的「誤導的訊息比簡短的訊息更糟」。
+# 假指令，正是本腳本三度援引 rule 17 反對的「誤導的訊息比簡短的訊息更糟」。
 #
 # exit 0: 確定不在 worktree —— 主 repo，或確定不是 git repo（見下方 fail-open 說明）
 # exit 1: 在 worktree 內，**或無法安全判定狀態**
@@ -55,7 +55,7 @@
 #
 # 註：最後一項在 round 4 曾被本註解宣稱為「安全放行」，round 5 加了登記檢查擋下它，
 # 這段說明卻直到 round 7 才被 codex 抓到仍在宣稱舊行為。**殘留說明本身也是一種
-# 宣稱，會隨每次修法過期**——改動判準時必須連它一起重驗（見 rule 11）。
+# 宣稱，會隨每次修法過期**——改動判準時必須連它一起重驗（見 rule 17）。
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
@@ -77,7 +77,7 @@ fi
 # 目錄，(b) 取回兩行垃圾。實測（由 mob review 的 silent-failure-hunter 指出）：
 # CDPATH 指向 trap 目錄時，DIR='wt' 會讓 gate 去評估 <trap>/wt。
 # 那個情況雖然碰巧 fail-closed（垃圾字串讓 git 報錯而不匹配 not-a-repo），
-# 但那是意外而非設計，且 [FAIL] 會指名錯的目錄——正是本腳本三度援引 rule 11
+# 但那是意外而非設計，且 [FAIL] 會指名錯的目錄——正是本腳本三度援引 rule 17
 # 反對的「誤導訊息」。
 export CDPATH=
 
@@ -217,7 +217,7 @@ _find_broken_git_ancestor() {
 # 不能只看「有沒有 .git」。否則任何其他 git 失敗（dubious ownership、git 不在
 # PATH）發生在一個有 .git 的目錄時，都會印出「這個 repo 壞了、admin dir 被 prune、
 # 主 repo 被搬移」——實測在**健康的主 repo** 上會照印，全部是假的（由 mob review
-# 的 silent-failure-hunter 指出）。這與本腳本援引 rule 11 移除 dirname fallback 是
+# 的 silent-failure-hunter 指出）。這與本腳本援引 rule 17 移除 dirname fallback 是
 # 同一條原則：那個 fallback 指出可能錯的「目錄」，這個提示指出可能錯的「原因」。
 if ! $_GIT -C "$DIR" rev-parse --git-dir >/dev/null 2>"$GIT_ERR"; then
   if grep -qi "not a git repository" "$GIT_ERR"; then
@@ -363,7 +363,7 @@ echo "         每 60 秒失敗）、~/.claude/settings.json 的 hook 指令（�
 # 只有在能從 git 權威 metadata 問出主 repo 時才給 cd 建議。
 # 問不出來就明說問不出來，不用 dirname("$GIT_COMMON_PATH") 猜——那在
 # --separate-git-dir / submodule 佈局下會指到一個不存在或無關的目錄，而
-# 「誤導的訊息比簡短的訊息更糟」（rule 11；本點由 mob review 的 codex voice
+# 「誤導的訊息比簡短的訊息更糟」（rule 17；本點由 mob review 的 codex voice
 # 以本 PR 自己寫下的原則反過來檢驗而發現）。
 if [ -n "$MAIN_REPO" ]; then
   echo "         請改到主 repo 目錄執行：" >&2

@@ -7,7 +7,7 @@ description: 查詢、搜尋、寫入 typed lessons。取代 /recall。
 
 查詢累積的 typed lessons、legacy handover 教訓，以及寫入新教訓。
 
-所有操作透過 wrapper：`~/.agents/bin/lessons {add|show|search|delete|retire} [args]`
+所有操作透過 wrapper：`~/.agents/bin/lessons {add|show|search|delete|retire|finalize|supersede} [args]`
 Wrapper 透過 `~/.agents/bin/resolve-skill-repo` 取得 skill_repo 路徑。
 
 **`--project` 注入策略（刻意為之）**：
@@ -120,14 +120,12 @@ tombstone（含完整 snapshot + `deleted_at`）保留 audit trail：
 - 若無結果，說明查詢範圍為全部 project（除非呼叫端明確加了 `--project`），並建議用 Step 3 寫入新教訓
 - 若有結果，分群展示：**Typed lessons**（type 分類）和 **Legacy**（舊 handover 教訓）
 
-## Skill integration contract（Phase B 以後實作）
+## Skill integration contract
 
-以下 skills 將在對應時機自動呼叫 `lessons add`：
+目前只有 `/pr-retro` 與 `/investigate` 在對應時機呼叫 `lessons add`；`/handover` 列為預留介面，尚未實作：
 
 | Skill | 時機 | source | 額外參數 |
 |-------|------|--------|---------|
 | `/pr-retro` | AskUserQuestion 收集 type+confidence 後 | `user-stated` | `--skill pr-retro --retro-pr <N>` |
-| `/handover` | session 結束時的 lessons_learned[] | `observed` | `--skill handover --handover-id <id>` |
+| `/handover`（**尚未實作**：目前以 `handover write --lessons` 把 lessons_learned 存進 handover 記錄，不呼叫 `lessons add`） | session 結束時的 lessons_learned[] | `observed` | `--skill handover --handover-id <id>` |
 | `/investigate` | DEBUG REPORT 後的 root-cause patterns | `observed` | `--skill investigate` |
-
-這些整合點為 Phase B 工作範圍，`lessons add` CLI 介面在 Phase A 已穩定不變。

@@ -38,12 +38,10 @@ uv run python -m tasks.skill_eval eval --skill {{skill_name}} --emit-manifest > 
 
 ### Step 3 — 派 subagent 判斷觸發
 
-以 `Explore` subagent（唯讀）處理 manifest：對每個 task，讀取
-`skills/<task.skill>/SKILL.md` 的 frontmatter `description`，判斷「若使用者輸入
-`task.prompt`，這個 description 會不會觸發該 skill」。
-
-輸出一個與 manifest 等長、依 `index` 對齊的布林陣列（true=會觸發），寫入
-`$CLAUDE_JOB_DIR/judgments.json`。**陣列長度必須等於 manifest 長度**，否則 Step 4 會
+以 `Explore` subagent（唯讀）判斷 manifest 中每個 task：讀 `skills/<task.skill>/SKILL.md`
+的 frontmatter `description`，判斷「若使用者輸入 `task.prompt`，這個 description 會不會觸發該
+skill」，回報依 `index` 排序的布林陣列（true=會觸發）。lead 收到後用 Write tool 寫入
+`$CLAUDE_JOB_DIR/judgments.json`；**陣列長度必須等於 manifest 長度**，否則 Step 4 會
 以 RuntimeError 中止（刻意不補零）。
 
 判斷準則（與 rule 11 一致）：只依 `description` 的觸發詞與 negative 導引文字判斷，
