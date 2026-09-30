@@ -1149,7 +1149,107 @@ class TestWorktree:
         assert snap["hooks"]["transcript"]["files"] == 1
 
 
+def weekly_args(repo: Path, tmp_path: Path, now: str, *extra: str) -> list[str]:
+    return [
+        "weekly",
+        "--repo",
+        str(repo),
+        "--no-ci",
+        "--now",
+        now,
+        "--events-dir",
+        str(tmp_path / "ev"),
+        "--projects-dir",
+        str(tmp_path / "p"),
+        *extra,
+    ]
+
+
+class TestWeekly:
+    def test_hwr_st_015_weekly_writes_week_named_files_under_main_repo(
+        self, tmp_path: Path
+    ) -> None:
+        """HWR-ST-015: 從 worktree 執行 weekly，三個輸出依 ISO 週命名，預設落在主 repo 的 .runtime/harness-review/"""
+        repo = make_orphan_repo(tmp_path)
+        git_commit_all(repo)
+        wt = tmp_path / "wt-copy"
+        REAL_RUN(
+            ["git", "-C", str(repo), "worktree", "add", "-q", "-b", "feat", str(wt)], check=True
+        )
+        buf: list[str] = []
+        rc = _capture_main(weekly_args(wt, tmp_path, "2026-09-30T00:00:00Z"), buf)
+        assert rc in (0, 3)
+        out_dir = repo / ".runtime" / "harness-review"
+        for name in ("snapshot-2026-W40.json", "report-2026-W40.md", "lessons-2026-W40.jsonl"):
+            assert (out_dir / name).is_file(), name
+        assert not (wt / ".runtime").exists()
+        summary = json.loads(buf[0].strip().splitlines()[-1])
+        assert summary["week"] == "2026-W40"
+        assert summary["prev_status"] == "none"
+        assert Path(summary["report"]).resolve() == (out_dir / "report-2026-W40.md").resolve()
+
+    def test_hwr_st_016_weekly_finds_previous_week(self, tmp_path: Path) -> None:
+        """HWR-ST-016: 連續兩週執行 weekly，第二週自動以上週快照為 prev（排程不需要算日期）"""
+        repo = make_orphan_repo(tmp_path)
+        out_dir = tmp_path / "hr"
+        for now in ("2026-09-23T00:00:00Z", "2026-09-30T00:00:00Z"):
+            buf: list[str] = []
+            rc = _capture_main(weekly_args(repo, tmp_path, now, "--out-dir", str(out_dir)), buf)
+            assert rc in (0, 3)
+        summary = json.loads(buf[0].strip().splitlines()[-1])
+        assert summary["week"] == "2026-W40"
+        assert summary["prev"].endswith("snapshot-2026-W39.json")
+        assert summary["prev_status"] == "found"
+        text = (out_dir / "report-2026-W40.md").read_text()
+        assert "hook-unregistered" in text
+
+    def test_hwr_st_017_weekly_passes_collect_thresholds(self, tmp_path: Path) -> None:
+        """HWR-ST-017: weekly 沿用 collect 的門檻參數（--heavy-rule-chars 調高後不再產出 rule-heavy）"""
+        repo = make_orphan_repo(tmp_path)
+        out_dir = tmp_path / "hr"
+        args = weekly_args(repo, tmp_path, "2026-09-30T00:00:00Z", "--out-dir", str(out_dir))
+        assert hr.main([*args, "--heavy-rule-chars", "1000000"]) in (0, 3)
+        kinds = rec_kinds(load(out_dir / "snapshot-2026-W40.json")["recommendations"])
+        assert ".claude/rules/big.md" not in kinds
+        assert kinds["orphan.sh"] == "hook-unregistered"
+
+    def test_hwr_dt_033_weekly_incomplete_ok(self, tmp_path: Path) -> None:
+        """HWR-DT-033: --incomplete-ok 讓量測不完整回 0（scheduler 只把 0 當成功），warnings 仍寫進報告；
+        參數錯誤仍回 2"""
+        repo = make_orphan_repo(tmp_path)
+        out_dir = tmp_path / "hr"
+        base = weekly_args(repo, tmp_path, "2026-09-30T00:00:00Z", "--out-dir", str(out_dir))
+        assert hr.main(base) == 3  # transcript 找不到 → 量測不完整
+        buf: list[str] = []
+        assert _capture_main([*base, "--incomplete-ok"], buf) == 0
+        summary = json.loads(buf[0].strip().splitlines()[-1])
+        assert summary["collect_rc"] == 3
+        assert "量測不完整" in (out_dir / "report-2026-W40.md").read_text()
+        bad = weekly_args(tmp_path / "nope", tmp_path, "2026-09-30T00:00:00Z", "--incomplete-ok")
+        assert hr.main(bad) == 2
+
+    def test_hwr_dt_034_weekly_collect_error_not_swallowed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWR-DT-034: collect 回 2 等非 0/3 值時，weekly 原樣回傳且不產報告，--incomplete-ok 也不吞掉"""
+        repo = make_orphan_repo(tmp_path)
+        out_dir = tmp_path / "hr"
+        monkeypatch.setattr(hr, "cmd_collect", lambda ns: 2)
+        base = weekly_args(repo, tmp_path, "2026-09-30T00:00:00Z", "--out-dir", str(out_dir))
+        assert hr.main([*base, "--incomplete-ok"]) == 2
+        assert not (out_dir / "report-2026-W40.md").exists()
+
+
 class TestValidation:
+    def test_hwr_vl_006_weekly_not_git_repo(self, tmp_path: Path) -> None:
+        """HWR-VL-006: weekly 對非 git 目錄 exit 2，且不留下任何輸出檔"""
+        out_dir = tmp_path / "hr"
+        rc = hr.main(
+            weekly_args(tmp_path, tmp_path, "2026-09-30T00:00:00Z", "--out-dir", str(out_dir))
+        )
+        assert rc == 2
+        assert not out_dir.exists() or not any(out_dir.iterdir())
+
     def test_hwr_vl_001_not_git_repo(self, tmp_path: Path) -> None:
         """HWR-VL-001: 非 git 目錄 exit 2"""
         assert (
