@@ -34,8 +34,10 @@ description: >-
 - **寫入需明確要求**：只有呼叫參數含 `--write-lessons` 才寫 Mycelium；含 `--write-hindsight` 才寫 Hindsight。
 - **不使用 AskUserQuestion**，不自動修改任何 rule、hook、gate 或 settings。所有「改／退役」都是給人裁決的建議。
 - 需要 owner 裁決的項目（同一建議連續 3 週未處理）列在報告最上方，不自行決定。
-- **量不到不等於沒問題**：CI 讀取不完整、`--no-ci`、hook-events 未涵蓋觀察期時，受影響的建議類型本週不判定；
-  上週的同類建議在報告中列為「本週量不到」，週數原樣保留，不算已解除。
+- **量不到不等於沒問題**：CI 讀取不完整、`--no-ci`、hook-events 未涵蓋觀察期、transcript 觀察期內沒有事件或
+  有檔案讀不到、workflow／rule 檔讀不到、gate 失敗無法歸因或上線日期讀不到、rule 候選排名在上限之外時，
+  受影響的建議本週不判定；上週的同類建議在報告中列為「本週量不到」，不算已解除。週數在相鄰週原樣保留（不累加）；
+  與上次快照之間有缺週時重設為 1（連續週數已中斷）。
 
 ## 前置條件
 
@@ -77,6 +79,13 @@ OUT_DIR="$MAIN_REPO/.runtime/harness-review"
 WEEK=$(date -u +%G-W%V)
 ```
 
+快照與報告寫在 `$MAIN_REPO/.runtime/harness-review/`。本 repo 的 `.gitignore` 已排除 `.runtime/`；
+其他 repo 未必如此，先確認會被忽略（不會被忽略時照樣執行，但要在 Step 7 回報提醒使用者加進 `.gitignore`）：
+
+```bash
+if ! git -C "$MAIN_REPO" check-ignore -q .runtime/harness-review/snapshot.json; then echo '[WARN] .runtime/harness-review/ 未被 .gitignore 排除，快照會出現在 git status' >&2; fi
+```
+
 ### Step 2 — 量測
 
 ```bash
@@ -87,7 +96,7 @@ python3 "{{skill_root}}/scripts/harness_review.py" collect --repo "$REPO_TOP" --
 
 | Exit | 意義 | 動作 |
 |------|------|------|
-| `0` | 資料源都讀到；`notes` 可能有資訊性說明（秒級計時、`--no-ci`、gate 無法歸因） | 繼續 Step 3；`notes` 列進最終回報 |
+| `0` | 沒有 warnings。`notes` 只是說明、不影響 exit code，但可能伴隨本週不判定的類型（例如 `--no-ci` 時 gate-silent／gate-noisy 不判定、gate 無法歸因、舊版 CI 快取已忽略重抓）；判定範圍以快照的 `evaluation` 為準 | 繼續 Step 3；`notes` 列進最終回報 |
 | `3` | 快照已寫出，但有資料源讀取失敗、缺漏或未涵蓋觀察期；受影響的建議類型本週不判定 | 繼續 Step 3；`warnings` 原樣列進最終回報，不可省略 |
 | `2` | 參數或環境錯誤（非 git repo、`--now` 格式錯） | 原樣回報 stderr，`[FAIL]` 停止 |
 | 其他 | script 本身崩潰 | 原樣回報 stderr，`[FAIL]` 停止，不可用舊快照冒充本週結果 |
@@ -108,13 +117,19 @@ python3 "{{skill_root}}/scripts/harness_review.py" report --snapshot "$OUT_DIR/s
 |------|------|
 | `0` 且 stdout `prev_status` 為 `found` | 繼續 Step 4；`prev` 是這次比對的上週快照路徑 |
 | `0` 且 stdout `prev_status` 為 `none` | 第一次執行（`$OUT_DIR` 沒有更早的快照），所有建議都標「新」；繼續 Step 4 並在回報註明 |
-| `2` | 快照不存在、格式或版本不符，或 `$OUT_DIR` 無法讀取：原樣回報 stderr，`[FAIL]` 停止 |
+| `0` 且 stdout `prev_status` 為 `found_after_skip` | 較新的舊快照版本不符（`skipped_incompatible` 列出路徑），改用更早的一份比對；繼續 Step 4，回報列出略過的快照與實際比對的 `prev` |
+| `0` 且 stdout `prev_status` 為 `none_after_skip` | 更早的快照全都版本不符，本週視同第一次執行；繼續 Step 4，回報列出 `skipped_incompatible` |
+| `2` | 本週快照不存在、格式或版本不符，或 `$OUT_DIR` 無法讀取：原樣回報 stderr，`[FAIL]` 停止 |
 | 其他 | 原樣回報 stderr，`[FAIL]` 停止 |
+
+`report` 會把累計週數與 `carried`（本週量不到而保留的建議）寫回 `snapshot-$WEEK.json`，下週的比對才能接續；
+不要在 report 之後再手動改這份快照。
 
 報告把建議分成四桶：**修正**、**減量**、**退役或改寫**、**保留**，每條標「新」或「第 N 週」。
 上週有、本週消失的建議分兩種：本週**量得到**才列在「上週建議的處理結果」（已解除，這就是閉環的檢驗結果）；
-本週**量不到**的列在「本週量不到的上週建議」，週數原樣保留。週數只在上週快照正好是前一個 ISO 週時累加；
-同一週重跑不累加；中間缺週則從 1 重新起算，報告會標「週次不相鄰」（stdout 的 `week_gap`）。
+本週**量不到**的列在「本週量不到的上週建議」，相鄰週時週數原樣保留（不累加）。週數只在上週快照正好是前一個
+ISO 週時累加；同一週重跑不累加；中間缺週則所有週數（含量不到而保留的建議）從 1 重新起算，報告會標
+「週次不相鄰」（stdout 的 `week_gap`）。
 
 ### Step 4 — LLM 判讀（腳本只量測，語意判斷在這裡）
 
@@ -148,7 +163,7 @@ python3 "{{skill_root}}/scripts/harness_review.py" report --snapshot "$OUT_DIR/s
 `lessons-$WEEK.jsonl` 每行是一筆候選，欄位有 `key`、`type`、`project`、`bucket`、`weeks`、`insight`。
 由 script 逐行**序列**呼叫 `mycelium lessons add --skip-if-exists`（list args、不經 shell，insight 裡的
 反引號與 `$()` 都是字面值；每筆 60 秒逾時）。Step 4 判為「維持」的條目，每個 key 加一個
-`--exclude <key>`：
+`--exclude <key>`（key 必須逐字取自 lesson 檔；對不到的 key 會讓整批一筆都不寫）：
 
 ```bash
 python3 "{{skill_root}}/scripts/harness_review.py" write-lessons --lessons "$OUT_DIR/lessons-$WEEK.jsonl"
@@ -156,8 +171,9 @@ python3 "{{skill_root}}/scripts/harness_review.py" write-lessons --lessons "$OUT
 
 | Exit | 意義 | 動作 |
 |------|------|------|
-| `0` | 全部寫入，或依 `--skip-if-exists` 略過已存在的 key | 記下 stdout JSON 的 `written`／`excluded`，繼續 Step 6 |
-| `1` | 至少一筆失敗（mycelium 非零 exit、逾時、找不到 `mycelium`、該行格式錯） | stderr 的 `[FAIL]` 行原樣列進 Step 7 的失敗清單；其餘已寫入的不重寫，繼續 Step 6 |
+| `0` | 全部處理完：新寫入，或依 `--skip-if-exists` 略過已存在的 key | 記下 stdout JSON 的 `written`（新寫入）、`skipped_existing`（已存在而略過）、`excluded`，分開列進 Step 7，不可把略過算成寫入；繼續 Step 6 |
+| `1` 且 stderr 有「`--exclude` 的 key 不在 lesson 檔內」 | 一筆都沒寫；Step 4 記下的 key 與 lesson 檔不一致 | 對照 `lessons-$WEEK.jsonl` 修正 key 後重跑本步驟一次；仍失敗就把 `[FAIL]` 列進 Step 7，繼續 Step 6 |
+| `1`（其他） | 至少一筆失敗（mycelium 非零 exit、逾時、找不到 `mycelium`、輸出無法確認是否寫入、該行格式錯） | stderr 的 `[FAIL]` 行原樣列進 Step 7 的失敗清單；其餘已寫入的不重寫，繼續 Step 6 |
 | `2` | lesson 檔不存在或無法讀取 | 原樣回報 stderr，`[FAIL]` 停止 |
 | 其他 | script 本身崩潰 | 原樣回報 stderr，`[FAIL]` 停止 |
 
@@ -191,8 +207,9 @@ Hindsight 的 bank 以 repo 區分，下週盤點時可以查「上週為什麼�
 - 報告路徑 `$OUT_DIR/report-$WEEK.md`；上週快照路徑，或「第一次執行」
 - 需要 owner 裁決的項目（連續 3 週以上）
 - 本週新出現的「修正」桶項目
-- 上週建議中已解除的項目；本週量不到的項目（週數保留）
-- 週次不相鄰時的 `week_gap`
+- 上週建議中已解除的項目；本週量不到的項目（週數保留，缺週時重設為 1）
+- 週次不相鄰時的 `week_gap`；`--prev auto` 略過的版本不符快照（`skipped_incompatible`）
+- Step 1 若印出 `.gitignore` 的 `[WARN]`，提醒使用者把 `.runtime/` 加進 `.gitignore`
 - Step 2 的 `warnings`（量測不完整的部分）與 `notes`；`ci_measured` 為 `false` 時明寫「CI 未量測」
 - Step 5／6 實際寫入的筆數與所有 `[FAIL]` 清單；沒帶寫入參數時註明「未寫入」
 
@@ -207,7 +224,7 @@ Hindsight 的 bank 以 repo 區分，下週盤點時可以查「上週為什麼�
 | `--noisy-failures` | 20 | 單一 CI step 的高噪失敗次數 |
 | `--heavy-rule-chars` | 8000 | 每次必載 rule 檔的篇幅門檻 |
 | `--min-rule-score` | 12 | rule 段落列為機械化候選的最低分數 |
-| `--max-rule-candidates` | 10 | 每週最多列出幾個 rule 段落候選 |
+| `--max-rule-candidates` | 10 | 每週最多列出幾個 rule 段落候選；排名在外的候選本週不判定（不算已解除） |
 | `--ignore-jobs` | `/ CI Status$\|ci-status` | 不計入高噪的 rollup job（regex） |
 
 `report`／`diff` 另有 `--escalate-weeks`（預設 3）：同一建議連續幾週未處理就升級為 owner 裁決。
@@ -221,5 +238,7 @@ Hindsight 的 bank 以 repo 區分，下週盤點時可以查「上週為什麼�
 | 耗時全是 1000 的倍數 | macOS 系統 bash 3.2 沒有 `EPOCHREALTIME`，只有秒級；慢 hook 門檻已自動提高（列在 notes，不影響 exit code） |
 | CI 量測很慢 | 第一次要抓 90 天的 failed run；之後靠 `ci-jobs-cache.json` 只抓新 run（不完整的結果不會進快取） |
 | `gh repo view` 失敗 | 在目標 repo 跑 `gh auth status`；暫時加 `--no-ci` |
-| gate 一直沒有 gate-silent 判定 | notes 若寫「無法歸因」，代表 workflow 裡沒有以 `run:` 直接呼叫該 script 的 step（例如包在 `make` 裡）；讓 step 直接呼叫 script，或接受這支 gate 不做 0 失敗判定 |
+| gate 一直沒有 gate-silent 判定 | notes 若寫「無法歸因」，看原因：沒有以 `run:` 直接呼叫該 script 的 step（例如包在 `make` 裡）、step 名稱含 `${{ }}` 或是看不懂的 YAML 形狀、或同名 step 也出現在沒有呼叫它的地方；讓呼叫它的 step 有獨一無二的純文字名稱，或接受這支 gate 不做 0 失敗判定 |
+| report 的 `prev_status` 是 `found_after_skip`／`none_after_skip` | `$OUT_DIR` 裡有舊版格式的快照（通常是 skill 升級前留下的），`--prev auto` 已略過並往前找；不需處理，確認 `skipped_incompatible` 列的檔案可以刪除後自行清掉即可。`--prev <path>` 明確指定舊版快照仍會 exit 2 |
+| notes 寫「CI 快取是舊版或未標版本的格式」 | skill 升級後的第一次執行會忽略舊快取、全部重抓並改寫成新格式；之後的週會恢復只抓新 run |
 | 想強制重跑同一週 | 直接重跑 Step 2 與 Step 3，`snapshot-$WEEK.json` 會被覆寫；週數以上週快照為基準，同一週重跑不會累加 |
