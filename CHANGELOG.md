@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- growth：`pr-retrospective` 接入可降級的 Hindsight preflight、search-first recurrence、
+  Step 5 canonical readback 後的 lesson projection／lifecycle tombstone，以及依 Epic/change
+  identity 更新 initiative。新增共用 protocol、deterministic projection helper 與 audit
+  measurement report；content envelope 不冒充原生 metadata，accepted 不等於可搜尋（#425）。
+
 ## [1.23.6] - 2026-09-28
 
 ### Fixed

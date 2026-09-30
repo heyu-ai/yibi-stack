@@ -39,3 +39,22 @@ claude plugin install growth@yibi-stack
 - 用 `pr-control-log` 審計 AI 行為與規格偏離，累積治理依據
 - 定期用 `claude-md-prune` 把過時或重複指引整理到正確位置
 - 用 `mycelium` 與 `learn` 保存、搜尋及修剪跨 session 知識
+
+## Optional Hindsight integration
+
+`pr-retrospective` can search Hindsight for independent recurrence evidence, publish eligible
+canonical lessons after Step 5, reconcile inactive lessons, and update an initiative by its
+repo-qualified Epic/change identity. Mycelium remains the canonical source. Missing MCP tools
+or failed calls degrade to the existing Mycelium workflow.
+
+The bundled [protocol](skills/pr-retrospective/HINDSIGHT.md) documents the real MCP contract:
+provenance lives inside document content, not native metadata; ingest acceptance means queued,
+not searchable. The deterministic `scripts/hindsight_projection.py` helper under that skill
+prepares stable-title documents and reports audited outcomes. Audit files persist under
+`~/.agents/hindsight-retro/<project>/`; smoke runs do not count toward the 30-retro measurement.
+
+The companion `lesson-promotion` skill in ainization-skill consumes this installed protocol
+for advisory duplicate/contradiction checks and lifecycle reconciliation. Update the growth
+plugin before enabling that integration; an older installation without the protocol/helper
+degrades rather than importing code from another checkout. Hindsight also needs a working
+server-side extraction model: a healthy endpoint and accepted ingest alone do not prove it.

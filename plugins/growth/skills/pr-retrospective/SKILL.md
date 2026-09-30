@@ -112,6 +112,24 @@ Script stdout 輸出 `PR_NUMBER=<n>`；agent 解析並記住供後續步驟使�
 mycelium retro search --pr-number "$PR_NUMBER" --project "$ORIG_PROJECT" --limit 3 2>/dev/null || true
 ```
 
+#### A0 — Hindsight 一次性 preflight（可降級，不是 Mycelium gate）
+
+先讀同目錄的 [HINDSIGHT.md](HINDSIGHT.md)，依共用協定建立本次 invocation audit、檢查實際 MCP
+schema，並做一次有界限的 `hindsight_list_knowledge_pages({})` 唯讀連線探測。
+`hindsight_diagnose({})` 只診斷本地設定，不能單憑成功就宣告 server 可用。
+把結果記為 invocation 狀態 `HINDSIGHT_AVAILABLE`，不是依賴跨 Bash call 的 shell 變數。
+
+- **整次 retro 只做一次 preflight**；A1/A2/A3 共用結果，不逐 lesson 重試。缺工具、schema 不符、
+  protocol/helper 不可讀、連線失敗或逾時 → `[DEGRADED] Hindsight unavailable`，記錄
+  `hindsight_sync=skipped`，繼續原 Mycelium-only 流程，不從 Hindsight 增加 recurrence。
+- **所有 Hindsight 呼叫**（含 preflight、search、read、reflect、ingest、capture）都 MUST 經過
+  HINDSIGHT.md 的 audited/degraded 協定；每次記錄結果、page/source IDs、fallback 與人類決策。
+  後續遇到 transport failure 就停用本次剩餘 Hindsight 呼叫，不把 unknown 當零命中或成功。
+- Mycelium 是 canonical source；Hindsight 只提供候選背景或衍生索引，不得據此自動
+  park / merge / retire / finalize 或改 lifecycle。既有 Mycelium 的失敗停止規則不變。
+- 使用者確認前最多唯讀；**取消、Step 4 失敗、或 Step 5 canonical writes 未成功收尾時，
+  不得發布 lesson projection 或 initiative**。A2/A3 的唯一執行點在 Step 5 結尾。
+
 ---
 
 ### Step 1 — 蒐集 PR Context
@@ -119,7 +137,7 @@ mycelium retro search --pr-number "$PR_NUMBER" --project "$ORIG_PROJECT" --limit
 每個 call 獨立執行，agent 依輸出做推論（**不在 bash 裡寫 Python 解析**）：
 
 ```bash
-gh pr view "$PR_NUMBER" --json title,body,state,mergedAt,labels,commits,additions,deletions
+gh pr view "$PR_NUMBER" --json url,title,body,state,mergedAt,labels,commits,additions,deletions
 ```
 
 ```bash
@@ -162,6 +180,7 @@ gh pr diff "$PR_NUMBER" --name-only 2>/dev/null | head -30
 我們交付的 value：**<one-liner>**
 - 目標對象：end user / internal / tech debt / risk
 - 引用依據：commit "<sha>: <subject>"
+- 關聯 Epic/change（如有）：<repo-qualified ID + PR body 引用>；<新能力 / 里程碑 / 兩者皆非>
 
 ### Q3 Experience（從 diff stat + UI 相關檔案推論）
 給 customer 的體驗變化：**<one-liner>**
@@ -193,6 +212,9 @@ gh pr diff "$PR_NUMBER" --name-only 2>/dev/null | head -30
 - Q5 的勾選由 agent 依 Q4 訊號決定
 - 若 `control_log_entries` table 已存在 PR 相關記錄，可作為 Q4 lessons 的補充 evidence：
   `mycelium control-log show --pr "$PR_NUMBER" --project "$ORIG_PROJECT" 2>/dev/null || true`
+- Q2 的 Epic/change identity 從 PR body 的明確關聯取得；裸 `#N` 以 PR URL 的 `owner/repo`
+  補全，change slug 也必須 repo-qualified。`feat` label 或 PR title 不足以判定 initiative；
+  在 Step 3 校準新能力／里程碑是否真的交付，未確認或 outcome 不明就不發布。
 
 ---
 
@@ -312,7 +334,7 @@ Classifier → `--type` 對照表：
 > - **`--skill` 填「教訓的主題 skill」而非 `pr-retrospective`**（產生者）。例：教訓是關於 `gmail-billing` 的 parser → 填 `gmail-billing`；關於 bash/quoting 等泛用主題 → **留空**（`--skill` 省略），讓蒸餾以 type + 語意聚類。
 > - **`--key` slug 加領域前綴**（`bash-`、`pydantic-`、`gmail-billing-`、`cli-` …），讓同類教訓跨 PR 的 key 前綴一致，提升 dedup 與 cluster 收斂。
 >
-> **recurrence 前置查詢（必跑，在決定 `--confidence` 之前）**
+> **A1 — recurrence 前置查詢（必跑，search-first；在決定 `--confidence` 之前）**
 >
 > 這個查詢排在這裡不是順手，是**唯一**套得上 +1 的時機：`lessons add` 是無條件 INSERT，而
 > **沒有任何指令能原地改一筆 active lesson 的 confidence**——`lessons finalize` 是 compare-and-set，
@@ -322,14 +344,34 @@ Classifier → `--type` 對照表：
 > 那一刻還不知道有沒有 recurrence（issue #373，實例：PR #1169 的 `ci-local-timing-not-transferable`
 > 依規則該給 9，卻已用 8 寫入且補不回來）。
 >
-> 對每個候選 lesson 各跑一次。這是唯讀查詢，**不需要使用者在 Q5 勾選**：
+> 對每個候選 lesson 都先保留原 Mycelium 唯讀查詢，**不需要使用者在 Q5 勾選**：
 >
 > ```bash
 > mycelium lessons search "<候選 key 的領域關鍵字>" --project "$ORIG_PROJECT"
 > ```
 >
-> 命中同族既有教訓 → 該筆 `--confidence` +1（封頂 10），並在把候選 metadata 呈現給使用者確認時
-> **列出命中的是哪幾筆**（key + 日期），讓使用者能否決這個 +1。零命中也要說，那本身是有用的訊號。
+> `HINDSIGHT_AVAILABLE=true` 時，再依 HINDSIGHT.md 走三階段，所有呼叫沿用同一 audit：
+>
+> 1. **Search 快篩**：`hindsight_search_knowledge_pages({query: "<lesson insight 摘要>"})`。
+>    實際 schema **沒有 `limit`**；先依下列 provenance 規則篩除污染，再取最多 3 個候選。
+>    snippet 不足以判斷來源時，用 `hindsight_read_knowledge_page({page_id: "<實際 page_id>"})`
+>    讀全文；不能查明來源的結果不可充作獨立事件。
+> 2. **本地語意比對**：agent 判斷是否同族，列出具體事故與來源，不因措辭相似就加分。
+> 3. **Reflect 按需**：只有高價值且高度相似、結論仍模糊／矛盾的候選才呼叫
+>    `hindsight_reflect({query: "<含已核實來源與待釐清矛盾的問題>"})`；不是每筆的預設步驟。
+>    reflect 的綜合敘述仍須回查來源，不能把 projection 洗成新證據。
+>
+> **Feedback-loop / source identity 防護**：排除 title 以 `[Lesson]` 開頭、content 標記
+> `source_system=mycelium` 的 projection；主題頁即使改了標題，其中可追溯到 projection 的片段
+> 也不得計數。未能確認 provenance 的片段只能展示為候選，不能增加 recurrence。
+> Mycelium 與 Hindsight 的命中要按**實際獨立事故**去重：repo-qualified PR/session source ID
+> 必須核實；同一 PR 的 review、commit、session 或多頁摘要只算同一事件，本次 PR 的重跑不算新事件。
+>
+> 只有查明本次之外另有同族獨立事件，並將依據呈現給使用者確認後，才提出原分數 +1
+>（封頂 10；使用者可否決）。列出命中的 key / 日期 / page ID / distinct source IDs，
+> 記錄人類是否接受；零命中、來源不明、只命中自身 projection 或 degraded 也要明示。
+> **語意相似、頁數、模型同意數都不能自動 +1**，更不能自動改 Mycelium 的 recurrence tags、
+> lifecycle 或降低下游 Evidence / Promotion Gates；原有 parked/reassess 流程照常處理。
 >
 > 這**不取代** Step 5 Q5：Q5 查的是 Q1 問題敘述的歷史，範圍較廣且由使用者決定要不要查；此處查的
 > 是**單筆 lesson 的同族前例**，只為定分數。兩者目的不同，都保留。
@@ -673,6 +715,55 @@ harness 改動當場寫檔＋開 PR，而是排進常設佇列 issue、每週由
 
    Agent 的職責到顯示上述提示為止。
 
+#### A2 — Canonical writes 成功收尾後，才投影高品質 lesson
+
+**此處才是 A2 執行點，不是 Step 4b。** 先完成所有本次必要的 Step 5 `lessons add`、
+`finalize` 或 re-park 收尾；確認 Step 3 已同意、Step 4 成功、沒有 canonical write failure
+或停留 reassess 的項目。任何取消或 canonical failure 都跳過本次 A2/A3，即使部分列已寫成功。
+不為投影重跑 `--park`、提高 confidence 或補做任何 Mycelium mutation。
+
+`HINDSIGHT_AVAILABLE=true` 才依 [HINDSIGHT.md](HINDSIGHT.md) 的 canonical readback /
+projection helper 流程執行：
+
+1. 從 installed Mycelium CLI 讀回真正持久化的列，核對 project/type/key/ID 與終止狀態；
+   `--skip-if-exists` 成功也必須讀回既有列，不能把 Step 4b 的候選 confidence/body 當成已儲存值。
+   找不到、身分有歧義或欄位不足 → projection degraded，不猜資料。
+2. 由共用 helper 按 canonical 多因子條件決定：pitfall 要 confidence ≥ 7、非 inferred 且有具體
+   PR/session/commit 證據；pattern 要 confidence ≥ 7 且至少兩個已核實的獨立事件。
+   新 projection 必須是有效 active lesson，parked/superseded/retired 不發布為新知識。
+   對本次查到、先前已投影且 lifecycle 改變的列，依 canonical 狀態送 tombstone／deprecated
+   表示；不把已失效內容當 active，也不從 Hindsight 反改 Mycelium。
+3. 使用 helper 的 `[Lesson] <key>` 穩定 title、背景摘要與事故指針；provenance、
+   `source_system`、source ID、content hash 都在 **content** 中。依 protocol 檢查 project/key
+   身分、前次 receipt 與 revision，略過同 revision；變更才呼叫
+   `hindsight_ingest_document({title, content})`。不得自行加 `metadata`、`document_id`，
+   也不得假設可以 append 既有主題頁；helper 缺失則降級，不另造投影格式。
+4. `{ok:true, doc_id}` 只代表非同步接受，記錄 queued 與 receipt，**不是已抽取或可搜尋**。
+   失敗依共用協定降級；不回滾成功的 Mycelium 寫入，也不把整份 canonical script 重跑一次。
+
+#### A3 — Initiative 依 repo-qualified Epic/change ID upsert
+
+沿用 A2 前的 canonical-success gate（若 Q4 為 0，則無 typed write 要等），並要求
+`HINDSIGHT_AVAILABLE=true`。**兩項都成立才執行**：PR body 有明確 Epic/change 關聯，
+且使用者確認的 Q2 表示新能力上線或里程碑完成；只有 `feat`、一般修補、缺 identity、
+未交付或 outcome 不明都記錄 skipped。不得因 PR merged 就臆測 initiative 已完成。
+
+1. 將 identity 固定為 `owner/repo#<Epic/issue>` 或 `owner/repo:change/<slug>`，取自已核實的
+   PR URL/body；不以 PR title 去重，也不把每個無關 `Closes` issue 自動當新 initiative。
+   title 與 summary 都保留此 canonical identity。
+2. 經共用協定用 `hindsight_search_knowledge_pages({query: "<完整 identity>"})` 找候選，
+   對照 list（可用完整的 preflight 結果）並 `hindsight_read_knowledge_page({page_id})`
+   核對全文的**精確 identity 與 initiative 類型**。搜尋相似不等於同一個 initiative；
+   搜尋未命中也不等於已證明不存在。
+3. 恰好一筆精確既有 initiative → 保留原 title 與已知歷史，整合本次已確認 Q2 outcome、
+   repo-qualified PR URL、canonical lesson 指針，按同 PR 去重，再呼叫
+   `hindsight_capture_initiative({title, summary, relates_to_page_id: "<已核實 page_id>"})`。
+   只有完整查找能確認零筆時，才用 `{title, summary}` 建立；多筆／來源不明／結果不完整 →
+   degraded，不自行挑一筆，也不盲建。這個 API 本身不是全域冪等 upsert。
+4. 記錄回傳 page ID 與人類採用決策。capture 逾時或回應不明時，結果是 **unknown**，不是失敗
+   未寫入；本次停止 Hindsight 寫入，不盲目重試。後續 invocation 先依 identity 查明再決定。
+   Hindsight 錯誤只降級，既有 Mycelium 成功結果保持不變。
+
 ---
 
 ### Step 6 — 確認寫入
@@ -680,6 +771,10 @@ harness 改動當場寫檔＋開 PR，而是排進常設佇列 issue、每週由
 ```bash
 mycelium retro read --last 1 --project "$ORIG_PROJECT"
 ```
+
+按 HINDSIGHT.md 完成本次 durable audit（中止分支也要結算）；對使用者分開呈現
+Mycelium 寫入結果、Hindsight 的 queued/skipped/degraded 與 initiative page ID。
+不能把 ingest accepted 顯示成「已同步可搜尋」，也不能把未跑的 A1 說成「無 recurrence」。
 
 ---
 
@@ -690,6 +785,8 @@ mycelium retro read --last 1 --project "$ORIG_PROJECT"
 - inference iteration > 3 次仍無共識 → 切換「請使用者直接給答案」模式
 - 使用者 `cancel` → 不寫入 DB
 - 重跑同 PR → Step 0 提示先前已有 retro（但不阻擋）
+- Hindsight 不可用或呼叫失敗 → `[DEGRADED]`，繼續原 Mycelium 流程；不得放寬原寫入 gates
+- 取消或 canonical write failure → 不執行 A2/A3；保留原 Mycelium 停止／人工重跑規則並結算 audit
 
 ---
 
