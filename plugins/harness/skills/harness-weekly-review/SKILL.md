@@ -29,90 +29,98 @@ description: >-
 
 本 skill 可被排程或 webhook 觸發，所以：
 
-- **預設唯讀**：只量測與寫報告。報告與快照寫在目標 repo 的 `.runtime/harness-review/`（gitignored）。
+- **預設唯讀**：只量測與寫報告。報告與快照寫在目標 repo **主 checkout** 的 `.runtime/harness-review/`
+  （gitignored；在 worktree 內執行也寫到主 repo，避免 worktree 刪除後快照鏈斷掉）。
 - **寫入需明確要求**：只有呼叫參數含 `--write-lessons` 才寫 Mycelium；含 `--write-hindsight` 才寫 Hindsight。
 - **不使用 AskUserQuestion**，不自動修改任何 rule、hook、gate 或 settings。所有「改／退役」都是給人裁決的建議。
 - 需要 owner 裁決的項目（同一建議連續 3 週未處理）列在報告最上方，不自行決定。
+- **量不到不等於沒問題**：CI 讀取不完整、`--no-ci`、hook-events 未涵蓋觀察期時，受影響的建議類型本週不判定；
+  上週的同類建議在報告中列為「本週量不到」，週數原樣保留，不算已解除。
 
 ## 前置條件
 
 - 目標 repo 的 hook 經 `run-hook.sh` launcher 執行，且 launcher 會寫 `~/.claude/hook-events/<repo>-YYYY-MM.jsonl`
   （yibi-mvp PR #2078 引入）。沒有這份紀錄時仍可執行，但執行率與耗時會標為「量測不完整」，只剩
   transcript（約 30 天保留期）與 CI 資料。
-- `gh` 已登入目標 repo；未登入時加 `--no-ci`，報告會註明 CI 未量測。
+- `gh` 已登入目標 repo；未登入時加 `--no-ci`，報告會註明 CI 未量測，gate-silent／gate-noisy 本週不判定。
+- hook 清單只讀 repo 的 `.claude/settings.json` 與 `.claude/settings.local.json`；使用者層
+  `~/.claude/settings.json` 註冊的 hook 不在清單內（報告的說明欄會註明）。
 
 ## 步驟
 
 ### Step 1 — 解析參數與路徑
 
-從載入 skill 時顯示的 base directory 取得 `{{skill_root}}`。
+從載入 skill 時顯示的 base directory 取得 `{{skill_root}}`。`ARG_REPO` 取自呼叫參數 `--repo <path>`；
+參數含 `--write-lessons`、`--write-hindsight`、`--no-ci` 時記下，後面步驟使用。
 
 ```bash
 TARGET_REPO="${ARG_REPO:-$PWD}"
-if ! git -C "$TARGET_REPO" rev-parse --show-toplevel > /dev/null; then echo "[FAIL] $TARGET_REPO 不是 git repo" >&2; exit 1; fi
+if ! REPO_TOP=$(git -C "$TARGET_REPO" rev-parse --show-toplevel); then echo "[FAIL] ${TARGET_REPO} 不是 git repo" >&2; exit 1; fi
+```
+
+快照與報告的位置取**主 repo**（`--git-common-dir` 的上一層），不可用 `--show-toplevel`——在 worktree 內
+它回傳的是 worktree 本身：
+
+```bash
+if ! GIT_COMMON=$(git -C "$TARGET_REPO" rev-parse --path-format=absolute --git-common-dir); then echo "[FAIL] 無法取得 ${TARGET_REPO} 的 git common dir" >&2; exit 1; fi
 ```
 
 ```bash
-REPO_TOP=$(git -C "$TARGET_REPO" rev-parse --show-toplevel)
+MAIN_REPO=$(dirname "$GIT_COMMON")
 ```
 
 ```bash
-OUT_DIR="$REPO_TOP/.runtime/harness-review"
+OUT_DIR="$MAIN_REPO/.runtime/harness-review"
 ```
 
 ```bash
 WEEK=$(date -u +%G-W%V)
 ```
 
-`ARG_REPO` 取自呼叫參數 `--repo <path>`；參數含 `--write-lessons`、`--write-hindsight`、`--no-ci` 時記下，後面步驟使用。
-
-### Step 2 — 找上週快照
-
-```bash
-ls -1 "$OUT_DIR"/snapshot-*.json
-```
-
-取檔名排序最後、且不是本週 `snapshot-$WEEK.json` 的那一份當 `PREV`。沒有任何快照代表第一次執行，`PREV` 留空。
-
-### Step 3 — 量測
+### Step 2 — 量測
 
 ```bash
 python3 "{{skill_root}}/scripts/harness_review.py" collect --repo "$REPO_TOP" --days 7 --gate-days 90 --ci-cache "$OUT_DIR/ci-jobs-cache.json" --out "$OUT_DIR/snapshot-$WEEK.json"
 ```
 
-呼叫參數含 `--no-ci` 時，在上面指令尾端加 `--no-ci`。
+呼叫參數含 `--no-ci` 時，在上面指令尾端加 `--no-ci`。stdout 是一行 JSON，含 `ci_measured`、`warnings`、`notes`。
 
 | Exit | 意義 | 動作 |
 |------|------|------|
-| `0` | 所有資料源都讀到 | 繼續 Step 4 |
-| `3` | 快照已寫出，但有資料源讀取失敗 | 繼續 Step 4；stdout JSON 的 `warnings` 原樣列進最終回報，不可省略 |
-| `2` | 參數或環境錯誤（非 git repo 等） | 原樣回報 stderr 並停止 |
-| 其他 | script 本身崩潰 | 原樣回報 stderr 並停止，不可用舊快照冒充本週結果 |
+| `0` | 資料源都讀到；`notes` 可能有資訊性說明（秒級計時、`--no-ci`、gate 無法歸因） | 繼續 Step 3；`notes` 列進最終回報 |
+| `3` | 快照已寫出，但有資料源讀取失敗、缺漏或未涵蓋觀察期；受影響的建議類型本週不判定 | 繼續 Step 3；`warnings` 原樣列進最終回報，不可省略 |
+| `2` | 參數或環境錯誤（非 git repo、`--now` 格式錯） | 原樣回報 stderr，`[FAIL]` 停止 |
+| 其他 | script 本身崩潰 | 原樣回報 stderr，`[FAIL]` 停止，不可用舊快照冒充本週結果 |
 
 第一次跑 CI 量測會抓 90 天內所有 failed run 的 jobs（約數百次唯讀 API 呼叫，8 路平行）；
-之後的週只抓快取裡沒有的新 run。
+之後的週只抓快取裡沒有的新 run。任何一頁或任何一個 run 讀不完整，`ci_measured` 就是 `false`。
 
-### Step 4 — 產出報告與週對週比對
+### Step 3 — 產出報告與週對週比對
 
-`PREV` 為空字串時腳本視為第一次執行，所以一律帶上：
+上週快照由 script 在 `$OUT_DIR` 找（`--prev auto`：檔名排序在本週之前的最後一份 `snapshot-YYYY-Www.json`），
+不要自己用 `ls` 找——空目錄與讀取錯誤在 shell 裡分不出來。
 
 ```bash
-python3 "{{skill_root}}/scripts/harness_review.py" report --snapshot "$OUT_DIR/snapshot-$WEEK.json" --prev "$PREV" --out "$OUT_DIR/report-$WEEK.md" --lessons-out "$OUT_DIR/lessons-$WEEK.jsonl"
+python3 "{{skill_root}}/scripts/harness_review.py" report --snapshot "$OUT_DIR/snapshot-$WEEK.json" --prev auto --out "$OUT_DIR/report-$WEEK.md" --lessons-out "$OUT_DIR/lessons-$WEEK.jsonl"
 ```
 
 | Exit | 動作 |
 |------|------|
-| `0` | 繼續 Step 5 |
-| `2` | 快照不存在或版本不符：原樣回報並停止 |
+| `0` 且 stdout `prev_status` 為 `found` | 繼續 Step 4；`prev` 是這次比對的上週快照路徑 |
+| `0` 且 stdout `prev_status` 為 `none` | 第一次執行（`$OUT_DIR` 沒有更早的快照），所有建議都標「新」；繼續 Step 4 並在回報註明 |
+| `2` | 快照不存在、格式或版本不符，或 `$OUT_DIR` 無法讀取：原樣回報 stderr，`[FAIL]` 停止 |
+| 其他 | 原樣回報 stderr，`[FAIL]` 停止 |
 
 報告把建議分成四桶：**修正**、**減量**、**退役或改寫**、**保留**，每條標「新」或「第 N 週」。
-上週有、本週消失的建議列在「上週建議的處理結果」，這就是閉環的檢驗結果。
+上週有、本週消失的建議分兩種：本週**量得到**才列在「上週建議的處理結果」（已解除，這就是閉環的檢驗結果）；
+本週**量不到**的列在「本週量不到的上週建議」，週數原樣保留。週數只在上週快照正好是前一個 ISO 週時累加；
+同一週重跑不累加；中間缺週則從 1 重新起算，報告會標「週次不相鄰」（stdout 的 `week_gap`）。
 
-### Step 5 — LLM 判讀（腳本只量測，語意判斷在這裡）
+### Step 4 — LLM 判讀（腳本只量測，語意判斷在這裡）
 
-腳本的 rule 候選只是啟發式排序（祈使句數 × 反引號字面值數，以及段落是否點名既有 hook／gate），
-**不代表能機械化**。逐條讀報告中「減量」與「退役或改寫」桶的前 10 條，打開 `file:line` 讀原文後，
-依下表**恰好選一格**（真值表，不用「依序比對、取第一個符合」的散文分支）：
+腳本的 rule 候選只是啟發式排序（祈使句數 × min(反引號字面值數, 10)，以及段落是否點名既有 hook／gate），
+**不代表能機械化**。逐條讀報告中「減量」與「退役或改寫」桶的前 10 條，打開報告「對象」欄的 `file:line`
+讀原文後，依下表**恰好選一格**（真值表，不用「依序比對、取第一個符合」的散文分支）：
 
 | 段落能否被程式判定對錯 | repo 是否已有涵蓋它的 hook／gate | repo 是否已明文裁決「不要做成 gate」 | 判定 |
 |---|---|---|---|
@@ -130,41 +138,63 @@ python3 "{{skill_root}}/scripts/harness_review.py" report --snapshot "$OUT_DIR/s
 可能就保留，並確認有一個會轉紅的 canary 證明它還活著。0 次觸發不等於沒用。
 
 把判讀結果以 `## LLM 判讀` 一節附加到 `$OUT_DIR/report-$WEEK.md` 末尾，每條寫：對象、判定、理由（引原文）、
-建議落點（具體檔案與段落，不寫「考慮」「之後再決定」）。
+建議落點（具體檔案與段落，不寫「考慮」「之後再決定」）。判為「維持」的條目記下它在 `lessons-$WEEK.jsonl`
+的 `key`，Step 5 排除。
 
-### Step 6 — 寫入 Mycelium（僅 `--write-lessons`）
+### Step 5 — 寫入 Mycelium（僅 `--write-lessons`）
 
-`lessons-$WEEK.jsonl` 每行是一筆候選，欄位有 `key`、`type`、`insight`、`weeks`。逐行**序列**執行
-（不要平行寫入）；Step 5 判為「維持」的條目不寫：
+沒有 `--write-lessons` 時跳過本步驟，Step 7 註明「未寫入 Mycelium」。
+
+`lessons-$WEEK.jsonl` 每行是一筆候選，欄位有 `key`、`type`、`project`、`bucket`、`weeks`、`insight`。
+由 script 逐行**序列**呼叫 `mycelium lessons add --skip-if-exists`（list args、不經 shell，insight 裡的
+反引號與 `$()` 都是字面值；每筆 60 秒逾時）。Step 4 判為「維持」的條目，每個 key 加一個
+`--exclude <key>`：
 
 ```bash
-mycelium lessons add --type operational --key "<key>" --insight "<insight>" --confidence 6 --source observed --skill harness-weekly-review --skip-if-exists
+python3 "{{skill_root}}/scripts/harness_review.py" write-lessons --lessons "$OUT_DIR/lessons-$WEEK.jsonl"
 ```
 
-`--skip-if-exists` 讓同一條建議不會每週重複寫入；持續幾週由快照的 `weeks` 追蹤，不靠 lessons。
-非零 exit 時記下 key 與 stderr，繼續下一筆，最後在回報中列出失敗清單。這些 lesson 之後由 distill 聚合，
-**由人**決定要不要落地成 PR。
+| Exit | 意義 | 動作 |
+|------|------|------|
+| `0` | 全部寫入，或依 `--skip-if-exists` 略過已存在的 key | 記下 stdout JSON 的 `written`／`excluded`，繼續 Step 6 |
+| `1` | 至少一筆失敗（mycelium 非零 exit、逾時、找不到 `mycelium`、該行格式錯） | stderr 的 `[FAIL]` 行原樣列進 Step 7 的失敗清單；其餘已寫入的不重寫，繼續 Step 6 |
+| `2` | lesson 檔不存在或無法讀取 | 原樣回報 stderr，`[FAIL]` 停止 |
+| 其他 | script 本身崩潰 | 原樣回報 stderr，`[FAIL]` 停止 |
 
-### Step 7 — 寫入 Hindsight（僅 `--write-hindsight`）
+`--skip-if-exists` 讓同一條建議不會每週重複寫入；持續幾週由快照的 `weeks` 追蹤，不靠 lessons。
+這些 lesson 之後由 distill 聚合，**由人**決定要不要落地成 PR。
+
+### Step 6 — 寫入 Hindsight（僅 `--write-hindsight`）
+
+沒有 `--write-hindsight` 時跳過本步驟，Step 7 註明「未寫入 Hindsight」。
 
 呼叫 MCP `hindsight_ingest_document`：
 
 - `title`：`Harness weekly review <repo> <WEEK>`
-- `content`：關鍵指標變化、需 owner 裁決的項目、已解除的建議、Step 5 的判定摘要（每條一句、附 `file:line`）
+- `content`：關鍵指標變化、需 owner 裁決的項目、已解除的建議、本週量不到的建議、Step 4 的判定摘要
+  （每條一句、附 `file:line`）
 
-Hindsight 的 bank 以 repo 區分，下週盤點時可以查「上週為什麼決定保留這支 hook」。MCP 不可用時記
-`[SKIP] Hindsight MCP 不可用`，不影響其他步驟。
+Hindsight 的 bank 以 repo 區分，下週盤點時可以查「上週為什麼決定保留這支 hook」。
 
-### Step 8 — 回報
+| 結果 | 動作 |
+|------|------|
+| 呼叫成功 | 記下文件 id，列進 Step 7 |
+| MCP 工具不存在（未安裝／未連線） | 記 `[FAIL] Hindsight MCP 不可用，本週未寫入 Hindsight`，列進 Step 7；不影響已完成的報告 |
+| 呼叫回傳錯誤 | 記 `[FAIL] Hindsight 寫入失敗：<錯誤原文>`，列進 Step 7；不重試、不改寫成 `[SKIP]` |
+
+呼叫參數明確要求了寫入，所以任何沒寫進去的情況都是 `[FAIL]`，不是 `[SKIP]`。
+
+### Step 7 — 回報
 
 回報內容：
 
-- 報告路徑 `$OUT_DIR/report-$WEEK.md`
+- 報告路徑 `$OUT_DIR/report-$WEEK.md`；上週快照路徑，或「第一次執行」
 - 需要 owner 裁決的項目（連續 3 週以上）
 - 本週新出現的「修正」桶項目
-- 上週建議中已解除的項目
-- Step 3 的 warnings（量測不完整的部分）
-- Step 6／7 實際寫入的筆數與失敗清單；沒帶寫入參數時註明「未寫入」
+- 上週建議中已解除的項目；本週量不到的項目（週數保留）
+- 週次不相鄰時的 `week_gap`
+- Step 2 的 `warnings`（量測不完整的部分）與 `notes`；`ci_measured` 為 `false` 時明寫「CI 未量測」
+- Step 5／6 實際寫入的筆數與所有 `[FAIL]` 清單；沒帶寫入參數時註明「未寫入」
 
 ## 門檻（可用 collect 參數調整）
 
@@ -176,15 +206,20 @@ Hindsight 的 bank 以 repo 區分，下週盤點時可以查「上週為什麼�
 | `--slow-total-ms` | 60000 | 觀察期總耗時門檻 |
 | `--noisy-failures` | 20 | 單一 CI step 的高噪失敗次數 |
 | `--heavy-rule-chars` | 8000 | 每次必載 rule 檔的篇幅門檻 |
-| `--ignore-jobs` | `/ CI Status$` | 不計入高噪的 rollup job（regex） |
+| `--min-rule-score` | 12 | rule 段落列為機械化候選的最低分數 |
+| `--max-rule-candidates` | 10 | 每週最多列出幾個 rule 段落候選 |
+| `--ignore-jobs` | `/ CI Status$\|ci-status` | 不計入高噪的 rollup job（regex） |
+
+`report`／`diff` 另有 `--escalate-weeks`（預設 3）：同一建議連續幾週未處理就升級為 owner 裁決。
 
 ## FAQ
 
 | 問題 | 處理 |
 |------|------|
 | 報告說 hook-events 找不到 | 目標 repo 的 `run-hook.sh` 還沒有執行紀錄功能；先合併該功能，或接受只有 transcript 與 CI 的報告 |
-| 所有 hook 都沒有「低訊號」建議 | 紀錄尚未涵蓋整個觀察期（warnings 會寫最早日期）；累積一週後再看 |
-| 耗時全是 1000 的倍數 | macOS 系統 bash 3.2 沒有 `EPOCHREALTIME`，只有秒級；慢 hook 門檻已自動提高 |
-| CI 量測很慢 | 第一次要抓 90 天的 failed run；之後靠 `ci-jobs-cache.json` 只抓新 run |
+| 所有 hook 都沒有「低訊號」建議 | 紀錄尚未涵蓋整個觀察期（warnings 會寫最早／最新日期與原因）；最早一筆要早於觀察期起點、最新一筆要在 2 天內 |
+| 耗時全是 1000 的倍數 | macOS 系統 bash 3.2 沒有 `EPOCHREALTIME`，只有秒級；慢 hook 門檻已自動提高（列在 notes，不影響 exit code） |
+| CI 量測很慢 | 第一次要抓 90 天的 failed run；之後靠 `ci-jobs-cache.json` 只抓新 run（不完整的結果不會進快取） |
 | `gh repo view` 失敗 | 在目標 repo 跑 `gh auth status`；暫時加 `--no-ci` |
-| 想強制重跑同一週 | 刪掉 `snapshot-$WEEK.json` 後重跑；persisting 週數以上週快照為基準，不受影響 |
+| gate 一直沒有 gate-silent 判定 | notes 若寫「無法歸因」，代表 workflow 裡沒有以 `run:` 直接呼叫該 script 的 step（例如包在 `make` 裡）；讓 step 直接呼叫 script，或接受這支 gate 不做 0 失敗判定 |
+| 想強制重跑同一週 | 直接重跑 Step 2 與 Step 3，`snapshot-$WEEK.json` 會被覆寫；週數以上週快照為基準，同一週重跑不會累加 |
