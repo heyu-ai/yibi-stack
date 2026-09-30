@@ -3,13 +3,15 @@
 Test ID 規則見 .claude/rules/09-test-conventions.md。
 
 覆蓋對映（Issue #421）：
-- 06:00 UTC 已知高用量小時 $216.78/hr：FUG-DT-001
-- 04:00 UTC 已知低用量小時 $0.54/hr：FUG-DT-002
+- 06:00 UTC 已知高用量小時 $72.26/hr：FUG-DT-001（issue #421 當初以舊的 opus-5 $15/$75 算出 $216.78；
+  2026-09-30 依官方定價 $5/$25 修正，所有項目等比例為 1/3）
+- 04:00 UTC 已知低用量小時 $0.18/hr：FUG-DT-002
 - (message.id, requestId) 去重不可移除：FUG-DT-003
 - Claude Fable 特價／標準價、context suffix、視窗與全 pricing formula：FUG-DT-004..009
 - 未定價 model、未知 qualifier、缺欄位與非 object usage 不得靜默通過：FUG-EG-001..004, FUG-EG-007
 - 不一致 signature 的重複 request 排除且回報 incomplete：FUG-EG-005
 - 高用量超標 + 未定價 model 並存時超標判定不得被 incomplete 壓過：FUG-EG-006
+- 官方定價頁現行價格（opus-5-5、sonnet-5、opus 家族、mythos-5-1、sonnet-4-6）：FUG-DT-010..016
 - CLI 輸出可供 skill 決定廣播，設定缺失／時間戳無效會 fail loud：FUG-ST-001..002 / FUG-VL-001
 """
 
@@ -21,6 +23,7 @@ import sys
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -90,7 +93,7 @@ def _write_usage_row(
 
 class TestKnownHourlyControls:
     def test_fug_dt_001_high_usage_hour_triggers_at_known_cost(self) -> None:
-        """FUG-DT-001: 06:00 UTC replay 為 $216.78/hr，超過 $50/hr。"""
+        """FUG-DT-001: 06:00 UTC replay 為 $72.26/hr，超過 $50/hr。"""
         result = fleet_usage_guard.evaluate_burn_rate(
             _FIXTURES,
             now=_at(7),
@@ -99,11 +102,11 @@ class TestKnownHourlyControls:
         )
 
         assert result.status == "burn_rate_exceeded"
-        assert result.estimated_cost_usd == Decimal("216.78")
-        assert result.estimated_usd_per_hour == Decimal("216.78")
+        assert result.estimated_cost_usd == Decimal("72.26")
+        assert result.estimated_usd_per_hour == Decimal("72.26")
 
     def test_fug_dt_002_low_usage_hour_does_not_trigger(self) -> None:
-        """FUG-DT-002: 04:00 UTC replay 為 $0.54/hr，不得誤觸發。"""
+        """FUG-DT-002: 04:00 UTC replay 為 $0.18/hr，不得誤觸發。"""
         result = fleet_usage_guard.evaluate_burn_rate(
             _FIXTURES,
             now=_at(5),
@@ -112,12 +115,12 @@ class TestKnownHourlyControls:
         )
 
         assert result.status == "below_threshold"
-        assert result.estimated_cost_usd == Decimal("0.54")
-        assert result.estimated_usd_per_hour == Decimal("0.54")
+        assert result.estimated_cost_usd == Decimal("0.18")
+        assert result.estimated_usd_per_hour == Decimal("0.18")
         assert fleet_usage_guard.build_broadcast_message(result) is None
 
     def test_fug_dt_003_duplicate_rows_do_not_inflate_known_cost(self) -> None:
-        """FUG-DT-003: 移除 request 去重會把 $216.78 高估為 $231.78 並讓此測試變紅。"""
+        """FUG-DT-003: 移除 request 去重會把 $72.26 高估為 $77.26 並讓此測試變紅。"""
         result = fleet_usage_guard.evaluate_burn_rate(
             _FIXTURES,
             now=_at(7),
@@ -128,7 +131,7 @@ class TestKnownHourlyControls:
         assert result.rows_with_usage == 155
         assert result.unique_requests == 145
         assert result.duplicate_rows == 10
-        assert result.estimated_cost_usd == Decimal("216.78")
+        assert result.estimated_cost_usd == Decimal("72.26")
 
 
 class TestPricingRules:
@@ -303,7 +306,7 @@ class TestPricingRules:
         )
 
         assert result.status == "below_threshold"
-        assert result.estimated_cost_usd == Decimal("1.50")
+        assert result.estimated_cost_usd == Decimal("0.50")
 
     def test_fug_dt_008_all_pricing_terms_contribute_to_exact_cost(self, tmp_path: Path) -> None:
         """FUG-DT-008: input/output/read/5m-write/1h-write 任何一項消失都會變紅。"""
@@ -332,7 +335,7 @@ class TestPricingRules:
         )
 
         assert result.status == "below_threshold"
-        assert result.estimated_cost_usd == Decimal("140.25")
+        assert result.estimated_cost_usd == Decimal("46.75")
 
     def test_fug_eg_003_non_object_usage_is_measurement_incomplete(self, tmp_path: Path) -> None:
         """FUG-EG-003: `usage: null` 不得被當成沒有 usage 的普通 row。"""
@@ -352,6 +355,75 @@ class TestPricingRules:
 
         assert result.status == "measurement_incomplete"
         assert result.invalid_recent_rows == 1
+
+
+def _io_usage(input_tokens: int, output_tokens: int, cache_read_tokens: int = 0) -> dict[str, Any]:
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cache_read_input_tokens": cache_read_tokens,
+        "cache_creation_input_tokens": 0,
+        "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0},
+    }
+
+
+def _single_row_cost(tmp_path: Path, model: str, usage: dict[str, Any]) -> Decimal:
+    _write_usage_row(
+        tmp_path / "project" / "session.jsonl",
+        model=model,
+        cache_read_tokens=0,
+        usage_override=usage,
+    )
+    result = fleet_usage_guard.evaluate_burn_rate(
+        tmp_path,
+        now=_at(7),
+        window_minutes=60,
+        threshold_usd_per_hour=Decimal("1000"),
+    )
+    assert result.status == "below_threshold", result
+    return result.estimated_cost_usd
+
+
+class TestCurrentListPrices:
+    """官方定價頁（2026-09-30 查核）的價格與 cache read 倍率。"""
+
+    def test_fug_dt_010_opus_5_5_prices_at_4_20_not_opus_5(self, tmp_path: Path) -> None:
+        """FUG-DT-010: opus-5-5 以 $4/$20 計價，不得落到 claude-opus-5 前綴。"""
+        cost = _single_row_cost(tmp_path, "claude-opus-5-5", _io_usage(1_000_000, 1_000_000))
+        assert cost == Decimal("24.00")
+
+    def test_fug_dt_011_opus_5_5_cache_read_uses_own_multiplier(self, tmp_path: Path) -> None:
+        """FUG-DT-011: opus-5-5 cache read 為 input 的 0.05x（$0.20/MTok）。"""
+        cost = _single_row_cost(tmp_path, "claude-opus-5-5", _io_usage(0, 0, 1_000_000))
+        assert cost == Decimal("0.20")
+
+    def test_fug_dt_012_sonnet_5_prices_at_2_10(self, tmp_path: Path) -> None:
+        """FUG-DT-012: sonnet-5 為 $2/$10（不是舊的 $3/$15）。"""
+        cost = _single_row_cost(tmp_path, "claude-sonnet-5", _io_usage(1_000_000, 1_000_000))
+        assert cost == Decimal("12.00")
+
+    def test_fug_dt_013_opus_family_prices_at_5_25(self, tmp_path: Path) -> None:
+        """FUG-DT-013: opus-5 / 4-8 / 4-7 / 4-6 皆為 $5/$25（不是 $15/$75）。"""
+        for index, model in enumerate(
+            ("claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6")
+        ):
+            cost = _single_row_cost(tmp_path / str(index), model, _io_usage(1_000_000, 1_000_000))
+            assert cost == Decimal("30.00"), model
+
+    def test_fug_dt_014_mythos_5_1_suffix_uses_quarter_cache_rate(self, tmp_path: Path) -> None:
+        """FUG-DT-014: `[1m]` 後綴的 mythos-5-1 仍用自己的 0.025x cache read。"""
+        cost = _single_row_cost(tmp_path, "claude-mythos-5-1[1m]", _io_usage(0, 0, 1_000_000))
+        assert cost == Decimal("0.25")
+
+    def test_fug_dt_015_opus_5_5_context_suffix_resolves(self, tmp_path: Path) -> None:
+        """FUG-DT-015: `claude-opus-5-5[1m]` 仍解析到 opus-5-5 定價。"""
+        cost = _single_row_cost(tmp_path, "claude-opus-5-5[1m]", _io_usage(1_000_000, 0, 1_000_000))
+        assert cost == Decimal("4.20")
+
+    def test_fug_dt_016_sonnet_4_6_is_priced(self, tmp_path: Path) -> None:
+        """FUG-DT-016: sonnet-4-6 以 $3/$15 計價，不是未定價 model。"""
+        cost = _single_row_cost(tmp_path, "claude-sonnet-4-6", _io_usage(1_000_000, 1_000_000))
+        assert cost == Decimal("18.00")
 
 
 class TestSkillContract:
@@ -381,9 +453,9 @@ class TestSkillContract:
         payload = json.loads(capsys.readouterr().out)
         assert exit_code == fleet_usage_guard.EXIT_BURN_RATE_EXCEEDED
         assert payload["reason"] == "burn_rate"
-        assert payload["estimated_usd_per_hour"] == 216.78
+        assert payload["estimated_usd_per_hour"] == 72.26
         assert "燒錢速率" in payload["broadcast_message"]
-        assert "$216.78/hr" in payload["broadcast_message"]
+        assert "$72.26/hr" in payload["broadcast_message"]
         assert "不是額度" in payload["broadcast_message"]
 
     def test_fug_st_002_timezone_less_recent_usage_exits_incomplete(

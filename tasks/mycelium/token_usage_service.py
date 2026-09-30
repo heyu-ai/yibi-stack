@@ -18,26 +18,45 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
-# 定價來源：claude-api skill（鏡像 Anthropic 官方定價頁 anthropic.com/pricing）。
-# 最後確認日期：2026-07-11。$/1M tokens：(input, output)。
+
+class ModelPricing(NamedTuple):
+    """單一 model 的 API 牌價（$/1M tokens）與 cache read 倍率（乘在 input 價格上）。"""
+
+    input_usd: float
+    output_usd: float
+    cache_read_multiplier: float = 0.1
+
+
+# 定價來源：Anthropic 官方定價頁 platform.claude.com/docs/en/about-claude/pricing
+# （與 claude.com/pricing 交叉比對）。最後確認日期：2026-09-30。
+# cache read 倍率依 model 而異：Fable 5.1 / Mythos 5.1 為 0.025x、Opus 5.5 為 0.05x，
+# 其餘為標準 0.1x。
 # 遇到表中沒有的 model id 時不要用最接近的價格硬猜——交給呼叫端標記 computed_partial。
-_PRICING_USD_PER_1M: dict[str, tuple[float, float]] = {
-    "claude-fable-5": (10.00, 50.00),
-    "claude-mythos-5": (10.00, 50.00),
-    "claude-opus-4-8": (5.00, 25.00),
-    "claude-opus-4-7": (5.00, 25.00),
-    "claude-opus-4-6": (5.00, 25.00),
-    "claude-sonnet-5": (3.00, 15.00),
-    "claude-sonnet-4-6": (3.00, 15.00),
-    "claude-haiku-4-5": (1.00, 5.00),
+_PRICING_USD_PER_1M: dict[str, ModelPricing] = {
+    "claude-fable-5-1": ModelPricing(10.00, 50.00, 0.025),
+    "claude-mythos-5-1": ModelPricing(10.00, 50.00, 0.025),
+    "claude-fable-5": ModelPricing(10.00, 50.00),
+    "claude-mythos-5": ModelPricing(10.00, 50.00),
+    "claude-opus-5-5": ModelPricing(4.00, 20.00, 0.05),
+    "claude-opus-5": ModelPricing(5.00, 25.00),
+    "claude-opus-4-8": ModelPricing(5.00, 25.00),
+    "claude-opus-4-7": ModelPricing(5.00, 25.00),
+    "claude-opus-4-6": ModelPricing(5.00, 25.00),
+    "claude-sonnet-5-5": ModelPricing(2.00, 10.00),
+    "claude-sonnet-5": ModelPricing(2.00, 10.00),
+    "claude-sonnet-4-6": ModelPricing(3.00, 15.00),
+    "claude-haiku-4-5": ModelPricing(1.00, 5.00),
 }
 
-# cache 倍率，乘在該 model 的 input 價格上。
-_CACHE_READ_MULTIPLIER = 0.1
+# dated snapshot 的前綴比對必須「最長 key 優先」：否則 claude-opus-5-5-<date>
+# 會先命中 claude-opus-5（兩者都滿足 startswith(key + "-")），被誤計成 opus-5 的價格。
+_PRICING_KEYS_LONGEST_FIRST = tuple(sorted(_PRICING_USD_PER_1M, key=len, reverse=True))
+
+# cache write 倍率，乘在該 model 的 input 價格上（所有 model 相同）。
 _CACHE_WRITE_5M_MULTIPLIER = 1.25
 _CACHE_WRITE_1H_MULTIPLIER = 2.0
 
@@ -104,7 +123,7 @@ def _normalize_model_id(model: str) -> str:
     normalized = _MODEL_SUFFIX_RE.sub("", model).strip()
     if normalized in _PRICING_USD_PER_1M:
         return normalized
-    for key in _PRICING_USD_PER_1M:
+    for key in _PRICING_KEYS_LONGEST_FIRST:
         if normalized.startswith(key + "-"):
             return key
     return normalized
@@ -388,12 +407,12 @@ def _model_cost(model: str, acc: UsageAccumulator) -> ModelCostBreakdown:
             cost_usd=None,
             priced=False,
         )
-    input_price, output_price = prices
+    input_price, output_price, cache_read_multiplier = prices
     cost = (
         acc.input_tokens * input_price
         + acc.cache_creation_5m_tokens * input_price * _CACHE_WRITE_5M_MULTIPLIER
         + acc.cache_creation_1h_tokens * input_price * _CACHE_WRITE_1H_MULTIPLIER
-        + acc.cache_read_tokens * input_price * _CACHE_READ_MULTIPLIER
+        + acc.cache_read_tokens * input_price * cache_read_multiplier
         + acc.output_tokens * output_price
     ) / 1_000_000
     return ModelCostBreakdown(
