@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.7] - 2026-09-30
+
+### Fixed
+
+- fleet-usage-guard 與 mycelium token 用量估算的 Claude 定價表過期，依官方定價頁（2026-09-30 查核）修正：
+  - Opus 5 / 4.8 / 4.7 / 4.6 從 $15/$75 改為 $5/$25；Sonnet 5 從 $3/$15 改為 $2/$10
+  - 新增 Opus 5.5（$4/$20，cache read 0.05x）、Mythos 5.1（cache read 0.025x）、Sonnet 5.5；
+    `claude-opus-5-5` 不再落到 `claude-opus-5` 前綴而被高估
+  - mycelium：補上 Opus 5、Opus 5.5、Fable 5.1、Mythos 5.1；cache read 倍率改為逐 model 設定；
+    dated snapshot 的前綴比對改為最長 key 優先
+  - fleet-usage-guard 的 fixture 預期金額隨 Opus 5 價格等比例調整（$216.78/hr → $72.26/hr）
+
 ## [1.23.6] - 2026-09-28
 
 ### Fixed

@@ -90,4 +90,8 @@ hub(op="send", to="all", message=<broadcast_message>)
 uv run pytest scripts/tests/test_fleet_usage_guard.py
 ```
 
-測試的 06:00 UTC aggregate replay 鎖定 issue #421 已知的 `$216.78/hr`，04:00 UTC replay 鎖定 `$0.54/hr`。高用量 fixture 含 10 個重複 request row；移除 `(message.id, requestId)` 去重會把結果提高到 `$231.78` 並讓測試失敗。
+測試的 06:00 UTC aggregate replay 鎖定 `$72.26/hr`，04:00 UTC replay 鎖定 `$0.18/hr`。
+高用量 fixture 含 10 個重複 request row；移除 `(message.id, requestId)` 去重會把結果提高到 `$77.26` 並讓測試失敗。
+
+issue #421 當初以舊的 Opus 5 牌價 $15/$75 算出 `$216.78/hr`；2026-09-30 依官方定價頁改為 $5/$25 後，
+fixture 全為 `claude-opus-5`，所有金額等比例變為 1/3。定價表來源與查核日期見 `scripts/fleet_usage_guard.py` 的 `_MODEL_PRICES` 註解。

@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from tasks.mycelium.token_usage_service import (
+    _PRICING_KEYS_LONGEST_FIRST,
+    _PRICING_USD_PER_1M,
     TokenUsageReport,
     UsageAccumulator,
     _accumulate_usage_by_model,
@@ -99,6 +101,31 @@ class TestNormalizeModelId:
     def test_toksvc_dt_004_unknown_model_passthrough(self) -> None:
         """TOKSVC-DT-004：定價表沒有的 model 原樣回傳（讓呼叫端判斷 unpriced）。"""
         assert _normalize_model_id("claude-unknown-9000") == "claude-unknown-9000"
+
+    def test_toksvc_dt_013_opus_5_5_not_swallowed_by_opus_5(self) -> None:
+        """TOKSVC-DT-013：opus-5-5 不得被 opus-5 前綴吃掉（含後綴與 dated 形式）。"""
+        assert _normalize_model_id("claude-opus-5-5") == "claude-opus-5-5"
+        assert _normalize_model_id("claude-opus-5-5[1m]") == "claude-opus-5-5"
+        assert _normalize_model_id("claude-opus-5-5-20260901") == "claude-opus-5-5"
+        assert _normalize_model_id("claude-opus-5-20260101") == "claude-opus-5"
+
+    def test_toksvc_dt_015_prefix_lookup_order_is_longest_first(self) -> None:
+        """TOKSVC-DT-015：前綴比對順序中，較長的 key 一定排在它的前綴 key 之前。
+
+        不依賴 dict 的插入順序：日後有人把 claude-opus-5 寫在 claude-opus-5-5 前面，
+        dated snapshot 仍不得被較短的 key 搶先命中。
+        """
+        order = {key: index for index, key in enumerate(_PRICING_KEYS_LONGEST_FIRST)}
+        assert set(order) == set(_PRICING_USD_PER_1M)
+        for longer in order:
+            for shorter in order:
+                if longer.startswith(shorter + "-"):
+                    assert order[longer] < order[shorter], (longer, shorter)
+
+    def test_toksvc_dt_014_new_models_are_priced(self) -> None:
+        """TOKSVC-DT-014：opus-5 / opus-5-5 / fable-5-1 / mythos-5-1 都在定價表內。"""
+        for model in ("claude-opus-5", "claude-opus-5-5", "claude-fable-5-1", "claude-mythos-5-1"):
+            assert _model_cost(model, UsageAccumulator(input_tokens=1)).priced is True, model
 
 
 class TestProjectSlugForCwd:
@@ -318,18 +345,56 @@ class TestModelCost:
             cache_creation_5m_tokens=1_000_000,
             cache_creation_1h_tokens=1_000_000,
         )
-        # claude-sonnet-5: input=3.00, output=15.00 ($/1M)
+        # claude-sonnet-5: input=2.00, output=10.00 ($/1M)，cache read 0.1x
         breakdown = _model_cost("claude-sonnet-5", acc)
         expected = (
-            3.00
-            + (1_000_000 * 3.00 * 1.25) / 1_000_000
-            + (1_000_000 * 3.00 * 2.0) / 1_000_000
-            + (1_000_000 * 3.00 * 0.1) / 1_000_000
-            + 15.00
+            2.00
+            + (1_000_000 * 2.00 * 1.25) / 1_000_000
+            + (1_000_000 * 2.00 * 2.0) / 1_000_000
+            + (1_000_000 * 2.00 * 0.1) / 1_000_000
+            + 10.00
         )
         assert breakdown.priced is True
         assert breakdown.cost_usd is not None
         assert abs(breakdown.cost_usd - expected) < 1e-9
+
+    def test_toksvc_st_013_opus_5_5_prices_at_4_20_not_opus_5(self) -> None:
+        """TOKSVC-ST-013：opus-5-5 以 $4/$20 計價，不得落到 opus-5 的 $5/$25。"""
+        acc = UsageAccumulator(input_tokens=1_000_000, output_tokens=1_000_000)
+        breakdown = _model_cost("claude-opus-5-5", acc)
+        assert breakdown.cost_usd is not None
+        assert abs(breakdown.cost_usd - 24.00) < 1e-9
+        opus_5 = _model_cost("claude-opus-5", acc)
+        assert opus_5.cost_usd is not None
+        assert abs(opus_5.cost_usd - 30.00) < 1e-9
+
+    def test_toksvc_st_014_cache_read_multiplier_is_per_model(self) -> None:
+        """TOKSVC-ST-014：cache read 倍率依 model 而異。
+
+        fable/mythos-5-1 為 0.025x、opus-5-5 為 0.05x、其他 0.1x。
+        """
+        acc = UsageAccumulator(cache_read_tokens=1_000_000)
+        expected = {
+            "claude-fable-5-1": 0.25,  # 10 * 0.025
+            "claude-mythos-5-1": 0.25,  # 10 * 0.025
+            "claude-opus-5-5": 0.20,  # 4 * 0.05
+            "claude-fable-5": 1.00,  # 10 * 0.1
+            "claude-opus-5": 0.50,  # 5 * 0.1
+        }
+        for model, cost in expected.items():
+            breakdown = _model_cost(model, acc)
+            assert breakdown.cost_usd is not None, model
+            assert abs(breakdown.cost_usd - cost) < 1e-9, model
+
+    def test_toksvc_st_015_context_suffix_keeps_model_pricing(self) -> None:
+        """TOKSVC-ST-015：`[1m]` 後綴的 model id 仍解析到自己的價格與 cache 倍率。"""
+        acc = UsageAccumulator(input_tokens=1_000_000, cache_read_tokens=1_000_000)
+        breakdown = _model_cost("claude-opus-5-5[1m]", acc)
+        assert breakdown.cost_usd is not None
+        assert abs(breakdown.cost_usd - (4.00 + 0.20)) < 1e-9
+        fable = _model_cost("claude-fable-5-1[1m]", acc)
+        assert fable.cost_usd is not None
+        assert abs(fable.cost_usd - (10.00 + 0.25)) < 1e-9
 
     def test_toksvc_dt_011_unpriced_model_returns_none_cost(self) -> None:
         """TOKSVC-DT-011：定價表沒有的 model，cost_usd=None、priced=False。"""
