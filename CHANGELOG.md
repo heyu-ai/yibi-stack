@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   identity 更新 initiative。新增共用 protocol、deterministic projection helper 與 audit
   measurement report；content envelope 不冒充原生 metadata，accepted 不等於可搜尋（#425）。
 
+### Fixed
+
+- Hindsight 投影：receipt 綁定 canonical lesson ID，active 接替須核實 predecessor；
+  audit 以含時區的實際時間排序，合併 GitHub PR identity 別名，拒絕空 CLI 路徑與身分空白。
+  補回執行出貨 Bash 範本與真實隔離 Mycelium DB 的安全回歸測試，不鎖定文件標題措辭（#512）。
+
 ## [1.23.6] - 2026-09-28
 
 ### Fixed

@@ -74,6 +74,11 @@ On a later retro or promotion invocation, previously projected lessons SHALL be 
 - **WHEN** an accepted active projection's canonical lesson is now parked with confidence four
 - **THEN** prepare SHALL produce a parked tombstone using the same document identity.
 
+#### Scenario: receipt-ownership -- Canonical row ownership
+
+- **WHEN** the previous receipt belongs to a different canonical lesson ID
+- **THEN** prepare SHALL reject an inactive row's write; an active successor SHALL be allowed only after its canonical predecessor's id/project/key and superseded_by pointer verify the exact handoff.
+
 ### Requirement: Initiative identity update
 
 The workflow SHALL publish initiative outcomes only when a linked repo-qualified Epic/change identity and a confirmed Q2 capability or milestone exist. Exact identity search/list/read SHALL precede creation. Existing initiatives SHALL be updated with relates_to_page_id; ambiguous matches or unknown creation outcomes SHALL degrade without a blind retry.
@@ -101,3 +106,17 @@ Each call SHALL record its operation, outcome, candidate page IDs, fallback and 
 
 - **WHEN** a live invocation has canonical_written=false
 - **THEN** report SHALL NOT count it toward the thirty-retro threshold.
+
+#### Scenario: explicit-audit-path -- Empty argument is not the current directory
+
+- **WHEN** report receives an empty audit-dir argument
+- **THEN** the CLI SHALL exit 2 rather than scan the working directory; an explicitly selected empty directory SHALL remain a valid zero-sample input.
+
+### Requirement: Preserve executable lesson write safety
+
+The shipped Step 4b Bash template SHALL preserve active replay deduplication, parked-state handling and literal lesson text. The agent's recurrence-before-confidence workflow SHALL retain explicit manual verification rather than a heading-wording assertion.
+
+#### Scenario: legacy-lesson-write-safety -- Existing Mycelium write invariants
+
+- **WHEN** the shipped template writes an active lesson twice, or writes one parked lesson containing dollar and command-substitution text
+- **THEN** active replay SHALL leave one canonical row, parked writes SHALL remain parked, and the insight SHALL remain literal rather than execute shell substitutions.

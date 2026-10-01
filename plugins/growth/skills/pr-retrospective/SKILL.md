@@ -731,8 +731,10 @@ projection helper 流程執行：
 2. 由共用 helper 按 canonical 多因子條件決定：pitfall 要 confidence ≥ 7、非 inferred 且有具體
    PR/session/commit 證據；pattern 要 confidence ≥ 7 且至少兩個已核實的獨立事件。
    新 projection 必須是有效 active lesson，parked/superseded/retired 不發布為新知識。
-   對本次查到、先前已投影且 lifecycle 改變的列，依 canonical 狀態送 tombstone／deprecated
-   表示；不把已失效內容當 active，也不從 Hindsight 反改 Mycelium。
+   **另遍歷本 project 所有先前 accepted projection identity**，不只本次搜尋命中的列，
+   無新候選也要依 HINDSIGHT.md 逐 ID 讀回 canonical 並 reconcile lifecycle。
+   舊 inactive 列不能使用新 active 替代列的 receipt；接替關係須由 canonical predecessor 證明。
+   已失效者送同 identity tombstone，不從 Hindsight 反改 Mycelium。
 3. 使用 helper 的 `[Lesson] <key>` 穩定 title、背景摘要與事故指針；provenance、
    `source_system`、source ID、content hash 都在 **content** 中。依 protocol 檢查 project/key
    身分、前次 receipt 與 revision，略過同 revision；變更才呼叫

@@ -12,6 +12,7 @@ Review Contract AC-1～AC-8 已由使用者確認。測試邊界為已交付的 
 | projection-prepare | hindsight_projection.prepare(payload) | agent 提交 canonical snapshot 後取得 ingest/skip 或拒絕；不 mock 本 repo 模組 |
 | audit-report | hindsight_projection.report(directory, project) | 消費真實檔案形狀的 audit，觀察計數／分母／排除結果 |
 | agent-mcp-workflow | pr-retrospective + HINDSIGHT.md 的 MCP calls | schema、bank、canonical ordering 與遠端 readback 必須用 agent/live walkthrough 驗證 |
+| lesson-cli | 出貨 Step4b Bash 範本 → 真實 mycelium CLI → 隔離 SQLite | 觀察重跑／park狀態／字面值安全，不用 mock echoes 或手抄範本 |
 
 ## TC Table
 
@@ -29,6 +30,17 @@ Review Contract AC-1～AC-8 已由使用者確認。測試邊界為已交付的 
 | HSP-DT-010 | auto | audit-report | measurement-observations | 未知與已觀測 false 分開 | DT | High | duplicate audit + later review | report | duplicate True→False，cited unknown | distinct invocation計次；duplicate=0/1；cited=null |
 | HSP-EG-011 | auto | audit-report | measurement-observations | malformed audit 顯式排除 | EP | Medium | temp audit directory | 布林欄位給字串後report | cited="false" | excluded 含原因，不計樣本 |
 | HSP-ST-012 | auto | audit-report | cancelled-retro | 取消不灌樣本 | ST | High | live invocation | canonical_written=false後report | cancelled retro | retro_count=0 |
+| HSP-ST-013 | auto | audit-report | measurement-observations | 以真正時間選最新觀測 | ST | High | 同或不同invocation | 整秒與較晚小數秒混用 | UTC Z／.500Z | 新false不被舊true覆蓋 |
+| HSP-EG-014 | auto | audit-report | measurement-observations | 無效／無時區時間排除 | EP | High | audit檔 | report | yesterday／naive／empty | 不計次並列excluded |
+| HSP-EG-015 | auto | projection-prepare | receipt-ownership | 舊列不覆寫替代列 | EP | High | 新B的receipt | 用舊A準備tombstone | 不同lesson_id | 拒絕 |
+| HSP-ST-016 | auto | projection-prepare | receipt-ownership | 合法active接替需證明 | ST | High | 舊A的receipt | 新B提供或省略predecessor | 正確／錯誤superseded_by | 只有已核實接替可寫同doc |
+| HSP-DT-017 | auto | projection-prepare | pattern-evidence-deduplication | PR別名不灌事件／樣本 | DT | High | URL及short identity | prepare後report | 同PR兩種表示 | pattern skip、retro_count=1、metric正確join |
+| HSP-EG-018 | auto | projection-prepare | unsafe-key | 身分不以trim修復 | EP | High | canonical row | identity加首尾空白 | project/id/key | 拒絕 |
+| HSP-ST-019 | auto | projection-prepare | inactive-record | SQLite tags字串與錯hash | ST | High | accepted receipt | tags JSON字串後改錯hash | parked／wrong | tombstone；錯receipt拒絕 |
+| HSP-ST-020 | auto | lesson-cli | legacy-lesson-write-safety | active重跑與文字安全 | ST | High | 隔離DB/HOME | 執行實際範本兩次 | dollar／command substitution | 一列且insight逐字保留 |
+| HSP-ST-021 | auto | lesson-cli | legacy-lesson-write-safety | park路徑不混互斥旗標 | ST | High | 隔離DB/HOME | 執行park範本 | confidence4 | parked/recurrence-1，literal insight |
+| HSP-EG-022 | auto | audit-report | explicit-audit-path | 空字串不掃cwd | EP | High | 空目錄 | 呼叫真正CLI | 空字串與明確dot | exit2／合法insufficient_data |
+| HSP-EG-023 | auto | audit-report | measurement-observations | 缺project不是foreign | EP | Medium | malformed及foreign audit | report | missing／有效foreign | 只列malformed到excluded |
 
 ## Coverage Analysis
 
@@ -48,6 +60,9 @@ Review Contract AC-1～AC-8 已由使用者確認。測試邊界為已交付的 
 | repeated-execution | covered | HSP-BV-009 | Auto |
 | measurement-observations | covered | HSP-DT-010, HSP-EG-011 | 合法值與錯誤值兩種契約 |
 | cancelled-retro | covered | HSP-ST-012 | Auto |
+| receipt-ownership | covered | HSP-EG-015, HSP-ST-016 | canonical接替關係 |
+| explicit-audit-path | covered | HSP-EG-022 | 真正CLI |
+| legacy-lesson-write-safety | covered | HSP-ST-020, HSP-ST-021 | 真正Bash/DB；副本突變，不修改review snapshot |
 | equivalent-memory | external | — | ainization-skill伴隨PR；不冒稱本PR已驗證 |
 | conflicting-adr | external | — | ainization-skill伴隨PR |
 | shared-key-projects | external | — | ainization-skill伴隨PR |
@@ -55,7 +70,7 @@ Review Contract AC-1～AC-8 已由使用者確認。測試邊界為已交付的 
 ## Manual Verification
 
 - [ ] MV-001 AC-1：確認 tools/list、diagnose、bounded list preflight；缺工具／transport failure 只降級，不中斷 Mycelium，不逐lesson重探。既有實跑紀錄在 design，human quick pass仍待確認。
-- [ ] MV-002 AC-2：用 projection-derived thematic hit／同incident多份摘要走查；不增加 recurrence，未知來源不當獨立證據。
+- [ ] MV-002 AC-2：用 projection-derived thematic hit／同incident多份摘要走查；確認無 Hindsight 時原 Mycelium recurrence 查詢仍先於 confidence 決策，不增加未知來源的 recurrence。howie已批准此人工順序驗收搭配真正Bash/DB測試，不鎖定標題措辭。
 - [ ] MV-003 AC-3：cancel／canonical failure／skip-if-exists 路徑走查；沒有成功readback就不能用準備中的參數發布。
 - [ ] MV-004 AC-6：獨立bank真實MCP active→changed-active→inactive，讀回同document ID最新content。當前抽取模型不支援；accepted receipt不是成功證據。
 - [ ] MV-005 AC-5：同 Epic/change 使用既有page ID；多筆候選／unknown timeout不盲建。記錄schema與actual call arguments。
@@ -74,4 +89,4 @@ Review Contract AC-1～AC-8 已由使用者確認。測試邊界為已交付的 
 ## Traceability Matrix
 
 TC與scenario的對應以TC Table及pytest docstring的 `tc:`／`spec:` 為唯一資料來源。
-測試檔：scripts/tests/test_hindsight_projection.py；現有pytest testpaths已包含 scripts/tests。
+測試檔：scripts/tests/test_hindsight_projection.py、scripts/tests/test_retro_lesson_runtime.py；現有pytest testpaths已包含 scripts/tests。

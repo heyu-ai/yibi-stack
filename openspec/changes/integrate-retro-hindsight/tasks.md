@@ -22,6 +22,11 @@
 - [x] 4.2 執行目標測試與相關 lint、更新既有文件及 changelog；檢查兩 worktree 的交付範圍，記錄真實 MCP smoke 限制與30次實際使用的待驗收狀態，不偽造完成。
 - [ ] 4.3 累積30個不同、canonical write 成功的真實 retro，使用 report CLI 產出四率與 observed denominators 的實測報告；只有真實 audit 可作驗收，smoke／取消／重跑同 PR 都不補樣本數。
 
+## 5. PR review 修正
+
+- [x] 5.1 Preserve executable lesson write safety：按howie裁決執行出貨Bash／真實隔離DB測試，保留人工recurrence順序驗收；45個targeted cases通過，三個副本突變皆KILLED。
+- [x] 5.2 Canonical projection eligibility / Lifecycle reconciliation / Audited real-world measurement：綁定lesson_id與predecessor、依實際時間排序、合併PR別名、拒絕空路徑與身分空白；23個TC有docstring追溯，CLI smoke通過。AC-6外部readback仍未完成。
+
 ## 驗收阻擋（2026-09-30）
 
 - 2.2 / 2.3：prepare CLI 與單元測試通過，真實 MCP 對 active／parked payload 均接受且回相同 doc_id；
