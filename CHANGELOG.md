@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hindsight 的 prepare 改為 invocation-wide batch；每 doc 只輸出一個權威意圖，合格 successor
   不再被同批舊列 tombstone 覆蓋。移除舊單列 input，遷移 runbook 與行為測試（#512）。
 
+## [1.23.8] - 2026-10-01
+
+### Fixed
+
+- codex-consult／codex-review／codex-cli 的 `codex exec` 未指定模型，ChatGPT 帳號登入下 codex 預設選到的
+  `gpt-6-sol` 直接回 400（#511）。5 處呼叫統一 pin `-m gpt-6-astra`（與 pr-cycle-deep review stage 同一個
+  slug），移除已 deprecated 的 `--enable web_search_cached`，失敗提示補上 codex-cli >= 0.154.0 的版本條件
+- 新增 `scripts/tests/test_codex_exec_model_pin.py`：掃描 `plugins/` 下所有 SKILL.md 與 `.sh` 的 `codex exec`
+  指令行，要求每一處都 pin 模型且只能是共用的 frontier／extract slug，避免兩處各自維護再漂移
+
 ## [1.23.7] - 2026-09-30
 
 ### Fixed
