@@ -38,16 +38,25 @@ class ModelPrice:
 
 
 # Longest prefixes are checked first. Prices are API list-price estimates, not billing rates.
+# 價格來源：Anthropic 官方定價頁 platform.claude.com/docs/en/about-claude/pricing
+# （與 claude.com/pricing 交叉比對），最後確認日期：2026-09-30。
+# cache read 倍率：Fable 5.1 / Mythos 5.1 為 0.025x、Opus 5.5 為 0.05x，其餘為標準 0.1x。
+# 長前綴優先比對，所以 claude-opus-5-5 必須有自己的一列，否則會落到 claude-opus-5。
 _MODEL_PRICES = tuple(
     sorted(
         (
             ModelPrice("claude-fable-5-1", Decimal("10"), Decimal("50"), Decimal("0.025")),
+            ModelPrice("claude-mythos-5-1", Decimal("10"), Decimal("50"), Decimal("0.025")),
             ModelPrice("claude-fable-5", Decimal("10"), Decimal("50")),
-            ModelPrice("claude-opus-5", Decimal("15"), Decimal("75")),
-            ModelPrice("claude-opus-4-8", Decimal("15"), Decimal("75")),
-            ModelPrice("claude-opus-4-7", Decimal("15"), Decimal("75")),
-            ModelPrice("claude-opus-4-6", Decimal("15"), Decimal("75")),
-            ModelPrice("claude-sonnet-5", Decimal("3"), Decimal("15")),
+            ModelPrice("claude-mythos-5", Decimal("10"), Decimal("50")),
+            ModelPrice("claude-opus-5-5", Decimal("4"), Decimal("20"), Decimal("0.05")),
+            ModelPrice("claude-opus-5", Decimal("5"), Decimal("25")),
+            ModelPrice("claude-opus-4-8", Decimal("5"), Decimal("25")),
+            ModelPrice("claude-opus-4-7", Decimal("5"), Decimal("25")),
+            ModelPrice("claude-opus-4-6", Decimal("5"), Decimal("25")),
+            ModelPrice("claude-sonnet-5-5", Decimal("2"), Decimal("10")),
+            ModelPrice("claude-sonnet-5", Decimal("2"), Decimal("10")),
+            ModelPrice("claude-sonnet-4-6", Decimal("3"), Decimal("15")),
             ModelPrice("claude-haiku-4-5", Decimal("1"), Decimal("5")),
         ),
         key=lambda price: len(price.model_prefix),

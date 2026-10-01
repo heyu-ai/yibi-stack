@@ -37,6 +37,7 @@ claude plugin install harness@yibi-stack
 |-----------|-------------|
 | `harness-eval` skill | 11 維度 harness 就緒度評量；PASS/WARN/FAIL 健康清單與優先改善 TODO |
 | `harness-eval-focus` skill | 針對 D1–D11 單一維度做深度稽核並提供具體修法 |
+| `harness-weekly-review` skill | 每週用執行期資料（hook-events 紀錄、transcript、CI failed step、rules 必載字元）量測 rule／hook／gate 的觸發率、錯誤率與耗時，產出可機械化的 rule、該退役或修正的 hook／gate，並與上週快照比對形成閉環；可選擇寫入 Mycelium 與 Hindsight。`weekly` 子命令可接本機 scheduler 每週無人值守量測 |
 | `bash-hygiene-audit` skill | 管理 hook audit log：啟用／停用記錄、查看攔截事件、統計違規比例與熱點 pattern |
 | `bash-anti-patterns` skill | Full methodology guide for AP1/AP2/AP3 detection and shell quoting hygiene |
 | `protect-push` skill | Git pre-push hook installer: blocks direct push to main/master from worktree branches |
