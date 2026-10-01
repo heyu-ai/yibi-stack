@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hindsight 投影：receipt 綁定 canonical lesson ID，active 接替須核實 predecessor；
   audit 以含時區的實際時間排序，合併 GitHub PR identity 別名，拒絕空 CLI 路徑與身分空白。
   補回執行出貨 Bash 範本與真實隔離 Mycelium DB 的安全回歸測試，不鎖定文件標題措辭（#512）。
+- Hindsight 的 prepare 改為 invocation-wide batch；每 doc 只輸出一個權威意圖，合格 successor
+  不再被同批舊列 tombstone 覆蓋。移除舊單列 input，遷移 runbook 與行為測試（#512）。
 
 ## [1.23.7] - 2026-09-30
 

@@ -70,7 +70,45 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def prepare(payload: dict[str, Any]) -> dict[str, Any]:
+def _lifecycle(row: dict[str, Any]) -> str:
+    tags = row.get("tags")
+    if isinstance(tags, str):
+        tags = json.loads(tags)
+    if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+        raise ValueError("record.tags 必須是字串陣列，或該陣列的 JSON 字串")
+    if "retired_at" not in row or "superseded_by" not in row:
+        raise ValueError("canonical snapshot 必須包含 retired_at 與 superseded_by")
+    retired = row["retired_at"]
+    superseded = row["superseded_by"]
+    for field, value in (("retired_at", retired), ("superseded_by", superseded)):
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ValueError(f"record.{field} 必須是 null 或非空字串")
+    return (
+        "retired"
+        if retired
+        else "superseded"
+        if superseded
+        else "parked"
+        if "parked" in tags
+        else "active"
+    )
+
+
+def _receipt_owner(previous: Any, project: str, key: str) -> str:
+    if (
+        not isinstance(previous, dict)
+        or previous.get("project") != project
+        or previous.get("source_id") != key
+        or previous.get("expected_doc_id") != f"lesson-{key}"
+        or previous.get("outcome") != "accepted"
+        or not isinstance(previous.get("content_hash"), str)
+        or not HASH.fullmatch(previous["content_hash"])
+    ):
+        raise ValueError("previous 必須是同 project、key 與 document 的 accepted receipt")
+    return _identity(previous.get("lesson_id"), "previous.lesson_id")
+
+
+def _prepare_record(payload: dict[str, Any]) -> dict[str, Any]:
     """僅對符合條件的 canonical snapshot 產生 MCP 可接受的投影。"""
     project = _identity(payload.get("project"), "project")
     row = payload.get("record")
@@ -92,44 +130,12 @@ def prepare(payload: dict[str, Any]) -> dict[str, Any]:
         or not 0 <= confidence <= 10
     ):
         raise ValueError("record confidence 必須是 [0, 10] 的有限數值")
-    tags = row.get("tags")
-    if isinstance(tags, str):
-        tags = json.loads(tags)
-    if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
-        raise ValueError("record.tags 必須是字串陣列，或該陣列的 JSON 字串")
-    # 缺少 lifecycle 欄位表示未知，不能推定為 active。
-    if "retired_at" not in row or "superseded_by" not in row:
-        raise ValueError("canonical snapshot 必須包含 retired_at 與 superseded_by")
-    retired = row["retired_at"]
+    lifecycle = _lifecycle(row)
     superseded = row["superseded_by"]
-    for field, value in (("retired_at", retired), ("superseded_by", superseded)):
-        if value is not None and (not isinstance(value, str) or not value.strip()):
-            raise ValueError(f"record.{field} 必須是 null 或非空字串")
-    lifecycle = (
-        "retired"
-        if retired
-        else "superseded"
-        if superseded
-        else "parked"
-        if "parked" in tags
-        else "active"
-    )
     doc_id = f"lesson-{key}"
     previous = payload.get("previous")
-    if previous is not None and (
-        not isinstance(previous, dict)
-        or (
-            previous.get("project") != project
-            or previous.get("source_id") != key
-            or previous.get("expected_doc_id") != doc_id
-            or previous.get("outcome") != "accepted"
-            or not isinstance(previous.get("content_hash"), str)
-            or not HASH.fullmatch(previous["content_hash"])
-        )
-    ):
-        raise ValueError("previous 必須是同 project、key 與 document 的 accepted receipt")
     if previous is not None:
-        previous_id = _identity(previous.get("lesson_id"), "previous.lesson_id")
+        previous_id = _receipt_owner(previous, project, key)
         if previous_id != lesson_id:
             predecessor = payload.get("predecessor")
             if (
@@ -191,6 +197,104 @@ def prepare(payload: dict[str, Any]) -> dict[str, Any]:
         "action": "ingest",
         "arguments": {"title": f"[Lesson] {key}", "content": _json(envelope)},
     }
+
+
+def prepare(payload: dict[str, Any]) -> dict[str, Any]:
+    """先合併整次 invocation 的意圖，再回傳每份文件最多一個計畫；不接受舊單列格式。"""
+    project = _identity(payload.get("project"), "project")
+    items = payload.get("items")
+    receipts = payload.get("receipts")
+    if not isinstance(items, list) or not isinstance(receipts, list):
+        raise ValueError("prepare 必須接收整次 invocation 的 items 與 receipts 陣列")
+
+    by_id: dict[str, dict[str, Any]] = {}
+    by_key: dict[str, list[str]] = {}
+    states: dict[str, str] = {}
+    candidates: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("record"), dict):
+            raise ValueError("每個 item 必須包含 canonical record")
+        row = item["record"]
+        if row.get("project") != project:
+            raise ValueError("canonical record 的 project 與要求不符")
+        lesson_id = _identity(row.get("id"), "record.id")
+        key = _identity(row.get("key"), "record.key")
+        if not KEY.fullmatch(key):
+            raise ValueError("record.key 必須是小寫 kebab-case")
+        if lesson_id in by_id:
+            raise ValueError("同一次 invocation 不可重複提供 canonical lesson ID")
+        by_id[lesson_id] = row
+        by_key.setdefault(key, []).append(lesson_id)
+        states[lesson_id] = _lifecycle(row)
+        if "summary" in item or "evidence_ids" in item:
+            candidates[lesson_id] = item
+
+    previous_by_key: dict[str, dict[str, Any]] = {}
+    for receipt in receipts:
+        if not isinstance(receipt, dict):
+            raise ValueError("receipt 必須是物件")
+        key = _identity(receipt.get("source_id"), "receipt.source_id")
+        owner_id = _receipt_owner(receipt, project, key)
+        if key in previous_by_key:
+            raise ValueError("每份文件只可提供最新的一份 accepted receipt")
+        if owner_id not in by_id or by_id[owner_id]["key"] != key:
+            raise ValueError("缺少 receipt owner 的同 project/key canonical readback")
+        previous_by_key[key] = receipt
+
+    keys = set(previous_by_key)
+    keys.update(by_id[lesson_id]["key"] for lesson_id in candidates)
+    plans = []
+    for key in sorted(keys):
+        row_ids = by_key[key]
+        active_ids = [lesson_id for lesson_id in row_ids if states[lesson_id] == "active"]
+        if len(active_ids) > 1:
+            raise ValueError(f"{key} 有多個 active canonical rows，不能判定文件歸屬")
+        previous = previous_by_key.get(key)
+        owner = by_id[previous["lesson_id"]] if previous else None
+        candidate_plan = None
+        if active_ids and active_ids[0] in candidates:
+            item = candidates[active_ids[0]]
+            candidate_plan = _prepare_record(
+                {
+                    **item,
+                    "project": project,
+                    "previous": previous,
+                    "predecessor": owner,
+                }
+            )
+            if (
+                candidate_plan["action"] == "ingest"
+                or candidate_plan.get("reason") == "same_accepted_revision"
+            ):
+                # successor 的最終意圖勝出；不再為同 doc 產生舊列 tombstone。
+                plans.append(candidate_plan)
+                continue
+        if owner is not None and states[owner["id"]] != "active":
+            plans.append(
+                _prepare_record({"project": project, "record": owner, "previous": previous})
+            )
+        elif candidate_plan is not None:
+            plans.append(candidate_plan)
+        elif owner is not None:
+            if previous.get("lifecycle") != "active":
+                raise ValueError("恢復 active 投影需要該 owner 的已核實候選摘要與證據")
+            plans.append(
+                {
+                    "project": project,
+                    "source_id": key,
+                    "lesson_id": owner["id"],
+                    "expected_doc_id": f"lesson-{key}",
+                    "lifecycle": "active",
+                    "action": "skip",
+                    "reason": "active_owner_unchanged",
+                }
+            )
+        else:
+            candidate_id = next(
+                lesson_id for lesson_id in sorted(row_ids) if lesson_id in candidates
+            )
+            plans.append(_prepare_record({**candidates[candidate_id], "project": project}))
+    return {"project": project, "plans": plans}
 
 
 def report(directory: Path, project: str) -> dict[str, Any]:

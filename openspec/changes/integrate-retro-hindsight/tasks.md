@@ -26,6 +26,7 @@
 
 - [x] 5.1 Preserve executable lesson write safety：按howie裁決執行出貨Bash／真實隔離DB測試，保留人工recurrence順序驗收；45個targeted cases通過，三個副本突變皆KILLED。
 - [x] 5.2 Canonical projection eligibility / Lifecycle reconciliation / Audited real-world measurement：綁定lesson_id與predecessor、依實際時間排序、合併PR別名、拒絕空路徑與身分空白；23個TC有docstring追溯，CLI smoke通過。AC-6外部readback仍未完成。
+- [x] 5.3 One authoritative document intent per invocation：依howie的circuit-breaker裁決，整次batch每doc只產生一個最終意圖，移除逐列input並遷移caller；同key正逆序／低信心successor／已發布新owner／舊schema／多doc與重複receipt案例皆通過。53個targeted cases、30個TC綁定、CLI smoke及make ci（3546 passed）完成；未啟動第三輪mob review，共用設定未變。
 
 ## 驗收阻擋（2026-09-30）
 

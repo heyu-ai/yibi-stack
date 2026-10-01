@@ -28,9 +28,9 @@ A1 排除自己投影與其衍生摘要；沒有不同 incident ID 不加 confid
 ## Implementation Contract
 
 - Skill 在 Step 0 準備一次 Hindsight availability 與 audit；Step 4b 信心分數確定前 search→read/semantic compare→必要時 reflect；Step 5 成功後才 prepare/ingest 與 initiative update。
-- prepare CLI：python3 hindsight_projection.py prepare --input INPUT.json --output OUTPUT.json。INPUT 含 project、record、summary、evidence_ids、previous（optional）；record 是 canonical Mycelium row。OUTPUT action=ingest/skip；ingest 含僅 title/content 的 tool arguments、expected_doc_id、content_hash、revision_key、lifecycle。invalid JSON/schema exit 2，不產生可執行 MCP 呼叫；agent 將此視為可選 integration degraded。
+- prepare CLI：python3 hindsight_projection.py prepare --input INPUT.json --output OUTPUT.json。INPUT 是整次 invocation 的 project/items/receipts：item 含 canonical record；發布候選另帶 summary/evidence_ids，純 ownership context 只帶 record。每 doc 只提供最新一份 receipt。OUTPUT 是 project/plans，每 doc 最多一個 ingest/skip 意圖；ingest 才帶 arguments。舊單列 schema 已移除，invalid JSON/schema exit2，不呼叫 MCP。
 - lifecycle priority：retired > superseded > parked > active。缺 record ID/project/key/confidence/type/source/tags、project 不符、不能確認證據或 previous ownership，均 fail closed，不發布。
-- PR #512 review 修正：previous.lesson_id 必須與 record.id 一致；只有新 active successor 可附 canonical predecessor，且 id/project/key 與 superseded_by 指向新 ID 都吻合才允許接替。Inactive 舊列永遠不能拿 replacement 的 receipt 發 tombstone。
+- PR #512 ownership 修正：receipt.lesson_id 必須能在 batch canonical rows 中讀回。新 active successor 要接替時，由 helper 取目前 owner row 核對 project/key/id 與 superseded_by 指向新 ID；不接受 caller 自行拼一個最小 predecessor。先核實全部 context 再合併每 doc 的最終意圖；合格 successor 勝出就不另送舊 tombstone，否則撤回 inactive owner。多個 active rows／重複 ID 或 receipt 一律拒絕。
 - GitHub PR URL 與 owner/repo#N 正規化為同一事故 identity，套用於 evidence、retro 計數與 metric join；其他已核實來源保持原 identity。recorded_at 解析為含時區的時間，再做去重／排序；無效／naive 時間列 excluded。CLI 空字串路徑拒絕，不禁止明確的 dot 或合法空目錄。
 - audit 每檔含 schema_version=1、invocation_id、project、kind=retro/promotion、sample_kind=live/smoke、retro_id、recorded_at、events、projections、decisions、metrics。events 含 operation、outcome、page_ids、fallback、human_decision；projections 僅存實際 accepted receipt。歷史 revision 留在 audit，不加入本次 hash 輸入，避免每次 hash 因引用前一版而改變。tombstone 明確撤回 active 的引用資格。
 - report CLI：python3 hindsight_projection.py report --audit-dir DIR --project PROJECT。讀完成或中斷的 invocation receipts；相同 invocation ID 不重複計數，sample_kind=smoke 不算真實使用；同一 retro_id 多次執行只算一次。輸出 retro_count、measurement_ready（>=30）、四個 outcome ratio（duplicate/invalidated/cited/false_recurrence）、各分母與缺值。實際不足 30 時輸出 insufficient_data，不能製造樣本。
@@ -72,3 +72,16 @@ A1 排除自己投影與其衍生摘要；沒有不同 incident ID 不加 confid
 - PR #512 已建立並完成首次三方 R1/R2；review summary 已發布，verifier 誤報另追蹤 #513。AC-6 readback 與部署後30次真實使用仍未通過，不提前關閉 #425。
 - 修正後 make ci 通過：3449 passed、14 skipped、4 deselected；pre-commit 全套通過。AgentShield security-scan 需 GitHub Actions，本地未執行。23個trace的worktree誤報仍追蹤於 #513，沒有弱化驗收規則。
 - 使用者要求重試後，另建全新隔離bank再次實跑AC-6；仍遇相同unsupported gpt-5.4-mini錯誤，文件readback=404。該bank已刪除，共用設定未改動。
+
+## Circuit-breaker 後的人類授權修復
+
+howie 選擇 Continue fixing，且要求共用 Hindsight 設定保持不變；不啟動第三輪 mob review。
+C4 的修正從逐列 prepare 改為整次 invocation 一次 batch，先決定每 doc 的最終 owner，
+再產生最多一筆意圖。替代者未達發布門檻時仍撤回已失效的舊 owner；已發布 active B 的 context
+不會被舊 A 的 reconciliation 蓋掉。這是 same-document replacement／withdrawal 的正確性修復，
+不是接受資料完整性風險；AC-6 仍是未通過的外部 gate。
+
+- C4 batch 修復驗證：53個targeted cases通過、30個TC皆bound；真正CLI在正序與逆序都只產生B active，
+  successor低信心時只產生A撤回；其他document未被遺漏。make ci：3546 passed、14 skipped、4 deselected。
+- ainization-skill 的伴隨caller也改成收齊rows後一次prepare，避免同invocation前後兩次寫同doc；其變更檔pre-commit通過。
+  伴隨repo仍未commit／開PR，本次僅交付yibi-stack PR。共用Hindsight設定維持不變，AC-6仍阻擋。

@@ -71,54 +71,63 @@ Audit 留下 source IDs 與人類 recurrence 決定；回答確實使用記憶�
 2. 正常候選用 installed CLI 讀回：
    `mycelium lessons show --project <project> --no-include-legacy --include-retired --include-parked --min-confidence 0 --last 10000 --json`。
    此 API 會 dedup 且有筆數限制；找不到不代表退休／刪除。
-3. lifecycle reconciliation 用同一 canonical DB 的 read-only SQLite，以 project＋精確 ID 讀取舊列。
-   尊重 MYCELIUM_DB_OVERRIDE，否則是 `~/.agents/handover/handover.db`；不能初始化不存在的 DB 或 import checkout tasks。
-   連線形式為 `sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)`；查詢用 bound parameters：
-   `SELECT * FROM lessons WHERE project = ? AND id = ?`。零筆、歧義、缺欄位、錯 tags 或 DB 不可用都 degraded。
-   SQLite 的 active 舊列不因 raw confidence 而重新發布；此路徑只 reconcile lifecycle，
-   新發布的 confidence 採正常 CLI readback 的 effective_confidence（若有）。不得自行用 decay 創造退休狀態。
-4. **Receipt 必須綁同一 lesson_id**。不能用新 active B 的 receipt 替舊 retired/superseded A 發 tombstone。
-   只有新 active B 要接替舊 A，且已 readback A 的 project/key/id 及 superseded_by=B.id，
-   才可把 A 的 canonical row 放入 optional `predecessor`；helper 驗證這條接替關係。
-   舊 inactive A 不能使用 B 的 receipt，無論給什麼 predecessor；不同 type／不明同 key ownership 一律不猜。
-5. 核實證據後產生短背景摘要，不複製 insight 全文。pitfall 可使用獨立已驗證 commit 事件；pattern 必須有
-   兩個不同事件，不能拿同 PR 的兩個 commit 湊數。inferred pitfall 不會因附 URL 就通過門檻。
-6. 把 canonical row、摘要、已核實 evidence_ids 與前次真正 accepted receipt 寫入 INPUT_FILE。
-   previous=null 表示從未發布；不是拿上次 prepare 尚未呼叫 MCP 的結果充當 receipt。
+3. 用同一 canonical DB 的 read-only SQLite 收齊本次所有相關 key 的 rows，而非邊查一列邊寫一列。
+   尊重 MYCELIUM_DB_OVERRIDE，否則是 `~/.agents/handover/handover.db`；不能初始化缺少的 DB 或 import checkout tasks。
+   連線形式為 `sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)`。
+   先以 project＋receipt lesson_id 查明 owner，再對每個不同 key 使用 bound query：
+   `SELECT * FROM lessons WHERE project = ? AND key = ?`。缺 owner、歧義、缺欄位、錯 tags 或 DB 不可用都 degraded。
+   每個 canonical ID 只收一次；不得為不同搜尋來源重複加入同一列。新發布的 effective_confidence
+   採正常 CLI readback（若有），合併到同 ID 的 canonical row；不能因 SQLite 只有 raw confidence 就繞過門檻。
+4. 把這些 rows 放進單一 INPUT_FILE 的 items。要發布的候選另帶 summary/evidence_ids；
+   只用於 ownership／lifecycle 判定的舊列或已發布 active owner，只帶 record。
+   receipts 每份文件只放最新一份 accepted receipt；仍為 pending/unknown 的整個 key 不進發布 batch，記 degraded。
+5. 核實短背景摘要與事件指針，不複製 insight 全文。pitfall 可使用獨立已驗證 commit；pattern 需兩個不同事件。
+   helper 對整個 invocation **只 prepare 一次**：每 doc 最多一個最終意圖。
+   唯一合格 active successor 先驗證前 owner 的 superseded_by 指向其 ID，再勝過舊列 tombstone；
+   若無合格 successor，才依最新 receipt owner 的 canonical inactive 狀態撤回舊文件。
+   最新 owner 已是 active B 時，不得再用 A 的舊 receipt 排入 A 的 tombstone。
+   同 key 多個 active rows、重複 ID／receipt、未核實接替關係都拒絕，不能自行選一列。
+6. 必須先收齊新候選與所有先前投影，再產生完整 plans；**禁止**逐 lesson 呼叫 prepare、先發布 B 再另補 A，
+   或把前次單列輸出串成一批。舊單列 input schema 已移除。重新啟用的 active owner 若需要恢復投影，
+   必須補齊其已核實候選摘要／證據，不能把 tombstone 當已恢復。每個 invocation 每 doc 至多一次 MCP ingest。
 
 ### Paths and invocation
 
-agent 必須把 Step 0 已解析的 ORIG_PROJECT、RETRO_ROOT、本次 INVOCATION_ID 與目前的整數 LESSON_INDEX
-帶入**同一次** Bash 呼叫或寫成單一暫存 script，不能依賴跨 call 的 shell 變數。路徑定義如下：
+agent 必須把 Step 0 已解析的 ORIG_PROJECT、RETRO_ROOT 與本次 INVOCATION_ID 帶入**同一次**
+Bash 呼叫或單一暫存 script，不能依賴跨 call 的 shell 變數。每次 invocation 只有一份 batch：
 
 ```bash
 AUDIT_DIR="$HOME/.agents/hindsight-retro/${ORIG_PROJECT:?missing project}"
 WORK_DIR="$AUDIT_DIR/work/${INVOCATION_ID:?missing invocation id}"
-INPUT_FILE="$WORK_DIR/${LESSON_INDEX:?missing lesson index}-input.json"
-OUTPUT_FILE="$WORK_DIR/${LESSON_INDEX:?missing lesson index}-output.json"
+INPUT_FILE="$WORK_DIR/input.json"
+OUTPUT_FILE="$WORK_DIR/plans.json"
 ```
 
 用檔案工具建立 owner-only WORK_DIR 與 INPUT_FILE；暫存輸入／輸出放在 work/ 子目錄，
-不混入報表掃描的頂層 audit JSON。每筆 lesson 各有檔名。內容用 Write 工具，不把 lesson 文字塞進 shell。
-資料範例（record 的值必須來自真實 canonical readback）：
+不混入報表掃描的頂層 audit JSON。內容用 Write 工具，不把 lesson 文字塞進 shell。
+以下是一個新候選、尚無 receipt 的 batch；reconciliation context 也放在同一個 items 陣列，只帶 record：
 
 ```json
 {
   "project": "payments",
-  "record": {
-    "id": "canonical-lesson-id",
-    "project": "payments",
-    "key": "payments-retry-boundary",
-    "type": "pitfall",
-    "source": "observed",
-    "confidence": 8,
-    "tags": [],
-    "retired_at": null,
-    "superseded_by": null
-  },
-  "summary": "A timeout after acceptance is not evidence that a write did not occur.",
-  "evidence_ids": ["https://github.com/team/payments/pull/42"],
-  "previous": null
+  "items": [
+    {
+      "record": {
+        "id": "canonical-lesson-id",
+        "project": "payments",
+        "key": "payments-retry-boundary",
+        "type": "pitfall",
+        "source": "observed",
+        "confidence": 8,
+        "tags": [],
+        "retired_at": null,
+        "superseded_by": null
+      },
+      "summary": "A timeout after acceptance is not evidence that a write did not occur.",
+      "evidence_ids": ["https://github.com/team/payments/pull/42"]
+    }
+  ],
+  "receipts": []
 }
 ```
 
@@ -129,17 +138,19 @@ python3 "${RETRO_ROOT:?missing skill root}/scripts/hindsight_projection.py" prep
 ```
 
 Exit 2 代表輸入／I/O 失敗：記 degraded，**忽略任何舊 OUTPUT_FILE**，不能呼叫 MCP。
-Exit 0：action=skip 記原因且不 ingest；action=ingest 時，再確認 canonical snapshot 未變，
-只用 arguments 內的 title/content 呼叫 ingest。明確指定的空 audit 目錄合法；空字串路徑不合法。
+Exit 0 回傳 project 與 plans 陣列，每份文件最多一筆。action=skip 記原因、不 ingest；
+只有 action=ingest 才使用該 plan 的 arguments。寫前再次核對該 key 的整組 canonical snapshot；
+若變動就停止該 document，不能先執行舊 plan 再補一個相反 plan。已送出的 doc 不在同 invocation 重送。
+明確指定的空 audit 目錄合法；空字串路徑不合法。
 
 Helper 拒絕 project mismatch、非小寫 kebab-case key、身分首尾空白、缺 lifecycle、錯 tags、
 foreign/unaccepted receipt。Active 門檻：effective_confidence（若存在，不能把 null 當可 fallback）
 或 confidence >=7；pitfall 需非 inferred 且有事件；pattern 需 >=2 個獨立事件。
-Inactive 不能新增 active projection；先前發布過的 parked/superseded/retired 即使 confidence 降低，
-仍產生同文件 identity 的 tombstone。不能為了發布而修改 Mycelium。
+Inactive 不會新增 active projection；先前 owner 已失效且沒有合格 successor 時，即使 confidence 降低，
+仍產生同文件 tombstone。合格 successor 取代舊 owner 時只送 successor，不能再送舊 tombstone。不能為發布而改 Mycelium。
 
 Ingest 成功後核對 ok=true、doc_id==expected_doc_id；不符就是 degraded，不能保存 accepted receipt。
-Receipt 為 prepare 結果去掉 arguments，再加 outcome=accepted、canonical lesson_id、originating retro_id、
+Receipt 為成功送出的那一筆 plan 去掉 arguments，再加 outcome=accepted、canonical lesson_id、originating retro_id、
 accepted_at。失敗／逾時不得存 accepted。這份 durable audit 要留給下次 retro **或 promotion**，不能當暫存刪除。
 
 ### Stable identity, not native idempotency

@@ -44,6 +44,20 @@ def accepted(result):
     }
 
 
+def prepare_one(payload):
+    """把單一文件案例放進公開 batch 介面；不直接測 private 單列函式。"""
+    item = {key: payload[key] for key in ("record", "summary", "evidence_ids") if key in payload}
+    items = [item]
+    if payload.get("predecessor") is not None:
+        items.append({"record": payload["predecessor"]})
+    batch = {
+        "project": payload["project"],
+        "items": items,
+        "receipts": [payload["previous"]] if payload.get("previous") is not None else [],
+    }
+    return projection.prepare(batch)["plans"][0]
+
+
 @pytest.mark.parametrize(
     ("kind", "source", "confidence", "evidence", "expected"),
     [
@@ -64,7 +78,7 @@ def test_hsp_dt_001_publication_requires_evidence_and_threshold(
     """
     payload["record"].update(type=kind, source=source, confidence=confidence)
     payload["evidence_ids"] = evidence
-    result = projection.prepare(payload)
+    result = prepare_one(payload)
     assert result["action"] == expected
     if expected == "skip":
         assert "arguments" not in result
@@ -74,11 +88,11 @@ def test_hsp_st_002_identical_revision_skips_but_changed_content_replaces(payloa
     """tc: HSP-ST-002
     spec: retro-hindsight-projection#changed-summary
     """
-    first = projection.prepare(payload)
+    first = prepare_one(payload)
     payload["previous"] = accepted(first)
-    assert projection.prepare(payload)["reason"] == "same_accepted_revision"
+    assert prepare_one(payload)["reason"] == "same_accepted_revision"
     payload["summary"] = "A verified revised boundary after the incident review."
-    revised = projection.prepare(payload)
+    revised = prepare_one(payload)
     assert revised["action"] == "ingest"
     assert revised["content_hash"] != first["content_hash"]
     assert revised["expected_doc_id"] == first["expected_doc_id"]
@@ -96,9 +110,9 @@ def test_hsp_dt_003_evidence_order_does_not_create_revision(payload):
     """
     payload["record"]["type"] = "pattern"
     payload["evidence_ids"] = ["p#2", "p#1"]
-    payload["previous"] = accepted(projection.prepare(payload))
+    payload["previous"] = accepted(prepare_one(payload))
     payload["evidence_ids"] = ["p#1", "p#2", "p#1"]
-    assert projection.prepare(payload)["reason"] == "same_accepted_revision"
+    assert prepare_one(payload)["reason"] == "same_accepted_revision"
 
 
 @pytest.mark.parametrize(
@@ -113,11 +127,11 @@ def test_hsp_st_004_inactive_low_confidence_replaces_previous_only(payload, upda
     """tc: HSP-ST-004
     spec: retro-hindsight-projection#inactive-record
     """
-    first = projection.prepare(payload)
+    first = prepare_one(payload)
     payload["record"].update(updates, confidence=4)
-    assert projection.prepare(payload)["action"] == "skip"
+    assert prepare_one(payload)["action"] == "skip"
     payload["previous"] = accepted(first)
-    tombstone = projection.prepare(payload)
+    tombstone = prepare_one(payload)
     assert tombstone["action"] == "ingest"
     assert tombstone["expected_doc_id"] == first["expected_doc_id"]
     content = json.loads(tombstone["arguments"]["content"])
@@ -125,7 +139,7 @@ def test_hsp_st_004_inactive_low_confidence_replaces_previous_only(payload, upda
     assert "Do not use it as active guidance" in content["summary"]
     payload["previous"] = accepted(tombstone)
     payload["summary"] = "Rephrased old summary must not create another tombstone."
-    assert projection.prepare(payload)["reason"] == "same_accepted_revision"
+    assert prepare_one(payload)["reason"] == "same_accepted_revision"
 
 
 @pytest.mark.parametrize("field", ["project", "source_id", "expected_doc_id", "outcome"])
@@ -133,10 +147,10 @@ def test_hsp_eg_005_rejects_foreign_or_unaccepted_receipts(payload, field):
     """tc: HSP-EG-005
     spec: retro-hindsight-projection#cross-project-receipt
     """
-    payload["previous"] = accepted(projection.prepare(payload))
+    payload["previous"] = accepted(prepare_one(payload))
     payload["previous"][field] = "wrong"
     with pytest.raises(ValueError):
-        projection.prepare(payload)
+        prepare_one(payload)
 
 
 @pytest.mark.parametrize("key", ["Key", "a_b", "a--b", "a b", "../key"])
@@ -146,7 +160,7 @@ def test_hsp_eg_006_rejects_slug_collisions(payload, key):
     """
     payload["record"]["key"] = key
     with pytest.raises(ValueError):
-        projection.prepare(payload)
+        prepare_one(payload)
 
 
 @pytest.mark.parametrize("field", ["tags", "retired_at", "superseded_by"])
@@ -156,7 +170,7 @@ def test_hsp_eg_007_missing_lifecycle_is_not_active(payload, field):
     """
     del payload["record"][field]
     with pytest.raises(ValueError):
-        projection.prepare(payload)
+        prepare_one(payload)
 
 
 def test_hsp_bv_008_effective_confidence_controls_eligibility(payload):
@@ -164,9 +178,9 @@ def test_hsp_bv_008_effective_confidence_controls_eligibility(payload):
     spec: retro-hindsight-projection#publication-thresholds
     """
     payload["record"]["effective_confidence"] = 6.9
-    assert projection.prepare(payload)["action"] == "skip"
+    assert prepare_one(payload)["action"] == "skip"
     payload["record"]["effective_confidence"] = 7
-    assert projection.prepare(payload)["action"] == "ingest"
+    assert prepare_one(payload)["action"] == "ingest"
 
 
 def audit(number, *, invocation=None, kind="retro", sample="live", metrics=None):
@@ -280,34 +294,35 @@ def test_hsp_eg_015_old_row_cannot_use_replacement_receipt(payload):
     """tc: HSP-EG-015
     spec: retro-hindsight-projection#receipt-ownership
     """
-    current = projection.prepare(payload)
+    current = prepare_one(payload)
     payload["previous"] = accepted(current)
     payload["record"].update(id="old-row", superseded_by="lesson-42")
     with pytest.raises(ValueError):
-        projection.prepare(payload)
+        prepare_one(payload)
 
 
 def test_hsp_st_016_active_replacement_requires_canonical_predecessor(payload):
     """tc: HSP-ST-016
     spec: retro-hindsight-projection#receipt-ownership
     """
-    payload["previous"] = accepted(projection.prepare(payload))
+    payload["previous"] = accepted(prepare_one(payload))
     payload["record"]["id"] = "new-row"
     with pytest.raises(ValueError):
-        projection.prepare(payload)
+        prepare_one(payload)
     payload["predecessor"] = {
+        **payload["record"],
         "id": "lesson-42",
         "project": "payments",
         "key": "payments-retry-boundary",
         "superseded_by": "new-row",
     }
-    result = projection.prepare(payload)
+    result = prepare_one(payload)
     assert result["action"] == "ingest"
     assert result["lesson_id"] == "new-row"
     assert result["expected_doc_id"] == payload["previous"]["expected_doc_id"]
     payload["predecessor"]["superseded_by"] = "unrelated-row"
     with pytest.raises(ValueError):
-        projection.prepare(payload)
+        prepare_one(payload)
 
 
 def test_hsp_dt_017_github_aliases_are_one_incident(payload, tmp_path):
@@ -319,7 +334,7 @@ def test_hsp_dt_017_github_aliases_are_one_incident(payload, tmp_path):
         "https://github.com/team/payments/pull/42#discussion-1",
         "TEAM/payments#42",
     ]
-    assert projection.prepare(payload)["action"] == "skip"
+    assert prepare_one(payload)["action"] == "skip"
     first = audit(42)
     first["retro_id"] = "https://github.com/team/payments/pull/42"
     rerun = audit(42, invocation="rerun")
@@ -346,21 +361,21 @@ def test_hsp_eg_018_canonical_identity_whitespace_is_rejected(payload, field):
     else:
         payload["record"][field] += " "
     with pytest.raises(ValueError):
-        projection.prepare(payload)
+        prepare_one(payload)
 
 
 def test_hsp_st_019_sqlite_json_tags_generate_tombstone(payload):
     """tc: HSP-ST-019
     spec: retro-hindsight-projection#inactive-record
     """
-    payload["previous"] = accepted(projection.prepare(payload))
+    payload["previous"] = accepted(prepare_one(payload))
     payload["record"].update(tags='["parked"]', confidence=4)
-    result = projection.prepare(payload)
+    result = prepare_one(payload)
     assert result["action"] == "ingest"
     assert json.loads(result["arguments"]["content"])["lifecycle"] == "parked"
     payload["previous"]["content_hash"] = "wrong"
     with pytest.raises(ValueError):
-        projection.prepare(payload)
+        prepare_one(payload)
 
 
 def test_hsp_eg_022_empty_cli_path_is_not_current_directory(tmp_path):
@@ -390,3 +405,111 @@ def test_hsp_eg_023_missing_project_audit_is_not_silently_foreign(tmp_path):
     result = projection.report(tmp_path, "payments")
     assert result["retro_count"] == 0
     assert [line.split(":", 1)[0] for line in result["excluded"]] == ["missing.json"]
+
+
+def handoff_batch(payload):
+    """同一文件的舊 owner、新 successor 與最初 accepted receipt。"""
+    before = {**payload["record"], "id": "a1"}
+    receipt = accepted(prepare_one({**payload, "record": before}))
+    predecessor = {**before, "superseded_by": "b1"}
+    successor = {**before, "id": "b1"}
+    return {
+        "project": payload["project"],
+        "items": [
+            {
+                "record": successor,
+                "summary": "New confirmed finding.",
+                "evidence_ids": ["team/pay#43"],
+            },
+            {"record": predecessor, "summary": "Old finding.", "evidence_ids": ["team/pay#42"]},
+        ],
+        "receipts": [receipt],
+    }
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_hsp_st_024_successor_is_only_document_intent(payload, reverse):
+    """tc: HSP-ST-024
+    spec: retro-hindsight-projection#one-document-intent
+    """
+    batch = handoff_batch(payload)
+    if reverse:
+        batch["items"].reverse()
+    plans = projection.prepare(batch)["plans"]
+    assert [(p["action"], p["lesson_id"], p["lifecycle"]) for p in plans] == [
+        ("ingest", "b1", "active")
+    ]
+    assert json.loads(plans[0]["arguments"]["content"])["lesson_id"] == "b1"
+
+
+def test_hsp_st_025_ineligible_successor_withdraws_old_owner(payload):
+    """tc: HSP-ST-025
+    spec: retro-hindsight-projection#one-document-intent
+    """
+    batch = handoff_batch(payload)
+    batch["items"][0]["record"]["confidence"] = 6
+    plans = projection.prepare(batch)["plans"]
+    assert [(p["action"], p["lesson_id"], p["lifecycle"]) for p in plans] == [
+        ("ingest", "a1", "superseded")
+    ]
+
+
+def test_hsp_st_026_existing_successor_blocks_old_reconciliation(payload):
+    """tc: HSP-ST-026
+    spec: retro-hindsight-projection#one-document-intent
+    """
+    batch = handoff_batch(payload)
+    batch["receipts"] = [accepted(projection.prepare(batch)["plans"][0])]
+    batch["items"][0] = {"record": batch["items"][0]["record"]}
+    plans = projection.prepare(batch)["plans"]
+    assert [(p["action"], p["lesson_id"], p["lifecycle"]) for p in plans] == [
+        ("skip", "b1", "active")
+    ]
+
+
+def test_hsp_eg_027_multiple_active_owners_are_ambiguous(payload):
+    """tc: HSP-EG-027
+    spec: retro-hindsight-projection#one-document-intent
+    """
+    batch = handoff_batch(payload)
+    batch["items"][1]["record"]["superseded_by"] = None
+    batch["receipts"] = []
+    with pytest.raises(ValueError):
+        projection.prepare(batch)
+
+
+def test_hsp_eg_028_old_scalar_packet_is_rejected(payload):
+    """tc: HSP-EG-028
+    spec: retro-hindsight-projection#one-document-intent
+    """
+    with pytest.raises(ValueError):
+        projection.prepare(payload)
+
+
+def test_hsp_st_029_coalescing_preserves_other_documents(payload):
+    """tc: HSP-ST-029
+    spec: retro-hindsight-projection#one-document-intent
+    """
+    batch = handoff_batch(payload)
+    batch["items"].append(
+        {
+            "record": {**payload["record"], "id": "c1", "key": "another-boundary"},
+            "summary": "Independent confirmed finding.",
+            "evidence_ids": ["team/payments#44"],
+        }
+    )
+    plans = projection.prepare(batch)["plans"]
+    assert [(p["source_id"], p["lesson_id"], p["action"]) for p in plans] == [
+        ("another-boundary", "c1", "ingest"),
+        ("payments-retry-boundary", "b1", "ingest"),
+    ]
+
+
+def test_hsp_eg_030_duplicate_receipts_are_rejected(payload):
+    """tc: HSP-EG-030
+    spec: retro-hindsight-projection#one-document-intent
+    """
+    batch = handoff_batch(payload)
+    batch["receipts"].append(dict(batch["receipts"][0]))
+    with pytest.raises(ValueError):
+        projection.prepare(batch)

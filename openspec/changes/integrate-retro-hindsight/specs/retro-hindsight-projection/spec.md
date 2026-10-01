@@ -67,7 +67,7 @@ The ingest call SHALL use only title and content. The title SHALL be stable as [
 
 ### Requirement: Lifecycle reconciliation
 
-On a later retro or promotion invocation, previously projected lessons SHALL be reread from canonical storage including inactive rows. Parked, superseded, or retired lessons SHALL replace their previous active document with a tombstone even when current confidence is below the publication threshold. Missing or ambiguous canonical rows SHALL degrade without inventing a deletion.
+On a later retro or promotion invocation, previously projected lessons SHALL be reread from canonical storage including inactive rows. The invocation SHALL resolve one final owner per document before emitting writes. An eligible, canonically verified active successor SHALL replace the old owner's representation without an additional old-row tombstone; otherwise a parked, superseded, or retired current owner SHALL be withdrawn even below the publication threshold. Missing or ambiguous canonical rows SHALL degrade without inventing a deletion.
 
 #### Scenario: inactive-record -- Low-confidence inactive record
 
@@ -120,3 +120,13 @@ The shipped Step 4b Bash template SHALL preserve active replay deduplication, pa
 
 - **WHEN** the shipped template writes an active lesson twice, or writes one parked lesson containing dollar and command-substitution text
 - **THEN** active replay SHALL leave one canonical row, parked writes SHALL remain parked, and the insight SHALL remain literal rather than execute shell substitutions.
+
+### Requirement: One authoritative document intent per invocation
+
+Prepare SHALL consume the complete invocation batch of canonical items and latest receipts, not a sequence of independent per-row requests. It SHALL return at most one plan per document and SHALL NOT emit both an active successor and its predecessor's tombstone. The old scalar packet SHALL be rejected.
+
+#### Scenario: one-document-intent -- Successor and old reconciliation share a document
+
+- **WHEN** a batch contains superseded owner A, successor B and A's accepted receipt
+- **THEN** an eligible B SHALL be the only ingest intent regardless of item order; an ineligible B SHALL leave only A's withdrawal intent, and a receipt already owned by active B SHALL NOT allow A's reconciliation to overwrite it.
+- **THEN** multiple active owners or incomplete ownership context SHALL be rejected without emitting a partial batch.

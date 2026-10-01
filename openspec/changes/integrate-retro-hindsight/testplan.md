@@ -9,7 +9,7 @@ Review Contract AC-1～AC-8 已由使用者確認。測試邊界為已交付的 
 
 | Seam | Public interface | Why here |
 |------|------------------|----------|
-| projection-prepare | hindsight_projection.prepare(payload) | agent 提交 canonical snapshot 後取得 ingest/skip 或拒絕；不 mock 本 repo 模組 |
+| projection-prepare | hindsight_projection.prepare(batch) | 整次 invocation 的 canonical items/receipts 合併為每 doc 最多一筆 plan；不 mock 本 repo 模組 |
 | audit-report | hindsight_projection.report(directory, project) | 消費真實檔案形狀的 audit，觀察計數／分母／排除結果 |
 | agent-mcp-workflow | pr-retrospective + HINDSIGHT.md 的 MCP calls | schema、bank、canonical ordering 與遠端 readback 必須用 agent/live walkthrough 驗證 |
 | lesson-cli | 出貨 Step4b Bash 範本 → 真實 mycelium CLI → 隔離 SQLite | 觀察重跑／park狀態／字面值安全，不用 mock echoes 或手抄範本 |
@@ -41,6 +41,13 @@ Review Contract AC-1～AC-8 已由使用者確認。測試邊界為已交付的 
 | HSP-ST-021 | auto | lesson-cli | legacy-lesson-write-safety | park路徑不混互斥旗標 | ST | High | 隔離DB/HOME | 執行park範本 | confidence4 | parked/recurrence-1，literal insight |
 | HSP-EG-022 | auto | audit-report | explicit-audit-path | 空字串不掃cwd | EP | High | 空目錄 | 呼叫真正CLI | 空字串與明確dot | exit2／合法insufficient_data |
 | HSP-EG-023 | auto | audit-report | measurement-observations | 缺project不是foreign | EP | Medium | malformed及foreign audit | report | missing／有效foreign | 只列malformed到excluded |
+| HSP-ST-024 | auto | projection-prepare | one-document-intent | 同doc successor只產生一個最終意圖 | ST | High | A已發布、A指向B | 交換items順序後prepare | A inactive、B eligible | 只有B active ingest |
+| HSP-ST-025 | auto | projection-prepare | one-document-intent | 不合格successor不保留失效舊owner | ST | High | A已發布、B低信心 | batch prepare | B confidence6 | 只有A tombstone |
+| HSP-ST-026 | auto | projection-prepare | one-document-intent | 已發布B不被A reconciliation覆寫 | ST | High | 最新receipt屬B | B只給context、A參與batch | B active、A inactive | skip B，沒有A ingest |
+| HSP-EG-027 | auto | projection-prepare | one-document-intent | 多個active owner不猜 | EP | High | 無receipt、同key兩active | batch prepare | A/B均active | 拒絕整批 |
+| HSP-EG-028 | auto | projection-prepare | one-document-intent | 舊scalar input不再可用 | EP | High | 舊packet | prepare | project/record/previous | 拒絕，不保留逐列旁路 |
+| HSP-ST-029 | auto | projection-prepare | one-document-intent | 合併衝突不漏其他document | ST | High | 同key A/B另有C | batch prepare | 兩個不同key | B與C各一個ingest |
+| HSP-EG-030 | auto | projection-prepare | one-document-intent | 多份receipt不能猜最新 | EP | High | 同doc重複receipt | batch prepare | 重複accepted receipt | 拒絕整批 |
 
 ## Coverage Analysis
 
@@ -63,6 +70,7 @@ Review Contract AC-1～AC-8 已由使用者確認。測試邊界為已交付的 
 | receipt-ownership | covered | HSP-EG-015, HSP-ST-016 | canonical接替關係 |
 | explicit-audit-path | covered | HSP-EG-022 | 真正CLI |
 | legacy-lesson-write-safety | covered | HSP-ST-020, HSP-ST-021 | 真正Bash/DB；副本突變，不修改review snapshot |
+| one-document-intent | covered | HSP-ST-024, HSP-ST-025, HSP-ST-026, HSP-EG-027, HSP-EG-028, HSP-ST-029, HSP-EG-030 | invocation-wide API；不以順序假設取代coalescing |
 | equivalent-memory | external | — | ainization-skill伴隨PR；不冒稱本PR已驗證 |
 | conflicting-adr | external | — | ainization-skill伴隨PR |
 | shared-key-projects | external | — | ainization-skill伴隨PR |

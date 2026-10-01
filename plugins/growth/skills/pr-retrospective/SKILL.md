@@ -732,14 +732,14 @@ projection helper 流程執行：
    PR/session/commit 證據；pattern 要 confidence ≥ 7 且至少兩個已核實的獨立事件。
    新 projection 必須是有效 active lesson，parked/superseded/retired 不發布為新知識。
    **另遍歷本 project 所有先前 accepted projection identity**，不只本次搜尋命中的列，
-   無新候選也要依 HINDSIGHT.md 逐 ID 讀回 canonical 並 reconcile lifecycle。
-   舊 inactive 列不能使用新 active 替代列的 receipt；接替關係須由 canonical predecessor 證明。
-   已失效者送同 identity tombstone，不從 Hindsight 反改 Mycelium。
-3. 使用 helper 的 `[Lesson] <key>` 穩定 title、背景摘要與事故指針；provenance、
-   `source_system`、source ID、content hash 都在 **content** 中。依 protocol 檢查 project/key
-   身分、前次 receipt 與 revision，略過同 revision；變更才呼叫
-   `hindsight_ingest_document({title, content})`。不得自行加 `metadata`、`document_id`，
-   也不得假設可以 append 既有主題頁；helper 缺失則降級，不另造投影格式。
+   無新候選也要依 HINDSIGHT.md 收齊各相關 key 的 canonical rows 與最新 receipt。
+   舊 inactive 列不能覆蓋新 active 替代列；helper 先核實接替關係，再為整個 invocation
+   合併成每 doc 最多一個意圖：合格 successor 勝出時不另送舊 tombstone，否則撤回已失效 owner。
+3. 全部 readback 完成後，**只呼叫一次 batch prepare**，input 為 project/items/receipts，
+   output 為 project/plans。不得逐列 prepare 後自行拼接輸出，也不得先發布新候選再補舊列撤回。
+   只執行 plans 中 action=ingest 的項目，每 doc 每 invocation 最多一次。
+   `[Lesson] <key>` title 與 content 由 plan 提供；provenance/hash 在 content，不是 native metadata。
+   MCP 只傳 `{title, content}`，不加 metadata/document_id，不直接 append 合成頁；helper 缺失則降級。
 4. `{ok:true, doc_id}` 只代表非同步接受，記錄 queued 與 receipt，**不是已抽取或可搜尋**。
    失敗依共用協定降級；不回滾成功的 Mycelium 寫入，也不把整份 canonical script 重跑一次。
 
