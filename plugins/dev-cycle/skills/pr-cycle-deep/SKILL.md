@@ -247,15 +247,17 @@ existing PR, `git rev-parse HEAD` must equal `gh pr view {{pr_number}} --json he
 `origin`; PR #22, issue #196) and list the branch commits in one call, so FETCH_HEAD is not stale:
 
 ```bash
-git fetch <base-remote> -- {{base_branch}} && git log --topo-order --format='%h %s' FETCH_HEAD..HEAD
+git fetch <base-remote> -- {{base_branch}} && git log --topo-order --format='%h %p %s' FETCH_HEAD..HEAD
 ```
 
-Inspect every commit in that range with `git show --stat <sha>`; for a merge commit use
-`git show --remerge-diff --stat <sha>`, which shows only what the merge itself changed (a plain `--stat`
-lists every base change it brought in). Inspect them all, not only those after a spec edit: tag a commit
-touching `proposal.md`, `design.md` or `specs/` as `[spec]` in the list — a marker only, since a typo fix
-or rename there reconciles nothing. If any commit changes Goal-level intent, the contract shown for
-confirmation (new-PR draft, or the existing PR's final section) MUST carry a
+Inspect every commit in that range with `git show --stat <sha>`; for a merge commit (2 parents in `%p`)
+use `git show --remerge-diff --stat <sha>`, which shows only what the merge itself changed (a plain
+`--stat` lists every base change it brought in). Under remerge-diff,
+an octopus merge (3+ parents) gets only a warning and an empty stat,
+so use plain `--stat` and tag it `[octopus]`. Inspect them all, not only those after a spec edit: tag a
+commit touching `proposal.md`, `design.md` or `specs/` as `[spec]` in the list — a marker only, since a
+typo fix or rename there reconciles nothing. If any commit changes Goal-level intent, the contract shown
+for confirmation (new-PR draft, or the existing PR's final section) MUST carry a
 `Spec vs implementation drift` list (commit, what changed, affected Goal/AC), so the human rules on it
 at the **first** confirmation; if none, say so. A failed fetch/log or an empty range is `[FAIL]`: stop,
 and never report it as no drift.

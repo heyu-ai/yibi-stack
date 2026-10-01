@@ -149,17 +149,19 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #       codes. Without it the trace gate has no enforcement point at the moment a change claims to
 #       be finished -- the only moment its FAIL severity is meant to bite.
 #
-# Raised 1355 -> 1361 (+6) for the Spec-drift preflight (issue #510, PR #515). The paragraph is 23
-# lines; 1338 + 23 = 1361, so 6 of them exceed the old slack. The first 14-line version picked
+# Raised 1355 -> 1363 (+8) for the Spec-drift preflight (issue #510, PR #515). The paragraph adds 25
+# lines; 1338 + 25 = 1363, so 8 of them exceed the old slack. The first 14-line version picked
 # commits by author date after "the last commit touching spec/change files" over a local origin
 # ref, and R1 showed it silently reports "no drift" when a later commit touches a spec file (a
 # tasks.md tick, a typo fix, a rename), when HEAD is not the PR head, when origin is a stale fork,
 # and after a rebase keeps author dates. The lines buy: the HEAD == headRefOid check, the
 # fetched-base range in one call, "inspect every commit" with the reason no spec edit is a
 # baseline, `--remerge-diff` for merge commits (a plain --stat of a "merge main" commit lists every
-# base change as if the branch made it), the `[spec]` marker, and "failure or empty range is
-# [FAIL], not none". Zero slack is deliberate.
-LINE_BUDGET = 1361
+# base change as if the branch made it) with `%p` in the listing to tell merges apart, the
+# octopus fallback (remerge-diff only warns on 3+ parents and prints an empty stat -- PR #515 R2,
+# reproduced on git 2.56.0), the `[spec]` marker, and "failure or empty range is [FAIL], not
+# none". Zero slack is deliberate.
+LINE_BUDGET = 1363
 
 # Spec-drift preflight (issue #510). These anchors name each rule clause so a failure says WHICH
 # clause went missing, and check_preflight_position requires each to sit inside Step 1 before
@@ -177,9 +179,11 @@ PREFLIGHT_ANCHORS: list[str] = [
     "as `setup-review-dir.sh` does",  # base remote resolution (PR #22, issue #196)
     "(`upstream` if present, else",  # ... upstream wins over a possibly stale fork origin
     "git fetch <base-remote> -- {{base_branch}} &&",  # fetch and list in one call (FETCH_HEAD)
-    "git log --topo-order --format='%h %s' FETCH_HEAD..HEAD",  # the range is the fetched base
+    "git log --topo-order --format='%h %p %s' FETCH_HEAD..HEAD",  # %p: parents identify merges
     "Inspect every commit in that range with `git show --stat <sha>`",  # no baseline cut-off
     "`git show --remerge-diff --stat <sha>`",  # a merge shows only its own resolution
+    "an octopus merge (3+ parents) gets only a warning",  # remerge-diff skips it (PR #515 R2)
+    "use plain `--stat` and tag it `[octopus]`",  # ... so it is inspected, never silently empty
     "not only those after a spec edit",  # ... explicitly
     "`proposal.md`, `design.md` or `specs/`",  # what counts as a spec edit
     "as `[spec]` in the list — a marker only",  # AC-1(c): annotate, never cut
@@ -342,7 +346,7 @@ def check_preflight_position(text: str) -> list[str]:
 # 100-column limit; on mismatch the failure prints the current text so the diff is readable.
 # Changing the paragraph is legitimate -- but it must be a deliberate edit of this constant, made
 # in the same commit, so a reviewer sees the runbook rule change as a test change too.
-PREFLIGHT_SHA256 = "cef6e1a8b766d3c736e24f92c7c4e71399a54ae4ca76513e70f1f9d2d7cb67e3"
+PREFLIGHT_SHA256 = "e92d04a6f41f8c6e3192945666b0d7759c6d95497141c26b67af925d16457ac1"
 
 
 def preflight_text(text: str) -> str | None:

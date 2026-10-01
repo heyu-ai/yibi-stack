@@ -28,15 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - pr-cycle-deep Step 1 起草 Review Contract 前新增 Spec-drift preflight（#510）：既有 PR 先確認 HEAD
   等於 PR head；依 `setup-review-dir.sh` 的規則 fetch base，並在同一個呼叫列出 `FETCH_HEAD..HEAD` 的 commit；
-  範圍內**每個** commit 都要檢查（merge commit 用 `git show --remerge-diff --stat`，只看 merge 本身的改動，
-  不把 base 帶進來的改動算成分支的）。不以「最後一個改到 spec 檔的 commit」切範圍：改到 spec 檔（勾 `tasks.md`、
+  範圍內**每個** commit 都要檢查（清單用 `%h %p %s` 區分 merge；merge commit 用 `git show --remerge-diff --stat`，
+  只看 merge 本身的改動，不把 base 帶進來的改動算成分支的；octopus merge 在 remerge-diff 下只有 warning、
+  stat 為空，改用一般 `--stat` 並標 `[octopus]`）。不以「最後一個改到 spec 檔的 commit」切範圍：改到 spec 檔（勾 `tasks.md`、
   修 typo、改名）不代表重新對齊了意圖，只在清單中標 `[spec]`。改變 Goal 層級意圖的 commit 必須以
   `Spec vs implementation drift` 清單附在給人類確認的 contract 上，讓人類在第一次確認時就裁決；
   fetch／log 失敗或範圍為空一律停下，不可寫成「沒有偏離」
 - `test_convergence_contract.py` 以 golden snapshot（`PREFLIGHT_SHA256`）鎖住整段 preflight 文字：
   review 連續三輪都找到逐字 anchor 沒鎖到的子句，最後一輪是保留所有 anchor、只加一句反話的突變，
-  子字串比對在結構上擋不住。另有 23 條逐字 anchor（標題、指令與規則子句）作為定位用的診斷訊息，
-  `check_preflight_position` 要求它們都位於 Step 1 contract 模板之後、起草段之前；`LINE_BUDGET` 1355 → 1361
+  子字串比對在結構上擋不住。另有 25 條逐字 anchor（標題、指令與規則子句）作為定位用的診斷訊息，
+  `check_preflight_position` 要求它們都位於 Step 1 contract 模板之後、起草段之前；`LINE_BUDGET` 1355 → 1363
 
 ## [1.23.8] - 2026-10-01
 
