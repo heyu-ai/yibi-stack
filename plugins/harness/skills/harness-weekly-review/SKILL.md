@@ -48,6 +48,55 @@ description: >-
 - hook 清單只讀 repo 的 `.claude/settings.json` 與 `.claude/settings.local.json`；使用者層
   `~/.claude/settings.json` 註冊的 hook 不在清單內（報告的說明欄會註明）。
 
+## 排程（每週自動量測，不含 LLM 判讀）
+
+排程只跑確定性的部分：`weekly` 子命令一次完成 Step 2（collect）與 Step 3（report `--prev auto`），
+輸出依 ISO 週命名，預設寫到主 repo 的 `.runtime/harness-review/`。它不呼叫 LLM、不寫 Mycelium／Hindsight、
+不需要權限確認，可以無人值守執行。Step 4 的 LLM 判讀留給人打開報告時執行本 skill。
+
+```bash
+python3 ~/.claude/skills/harness-weekly-review/scripts/harness_review.py weekly --repo /abs/path/to/repo
+```
+
+**只能用本機排程**：資料源（`~/.claude/hook-events/`、`~/.claude/projects/` transcript）都在本機。
+Claude Code 的 `/schedule`（雲端 routine）讀不到這些檔案；`CronCreate`／`/loop` 只活在單一 session 且 7 天
+自動失效——兩者都不適用。建議用 yibi-stack 的 scheduler（macOS LaunchAgent，`make install-scheduler`）的
+`command:` job，在 `.runtime/schedules.json` 加一筆：
+
+```json
+{
+  "id": "harness-weekly-review-<repo>",
+  "description": "<repo> harness 每週盤點（量測 + 週對週比對；只寫 .runtime/harness-review/）",
+  "schedule": "weekly",
+  "time": "08:17",
+  "day_of_week": "monday",
+  "day_of_month": null,
+  "months": null,
+  "command": ["python3", "/Users/<you>/.claude/skills/harness-weekly-review/scripts/harness_review.py",
+              "weekly", "--repo", "/abs/path/to/repo", "--incomplete-ok"],
+  "claude": null,
+  "skill": null,
+  "depends_on": [],
+  "enabled": true,
+  "timeout_seconds": 1200
+}
+```
+
+不要用 `skill:` job：它需要 ACP Gateway（`~/.config/acp-gateway/.env`）在執行，而且 skill 的 Step 4 需要 LLM。
+`weekly` 的 exit code：`0` 完成；`3` 量測不完整但報告已產出；`2` 參數或環境錯誤。yibi-stack scheduler
+只把 exit 0 記為成功（`tasks/scheduler/runner.py`），而量測不完整是常態（CI 有 run 還在跑、hook-events 尚未
+累積滿觀察期），所以排程時加 `--incomplete-ok`：3 改回 0，warnings 仍完整寫在快照與報告裡；參數錯誤與崩潰
+照樣非 0，scheduler 會記成 failed。用 `make scheduler-status` 查看上次執行結果。
+
+**`--incomplete-ok` 的取捨**：exit 3 的唯一條件是快照有 warning，而 warning 不只來自上述常態，也來自持續性的
+讀取失敗（例如 `gh` 授權過期讓 CI 每週都量不到、`settings.json` 解析失敗）。加了 `--incomplete-ok` 後這些也會
+被記成 success。所以 `weekly` 在 stdout 的 summary JSON 帶出 `warning_count` 與 `ci_measured`：排程 log 裡
+`ci_measured` 連續多週為 `false`，就代表資料源壞了，不是常態。
+
+`weekly` 也會確認輸出目錄是否被目標 repo 的 `.gitignore` 排除：未排除時 stderr 印 `[WARN]`，summary 的
+`output_gitignored` 為 `false`（輸出目錄不在 repo 內時為 `null`）。快照內含 hook 與 transcript 統計與絕對路徑，
+不要讓它進 commit。
+
 ## 步驟
 
 ### Step 1 — 解析參數與路徑
@@ -87,6 +136,9 @@ if ! git -C "$MAIN_REPO" check-ignore -q .runtime/harness-review/snapshot.json; 
 ```
 
 ### Step 2 — 量測
+
+`$OUT_DIR/report-$WEEK.md` 已由排程（`weekly`）產出時，可直接從 Step 4 開始，沿用同一份快照與報告；
+要重新量測就照本步驟重跑（同一週重跑會覆寫本週快照，週數不累加）。
 
 ```bash
 python3 "{{skill_root}}/scripts/harness_review.py" collect --repo "$REPO_TOP" --days 7 --gate-days 90 --ci-cache "$OUT_DIR/ci-jobs-cache.json" --out "$OUT_DIR/snapshot-$WEEK.json"

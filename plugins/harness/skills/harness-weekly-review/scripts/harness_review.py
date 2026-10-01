@@ -5,6 +5,7 @@
   collect        讀取各資料源，輸出本週 JSON 快照（含建議清單與本週可判定的建議類型）
   diff           比對上週與本週快照，標出每條建議是 new／persisting／resolved／unmeasured
   report         把快照（與可選的上週快照）寫成繁中 markdown 報告與 lesson 候選
+  weekly         collect + report --prev auto 一次跑完，輸出依 ISO 週命名（給排程器無人值守用）
   write-lessons  把 lesson 候選逐行寫進 Mycelium（只在呼叫端明確要求寫入時使用）
 
 資料源（collect／diff／report 全部唯讀，只寫 --out 等明確指定的本地檔案）：
@@ -25,6 +26,9 @@ Exit code（collect）：
 Exit code（diff／report）：0 完成；2 快照不存在、格式或版本不符、--prev auto 無法讀取目錄
   （--prev auto 遇到版本不符的舊快照會略過並往前找，不算錯誤；stdout 的 prev_status 會註明）
   report 會把累計週數與 carried 寫回 --snapshot 指定的本週快照，下週才能接續
+Exit code（weekly）：collect 回 2 或其他非 0/3 值時原樣回傳、不產報告；report 失敗回傳 report
+  的值；否則回傳 collect 的值（0 或 3，3 表示量測不完整但報告已產出；
+  帶 --incomplete-ok 時 3 改回 0）
 Exit code（write-lessons）：0 全部寫入或依 --skip-if-exists 略過；1 有任一筆失敗、
   寫入結果無法確認，或 --exclude 的 key 不在 lesson 檔內（此時一筆都不寫）；
   2 lesson 檔不存在或無法讀取
@@ -34,8 +38,10 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import datetime as dt
 import hashlib
+import io
 import json
 import os
 import re
@@ -1934,13 +1940,116 @@ def cmd_write_lessons(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Harness 每週盤點")
-    sub = p.add_subparsers(dest="command", required=True)
+def cmd_weekly(args: argparse.Namespace) -> int:
+    """collect → report --prev auto 一次跑完，輸出依 ISO 週命名，供排程器無人值守呼叫。
 
-    c = sub.add_parser("collect", help="量測並輸出本週快照")
+    scheduler 的 command 是固定參數陣列、不能算日期，所以檔名與上週快照都由這裡決定。
+    預設輸出到「主 repo」的 .runtime/harness-review/（不是 worktree），讓排程與手動執行共用
+    同一份快照歷史，週對週比對才接得上。
+
+    Exit code：collect 的 2（參數／環境錯誤）或其他非 0/3 值原樣回傳且不產報告；
+    report 失敗回傳 report 的值；否則回傳 collect 的值（3 = 量測不完整，但報告已產出）。
+    """
+    resolved = git_repo_root(Path(args.repo))
+    if resolved is None:
+        print(f"[FAIL] {args.repo} 不是 git repo", file=sys.stderr)
+        return 2
+    _, main_repo, _ = resolved
+    now = dt.datetime.now(dt.UTC) if args.now is None else parse_ts(args.now)
+    if now is None:
+        print(f"[FAIL] --now 格式錯誤：{args.now}", file=sys.stderr)
+        return 2
+    iso_year, iso_week, _ = now.isocalendar()
+    week = f"{iso_year}-W{iso_week:02d}"
+    out_dir = (
+        Path(args.out_dir).expanduser()
+        if args.out_dir
+        else main_repo / ".runtime" / "harness-review"
+    )
+    snapshot = out_dir / f"snapshot-{week}.json"
+    report = out_dir / f"report-{week}.md"
+    lessons = out_dir / f"lessons-{week}.jsonl"
+
+    gitignored = _output_gitignored(main_repo, out_dir)
+    if gitignored is False:
+        print(
+            f"[WARN] {out_dir} 未被 .gitignore 排除，快照與報告會出現在 git status",
+            file=sys.stderr,
+        )
+
+    collect_ns = argparse.Namespace(**vars(args))
+    collect_ns.out = str(snapshot)
+    # 檔名與快照內的週必須出自同一次時鐘讀取；collect 自己再讀一次，跨過週界時兩者會不一致
+    collect_ns.now = now.isoformat()
+    if not args.no_ci and not args.ci_cache:
+        collect_ns.ci_cache = str(out_dir / "ci-jobs-cache.json")
+    collect_rc = cmd_collect(collect_ns)
+    if collect_rc not in (0, 3):
+        return collect_rc
+
+    report_ns = argparse.Namespace(
+        snapshot=str(snapshot),
+        prev="auto",
+        escalate_weeks=args.escalate_weeks,
+        out=str(report),
+        lessons_out=str(lessons),
+    )
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        report_rc = cmd_report(report_ns)
+    if report_rc != 0:
+        return report_rc
+    report_summary = json.loads(buf.getvalue().strip().splitlines()[-1])
+    snap = json.loads(snapshot.read_text(encoding="utf-8"))
+    print(
+        json.dumps(
+            {
+                "week": week,
+                "snapshot": str(snapshot),
+                "report": str(report),
+                "lessons": str(lessons),
+                "collect_rc": collect_rc,
+                # --incomplete-ok 會把 3 改成 0，scheduler 只看得到 exit code；這兩個欄位讓
+                # 排程 log 仍看得出量測不完整（例如 gh 授權失效時 ci_measured 一直是 false）
+                "warning_count": len(snap.get("warnings", [])),
+                "ci_measured": bool(snap.get("ci", {}).get("measured")),
+                "output_gitignored": gitignored,
+                "prev": report_summary.get("prev"),
+                "prev_status": report_summary.get("prev_status"),
+                "lesson_count": report_summary.get("lesson_count"),
+                "escalated": report_summary.get("escalated"),
+            },
+            ensure_ascii=False,
+        )
+    )
+    # yibi-stack scheduler 只把 exit 0 記為成功；量測不完整（3）是常態（例如 CI 有 run 還在跑），
+    # 排程時用 --incomplete-ok 避免每週都顯示 failed。warnings 仍完整留在快照、報告與上面的 stdout。
+    if collect_rc == 3 and args.incomplete_ok:
+        return 0
+    return collect_rc
+
+
+def _output_gitignored(main_repo: Path, out_dir: Path) -> bool | None:
+    """輸出目錄是否被目標 repo 的 .gitignore 排除。
+
+    不在 repo 內回 None（與 git 無關）；git check-ignore 出錯（exit 128 等）也回 None，
+    不猜測。
+    """
+    try:
+        rel = out_dir.resolve().relative_to(main_repo.resolve())
+    except ValueError:
+        return None
+    r = run_cmd(["git", "check-ignore", "-q", str(rel / "snapshot.json")], main_repo)
+    if r.returncode == 0:
+        return True
+    if r.returncode == 1:
+        return False
+    return None
+
+
+def _add_collect_args(c: argparse.ArgumentParser) -> None:
+    """collect 與 weekly 共用的量測參數（不含輸出路徑）。"""
     c.add_argument("--repo", default=".", help="目標 repo（worktree 亦可）")
-    c.add_argument("--out", required=True, help="快照輸出路徑（.json）")
     c.add_argument("--days", type=int, default=7, help="hook 觀察期（天）")
     c.add_argument("--gate-days", type=int, default=90, help="CI gate 觀察期（天）")
     c.add_argument("--events-dir", default="~/.claude/hook-events")
@@ -1963,7 +2072,31 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--heavy-rule-chars", type=int, default=8000)
     c.add_argument("--min-rule-score", type=int, default=12)
     c.add_argument("--max-rule-candidates", type=int, default=10)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Harness 每週盤點")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    c = sub.add_parser("collect", help="量測並輸出本週快照")
+    _add_collect_args(c)
+    c.add_argument("--out", required=True, help="快照輸出路徑（.json）")
     c.set_defaults(func=cmd_collect)
+
+    w = sub.add_parser("weekly", help="collect + report 一次跑完，輸出依 ISO 週命名（給排程器用）")
+    _add_collect_args(w)
+    w.add_argument(
+        "--out-dir",
+        default=None,
+        help="輸出目錄；預設為主 repo 的 .runtime/harness-review/",
+    )
+    w.add_argument("--escalate-weeks", type=int, default=3)
+    w.add_argument(
+        "--incomplete-ok",
+        action="store_true",
+        help="量測不完整（collect exit 3）時回 0；給只把 0 當成功的排程器用，warnings 仍寫進報告",
+    )
+    w.set_defaults(func=cmd_weekly)
 
     for name, fn, help_text in (
         ("diff", cmd_diff, "比對兩份快照"),
@@ -1994,7 +2127,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.command == "collect":
+    if args.command in ("collect", "weekly"):
         args.gate_days = max(args.gate_days, args.days)
     return int(args.func(args))
 
