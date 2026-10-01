@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.9] - 2026-10-01
+
+### Fixed
+
+- pr-cycle-deep Step 1 起草 Review Contract 前新增 Spec-drift preflight（#510）：列出分支 commit，
+  晚於 spec／change 最後修改的 commit 若改變 Goal 層級意圖（預設值、依賴、介面），草稿必須附
+  `Spec vs implementation drift` 清單，讓人類在第一次確認時就裁決，而不是凍結後再做 material amendment。
+  契約測試 `test_convergence_contract.py` 新增兩個 anchor 鎖住此 gate
+
 ## [1.23.8] - 2026-10-01
 
 ### Fixed

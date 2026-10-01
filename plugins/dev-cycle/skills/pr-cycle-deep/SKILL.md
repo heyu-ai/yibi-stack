@@ -237,6 +237,20 @@ Before creating or reviewing the PR, its body MUST contain this exact PR-specifi
 - <explicitly deferred hardening; non-blocking unless promoted by human amendment>
 ```
 
+**Spec-drift preflight (before drafting, new or existing PR; issue #510).** A spec, proposal or PR
+body records intent as of when it was written; a later commit can change that intent (default
+provider, dependency, interface), and a contract drafted from the spec alone then freezes a stale
+Goal/AC that surfaces only as a material amendment. With the PR head checked out, list branch commits:
+
+```bash
+git log --format='%h %ad %s' --date=iso "origin/{{base_branch}}..HEAD"
+```
+
+For each commit dated after the last commit touching the matching spec/change files, read
+`git show --stat <sha>` and judge whether it changes Goal-level intent. If any does, the draft shown
+to the user MUST carry a `Spec vs implementation drift` list (commit, what changed, affected
+Goal/AC), so the human rules on it at the **first** confirmation. If none, say so in the draft.
+
 For a new PR, the lead drafts this contract from the matching spec/change and writes the complete PR
 body to `$CLAUDE_JOB_DIR/pr-body.md` with the Write tool. **Show the drafted contract to the user and
 wait for explicit confirmation before creating the PR** — do not launch R1 on a self-drafted,

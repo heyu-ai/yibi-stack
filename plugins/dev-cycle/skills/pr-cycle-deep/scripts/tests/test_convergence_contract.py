@@ -186,6 +186,8 @@ REQUIRED_ANCHORS: list[str] = [
     "R2 skipped: no contract-blocking candidate or dispute",  # clean R1 exit
     "material amendment",  # semantic contract change restarts full-diff R1
     "editorial amendment",  # non-semantic correction keeps the current pass
+    "Spec-drift preflight",  # issue #510: compare post-spec commits before drafting the contract
+    "Spec vs implementation drift",  # ... and surface the drift at the FIRST confirmation
     "### Step 1.7 — Red-first gate",  # the gate step exists
     # the gate runs as ONE call to the tested wrapper (title/base/restore logic lives there)
     'scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR"',
