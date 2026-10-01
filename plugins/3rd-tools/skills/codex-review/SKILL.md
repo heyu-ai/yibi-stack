@@ -176,13 +176,17 @@ Quoting Rule 2。**不用 `timeout`**——對齊 pr-cycle-deep proven 形式且
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
-codex exec -C "$ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-review-packet.txt"
+codex exec -C "$ROOT" -s read-only -m gpt-6-astra -c 'model_reasoning_effort="high"' < "$CLAUDE_JOB_DIR/codex-review-packet.txt"
 ```
 
 若使用者指定 `--xhigh`，改用 `model_reasoning_effort="xhigh"`。
 
-**Exit-code gate（先於 hijack 檢查）**：上面 codex exec 若非零退出（auth 失效 / network / 中斷），
-停止並告知使用者：「codex exec 失敗（非 hijack）；請確認 `codex login` 或網路後重試。」
+`-m gpt-6-astra` 不可省略（issue #511）：不帶 `-m` 時 ChatGPT 帳號登入下 codex 選到的 `gpt-6-sol`
+直接回 400。`gpt-6-astra` 需要 codex-cli >= 0.154.0；`scripts/tests/test_codex_exec_model_pin.py` 鎖住此 pin。
+
+**Exit-code gate（先於 hijack 檢查）**：上面 codex exec 若非零退出（auth 失效 / network / 中斷 /
+codex-cli 版本過舊），停止並告知使用者：「codex exec 失敗（非 hijack）；請確認 `codex login`、網路，
+以及 `codex --version` >= 0.154.0 後重試。」
 **不可把非零退出當成 hijack 處理**——兩者修法不同。
 
 **結構偵測（format check，僅在 clean exit 後）**：輸出若不含 `## Summary`、`## Findings`、
@@ -274,11 +278,11 @@ cat "$CLAUDE_JOB_DIR/codex-challenge-diff.patch" >> "$CLAUDE_JOB_DIR/codex-chall
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
-codex exec -C "$ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-challenge-packet.txt"
+codex exec -C "$ROOT" -s read-only -m gpt-6-astra -c 'model_reasoning_effort="high"' < "$CLAUDE_JOB_DIR/codex-challenge-packet.txt"
 ```
 
 **Exit-code gate（先於 hijack 檢查）**：codex exec 非零退出 → 停止並告知使用者：
-「codex exec 失敗（非 hijack）；請確認 `codex login` 或網路後重試。」不可把非零退出當 hijack。
+「codex exec 失敗（非 hijack）；請確認 `codex login`、網路，以及 `codex --version` >= 0.154.0 後重試。」不可把非零退出當 hijack。
 
 **結構偵測（format check，同 Step 2A，僅在 clean exit 後）**：輸出若不含 `## Summary`、
 `## Findings`、`## Verdict` 三個標題（packet 已明確要求），判定 agentic hijack（Codex 產出無結構
