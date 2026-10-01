@@ -17,6 +17,7 @@ fail to match.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -148,34 +149,40 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #       codes. Without it the trace gate has no enforcement point at the moment a change claims to
 #       be finished -- the only moment its FAIL severity is meant to bite.
 #
-# Raised 1355 -> 1359 (+4) for the Spec-drift preflight (issue #510, PR #515). The paragraph is 21
-# lines; 1338 + 21 = 1359, so 4 of them exceed the old slack. The first 14-line version picked
+# Raised 1355 -> 1361 (+6) for the Spec-drift preflight (issue #510, PR #515). The paragraph is 23
+# lines; 1338 + 23 = 1361, so 6 of them exceed the old slack. The first 14-line version picked
 # commits by author date after "the last commit touching spec/change files" over a local origin
 # ref, and R1 showed it silently reports "no drift" when a later commit touches a spec file (a
 # tasks.md tick, a typo fix, a rename), when HEAD is not the PR head, when origin is a stale fork,
 # and after a rebase keeps author dates. The lines buy: the HEAD == headRefOid check, the
 # fetched-base range in one call, "inspect every commit" with the reason no spec edit is a
-# baseline, and "failure or empty range is [FAIL], not none". Zero slack is deliberate.
-LINE_BUDGET = 1359
+# baseline, `--remerge-diff` for merge commits (a plain --stat of a "merge main" commit lists every
+# base change as if the branch made it), the `[spec]` marker, and "failure or empty range is
+# [FAIL], not none". Zero slack is deliberate.
+LINE_BUDGET = 1361
 
-# Spec-drift preflight (issue #510). Every clause that defines the rule is pinned verbatim, and
-# check_preflight_position requires each of these to sit inside Step 1 before drafting. PR #515's
-# two R1 passes showed why both halves matter: with only the heading and one phrase pinned, 10 of
-# 12 single mutations survived; with commands pinned but rule clauses loose, 13 semantic mutations
-# (newest -> oldest, not -> including tasks.md, upstream/origin swapped, must -> should) survived,
-# and moving only the body after the confirmation step kept the suite green.
+# Spec-drift preflight (issue #510). These anchors name each rule clause so a failure says WHICH
+# clause went missing, and check_preflight_position requires each to sit inside Step 1 before
+# drafting. They are diagnostics, not the guard: PR #515's review found new unpinned clauses three
+# passes in a row (10/12 mutants surviving, then 13 semantic mutants such as newest -> oldest and
+# upstream/origin swapped, then 14 mutants that kept every anchor and appended a contradiction).
+# Same shape three times means substring anchors cannot close this class, so the guard is the
+# golden snapshot below (PREFLIGHT_SHA256): any edit to the paragraph turns the suite red.
 PREFLIGHT_ANCHORS: list[str] = [
     "Spec-drift preflight",  # the step exists
     "new or existing PR",  # scope: both paths
-    "HEAD` must equal `gh pr view",  # existing PR: HEAD must be the PR head ...
+    "--json baseRefName -q .baseRefName`",  # base branch comes from THIS PR, not upstream tracking
+    "existing PR, `git rev-parse HEAD` must equal",  # existing PR: HEAD must be the PR head ...
     "--json headRefOid -q .headRefOid`, else `[FAIL]`",  # ... or stop
     "as `setup-review-dir.sh` does",  # base remote resolution (PR #22, issue #196)
     "(`upstream` if present, else",  # ... upstream wins over a possibly stale fork origin
     "git fetch <base-remote> -- {{base_branch}} &&",  # fetch and list in one call (FETCH_HEAD)
     "git log --topo-order --format='%h %s' FETCH_HEAD..HEAD",  # the range is the fetched base
-    "Inspect every commit in that range",  # no baseline cut-off (amendment #2)
+    "Inspect every commit in that range with `git show --stat <sha>`",  # no baseline cut-off
+    "`git show --remerge-diff --stat <sha>`",  # a merge shows only its own resolution
     "not only those after a spec edit",  # ... explicitly
-    "only marks where the spec changed",  # a spec-touching commit does not reconcile intent
+    "`proposal.md`, `design.md` or `specs/`",  # what counts as a spec edit
+    "as `[spec]` in the list — a marker only",  # AC-1(c): annotate, never cut
     "changes Goal-level intent",  # the judgement being asked for
     "final section) MUST carry",  # the drift list is mandatory
     "new-PR draft, or the existing PR's final section",  # where the list goes
@@ -328,6 +335,33 @@ def check_preflight_position(text: str) -> list[str]:
         for a in PREFLIGHT_ANCHORS
         if text.find(a, lo, hi) < 0
     ]
+
+
+# Golden snapshot of the preflight paragraph: everything from the heading up to the drafting
+# paragraph, whitespace-trimmed. A hash rather than a literal keeps the test file inside ruff's
+# 100-column limit; on mismatch the failure prints the current text so the diff is readable.
+# Changing the paragraph is legitimate -- but it must be a deliberate edit of this constant, made
+# in the same commit, so a reviewer sees the runbook rule change as a test change too.
+PREFLIGHT_SHA256 = "cef6e1a8b766d3c736e24f92c7c4e71399a54ae4ca76513e70f1f9d2d7cb67e3"
+
+
+def preflight_text(text: str) -> str | None:
+    """Return the preflight paragraph (heading through the line before drafting), or None."""
+    start, end = text.find(PREFLIGHT_MARKER), text.find(DRAFTING_MARKER)
+    if start < 0 or end < 0 or end <= start:
+        return None
+    return text[start:end].strip()
+
+
+def check_preflight_snapshot(text: str) -> list[str]:
+    """Return a failure unless the preflight paragraph hashes to PREFLIGHT_SHA256."""
+    body = preflight_text(text)
+    if body is None:
+        return ["preflight snapshot: paragraph not found between its heading and drafting"]
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    if digest != PREFLIGHT_SHA256:
+        return [f"preflight snapshot mismatch: sha256 {digest} != PREFLIGHT_SHA256\n{body}"]
+    return []
 
 
 def read_skill_md(path: Path = SKILL_MD) -> str:
@@ -504,8 +538,11 @@ def test_prc_dt_007_unanimous_voice_and_mandatory_r2_wording_is_forbidden(wordin
 
 def test_prc_dt_008_preflight_sits_between_template_and_drafting():
     """PRC-DT-008: the real SKILL.md has the Spec-drift preflight heading and every rule clause
-    after the Step 1 contract template and before the drafting paragraph (issue #510, AC-1/AC-3)."""
-    assert check_preflight_position(read_skill_md()) == []
+    after the Step 1 contract template and before the drafting paragraph (issue #510, AC-1/AC-3),
+    and the paragraph matches its golden snapshot byte for byte."""
+    text = read_skill_md()
+    assert check_preflight_position(text) == []
+    assert check_preflight_snapshot(text) == []
 
 
 # --------------------------------------------------------------------------- edge / guard (EG)
@@ -615,9 +652,46 @@ def test_prc_eg_010_preflight_body_moved_after_drafting_fails():
     ok = _preflight_window("\n".join(PREFLIGHT_ANCHORS))
     assert check_preflight_position(ok) == []
     body_only_heading = _preflight_window("Spec-drift preflight") + "\n".join(PREFLIGHT_ANCHORS)
-    failures = check_preflight_position(body_only_heading)
-    assert any("never report it as no drift" in f for f in failures), failures
-    assert any("Inspect every commit in that range" in f for f in failures), failures
+    # Every anchor except the heading's own text must be reported -- not just a sample of them, or a
+    # checker that looked at only two anchors would pass (PR #515 R1 third pass).
+    assert set(check_preflight_position(body_only_heading)) == {
+        f"preflight anchor not inside Step 1 before drafting: {a!r}"
+        for a in PREFLIGHT_ANCHORS
+        if a != "Spec-drift preflight"
+    }
+
+
+def test_prc_eg_011_preflight_body_before_template_fails():
+    """PRC-EG-011: negative control for the window's lower bound -- anchors placed before the Step 1
+    contract template are reported (a checker with `lo = 0` would pass this)."""
+    text = "\n".join(PREFLIGHT_ANCHORS) + "\n" + _preflight_window("Spec-drift preflight")
+    assert set(check_preflight_position(text)) == {
+        f"preflight anchor not inside Step 1 before drafting: {a!r}"
+        for a in PREFLIGHT_ANCHORS
+        if a != "Spec-drift preflight"
+    }
+
+
+def test_prc_eg_012_preflight_snapshot_rejects_appended_reversal():
+    """PRC-EG-012: negative control for the snapshot -- appending a contradiction while keeping
+    every anchor (PR #515 R1 third pass: "an empty range simply means no drift") turns it red."""
+    text = read_skill_md()
+    assert check_preflight_snapshot(text) == []
+    old = "never report it as no drift."
+    assert text.count(old) == 1
+    mutant = text.replace(
+        old, "never report it as no drift (an empty range simply means no drift)."
+    )
+    assert check_convergence_contract(mutant) == [], "anchors alone cannot see this mutant"
+    assert check_preflight_position(mutant) == [], "position alone cannot see this mutant"
+    assert check_preflight_snapshot(mutant)[0].startswith("preflight snapshot mismatch")
+
+
+def test_prc_eg_013_preflight_snapshot_missing_paragraph_fails_loud():
+    """PRC-EG-013: no paragraph between heading and drafting is reported, never a vacuous pass."""
+    assert check_preflight_snapshot(f"{DRAFTING_MARKER}\n{PREFLIGHT_MARKER}\n") == [
+        "preflight snapshot: paragraph not found between its heading and drafting"
+    ]
 
 
 # --------------------------------------------------------------------------- smoke (SMK)
@@ -628,6 +702,7 @@ def test_smk_001_suite_passes_against_real_skill_md():
     text = read_skill_md()
     assert check_convergence_contract(text) == []
     assert check_preflight_position(text) == []
+    assert check_preflight_snapshot(text) == []
 
 
 def test_smk_002_real_line_count_reported_within_budget(capsys):
@@ -639,8 +714,11 @@ def test_smk_002_real_line_count_reported_within_budget(capsys):
 
 
 if __name__ == "__main__":
-    problems = check_convergence_contract(read_skill_md()) + check_preflight_position(
-        read_skill_md()
+    skill_text = read_skill_md()
+    problems = (
+        check_convergence_contract(skill_text)
+        + check_preflight_position(skill_text)
+        + check_preflight_snapshot(skill_text)
     )
     if problems:
         for p in problems:

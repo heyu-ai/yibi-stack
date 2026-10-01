@@ -241,17 +241,19 @@ Before creating or reviewing the PR, its body MUST contain this exact PR-specifi
 body records intent as of when it was written; a later commit can change that intent (default
 provider, dependency, interface), and a contract drafted from the spec alone then freezes a stale
 Goal/AC that surfaces only as a material amendment. `{{base_branch}}` is the PR's base
-(`gh pr view --json baseRefName`, or a new PR's intended `--base`). For an existing PR, `git rev-parse
-HEAD` must equal `gh pr view {{pr_number}} --json headRefOid -q .headRefOid`, else `[FAIL]` (check out
-the PR head first). Fetch the base remote as `setup-review-dir.sh` does (`upstream` if present, else
+(`gh pr view {{pr_number}} --json baseRefName -q .baseRefName`, or a new PR's intended `--base`). For an
+existing PR, `git rev-parse HEAD` must equal `gh pr view {{pr_number}} --json headRefOid -q .headRefOid`, else `[FAIL]`
+(check out the PR head first). Fetch the base remote as `setup-review-dir.sh` does (`upstream` if present, else
 `origin`; PR #22, issue #196) and list the branch commits in one call, so FETCH_HEAD is not stale:
 
 ```bash
 git fetch <base-remote> -- {{base_branch}} && git log --topo-order --format='%h %s' FETCH_HEAD..HEAD
 ```
 
-Inspect every commit in that range with `git show --stat <sha>`, not only those after a spec edit: a
-commit touching `proposal.md`, `design.md` or `specs/` only marks where the spec changed — a typo fix
+Inspect every commit in that range with `git show --stat <sha>`; for a merge commit use
+`git show --remerge-diff --stat <sha>`, which shows only what the merge itself changed (a plain `--stat`
+lists every base change it brought in). Inspect them all, not only those after a spec edit: tag a commit
+touching `proposal.md`, `design.md` or `specs/` as `[spec]` in the list — a marker only, since a typo fix
 or rename there reconciles nothing. If any commit changes Goal-level intent, the contract shown for
 confirmation (new-PR draft, or the existing PR's final section) MUST carry a
 `Spec vs implementation drift` list (commit, what changed, affected Goal/AC), so the human rules on it
