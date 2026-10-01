@@ -66,7 +66,7 @@ Claude Code 的 `/schedule`（雲端 routine）讀不到這些檔案；`CronCrea
 ```json
 {
   "id": "harness-weekly-review-<repo>",
-  "description": "<repo> harness 每週盤點（量測 + 週對週比對，唯讀）",
+  "description": "<repo> harness 每週盤點（量測 + 週對週比對；只寫 .runtime/harness-review/）",
   "schedule": "weekly",
   "time": "08:17",
   "day_of_week": "monday",
@@ -87,6 +87,15 @@ Claude Code 的 `/schedule`（雲端 routine）讀不到這些檔案；`CronCrea
 只把 exit 0 記為成功（`tasks/scheduler/runner.py`），而量測不完整是常態（CI 有 run 還在跑、hook-events 尚未
 累積滿觀察期），所以排程時加 `--incomplete-ok`：3 改回 0，warnings 仍完整寫在快照與報告裡；參數錯誤與崩潰
 照樣非 0，scheduler 會記成 failed。用 `make scheduler-status` 查看上次執行結果。
+
+**`--incomplete-ok` 的取捨**：exit 3 的唯一條件是快照有 warning，而 warning 不只來自上述常態，也來自持續性的
+讀取失敗（例如 `gh` 授權過期讓 CI 每週都量不到、`settings.json` 解析失敗）。加了 `--incomplete-ok` 後這些也會
+被記成 success。所以 `weekly` 在 stdout 的 summary JSON 帶出 `warning_count` 與 `ci_measured`：排程 log 裡
+`ci_measured` 連續多週為 `false`，就代表資料源壞了，不是常態。
+
+`weekly` 也會確認輸出目錄是否被目標 repo 的 `.gitignore` 排除：未排除時 stderr 印 `[WARN]`，summary 的
+`output_gitignored` 為 `false`（輸出目錄不在 repo 內時為 `null`）。快照內含 hook 與 transcript 統計與絕對路徑，
+不要讓它進 commit。
 
 ## 步驟
 

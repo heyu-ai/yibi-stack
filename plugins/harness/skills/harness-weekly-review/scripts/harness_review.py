@@ -1970,8 +1970,17 @@ def cmd_weekly(args: argparse.Namespace) -> int:
     report = out_dir / f"report-{week}.md"
     lessons = out_dir / f"lessons-{week}.jsonl"
 
+    gitignored = _output_gitignored(main_repo, out_dir)
+    if gitignored is False:
+        print(
+            f"[WARN] {out_dir} 未被 .gitignore 排除，快照與報告會出現在 git status",
+            file=sys.stderr,
+        )
+
     collect_ns = argparse.Namespace(**vars(args))
     collect_ns.out = str(snapshot)
+    # 檔名與快照內的週必須出自同一次時鐘讀取；collect 自己再讀一次，跨過週界時兩者會不一致
+    collect_ns.now = now.isoformat()
     if not args.no_ci and not args.ci_cache:
         collect_ns.ci_cache = str(out_dir / "ci-jobs-cache.json")
     collect_rc = cmd_collect(collect_ns)
@@ -1991,6 +2000,7 @@ def cmd_weekly(args: argparse.Namespace) -> int:
     if report_rc != 0:
         return report_rc
     report_summary = json.loads(buf.getvalue().strip().splitlines()[-1])
+    snap = json.loads(snapshot.read_text(encoding="utf-8"))
     print(
         json.dumps(
             {
@@ -1999,6 +2009,11 @@ def cmd_weekly(args: argparse.Namespace) -> int:
                 "report": str(report),
                 "lessons": str(lessons),
                 "collect_rc": collect_rc,
+                # --incomplete-ok 會把 3 改成 0，scheduler 只看得到 exit code；這兩個欄位讓
+                # 排程 log 仍看得出量測不完整（例如 gh 授權失效時 ci_measured 一直是 false）
+                "warning_count": len(snap.get("warnings", [])),
+                "ci_measured": bool(snap.get("ci", {}).get("measured")),
+                "output_gitignored": gitignored,
                 "prev": report_summary.get("prev"),
                 "prev_status": report_summary.get("prev_status"),
                 "lesson_count": report_summary.get("lesson_count"),
@@ -2012,6 +2027,24 @@ def cmd_weekly(args: argparse.Namespace) -> int:
     if collect_rc == 3 and args.incomplete_ok:
         return 0
     return collect_rc
+
+
+def _output_gitignored(main_repo: Path, out_dir: Path) -> bool | None:
+    """輸出目錄是否被目標 repo 的 .gitignore 排除。
+
+    不在 repo 內回 None（與 git 無關）；git check-ignore 出錯（exit 128 等）也回 None，
+    不猜測。
+    """
+    try:
+        rel = out_dir.resolve().relative_to(main_repo.resolve())
+    except ValueError:
+        return None
+    r = run_cmd(["git", "check-ignore", "-q", str(rel / "snapshot.json")], main_repo)
+    if r.returncode == 0:
+        return True
+    if r.returncode == 1:
+        return False
+    return None
 
 
 def _add_collect_args(c: argparse.ArgumentParser) -> None:

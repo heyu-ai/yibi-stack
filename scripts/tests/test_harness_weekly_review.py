@@ -48,16 +48,24 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。mock 只放在外部邊
   - write-lessons：真的 mycelium 分出 written／skipped_existing：HWR-ST-016；
     輸出無法確認：HWR-ST-017；逾時／執行檔不存在／壞行：HWR-ST-018
   - --prev auto 略過版本不符的快照：HWR-ST-019
+- weekly 子命令（排程用）：
+  - 從 worktree 執行時依 ISO 週命名、寫到主 repo：HWR-ST-020；自動找上週快照：HWR-ST-021；
+    沿用 collect 門檻：HWR-ST-022；summary 帶出 warning 數與 CI 是否量到：HWR-ST-023
+  - --incomplete-ok 只把 3 改成 0：HWR-DT-041；collect 的其他錯誤原樣回傳：HWR-DT-042
+  - ISO 年界（2027-01-01 → 2026-W53）：HWR-DT-043；只讀一次時鐘：HWR-DT-044
+  - 非 git 目錄 exit 2：HWR-VL-006；輸出目錄未被 .gitignore 排除時警告：HWR-VL-007
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import importlib.util
 import json
 import os
 import subprocess
 import sys
+import types
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -1166,10 +1174,10 @@ def weekly_args(repo: Path, tmp_path: Path, now: str, *extra: str) -> list[str]:
 
 
 class TestWeekly:
-    def test_hwr_st_015_weekly_writes_week_named_files_under_main_repo(
+    def test_hwr_st_020_weekly_writes_week_named_files_under_main_repo(
         self, tmp_path: Path
     ) -> None:
-        """HWR-ST-015: 從 worktree 執行 weekly，三個輸出依 ISO 週命名，預設落在主 repo 的 .runtime/harness-review/"""
+        """HWR-ST-020: 從 worktree 執行 weekly，三個輸出依 ISO 週命名，預設落在主 repo 的 .runtime/harness-review/"""
         repo = make_orphan_repo(tmp_path)
         git_commit_all(repo)
         wt = tmp_path / "wt-copy"
@@ -1188,8 +1196,8 @@ class TestWeekly:
         assert summary["prev_status"] == "none"
         assert Path(summary["report"]).resolve() == (out_dir / "report-2026-W40.md").resolve()
 
-    def test_hwr_st_016_weekly_finds_previous_week(self, tmp_path: Path) -> None:
-        """HWR-ST-016: 連續兩週執行 weekly，第二週自動以上週快照為 prev（排程不需要算日期）"""
+    def test_hwr_st_021_weekly_finds_previous_week(self, tmp_path: Path) -> None:
+        """HWR-ST-021: 連續兩週執行 weekly，第二週自動以上週快照為 prev（排程不需要算日期）"""
         repo = make_orphan_repo(tmp_path)
         out_dir = tmp_path / "hr"
         for now in ("2026-09-23T00:00:00Z", "2026-09-30T00:00:00Z"):
@@ -1203,8 +1211,8 @@ class TestWeekly:
         text = (out_dir / "report-2026-W40.md").read_text()
         assert "hook-unregistered" in text
 
-    def test_hwr_st_017_weekly_passes_collect_thresholds(self, tmp_path: Path) -> None:
-        """HWR-ST-017: weekly 沿用 collect 的門檻參數（--heavy-rule-chars 調高後不再產出 rule-heavy）"""
+    def test_hwr_st_022_weekly_passes_collect_thresholds(self, tmp_path: Path) -> None:
+        """HWR-ST-022: weekly 沿用 collect 的門檻參數（--heavy-rule-chars 調高後不再產出 rule-heavy）"""
         repo = make_orphan_repo(tmp_path)
         out_dir = tmp_path / "hr"
         args = weekly_args(repo, tmp_path, "2026-09-30T00:00:00Z", "--out-dir", str(out_dir))
@@ -1213,8 +1221,8 @@ class TestWeekly:
         assert ".claude/rules/big.md" not in kinds
         assert kinds["orphan.sh"] == "hook-unregistered"
 
-    def test_hwr_dt_033_weekly_incomplete_ok(self, tmp_path: Path) -> None:
-        """HWR-DT-033: --incomplete-ok 讓量測不完整回 0（scheduler 只把 0 當成功），warnings 仍寫進報告；
+    def test_hwr_dt_041_weekly_incomplete_ok(self, tmp_path: Path) -> None:
+        """HWR-DT-041: --incomplete-ok 讓量測不完整回 0（scheduler 只把 0 當成功），warnings 仍寫進報告；
         參數錯誤仍回 2"""
         repo = make_orphan_repo(tmp_path)
         out_dir = tmp_path / "hr"
@@ -1228,16 +1236,76 @@ class TestWeekly:
         bad = weekly_args(tmp_path / "nope", tmp_path, "2026-09-30T00:00:00Z", "--incomplete-ok")
         assert hr.main(bad) == 2
 
-    def test_hwr_dt_034_weekly_collect_error_not_swallowed(
+    def test_hwr_dt_042_weekly_collect_error_not_swallowed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """HWR-DT-034: collect 回 2 等非 0/3 值時，weekly 原樣回傳且不產報告，--incomplete-ok 也不吞掉"""
+        """HWR-DT-042: collect 回 2 等非 0/3 值時，weekly 原樣回傳且不產報告，--incomplete-ok 也不吞掉"""
         repo = make_orphan_repo(tmp_path)
         out_dir = tmp_path / "hr"
         monkeypatch.setattr(hr, "cmd_collect", lambda ns: 2)
         base = weekly_args(repo, tmp_path, "2026-09-30T00:00:00Z", "--out-dir", str(out_dir))
         assert hr.main([*base, "--incomplete-ok"]) == 2
         assert not (out_dir / "report-2026-W40.md").exists()
+
+    def test_hwr_dt_043_weekly_iso_year_boundary(self, tmp_path: Path) -> None:
+        """HWR-DT-043: 2027-01-01 屬於 ISO 2026-W53，檔名用 ISO 年而非曆年，且與快照內的週一致"""
+        repo = make_orphan_repo(tmp_path)
+        out_dir = tmp_path / "hr"
+        buf: list[str] = []
+        args = weekly_args(repo, tmp_path, "2027-01-01T00:00:00Z", "--out-dir", str(out_dir))
+        assert _capture_main(args, buf) in (0, 3)
+        assert json.loads(buf[0].strip().splitlines()[-1])["week"] == "2026-W53"
+        assert load(out_dir / "snapshot-2026-W53.json")["window"]["label"] == "2026-W53"
+
+    def test_hwr_dt_044_weekly_reads_clock_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWR-DT-044: 不帶 --now 時只讀一次時鐘；第二次讀取若跨過週界，檔名與快照內的週仍一致"""
+        repo = make_orphan_repo(tmp_path)
+        out_dir = tmp_path / "hr"
+        first = dt.datetime(2026, 10, 4, 23, 59, 59, tzinfo=dt.UTC)  # 週日，2026-W40
+        later = dt.datetime(2026, 10, 5, 0, 0, 1, tzinfo=dt.UTC)  # 週一，2026-W41
+        reads = iter([first])
+
+        class FakeDateTime(dt.datetime):
+            @classmethod
+            def now(cls, tz: dt.tzinfo | None = None) -> dt.datetime:  # type: ignore[override]
+                return next(reads, later)
+
+        fake_dt = types.SimpleNamespace(**vars(dt))
+        fake_dt.datetime = FakeDateTime
+        monkeypatch.setattr(hr, "dt", fake_dt)
+        args = [
+            "weekly",
+            "--repo",
+            str(repo),
+            "--no-ci",
+            "--events-dir",
+            str(tmp_path / "ev"),
+            "--projects-dir",
+            str(tmp_path / "p"),
+            "--out-dir",
+            str(out_dir),
+        ]
+        buf: list[str] = []
+        assert _capture_main(args, buf) in (0, 3)
+        assert json.loads(buf[0].strip().splitlines()[-1])["week"] == "2026-W40"
+        assert load(out_dir / "snapshot-2026-W40.json")["window"]["label"] == "2026-W40"
+
+    def test_hwr_st_023_weekly_summary_reports_measurement(self, tmp_path: Path) -> None:
+        """HWR-ST-023: --incomplete-ok 回 0 時，summary 仍帶出 warning 數與 CI 是否量到"""
+        repo = make_orphan_repo(tmp_path)
+        out_dir = tmp_path / "hr"
+        buf: list[str] = []
+        args = weekly_args(
+            repo, tmp_path, "2026-09-30T00:00:00Z", "--out-dir", str(out_dir), "--incomplete-ok"
+        )
+        assert _capture_main(args, buf) == 0
+        summary = json.loads(buf[0].strip().splitlines()[-1])
+        warnings = load(out_dir / "snapshot-2026-W40.json")["warnings"]
+        assert warnings
+        assert summary["warning_count"] == len(warnings)
+        assert summary["ci_measured"] is False
 
 
 class TestValidation:
@@ -1249,6 +1317,29 @@ class TestValidation:
         )
         assert rc == 2
         assert not out_dir.exists() or not any(out_dir.iterdir())
+
+    def test_hwr_vl_007_weekly_warns_when_output_not_ignored(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """HWR-VL-007: 預設輸出目錄未被 .gitignore 排除 → stderr [WARN]、summary 標 false；
+        加上排除後標 true 且不警告；--out-dir 在 repo 外 → null"""
+        repo = make_orphan_repo(tmp_path)
+        args = weekly_args(repo, tmp_path, "2026-09-30T00:00:00Z")
+
+        def run() -> tuple[object, str]:
+            buf: list[str] = []
+            assert _capture_main(args, buf) in (0, 3)
+            summary = json.loads(buf[0].strip().splitlines()[-1])
+            return summary["output_gitignored"], capsys.readouterr().err
+
+        flag, err = run()
+        assert flag is False and ".gitignore" in err
+        (repo / ".gitignore").write_text(".runtime/\n")
+        flag, err = run()
+        assert flag is True and ".gitignore" not in err
+        args = weekly_args(repo, tmp_path, "2026-09-30T00:00:00Z", "--out-dir", str(tmp_path / "x"))
+        flag, _ = run()
+        assert flag is None
 
     def test_hwr_vl_001_not_git_repo(self, tmp_path: Path) -> None:
         """HWR-VL-001: 非 git 目錄 exit 2"""
