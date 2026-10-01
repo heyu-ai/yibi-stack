@@ -147,7 +147,15 @@ SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 #   (2) +9 lines, Step 11a: run check_testplan_trace.py --strict before archiving, with its exit
 #       codes. Without it the trace gate has no enforcement point at the moment a change claims to
 #       be finished -- the only moment its FAIL severity is meant to bite.
-LINE_BUDGET = 1355
+#
+# Raised 1355 -> 1361 (+6; the first 14-line preflight version fit in the old slack) for the
+# Spec-drift preflight's selection rule (issue #510, PR #515 R1). The first version picked commits
+# by author date after "the last commit touching spec/change files" over a local origin ref; R1
+# showed it silently reports "no drift" when /spectra-apply ticks tasks.md after a drift commit,
+# when HEAD is not the PR head, when origin is a stale fork, and after a rebase keeps author dates.
+# The 6 lines buy: the HEAD == headRefOid check, the fetched-base range, the topological baseline
+# that excludes tasks.md, the no-spec fallback, and "failure or empty range is [FAIL], not none".
+LINE_BUDGET = 1361
 
 # Load-bearing strings that MUST be present. Each proves one piece of this change landed; the
 # PRC-EG-006 mutation test asserts every one of them is genuinely checked (removing it turns the
@@ -188,6 +196,18 @@ REQUIRED_ANCHORS: list[str] = [
     "editorial amendment",  # non-semantic correction keeps the current pass
     "Spec-drift preflight",  # issue #510: compare post-spec commits before drafting the contract
     "Spec vs implementation drift",  # ... and surface the drift at the FIRST confirmation
+    # PR #515 R1: the two anchors above let 10 of 12 single mutations survive (command deleted,
+    # MUST -> MAY, paragraph moved). These pin the selection rule itself, verbatim:
+    "git log --topo-order --format='%h %s' FETCH_HEAD..HEAD",  # fetched base, topological order
+    "as `setup-review-dir.sh` does",  # base remote: upstream if present (issues #22/#196)
+    "--json headRefOid -q .headRefOid`, else `[FAIL]`",  # existing PR: HEAD must be the PR head
+    "which `/spectra-apply` ticks after every task",  # tasks.md never moves the baseline
+    "new-PR draft, or the existing PR's final section",  # where the drift list goes
+    "never report it as no drift",  # failed fetch/log or empty range is a stop, not "none"
+    "git fetch <base-remote> {{base_branch}}",  # the fetch that makes FETCH_HEAD current
+    'write "no spec baseline" in the draft',  # no spec/change commit: inspect the whole range
+    "final section) MUST carry",  # the drift list is mandatory, not optional
+    "confirmation; if none, say so",  # "no drift" must be stated, not left implicit
     "### Step 1.7 — Red-first gate",  # the gate step exists
     # the gate runs as ONE call to the tested wrapper (title/base/restore logic lives there)
     'scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR"',
@@ -254,6 +274,37 @@ def check_convergence_contract(text: str) -> list[str]:
             failures.append(f"forbidden string present: {forbidden!r}")
 
     return failures
+
+
+# Position markers for the Spec-drift preflight (issue #510). Substring anchors cannot see order,
+# and PR #515 R1 showed the paragraph could move after drafting -- or out of Step 1 -- with the
+# suite green. The preflight must sit after the Step 1 contract template and before drafting.
+PREFLIGHT_MARKER = "**Spec-drift preflight"
+CONTRACT_TEMPLATE_END = (
+    "- <explicitly deferred hardening; non-blocking unless promoted by human amendment>"
+)
+DRAFTING_MARKER = "For a new PR, the lead drafts"
+
+
+def check_preflight_position(text: str) -> list[str]:
+    """Return failures unless the preflight sits between the contract template and drafting.
+
+    Pure function so the negative paths run on synthetic text. A missing marker is a failure, not a
+    pass: otherwise deleting a marker would turn this check vacuous.
+    """
+    positions = {
+        m: text.find(m) for m in (CONTRACT_TEMPLATE_END, PREFLIGHT_MARKER, DRAFTING_MARKER)
+    }
+    missing = [m for m, i in positions.items() if i < 0]
+    if missing:
+        return [f"position marker absent: {m!r}" for m in missing]
+    if (
+        not positions[CONTRACT_TEMPLATE_END]
+        < positions[PREFLIGHT_MARKER]
+        < positions[DRAFTING_MARKER]
+    ):
+        return ["Spec-drift preflight is not between the Step 1 contract template and drafting"]
+    return []
 
 
 def read_skill_md(path: Path = SKILL_MD) -> str:
@@ -509,6 +560,26 @@ def test_prc_eg_007_line_budget_mutation_killed_both_directions():
 
 
 # --------------------------------------------------------------------------- smoke (SMK)
+
+
+def test_prc_dt_008_preflight_sits_between_template_and_drafting():
+    """PRC-DT-008: the real SKILL.md places the Spec-drift preflight after the Step 1 contract
+    template and before the drafting paragraph (issue #510, AC-1)."""
+    assert check_preflight_position(read_skill_md()) == []
+
+
+def test_prc_eg_008_preflight_moved_after_drafting_fails():
+    """PRC-EG-008: negative control -- moving the paragraph after drafting turns the check red."""
+    text = f"{CONTRACT_TEMPLATE_END}\n{DRAFTING_MARKER}\n{PREFLIGHT_MARKER} ...\n"
+    assert check_preflight_position(text) == [
+        "Spec-drift preflight is not between the Step 1 contract template and drafting"
+    ]
+
+
+def test_prc_eg_009_missing_position_marker_fails_loud():
+    """PRC-EG-009: a deleted marker is reported, never a vacuous pass."""
+    text = f"{PREFLIGHT_MARKER} ...\n{DRAFTING_MARKER}\n"
+    assert check_preflight_position(text) == [f"position marker absent: {CONTRACT_TEMPLATE_END!r}"]
 
 
 def test_smk_001_suite_passes_against_real_skill_md():

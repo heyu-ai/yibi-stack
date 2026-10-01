@@ -240,16 +240,25 @@ Before creating or reviewing the PR, its body MUST contain this exact PR-specifi
 **Spec-drift preflight (before drafting, new or existing PR; issue #510).** A spec, proposal or PR
 body records intent as of when it was written; a later commit can change that intent (default
 provider, dependency, interface), and a contract drafted from the spec alone then freezes a stale
-Goal/AC that surfaces only as a material amendment. With the PR head checked out, list branch commits:
+Goal/AC that surfaces only as a material amendment. `{{base_branch}}` is the PR's base
+(`gh pr view --json baseRefName`, or a new PR's intended `--base`). For an existing PR, `git rev-parse
+HEAD` must equal `gh pr view {{pr_number}} --json headRefOid -q .headRefOid`, else `[FAIL]` (check out
+the PR head first). Fetch the base remote as `setup-review-dir.sh` does (`upstream` if present, else
+`origin`; issues #22/#196), then list the branch commits newest first:
 
 ```bash
-git log --format='%h %ad %s' --date=iso "origin/{{base_branch}}..HEAD"
+git fetch <base-remote> {{base_branch}}
+git log --topo-order --format='%h %s' FETCH_HEAD..HEAD
 ```
 
-For each commit dated after the last commit touching the matching spec/change files, read
-`git show --stat <sha>` and judge whether it changes Goal-level intent. If any does, the draft shown
-to the user MUST carry a `Spec vs implementation drift` list (commit, what changed, affected
-Goal/AC), so the human rules on it at the **first** confirmation. If none, say so in the draft.
+The baseline is the newest listed commit touching the matching change's `proposal.md`, `design.md` or
+`specs/` — **not** `tasks.md`, which `/spectra-apply` ticks after every task. Inspect the baseline and
+every commit listed above it with `git show --stat <sha>`; with no such commit, inspect the whole range
+and write "no spec baseline" in the draft. If any commit changes Goal-level intent, the contract shown
+for confirmation (new-PR draft, or the existing PR's final section) MUST carry a
+`Spec vs implementation drift` list (commit, what changed, affected Goal/AC), so the human rules on it
+at the **first** confirmation; if none, say so. A failed fetch/log or an empty range is `[FAIL]`: stop,
+and never report it as no drift.
 
 For a new PR, the lead drafts this contract from the matching spec/change and writes the complete PR
 body to `$CLAUDE_JOB_DIR/pr-body.md` with the Write tool. **Show the drafted contract to the user and

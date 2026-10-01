@@ -9,10 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- pr-cycle-deep Step 1 起草 Review Contract 前新增 Spec-drift preflight（#510）：列出分支 commit，
-  晚於 spec／change 最後修改的 commit 若改變 Goal 層級意圖（預設值、依賴、介面），草稿必須附
-  `Spec vs implementation drift` 清單，讓人類在第一次確認時就裁決，而不是凍結後再做 material amendment。
-  契約測試 `test_convergence_contract.py` 新增兩個 anchor 鎖住此 gate
+- pr-cycle-deep Step 1 起草 Review Contract 前新增 Spec-drift preflight（#510）：既有 PR 先確認 HEAD
+  等於 PR head；依 `setup-review-dir.sh` 的規則 fetch base 後，以拓撲順序列出 `FETCH_HEAD..HEAD` 的 commit；
+  基準是最後一個改到 `proposal.md`／`design.md`／`specs/` 的 commit（不含 `/spectra-apply` 每次都會勾的
+  `tasks.md`），沒有 spec 時檢查整個範圍。改變 Goal 層級意圖的 commit 必須以 `Spec vs implementation drift`
+  清單附在給人類確認的 contract 上，讓人類在第一次確認時就裁決；fetch／log 失敗或範圍為空一律停下，
+  不可寫成「沒有偏離」
+- `test_convergence_contract.py` 新增 12 個逐字 anchor 與段落位置檢查（`check_preflight_position`），
+  15 個單點突變全數轉紅；`LINE_BUDGET` 1355 → 1361
 
 ## [1.23.8] - 2026-10-01
 
