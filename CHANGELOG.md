@@ -10,13 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - pr-cycle-deep Step 1 起草 Review Contract 前新增 Spec-drift preflight（#510）：既有 PR 先確認 HEAD
-  等於 PR head；依 `setup-review-dir.sh` 的規則 fetch base 後，以拓撲順序列出 `FETCH_HEAD..HEAD` 的 commit；
-  基準是最後一個改到 `proposal.md`／`design.md`／`specs/` 的 commit（不含 `/spectra-apply` 每次都會勾的
-  `tasks.md`），沒有 spec 時檢查整個範圍。改變 Goal 層級意圖的 commit 必須以 `Spec vs implementation drift`
+  等於 PR head；依 `setup-review-dir.sh` 的規則 fetch base，並在同一個呼叫列出 `FETCH_HEAD..HEAD` 的 commit；
+  範圍內**每個** commit 都要檢查。不以「最後一個改到 spec 檔的 commit」切範圍：改到 spec 檔（勾 `tasks.md`、
+  修 typo、改名）不代表重新對齊了意圖。改變 Goal 層級意圖的 commit 必須以 `Spec vs implementation drift`
   清單附在給人類確認的 contract 上，讓人類在第一次確認時就裁決；fetch／log 失敗或範圍為空一律停下，
   不可寫成「沒有偏離」
-- `test_convergence_contract.py` 新增 12 個逐字 anchor 與段落位置檢查（`check_preflight_position`），
-  15 個單點突變全數轉紅；`LINE_BUDGET` 1355 → 1361
+- `test_convergence_contract.py` 以 `PREFLIGHT_ANCHORS` 逐字鎖住 preflight 的 20 個規則子句，
+  `check_preflight_position` 要求標題與每個子句都位於 Step 1 contract 模板之後、起草段之前；
+  19 個語意單點突變（含只移本體、upstream／origin 對調）全數轉紅；`LINE_BUDGET` 1355 → 1359
 
 ## [1.23.8] - 2026-10-01
 
