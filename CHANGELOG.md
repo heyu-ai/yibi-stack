@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- growth：`pr-retrospective` 接入可降級的 Hindsight preflight、search-first recurrence、
+  Step 5 canonical readback 後的 lesson projection／lifecycle tombstone，以及依 Epic/change
+  identity 更新 initiative。新增共用 protocol、deterministic projection helper 與 audit
+  measurement report；content envelope 不冒充原生 metadata，accepted 不等於可搜尋（#425）。
+
+### Fixed
+
+- Hindsight 投影：receipt 綁定 canonical lesson ID，active 接替須核實 predecessor；
+  audit 以含時區的實際時間排序，合併 GitHub PR identity 別名，拒絕空 CLI 路徑與身分空白。
+  補回執行出貨 Bash 範本與真實隔離 Mycelium DB 的安全回歸測試，不鎖定文件標題措辭（#512）。
+- Hindsight 的 prepare 改為 invocation-wide batch；每 doc 只輸出一個權威意圖，合格 successor
+  不再被同批舊列 tombstone 覆蓋。移除舊單列 input，遷移 runbook 與行為測試（#512）。
+
 ## [1.23.9] - 2026-10-01
 
 ### Fixed
