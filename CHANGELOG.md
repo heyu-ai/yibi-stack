@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.23.9] - 2026-10-01
 
 ### Added
 
@@ -21,11 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   補回執行出貨 Bash 範本與真實隔離 Mycelium DB 的安全回歸測試，不鎖定文件標題措辭（#512）。
 - Hindsight 的 prepare 改為 invocation-wide batch；每 doc 只輸出一個權威意圖，合格 successor
   不再被同批舊列 tombstone 覆蓋。移除舊單列 input，遷移 runbook 與行為測試（#512）。
-
-## [1.23.9] - 2026-10-01
-
-### Fixed
-
 - pr-cycle-deep Step 1 起草 Review Contract 前新增 Spec-drift preflight（#510）：既有 PR 先確認 HEAD
   等於 PR head；依 `setup-review-dir.sh` 的規則 fetch base，並在同一個呼叫列出 `FETCH_HEAD..HEAD` 的 commit；
   範圍內**每個** commit 都要檢查（清單用 `%h %p %s` 區分 merge；merge commit 用 `git show --remerge-diff --stat`，
