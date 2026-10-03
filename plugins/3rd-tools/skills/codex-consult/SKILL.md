@@ -73,11 +73,15 @@ Quoting Rule 2），**不用 `timeout`**——對齊 proven 形式且 stock macO
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
-codex exec -C "$ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < "$CLAUDE_JOB_DIR/codex-consult-packet.txt"
+codex exec -C "$ROOT" -s read-only -m gpt-6-astra -c 'model_reasoning_effort="medium"' < "$CLAUDE_JOB_DIR/codex-consult-packet.txt"
 ```
 
+**為什麼 pin `-m gpt-6-astra`**（issue #511）：不帶 `-m` 時 codex 自選模型，ChatGPT 帳號登入下
+選到的 `gpt-6-sol` 直接回 400。與 pr-cycle-deep review stage 同一個 slug；`scripts/tests/test_codex_exec_model_pin.py`
+鎖住所有 `codex exec` 呼叫處。`gpt-6-astra` 需要 codex-cli >= 0.154.0，舊版同樣回 400。
+
 **Exit-code gate**：上面 codex exec 若非零退出，停止並告知使用者：「codex exec 失敗；請確認
-`codex login` 或網路後重試。」不可把失敗輸出當成答案呈現。
+`codex login`、網路，以及 `codex --version` >= 0.154.0 後重試。」不可把失敗輸出當成答案呈現。
 
 clean exit 後，呈現完整輸出，不截斷、不摘要。
 

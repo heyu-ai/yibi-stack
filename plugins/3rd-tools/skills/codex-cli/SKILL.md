@@ -275,11 +275,14 @@ $ grep -c '^## Task' packet.txt
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
-codex exec -s workspace-write -C "$ROOT" -c 'model_reasoning_effort="high"' -o "{{job_dir}}/codex-cli-report.md" < "{{job_dir}}/codex-cli-packet.txt"
+codex exec -s workspace-write -C "$ROOT" -m gpt-6-astra -c 'model_reasoning_effort="high"' -o "{{job_dir}}/codex-cli-report.md" < "{{job_dir}}/codex-cli-packet.txt"
 ```
 
-**Exit-code gate**：`codex exec` 非零退出（auth 失效 / network / 中斷）→ 停止並告知使用者：
-「codex exec 失敗，請確認 `codex login` 或網路後重試。」**不可把失敗輸出當成實作成果**，
+`-m gpt-6-astra` 不可省略（issue #511）：不帶 `-m` 時 ChatGPT 帳號登入下 codex 選到的 `gpt-6-sol`
+直接回 400。`gpt-6-astra` 需要 codex-cli >= 0.154.0；`scripts/tests/test_codex_exec_model_pin.py` 鎖住此 pin。
+
+**Exit-code gate**：`codex exec` 非零退出（auth 失效 / network / 中斷 / codex-cli 版本過舊）→ 停止並告知使用者：
+「codex exec 失敗，請確認 `codex login`、網路，以及 `codex --version` >= 0.154.0 後重試。」**不可把失敗輸出當成實作成果**，
 也不可跳到 Step 4 假裝有東西可以收。
 
 clean exit 後讀 `{{job_dir}}/codex-cli-report.md`，那是 Codex 的自述報告。
@@ -421,7 +424,7 @@ grep -c '^## Findings to fix' "{{job_dir}}/codex-cli-fix-packet.txt"
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
-codex exec -s workspace-write -C "$ROOT" -c 'model_reasoning_effort="high"' -o "{{job_dir}}/codex-cli-fix-report.md" < "{{job_dir}}/codex-cli-fix-packet.txt"
+codex exec -s workspace-write -C "$ROOT" -m gpt-6-astra -c 'model_reasoning_effort="high"' -o "{{job_dir}}/codex-cli-fix-report.md" < "{{job_dir}}/codex-cli-fix-packet.txt"
 ```
 
 回修不使用 `codex exec resume`：packet 自足、不依賴 session 狀態，與「Codex 沒有對話歷史」
