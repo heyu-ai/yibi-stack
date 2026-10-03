@@ -34,10 +34,14 @@ description: >-
 - **寫入需明確要求**：只有呼叫參數含 `--write-lessons` 才寫 Mycelium；含 `--write-hindsight` 才寫 Hindsight。
 - **不使用 AskUserQuestion**，不自動修改任何 rule、hook、gate 或 settings。所有「改／退役」都是給人裁決的建議。
 - 需要 owner 裁決的項目（同一建議連續 3 週未處理）列在報告最上方，不自行決定。
-- **量不到不等於沒問題**：CI 讀取不完整、`--no-ci`、hook-events 未涵蓋觀察期、transcript 觀察期內沒有事件或
-  有檔案讀不到、workflow／rule 檔讀不到、gate 失敗無法歸因或上線日期讀不到、rule 候選排名在上限之外時，
-  受影響的建議本週不判定；上週的同類建議在報告中列為「本週量不到」，不算已解除。週數在相鄰週原樣保留（不累加）；
-  與上次快照之間有缺週時重設為 1（連續週數已中斷）。
+- **量不到不等於沒問題，「已解除」需要正向證據**：一個類型要能判定，它依賴的每個資料來源都必須明確證明自己
+  完整（`source.complete` 為 true：目錄列舉、每個檔案讀取、每一行解析全部成功；欄位缺漏或型別不符一律當作
+  不完整）。上週有、本週沒有的建議，還要本週真的「觀察到」那個對象才算已解除：hook-error／hook-slow／
+  hook-silent-block 要本週呼叫數至少 3 次（與產生建議的門檻相同），gate-silent 要 gate 所在的 workflow 在觀察期內
+  至少跑過 1 次，transcript 類要觀察期內至少 3 筆事件。任一條件不成立，上週的建議在報告中列為「本週量不到」
+  （`unmeasured`），不算已解除。CI 讀取不完整、`--no-ci`、hook-events 未涵蓋觀察期、shallow clone 讓 gate 上線日期
+  未知、gate 失敗無法歸因、rule 候選排名在上限之外，都是量不到的原因。週數在相鄰週原樣保留（不累加）；
+  與上次快照之間有缺週、或上次快照只跑過 collect 時重設為 1（連續週數已中斷或無從接續）。
 
 ## 前置條件
 
@@ -158,7 +162,8 @@ python3 "{{skill_root}}/scripts/harness_review.py" collect --repo "$REPO_TOP" --
 
 ### Step 3 — 產出報告與週對週比對
 
-上週快照由 script 在 `$OUT_DIR` 找（`--prev auto`：檔名排序在本週之前的最後一份 `snapshot-YYYY-Www.json`），
+上週快照由 script 在 `$OUT_DIR` 找（`--prev auto`：檔名排序在本週之前的最後一份 `snapshot-YYYY-Www.json`，
+**會略過版本不符的快照**往前找；走訪時（由新到舊）遇到壞 JSON 的快照，則直接 exit 2，不再往前找），
 不要自己用 `ls` 找——空目錄與讀取錯誤在 shell 裡分不出來。
 
 ```bash
@@ -171,7 +176,7 @@ python3 "{{skill_root}}/scripts/harness_review.py" report --snapshot "$OUT_DIR/s
 | `0` 且 stdout `prev_status` 為 `none` | 第一次執行（`$OUT_DIR` 沒有更早的快照），所有建議都標「新」；繼續 Step 4 並在回報註明 |
 | `0` 且 stdout `prev_status` 為 `found_after_skip` | 較新的舊快照版本不符（`skipped_incompatible` 列出路徑），改用更早的一份比對；繼續 Step 4，回報列出略過的快照與實際比對的 `prev` |
 | `0` 且 stdout `prev_status` 為 `none_after_skip` | 更早的快照全都版本不符，本週視同第一次執行；繼續 Step 4，回報列出 `skipped_incompatible` |
-| `2` | 本週快照不存在、格式或版本不符，或 `$OUT_DIR` 無法讀取：原樣回報 stderr，`[FAIL]` 停止 |
+| `2` | 本週快照不存在、格式或版本不符，`$OUT_DIR` 無法讀取，或 `--prev auto` 找到的上週快照是壞 JSON（例如寫到一半被中斷的檔案）：原樣回報 stderr，`[FAIL]` 停止。壞掉的上週快照要人處理（修復或移走），不可跳過它去比對更早的一份 |
 | 其他 | 原樣回報 stderr，`[FAIL]` 停止 |
 
 `report` 會把累計週數與 `carried`（本週量不到而保留的建議）寫回 `snapshot-$WEEK.json`，下週的比對才能接續；
@@ -182,6 +187,15 @@ python3 "{{skill_root}}/scripts/harness_review.py" report --snapshot "$OUT_DIR/s
 本週**量不到**的列在「本週量不到的上週建議」，相鄰週時週數原樣保留（不累加）。週數只在上週快照正好是前一個
 ISO 週時累加；同一週重跑不累加；中間缺週則所有週數（含量不到而保留的建議）從 1 重新起算，報告會標
 「週次不相鄰」（stdout 的 `week_gap`）。
+
+**怎麼讀「本週量不到」（`unmeasured`）**：它不是已解除，也不是仍成立，而是「本週的資料不足以下結論」。
+常見原因：來源讀取失敗（看 `warnings`）、hook 本週呼叫不到 3 次或根本沒被呼叫、gate 所在的 workflow 觀察期內沒跑、
+plugin hook 的 silent-block（repo 的註冊清單看不到它，也沒有它的呼叫次數，所以可能長期維持量不到）。
+這類建議會留在 `carried`，等資料補齊後再判定；不要因為它沒再出現就當作已處理。
+
+**`streak_reset` 的兩種原因**：報告會寫出週數重設的原因。「週次不相鄰」是中間缺了週；「上週快照只跑過 collect、
+沒有經過 report」是上週的快照沒有 `carried` 與累計週數（stdout 的 `prev_collect_only` 為 true），持續中的
+建議週數無從接續，從第 1 週重算。快照版本升級（目前是 3）後的第一週也一樣：舊版快照會被略過，沒有可比較的上週。
 
 ### Step 4 — LLM 判讀（腳本只量測，語意判斷在這裡）
 
@@ -290,7 +304,9 @@ Hindsight 的 bank 以 repo 區分，下週盤點時可以查「上週為什麼�
 | 耗時全是 1000 的倍數 | macOS 系統 bash 3.2 沒有 `EPOCHREALTIME`，只有秒級；慢 hook 門檻已自動提高（列在 notes，不影響 exit code） |
 | CI 量測很慢 | 第一次要抓 90 天的 failed run；之後靠 `ci-jobs-cache.json` 只抓新 run（不完整的結果不會進快取） |
 | `gh repo view` 失敗 | 在目標 repo 跑 `gh auth status`；暫時加 `--no-ci` |
-| gate 一直沒有 gate-silent 判定 | notes 若寫「無法歸因」，看原因：沒有以 `run:` 直接呼叫該 script 的 step（例如包在 `make` 裡）、step 名稱含 `${{ }}` 或是看不懂的 YAML 形狀、或同名 step 也出現在沒有呼叫它的地方；讓呼叫它的 step 有獨一無二的純文字名稱，或接受這支 gate 不做 0 失敗判定 |
+| gate 一直沒有 gate-silent 判定 | notes 若寫「無法歸因」，看原因：沒有以 `run:` 直接呼叫該 script 的 step（例如包在 `make` 裡）、同一個 workflow 檔裡有 step 名稱含 `${{ }}`、含跳脫序列（如 `\n`）、換行續寫的 plain scalar 或是看不懂的 YAML 形狀、或同名 step 也出現在沒有呼叫它的地方；讓呼叫它的 step 有獨一無二的純文字名稱，或接受這支 gate 不做 0 失敗判定。歸因只接受 step 名稱完全相同（不分大小寫），名稱只是含有 gate 檔名的字根不算 |
+| gate 上線日期是未知、gate-silent 不判定 | 目標 repo 是 shallow clone（歷史不完整）或 `git rev-parse --is-shallow-repository` 無法判斷；上線日期用 `git log --follow` 取最早加入的日期，改名不會歸零。在完整 clone 重跑即可 |
+| 同一條建議一直停在「本週量不到」 | 看來源：hook 本週呼叫不到 3 次（低流量 hook 會長期量不到，這是刻意的取捨：寧可多報量不到，也不誤報已解除）、gate 所在的 workflow 觀察期內沒跑，或 plugin hook 的 silent-block（沒有呼叫次數可當證據）。確認問題已修好後，可在下次人工判讀時直接結案該建議 |
 | report 的 `prev_status` 是 `found_after_skip`／`none_after_skip` | `$OUT_DIR` 裡有舊版格式的快照（通常是 skill 升級前留下的），`--prev auto` 已略過並往前找；不需處理，確認 `skipped_incompatible` 列的檔案可以刪除後自行清掉即可。`--prev <path>` 明確指定舊版快照仍會 exit 2 |
 | notes 寫「CI 快取是舊版或未標版本的格式」 | skill 升級後的第一次執行會忽略舊快取、全部重抓並改寫成新格式；之後的週會恢復只抓新 run |
 | 想強制重跑同一週 | 直接重跑 Step 2 與 Step 3，`snapshot-$WEEK.json` 會被覆寫；週數以上週快照為基準，同一週重跑不會累加 |
