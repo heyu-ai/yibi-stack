@@ -35,7 +35,7 @@ The evaluation scope SHALL treat a source whose record is missing, has the wrong
 #### Scenario: snapshot-without-source-record
 
 - **WHEN** a snapshot has no source record for workflows
-- **THEN** every gate recommendation kind is outside the evaluation scope
+- **THEN** every recommendation kind that depends on the gate inventory (gate-unwired and gate-silent) is outside the evaluation scope
 
 #### Scenario: snapshot-without-ci-measured
 
@@ -44,7 +44,7 @@ The evaluation scope SHALL treat a source whose record is missing, has the wrong
 
 ### Requirement: A previous recommendation is resolved only with positive evidence
 
-A recommendation present last week and absent this week SHALL be reported as resolved only when its kind's source is complete this week and the recommended object was observed this week with at least the kind's sample threshold. Otherwise it SHALL be reported as unmeasured and carried forward.
+A recommendation present last week and absent this week SHALL be reported as resolved only when its kind's source is complete this week and the recommended object was observed this week with at least the kind's sample threshold, or the object is shown not to exist any more by a complete source. Otherwise it SHALL be reported as unmeasured and carried forward. For hook-error, hook-slow and hook-silent-block the sample threshold is three invocations, the same threshold that produces such a recommendation. For gate-silent the observation is at least one run, within the observation window, of the workflow that contains the gate. Plugin hooks outside the repository's hook registry have no invocation count, so their hook-silent-block recommendations stay unmeasured.
 
 #### Scenario: hook-below-sample-threshold
 
@@ -63,16 +63,26 @@ A recommendation present last week and absent this week SHALL be reported as res
 
 #### Scenario: gate-job-never-ran
 
-- **WHEN** last week had a gate-silent recommendation for gate G and no run of G's job falls in this week's window
+- **WHEN** last week had a gate-silent recommendation for gate G and no run of the workflow that contains G falls in the observation window
 - **THEN** the recommendation is reported as unmeasured
+
+#### Scenario: hook-removed
+
+- **WHEN** last week had a hook-error recommendation for hook H and this week's complete hook registry no longer contains H
+- **THEN** the recommendation is reported as resolved, because the object no longer exists
+
+#### Scenario: plugin-hook-silent-block-without-calls
+
+- **WHEN** last week had a hook-silent-block recommendation for a hook that is not in the repository's hook registry and this week's statistics have no entry for it
+- **THEN** the recommendation is reported as unmeasured and carried, not resolved
 
 ### Requirement: Gate attribution uses exact identity only
 
-Gate-silent attribution SHALL match a CI failure to a gate only by exact workflow file name, job id, and step name. A gate SHALL be unattributable when any step name in its workflow contains a dynamic expression, an escape sequence that cannot be fully decoded, or a multi-line plain scalar. YAML scalar parsing SHALL return no value rather than a partial value when it cannot decode the whole scalar.
+Gate-silent attribution SHALL match a CI failure to a gate only when the failed step name is exactly equal to the name of a step that invokes the gate; a name that merely contains part of the gate's file name SHALL NOT match, whether it is a job name or a step name. A gate SHALL be unattributable when the name of a step that invokes it is also used by a step that does not invoke it, so that an exact step name identifies the gate across all workflows. A gate SHALL also be unattributable when any step name in its workflow file contains a dynamic expression, an escape sequence that cannot be fully decoded, or a multi-line plain scalar. YAML scalar parsing SHALL return no value rather than a partial value when it cannot decode the whole scalar.
 
 #### Scenario: unrelated-job-sharing-substring
 
-- **WHEN** gate rule-gate-docs exists and the only CI failure is in job build-docs
+- **WHEN** gate rule-gate-docs exists and the only CI failure is in job build-docs, or in a step whose name merely contains the word docs
 - **THEN** gate rule-gate-docs is not credited with a block
 
 #### Scenario: dynamic-step-name
@@ -87,12 +97,17 @@ Gate-silent attribution SHALL match a CI failure to a gate only by exact workflo
 
 ### Requirement: Gate added date is unknown when history cannot establish it
 
-The gate added date SHALL be determined with rename following. When the repository is a shallow clone, the added date SHALL be unknown, and gate-silent recommendations SHALL be unmeasured.
+The gate added date SHALL be determined with rename following. When the repository is a shallow clone, or whether it is one cannot be determined, the added date SHALL be unknown, and gate-silent recommendations SHALL be unmeasured.
 
 #### Scenario: shallow-clone
 
 - **WHEN** the review runs in a shallow clone
 - **THEN** every gate added date is unknown and no gate-silent recommendation is resolved
+
+#### Scenario: renamed-gate
+
+- **WHEN** a gate script was renamed after it was first added
+- **THEN** its added date is the date it was first added, not the date of the rename
 
 ### Requirement: Streaks reset visibly when the previous snapshot lacks carry data
 

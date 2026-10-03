@@ -1,6 +1,6 @@
 # Proposal：harden-weekly-review-measurement
 
-> 版本：v0.1 | 日期：2026-10-01 | 狀態：Draft（方向待 owner 裁決）
+> 版本：v0.2 | 日期：2026-10-03 | 狀態：Q1–Q4 已裁決，apply 中（裁決與實作時的修訂見 design.md）
 > 來源：issue #509；前置：#504（原 skill）、#506（Round 2 修正，本 change 處理其 Accepted Residual Risk）
 
 ## Summary
