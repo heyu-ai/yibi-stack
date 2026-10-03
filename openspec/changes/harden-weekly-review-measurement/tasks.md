@@ -25,4 +25,4 @@
 
 - [x] 5.1 cmd_collect 的 evaluation_scope 接線補上測試：以 cmd_collect 端到端執行，斷言 max_rule_candidates 的截斷邊界被套用；驗證：把接線改成不傳上限、或把截斷改為 [N+1:]，兩種 mutation 各至少一個測試轉紅（issue #509 的 C5 缺口）
 - [x] 5.2 更新 SKILL.md：exit 2 列補上「--prev auto 遇到壞 JSON 舊快照」、「最後一份」說明會略過版本不符的快照、新增 unmeasured 的讀法與 streak_reset 原因；驗證：以 grep 確認三處文字存在，且 markdownlint 通過
-- [ ] 5.3 git add 後跑 make ci 全綠，git status 無 formatter 改寫；PR 描述逐條列出 issue #509 的 13 項與 3 個缺口各由哪個測試守住；驗證：make ci exit 0，PR 描述的對照表無空格
+- [x] 5.3 git add 後跑 make ci 全綠，git status 無 formatter 改寫；PR 描述逐條列出 issue #509 的 13 項與 3 個缺口各由哪個測試守住；驗證：make ci exit 0，PR 描述的對照表無空格
