@@ -1,6 +1,6 @@
 ## 1. 前置確認
 
-- [ ] 1.1 owner 已裁決 design.md 的 Q1–Q4，裁決結果寫回 design.md「待裁決」段落（改為「已裁決」並註明日期）；驗證：design.md 不再有未決的 Q 項
+- [x] 1.1 owner 已裁決 design.md 的 Q1–Q4，裁決結果寫回 design.md「待裁決」段落（改為「已裁決」並註明日期）；驗證：design.md 不再有未決的 Q 項
 - [ ] 1.2 #508 已 merge，本分支 rebase 到含 `weekly` 子命令的 origin/main；列出 D4 改為精確比對後會從「可歸因」變成「不可歸因」的 gate 清單並附在 PR 描述；驗證：清單由對本 repo `.github/workflows` 實跑新舊兩種比對的差集產生
 
 ## 2. 家族層級注入測試（先寫，預期紅燈）

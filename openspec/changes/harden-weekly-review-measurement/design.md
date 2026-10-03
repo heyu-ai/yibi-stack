@@ -1,6 +1,6 @@
 # Design：harden-weekly-review-measurement
 
-> 狀態：Draft。下方「待裁決」各項在 owner 決定前不得進入 apply。
+> 狀態：Q1–Q4 已於 2026-10-03 裁決（見文末「裁決紀錄」），可進入 apply。
 
 ## Context
 
@@ -47,9 +47,9 @@
 
 | 建議類型 | 判 resolved 所需的本週觀察 |
 |---|---|
-| hook-error／hook-slow／hook-silent-block | 該 hook 本週呼叫次數 ≥ 門檻 N_hook（見待裁決 Q1） |
+| hook-error／hook-slow／hook-silent-block | 該 hook 本週呼叫次數 ≥ 門檻 N_hook（= 3，見裁決 Q1） |
 | hook-unregistered | 該 hook 腳本本週讀取成功，且 inventory 完整 |
-| transcript 類 | transcript 來源完整，且 `in_window` ≥ 門檻 N_transcript |
+| transcript 類 | transcript 來源完整，且 `in_window` ≥ 門檻 N_transcript（= 3，見裁決 Q1） |
 | rule 類 | rules 來源完整，且該 rule 檔本週讀取成功 |
 | gate-silent | CI 完整、gate 可歸因、上線日期確定，且觀察期內該 job 至少執行 1 次 |
 | gate-unwired | workflows 來源完整 |
@@ -78,9 +78,9 @@ gate-silent 改為比對 workflow 檔名、job id、step 名稱三者的精確�
 - **升版導致週數歸零一次**：見 D7。替代方案是寫 v2→v3 的遷移，但 v2 的 resolved 判定本身不可信，遷移等於沿用錯誤結論，所以不建議。
 - **共用列舉 helper 是新的單點**：helper 若自己吞掉錯誤，所有 collector 會同時失守。家族層級測試必須直接對 helper 注入目錄錯誤。
 
-## 待裁決（owner）
+## 裁決紀錄（owner：howie，2026-10-03）
 
-- **Q1**：N_hook 與 N_transcript 的值。建議先沿用產生新建議時的 `calls >= 3`，讓「產生」與「解除」用同一個門檻；也可以另設較高的解除門檻，避免建議在門檻附近反覆出現又消失。
-- **Q2**：是否接受 D7 的「升版後週數歸零一次」，還是要求寫遷移。
-- **Q3**：D4 移除子字串比對後，現有 workflows 中若有 gate 只靠子字串才能歸因，它們會從「可歸因」變成「不可歸因」，gate-silent 不再對它們發報告。是否接受這個覆蓋面縮小？實作前會先列出受影響的 gate 清單。
-- **Q4**：本 change 是否要等 #508 merge 後才開始實作（建議要，避免兩邊同時改 harness_review.py）。
+- **Q1：N_hook = N_transcript = 3**。沿用產生新建議時的 `calls >= 3`，「產生」與「解除」共用同一個門檻，不另設較高的解除門檻。已知取捨：門檻附近的建議可能反覆出現又消失，實測若觀察到再回頭評估。transcript 類以 `in_window >= 3` 套用同一個數字（這是對裁決的解讀：原文只寫 `calls >= 3`，transcript 沒有 calls 欄位）。
+- **Q2：接受** D7 的「升版後週數歸零一次」，不寫 v2→v3 遷移。
+- **Q3：接受** D4 造成的 gate-silent 覆蓋面縮小。前提不變：實作前先列出受影響的 gate 清單，附在 PR 描述。
+- **Q4：等 #508 merge 後才開始實作**。交班紀錄（2026-10-02）記載 #508 已 merge，開始 apply 前仍須以 `gh pr view 508` 確認。
