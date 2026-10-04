@@ -54,11 +54,28 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。mock 只放在外部邊
   - --incomplete-ok 只把 3 改成 0：HWR-DT-041；collect 的其他錯誤原樣回傳：HWR-DT-042
   - ISO 年界（2027-01-01 → 2026-W53）：HWR-DT-043；只讀一次時鐘：HWR-DT-044
   - 非 git 目錄 exit 2：HWR-VL-006；輸出目錄未被 .gitignore 排除時警告：HWR-VL-007
+- issue #509（change harden-weekly-review-measurement）：
+  - 家族層級讀取失敗注入矩陣（每個來源 × 檔案／目錄／單行／API 形狀；對照：全部健康時
+    14 種建議都 resolved）：HWR-DT-050、HWR-DT-051
+  - 來源記錄預設不完整（unreadable-hook-events-file、unreadable-rules-directory、
+    truncated-transcript-line、unreadable-hook-script）：HWR-DT-052..056
+  - 來源記錄或 ci.measured 缺漏／型別錯誤一律當量不到：HWR-DT-057、HWR-DT-058
+  - resolved 需要正向證據（hook-below-sample-threshold、hook-not-observed、
+    hook-observed-and-clean、gate-job-never-ran、物件已不存在、表外類型維持舊行為、
+    transcript 最少事件數）：HWR-DT-059..066
+  - 精確歸因（unrelated-job-sharing-substring、dynamic-step-name、multiline-plain-name、
+    無法解碼的跳脫序列）：HWR-DT-067..070
+  - gate 上線日期（改名 --follow、shallow／無法判斷、對照）：HWR-DT-071..073
+  - 上週快照只跑過 collect → streak 重設並寫出原因：HWR-DT-074..076
+  - CI runs 回應形狀與 total_count、對照、workflow 活動量：HWR-DT-077、HWR-DT-078
+  - cmd_collect 的 --max-rule-candidates 接線與截斷邊界（C5）：HWR-DT-079
+  - SNAPSHOT_VERSION 升為 3、v2 快照被略過：HWR-ST-024；--prev auto 遇壞 JSON exit 2：HWR-ST-025
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import importlib.util
 import json
@@ -66,7 +83,7 @@ import os
 import subprocess
 import sys
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -123,20 +140,43 @@ def make_event_stats(**kwargs: object) -> dict[str, object]:
     return {**defaults, **kwargs}
 
 
+def complete_source() -> dict[str, Any]:
+    """collector 回報的完整來源記錄。"""
+    return {"complete": True, "errors": []}
+
+
 def make_snapshot() -> dict[str, Any]:
+    """所有來源都完整的最小快照；測試要讓某個來源不完整時，改它的 source。"""
     return {
         "window": {"gate_since": "2026-07-01T00:00:00+00:00", "label": "2026-W40"},
         "hooks": {
-            "inventory": {"registered": {}, "on_disk": [], "unregistered": [], "complete": True},
-            "events": {"files": 1, "hooks": {}, "resolution": "ms", "covers_window": True},
-            "transcript": {"files": 1, "in_window": 1, "read_failures": 0, "hooks": {}},
+            "inventory": {
+                "registered": {},
+                "on_disk": [],
+                "unregistered": [],
+                "source": complete_source(),
+            },
+            "events": {
+                "files": 1,
+                "hooks": {},
+                "resolution": "ms",
+                "covers_window": True,
+                "source": complete_source(),
+            },
+            "transcript": {
+                "files": 1,
+                "in_window": 5,
+                "read_failures": 0,
+                "hooks": {},
+                "source": complete_source(),
+            },
         },
         "ci": {
-            "inventory": {"gates": [], "workflows_complete": True},
-            "failures": {"jobs": {}},
+            "inventory": {"gates": [], "source": complete_source()},
+            "failures": {"jobs": {}, "source": complete_source()},
             "measured": True,
         },
-        "rules": {"files": [], "candidates": []},
+        "rules": {"files": [], "candidates": [], "source": complete_source()},
     }
 
 
@@ -173,8 +213,10 @@ def make_gh(
     runs_rc: int = 0,
     runs_exc: BaseException | None = None,
     runs_out: str | None = None,
+    activity_total: int = 5,
 ) -> Callable[[list[str]], Any]:
-    """偽造 gh 的外部回應：repo view、runs 列表、每個 run 的 jobs（原樣輸出字串）。"""
+    """偽造 gh 的外部回應：repo view、runs 列表、每個 run 的 jobs（原樣輸出字串）、
+    每個 workflow 檔在觀察期內的 run 數（gate-silent 的觀察證據）。"""
 
     def handler(args: list[str]) -> Any:
         if args[1:3] == ["repo", "view"]:
@@ -182,13 +224,16 @@ def make_gh(
         if "--paginate" in args:
             run_id = int(args[3].split("/runs/")[1].split("/")[0])
             return cp(args, 0, (jobs or {}).get(run_id, '{"total_count":0,"jobs":[]}'))
+        if any("/workflows/" in a for a in args):
+            return cp(args, 0, json.dumps({"total_count": activity_total, "workflow_runs": []}))
         if runs_exc is not None:
             raise runs_exc
         if runs_rc:
             return cp(args, runs_rc, "", "HTTP 502")
         if runs_out is not None:
             return cp(args, 0, runs_out)
-        return cp(args, 0, json.dumps({"workflow_runs": runs or []}))
+        listed = runs or []
+        return cp(args, 0, json.dumps({"total_count": len(listed), "workflow_runs": listed}))
 
     return handler
 
@@ -393,8 +438,10 @@ class TestRecommendations:
                 "added": "2026-01-01",
             },
         ]
+        # 歸因只接受精確身分：失敗 step 的名稱必須與呼叫 gate 的 step 完全相同。
+        # （舊版會把含 gate 字根的 "rule-gate-d self-test" 也算進 gate D，見 HWR-DT-067）
         snap["ci"]["failures"]["jobs"] = {
-            "CI / Gates": {"failures": 3, "branches": 2, "steps": {"rule-gate-d self-test": 3}}
+            "CI / Gates": {"failures": 3, "branches": 2, "steps": {"Gate D": 3}}
         }
         kinds = rec_kinds(hr.build_recommendations(snap, make_thresholds()))
         assert kinds["rule-gate-a.py"] == "gate-unwired"
@@ -440,6 +487,7 @@ class TestRecommendations:
                     "already_gated": ["protect-bash-cd.py"],
                 }
             ],
+            "source": complete_source(),
         }
         recs = hr.build_recommendations(snap, make_thresholds())
         kinds = rec_kinds(recs)
@@ -917,6 +965,7 @@ class TestEndToEnd:
         prev = {
             "window": {"label": "2026-W39"},
             "metrics": {"m": 10},
+            "carried": [],  # report 寫回的快照一定有 carried；沒有代表只跑過 collect（HWR-DT-074）
             "recommendations": [
                 {"id": "a:x", "kind": "a", "weeks": 2},
                 {"id": "a:gone", "kind": "a", "weeks": 1},
@@ -941,6 +990,7 @@ class TestEndToEnd:
         prev = {
             "window": {"label": "2026-W39"},
             "metrics": {},
+            "carried": [],
             "recommendations": [
                 {"id": "gate-silent:g.py", "kind": "gate-silent", "weeks": 2},
                 {"id": "rule-heavy:r.md", "kind": "rule-heavy", "weeks": 1},
@@ -998,7 +1048,12 @@ class TestEndToEnd:
             "metrics": {},
             "recommendations": [{"id": "a:x", "kind": "a"}],
         }
-        prev = {"window": {"label": "2026-W35"}, "metrics": {}, "recommendations": []}
+        prev = {
+            "window": {"label": "2026-W35"},
+            "metrics": {},
+            "carried": [],
+            "recommendations": [],
+        }
         prev["recommendations"] = [{"id": "a:x", "kind": "a", "weeks": 2}]
         gap = hr.diff_snapshots(prev, {**base, "window": {"label": "2026-W40"}}, 3)
         assert gap["statuses"][0]["weeks"] == 1 and gap["statuses"][0]["status"] == "new"
@@ -1435,11 +1490,18 @@ def v2_snapshot(label: str, recs: list[dict[str, Any]] | None = None) -> dict[st
     }
 
 
-def scope_diff(scope: dict[str, Any], prev_id: str, kind: str) -> str:
-    """上週有 prev_id、本週沒有，回傳 diff 判定的狀態。"""
-    prev = {"window": {"label": "2026-W39"}, "metrics": {}, "recommendations": []}
+def scope_diff(
+    scope: dict[str, Any], prev_id: str, kind: str, observed: dict[str, Any] | None = None
+) -> str:
+    """上週有 prev_id、本週沒有，回傳 diff 判定的狀態。
+
+    observed 是本週快照裡「觀察到什麼」的部分（hooks／ci／rules）；需要逐對象正向證據的類型
+    （hook-error、hook-slow、hook-silent-block、gate-silent）沒有帶 observed 時一律是 unmeasured。
+    """
+    prev = {"window": {"label": "2026-W39"}, "metrics": {}, "carried": [], "recommendations": []}
     prev["recommendations"] = [{"id": prev_id, "kind": kind, "weeks": 2}]
     curr = {"window": {"label": "2026-W40"}, "metrics": {}, "recommendations": []}
+    curr.update({k: v for k, v in (observed or {}).items() if k in ("hooks", "ci", "rules")})
     curr["evaluation"] = scope
     return str(hr.diff_snapshots(prev, curr, 3)["statuses"][0]["status"])
 
@@ -1448,38 +1510,56 @@ class TestRound2Coverage:
     """Round 2 review：量不到的情況不可被判成已解除或錯誤的週數。"""
 
     def test_hwr_dt_029_events_not_covering_blocks_error_kinds(self) -> None:
-        """HWR-DT-029: events 檔存在但未涵蓋觀察期 → hook-error／hook-slow 不可判定，上週建議 unmeasured"""
+        """HWR-DT-029: events 檔存在但未涵蓋觀察期 → hook-error／hook-slow 不可判定，上週建議 unmeasured；
+        涵蓋且清單完整時，這支 hook 本週要有呼叫紀錄才算 resolved（HWR-DT-059..061）"""
         snap = make_snapshot()
-        snap["hooks"]["events"] = {"files": 1, "covers_window": False, "in_window": 0, "hooks": {}}
+        snap["hooks"]["events"] = {
+            "files": 1,
+            "covers_window": False,
+            "in_window": 0,
+            "hooks": {},
+            "source": complete_source(),
+        }
         scope = hr.evaluation_scope(snap)
         assert "hook-error" not in scope["kinds"] and "hook-slow" not in scope["kinds"]
-        assert scope_diff(scope, "hook-error:foo.sh", "hook-error") == "unmeasured"
-        assert scope_diff(scope, "hook-slow:foo.sh", "hook-slow") == "unmeasured"
+        assert scope_diff(scope, "hook-error:foo.sh", "hook-error", snap) == "unmeasured"
+        assert scope_diff(scope, "hook-slow:foo.sh", "hook-slow", snap) == "unmeasured"
         # hook 清單不完整時也不可判定（hook-error 只對已註冊 hook 產生）
         snap["hooks"]["events"]["covers_window"] = True
-        snap["hooks"]["inventory"]["complete"] = False
+        snap["hooks"]["inventory"]["source"] = {"complete": False, "errors": ["x"]}
         assert "hook-error" not in hr.evaluation_scope(snap)["kinds"]
-        # 正向對照：涵蓋且清單完整 → 可判定，消失即 resolved
-        snap["hooks"]["inventory"]["complete"] = True
+        # 涵蓋、清單完整，但這支 hook 本週沒有任何呼叫紀錄（hooks 是空的）：
+        # 舊版在這裡判 resolved——「沒有紀錄」被當成「沒有問題」；現在是沒有正向證據
+        snap["hooks"]["inventory"]["source"] = complete_source()
+        snap["hooks"]["inventory"]["registered"] = {"foo.sh": {}}
         scope = hr.evaluation_scope(snap)
-        assert scope_diff(scope, "hook-error:foo.sh", "hook-error") == "resolved"
-        assert scope_diff(scope, "hook-slow:foo.sh", "hook-slow") == "resolved"
+        assert scope_diff(scope, "hook-error:foo.sh", "hook-error", snap) == "unmeasured"
+        assert scope_diff(scope, "hook-slow:foo.sh", "hook-slow", snap) == "unmeasured"
+        # 正向對照：本週呼叫數達門檻且沒有錯誤 → 可判定，消失即 resolved
+        snap["hooks"]["events"]["hooks"] = {"foo.sh": make_event_stats(calls=5)}
+        assert scope_diff(scope, "hook-error:foo.sh", "hook-error", snap) == "resolved"
+        assert scope_diff(scope, "hook-slow:foo.sh", "hook-slow", snap) == "resolved"
 
     def test_hwr_dt_030_transcript_needs_in_window_and_no_read_failure(self) -> None:
-        """HWR-DT-030: transcript 窗內 0 筆或有檔案讀取失敗 → transcript 類不判定"""
+        """HWR-DT-030: transcript 窗內事件太少或來源不完整（有檔案讀取失敗）→ transcript 類不判定"""
         snap = make_snapshot()
+        snap["hooks"]["events"]["hooks"] = {"x.py": make_event_stats(calls=9)}
         tr = snap["hooks"]["transcript"]
-        for in_window, failures in ((0, 0), (5, 1)):
-            tr.update(in_window=in_window, read_failures=failures)
+        incomplete = {"complete": False, "errors": ["transcript：x 讀取失敗"]}
+        for in_window, source in ((0, complete_source()), (2, complete_source()), (5, incomplete)):
+            tr.update(in_window=in_window, read_failures=1, source=source)
             scope = hr.evaluation_scope(snap)
             assert "hook-silent-block" not in scope["kinds"]
-            assert scope_diff(scope, "hook-silent-block:x.py", "hook-silent-block") == "unmeasured"
-            assert scope_diff(scope, "hook-stale-plugin:x.py", "hook-stale-plugin") == "unmeasured"
-        tr.update(in_window=5, read_failures=0)  # 正向對照
+            args = ("hook-silent-block:x.py", "hook-silent-block", snap)
+            assert scope_diff(scope, *args) == "unmeasured"
+            assert scope_diff(scope, "hook-stale-plugin:x.py", "hook-stale-plugin", snap) == (
+                "unmeasured"
+            )
+        tr.update(in_window=5, read_failures=0, source=complete_source())  # 正向對照
         scope = hr.evaluation_scope(snap)
-        assert scope_diff(scope, "hook-silent-block:x.py", "hook-silent-block") == "resolved"
-        # 舊快照沒有這兩個欄位：保守處理成量不到
-        del tr["in_window"], tr["read_failures"]
+        assert scope_diff(scope, "hook-silent-block:x.py", "hook-silent-block", snap) == "resolved"
+        # 舊快照沒有 in_window 與 source：保守處理成量不到
+        del tr["in_window"], tr["source"]
         assert "hook-silent-block" not in hr.evaluation_scope(snap)["kinds"]
 
     def test_hwr_st_013_transcript_counts(self, tmp_path: Path) -> None:
@@ -1507,6 +1587,7 @@ class TestRound2Coverage:
             return {
                 "window": {"label": label},
                 "metrics": {},
+                "carried": [],
                 "recommendations": recs,
                 "evaluation": {"kinds": kinds, "unevaluated_ids": []},
             }
@@ -1611,12 +1692,17 @@ class TestRound2Coverage:
         assert inv["gates"][0]["added"] is None and any("上線日期" in w for w in warnings)
         snap = make_snapshot()
         snap["ci"]["inventory"] = inv
+        snap["ci"]["failures"]["activity"] = {
+            "workflows": {"ci.yml": 3},
+            "source": complete_source(),
+        }
         scope = hr.evaluation_scope(snap)
         assert "gate-silent:rule-gate-alpha.py" in scope["unevaluated_ids"]
-        assert scope_diff(scope, "gate-silent:rule-gate-alpha.py", "gate-silent") == "unmeasured"
+        rid = "gate-silent:rule-gate-alpha.py"
+        assert scope_diff(scope, rid, "gate-silent", snap) == "unmeasured"
         inv["gates"][0]["added"] = "2026-01-01"  # 對照：日期讀得到 → 可判定
         scope = hr.evaluation_scope(snap)
-        assert scope_diff(scope, "gate-silent:rule-gate-alpha.py", "gate-silent") == "resolved"
+        assert scope_diff(scope, rid, "gate-silent", snap) == "resolved"
 
     def test_hwr_dt_034_rule_candidates_cut_are_unevaluated(self, tmp_path: Path) -> None:
         """HWR-DT-034: 排名在 --max-rule-candidates 之外的候選不判定；collect 不再靜默截斷"""
@@ -1697,21 +1783,25 @@ class TestRound2Coverage:
         }
 
     def test_hwr_dt_037_workflow_unreadable(self, tmp_path: Path) -> None:
-        """HWR-DT-037: workflow 檔讀不到 → gate-unwired 不判定、所有 gate-silent 列 unevaluated"""
+        """HWR-DT-037: workflow 檔讀不到 → gate 清單不完整，gate-unwired 與 gate-silent 整類不判定"""
         repo = make_gate_repo(tmp_path)
         (repo / ".github" / "workflows" / "ci.yml").write_bytes(b"\xff\xfe\x00bad")
         inv, warnings, _ = hr.collect_gate_inventory(repo)
-        assert inv["workflows_complete"] is False and any("讀取失敗" in w for w in warnings)
+        assert inv["source"]["complete"] is False and any("讀取失敗" in w for w in warnings)
         snap = make_snapshot()
         snap["ci"]["inventory"] = inv
         scope = hr.evaluation_scope(snap)
-        assert "gate-unwired" not in scope["kinds"]
-        assert "gate-silent:rule-gate-alpha.py" in scope["unevaluated_ids"]
+        assert "gate-unwired" not in scope["kinds"] and "gate-silent" not in scope["kinds"]
         assert hr.build_recommendations(snap, make_thresholds()) == []
         assert scope_diff(scope, "gate-unwired:rule-gate-alpha.py", "gate-unwired") == "unmeasured"
+        assert scope_diff(scope, "gate-silent:rule-gate-alpha.py", "gate-silent") == "unmeasured"
 
     def test_hwr_dt_038_rule_file_unreadable(self, tmp_path: Path) -> None:
-        """HWR-DT-038: rule 檔讀不到 → warning、該檔 rule 類建議不判定；其他檔照常"""
+        """HWR-DT-038: 任一 rule 檔讀不到 → warning、rule 類建議整類不判定（寧可多報 unmeasured）
+
+        舊版只讓讀不到的那一檔不判定、其他檔照常 resolved；改成整類不判定，因為來源不完整時
+        連「有哪些 rule 檔」都不能確定（HWR-DT-051 rule-file-unreadable）。
+        """
         rules = tmp_path / ".claude" / "rules"
         rules.mkdir(parents=True)
         (rules / "bad.md").write_bytes(b"\xff\xfe bad")
@@ -1726,7 +1816,8 @@ class TestRound2Coverage:
         rid = "rule-mechanize-candidate:.claude/rules/bad.md#X"
         assert scope_diff(scope, rid, "rule-mechanize-candidate") == "unmeasured"
         other = "rule-mechanize-candidate:.claude/rules/ok.md#Gone"
-        assert scope_diff(scope, other, "rule-mechanize-candidate") == "resolved"
+        assert scope_diff(scope, other, "rule-mechanize-candidate") == "unmeasured"
+        assert data["source"]["complete"] is False  # 對照：source 才是判斷依據
 
     def test_hwr_dt_039_same_title_suffix(self, tmp_path: Path) -> None:
         """HWR-DT-039: 同檔同名段落的 anchor 依出現順序加 (2)"""
@@ -1740,10 +1831,11 @@ class TestRound2Coverage:
 
     def test_hwr_st_015_diff_unevaluated_branch(self) -> None:
         """HWR-ST-015: 類型可判定但 id 列在 unevaluated_ids／前綴 → unmeasured；不在 → resolved"""
-        base = {"kinds": ["gate-silent", "rule-mechanize-candidate"]}
-        rid = "gate-silent:g.py"
-        assert scope_diff({**base, "unevaluated_ids": [rid]}, rid, "gate-silent") == "unmeasured"
-        assert scope_diff({**base, "unevaluated_ids": []}, rid, "gate-silent") == "resolved"
+        # gate-unwired 不需要逐對象的觀察證據，只測 unevaluated 機制本身
+        base = {"kinds": ["gate-unwired", "rule-mechanize-candidate"]}
+        rid = "gate-unwired:g.py"
+        assert scope_diff({**base, "unevaluated_ids": [rid]}, rid, "gate-unwired") == "unmeasured"
+        assert scope_diff({**base, "unevaluated_ids": []}, rid, "gate-unwired") == "resolved"
         pref = {
             **base,
             "unevaluated_ids": [],
@@ -1914,3 +2006,801 @@ class TestPrevAutoCompat:
         (out / "snapshot-2026-W39.json").unlink()  # 對照：沒有舊版快照時是 found
         rc, res = self._report(out)
         assert res["prev_status"] == "found" and res["skipped_incompatible"] == []
+
+    def test_hwr_st_024_v2_snapshot_is_skipped(self, tmp_path: Path) -> None:
+        """HWR-ST-024: v2 快照的 resolved 判定不可信（SNAPSHOT_VERSION 升為 3）：auto 略過、明確指定 exit 2"""
+        assert hr.SNAPSHOT_VERSION == 3
+        out = tmp_path / "out"
+        out.mkdir()
+        rec = {"id": "rule-heavy:r.md", "kind": "rule-heavy", "bucket": "減量", "target": "r.md"}
+        rec |= {"suggestion": "s", "evidence": {}, "weeks": 2}
+        (out / "snapshot-2026-W40.json").write_text(json.dumps(v2_snapshot("2026-W40", [rec])))
+        v2 = {**v2_snapshot("2026-W39", [rec]), "version": 2, "carried": []}
+        (out / "snapshot-2026-W39.json").write_text(json.dumps(v2))
+        rc, res = self._report(out)
+        assert rc == 0 and res["prev_status"] == "none_after_skip"
+        assert res["skipped_incompatible"] == [str(out / "snapshot-2026-W39.json")]
+        # 升級後第一週沒有可比較的上週：建議從第 1 週算起，不沿用 v2 的週數
+        report = (out / "r.md").read_text()
+        assert "第 3 週" not in report
+        rc, _ = self._report(out, str(out / "snapshot-2026-W39.json"))
+        assert rc == 2
+
+    def test_hwr_st_025_prev_auto_bad_json_is_exit_2(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """HWR-ST-025: --prev auto 走訪到壞 JSON 的快照 → exit 2，不跳過它去比對更早的一份（SKILL.md 有記載）"""
+        out = tmp_path / "out"
+        out.mkdir()
+        rec = {"id": "rule-heavy:r.md", "kind": "rule-heavy", "bucket": "減量", "target": "r.md"}
+        rec |= {"suggestion": "s", "evidence": {}}
+        (out / "snapshot-2026-W40.json").write_text(json.dumps(v2_snapshot("2026-W40", [rec])))
+        (out / "snapshot-2026-W38.json").write_text(json.dumps(v2_snapshot("2026-W38", [rec])))
+        (out / "snapshot-2026-W39.json").write_text('{"version": 3, "recommendations": [')  # 截斷
+        rc, _ = self._report(out)
+        assert rc == 2 and "[FAIL]" in capsys.readouterr().err
+        (out / "snapshot-2026-W39.json").write_text(json.dumps(v2_snapshot("2026-W39", [rec])))
+        rc, res = self._report(out)  # 對照：修好後正常找到 W39
+        assert rc == 0 and res["prev"].endswith("snapshot-2026-W39.json")
+
+
+# ---------------------------------------------------------------------------
+# issue #509（change harden-weekly-review-measurement）：
+# 來源完整性白名單、resolved 需要正向證據、精確歸因
+# ---------------------------------------------------------------------------
+
+needs_non_root = pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0, reason="root 不受檔案權限限制"
+)
+
+
+@contextlib.contextmanager
+def unreadable(path: Path) -> Iterator[None]:
+    """拿掉 path（檔案或目錄）的所有權限，離開時還原，tmp_path 才清得掉。"""
+    mode = path.stat().st_mode & 0o777
+    path.chmod(0)
+    try:
+        yield
+    finally:
+        path.chmod(mode)
+
+
+def append_text(path: Path, text: str) -> None:
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+# prev 快照裡每種建議類型各放一筆；環境健康時本週這些建議都不成立
+MATRIX_RECS: dict[str, str] = {
+    "unregistered": "hook-unregistered:orphan.sh",
+    "no-data": "hook-no-data:a.sh",
+    "low-signal": "hook-low-signal:a.sh",
+    "insurance-idle": "hook-insurance-idle:protect-x.sh",
+    "error": "hook-error:a.sh",
+    "slow": "hook-slow:a.sh",
+    "stale-plugin": "hook-stale-plugin:a.sh",
+    "silent-block": "hook-silent-block:a.sh",
+    "rule-heavy": "rule-heavy:.claude/rules/r.md",
+    "rule-gated": "rule-already-gated:.claude/rules/r.md#Gone",
+    "rule-candidate": "rule-mechanize-candidate:.claude/rules/r.md#Gone",
+    "gate-unwired": "gate-unwired:rule-gate-alpha.py",
+    "gate-silent": "gate-silent:rule-gate-alpha.py",
+    "gate-noisy": "gate-noisy:CI / check / Check things",
+}
+EVENTS_KEYS = {"no-data", "low-signal", "insurance-idle", "error", "slow"}
+INVENTORY_KEYS = EVENTS_KEYS | {"unregistered"}
+TRANSCRIPT_KEYS = {"stale-plugin", "silent-block"}
+RULE_KEYS = {"rule-heavy", "rule-gated", "rule-candidate"}
+GATE_INVENTORY_KEYS = {"gate-unwired", "gate-silent"}
+CI_KEYS = {"gate-silent", "gate-noisy"}
+
+
+def build_matrix_env(tmp_path: Path) -> types.SimpleNamespace:
+    """一個所有資料來源都健康的 repo：hook、events、transcript、rule、gate、CI 各一。"""
+    repo = make_gate_repo(tmp_path)
+    hooks = repo / ".claude" / "hooks"
+    hooks.mkdir(parents=True)
+    (hooks / "a.sh").write_text("echo a\n")
+    (hooks / "protect-x.sh").write_text("echo p\n")
+    group = {
+        "matcher": "Bash",
+        "hooks": [
+            {"command": ".claude/hooks/a.sh"},
+            {"command": "bash .claude/hooks/protect-x.sh"},
+        ],
+    }
+    (repo / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [group]}}))
+    (repo / ".claude" / "rules").mkdir()
+    (repo / ".claude" / "rules" / "r.md").write_text("# R\n\nplain text\n")
+    events_dir = tmp_path / "events"
+    events_dir.mkdir()
+    stamps = ["2026-09-01", "2026-09-25", "2026-09-26", "2026-09-27", "2026-09-29"]
+    events_file = events_dir / "demo-2026-09.jsonl"
+    events_file.write_text(
+        "".join(
+            json.dumps({"ts": f"{d}T00:00:00Z", "hook": "a.sh", "outcome": "pass", "ms": 10}) + "\n"
+            for d in stamps
+        )
+    )
+    projects_dir = tmp_path / "projects"
+    transcript_dir = projects_dir / hr.project_slug(repo)
+    transcript_dir.mkdir(parents=True)
+    transcript_file = transcript_dir / "s.jsonl"
+    transcript_file.write_text(
+        "".join(
+            json.dumps({"timestamp": f"2026-09-{d}T00:00:00Z", "type": "system", "uuid": f"u{d}"})
+            + "\n"
+            for d in (25, 26, 27)
+        )
+    )
+    # 巢狀的 session 目錄（worktree 的 subagent transcript 就是這個形狀）：讓「只有子目錄讀不到、
+    # 頂層仍有可讀的 transcript」成為可注入的情境，os.walk 的 onerror 才會是唯一的訊號
+    transcript_subdir = transcript_dir / "sub"
+    transcript_subdir.mkdir()
+    (transcript_subdir / "t.jsonl").write_text(
+        json.dumps({"timestamp": "2026-09-28T00:00:00Z", "type": "system", "uuid": "u28"}) + "\n"
+    )
+    return types.SimpleNamespace(
+        repo=repo,
+        events_dir=events_dir,
+        events_file=events_file,
+        projects_dir=projects_dir,
+        transcript_dir=transcript_dir,
+        transcript_file=transcript_file,
+        transcript_subdir=transcript_subdir,
+    )
+
+
+MATRIX_RUN = {"id": 7, "name": "CI", "head_branch": "x", "created_at": "2026-09-20T00:00:00Z"}
+
+
+def matrix_gh(
+    *,
+    view_rc: int = 0,
+    runs_body: str | None = None,
+    activity_rc: int = 0,
+    activity_body: str | None = None,
+) -> Callable[[list[str]], Any]:
+    """偽造 gh：repo view、一筆 failed run（gate 的 step 失敗一次）、每個 workflow 檔的 run 數。"""
+    run = MATRIX_RUN
+    job = {
+        "name": "check",
+        "conclusion": "failure",
+        "steps": [{"name": "Check things", "conclusion": "failure"}],
+    }
+    jobs_body = json.dumps({"total_count": 1, "jobs": [job]})
+
+    def handler(args: list[str]) -> Any:
+        if args[1:3] == ["repo", "view"]:
+            return cp(args, view_rc, GH_OK if view_rc == 0 else "", "" if view_rc == 0 else "boom")
+        if "--paginate" in args:
+            return cp(args, 0, jobs_body)
+        endpoint = next(a for a in args if a.startswith("repos/"))
+        if "/workflows/" in endpoint:
+            if activity_rc:
+                return cp(args, activity_rc, "", "HTTP 502")
+            body = activity_body or json.dumps({"total_count": 5, "workflow_runs": []})
+            return cp(args, 0, body)
+        body = runs_body or json.dumps({"total_count": 1, "workflow_runs": [run]})
+        return cp(args, 0, body)
+
+    return handler
+
+
+def run_matrix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gh: Callable[[list[str]], Any] | None = None
+) -> dict[str, str]:
+    """collect → diff：回傳 {MATRIX_RECS 的 key: 狀態}（prev 每種建議各一筆、本週都不成立）。"""
+    install_fake_run(monkeypatch, gh or matrix_gh(), [])
+    try:
+        hr.main(collect_args(tmp_path / "demo", tmp_path))
+    except OSError as e:
+        pytest.fail(f"collect 不該因來源讀取失敗而拋出例外：{e!r}")
+    curr = load(tmp_path / "out" / "snap.json")
+    prev = {
+        "version": hr.SNAPSHOT_VERSION,
+        "window": {"label": "2026-W39"},
+        "metrics": {},
+        "carried": [],
+        "recommendations": [
+            {"id": rid, "kind": rid.split(":", 1)[0], "weeks": 1} for rid in MATRIX_RECS.values()
+        ],
+    }
+    by_id = {s["id"]: s["status"] for s in hr.diff_snapshots(prev, curr, 3)["statuses"]}
+    return {key: by_id[rid] for key, rid in MATRIX_RECS.items()}
+
+
+def chmod_repo(*parts: str) -> Callable[[types.SimpleNamespace, contextlib.ExitStack], None]:
+    def inject(env: types.SimpleNamespace, stack: contextlib.ExitStack) -> None:
+        stack.enter_context(unreadable(env.repo.joinpath(*parts)))
+
+    return inject
+
+
+def chmod_attr(name: str) -> Callable[[types.SimpleNamespace, contextlib.ExitStack], None]:
+    def inject(env: types.SimpleNamespace, stack: contextlib.ExitStack) -> None:
+        stack.enter_context(unreadable(getattr(env, name)))
+
+    return inject
+
+
+def append_attr(
+    name: str, text: str
+) -> Callable[[types.SimpleNamespace, contextlib.ExitStack], None]:
+    def inject(env: types.SimpleNamespace, stack: contextlib.ExitStack) -> None:
+        append_text(getattr(env, name), text)
+
+    return inject
+
+
+def no_injection(env: types.SimpleNamespace, stack: contextlib.ExitStack) -> None:
+    """gh 端的注入（回應形狀、失敗碼）只改偽造的 gh，檔案系統維持健康。"""
+
+
+# 注入點名稱 → (注入動作, 依賴該來源而必須判 unmeasured 的建議, 偽造 gh 的參數)
+INJECTIONS: dict[str, tuple[Any, set[str], dict[str, Any]]] = {
+    "settings-unreadable": (chmod_repo(".claude", "settings.json"), INVENTORY_KEYS, {}),
+    "hooks-dir-unlistable": (chmod_repo(".claude", "hooks"), INVENTORY_KEYS, {}),
+    "hook-script-unreadable": (chmod_repo(".claude", "hooks", "a.sh"), INVENTORY_KEYS, {}),
+    # hook-silent-block 的證據是 events 的呼叫次數：events 讀不到時呼叫數是 0
+    "events-file-unreadable": (chmod_attr("events_file"), EVENTS_KEYS | {"silent-block"}, {}),
+    "events-malformed-line": (append_attr("events_file", "{not json\n"), EVENTS_KEYS, {}),
+    "events-dir-unlistable": (chmod_attr("events_dir"), EVENTS_KEYS | {"silent-block"}, {}),
+    "transcript-truncated-line": (
+        append_attr("transcript_file", '{"timestamp": "2026-09-29T00:00:00Z", "uu\n'),
+        TRANSCRIPT_KEYS,
+        {},
+    ),
+    "transcript-file-unreadable": (chmod_attr("transcript_file"), TRANSCRIPT_KEYS, {}),
+    "transcript-dir-unlistable": (chmod_attr("transcript_dir"), TRANSCRIPT_KEYS, {}),
+    # 頂層仍有 3 筆可讀的事件（達 TRANSCRIPT_MIN_EVENTS）：只有 os.walk 的 onerror 能發現子目錄讀不到
+    "transcript-subdir-unlistable": (chmod_attr("transcript_subdir"), TRANSCRIPT_KEYS, {}),
+    "projects-dir-unlistable": (chmod_attr("projects_dir"), TRANSCRIPT_KEYS, {}),
+    "rules-dir-unlistable": (chmod_repo(".claude", "rules"), RULE_KEYS, {}),
+    "rule-file-unreadable": (chmod_repo(".claude", "rules", "r.md"), RULE_KEYS, {}),
+    "workflows-dir-unlistable": (chmod_repo(".github", "workflows"), GATE_INVENTORY_KEYS, {}),
+    "workflow-file-unreadable": (
+        chmod_repo(".github", "workflows", "ci.yml"),
+        GATE_INVENTORY_KEYS,
+        {},
+    ),
+    "harness-dir-unlistable": (chmod_repo("scripts", "harness"), GATE_INVENTORY_KEYS, {}),
+    "ci-runs-wrong-shape": (no_injection, CI_KEYS, {"runs_body": '{"total_count": 1}'}),
+    "ci-runs-total-mismatch": (
+        no_injection,
+        CI_KEYS,
+        {"runs_body": json.dumps({"total_count": 2, "workflow_runs": [MATRIX_RUN]})},
+    ),
+    "ci-runs-total-missing": (
+        no_injection,
+        CI_KEYS,
+        {"runs_body": json.dumps({"workflow_runs": [MATRIX_RUN]})},
+    ),
+    "ci-repo-view-fails": (no_injection, CI_KEYS, {"view_rc": 1}),
+    "activity-request-fails": (no_injection, {"gate-silent"}, {"activity_rc": 1}),
+}
+
+
+@needs_non_root
+class TestInjectionMatrix:
+    """HWR-DT-050/051：每個資料來源的每個讀取失敗注入點，都不能讓依賴它的上週建議變成 resolved。"""
+
+    def test_hwr_dt_050_control_healthy_sources_resolve(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWR-DT-050: 對照——所有來源健康時，prev 每種建議（本週都不成立）都判 resolved"""
+        build_matrix_env(tmp_path)
+        assert run_matrix(tmp_path, monkeypatch) == dict.fromkeys(MATRIX_RECS, "resolved")
+
+    @pytest.mark.parametrize("name", sorted(INJECTIONS))
+    def test_hwr_dt_051_injection_point(
+        self, name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWR-DT-051: 注入讀取失敗 → 依賴該來源的建議 unmeasured，不相干的來源照常 resolved"""
+        env = build_matrix_env(tmp_path)
+        inject, expected, gh_kwargs = INJECTIONS[name]
+        with contextlib.ExitStack() as stack:
+            inject(env, stack)
+            got = run_matrix(tmp_path, monkeypatch, matrix_gh(**gh_kwargs))
+        unmeasured = {k for k, v in got.items() if v == "unmeasured"}
+        resolved = {k for k, v in got.items() if v == "resolved"}
+        assert unmeasured == expected, f"{name}: {got}"
+        assert resolved == set(MATRIX_RECS) - expected, f"{name}: {got}"
+
+
+SINCE = hr.parse_ts("2026-09-23T00:00:00Z")
+NOW = hr.parse_ts("2026-09-30T00:00:00Z")
+assert SINCE is not None and NOW is not None
+
+
+class TestSourceRecords:
+    """Requirement: Every data source reports completeness that defaults to incomplete"""
+
+    def test_hwr_dt_052_healthy_sources_report_complete(self, tmp_path: Path) -> None:
+        """HWR-DT-052: 對照——來源健康時每個 collector 都回 complete true、errors 為空"""
+        env = build_matrix_env(tmp_path)
+        assert SINCE is not None and NOW is not None
+        inv, _, _ = hr.collect_hook_inventory(env.repo)
+        events, _, _ = hr.collect_hook_events(env.events_dir, "demo", SINCE, NOW)
+        transcript, _ = hr.collect_transcript_blocks(env.projects_dir, env.repo, SINCE)
+        rules, _ = hr.collect_rules(env.repo, set())
+        gates, _, _ = hr.collect_gate_inventory(env.repo)
+        for name, data in (
+            ("inventory", inv),
+            ("events", events),
+            ("transcript", transcript),
+            ("rules", rules),
+            ("gates", gates),
+        ):
+            assert data.get("source") == {"complete": True, "errors": []}, name
+
+    @needs_non_root
+    def test_hwr_dt_053_unreadable_hook_events_file(self, tmp_path: Path) -> None:
+        """HWR-DT-053: unreadable-hook-events-file——source.complete 為 false，errors 點名該檔"""
+        env = build_matrix_env(tmp_path)
+        assert SINCE is not None and NOW is not None
+        with unreadable(env.events_file):
+            data, _, _ = hr.collect_hook_events(env.events_dir, "demo", SINCE, NOW)
+        source = data.get("source") or {}
+        assert source.get("complete") is False
+        assert any(str(env.events_file) in e for e in source.get("errors", []))
+
+    @needs_non_root
+    def test_hwr_dt_054_unreadable_rules_directory(self, tmp_path: Path) -> None:
+        """HWR-DT-054: unreadable-rules-directory——complete false，不可當成「0 條 rule」"""
+        env = build_matrix_env(tmp_path)
+        with unreadable(env.repo / ".claude" / "rules"):
+            data, warnings = hr.collect_rules(env.repo, set())
+        assert (data.get("source") or {}).get("complete") is False
+        assert any(".claude/rules" in w for w in warnings), "列不出目錄要出現在 warnings"
+
+    def test_hwr_dt_055_truncated_transcript_line(self, tmp_path: Path) -> None:
+        """HWR-DT-055: truncated-transcript-line——transcript 裡不是合法 JSON 的行使 complete 為 false"""
+        env = build_matrix_env(tmp_path)
+        append_text(env.transcript_file, '{"timestamp": "2026-09-29T00:00:00Z", "uu\n')
+        assert SINCE is not None
+        data, _ = hr.collect_transcript_blocks(env.projects_dir, env.repo, SINCE)
+        assert (data.get("source") or {}).get("complete") is False
+
+    @needs_non_root
+    def test_hwr_dt_056_unreadable_hook_script(self, tmp_path: Path) -> None:
+        """HWR-DT-056: unreadable-hook-script——inventory 不完整，不產生 hook-unregistered"""
+        env = build_matrix_env(tmp_path)
+        orphan = env.repo / ".claude" / "hooks" / "orphan.sh"
+        orphan.write_text("echo orphan\n")
+        inv, _, _ = hr.collect_hook_inventory(env.repo)
+        assert inv["unregistered"] == ["orphan.sh"] and inv["source"]["complete"] is True
+        snap = make_snapshot()
+        snap["hooks"]["inventory"] = inv
+        control = {r["kind"] for r in hr.build_recommendations(snap, make_thresholds())}
+        assert "hook-unregistered" in control  # 對照：讀得到才會產生
+        with unreadable(orphan):
+            inv, _, _ = hr.collect_hook_inventory(env.repo)
+        assert (inv.get("source") or {}).get("complete") is False
+        snap["hooks"]["inventory"] = inv
+        kinds = {r["kind"] for r in hr.build_recommendations(snap, make_thresholds())}
+        assert "hook-unregistered" not in kinds
+
+
+class TestMissingSourceIsUnmeasured:
+    """Requirement: Missing or malformed completeness fields are treated as unmeasured"""
+
+    SOURCE_KINDS: dict[tuple[str, ...], set[str]] = {
+        ("hooks", "inventory"): {
+            "hook-unregistered",
+            "hook-no-data",
+            "hook-low-signal",
+            "hook-insurance-idle",
+            "hook-error",
+            "hook-slow",
+        },
+        ("hooks", "events"): {
+            "hook-no-data",
+            "hook-low-signal",
+            "hook-insurance-idle",
+            "hook-error",
+            "hook-slow",
+        },
+        ("hooks", "transcript"): {"hook-stale-plugin", "hook-silent-block"},
+        ("rules",): {"rule-heavy", "rule-already-gated", "rule-mechanize-candidate"},
+        ("ci", "inventory"): {"gate-unwired", "gate-silent"},
+    }
+    BAD_RECORDS: list[Any] = [
+        "missing",  # 以 sentinel 代表整個欄位刪除
+        "yes",
+        None,
+        {},
+        {"complete": "true"},
+        {"complete": 1},
+        {"complete": False},
+        {"complete": True, "errors": ["x"]},
+    ]
+
+    @staticmethod
+    def _holder(snap: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
+        node = snap
+        for key in path:
+            node = node[key]
+        return node
+
+    def test_hwr_dt_057_snapshot_without_source_record(self) -> None:
+        """HWR-DT-057: snapshot-without-source-record——來源記錄缺漏、型別錯或 complete 不是 true → 不在 scope"""
+        control = set(hr.evaluation_scope(make_snapshot())["kinds"])
+        for path, dependent in self.SOURCE_KINDS.items():
+            assert dependent <= control, f"對照：來源完整時 {path} 的類型都該在 scope 內"
+            for bad in self.BAD_RECORDS:
+                snap = make_snapshot()
+                holder = self._holder(snap, path)
+                if bad == "missing":
+                    del holder["source"]
+                else:
+                    holder["source"] = bad
+                kinds = set(hr.evaluation_scope(snap)["kinds"])
+                assert not (dependent & kinds), f"{path} source={bad!r} 仍判定：{dependent & kinds}"
+
+    def test_hwr_dt_058_snapshot_without_ci_measured(self) -> None:
+        """HWR-DT-058: snapshot-without-ci-measured——ci.measured 缺漏不拋 KeyError，CI 類型不在 scope"""
+        for mutate in (
+            lambda s: s["ci"].pop("measured"),
+            lambda s: s.pop("ci"),
+            lambda s: s["ci"].update(measured="yes"),
+        ):
+            snap = make_snapshot()
+            mutate(snap)
+            kinds = set(hr.evaluation_scope(snap)["kinds"])
+            assert not ({"gate-silent", "gate-noisy"} & kinds)
+
+
+def gate_entry(**kw: Any) -> dict[str, Any]:
+    base = {
+        "script": "rule-gate-alpha.py",
+        "wired_in_ci": True,
+        "attributable": True,
+        "ci_steps": ["Check things"],
+        "added": "2026-01-01",
+        "workflows": ["ci.yml"],
+    }
+    return {**base, **kw}
+
+
+def evidence_snapshot(
+    calls: dict[str, int] | None = None,
+    registered: tuple[str, ...] = (),
+    gates: list[dict[str, Any]] | None = None,
+    runs: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    """本週快照：所有來源完整、各類型都在 scope 內，只調整「本週觀察到什麼」。"""
+    snap = make_snapshot()
+    snap["window"]["label"] = "2026-W40"
+    snap["hooks"]["events"]["hooks"] = {
+        name: make_event_stats(calls=n) for name, n in (calls or {}).items()
+    }
+    snap["hooks"]["inventory"]["registered"] = {name: {} for name in registered}
+    snap["ci"]["inventory"]["gates"] = gates or []
+    snap["ci"]["failures"]["activity"] = {
+        "workflows": runs if runs is not None else {},
+        "source": complete_source(),
+    }
+    snap["metrics"] = {}
+    snap["recommendations"] = []
+    snap["evaluation"] = hr.evaluation_scope(snap)
+    return snap
+
+
+def status_of(kind: str, target: str, curr: dict[str, Any]) -> str:
+    """上週有 kind:target、本週沒有，回傳 diff 判定的狀態。"""
+    prev = {"window": {"label": "2026-W39"}, "metrics": {}, "carried": []}
+    prev["recommendations"] = [{"id": f"{kind}:{target}", "kind": kind, "weeks": 2}]
+    return str(hr.diff_snapshots(prev, curr, 3)["statuses"][0]["status"])
+
+
+class TestPositiveEvidence:
+    """Requirement: A previous recommendation is resolved only with positive evidence"""
+
+    HOOK_KINDS = ("hook-error", "hook-slow", "hook-silent-block")
+
+    def test_hwr_dt_059_hook_below_sample_threshold(self) -> None:
+        """HWR-DT-059: hook-below-sample-threshold——本週呼叫數 < 3 → unmeasured；剛好 3 → resolved"""
+        for kind in self.HOOK_KINDS:
+            below = evidence_snapshot(calls={"h.sh": 2}, registered=("h.sh",))
+            assert status_of(kind, "h.sh", below) == "unmeasured", kind
+            at = evidence_snapshot(calls={"h.sh": 3}, registered=("h.sh",))
+            assert status_of(kind, "h.sh", at) == "resolved", kind
+
+    def test_hwr_dt_060_hook_not_observed(self) -> None:
+        """HWR-DT-060: hook-not-observed——本週統計沒有這支 hook 的項目 → unmeasured"""
+        curr = evidence_snapshot(calls={"other.sh": 9}, registered=("h.sh", "other.sh"))
+        for kind in self.HOOK_KINDS:
+            assert status_of(kind, "h.sh", curr) == "unmeasured", kind
+
+    def test_hwr_dt_061_hook_observed_and_clean(self) -> None:
+        """HWR-DT-061: hook-observed-and-clean——來源完整、呼叫數達門檻且沒有錯誤 → resolved"""
+        curr = evidence_snapshot(calls={"h.sh": 5}, registered=("h.sh",))
+        for kind in self.HOOK_KINDS:
+            assert status_of(kind, "h.sh", curr) == "resolved", kind
+
+    def test_hwr_dt_062_removed_hook_is_resolved_but_unseen_plugin_hook_is_not(self) -> None:
+        """HWR-DT-062: hook 已從完整的 inventory 消失 → hook-error／hook-slow resolved（物件不存在）；
+        hook-silent-block 的對象是 plugin hook，inventory 看不到它，不能用「不在清單」當證據"""
+        curr = evidence_snapshot(calls={}, registered=())
+        assert status_of("hook-error", "gone.sh", curr) == "resolved"
+        assert status_of("hook-slow", "gone.sh", curr) == "resolved"
+        assert status_of("hook-silent-block", "gone.sh", curr) == "unmeasured"
+
+    def test_hwr_dt_063_gate_job_never_ran(self) -> None:
+        """HWR-DT-063: gate-job-never-ran——觀察期內該 gate 所在 workflow 一次都沒跑 → unmeasured"""
+        target = "rule-gate-alpha.py"
+        never = evidence_snapshot(gates=[gate_entry()], runs={"ci.yml": 0})
+        assert status_of("gate-silent", target, never) == "unmeasured"
+        ran = evidence_snapshot(gates=[gate_entry()], runs={"ci.yml": 3})
+        assert status_of("gate-silent", target, ran) == "resolved"  # 對照
+        unknown = evidence_snapshot(gates=[gate_entry()], runs={})
+        assert status_of("gate-silent", target, unknown) == "unmeasured"
+        bad = evidence_snapshot(gates=[gate_entry()], runs={"ci.yml": 3})
+        bad["ci"]["failures"]["activity"]["source"] = {"complete": False, "errors": ["x"]}
+        assert status_of("gate-silent", target, bad) == "unmeasured"
+        no_activity = evidence_snapshot(gates=[gate_entry()], runs={"ci.yml": 3})
+        del no_activity["ci"]["failures"]["activity"]
+        assert status_of("gate-silent", target, no_activity) == "unmeasured"
+
+    def test_hwr_dt_064_gate_gone_or_unwired_is_resolved(self) -> None:
+        """HWR-DT-064: gate 已從完整 inventory 消失或已不在 CI → gate-silent 的對象不存在，resolved"""
+        target = "rule-gate-alpha.py"
+        assert status_of("gate-silent", target, evidence_snapshot(gates=[])) == "resolved"
+        unwired = evidence_snapshot(gates=[gate_entry(wired_in_ci=False, ci_steps=[])])
+        assert status_of("gate-silent", target, unwired) == "resolved"
+
+    def test_hwr_dt_065_other_kinds_need_only_complete_sources(self) -> None:
+        """HWR-DT-065: 表外的類型（rule 類、gate-unwired、gate-noisy…）只看來源完整，維持舊行為"""
+        curr = evidence_snapshot()
+        for kind, target in (
+            ("rule-heavy", "r.md"),
+            ("gate-unwired", "g.py"),
+            ("gate-noisy", "CI / j / s"),
+            ("hook-unregistered", "o.sh"),
+            ("hook-stale-plugin", "p.py"),
+        ):
+            assert status_of(kind, target, curr) == "resolved", kind
+
+    def test_hwr_dt_066_transcript_kinds_need_min_events(self) -> None:
+        """HWR-DT-066: transcript 類——觀察期內事件數 < 3 不判定；剛好 3 才判定"""
+        for in_window, expected in ((2, "unmeasured"), (3, "resolved")):
+            snap = make_snapshot()
+            snap["hooks"]["transcript"]["in_window"] = in_window
+            scope = hr.evaluation_scope(snap)
+            snap.update(evaluation=scope, recommendations=[], metrics={})
+            assert status_of("hook-stale-plugin", "p.py", snap) == expected, in_window
+
+
+def attribution_repo(tmp_path: Path, step_name: str = "Check things", extra: str = "") -> Path:
+    workflow = (
+        "jobs:\n  check:\n    steps:\n"
+        f"      - name: {step_name}\n"
+        "        run: python scripts/harness/rule-gate-alpha.py\n" + extra
+    )
+    return make_gate_repo(tmp_path, workflow)
+
+
+class TestExactAttribution:
+    """Requirement: Gate attribution uses exact identity only"""
+
+    def test_hwr_dt_067_unrelated_job_sharing_substring(self) -> None:
+        """HWR-DT-067: unrelated-job-sharing-substring——名稱含 gate 字根的別的 job／step 不算 gate 的失敗"""
+        snap = make_snapshot()
+        snap["ci"]["inventory"]["gates"] = [
+            gate_entry(script="rule-gate-docs.py", ci_steps=["Check docs"])
+        ]
+        for jobs in (
+            {"CI / build-docs": {"failures": 3, "branches": 1, "steps": {"Build site": 3}}},
+            {"CI / site": {"failures": 3, "branches": 1, "steps": {"Check docs thoroughly": 3}}},
+        ):
+            snap["ci"]["failures"]["jobs"] = jobs
+            kinds = rec_kinds(hr.build_recommendations(snap, make_thresholds()))
+            assert kinds == {"rule-gate-docs.py": "gate-silent"}, jobs
+        exact = {"CI / site": {"failures": 3, "branches": 1, "steps": {"Check docs": 3}}}
+        snap["ci"]["failures"]["jobs"] = exact  # 對照：step 名稱精確相同才算
+        assert rec_kinds(hr.build_recommendations(snap, make_thresholds())) == {}
+
+    def test_hwr_dt_068_dynamic_step_name_in_same_workflow(self, tmp_path: Path) -> None:
+        """HWR-DT-068: dynamic-step-name——同一個 workflow 有名稱含 `${{ }}` 的 step → gate 無法歸因"""
+        dynamic = "      - name: Deploy ${{ matrix.env }}\n        run: echo deploy\n"
+        inv, _, notes = hr.collect_gate_inventory(attribution_repo(tmp_path / "d", extra=dynamic))
+        assert inv["gates"][0]["attributable"] is False
+        assert any("${{" in n for n in notes)
+        snap = make_snapshot()
+        snap["ci"]["inventory"] = inv
+        scope = hr.evaluation_scope(snap)
+        assert "gate-silent:rule-gate-alpha.py" in scope["unevaluated_ids"]
+        plain = "      - name: Deploy\n        run: echo deploy\n"
+        ok, _, _ = hr.collect_gate_inventory(attribution_repo(tmp_path / "p", extra=plain))
+        assert ok["gates"][0]["attributable"] is True  # 對照
+        other = make_gate_repo(tmp_path / "o")
+        (other / ".github" / "workflows" / "other.yml").write_text(
+            "jobs:\n  j:\n    steps:\n" + dynamic
+        )
+        elsewhere, _, _ = hr.collect_gate_inventory(other)
+        assert elsewhere["gates"][0]["attributable"] is True  # 動態名稱在別的 workflow 檔不影響
+
+    def test_hwr_dt_069_multiline_plain_name(self) -> None:
+        """HWR-DT-069: multiline-plain-name——plain scalar 換行續寫的 step 名稱 → 名稱為 None"""
+        text = (
+            "jobs:\n  a:\n    steps:\n"
+            "      - name: Check\n          things\n"
+            "        run: python scripts/harness/rule-gate-alpha.py\n"
+        )
+        assert hr.workflow_steps(text)[0]["name"] is None
+        single = text.replace("Check\n          things", "Check things")
+        assert hr.workflow_steps(single)[0]["name"] == "Check things"  # 對照
+
+    def test_hwr_dt_070_undecodable_escape_is_none(self, tmp_path: Path) -> None:
+        """HWR-DT-070: 雙引號字串含無法完整解碼的跳脫序列 → yaml_scalar 回 None，不回部分字串"""
+        assert hr.yaml_scalar('"Check\\tthings"') is None
+        assert hr.yaml_scalar('"Check\\x41"') is None
+        assert hr.yaml_scalar('"say \\"hi\\""') == 'say "hi"'  # 對照：能完整解碼的照常
+        assert hr.yaml_scalar('"back\\\\slash"') == "back\\slash"
+        inv, _, _ = hr.collect_gate_inventory(attribution_repo(tmp_path, '"Check\\tthings"'))
+        assert inv["gates"][0]["attributable"] is False
+
+
+class TestGateAddedDate:
+    """Requirement: Gate added date is unknown when history cannot establish it"""
+
+    def test_hwr_dt_071_rename_is_followed(self, tmp_path: Path) -> None:
+        """HWR-DT-071: gate 改名後上線日期仍取最初加入的日期（git log --follow）"""
+        repo = tmp_path / "demo"
+        git_init(repo)
+        harness = repo / "scripts" / "harness"
+        harness.mkdir(parents=True)
+        (harness / "rule-gate-old.py").write_text("print(1)\n")
+        git_commit_all(repo, "2026-01-01T00:00:00")
+        old, new = "scripts/harness/rule-gate-old.py", "scripts/harness/rule-gate-alpha.py"
+        REAL_RUN(["git", "-C", str(repo), "mv", old, new], check=True)
+        git_commit_all(repo, "2026-09-01T00:00:00")
+        inv, _, _ = hr.collect_gate_inventory(repo)
+        assert inv["gates"][0]["added"] == "2026-01-01"
+
+    @pytest.mark.parametrize("probe", [(0, "true\n"), (128, ""), (0, "maybe\n")])
+    def test_hwr_dt_072_shallow_or_unknown_is_unknown(
+        self, probe: tuple[int, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWR-DT-072: shallow-clone——shallow 或無法判斷時日期為未知，gate-silent 不判定"""
+        repo = make_gate_repo(tmp_path)
+        rc, out = probe
+
+        def fake(args: list[str], **kw: Any) -> Any:
+            if args[:3] == ["git", "rev-parse", "--is-shallow-repository"]:
+                return cp(args, rc, out, "")
+            return REAL_RUN(args, **kw)
+
+        monkeypatch.setattr(hr.subprocess, "run", fake)
+        inv, _, _ = hr.collect_gate_inventory(repo)
+        assert inv["gates"][0]["added"] is None
+        snap = make_snapshot()
+        snap["ci"]["inventory"] = inv
+        scope = hr.evaluation_scope(snap)
+        assert "gate-silent:rule-gate-alpha.py" in scope["unevaluated_ids"]
+        assert status_of("gate-silent", "rule-gate-alpha.py", {**snap, **_blank_week(scope)}) == (
+            "unmeasured"
+        )
+
+    def test_hwr_dt_073_full_clone_keeps_date(self, tmp_path: Path) -> None:
+        """HWR-DT-073: 對照——不是 shallow 時日期照常取得"""
+        inv, _, _ = hr.collect_gate_inventory(make_gate_repo(tmp_path))
+        assert inv["gates"][0]["added"] == "2026-01-01"
+
+
+def _blank_week(scope: dict[str, Any]) -> dict[str, Any]:
+    return {"evaluation": scope, "recommendations": [], "metrics": {}}
+
+
+class TestCollectOnlyPrevious:
+    """Requirement: Streaks reset visibly when the previous snapshot lacks carry data"""
+
+    @staticmethod
+    def _snap(label: str, recs: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+        return {
+            "window": {"label": label},
+            "metrics": {},
+            "recommendations": recs,
+            "evaluation": {"kinds": ["a"], "unevaluated_ids": []},
+            **extra,
+        }
+
+    def test_hwr_dt_074_previous_snapshot_collect_only(self) -> None:
+        """HWR-DT-074: previous-snapshot-collect-only——沒有 carried／weeks 的上週快照 → streak 重設並說明原因"""
+        prev = self._snap(
+            "2026-W39", [{"id": "a:x", "kind": "a"}, {"id": "a:gone", "kind": "a"}]
+        )  # 只跑過 collect：沒有 carried，建議也沒有 weeks
+        curr = self._snap("2026-W40", [{"id": "a:x", "kind": "a"}])
+        curr["evaluation"] = {"kinds": [], "unevaluated_ids": []}  # a:gone 本週量不到
+        delta = hr.diff_snapshots(prev, curr, 3)
+        by_id = {s["id"]: s for s in delta["statuses"]}
+        assert by_id["a:x"]["status"] == "persisting" and by_id["a:x"]["weeks"] == 1
+        assert by_id["a:x"].get("streak_reset") is True
+        assert by_id["a:gone"]["status"] == "unmeasured"
+        assert by_id["a:gone"].get("streak_reset") is True
+        assert delta.get("prev_collect_only") is True
+        report = hr.render_report(v2_snapshot("2026-W40"), delta)
+        assert "只跑過 collect" in report
+
+    def test_hwr_dt_075_report_written_previous_keeps_streak(self) -> None:
+        """HWR-DT-075: 對照——上週快照有 carried 與 weeks 時週數照常累加、不標 streak_reset"""
+        prev = self._snap("2026-W39", [{"id": "a:x", "kind": "a", "weeks": 2}], carried=[])
+        curr = self._snap("2026-W40", [{"id": "a:x", "kind": "a"}])
+        delta = hr.diff_snapshots(prev, curr, 3)
+        st = delta["statuses"][0]
+        assert (st["status"], st["weeks"], st.get("streak_reset")) == ("persisting", 3, None)
+        assert delta.get("prev_collect_only") is False
+        assert "只跑過 collect" not in hr.render_report(v2_snapshot("2026-W40"), delta)
+
+    def test_hwr_dt_076_no_previous_is_not_collect_only(self) -> None:
+        """HWR-DT-076: 第一次執行（沒有上週快照）不是 collect-only"""
+        delta = hr.diff_snapshots(None, self._snap("2026-W40", [{"id": "a:x", "kind": "a"}]), 3)
+        assert delta.get("prev_collect_only") is False
+
+
+class TestCiRunsShape:
+    """Requirement: CI run listing is verified against its declared total"""
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            '{"total_count": 0}',  # runs-response-wrong-shape：沒有 workflow_runs
+            '{"workflow_runs": []}',  # 沒有 total_count
+            '{"total_count": 3, "workflow_runs": []}',  # 宣告 3 筆、只列到 0 筆
+            '{"total_count": 0, "workflow_runs": "x"}',  # workflow_runs 不是清單
+        ],
+    )
+    def test_hwr_dt_077_runs_response_shape(
+        self, body: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWR-DT-077: runs-response-wrong-shape——回應形狀不符或筆數對不上 total_count → CI 不完整"""
+        repo = make_gate_repo(tmp_path)
+        install_fake_run(monkeypatch, make_gh(runs_out=body), [])
+        hr.main(collect_args(repo, tmp_path))
+        snap = load(tmp_path / "out" / "snap.json")
+        assert snap["ci"]["measured"] is False
+        assert (snap["ci"]["failures"].get("source") or {}).get("complete") is False
+
+    def test_hwr_dt_078_matching_total_is_measured(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWR-DT-078: 對照——筆數與 total_count 相符才 measured"""
+        repo = make_gate_repo(tmp_path)
+        install_fake_run(monkeypatch, make_gh(runs=[]), [])
+        hr.main(collect_args(repo, tmp_path))
+        snap = load(tmp_path / "out" / "snap.json")
+        assert snap["ci"]["measured"] is True
+        assert snap["ci"]["failures"]["source"] == {"complete": True, "errors": []}
+        activity = snap["ci"]["failures"].get("activity") or {}
+        assert activity.get("workflows") == {"ci.yml": 5}
+        assert activity.get("source") == {"complete": True, "errors": []}
+
+
+class TestCollectWiring:
+    def test_hwr_dt_079_max_rule_candidates_wiring(self, tmp_path: Path) -> None:
+        """HWR-DT-079: cmd_collect 把 --max-rule-candidates 同時接到建議產生與 evaluation scope
+        （issue #509 的 C5：HWR-DT-034 直接呼叫函式，接線與截斷邊界沒有端到端的測試）"""
+        repo = tmp_path / "demo"
+        git_init(repo)
+        rules = repo / ".claude" / "rules"
+        rules.mkdir(parents=True)
+        body = "必須 `a` `b` `c` `d`。不要 `e` `f` `g` `h`。一律 `i`。\n"
+        (rules / "03.md").write_text("".join(f"## S{i:02d}\n\n{body}\n" for i in range(5)))
+        out = tmp_path / "out" / "snap.json"
+        args = ["collect", "--repo", str(repo), "--out", str(out), "--no-ci"]
+        args += ["--now", "2026-09-30T00:00:00Z", "--max-rule-candidates", "2"]
+        args += ["--events-dir", str(tmp_path / "ev"), "--projects-dir", str(tmp_path / "p")]
+        assert hr.main(args) in (0, 3)
+        snap = load(out)
+        anchors = [c["anchor"] for c in snap["rules"]["candidates"]]
+        assert len(anchors) == 5  # collect 不截斷：全部候選都存進快照
+        kept = {
+            r["target"] for r in snap["recommendations"] if r["kind"] == "rule-mechanize-candidate"
+        }
+        assert kept == set(anchors[:2])
+        unevaluated = set(snap["evaluation"]["unevaluated_ids"])
+        for rank, anchor in enumerate(anchors):
+            for kind in hr.RULE_CANDIDATE_KINDS:
+                # 邊界：排名第 2（含）以內判定，第 3 名起不判定；差一名都會被抓到
+                assert (f"{kind}:{anchor}" in unevaluated) is (rank >= 2), (rank, kind)

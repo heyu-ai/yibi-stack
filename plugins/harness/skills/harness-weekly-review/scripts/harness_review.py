@@ -24,8 +24,16 @@ Exit code（collect）：
   2  參數或環境錯誤（不是 git repo、--now 格式錯）
   3  完成，但有資料源讀取失敗、缺漏或未涵蓋觀察期（warnings）；受影響的建議類型本週不判定
 Exit code（diff／report）：0 完成；2 快照不存在、格式或版本不符、--prev auto 無法讀取目錄
-  （--prev auto 遇到版本不符的舊快照會略過並往前找，不算錯誤；stdout 的 prev_status 會註明）
-  report 會把累計週數與 carried 寫回 --snapshot 指定的本週快照，下週才能接續
+  或走訪到壞 JSON 的快照（--prev auto 遇到版本不符的舊快照會略過並往前找，不算錯誤；
+  stdout 的 prev_status 會註明）
+  report 會把累計週數與 carried 寫回 --snapshot 指定的本週快照，下週才能接續；
+  上週快照沒有 carried（只跑過 collect）時持續中的建議週數重設為 1，報告與 diff 的
+  prev_collect_only 會標明
+
+來源完整性：每個資料來源的 collector 回傳 source = {complete, errors}，complete 預設不完整，
+目錄列舉、每個檔案讀取、每一行解析全部成功才為 True。evaluation_scope 只信 source：缺漏或
+型別不符一律當量不到。上週建議要判 resolved，除了類型可判定，還要本週觀察到該對象的正向證據
+（resolution_evidence）。
 Exit code（weekly）：collect 回 2 或其他非 0/3 值時原樣回傳、不產報告；report 失敗回傳 report
   的值；否則回傳 collect 的值（0 或 3，3 表示量測不完整但報告已產出；
   帶 --incomplete-ok 時 3 改回 0）
@@ -51,10 +59,19 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-SNAPSHOT_VERSION = 2
+# v3：判定語意改變（來源完整性改為白名單、resolved 需要正向證據、歸因只接受精確身分）。
+# v2 的 resolved 結論本身不可信，所以不寫遷移：版本不符的舊快照會被略過，週數從 1 起算
+SNAPSHOT_VERSION = 3
 
 # CI jobs 快取格式版本；舊版（未標版本）快取可能含不完整的結果，一律忽略重抓
 CI_CACHE_SCHEMA = 2
+
+# 產生 hook 建議的最少呼叫數，也是「判定已解除」所需的最少觀察數；兩者共用同一個門檻，
+# 才不會出現「剛好夠產生、卻不夠解除」的灰色地帶
+HOOK_MIN_CALLS = 3
+
+# transcript 類建議要判定，觀察期內至少要有這麼多筆事件
+TRANSCRIPT_MIN_EVENTS = 3
 
 # 外部指令（git／gh／mycelium）的逾時秒數；逾時視為讀取失敗，不讓排程卡住
 CMD_TIMEOUT_SECONDS = 60
@@ -89,7 +106,6 @@ PLUGIN_VERSION = re.compile(r"/plugins/cache/[^/]+/[^/]+/(\d+(?:\.\d+)+)/")
 WEEK_LABEL = re.compile(r"(\d{4})-W(\d{2})")
 SNAPSHOT_NAME = re.compile(r"snapshot-\d{4}-W\d{2}\.json")
 GATE_NAME = re.compile(r"(rule-gate-|ci-check-).*\.(py|sh)$")
-GATE_AFFIX = re.compile(r"^(rule-gate-|ci-check-)|\.(py|sh)$")
 
 # workflow step 的第一個 key（`- name:`、`- run:`…）；只收這些，
 # 避免把 matrix include 等清單當成 step
@@ -108,9 +124,9 @@ STEP_KEYS = {
     "timeout-minutes",
 }
 
-# 以下類型只讀 repo 內的靜態檔案；檔案讀取失敗時由 evaluation_scope 個別排除
-STATIC_KINDS = ("gate-unwired", "rule-heavy", "rule-already-gated", "rule-mechanize-candidate")
+# rule 類建議都只依賴 rules 來源；來源不完整時整類不判定
 RULE_CANDIDATE_KINDS = ("rule-already-gated", "rule-mechanize-candidate")
+RULE_KINDS = frozenset({"rule-heavy", *RULE_CANDIDATE_KINDS})
 
 # mycelium `lessons add --skip-if-exists` 略過既有 key 時寫到 stderr 的訊息
 # （tasks/mycelium/cli.py 的 lessons add；exit 0、stdout 空白）；
@@ -178,20 +194,49 @@ def is_insurance(hook: str) -> bool:
     return hook.startswith(INSURANCE_PREFIXES)
 
 
-def _read_lines(
-    path: Path, warnings: list[str], label: str, failed: list[str] | None = None
-) -> Iterator[str]:
-    """逐行讀檔；開檔或讀取失敗記進 warnings（讀取失敗屬於量測不完整），不中斷整體量測。
+def scan_dir(path: Path, errors: list[str], label: str) -> list[os.DirEntry[str]]:
+    """列出 path 的直接子項（依名稱排序）；所有資料來源的目錄列舉都走這裡。
 
-    有傳 failed 時，把讀取失敗的檔案路徑附加進去，讓呼叫端能判定這份資料源不完整。
+    目錄不存在（含路徑中有一段不是目錄）回空串列，不算錯誤，由呼叫端決定「沒有」要不要警告；
+    其他列舉失敗（權限、I/O 錯誤）記進 errors 並回空串列。不用 `Path.glob`、未防護的
+    `iterdir`：它們在列不出來時要嘛靜默回空、要嘛直接拋例外，兩者都會讓「讀不到」被當成
+    「沒有」。
     """
+    try:
+        with os.scandir(path) as it:
+            return sorted(it, key=lambda e: e.name)
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+    except OSError as e:
+        errors.append(f"{label}：{path} 無法列出（{e}）")
+        return []
+
+
+def make_source(errors: list[str]) -> dict[str, Any]:
+    """collector 回報的來源記錄。complete 只在 errors 為空時為 True：預設不完整，由 collector
+    在最後一步依「沒有任何失敗」才升為完整，而不是先假設完整、再逐項扣掉。"""
+    return {"complete": not errors, "errors": list(errors)}
+
+
+def source_ok(section: Any) -> bool:
+    """section["source"] 是否是完整的來源記錄。
+
+    記錄缺漏、型別不符、complete 不是 True（含 "true"、1 等 truthy 值）、或 errors 有內容，
+    一律視為不完整：舊快照與手寫測試資料缺欄位時，往「量不到」的方向解讀。
+    """
+    if not isinstance(section, dict):
+        return False
+    src = section.get("source")
+    return isinstance(src, dict) and src.get("complete") is True and not src.get("errors")
+
+
+def _read_lines(path: Path, errors: list[str], label: str) -> Iterator[str]:
+    """逐行讀檔；開檔或讀取失敗記進 errors（讀取失敗屬於量測不完整），不中斷整體量測。"""
     try:
         with path.open(encoding="utf-8", errors="replace") as fh:
             yield from fh
     except OSError as e:
-        warnings.append(f"{label}：{path} 讀取失敗（{e}）")
-        if failed is not None:
-            failed.append(str(path))
+        errors.append(f"{label}：{path} 讀取失敗（{e}）")
 
 
 # ---------------------------------------------------------------------------
@@ -220,24 +265,34 @@ def collect_hook_inventory(repo: Path) -> tuple[dict[str, Any], list[str], list[
 
     共用模組（檔名以 `_` 開頭、含 `common`、或被其他 hook source／import／直接呼叫）不是 hook，
     不列入未註冊。回傳 (inventory, warnings, notes)。
+
+    inventory["source"] 記錄這份清單是否完整：settings 檔、hooks 目錄列舉、每支 hook script
+    任一讀取失敗都使它不完整（script 讀不到會讓「被誰引用」的判斷缺資料，進而產生假的
+    hook-unregistered）。
     """
-    warnings: list[str] = []
+    errors: list[str] = []
     notes = [
         "hook 清單：只檢查 repo 的 settings.json 與 settings.local.json，"
         "未檢查使用者層 ~/.claude/settings.json"
     ]
     registered: dict[str, dict[str, Any]] = {}
-    complete = True
     read_files = []
     for fname in ("settings.json", "settings.local.json"):
         settings = repo / ".claude" / fname
-        if not settings.is_file():
+        try:
+            text = settings.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeDecodeError) as e:
+            errors.append(f"hook 清單：{settings} 讀取失敗（{e}），本週不判定未註冊與沒資料")
             continue
         try:
-            data = json.loads(settings.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
-            warnings.append(f"hook 清單：{settings} 讀取失敗（{e}），本週不判定未註冊與沒資料")
-            complete = False
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            errors.append(f"hook 清單：{settings} 格式錯誤（{e}），本週不判定未註冊與沒資料")
+            continue
+        if not isinstance(data, dict):
+            errors.append(f"hook 清單：{settings} 不是 JSON 物件，本週不判定未註冊與沒資料")
             continue
         read_files.append(fname)
         for event, groups in (data.get("hooks") or {}).items():
@@ -257,15 +312,15 @@ def collect_hook_inventory(repo: Path) -> tuple[dict[str, Any], list[str], list[
     hooks_dir = repo / ".claude" / "hooks"
     on_disk: list[str] = []
     texts: dict[str, str] = {}
-    if hooks_dir.is_dir():
-        for p in sorted(hooks_dir.iterdir()):
-            if p.is_file() and p.suffix in (".sh", ".py") and p.name not in WRAPPERS:
-                on_disk.append(p.name)
-                try:
-                    texts[p.name] = p.read_text(encoding="utf-8", errors="replace")
-                except OSError as e:
-                    warnings.append(f"hook 清單：{p} 讀取失敗（{e}）")
-                    texts[p.name] = ""
+    for entry in scan_dir(hooks_dir, errors, "hook 清單"):
+        p = Path(entry.path)
+        if entry.is_file() and p.suffix in (".sh", ".py") and p.name not in WRAPPERS:
+            on_disk.append(p.name)
+            try:
+                texts[p.name] = p.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                errors.append(f"hook 清單：{p} 讀取失敗（{e}）")
+                texts[p.name] = ""
     shared = [
         n
         for n in on_disk
@@ -281,9 +336,9 @@ def collect_hook_inventory(repo: Path) -> tuple[dict[str, Any], list[str], list[
             "shared_modules": shared,
             "unregistered": unregistered,
             "settings_files": read_files,
-            "complete": complete,
+            "source": make_source(errors),
         },
-        warnings,
+        list(errors),
         notes,
     )
 
@@ -300,12 +355,17 @@ def _p95(values: list[int]) -> int:
     return ordered[min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1))))]
 
 
-def hook_event_files(events_dir: Path, repo_name: str) -> list[Path]:
-    """只收 `<repo>-YYYY-MM.jsonl`；`<repo>-other-YYYY-MM.jsonl` 屬於另一個 repo，不可混入。"""
-    if not events_dir.is_dir():
-        return []
+def hook_event_files(events_dir: Path, repo_name: str, errors: list[str]) -> list[Path]:
+    """只收 `<repo>-YYYY-MM.jsonl`；`<repo>-other-YYYY-MM.jsonl` 屬於另一個 repo，不可混入。
+
+    目錄列不出來記進 errors（不是「沒有紀錄檔」）；目錄不存在則回空串列。
+    """
     pattern = re.compile(re.escape(repo_name) + r"-\d{4}-\d{2}\.jsonl")
-    return sorted(p for p in events_dir.iterdir() if pattern.fullmatch(p.name) and p.is_file())
+    return [
+        Path(e.path)
+        for e in scan_dir(events_dir, errors, "hook-events")
+        if pattern.fullmatch(e.name) and e.is_file()
+    ]
 
 
 def collect_hook_events(
@@ -315,10 +375,14 @@ def collect_hook_events(
 
     同時判定紀錄是否涵蓋整個觀察期（covers_window）：最早一筆 <= since、觀察期內至少一筆、
     且最新一筆距 now 不超過 EVENTS_MAX_STALENESS。回傳 (events, warnings, notes)。
+
+    covers_window 與 source 是兩件事：covers_window 問「紀錄涵蓋的時間夠不夠」，source 問
+    「讀取有沒有失敗」——目錄列不出來、任一檔讀不到、有格式錯誤行，都使 source 不完整。
     """
     warnings: list[str] = []
+    errors: list[str] = []
     notes: list[str] = []
-    files = hook_event_files(events_dir, repo_name)
+    files = hook_event_files(events_dir, repo_name, errors)
     per_hook: dict[str, dict[str, Any]] = {}
     durations: dict[str, list[int]] = collections.defaultdict(list)
     bad_lines = 0
@@ -326,7 +390,9 @@ def collect_hook_events(
     latest: dt.datetime | None = None
     in_window = 0
     for f in files:
-        for line in _read_lines(f, warnings, "hook-events"):
+        for line in _read_lines(f, errors, "hook-events"):
+            if not line.strip():
+                continue
             try:
                 ev = json.loads(line)
             except json.JSONDecodeError:
@@ -384,7 +450,7 @@ def collect_hook_events(
             "（需要含執行紀錄的 run-hook.sh 版本），執行率與耗時無法量測"
         )
     if bad_lines:
-        warnings.append(f"hook-events：略過 {bad_lines} 行格式錯誤或無時間戳的紀錄")
+        errors.append(f"hook-events：略過 {bad_lines} 行格式錯誤或無時間戳的紀錄")
     reasons = []
     if earliest is None or earliest > since:
         reasons.append(
@@ -414,8 +480,9 @@ def collect_hook_events(
             "latest": iso(latest) if latest else None,
             "in_window": in_window,
             "covers_window": covers,
+            "source": make_source(errors),
         },
-        warnings,
+        errors + warnings,
         notes,
     )
 
@@ -430,19 +497,22 @@ def project_slug(repo: Path) -> str:
     return re.sub(r"[^A-Za-z0-9]", "-", str(repo.resolve()))
 
 
-def transcript_files(projects_dir: Path, main_repo: Path) -> list[str]:
+def transcript_files(projects_dir: Path, main_repo: Path, errors: list[str]) -> list[str]:
     """收主 repo 與其 worktree（<slug>--claude-worktrees-*）的 transcript。
 
-    同前綴的其他 repo（如 yibi-mvp-foo）排除在外。
+    同前綴的其他 repo（如 yibi-mvp-foo）排除在外。目錄列舉失敗（projects 目錄或任一層子目錄）
+    記進 errors：`os.walk` 預設把目錄錯誤靜默丟掉，少掉的檔案會被當成「沒有 transcript」。
     """
     slug = project_slug(main_repo)
     out: list[str] = []
-    if not projects_dir.is_dir():
-        return out
-    for d in projects_dir.iterdir():
-        name = d.name
-        if d.is_dir() and (name == slug or name.startswith(slug + "--claude-worktrees-")):
-            for root, _dirs, fnames in os.walk(d):
+
+    def on_walk_error(e: OSError) -> None:
+        errors.append(f"transcript：{e.filename} 無法列出（{e}）")
+
+    for entry in scan_dir(projects_dir, errors, "transcript"):
+        name = entry.name
+        if entry.is_dir() and (name == slug or name.startswith(slug + "--claude-worktrees-")):
+            for root, _dirs, fnames in os.walk(entry.path, onerror=on_walk_error):
                 out.extend(os.path.join(root, n) for n in fnames if n.endswith(".jsonl"))
     return sorted(out)
 
@@ -461,18 +531,20 @@ def collect_transcript_blocks(
 ) -> tuple[dict[str, Any], list[str]]:
     """從 transcript 抽出 hook 阻擋與 hook 自身錯誤事件，依 uuid 去重。
 
-    回傳的 in_window（觀察期內有時間戳的事件數）與 read_failures（讀取失敗的檔案數）
-    讓 evaluation_scope 判斷 transcript 類建議本週能不能下結論：檔案存在但觀察期內 0 筆、
-    或有檔案讀不到，都不能把上週的建議判成已解除。
+    回傳的 in_window（觀察期內有時間戳的事件數）讓 evaluation_scope 判斷 transcript 類建議
+    本週能不能下結論：檔案存在但觀察期內事件太少，不能把上週的建議判成已解除。
+    source 記錄讀取是否完整：目錄列不出來、任一檔讀不到、有被截斷或格式錯誤的行都使它不完整；
+    read_failures 只是其中「讀不到的檔案數」，供人閱讀。
     """
     warnings: list[str] = []
-    files = transcript_files(projects_dir, main_repo)
+    errors: list[str] = []
+    files = transcript_files(projects_dir, main_repo, errors)
     per_hook: dict[str, dict[str, Any]] = {}
     seen: set[str] = set()
     min_ts: dt.datetime | None = None
     bad_lines = 0
     in_window = 0
-    failed: list[str] = []
+    file_errors: list[str] = []
 
     def note(
         name: str, kind: str, ts: dt.datetime, session: str, sample: str, cmd: str = ""
@@ -507,7 +579,9 @@ def collect_transcript_blocks(
             v["last"] = max(filter(None, [v["last"], stamp]))
 
     for f in files:
-        for line in _read_lines(Path(f), warnings, "transcript", failed):
+        for line in _read_lines(Path(f), file_errors, "transcript"):
+            if not line.strip():
+                continue
             try:
                 ev = json.loads(line)
             except json.JSONDecodeError:
@@ -583,15 +657,17 @@ def collect_transcript_blocks(
             f"transcript：找到 {len(files)} 個檔案，但觀察期內（{iso(since)} 之後）沒有任何事件；"
             "舊版 plugin 與無 stderr 阻擋本週不判定"
         )
+    errors += file_errors
     if bad_lines:
-        warnings.append(f"transcript：略過 {bad_lines} 行格式錯誤的紀錄")
+        errors.append(f"transcript：略過 {bad_lines} 行格式錯誤（可能被截斷）的紀錄")
     return {
         "files": len(files),
         "earliest": iso(min_ts) if min_ts else None,
         "in_window": in_window,
-        "read_failures": len(failed),
+        "read_failures": len(file_errors),
         "hooks": per_hook,
-    }, warnings
+        "source": make_source(errors),
+    }, errors + warnings
 
 
 # ---------------------------------------------------------------------------
@@ -656,20 +732,26 @@ def collect_rules(repo: Path, guard_names: set[str]) -> tuple[dict[str, Any], li
     不含行號，前文增刪行不會讓週對週追蹤斷掉；行號只留作顯示用的位置。
     候選不在這裡截斷：全部排序後存進快照，由 evaluation_scope 把排名在
     --max-rule-candidates 之外的列為本週不判定，避免被截掉的候選被當成已解除。
-    讀取失敗的 rule 檔列在 unreadable，該檔的 rule 類建議本週不判定。回傳 (rules, warnings)。
+    讀取失敗的 rule 檔列在 unreadable（供人閱讀）；rules 目錄列不出來或任一檔讀不到，
+    source 都不完整，rule 類建議整類本週不判定（寧可多報 unmeasured，也不可誤報 resolved）。
+    回傳 (rules, warnings)。
     """
-    warnings: list[str] = []
+    errors: list[str] = []
     rules_dir = repo / ".claude" / "rules"
     files: list[dict[str, Any]] = []
     candidates: list[dict[str, Any]] = []
     unreadable: list[str] = []
-    targets = sorted(rules_dir.glob("*.md")) if rules_dir.is_dir() else []
+    targets = [
+        Path(e.path)
+        for e in scan_dir(rules_dir, errors, "rules")
+        if e.name.endswith(".md") and e.is_file()
+    ]
     for p in targets:
         rel = str(p.relative_to(repo))
         try:
             text = p.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:
-            warnings.append(f"rules：{p} 讀取失敗（{e}），該檔的 rule 類建議本週不判定")
+            errors.append(f"rules：{p} 讀取失敗（{e}），rule 類建議本週不判定")
             unreadable.append(rel)
             continue
         paths = parse_paths_frontmatter(text)
@@ -707,7 +789,7 @@ def collect_rules(repo: Path, guard_names: set[str]) -> tuple[dict[str, Any], li
         try:
             root_chars = len(claude_md.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError) as e:
-            warnings.append(f"rules：{claude_md} 讀取失敗（{e}），必載字元本週未量測")
+            errors.append(f"rules：{claude_md} 讀取失敗（{e}），必載字元本週未量測")
             root_chars = None
     always_chars = (
         sum(f["chars"] for f in files if f["always_loaded"]) + root_chars
@@ -721,7 +803,8 @@ def collect_rules(repo: Path, guard_names: set[str]) -> tuple[dict[str, Any], li
         "always_loaded_chars": always_chars,
         "candidates": candidates,
         "unreadable": unreadable,
-    }, warnings
+        "source": make_source(errors),
+    }, list(errors)
 
 
 # ---------------------------------------------------------------------------
@@ -737,6 +820,8 @@ def yaml_scalar(value: str) -> str | None:
 
     只處理 plain 與單行的單／雙引號字串；其他形狀（跨行引號、flow 集合、anchor、alias、tag、
     引號後還有非註解內容）回傳 None，代表「看不懂」，呼叫端不可拿它當成可比對的名稱。
+    雙引號字串只解碼 `\\"`、`\\\\`、`\\/` 三種跳脫；其他跳脫序列（`\\n`、`\\t`、`\\xNN`…）這裡
+    不完整解碼，回傳 None 而不是部分字串——部分字串拿去比對，等於比對一個不存在的名稱。
     """
     v = value.strip()
     if not v or v.startswith("#"):
@@ -753,6 +838,8 @@ def yaml_scalar(value: str) -> str | None:
                     continue
                 break
             if quote == '"' and c == "\\" and i + 1 < len(v):
+                if v[i + 1] not in '"\\/':
+                    return None
                 out.append(v[i + 1])
                 i += 2
                 continue
@@ -801,11 +888,14 @@ def workflow_steps(text: str) -> list[dict[str, Any]]:
         run_lines: list[str] = []
         run_ok = True
         in_run = False
+        in_name = False
+        name_multiline = False
         for b in block:
             km = re.match(rf"^\s{{{indent + 2}}}([A-Za-z_][\w-]*)\s*:\s*(.*)$", b)
             if km:
                 keys[km.group(1)] = km.group(2).strip()
                 in_run = km.group(1) == "run"
+                in_name = km.group(1) == "name"
                 if not in_run:
                     continue
                 raw = km.group(2).strip()
@@ -819,8 +909,10 @@ def workflow_steps(text: str) -> list[dict[str, Any]]:
                     run_lines.append(single)
             elif in_run and b.strip():
                 run_lines.append(b.strip())
+            elif in_name and b.strip() and not b.strip().startswith("#"):
+                name_multiline = True  # plain scalar 換行續寫：第一行不是完整名稱
         run_text = "\n".join(run_lines)
-        name: str | None = yaml_scalar(keys.get("name", ""))
+        name: str | None = None if name_multiline else yaml_scalar(keys.get("name", ""))
         if name == "":
             if "run" in keys:
                 name = ("Run " + run_lines[0]) if run_lines and run_ok else None
@@ -835,36 +927,64 @@ def workflow_steps(text: str) -> list[dict[str, Any]]:
 def collect_gate_inventory(repo: Path) -> tuple[dict[str, Any], list[str], list[str]]:
     """列出 gate script、是否接進 .github/workflows，以及在 CI 中呼叫它的 step 名稱（ci_steps）。
 
+    歸因只接受精確身分（見 build_recommendations）：CI 失敗的 step 名稱必須與呼叫這支 gate
+    的 step 名稱完全相同。名稱在所有 workflow 檔內必須唯一指向這支 gate，所以 workflow 檔名、
+    job、step 三者的身分由「step 名稱不重複」一併確立。
     attributable 為假代表 CI 失敗無法可靠歸因到這支 gate，本週不判定 gate-silent，原因有：
-    找不到以 run: 呼叫它的 step、呼叫它的 step 名稱或 run 看不懂（含 `${{ }}` 運算式）、
-    或它的 step 名稱也被另一個「沒有呼叫它」的 step 使用（同名 step 的失敗分不出是誰）。
-    任一 workflow 檔讀取失敗時 workflows_complete 為假：gate-unwired 與 gate-silent 本週都不判定。
+    找不到以 run: 呼叫它的 step、呼叫它的 step 名稱或 run 看不懂、同一個 workflow 檔內有 step
+    名稱含 `${{ }}` 運算式或看不懂（跳脫序列、多行 plain scalar），或它的 step 名稱也被另一個
+    「沒有呼叫它」的 step 使用（同名 step 的失敗分不出是誰）。
+    gate 的 workflows 是呼叫它的 step 所在的 workflow 檔名，供 CI 活動量（gate 的 job 本週有沒有
+    跑）查詢。上線日期用 `git log --follow`（改名不歸零）；shallow clone 或無法判斷時為 None。
+    source 記錄 workflows 與 scripts/harness 目錄列舉、每個 workflow 檔讀取是否完整。
     回傳 (inventory, warnings, notes)。
     """
+    errors: list[str] = []
     warnings: list[str] = []
     notes: list[str] = []
     gates = []
     harness = repo / "scripts" / "harness"
     workflows = repo / ".github" / "workflows"
-    wf_texts: list[str] = []
-    workflows_complete = True
-    if workflows.is_dir():
-        for p in sorted(workflows.glob("*.y*ml")):
-            try:
-                wf_texts.append(p.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError) as e:
-                warnings.append(
-                    f"CI gate：{p} 讀取失敗（{e}），gate-unwired／gate-silent 本週不判定"
-                )
-                workflows_complete = False
-    wf_text = "\n".join(wf_texts)
-    steps = [s for t in wf_texts for s in workflow_steps(t)]
-    if harness.is_dir():
-        for p in sorted(harness.iterdir()):
-            if not p.is_file() or not GATE_NAME.match(p.name):
-                continue
+    wf_files: list[tuple[str, str]] = []
+    for entry in scan_dir(workflows, errors, "CI gate"):
+        if not entry.name.endswith((".yml", ".yaml")) or not entry.is_file():
+            continue
+        try:
+            wf_files.append((entry.name, Path(entry.path).read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError) as e:
+            errors.append(
+                f"CI gate：{entry.path} 讀取失敗（{e}），gate-unwired／gate-silent 本週不判定"
+            )
+    wf_text = "\n".join(text for _, text in wf_files)
+    steps: list[dict[str, Any]] = []
+    for fname, text in wf_files:
+        for step in workflow_steps(text):
+            steps.append({**step, "file": fname})
+    shallow = _is_shallow(repo)
+    if shallow is None:
+        warnings.append(
+            "CI gate：無法判斷是否為 shallow clone，gate 上線日期未知，gate-silent 不判定"
+        )
+    elif shallow:
+        notes.append(
+            "CI gate：這是 shallow clone，歷史不完整，gate 上線日期未知，gate-silent 不判定"
+        )
+    for entry in scan_dir(harness, errors, "CI gate"):
+        if not entry.is_file() or not GATE_NAME.match(entry.name):
+            continue
+        p = Path(entry.path)
+        added: list[str] = []
+        if shallow is False:
             log = run_cmd(
-                ["git", "log", "--diff-filter=A", "--format=%as", "--", str(p.relative_to(repo))],
+                [
+                    "git",
+                    "log",
+                    "--follow",
+                    "--diff-filter=A",
+                    "--format=%as",
+                    "--",
+                    str(p.relative_to(repo)),
+                ],
                 repo,
             )
             if log.returncode != 0:
@@ -872,23 +992,36 @@ def collect_gate_inventory(repo: Path) -> tuple[dict[str, Any], list[str], list[
                     f"CI gate：{p.name} 的上線日期讀取失敗（{log.stderr.strip()[:200]}），"
                     "gate-silent 本週不判定"
                 )
-            added = log.stdout.split() if log.returncode == 0 else []
-            wired = p.name in wf_text
-            reason = _gate_attribution_problem(p.name, steps)
-            invoking = [s for s in steps if s["run"] is not None and p.name in s["run"]]
-            ci_steps = sorted({s["name"] for s in invoking if s["name"]})
-            if wired and reason:
-                notes.append(f"CI gate：{p.name} {reason}，CI 失敗無法歸因，不判定 gate-silent")
-            gates.append(
-                {
-                    "script": p.name,
-                    "wired_in_ci": wired,
-                    "ci_steps": ci_steps,
-                    "attributable": reason is None,
-                    "added": added[-1] if added else None,
-                }
-            )
-    return {"gates": gates, "workflows_complete": workflows_complete}, warnings, notes
+            else:
+                added = log.stdout.split()
+        wired = p.name in wf_text
+        reason = _gate_attribution_problem(p.name, steps)
+        invoking = [s for s in steps if s["run"] is not None and p.name in s["run"]]
+        ci_steps = sorted({s["name"] for s in invoking if s["name"]})
+        if wired and reason:
+            notes.append(f"CI gate：{p.name} {reason}，CI 失敗無法歸因，不判定 gate-silent")
+        gates.append(
+            {
+                "script": p.name,
+                "wired_in_ci": wired,
+                "ci_steps": ci_steps,
+                "workflows": sorted({s["file"] for s in invoking}),
+                "attributable": reason is None,
+                "added": added[-1] if added else None,
+            }
+        )
+    return {"gates": gates, "source": make_source(errors)}, errors + warnings, notes
+
+
+def _is_shallow(repo: Path) -> bool | None:
+    """repo 是不是 shallow clone；指令失敗或輸出不是 true／false 時無法判斷，回 None。"""
+    r = run_cmd(["git", "rev-parse", "--is-shallow-repository"], repo)
+    answer = r.stdout.strip() if r.returncode == 0 else ""
+    if answer == "true":
+        return True
+    if answer == "false":
+        return False
+    return None
 
 
 def _gate_attribution_problem(script: str, steps: list[dict[str, Any]]) -> str | None:
@@ -902,6 +1035,16 @@ def _gate_attribution_problem(script: str, steps: list[dict[str, Any]]) -> str |
     names = {s["name"] for s in invoking}
     if any("${{" in n for n in names):
         return "的 step 名稱含 `${{ }}` 運算式，執行期名稱無法比對"
+    files = {s["file"] for s in invoking}
+    for s in steps:
+        if s["file"] not in files:
+            continue
+        # 同一個 workflow 檔內任何 step 的名稱含運算式或看不懂，執行期名稱都可能與這支 gate 的
+        # step 同名，分不出失敗是誰的
+        if s["name"] is None:
+            return "所在 workflow 有 step 名稱看不懂（跳脫序列、多行 plain scalar 等）"
+        if "${{" in s["name"]:
+            return "所在 workflow 有 step 名稱含 `${{ }}` 運算式，執行期名稱無法比對"
     folded = {n.casefold() for n in names}
     for s in steps:
         same_name = s["name"] is not None and s["name"].casefold() in folded
@@ -953,28 +1096,92 @@ def _fetch_jobs(repo: Path, slug: str, run_id: int) -> list[dict[str, Any]] | No
     return jobs
 
 
+def unmeasured_ci(reason: str) -> dict[str, Any]:
+    """CI 沒有量到時的 failures 結構（--no-ci、gh repo view 失敗）：source 與 activity 都不完整。"""
+    return {
+        "runs": 0,
+        "jobs": {},
+        "source": make_source([reason]),
+        "activity": {"workflows": {}, "source": make_source([reason])},
+    }
+
+
+def collect_workflow_activity(
+    repo: Path, slug: str, files: list[str], since: dt.datetime
+) -> tuple[dict[str, Any], list[str]]:
+    """每個 workflow 檔在 since 之後的 run 總數（任何結論），作為 gate-silent 的觀察證據。
+
+    只有失敗的 run 被列舉過，「0 次失敗」分不出「全部成功」與「根本沒跑」；這份活動量補上後者。
+    這是 workflow 層級的證據，不是 job 層級：workflow 有跑但 gate 所在的 job 被 `if:` 略過時，
+    仍會被當成有觀察到（已知殘餘風險；job 層級要為每個成功的 run 都抓一次 jobs，成本過高）。
+    回傳 (activity, warnings)；任一檔查詢失敗或回應形狀不符，activity 的 source 就不完整。
+    """
+    errors: list[str] = []
+    counts: dict[str, int] = {}
+    for name in sorted(set(files)):
+        r = run_cmd(
+            [
+                "gh",
+                "api",
+                "-X",
+                "GET",
+                f"repos/{slug}/actions/workflows/{name}/runs",
+                "-f",
+                f"created=>={since:%Y-%m-%d}",
+                "-f",
+                "per_page=1",
+            ],
+            repo,
+        )
+        if r.returncode != 0:
+            errors.append(f"CI：workflow {name} 的 run 數讀取失敗（{r.stderr.strip()[:200]}）")
+            continue
+        try:
+            total = json.loads(r.stdout)["total_count"]
+        except (json.JSONDecodeError, TypeError, KeyError):
+            errors.append(f"CI：workflow {name} 的 run 數回應不是預期的 JSON（缺 total_count）")
+            continue
+        if not isinstance(total, int) or isinstance(total, bool):
+            errors.append(f"CI：workflow {name} 的 total_count 不是整數")
+            continue
+        counts[name] = total
+    return {"workflows": counts, "source": make_source(errors)}, errors
+
+
 def collect_ci_failures(
-    repo: Path, since: dt.datetime, cache_path: Path | None = None
+    repo: Path,
+    since: dt.datetime,
+    cache_path: Path | None = None,
+    workflow_files: list[str] | None = None,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     """以 gh api 抓 since 之後失敗的 workflow run，再取每個 run 的 failed job 與 failed step。
 
-    回傳的 complete 明確表示量測是否完整：gh repo view 失敗、任一 runs 頁讀取失敗或格式錯、
-    撞到 RUNS_MAX_PAGES 上限、任一 run 的 jobs 讀不完整，都是 complete=False。
+    回傳的 source 明確表示量測是否完整：gh repo view 失敗、任一 runs 頁讀取失敗、回應缺
+    workflow_runs 或 total_count、列到的筆數與 total_count 不符、撞到 RUNS_MAX_PAGES 上限、
+    任一 run 的 jobs 讀不完整，都是不完整。
     已結束 run 的完整 jobs 結果不會再變，所以存進 cache_path（格式 {"schema", "runs"}），
     下週只抓新的 run；不完整的結果不寫進快取，schema 不符的舊快取整份忽略。
-    jobs 以 8 路平行讀取（純讀取）。回傳 (failures, warnings, notes)。
+    jobs 以 8 路平行讀取（純讀取）。workflow_files 是 gate 所在的 workflow 檔名，回傳的
+    activity 記錄它們在觀察期內的 run 數（activity 的完整性不影響 source）。
+    回傳 (failures, warnings, notes)。
     """
     from concurrent.futures import ThreadPoolExecutor
 
     warnings: list[str] = []
+    errors: list[str] = []
     notes: list[str] = []
-    empty: dict[str, Any] = {"runs": 0, "jobs": {}, "complete": False}
+
+    def fail(message: str) -> None:
+        warnings.append(message)
+        errors.append(message)
+
     who = run_cmd(["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], repo)
     if who.returncode != 0 or not who.stdout.strip():
-        return empty, [f"CI：gh repo view 失敗（{who.stderr.strip()[:200]}），CI 未量測"], notes
+        message = f"CI：gh repo view 失敗（{who.stderr.strip()[:200]}），CI 未量測"
+        return unmeasured_ci(message), [message], notes
     slug = who.stdout.strip()
     runs: list[dict[str, Any]] = []
-    complete = True
+    declared_total: int | None = None
     for page in range(1, RUNS_MAX_PAGES + 1):
         r = run_cmd(
             [
@@ -995,24 +1202,32 @@ def collect_ci_failures(
             repo,
         )
         if r.returncode != 0:
-            warnings.append(f"CI：runs 第 {page} 頁讀取失敗（{r.stderr.strip()[:200]}），CI 未量測")
-            complete = False
+            fail(f"CI：runs 第 {page} 頁讀取失敗（{r.stderr.strip()[:200]}），CI 未量測")
             break
         try:
-            batch = json.loads(r.stdout).get("workflow_runs", [])
-        except (json.JSONDecodeError, AttributeError):
-            warnings.append(f"CI：runs 第 {page} 頁不是預期的 JSON，CI 未量測")
-            complete = False
+            body = json.loads(r.stdout)
+            batch = body["workflow_runs"]
+            total = body["total_count"]
+        except (json.JSONDecodeError, TypeError, KeyError):
+            fail(
+                f"CI：runs 第 {page} 頁不是預期的 JSON（缺 workflow_runs 或 total_count），"
+                "CI 未量測"
+            )
             break
+        if not isinstance(batch, list) or not isinstance(total, int) or isinstance(total, bool):
+            fail(f"CI：runs 第 {page} 頁的 workflow_runs 或 total_count 型別不符，CI 未量測")
+            break
+        declared_total = total if declared_total is None else declared_total
         runs.extend(batch)
         if len(batch) < RUNS_PER_PAGE:
             break
     else:
-        warnings.append(
+        fail(
             f"CI：failed runs 達 {RUNS_MAX_PAGES * RUNS_PER_PAGE} 筆上限，"
             "較早的失敗未計入，CI 未量測"
         )
-        complete = False
+    if not errors and declared_total is not None and len(runs) != declared_total:
+        fail(f"CI：列到 {len(runs)} 筆 failed run，但 total_count 是 {declared_total}，CI 未量測")
     cache: dict[str, Any] = {}
     if cache_path and cache_path.is_file():
         try:
@@ -1042,10 +1257,9 @@ def collect_ci_failures(
             else:
                 cache[str(run_id)] = result
     if failed_jobs:
-        warnings.append(f"CI：{failed_jobs} 個 run 的 jobs 讀取失敗或不完整，CI 未量測")
-        complete = False
+        fail(f"CI：{failed_jobs} 個 run 的 jobs 讀取失敗或不完整，CI 未量測")
     if cache_path:
-        if complete:
+        if not errors:
             # runs 清單完整時才清掉觀察期外的舊 run；清單不完整時不知道哪些還會用到
             current = {str(run["id"]) for run in runs}
             cache = {k: v for k, v in cache.items() if k in current}
@@ -1069,12 +1283,20 @@ def collect_ci_failures(
             s["failures"] += 1
             s["branches"].add(run.get("head_branch") or "?")
             s["steps"].update(steps or ["(no failed step)"])
-            s["last"] = max(filter(None, [s["last"], run.get("created_at")]))
+            s["last"] = max(filter(None, [s["last"], run.get("created_at")]), default=None)
     for s in jobs.values():
         s["branches"] = len(s["branches"])
         # 不截斷：gate 歸因要看到每個 failed step，截掉的 step 會被誤判成 0 失敗
         s["steps"] = dict(s["steps"].most_common())
-    return {"runs": len(runs), "jobs": jobs, "complete": complete}, warnings, notes
+    activity, activity_warnings = collect_workflow_activity(repo, slug, workflow_files or [], since)
+    warnings += activity_warnings
+    failures = {
+        "runs": len(runs),
+        "jobs": jobs,
+        "source": make_source(errors),
+        "activity": activity,
+    }
+    return failures, warnings, notes
 
 
 # ---------------------------------------------------------------------------
@@ -1088,30 +1310,46 @@ def evaluation_scope(
     """本週哪些建議類型的資料完整、能下結論。
 
     diff 用它區分「上週的建議本週不成立（resolved）」與「本週量不到（unmeasured）」：
-    不在 kinds 內、id 列在 unevaluated_ids、或 id 以 unevaluated_prefixes 任一項開頭的建議，
-    本週消失不代表已解除。欄位缺漏（舊快照、測試資料）一律往「量不到」的方向解讀。
+    不在 kinds 內、或 id 列在 unevaluated_ids／以 unevaluated_prefixes 任一項開頭的建議，
+    本週消失不代表已解除。
 
-    - hook-events 類（含 hook-error／hook-slow）：紀錄必須涵蓋觀察期（covers_window：
-      最早一筆 <= 起點、觀察期內有紀錄、最新一筆夠新），且 hook 清單完整
-    - transcript 類：觀察期內至少一筆事件，且沒有任何檔案讀取失敗
-    - gate-silent：CI 完整量到；個別 gate 無法歸因、上線日期讀不到、或 workflow 讀不完整時列入
+    白名單：一個類型預設不在 kinds 內，依賴的每個來源都要「明確證明自己完整」才加入。
+    來源的 source 記錄缺漏、型別不符、complete 不是 True、或 errors 有內容，一律視為量不到
+    （舊快照、手寫測試資料缺欄位時往保守方向解讀）；ci.measured 缺漏同樣視為量不到，不拋例外。
+
+    - rule 類：rules 來源完整（任何一檔讀不到、目錄列不出來都不完整）
+    - gate-unwired：workflows 與 gate 清單的來源完整
+    - hook-unregistered：hook 清單完整
+    - hook-no-data／low-signal／insurance-idle／error／slow：hook 清單與 hook-events 來源都完整，
+      且紀錄涵蓋觀察期（covers_window：最早一筆 <= 起點、觀察期內有紀錄、最新一筆夠新）
+    - transcript 類：來源完整，且觀察期內至少 TRANSCRIPT_MIN_EVENTS 筆事件
+    - gate-noisy：CI 完整量到
+    - gate-silent：CI 完整量到、gate 清單完整；個別 gate 無法歸因、上線日期未知時列入
       unevaluated_ids
-    - rule 候選：排名在 max_rule_candidates 之外、或所在 rule 檔讀不到時不判定
+    - rule 候選：排名在 max_rule_candidates 之外時不判定
+
+    「這個對象本週有沒有被觀察到」是逐對象的證據，由 diff_snapshots 的 resolution_evidence 負責。
     """
-    ev = snap["hooks"]["events"]
-    inv = snap["hooks"]["inventory"]
-    tr = snap["hooks"]["transcript"]
-    inv_ok = bool(inv.get("complete", True))
-    covers = ev.get("files", 0) > 0 and bool(ev.get("covers_window"))
+    inv = _section(snap, "hooks", "inventory")
+    ev = _section(snap, "hooks", "events")
+    tr = _section(snap, "hooks", "transcript")
+    ci = _section(snap, "ci")
+    gate_inv = _section(snap, "ci", "inventory")
+    rules = _section(snap, "rules")
+    inv_ok = source_ok(inv)
+    covers = source_ok(ev) and _count(ev.get("files")) > 0 and bool(ev.get("covers_window"))
     trans_ok = (
-        tr.get("files", 0) > 0 and tr.get("in_window", 0) > 0 and tr.get("read_failures", 1) == 0
+        source_ok(tr)
+        and _count(tr.get("files")) > 0
+        and _count(tr.get("in_window")) >= TRANSCRIPT_MIN_EVENTS
     )
-    ci_ok = bool(snap["ci"]["measured"])
-    gate_inv = snap["ci"]["inventory"]
-    workflows_ok = bool(gate_inv.get("workflows_complete", True))
-    kinds = set(STATIC_KINDS)
-    if not workflows_ok:
-        kinds.discard("gate-unwired")
+    ci_ok = ci.get("measured") is True
+    gates_ok = source_ok(gate_inv)
+    kinds: set[str] = set()
+    if source_ok(rules):
+        kinds |= RULE_KINDS
+    if gates_ok:
+        kinds.add("gate-unwired")
     if inv_ok:
         kinds.add("hook-unregistered")
     if covers and inv_ok:
@@ -1125,29 +1363,36 @@ def evaluation_scope(
     if trans_ok:
         kinds |= {"hook-stale-plugin", "hook-silent-block"}
     if ci_ok:
-        kinds |= {"gate-silent", "gate-noisy"}
+        kinds.add("gate-noisy")
+        if gates_ok:
+            kinds.add("gate-silent")
     unevaluated = {
         f"gate-silent:{g['script']}"
-        for g in gate_inv["gates"]
-        if not workflows_ok
-        or (
-            g["wired_in_ci"]
-            and (not g.get("ci_steps") or not g.get("attributable", False) or not g.get("added"))
-        )
+        for g in gate_inv.get("gates") or []
+        if isinstance(g, dict)
+        and g.get("wired_in_ci")
+        and (not g.get("ci_steps") or not g.get("attributable", False) or not g.get("added"))
     }
-    rules = snap.get("rules") or {}
     if max_rule_candidates is not None:
         for c in (rules.get("candidates") or [])[max_rule_candidates:]:
             unevaluated |= {f"{k}:{c['anchor']}" for k in RULE_CANDIDATE_KINDS}
-    prefixes = []
-    for rel in rules.get("unreadable") or []:
-        unevaluated.add(f"rule-heavy:{rel}")
-        prefixes += [f"{k}:{rel}#" for k in RULE_CANDIDATE_KINDS]
     return {
         "kinds": sorted(kinds),
         "unevaluated_ids": sorted(unevaluated),
-        "unevaluated_prefixes": sorted(prefixes),
+        "unevaluated_prefixes": [],
     }
+
+
+def _section(node: Any, *path: str) -> dict[str, Any]:
+    """沿著 path 取出巢狀 dict；任何一層缺漏或不是 dict 回空 dict（缺漏當成「沒有資料」）。"""
+    for key in path:
+        node = node.get(key) if isinstance(node, dict) else None
+    return node if isinstance(node, dict) else {}
+
+
+def _count(value: Any) -> int:
+    """快照裡的計數欄位；缺漏或型別不符（含 bool）當成 0，不拋例外。"""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def is_unevaluated(rid: str, scope: dict[str, Any]) -> bool:
@@ -1241,7 +1486,7 @@ def build_recommendations(snap: dict[str, Any], th: argparse.Namespace) -> list[
                     {"calls": ev["calls"], "total_ms": ev["total_ms"]},
                     "本期 0 攔截／0 警告：評估退役，或改成只在 CI 跑的 gate 以省下每次呼叫的時間",
                 )
-        if ev["calls"] >= 3 and ev["error_rate"] >= th.error_rate:
+        if ev["calls"] >= HOOK_MIN_CALLS and ev["error_rate"] >= th.error_rate:
             add(
                 "hook-error",
                 name,
@@ -1303,20 +1548,14 @@ def build_recommendations(snap: dict[str, Any], th: argparse.Namespace) -> list[
                 "只在 pre-commit 跑，CI 看不到",
             )
             continue
-        # 無法歸因的 gate 已由 evaluation_scope 列為不判定；這裡的 step 名稱比對只用在
-        # 「同名 step 都呼叫這支 gate」的情況，所以全域比對名稱不會把別支 step 的失敗算進來
-        stem = GATE_AFFIX.sub("", g["script"]).casefold()
+        # 只接受精確身分：失敗的 step 名稱必須與呼叫這支 gate 的 step 名稱完全相同（不分大小寫）。
+        # 無法歸因的 gate（名稱含運算式、多行、與別的 step 同名…）已由 evaluation_scope 列為
+        # 不判定，所以剩下的 gate 其 step 名稱在所有 workflow 內唯一指向它。不再用 gate 檔名字根
+        # 去比對 job 或 step 名稱：別的 job 名稱剛好含同一個字根，不是這支 gate 的失敗
         step_names = {s.casefold() for s in g.get("ci_steps", [])}
-        hits = 0
-        for key, j in jobs.items():
-            if stem in key.casefold():
-                hits += j["failures"]
-                continue
-            hits += sum(
-                n
-                for s, n in j["steps"].items()
-                if s.casefold() in step_names or stem in s.casefold()
-            )
+        hits = sum(
+            n for j in jobs.values() for s, n in j["steps"].items() if s.casefold() in step_names
+        )
         old_enough = g["added"] and dt.date.fromisoformat(g["added"]) <= since_gate
         if hits == 0 and old_enough:
             add(
@@ -1404,6 +1643,58 @@ def week_relation(prev_label: str, curr_label: str) -> str:
     return "gap"
 
 
+def _hook_calls(curr: dict[str, Any], name: str) -> int:
+    """本週 hook-events 裡這支 hook 的呼叫次數；沒有這支 hook 的項目就是 0。"""
+    stats = _section(curr, "hooks", "events", "hooks").get(name)
+    return _count(stats.get("calls")) if isinstance(stats, dict) else 0
+
+
+def _hook_gone(curr: dict[str, Any], name: str) -> bool:
+    """這支 hook 已不在「完整」的 hook 註冊清單裡：物件不存在，上週針對它的建議自然不成立。"""
+    inv = _section(curr, "hooks", "inventory")
+    return source_ok(inv) and name not in (inv.get("registered") or {})
+
+
+def _gate_state(curr: dict[str, Any], script: str) -> tuple[bool, bool]:
+    """(gate 已不存在或已不在 CI, gate 所在的 workflow 在觀察期內有跑過)。
+
+    gate 清單不完整時兩者都是 False：既不能說它不存在，也不能說它有跑。
+    """
+    gate_inv = _section(curr, "ci", "inventory")
+    if not source_ok(gate_inv):
+        return False, False
+    matches = [g for g in gate_inv.get("gates") or [] if isinstance(g, dict)]
+    matches = [g for g in matches if g.get("script") == script]
+    wired = [g for g in matches if g.get("wired_in_ci")]
+    activity = _section(curr, "ci", "failures", "activity")
+    if not wired or not source_ok(activity):
+        return not wired, False
+    runs = activity.get("workflows")
+    runs = runs if isinstance(runs, dict) else {}
+    ran = any(_count(runs.get(f)) >= 1 for g in wired for f in g.get("workflows") or [])
+    return False, ran
+
+
+def resolution_evidence(kind: str, target: str, curr: dict[str, Any]) -> bool:
+    """上週有、本週沒有的建議，除了「類型可判定」外，是否有本週觀察到的正向證據證明它已解除。
+
+    「沒有出現」不是證據：hook 本週只被呼叫 2 次、或根本沒被呼叫，建議消失只是沒有樣本。
+    - hook-error／hook-slow：本週呼叫數 >= HOOK_MIN_CALLS，或這支 hook 已從完整的註冊清單消失
+    - hook-silent-block：本週呼叫數 >= HOOK_MIN_CALLS。對象常是 plugin hook，repo 的註冊清單
+      看不到它，所以不能拿「不在清單」當證據；plugin hook 因此可能長期維持 unmeasured
+    - gate-silent：gate 已不存在或已不在 CI，或它所在的 workflow 在觀察期內至少跑過 1 次
+    其他類型只需要來源完整（evaluation_scope 已處理），沒有逐對象的額外證據。
+    """
+    if kind in ("hook-error", "hook-slow"):
+        return _hook_calls(curr, target) >= HOOK_MIN_CALLS or _hook_gone(curr, target)
+    if kind == "hook-silent-block":
+        return _hook_calls(curr, target) >= HOOK_MIN_CALLS
+    if kind == "gate-silent":
+        gone, ran = _gate_state(curr, target)
+        return gone or ran
+    return True
+
+
 def diff_snapshots(
     prev: dict[str, Any] | None, curr: dict[str, Any], escalate_weeks: int
 ) -> dict[str, Any]:
@@ -1413,16 +1704,21 @@ def diff_snapshots(
       週數不變。
     - 本週有、上週沒有，或上週快照與本週之間有缺週（week_gap）：new，週數從 1 起算
       （缺週代表中間沒人檢查，連續週數已中斷）。
-    - 上週有、本週沒有：該類型本週可判定才算 resolved；量不到則標 unmeasured 並帶到
-      curr["carried"]。相鄰週或同週時週數原樣保留（不累加）；有缺週時週數重設為 1 並標
-      streak_reset，避免跨缺口接續累加而誤升級。
+    - 上週有、本週沒有：該類型本週可判定、且有正向證據（resolution_evidence）才算 resolved；
+      否則標 unmeasured 並帶到 curr["carried"]。相鄰週或同週時週數原樣保留（不累加）；
+      有缺週時週數重設為 1 並標 streak_reset，避免跨缺口接續累加而誤升級。
+    - 上週快照沒有 carried（只跑過 collect、沒經過 report，建議也沒有累計週數）：持續中的建議
+      （persisting 與 unmeasured）週數無從接續，一律重設為 1 並標 streak_reset，且回傳
+      prev_collect_only，讓報告寫出原因，而不是靜默把週數歸零。
     - 週數達 escalate_weeks 升級為 owner 裁決。
     本函式會把 weeks 寫回 curr 的建議、把 carried 寫進 curr，由 report 存回快照。
     """
     prev_recs: dict[str, dict[str, Any]] = {}
     relation = None
+    collect_only = False
     if prev is not None:
-        for r in prev.get("recommendations", []) + prev.get("carried", []):
+        collect_only = not isinstance(prev.get("carried"), list)
+        for r in prev.get("recommendations", []) + (prev.get("carried") or []):
             prev_recs[r["id"]] = r
         relation = week_relation(
             prev.get("window", {}).get("label", ""), curr.get("window", {}).get("label", "")
@@ -1433,30 +1729,41 @@ def diff_snapshots(
     curr_recs = {r["id"]: r for r in curr["recommendations"]}
     statuses = []
     for rid, rec in curr_recs.items():
-        status, weeks = "new", 1
+        status, weeks, reset = "new", 1, False
         if rid in prev_recs and relation != "gap":
             prev_weeks = int(prev_recs[rid].get("weeks") or 1)
             status = "persisting"
             weeks = prev_weeks + 1 if relation == "next" else prev_weeks
+            if collect_only:
+                weeks, reset = 1, True
         rec["weeks"] = weeks
-        statuses.append(
-            {"id": rid, "status": status, "weeks": weeks, "escalate": weeks >= escalate_weeks}
-        )
+        entry = {"id": rid, "status": status, "weeks": weeks, "escalate": weeks >= escalate_weeks}
+        if reset:
+            entry["streak_reset"] = True
+            entry["streak_reset_reason"] = "previous-collect-only"
+        statuses.append(entry)
     carried = []
     for rid, prec in prev_recs.items():
         if rid in curr_recs:
             continue
         kind = prec.get("kind") or rid.split(":", 1)[0]
+        target = rid.split(":", 1)[1] if ":" in rid else rid
         weeks = int(prec.get("weeks") or 1)
-        if kind in kinds and not is_unevaluated(rid, scope):
+        if (
+            kind in kinds
+            and not is_unevaluated(rid, scope)
+            and resolution_evidence(kind, target, curr)
+        ):
             statuses.append({"id": rid, "status": "resolved", "weeks": weeks, "escalate": False})
             continue
-        reset = relation == "gap"
+        gap = relation == "gap"
+        reset = gap or collect_only
         if reset:
             weeks = 1
         status = {"id": rid, "status": "unmeasured", "weeks": weeks, "escalate": False}
         if reset:
             status["streak_reset"] = True
+            status["streak_reset_reason"] = "week-gap" if gap else "previous-collect-only"
         statuses.append(status)
         carried.append({**prec, "weeks": weeks, "streak_reset": reset})
     curr["carried"] = carried
@@ -1478,7 +1785,12 @@ def diff_snapshots(
             "prev": prev.get("window", {}).get("label"),
             "curr": curr.get("window", {}).get("label"),
         }
-    return {"statuses": statuses, "metrics": deltas, "week_gap": week_gap}
+    return {
+        "statuses": statuses,
+        "metrics": deltas,
+        "week_gap": week_gap,
+        "prev_collect_only": collect_only,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1508,6 +1820,11 @@ def render_report(snap: dict[str, Any], delta: dict[str, Any]) -> str:
             f"- **週次不相鄰**：上次快照是 {g['prev']}，本週是 {g['curr']}，"
             "持續週數（含本週量不到而保留的建議）重新從 1 起算"
         )
+    if delta.get("prev_collect_only"):
+        lines.append(
+            "- **上週快照只跑過 collect、沒有經過 report**（沒有 carried 與累計週數）："
+            "持續中的建議週數重新從 1 起算"
+        )
     lines += ["", "## 關鍵指標", "", "| 指標 | 上週 | 本週 | 變化 |", "|---|---:|---:|---:|"]
     for key, d in delta["metrics"].items():
         prev = "-" if d["prev"] is None else d["prev"]
@@ -1534,10 +1851,14 @@ def render_report(snap: dict[str, Any], delta: dict[str, Any]) -> str:
     unmeasured = [s for s in delta["statuses"] if s["status"] == "unmeasured"]
     if unmeasured:
         lines += ["", "## 本週量不到的上週建議（不視為已解除）", ""]
+        reasons = {
+            "week-gap": "且與上次快照之間有缺週，週數重設為第 1 週",
+            "previous-collect-only": "且上次快照只跑過 collect、沒有累計週數，週數重設為第 1 週",
+        }
         lines.extend(
             f"- `{s['id']}`：本週資料不足以判定，"
             + (
-                "且與上次快照之間有缺週，週數重設為第 1 週"
+                reasons.get(s.get("streak_reset_reason", ""), "週數重設為第 1 週")
                 if s.get("streak_reset")
                 else f"週數維持第 {s['weeks']} 週"
             )
@@ -1630,14 +1951,15 @@ def cmd_collect(args: argparse.Namespace) -> int:
     rules, w = collect_rules(repo, guard_names)
     warnings += w
     if args.no_ci:
-        failures: dict[str, Any] = {"runs": 0, "jobs": {}, "complete": False}
+        failures: dict[str, Any] = unmeasured_ci("CI：依 --no-ci 略過，CI 未量測")
         notes.append("CI：依 --no-ci 略過，CI 未量測；gate-silent／gate-noisy 本週不判定")
     else:
         cache = Path(args.ci_cache).expanduser() if args.ci_cache else None
-        failures, w, n = collect_ci_failures(repo, gate_since, cache)
+        workflow_files = sorted({f for g in gate_inv["gates"] for f in g.get("workflows", [])})
+        failures, w, n = collect_ci_failures(repo, gate_since, cache, workflow_files)
         warnings += w
         notes += n
-    ci_measured = bool(failures["complete"])
+    ci_measured = source_ok(failures)
 
     iso_year, iso_week, _ = now.isocalendar()
     snap: dict[str, Any] = {

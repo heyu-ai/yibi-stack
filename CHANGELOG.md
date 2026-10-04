@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.10] - 2026-10-03
+
+### Fixed
+
+- harness-weekly-review：把「上週建議已解除（resolved）」從黑名單改成白名單（#509）。三輪 review
+  找到同一族問題（完整性旗標預設為 True、只有被列舉到的失敗才設 False；resolved 不需要正向證據），
+  依「同形狀累積 3 次就重新設計」的紀律整組重做：
+  - 每個資料來源回傳 `source: {complete, errors}`，預設不完整；目錄列舉改走會回報錯誤的 `scan_dir`，
+    取代 `Path.glob`、未防護的 `iterdir`、沒有 `onerror` 的 `os.walk`。格式錯誤行與被截斷的
+    transcript 行也計入 errors。`evaluation_scope` 只信 `source`，缺漏或型別不符一律當量不到，
+    `ci.measured` 缺漏不再拋 `KeyError`
+  - 上週建議要判 resolved，除了類型可判定，還要本週觀察到該對象：hook-error／hook-slow／
+    hook-silent-block 需本週呼叫數 >= 3（與產生建議的門檻相同）；gate-silent 需 gate 所在的 workflow 在觀察期內
+    至少跑過 1 次；transcript 類需觀察期內至少 3 筆事件。不滿足判 unmeasured 並 carried
+  - gate 歸因只接受精確的 step 名稱：移除 `stem in key`、`stem in step` 的子字串比對；同一個
+    workflow 檔內有 step 名稱含 `${{ }}`、無法解碼的跳脫序列或多行 plain scalar 時整支 gate 不可歸因
+  - gate 上線日期改用 `git log --follow`，shallow clone 或無法判斷時為未知；CI runs 清單比對
+    `total_count`，缺欄位或筆數不符即標記 CI 不完整
+  - 上週快照只跑過 collect（沒有 `carried`）時，持續中的建議週數重設為 1 並在報告寫出原因
+  - `SNAPSHOT_VERSION` 2 → 3：判定語意改變，v2 的 resolved 結論不可信，所以不寫遷移；升級後的第一週
+    沒有可比較的上週，週數從 1 開始
+  - 改以家族層級的注入測試（每個來源 × 檔案／目錄／單行／API 形狀）取代逐條補洞，並以 27 種
+    mutation 驗證每個注入點都有測試守住；新增 `cmd_collect` 對 `--max-rule-candidates` 的端到端測試
+  - 已知取捨：任何一個 rule 檔讀不到時 rule 類建議整類不判定；gate-silent 的觀察證據是 workflow
+    層級而非 job 層級；plugin hook 的 hook-silent-block 沒有呼叫次數可當證據，會長期維持 unmeasured
+
 ## [1.23.9] - 2026-10-01
 
 ### Added
