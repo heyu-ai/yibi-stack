@@ -1,12 +1,10 @@
-# Specs：add-task-demand-normalization
+## ADDED Requirements
 
-> Capability: `task-demand-normalization`
+### Requirement: 掃描輸出包含規模調整分數
 
----
+`run_scan` 的輸出 SHALL 包含 `d_repo` 與依規模調整的 `size_adjusted_score`，並標示 provisional。
 
-## US-001：掃描輸出包含規模調整分數
-
-### AC-001-1 / AC-001-2：輸出含 size_adjusted_score 且符合公式
+<!-- AC-001-1 / AC-001-2：輸出含 size_adjusted_score 且符合公式 -->
 
 #### Scenario: scan-output-has-adjusted-score -- ScanOutput 帶 d_repo 與 size_adjusted_score
 
@@ -21,7 +19,7 @@
 **WHEN** `run_scan(target_dir)` 被呼叫
 **THEN** 系統 MUST 讓 `size_adjusted_score == round(T / D, 1)`
 
-### AC-001-3：輸出標示 provisional
+<!-- AC-001-3：輸出標示 provisional -->
 
 #### Scenario: output-marks-provisional -- 輸出明確標示未校準
 
@@ -29,11 +27,11 @@
 **WHEN** 產生 text 或 json 輸出
 **THEN** 輸出 MUST 包含 `provisional` 字串（標示 size_adjusted 未校準）
 
----
+### Requirement: D_repo 反映 repo 複雜度
 
-## US-002：D_repo 反映 repo 複雜度
+`d_repo` SHALL 反映 repo 複雜度：最小 repo 為 1.0、對複雜度訊號單調遞增，且暴露各訊號原始值。
 
-### AC-002-1：最小 repo 的 D_repo 為 1.0
+<!-- AC-002-1：最小 repo 的 D_repo 為 1.0 -->
 
 #### Scenario: minimal-repo-drepo-one -- 無 artifact 的 repo D_repo=1.0
 
@@ -42,7 +40,7 @@
 **THEN** 系統 MUST 回傳 `d_repo == 1.0`
   AND `size_adjusted_score == total_mechanical`（除以 1 不改變分數）
 
-### AC-002-2：D_repo 單調遞增
+<!-- AC-002-2：D_repo 單調遞增 -->
 
 #### Scenario: drepo-monotonic -- 複雜度越大 D_repo 越大
 
@@ -51,7 +49,7 @@
 **THEN** 系統 MUST 讓 `d_repo(A) <= d_repo(B)`
   AND 當 B 的訊號嚴格較大時 `d_repo(A) < d_repo(B)`
 
-### AC-002-3：暴露 D_repo 組成
+<!-- AC-002-3：暴露 D_repo 組成 -->
 
 #### Scenario: drepo-components-exposed -- 輸出含 D_repo 各訊號原始值
 
@@ -60,11 +58,11 @@
 **THEN** 系統 MUST 在輸出中暴露 `d_repo_components`（list[str]）
   AND 該清單 MUST 含 `loc=`、`skills=`、`hooks=`、`rules=` 四項原始計數
 
----
+### Requirement: 規模調整讓跨 repo 比較公平
 
-## US-003：規模調整讓跨 repo 比較公平
+規模調整 SHALL 縮小因 artifact 數量造成的跨 repo 分數差距，且計算 SHALL 為確定性。
 
-### AC-003-1：規模膨脹被抵銷
+<!-- AC-003-1：規模膨脹被抵銷 -->
 
 #### Scenario: cross-repo-gap-narrows -- size_adjusted 差距小於 raw 差距
 
@@ -73,7 +71,7 @@
 **THEN** `abs(size_adjusted_score(A) - size_adjusted_score(B))`
   MUST 小於 `abs(total_mechanical(A) - total_mechanical(B))`
 
-### AC-003-2：D_repo 計算確定性
+<!-- AC-003-2：D_repo 計算確定性 -->
 
 #### Scenario: drepo-deterministic -- 相同輸入相同 D_repo
 
@@ -81,9 +79,9 @@
 **WHEN** 連續呼叫 `run_scan()` 兩次
 **THEN** 兩次 `d_repo` MUST 完全相等
 
----
+### Requirement: 冒煙測試（SMK）
 
-## 冒煙測試（SMK）
+系統 SHALL 通過下列冒煙測試情境。
 
 #### Scenario: smk-minimal-repo-drepo-one -- SMK-001 最小 repo D_repo=1.0
 
