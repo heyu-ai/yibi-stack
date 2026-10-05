@@ -1,12 +1,12 @@
-# Specs：add-harness-eval-validation-protocol
+## ADDED Requirements
 
-> Capability: `harness-eval-validation-protocol`
+### Requirement: 評估前凍結協定快照
 
----
+系統 SHALL 在評估前凍結協定快照，並以確定性的 `protocol_hash` 識別。
 
-## US-001：評估前凍結協定快照
+<!-- US-001 -->
 
-### AC-001-1 / AC-001-2：freeze 產生含權重的 snapshot
+<!-- AC-001-1 / AC-001-2：freeze 產生含權重的 snapshot -->
 
 #### Scenario: freeze-produces-hash -- freeze 產生含 protocol_hash 的快照
 
@@ -20,7 +20,7 @@
 **WHEN** 執行 `freeze`
 **THEN** snapshot MUST 含 `dimension_weights`、`d_repo_scale`、`metric_definition`
 
-### AC-001-3：freeze 確定性
+<!-- AC-001-3：freeze 確定性 -->
 
 #### Scenario: freeze-deterministic -- 相同設定得相同 hash
 
@@ -28,11 +28,13 @@
 **WHEN** 連續執行 `freeze` 兩次
 **THEN** 兩次 `protocol_hash` MUST 完全相等
 
----
+### Requirement: 計算 R²/MAE
 
-## US-002：計算 R²/MAE
+系統 SHALL 在協定已凍結後，對指定資料集計算 R² 與 MAE，並在結果中標記 `protocol_hash`。
 
-### AC-002-1：回傳 R² 與 MAE
+<!-- US-002 -->
+
+<!-- AC-002-1：回傳 R² 與 MAE -->
 
 #### Scenario: r2-mae-computed -- 對資料集回傳 r2 與 mae
 
@@ -40,7 +42,7 @@
 **WHEN** 執行 `score --dataset <path>`
 **THEN** 系統 MUST 回傳 `r2`（float）與 `mae`（float ≥ 0）與 `n == N`
 
-### AC-002-2：完美線性得 R²=1
+<!-- AC-002-2：完美線性得 R²=1 -->
 
 #### Scenario: perfect-fit-r2-one -- 完美線性資料 R²=1、MAE=0
 
@@ -49,7 +51,7 @@
 **THEN** 系統 MUST 回傳 `r2 == 1.0`（容差 1e-6）
   AND `mae == 0.0`
 
-### AC-002-3：metric 標記 protocol_hash
+<!-- AC-002-3：metric 標記 protocol_hash -->
 
 #### Scenario: metric-tagged-with-hash -- metric 結果帶協定 hash
 
@@ -57,11 +59,13 @@
 **WHEN** 執行 `score --dataset <path>`
 **THEN** `MetricResult.protocol_hash` MUST 等於當前 snapshot 的 `protocol_hash`
 
----
+### Requirement: prospective holdout 報告
 
-## US-003：prospective holdout 報告
+系統 SHALL 只用指定 holdout 批次的列計算 metric，並在報告中標示批次 id 與樣本數。
 
-### AC-003-1：只在 holdout 批次計算
+<!-- US-003 -->
+
+<!-- AC-003-1：只在 holdout 批次計算 -->
 
 #### Scenario: holdout-only-batch -- metric 只用 holdout 批次的列
 
@@ -70,7 +74,7 @@
 **THEN** 系統 MUST 只用 `batch == B` 的列計算 metric
   AND `MetricResult.n` MUST 等於 batch B 的樣本數
 
-### AC-003-2：報告標示 batch id 與樣本數
+<!-- AC-003-2：報告標示 batch id 與樣本數 -->
 
 #### Scenario: holdout-reports-batch-id -- 報告含 holdout 批次資訊
 
@@ -78,7 +82,7 @@
 **WHEN** 執行 `holdout --holdout-batch B`
 **THEN** 輸出 MUST 含 `holdout_batch == B` 與該批次樣本數
 
-### AC-003-3：空 holdout 批次報錯
+<!-- AC-003-3：空 holdout 批次報錯 -->
 
 #### Scenario: empty-holdout-errors -- 空批次拒絕並報錯
 
@@ -86,11 +90,13 @@
 **WHEN** 執行 `holdout --holdout-batch UNKNOWN`
 **THEN** 系統 MUST 報錯（而非回傳空 metric）
 
----
+### Requirement: 未凍結協定時拒絕評估（反 post-hoc）
 
-## US-004：未凍結協定時拒絕評估（反 post-hoc）
+系統 SHALL 在尚未凍結協定時拒絕評估，以防止 post-hoc 調整。
 
-### AC-004-1：無 snapshot 時拒絕
+<!-- US-004 -->
+
+<!-- AC-004-1：無 snapshot 時拒絕 -->
 
 #### Scenario: score-rejected-without-freeze -- 未 freeze 時 score 被拒
 
@@ -98,7 +104,7 @@
 **WHEN** 執行 `score --dataset <path>`
 **THEN** 系統 MUST 以非零 exit 拒絕執行（不計算任何 metric）
 
-### AC-004-2：錯誤訊息指向 freeze
+<!-- AC-004-2：錯誤訊息指向 freeze -->
 
 #### Scenario: error-points-to-freeze -- 錯誤訊息提示先 freeze
 
@@ -106,9 +112,9 @@
 **WHEN** 執行 `score --dataset <path>`
 **THEN** 錯誤訊息 MUST 指示先執行 `freeze`
 
----
+### Requirement: 冒煙測試（SMK）
 
-## 冒煙測試（SMK）
+系統 SHALL 通過下列冒煙測試情境。
 
 #### Scenario: smk-freeze-produces-hash -- SMK-001 freeze 產生 hash
 

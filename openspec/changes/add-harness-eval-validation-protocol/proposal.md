@@ -1,3 +1,7 @@
+---
+type: docs
+---
+
 # Proposal：add-harness-eval-validation-protocol
 
 > 版本：v1.0 | 日期：2026-06-08 | 狀態：Draft
