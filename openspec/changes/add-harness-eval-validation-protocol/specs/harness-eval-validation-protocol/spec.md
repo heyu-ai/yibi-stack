@@ -30,7 +30,7 @@
 
 ### Requirement: 計算 R²/MAE
 
-系統 SHALL 對凍結後的資料集計算 R² 與 MAE，並在結果中標記 `protocol_hash`。
+系統 SHALL 在協定已凍結後，對指定資料集計算 R² 與 MAE，並在結果中標記 `protocol_hash`。
 
 <!-- US-002 -->
 

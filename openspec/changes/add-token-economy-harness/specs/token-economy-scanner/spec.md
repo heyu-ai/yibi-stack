@@ -2,7 +2,7 @@
 
 ### Requirement: always-loaded context 超標時收到量化警告
 
-`scan_token_economy` SHALL 以字元數估計 always-loaded context 並在超過上閾值時回報量化 WARN。
+`scan_token_economy` SHALL 以字元數估計 always-loaded context，並依上閾值回報量化 WARN（邊界值以下列 Scenario 為準）。
 
 <!-- US-001 -->
 
