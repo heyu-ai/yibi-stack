@@ -4,6 +4,8 @@
 
 `run_scan` 的輸出 SHALL 包含 `d_repo` 與依規模調整的 `size_adjusted_score`，並標示 provisional。
 
+<!-- US-001 -->
+
 <!-- AC-001-1 / AC-001-2：輸出含 size_adjusted_score 且符合公式 -->
 
 #### Scenario: scan-output-has-adjusted-score -- ScanOutput 帶 d_repo 與 size_adjusted_score
@@ -30,6 +32,8 @@
 ### Requirement: D_repo 反映 repo 複雜度
 
 `d_repo` SHALL 反映 repo 複雜度：最小 repo 為 1.0、對複雜度訊號單調遞增，且暴露各訊號原始值。
+
+<!-- US-002 -->
 
 <!-- AC-002-1：最小 repo 的 D_repo 為 1.0 -->
 
@@ -61,6 +65,8 @@
 ### Requirement: 規模調整讓跨 repo 比較公平
 
 規模調整 SHALL 縮小因 artifact 數量造成的跨 repo 分數差距，且計算 SHALL 為確定性。
+
+<!-- US-003 -->
 
 <!-- AC-003-1：規模膨脹被抵銷 -->
 

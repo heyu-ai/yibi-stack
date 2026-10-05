@@ -4,6 +4,8 @@
 
 系統 SHALL 在評估前凍結協定快照，並以確定性的 `protocol_hash` 識別。
 
+<!-- US-001 -->
+
 <!-- AC-001-1 / AC-001-2：freeze 產生含權重的 snapshot -->
 
 #### Scenario: freeze-produces-hash -- freeze 產生含 protocol_hash 的快照
@@ -29,6 +31,8 @@
 ### Requirement: 計算 R²/MAE
 
 系統 SHALL 對凍結後的資料集計算 R² 與 MAE，並在結果中標記 `protocol_hash`。
+
+<!-- US-002 -->
 
 <!-- AC-002-1：回傳 R² 與 MAE -->
 
@@ -59,6 +63,8 @@
 
 系統 SHALL 只用指定 holdout 批次的列計算 metric，並在報告中標示批次 id 與樣本數。
 
+<!-- US-003 -->
+
 <!-- AC-003-1：只在 holdout 批次計算 -->
 
 #### Scenario: holdout-only-batch -- metric 只用 holdout 批次的列
@@ -87,6 +93,8 @@
 ### Requirement: 未凍結協定時拒絕評估（反 post-hoc）
 
 系統 SHALL 在尚未凍結協定時拒絕評估，以防止 post-hoc 調整。
+
+<!-- US-004 -->
 
 <!-- AC-004-1：無 snapshot 時拒絕 -->
 

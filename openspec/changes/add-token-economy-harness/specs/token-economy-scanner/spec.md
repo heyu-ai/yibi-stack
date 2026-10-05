@@ -4,6 +4,8 @@
 
 `scan_token_economy` SHALL 以字元數估計 always-loaded context 並在超過上閾值時回報量化 WARN。
 
+<!-- US-001 -->
+
 <!-- AC-001-1：超過上閾值觸發 WARN -->
 
 #### Scenario: high-always-on-warn -- always-on proxy 超標觸發 WARN
@@ -49,6 +51,8 @@
 
 `scan_token_economy` SHALL 計算 progressive-disclosure（on-demand）比例並在過低時回報 WARN。
 
+<!-- US-002 -->
+
 <!-- AC-002-1：on-demand 比例 < 30% 觸發 WARN -->
 
 #### Scenario: low-progressive-disclosure-warn -- 按需比例過低觸發警告
@@ -84,6 +88,8 @@
 
 `scan_token_economy` SHALL 偵測 CLAUDE.md 與 rules 之間的高詞頻冗餘並回報 WARN。
 
+<!-- US-003 -->
+
 <!-- AC-003-1：≥ 3 個共同高頻詞觸發 WARN -->
 
 #### Scenario: claude-md-rules-overlap-warn -- 高詞頻重疊觸發冗餘警告
@@ -104,6 +110,8 @@
 ### Requirement: effort 相稱性偵測
 
 `scan_token_economy` SHALL 對過長且未設定 `effort:` 的 skill 回報 WARN，且 SHALL NOT 影響 D4 分數。
+
+<!-- US-004 -->
 
 <!-- AC-004-1：長 skill 無 effort 觸發 WARN -->
 
