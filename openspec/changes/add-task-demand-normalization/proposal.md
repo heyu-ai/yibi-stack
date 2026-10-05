@@ -1,3 +1,7 @@
+---
+type: docs
+---
+
 # Proposal：add-task-demand-normalization
 
 > 版本：v1.0 | 日期：2026-06-08 | 狀態：Draft

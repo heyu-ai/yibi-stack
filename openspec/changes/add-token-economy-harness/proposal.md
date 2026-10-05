@@ -1,3 +1,7 @@
+---
+type: docs
+---
+
 # Proposal：add-token-economy-harness
 
 > 版本：v1.0 | 日期：2026-06-01 | 狀態：Draft
