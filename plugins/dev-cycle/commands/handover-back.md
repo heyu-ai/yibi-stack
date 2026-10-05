@@ -1,7 +1,6 @@
 ---
 model: sonnet
 ---
-<!-- markdownlint-disable-file MD041 -->
 
 # Handover Back — 讀取上次工作進度
 
