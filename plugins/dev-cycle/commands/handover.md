@@ -1,7 +1,6 @@
 ---
 model: sonnet
 ---
-<!-- markdownlint-disable-file MD041 -->
 
 # Handover — 寫入工作交班記錄
 
