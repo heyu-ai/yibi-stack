@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.12] - 2026-10-09
+
+### Added
+
+- dev-cycle：`issue-triage` 新增 OBSOLETE 與 STALE-CANDIDATE verdict，並在驗證程式碼症狀前固定證據基準。
+  原本的偏誤是單向的（只防誤關、沒有機制對抗堆積）：前提已消失的 issue 落不進 CLOSE，久未更新反而被當成
+  降優先的理由，且程式碼驗證沒有固定基準，本機 main 落後或停在別的分支時 DONE 與 NOT DONE 會判反。
+  - **證據基準**：驗證前先 `check-baseline.sh`——fetch origin main，確認 checkout 等於 origin/main 且
+    tracked 檔案沒被修改，以 exit 2／3／4／5 區分不在 repo、fetch 失敗、commit 不一致、有未提交修改；
+    fetch 失敗不回退到本機殘留的 origin/main。報告頂端記錄基準 SHA 與 fetch 時間
+  - **OBSOLETE**：所有未解症狀的前提都證實不存在於基準才成立，且需要正向對照（零命中的搜尋沒有資訊量）；
+    以 `not planned` 關閉。部分症狀失去前提時是 UPDATE-SCOPE
+  - **STALE-CANDIDATE**：無人為活動 180 天以上、前提未被證實消失、無豁免的 KEEP；先貼 stale notice、
+    14 天寬限期、無回應才建議以 `not planned` 關閉。**絕不僅憑天數關閉**
+  - **過期分層**（30／90／180 天，初始值待校準）只提高證據門檻，不決定結果；`staleness-signals.sh`
+    以 origin/main 歷史判斷 issue 引用的路徑是 unchanged／changed／deleted／renamed／never-existed
+  - **最後實質人為活動**排除 bot 與 skill 自己的留言。bot 只看 REST 的帳號型別：實測 `gh issue list`
+    的 JSON 會去掉 `[bot]` 後綴（`github-actions[bot]` 顯示為 `github-actions`），`Copilot` 本來就沒有後綴。
+    skill 自己的留言 = triage 標記加上作者是目前登入帳號，只看標記會讓任何人貼上標記就能隱形自己的留言
+  - **優先級**：久未更新不再降低優先級，改標 `review-urgency`；FAQ 原本的「KEEP 並降優先」已改寫
+  - 三支腳本共 68 個測試（真實 git repo fixture、假 gh 回放 REST 形狀 JSON），每個守衛都以單點突變驗證
+    會讓對應測試轉紅；`last-human-activity.sh` 另對 cli/cli 的真實 issue 核對過
+  - 已知限制：基準固定為 `origin/main`（fork 的 origin 落後 upstream 尚未處理）；untracked 檔案不算基準失敗；
+    Jira bug 不套用過期判斷
+
 ## [1.23.10] - 2026-10-03
 
 ### Fixed
