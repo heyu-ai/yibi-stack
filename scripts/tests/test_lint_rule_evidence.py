@@ -680,6 +680,10 @@ def _existing_rule_section_diff(declaration_lines: list[str], evidence: bool = T
 
 
 def test_every_blocking_shape_has_a_fixture() -> None:
+    """
+    spec: rule-mechanization-gate#each-blocking-shape-has-its-own-fixture
+    tc: RMG-VL-023
+    """
     present = {p.name for p in _FIXTURE_DIR.glob("bad_*.diff")}
     assert present == _BLOCKING_SHAPES, (
         f"缺少：{sorted(_BLOCKING_SHAPES - present)}；多出：{sorted(present - _BLOCKING_SHAPES)}"
@@ -716,6 +720,11 @@ def test_good_fixtures_exist() -> None:
 
 @pytest.mark.parametrize("name", _GOOD_FIXTURES)
 def test_good_fixtures_report_nothing(name: str) -> None:
+    """
+    spec: rule-mechanization-gate#section-with-a-valid-gate-link-passes
+    spec: rule-mechanization-gate#complete-exemption-passes
+    tc: RMG-DT-001, RMG-DT-010
+    """
     diff = _fixture_text(name)
     assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
     assert lint_rule_evidence.main([str(_FIXTURE_DIR / name)]) == 0
@@ -741,19 +750,32 @@ def test_good_fixtures_report_nothing(name: str) -> None:
     ],
 )
 def test_gate_link_eligibility(link: str, resolves: bool) -> None:
+    """
+    spec: rule-mechanization-gate#link-to-a-nonexistent-path-is-an-error
+    spec: rule-mechanization-gate#link-to-another-rule-file-is-rejected
+    tc: RMG-VL-005, RMG-VL-006
+    """
     diff = _existing_rule_section_diff([f"<!-- gate: {link} -->"])
     errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
     assert (errors == []) is resolves, f"{link} -> {errors}"
 
 
 def test_gate_link_with_missing_symbol_is_error() -> None:
+    """
+    spec: rule-mechanization-gate#link-to-a-missing-symbol-is-an-error
+    tc: RMG-VL-007
+    """
     diff = _existing_rule_section_diff(["<!-- gate: scripts/lint_rule_evidence.py::no_such_fn -->"])
     errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
     assert errors and "no_such_fn" in errors[0]
 
 
 def test_gate_link_symbol_is_matched_as_a_whole_word() -> None:
-    """`check_rule` 是 `check_rule_evidence` 的前綴，不可因子字串命中而通過。"""
+    """`check_rule` 是 `check_rule_evidence` 的前綴，不可因子字串命中而通過。
+
+    spec: rule-mechanization-gate#link-to-a-missing-symbol-is-an-error
+    tc: RMG-VL-007
+    """
     diff = _existing_rule_section_diff(["<!-- gate: scripts/lint_rule_evidence.py::check_rule -->"])
     assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
 
@@ -763,6 +785,10 @@ def test_gate_link_symbol_is_matched_as_a_whole_word() -> None:
 
 @pytest.mark.parametrize("reason", ["judgment", "no-observable-signal", "hook-cost"])
 def test_every_listed_exemption_reason_passes(reason: str) -> None:
+    """
+    spec: rule-mechanization-gate#complete-exemption-passes
+    tc: RMG-DT-010
+    """
     diff = _existing_rule_section_diff(
         [f"<!-- gate: none (reason: {reason}) — 這個判斷需要讀完整個 prompt 才能做 -->"]
     )
@@ -771,6 +797,10 @@ def test_every_listed_exemption_reason_passes(reason: str) -> None:
 
 @pytest.mark.parametrize("explanation", ["TBD", "TODO", "N/A", "none", "太短了", ""])
 def test_placeholder_or_short_explanation_is_error(explanation: str) -> None:
+    """
+    spec: rule-mechanization-gate#placeholder-explanation-is-rejected
+    tc: RMG-VL-009
+    """
     diff = _existing_rule_section_diff([f"<!-- gate: none (reason: judgment) — {explanation} -->"])
     assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
 
@@ -784,12 +814,20 @@ def test_exemption_without_explanation_separator_is_error() -> None:
 
 
 def test_missing_declaration_in_existing_file_is_error() -> None:
+    """
+    spec: rule-mechanization-gate#section-without-a-declaration-is-reported
+    tc: RMG-DT-002
+    """
     diff = _existing_rule_section_diff([])
     errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
     assert errors and "Added Section" in errors[0]
 
 
 def test_missing_declaration_in_existing_file_exits_one(tmp_path: Path) -> None:
+    """
+    spec: rule-mechanization-gate#new-section-in-existing-rule-file-fails
+    tc: RMG-DT-012
+    """
     diff_file = tmp_path / "existing-undeclared.diff"
     diff_file.write_text(_existing_rule_section_diff([]), encoding="utf-8")
     assert lint_rule_evidence.main([str(diff_file)]) == 1
@@ -801,6 +839,10 @@ def test_no_mechanization_warn_function_remains() -> None:
 
 
 def test_renamed_in_rule_file_without_declaration_is_error() -> None:
+    """
+    spec: rule-mechanization-gate#rename-into-the-rules-directory-is-treated-as-new
+    tc: RMG-DT-014
+    """
     diff = _rename_diff(
         "scripts/notes.md",
         ".claude/rules/renamed-in.md",
@@ -810,6 +852,10 @@ def test_renamed_in_rule_file_without_declaration_is_error() -> None:
 
 
 def test_declaration_only_inside_a_fence_does_not_count() -> None:
+    """
+    spec: rule-mechanization-gate#declaration-quoted-in-a-code-fence-does-not-count
+    tc: RMG-DT-003
+    """
     diff = _existing_rule_section_diff(
         ["```text", "<!-- gate: scripts/lint_rule_evidence.py -->", "```"]
     )
@@ -826,11 +872,19 @@ def test_unchanged_sections_are_not_scanned() -> None:
 
 
 def test_evidence_marker_does_not_satisfy_the_declaration() -> None:
+    """
+    spec: rule-mechanization-gate#evidence-marker-does-not-satisfy-the-declaration
+    tc: RMG-EG-018
+    """
     diff = _existing_rule_section_diff([], evidence=True)
     assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
 
 
 def test_declaration_does_not_satisfy_the_evidence_marker() -> None:
+    """
+    spec: rule-mechanization-gate#declaration-does-not-satisfy-the-evidence-marker
+    tc: RMG-EG-019
+    """
     diff = _new_file_diff(
         ".claude/rules/25-no-evidence.md",
         [
@@ -849,7 +903,11 @@ def test_declaration_does_not_satisfy_the_evidence_marker() -> None:
 def test_range_mode_runs_the_declaration_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """兩個執行點都要有宣告檢查：range 模式（CI）不可只跑證據檢查。"""
+    """兩個執行點都要有宣告檢查：range 模式（CI）不可只跑證據檢查。
+
+    spec: rule-mechanization-gate#both-execution-points-run-the-declaration-check
+    tc: RMG-DT-024
+    """
     _init_repo(tmp_path)
     base = _git(tmp_path, "rev-parse", "HEAD")
     rule = tmp_path / ".claude" / "rules" / "26-range.md"
@@ -871,6 +929,10 @@ def test_staged_mode_runs_the_declaration_check(
     repo 內明確開啟 `diff.mnemonicPrefix`：這個設定讓 `git diff --cached` 輸出 `c/` `i/` 前綴，
     曾使 staged 模式整個 lint 靜默 no-op。測試自帶設定，不依賴執行機器的全域 git 設定，CI 上
     同樣能重現。
+
+    spec: rule-mechanization-gate#both-execution-points-run-the-declaration-check
+    spec: rule-mechanization-gate#staged-mode-survives-diff-mnemonicprefix
+    tc: RMG-DT-024, RMG-DT-025
     """
     _init_repo(tmp_path)
     _git(tmp_path, "config", "diff.mnemonicPrefix", "true")
@@ -943,13 +1005,21 @@ def test_parse_diff_keeps_neighbours_of_a_pure_rename() -> None:
 
 
 def test_pure_rename_into_rules_is_error() -> None:
+    """
+    spec: rule-mechanization-gate#pure-rename-into-the-rules-directory-is-rejected
+    tc: RMG-DT-015
+    """
     errors = lint_rule_evidence.check_rule_mechanization(_PURE_RENAME_INTO_RULES, _fake_read)
     assert len(errors) == 1
     assert ".claude/rules/renamed-pure.md" in errors[0] and "純 rename" in errors[0]
 
 
 def test_pure_rename_within_rules_or_elsewhere_is_not_flagged() -> None:
-    """只擋「從 rules 目錄外進來」：目錄內改名是既有檔；與 rules 無關的 rename 不是本 gate 的事。"""
+    """只擋「從 rules 目錄外進來」：目錄內改名是既有檔；與 rules 無關的 rename 不是本 gate 的事。
+
+    spec: rule-mechanization-gate#pure-rename-that-stays-inside-the-rules-directory-is-not-flagged
+    tc: RMG-DT-016
+    """
     for old, new in [
         (".claude/rules/old.md", ".claude/rules/new.md"),
         (".claude/rules/old.md", "docs/moved-out.md"),
@@ -960,7 +1030,11 @@ def test_pure_rename_within_rules_or_elsewhere_is_not_flagged() -> None:
 
 
 def test_pure_rename_does_not_change_the_evidence_lint() -> None:
-    """純 rename 只由機械化檢查擋下，證據 lint 的結果不變，避免同一件事被兩個 lint 重複回報。"""
+    """純 rename 只由機械化檢查擋下，證據 lint 的結果不變，避免同一件事被兩個 lint 重複回報。
+
+    spec: rule-mechanization-gate#pure-rename-is-reported-once-by-the-declaration-check
+    tc: RMG-EG-020
+    """
     assert lint_rule_evidence.check_rule_evidence(_PURE_RENAME_INTO_RULES) == []
     assert lint_rule_evidence.warn_rule_evidence(_PURE_RENAME_INTO_RULES) == []
 
@@ -968,7 +1042,12 @@ def test_pure_rename_does_not_change_the_evidence_lint() -> None:
 def test_real_git_pure_rename_is_blocked_in_staged_and_range_modes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """真實 git 輸出（不是手寫 fixture）：`git mv` 進 .claude/rules/ 後兩個執行點都要擋。"""
+    """真實 git 輸出（不是手寫 fixture）：`git mv` 進 .claude/rules/ 後兩個執行點都要擋。
+
+    spec: rule-mechanization-gate#pure-rename-into-the-rules-directory-is-rejected
+    spec: rule-mechanization-gate#both-execution-points-run-the-declaration-check
+    tc: RMG-DT-015, RMG-DT-024
+    """
     _init_repo(tmp_path)
     notes = tmp_path / "scripts" / "notes.md"
     notes.parent.mkdir(parents=True)
@@ -993,6 +1072,11 @@ def test_real_git_pure_rename_is_blocked_in_staged_and_range_modes(
 def test_unverifiable_link_exits_2_and_never_prints_ok(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """
+    spec: rule-mechanization-gate#unverifiable-gate-link-exits-2
+    tc: RMG-EG-021
+    """
+
     def unreadable(path: str) -> str | None:
         raise PermissionError(f"denied: {path}")
 
@@ -1005,6 +1089,106 @@ def test_unverifiable_link_exits_2_and_never_prints_ok(
     assert rc == 2
     assert "[FAIL]" in captured.err
     assert "[OK]" not in captured.out
+
+
+# --- scenario 專屬測試：每個 spec scenario 至少有一個直接斷言其 WHEN/THEN 的測試 ---
+#
+# 下面這幾個 scenario 原本只被參數化的 fixture 測試間接覆蓋，或根本沒有測試（「宣告在 heading
+# 的 hunk 之外」就是補 testplan 時發現 spec 有寫、卻從沒被測過的一條）。
+
+
+def test_two_declarations_in_one_section_are_rejected() -> None:
+    """同一個 section 的連結 + 豁免、或兩個連結，互相矛盾或重複。
+
+    spec: rule-mechanization-gate#two-declarations-in-one-section-are-rejected
+    tc: RMG-DT-004
+    """
+    link = "<!-- gate: scripts/lint_rule_evidence.py::check_rule_evidence -->"
+    exemption = (
+        "<!-- gate: none (reason: judgment) — 同一個 section 不能同時宣稱有 gate 又宣稱沒有 -->"
+    )
+    for declarations in ([link, exemption], [link, link]):
+        diff = _existing_rule_section_diff(declarations)
+        errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+        assert errors and "2 個宣告" in errors[0], declarations
+
+
+def test_link_to_a_nonexistent_path_names_the_path(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """dangling link：exit 非零，且錯誤輸出點名那個不存在的路徑。
+
+    spec: rule-mechanization-gate#link-to-a-nonexistent-path-is-an-error
+    tc: RMG-VL-005
+    """
+    diff_file = tmp_path / "dangling.diff"
+    diff_file.write_text(_fixture_text("bad_dangling_link_existing_file.diff"), encoding="utf-8")
+
+    assert lint_rule_evidence.main([str(diff_file)]) == 1
+    assert "scripts/does_not_exist.py" in capsys.readouterr().err
+
+
+def test_link_to_a_rule_file_is_rejected_as_not_a_gate() -> None:
+    """目標檔案存在（假檔案系統裡有）但是 rule 檔：被拒絕的理由是資格，不是存在性。
+
+    spec: rule-mechanization-gate#link-to-another-rule-file-is-rejected
+    tc: RMG-VL-006
+    """
+    diff = _existing_rule_section_diff(["<!-- gate: .claude/rules/13-bash-anti-patterns.md -->"])
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert errors and "rule 檔" in errors[0] and "不算 gate" in errors[0]
+
+
+def test_unknown_exemption_reason_is_rejected() -> None:
+    """reason 不在封閉列舉內：點名那個 reason，且不因說明夠長而通過。
+
+    spec: rule-mechanization-gate#unknown-reason-is-rejected
+    tc: RMG-VL-008
+    """
+    diff = _existing_rule_section_diff(
+        ["<!-- gate: none (reason: other) — 這個理由不在封閉列舉內所以必須被擋下 -->"]
+    )
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert errors and "other" in errors[0] and "封閉列舉" in errors[0]
+
+
+def test_new_rule_file_without_declaration_exits_one() -> None:
+    """新 rule 檔的 section 缺宣告：main() exit 1。
+
+    spec: rule-mechanization-gate#new-rule-file-without-declarations-fails
+    tc: RMG-DT-011
+    """
+    assert (
+        lint_rule_evidence.main([str(_FIXTURE_DIR / "bad_missing_declaration_new_file.diff")]) == 1
+    )
+
+
+def test_new_file_without_sections_or_declaration_exits_one() -> None:
+    """沒有任何 ##/### 的新 rule 檔也要檔案層級宣告，否則整份檔案會逃過檢查。
+
+    spec: rule-mechanization-gate#new-rule-file-without-any-section-needs-a-file-level-declaration
+    tc: RMG-DT-017
+    """
+    assert lint_rule_evidence.main([str(_FIXTURE_DIR / "bad_new_file_no_sections.diff")]) == 1
+
+
+def test_declaration_outside_the_headings_hunk_is_reported_missing(tmp_path: Path) -> None:
+    """宣告在別的 hunk（heading 插在既有內文之上，宣告落在未變動行）：保守地報缺宣告。
+
+    spec: rule-mechanization-gate#declaration-outside-the-headings-hunk-is-reported-missing
+    tc: RMG-DT-013
+    """
+    diff = _existing_file_diff_multi_hunk(
+        ".claude/rules/13-bash-anti-patterns.md",
+        ["### Heading Above Existing Body", "", "(Source: PR #339)"],
+        ["<!-- gate: scripts/lint_rule_evidence.py::check_rule_evidence -->"],
+    )
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert errors and "Heading Above Existing Body" in errors[0]
+
+    diff_file = tmp_path / "two-hunks.diff"
+    diff_file.write_text(diff, encoding="utf-8")
+    assert lint_rule_evidence.main([str(diff_file)]) == 1
 
 
 # --- production 預設讀檔函式：只有「不存在」是答案，其他 OS 錯誤是「無法驗證」---
@@ -1029,7 +1213,11 @@ def test_default_reader_maps_only_absence_to_none(
 def test_default_reader_does_not_swallow_other_os_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """權限錯誤等代表無法驗證，必須 raise 給 `main()` 轉 exit 2，不可吞成「不存在」。"""
+    """權限錯誤等代表無法驗證，必須 raise 給 `main()` 轉 exit 2，不可吞成「不存在」。
+
+    spec: rule-mechanization-gate#unverifiable-gate-link-exits-2
+    tc: RMG-EG-021
+    """
     monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", tmp_path)
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "real.py").write_text("x = 1\n", encoding="utf-8")
@@ -1047,6 +1235,10 @@ def test_default_reader_does_not_swallow_other_os_errors(
 
 
 def test_new_file_without_sections_accepts_a_file_level_declaration() -> None:
+    """
+    spec: rule-mechanization-gate#new-rule-file-without-any-section-needs-a-file-level-declaration
+    tc: RMG-DT-017
+    """
     diff = _new_file_diff(
         ".claude/rules/27-flat.md",
         [
@@ -1106,5 +1298,9 @@ def test_real_rule_copy_with_declared_section_is_clean() -> None:
 
 
 def test_injection_anchor_missing_fails() -> None:
+    """
+    spec: rule-mechanization-gate#injection-anchor-absent-fails-the-control
+    tc: RMG-VL-022
+    """
     with pytest.raises(LookupError):
         _inject_section("# 只有 H1\n\n沒有二級標題。\n", None)

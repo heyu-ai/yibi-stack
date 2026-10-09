@@ -135,11 +135,21 @@ The mechanization check SHALL run in addition to the existing evidence-marker ch
 - **WHEN** a diff pure-renames `scripts/notes.md` into `.claude/rules/renamed-pure.md`
 - **THEN** the evidence check SHALL report nothing for it and the declaration check SHALL report the single error, so the existing evidence behavior is unchanged and the rename is not reported twice
 
+#### Scenario: Both execution points run the declaration check
+
+- **WHEN** an undeclared new rule file is staged, and separately when it is committed on a branch and the lint runs over the commit range
+- **THEN** the lint SHALL exit with code 1 in the staged mode and in the commit-range mode
+
+#### Scenario: Staged mode survives diff.mnemonicPrefix
+
+- **WHEN** the repository has `diff.mnemonicPrefix` set to true and an undeclared new rule file is staged
+- **THEN** the lint SHALL still exit with code 1, because the diff it reads SHALL use fixed `a/` and `b/` path prefixes regardless of that setting
+
 ### Requirement: The check fails loudly when it cannot verify a link
 
 Resolving a gate link SHALL use the repository root of the checkout being linted. If a path check raises an operating-system error other than the path being absent, the lint SHALL exit with code 2 and a `[FAIL]` message. The repository root is derived from the lint script's own location, so there is no separate root-resolution failure to report. The lint SHALL NOT treat an unverifiable link as resolved.
 
-#### Scenario: Unreadable repository root exits 2
+#### Scenario: Unverifiable gate link exits 2
 
 - **WHEN** link resolution raises an `OSError` that is not "file not found"
 - **THEN** the lint SHALL exit with code 2 and SHALL NOT print an all-clear message

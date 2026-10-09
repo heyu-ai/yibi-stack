@@ -135,10 +135,17 @@ def discover_test_files(roots: list[Path]) -> list[Path]:
         if not root.is_dir():
             continue
         for path in sorted(root.rglob("*.py")):
-            parts = set(path.parts)
-            if parts & _SKIP_DIRS:
+            # 只看 root「底下」的組成部分：root 自己的路徑不能參與判斷。repo 本身位於
+            # `.claude/worktrees/<name>/` 時（worktree 內開發），絕對路徑一定含這兩段，
+            # 舊寫法會把整個 repo 的測試全部略過，每個 TC 都被誤判 missing；
+            # CI 的 checkout 路徑不含這段，所以不受影響。
+            try:
+                rel_parts = path.relative_to(root).parts
+            except ValueError:
+                rel_parts = path.parts
+            if set(rel_parts) & _SKIP_DIRS:
                 continue
-            if ".claude" in path.parts and "worktrees" in path.parts:
+            if ".claude" in rel_parts and "worktrees" in rel_parts:
                 continue
             name = path.name
             if name.startswith("test_") or name.endswith("_test.py"):

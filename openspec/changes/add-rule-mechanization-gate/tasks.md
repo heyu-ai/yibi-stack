@@ -52,3 +52,10 @@
 - [x] 10.1 實作「純 rename 進 rules 目錄一律 fail-closed」：`_parse_diff` 收 `rename from/to` 並標記 `pure_rename`，機械化檢查對進入 `.claude/rules/` 者報 error，證據檢查略過它。驗證：`bad_pure_rename_into_rules.diff` 的純函式與 `main()` 兩條路徑、`test_real_git_pure_rename_is_blocked_in_staged_and_range_modes`（真實 `git mv`，staged 與 range 兩個執行點）、三個 parser 測試；先紅（7 個）後綠。
 - [x] 10.2 單點突變 F / J / G / H / I：EOF 不收尾、`diff --git` 邊界不收尾、證據檢查不略過、忽略「從外部進入」條件、帶 hunk 的 rename 被重複計算；各自被不同測試擊殺，並回歸 A 到 E。驗證：每個突變斷言 anchor 命中並以反向替換還原。
 - [x] 10.3 同步 spec、design、rule 11 與 lint docstring，並在 `git add` 後重跑 `make ci`。驗證：`make ci` 綠燈，且 grep 不再有任何文件把純 rename 當成已知殘留。
+
+## 11. 補寫 testplan 並綁定測試（pr-cycle-deep 的 pre-review gate 要求；propose 階段漏跑 amplifier）
+
+- [x] 11.1 補齊 spec 與專屬測試：為 7 個缺少專屬測試的 scenario 補測試（含 spec 有寫卻從沒被測過的「宣告在 heading 的 hunk 之外」）；spec 改名一個過時的 scenario（Unverifiable gate link exits 2），並為「兩個執行點」與「mnemonicPrefix」補 scenario。驗證：`uv run pytest scripts/tests/test_lint_rule_evidence.py` 全綠。
+- [x] 11.2 新增 `testplan.md`（`trace: enforced`，4 個 seam、25 個 auto TC、1 個 manual 項目），並為 23 個測試加上 `spec:` / `tc:` 綁定 docstring。驗證：`python3 plugins/sdd/scripts/check_testplan_trace.py --repo-root . --change add-rule-mechanization-gate --strict` 對本 change 的 TC 無 missing / mismatch / orphan；唯一的 FAIL 是 MV-001（突變驗證，須 human quick pass 確認，不預先勾選）。
+- [x] 11.3 `git add` 後重跑 `make ci`，commit 並推送，再跑 `pre_review_check.py --pr 528`。驗證：`make ci` 綠燈；pre-review check 不再因 testplan 缺失而 exit 2。
+- [x] 11.4 修正 `plugins/sdd/scripts/check_testplan_trace.py` 的 `discover_test_files`：只用 root 底下的相對路徑判斷是否略過 `.claude/worktrees`，root 本身位於 worktree 內時不再把整個 repo 的測試略過（原本每個 TC 都被誤判 missing，任務全勾後 pre-commit 會誤擋 commit）。驗證：`test_tpt_dt_009_root_inside_a_worktree_still_discovers_its_tests` 先紅後綠，對照組 `test_tpt_dt_010_nested_worktree_below_the_root_is_still_skipped` 維持綠；預設 root 下 `check_testplan_trace.py --summary` 對本 change 不再有 missing。

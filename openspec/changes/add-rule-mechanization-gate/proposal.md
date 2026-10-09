@@ -42,4 +42,7 @@
   - Modified: `plugins/growth/skills/pr-retrospective/SKILL.md`
   - Modified: `.claude/rules/11-skill-authoring.md`
   - Modified: `scripts/tests/test_pr_retrospective_evidence_gate_anchors.py`
+  - Modified: `plugins/sdd/scripts/check_testplan_trace.py` 與其測試（順帶修正：repo 位於 `.claude/worktrees/` 內時整個 repo 的測試被略過，每個 TC 被誤判 missing）
+  - Modified: 6 個 plugin 的 `package.json` 與 `.claude-plugin/plugin.json`（lockstep 升版）
   - New: `scripts/tests/fixtures/rule_mechanization/`（壞輸入與合格輸入 diff）
+  - New: `openspec/changes/add-rule-mechanization-gate/testplan.md`（補寫，`trace: enforced`）
