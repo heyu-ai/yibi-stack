@@ -83,9 +83,12 @@ class _FileDiff:
     標記被誤判為屬於前一個 hunk 新增的 heading（false negative，Gemini R1 發現）。
     """
 
-    def __init__(self, old_path: str, new_path: str) -> None:
+    def __init__(self, old_path: str, new_path: str, pure_rename: bool = False) -> None:
         self.old_path = old_path
         self.new_path = new_path
+        # 100% 相似度的 rename：git 只輸出 `rename from/to`，沒有 `---`/`+++`/hunk，diff 裡
+        # 完全沒有內容可檢查。標記出來，讓各檢查明確決定怎麼處理，而不是靜默看不見它。
+        self.pure_rename = pure_rename
         self.chunks: list[list[str]] = []  # 每個 hunk 一組；元素為新增行內容（不含前綴 `+`）
 
     @property
@@ -105,11 +108,29 @@ def _parse_diff(diff_text: str) -> list[_FileDiff]:
     current: _FileDiff | None = None
     current_chunk: list[str] | None = None
     old_path = ""
+    rename_from: str | None = None
+    rename_to: str | None = None
+
+    def _flush_pure_rename() -> None:
+        # 這個檔案區塊沒出現過 `+++`（current 仍是 None）卻有 rename 標頭 = 純 rename。
+        if current is None and rename_from is not None and rename_to is not None:
+            files.append(_FileDiff(rename_from, rename_to, pure_rename=True))
+
     for line in diff_text.splitlines():
         if line.startswith("diff --git "):
+            _flush_pure_rename()
             current = None
             current_chunk = None
             old_path = ""
+            rename_from = None
+            rename_to = None
+            continue
+        # 標頭行沒有 `+`/`-`/空白前綴，內容行一定有，所以不會把 diff 內容誤認成標頭。
+        if line.startswith("rename from "):
+            rename_from = line[len("rename from ") :].strip()
+            continue
+        if line.startswith("rename to "):
+            rename_to = line[len("rename to ") :].strip()
             continue
         if line.startswith("--- "):
             old_path = _strip_diff_path(line[4:])
@@ -133,6 +154,7 @@ def _parse_diff(diff_text: str) -> list[_FileDiff]:
             and not line.startswith("+++ ")
         ):
             current_chunk.append(line[1:])
+    _flush_pure_rename()  # 最後一個檔案之後沒有下一個 `diff --git`，要在這裡收尾
     return files
 
 
@@ -249,6 +271,10 @@ def check_rule_evidence(diff_text: str) -> list[str]:
     """
     errors: list[str] = []
     for fd in _parse_diff(diff_text):
+        if fd.pure_rename:
+            # 沒有內容可檢查。純 rename 進 .claude/rules/ 由 `check_rule_mechanization` 以 fail-closed
+            # 擋下；這裡刻意略過，證據 lint 的既有行為不變，也避免同一件事被兩個 lint 重複回報。
+            continue
         path = fd.new_path
         is_new_rule = _is_newly_protected(fd.old_path, path, _NEW_RULE_FILE_RE)
         is_new_hook = _is_newly_protected(fd.old_path, path, _NEW_HOOK_FILE_RE)
@@ -395,11 +421,13 @@ def _rule_sections(fd: "_FileDiff") -> list[tuple[str, list[str]]]:
 def check_rule_mechanization(diff_text: str, read_gate_file: GateReader) -> list[str]:
     """回傳 **error** 訊息清單（空 = 無 error）。
 
-    兩類 error，且**不分新檔或既有檔、不降級成 warn**：
+    三類 error，且**不分新檔或既有檔、不降級成 warn**：
     - 缺宣告：`.claude/rules/*.md` 新增的 section 沒有任何宣告。新檔沒有任何 section 時改要求
       檔案層級宣告，否則整份檔案會逃過檢查。
     - 假宣告：連結指向不存在或不合格的目標、豁免理由不在列舉內、說明為佔位、同 section 多個
       宣告。把它降級成 warn 等於教人亂填通過。
+    - 看不到內容：100% 相似度的 rename 沒有 hunk，純 rename 進 `.claude/rules/` 時內容無從檢查，
+      fail-closed 擋下——「看不到」不能等於「通過」。
 
     缺宣告原本在既有檔只是 warn（起步期漸進）。改成 error 的代價要說清楚：因為 diff 以
     `--unified=0` 讀取，宣告必須與其 heading 位於**同一個 hunk**；把 heading 插在既有內文
@@ -413,6 +441,17 @@ def check_rule_mechanization(diff_text: str, read_gate_file: GateReader) -> list
         if not _NEW_RULE_FILE_RE.fullmatch(fd.new_path):
             continue
         is_new = _is_newly_protected(fd.old_path, fd.new_path, _NEW_RULE_FILE_RE)
+        if fd.pure_rename:
+            # fail-closed：純 rename 進 rules 目錄時 diff 裡沒有任何內容，宣告與證據都無從檢查。
+            # 「看不到」不能等於「通過」，所以擋下並要求同時改動內容；目錄內改名（不是 is_new）
+            # 是既有檔、不在此列。
+            if is_new:
+                errors.append(
+                    f"{fd.new_path}：純 rename（100% 相似、沒有內容 hunk）進入 .claude/rules/，"
+                    "diff 看不到內容，無法檢查證據標記與機械化宣告；請在同一個 commit 補上兩者，"
+                    "或改成新增檔案"
+                )
+            continue
         sections = _rule_sections(fd)
         units = sections or ([("（整份檔案）", fd.added_lines)] if is_new else [])
         for heading, block in units:
@@ -567,7 +606,7 @@ def main(argv: list[str], read_gate_file: GateReader | None = None) -> int:
         )
     if mechanization_errors:
         print(
-            f"[FAIL] {len(mechanization_errors)} 個 rule section 的機械化宣告有問題：",
+            f"[FAIL] {len(mechanization_errors)} 個 rule 檔的機械化宣告檢查未通過：",
             file=sys.stderr,
         )
         for e in mechanization_errors:
@@ -576,7 +615,8 @@ def main(argv: list[str], read_gate_file: GateReader | None = None) -> int:
             "\n修法：每個新增 rule section 擇一宣告——"
             "已有機械 gate 者寫 `<!-- gate: scripts/foo.py::symbol -->`（路徑須存在且屬 scripts/、"
             ".claude/hooks/、.github/workflows/、.pre-commit-config.yaml、tasks/**/tests/）；"
-            "無法機械化者寫 `<!-- gate: none (reason: judgment|no-observable-signal|hook-cost) — <說明> -->`。",
+            "無法機械化者寫 `<!-- gate: none (reason: judgment|no-observable-signal|hook-cost) — <說明> -->`。"
+            "純 rename 進 .claude/rules/ 時 diff 沒有內容可檢查，須同時補上證據標記與宣告。",
             file=sys.stderr,
         )
     if errors or mechanization_errors:

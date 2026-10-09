@@ -47,9 +47,13 @@
 
 兩者共用 `_parse_diff` 與 `_evidence_eligible_lines`，但判定互不替代：證據標記不滿足宣告，宣告也不滿足證據標記。實作為 `main()` 內並列的兩組呼叫，輸出合併為同一份 `[WARN]` / `[FAIL]` 清單。已知限制：因 `--unified=0`，宣告必須與其 heading 位於同一個 hunk；heading 插入在既有內容之上、宣告落在未變動行時，會被誤判為缺宣告。此為可接受的保守誤報，記入 rule 11 的語法說明。
 
+### 純 rename 進 rules 目錄一律 fail-closed
+
+100% 相似度的 rename 在 git 輸出裡只有 `similarity index 100%` 與 `rename from/to`，沒有 `---` / `+++` / hunk（git 2.56.0 實測）。舊 parser 只在 `+++` 行建立檔案記錄，於是這種 rename 完全沒有記錄，證據與宣告兩個檢查都沒機會跑，整份檔案靜默通過。做法：parser 另外收 `rename from/to`，區塊結束（下一個 `diff --git` 或 EOF）時若沒出現過 `+++` 就建立 `pure_rename=True` 的記錄；機械化檢查對「進入 `.claude/rules/`」（來源不在該目錄）的純 rename 報 error，目錄內改名與無關的 rename 不報。證據檢查對純 rename 刻意略過，維持既有行為，也避免同一件事被兩個 lint 重複回報。被否決：讀工作樹或 `git show` 取內容（破壞純函式，staged 與 range 兩個執行點要各寫一套 IO）；維持殘留並記載（「看不到」等於「通過」，正是 gate 最不該有的形狀）。要求使用者在同一個 commit 補上證據標記與宣告，rename 加上這次改動就有 hunk，後續走一般檢查。
+
 ### 正向對照 fixture 依形狀分開、含真實資料對照與入口短路驗證
 
-`scripts/tests/fixtures/rule_mechanization/` 放九個 `bad_*.diff`（新檔缺宣告、既有檔缺宣告、無 section 的新檔、dangling link、link 到 rule、缺 symbol、未知 reason、佔位說明、雙重宣告）與數個 `good_*.diff`。每個 bad fixture 以兩種路徑斷言被擋：純函式回傳非空，以及 `main([fixture_path])` 回傳非零。真實資料對照：測試在執行時複製 `.claude/rules/` 下一份真實 rule 檔，在斷言錨點存在之後注入未宣告 section，再產生 diff 餵給 lint；錨點找不到時測試失敗而非跳過。形狀刻意分散（新檔、既有檔、rename 進來），避免七個對照其實同構。另以突變驗證：把 `main()` 短路成回傳 0，確認 fixture 測試轉紅；每次突變只改一件事，還原用反向替換而非 `git checkout`。
+`scripts/tests/fixtures/rule_mechanization/` 放十個 `bad_*.diff`（新檔缺宣告、既有檔缺宣告、純 rename 進 rules、無 section 的新檔、dangling link、link 到 rule、缺 symbol、未知 reason、佔位說明、雙重宣告）與數個 `good_*.diff`。每個 bad fixture 以兩種路徑斷言被擋：純函式回傳非空，以及 `main([fixture_path])` 回傳非零。真實資料對照：測試在執行時複製 `.claude/rules/` 下一份真實 rule 檔，在斷言錨點存在之後注入未宣告 section，再產生 diff 餵給 lint；錨點找不到時測試失敗而非跳過。形狀刻意分散（新檔、既有檔、rename 進來），避免七個對照其實同構。另以突變驗證：把 `main()` 短路成回傳 0，確認 fixture 測試轉紅；每次突變只改一件事，還原用反向替換而非 `git checkout`。
 
 ### SKILL.md 與 rule 11 同步
 
@@ -62,6 +66,7 @@
 **Interface.**
 
 - `check_rule_mechanization(diff_text: str, read_gate_file: Callable[[str], str | None]) -> list[str]`：回傳 error 訊息清單。涵蓋：任何 rule 檔（新或既有）新增 section 的缺宣告；任何 rule 檔內的假宣告。不存在 warn 版本的入口。
+- `_parse_diff` 回傳的 `_FileDiff` 新增 `pure_rename: bool`（無 hunk 的 rename）：證據檢查略過它，機械化檢查對進入 `.claude/rules/` 者報 error。
 - 宣告 regex 為模組常數；豁免理由集合為模組常數 `_EXEMPT_REASONS = frozenset({"judgment", "no-observable-signal", "hook-cost"})`；合格目錄清單為模組常數。
 - `main()` 的 exit code 契約不變（0 / 1 / 2），新增：`read_gate_file` raise `OSError` 時回 2。
 
@@ -75,7 +80,7 @@
 
 **Acceptance criteria.**
 
-1. `uv run pytest scripts/tests/test_lint_rule_evidence.py` 全綠，且包含上列九個 bad fixture 各自經純函式與 `main()` 兩條路徑的斷言。
+1. `uv run pytest scripts/tests/test_lint_rule_evidence.py` 全綠，且包含上列十個 bad fixture 各自經純函式與 `main()` 兩條路徑的斷言。
 2. 突變 A：`main()` 在讀 diff 前 `return 0` → fixture 測試至少 7 個轉紅。突變 B：把合格目錄清單加入 `.claude/rules/` → 「link 到 rule」fixture 轉紅。突變 C：`read_gate_file` 的 `OSError` 被吞成 `None` → exit 2 的測試轉紅。三者皆單點突變，並在突變前斷言 anchor 已套用。
 3. `make ci` 全綠（`git add` 之後再跑，避免 untracked 新檔被 hook 略過）。
 4. 以本 repo 現有 HEAD 對 `origin/main` 跑 range 模式：不得因既有未動內容新增任何 warn 或 error。
@@ -87,7 +92,8 @@
 
 - [連結可被指向「存在但不相干」的 gate 而通過] → 已列為 Non-Goal 殘留；由 `harness-weekly-review` 的 gate 觸發率量測承接，且 spec 明文限定「只證明存在且屬 gate 類別」，避免讀者誤以為已驗證語意。
 - [`--unified=0` 造成同 hunk 限制，產生保守誤報] → 於 rule 11 語法說明記載；誤報方向是多報而非漏報，可接受。
-- [100% 相似度的純 rename 沒有 `---` / `+++` 行（git 2.56.0 實測），本 lint 與證據 lint 都看不到] → 已知殘留，記於 rule 11；帶內容變更的 rename 有 hunk，會被視為新檔。要補這個洞需要讀工作樹或解析 `rename from/to` 標頭，另案處理。
+- [純 rename 進 rules 目錄原本看不到] → 已改為 fail-closed（見 Decisions）。合法的 `git mv` 進 rules 目錄會被擋，但這本來就罕見且該被審視；修法是同一個 commit 補上證據標記與宣告。
+- [同一個盲點在 `.claude/hooks/` 仍存在：證據 lint 對新 hook 的檢查看不到純 rename] → 已知殘留，不在本 change 範圍（證據 lint 對純 rename 刻意維持既有行為）；記於 rule 11，另案處理。
 - [既有檔缺宣告改為 error 後，同 hunk 限制會把「heading 插在既有內文之上、宣告落在未變動行」誤判為缺宣告並擋下 commit] → 修法是把宣告緊接在 heading 之後（本來就是慣例位置）；誤報方向是多報而非漏報；限制記於 lint docstring 與 rule 11。
 - [與 `add-retro-evidence-gate` 同改一支腳本，merge 衝突] → 建議該 change 先 archive；本 change 只新增函式與並列呼叫，不改動其函式本體。
 - [reason 列舉三值可能不夠] → 新增值需改常數、spec 與 fixture，這個摩擦是刻意的：新增理由必須經過 review，不能在 rule 檔裡就地發明。

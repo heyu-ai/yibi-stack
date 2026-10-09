@@ -79,7 +79,7 @@ A gate exemption SHALL name exactly one reason from the closed set `judgment`, `
 
 ### Requirement: Missing and false declarations are errors in every rule file
 
-A newly added section that lacks a declaration SHALL produce an error and a non-zero exit, whether the rule file is newly added or already exists. A false declaration SHALL produce the same error. There is no warning tier for either. The lint SHALL NOT require declarations on sections that already exist, and SHALL NOT scan unchanged content. A rename of a file into `.claude/rules/` from outside that directory, where the diff carries at least one hunk of its content, SHALL be treated as a new rule file. A pure 100%-similarity rename carries no hunk and is a documented residual, because the diff text then contains no content to inspect.
+A newly added section that lacks a declaration SHALL produce an error and a non-zero exit, whether the rule file is newly added or already exists. A false declaration SHALL produce the same error. There is no warning tier for either. The lint SHALL NOT require declarations on sections that already exist, and SHALL NOT scan unchanged content. A rename of a file into `.claude/rules/` from outside that directory, where the diff carries at least one hunk of its content, SHALL be treated as a new rule file. A pure 100%-similarity rename carries no hunk, so its content cannot be inspected; a pure rename into `.claude/rules/` from outside that directory SHALL therefore produce an error rather than be reported as passing, because an unverifiable file must not count as a verified one. A pure rename that stays inside `.claude/rules/`, or that does not involve `.claude/rules/`, SHALL NOT produce an error.
 
 #### Scenario: New rule file without declarations fails
 
@@ -101,6 +101,16 @@ A newly added section that lacks a declaration SHALL produce an error and a non-
 - **WHEN** a diff renames `scripts/notes.md` to `.claude/rules/renamed-in.md` with content hunks and its sections lack declarations
 - **THEN** the lint SHALL exit with code 1
 
+#### Scenario: Pure rename into the rules directory is rejected
+
+- **WHEN** a diff contains `similarity index 100%`, `rename from scripts/notes.md` and `rename to .claude/rules/renamed-pure.md` and no hunk
+- **THEN** the lint SHALL exit with code 1 and SHALL name `.claude/rules/renamed-pure.md` in its error output
+
+#### Scenario: Pure rename that stays inside the rules directory is not flagged
+
+- **WHEN** a diff pure-renames `.claude/rules/old.md` to `.claude/rules/new.md`
+- **THEN** the lint SHALL report no error for it, because the file already existed in that directory
+
 #### Scenario: New rule file without any section needs a file-level declaration
 
 - **WHEN** a diff adds a new rule file that contains no `##` or `###` heading and no declaration anywhere in the file
@@ -120,6 +130,11 @@ The mechanization check SHALL run in addition to the existing evidence-marker ch
 - **WHEN** a diff adds a new rule file whose sections carry valid gate links but no evidence marker
 - **THEN** the lint SHALL still report the missing evidence marker under the existing evidence rule
 
+#### Scenario: Pure rename is reported once, by the declaration check
+
+- **WHEN** a diff pure-renames `scripts/notes.md` into `.claude/rules/renamed-pure.md`
+- **THEN** the evidence check SHALL report nothing for it and the declaration check SHALL report the single error, so the existing evidence behavior is unchanged and the rename is not reported twice
+
 ### Requirement: The check fails loudly when it cannot verify a link
 
 Resolving a gate link SHALL use the repository root of the checkout being linted. If a path check raises an operating-system error other than the path being absent, the lint SHALL exit with code 2 and a `[FAIL]` message. The repository root is derived from the lint script's own location, so there is no separate root-resolution failure to report. The lint SHALL NOT treat an unverifiable link as resolved.
@@ -131,7 +146,7 @@ Resolving a gate link SHALL use the repository root of the checkout being linted
 
 ### Requirement: Every blocking shape has a committed positive control
 
-For each shape the lint is specified to block, the repository SHALL contain a committed fixture diff that the lint must reject, and a test SHALL assert the rejection through both the pure function and the process entry point `main()`. The blocking shapes are: missing declaration in a new file, missing declaration in an existing file, new file without sections, dangling link, link to a rule file, link to a missing symbol, unknown exemption reason, placeholder explanation, and conflicting declarations. At least one fixture SHALL be derived from a copy of a real rule file with an undeclared section injected, and the test SHALL assert that the injected anchor was applied before asserting the lint reaction.
+For each shape the lint is specified to block, the repository SHALL contain a committed fixture diff that the lint must reject, and a test SHALL assert the rejection through both the pure function and the process entry point `main()`. The blocking shapes are: missing declaration in a new file, missing declaration in an existing file, pure rename into the rules directory, new file without sections, dangling link, link to a rule file, link to a missing symbol, unknown exemption reason, placeholder explanation, and conflicting declarations. At least one fixture SHALL be derived from a copy of a real rule file with an undeclared section injected, and the test SHALL assert that the injected anchor was applied before asserting the lint reaction.
 
 #### Scenario: Entry point short-circuit turns the controls red
 
@@ -146,4 +161,4 @@ For each shape the lint is specified to block, the repository SHALL contain a co
 #### Scenario: Each blocking shape has its own fixture
 
 - **WHEN** the fixture directory is enumerated
-- **THEN** it SHALL contain at least one rejected-diff fixture for each of the nine blocking shapes, and a test SHALL assert that count
+- **THEN** it SHALL contain at least one rejected-diff fixture for each of the ten blocking shapes, and a test SHALL assert that count

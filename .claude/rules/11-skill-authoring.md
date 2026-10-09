@@ -723,9 +723,12 @@ Known limits, so a reader does not over-trust a green run:
   heading. A heading inserted above pre-existing body text reports as missing — a deliberate
   over-report rather than a miss — and, because a missing declaration is an error, it blocks the
   commit. Put the declaration directly under the heading.
-- A pure rename with 100% similarity produces no `---`/`+++` lines (probed on git 2.56.0), so it is
-  invisible to this lint and to the evidence lint alike. A rename that also changes content is
-  covered. Re-probe after a git upgrade before relying on either half of that sentence.
+- A pure rename with 100% similarity produces no `---`/`+++` lines (probed on git 2.56.0), so its
+  content cannot be inspected. A pure rename **into** `.claude/rules/` therefore fails closed: add the
+  evidence marker and the declaration in the same commit (the rename then has a hunk), or add the file
+  instead. A rename inside `.claude/rules/`, or unrelated to it, is not flagged. The same blind spot
+  still exists for a pure rename into `.claude/hooks/`, which only the evidence lint covers and which
+  this change leaves alone. Re-probe after a git upgrade.
 
 Self-constraint: this section lives here in rule 11 (scoped), not in an always-loaded rule file, and
 it carries its own declaration above — the lint runs over its own addition.

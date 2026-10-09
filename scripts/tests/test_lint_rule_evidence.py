@@ -637,6 +637,7 @@ _BLOCKING_SHAPES = frozenset(
     {
         "bad_missing_declaration_new_file.diff",
         "bad_missing_declaration_existing_file.diff",
+        "bad_pure_rename_into_rules.diff",
         "bad_new_file_no_sections.diff",
         "bad_dangling_link_existing_file.diff",
         "bad_link_to_rule_rename.diff",
@@ -696,7 +697,7 @@ def test_bad_fixture_passes_the_evidence_check(name: str) -> None:
 
 @pytest.mark.parametrize("name", sorted(_BLOCKING_SHAPES))
 def test_bad_fixture_is_rejected_by_pure_function(name: str) -> None:
-    # 九個形狀全是 error 層級：任何 rule 檔缺宣告（新檔、既有檔），或任何假宣告
+    # 十個形狀全是 error 層級：任何 rule 檔缺宣告（新檔、既有檔）、任何假宣告，或看不到內容的純 rename
     errors = lint_rule_evidence.check_rule_mechanization(_fixture_text(name), _fake_read)
     assert errors, f"{name} 應為 error 層級"
 
@@ -880,6 +881,110 @@ def test_staged_mode_runs_the_declaration_check(
     monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", tmp_path)
 
     assert lint_rule_evidence.main([]) == 1
+
+
+# --- 純 rename（沒有 hunk）進 .claude/rules/：看不到內容，fail-closed ---
+#
+# 100% 相似度的 rename 在 git 輸出裡只有 `rename from/to`，沒有 `---`/`+++`，舊 parser 因此
+# 完全看不到它——證據與宣告兩個檢查都沒機會跑，整份檔案靜默通過。
+
+_PURE_RENAME_INTO_RULES = (
+    "diff --git a/scripts/notes.md b/.claude/rules/renamed-pure.md\n"
+    "similarity index 100%\n"
+    "rename from scripts/notes.md\n"
+    "rename to .claude/rules/renamed-pure.md\n"
+)
+
+
+def _pure_rename_diff(old_path: str, new_path: str) -> str:
+    return (
+        f"diff --git a/{old_path} b/{new_path}\n"
+        "similarity index 100%\n"
+        f"rename from {old_path}\n"
+        f"rename to {new_path}\n"
+    )
+
+
+def test_parse_diff_records_a_pure_rename_without_chunks() -> None:
+    files = lint_rule_evidence._parse_diff(_PURE_RENAME_INTO_RULES)
+    assert len(files) == 1
+    assert files[0].pure_rename is True
+    assert (files[0].old_path, files[0].new_path) == (
+        "scripts/notes.md",
+        ".claude/rules/renamed-pure.md",
+    )
+    assert files[0].chunks == []
+
+
+def test_parse_diff_rename_with_hunks_is_one_file_not_two() -> None:
+    """帶內容變更的 rename 同時有 `rename from/to` 與 `---`/`+++`；不可被算成兩個檔案。"""
+    diff = _rename_diff("scripts/notes.md", ".claude/rules/renamed-in.md", ["# T", "內文。"])
+    files = lint_rule_evidence._parse_diff(diff)
+    assert len(files) == 1
+    assert files[0].pure_rename is False
+    assert files[0].added_lines == ["# T", "內文。"]
+
+
+def test_parse_diff_keeps_neighbours_of_a_pure_rename() -> None:
+    """純 rename 夾在其他檔案之間、以及排在最後（EOF 沒有下一個 `diff --git`）都要被收到。"""
+    diff = (
+        _new_file_diff(".claude/rules/29-first.md", ["# First", "內文。"])
+        + _pure_rename_diff("scripts/a.md", ".claude/rules/middle.md")
+        + _existing_file_diff(".claude/rules/13-bash-anti-patterns.md", ["補一句。"])
+        + _pure_rename_diff("scripts/b.md", ".claude/rules/last.md")
+    )
+    files = lint_rule_evidence._parse_diff(diff)
+    assert [(f.new_path, f.pure_rename) for f in files] == [
+        (".claude/rules/29-first.md", False),
+        (".claude/rules/middle.md", True),
+        (".claude/rules/13-bash-anti-patterns.md", False),
+        (".claude/rules/last.md", True),
+    ]
+
+
+def test_pure_rename_into_rules_is_error() -> None:
+    errors = lint_rule_evidence.check_rule_mechanization(_PURE_RENAME_INTO_RULES, _fake_read)
+    assert len(errors) == 1
+    assert ".claude/rules/renamed-pure.md" in errors[0] and "純 rename" in errors[0]
+
+
+def test_pure_rename_within_rules_or_elsewhere_is_not_flagged() -> None:
+    """只擋「從 rules 目錄外進來」：目錄內改名是既有檔；與 rules 無關的 rename 不是本 gate 的事。"""
+    for old, new in [
+        (".claude/rules/old.md", ".claude/rules/new.md"),
+        (".claude/rules/old.md", "docs/moved-out.md"),
+        ("scripts/a.md", "scripts/b.md"),
+    ]:
+        diff = _pure_rename_diff(old, new)
+        assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == [], (old, new)
+
+
+def test_pure_rename_does_not_change_the_evidence_lint() -> None:
+    """純 rename 只由機械化檢查擋下，證據 lint 的結果不變，避免同一件事被兩個 lint 重複回報。"""
+    assert lint_rule_evidence.check_rule_evidence(_PURE_RENAME_INTO_RULES) == []
+    assert lint_rule_evidence.warn_rule_evidence(_PURE_RENAME_INTO_RULES) == []
+
+
+def test_real_git_pure_rename_is_blocked_in_staged_and_range_modes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """真實 git 輸出（不是手寫 fixture）：`git mv` 進 .claude/rules/ 後兩個執行點都要擋。"""
+    _init_repo(tmp_path)
+    notes = tmp_path / "scripts" / "notes.md"
+    notes.parent.mkdir(parents=True)
+    notes.write_text("# Notes\n\n## Section\n\n內文。(Source: PR #339)\n", encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "seed notes")
+    base = _git(tmp_path, "rev-parse", "HEAD")
+    monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", tmp_path)
+    (tmp_path / ".claude" / "rules").mkdir(parents=True)
+
+    _git(tmp_path, "mv", "scripts/notes.md", ".claude/rules/moved-in.md")
+    assert lint_rule_evidence.main([]) == 1, "staged 模式"
+
+    _git(tmp_path, "commit", "-q", "-m", "move notes into rules")
+    head = _git(tmp_path, "rev-parse", "HEAD")
+    assert lint_rule_evidence.main(["--base", base, "--head", head]) == 1, "range 模式"
 
 
 # --- 無法驗證連結時大聲失敗 ---
