@@ -661,7 +661,9 @@ Four enforcement points, matching the "gate belongs at every entrance" disciplin
 2. **Commit-time** — `scripts/lint_rule_evidence.py` (pre-commit `lint-rule-evidence`, staged-diff
    mode) fails the commit when a **new** `.claude/rules/NN-*.md` file or a new `.claude/hooks/*`
    script carries no evidence marker; a **new section in an existing** rule file is warn-only at
-   first (advisory, `verbose: true`), so the historical corpus is not retro-blocked. The checker is
+   first (advisory, `verbose: true`), so the historical corpus is not retro-blocked. That tier
+   applies to the *evidence marker* only — a missing mechanization declaration (see "Every New
+   Rule Section Declares Whether It Could Have Been a Gate") is an error in existing files too. The checker is
    the pure function `check_rule_evidence(diff_text) -> list[str]` — test its failure paths with
    synthetic diffs, not only against real files (same reason `lint_shell_subshell_exit.py`'s
    negative controls matter).
