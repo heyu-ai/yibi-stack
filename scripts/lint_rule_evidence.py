@@ -395,10 +395,15 @@ def _rule_sections(fd: "_FileDiff") -> list[tuple[str, list[str]]]:
 def check_rule_mechanization(diff_text: str, read_gate_file: GateReader) -> list[str]:
     """回傳 **error** 訊息清單（空 = 無 error）。
 
-    兩類 error：新 rule 檔的 section 缺宣告（新檔沒有任何 section 時改要求檔案層級宣告，
-    否則整份檔案會逃過檢查）；以及任何 rule 檔（新或既有）內的**假宣告**——連結指向不存在
-    或不合格的目標、豁免理由不在列舉內、說明為佔位、同 section 多個宣告。假宣告不降級成
-    warn：把它降級等於教人亂填通過。
+    兩類 error，且**不分新檔或既有檔、不降級成 warn**：
+    - 缺宣告：`.claude/rules/*.md` 新增的 section 沒有任何宣告。新檔沒有任何 section 時改要求
+      檔案層級宣告，否則整份檔案會逃過檢查。
+    - 假宣告：連結指向不存在或不合格的目標、豁免理由不在列舉內、說明為佔位、同 section 多個
+      宣告。把它降級成 warn 等於教人亂填通過。
+
+    缺宣告原本在既有檔只是 warn（起步期漸進）。改成 error 的代價要說清楚：因為 diff 以
+    `--unified=0` 讀取，宣告必須與其 heading 位於**同一個 hunk**；把 heading 插在既有內文
+    之上、宣告落在未變動行時，會被擋下。這是刻意的保守誤報，修法是把宣告緊接在 heading 後。
 
     `read_gate_file(path)` 回傳檔案內容、不存在回 `None`；其他 OS 錯誤原樣 raise，由
     `main()` 轉 exit 2。純函式只透過它碰檔案系統，測試因此能用假檔案系統構造負向案例。
@@ -413,31 +418,13 @@ def check_rule_mechanization(diff_text: str, read_gate_file: GateReader) -> list
         for heading, block in units:
             payloads = _declaration_payloads(block)
             if not payloads:
-                if is_new:
-                    errors.append(f"{fd.new_path}：新 rule 檔的 section「{heading}」缺少機械化宣告")
+                errors.append(f"{fd.new_path}：新增 section「{heading}」缺少機械化宣告")
                 continue
             errors.extend(
                 f"{fd.new_path}：section「{heading}」{problem}"
                 for problem in _declaration_problems(payloads, read_gate_file)
             )
     return errors
-
-
-def warn_rule_mechanization(diff_text: str) -> list[str]:
-    """回傳 **warn** 訊息清單；既有 rule 檔新增 section 缺機械化宣告（起步期不擋 commit）。"""
-    warns: list[str] = []
-    for fd in _parse_diff(diff_text):
-        if not _NEW_RULE_FILE_RE.fullmatch(fd.new_path):
-            continue
-        if _is_newly_protected(fd.old_path, fd.new_path, _NEW_RULE_FILE_RE):
-            continue  # 新檔 / rename 進來的檔案由 error 層處理
-        warns.extend(
-            f"{fd.new_path}：新增 section「{heading}」缺少機械化宣告"
-            "（建議補 `<!-- gate: <path> -->` 連結既有 gate，或 `<!-- gate: none (reason: ...) — ... -->`）"
-            for heading, block in _rule_sections(fd)
-            if not _declaration_payloads(block)
-        )
-    return warns
 
 
 def _run_git_diff(args: list[str], label: str) -> str:
@@ -552,7 +539,7 @@ def main(argv: list[str], read_gate_file: GateReader | None = None) -> int:
             print(f"[FAIL] {e}", file=sys.stderr)
             return 2
 
-    warns = warn_rule_evidence(diff_text) + warn_rule_mechanization(diff_text)
+    warns = warn_rule_evidence(diff_text)
     for w in warns:
         print(f"  [WARN] {w}", file=sys.stderr)
 

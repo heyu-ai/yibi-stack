@@ -1,0 +1,7 @@
+diff --git a/.claude/rules/13-bash-anti-patterns.md b/.claude/rules/13-bash-anti-patterns.md
+--- a/.claude/rules/13-bash-anti-patterns.md
++++ b/.claude/rules/13-bash-anti-patterns.md
+@@ -300,0 +301,3 @@
++### Undeclared Section In Existing File
++
++有證據但沒有說明為何不是 gate。(Source: PR #339)

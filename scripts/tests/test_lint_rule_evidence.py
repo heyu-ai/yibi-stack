@@ -636,6 +636,7 @@ _FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "rule_mechanizatio
 _BLOCKING_SHAPES = frozenset(
     {
         "bad_missing_declaration_new_file.diff",
+        "bad_missing_declaration_existing_file.diff",
         "bad_new_file_no_sections.diff",
         "bad_dangling_link_existing_file.diff",
         "bad_link_to_rule_rename.diff",
@@ -695,7 +696,7 @@ def test_bad_fixture_passes_the_evidence_check(name: str) -> None:
 
 @pytest.mark.parametrize("name", sorted(_BLOCKING_SHAPES))
 def test_bad_fixture_is_rejected_by_pure_function(name: str) -> None:
-    # 八個形狀都是 error 層級：新檔缺宣告，或任何假宣告
+    # 九個形狀全是 error 層級：任何 rule 檔缺宣告（新檔、既有檔），或任何假宣告
     errors = lint_rule_evidence.check_rule_mechanization(_fixture_text(name), _fake_read)
     assert errors, f"{name} 應為 error 層級"
 
@@ -716,7 +717,6 @@ def test_good_fixtures_exist() -> None:
 def test_good_fixtures_report_nothing(name: str) -> None:
     diff = _fixture_text(name)
     assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
-    assert lint_rule_evidence.warn_rule_mechanization(diff) == []
     assert lint_rule_evidence.main([str(_FIXTURE_DIR / name)]) == 0
 
 
@@ -779,20 +779,24 @@ def test_exemption_without_explanation_separator_is_error() -> None:
     assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
 
 
-# --- 分層強制 ---
+# --- 缺宣告在新檔與既有檔一律是 error（不分層）---
 
 
-def test_missing_declaration_in_existing_file_is_warn_not_error() -> None:
+def test_missing_declaration_in_existing_file_is_error() -> None:
     diff = _existing_rule_section_diff([])
-    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
-    warns = lint_rule_evidence.warn_rule_mechanization(diff)
-    assert warns and "Added Section" in warns[0]
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert errors and "Added Section" in errors[0]
 
 
-def test_missing_declaration_in_existing_file_exits_zero(tmp_path: Path) -> None:
+def test_missing_declaration_in_existing_file_exits_one(tmp_path: Path) -> None:
     diff_file = tmp_path / "existing-undeclared.diff"
     diff_file.write_text(_existing_rule_section_diff([]), encoding="utf-8")
-    assert lint_rule_evidence.main([str(diff_file)]) == 0
+    assert lint_rule_evidence.main([str(diff_file)]) == 1
+
+
+def test_no_mechanization_warn_function_remains() -> None:
+    """缺宣告已全面升為 error，不應殘留一個永遠回空清單的 warn 入口誤導讀者。"""
+    assert not hasattr(lint_rule_evidence, "warn_rule_mechanization")
 
 
 def test_renamed_in_rule_file_without_declaration_is_error() -> None:
@@ -808,14 +812,13 @@ def test_declaration_only_inside_a_fence_does_not_count() -> None:
     diff = _existing_rule_section_diff(
         ["```text", "<!-- gate: scripts/lint_rule_evidence.py -->", "```"]
     )
-    assert lint_rule_evidence.warn_rule_mechanization(diff)
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
 
 
 def test_unchanged_sections_are_not_scanned() -> None:
     """只在既有 section 內新增內容（沒有新 heading）不觸發。"""
     diff = _existing_file_diff(".claude/rules/13-bash-anti-patterns.md", ["只是補一句內文。"])
     assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
-    assert lint_rule_evidence.warn_rule_mechanization(diff) == []
 
 
 # --- 與證據檢查互相獨立 ---
@@ -823,7 +826,7 @@ def test_unchanged_sections_are_not_scanned() -> None:
 
 def test_evidence_marker_does_not_satisfy_the_declaration() -> None:
     diff = _existing_rule_section_diff([], evidence=True)
-    assert lint_rule_evidence.warn_rule_mechanization(diff)
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
 
 
 def test_declaration_does_not_satisfy_the_evidence_marker() -> None:
@@ -987,14 +990,14 @@ def _real_rule_diff(declaration: str | None) -> str:
 
 
 def test_real_rule_copy_with_injected_section_is_flagged() -> None:
-    warns = lint_rule_evidence.warn_rule_mechanization(_real_rule_diff(None))
-    assert warns and "Injected Undeclared Section" in warns[0]
+    errors = lint_rule_evidence.check_rule_mechanization(_real_rule_diff(None), _fake_read)
+    assert errors and "Injected Undeclared Section" in errors[0]
 
 
 def test_real_rule_copy_with_declared_section_is_clean() -> None:
     """對照的對照：同一份真實檔案、同一個注入，只差宣告，反應必須翻轉。"""
     diff = _real_rule_diff("<!-- gate: scripts/lint_rule_evidence.py::check_rule_evidence -->")
-    assert lint_rule_evidence.warn_rule_mechanization(diff) == []
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
 
 
 def test_injection_anchor_missing_fails() -> None:

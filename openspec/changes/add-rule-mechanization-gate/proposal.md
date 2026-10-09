@@ -9,7 +9,7 @@
 - 擴充 `scripts/lint_rule_evidence.py`：新增「機械化宣告」檢查。`.claude/rules/*.md` 新增的 `##` / `###` section 必須在 section 內含下列宣告之一：
   - 連結宣告（HTML 註解形式，語法見 design.md）：路徑必須存在，且落在封閉的 gate 目錄清單（`scripts/`、`.claude/hooks/`、`.pre-commit-config.yaml`、`.github/workflows/`、`scripts/tests/`、`tasks/**/tests/`）。指向另一份 rule 或 SKILL.md 不算 gate。
   - 豁免宣告（同為 HTML 註解形式）：reason 為封閉列舉（`judgment`、`no-observable-signal`、`hook-cost`），說明不可為空或佔位字樣。
-- 分層強制沿用 evidence lint 既有模式：**新增 rule 檔** 缺宣告為 error；**既有 rule 檔新增 section** 缺宣告為 warn（起步期不擋，避免歷史 corpus 一次爆紅）。連結宣告指向不存在或不合格路徑，在兩層都是 error（dangling link 不是「缺宣告」，是假宣告）。
+- 缺宣告與假宣告**一律為 error，不分新檔或既有檔**。原先既有 rule 檔新增 section 缺宣告只 warn（起步期漸進），但人類裁決不接受這個殘餘風險，改為 error。假宣告（dangling link 等）本來就不降級：降級等於教人亂填通過。
 - 新增正向對照 fixture（`scripts/tests/fixtures/rule_mechanization/`）：每個「必須被擋下」的壞輸入形狀各一份 committed diff，加一份由真實 rule 檔複製後注入壞 section 的對照；測試同時斷言 production 入口 `main()` 對這些 fixture 回傳非零，防止「入口短路成成功仍全綠」。
 - 更新 `plugins/growth/skills/pr-retrospective/SKILL.md` Step 5 的 rule 草稿模板，讓 agent 產出的建議文字自帶宣告欄位；補 anchor 測試。
 - 在 `.claude/rules/11-skill-authoring.md`（scoped，非常駐）記錄宣告語法。不在 01/03/13/15/16 新增文字。
@@ -26,7 +26,7 @@
 
 ### New Capabilities
 
-- `rule-mechanization-gate`: rule 新增段落的機械化宣告契約，含連結宣告與豁免宣告的語法、合格 gate 目錄的封閉清單、分層強制，以及正向對照 fixture 的覆蓋要求。
+- `rule-mechanization-gate`: rule 新增段落的機械化宣告契約，含連結宣告與豁免宣告的語法、合格 gate 目錄的封閉清單、強制語意（缺宣告與假宣告在所有 rule 檔一律 error），以及正向對照 fixture 的覆蓋要求。
 
 ### Modified Capabilities
 

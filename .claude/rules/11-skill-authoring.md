@@ -708,10 +708,11 @@ unverified causal claim). `no-observable-signal` means nothing is detectable at 
 worktree can brick the session, and a `PreToolUse` hook on `Edit|Write` removes the Edit escape.
 There is no catch-all reason: adding one means editing the constant, the spec and the fixtures.
 
-Enforcement mirrors the evidence lint. A missing declaration is an **error** in a new rule file and
-a **warn** for a new section in an existing one. A **false** declaration (dangling link, rule-file
-target, reason outside the list, placeholder explanation, two declarations in one section) is an
-error in both, because downgrading it would teach people to fill the field with anything.
+A missing declaration is an **error**, in a new rule file and in a new section of an existing one
+alike. So is a **false** declaration (dangling link, rule-file target, reason outside the list,
+placeholder explanation, two declarations in one section) — downgrading either would let a section
+land with no gate decision recorded. Only **added** sections are checked; existing sections are not
+backfilled. (This was a warn for existing files in the first draft; that tier was dropped.)
 
 Known limits, so a reader does not over-trust a green run:
 
@@ -720,7 +721,8 @@ Known limits, so a reader does not over-trust a green run:
   `harness-weekly-review`, not this lint.
 - The diff is read with `--unified=0`, so the declaration must be added in the **same hunk** as its
   heading. A heading inserted above pre-existing body text reports as missing — a deliberate
-  over-report rather than a miss.
+  over-report rather than a miss — and, because a missing declaration is an error, it blocks the
+  commit. Put the declaration directly under the heading.
 - A pure rename with 100% similarity produces no `---`/`+++` lines (probed on git 2.56.0), so it is
   invisible to this lint and to the evidence lint alike. A rename that also changes content is
   covered. Re-probe after a git upgrade before relying on either half of that sentence.

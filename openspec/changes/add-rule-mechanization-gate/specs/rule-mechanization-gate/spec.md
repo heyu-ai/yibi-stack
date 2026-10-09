@@ -77,19 +77,24 @@ A gate exemption SHALL name exactly one reason from the closed set `judgment`, `
 - **WHEN** a section declares `<!-- gate: none (reason: judgment) — requires reading the reviewer prompt for unverified causal claims -->`
 - **THEN** the lint SHALL report no finding for that section
 
-### Requirement: Enforcement is tiered by file novelty
+### Requirement: Missing and false declarations are errors in every rule file
 
-A newly added rule file whose sections lack a declaration SHALL produce an error and a non-zero exit. A newly added section in an already-existing rule file that lacks a declaration SHALL produce a warning only. The lint SHALL NOT require declarations on sections that already exist, and SHALL NOT scan unchanged content. A rename of a file into `.claude/rules/` from outside that directory, where the diff carries at least one hunk of its content, SHALL be treated as a new rule file. A pure 100%-similarity rename carries no hunk and is a documented residual, because the diff text then contains no content to inspect.
+A newly added section that lacks a declaration SHALL produce an error and a non-zero exit, whether the rule file is newly added or already exists. A false declaration SHALL produce the same error. There is no warning tier for either. The lint SHALL NOT require declarations on sections that already exist, and SHALL NOT scan unchanged content. A rename of a file into `.claude/rules/` from outside that directory, where the diff carries at least one hunk of its content, SHALL be treated as a new rule file. A pure 100%-similarity rename carries no hunk and is a documented residual, because the diff text then contains no content to inspect.
 
 #### Scenario: New rule file without declarations fails
 
 - **WHEN** a diff adds `.claude/rules/20-new-topic.md` containing one `##` section without a declaration
 - **THEN** the lint SHALL exit with code 1
 
-#### Scenario: New section in existing rule file only warns
+#### Scenario: New section in existing rule file fails
 
 - **WHEN** a diff adds one undeclared `###` section to `.claude/rules/13-bash-anti-patterns.md`
-- **THEN** the lint SHALL print a warning naming the heading and SHALL exit with code 0
+- **THEN** the lint SHALL name the heading in its error output and SHALL exit with code 1
+
+#### Scenario: Declaration outside the heading's hunk is reported missing
+
+- **WHEN** a diff inserts a `###` heading above pre-existing body text that already contains a declaration, so the declaration is not among the added lines of the heading's hunk
+- **THEN** the lint SHALL report the section as missing a declaration and SHALL exit with code 1, as a documented conservative over-report
 
 #### Scenario: Rename into the rules directory is treated as new
 
@@ -126,7 +131,7 @@ Resolving a gate link SHALL use the repository root of the checkout being linted
 
 ### Requirement: Every blocking shape has a committed positive control
 
-For each shape the lint is specified to block, the repository SHALL contain a committed fixture diff that the lint must reject, and a test SHALL assert the rejection through both the pure function and the process entry point `main()`. The blocking shapes are: missing declaration, new file without sections, dangling link, link to a rule file, link to a missing symbol, unknown exemption reason, placeholder explanation, and conflicting declarations. At least one fixture SHALL be derived from a copy of a real rule file with an undeclared section injected, and the test SHALL assert that the injected anchor was applied before asserting the lint reaction.
+For each shape the lint is specified to block, the repository SHALL contain a committed fixture diff that the lint must reject, and a test SHALL assert the rejection through both the pure function and the process entry point `main()`. The blocking shapes are: missing declaration in a new file, missing declaration in an existing file, new file without sections, dangling link, link to a rule file, link to a missing symbol, unknown exemption reason, placeholder explanation, and conflicting declarations. At least one fixture SHALL be derived from a copy of a real rule file with an undeclared section injected, and the test SHALL assert that the injected anchor was applied before asserting the lint reaction.
 
 #### Scenario: Entry point short-circuit turns the controls red
 
@@ -141,4 +146,4 @@ For each shape the lint is specified to block, the repository SHALL contain a co
 #### Scenario: Each blocking shape has its own fixture
 
 - **WHEN** the fixture directory is enumerated
-- **THEN** it SHALL contain at least one rejected-diff fixture for each of the eight blocking shapes, and a test SHALL assert that count
+- **THEN** it SHALL contain at least one rejected-diff fixture for each of the nine blocking shapes, and a test SHALL assert that count
