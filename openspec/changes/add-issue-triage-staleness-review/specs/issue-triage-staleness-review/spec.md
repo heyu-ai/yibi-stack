@@ -63,12 +63,17 @@ The skill SHALL assign each issue to an inactivity tier and SHALL apply the tier
 | 2 | 90 to 179 days | the code drift signal SHALL be collected, and a KEEP verdict SHALL cite affirmative evidence that the issue's premise still holds |
 | 3 | 180 days or more | all tier 2 requirements, and the issue becomes eligible for the STALE-CANDIDATE verdict |
 
-The tier boundaries are initial values and SHALL be presented to the user for calibration on the first run.
+The tier boundaries are initial values and SHALL be presented to the user for calibration on the first run. When no affirmative evidence can be found for a tier 2 or tier 3 KEEP, the verdict SHALL remain KEEP, the report SHALL flag the issue as premise-unverified, and the flag SHALL NOT by itself cause a close recommendation.
 
 #### Scenario: Tier 2 KEEP requires affirmative evidence
 
 - **WHEN** an issue with 100 days of inactivity has all symptoms NOT DONE and its referenced files still exist unchanged on the baseline
 - **THEN** the KEEP verdict in the report cites the existing files as evidence that the premise still holds
+
+#### Scenario: Tier 2 KEEP without affirmative evidence is flagged
+
+- **WHEN** an issue with 100 days of inactivity references no repository paths and the symptom verification could not confirm that the affected behavior still exists
+- **THEN** the verdict stays KEEP, the report flags the issue as premise-unverified, and no close is recommended
 
 #### Scenario: Tier 1 collects drift only
 
@@ -90,7 +95,7 @@ The tier boundaries are initial values and SHALL be presented to the user for ca
 
 ### Requirement: Code drift signal
 
-For every repository-relative file path referenced in an issue body, the skill SHALL report its state on the evidence baseline as one of: unchanged since the issue creation time, changed since the issue creation time with the number of commits, deleted, or renamed. A path that does not exist on the baseline and is neither deleted nor renamed in history SHALL be reported as never existed. Drift collection SHALL be implemented by a standalone script so that the skill document contains a single script invocation instead of multi-step shell logic.
+For every repository-relative file path referenced in an issue body, the skill SHALL report its state on the evidence baseline as one of: unchanged since the issue creation time, changed since the issue creation time with the number of commits, deleted, or renamed. A path that does not exist on the baseline and is neither deleted nor renamed in history SHALL be reported as never existed. A never-existed state SHALL NOT by itself demonstrate that a premise has vanished, because it usually means the issue mistyped the path. Drift collection SHALL be implemented by a standalone script so that the skill document contains a single script invocation instead of multi-step shell logic.
 
 #### Scenario: Referenced file was deleted
 
@@ -106,6 +111,11 @@ For every repository-relative file path referenced in an issue body, the skill S
 
 - **WHEN** an issue body contains no repository-relative file path
 - **THEN** the drift signal is reported as not applicable and the absence of drift is not treated as evidence that the premise holds
+
+#### Scenario: Never-existed path is not evidence of absence
+
+- **WHEN** an issue references a path that never existed anywhere in the baseline history
+- **THEN** the drift signal is reported as never existed and the issue does not receive the OBSOLETE verdict on that basis
 
 ### Requirement: OBSOLETE verdict
 
@@ -128,7 +138,7 @@ The skill SHALL assign the OBSOLETE verdict to an issue only when every unresolv
 
 ### Requirement: STALE-CANDIDATE verdict and grace period
 
-The skill SHALL assign the STALE-CANDIDATE verdict only to an issue that would otherwise receive KEEP, whose inactivity age is 180 days or more, whose premise has not been shown absent, and to which no exemption applies. The recommended action for a first-time STALE-CANDIDATE SHALL be to post a stale notice asking whether the issue is still needed, stating a grace period of 14 days. A stale notice marker SHALL be recognized only on a comment authored by the account that is running the skill. When an issue already carries a recognized stale notice marker, at least 14 days have elapsed since that notice, and no substantive human activity occurred after it, the skill SHALL recommend closing the issue with reason "not planned". When substantive human activity occurred after the notice, the issue SHALL be evaluated as if no notice existed. The skill SHALL NOT recommend closing any issue on the basis of inactivity age alone, without a prior stale notice and an elapsed grace period.
+The skill SHALL assign the STALE-CANDIDATE verdict only to an issue that would otherwise receive KEEP, whose inactivity age is 180 days or more, whose premise has not been shown absent, and to which no exemption applies. The recommended action for a first-time STALE-CANDIDATE SHALL be to post a stale notice asking whether the issue is still needed, stating a grace period of 14 days. A stale notice marker SHALL be recognized only on a comment authored by the account that is running the skill. When an issue already carries a recognized stale notice marker, at least 14 days have elapsed since that notice, and no substantive human activity occurred after it, the skill SHALL recommend closing the issue with reason "not planned". When substantive human activity occurred after the notice, the issue SHALL be evaluated as if no notice existed. The skill SHALL NOT recommend closing any issue on the basis of inactivity age alone, without a prior stale notice and an elapsed grace period. Before a closing comment is posted after an elapsed grace period, the skill SHALL measure the inactivity again and SHALL cancel the close when substantive human activity occurred after the notice.
 
 #### Scenario: First stale candidate
 
@@ -154,6 +164,11 @@ The skill SHALL assign the STALE-CANDIDATE verdict only to an issue that would o
 
 - **WHEN** an otherwise-KEEP issue has 900 days of inactivity and no stale notice marker
 - **THEN** the recommended action is never a close and is at most the stale notice
+
+#### Scenario: Reply arrives between the verdict and the write
+
+- **WHEN** the report recommended closing an issue after an elapsed grace period and a human commented before the user confirmed the close
+- **THEN** the skill measures the inactivity again before writing, cancels the close, and lists the issue as cancelled because of new activity
 
 ### Requirement: Exemptions from staleness verdicts
 
@@ -205,3 +220,21 @@ Posting a stale notice, closing an issue as obsolete, and closing a stale issue 
 
 - **WHEN** the user passes the apply option and confirms a stale notice for one issue
 - **THEN** exactly that issue receives the stale notice comment carrying the triage marker
+
+### Requirement: Unavailable staleness data fails safe
+
+When the inactivity measurement or the code drift signal cannot be obtained for an issue, the skill SHALL NOT assign STALE-CANDIDATE or OBSOLETE to that issue, SHALL NOT treat the missing data as human activity or as the absence of drift, and SHALL list the issue in the report as staleness review unavailable together with the reason. The remaining verdicts for that issue SHALL still be computed.
+
+#### Scenario: Comment lookup fails for one issue
+
+- **WHEN** the call that fetches the comments of one issue fails while the other issues succeed
+- **THEN** that issue is listed as staleness review unavailable, receives no STALE-CANDIDATE or OBSOLETE verdict, and the other issues are triaged normally
+
+### Requirement: Staleness verdicts apply to GitHub issues only
+
+The OBSOLETE and STALE-CANDIDATE verdicts SHALL be assigned only to GitHub issues. Jira bugs SHALL continue to receive only the verdicts that existed before this capability, because the Jira updated field, comment authors, and automation accounts have different semantics and need a separate design.
+
+#### Scenario: Old Jira bug
+
+- **WHEN** a Jira bug has had no update for 400 days
+- **THEN** it is not assigned OBSOLETE or STALE-CANDIDATE and is triaged with the existing verdict table rows only

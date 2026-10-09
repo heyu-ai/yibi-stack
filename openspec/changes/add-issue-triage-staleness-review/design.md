@@ -88,6 +88,7 @@ Step 6 的「時效」列把長期無活動導向低優先，與新的過期檢�
 - 每個 GitHub issue 取得「最後一次實質人為活動」與天數分層；Jira bug 不套用本 change 的過期判斷。
 - 決策表新增兩列並改優先序：MERGE > CLOSE > OBSOLETE > UPDATE-SCOPE > STALE-CANDIDATE > KEEP。
 - STALE-CANDIDATE 只能由原本會 KEEP（含 KEEP external）的 issue 升級；先提議貼 stale notice，寬限期滿且無人為活動才提議以 not planned 關閉；有人為活動即重新計算。
+- 寬限期滿的關閉，在寫入前重新量測最後人為活動；有新活動就取消，列入「已取消」，因為從判定到使用者逐項確認之間可能有人回覆了。
 - skill 貼出的每則留言都帶標記；寫入動作仍然是 opt-in、逐項確認、排程情境一律停在報告。
 
 **Interface / data shape**
@@ -115,6 +116,8 @@ Step 6 的「時效」列把長期無活動導向低優先，與新的過期檢�
 
 - fetch 失敗、基準不一致、tracked 檔案被修改：整個盤點停止，不產出任何 verdict。
 - 腳本自身未預期錯誤（exit 1）：視為工具錯誤，回報並停止，不當成「沒有漂移」。
+- 單一 issue 的過期資料取不到（last-human-activity.sh 或 staleness-signals.sh 失敗）：該 issue 不得升為 STALE-CANDIDATE 或 OBSOLETE，報告列為「過期檢視不可用」，其餘 verdict 照常計算；缺資料不得被當成人為活動，也不得被當成沒有漂移。
+- tier 2 以上的 KEEP 找不到「前提仍成立」的正向證據：維持 KEEP，報告標 premise-unverified；這個旗標本身不得導致任何關閉建議。
 - 無法判定 bot 或 skill 留言：往「視為人為活動」的方向失敗（較安全）。
 
 **Acceptance criteria**
