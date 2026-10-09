@@ -8,10 +8,12 @@ description: >
   issue / bug 是否應該關閉 / 更新範圍 / 整併 / 更新 label，並產出優先處理排序。
   核心規則:不看「有沒有相關 PR 合併」就判定完成，而是把 issue body 拆成獨立症狀逐一
   對照現有程式碼；綁 openspec/spectra change 的以 tasks.md checkbox 為 ground truth；
-  issue 留言明確要求 keep-open 的要尊重。
+  issue 留言明確要求 keep-open 的要尊重。驗證程式碼症狀前先確認基準是剛 fetch 的 origin/main；
+  久未更新的 GitHub issue 依天數分層加重檢視前提是否已消失（OBSOLETE / STALE-CANDIDATE），絕不僅憑天數關閉。
   預設只產報告，寫入動作（close / comment / relabel / transition）需使用者確認後才執行。
   觸發情境：「盤點 github issue」「檢查 issue 狀態」「哪些 issue 該關閉」「issue triage」
   「清理 issue」「整併 issue」「更新 issue label」「issue 優先排序」「該關掉哪些 issue」
+  「久未更新的 issue」「過期 issue」「stale issue」
   「盤點 jira bug」「jira bug triage」「哪些 jira bug 該關」。
   這是 **Issue** 盤點治理，不是 PR review——單一 PR 的 review/lifecycle 請改用
   /pr-review-cycle、/pr-cycle-fast、/pr-cycle-deep；單一 PR 收尾回顧請改用 /pr-retro。
@@ -63,7 +65,8 @@ description: >
    任何 `gh issue close / comment / edit` 或 Jira transition / comment。
 2. **寫入需明示 opt-in**：任何 close / relabel / 貼留言 / 整併 / Jira transition，
    只有在使用者明確要求（`--apply` 或口頭同意某幾筆）後才執行，且**逐項確認**。
-3. **無互動確認步驟**：排程情境下無人回答，此時一律停在報告，不進 Step 8。
+3. **無互動確認步驟**：排程情境下無人回答，此時一律停在報告，不進 Step 8；OBSOLETE 與 STALE-CANDIDATE
+   的寫入動作（關閉、stale notice）也不例外。
 4. **判斷不可逆才停**：關閉 issue 本身可 re-open，屬低風險；但「誤關一個其實沒做完的
    issue」會讓工作被遺忘，成本高於留著。存疑一律傾向 KEEP + 留言，而非 CLOSE。
 5. **Jira 寫入受 hook 保護**：若 repo 有 `pre-jira-write.sh` hook（如 yibi-mvp），
@@ -124,6 +127,37 @@ getAccessibleAtlassianResources()
 
 從 `getAccessibleAtlassianResources` 回傳中找到對應站台的 `id`（即 `cloudId`），
 記下供後續 Jira API 呼叫使用。
+
+### 1c. 證據基準（必要，在任何程式碼驗證之前）
+
+Step 3b 之後的每一個 DONE / NOT DONE 都是拿「目前的程式碼」判斷的。本機 main 落後、或 checkout
+停在別的 feature 分支時，兩種判斷都會反過來。所以驗證之前先 fetch origin main，並確認被檢視的就是
+origin/main 的內容。**只要這次執行會對照程式碼驗證症狀就必須先過這一步**，包含只盤點 Jira bug
+（`--jira`）與只研判單一項目（`#<n>`）的執行。
+
+在要盤點的 repo 目錄內執行（不要 `cd`；腳本只吃目前目錄）：
+
+```bash
+bash ~/.agents/skills/issue-triage/scripts/check-baseline.sh
+```
+
+成功時 stdout 只有一行 `BASELINE_SHA=<40 字元 SHA> FETCHED_AT=<ISO 8601>`，把兩個值記下，
+Step 7 報告頂端要寫出來。失敗時 stdout 為空、stderr 以 `[FAIL]` 開頭。**每個 exit code 是獨立分支，
+不要合併成單一失敗**：
+
+| exit | 意義 | 處理 |
+|------|------|------|
+| 0 | 基準通過 | 記下 `BASELINE_SHA` 與 `FETCHED_AT`，繼續 Step 2 |
+| 1 | 腳本自身的未預期錯誤 | `[FAIL] check-baseline.sh 自身錯誤，請回報 stderr 內容` 並停止；不要當成基準通過 |
+| 2 | 不在可讀取的 git repo | `[FAIL] 目前目錄不是可讀取的 git repo` 並停止，請切到要盤點的 repo |
+| 3 | fetch origin main 失敗 | `[FAIL] 無法 fetch origin main，無法確認證據基準` 並停止；不要回退到本機的 origin/main |
+| 4 | checkout 與 origin/main 不一致 | `[FAIL] checkout 與 origin/main 不一致`，轉述 stderr 的 ahead／behind 數並停止；補救是從 origin/main 開乾淨的 worktree，或先更新主 checkout |
+| 5 | tracked 檔案有未提交的修改 | `[FAIL] tracked 檔案有未提交的修改`，轉述 stderr 的檔案數與清單並停止；補救是提交、還原，或改在乾淨的 worktree 執行 |
+
+殘餘風險：untracked 檔案不算失敗，但 Grep 工具會搜到它們，可能造成假的 DONE。主 checkout 的
+untracked 暫存目錄極為常見，列為失敗會讓檢查幾乎永遠紅，所以刻意放行；懷疑時改在乾淨的 worktree 執行。
+
+> 已知限制：基準固定為 `origin/main`。fork 的 `origin` 可能落後 `upstream`，這種情境尚未處理。
 
 ---
 
@@ -217,7 +251,8 @@ issue/bug 數量多時，**平行 dispatch 一個唯讀探索 subagent**（不�
 
 **目的**：label 是最不會被更新的東西——PM 做了裁決、spec 補齊了 gap、harness 工具改版了，
 但原本開的追蹤 issue 不會自動關閉。本步驟交叉查 openspec archive / ADR / 流程狀態，
-找出 label 過時、實質上已解決或已失效的 issue。**越舊的 issue 越要查。**
+找出 label 過時、實質上已解決或已失效的 issue。**越舊的 issue 越要查**——「多久算舊、要多查什麼」
+由 3d′ 的過期分層表決定，不是憑感覺。
 
 對以下三類 issue，**不能只靠 label 判 KEEP**：
 
@@ -286,23 +321,152 @@ issue 數量多時（>10），按上述三類各 dispatch 一個 fork subagent �
 - **keep-open 訊號**：「backlog」「deferred」「低優先」「保留」等 -> 導向 KEEP。
 - **close-authorization 訊號**：「可直接關閉」「已修復可關」等 -> 且無未解症狀時導向 CLOSE。
 
+### 3d′. 過期檢視輸入（僅 GitHub issue）
+
+久未更新的 issue 不是低優先，而是「前提可能已消失」的嫌疑對象。本節蒐集四項輸入——最後一次實質人為活動、
+過期分層、程式碼漂移、豁免——決定**要多查什麼**。**天數只決定檢視深度與證據門檻，從不單獨決定關閉**：
+真實的 bug 會因為沒人處理而久未更新，僅憑天數關閉會把它們關掉，違反本 skill「誤關成本高於留著」的原則。
+Jira bug 不適用本節（Jira 的 updated 欄位、留言者與自動化帳號語意與 GitHub 不同，另案處理）。
+
+#### 最後一次實質人為活動
+
+定義：issue 建立時間，與所有「非 bot 且非 skill 自己」的留言時間之中最晚的一個。label、assignee、reaction
+的變動不計入；issue body 的編輯也不計入（gh 的 JSON 沒有穩定的編輯時間欄位，這個低估活躍度的方向是安全的）。
+無人為活動的天數 = 今天（UTC）減去這個時間。
+
+- **bot 只看帳號型別**（REST 回報的 user.type 為 Bot），**不看 login 文字**：`gh issue list` 的 JSON 會把
+  `github-actions[bot]` 顯示成 `github-actions`，`Copilot` 這類 bot 本來就沒有 `[bot]` 後綴。
+  已刪除的帳號與沒見過的帳號型別一律視為人為活動（往「看起來比較活躍」的安全方向失敗）。
+- **skill 自己的留言** = 內文含 triage 標記（見本節最後一段）**且**作者是目前登入的帳號。標記單獨出現
+  不夠：任何人都能貼上標記，只看標記會讓他的留言從度量中隱形。另一個帳號貼出的標記一律算人為活動。
+
+先用 Step 2a 的 JSON 粗算「全部留言都計入」的最後活動日（`naive`）。**只有符合下列任一條件才呼叫腳本**取得
+精確值（腳本對每個 issue 做一次 REST 呼叫）：
+
+- `naive` 距今小於 180 天：排除 bot 後只會更久，需要精確值才知道落在哪一層。
+- 任一留言內文含 `issue-triage:stale-notice`：需要找回 stale notice 的時間來判斷寬限期；notice 可能早於 180 天。
+
+`naive` 已達 180 天且沒有 stale notice 標記者，直接落在 tier 3，報告寫「≥ {{naive_days}} 天」，不必呼叫腳本。
+
+```bash
+bash ~/.agents/skills/issue-triage/scripts/last-human-activity.sh {{issue_number}}
+```
+
+成功時 stdout 一行、以 tab 分隔：**最後人為活動時間**、**stale notice 留言的時間**（沒有則為空）。
+失敗時 stdout 為空、stderr 以 `[FAIL]` 開頭。每個 exit code 是獨立分支：
+
+| exit | 意義 | 處理 |
+|------|------|------|
+| 0 | 成功 | 取兩個欄位繼續 |
+| 1 | 腳本自身的未預期錯誤 | 該 issue 標「過期檢視不可用」，不得升為 STALE-CANDIDATE 或 OBSOLETE；最後彙總列出，不要當成「有人為活動」 |
+| 2 | 參數錯誤（issue 編號不合法） | 這是 skill 自己的 bug：`[FAIL] last-human-activity.sh 參數錯誤` 並停止 |
+| 3 | gh API 呼叫失敗（目前帳號、issue、留言任一個） | 同 exit 1 處理；連續失敗代表認證或網路問題，`[FAIL]` 並停止過期檢視 |
+| 4 | 缺 jq，或 API 回應無法解析 | 缺 jq：`[WARN] 缺 jq，略過過期檢視` 並繼續其餘 verdict；無法解析：同 exit 1 處理 |
+
+#### 過期分層（初始值，首次執行請與使用者校準）
+
+| Tier | 無人為活動天數 | 額外要求 |
+|------|----------------|----------|
+| 0 | 少於 30 天 | 無，走標準流程 |
+| 1 | 30 到 89 天 | 蒐集並在報告列出程式碼漂移訊號 |
+| 2 | 90 到 179 天 | 蒐集漂移訊號；**KEEP 必須引用「前提仍成立」的正向證據**，不能是預設 KEEP |
+| 3 | 180 天以上 | tier 2 的全部要求，且具備 STALE-CANDIDATE 資格 |
+
+邊界以天數整數判定：29 天是 tier 0、30 天是 tier 1、89 天是 tier 1、90 天是 tier 2、179 天是 tier 2、180 天是 tier 3。
+分層在 `--depth fast` 與 `--depth deep` **都生效**（它只是便宜的存在性檢查）；與 openspec archive、ADR 的
+交叉比對（3c′）仍然只在 deep。tier 2 以上的 KEEP 若找不到正向證據，仍然維持 KEEP，但在報告標
+`premise-unverified`，不得因此關閉。
+
+#### 程式碼漂移訊號
+
+tier 1 以上的 issue，從 issue body 抽出 repo 相對路徑（含 `/` 與副檔名的 token，例如
+`plugins/dev-cycle/skills/issue-triage/SKILL.md`；排除 URL、去掉結尾標點、去重）。有路徑時，每個 issue
+呼叫一次（單一 bash 呼叫，路徑逐一帶入，不要用迴圈）：
+
+```bash
+bash ~/.agents/skills/issue-triage/scripts/staleness-signals.sh {{issue_created_at}} {{path_1}} {{path_2}}
+```
+
+每個路徑輸出一行 tab 分隔的「路徑、狀態、細節」：
+
+| 狀態 | 意義 | 怎麼用 |
+|------|------|--------|
+| unchanged | 仍存在，自 issue 建立後沒人動過 | 前提仍成立的證據之一 |
+| changed | 仍存在，細節為自建立後的 commit 數 | 只是訊號；仍要回 3b 驗證症狀是否被順手修掉 |
+| deleted | 已被刪除，細節為刪除它的 commit | 前提疑似消失；回 3b 確認，並作為 OBSOLETE 的候選證據 |
+| renamed | 細節為新路徑 | 追到新路徑繼續驗證症狀，不算消失 |
+| never-existed | origin/main 歷史上從未有過 | 多半是 issue 寫錯路徑；列為 UNCLEAR，**不是**消失的證據 |
+
+沒有任何路徑時輸出 `NOT_APPLICABLE`。**「沒有漂移訊號」與「不適用」都不是前提仍成立的證據**：這類 issue
+只能靠 3b 的症狀驗證。腳本的 exit code：0 成功；1 腳本自身錯誤（`[FAIL]` 並停止漂移蒐集，不要當成「沒有漂移」）；
+2 參數錯誤（skill 自己的 bug，`[FAIL]` 並停止）；3 找不到 origin/main（`[FAIL]`，請回 1c 重跑）。
+
+#### 豁免
+
+下列任一條件成立的 issue，**不得**成為 STALE-CANDIDATE、也**不得**成為 OBSOLETE，報告要逐筆列出豁免原因：
+
+1. 有 security 相關 label（label 名稱含 `security`，不分大小寫）。
+2. `assignees` 非空（已有人認領）。
+3. `milestone` 非空，且其 `dueOn` 非 null 並晚於今天。`dueOn` 為 null 的 milestone 沒有期限，不豁免。
+4. 綁定進行中的 openspec change（3c 找到的 change 位於 `openspec/changes/` 而不在 archive）。
+5. 有 keep-open 訊號（3d）的留言，其 `authorAssociation` 為 OWNER、MEMBER 或 COLLABORATOR。
+   路人（NONE、CONTRIBUTOR 等）的 keep-open 留言不構成豁免，但仍依 P3 在決策時納入考量。
+
+#### triage 標記
+
+skill 貼到 issue 上的**每一則**留言（見 Step 8）都必須在內文帶一行 HTML 註解標記：
+
+```text
+<!-- issue-triage:<kind> <YYYY-MM-DD> -->
+```
+
+`<kind>` 為 `close`、`update-scope`、`merge`、`stale-notice` 其中之一。標記讓下一次盤點能（一）排除自己的
+留言、不重置過期時鐘，（二）找回 stale notice 的時間以判斷寬限期。skill 本身維持無狀態：跨次狀態記在
+issue 上，不記在本機檔案，也不新增 label。
+
 ### 3e. Verdict 決策表（GitHub issue 與 Jira bug 共用）
 
 **先判斷 guard，再依主狀態選唯一一列。** 主狀態互斥、每個 issue/bug 只落一列；
 **RELABEL 是正交的附加建議**，可疊加在任何主狀態上。
-多主狀態同時成立時的優先序：**MERGE > CLOSE > UPDATE-SCOPE > KEEP**。
+多主狀態同時成立時的優先序：**MERGE > CLOSE > OBSOLETE > UPDATE-SCOPE > STALE-CANDIDATE > KEEP**。
 
 | # | 條件 | Verdict | 行動 |
 |---|------|---------|------|
 | **guard** | **任一前置呼叫失敗** | **STOP** | 回報錯誤並停止 |
-| **guard** | **任一症狀 = UNCLEAR** | **視同 NOT DONE** | 不得 CLOSE；落 KEEP 或 UPDATE-SCOPE |
+| **guard** | **任一症狀 = UNCLEAR** | **視同 NOT DONE** | 不得 CLOSE，也不得 OBSOLETE；落 KEEP 或 UPDATE-SCOPE |
 | 1 | 與另一 open issue/bug 覆蓋同一主題（含跨系統） | **MERGE** | 建議合併方向 |
 | 2 | 所有症狀 DONE，且（若綁 change）tasks.md 全 `[x]`，且無 keep-open | **CLOSE** | GitHub: comment + close；Jira: comment + transition to Done |
 | 3 | 留言有 close-authorization 且無未解症狀 | **CLOSE** | 同上 |
-| 4 | 部分症狀 DONE、部分 NOT DONE | **UPDATE-SCOPE** | 留言標明已做/未做，收斂標題到剩餘範圍 |
-| 5 | 全部症狀 NOT DONE | **KEEP** | 不動作 |
-| 6 | 症狀無法從 repo 內部驗證 | **KEEP (external)** | 留言說明程式碼面已就緒但驗證在 repo 外 |
+| 4 | 所有未解症狀的前提皆已證實不存在於基準（見下方「OBSOLETE 的證據標準」），且無豁免（僅 GitHub issue） | **OBSOLETE** | 留言說明前提消失與證據，以 `not planned` 關閉（不是 `completed`） |
+| 5 | 部分症狀 DONE、部分 NOT DONE，或只有部分症狀失去前提 | **UPDATE-SCOPE** | 留言標明已做/未做，收斂標題到剩餘範圍 |
+| 6 | 原本會落在第 7 或第 8 列、tier 3（無人為活動 180 天以上）、前提未被證實消失、無豁免（僅 GitHub issue） | **STALE-CANDIDATE** | 依下方「寬限期」：先提議 stale notice；寬限期滿且無人為活動才提議以 `not planned` 關閉 |
+| 7 | 全部症狀 NOT DONE | **KEEP** | 不動作 |
+| 8 | 症狀無法從 repo 內部驗證 | **KEEP (external)** | 留言說明程式碼面已就緒但驗證在 repo 外 |
 | +附加 | 缺 type label / label 過期 / 狀態不符 | **RELABEL**（正交） | 疊加建議改 label/component |
+
+**OBSOLETE 的證據標準**（零命中的搜尋沒有資訊量：搜尋目錄不存在、路徑拼錯、工具出錯都會得到零命中）：
+
+- 對每個未解症狀，它所依賴的前提構件（檔案、符號、功能、change）必須在 `origin/main` 基準上被**證明不存在**。
+- 必須有**正向對照**：同一種搜尋方法、在同一個位置，找得到一個已知存在的對象（例如在同一個父目錄搜尋一個
+  確定存在的模組）。對照失敗或搜尋目錄不存在，該症狀的結論是 UNCLEAR，**不構成 OBSOLETE**。
+- 3d′ 漂移訊號的 `deleted` 只是候選證據，仍要回 3b 確認症狀；`renamed` 要追到新路徑；`never-existed`
+  不是證據。
+- 只有**部分**未解症狀失去前提時，verdict 是 UPDATE-SCOPE（第 5 列），不是 OBSOLETE。
+- 建議關閉原因一律是 `not planned`：工作並沒有被完成。
+
+**STALE-CANDIDATE 與寬限期**（狀態記在 issue 的 stale notice 標記上，見 3d′；「已辨識的 stale notice」指
+標記為 `stale-notice` 且作者是目前登入帳號的留言，另一個帳號貼出的標記不算）：
+
+| 狀況 | 建議行動 |
+|------|----------|
+| 沒有已辨識的 stale notice | 提議貼 stale notice：詢問是否仍需要，說明寬限期 **14 天**，無回應將以 `not planned` 關閉 |
+| 有已辨識的 stale notice，距今不滿 14 天 | 不動作（寬限期內），報告列為「寬限期中」 |
+| 有已辨識的 stale notice，距今 14 天以上，且 notice 之後沒有實質人為活動（最後人為活動時間不晚於 notice 時間） | 提議以 `not planned` 關閉 |
+| notice 之後有實質人為活動 | 當作沒有 notice 重新評估，無人為活動天數從該活動起算 |
+
+**絕不**：僅憑天數建議關閉、在沒有先前 stale notice 的情況下建議關閉、在 notice 未滿 14 天時建議關閉。
+STALE-CANDIDATE 與 OBSOLETE 的寫入動作同樣遵守 Core Contract：只有 `--apply` 並逐項確認後才執行，
+排程情境一律停在報告。
 
 ---
 
@@ -347,7 +511,7 @@ issue 數量多時（>10），按上述三類各 dispatch 一個 fork subagent �
 
 ## Step 6 — Priority Ranking
 
-對所有「KEEP / UPDATE-SCOPE」的 issue/bug 給出建議處理順序（GitHub + Jira 合併排序）：
+對所有「KEEP / UPDATE-SCOPE / STALE-CANDIDATE」的 issue/bug 給出建議處理順序（GitHub + Jira 合併排序）：
 
 | 訊號 | 高優先 | 低優先 |
 |------|--------|--------|
@@ -355,11 +519,16 @@ issue 數量多時（>10），按上述三類各 dispatch 一個 fork subagent �
 | **影響範圍** | 被其他 open issue 引用 / 阻塞他人 | 孤立、無下游依賴 |
 | **就緒度** | 有清楚 repro / AC，現在就能動手 | 卡在待決策 / 外部依賴 |
 | **CP 值** | 低成本、修法明確的 quick win | 高成本、範圍模糊 |
-| **時效** | 近期活躍 / 有 deadline | 長期無活動 |
+| **時效** | 有 deadline（milestone 的 `dueOn` 即將到來或已逾期） | 沒有 deadline |
 
 輸出 3 檔：**P0 立即**、**P1 本週**、**P2 有空再做**。
 **GitHub issue 與 Jira bug 混合排序**——不分開排。
 
+> **久未更新不降低優先級。** 無人為活動的天數不是低優先的理由：同等條件下，久未處理的嚴重且未解的 issue
+> 不得排在較新的 issue 之後（它很可能只是一直沒人處理，而不是不重要）。久未更新改以
+> `review-urgency: <N> 天無人為活動` 註記在該筆旁邊，意思是「這筆很久沒人驗證過前提」：它影響
+> 「要不要重新檢視前提」（3d′），不影響「做這件事有多急」。
+>
 > **首次執行請與使用者校準權重**：五個訊號的相對權重因 repo 而異。
 
 ---
@@ -379,6 +548,9 @@ echo "OUT=$OUT"
 
 ```text
 # Issue Triage -- <repo slug> (<date>)
+
+## 證據基準
+- origin/main@<BASELINE_SHA 完整 40 字元>（fetch 完成：<FETCHED_AT>）
 
 ## 來源
 - GitHub: <repo slug>, <N> open issues
@@ -400,6 +572,20 @@ echo "OUT=$OUT"
 ### Jira Bugs
 - <KEY> <summary> -- 已做：<...>；未做：<...>
 
+## 前提已消失（OBSOLETE，建議以 not planned 關閉；僅 GitHub issue）
+- #<n> <title> -- 消失的前提：<檔案/符號/功能>；證據：<漂移訊號與 3b 驗證>；正向對照：<找得到哪個已知對象>
+
+## 過期候選（STALE-CANDIDATE；僅 GitHub issue）
+- #<n> <title> -- 無人為活動 <N> 天；狀態：<尚無 stale notice，建議貼 notice / 寬限期中，剩 <d> 天 /
+  寬限期滿且無人為活動，建議以 not planned 關閉>
+
+## 豁免（不會成為 OBSOLETE 或 STALE-CANDIDATE）
+- #<n> <title> -- 豁免原因：<security label / 已認領 / milestone 未到期 / 綁定進行中的 change / 維護者 keep-open>
+
+## 過期檢視不可用
+- #<n> <title> -- <last-human-activity.sh 或 staleness-signals.sh 的 exit code 與原因>；本次不得升為
+  STALE-CANDIDATE 或 OBSOLETE
+
 ## 建議整併（MERGE）
 - #<a> <- #<b>：<兩者為何重疊、保留哪個>
 - #<a> <- <KEY>：<跨系統重疊，建議保留哪邊>
@@ -415,7 +601,7 @@ echo "OUT=$OUT"
 ## 維持開啟（KEEP）
 
 ### GitHub Issues
-- #<n> <title> -- <為何不動>
+- #<n> <title> -- <為何不動>；tier 2 以上者附「前提仍成立」的正向證據，找不到則標 premise-unverified
 
 ### Jira Bugs
 - <KEY> <summary> -- <為何不動>
@@ -424,6 +610,7 @@ echo "OUT=$OUT"
 - P0：#<n>, <KEY>, ...
 - P1：#<n>, <KEY>, ...
 - P2：#<n>, ...
+- 久未更新者在該筆後面註記 review-urgency: <N> 天無人為活動（不影響所在的檔位）
 ```
 
 若 `$OUT` 落在 `$CLAUDE_JOB_DIR`（background job dir），回報時把重點**貼進對話**。
@@ -438,9 +625,19 @@ echo "OUT=$OUT"
 僅在使用者帶 `--apply` 或明確同意某幾筆時執行。**逐一 issue/bug 執行並回報結果**。
 
 **無互動確認者（排程 / webhook）即使帶 `--apply` 也不執行寫入**——停在 Step 7。
+OBSOLETE 的關閉、stale notice、寬限期滿的關閉（8h、8i、8j）同樣只在 `--apply` 且逐項確認後才執行，
+排程與 webhook 情境即使看到 STALE-CANDIDATE 也只進報告、不貼任何留言。
 
 **失敗 gate**：任一寫入呼叫失敗 -> `[FAIL] <issue/bug> <動作> 失敗`，
 回報並**跳過該筆**，最後彙總失敗清單。
+
+**每一則貼到 GitHub issue 的留言（8a、8b、8d、8h、8i、8j）內文最後一行都必須帶 triage 標記**
+（格式與 `<kind>` 見 3d′ 的「triage 標記」；日期用今天，UTC）。沒有標記的留言，下一次盤點會把它當成
+人為活動、重置過期時鐘，stale notice 也無法被找回。例如 `close-<n>.md` 的最後一行：
+
+```text
+<!-- issue-triage:close 2026-10-09 -->
+```
 
 body-file 路徑用 Step 7 解析的 `$OUT`。**shell state 不跨 bash call**：
 每個含 `--body-file` 的 bash block 都要在同一個 block 內先重跑 `$OUT` 解析。
@@ -457,6 +654,8 @@ mkdir -p "$OUT"
 gh issue comment <n> --body-file "$OUT/close-<n>.md"
 ```
 
+`close-<n>.md` 最後一行必須是 `<!-- issue-triage:close <今天日期> -->`。
+
 ```bash
 gh issue close <n> --reason completed
 ```
@@ -469,6 +668,8 @@ OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
 mkdir -p "$OUT"
 gh issue comment <n> --body-file "$OUT/update-<n>.md"
 ```
+
+`update-<n>.md` 最後一行必須是 `<!-- issue-triage:update-scope <今天日期> -->`。
 
 ```bash
 gh issue edit <n> --title "<收斂後標題>"
@@ -488,6 +689,8 @@ OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
 mkdir -p "$OUT"
 gh issue comment <b> --body-file "$OUT/merge-<b>.md"
 ```
+
+`merge-<b>.md` 最後一行必須是 `<!-- issue-triage:merge <今天日期> -->`。
 
 ```bash
 gh issue close <b> --reason "not planned"
@@ -556,7 +759,33 @@ editJiraIssue({
 在被整併方（Jira 或 GitHub）貼留言指向主方，再關閉。
 留言內容需包含另一系統的連結（GitHub issue URL 或 Jira issue key/URL）。
 
-執行完回報：關閉幾筆、更新幾筆、改 label 幾筆、失敗幾筆（附 issue/bug 號）。
+### 8h. 關閉前提已消失的 GitHub issue（OBSOLETE）
+
+留言（用 Write tool 寫到 `$OUT/close-<n>.md`，kind 為 `close`）要寫明：哪個前提已不存在、證據是什麼
+（含基準 commit `origin/main@<BASELINE_SHA 前 12 碼>`）、若判斷有誤歡迎重新開啟。`$OUT` 解析與
+`gh issue comment` 放同一個 bash block（寫法同 8a），再以 **`not planned`** 關閉——不是 `completed`，
+因為工作並沒有被完成：
+
+```bash
+gh issue close <n> --reason "not planned"
+```
+
+### 8i. 貼 stale notice（STALE-CANDIDATE，尚無已辨識的 notice）
+
+留言（寫到 `$OUT/stale-<n>.md`，kind 為 `stale-notice`）要寫明：這個 issue 已 {{inactive_days}} 天沒有人為活動；
+詢問是否仍需要；**寬限期 14 天**，到 <到期日> 前沒有回應，將以 `not planned` 關閉；任何回覆（哪怕只是
+「仍需要」）都會取消關閉。`$OUT` 解析與 `gh issue comment` 放同一個 bash block（寫法同 8a）。
+`stale-<n>.md` 最後一行必須是 `<!-- issue-triage:stale-notice <今天日期> -->`，下一次盤點靠它找回 notice 的時間。
+貼完不關閉、不改 label。
+
+### 8j. 寬限期滿後關閉（STALE-CANDIDATE，已有已辨識的 notice）
+
+**寫入前必須重新呼叫** `last-human-activity.sh {{issue_number}}`（見 3d′），確認 notice 之後仍然沒有實質
+人為活動；從 3e 判定到使用者逐項確認之間可能有人回覆了。有新活動就放棄這筆，列入「已取消」。確認無誤後，
+留言（寫到 `$OUT/close-<n>.md`，kind 為 `close`）說明「stale notice 已於 <日期> 貼出，寬限期 14 天內
+沒有回應」，再以 `not planned` 關閉（指令同 8h）。
+
+執行完回報：關閉幾筆、更新幾筆、改 label 幾筆、貼 stale notice 幾筆、因新活動而取消幾筆、失敗幾筆（附 issue/bug 號）。
 
 ---
 
@@ -569,7 +798,11 @@ editJiraIssue({
 | `gh issue list --json` 欄位名打錯 | 會 exit 1 且印 `Unknown JSON field`，被 Step 2 gate 擋下 |
 | issue/bug 很多、逐一讀 code 很慢 | Step 3b 平行 dispatch 唯讀探索 subagent 批次驗證 |
 | 綁的 openspec change 找不到 tasks.md | 可能已 archive -> 查 `openspec/changes/archive/` |
-| 該不該 close-as-stale | 長期無活動但症狀仍成立 -> KEEP 並降優先 |
+| 該不該 close-as-stale | **不憑天數關閉。** 前提已消失 -> OBSOLETE（附證據與正向對照，以 `not planned` 關閉）；tier 3（無人為活動 180 天以上）且前提未被證實消失 -> STALE-CANDIDATE，先貼 stale notice、寬限期 14 天、無回應才建議以 `not planned` 關閉；其餘一律 KEEP。優先級**不因久未更新而降低**，改標 `review-urgency` |
+| `check-baseline.sh` 回報 exit 4 或 5 | checkout 不是乾淨的 origin/main：從 origin/main 開乾淨的 worktree 再跑，或先更新主 checkout；不要為了讓它過而 stash 或硬重設別人的改動 |
+| 為什麼判斷 bot 要多一次 REST 呼叫 | `gh issue list --json comments` 會把 `github-actions[bot]` 顯示成 `github-actions`，`Copilot` 本來就沒有 `[bot]` 後綴，只看 login 文字會把 bot 留言全當成人為活動，過期檢視等於失效；REST 的 user.type 為 Bot 才可靠 |
+| 為什麼 skill 自己的留言要「標記加作者」才排除 | 只看標記，任何人貼上標記就能讓自己的留言從活動度量中隱形；另一個帳號貼出的標記一律算人為活動，失敗方向是「看起來比較活躍」，不會導致誤關 |
+| 不同人執行 skill 時，前一個人貼的 stale notice 還算數嗎 | 不算：標記必須搭配「作者是目前登入帳號」，換帳號後舊的 notice 會被當成人為活動，issue 看起來較活躍而被 KEEP。這是安全方向，代價是要重新貼一次 notice |
 | 排程情境無人確認 | 停在 Step 7 報告，不進 Step 8 |
 | 這跟 /pr-retro、/pr-review-cycle 有何不同 | 那些針對**單一 PR**；本 skill 針對 repo 全部 open issue + Jira bug 的盤點治理 |
 | Atlassian MCP 連不上 | `[WARN]` 略過 Jira 盤點，只跑 GitHub issue |

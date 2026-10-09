@@ -56,7 +56,7 @@ bot 的判定以 GitHub 回報的帳號型別（type 為 Bot）為準，**不看
 - 透過 REST（repos/{owner}/{repo}/issues/comments），同兩個帳號的 login 帶 [bot] 後綴且 type 為 Bot；Copilot 的 type 也是 Bot，但 login 本來就沒有後綴。
 - 已刪除帳號的留言在 gh JSON 中 login 為空字串，authorAssociation 為 NONE。視為人為活動（較安全的方向）。
 
-所以原本「login 以 [bot] 結尾或以 app/ 開頭」的規則在 gh JSON 上永遠不會命中，bot 留言會全被當成人為活動，過期檢視等於失效。改用 REST 逐 issue 取得每則留言的 user.type；為了不對每個 issue 都呼叫，只有「用全部留言計算的天數仍小於 180」的 issue 才需要查（天數已達 180 的 issue 排除 bot 後只會更久，分層結果不變）。
+所以原本「login 以 [bot] 結尾或以 app/ 開頭」的規則在 gh JSON 上永遠不會命中，bot 留言會全被當成人為活動，過期檢視等於失效。改用 REST 逐 issue 取得每則留言的 user.type；為了不對每個 issue 都呼叫，只有符合下列任一條件才需要查：（一）用全部留言計算的天數仍小於 180（天數已達 180 的 issue 排除 bot 後只會更久，分層結果不變）；（二）任一留言內文含 stale notice 標記（notice 可能早於 180 天，沒有它就無法判斷寬限期，會把已經過了寬限期的 issue 誤當成第一次提醒）。
 
 被否決的方案：只信 authorAssociation 為 OWNER、MEMBER、COLLABORATOR 的留言才算人為活動。它會把外部使用者補充的重現步驟也排除，語意從「有人在處理」變成「維護者有回應」，與 spec 不符。
 

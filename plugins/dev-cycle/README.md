@@ -39,7 +39,7 @@ claude plugin install dev-cycle@yibi-stack
 | `bump-version` skill | 語意化版本號遞增（semver），更新 CHANGELOG |
 | `local-port-manager` skill | 本機 port 登記與衝突檢查，避免多服務 port 撞號 |
 | `verify-done` skill | 宣告完成前的端對端驗證：pre-commit、CI checks、Spectra amplifier、worktree 安全性 |
-| `issue-triage` skill | GitHub Issue 定期盤點治理（唯讀優先）：逐 issue 研判 close / 更新範圍 / 整併 / label / 優先排序 |
+| `issue-triage` skill | GitHub Issue 定期盤點治理（唯讀優先）：逐 issue 研判 close / 前提已消失 / 更新範圍 / 整併 / 過期候選 / label / 優先排序，驗證前先固定 origin/main 基準 |
 | `/newjob` command | 開始新工作前的 worktree-first 環境準備：偵測環境、建立隔離 worktree、push 安全驗證、複製 gitignored 開發檔案、透過 `local-port-manager` 預防多 worktree port 衝突、驗證環境就緒 |
 | `/handover` command | 建立交班摘要，保存進度供下個 session 繼續 |
 | `/handover-back` command | 從上次交班恢復工作狀態 |
