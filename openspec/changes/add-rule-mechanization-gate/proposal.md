@@ -34,7 +34,7 @@
 
 ## Impact
 
-- 前置依賴：`add-retro-evidence-gate`（目前 31/32，其 `retro-evidence-gate` spec 尚未 archive，故本 change 以新 capability 呈現，不寫 delta）。兩者都改同一支 `scripts/lint_rule_evidence.py`；本 change 不改變該 change 已定義的證據標記行為，建議其先 archive 再 apply 本 change。
+- 前置依賴：`add-retro-evidence-gate`（目前 31/32，其 `retro-evidence-gate` spec 尚未 archive，故本 change 以新 capability 呈現，不寫 delta）。兩者都改同一支 `scripts/lint_rule_evidence.py`，但該 lint 的程式碼早已在 main 上（該 change 只剩一項待人類裁決的 task 未結），本 change 疊在其上、不改變證據標記行為，所以程式碼層沒有合併順序的限制；唯一的順序關係在 spec 層：兩者互不引用，各自獨立 archive 即可。
 - Affected specs: `rule-mechanization-gate`（新增）
 - Affected code:
   - Modified: `scripts/lint_rule_evidence.py`

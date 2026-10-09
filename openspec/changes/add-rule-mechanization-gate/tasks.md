@@ -37,6 +37,6 @@
 ## 8. 收尾驗證
 
 - [x] 8.1 `git add` 全部新檔後執行 `make ci`（untracked 新檔會被 hook 略過），並以 `git diff --name-only` 確認 formatter 沒有留下未提交改寫。驗證：`make ci` 綠燈輸出。
-- [ ] 8.2 以 `python3 scripts/lint_rule_evidence.py --base origin/main --head HEAD` 對本分支跑 range 模式：不得因既有未動內容新增 warn 或 error，且本 change 自己新增的 rule 11 section 必須帶有效宣告。驗證：輸出為 `[OK]` 且 warn 數與 `origin/main` 基準相同。
-- [ ] 8.3 確認常駐面淨增為零：`git diff origin/main -- .claude/rules/01-language-and-tone.md .claude/rules/03-security.md .claude/rules/13-bash-anti-patterns.md .claude/rules/15-irreversible-operations.md .claude/rules/16-allowlist-hygiene.md` 輸出為空。驗證：該指令無輸出。
-- [ ] 8.4 前置依賴檢查：確認 `add-retro-evidence-gate` 已 archive（`spectra list` 不再列出，且 `openspec/specs/retro-evidence-gate/` 存在）；若尚未，於 PR 描述註明合併順序。驗證：`spectra list` 輸出貼進 PR 描述。
+- [x] 8.2 以 `python3 scripts/lint_rule_evidence.py --base origin/main --head HEAD` 對本分支跑 range 模式：不得因既有未動內容新增 warn 或 error，且本 change 自己新增的 rule 11 section 必須帶有效宣告。驗證：輸出為 `[OK]` 且 warn 數與 `origin/main` 基準相同。
+- [x] 8.3 確認常駐面淨增為零：`git diff origin/main -- .claude/rules/01-language-and-tone.md .claude/rules/03-security.md .claude/rules/13-bash-anti-patterns.md .claude/rules/15-irreversible-operations.md .claude/rules/16-allowlist-hygiene.md` 輸出為空。驗證：該指令無輸出。
+- [x] 8.4 前置依賴檢查：確認 `add-retro-evidence-gate` 已 archive（`spectra list` 不再列出，且 `openspec/specs/retro-evidence-gate/` 存在）；若尚未，於 PR 描述註明合併順序。驗證：`spectra list` 輸出貼進 PR 描述。
