@@ -12,8 +12,8 @@
 - [x] 3.1 先寫 plugins/dev-cycle/skills/issue-triage/scripts/tests/test_staleness_signals.py：在暫時 git repo 上涵蓋 Code drift signal 的五種狀態（unchanged、changed 附 commit 數、deleted 附刪除 commit、renamed、never-existed）、沒有任何路徑時回報不適用，以及基準 ref 不存在時 exit 非 0 且不輸出狀態行。驗證：腳本尚不存在時測試全紅
 - [x] 3.2 實作 plugins/dev-cycle/skills/issue-triage/scripts/staleness-signals.sh（design 的「程式碼漂移訊號用 git 歷史計算」與「多步驟邏輯放進輔助腳本」）：輸入 issue 建立時間與一個以上 repo 相對路徑，每個路徑輸出一行 tab 分隔的路徑、狀態、細節。驗證：3.1 的測試全綠；對 deleted 狀態做單一突變（把刪除判斷改成永遠回報 unchanged），斷言對應測試轉紅，再以反向替換還原
 
-- [ ] 3.3 先寫 plugins/dev-cycle/skills/issue-triage/scripts/tests/test_last_human_activity.py：以 PATH 上的假 gh 執行檔回放 REST 留言 JSON，涵蓋 Last substantive human activity measurement 的情境——type 為 Bot 的留言被排除（含 login 沒有後綴的 Copilot 型態）、空 login 的已刪除作者視為人為活動、內文含 triage 標記且作者為目前登入帳號的留言被排除、同樣標記但作者是另一個帳號則計為人為活動、沒有留言時回傳 issue 建立時間、輸出附帶 stale notice 標記的時間、gh api user 失敗時 exit 非 0 且不輸出時間。驗證：腳本尚不存在時測試全紅
-- [ ] 3.4 實作 plugins/dev-cycle/skills/issue-triage/scripts/last-human-activity.sh（design 的「人為活動度量排除 skill 自己與 bot 的留言」與「多步驟邏輯放進輔助腳本」）：以 REST 逐 issue 取得留言與帳號型別，輸出最後實質人為活動時間與 stale notice 標記時間。驗證：3.3 的測試全綠；做單一突變——移除排除 Bot 型別的判斷，斷言 bot 相關測試轉紅且突變錨點確實套用，再以反向替換還原並確認測試再次全綠
+- [x] 3.3 先寫 plugins/dev-cycle/skills/issue-triage/scripts/tests/test_last_human_activity.py：以 PATH 上的假 gh 執行檔回放 REST 留言 JSON，涵蓋 Last substantive human activity measurement 的情境——type 為 Bot 的留言被排除（含 login 沒有後綴的 Copilot 型態）、空 login 的已刪除作者視為人為活動、內文含 triage 標記且作者為目前登入帳號的留言被排除、同樣標記但作者是另一個帳號則計為人為活動、沒有留言時回傳 issue 建立時間、輸出附帶 stale notice 標記的時間、gh api user 失敗時 exit 非 0 且不輸出時間。驗證：腳本尚不存在時測試全紅
+- [x] 3.4 實作 plugins/dev-cycle/skills/issue-triage/scripts/last-human-activity.sh（design 的「人為活動度量排除 skill 自己與 bot 的留言」與「多步驟邏輯放進輔助腳本」）：以 REST 逐 issue 取得留言與帳號型別，輸出最後實質人為活動時間與 stale notice 標記時間。驗證：3.3 的測試全綠；做單一突變——移除排除 Bot 型別的判斷，斷言 bot 相關測試轉紅且突變錨點確實套用，再以反向替換還原並確認測試再次全綠
 
 ## 4. SKILL.md 改寫
 
