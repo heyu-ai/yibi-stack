@@ -681,6 +681,53 @@ editing skills/rules), **not** in a new always-loaded rule file — a change tha
 inflation must not itself inflate the always-loaded surface. `scripts/check_always_loaded_growth.py`
 asserts the net line growth of the `paths:`-less rule files is 0.
 
+## Every New Rule Section Declares Whether It Could Have Been a Gate
+
+<!-- verified: probe -->
+<!-- gate: scripts/lint_rule_evidence.py::check_rule_mechanization -->
+
+The Evidence Gate above asks "is the lesson true". It does not ask "why is this a rule and not a
+gate". Promotion Gate G1 asks that second question, but G1 is an agent's own prose judgment — a rule
+deciding whether to write a rule — and nothing checked that it was applied honestly. rule 17 records
+the result: the subshell-`exit` lesson recurred three times as prose before it became
+`lint_shell_subshell_exit.py`. So every new `##` / `###` section in `.claude/rules/*.md` now carries
+exactly one declaration, and the lint verifies it mechanically.
+
+| Declaration | Meaning |
+|-------------|---------|
+| `<!-- gate: <path>[::<symbol>] -->` | An existing mechanical gate covers this. The path must exist; the symbol, if given, must appear in that file as a whole word |
+| `<!-- gate: none (reason: <reason>) — <explanation> -->` | No gate is feasible. `<reason>` is one of `judgment`, `no-observable-signal`, `hook-cost`; the explanation needs 12+ non-space characters and cannot be `TBD` / `TODO` / `N/A` / `none` |
+
+Eligible link targets are a closed list: `scripts/`, `.claude/hooks/`, `.github/workflows/`,
+`.pre-commit-config.yaml`, and `tasks/**/tests/`. A rule file or a `SKILL.md` is **not** a gate —
+pointing a rule at prose is the thing this check exists to stop. Absolute paths and `..` are rejected.
+
+Reason meanings: `judgment` needs a semantic read (for example, whether a reviewer prompt embeds an
+unverified causal claim). `no-observable-signal` means nothing is detectable at a tool boundary.
+`hook-cost` means it is detectable but the hook costs more than it buys — registering a hook from a
+worktree can brick the session, and a `PreToolUse` hook on `Edit|Write` removes the Edit escape.
+There is no catch-all reason: adding one means editing the constant, the spec and the fixtures.
+
+Enforcement mirrors the evidence lint. A missing declaration is an **error** in a new rule file and
+a **warn** for a new section in an existing one. A **false** declaration (dangling link, rule-file
+target, reason outside the list, placeholder explanation, two declarations in one section) is an
+error in both, because downgrading it would teach people to fill the field with anything.
+
+Known limits, so a reader does not over-trust a green run:
+
+- A valid link proves the target exists and is gate-class, **not** that it covers this rule. A rule
+  linked to an unrelated script passes. Catching that is the gate-trigger-rate job of
+  `harness-weekly-review`, not this lint.
+- The diff is read with `--unified=0`, so the declaration must be added in the **same hunk** as its
+  heading. A heading inserted above pre-existing body text reports as missing — a deliberate
+  over-report rather than a miss.
+- A pure rename with 100% similarity produces no `---`/`+++` lines (probed on git 2.56.0), so it is
+  invisible to this lint and to the evidence lint alike. A rename that also changes content is
+  covered. Re-probe after a git upgrade before relying on either half of that sentence.
+
+Self-constraint: this section lives here in rule 11 (scoped), not in an always-loaded rule file, and
+it carries its own declaration above — the lint runs over its own addition.
+
 ## Inserting a New Blockquote After an Existing One Requires Removing the Blank Line (MD028)
 
 When inserting a new blockquote after an existing blockquote block, if there is a blank line

@@ -1,0 +1,11 @@
+diff --git a/.claude/rules/24-valid-exemption.md b/.claude/rules/24-valid-exemption.md
+new file mode 100644
+--- /dev/null
++++ b/.claude/rules/24-valid-exemption.md
+@@ -0,0 +1,5 @@
++# Valid Exemption
++
++## Judgment Only
++
++內文。(Source: PR #339)
++<!-- gate: none (reason: judgment) — 需要讀 reviewer prompt 才能判斷是否內嵌未驗證的因果假設 -->

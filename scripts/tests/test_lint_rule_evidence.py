@@ -441,6 +441,11 @@ def _init_repo(repo: Path) -> None:
     _git(repo, "commit", "-q", "-m", "seed")
 
 
+# range 模式的既有測試關心 merge-base 語意而非宣告內容；PR 側的新 rule 檔仍須帶一個有效宣告，
+# 否則會因機械化宣告檢查（rule-mechanization-gate）而失敗。豁免形式不讀任何檔案。
+_VALID_EXEMPTION = "<!-- gate: none (reason: judgment) — 測試夾具用的豁免宣告說明 -->\n"
+
+
 def _commit_rule(repo: Path, name: str, body: str, message: str) -> str:
     rules_dir = repo / ".claude" / "rules"
     rules_dir.mkdir(parents=True, exist_ok=True)
@@ -460,7 +465,9 @@ def test_range_mode_flags_are_accepted_at_all(
     """
     _init_repo(tmp_path)
     base = _git(tmp_path, "rev-parse", "HEAD")
-    head = _commit_rule(tmp_path, "90-clean.md", "# Clean\n\n說明。Probed.\n", "add rule")
+    head = _commit_rule(
+        tmp_path, "90-clean.md", "# Clean\n\n說明。Probed.\n" + _VALID_EXEMPTION, "add rule"
+    )
     monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", tmp_path)
 
     assert lint_rule_evidence.main(["--base", base, "--head", head]) == 0
@@ -496,7 +503,9 @@ def test_range_mode_uses_merge_base_not_two_dot(
 
     # PR 分支：只加一個帶證據的 rule 檔
     _git(tmp_path, "checkout", "-q", "-b", "pr")
-    head = _commit_rule(tmp_path, "92-mine.md", "# Mine\n\n說明。Probed.\n", "pr work")
+    head = _commit_rule(
+        tmp_path, "92-mine.md", "# Mine\n\n說明。Probed.\n" + _VALID_EXEMPTION, "pr work"
+    )
 
     # base 分支在 fork 之後前進，並加了一個「缺證據」的 rule 檔（別人的改動）
     _git(tmp_path, "checkout", "-q", "main")
@@ -531,7 +540,9 @@ def test_range_mode_two_dot_would_falsely_blame_a_base_side_deletion(
 
     # PR 分支：完全不碰那個檔
     _git(tmp_path, "checkout", "-q", "-b", "pr")
-    head = _commit_rule(tmp_path, "96-mine.md", "# Mine\n\n說明。Probed.\n", "pr work")
+    head = _commit_rule(
+        tmp_path, "96-mine.md", "# Mine\n\n說明。Probed.\n" + _VALID_EXEMPTION, "pr work"
+    )
 
     # base 分支在 fork 之後刪掉那個既有檔
     _git(tmp_path, "checkout", "-q", "main")
@@ -610,3 +621,382 @@ def test_positional_diff_file_mode_still_works(tmp_path: Path) -> None:
         _new_file_diff(".claude/rules/94-bare.md", ["# Bare", "缺證據。"]), encoding="utf-8"
     )
     assert lint_rule_evidence.main([str(diff_file)]) == 1
+
+
+# =====================================================================================
+# rule-mechanization-gate：新增 rule section 必須連結既有 gate 或宣告為何無法機械化
+#
+# 對應 openspec/changes/add-rule-mechanization-gate 的 spec。純函式測試注入假檔案系統
+# （不碰真實檔案系統）；`main()` 測試走 production 入口與真實 repo 檔案，兩條路徑都要
+# 擋住每個 bad fixture——只測純函式的話，入口被短路成回傳 0 時對照仍全綠。
+# =====================================================================================
+
+_FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "rule_mechanization"
+
+_BLOCKING_SHAPES = frozenset(
+    {
+        "bad_missing_declaration_new_file.diff",
+        "bad_new_file_no_sections.diff",
+        "bad_dangling_link_existing_file.diff",
+        "bad_link_to_rule_rename.diff",
+        "bad_missing_symbol.diff",
+        "bad_unknown_reason.diff",
+        "bad_placeholder_explanation.diff",
+        "bad_double_declaration.diff",
+    }
+)
+
+# 假檔案系統：`.claude/rules/` 與 SKILL.md 那兩筆刻意「存在但不合格」，證明拒絕的理由是
+# 資格而不是存在性。
+_FAKE_FS = {
+    "scripts/lint_rule_evidence.py": "def check_rule_evidence(diff_text):\n    pass\n",
+    "scripts/tests/test_lint_rule_evidence.py": "def test_x():\n    pass\n",
+    ".claude/hooks/protect-push.sh": "#!/bin/bash\n",
+    ".pre-commit-config.yaml": "repos: []\n",
+    ".github/workflows/ci.yml": "name: ci\n",
+    "tasks/foo/tests/test_x.py": "def test_x():\n    pass\n",
+    ".claude/rules/13-bash-anti-patterns.md": "# rule\n",
+    ".claude/rules/17-shell-script-authoring.md": "# rule\n",
+    "plugins/growth/skills/pr-retrospective/SKILL.md": "# skill\n",
+}
+
+
+def _fake_read(path: str) -> str | None:
+    return _FAKE_FS.get(path)
+
+
+def _fixture_text(name: str) -> str:
+    return (_FIXTURE_DIR / name).read_text(encoding="utf-8")
+
+
+def _existing_rule_section_diff(declaration_lines: list[str], evidence: bool = True) -> str:
+    body = ["### Added Section", "", "內文。"]
+    if evidence:
+        body.append("(Source: PR #339)")
+    body.extend(declaration_lines)
+    return _existing_file_diff(".claude/rules/13-bash-anti-patterns.md", body)
+
+
+def test_every_blocking_shape_has_a_fixture() -> None:
+    present = {p.name for p in _FIXTURE_DIR.glob("bad_*.diff")}
+    assert present == _BLOCKING_SHAPES, (
+        f"缺少：{sorted(_BLOCKING_SHAPES - present)}；多出：{sorted(present - _BLOCKING_SHAPES)}"
+    )
+
+
+@pytest.mark.parametrize("name", sorted(_BLOCKING_SHAPES))
+def test_bad_fixture_passes_the_evidence_check(name: str) -> None:
+    """對照組的前提：bad fixture 只因機械化宣告而失敗，證據標記本身是齊的。
+
+    否則下面「被擋下」的斷言可能是被證據檢查擋的，測到的就不是這個 gate。
+    """
+    assert lint_rule_evidence.check_rule_evidence(_fixture_text(name)) == []
+
+
+@pytest.mark.parametrize("name", sorted(_BLOCKING_SHAPES))
+def test_bad_fixture_is_rejected_by_pure_function(name: str) -> None:
+    # 八個形狀都是 error 層級：新檔缺宣告，或任何假宣告
+    errors = lint_rule_evidence.check_rule_mechanization(_fixture_text(name), _fake_read)
+    assert errors, f"{name} 應為 error 層級"
+
+
+@pytest.mark.parametrize("name", sorted(_BLOCKING_SHAPES))
+def test_bad_fixture_is_rejected_by_main_entry(name: str) -> None:
+    assert lint_rule_evidence.main([str(_FIXTURE_DIR / name)]) == 1
+
+
+_GOOD_FIXTURES = sorted(p.name for p in _FIXTURE_DIR.glob("good_*.diff"))
+
+
+def test_good_fixtures_exist() -> None:
+    assert len(_GOOD_FIXTURES) >= 3, "good fixture 不足，下面的 parametrize 會空洞通過"
+
+
+@pytest.mark.parametrize("name", _GOOD_FIXTURES)
+def test_good_fixtures_report_nothing(name: str) -> None:
+    diff = _fixture_text(name)
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
+    assert lint_rule_evidence.warn_rule_mechanization(diff) == []
+    assert lint_rule_evidence.main([str(_FIXTURE_DIR / name)]) == 0
+
+
+# --- 連結資格（spec 的 eligibility 表）---
+
+
+@pytest.mark.parametrize(
+    ("link", "resolves"),
+    [
+        ("scripts/lint_rule_evidence.py::check_rule_evidence", True),
+        (".claude/hooks/protect-push.sh", True),
+        ("scripts/tests/test_lint_rule_evidence.py", True),
+        (".pre-commit-config.yaml", True),
+        (".github/workflows/ci.yml", True),
+        ("tasks/foo/tests/test_x.py", True),
+        (".claude/rules/17-shell-script-authoring.md", False),
+        ("plugins/growth/skills/pr-retrospective/SKILL.md", False),
+        ("scripts/missing.py", False),
+        ("scripts/../.claude/rules/13-bash-anti-patterns.md", False),
+        ("/etc/passwd", False),
+    ],
+)
+def test_gate_link_eligibility(link: str, resolves: bool) -> None:
+    diff = _existing_rule_section_diff([f"<!-- gate: {link} -->"])
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert (errors == []) is resolves, f"{link} -> {errors}"
+
+
+def test_gate_link_with_missing_symbol_is_error() -> None:
+    diff = _existing_rule_section_diff(["<!-- gate: scripts/lint_rule_evidence.py::no_such_fn -->"])
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert errors and "no_such_fn" in errors[0]
+
+
+def test_gate_link_symbol_is_matched_as_a_whole_word() -> None:
+    """`check_rule` 是 `check_rule_evidence` 的前綴，不可因子字串命中而通過。"""
+    diff = _existing_rule_section_diff(["<!-- gate: scripts/lint_rule_evidence.py::check_rule -->"])
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+
+
+# --- 豁免理由封閉列舉 ---
+
+
+@pytest.mark.parametrize("reason", ["judgment", "no-observable-signal", "hook-cost"])
+def test_every_listed_exemption_reason_passes(reason: str) -> None:
+    diff = _existing_rule_section_diff(
+        [f"<!-- gate: none (reason: {reason}) — 這個判斷需要讀完整個 prompt 才能做 -->"]
+    )
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
+
+
+@pytest.mark.parametrize("explanation", ["TBD", "TODO", "N/A", "none", "太短了", ""])
+def test_placeholder_or_short_explanation_is_error(explanation: str) -> None:
+    diff = _existing_rule_section_diff([f"<!-- gate: none (reason: judgment) — {explanation} -->"])
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+
+
+def test_exemption_without_explanation_separator_is_error() -> None:
+    diff = _existing_rule_section_diff(["<!-- gate: none (reason: judgment) -->"])
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+
+
+# --- 分層強制 ---
+
+
+def test_missing_declaration_in_existing_file_is_warn_not_error() -> None:
+    diff = _existing_rule_section_diff([])
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
+    warns = lint_rule_evidence.warn_rule_mechanization(diff)
+    assert warns and "Added Section" in warns[0]
+
+
+def test_missing_declaration_in_existing_file_exits_zero(tmp_path: Path) -> None:
+    diff_file = tmp_path / "existing-undeclared.diff"
+    diff_file.write_text(_existing_rule_section_diff([]), encoding="utf-8")
+    assert lint_rule_evidence.main([str(diff_file)]) == 0
+
+
+def test_renamed_in_rule_file_without_declaration_is_error() -> None:
+    diff = _rename_diff(
+        "scripts/notes.md",
+        ".claude/rules/renamed-in.md",
+        ["# Renamed", "", "## Section", "", "內文。(Source: PR #339)"],
+    )
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+
+
+def test_declaration_only_inside_a_fence_does_not_count() -> None:
+    diff = _existing_rule_section_diff(
+        ["```text", "<!-- gate: scripts/lint_rule_evidence.py -->", "```"]
+    )
+    assert lint_rule_evidence.warn_rule_mechanization(diff)
+
+
+def test_unchanged_sections_are_not_scanned() -> None:
+    """只在既有 section 內新增內容（沒有新 heading）不觸發。"""
+    diff = _existing_file_diff(".claude/rules/13-bash-anti-patterns.md", ["只是補一句內文。"])
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
+    assert lint_rule_evidence.warn_rule_mechanization(diff) == []
+
+
+# --- 與證據檢查互相獨立 ---
+
+
+def test_evidence_marker_does_not_satisfy_the_declaration() -> None:
+    diff = _existing_rule_section_diff([], evidence=True)
+    assert lint_rule_evidence.warn_rule_mechanization(diff)
+
+
+def test_declaration_does_not_satisfy_the_evidence_marker() -> None:
+    diff = _new_file_diff(
+        ".claude/rules/25-no-evidence.md",
+        [
+            "# No Evidence",
+            "",
+            "## Section",
+            "",
+            "內文，沒有證據標記。",
+            "<!-- gate: scripts/lint_rule_evidence.py::check_rule_evidence -->",
+        ],
+    )
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
+    assert lint_rule_evidence.check_rule_evidence(diff), "證據檢查仍須獨立擋下"
+
+
+def test_range_mode_runs_the_declaration_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """兩個執行點都要有宣告檢查：range 模式（CI）不可只跑證據檢查。"""
+    _init_repo(tmp_path)
+    base = _git(tmp_path, "rev-parse", "HEAD")
+    rule = tmp_path / ".claude" / "rules" / "26-range.md"
+    rule.parent.mkdir(parents=True, exist_ok=True)
+    rule.write_text("# Range\n\n## Section\n\n內文。(Source: PR #339)\n", encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-m", "add undeclared rule")
+    head = _git(tmp_path, "rev-parse", "HEAD")
+    monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", tmp_path)
+
+    assert lint_rule_evidence.main(["--base", base, "--head", head]) == 1
+
+
+def test_staged_mode_runs_the_declaration_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """pre-commit 的 staged 模式是另一個執行點，同樣必須擋下缺宣告的新 rule 檔。
+
+    repo 內明確開啟 `diff.mnemonicPrefix`：這個設定讓 `git diff --cached` 輸出 `c/` `i/` 前綴，
+    曾使 staged 模式整個 lint 靜默 no-op。測試自帶設定，不依賴執行機器的全域 git 設定，CI 上
+    同樣能重現。
+    """
+    _init_repo(tmp_path)
+    _git(tmp_path, "config", "diff.mnemonicPrefix", "true")
+    rule = tmp_path / ".claude" / "rules" / "28-staged.md"
+    rule.parent.mkdir(parents=True, exist_ok=True)
+    rule.write_text("# Staged\n\n## Section\n\n內文。(Source: PR #339)\n", encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", tmp_path)
+
+    assert lint_rule_evidence.main([]) == 1
+
+
+# --- 無法驗證連結時大聲失敗 ---
+
+
+def test_unverifiable_link_exits_2_and_never_prints_ok(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def unreadable(path: str) -> str | None:
+        raise PermissionError(f"denied: {path}")
+
+    diff_file = tmp_path / "link.diff"
+    diff_file.write_text(_fixture_text("good_valid_link.diff"), encoding="utf-8")
+
+    rc = lint_rule_evidence.main([str(diff_file)], read_gate_file=unreadable)
+
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "[FAIL]" in captured.err
+    assert "[OK]" not in captured.out
+
+
+# --- production 預設讀檔函式：只有「不存在」是答案，其他 OS 錯誤是「無法驗證」---
+
+
+def test_default_reader_maps_only_absence_to_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", tmp_path)
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "real.py").write_text("def sym():\n    pass\n", encoding="utf-8")
+    (tmp_path / "scripts" / "blob.dat").write_bytes(b"\xff\xfe\x00")
+    read = lint_rule_evidence._read_repo_file
+
+    assert "def sym" in (read("scripts/real.py") or "")
+    assert read("scripts/absent.py") is None
+    assert read("scripts") is None, "連結指到目錄不是 gate 檔"
+    assert read("scripts/real.py/child") is None, "NotADirectoryError 等同不存在"
+    assert read("scripts/blob.dat") == "", "存在但不是文字檔：連結成立、沒有 symbol 可比對"
+
+
+def test_default_reader_does_not_swallow_other_os_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """權限錯誤等代表無法驗證，必須 raise 給 `main()` 轉 exit 2，不可吞成「不存在」。"""
+    monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", tmp_path)
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "real.py").write_text("x = 1\n", encoding="utf-8")
+
+    def denied(self: Path, *args: object, **kwargs: object) -> str:
+        raise PermissionError(f"denied: {self}")
+
+    monkeypatch.setattr(Path, "read_text", denied)
+
+    with pytest.raises(PermissionError):
+        lint_rule_evidence._read_repo_file("scripts/real.py")
+
+
+# --- 新檔沒有任何 section 時的檔案層級宣告 ---
+
+
+def test_new_file_without_sections_accepts_a_file_level_declaration() -> None:
+    diff = _new_file_diff(
+        ".claude/rules/27-flat.md",
+        [
+            "# Flat",
+            "",
+            "內文。(Source: PR #339)",
+            "<!-- gate: scripts/lint_rule_evidence.py::check_rule_evidence -->",
+        ],
+    )
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
+
+
+# --- 真實資料對照 ---
+
+_REAL_RULE = ".claude/rules/05-pydantic-models.md"
+_INJECTED_HEADING = "### Injected Undeclared Section"
+
+
+def _inject_section(text: str, declaration: str | None) -> str:
+    """在真實 rule 檔第一個 `## ` heading 前插入一個新 section；找不到錨點就 raise。"""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("## "):
+            injected = [_INJECTED_HEADING, "", "注入的內文。(Source: PR #339)"]
+            if declaration is not None:
+                injected.append(declaration)
+            injected.append("")
+            return "\n".join(lines[:index] + injected + lines[index:]) + "\n"
+    raise LookupError(f"找不到注入錨點（`## ` heading）：{_REAL_RULE}")
+
+
+def _real_rule_diff(declaration: str | None) -> str:
+    import difflib
+
+    original = (lint_rule_evidence.REPO_ROOT / _REAL_RULE).read_text(encoding="utf-8")
+    modified = _inject_section(original, declaration)
+    body = difflib.unified_diff(
+        original.splitlines(),
+        modified.splitlines(),
+        fromfile=f"a/{_REAL_RULE}",
+        tofile=f"b/{_REAL_RULE}",
+        n=0,
+        lineterm="",
+    )
+    return f"diff --git a/{_REAL_RULE} b/{_REAL_RULE}\n" + "\n".join(body) + "\n"
+
+
+def test_real_rule_copy_with_injected_section_is_flagged() -> None:
+    warns = lint_rule_evidence.warn_rule_mechanization(_real_rule_diff(None))
+    assert warns and "Injected Undeclared Section" in warns[0]
+
+
+def test_real_rule_copy_with_declared_section_is_clean() -> None:
+    """對照的對照：同一份真實檔案、同一個注入，只差宣告，反應必須翻轉。"""
+    diff = _real_rule_diff("<!-- gate: scripts/lint_rule_evidence.py::check_rule_evidence -->")
+    assert lint_rule_evidence.warn_rule_mechanization(diff) == []
+
+
+def test_injection_anchor_missing_fails() -> None:
+    with pytest.raises(LookupError):
+        _inject_section("# 只有 H1\n\n沒有二級標題。\n", None)

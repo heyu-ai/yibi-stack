@@ -1,0 +1,10 @@
+diff --git a/.claude/rules/20-new-topic.md b/.claude/rules/20-new-topic.md
+new file mode 100644
+--- /dev/null
++++ b/.claude/rules/20-new-topic.md
+@@ -0,0 +1,5 @@
++# New Topic
++
++## Undeclared Section
++
++這個 section 有證據但沒有說明為何不是 gate。(Source: PR #339)

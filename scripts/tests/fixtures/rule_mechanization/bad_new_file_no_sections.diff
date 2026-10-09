@@ -1,0 +1,8 @@
+diff --git a/.claude/rules/21-no-sections.md b/.claude/rules/21-no-sections.md
+new file mode 100644
+--- /dev/null
++++ b/.claude/rules/21-no-sections.md
+@@ -0,0 +1,3 @@
++# No Sections
++
++只有 H1 與內文，沒有任何二、三級標題。(Source: PR #339)
