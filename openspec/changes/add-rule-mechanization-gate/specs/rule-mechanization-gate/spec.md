@@ -117,7 +117,7 @@ The mechanization check SHALL run in addition to the existing evidence-marker ch
 
 ### Requirement: The check fails loudly when it cannot verify a link
 
-Resolving a gate link SHALL use the repository root of the checkout being linted. If the repository root cannot be determined, or a path check raises an operating-system error other than the path being absent, the lint SHALL exit with code 2 and a `[FAIL]` message. The lint SHALL NOT treat an unverifiable link as resolved.
+Resolving a gate link SHALL use the repository root of the checkout being linted. If a path check raises an operating-system error other than the path being absent, the lint SHALL exit with code 2 and a `[FAIL]` message. The repository root is derived from the lint script's own location, so there is no separate root-resolution failure to report. The lint SHALL NOT treat an unverifiable link as resolved.
 
 #### Scenario: Unreadable repository root exits 2
 

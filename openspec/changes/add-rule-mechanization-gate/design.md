@@ -69,7 +69,7 @@
 **Failure modes.**
 
 - 連結目標不存在、不合格、缺 symbol：error，訊息含連結原文與原因（不存在 / 不合格目錄 / 缺 symbol）。
-- repo root 無法判定或路徑檢查遇到 `OSError`（非不存在）：exit 2，不得印 `[OK]`。
+- 路徑檢查遇到 `OSError`（非不存在）：exit 2，不得印 `[OK]`。repo root 由腳本自身位置推導，沒有獨立的「無法判定」失敗模式。
 - 豁免 reason 不在列舉、說明為佔位或過短：error。
 - 同 section 同時有連結與豁免，或有兩個連結：error（互相矛盾）。
 - 刻意靜默的情況：只有「已存在 section 未變動」不被掃描，這是設計而非遺漏。
