@@ -337,14 +337,17 @@ Jira bug 不適用本節（Jira 的 updated 欄位、留言者與自動化帳號
 - **bot 只看帳號型別**（REST 回報的 user.type 為 Bot），**不看 login 文字**：`gh issue list` 的 JSON 會把
   `github-actions[bot]` 顯示成 `github-actions`，`Copilot` 這類 bot 本來就沒有 `[bot]` 後綴。
   已刪除的帳號與沒見過的帳號型別一律視為人為活動（往「看起來比較活躍」的安全方向失敗）。
-- **skill 自己的留言** = 內文含 triage 標記（見本節最後一段）**且**作者是目前登入的帳號。標記單獨出現
-  不夠：任何人都能貼上標記，只看標記會讓他的留言從度量中隱形。另一個帳號貼出的標記一律算人為活動。
+- **skill 自己的留言** = 內文的**最後一個非空行**恰好是一個完整的 triage 標記（見本節最後一段）**且**作者是
+  目前登入的帳號。標記單獨出現不夠：任何人都能貼上標記，只看標記會讓他的留言從度量中隱形。
+  另一個帳號貼出的標記一律算人為活動。只在內文提到標記前綴、標記不在最後一行、
+  種類不是已知的四種（例如 `stale-notice-foo`）、或缺日期的留言，同樣算人為活動。
 
 先用 Step 2a 的 JSON 粗算「全部留言都計入」的最後活動日（`naive`）。**只有符合下列任一條件才呼叫腳本**取得
 精確值（腳本對每個 issue 做一次 REST 呼叫）：
 
 - `naive` 距今小於 180 天：排除 bot 後只會更久，需要精確值才知道落在哪一層。
-- 任一留言內文含 `issue-triage:stale-notice`：需要找回 stale notice 的時間來判斷寬限期；notice 可能早於 180 天。
+- 任一留言內文含 `issue-triage:stale-notice`（粗篩：只看字串，不判斷是否為完整標記或作者，嚴格判斷由腳本做）：
+  需要找回 stale notice 的時間來判斷寬限期；notice 可能早於 180 天。
 
 `naive` 已達 180 天且沒有 stale notice 標記者，直接落在 tier 3，報告寫「≥ {{naive_days}} 天」，不必呼叫腳本。
 
@@ -360,8 +363,12 @@ bash ~/.agents/skills/issue-triage/scripts/last-human-activity.sh {{issue_number
 | 0 | 成功 | 取兩個欄位繼續 |
 | 1 | 腳本自身的未預期錯誤 | 該 issue 標「過期檢視不可用」，不得升為 STALE-CANDIDATE 或 OBSOLETE；最後彙總列出，不要當成「有人為活動」 |
 | 2 | 參數錯誤（issue 編號不合法） | 這是 skill 自己的 bug：`[FAIL] last-human-activity.sh 參數錯誤` 並停止 |
-| 3 | gh API 呼叫失敗（目前帳號、issue、留言任一個） | 同 exit 1 處理；連續失敗代表認證或網路問題，`[FAIL]` 並停止過期檢視 |
-| 4 | 缺 jq，或 API 回應無法解析 | 缺 jq：`[WARN] 缺 jq，略過過期檢視` 並繼續其餘 verdict；無法解析：同 exit 1 處理 |
+| 3 | gh API 呼叫失敗（目前帳號、issue、留言任一個） | 同 exit 1 處理；同一次執行內**第二次**出現 exit 3 時，代表認證或網路問題：`[FAIL] gh API 連續失敗，停止過期檢視`，其餘尚未檢視的 issue 全部標「過期檢視不可用」 |
+| 4 | 缺 jq，或 API 回應無法解析 | 缺 jq：`[WARN] 缺 jq，略過過期檢視`，所有需要呼叫腳本的 issue 都標「過期檢視不可用」，其餘 verdict 照常；無法解析：同 exit 1 處理 |
+
+**標「過期檢視不可用」的 issue**（上表的 exit 1、3、4，以及下方漂移腳本的 exit 1、3）不得成為 STALE-CANDIDATE
+或 OBSOLETE：缺資料不是「有人為活動」，也不是「沒有漂移」。其餘 verdict（CLOSE、UPDATE-SCOPE、MERGE、KEEP）
+照常計算，報告列在「過期檢視不可用」一節。
 
 #### 過期分層（初始值，首次執行請與使用者校準）
 
@@ -398,8 +405,14 @@ bash ~/.agents/skills/issue-triage/scripts/staleness-signals.sh {{issue_created_
 | never-existed | origin/main 歷史上從未有過 | 多半是 issue 寫錯路徑；列為 UNCLEAR，**不是**消失的證據 |
 
 沒有任何路徑時輸出 `NOT_APPLICABLE`。**「沒有漂移訊號」與「不適用」都不是前提仍成立的證據**：這類 issue
-只能靠 3b 的症狀驗證。腳本的 exit code：0 成功；1 腳本自身錯誤（`[FAIL]` 並停止漂移蒐集，不要當成「沒有漂移」）；
-2 參數錯誤（skill 自己的 bug，`[FAIL]` 並停止）；3 找不到 origin/main（`[FAIL]`，請回 1c 重跑）。
+只能靠 3b 的症狀驗證。腳本的 exit code 各是獨立分支：
+
+| exit | 意義 | 處理 |
+|------|------|------|
+| 0 | 成功 | 逐行取用 |
+| 1 | 腳本自身的未預期錯誤 | 該 issue 標「過期檢視不可用」，不得升為 STALE-CANDIDATE 或 OBSOLETE；不要當成「沒有漂移」 |
+| 2 | 參數錯誤 | 這是 skill 自己的 bug：`[FAIL] staleness-signals.sh 參數錯誤` 並停止 |
+| 3 | 不在 git repo 內，或找不到 origin/main | 該 issue 標「過期檢視不可用」，並提醒使用者回 1c 重跑基準檢查 |
 
 #### 豁免
 
@@ -420,7 +433,9 @@ skill 貼到 issue 上的**每一則**留言（見 Step 8）都必須在內文�
 <!-- issue-triage:<kind> <YYYY-MM-DD> -->
 ```
 
-`<kind>` 為 `close`、`update-scope`、`merge`、`stale-notice` 其中之一。標記讓下一次盤點能（一）排除自己的
+`<kind>` 為 `close`、`update-scope`、`merge`、`stale-notice` 其中之一。標記必須是該則留言的**最後一個非空行**，
+格式完整（含 `YYYY-MM-DD` 日期與結尾 `-->`）；腳本只認這種形狀，不完整、種類不明、或不在最後一行的一律不算標記。
+標記讓下一次盤點能（一）排除自己的
 留言、不重置過期時鐘，（二）找回 stale notice 的時間以判斷寬限期。skill 本身維持無狀態：跨次狀態記在
 issue 上，不記在本機檔案，也不新增 label。
 
@@ -432,7 +447,8 @@ issue 上，不記在本機檔案，也不新增 label。
 
 | # | 條件 | Verdict | 行動 |
 |---|------|---------|------|
-| **guard** | **任一前置呼叫失敗** | **STOP** | 回報錯誤並停止 |
+| **guard** | **Step 1 / Step 2 的必要前置呼叫失敗**（`gh auth status`、`gh repo view`、`check-baseline.sh` 非 0、`gh issue list`） | **STOP** | 回報錯誤並停止；單一 issue 的過期資料取不到不屬於此列，見下一列 |
+| **guard** | **任一過期資料取不到**（最後人為活動時間或漂移訊號，見 3d′） | **過期檢視不可用** | 該 issue 不得成為 OBSOLETE 或 STALE-CANDIDATE；其餘 verdict 照常，報告列在「過期檢視不可用」 |
 | **guard** | **任一症狀 = UNCLEAR** | **視同 NOT DONE** | 不得 CLOSE，也不得 OBSOLETE；落 KEEP 或 UPDATE-SCOPE |
 | 1 | 與另一 open issue/bug 覆蓋同一主題（含跨系統） | **MERGE** | 建議合併方向 |
 | 2 | 所有症狀 DONE，且（若綁 change）tasks.md 全 `[x]`，且無 keep-open | **CLOSE** | GitHub: comment + close；Jira: comment + transition to Done |
@@ -631,7 +647,7 @@ OBSOLETE 的關閉、stale notice、寬限期滿的關閉（8h、8i、8j）同�
 **失敗 gate**：任一寫入呼叫失敗 -> `[FAIL] <issue/bug> <動作> 失敗`，
 回報並**跳過該筆**，最後彙總失敗清單。
 
-**每一則貼到 GitHub issue 的留言（8a、8b、8d、8h、8i、8j）內文最後一行都必須帶 triage 標記**
+**每一則貼到 GitHub issue 的留言（8a、8b、8d、8g、8h、8i、8j）內文最後一行都必須帶 triage 標記**
 （格式與 `<kind>` 見 3d′ 的「triage 標記」；日期用今天，UTC）。沒有標記的留言，下一次盤點會把它當成
 人為活動、重置過期時鐘，stale notice 也無法被找回。例如 `close-<n>.md` 的最後一行：
 
@@ -758,6 +774,8 @@ editJiraIssue({
 
 在被整併方（Jira 或 GitHub）貼留言指向主方，再關閉。
 留言內容需包含另一系統的連結（GitHub issue URL 或 Jira issue key/URL）。
+**貼在 GitHub issue 上的那則留言**（無論它在被整併方或主方；寫到 `$OUT/merge-<b>.md`，寫法同 8d）最後一行
+同樣必須是 `<!-- issue-triage:merge <今天日期> -->`；貼在 Jira 上的留言不帶標記（標記只用於 GitHub issue 的活動度量）。
 
 ### 8h. 關閉前提已消失的 GitHub issue（OBSOLETE）
 

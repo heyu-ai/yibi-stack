@@ -44,7 +44,7 @@ stale notice 的狀態（是否已提醒、何時提醒）以 skill 貼出的留
 - 只用 label（例如 stale-candidate）：label 可被任何有權限的人增減、不帶日期、且 repo 不一定有這個 label，需要再多一個「先確認 label 存在」的失敗路徑。本 change 不新增 label。
 - 本機檔案或 DB：報告目前寫在 job 目錄，job 結束就清掉，跨次不可靠，也與 skill「唯讀預設」的合約衝突。
 
-標記容易被偽造或誤貼，所以標記必須搭配「作者是正在執行 skill 的帳號」（viewerDidAuthor 為真）才生效。另一個帳號貼出的標記一律視為人為活動，這個失敗方向是安全的：它只會讓 issue 看起來比較活躍而被 KEEP，不會導致誤關。
+標記容易被偽造或誤貼，所以標記必須搭配「作者是正在執行 skill 的帳號」才生效：留言作者的 login 等於 `gh api user` 回報的目前登入帳號 login（不分大小寫；最初規劃的 `viewerDidAuthor` 只存在於 `gh issue list` 的 JSON，而活動度量改走 REST，見下一節）。標記本身也必須「完整且位於最後一行」：只認內文最後一個非空行恰好是 `<!-- issue-triage:<close、update-scope、merge、stale-notice 其中之一> YYYY-MM-DD -->` 的留言，內文只是提到標記前綴、種類長得像（例如 `stale-notice-foo`）、缺日期、或標記後面還有文字，都算人為活動。另一個帳號貼出的標記一律視為人為活動，這個失敗方向是安全的：它只會讓 issue 看起來比較活躍而被 KEEP，不會導致誤關。
 
 ### 人為活動度量排除 skill 自己與 bot 的留言
 
@@ -97,44 +97,44 @@ Step 6 的「時效」列把長期無活動導向低優先，與新的過期檢�
 
 - 輸入：無必要參數；在目標 repo 的目錄執行。
 - 成功：exit 0；stdout 一行，格式為 BASELINE_SHA=<40 字元 SHA> FETCHED_AT=<ISO 8601>。
-- 失敗：stdout 不輸出，stderr 輸出以 `[FAIL]` 開頭的說明；exit code 分別為 2（不在 git repo）、3（fetch 失敗）、4（commit 與 origin/main 不一致，訊息含 ahead 與 behind 數）、5（tracked 檔案被修改，訊息含檔案數）。exit 1 保留給腳本自身的未預期錯誤。
+- 失敗：stdout 不輸出，stderr 輸出以 `[FAIL]` 開頭的說明；exit code 分別為 2（不在 git repo）、3（fetch 失敗）、4（commit 與 origin/main 不一致，訊息含 ahead 與 behind 數）、5（tracked 檔案被修改，訊息含檔案數；含被 assume-unchanged 或 skip-worktree 旗標隱藏、但磁碟內容與 HEAD 的 blob 不同的檔案，因為 `git status` 看不到它們而 Read/Grep 讀得到；sparse checkout 不在磁碟上的檔案不算）。exit 1 保留給腳本自身的未預期錯誤。比較基準一律用完整 ref `refs/remotes/origin/main` 解析出的 SHA，避免本機同名分支 `origin/main` 蓋過遠端 ref。
 
 最後人為活動腳本 last-human-activity.sh：
 
 - 輸入：一個 issue 編號；目標 repo 取自目前目錄的 gh 設定。
-- 行為：以 REST 取得該 issue 的全部留言（含分頁）與 issue 自身的建立時間，排除 type 為 Bot 的留言，以及「內文含 triage 標記且作者是目前登入帳號」的留言，輸出剩下的最新時間。
+- 行為：以 REST 取得該 issue 的全部留言（含分頁）與 issue 自身的建立時間，排除 type 為 Bot 的留言，以及「內文最後一個非空行是完整的 triage 標記（已知種類加日期）且作者是目前登入帳號」的留言，輸出剩下的最新時間。
 - 輸出：stdout 一行 ISO 8601 時間，之後接一個 tab 與 stale notice 標記所在留言的時間（沒有標記則為空欄）；失敗時 stderr 輸出 `[FAIL]`，exit 非 0，不輸出任何時間。
 - 目前登入帳號以 gh api user 取得；取得失敗視為失敗，不回退成「沒有人是 skill」。
 
 漂移蒐集腳本 staleness-signals.sh：
 
-- 輸入：issue 建立時間（ISO 8601），以及一個或多個 repo 相對路徑。
-- 輸出：每個路徑一行，以 tab 分隔三欄：路徑、狀態（unchanged、changed、deleted、renamed、never-existed 其中之一）、細節（changed 時為 commit 數，deleted 或 renamed 時為相關 commit）。
+- 輸入：issue 建立時間（ISO 8601），以及一個或多個 repo 根目錄相對路徑；腳本先切到 repo 根目錄，從子目錄呼叫的結果與從根目錄相同。
+- 輸出：每個路徑一行，以 tab 分隔三欄：路徑、狀態（unchanged、changed、deleted、renamed、never-existed 其中之一）、細節（changed 時為 commit 數，deleted 時為刪除它的 commit SHA，renamed 時為新路徑）。
 - 失敗：基準 ref 不存在時 exit 非 0 並在 stderr 輸出 `[FAIL]`，不輸出任何狀態行。
 
 **Failure modes**
 
 - fetch 失敗、基準不一致、tracked 檔案被修改：整個盤點停止，不產出任何 verdict。
 - 腳本自身未預期錯誤（exit 1）：視為工具錯誤，回報並停止，不當成「沒有漂移」。
-- 單一 issue 的過期資料取不到（last-human-activity.sh 或 staleness-signals.sh 失敗）：該 issue 不得升為 STALE-CANDIDATE 或 OBSOLETE，報告列為「過期檢視不可用」，其餘 verdict 照常計算；缺資料不得被當成人為活動，也不得被當成沒有漂移。
+- 單一 issue 的過期資料取不到（last-human-activity.sh 或 staleness-signals.sh 失敗）：該 issue 不得升為 STALE-CANDIDATE 或 OBSOLETE，報告列為「過期檢視不可用」，其餘 verdict 照常計算；缺資料不得被當成人為活動，也不得被當成沒有漂移。對應的 exit code：last-human-activity.sh 的 1、3、4 與 staleness-signals.sh 的 1、3 都是這個分支；同一次執行內 last-human-activity.sh 第二次出現 exit 3（認證或網路問題）即停止過期檢視，其餘尚未檢視的 issue 全部標「過期檢視不可用」；缺 jq 則所有需要呼叫的 issue 都標「過期檢視不可用」。只有 Step 1／Step 2 的必要前置呼叫（基準檢查、issue 清單）失敗才停止整個盤點。
 - tier 2 以上的 KEEP 找不到「前提仍成立」的正向證據：維持 KEEP，報告標 premise-unverified；這個旗標本身不得導致任何關閉建議。
 - 無法判定 bot 或 skill 留言：往「視為人為活動」的方向失敗（較安全）。
 
 **Acceptance criteria**
 
-- 兩支腳本各有 pytest 測試，在暫時的 git repo fixture 上涵蓋：通過狀態，以及每一種失敗狀態（不同 exit code 各一個 fixture）。
+- 三支腳本各有 pytest 測試，在暫時的 git repo fixture 上涵蓋：通過狀態，以及每一種失敗狀態（不同 exit code 各一個 fixture）。
 - 負向對照：把 check-baseline.sh 短路成永遠 exit 0，測試必須轉紅。
 - 以 spectra analyze 與 spectra validate 驗證 artifact 一致性。
 - SKILL.md 的 verdict 表、Step 6、FAQ 與兩份 spec 的決策表一致；刪除或改寫的段落以 grep 檢查沒有殘留的舊引用（例如「KEEP 並降優先」）。
 
 **Scope boundaries**
 
-- 在範圍內：SKILL.md 的 Step 1c、Step 3（新 verdict 與分層）、Step 6（時效）、Step 7（報告頂端基準）、Step 8（標記與兩個新寫入動作）、FAQ；兩支腳本與測試。
+- 在範圍內：SKILL.md 的 Step 1c、Step 3（新 verdict 與分層）、Step 6（時效）、Step 7（報告頂端基準）、Step 8（標記與三個新寫入動作：8h 關閉前提已消失的 issue、8i 貼 stale notice、8j 寬限期滿後關閉）、FAQ；三支腳本與測試。
 - 不在範圍內：Jira、決策表既有缺口、留言身分檢查、截斷與分頁、跨次紀錄、排序權重、fork 基準。
 
 ## Risks / Trade-offs
 
-- [bot 判定需要每個 issue 一次 REST 呼叫] → 只對天數小於 180 的 issue 查，上限約為 open issue 數；GitHub 的速率限制遠高於此，且查詢失敗時以失敗方向安全（視為人為活動）處理。
+- [bot 判定需要每個 issue 一次 REST 呼叫] → 只對「天數小於 180」或「任一留言含 stale notice 標記」的 issue 查，上限約為 open issue 數；GitHub 的速率限制遠高於此，且查詢失敗時該 issue 標「過期檢視不可用」（不得升為 STALE-CANDIDATE 或 OBSOLETE），同一次執行第二次 exit 3 即停止過期檢視。
 - [bot 型別只在 cli/cli 的 200 則留言樣本驗證過 Bot 與 User 兩種型別] → 其他型別（例如 Organization 或 Mannequin）未見樣本，一律視為人為活動，往安全方向失敗。
 - [路徑抽取是啟發式，會漏掉只提到符號的 issue] → 規格規定缺席不是證據；這類 issue 只會停留在 KEEP 並被標示 premise 無法驗證，不會被誤關。
 - [untracked 檔案造成假的 DONE] → 已知並接受，見第一個 Decision。

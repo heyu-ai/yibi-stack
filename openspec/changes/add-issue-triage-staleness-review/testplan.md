@@ -18,7 +18,7 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 所以 Coverage 中凡是依賴 agent 執行期判斷的 scenario 一律標 `partial`，並指向 Manual Verification。
 `ITS` 測試的 PASS 不得被讀成行為證明。
 
-三支腳本各自做過單點突變驗證（記錄於 commit `3d0d08c9`、`83cd4509`、`2f446f92`）。`ITS` 另有突變自檢（`ITS-EG-014`、`ITS-EG-015`）：
+三支腳本各自做過單點突變驗證（記錄於 commit `3d0d08c9`、`83cd4509`、`2f446f92`）。`ITS` 另有突變自檢（`ITS-EG-014`、`ITS-EG-015`、`ITS-EG-016`）：
 把任一錨點從真實 SKILL.md 的所有出現處移除、或把舊措辭注入，檢查器必須變紅。
 
 ## Test Seams
@@ -79,7 +79,9 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | ITS-DT-012 | auto | skill-runbook-doc | comment-lookup-fails-for-one-issue | [doc] 過期資料取不到時 fail-safe | DT | High | 真實 SKILL.md | 讀取並比對 | 無 | 錨點在場 |
 | ITS-DT-013 | auto | skill-runbook-doc | never-existed-path-is-not-evidence-of-absence | [doc] 沒有漂移訊號不是前提仍成立的證據 | DT | High | 真實 SKILL.md | 讀取並比對 | 無 | 錨點在場 |
 | ITS-EG-014 | auto | skill-runbook-doc | age-alone-never-closes | 突變自檢：一次只移除錨點的一個出現處；段落內的那一處變紅，段落外的不影響 | EP | High | 真實 SKILL.md | 對每個錨點的每個出現處逐一移除 | 全部錨點 | 段落內的移除使檢查器回報該錨點；段落外的移除不改變結果 |
+| ITS-DT-014 | auto | skill-runbook-doc | all-symptoms-done-and-premise-also-gone | [doc] 決策表 guard 與每一列的逐列錨點 | DT | High | 真實 SKILL.md | 讀取並在決策表段落內比對 | 兩個 guard 列、列 1 到 8、RELABEL | 單一欄位（天數、not planned、無豁免）被改掉時變紅 |
 | ITS-EG-015 | auto | skill-runbook-doc | old-severe-bug-keeps-its-priority | 突變自檢：注入舊措辭檢查器必須抓到 | EP | High | 真實 SKILL.md | 注入舊優先序、舊 FAQ 句 | 三個舊措辭 | 檢查器回報該措辭，原文本身乾淨 |
+| ITS-EG-016 | auto | skill-runbook-doc | age-alone-never-closes | 每個錨點在負責段落內恰好出現一次 | EP | Medium | 真實 SKILL.md | 計算錨點在段落內的出現次數 | 全部錨點 | 每個錨點恰好一次；否則「移除它」沒有明確意義 |
 
 ## Coverage Analysis
 
@@ -115,7 +117,7 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | premise-artifacts-removed-with-positive-control | partial | ITS-DT-005 | 正向對照屬 agent 執行期，MV-002 |
 | zero-hits-without-positive-control | partial | ITS-DT-005 | 同上 |
 | partial-loss-of-premise | partial | ITS-DT-005 | 同上 |
-| first-stale-candidate | partial | ITS-DT-006 | 狀態機屬 agent 執行期，MV-003 |
+| first-stale-candidate | partial | ITS-DT-006, ITS-DT-014 | 狀態機屬 agent 執行期，MV-003 |
 | grace-period-elapsed-without-response | partial | ITA-ST-007, ITA-ST-012, ITS-DT-006 | notice 時間由腳本回報；GitHub 無法回填留言時間，寬限期滿路徑無法端到端驗證 |
 | human-responds-during-grace-period | partial | ITS-DT-006 | 同上，MV-003 |
 | stale-notice-marker-from-another-account-is-ignored | covered | ITA-ST-008 | |
@@ -123,7 +125,7 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | reply-arrives-between-the-verdict-and-the-write | partial | ITS-DT-006 | 寫入前重新量測有寫；執行期見 MV-003 |
 | assigned-issue-is-exempt | partial | ITS-DT-007 | 豁免判斷屬執行期，MV-001 |
 | keep-open-comment-from-a-non-maintainer | partial | ITS-DT-007 | 同上 |
-| all-symptoms-done-and-premise-also-gone | partial | ITS-DT-008 | 優先序有寫；套用屬執行期 |
+| all-symptoms-done-and-premise-also-gone | partial | ITS-DT-008, ITS-DT-014 | 優先序有寫；套用屬執行期 |
 | duplicate-of-another-issue-and-stale | partial | ITS-DT-008 | 同上 |
 | old-severe-bug-keeps-its-priority | partial | ITS-DT-009, ITS-EG-015 | 錨點與舊措辭突變自檢；排序結果屬執行期，MV-001 |
 | scheduled-run | partial | ITS-DT-010 | 文字有寫；排程情境實際行為，MV-004 |

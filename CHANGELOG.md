@@ -14,7 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   降優先的理由，且程式碼驗證沒有固定基準，本機 main 落後或停在別的分支時 DONE 與 NOT DONE 會判反。
   - **證據基準**：驗證前先 `check-baseline.sh`——fetch origin main，確認 checkout 等於 origin/main 且
     tracked 檔案沒被修改，以 exit 2／3／4／5 區分不在 repo、fetch 失敗、commit 不一致、有未提交修改；
-    fetch 失敗不回退到本機殘留的 origin/main。報告頂端記錄基準 SHA 與 fetch 時間
+    fetch 失敗不回退到本機殘留的 origin/main。報告頂端記錄基準 SHA 與 fetch 時間。被 `assume-unchanged`
+    或 `skip-worktree` 隱藏的 tracked 修改（`git status` 看不到、Read/Grep 讀得到）也算修改：磁碟上存在的
+    這類檔案會與 HEAD 的 blob 比對，不同即 exit 5；比較一律用完整 ref `refs/remotes/origin/main`，
+    本機若有叫 `origin/main` 的分支不會蓋過遠端 ref
   - **OBSOLETE**：所有未解症狀的前提都證實不存在於基準才成立，且需要正向對照（零命中的搜尋沒有資訊量）；
     以 `not planned` 關閉。部分症狀失去前提時是 UPDATE-SCOPE
   - **STALE-CANDIDATE**：無人為活動 180 天以上、前提未被證實消失、無豁免的 KEEP；先貼 stale notice、
@@ -23,10 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     以 origin/main 歷史判斷 issue 引用的路徑是 unchanged／changed／deleted／renamed／never-existed
   - **最後實質人為活動**排除 bot 與 skill 自己的留言。bot 只看 REST 的帳號型別：實測 `gh issue list`
     的 JSON 會去掉 `[bot]` 後綴（`github-actions[bot]` 顯示為 `github-actions`），`Copilot` 本來就沒有後綴。
-    skill 自己的留言 = triage 標記加上作者是目前登入帳號，只看標記會讓任何人貼上標記就能隱形自己的留言
+    skill 自己的留言 = 內文最後一個非空行是完整的 triage 標記（`<!-- issue-triage:<close|update-scope|merge|stale-notice> YYYY-MM-DD -->`）
+    加上作者是目前登入帳號；只比對前綴、種類長得像（`stale-notice-foo`）、標記不在最後一行的留言都算人為活動，
+    只看標記會讓任何人貼上標記就能隱形自己的留言
   - **優先級**：久未更新不再降低優先級，改標 `review-urgency`；FAQ 原本的「KEEP 並降優先」已改寫
-  - 三支腳本共 68 個測試（真實 git repo fixture、假 gh 回放 REST 形狀 JSON），每個守衛都以單點突變驗證
-    會讓對應測試轉紅；`last-human-activity.sh` 另對 cli/cli 的真實 issue 核對過
+  - 過期資料取不到的 issue 一律標「過期檢視不可用」、不得升為 STALE-CANDIDATE 或 OBSOLETE（`last-human-activity.sh`
+    exit 1／3／4 與 `staleness-signals.sh` exit 1／3 各自有分支）；同一次執行第二次 exit 3 即停止過期檢視。
+    `staleness-signals.sh` 從子目錄執行時路徑仍是 repo 根目錄相對。8g 跨系統整併的 GitHub 端留言也帶 `merge` 標記
+  - 三支腳本共 80 個測試（真實 git repo fixture、假 gh 回放 REST 形狀 JSON），每個守衛都以單點突變驗證
+    會讓對應測試轉紅；`last-human-activity.sh` 另對 cli/cli 的真實 issue 核對過。SKILL.md 文字契約測試的錨點
+    綁定到負責段落、逐列錨點，自檢一次只移除一個出現處
   - 已知限制：基準固定為 `origin/main`（fork 的 origin 落後 upstream 尚未處理）；untracked 檔案不算基準失敗；
     Jira bug 不套用過期判斷
 
@@ -36,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   舊版看絕對路徑，所以 repo root 位於 `.claude/worktrees/<name>/`（每個 background job 的 worktree）
   或祖先目錄叫 `venv` 時，**所有測試檔都被略過**：enforced 且 tasks 全勾的 change 會把每個 auto TC 報成
   `missing`，pre-commit 的 `check-testplan-trace` 因此在 worktree 內無法通過，其他 change 也會出現假的 WARN。
-  CI 與主 checkout 不受影響。新增回歸測試 TPT-ST-009 到 012（含防矯枉過正的對照），四個單點突變各被恰好一個測試擊殺
+  CI 與主 checkout 不受影響。新增回歸測試 TPT-ST-009 到 014（含防矯枉過正的對照；013、014 鎖住 `.claude` 與 `worktrees` 必須同時出現才略過），單點突變各被測試擊殺
 
 ## [1.23.10] - 2026-10-03
 
