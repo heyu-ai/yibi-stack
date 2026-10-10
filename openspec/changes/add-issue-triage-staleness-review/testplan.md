@@ -44,8 +44,16 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | ITB-EG-008 | auto | baseline-script | clean-and-equal | untracked 檔案不使檢查失敗 | EP | Medium | 工作樹有 untracked 檔 | 執行腳本 | scratch.txt | exit 0 |
 | ITB-ST-006 | auto | baseline-script | hidden-tracked-modification | assume-unchanged 隱藏的 tracked 修改被擋下 | ST | High | 檔案設 assume-unchanged 後被改寫，status 為空 | 執行腳本 | LOCAL TAMPER | exit 5；stderr 含 modified=1 與檔名 |
 | ITB-ST-007 | auto | baseline-script | hidden-tracked-modification | skip-worktree 隱藏的 tracked 修改被擋下 | ST | High | 檔案設 skip-worktree 後被改寫，status 為空 | 執行腳本 | LOCAL TAMPER | exit 5；stderr 含檔名 |
-| ITB-ST-008 | auto | baseline-script | hidden-tracked-modification | 旗標但內容等於 HEAD、sparse 缺檔都通過（對照） | EP | High | assume-unchanged 未改動的檔案；skip-worktree 且已從磁碟移除的檔案 | 執行腳本 | sparse.txt | exit 0 |
+| ITB-ST-008 | auto | baseline-script | hidden-tracked-modification | 旗標但內容等於 HEAD、真的 sparse checkout 缺檔都通過（對照） | EP | High | assume-unchanged 未改動的檔案；以 `git sparse-checkout` 排除而從磁碟移除的檔案（core.sparseCheckout 為 true、tag S） | 執行腳本 | sparse.txt | exit 0 |
 | ITB-ST-009 | auto | baseline-script | fetch-succeeds | 本機同名分支 origin/main 不蓋過遠端 ref，ambiguity warning 不混進訊息 | ST | Medium | 本機分支 origin/main 指向別的 commit；之後 origin 前進 1 個 | 執行腳本兩次 | 同名分支 | 第一次 exit 0 且 BASELINE_SHA 為遠端 SHA；第二次 exit 4，stderr 為 ahead=0 behind=1 且不含 warning |
+| ITB-ST-010 | auto | baseline-script | run-from-a-subdirectory | 從子目錄執行時，子目錄之外被旗標隱藏的修改仍被擋下 | EP | High | 根目錄的檔案 assume-unchanged 後被改寫；docs/ 子目錄 | 從根目錄與從 docs/ 各執行一次 | top.txt | 兩次都 exit 5；stderr 含檔名；stdout 為空 |
+| ITB-ST-011 | auto | baseline-script | run-from-a-subdirectory | 對照：旗標但內容等於 HEAD 的檔案在 cwd 內，從子目錄執行通過 | EP | High | sub/bar.txt assume-unchanged 未改動 | 從根目錄與從 sub/ 各執行一次 | sub/bar.txt | 兩次都 exit 0 |
+| ITB-ST-012 | auto | baseline-script | hidden-tracked-file-deleted-from-disk | assume-unchanged 的檔案被刪掉要擋下 | ST | High | 檔案 assume-unchanged 後從磁碟刪除，status 為空 | 執行腳本 | gone.txt | exit 5；stderr 含 modified=1 與檔名 |
+| ITB-ST-013 | auto | baseline-script | hidden-tracked-file-deleted-from-disk | skip-worktree 缺檔在沒開 sparse 時要擋下；sparse 開著時只豁免 S／s tag | DT | High | skip-worktree 缺檔且 core.sparseCheckout 未設；sparse 開啟下 assume-unchanged 缺檔 | 執行腳本 | gone.txt | 兩種都 exit 5 |
+| ITB-ST-014 | auto | baseline-script | hidden-tracked-modification | assume-unchanged 的 symlink 被改指向別處要擋下 | ST | High | tracked symlink 旗標後 unlink 再指向別的目標，status 為空 | 執行腳本 | link | exit 5；stderr 含 link |
+| ITB-ST-015 | auto | baseline-script | hidden-tracked-modification | 對照：旗標但目標沒變的 symlink 通過 | EP | High | tracked symlink 旗標後未改動 | 執行腳本 | link | exit 0 |
+| ITB-ST-016 | auto | baseline-script | hidden-tracked-modification | 旗標隱藏、index 有但 HEAD 沒有的檔案要擋下 | ST | High | `git add -N` 加 assume-unchanged，status 為空 | 執行腳本 | brand-new.txt | exit 5；stderr 含檔名 |
+| ITB-EG-017 | auto | baseline-script | unexpected-git-failure-is-not-a-pass | 以 PATH 上的假 git 讓單一子指令失敗，腳本必須 exit 1 而非通過 | EP | High | 假 git 只讓 rev-list、status、config、ls-files 或 hash-object（一般檔案與 symlink 各一）失敗 | 各執行一次 | 六組 | exit 1；stdout 為空；stderr 含 [FAIL] |
 | ITD-ST-001 | auto | drift-script | referenced-file-was-deleted | 已刪除的路徑回報刪除它的 commit | ST | High | 檔案於建立後被刪除 | 執行腳本 | src/legacy.py | deleted 加刪除 commit SHA |
 | ITD-ST-002 | auto | drift-script | referenced-file-changed-repeatedly | 只計建立之後的 commit 數 | ST | High | 建立前 1 次、建立後 3 次修改 | 執行腳本 | src/hot.py | changed 加 3 |
 | ITD-ST-003 | auto | drift-script | issue-references-no-paths | 沒有路徑時是 NOT_APPLICABLE | EP | Medium | 有 origin/main | 不帶路徑執行 | 無 | stdout 為 NOT_APPLICABLE |
@@ -93,7 +101,10 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | checkout-is-behind | covered | ITB-ST-002 | |
 | checkout-is-on-an-unmerged-branch | covered | ITB-ST-003 | |
 | tracked-file-modified | covered | ITB-ST-004 | |
-| hidden-tracked-modification | covered | ITB-ST-006, ITB-ST-007, ITB-ST-008 | assume-unchanged 與 skip-worktree 各一，另有旗標但內容相同與 sparse 缺檔的對照；突變（旗標清單只留 S、只留小寫）各被擊殺 |
+| hidden-tracked-modification | covered | ITB-ST-006, ITB-ST-007, ITB-ST-008, ITB-ST-014, ITB-ST-015, ITB-ST-016 | assume-unchanged 與 skip-worktree 各一，另有旗標但內容相同與真 sparse 缺檔的對照；symlink（改指向與未變）與 index 有但 HEAD 沒有的檔案；突變（旗標清單只留 S、只留小寫、symlink 分支略過、HEAD 缺檔的哨兵值改成等於磁碟 hash）各被擊殺 |
+| hidden-tracked-file-deleted-from-disk | covered | ITB-ST-012, ITB-ST-013 | 缺檔只有 sparse 開啟加 S／s tag 才豁免；突變（豁免加入小寫 h、移除 sparse 條件）各被擊殺 |
+| run-from-a-subdirectory | covered | ITB-ST-010, ITB-ST-011 | 兩個方向：子目錄之外的隱藏修改要擋下、cwd 內的旗標但未變檔案不得誤報；突變（移除 cd 到根目錄）被擊殺 |
+| unexpected-git-failure-is-not-a-pass | covered | ITB-EG-017 | 六個 `fail 1` 分支各以假 git 觸發；各改成 `true` 的突變都被擊殺 |
 | clean-and-equal | covered | ITB-ST-001, ITB-EG-008 | 含 untracked 不失敗 |
 | each-failure-is-distinguishable | covered | ITB-DT-006, ITB-EG-007 | |
 | passing-baseline | covered | ITB-ST-001 | |

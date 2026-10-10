@@ -135,7 +135,7 @@ Step 3b 之後的每一個 DONE / NOT DONE 都是拿「目前的程式碼」判�
 origin/main 的內容。**只要這次執行會對照程式碼驗證症狀就必須先過這一步**，包含只盤點 Jira bug
 （`--jira`）與只研判單一項目（`#<n>`）的執行。
 
-在要盤點的 repo 目錄內執行（不要 `cd`；腳本只吃目前目錄）：
+在要盤點的 repo 內執行（根目錄或任一子目錄皆可，腳本會自己切到 repo 根目錄；不要 `cd` 到別的 repo）：
 
 ```bash
 bash ~/.agents/skills/issue-triage/scripts/check-baseline.sh
@@ -152,7 +152,7 @@ Step 7 報告頂端要寫出來。失敗時 stdout 為空、stderr 以 `[FAIL]` 
 | 2 | 不在可讀取的 git repo | `[FAIL] 目前目錄不是可讀取的 git repo` 並停止，請切到要盤點的 repo |
 | 3 | fetch origin main 失敗 | `[FAIL] 無法 fetch origin main，無法確認證據基準` 並停止；不要回退到本機的 origin/main |
 | 4 | checkout 與 origin/main 不一致 | `[FAIL] checkout 與 origin/main 不一致`，轉述 stderr 的 ahead／behind 數並停止；補救是從 origin/main 開乾淨的 worktree，或先更新主 checkout |
-| 5 | tracked 檔案有未提交的修改 | `[FAIL] tracked 檔案有未提交的修改`，轉述 stderr 的檔案數與清單並停止；補救是提交、還原，或改在乾淨的 worktree 執行 |
+| 5 | tracked 檔案有未提交的修改（含被 assume-unchanged / skip-worktree 旗標隱藏的修改或缺檔） | `[FAIL] tracked 檔案有未提交的修改`，轉述 stderr 的檔案數與清單並停止；補救是提交、還原，或改在乾淨的 worktree 執行 |
 
 殘餘風險：untracked 檔案不算失敗，但 Grep 工具會搜到它們，可能造成假的 DONE。主 checkout 的
 untracked 暫存目錄極為常見，列為失敗會讓檢查幾乎永遠紅，所以刻意放行；懷疑時改在乾淨的 worktree 執行。

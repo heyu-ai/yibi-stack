@@ -46,3 +46,7 @@
 - [x] 7.6 test_skill_contract.py：錨點綁定到負責段落、每個錨點在段落內唯一、逐列錨點（決策表與寬限期表）、ITS-EG-014 改為一次只移除一處。驗證：突變 M1（14 天改 1 天）、M3（列 6 的 180 改 30）、M4（列 6 拿掉無豁免）、M5（列 4 的 not planned 改 completed）各被擊殺
 - [x] 7.7 testplan.md：ITD-ST-003、ITD-ST-004 改為 partial，Legend 的 covered 限縮為腳本層，AC 範圍改為 AC-1～AC-14，並補上新增的 TC。驗證：check_testplan_trace.py --strict 只剩 MV-001 到 004
 - [x] 7.8 test_check_testplan_trace.py：新增 repo 內部 `.claude/hooks/tests/test_x.py` 綁定 TC、並在 `.claude` 之外放 `worktrees/` 目錄，鎖住 discover_test_files 的 `and`（改成 `or` 的突變必須被擊殺）
+
+## 8. PR #532 第二輪 review 的修正（Review Contract 範圍內，先寫失敗的測試再修）
+
+- [x] 8.1 check-baseline.sh：確認在工作樹內後先 `cd` 到 `rev-parse --show-toplevel`（失敗 exit 2），`status`、`ls-files`、hash 比對都從 repo 根目錄做；旗標隱藏的缺檔只有「core.sparseCheckout 為 true 且 tag 為 S 或 s」才豁免，其餘（assume-unchanged 缺檔、沒開 sparse 的 skip-worktree 缺檔）算修改 exit 5，tag 明列不用 `[a-z]`。補測 symlink 改指向、未變的旗標 symlink、index 有但 HEAD 沒有的檔案，以及以假 git 讓 rev-list、status、config、ls-files、hash-object 失敗時 exit 1。驗證：ITB-ST-010、011（子目錄兩個方向）、012、013（缺檔）修正前為紅；突變（移除 cd、豁免加入 h、移除 sparse 條件、哨兵值等於磁碟 hash、略過 symlink 分支、六個 `fail 1` 改 `true`）各被擊殺

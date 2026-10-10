@@ -51,6 +51,7 @@ ANCHORS: dict[str, list[Anchor]] = {
         ("baseline", "包含只盤點 Jira bug"),
         ("baseline", "bash ~/.agents/skills/issue-triage/scripts/check-baseline.sh"),
         ("baseline", "不要回退到本機的 origin/main"),
+        ("baseline", "根目錄或任一子目錄皆可"),
     ],
     "ITS-DT-002": [
         ("report", "## 證據基準"),

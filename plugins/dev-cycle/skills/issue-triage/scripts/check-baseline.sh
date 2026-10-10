@@ -3,19 +3,21 @@
 #
 # 驗證 issue 症狀之前，確認「被檢視的程式碼」就是剛 fetch 的 origin/main：
 # 落後的 main 或沒合併的分支，會讓 DONE 與 NOT DONE 都判反。
-# 在目標 repo 的目錄執行，無需參數。
+# 在目標 repo 內的任一目錄（根目錄或子目錄）執行，無需參數：`git status` 與 `git ls-files`
+# 預設只看 cwd 底下，所以腳本確認在工作樹內之後會先切到 repo 根目錄，不論從哪一層呼叫結果相同。
 #
 # stdout（僅成功時）：BASELINE_SHA=<40 字元 SHA> FETCHED_AT=<ISO 8601 UTC>
 # stderr（僅失敗時）：以 [FAIL] 開頭的說明與補救方式
 #
 # Exit codes:
 #   0  基準通過
-#   1  腳本自身的未預期錯誤（不是基準問題，不要當成「沒有漂移」）
-#   2  不在可讀取的 git repo
+#   1  腳本自身的未預期錯誤（不是基準問題，不要當成基準通過）
+#   2  不在可讀取的 git repo（含無法切到 repo 根目錄）
 #   3  fetch origin main 失敗（不回退到本機殘留的 origin/main）
 #   4  checkout 的 commit 與 origin/main 不一致（訊息含 ahead 與 behind 數）
 #   5  tracked 檔案有未提交的修改（訊息含檔案數）；含被 assume-unchanged / skip-worktree
-#      旗標隱藏、但磁碟內容與 HEAD 不同的檔案（sparse checkout 不在磁碟上的檔案不算）
+#      旗標隱藏、但磁碟內容與 HEAD 不同或已不在磁碟上的檔案。唯一的豁免：skip-worktree
+#      （tag S 或 s）的檔案不在磁碟上、且 core.sparseCheckout 為 true（真的 sparse checkout）
 #
 # 已知殘餘風險：untracked 檔案不算失敗，但 Grep 工具會搜到它們，可能造成假的 DONE。
 # 主 checkout 的 untracked 暫存目錄極為常見，列為失敗會讓檢查幾乎永遠紅。
@@ -42,6 +44,14 @@ if ! INSIDE=$(_git rev-parse --is-inside-work-tree 2>/dev/null); then
 fi
 if [ "$INSIDE" != "true" ]; then
   fail 2 "目前目錄不在 git 工作樹內；請在要盤點的 repo 內執行"
+fi
+# `git status` 與 `git ls-files` 的範圍預設是 cwd；從子目錄呼叫時，子目錄之外被旗標隱藏的修改
+# 會整個不被檢查，cwd 內的檔案也會以 cwd 相對路徑去查 HEAD 而誤報。後面所有檢查都從根目錄做。
+if ! ROOT=$(_git rev-parse --show-toplevel 2>"$ERR_FILE"); then
+  fail 2 "無法取得 repo 根目錄：$(cat "$ERR_FILE")"
+fi
+if ! cd "$ROOT"; then
+  fail 2 "無法切到 repo 根目錄：${ROOT}"
 fi
 
 if ! FETCH_OUT=$(_git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main" 2>&1); then
@@ -75,8 +85,17 @@ if [ -n "$MODIFIED" ]; then
 fi
 
 # `git status` 不看被 assume-unchanged（小寫 tag）或 skip-worktree（S/s）標記的檔案，
-# 但 Read/Grep 讀的是磁碟內容：磁碟上存在的這類檔案必須逐一比對 HEAD 的 blob。
-# sparse checkout 的 skip-worktree 檔案不在磁碟上，沒有東西被讀到，略過。
+# 但 Read/Grep 讀的是磁碟內容：這類檔案必須逐一比對 HEAD 的 blob，不在磁碟上的也算修改（被刪掉了）。
+# 唯一的豁免是真的 sparse checkout：core.sparseCheckout 為 true，且檔案帶 skip-worktree（S/s），
+# 此時它不在磁碟上是 sparse 規則的結果，Read/Grep 不會讀到任何東西。
+# `git config --bool` 在設定不存在時 exit 1（預設為 false），其他非 0 是 git 自己的錯誤。
+SPARSE_RC=0
+SPARSE=$(_git config --bool core.sparseCheckout 2>"$ERR_FILE") || SPARSE_RC=$?
+case "$SPARSE_RC" in
+  0) ;;
+  1) SPARSE="false" ;;
+  *) fail 1 "無法讀取 core.sparseCheckout：$(cat "$ERR_FILE")" ;;
+esac
 if ! _git ls-files -v -z > "$LSV_FILE" 2>"$ERR_FILE"; then
   fail 1 "無法讀取 index 旗標：$(cat "$ERR_FILE")"
 fi
@@ -100,6 +119,14 @@ while IFS= read -r -d '' ENTRY; do
       fail 1 "無法計算 ${FILE_PATH} 的 hash：$(cat "$ERR_FILE")"
     fi
   else
+    # 不在磁碟上（或不是一般檔案）：只有 sparse checkout 的 skip-worktree 檔案正常，其餘一律是修改
+    if [ "$SPARSE" = "true" ]; then
+      case "$TAG" in
+        S | s) continue ;;
+      esac
+    fi
+    HIDDEN="${HIDDEN}${FILE_PATH}"$'\n'
+    HIDDEN_COUNT=$((HIDDEN_COUNT + 1))
     continue
   fi
   if ! HEAD_SHA=$(_git rev-parse --verify --quiet "HEAD:${FILE_PATH}" 2>"$ERR_FILE"); then
@@ -111,7 +138,7 @@ while IFS= read -r -d '' ENTRY; do
   fi
 done < "$LSV_FILE"
 if [ "$HIDDEN_COUNT" -gt 0 ]; then
-  echo "[FAIL] tracked 檔案被 assume-unchanged / skip-worktree 標記隱藏，且磁碟內容與 HEAD 不同：modified=${HIDDEN_COUNT}；請還原內容或清除旗標（git update-index --no-assume-unchanged / --no-skip-worktree），或改在乾淨的 worktree 執行" >&2
+  echo "[FAIL] tracked 檔案被 assume-unchanged / skip-worktree 標記隱藏，且磁碟內容與 HEAD 不同或已不在磁碟上：modified=${HIDDEN_COUNT}；請還原內容或清除旗標（git update-index --no-assume-unchanged / --no-skip-worktree），或改在乾淨的 worktree 執行" >&2
   printf '%s' "$HIDDEN" >&2
   exit 5
 fi

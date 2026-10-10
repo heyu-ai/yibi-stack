@@ -24,13 +24,17 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess  # nosec B404
 from pathlib import Path
+
+import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 CHECK_BASELINE = SCRIPTS_DIR / "check-baseline.sh"
 
 EXIT_OK = 0
+EXIT_UNEXPECTED = 1
 EXIT_NOT_A_REPO = 2
 EXIT_FETCH_FAILED = 3
 EXIT_COMMIT_MISMATCH = 4
@@ -361,7 +365,10 @@ class TestBehaviour:
         assert "tracked.txt" in proc.stderr
 
     def test_cb_st_016_index_flags_with_unchanged_content_pass(self, tmp_path: Path) -> None:
-        """對照：旗標本身不是失敗，內容等於 HEAD、或 sparse 檔案不在磁碟上都通過。
+        """對照：旗標本身不是失敗，內容等於 HEAD、或 sparse 缺檔都通過。
+
+        sparse 缺檔必須是真的 sparse checkout（`core.sparseCheckout` 為 true、tag 為 S）；
+        只有 skip-worktree 旗標而沒開 sparse 的缺檔是被刪掉的檔案，見 ITB-ST-013。
 
         spec: issue-triage-evidence-baseline#hidden-tracked-modification
         tc: ITB-ST-008
@@ -370,8 +377,10 @@ class TestBehaviour:
         _commit_file(repo, "sparse.txt", "s\n", "add sparse")
         _git(repo, "push", "-q", "origin", "main")
         _git(repo, "update-index", "--assume-unchanged", "tracked.txt")
-        _git(repo, "update-index", "--skip-worktree", "sparse.txt")
-        (repo / "sparse.txt").unlink()
+        _git(repo, "sparse-checkout", "init", "--no-cone")
+        _git(repo, "sparse-checkout", "set", "/tracked.txt")
+        assert not (repo / "sparse.txt").exists()
+        assert _git(repo, "config", "--bool", "core.sparseCheckout").stdout.strip() == "true"
         proc = _run(repo)
         assert proc.returncode == EXIT_OK, proc.stderr
 
@@ -399,6 +408,240 @@ class TestBehaviour:
         assert behind.returncode == EXIT_COMMIT_MISMATCH, behind.stdout
         assert "ahead=0 behind=1" in behind.stderr
         assert "warning" not in behind.stderr
+
+
+def _push_files(repo: Path, files: dict[str, str]) -> None:
+    for name, content in files.items():
+        target = repo / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "add fixtures")
+    _git(repo, "push", "-q", "origin", "main")
+
+
+def _push_symlink(repo: Path, name: str, target: str) -> None:
+    os.symlink(target, repo / name)
+    _git(repo, "add", name)
+    _git(repo, "commit", "-q", "-m", f"add symlink {name}")
+    _git(repo, "push", "-q", "origin", "main")
+
+
+class TestCwdScope:
+    """`git ls-files` 與 `git status` 預設只看 cwd 底下；腳本必須先切到 repo 根目錄。"""
+
+    def test_cb_st_018_hidden_edit_outside_cwd_is_caught_from_a_subdirectory(
+        self, tmp_path: Path
+    ) -> None:
+        """從子目錄執行時，子目錄之外被旗標隱藏的修改一樣要擋下。
+
+        舊版只掃 cwd 底下的 index：`top.txt` 在 repo 根目錄，從 `docs/` 執行會 exit 0。
+
+        spec: issue-triage-evidence-baseline#run-from-a-subdirectory
+        tc: ITB-ST-010
+        """
+        repo, _ = _make_repo(tmp_path)
+        _push_files(repo, {"top.txt": "top\n", "docs/guide.md": "guide\n"})
+        _git(repo, "update-index", "--assume-unchanged", "top.txt")
+        (repo / "top.txt").write_text("LOCAL TAMPER\n", encoding="utf-8")
+        assert _git(repo, "status", "--porcelain", "--untracked-files=no").stdout == ""
+        from_root = _run(repo)
+        assert from_root.returncode == EXIT_TRACKED_MODIFIED, from_root.stdout
+        from_sub = _run(repo / "docs")
+        assert from_sub.returncode == EXIT_TRACKED_MODIFIED, from_sub.stdout
+        assert "top.txt" in from_sub.stderr
+        assert from_sub.stdout == ""
+
+    def test_cb_st_019_unchanged_flagged_file_inside_cwd_passes_from_a_subdirectory(
+        self, tmp_path: Path
+    ) -> None:
+        """對照：旗標但內容等於 HEAD 的檔案在 cwd 內，從子目錄執行也要通過。
+
+        舊版從子目錄看到的路徑是 cwd 相對（`bar.txt`），查不到 HEAD 的 blob 而誤報 exit 5。
+
+        spec: issue-triage-evidence-baseline#run-from-a-subdirectory
+        tc: ITB-ST-011
+        """
+        repo, _ = _make_repo(tmp_path)
+        _push_files(repo, {"sub/bar.txt": "bar\n"})
+        _git(repo, "update-index", "--assume-unchanged", "sub/bar.txt")
+        from_root = _run(repo)
+        assert from_root.returncode == EXIT_OK, from_root.stderr
+        from_sub = _run(repo / "sub")
+        assert from_sub.returncode == EXIT_OK, from_sub.stderr
+        assert re.fullmatch(r"BASELINE_SHA=[0-9a-f]{40} FETCHED_AT=\S+\n?", from_sub.stdout)
+
+
+class TestFlaggedFileAbsentFromDisk:
+    """旗標隱藏的檔案不在磁碟上：只有真的 sparse checkout 才算正常。"""
+
+    def test_cb_st_020_assume_unchanged_and_deleted_is_modified(self, tmp_path: Path) -> None:
+        """assume-unchanged 的檔案被刪掉：status 看不到，但 Read/Grep 會找不到它，不是乾淨基準。
+
+        spec: issue-triage-evidence-baseline#hidden-tracked-file-deleted-from-disk
+        tc: ITB-ST-012
+        """
+        repo, _ = _make_repo(tmp_path)
+        _push_files(repo, {"gone.txt": "gone\n"})
+        _git(repo, "update-index", "--assume-unchanged", "gone.txt")
+        (repo / "gone.txt").unlink()
+        assert _git(repo, "status", "--porcelain", "--untracked-files=no").stdout == ""
+        proc = _run(repo)
+        assert proc.returncode == EXIT_TRACKED_MODIFIED, proc.stdout
+        assert "modified=1" in proc.stderr
+        assert "gone.txt" in proc.stderr
+        assert proc.stdout == ""
+
+    def test_cb_st_021_skip_worktree_and_deleted_without_sparse_is_modified(
+        self, tmp_path: Path
+    ) -> None:
+        """skip-worktree 的缺檔只有在 sparse checkout 開啟時才豁免；沒開就是被刪掉的檔案。
+
+        spec: issue-triage-evidence-baseline#hidden-tracked-file-deleted-from-disk
+        tc: ITB-ST-013
+        """
+        repo, _ = _make_repo(tmp_path)
+        _push_files(repo, {"gone.txt": "gone\n"})
+        _git(repo, "update-index", "--skip-worktree", "gone.txt")
+        (repo / "gone.txt").unlink()
+        assert _git(repo, "status", "--porcelain", "--untracked-files=no").stdout == ""
+        proc = _run(repo)
+        assert proc.returncode == EXIT_TRACKED_MODIFIED, proc.stdout
+        assert "gone.txt" in proc.stderr
+
+    def test_cb_st_022_sparse_enabled_does_not_exempt_an_assume_unchanged_deletion(
+        self, tmp_path: Path
+    ) -> None:
+        """豁免只給 S／s tag：sparse 開著時，assume-unchanged（小寫 h）的缺檔仍然是修改。
+
+        spec: issue-triage-evidence-baseline#hidden-tracked-file-deleted-from-disk
+        tc: ITB-ST-013
+        """
+        repo, _ = _make_repo(tmp_path)
+        _push_files(repo, {"gone.txt": "gone\n"})
+        _git(repo, "sparse-checkout", "init", "--no-cone")
+        _git(repo, "sparse-checkout", "set", "/tracked.txt", "/gone.txt")
+        _git(repo, "update-index", "--assume-unchanged", "gone.txt")
+        (repo / "gone.txt").unlink()
+        assert _git(repo, "config", "--bool", "core.sparseCheckout").stdout.strip() == "true"
+        proc = _run(repo)
+        assert proc.returncode == EXIT_TRACKED_MODIFIED, proc.stdout
+        assert "gone.txt" in proc.stderr
+
+
+class TestFlaggedSymlinkAndNewFile:
+    def test_cb_st_023_retargeted_assume_unchanged_symlink_is_modified(
+        self, tmp_path: Path
+    ) -> None:
+        """symlink 的內容是連結目標：assume-unchanged 後把它改指向別處，要擋下。
+
+        spec: issue-triage-evidence-baseline#hidden-tracked-modification
+        tc: ITB-ST-014
+        """
+        repo, _ = _make_repo(tmp_path)
+        _push_files(repo, {"real.txt": "real\n", "other.txt": "other\n"})
+        _push_symlink(repo, "link", "real.txt")
+        _git(repo, "update-index", "--assume-unchanged", "link")
+        (repo / "link").unlink()
+        os.symlink("other.txt", repo / "link")
+        assert _git(repo, "status", "--porcelain", "--untracked-files=no").stdout == ""
+        proc = _run(repo)
+        assert proc.returncode == EXIT_TRACKED_MODIFIED, proc.stdout
+        assert "link" in proc.stderr
+
+    def test_cb_st_024_unchanged_assume_unchanged_symlink_passes(self, tmp_path: Path) -> None:
+        """對照：旗標但目標沒變的 symlink 通過；否則上一個測試只證明「symlink 一律失敗」。
+
+        spec: issue-triage-evidence-baseline#hidden-tracked-modification
+        tc: ITB-ST-015
+        """
+        repo, _ = _make_repo(tmp_path)
+        _push_files(repo, {"real.txt": "real\n"})
+        _push_symlink(repo, "link", "real.txt")
+        _git(repo, "update-index", "--assume-unchanged", "link")
+        proc = _run(repo)
+        assert proc.returncode == EXIT_OK, proc.stderr
+
+    def test_cb_st_025_flagged_file_that_is_not_in_head_is_modified(self, tmp_path: Path) -> None:
+        """intent-to-add 加 assume-unchanged：status 為空、index 有檔但 HEAD 沒有，必須擋下。
+
+        spec: issue-triage-evidence-baseline#hidden-tracked-modification
+        tc: ITB-ST-016
+        """
+        repo, _ = _make_repo(tmp_path)
+        (repo / "brand-new.txt").write_text("new\n", encoding="utf-8")
+        _git(repo, "add", "-N", "brand-new.txt")
+        _git(repo, "update-index", "--assume-unchanged", "brand-new.txt")
+        assert _git(repo, "status", "--porcelain", "--untracked-files=no").stdout == ""
+        proc = _run(repo)
+        assert proc.returncode == EXIT_TRACKED_MODIFIED, proc.stdout
+        assert "brand-new.txt" in proc.stderr
+
+
+# 假的 git：只讓指定的子指令失敗，其餘轉給真的 git。略過 -c 與 -C 這類全域選項後的第一個字是子指令。
+SHIM = """#!/usr/bin/env bash
+args=("$@")
+i=0
+while [ "$i" -lt "${#args[@]}" ]; do
+  case "${args[$i]}" in
+    -c | -C) i=$((i + 2)) ;;
+    -*) i=$((i + 1)) ;;
+    *) break ;;
+  esac
+done
+if [ "${args[$i]:-}" = "${SHIM_FAIL_SUBCMD}" ]; then
+  echo "shim: simulated failure of git ${SHIM_FAIL_SUBCMD}" >&2
+  exit 3
+fi
+exec "${SHIM_REAL_GIT}" "$@"
+"""
+
+
+class TestUnexpectedGitFailure:
+    @pytest.mark.parametrize(
+        ("subcommand", "flagged"),
+        [
+            ("rev-list", "file"),
+            ("status", "file"),
+            ("config", "file"),
+            ("ls-files", "file"),
+            ("hash-object", "file"),
+            ("hash-object", "symlink"),
+        ],
+    )
+    def test_cb_eg_017_a_failing_git_subcommand_exits_1_without_passing(
+        self, tmp_path: Path, subcommand: str, flagged: str
+    ) -> None:
+        """git 自己壞掉（子指令非 0）不是基準通過：exit 1、stdout 為空、stderr 以 [FAIL] 說明。
+
+        每個子指令都在「會走到它」的 fixture 上測：hash-object 需要被旗標隱藏、磁碟上存在的檔案，
+        且一般檔案與 symlink 各走不同分支。分支若把 `fail 1` 改成 `true`，這裡會變成 exit 0 或 5。
+
+        spec: issue-triage-evidence-baseline#unexpected-git-failure-is-not-a-pass
+        tc: ITB-EG-017
+        """
+        repo, _ = _make_repo(tmp_path)
+        if flagged == "symlink":
+            _push_symlink(repo, "link", "tracked.txt")
+            _git(repo, "update-index", "--assume-unchanged", "link")
+        else:
+            _git(repo, "update-index", "--assume-unchanged", "tracked.txt")
+        shim_dir = tmp_path / "shim-bin"
+        shim_dir.mkdir()
+        shim = shim_dir / "git"
+        shim.write_text(SHIM, encoding="utf-8")
+        shim.chmod(0o755)
+        real_git = shutil.which("git")
+        assert real_git, "找不到真的 git"
+        proc = _run(
+            repo,
+            PATH=f"{shim_dir}{os.pathsep}{os.environ['PATH']}",
+            SHIM_FAIL_SUBCMD=subcommand,
+            SHIM_REAL_GIT=real_git,
+        )
+        assert proc.returncode == EXIT_UNEXPECTED, (proc.stdout, proc.stderr)
+        assert proc.stdout == ""
+        assert "[FAIL]" in proc.stderr
 
 
 class TestDistinctExitCodes:

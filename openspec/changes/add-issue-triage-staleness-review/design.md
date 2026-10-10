@@ -95,9 +95,9 @@ Step 6 的「時效」列把長期無活動導向低優先，與新的過期檢�
 
 基準檢查腳本 check-baseline.sh：
 
-- 輸入：無必要參數；在目標 repo 的目錄執行。
+- 輸入：無必要參數；在目標 repo 內的任一目錄（根目錄或子目錄）執行。`git status` 與 `git ls-files` 的範圍預設是 cwd，所以腳本確認在工作樹內之後先 `cd` 到 `rev-parse --show-toplevel`，不論從哪一層呼叫結果相同（取不到根目錄或切不過去是 exit 2）。
 - 成功：exit 0；stdout 一行，格式為 BASELINE_SHA=<40 字元 SHA> FETCHED_AT=<ISO 8601>。
-- 失敗：stdout 不輸出，stderr 輸出以 `[FAIL]` 開頭的說明；exit code 分別為 2（不在 git repo）、3（fetch 失敗）、4（commit 與 origin/main 不一致，訊息含 ahead 與 behind 數）、5（tracked 檔案被修改，訊息含檔案數；含被 assume-unchanged 或 skip-worktree 旗標隱藏、但磁碟內容與 HEAD 的 blob 不同的檔案，因為 `git status` 看不到它們而 Read/Grep 讀得到；sparse checkout 不在磁碟上的檔案不算）。exit 1 保留給腳本自身的未預期錯誤。比較基準一律用完整 ref `refs/remotes/origin/main` 解析出的 SHA，避免本機同名分支 `origin/main` 蓋過遠端 ref。
+- 失敗：stdout 不輸出，stderr 輸出以 `[FAIL]` 開頭的說明；exit code 分別為 2（不在 git repo）、3（fetch 失敗）、4（commit 與 origin/main 不一致，訊息含 ahead 與 behind 數）、5（tracked 檔案被修改，訊息含檔案數；含被 assume-unchanged 或 skip-worktree 旗標隱藏、但磁碟內容與 HEAD 的 blob 不同或已不在磁碟上的檔案，因為 `git status` 看不到它們而 Read/Grep 讀得到或讀不到；唯一的豁免是 `core.sparseCheckout` 為 true 且 tag 為 S 或 s 的缺檔，那是 sparse 規則的結果。旗標清單與豁免 tag 都明列，不用 `[a-z]` 範圍：bash 的範圍比對依 locale 排序，會把大寫 H 也算進去）。exit 1 保留給腳本自身的未預期錯誤。比較基準一律用完整 ref `refs/remotes/origin/main` 解析出的 SHA，避免本機同名分支 `origin/main` 蓋過遠端 ref。
 
 最後人為活動腳本 last-human-activity.sh：
 
