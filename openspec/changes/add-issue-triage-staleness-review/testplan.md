@@ -168,10 +168,10 @@ Legend: covered 只用於**腳本層**：行為由真實腳本在拋棄式 repo 
 
 ## Manual Verification
 
-- [ ] MV-001 AC-2、AC-6、AC-8、AC-9：對真實 repo（例如 yibi-stack 自己）以唯讀方式跑 `/issue-triage`，確認報告頂端有 origin/main@SHA；沒有對任何 issue 寫入；分層與 review-urgency 註記出現；有豁免的 issue 被列在豁免清單；單一 issue 的過期資料失敗時其餘 issue 照常。
-- [ ] MV-002 AC-3：用一個引用已刪除檔案的 issue（可在拋棄式 repo 建立）走查 OBSOLETE 判定，確認必須做正向對照、零命中或搜尋目錄不存在時結論是 UNCLEAR、建議關閉原因是 not planned。
-- [ ] MV-003 AC-4、AC-10：在拋棄式 repo 以 `--apply` 走查 stale notice 路徑（貼出帶標記的留言、不關閉），再以 last-human-activity.sh 確認 notice 時間被找回；寬限期滿與「判定到寫入之間有人回覆」兩條路徑無法在 GitHub 回填留言時間，只以 ITA-ST-007 與文件走查支撐，不冒稱已端到端驗證。
-- [ ] MV-004 AC-10：走查排程與 webhook 情境，確認即使帶 `--apply` 也只進報告、不貼任何留言。
+- [x] MV-001 AC-2、AC-6、AC-8、AC-9：對真實 repo（例如 yibi-stack 自己）以唯讀方式跑 `/issue-triage`，確認報告頂端有 origin/main@SHA；沒有對任何 issue 寫入；分層與 review-urgency 註記出現；有豁免的 issue 被列在豁免清單；單一 issue 的過期資料失敗時其餘 issue 照常。（2026-10-10 在拋棄式 private repo triage-sandbox-532 以 PR 版 skill 走查，不是在 yibi-stack 自己身上。通過：報告頂端有 origin/main@SHA；唯讀兩次皆無寫入，以 gh 重查留言與 label 數不變；tier 0 與 tier 覆寫兩次盤點皆出現 review-urgency 且優先級檔位不變；已指派的 issue 列在豁免清單；issue 內文的 `/var/log/app.log` 與 `../secrets.py` 被前置過濾略過並列在「已略過的路徑」，整輪沒有中止。限制：「單一 issue 的過期資料失敗時其餘 issue 照常」沒有做 agent 層實測，使用者決定接受目前覆蓋，只有腳本層 ITD-EG-011、ITA-EG-009 與 runbook 的 `[doc]` 錨點支撐；GitHub 無法回填建立時間，tier 1 到 3 是以 prompt 把門檻視為 0 天模擬，真實的 30、90、180 天天數判定沒有端到端驗證。）
+- [x] MV-002 AC-3：用一個引用已刪除檔案的 issue（可在拋棄式 repo 建立）走查 OBSOLETE 判定，確認必須做正向對照、零命中或搜尋目錄不存在時結論是 UNCLEAR、建議關閉原因是 not planned。（2026-10-10 在 triage-sandbox-532 通過：引用已刪除檔案的 #1 判為 OBSOLETE，做了正向對照，並實際以 `not planned` 關閉，留言最後一行帶 `close` 標記；引用從未存在的檔案的 #2 判為 UNCLEAR，不當作前提消失；引用已改名檔案的 #4 追到新路徑，不判 OBSOLETE。限制：「搜尋目錄不存在」這個分支沒有構造實測。）
+- [x] MV-003 AC-4、AC-10：在拋棄式 repo 以 `--apply` 走查 stale notice 路徑（貼出帶標記的留言、不關閉），再以 last-human-activity.sh 確認 notice 時間被找回；寬限期滿與「判定到寫入之間有人回覆」兩條路徑無法在 GitHub 回填留言時間，只以 ITA-ST-007 與文件走查支撐，不冒稱已端到端驗證。（2026-10-10 在 triage-sandbox-532 通過：由使用者逐項確認後，對 #2、#3、#4、#6、#7 各貼一則 stale notice，最後一行為完整標記 `<!-- issue-triage:stale-notice 2026-10-10 -->`，issue 皆未關閉；以 PR 版 last-human-activity.sh 重查，第一欄仍是各自建立時間（skill 自己貼的留言不算人為活動），第二欄等於各 notice 的 createdAt；notice 後的唯讀盤點把 #6 歸在寬限期表「已有 notice、不滿 14 天」那一列，不提議關閉、不重貼。限制：寬限期滿的關閉路徑與「判定到寫入之間有人回覆」沒有端到端驗證；tier 3 是以 prompt 覆寫門檻為 0 天模擬。）
+- [x] MV-004 AC-10：走查排程與 webhook 情境，確認即使帶 `--apply` 也只進報告、不貼任何留言。（2026-10-10 在 triage-sandbox-532 以 `claude -p` 非互動帶 `--apply` 通過：該次放行 `gh issue comment`、`gh issue close`、`gh issue edit` 的權限，並有尚無 notice 的 STALE-CANDIDATE 候選，所以若 skill 誤寫就會寫得進去；執行前後的 gh 快照（issue 狀態、label 數、每則留言 id）完全相同，沒有任何留言或關閉，報告寫明依 Core Contract 第 3 點不進 Step 8。限制：這次的 prompt 有告知「claude -p 無人環境，沒有人能回答確認」，驗的是被告知無人時守 Core Contract，不是 skill 自行偵測無人；第一次沒有告知時 child 把自己當互動式、停在等待確認，同樣沒有寫入但 exit 為 1（原因未追查）。skill 沒有自行偵測排程或 webhook 的機制，列為 Follow-up；真實的排程器與 webhook 觸發沒有走查。）
 
 ## Missing Coverage
 
