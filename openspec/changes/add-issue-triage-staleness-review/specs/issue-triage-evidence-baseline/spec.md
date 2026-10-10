@@ -25,7 +25,7 @@ Before any step that verifies an issue or bug symptom against repository code, t
 
 ### Requirement: Checkout must equal the origin main commit
 
-After the fetch, the skill SHALL verify that the commit under inspection equals the origin main commit and that no tracked file in the working tree has uncommitted modifications. When the checkout is ahead of or behind origin main, or has modified tracked files, the run SHALL stop with a failure message that states the ahead count, the behind count, or the modified file count, and that names the remedy: run from a clean worktree created from origin main, or update the main checkout. Untracked files SHALL NOT cause a failure.
+After the fetch, the skill SHALL verify that the commit under inspection equals the origin main commit and that no tracked file in the working tree has uncommitted modifications. When the checkout is ahead of or behind origin main, or has modified tracked files, the run SHALL stop with a failure message that states the ahead count, the behind count, or the modified file count, and that names the remedy: run from a clean worktree created from origin main, or update the main checkout. A tracked file whose modification is hidden from the working-tree status by an assume-unchanged or skip-worktree index flag SHALL count as modified when it exists on disk with content that differs from the origin main commit; a flagged file that is absent from disk SHALL NOT count. Untracked files SHALL NOT cause a failure.
 
 #### Scenario: Checkout is behind
 
@@ -41,6 +41,11 @@ After the fetch, the skill SHALL verify that the commit under inspection equals 
 
 - **WHEN** the current commit equals origin main and one tracked file has uncommitted changes
 - **THEN** the run stops with a failure message stating the modified file count of 1
+
+#### Scenario: Hidden tracked modification
+
+- **WHEN** the current commit equals origin main and one tracked file carries an assume-unchanged or skip-worktree flag while its content on disk differs from the origin main commit
+- **THEN** the run stops with a failure message stating the modified file count of 1, even though the working-tree status reports no change
 
 #### Scenario: Clean and equal
 

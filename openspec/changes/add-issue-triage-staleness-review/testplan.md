@@ -42,6 +42,10 @@ Review Contract AC-1～AC-13 已由 howie 確認。
 | ITB-DT-006 | auto | baseline-script | each-failure-is-distinguishable | 四種失敗是四個互異的非 0 code | DT | High | 四個 fixture | 各執行一次 | 不在 repo／fetch 失敗／落後／tracked 修改 | 2、3、4、5 |
 | ITB-EG-007 | auto | baseline-script | each-failure-is-distinguishable | 不在 git repo | EP | Medium | 一般目錄 | 執行腳本 | 無 .git | exit 2；stdout 為空 |
 | ITB-EG-008 | auto | baseline-script | clean-and-equal | untracked 檔案不使檢查失敗 | EP | Medium | 工作樹有 untracked 檔 | 執行腳本 | scratch.txt | exit 0 |
+| ITB-ST-006 | auto | baseline-script | hidden-tracked-modification | assume-unchanged 隱藏的 tracked 修改被擋下 | ST | High | 檔案設 assume-unchanged 後被改寫，status 為空 | 執行腳本 | LOCAL TAMPER | exit 5；stderr 含 modified=1 與檔名 |
+| ITB-ST-007 | auto | baseline-script | hidden-tracked-modification | skip-worktree 隱藏的 tracked 修改被擋下 | ST | High | 檔案設 skip-worktree 後被改寫，status 為空 | 執行腳本 | LOCAL TAMPER | exit 5；stderr 含檔名 |
+| ITB-ST-008 | auto | baseline-script | hidden-tracked-modification | 旗標但內容等於 HEAD、sparse 缺檔都通過（對照） | EP | High | assume-unchanged 未改動的檔案；skip-worktree 且已從磁碟移除的檔案 | 執行腳本 | sparse.txt | exit 0 |
+| ITB-ST-009 | auto | baseline-script | fetch-succeeds | 本機同名分支 origin/main 不蓋過遠端 ref，ambiguity warning 不混進訊息 | ST | Medium | 本機分支 origin/main 指向別的 commit；之後 origin 前進 1 個 | 執行腳本兩次 | 同名分支 | 第一次 exit 0 且 BASELINE_SHA 為遠端 SHA；第二次 exit 4，stderr 為 ahead=0 behind=1 且不含 warning |
 | ITD-ST-001 | auto | drift-script | referenced-file-was-deleted | 已刪除的路徑回報刪除它的 commit | ST | High | 檔案於建立後被刪除 | 執行腳本 | src/legacy.py | deleted 加刪除 commit SHA |
 | ITD-ST-002 | auto | drift-script | referenced-file-changed-repeatedly | 只計建立之後的 commit 數 | ST | High | 建立前 1 次、建立後 3 次修改 | 執行腳本 | src/hot.py | changed 加 3 |
 | ITD-ST-003 | auto | drift-script | issue-references-no-paths | 沒有路徑時是 NOT_APPLICABLE | EP | Medium | 有 origin/main | 不帶路徑執行 | 無 | stdout 為 NOT_APPLICABLE |
@@ -75,12 +79,13 @@ Review Contract AC-1～AC-13 已由 howie 確認。
 
 | Scenario Slug | Status | TC-ID | Notes |
 |---------------|--------|-------|-------|
-| fetch-succeeds | covered | ITB-ST-002 | 本機未 fetch 就偵測到落後，證明腳本自己 fetch |
+| fetch-succeeds | covered | ITB-ST-002, ITB-ST-009 | 本機未 fetch 就偵測到落後，證明腳本自己 fetch；ITB-ST-009 證明用完整 ref，同名本機分支不干擾 |
 | fetch-fails | covered | ITB-ST-005 | 不回退本機 ref；突變驗證（移除 fetch）6 個測試轉紅 |
 | jira-only-run | partial | ITS-DT-001 | runbook 有寫；實際執行期見 MV-001 |
 | checkout-is-behind | covered | ITB-ST-002 | |
 | checkout-is-on-an-unmerged-branch | covered | ITB-ST-003 | |
 | tracked-file-modified | covered | ITB-ST-004 | |
+| hidden-tracked-modification | covered | ITB-ST-006, ITB-ST-007, ITB-ST-008 | assume-unchanged 與 skip-worktree 各一，另有旗標但內容相同與 sparse 缺檔的對照；突變（旗標清單只留 S、只留小寫）各被擊殺 |
 | clean-and-equal | covered | ITB-ST-001, ITB-EG-008 | 含 untracked 不失敗 |
 | each-failure-is-distinguishable | covered | ITB-DT-006, ITB-EG-007 | |
 | passing-baseline | covered | ITB-ST-001 | |

@@ -328,6 +328,78 @@ class TestBehaviour:
         proc = _run(repo, GIT_DIR=str(decoy / ".git"), GIT_WORK_TREE=str(decoy))
         assert proc.returncode == EXIT_OK, proc.stderr
 
+    def test_cb_st_014_assume_unchanged_edit_is_not_hidden(self, tmp_path: Path) -> None:
+        """`assume-unchanged` 讓 `git status` 看不到修改，但 Read/Grep 讀到的是被改過的內容。
+
+        只靠 status 會讓這種 tracked 修改通過基準；必須拿磁碟內容比對 HEAD 的 blob。
+
+        spec: issue-triage-evidence-baseline#hidden-tracked-modification
+        tc: ITB-ST-006
+        """
+        repo, _ = _make_repo(tmp_path)
+        _git(repo, "update-index", "--assume-unchanged", "tracked.txt")
+        (repo / "tracked.txt").write_text("LOCAL TAMPER\n", encoding="utf-8")
+        assert _git(repo, "status", "--porcelain", "--untracked-files=no").stdout == ""
+        proc = _run(repo)
+        assert proc.returncode == EXIT_TRACKED_MODIFIED, proc.stdout
+        assert "modified=1" in proc.stderr
+        assert "tracked.txt" in proc.stderr
+        assert proc.stdout == ""
+
+    def test_cb_st_015_skip_worktree_edit_is_not_hidden(self, tmp_path: Path) -> None:
+        """`skip-worktree` 同樣讓 status 靜默；磁碟上存在且內容不同就必須失敗。
+
+        spec: issue-triage-evidence-baseline#hidden-tracked-modification
+        tc: ITB-ST-007
+        """
+        repo, _ = _make_repo(tmp_path)
+        _git(repo, "update-index", "--skip-worktree", "tracked.txt")
+        (repo / "tracked.txt").write_text("LOCAL TAMPER\n", encoding="utf-8")
+        assert _git(repo, "status", "--porcelain", "--untracked-files=no").stdout == ""
+        proc = _run(repo)
+        assert proc.returncode == EXIT_TRACKED_MODIFIED, proc.stdout
+        assert "tracked.txt" in proc.stderr
+
+    def test_cb_st_016_index_flags_with_unchanged_content_pass(self, tmp_path: Path) -> None:
+        """對照：旗標本身不是失敗，內容等於 HEAD、或 sparse 檔案不在磁碟上都通過。
+
+        spec: issue-triage-evidence-baseline#hidden-tracked-modification
+        tc: ITB-ST-008
+        """
+        repo, _ = _make_repo(tmp_path)
+        _commit_file(repo, "sparse.txt", "s\n", "add sparse")
+        _git(repo, "push", "-q", "origin", "main")
+        _git(repo, "update-index", "--assume-unchanged", "tracked.txt")
+        _git(repo, "update-index", "--skip-worktree", "sparse.txt")
+        (repo / "sparse.txt").unlink()
+        proc = _run(repo)
+        assert proc.returncode == EXIT_OK, proc.stderr
+
+    def test_cb_st_017_local_branch_named_origin_main_does_not_shadow_remote_ref(
+        self, tmp_path: Path
+    ) -> None:
+        """本機分支叫 `origin/main` 時，短名稱 `origin/main` 會先解析到 refs/heads。
+
+        基準必須用完整的 refs/remotes/origin/main；訊息也不得夾帶 git 的 ambiguity warning。
+
+        spec: issue-triage-evidence-baseline#fetch-succeeds
+        tc: ITB-ST-009
+        """
+        repo, origin = _make_repo(tmp_path)
+        remote_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        _commit_file(repo, "other.txt", "o\n", "other")
+        _git(repo, "branch", "origin/main", "HEAD")
+        _git(repo, "reset", "-q", "--hard", remote_sha)
+        proc = _run(repo)
+        assert proc.returncode == EXIT_OK, proc.stderr
+        assert f"BASELINE_SHA={remote_sha} " in proc.stdout
+
+        _advance_origin(tmp_path, origin, commits=1)
+        behind = _run(repo)
+        assert behind.returncode == EXIT_COMMIT_MISMATCH, behind.stdout
+        assert "ahead=0 behind=1" in behind.stderr
+        assert "warning" not in behind.stderr
+
 
 class TestDistinctExitCodes:
     def test_cb_dt_006_every_failure_has_its_own_code(self, tmp_path: Path) -> None:
