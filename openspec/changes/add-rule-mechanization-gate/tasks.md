@@ -7,7 +7,7 @@
 
 ## 2. 宣告偵測
 
-- [x] 2.1 實作「宣告語法使用 HTML 註解，與證據標記同形」：新增宣告 regex 常數，能解析 gate link（含 `::symbol`）與 gate exemption 兩種形式；宣告行在 fenced code block 與 table row 內不計。實作 `check_rule_mechanization`（warn 版本於 9.1 移除）的 section 掃描（與證據檢查共用 `_sections_in_chunk` 的 hunk 內 heading 錨點邏輯）。驗證：Added rule sections carry a mechanization declaration 的四個 scenario 對應測試轉綠（有效 link 通過、缺宣告被報告、code fence 內不計、雙重宣告被拒）。
+- [x] 2.1 實作「宣告語法使用 HTML 註解，與證據標記同形」：新增宣告 regex 常數，能解析 gate link（含 `::symbol`）與 gate exemption 兩種形式；宣告行在 fenced code block 與 table row 內不計。實作 `check_rule_mechanization`（warn 版本於 9.1 移除）的 section 掃描（與證據檢查共用 `_split_sections` / `_new_sections`；原為 `_sections_in_chunk` 的 hunk 內 heading 錨點邏輯，已由第 13 組取代）。驗證：Added rule sections carry a mechanization declaration 的四個 scenario 對應測試轉綠（有效 link 通過、缺宣告被報告、code fence 內不計、雙重宣告被拒）。
 
 ## 3. 連結解析
 
@@ -31,7 +31,7 @@
 
 ## 7. SKILL.md 與 rule 11 同步
 
-- [x] 7.1 實作「SKILL.md 與 rule 11 同步」：`plugins/growth/skills/pr-retrospective/SKILL.md` Step 5 的 rule 草稿模板新增宣告欄位，使 agent 產出的建議文字自帶 gate link 或豁免宣告；並在 `.claude/rules/11-skill-authoring.md` 記錄宣告語法、合格目錄清單與 `--unified=0` 同 hunk 限制。驗證：在 `scripts/tests/test_pr_retrospective_evidence_gate_anchors.py` 新增 anchor 測試，斷言 SKILL.md 模板含宣告欄位。
+- [x] 7.1 實作「SKILL.md 與 rule 11 同步」：`plugins/growth/skills/pr-retrospective/SKILL.md` Step 5 的 rule 草稿模板新增宣告欄位，使 agent 產出的建議文字自帶 gate link 或豁免宣告；並在 `.claude/rules/11-skill-authoring.md` 記錄宣告語法、合格目錄清單與限制（同 hunk 限制已隨第 13 組的完整 post-image 重設計解除）。驗證：在 `scripts/tests/test_pr_retrospective_evidence_gate_anchors.py` 新增 anchor 測試，斷言 SKILL.md 模板含宣告欄位。
 - [x] 7.2 確認 plugin 內容改動依專案慣例走 PR 並以 `scripts/sync-plugin-versions.sh` 做 lockstep 版本調整，不自行執行 `make release`。驗證：兩處 `package.json` 與 `.claude-plugin/plugin.json` 版本一致（`git diff` 檢視）。
 
 ## 8. 收尾驗證
@@ -64,8 +64,35 @@
 
 - [x] 12.1 讀 diff 不受使用者 git 設定影響，並解碼引號路徑：`_run_git_diff` 加 `-c core.quotePath=false`、`--no-color --no-ext-diff --no-textconv`、`-M`；`_unquote_c_path` 解碼 C-style 引號（解不開 raise `ValueError`，`main()` 轉 exit 2）。驗證：RMG-DT-026 / RMG-EG-027 / RMG-DT-028 的真實 git 測試先紅（39 個）後綠；旗標與解碼各自單點突變（拿掉 `core.quotePath`、拿掉解碼、拿掉三個旗標各一）皆轉紅。
 - [x] 12.2 看不到內容的新 rule 檔全部 fail-closed：parser 以 `_BlockHeader` 為沒有 `+++` 的區塊建立記錄，新增 copy、binary、空檔三種（連同既有的純 rename 共四種，`_FileDiff.unseen`）；copy 不看來源是否在 rules 內；證據 lint 的行為不變。驗證：RMG-DT-029 / 030 / 031，對應四個 committed fixture（真實 git 輸出）；突變：binary 旗標、空檔記錄、copy 條件各自轉紅。
-- [x] 12.3 gate 連結對「將被 commit / 被審查的內容」驗證：staged 讀 index（`git ls-files --stage`）、range 讀 `--head`（`git ls-tree`）、diff 檔模式仍讀工作樹；路徑必須精確指到 blob；git 失敗與未合併 index raise `OSError` 轉 exit 2。驗證：RMG-DT-032 / 033 / 034 / RMG-EG-035 / RMG-VL-036 的真實 git 測試；突變：staged 或 range 退回讀工作樹、拿掉精確路徑比對、git 非零 exit 被吞、未合併 stage 被忽略，皆轉紅。實測 `--literal-pathspecs` 不改變任何輸出（git 本來就先試字面相等），因此不加，由精確路徑比對負責。
+- [x] 12.3 gate 連結對「將被 commit / 被審查的內容」驗證：staged 讀 `git write-tree` 的樹（原為 `git ls-files --stage`，已由第 13 組取代）、range 讀 `--head`（`git ls-tree`）、diff 檔模式仍讀工作樹；路徑必須精確指到 blob；git 失敗與未合併 index raise `OSError` 轉 exit 2。驗證：RMG-DT-032 / 033 / 034 / RMG-EG-035 / RMG-VL-036 的真實 git 測試；突變：staged 或 range 退回讀工作樹、拿掉精確路徑比對、git 非零 exit 被吞、未合併 stage 被忽略，皆轉紅。實測 `--literal-pathspecs` 不改變任何輸出（git 本來就先試字面相等），因此不加，由精確路徑比對負責。
 - [x] 12.4 section 切法：fenced code block（backtick、tilde、較長的外層 fence）內的 heading 不算 section；同 hunk 移除同層級 heading 時新增的 heading 視為改標題；Setext 與縮排 heading 刻意不支援（`.markdownlint.yaml` 的 MD003 會先擋下，記入 lint docstring、rule 11 與 spec）。證據檢查與宣告檢查共用同一個切法。驗證：RMG-EP-037 / RMG-DT-038 先紅後綠；七個單點突變（fence 狀態、tilde、fence 長度、改標題豁免、一對一消耗、層級、跨 hunk 借用）皆轉紅。
 - [x] 12.5 釘死先前未被測試守住的邊界：同一 hunk 兩個 section（兩種順序，加 committed `bad_two_sections_one_undeclared.diff` 經純函式與 `main()`）、12 與 11 個非空白字元與前後空白、四個資格條件各自的專屬案例（子目錄 SKILL.md、tasks 下非 tests、反斜線、後綴 symbol）。移除永遠走不到的 `_PLACEHOLDER_EXPLANATIONS`（每個佔位字樣都短於 12 個字元，長度檢查已涵蓋）。驗證：RMG-DT-039 / RMG-BVA-040 / RMG-EP-041；突變 `units[:1]`、`units[-1:]`、splitter 不開第二個 block、下限改 5、不去空白、拿掉四個資格條件各一，皆轉紅。
 - [x] 12.6 文件同步：lint docstring（兩組檢查、fail-closed 四種形狀、資料來源、setext 排除原因、exit code）、spec（新 scenario）、design（決策與風險）、testplan（16 個 TC，十五個 bad fixture）、rule 11 限制；修正 tasks 2.1 的過時名稱、`check_testplan_trace.py` 不可達的 `except ValueError`、testplan MV-001 的 fixture 數、design 的輸出描述、rule 11 的 first draft 句子。驗證：`python3 plugins/sdd/scripts/check_testplan_trace.py --repo-root <worktree 絕對路徑> --change add-rule-mechanization-gate --strict` 唯一的 FAIL 是 MV-001（人工，不預先勾選）。
 - [x] 12.7 `git add` 後 `make ci`、`git diff --name-only` 為空、commit 並推送。驗證：`make ci` exit 0（3787 passed）。
+
+## 13. 從完整 post-image 計算（PR #528 Round 2 的四個 Critical；人類裁決 Return to redesign，Review Contract 不變）
+
+- [x] 13.1 先寫失敗的真實 git 測試：新增 `scripts/tests/test_lint_rule_postimage.py`（hermetic：autouse 關掉全域與系統 git 設定），涵蓋 A（既有檔 NUL、`.gitattributes` binary / -diff）、B（fence 滑進 hunk）、C（刪 fence 內 heading、整段換掉）、D（`git add -N`、未追蹤、合法空檔）與 range 模式對照。驗證：對舊實作跑為 16 紅 6 綠。
+- [x] 13.2 實作「從完整 post-image 計算」：`_run_git_diff` 改 `--unified=1000000`、bytes 讀入並以 `surrogateescape` 解碼；`_parse_diff` 以 `@@` 行數分辨內文與檔頭，產生 `_Hunk`（post / pre 與新增 / 移除標記）；`_split_sections` / `_new_sections` 取代 `_sections_in_chunk`，改標題要求相同內文。驗證：RMG-DT-044 / 045 / 047 / 048 / 049 轉綠，舊測試中預期變動者（改標題 fixture 內文、非 UTF-8 路徑不再 exit 2）已調整並另補 main 層級的格式錯誤引號測試（RMG-EG-027）。
+- [x] 13.3 binary 的 rule 檔（新舊皆然）fail-closed 並以 `--text` 針對該檔重讀；含 NUL 者報錯。staged 模式的 gate reader 改讀 `git write-tree`。驗證：RMG-DT-042 / 043 / 046 / 050；`_blob_sha` 只剩樹的分支。
+- [x] 13.4 單點突變驗證（每次只改一件事，anchor 命中恰好一次，反向替換還原並比對原檔）：NUL 檢查、`--text` 重讀、gate reader 改回 index、fence 只追蹤改動行、改標題不比內文、hunk 行數不參與假檔頭判斷，另加 hunk 內文分支停用；7 個全部被擊殺。其中 hunk 行數的突變一開始存活，補了 `-- "x" y` 換成 `++ "x" y`（git 輸出成對的假檔頭）的測試後轉紅。驗證：腳本輸出 7/7 killed，還原後 232 個測試全綠。
+- [x] 13.5 文件同步：spec（新增九個 scenario，改寫 `undecodable-quoted-path-exits-2` 與「宣告在 hunk 之外」兩個，更新 binary 與 gate 資料來源的 requirement）、design（新增「從完整 post-image 計算」並更新受影響的決策與風險、實測 364 KB / 0.04 秒）、testplan（RMG-DT-042 至 RMG-DT-050）、rule 11、lint docstring。驗證：`python3 plugins/sdd/scripts/check_testplan_trace.py --repo-root <worktree 絕對路徑> --change add-rule-mechanization-gate --strict` 唯一的 FAIL 是 MV-001（人工，不預先勾選）。
+- [ ] 13.6 `git add` 後 `make ci`、`git diff --name-only` 為空、commit 並推送；更新 PR #528 本文（揭露證據 warn 範圍變化、改標題更嚴、非 UTF-8 不再 exit 2，不動 Review Contract）並在 #534 留言列出已解決項目。驗證：`make ci` exit 0；重新執行 `/pr-cycle-deep` 做全新的第一輪審查（circuit breaker 不由作者自行宣告解除）。
+
+## 14. PR #535 R1 mob review 的修補（Critical 一項、Important 八項；Review Contract 不變）
+
+- [x] 14.1 C-1（AC-4）：staged 模式的 `git write-tree` 在 `_git_gate_reader` 建構時就解出來，而非第一次讀 gate 時；未合併的 index 加只用 `none` 豁免的 rule 不再印 `[OK]` 回 0，改為 exit 2。注入的 `read_gate_file` 優先、不觸發 `write-tree`。驗證：真實 merge conflict 的測試先紅後綠，gate link 對照維持 exit 2。
+- [x] 14.2 I-1（AC-2）：`_FenceTracker` 的**開**行最多縮排 3 個空白，4 個以上是 indented code block（關閉標記不限縮排，見 15.2）。驗證：`    ~~~` 後接未宣告 section 先紅後綠；對照（無縮排行）與 0 至 3 空白的真 fence 仍隱藏範例 heading；repo 內的清單項目 fence 為 3 空白，不受影響。
+- [x] 14.3 I-2（AC-5）：`_parse_diff` 的 `--- ` + `+++ ` + 緊接 `@@` 判為下一個檔案的檔頭（初版不看行數，Round 2 的 B-1 修正為「先信行數」，見 15.1）；`++ note` 等行數分辨案例保持綠。驗證：合成 diff 先紅後綠。
+- [x] 14.4 I-3（AC-1）：`--text` 重讀的 pathspec 含改名 / 複製的來源路徑。驗證：staged 與 range 的改名測試（宣告 / 未宣告兩種）先紅後綠。
+- [x] 14.5 釘死先前存活的突變（AC-9）：I-4a range 模式 `--text`（staged / range 參數化）、I-4b 重讀隔離（直接斷言 `_with_binary_rules_reread` 的附加內容）、I-5 改標題一對一與同層級、I-6 pre-image context heading 不算被移除、I-7 diff 檔模式的 binary 佔位三形狀。驗證：8 個單點突變（range `--text`、staged / range pathspec、`removed.remove`、層級、pre 標記、`("copy", "binary")`、rename / copy 的 binary 旗標）全部被擊殺，anchor 各命中恰好一次，突變只在 scratch 複本進行。
+- [x] 14.6 I-9 與 NIT：「內文相同」的文件改成精確定義（忽略行尾空白與頭尾空行；內部空行與縮排要一致）；`_eprint`、RMG-DT-013 測試 docstring、diff 檔模式不重讀 `--text`、`_UNSEEN_REASONS["binary"]` 的提示、`_git_bytes` 的過時突變宣稱；design 與 tasks 的過時函式名稱。
+- [x] 14.7 `git add` 後 `make ci`、`git diff --name-only` 為空、commit 並推送。驗證：`make ci` exit 0。
+
+## 15. Round 2 的兩個 Critical（修 R1 時引入的回歸；人類裁決 Continue fixing）
+
+- [x] 15.1 B-1（AC-5）：`_parse_diff` 的 `--- ` + `+++ ` + 緊接 `@@` 不可蓋過行數。行數剛好只剩這一組（舊 1、新 1）時，其後的 `@@` 是同一個檔案的下一個 hunk（`git diff -U0` 多 hunk 輸出，`-- x` 換成 `++ y` 的形狀），這組是內文；只有行數還剩更多卻看到沒有前綴的 `@@`（行數寫得比實際大的合成 diff）才是下一個檔案的檔頭。驗證：真實 `git diff -U0` 的多 hunk 輸出走 positional diff 檔模式，純文字版（原本 exit 0）與引號版（原本 exit 2）皆應 exit 1，先紅後綠；I-2 的 oversized 合成案例保持綠。
+- [x] 15.2 B-2（AC-2）：`_FenceTracker` 的 3 空白上限只套開標記；關標記不限縮排（清單項目內的 fence 3 空白開、6 空白關仍合法）。驗證：該形狀後接未宣告 section 先紅後綠（exit 1），宣告齊全的對照 exit 0；4 空白開標記與 0 至 3 空白真 fence 的既有測試保持綠。
+- [x] 15.3 單點突變（複本，anchor 恰好命中一次，逐位元組比對還原）：行數剛好只剩一組時仍用前瞻、移除前瞻、關標記重新套開標記上限，3/3 擊殺。
+- [x] 15.4 文件同步：rule 11、spec、design、testplan（RMG-DT-044 / RMG-DT-048 的 Steps）。
+- [ ] 15.5 `git add` 後 `make ci`、`git diff --name-only` 為空、commit 並推送。驗證：`make ci` exit 0。

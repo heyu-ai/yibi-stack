@@ -714,47 +714,75 @@ A missing declaration is an **error**, in a new rule file and in a new section o
 alike. So is a **false** declaration (dangling link, rule-file target, reason outside the list,
 placeholder explanation, two declarations in one section) — downgrading either would let a section
 land with no gate decision recorded. Only **added** sections are checked; existing sections are not
-backfilled — so a hunk that removes `### Old` and adds `### New` is a retitle, not a new section (one
-removed heading excuses one added heading of the **same level** in the same hunk; a different level, or
-an extra added heading, is still checked). A `##` / `###` line inside a fenced code block (backtick or
-tilde, including a longer fence wrapping a shorter one) is example text, not a section.
+backfilled. The lint reads the **whole post-image** of each changed file (git's full-context diff), so a
+section is the span from its heading to the next `##` / `###` heading in the finished file, and an
+unchanged line under a new heading counts. A new heading that only renames an existing section is a
+retitle, not a new section: the removed heading must be a real heading (not a line inside a fence),
+of the **same level**, with an **identical body** (the same lines, ignoring trailing whitespace on each
+line and blank lines at the start and end of the body; interior blank lines and indentation must match),
+and one removed heading excuses one added heading. Replacing the body, changing the level, or adding an extra heading is still checked.
+A `##` / `###` line inside a fenced code block (backtick or tilde, including a longer fence wrapping a
+shorter one) is example text, not a section; fence state is tracked over the whole file, so a hunk that
+starts or ends inside a fence is read correctly. A fence marker may be indented at most three spaces (four
+or more is an indented code block and opens nothing); a fence inside a deeper nested list is not
+recognised, which errs towards reporting a heading, not hiding one.
 
 Where a gate link is read from: the lint verifies the content being **committed or reviewed**, not
 whatever is on disk. Staged mode (pre-commit) reads the git **index**, range mode (CI) reads the tree
-of `--head`, and only the positional diff-file mode (no git context) reads the working tree. So a
-gate script that exists only as an untracked file is a dangling link, and a staged one that was
-deleted from disk is still valid. The link must name a file exactly; a directory or a glob is absent.
-If git itself fails while reading the index or head, the lint exits 2 rather than guessing.
+of `--head`, and only the positional diff-file mode (no git context) reads the working tree. Staged
+mode reads the tree `git write-tree` builds from the index, i.e. what `git commit` will commit: a gate
+added with `git add -N` (intent-to-add) is an empty placeholder that the commit will not contain, so it
+is a dangling link, while a legitimately staged empty file still resolves. A gate script that exists
+only as an untracked file is likewise dangling, and a staged one that was deleted from disk is still
+valid. The link must name a file exactly; a directory or a glob is absent. If git itself fails while
+reading the tree (an unresolvable revision, an unmerged index), the lint exits 2 rather than guessing,
+and staged mode resolves that tree before it checks any declaration, so an unmerged index exits 2 even for
+a rule that only uses `none` exemptions and reads no gate.
 
 Known limits, so a reader does not over-trust a green run:
 
 - A valid link proves the target exists and is gate-class, **not** that it covers this rule. A rule
   linked to an unrelated script passes. Catching that is the gate-trigger-rate job of
   `harness-weekly-review`, not this lint.
-- The diff is read with `--unified=0`, so the declaration must be added in the **same hunk** as its
-  heading. A heading inserted above pre-existing body text reports as missing — a deliberate
-  over-report rather than a miss — and, because a missing declaration is an error, it blocks the
-  commit. Put the declaration directly under the heading.
+- The diff is read with `--unified=1000000`, so in staged and range mode each file is one hunk holding
+  its whole post-image and the declaration may sit anywhere in the section, including on an unchanged
+  line below an inserted heading. A diff that does not carry the whole file (a positional diff file made
+  with `-U0`, or a synthetic one) degrades to the lines it shows: a declaration in a different hunk from
+  its heading is not seen and reports as missing. Put the declaration directly under the heading.
 - A pure rename with 100% similarity produces no `---`/`+++` lines (probed on git 2.56.0), so its
   content cannot be inspected. A pure rename **into** `.claude/rules/` therefore fails closed: add the
   evidence marker and the declaration in the same commit (the rename then has a hunk), or add the file
   instead. A rename inside `.claude/rules/`, or unrelated to it, is not flagged. The same blind spot
   still exists for a pure rename into `.claude/hooks/`, which only the evidence lint covers and which
   this change leaves alone. Re-probe after a git upgrade.
-- Three other shapes also show no content and fail closed when the target is a new rule file: a copy
-  without a hunk (the source may itself be a rule file; the target is still new), a file git classifies
-  as binary (it contains a NUL byte), and an empty file (nowhere to put a declaration). The evidence
-  lint ignores all three, as it does a pure rename, so nothing is reported twice. `diff.renames=copies`
+- Other shapes also show no content and fail closed: a copy without a hunk into `.claude/rules/` (the
+  source may itself be a rule file; the target is still new), an empty new rule file (nowhere to put a
+  declaration), and a rule file git classifies as binary, **new or existing**. For a binary rule file the
+  lint re-reads just that file with `--text`: if it contains a NUL byte it is rejected (a rule file must
+  be text); if git only treated it as binary because `.gitattributes` says `binary` / `-diff`, the
+  content becomes visible and is checked normally, so the attribute neither hides a new section nor
+  blocks a declared one (the re-read also names a rename's source path, so a renamed file keeps its legacy
+  sections legacy). Real binaries elsewhere in the diff are never dumped as text. The re-read does not run
+  in the positional diff-file mode (no git context): there a `Binary files ... differ` placeholder fails
+  closed. The evidence lint
+  ignores these shapes, as it does a pure rename, so nothing is reported twice. `diff.renames=copies`
   cannot hide a copy: the lint passes `-M` explicitly (not `--no-renames`, which would turn an
   in-directory rename into an undeclared new file).
 - The lint reads git with `core.quotePath=false`, `--no-color --no-ext-diff --no-textconv` and fixed
   `a/` `b/` prefixes, so `color.ui`, `diff.external`, textconv and `diff.mnemonicPrefix` cannot change
-  what it sees. A path git still quotes (tab, `"`) is decoded; an undecodable one exits 2.
+  what it sees. A path git still quotes (tab, `"`) is decoded; a quote whose escapes are malformed
+  exits 2. The diff is read as bytes and decoded with `surrogateescape`, so non-UTF-8 file content or
+  a non-UTF-8 file name is checked like any other instead of crashing the lint or slipping past it.
 - Setext headings (`Title` underlined with `===`) and indented headings are **not** recognised, on
   purpose: `.markdownlint.yaml` sets `default: true`, so MD003 (consistent heading style) rejects a
   setext heading in an ATX file before this lint runs, and every rule file is ATX.
-- A fence state that begins before the hunk (a hunk that adds only the closing fence) is invisible with
-  `--unified=0`, the same class of limit as the same-hunk declaration rule above.
+- Content lines that look like diff headers (`++ note` shows up as `+++ note`) are told apart from real
+  file headers by the hunk's `@@ -a,b +c,d @@` line counts, so they cannot swallow the headings after
+  them or crash the path parser. The counts are trusted first: a `---` / `+++` pair that the counts
+  say is the last removed/added content line of a hunk stays content even when an unprefixed `@@` (the
+  next hunk of the same file, as in `git diff -U0` output) follows it. Only when the counts still
+  promise more lines than are left, so an unprefixed `@@` cannot be this hunk's body, is a hand-made
+  diff with oversized counts split into the next file.
 
 Self-constraint: this section lives here in rule 11 (scoped), not in an always-loaded rule file, and
 it carries its own declaration above — the lint runs over its own addition.

@@ -1193,7 +1193,10 @@ def test_new_file_without_sections_or_declaration_exits_one() -> None:
 
 
 def test_declaration_outside_the_headings_hunk_is_reported_missing(tmp_path: Path) -> None:
-    """宣告在別的 hunk（heading 插在既有內文之上，宣告落在未變動行）：保守地報缺宣告。
+    """不帶整份檔案的 diff（合成 / `-U0`）：宣告在別的 hunk 時保守地報缺宣告。
+
+    heading 插在既有內文之上，宣告落在未變動行；staged / range 模式有完整 post-image，不受此限
+    （見 RMG-DT-047）。
 
     spec: rule-mechanization-gate#declaration-outside-the-headings-hunk-is-reported-missing
     tc: RMG-DT-013
@@ -1448,13 +1451,16 @@ def test_diff_file_with_git_default_quoting_is_decoded(
     assert lint_rule_evidence.main([str(diff_file)]) == 1
 
 
-def test_undecodable_quoted_path_exits_2(
+def test_undecodable_quoted_path_is_checked_not_skipped(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """引號裡不是合法 UTF-8 的路徑無法判定是不是 rules 檔：fail loud（exit 2），不可略過。
+    """引號裡不是合法 UTF-8 的路徑以 surrogateescape 保留位元組，照樣判定是不是 rules 檔並檢查。
 
-    spec: rule-mechanization-gate#undecodable-quoted-path-exits-2
-    tc: RMG-EG-027
+    舊行為是 exit 2；現在整份 diff 以 bytes 讀入、surrogateescape 解碼，非 UTF-8 的檔名不再是
+    「看不懂所以放棄」，而是被檢查（缺證據即 exit 1），訊息輸出也不可因為 surrogate 而崩潰。
+
+    spec: rule-mechanization-gate#non-utf8-input-neither-crashes-nor-bypasses
+    tc: RMG-DT-049
     """
     diff = (
         'diff --git "a/x" "b/\\377\\376.md"\n'
@@ -1467,7 +1473,7 @@ def test_undecodable_quoted_path_exits_2(
     diff_file = tmp_path / "bad-quote.diff"
     diff_file.write_text(diff, encoding="utf-8")
 
-    assert lint_rule_evidence.main([str(diff_file)]) == 2
+    assert lint_rule_evidence.main([str(diff_file)]) == 1
     captured = capsys.readouterr()
     assert "[FAIL]" in captured.err and "[OK]" not in captured.out
 
@@ -1492,14 +1498,47 @@ def test_unquote_c_path_decodes_git_escapes(raw: str, expected: str) -> None:
     assert lint_rule_evidence._unquote_c_path(raw) == expected
 
 
-@pytest.mark.parametrize("raw", ['"\\377"', '"unterminated', '"bad\\qescape"', '"\\35"'])
+@pytest.mark.parametrize("raw", ['"unterminated', '"bad\\qescape"', '"\\35"'])
 def test_unquote_c_path_rejects_what_it_cannot_decode(raw: str) -> None:
-    """
+    """格式錯誤的引號（沒結尾、未知跳脫、不完整八進位）仍 raise，由 `main()` 轉 exit 2。
+
     spec: rule-mechanization-gate#undecodable-quoted-path-exits-2
     tc: RMG-EG-027
     """
     with pytest.raises(ValueError):
         lint_rule_evidence._unquote_c_path(raw)
+
+
+@pytest.mark.parametrize("quoted", ['"b/unterminated', '"b/bad\\qescape.md"', '"b/\\35.md"'])
+def test_malformed_quoted_path_exits_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], quoted: str
+) -> None:
+    """格式錯誤的引號路徑（沒結尾、未知跳脫、不完整八進位）無法判定是不是 rules 檔：exit 2。
+
+    spec: rule-mechanization-gate#undecodable-quoted-path-exits-2
+    tc: RMG-EG-027
+    """
+    diff = (
+        "diff --git a/x b/x\nnew file mode 100644\n--- /dev/null\n"
+        f"+++ {quoted}\n@@ -0,0 +1 @@\n+內容\n"
+    )
+    diff_file = tmp_path / "malformed-quote.diff"
+    diff_file.write_text(diff, encoding="utf-8")
+
+    assert lint_rule_evidence.main([str(diff_file)]) == 2
+    captured = capsys.readouterr()
+    assert "[FAIL]" in captured.err and "[OK]" not in captured.out
+
+
+def test_unquote_c_path_keeps_non_utf8_bytes_instead_of_raising() -> None:
+    """格式正確但位元組不是 UTF-8（`\\377`）：以 surrogateescape 保留，可比對 `.claude/rules/`。
+
+    spec: rule-mechanization-gate#non-utf8-input-neither-crashes-nor-bypasses
+    tc: RMG-DT-049
+    """
+    decoded = lint_rule_evidence._unquote_c_path('"\\377\\376.md"')
+
+    assert decoded.encode("utf-8", errors="surrogateescape") == b"\xff\xfe.md"
 
 
 # --- 使用者的 git 設定不可讓 staged 模式變成 no-op ---
@@ -1960,7 +1999,7 @@ def test_retitled_heading_is_not_a_new_section() -> None:
     spec: rule-mechanization-gate#retitled-heading-is-not-a-new-section
     tc: RMG-DT-038
     """
-    diff = _hunk_diff(_RULE_13, ["### Old Title"], ["### New Title", "改過的內文。"])
+    diff = _hunk_diff(_RULE_13, ["### Old Title", "內文。"], ["### New Title", "內文。"])
 
     assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
     assert lint_rule_evidence.warn_rule_evidence(diff) == []
@@ -1986,8 +2025,8 @@ def test_each_removed_heading_excuses_only_one_added_heading() -> None:
     """
     diff = _hunk_diff(
         _RULE_13,
-        ["### Old Title"],
-        ["### New Title", "改過的內文。", "### Brand New", "(Source: PR #339)"],
+        ["### Old Title", "內文。"],
+        ["### New Title", "內文。", "### Brand New", "(Source: PR #339)"],
     )
     errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
     assert len(errors) == 1 and "Brand New" in errors[0]
@@ -2099,3 +2138,77 @@ def test_exemption_explanation_length_boundary(explanation: str, accepted: bool)
     diff = _existing_rule_section_diff([f"<!-- gate: none (reason: judgment) — {explanation} -->"])
     errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
     assert (errors == []) is accepted, f"{explanation!r} -> {errors}"
+
+
+# --- diff 檔模式（沒有 git 脈絡、不重讀）的 binary 佔位形狀與標頭判斷 ---
+
+_BINARY_OLD = ".claude/rules/old-name.md"
+_BINARY_NEW = ".claude/rules/new-name.md"
+
+
+def test_existing_rule_file_shown_as_binary_in_a_diff_file_is_an_error() -> None:
+    """既有 rule 檔在手寫 / diff 檔裡只剩 `Binary files a/x and b/x differ`：看不到內容，不可當成通過。
+
+    staged / range 模式會先以 `--text` 重讀；diff 檔模式沒有 git 脈絡，這個佔位就是最終結果。
+
+    spec: rule-mechanization-gate#binary-new-rule-file-is-rejected
+    tc: RMG-DT-030
+    """
+    diff = (
+        f"diff --git a/{_RULE_13} b/{_RULE_13}\n"
+        "index 1111111..2222222 100644\n"
+        f"Binary files a/{_RULE_13} and b/{_RULE_13} differ\n"
+    )
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert len(errors) == 1 and _RULE_13 in errors[0] and "二進位" in errors[0]
+
+
+def test_rename_inside_rules_that_is_binary_is_an_error() -> None:
+    """目錄內改名 + binary：只是改名時不報，但 binary 看不到內容，仍要報（rename 分支的 binary 旗標）。
+
+    spec: rule-mechanization-gate#binary-new-rule-file-is-rejected
+    tc: RMG-DT-030
+    """
+    diff = (
+        f"diff --git a/{_BINARY_OLD} b/{_BINARY_NEW}\n"
+        "similarity index 90%\n"
+        f"rename from {_BINARY_OLD}\n"
+        f"rename to {_BINARY_NEW}\n"
+        f"Binary files a/{_BINARY_OLD} and b/{_BINARY_NEW} differ\n"
+    )
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert len(errors) == 1 and _BINARY_NEW in errors[0] and "二進位" in errors[0]
+
+
+def test_copy_into_rules_that_is_binary_reports_the_binary_reason() -> None:
+    """copy + binary：不論哪一種都要擋，但說明要是「二進位」而不是「純 copy」（copy 分支的 binary 旗標）。
+
+    spec: rule-mechanization-gate#binary-new-rule-file-is-rejected
+    tc: RMG-DT-030
+    """
+    diff = (
+        f"diff --git a/{_BINARY_OLD} b/{_BINARY_NEW}\n"
+        "similarity index 90%\n"
+        f"copy from {_BINARY_OLD}\n"
+        f"copy to {_BINARY_NEW}\n"
+        f"Binary files a/{_BINARY_OLD} and b/{_BINARY_NEW} differ\n"
+    )
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert len(errors) == 1 and _BINARY_NEW in errors[0] and "二進位" in errors[0]
+
+
+def test_an_oversized_hunk_count_does_not_swallow_the_next_files_header() -> None:
+    """合成 diff 把 `@@` 的行數寫大（或少了 `diff --git`）時，下一個檔案的 `--- ` / `+++ ` / `@@`
+    仍是檔頭：只靠行數會把它們當成上一個 hunk 的內文，新的 rule 檔整個隱形。
+
+    spec: rule-mechanization-gate#content-lines-that-look-like-diff-headers-are-content
+    tc: RMG-DT-048
+    """
+    diff = (
+        "--- a/x.md\n+++ b/x.md\n@@ -1,1 +1,9 @@\n+a\n"
+        "--- /dev/null\n+++ b/.claude/rules/new.md\n@@ -0,0 +1,2 @@\n+## S\n+body\n"
+    )
+    files = lint_rule_evidence._parse_diff(diff)
+    assert [f.new_path for f in files] == ["x.md", ".claude/rules/new.md"]
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert errors and "「S」" in errors[0]
