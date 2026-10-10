@@ -357,6 +357,102 @@ class TestBehaviour:
         assert proc.returncode == EXIT_OK, proc.stderr
         assert _fields(proc) == ["2026-03-01T00:00:00Z", ""]
 
+    def test_lh_st_025_incomplete_marker_prefix_in_prose_is_human_activity(
+        self, tmp_path: Path
+    ) -> None:
+        """自己的留言只是在內文提到標記前綴（沒有日期、沒有結尾）：算人為活動，也不是 notice。
+
+        舊判定只比對前綴，會把這種留言當成 skill 的 notice 並從活動度量隱形。
+
+        spec: issue-triage-staleness-review#incomplete-marker-is-human-activity
+        tc: ITA-ST-009
+        """
+        comments = [
+            _comment(
+                VIEWER,
+                "User",
+                "2026-09-20T00:00:00Z",
+                "parser token 是 <!-- issue-triage:stale-notice",
+            ),
+        ]
+        proc = _run(tmp_path, comments)
+        assert proc.returncode == EXIT_OK, proc.stderr
+        assert _fields(proc) == ["2026-09-20T00:00:00Z", ""]
+
+    def test_lh_st_026_look_alike_kind_is_not_a_known_marker(self, tmp_path: Path) -> None:
+        """`stale-notice-foo` 不是已知的標記種類：不得被當成 stale notice（舊的 \\b 邊界會放行）。
+
+        spec: issue-triage-staleness-review#incomplete-marker-is-human-activity
+        tc: ITA-ST-010
+        """
+        for kind in ("stale-notice-foo", "stale-noticex", "closed", "unknown-kind"):
+            marker = f"<!-- issue-triage:{kind} 2026-09-20 -->"
+            proc = _run(tmp_path, [_comment(VIEWER, "User", "2026-09-20T00:00:00Z", marker)])
+            assert proc.returncode == EXIT_OK, (kind, proc.stderr)
+            assert _fields(proc) == ["2026-09-20T00:00:00Z", ""], kind
+
+    def test_lh_st_027_marker_in_the_middle_of_prose_is_human_activity(
+        self, tmp_path: Path
+    ) -> None:
+        """完整標記出現在內文中段、後面還有文字：它不是這則留言的最後一行，算人為活動。
+
+        spec: issue-triage-staleness-review#incomplete-marker-is-human-activity
+        tc: ITA-ST-011
+        """
+        body = f"{STALE_MARKER}\n其實我還想補充一件事"
+        proc = _run(tmp_path, [_comment(VIEWER, "User", "2026-09-20T00:00:00Z", body)])
+        assert proc.returncode == EXIT_OK, proc.stderr
+        assert _fields(proc) == ["2026-09-20T00:00:00Z", ""]
+
+    def test_lh_st_028_marker_without_a_date_is_not_a_marker(self, tmp_path: Path) -> None:
+        for marker in (
+            "<!-- issue-triage:stale-notice -->",
+            "<!-- issue-triage:stale-notice 2026-9-1 -->",
+            "<!-- issue-triage:stale-notice 2026-09-20",
+        ):
+            proc = _run(tmp_path, [_comment(VIEWER, "User", "2026-09-20T00:00:00Z", marker)])
+            assert proc.returncode == EXIT_OK, (marker, proc.stderr)
+            assert _fields(proc) == ["2026-09-20T00:00:00Z", ""], marker
+
+    def test_lh_st_029_genuine_marker_survives_crlf_and_trailing_blank_lines(
+        self, tmp_path: Path
+    ) -> None:
+        """對照：網頁編輯器存的留言是 CRLF，尾端也可能有空白行；真正的標記仍要被辨識。
+
+        spec: issue-triage-staleness-review#grace-period-elapsed-without-response
+        tc: ITA-ST-012
+        """
+        body = f"仍需要嗎？\r\n{STALE_MARKER}\r\n\r\n  \n"
+        comments = [
+            _comment("alice", "User", "2026-02-01T00:00:00Z"),
+            _comment(VIEWER, "User", "2026-09-01T00:00:00Z", body),
+        ]
+        proc = _run(tmp_path, comments)
+        assert proc.returncode == EXIT_OK, proc.stderr
+        assert _fields(proc) == ["2026-02-01T00:00:00Z", "2026-09-01T00:00:00Z"]
+
+    def test_lh_st_030_every_known_marker_kind_is_excluded_when_it_is_the_last_line(
+        self, tmp_path: Path
+    ) -> None:
+        """SKILL.md 的四種標記種類（close、update-scope、merge、stale-notice）都要被辨識。"""
+        for kind in ("close", "update-scope", "merge", "stale-notice"):
+            marker = f"<!-- issue-triage:{kind} 2026-09-20 -->"
+            body = f"內文\n{marker}"
+            proc = _run(tmp_path, [_comment(VIEWER, "User", "2026-09-20T00:00:00Z", body)])
+            assert proc.returncode == EXIT_OK, (kind, proc.stderr)
+            assert _fields(proc)[0] == ISSUE_CREATED, kind
+
+    def test_lh_st_031_marker_must_be_the_whole_last_line(self, tmp_path: Path) -> None:
+        """最後一行除了標記還有別的文字（前綴或後綴）：不是標記行，算人為活動。
+
+        spec: issue-triage-staleness-review#incomplete-marker-is-human-activity
+        tc: ITA-ST-013
+        """
+        for line in (f"參考 {STALE_MARKER}", f"{STALE_MARKER} 以上", f"> {STALE_MARKER}"):
+            proc = _run(tmp_path, [_comment(VIEWER, "User", "2026-09-20T00:00:00Z", line)])
+            assert proc.returncode == EXIT_OK, (line, proc.stderr)
+            assert _fields(proc) == ["2026-09-20T00:00:00Z", ""], line
+
 
 class TestFailures:
     def test_lh_st_018_viewer_lookup_failure_exits_3_without_output(self, tmp_path: Path) -> None:

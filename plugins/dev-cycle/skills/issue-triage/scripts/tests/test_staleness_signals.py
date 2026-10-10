@@ -339,7 +339,43 @@ class TestArguments:
     def test_ss_st_016_absolute_and_parent_paths_are_rejected(self, tmp_path: Path) -> None:
         repo = _make_repo(tmp_path)
         _publish(repo)
-        for bad in ("/etc/passwd", "../outside.py", "src/../../x.py"):
+        for bad in (
+            "/etc/passwd",
+            "../outside.py",
+            "src/../../x.py",
+            "a\tb.py",
+            "a\nb.py",
+            "",
+            "..",
+            "src/..",
+        ):
             proc = _run(repo, CREATED_AT, bad)
             assert proc.returncode == EXIT_USAGE, (bad, proc.stdout)
             assert proc.stdout == "", bad
+            assert "[FAIL]" in proc.stderr, bad
+
+    def test_ss_st_017_paths_are_repo_root_relative_from_a_subdirectory(
+        self, tmp_path: Path
+    ) -> None:
+        """從 repo 的子目錄執行時，路徑仍是 repo 根目錄相對。
+
+        舊版的 pathspec 相對於 cwd，同一個引數在子目錄會變成 `sub/sub/x.txt` 而回報
+        never-existed，exit 0，與在根目錄執行的結果相反。
+
+        spec: issue-triage-staleness-review#referenced-file-changed-repeatedly
+        tc: ITD-ST-005
+        """
+        repo = _make_repo(tmp_path)
+        _write(repo, "sub/x.txt", "v0\n")
+        _write(repo, "sub/y.txt", "y\n")
+        _commit(repo, "add sub files", BEFORE)
+        _write(repo, "sub/x.txt", "v1\n")
+        _commit(repo, "edit x", AFTER_1)
+        _publish(repo)
+        expected = [["sub/x.txt", "changed", "1"], ["sub/y.txt", "unchanged", ""]]
+        from_root = _run(repo, CREATED_AT, "sub/x.txt", "sub/y.txt")
+        assert from_root.returncode == EXIT_OK, from_root.stderr
+        assert _rows(from_root) == expected
+        from_sub = _run(repo / "sub", CREATED_AT, "sub/x.txt", "sub/y.txt")
+        assert from_sub.returncode == EXIT_OK, from_sub.stderr
+        assert _rows(from_sub) == expected

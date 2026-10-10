@@ -13,8 +13,12 @@
 # 更是本來就沒有後綴，所以這支腳本走 REST。已刪除的帳號（user 為 null）與沒見過的帳號型別
 # 一律視為人為活動，往「看起來比較活躍」的安全方向失敗。
 #
-# skill 自己貼的留言 = 內文含 triage 標記，且作者是目前登入的帳號。標記單獨出現不夠：
-# 任何人都能貼上標記，只看標記會讓他的留言從活動度量中隱形。
+# skill 自己貼的留言 = 內文「最後一個非空行」恰好是一個完整的 triage 標記
+# `<!-- issue-triage:<已知種類> YYYY-MM-DD -->`（已知種類：close、update-scope、merge、
+# stale-notice，與 SKILL.md 一致；SKILL.md 規定標記是留言的最後一行），且作者是目前登入的帳號。
+# 只比對前綴不夠：內文提到 `<!-- issue-triage:stale-notice` 的人為留言、或 `stale-notice-foo`
+# 這種長得像的種類，都會被誤當成 skill 的留言而從活動度量隱形。標記單獨出現也不夠：
+# 任何人都能貼上標記，所以還要比對作者。
 #
 # stdout（僅成功時）：一行，tab 分隔
 #   <最後人為活動時間 ISO 8601>  <stale notice 留言的時間；沒有則為空>
@@ -69,10 +73,11 @@ fi
 
 # gh --paginate 會把每一頁的陣列連續輸出（不是合併成一個陣列），所以用 -s 讀成陣列的陣列。
 JQ_PROGRAM='
-  def marker: (.body // "") | test("<!--\\s*issue-triage:[a-z-]+");
+  def last_line: (.body // "") | split("\n") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | (last // "");
+  def marker: last_line | test("^<!--\\s*issue-triage:(close|update-scope|merge|stale-notice)\\s+[0-9]{4}-[0-9]{2}-[0-9]{2}\\s*-->$");
   def own($me): marker and (((.user.login // "") | ascii_downcase) == $me);
   def bot: (.user.type // "") == "Bot";
-  def notice($me): own($me) and ((.body // "") | test("<!--\\s*issue-triage:stale-notice\\b"));
+  def notice($me): own($me) and (last_line | test("^<!--\\s*issue-triage:stale-notice\\s+"));
   ([.[] | .[]]) as $all
   | ($viewer | ascii_downcase) as $me
   | ([$created] + [$all[] | select((bot or own($me)) | not) | .created_at] | max) as $last

@@ -4,7 +4,7 @@ trace: enforced
 
 本 testplan 在 PR #532 的 pre-review check（amplifier-verify）擋下「feat 缺 testplan」後補上，追溯**已存在**的測試，
 並新增一組 SKILL.md 文字契約測試；它不聲稱 agent 執行期行為已通過驗證。
-Review Contract AC-1～AC-13 已由 howie 確認。
+Review Contract AC-1～AC-14 已由 howie 確認。
 
 ## 可測性前提（讀 TC 表之前必讀）
 
@@ -49,6 +49,7 @@ Review Contract AC-1～AC-13 已由 howie 確認。
 | ITD-ST-001 | auto | drift-script | referenced-file-was-deleted | 已刪除的路徑回報刪除它的 commit | ST | High | 檔案於建立後被刪除 | 執行腳本 | src/legacy.py | deleted 加刪除 commit SHA |
 | ITD-ST-002 | auto | drift-script | referenced-file-changed-repeatedly | 只計建立之後的 commit 數 | ST | High | 建立前 1 次、建立後 3 次修改 | 執行腳本 | src/hot.py | changed 加 3 |
 | ITD-ST-003 | auto | drift-script | issue-references-no-paths | 沒有路徑時是 NOT_APPLICABLE | EP | Medium | 有 origin/main | 不帶路徑執行 | 無 | stdout 為 NOT_APPLICABLE |
+| ITD-ST-005 | auto | drift-script | referenced-file-changed-repeatedly | 從 repo 子目錄執行時路徑仍是根目錄相對 | EP | High | 檔案在 sub/ 內，建立後被動過一次 | 從根目錄與從 sub/ 各執行一次，引數相同 | sub/x.txt、sub/y.txt | 兩次輸出相同：changed 加 1、unchanged |
 | ITD-ST-004 | auto | drift-script | never-existed-path-is-not-evidence-of-absence | 從未存在的路徑回報 never-existed | EP | Medium | 路徑從未出現 | 執行腳本 | src/typo_path.py | never-existed |
 | ITA-ST-001 | auto | activity-script | issue-without-comments | 無留言時取 issue 建立時間 | BVA | High | 空留言陣列 | 執行腳本 | 無 | 輸出 issue 建立時間 |
 | ITA-ST-002 | auto | activity-script | bot-comment-does-not-reset-the-clock | type 為 Bot 的留言被排除 | DT | High | github-actions[bot] 的新留言 | 執行腳本 | 3 天前的 bot 留言 | 取較舊的人為留言時間 |
@@ -59,6 +60,11 @@ Review Contract AC-1～AC-13 已由 howie 確認。
 | ITA-ST-007 | auto | activity-script | grace-period-elapsed-without-response | stale notice 時間單獨回報且不計入活動 | ST | High | 目前帳號貼出 stale notice | 執行腳本 | stale-notice 標記 | 第二欄為 notice 時間；第一欄不含它 |
 | ITA-ST-008 | auto | activity-script | stale-notice-marker-from-another-account-is-ignored | 他人的 notice 標記不被辨識 | DT | High | 另一帳號貼出 notice 標記 | 執行腳本 | mallory 加標記 | 第二欄為空；該留言算活動 |
 | ITA-EG-009 | auto | activity-script | comment-lookup-fails-for-one-issue | 取不到目前帳號時失敗而不回退 | EP | High | 假 gh 讓 api user 失敗 | 執行腳本 | FAKE_GH_FAIL=user | exit 3；stdout 為空 |
+| ITA-ST-009 | auto | activity-script | incomplete-marker-is-human-activity | 內文只提到標記前綴（無日期、無結尾）的留言算人為活動 | DT | High | 目前帳號貼出含前綴文字的留言 | 執行腳本 | parser token 是 前綴 | 該留言時間被採用；第二欄為空 |
+| ITA-ST-010 | auto | activity-script | incomplete-marker-is-human-activity | 長得像的種類不是已知標記 | DT | High | 最後一行是 stale-notice-foo、stale-noticex、closed、unknown-kind 的標記 | 執行腳本 | 四種 look-alike | 各自算人為活動；第二欄為空 |
+| ITA-ST-011 | auto | activity-script | incomplete-marker-is-human-activity | 完整標記在內文中段、後面還有文字不算標記 | DT | High | 標記後接一行補充 | 執行腳本 | 標記加後續文字 | 該留言時間被採用 |
+| ITA-ST-012 | auto | activity-script | grace-period-elapsed-without-response | 對照：CRLF 與尾端空白行的真標記仍被辨識 | EP | High | 網頁編輯器格式的 stale notice | 執行腳本 | CRLF 加空白行 | 第二欄為 notice 時間；第一欄不含它 |
+| ITA-ST-013 | auto | activity-script | incomplete-marker-is-human-activity | 最後一行前後有別的文字（前綴、後綴、引用符號）不算標記 | DT | High | 最後一行為文字加標記、標記加文字、引用標記 | 執行腳本 | 三種形狀 | 各自算人為活動 |
 | ITS-DT-001 | auto | skill-runbook-doc | jira-only-run | [doc] Step 1c 在 Step 2 之前且涵蓋 Jira-only，exit 0 到 5 各一列 | DT | High | 真實 SKILL.md | 讀取並比對錨點 | 無 | 錨點與順序皆成立 |
 | ITS-DT-002 | auto | skill-runbook-doc | report-header | [doc] 報告模板第一區塊是證據基準 | DT | Medium | 真實 SKILL.md | 讀取並比對 | 無 | 證據基準在來源之前 |
 | ITS-DT-003 | auto | skill-runbook-doc | closing-note-carries-the-marker | [doc] 各留言模板都明寫 triage 標記 | DT | High | 真實 SKILL.md | 讀取並比對 | close、update-scope、merge、stale-notice | 四種標記錨點在場 |
@@ -72,7 +78,7 @@ Review Contract AC-1～AC-13 已由 howie 確認。
 | ITS-DT-011 | auto | skill-runbook-doc | old-jira-bug | [doc] 過期 verdict 只適用 GitHub issue | DT | Medium | 真實 SKILL.md | 讀取並比對 | 無 | 錨點在場 |
 | ITS-DT-012 | auto | skill-runbook-doc | comment-lookup-fails-for-one-issue | [doc] 過期資料取不到時 fail-safe | DT | High | 真實 SKILL.md | 讀取並比對 | 無 | 錨點在場 |
 | ITS-DT-013 | auto | skill-runbook-doc | never-existed-path-is-not-evidence-of-absence | [doc] 沒有漂移訊號不是前提仍成立的證據 | DT | High | 真實 SKILL.md | 讀取並比對 | 無 | 錨點在場 |
-| ITS-EG-014 | auto | skill-runbook-doc | age-alone-never-closes | 突變自檢：移除任一錨點檢查器必須變紅 | EP | High | 真實 SKILL.md | 對每個錨點移除所有出現處 | 全部錨點 | 檢查器回報該錨點 |
+| ITS-EG-014 | auto | skill-runbook-doc | age-alone-never-closes | 突變自檢：一次只移除錨點的一個出現處；段落內的那一處變紅，段落外的不影響 | EP | High | 真實 SKILL.md | 對每個錨點的每個出現處逐一移除 | 全部錨點 | 段落內的移除使檢查器回報該錨點；段落外的移除不改變結果 |
 | ITS-EG-015 | auto | skill-runbook-doc | old-severe-bug-keeps-its-priority | 突變自檢：注入舊措辭檢查器必須抓到 | EP | High | 真實 SKILL.md | 注入舊優先序、舊 FAQ 句 | 三個舊措辭 | 檢查器回報該措辭，原文本身乾淨 |
 
 ## Coverage Analysis
@@ -103,14 +109,14 @@ Review Contract AC-1～AC-13 已由 howie 確認。
 | tier-2-keep-without-affirmative-evidence-is-flagged | partial | ITS-DT-004 | 同上 |
 | tier-1-collects-drift-only | partial | ITS-DT-004 | 同上 |
 | referenced-file-was-deleted | covered | ITD-ST-001 | |
-| referenced-file-changed-repeatedly | covered | ITD-ST-002 | |
-| issue-references-no-paths | covered | ITD-ST-003, ITS-DT-013 | 腳本輸出 NOT_APPLICABLE；「不是證據」由 runbook 規定 |
-| never-existed-path-is-not-evidence-of-absence | covered | ITD-ST-004, ITS-DT-013 | 腳本層與 runbook 層各一 |
+| referenced-file-changed-repeatedly | covered | ITD-ST-002, ITD-ST-005 | ITD-ST-005：從子目錄執行路徑仍是根目錄相對 |
+| issue-references-no-paths | partial | ITD-ST-003, ITS-DT-013 | 腳本輸出 NOT_APPLICABLE 已測；「不是證據」由 runbook 規定，只有 `[doc]` 層 |
+| never-existed-path-is-not-evidence-of-absence | partial | ITD-ST-004, ITS-DT-013 | 腳本層回報 never-existed 已測；「不是消失的證據」只有 runbook 的 `[doc]` 層，agent 是否遵守見 MV-001 |
 | premise-artifacts-removed-with-positive-control | partial | ITS-DT-005 | 正向對照屬 agent 執行期，MV-002 |
 | zero-hits-without-positive-control | partial | ITS-DT-005 | 同上 |
 | partial-loss-of-premise | partial | ITS-DT-005 | 同上 |
 | first-stale-candidate | partial | ITS-DT-006 | 狀態機屬 agent 執行期，MV-003 |
-| grace-period-elapsed-without-response | partial | ITA-ST-007, ITS-DT-006 | notice 時間由腳本回報；GitHub 無法回填留言時間，寬限期滿路徑無法端到端驗證 |
+| grace-period-elapsed-without-response | partial | ITA-ST-007, ITA-ST-012, ITS-DT-006 | notice 時間由腳本回報；GitHub 無法回填留言時間，寬限期滿路徑無法端到端驗證 |
 | human-responds-during-grace-period | partial | ITS-DT-006 | 同上，MV-003 |
 | stale-notice-marker-from-another-account-is-ignored | covered | ITA-ST-008 | |
 | age-alone-never-closes | partial | ITS-DT-006, ITS-EG-014 | 錨點在場且有突變自檢；agent 是否遵守見 MV-003 |
@@ -122,10 +128,14 @@ Review Contract AC-1～AC-13 已由 howie 確認。
 | old-severe-bug-keeps-its-priority | partial | ITS-DT-009, ITS-EG-015 | 錨點與舊措辭突變自檢；排序結果屬執行期，MV-001 |
 | scheduled-run | partial | ITS-DT-010 | 文字有寫；排程情境實際行為，MV-004 |
 | apply-run-with-confirmation | partial | ITS-DT-010 | 同上，MV-003 |
+| incomplete-marker-is-human-activity | partial | ITA-ST-009, ITA-ST-010, ITA-ST-011, ITA-ST-013, ITS-DT-003 | 腳本層四種不完整標記都算人為活動（已測）；runbook 要求標記是最後一行的完整標記只有 `[doc]` 層 |
+| merge-note-carries-the-marker | partial | ITS-DT-003 | 8g 的 GitHub 端留言模板有寫；實際貼出的留言屬執行期，MV-003 |
+| drift-lookup-fails-for-one-issue | partial | ITS-DT-012 | 漂移腳本 exit 1、3 的分支有寫；執行期見 MV-001 |
+| repeated-comment-lookup-failure | partial | ITS-DT-012 | 第二次 exit 3 即停止的數字門檻有寫；執行期見 MV-001 |
 | comment-lookup-fails-for-one-issue | partial | ITA-EG-009, ITS-DT-012 | 腳本 exit 3 且無輸出已測；「其餘 issue 照常」屬執行期，MV-001 |
 | old-jira-bug | partial | ITS-DT-011 | 文字有寫；執行期不驗 |
 
-Legend: covered 腳本層或文字層已機械驗證 · partial 只有 `[doc]` 層，行為屬 agent 執行期 · manual 無自動測試
+Legend: covered 只用於**腳本層**：行為由真實腳本在拋棄式 repo 或假 gh 上機械驗證，且不依賴 SKILL.md 的文字或 agent 的執行期判斷 · partial 含 `[doc]` 層（只證明 runbook 有寫）或依賴 agent 執行期判斷，agent 是否遵守見 Manual Verification · manual 無自動測試
 
 ## Manual Verification
 
@@ -151,4 +161,4 @@ TC 與 scenario 的對應以 TC Table、Coverage Analysis 與 pytest docstring �
 
 Review Contract AC-14（修正 check_testplan_trace.py 在 worktree 內略過所有測試檔）屬於另一個 capability（testplan-trace），
 不對應本 change 的 spec scenario，所以不在上面的 TC 表；它的驗證是 plugins/sdd/scripts/tests/test_check_testplan_trace.py 的
-TPT-ST-009 到 012，細節見 tasks.md 的 6.2。
+TPT-ST-009 到 014（013、014 鎖住 `.claude` 與 `worktrees` 必須同時出現才略過），細節見 tasks.md 的 6.2 與 7.8。

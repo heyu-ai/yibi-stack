@@ -6,7 +6,7 @@ Defines how the issue-triage skill detects GitHub issues that are obsolete or lo
 
 ### Requirement: Last substantive human activity measurement
 
-The skill SHALL compute, for every open GitHub issue, the timestamp of its last substantive human activity as the latest of the issue creation time and the creation time of every comment that is neither bot-authored nor posted by the triage skill itself. A comment SHALL be treated as bot-authored when GitHub reports the author's account type as Bot. The determination SHALL NOT rely on the login text, because the issue list JSON strips the "[bot]" suffix (the account github-actions[bot] appears there as github-actions) and some bot accounts, such as Copilot, never carry the suffix. A comment whose author account was deleted (empty login) SHALL be treated as human activity. A comment SHALL be treated as posted by the triage skill only when its body contains the triage marker defined in the marker requirement below and it was authored by the account that is running the skill; a comment that contains the marker but was written by any other account SHALL count as substantive human activity. Label changes, assignee changes, and reactions SHALL NOT count as activity. The number of days since this timestamp is the issue's inactivity age.
+The skill SHALL compute, for every open GitHub issue, the timestamp of its last substantive human activity as the latest of the issue creation time and the creation time of every comment that is neither bot-authored nor posted by the triage skill itself. A comment SHALL be treated as bot-authored when GitHub reports the author's account type as Bot. The determination SHALL NOT rely on the login text, because the issue list JSON strips the "[bot]" suffix (the account github-actions[bot] appears there as github-actions) and some bot accounts, such as Copilot, never carry the suffix. A comment whose author account was deleted (empty login) SHALL be treated as human activity. A comment SHALL be treated as posted by the triage skill only when the last non-empty line of its body is exactly one complete triage marker as defined in the marker requirement below and it was authored by the account that is running the skill; a comment that merely mentions the marker prefix, whose marker is not on its last non-empty line, whose marker kind is not one of the known kinds, or whose marker lacks the date, SHALL count as substantive human activity, as SHALL a comment that ends with a complete marker but was written by any other account. Label changes, assignee changes, and reactions SHALL NOT count as activity. The number of days since this timestamp is the issue's inactivity age.
 
 #### Scenario: Triage comment does not reset the clock
 
@@ -17,6 +17,11 @@ The skill SHALL compute, for every open GitHub issue, the timestamp of its last 
 
 - **WHEN** an issue was created 200 days ago and a different account posted a comment 2 days ago whose body contains the triage marker
 - **THEN** the issue's inactivity age is 2 days
+
+#### Scenario: Incomplete marker is human activity
+
+- **WHEN** an issue was created 200 days ago and the account running the skill posted a comment 2 days ago that mentions the marker prefix in prose without a date or closing, or whose last line is a marker of an unknown kind such as stale-notice-foo, or whose complete marker is followed by further text
+- **THEN** the comment counts as substantive human activity, is not recognized as a stale notice, and the issue's inactivity age is 2 days
 
 #### Scenario: Bot comment does not reset the clock
 
@@ -40,7 +45,7 @@ The skill SHALL compute, for every open GitHub issue, the timestamp of its last 
 
 ### Requirement: Triage marker on every skill-authored comment
 
-Every comment that the skill posts to an issue (stale notice, closing note, scope update, merge note) SHALL contain an HTML comment whose text begins with the word issue-triage followed by a colon, the comment kind, and an ISO date. The marker SHALL be present on comments posted under the apply path for every verdict that posts a comment.
+Every comment that the skill posts to an issue (stale notice, closing note, scope update, merge note) SHALL end with, as its last non-empty line, an HTML comment of the exact form issue-triage, a colon, the comment kind, a space, and an ISO date (YYYY-MM-DD), where the kind is one of close, update-scope, merge, and stale-notice. The marker SHALL be present on comments posted under the apply path for every verdict that posts a comment.
 
 #### Scenario: Closing note carries the marker
 
@@ -51,6 +56,11 @@ Every comment that the skill posts to an issue (stale notice, closing note, scop
 
 - **WHEN** the skill posts an UPDATE-SCOPE comment during an apply run
 - **THEN** the comment body contains the triage marker with kind "update-scope" and the run date
+
+#### Scenario: Merge note carries the marker
+
+- **WHEN** the skill posts a comment on a GitHub issue while merging it into another issue during an apply run
+- **THEN** the last line of the comment body is the triage marker with kind "merge" and the run date
 
 ### Requirement: Inactivity tiers escalate the evidence burden
 
@@ -223,12 +233,22 @@ Posting a stale notice, closing an issue as obsolete, and closing a stale issue 
 
 ### Requirement: Unavailable staleness data fails safe
 
-When the inactivity measurement or the code drift signal cannot be obtained for an issue, the skill SHALL NOT assign STALE-CANDIDATE or OBSOLETE to that issue, SHALL NOT treat the missing data as human activity or as the absence of drift, and SHALL list the issue in the report as staleness review unavailable together with the reason. The remaining verdicts for that issue SHALL still be computed.
+When the inactivity measurement or the code drift signal cannot be obtained for an issue, the skill SHALL NOT assign STALE-CANDIDATE or OBSOLETE to that issue, SHALL NOT treat the missing data as human activity or as the absence of drift, and SHALL list the issue in the report as staleness review unavailable together with the reason. The remaining verdicts for that issue SHALL still be computed. A second failure of the comment lookup within the same run SHALL stop the staleness review, and every issue not yet reviewed SHALL then be listed as staleness review unavailable. A missing JSON processing tool SHALL list every issue that needs the lookup as staleness review unavailable. Only run-wide preconditions (the baseline check and the issue listing) stop the whole run.
 
 #### Scenario: Comment lookup fails for one issue
 
 - **WHEN** the call that fetches the comments of one issue fails while the other issues succeed
 - **THEN** that issue is listed as staleness review unavailable, receives no STALE-CANDIDATE or OBSOLETE verdict, and the other issues are triaged normally
+
+#### Scenario: Drift lookup fails for one issue
+
+- **WHEN** the code drift script fails with an unexpected error, or cannot find the baseline ref, for one issue while the other issues succeed
+- **THEN** that issue is listed as staleness review unavailable, is not treated as having no drift, receives no STALE-CANDIDATE or OBSOLETE verdict, and the other issues are triaged normally
+
+#### Scenario: Repeated comment lookup failure
+
+- **WHEN** the comment lookup fails for a second time within the same run
+- **THEN** the staleness review stops and every issue not yet reviewed is listed as staleness review unavailable
 
 ### Requirement: Staleness verdicts apply to GitHub issues only
 
