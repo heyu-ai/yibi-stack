@@ -28,14 +28,27 @@ fenced code block ```...``` / `~~~...~~~` 內的文字，避免把「範例說�
 - prose 慣例：`Probed.`、`verified on <tool> <version>`、`(Source: PR #NNN`
 
 「看不到內容」一律 fail-closed（機械化宣告檢查對 `.claude/rules/` 回 error；證據檢查維持原行為，
-不重複回報）：100% 相似度的 rename（沒有 hunk）、沒有 hunk 的 copy、被 git 判為 binary 的新檔、
-空的新檔（沒有地方放宣告）。「看不到」不能等於「通過」。
+不重複回報）：100% 相似度的 rename（沒有 hunk）、沒有 hunk 的 copy、空的新檔（沒有地方放宣告），
+以及被 git 判為 binary 的 rule 檔（**新檔或既有檔**）。binary 的 rule 檔會只針對該檔以 `--text`
+重讀：含 NUL 位元組者報錯（rule 檔必須是文字檔）；只是 `.gitattributes` 標成 `binary` / `-diff`
+者內容因此可見、照常檢查，不被隱形也不被誤擋。「看不到」不能等於「通過」。
 
-section 的切法（兩組檢查共用 `_sections_in_chunk`）：以新增行中的 `##` / `###` heading 為錨點；
-fenced code block 內的 heading 不算；同一個 hunk 移除了同層級 heading 時，新增的 heading 是改標題、
-不算新 section。**Setext heading 與縮排 heading 刻意不支援**：`.markdownlint.yaml` 為
-`default: true`，MD003（heading 風格一致）會先擋下 ATX 檔案裡的 setext heading，rule 檔也全是 ATX。
-因為 diff 以 `--unified=0` 讀取，宣告必須與其 heading 位於同一個 hunk（否則保守地報缺宣告）。
+**完整 post-image**：staged 與 range 模式以 `--unified=1000000` 讀 diff，每個檔案只有一個 hunk，
+等於該檔在 index（staged）或 `--head`（range）的整份 post-image 加上 pre-image（`_Hunk.post` /
+`_Hunk.pre`，每行標記是否為這次新增 / 移除）。fence 狀態與 section 範圍都對整份檔案計算，不再被
+hunk 邊界切斷——`--unified=0` 時 git 會把舊的結尾 fence 對齊進 hunk、被刪掉的 fence 內「heading」
+會被當成真的，都是靠局部資訊推論的盲點。
+
+section 的切法（兩組檢查共用 `_split_sections` / `_new_sections`）：section 是從 heading 到下一個
+`##` / `###` heading 的整段 post-image（含未變動的 context 行，所以宣告在新 heading 之下的既有行也算）；
+只有 heading 行本身是新增的才算新 section；fenced code block 內的 heading 不算。**改標題**不算新
+section：pre-image 裡有被移除的同層級真 heading（fence 內的不算）且去掉空白後內文完全相同，一對一消耗，
+整段換掉或只重用標題都不被豁免。diff 若不帶整份檔案（`-U0` 的 diff 檔、合成 diff），退化成只看
+diff 裡出現的行，hunk 之間的空隙不可跨越——宣告與 heading 在不同 hunk 時會保守地報缺宣告。
+hunk 內文行與檔頭的分辨：內文行 `++ note` 在 diff 裡是 `+++ note`，用 `@@ -a,b +c,d @@` 的行數
+判斷它還在 hunk 內，不會被當成檔頭。**Setext heading 與縮排 heading 刻意不支援**：
+`.markdownlint.yaml` 為 `default: true`，MD003（heading 風格一致）會先擋下 ATX 檔案裡的 setext
+heading，rule 檔也全是 ATX。
 
 純函式 `check_rule_evidence(diff_text)`、`warn_rule_evidence(diff_text)`、
 `check_rule_mechanization(diff_text, read_gate_file)` 供測試以合成 diff 呼叫——這是關鍵：
@@ -51,18 +64,21 @@ fenced code block 內的 heading 不算；同一個 hunk 移除了同層級 head
 runner 上永遠是空的，gate 會「跑完、通過、什麼都沒檢查」，正是本 repo 最常見的假綠形狀。
 
 gate 連結的驗證資料來源跟著輸入走（驗的是「將被 commit / 被審查的內容」，不是工作樹）：
-staged 模式讀 **index**（`git ls-files --stage`）、range 模式讀 `--head` 的樹（`git ls-tree`）、
+staged 模式讀 `git write-tree` 的樹（就是 `git commit` 會 commit 的內容；`git add -N` 的 intent-to-add
+項目不在其中，所以不會被當成存在的 gate）、range 模式讀 `--head` 的樹（`git ls-tree`）、
 positional diff 檔模式沒有 git 脈絡，讀**工作樹**。路徑必須精確指到一個 blob：連到目錄不算存在。
 
 讀 diff 時不受使用者的 git 設定影響：`core.quotePath=false`、`--no-color --no-ext-diff
---no-textconv`、`-M`、固定 `a/` `b/` 前綴（原因見 `_run_git_diff`）。仍被 C-style 引號的特殊字元
-路徑（tab、`"` 等）由 `_unquote_c_path` 解碼，解不開即 exit 2。
+--no-textconv`、`-M`、固定 `a/` `b/` 前綴（原因見 `_run_git_diff`）。diff 以 bytes 讀入、
+`surrogateescape` 解碼：非 UTF-8 的內容或檔名照常檢查，不會讓 lint 崩潰或被略過（輸出時以
+backslashreplace 處理）。仍被 C-style 引號的特殊字元路徑（tab、`"` 等）由 `_unquote_c_path` 解碼，
+引號格式錯誤（沒結尾、未知跳脫、不完整八進位）即 exit 2。
 
 Exit code:
   0 -> 無 error（可能有 warn，已印到 stderr）
   1 -> 有 error（新檔 / 新 hook / 新註冊 hook 缺證據標記；rule section 缺宣告或宣告為假；
-       看不到內容的新 rule 檔：純 rename、copy、binary、空檔）
-  2 -> 設定錯誤（引數矛盾、git 不可用、commit 解不開、diff 裡有解不開的引號路徑、
+       rule 檔含 NUL；看不到內容的 rule 檔：純 rename、copy、binary、空檔）
+  2 -> 設定錯誤（引數矛盾、git 不可用、commit 解不開、diff 裡有格式錯誤的引號路徑、
        讀 gate 時 git 失敗或檔案不是「不存在」的 OS 錯誤，或無法執行）
 """
 
@@ -94,8 +110,8 @@ _NEW_RULE_FILE_RE = re.compile(r"^\.claude/rules/[^/]+\.md$")
 _NEW_HOOK_FILE_RE = re.compile(r"^\.claude/hooks/.+$")
 # 既有 always-loaded 文件面：rule 檔 + CLAUDE.md（rule 11 對 always-loaded 的定義包含兩者）。
 _EXISTING_ALWAYS_LOADED_DOC_RE = re.compile(r"^(\.claude/rules/[^/]+\.md|CLAUDE\.md)$")
-# diff 新增行中的 section heading（`+## ` / `+### `），錨點 = 新 section。
-_ADDED_HEADING_RE = re.compile(r"^\+(#{2,3})\s+(.*)$")
+# section heading（`## ` / `### `）。作用在「行內容」上（不含 diff 的 `+` `-` ` ` 前綴）。
+_HEADING_RE = re.compile(r"^(#{2,3})\s+(.*)$")
 
 # 既有設定檔新註冊 hook：不看整檔是否為新檔（這兩個檔案本身通常都是既有檔案），
 # 而是看新增行是否「看起來像在註冊一個 hook」。
@@ -105,12 +121,31 @@ _SETTINGS_HOOK_COMMAND_RE = re.compile(r'"command"\s*:\s*"')
 _PRECOMMIT_HOOK_ID_RE = re.compile(r"^\s*-\s*id:\s*\S+")
 
 
-class _FileDiff:
-    """一個檔案的 diff：新舊路徑 + 依 hunk（`@@ ... @@`）分組的新增行。
+class _Hunk:
+    """一個 hunk 的內容：post-image 與 pre-image 的行，並記錄每一行是否為這次改動新增 / 移除。
 
-    分 hunk 儲存（而非攤平成單一清單）是刻意的：`_sections_missing_evidence` 需要
-    「同一個 hunk 內」的新增 heading 與其後續內容配對，攤平會讓不相關 hunk 的證據
-    標記被誤判為屬於前一個 hunk 新增的 heading（false negative，Gemini R1 發現）。
+    git 的完整 context diff（`--unified=1000000`，見 `_run_git_diff`）下每個檔案只有**一個** hunk，
+    等於那個檔案在 index（staged）或 `--head`（range）的整份 post-image，加上它的 pre-image——
+    fence 狀態、section 範圍都對整份檔案計算，不再被 hunk 的邊界切斷。合成的或 `-U0` 的 diff
+    只含部分行，這時只看得到 diff 裡出現的行（文件化的退化，見模組 docstring）。
+    """
+
+    def __init__(self) -> None:
+        # post-image：context 行與新增行，依檔案順序；`(行內容, 是否為這次新增的行)`。
+        self.post: list[tuple[str, bool]] = []
+        # pre-image：context 行與被移除的行，依檔案順序；`(行內容, 是否為這次被移除的行)`。
+        self.pre: list[tuple[str, bool]] = []
+
+    @property
+    def added(self) -> list[str]:
+        return [text for text, is_added in self.post if is_added]
+
+
+class _FileDiff:
+    """一個檔案的 diff：新舊路徑 + 依 hunk（`@@ ... @@`）分組的內容。
+
+    分 hunk 儲存（而非攤平成單一清單）是刻意的：不同 hunk 之間有看不到的空隙，section 與 fence
+    狀態不可跨越它，否則會把不相干的內容接在一起（false negative，Gemini R1 發現）。
     """
 
     def __init__(self, old_path: str, new_path: str, unseen: str | None = None) -> None:
@@ -123,26 +158,27 @@ class _FileDiff:
         #   "binary"       `Binary files ... differ`（含 NUL 等被 git 判為二進位的檔案）
         #   "empty"        空的新檔（只有 `new file mode` + `index`）
         self.unseen = unseen
-        self.chunks: list[list[str]] = []  # 每個 hunk 一組；元素為新增行內容（不含前綴 `+`）
-        # 與 `chunks` 等長：每個 hunk 被移除的 heading 層級（2 或 3），用來辨識「改標題」。
-        self.removed_headings: list[list[int]] = []
+        self.hunks: list[_Hunk] = []
 
     @property
     def pure_rename(self) -> bool:
         return self.unseen == "pure_rename"
 
     @property
+    def chunks(self) -> list[list[str]]:
+        """每個 hunk 的新增行內容（不含前綴 `+`）。"""
+        return [hunk.added for hunk in self.hunks]
+
+    @property
     def added_lines(self) -> list[str]:
         """攤平所有 hunk 的新增行——只給不需要 hunk 邊界語意的整檔判定使用
         （如 `check_rule_evidence` 判斷「這個新檔哪裡都沒有證據標記」）。"""
-        return [line for chunk in self.chunks for line in chunk]
+        return [line for hunk in self.hunks for line in hunk.added]
 
     @property
     def is_new_file(self) -> bool:
         return self.old_path == "/dev/null"
 
-
-_REMOVED_HEADING_RE = re.compile(r"^-(#{2,3})\s+")
 
 # git 對特殊字元路徑的 C-style 引號：`\a \b \t \n \v \f \r \" \\` 與三位八進位位元組（`\350\246\217`）。
 _C_ESCAPES = {
@@ -175,7 +211,7 @@ def _unquote_c_path(raw: str) -> str:
     while i < len(body):
         char = body[i]
         if char != "\\":
-            out.extend(char.encode("utf-8"))
+            out.extend(char.encode("utf-8", errors="surrogateescape"))
             i += 1
             continue
         i += 1
@@ -196,10 +232,9 @@ def _unquote_c_path(raw: str) -> str:
             i += 1
         else:
             raise ValueError(f"路徑含未知的跳脫 `\\{escape}`：{raw}")
-    try:
-        return out.decode("utf-8")
-    except UnicodeDecodeError as e:
-        raise ValueError(f"路徑不是合法的 UTF-8，無法判定它是不是 rule 檔：{raw}") from e
+    # 非 UTF-8 的位元組以 surrogateescape 保留（與整份 diff 的解碼方式一致），不在這裡 raise：
+    # 看不懂的路徑也要能被拿去比對 `.claude/rules/`，而不是讓整個 lint 因為一個檔名而壞掉。
+    return out.decode("utf-8", errors="surrogateescape")
 
 
 def _take_quoted(text: str) -> tuple[str, str]:
@@ -268,14 +303,25 @@ class _BlockHeader:
         return _FileDiff(old, new, "binary" if self.binary else "empty")
 
 
-def _parse_diff(diff_text: str) -> list[_FileDiff]:
-    """把 unified diff 切成 per-file、per-hunk，收集新增行。純字串解析，不呼叫 git。
+_HUNK_HEADER_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
 
-    路徑若被 git 以 C-style 引號輸出會先解碼；解不開時 raise `ValueError`（`main()` 轉 exit 2）。
+
+def _parse_diff(diff_text: str) -> list[_FileDiff]:
+    """把 unified diff 切成 per-file、per-hunk，收集每個 hunk 的 post-image / pre-image 行。
+
+    純字串解析，不呼叫 git。路徑若被 git 以 C-style 引號輸出會先解碼；格式錯誤的引號 raise
+    `ValueError`（`main()` 轉 exit 2）。
+
+    **內文與檔頭的分辨**：hunk 內的行沒有 `diff --git` / `rename` 這類檔頭的前綴問題（內文一定以
+    `+` `-` ` ` 開頭），唯一會撞的是內文行本身長得像檔頭——新增行 `++ note` 在 diff 裡是 `+++ note`，
+    被移除的行 `-- "x" y` 是 `--- "x" y`。所以用 `@@ -a,b +c,d @@` 宣告的行數：行數還沒用完時，
+    這些行一律是內文。只有行數用完之後的 `--- ` / `+++ ` 才是下一個檔案的檔頭。合成的 diff
+    常把行數寫錯，所以行數只用在這一個判斷上，其餘行照舊處理。
     """
     files: list[_FileDiff] = []
     current: _FileDiff | None = None
-    current_chunk: list[str] | None = None
+    hunk: _Hunk | None = None
+    old_left = new_left = 0  # 目前 hunk 還剩幾行舊 / 新內容沒讀完
     old_path = ""
     block = _BlockHeader()
 
@@ -286,62 +332,90 @@ def _parse_diff(diff_text: str) -> list[_FileDiff]:
             if record is not None:
                 files.append(record)
 
-    for line in diff_text.splitlines():
+    def _consume(line: str) -> None:
+        nonlocal old_left, new_left
+        assert hunk is not None
+        tag, text = line[0], line[1:]
+        if tag == "+":
+            hunk.post.append((text, True))
+            new_left = max(0, new_left - 1)
+        elif tag == "-":
+            hunk.pre.append((text, True))
+            old_left = max(0, old_left - 1)
+        else:  # context 行（前綴是一個空白）
+            hunk.post.append((text, False))
+            hunk.pre.append((text, False))
+            old_left = max(0, old_left - 1)
+            new_left = max(0, new_left - 1)
+
+    lines = diff_text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()  # 最後一個換行產生的空元素；不用 splitlines（它會在 \f、\x1c 等內容字元上斷行）
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if hunk is not None and line and line[0] in "+- ":
+            # 行數還沒用完 -> 一定是內文。用完之後（合成 diff 常把行數寫錯）仍當內文，除非它是下一個
+            # 檔案的 `--- ` / `+++ ` 檔頭配對。
+            is_next_header = (
+                old_left == 0
+                and new_left == 0
+                and line.startswith("--- ")
+                and i < len(lines)
+                and lines[i].startswith("+++ ")
+            )
+            if not is_next_header:
+                _consume(line)
+                continue
         if line.startswith("diff --git "):
             _flush_unseen()
             current = None
-            current_chunk = None
+            hunk = None
+            old_left = new_left = 0
             old_path = ""
             block = _BlockHeader(line[len("diff --git ") :])
             continue
         # 標頭行沒有 `+`/`-`/空白前綴，內容行一定有，所以不會把 diff 內容誤認成標頭。
         if line.startswith("rename from "):
             block.rename_from = _unquote_c_path(line[len("rename from ") :].strip())
-            continue
-        if line.startswith("rename to "):
+        elif line.startswith("rename to "):
             block.rename_to = _unquote_c_path(line[len("rename to ") :].strip())
-            continue
-        if line.startswith("copy from "):
+        elif line.startswith("copy from "):
             block.copy_from = _unquote_c_path(line[len("copy from ") :].strip())
-            continue
-        if line.startswith("copy to "):
+        elif line.startswith("copy to "):
             block.copy_to = _unquote_c_path(line[len("copy to ") :].strip())
-            continue
-        if line.startswith("new file mode "):
+        elif line.startswith("new file mode "):
             block.new_file = True
-            continue
-        if line.startswith("deleted file mode "):
+        elif line.startswith("deleted file mode "):
             block.deleted_file = True
-            continue
-        if line.startswith("Binary files ") and line.endswith(" differ"):
+        elif line.startswith("Binary files ") and line.endswith(" differ"):
             block.binary = True
-            continue
-        if line.startswith("--- "):
+        elif line.startswith("--- "):
             old_path = _strip_diff_path(line[4:])
-            continue
-        if line.startswith("+++ "):
-            new_path = _strip_diff_path(line[4:])
-            current = _FileDiff(old_path, new_path)
+            if i < len(lines) and lines[i].startswith("+++ "):
+                # 成對一起吃掉：之後的 hunk 狀態才不會把 `+++ ` 當成上一個 hunk 的內文
+                current = _FileDiff(old_path, _strip_diff_path(lines[i][4:]))
+                files.append(current)
+                hunk = None
+                old_left = new_left = 0
+                i += 1
+        elif line.startswith("+++ "):
+            current = _FileDiff(old_path, _strip_diff_path(line[4:]))
             files.append(current)
-            current_chunk = None
-            continue
-        if line.startswith("@@") and current is not None:
-            current_chunk = []
-            current.chunks.append(current_chunk)
-            current.removed_headings.append([])
-            continue
-        if current is None or current_chunk is None:
-            continue
-        # `+++ ` 的尾隨空格是刻意的：diff 內容行本身以 `++` 開頭時（如 `++Probed.`），
-        # 加上 diff 的 `+` 前綴會變成 `+++Probed.`——沒有空格，不該被誤判成檔頭。
-        if line.startswith("+") and not line.startswith("+++ "):
-            current_chunk.append(line[1:])
-        elif line.startswith("-"):
-            removed = _REMOVED_HEADING_RE.match(line)
-            if removed is not None:
-                current.removed_headings[-1].append(len(removed.group(1)))
+            hunk = None
+            old_left = new_left = 0
+        elif line.startswith("@@") and current is not None:
+            hunk = _Hunk()
+            current.hunks.append(hunk)
+            counts = _HUNK_HEADER_RE.match(line)
+            # 缺少的 count 在 unified diff 裡代表 1；整個 header 解不開（合成 diff）時不計行數。
+            old_left = int(counts.group(1) or 1) if counts else 0
+            new_left = int(counts.group(2) or 1) if counts else 0
     _flush_unseen()  # 最後一個檔案之後沒有下一個 `diff --git`，要在這裡收尾
-    return files
+    # 後出現的完整記錄取代同一路徑先前的 binary 佔位（`--text` 重讀，見 `main`）。
+    full_paths = {fd.new_path for fd in files if fd.unseen != "binary"}
+    return [fd for fd in files if not (fd.unseen == "binary" and fd.new_path in full_paths)]
 
 
 def _strip_diff_path(raw: str) -> str:
@@ -364,8 +438,9 @@ class _FenceTracker:
     `feed(line)` 回傳這一行是否「屬於 fence」：開關 fence 的那兩行本身與其中間的行都算。
     關閉條件依 CommonMark：只由同一種字元組成、且長度不短於開啟的 fence——所以 ```` 外層
     fence 裡的 ``` 不會提早結束它。縮排不限（list item 內的 fence 也要認得）。
-    限制：`--unified=0` 的 hunk 可能只含半個 fence（例如只新增了結尾的 ```），那時狀態會反過來；
-    這種輸入本來就看不到完整脈絡，與「宣告必須與 heading 同一個 hunk」是同一類限制。
+    staged / range 模式的 diff 帶整份 post-image，所以 fence 狀態從檔案開頭連續追蹤。限制：不帶整份
+    檔案的 diff（`-U0` 的 diff 檔、合成 diff）可能只含半個 fence（例如只新增了結尾的 ```），那時
+    狀態會反過來；這種輸入本來就看不到完整脈絡，與 hunk 之間的空隙不可跨越是同一類限制。
     """
 
     def __init__(self) -> None:
@@ -410,70 +485,80 @@ def _has_evidence(lines: list[str]) -> bool:
     return any(marker.search(blob) for marker in _EVIDENCE_MARKERS)
 
 
-def _sections_in_chunk(
-    chunk: list[str], removed_levels: list[int] | None = None
-) -> list[tuple[str, list[str]]]:
-    """單一 diff hunk 內新增的 section：`(heading 標題, 該 section 的新增行含 heading 行)`。
+class _Section:
+    """一個 `##` / `###` section：標題、層級、heading 行是否為這次改動的行，以及整段文字（含 heading 行）。"""
 
-    以新增行中的 heading 為錨點：只有 heading 本身被新增（即新 section）才計入；
-    只在既有 section 內新增內容（無新 heading）不產生任何 section。證據檢查與機械化宣告
-    檢查共用這個切法，確保兩者對「什麼算一個新 section」的判斷一致。兩個例外：
+    def __init__(self, heading: str, level: int, changed: bool, first_line: str) -> None:
+        self.heading = heading
+        self.level = level
+        self.changed = changed
+        self.lines = [first_line]
 
-    - fenced code block 內的 `## ...` 是範例文字，不是 section（逐行追蹤 fence 狀態）。
-    - 同一個 hunk 移除了同層級 heading 時，新增的 heading 是「改標題」而不是新 section：
-      `removed_levels` 每個被移除的 heading 層級可豁免一個同層級的新增 heading（一對一消耗）。
-      層級不同、或沒有成對的移除，仍算新 section。
+    def body(self) -> tuple[str, ...]:
+        """去掉行尾空白與頭尾空行後的內文（不含 heading 行），給「改標題」比對內文是否相同。"""
+        body = [line.rstrip() for line in self.lines[1:]]
+        while body and not body[0]:
+            body.pop(0)
+        while body and not body[-1]:
+            body.pop()
+        return tuple(body)
 
-    Setext heading（`Title\\n=====`）與縮排 heading 刻意不支援：`.markdownlint.yaml` 為
+
+def _split_sections(lines: list[tuple[str, bool]]) -> list[_Section]:
+    """把一份檔案的行（`(行內容, 是否為這次改動的行)`）切成 section，fence 狀態對整份檔案連續追蹤。
+
+    - fenced code block 內的 `## ...` 是範例文字，不是 section。
+    - section 從 heading 行起、到下一個 heading 行前止；第一個 heading 之前的行不屬於任何 section。
+    Setext heading（`Title\n=====`）與縮排 heading 刻意不支援：`.markdownlint.yaml` 為
     `default: true`，MD003（heading 風格一致）會先擋下 ATX 檔案裡的 setext heading，且 rule 檔
     全是 ATX；實作它只會增加一條從不被走到的路徑。
     """
-    sections: list[tuple[str, list[str]]] = []
-    current_heading: str | None = None
-    current_block: list[str] = []
-    retitle_budget = list(removed_levels or [])
+    sections: list[_Section] = []
+    current: _Section | None = None
     fence = _FenceTracker()
-
-    def _flush() -> None:
-        if current_heading is not None:
-            sections.append((current_heading, current_block))
-
-    for line in chunk:
-        in_fence = fence.feed(line)
-        match = None if in_fence else _ADDED_HEADING_RE.fullmatch("+" + line)
+    for text, changed in lines:
+        in_fence = fence.feed(text)
+        match = None if in_fence else _HEADING_RE.match(text)
         if match is not None:
-            _flush()
-            level = len(match.group(1))
-            if level in retitle_budget:
-                retitle_budget.remove(level)  # 改標題：不是新 section，其後的內文也不歸任何 section
-                current_heading = None
-                current_block = []
-                continue
-            current_heading = match.group(2).strip()
-            current_block = [line]
-        elif current_heading is not None:
-            current_block.append(line)
-    _flush()
+            current = _Section(match.group(2).strip(), len(match.group(1)), changed, text)
+            sections.append(current)
+        elif current is not None:
+            current.lines.append(text)
     return sections
 
 
-def _chunk_sections(fd: "_FileDiff") -> list[tuple[str, list[str]]]:
-    """檔案內所有 hunk 的新增 section（逐 hunk 獨立，不跨 hunk 攤平）。"""
-    return [
-        section
-        for chunk, removed in zip(fd.chunks, fd.removed_headings, strict=True)
-        for section in _sections_in_chunk(chunk, removed)
-    ]
+def _new_sections(hunk: _Hunk) -> list[_Section]:
+    """一個 hunk 的 post-image 裡「新增 heading」的 section（證據與機械化宣告檢查共用這個切法）。
+
+    只有 heading 行本身是這次新增的才算新 section；既有 section 內新增內容不產生任何 section。
+    section 的範圍是整份 post-image 的範圍（含 context 行），所以宣告 / 證據標記在 heading 之下的
+    未變動行也算。一個例外——改標題：pre-image 裡有被移除的同層級 heading（fence 內的不算，兩邊都
+    對整份檔案追蹤 fence）且去掉空白後內文完全相同，這個新 heading 只是改標題，不算新 section
+    （一對一消耗，所以整段換掉或只重用標題都不被豁免）。
+    """
+    removed = [section for section in _split_sections(hunk.pre) if section.changed]
+    new: list[_Section] = []
+    for section in _split_sections(hunk.post):
+        if not section.changed:
+            continue
+        retitled = next(
+            (r for r in removed if r.level == section.level and r.body() == section.body()), None
+        )
+        if retitled is not None:
+            removed.remove(retitled)
+            continue
+        new.append(section)
+    return new
+
+
+def _file_new_sections(fd: "_FileDiff") -> list[_Section]:
+    """檔案內所有 hunk 的新 section（逐 hunk 獨立：hunk 之間有看不到的空隙，不可跨越）。"""
+    return [section for hunk in fd.hunks for section in _new_sections(hunk)]
 
 
 def _sections_missing_evidence(fd: "_FileDiff") -> list[str]:
-    """回傳「新增了 heading 但該 section 內無證據標記」的 heading 標題清單。
-
-    逐 hunk 獨立評估（不跨 hunk 攤平）：同一檔案裡兩個不相關的 hunk 若被合併成一個
-    清單，後面 hunk 新增的證據標記字串會被誤判成屬於前面 hunk 新增的 heading，讓真正
-    缺證據的 section 被錯誤地判定為「有證據」（false negative，Gemini R1 發現）。
-    """
-    return [heading for heading, block in _chunk_sections(fd) if not _has_evidence(block)]
+    """回傳「新增了 heading 但該 section 內無證據標記」的 heading 標題清單。"""
+    return [s.heading for s in _file_new_sections(fd) if not _has_evidence(s.lines)]
 
 
 def _is_newly_protected(old_path: str, new_path: str, protected_re: re.Pattern[str]) -> bool:
@@ -586,7 +671,7 @@ _UNSEEN_REASONS = {
         + "請在同一個 commit 補上兩者，或改成新增檔案"
     ),
     "binary": (
-        "被 git 判為二進位檔（Binary files differ）的新 rule 檔，"
+        "被 git 判為二進位檔（Binary files differ）的 rule 檔（新檔或既有檔），"
         + _UNSEEN_FIX
         + "rule 檔必須是文字檔（檢查檔案是否含 NUL 位元組）"
     ),
@@ -616,45 +701,44 @@ def _git_bytes(args: list[str]) -> bytes:
     return proc.stdout
 
 
-def _blob_sha(ref: str | None, rel_path: str) -> str | None:
-    """`ref` 的樹（`None` = index）中「恰為 `rel_path`」的 blob 的 SHA；不存在回 `None`。
+def _blob_sha(tree: str, rel_path: str) -> str | None:
+    """`tree` 中「恰為 `rel_path`」的 blob 的 SHA；不存在回 `None`。
 
     只有路徑不存在是答案；git 本身失敗由 `_git_bytes` raise。精確比對路徑：連到目錄（樹項目或
     其下的檔案）、子模組都不是 gate 檔。
     """
-    if ref is None:
-        out = _git_bytes(["ls-files", "-z", "--stage", "--", rel_path])
-    else:
-        out = _git_bytes(["ls-tree", "-z", ref, "--", rel_path])
+    out = _git_bytes(["ls-tree", "-z", tree, "--", rel_path])
     for record in out.split(b"\0"):
         if not record:
             continue
         meta, _, raw_path = record.partition(b"\t")
         if raw_path.decode("utf-8", errors="surrogateescape") != rel_path:
             continue
-        fields = meta.decode("ascii", errors="replace").split()
-        if ref is None:
-            mode, sha, stage = fields
-            if stage != "0":
-                raise OSError(f"index 內 {rel_path} 處於未合併狀態（stage {stage}），無法驗證")
-            is_blob = mode != "160000"
-        else:
-            _, kind, sha = fields
-            is_blob = kind == "blob"
-        return sha if is_blob else None
+        _, kind, sha = meta.decode("ascii", errors="replace").split()
+        return sha if kind == "blob" else None
     return None
 
 
 def _git_gate_reader(ref: str | None) -> GateReader:
-    """讀 git 物件庫裡的 gate 檔：`ref=None` 讀 index，否則讀該 commit 的樹。
+    """讀 git 物件庫裡的 gate 檔：`ref=None` 讀 index 將寫出的樹，否則讀該 commit 的樹。
 
     gate 連結要對「將被 commit / 被審查的內容」驗證，不是對工作樹：只存在於磁碟、沒有 stage 的
     script 在 commit 後就是 dangling link，而已 stage 但磁碟上不在的 script 其實有效。
+    staged 模式用 `git write-tree`（就是 `git commit` 會 commit 的樹）而不是 `ls-files --stage`：
+    `git add -N` 的 intent-to-add 項目在 index 裡是 stage 0 的空 blob，但 commit 不含它，讀 index 會
+    把它當成存在的 gate；而合法 `git add` 的空檔仍在樹裡。未合併的 index 讓 `write-tree` 失敗，
+    以 `OSError` 大聲失敗（exit 2）。
     介面與 `_read_repo_file` 相同：不存在回 `None`、其他失敗 raise `OSError`。
     """
+    resolved: list[str] = []
+
+    def tree() -> str:
+        if not resolved:
+            resolved.append(ref if ref is not None else _git_bytes(["write-tree"]).decode().strip())
+        return resolved[0]
 
     def read(rel_path: str) -> str | None:
-        sha = _blob_sha(ref, rel_path)
+        sha = _blob_sha(tree(), rel_path)
         if sha is None:
             return None
         try:
@@ -759,9 +843,9 @@ def check_rule_mechanization(diff_text: str, read_gate_file: GateReader) -> list
     - 看不到內容：100% 相似度的 rename、沒有 hunk 的 copy、binary 新檔、空的新檔都沒有可讀的
       內容行，進入 `.claude/rules/` 時無從檢查，fail-closed 擋下——「看不到」不能等於「通過」。
 
-    缺宣告原本在既有檔只是 warn（起步期漸進）。改成 error 的代價要說清楚：因為 diff 以
-    `--unified=0` 讀取，宣告必須與其 heading 位於**同一個 hunk**；把 heading 插在既有內文
-    之上、宣告落在未變動行時，會被擋下。這是刻意的保守誤報，修法是把宣告緊接在 heading 後。
+    缺宣告原本在既有檔只是 warn（起步期漸進），現在是 error。staged / range 模式讀整份 post-image
+    （`--unified=1000000`），宣告在新 heading 之下的既有行也算；只有不帶整份檔案的 diff（`-U0` 的 diff
+    檔、合成 diff）才會因 hunk 之間的空隙而保守地報缺宣告，修法是把宣告緊接在 heading 後。
 
     `read_gate_file(path)` 回傳檔案內容、不存在回 `None`；其他 OS 錯誤原樣 raise，由
     `main()` 轉 exit 2。純函式只透過它碰檔案系統，測試因此能用假檔案系統構造負向案例。
@@ -774,12 +858,21 @@ def check_rule_mechanization(diff_text: str, read_gate_file: GateReader) -> list
         if fd.unseen:
             # fail-closed：diff 裡沒有任何內容時，宣告與證據都無從檢查。「看不到」不能等於「通過」，
             # 所以擋下並要求同時改動內容。目錄內改名（不是 is_new）是既有檔、不在此列；copy 的來源即使
-            # 也在 rules 目錄內，目標仍是一個新檔，所以 copy 不看來源。
-            if is_new or fd.unseen == "copy":
+            # 也在 rules 目錄內，目標仍是一個新檔，所以 copy 不看來源。binary 不分新檔或既有檔：
+            # 既有檔變成 binary（NUL、`.gitattributes`）時，新增的 section 同樣看不到。
+            if is_new or fd.unseen in ("copy", "binary"):
                 errors.append(f"{fd.new_path}：{_UNSEEN_REASONS[fd.unseen]}")
             continue
-        sections = _chunk_sections(fd)
-        units = sections or ([("（整份檔案）", fd.added_lines)] if is_new else [])
+        if any("\x00" in text for hunk in fd.hunks for text, _ in hunk.post):
+            errors.append(
+                f"{fd.new_path}：rule 檔含 NUL 位元組，git 會視為二進位檔、不是文字檔，"
+                "markdown 工具也不會把它當文字處理；請移除 NUL。"
+            )
+            continue
+        sections = _file_new_sections(fd)
+        units = [(s.heading, s.lines) for s in sections]
+        if not units and is_new:
+            units = [("（整份檔案）", fd.added_lines)]
         for heading, block in units:
             payloads = _declaration_payloads(block)
             if not payloads:
@@ -817,22 +910,53 @@ def _run_git_diff(args: list[str], label: str) -> str:
         "--no-ext-diff",
         "--no-textconv",
         "-M",
-        "--unified=0",
+        "--unified=1000000",
         "--src-prefix=a/",
         "--dst-prefix=b/",
         *args,
     ]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)  # nosec B603
+        proc = subprocess.run(cmd, capture_output=True, timeout=120)  # nosec B603
     except (OSError, subprocess.SubprocessError) as e:
         raise RuntimeError(f"{label} 無法執行：{e}") from e
     if proc.returncode != 0:
-        raise RuntimeError(f"{label} 失敗：{proc.stderr.strip()}")
-    return proc.stdout
+        raise RuntimeError(f"{label} 失敗：{proc.stderr.decode('utf-8', errors='replace').strip()}")
+    # bytes 讀入、surrogateescape 解碼：非 UTF-8 的內容或路徑不可讓 lint 以 UnicodeDecodeError 壞掉。
+    return proc.stdout.decode("utf-8", errors="surrogateescape")
 
 
 def _staged_diff() -> str:
     return _run_git_diff(["--cached"], "git diff --cached")
+
+
+def _text_rediff(base: str | None, head: str | None, paths: list[str]) -> str:
+    """只對 `paths` 以 `--text` 重新取 diff（git 判為 binary 的 rule 檔，內容因此可見）。
+
+    只限這些 rule 檔、不是全域 `--text`：diff 裡真正的二進位檔（圖片等）不該被當文字傾印。
+    pathspec 用 `:(literal)`，檔名含 `*` `[` 也只比對字面。
+    """
+    specs = [f":(literal){path}" for path in paths]
+    if base is not None and head is not None:
+        return _run_git_diff([f"{base}...{head}", "--text", "--", *specs], "git diff --text")
+    return _run_git_diff(["--cached", "--text", "--", *specs], "git diff --cached --text")
+
+
+def _with_binary_rules_reread(diff_text: str, base: str | None, head: str | None) -> str:
+    """被 git 判為 binary 的 rule 檔（含 `.gitattributes` 的 `binary` / `-diff`）以 `--text` 重讀並附上。
+
+    `_parse_diff` 讓後出現的完整記錄取代同路徑的 binary 佔位。重讀後仍含 NUL 的檔案由
+    `check_rule_mechanization` 報錯；沒有 NUL 的則內容可見、照常檢查（不誤擋）。
+    """
+    paths = sorted(
+        {
+            fd.new_path
+            for fd in _parse_diff(diff_text)
+            if fd.unseen == "binary" and _NEW_RULE_FILE_RE.fullmatch(fd.new_path)
+        }
+    )
+    if not paths:
+        return diff_text
+    return diff_text + ("" if diff_text.endswith("\n") else "\n") + _text_rediff(base, head, paths)
 
 
 def _range_diff(base: str, head: str) -> str:
@@ -893,6 +1017,11 @@ def _parse_args(argv: list[str]) -> tuple[str | None, str | None, str | None]:
     return base, head, (positional[0] if positional else None)
 
 
+def _eprint(text: str) -> None:
+    """寫到 stderr；路徑可能帶 surrogateescape 的非 UTF-8 位元組，直接 print 會 UnicodeEncodeError。"""
+    print(text.encode("utf-8", errors="backslashreplace").decode("utf-8"), file=sys.stderr)
+
+
 def main(argv: list[str], read_gate_file: GateReader | None = None) -> int:
     try:
         base, head, diff_file = _parse_args(argv)
@@ -908,7 +1037,7 @@ def main(argv: list[str], read_gate_file: GateReader | None = None) -> int:
             return 2
     elif diff_file is not None:
         try:
-            diff_text = Path(diff_file).read_text(encoding="utf-8")
+            diff_text = Path(diff_file).read_bytes().decode("utf-8", errors="surrogateescape")
         except OSError as e:
             print(f"[FAIL] 無法讀取 diff 檔：{e}", file=sys.stderr)
             return 2
@@ -917,6 +1046,16 @@ def main(argv: list[str], read_gate_file: GateReader | None = None) -> int:
             diff_text = _staged_diff()
         except RuntimeError as e:
             print(f"[FAIL] {e}", file=sys.stderr)
+            return 2
+
+    if diff_file is None:  # diff 檔模式沒有 git 脈絡可重讀
+        try:
+            diff_text = _with_binary_rules_reread(diff_text, base, head)
+        except RuntimeError as e:
+            print(f"[FAIL] {e}", file=sys.stderr)
+            return 2
+        except ValueError as e:
+            print(f"[FAIL] 無法解析 diff：{e}", file=sys.stderr)
             return 2
 
     try:
@@ -928,7 +1067,7 @@ def main(argv: list[str], read_gate_file: GateReader | None = None) -> int:
         print(f"[FAIL] 無法解析 diff：{e}", file=sys.stderr)
         return 2
     for w in warns:
-        print(f"  [WARN] {w}", file=sys.stderr)
+        _eprint(f"  [WARN] {w}")
 
     # gate 連結的資料來源跟著輸入走：staged 讀 index、range 讀 `--head`、diff 檔讀工作樹。
     if read_gate_file is None:
@@ -948,7 +1087,7 @@ def main(argv: list[str], read_gate_file: GateReader | None = None) -> int:
     if errors:
         print(f"[FAIL] {len(errors)} 個新增 rule/hook 缺證據標記：", file=sys.stderr)
         for e in errors:
-            print(f"  {e}", file=sys.stderr)
+            _eprint(f"  {e}")
         print(
             "\n修法：為新 rule/hook 補上證據標記——"
             "可機械實測者附 probe 輸出並標 `<!-- verified: probe -->`；"
@@ -962,7 +1101,7 @@ def main(argv: list[str], read_gate_file: GateReader | None = None) -> int:
             file=sys.stderr,
         )
         for e in mechanization_errors:
-            print(f"  {e}", file=sys.stderr)
+            _eprint(f"  {e}")
         print(
             "\n修法：每個新增 rule section 擇一宣告——"
             "已有機械 gate 者寫 `<!-- gate: scripts/foo.py::symbol -->`（路徑須存在且屬 scripts/、"

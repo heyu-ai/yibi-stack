@@ -31,7 +31,7 @@
 
 ## 7. SKILL.md 與 rule 11 同步
 
-- [x] 7.1 實作「SKILL.md 與 rule 11 同步」：`plugins/growth/skills/pr-retrospective/SKILL.md` Step 5 的 rule 草稿模板新增宣告欄位，使 agent 產出的建議文字自帶 gate link 或豁免宣告；並在 `.claude/rules/11-skill-authoring.md` 記錄宣告語法、合格目錄清單與 `--unified=0` 同 hunk 限制。驗證：在 `scripts/tests/test_pr_retrospective_evidence_gate_anchors.py` 新增 anchor 測試，斷言 SKILL.md 模板含宣告欄位。
+- [x] 7.1 實作「SKILL.md 與 rule 11 同步」：`plugins/growth/skills/pr-retrospective/SKILL.md` Step 5 的 rule 草稿模板新增宣告欄位，使 agent 產出的建議文字自帶 gate link 或豁免宣告；並在 `.claude/rules/11-skill-authoring.md` 記錄宣告語法、合格目錄清單與限制（同 hunk 限制已隨第 13 組的完整 post-image 重設計解除）。驗證：在 `scripts/tests/test_pr_retrospective_evidence_gate_anchors.py` 新增 anchor 測試，斷言 SKILL.md 模板含宣告欄位。
 - [x] 7.2 確認 plugin 內容改動依專案慣例走 PR 並以 `scripts/sync-plugin-versions.sh` 做 lockstep 版本調整，不自行執行 `make release`。驗證：兩處 `package.json` 與 `.claude-plugin/plugin.json` 版本一致（`git diff` 檢視）。
 
 ## 8. 收尾驗證
@@ -69,3 +69,12 @@
 - [x] 12.5 釘死先前未被測試守住的邊界：同一 hunk 兩個 section（兩種順序，加 committed `bad_two_sections_one_undeclared.diff` 經純函式與 `main()`）、12 與 11 個非空白字元與前後空白、四個資格條件各自的專屬案例（子目錄 SKILL.md、tasks 下非 tests、反斜線、後綴 symbol）。移除永遠走不到的 `_PLACEHOLDER_EXPLANATIONS`（每個佔位字樣都短於 12 個字元，長度檢查已涵蓋）。驗證：RMG-DT-039 / RMG-BVA-040 / RMG-EP-041；突變 `units[:1]`、`units[-1:]`、splitter 不開第二個 block、下限改 5、不去空白、拿掉四個資格條件各一，皆轉紅。
 - [x] 12.6 文件同步：lint docstring（兩組檢查、fail-closed 四種形狀、資料來源、setext 排除原因、exit code）、spec（新 scenario）、design（決策與風險）、testplan（16 個 TC，十五個 bad fixture）、rule 11 限制；修正 tasks 2.1 的過時名稱、`check_testplan_trace.py` 不可達的 `except ValueError`、testplan MV-001 的 fixture 數、design 的輸出描述、rule 11 的 first draft 句子。驗證：`python3 plugins/sdd/scripts/check_testplan_trace.py --repo-root <worktree 絕對路徑> --change add-rule-mechanization-gate --strict` 唯一的 FAIL 是 MV-001（人工，不預先勾選）。
 - [x] 12.7 `git add` 後 `make ci`、`git diff --name-only` 為空、commit 並推送。驗證：`make ci` exit 0（3787 passed）。
+
+## 13. 從完整 post-image 計算（PR #528 Round 2 的四個 Critical；人類裁決 Return to redesign，Review Contract 不變）
+
+- [x] 13.1 先寫失敗的真實 git 測試：新增 `scripts/tests/test_lint_rule_postimage.py`（hermetic：autouse 關掉全域與系統 git 設定），涵蓋 A（既有檔 NUL、`.gitattributes` binary / -diff）、B（fence 滑進 hunk）、C（刪 fence 內 heading、整段換掉）、D（`git add -N`、未追蹤、合法空檔）與 range 模式對照。驗證：對舊實作跑為 16 紅 6 綠。
+- [x] 13.2 實作「從完整 post-image 計算」：`_run_git_diff` 改 `--unified=1000000`、bytes 讀入並以 `surrogateescape` 解碼；`_parse_diff` 以 `@@` 行數分辨內文與檔頭，產生 `_Hunk`（post / pre 與新增 / 移除標記）；`_split_sections` / `_new_sections` 取代 `_sections_in_chunk`，改標題要求相同內文。驗證：RMG-DT-044 / 045 / 047 / 048 / 049 轉綠，舊測試中預期變動者（改標題 fixture 內文、非 UTF-8 路徑不再 exit 2）已調整並另補 main 層級的格式錯誤引號測試（RMG-EG-027）。
+- [x] 13.3 binary 的 rule 檔（新舊皆然）fail-closed 並以 `--text` 針對該檔重讀；含 NUL 者報錯。staged 模式的 gate reader 改讀 `git write-tree`。驗證：RMG-DT-042 / 043 / 046 / 050；`_blob_sha` 只剩樹的分支。
+- [x] 13.4 單點突變驗證（每次只改一件事，anchor 命中恰好一次，反向替換還原並比對原檔）：NUL 檢查、`--text` 重讀、gate reader 改回 index、fence 只追蹤改動行、改標題不比內文、hunk 行數不參與假檔頭判斷，另加 hunk 內文分支停用；7 個全部被擊殺。其中 hunk 行數的突變一開始存活，補了 `-- "x" y` 換成 `++ "x" y`（git 輸出成對的假檔頭）的測試後轉紅。驗證：腳本輸出 7/7 killed，還原後 232 個測試全綠。
+- [x] 13.5 文件同步：spec（新增九個 scenario，改寫 `undecodable-quoted-path-exits-2` 與「宣告在 hunk 之外」兩個，更新 binary 與 gate 資料來源的 requirement）、design（新增「從完整 post-image 計算」並更新受影響的決策與風險、實測 364 KB / 0.04 秒）、testplan（RMG-DT-042 至 RMG-DT-050）、rule 11、lint docstring。驗證：`python3 plugins/sdd/scripts/check_testplan_trace.py --repo-root <worktree 絕對路徑> --change add-rule-mechanization-gate --strict` 唯一的 FAIL 是 MV-001（人工，不預先勾選）。
+- [ ] 13.6 `git add` 後 `make ci`、`git diff --name-only` 為空、commit 並推送；更新 PR #528 本文（揭露證據 warn 範圍變化、改標題更嚴、非 UTF-8 不再 exit 2，不動 Review Contract）並在 #534 留言列出已解決項目。驗證：`make ci` exit 0；重新執行 `/pr-cycle-deep` 做全新的第一輪審查（circuit breaker 不由作者自行宣告解除）。
