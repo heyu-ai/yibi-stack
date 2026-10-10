@@ -528,3 +528,34 @@ class TestSkipRulesAreRelativeToTheRoot:
         proc = _run("--repo-root", str(repo), "--strict", "--change", "demo")
         assert proc.returncode == 1
         assert "[FAIL] missing: demo DEMO-VL-002" in proc.stdout, "a venv test bound a TC"
+
+    def test_tpt_st_013_dot_claude_without_worktrees_still_binds(self, tmp_path: Path) -> None:
+        """TPT-ST-013: a repo-internal ``.claude/hooks/tests/`` (no ``worktrees``) binds its TC.
+
+        The nested-worktree skip needs *both* ``.claude`` and ``worktrees`` in the relative path;
+        skipping on ``.claude`` alone would hide every hook test.
+        """
+        repo = _repo(tmp_path)
+        _write(
+            repo,
+            ".claude/hooks/tests/test_x.py",
+            'def test_x():\n    """\n    spec: demo#demo-slug\n    tc: DEMO-VL-002\n    """\n',
+        )
+        proc = _run("--repo-root", str(repo), "--strict", "--change", "demo")
+        assert proc.returncode == 0, proc.stdout
+        assert "DEMO-VL-002" not in proc.stdout, "a .claude/hooks test was skipped"
+
+    def test_tpt_st_014_worktrees_dir_outside_dot_claude_still_binds(self, tmp_path: Path) -> None:
+        """TPT-ST-014: a ``worktrees/`` directory that is *not* under ``.claude`` binds its TC.
+
+        Skipping on ``worktrees`` alone would hide an ordinary package that happens to use the name.
+        """
+        repo = _repo(tmp_path)
+        _write(
+            repo,
+            "worktrees/tests/test_y.py",
+            'def test_y():\n    """\n    spec: demo#demo-slug\n    tc: DEMO-VL-002\n    """\n',
+        )
+        proc = _run("--repo-root", str(repo), "--strict", "--change", "demo")
+        assert proc.returncode == 0, proc.stdout
+        assert "DEMO-VL-002" not in proc.stdout, "a worktrees/ test was skipped"
