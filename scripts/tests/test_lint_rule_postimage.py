@@ -665,6 +665,78 @@ def test_a_fence_indented_up_to_three_spaces_still_hides_its_example_heading(
     assert _append_to_declared_rule(tmp_path, monkeypatch, tail) == 0
 
 
+_LIST_FENCE_DEEPER_CLOSER = "\n1. Example:\n\n   ~~~\n   code\n      ~~~\n\n## New undeclared\n\nbody\n"  # 開 3 空白、關 6 空白
+
+
+def test_a_list_fence_closed_at_a_deeper_indent_still_closes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """清單項目內的 fence 以 3 個空白開、以 6 個空白關（相對容器仍是合法的關閉標記）：關閉標記不限縮排。
+
+    Round 2 的 B-2：關閉標記也套 3 個空白上限時，這個 fence 永遠關不起來，後面的未宣告 section 隱形
+    （exit 0）。上限只屬於**開**標記；關標記沿用舊行為（縮排不限）。
+
+    spec: rule-mechanization-gate#fence-state-comes-from-the-whole-file-not-the-hunk
+    tc: RMG-DT-044
+    """
+    assert _append_to_declared_rule(tmp_path, monkeypatch, _LIST_FENCE_DEEPER_CLOSER) == 1
+
+
+def test_a_list_fence_closed_at_a_deeper_indent_passes_once_declared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """對照：同一個形狀、後面的 section 宣告齊全 -> exit 0，證明上一個測試擋的是未宣告，不是 fence 本身。
+
+    spec: rule-mechanization-gate#fence-state-comes-from-the-whole-file-not-the-hunk
+    tc: RMG-DT-044
+    """
+    tail = "\n1. Example:\n\n   ~~~\n   code\n      ~~~\n\n" + _declared("New declared")
+    assert _append_to_declared_rule(tmp_path, monkeypatch, tail) == 0
+
+
+# --- B-1：真實 `git diff -U0` 的多 hunk 輸出走 positional diff 檔模式 -------------------------------
+
+
+def _u0_diff_file(repo: Path, tmp_path: Path) -> Path:
+    """staged 變更的 `-U0` diff（多 hunk，行數是誠實的）寫成檔案；hermetic fixture 讓前綴固定為 a/ b/。"""
+    raw = _git(repo, "diff", "--cached", "-U0") + "\n"
+    path = tmp_path / "u0.diff"
+    path.write_text(raw, encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("old_line", "new_line"),
+    [("-- old note", "++ new note"), ('-- "x" y', '++ "x" y')],
+    ids=["plain", "quoted"],
+)
+def test_a_dash_plus_content_pair_before_another_hunk_is_not_a_file_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, old_line: str, new_line: str
+) -> None:
+    """`-- x` 換成 `++ y`，且後面還有下一個 hunk：`-U0` 的輸出是緊鄰的 `--- x` / `+++ y`，其後直接接 `@@`。
+
+    Round 2 的 B-1：只看「`---` `+++` 後面接 `@@`」就當檔頭會把這組內文誤判成新檔，下一個 hunk 掛到假檔案上
+    （純文字版本讓後面新增的未宣告 section 隱形而 exit 0；引號版本 unquote 失敗而 exit 2）。`@@` 行數
+    說這組還在 hunk 內，所以要信行數。
+
+    spec: rule-mechanization-gate#content-lines-that-look-like-diff-headers-are-content
+    tc: RMG-DT-048
+    """
+    middle = "".join(f"mid {i}\n" for i in range(6))
+    old = _rule(_declared("Old")).decode() + f"\n{old_line}\n" + middle
+    repo = _make_repo(tmp_path, {".claude/rules/01-a.md": old.encode()})
+    new = old.replace(old_line, new_line) + "\n## Brand New Undeclared\n\nbody\n"
+    _write(repo, {".claude/rules/01-a.md": new.encode()})
+    _git(repo, "add", "-A")
+    diff_file = _u0_diff_file(repo, tmp_path)
+    raw = diff_file.read_text(encoding="utf-8")
+    assert f"\n--- {old_line[3:]}\n+++ {new_line[3:]}\n@@ " in raw, (
+        "錨點：git 真的輸出了緊接 @@ 的假檔頭"
+    )
+
+    assert _lint(repo, monkeypatch, [str(diff_file)]) == 1
+
+
 # --- I-3：binary 屬性的 rule 檔在 `.claude/rules/` 內改名，重讀時 pathspec 要含舊路徑 ---------------
 
 _LEGACY_BIG = _rule(

@@ -82,9 +82,17 @@
 ## 14. PR #535 R1 mob review 的修補（Critical 一項、Important 八項；Review Contract 不變）
 
 - [x] 14.1 C-1（AC-4）：staged 模式的 `git write-tree` 在 `_git_gate_reader` 建構時就解出來，而非第一次讀 gate 時；未合併的 index 加只用 `none` 豁免的 rule 不再印 `[OK]` 回 0，改為 exit 2。注入的 `read_gate_file` 優先、不觸發 `write-tree`。驗證：真實 merge conflict 的測試先紅後綠，gate link 對照維持 exit 2。
-- [x] 14.2 I-1（AC-2）：`_FenceTracker` 的開 / 關行最多縮排 3 個空白，4 個以上是 indented code block。驗證：`    ~~~` 後接未宣告 section 先紅後綠；對照（無縮排行）與 0 至 3 空白的真 fence 仍隱藏範例 heading；repo 內的清單項目 fence 為 3 空白，不受影響。
-- [x] 14.3 I-2（AC-5）：`_parse_diff` 的 `--- ` + `+++ ` + 緊接 `@@` 不看行數即判為下一個檔案的檔頭；`++ note` 等行數分辨案例保持綠。驗證：合成 diff 先紅後綠。
+- [x] 14.2 I-1（AC-2）：`_FenceTracker` 的**開**行最多縮排 3 個空白，4 個以上是 indented code block（關閉標記不限縮排，見 15.2）。驗證：`    ~~~` 後接未宣告 section 先紅後綠；對照（無縮排行）與 0 至 3 空白的真 fence 仍隱藏範例 heading；repo 內的清單項目 fence 為 3 空白，不受影響。
+- [x] 14.3 I-2（AC-5）：`_parse_diff` 的 `--- ` + `+++ ` + 緊接 `@@` 判為下一個檔案的檔頭（初版不看行數，Round 2 的 B-1 修正為「先信行數」，見 15.1）；`++ note` 等行數分辨案例保持綠。驗證：合成 diff 先紅後綠。
 - [x] 14.4 I-3（AC-1）：`--text` 重讀的 pathspec 含改名 / 複製的來源路徑。驗證：staged 與 range 的改名測試（宣告 / 未宣告兩種）先紅後綠。
 - [x] 14.5 釘死先前存活的突變（AC-9）：I-4a range 模式 `--text`（staged / range 參數化）、I-4b 重讀隔離（直接斷言 `_with_binary_rules_reread` 的附加內容）、I-5 改標題一對一與同層級、I-6 pre-image context heading 不算被移除、I-7 diff 檔模式的 binary 佔位三形狀。驗證：8 個單點突變（range `--text`、staged / range pathspec、`removed.remove`、層級、pre 標記、`("copy", "binary")`、rename / copy 的 binary 旗標）全部被擊殺，anchor 各命中恰好一次，突變只在 scratch 複本進行。
 - [x] 14.6 I-9 與 NIT：「內文相同」的文件改成精確定義（忽略行尾空白與頭尾空行；內部空行與縮排要一致）；`_eprint`、RMG-DT-013 測試 docstring、diff 檔模式不重讀 `--text`、`_UNSEEN_REASONS["binary"]` 的提示、`_git_bytes` 的過時突變宣稱；design 與 tasks 的過時函式名稱。
 - [x] 14.7 `git add` 後 `make ci`、`git diff --name-only` 為空、commit 並推送。驗證：`make ci` exit 0。
+
+## 15. Round 2 的兩個 Critical（修 R1 時引入的回歸；人類裁決 Continue fixing）
+
+- [x] 15.1 B-1（AC-5）：`_parse_diff` 的 `--- ` + `+++ ` + 緊接 `@@` 不可蓋過行數。行數剛好只剩這一組（舊 1、新 1）時，其後的 `@@` 是同一個檔案的下一個 hunk（`git diff -U0` 多 hunk 輸出，`-- x` 換成 `++ y` 的形狀），這組是內文；只有行數還剩更多卻看到沒有前綴的 `@@`（行數寫得比實際大的合成 diff）才是下一個檔案的檔頭。驗證：真實 `git diff -U0` 的多 hunk 輸出走 positional diff 檔模式，純文字版（原本 exit 0）與引號版（原本 exit 2）皆應 exit 1，先紅後綠；I-2 的 oversized 合成案例保持綠。
+- [x] 15.2 B-2（AC-2）：`_FenceTracker` 的 3 空白上限只套開標記；關標記不限縮排（清單項目內的 fence 3 空白開、6 空白關仍合法）。驗證：該形狀後接未宣告 section 先紅後綠（exit 1），宣告齊全的對照 exit 0；4 空白開標記與 0 至 3 空白真 fence 的既有測試保持綠。
+- [x] 15.3 單點突變（複本，anchor 恰好命中一次，逐位元組比對還原）：行數剛好只剩一組時仍用前瞻、移除前瞻、關標記重新套開標記上限，3/3 擊殺。
+- [x] 15.4 文件同步：rule 11、spec、design、testplan（RMG-DT-044 / RMG-DT-048 的 Steps）。
+- [ ] 15.5 `git add` 後 `make ci`、`git diff --name-only` 為空、commit 並推送。驗證：`make ci` exit 0。

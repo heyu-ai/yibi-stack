@@ -362,15 +362,21 @@ def _parse_diff(diff_text: str) -> list[_FileDiff]:
         line = lines[i]
         i += 1
         if hunk is not None and line and line[0] in "+- ":
-            # 行數還沒用完 -> 通常是內文；用完之後（合成 diff 常把行數寫錯）也當內文，除非它是下一個
-            # 檔案的 `--- ` / `+++ ` 檔頭配對。另有一條**不看行數**的判斷：`--- ` + `+++ ` 之後緊接
-            # 一行以 `@@` 開頭——內文行一定有 `+` `-` 空白的前綴，沒有前綴的 `@@` 不可能是內文，所以
-            # 即使行數寫得比實際大，這組仍是下一個檔案的檔頭。
+            # **先信行數**：行數還沒用完 -> 內文；用完之後（合成 diff 常把行數寫錯）也當內文，除非它是
+            # 下一個檔案的 `--- ` / `+++ ` 檔頭配對。
+            # 行數與 `@@` 前瞻衝突時的裁決：`--- ` + `+++ ` 之後緊接一行以 `@@` 開頭，若行數剛好只剩這
+            # 一組（舊 1、新 1），那個 `@@` 是**同一個檔案的下一個 hunk**（`-U0` 的多 hunk 輸出，內文
+            # `-- x` 換成 `++ y` 時就是這個形狀），這組是內文；只有行數**還剩更多**卻看到沒有前綴的 `@@`
+            # （內文行一定有 `+` `-` 空白的前綴，沒有前綴的 `@@` 不可能是內文）時，才是行數寫得比實際
+            # 大的合成 diff，這組是下一個檔案的檔頭。
             header_pair = line.startswith("--- ") and i < len(lines) and lines[i].startswith("+++ ")
-            is_next_header = header_pair and (
-                (old_left == 0 and new_left == 0)
-                or (i + 1 < len(lines) and lines[i + 1].startswith("@@"))
+            counts_cover_pair_exactly = old_left == 1 and new_left == 1
+            oversized_counts = (
+                not counts_cover_pair_exactly
+                and i + 1 < len(lines)
+                and lines[i + 1].startswith("@@")
             )
+            is_next_header = header_pair and ((old_left == 0 and new_left == 0) or oversized_counts)
             if not is_next_header:
                 _consume(line)
                 continue
@@ -444,11 +450,13 @@ class _FenceTracker:
 
     `feed(line)` 回傳這一行是否「屬於 fence」：開關 fence 的那兩行本身與其中間的行都算。
     關閉條件依 CommonMark：只由同一種字元組成、且長度不短於開啟的 fence——所以 ```` 外層
-    fence 裡的 ``` 不會提早結束它。開 / 關 fence 的那一行最多可縮排 3 個空白（CommonMark）：4 個以上
+    fence 裡的 ``` 不會提早結束它。**開** fence 的那一行最多可縮排 3 個空白（CommonMark）：4 個以上
     是 indented code block 的內容，不是 fence——舊版以 `strip()` 比對、縮排不限，`    ~~~` 會開一個永遠
     不關的 fence，把後面所有 heading 藏起來。3 個空白也剛好涵蓋本 repo 的有序清單項目內的 fence
-    （`1. ` 後內文縮排 3，見 rule 15）；更深的巢狀清單內的 fence 不認得（有限度的已知限制：其內的
-    `##` 範例會被當成真 heading，方向是多報而不是漏報）。tab 視為 4 個空白以上。
+    （`1. ` 後內文縮排 3，見 rule 15）；更深的巢狀清單（如 `10. ` 後縮排 4 以上）內的 fence 不認得
+    （有限度的已知限制：其內的 `##` 範例會被當成真 heading，方向是多報而不是漏報）。tab 開頭視為 4 個
+    空白以上。**關** fence 不限縮排：清單項目內的 fence 相對容器可以縮排很深，套同一個上限會讓它關不起來，
+    後面所有 heading 隱形（方向是漏報，所以關標記保持寬鬆）。
     staged / range 模式的 diff 帶整份 post-image，所以 fence 狀態從檔案開頭連續追蹤。限制：不帶整份
     檔案的 diff（`-U0` 的 diff 檔、合成 diff）可能只含半個 fence（例如只新增了結尾的 ```），那時
     狀態會反過來；這種輸入本來就看不到完整脈絡，與 hunk 之間的空隙不可跨越是同一類限制。
@@ -459,11 +467,11 @@ class _FenceTracker:
 
     def feed(self, line: str) -> bool:
         body = line.lstrip(" ")
-        # indented code block（縮排 >= 4 或帶 tab）不可開 fence，也不可關 fence。
-        can_toggle = len(line) - len(body) <= _FENCE_MAX_INDENT and not body.startswith("\t")
+        # indented code block（縮排 >= 4 或帶 tab）不可開 fence。
+        can_open = len(line) - len(body) <= _FENCE_MAX_INDENT and not body.startswith("\t")
         stripped = body.strip()
         if self._marker is None:
-            match = _FENCE_OPEN_RE.match(stripped) if can_toggle else None
+            match = _FENCE_OPEN_RE.match(stripped) if can_open else None
             # backtick fence 的 info string 不可含 backtick（那是行內 code，如 ```x``` 之類）
             if match is not None and not (
                 match.group(1)[0] == "`" and "`" in stripped[len(match.group(1)) :]
@@ -471,7 +479,9 @@ class _FenceTracker:
                 self._marker = match.group(1)
                 return True
             return False
-        if can_toggle and len(stripped) >= len(self._marker) and set(stripped) == {self._marker[0]}:
+        # 關閉標記**不限縮排**：清單項目內的 fence 相對容器可以縮排很深（3 空白開、6 空白關仍合法），
+        # 套同一個 3 空白上限會讓它永遠關不起來、後面的 heading 全部隱形（fail-open）。上限只屬於開標記。
+        if len(stripped) >= len(self._marker) and set(stripped) == {self._marker[0]}:
             self._marker = None
         return True
 

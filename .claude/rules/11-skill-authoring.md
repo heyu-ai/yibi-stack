@@ -778,8 +778,11 @@ Known limits, so a reader does not over-trust a green run:
   setext heading in an ATX file before this lint runs, and every rule file is ATX.
 - Content lines that look like diff headers (`++ note` shows up as `+++ note`) are told apart from real
   file headers by the hunk's `@@ -a,b +c,d @@` line counts, so they cannot swallow the headings after
-  them or crash the path parser. A hand-made diff whose counts are too large is still split correctly
-  where a `---` line and a `+++` line are followed by an unprefixed `@@` line.
+  them or crash the path parser. The counts are trusted first: a `---` / `+++` pair that the counts
+  say is the last removed/added content line of a hunk stays content even when an unprefixed `@@` (the
+  next hunk of the same file, as in `git diff -U0` output) follows it. Only when the counts still
+  promise more lines than are left, so an unprefixed `@@` cannot be this hunk's body, is a hand-made
+  diff with oversized counts split into the next file.
 
 Self-constraint: this section lives here in rule 11 (scoped), not in an always-loaded rule file, and
 it carries its own declaration above — the lint runs over its own addition.
