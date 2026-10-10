@@ -6,7 +6,8 @@
 # 路徑一律是 repo 根目錄相對：腳本會先切到 repo 根目錄，不論從哪一層呼叫，同一個引數結果相同。
 #
 # issue 引用的檔案若自建立以來被刪除、改名或大量變動，就是比天數更直接的
-# 「前提可能已消失」訊號。狀態由 origin/main 的歷史判斷，不看工作樹。
+# 「前提可能已消失」訊號。狀態由 refs/remotes/origin/main 的歷史判斷，不看工作樹；一律用完整 ref，
+# 因為短名稱 origin/main 會先解析到同名的本機分支（refs/heads/origin/main）。
 #
 # stdout：每個路徑一行，以 tab 分隔「路徑、狀態、細節」
 #   unchanged      仍存在，自建立後沒有 commit 動過它；細節為空
@@ -21,7 +22,7 @@
 #   0  成功
 #   1  腳本自身的未預期錯誤（不是漂移結果，不要當成「沒有漂移」）
 #   2  參數錯誤（缺建立時間、時間格式不對；路徑為空、絕對路徑、含 ..，或含 tab 或換行）
-#   3  不在 git repo 內，或 origin/main 不存在（請先跑 check-baseline.sh）
+#   3  不在 git repo 內，或 refs/remotes/origin/main 不存在（請先跑 check-baseline.sh）
 #
 # 已知限制：
 #   - git 的 --since 依 commit 時間過濾，commit 時間嚴重倒退的歷史可能少算。
@@ -62,16 +63,18 @@ done
 ERR_FILE=$(mktemp)
 trap 'rm -f "$ERR_FILE"' EXIT
 
-if ! ROOT=$(_git rev-parse --show-toplevel 2>/dev/null); then
-  fail 3 "目前目錄不在 git repo 內；請在要盤點的 repo 內執行"
+if ! ROOT=$(_git rev-parse --show-toplevel 2>"$ERR_FILE"); then
+  fail 3 "目前目錄不在 git repo 內；請在要盤點的 repo 內執行：$(cat "$ERR_FILE")"
 fi
 # pathspec 預設相對於 cwd；從子目錄呼叫時 `sub/x.txt` 會被解讀成 `sub/sub/x.txt` 而誤判 never-existed。
 if ! cd "$ROOT"; then
   fail 1 "無法切到 repo 根目錄：${ROOT}"
 fi
 
-if ! _git rev-parse --verify --quiet "origin/main^{commit}" > /dev/null 2>&1; then
-  fail 3 "找不到 origin/main；請先跑 check-baseline.sh"
+# 只解析一次，之後每個查詢都用這個 SHA；stderr 另存並附在失敗訊息裡，不丟掉。
+REF="refs/remotes/origin/main"
+if ! BASE=$(_git rev-parse --verify --quiet "${REF}^{commit}" 2>"$ERR_FILE"); then
+  fail 3 "找不到 ${REF}；請先跑 check-baseline.sh $(cat "$ERR_FILE")"
 fi
 
 if [ "$#" -eq 0 ]; then
@@ -84,12 +87,12 @@ emit() {
 }
 
 for p in "$@"; do
-  if ! LISTED=$(_git ls-tree --name-only origin/main -- "$p" 2>"$ERR_FILE"); then
-    fail 1 "無法讀取 origin/main 的檔案樹：$(cat "$ERR_FILE")"
+  if ! LISTED=$(_git ls-tree --name-only "$BASE" -- "$p" 2>"$ERR_FILE"); then
+    fail 1 "無法讀取 ${REF} 的檔案樹：$(cat "$ERR_FILE")"
   fi
 
   if [ -n "$LISTED" ]; then
-    if ! COUNT=$(_git rev-list --count --since="$CREATED_AT" origin/main -- "$p" 2>"$ERR_FILE"); then
+    if ! COUNT=$(_git rev-list --count --since="$CREATED_AT" "$BASE" -- "$p" 2>"$ERR_FILE"); then
       fail 1 "無法計算 ${p} 的變動次數：$(cat "$ERR_FILE")"
     fi
     if [ "$COUNT" = "0" ]; then
@@ -103,7 +106,7 @@ for p in "$@"; do
   # 已不在 origin/main：找出刪除它的 commit。用 `log -- <舊路徑>` 看不到改名
   # （目的端不在 pathspec 內，rename 偵測不會觸發，會顯示成刪除），
   # 所以先定位刪除的 commit，再針對那一個 commit 做 -M 偵測。
-  if ! DEL_SHA=$(_git log origin/main --diff-filter=D --format=%H -1 -- "$p" 2>"$ERR_FILE"); then
+  if ! DEL_SHA=$(_git log "$BASE" --diff-filter=D --format=%H -1 -- "$p" 2>"$ERR_FILE"); then
     fail 1 "無法查詢 ${p} 的刪除紀錄：$(cat "$ERR_FILE")"
   fi
   if [ -z "$DEL_SHA" ]; then

@@ -105,7 +105,7 @@ The tier boundaries are initial values and SHALL be presented to the user for ca
 
 ### Requirement: Code drift signal
 
-For every repository-relative file path referenced in an issue body, the skill SHALL report its state on the evidence baseline as one of: unchanged since the issue creation time, changed since the issue creation time with the number of commits, deleted, or renamed. A path that does not exist on the baseline and is neither deleted nor renamed in history SHALL be reported as never existed. A never-existed state SHALL NOT by itself demonstrate that a premise has vanished, because it usually means the issue mistyped the path. Drift collection SHALL be implemented by a standalone script so that the skill document contains a single script invocation instead of multi-step shell logic.
+For every repository-relative file path referenced in an issue body, the skill SHALL report its state on the evidence baseline as one of: unchanged since the issue creation time, changed since the issue creation time with the number of commits, deleted, or renamed. A path that does not exist on the baseline and is neither deleted nor renamed in history SHALL be reported as never existed. A never-existed state SHALL NOT by itself demonstrate that a premise has vanished, because it usually means the issue mistyped the path. When a path was deleted more than once, the reported deletion SHALL be the most recent one, and a rename SHALL name the new path of that exact path even when the rename also edited the file, when the file name is not ASCII, or when the same commit renamed other files. The evidence baseline SHALL be resolved once from the remote-tracking ref by its full name, so that a local branch whose name equals the short ref cannot replace it. Drift collection SHALL be implemented by a standalone script so that the skill document contains a single script invocation instead of multi-step shell logic.
 
 #### Scenario: Referenced file was deleted
 
@@ -116,6 +116,21 @@ For every repository-relative file path referenced in an issue body, the skill S
 
 - **WHEN** an issue created 150 days ago references a path that 12 commits on the baseline modified since then
 - **THEN** the drift signal for that path is reported as changed with a count of 12 commits
+
+#### Scenario: Referenced file was renamed
+
+- **WHEN** an issue references a path that a commit on the baseline renamed, whether or not the same commit edited it, whether or not its name is ASCII, and even when that commit renamed other files too
+- **THEN** the drift signal for that path is reported as renamed with the new path of that path
+
+#### Scenario: Deleted again after recreation
+
+- **WHEN** an issue references a path that was deleted, recreated, and deleted again on the baseline
+- **THEN** the drift signal is reported as deleted with the single most recent deleting commit
+
+#### Scenario: Same-named local branch does not shadow the baseline
+
+- **WHEN** a local branch is named origin/main and points at a commit that still contains a path which the remote-tracking origin main has deleted
+- **THEN** the drift signal for that path is reported as deleted, as on the remote, and a repository with such a local branch but no remote-tracking origin main is reported as having no baseline
 
 #### Scenario: Issue references no paths
 

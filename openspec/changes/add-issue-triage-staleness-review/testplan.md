@@ -59,6 +59,12 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | ITD-ST-003 | auto | drift-script | issue-references-no-paths | 沒有路徑時是 NOT_APPLICABLE | EP | Medium | 有 origin/main | 不帶路徑執行 | 無 | stdout 為 NOT_APPLICABLE |
 | ITD-ST-005 | auto | drift-script | referenced-file-changed-repeatedly | 從 repo 子目錄執行時路徑仍是根目錄相對 | EP | High | 檔案在 sub/ 內，建立後被動過一次 | 從根目錄與從 sub/ 各執行一次，引數相同 | sub/x.txt、sub/y.txt | 兩次輸出相同：changed 加 1、unchanged |
 | ITD-ST-004 | auto | drift-script | never-existed-path-is-not-evidence-of-absence | 從未存在的路徑回報 never-existed | EP | Medium | 路徑從未出現 | 執行腳本 | src/typo_path.py | never-existed |
+| ITD-ST-006 | auto | drift-script | referenced-file-was-renamed | 非 ASCII 檔名的改名回報新路徑 | EP | High | 設計.md 改名為 design.md | 執行腳本 | 設計.md | renamed 加 design.md |
+| ITD-ST-007 | auto | drift-script | referenced-file-was-renamed | 改名同時小幅修改（R 加相似度低於 100%）仍回報 renamed | BVA | High | 改名並改一行，status 為 R0xx | 執行腳本 | src/old.py | renamed 加 src/new.py |
+| ITD-ST-008 | auto | drift-script | referenced-file-was-renamed | 同一個 commit 改名兩個檔案，各自回報自己的新路徑 | DT | High | a.py 與 b.py 同時改名 | 一次查兩個路徑 | a.py、b.py | a_new.py 與 b_new.py 各對各 |
+| ITD-ST-009 | auto | drift-script | deleted-again-after-recreation | 刪除、重建、再刪除回報最近一次刪除的單一 SHA | ST | High | 三個 commit：刪、建、刪 | 執行腳本 | cycle.py | deleted 加最後一個刪除 commit；輸出只有一行 |
+| ITD-ST-010 | auto | drift-script | same-named-local-branch-does-not-shadow-the-baseline | 同名的本機分支 origin/main 不蓋過遠端 ref；沒有遠端 ref 時仍是 exit 3；程式行只用完整 ref | EP | High | 本機分支 origin/main 停在還有檔案的 commit，遠端已刪除；另一個 repo 只有本機分支沒有遠端 ref | 執行腳本 | premise.txt | deleted 加遠端的刪除 commit；後者 exit 3 |
+| ITD-EG-011 | auto | drift-script | drift-lookup-fails-for-one-issue | 以 PATH 上的假 git 讓 ls-tree、rev-list、log、show 單一子指令失敗，腳本 exit 1 | EP | High | 假 git 只讓指定子指令失敗；路徑各走到對應的分支 | 各執行一次 | 四組 | exit 1；stdout 為空；stderr 含 [FAIL] |
 | ITA-ST-001 | auto | activity-script | issue-without-comments | 無留言時取 issue 建立時間 | BVA | High | 空留言陣列 | 執行腳本 | 無 | 輸出 issue 建立時間 |
 | ITA-ST-002 | auto | activity-script | bot-comment-does-not-reset-the-clock | type 為 Bot 的留言被排除 | DT | High | github-actions[bot] 的新留言 | 執行腳本 | 3 天前的 bot 留言 | 取較舊的人為留言時間 |
 | ITA-ST-003 | auto | activity-script | bot-account-without-a-login-suffix | 沒有後綴的 bot 仍被排除 | DT | High | Copilot（type 為 Bot） | 執行腳本 | login 無 [bot] | 取較舊的人為留言時間 |
@@ -123,6 +129,9 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | tier-1-collects-drift-only | partial | ITS-DT-004 | 同上 |
 | referenced-file-was-deleted | covered | ITD-ST-001 | |
 | referenced-file-changed-repeatedly | covered | ITD-ST-002, ITD-ST-005 | ITD-ST-005：從子目錄執行路徑仍是根目錄相對 |
+| referenced-file-was-renamed | covered | ITD-ST-006, ITD-ST-007, ITD-ST-008 | 非 ASCII、R 加相似度、同一 commit 多個改名；突變（關掉 core.quotepath、只認 R100、不比對舊路徑）各被擊殺 |
+| deleted-again-after-recreation | covered | ITD-ST-009 | 突變（刪除查詢拿掉 `-1`）被擊殺 |
+| same-named-local-branch-does-not-shadow-the-baseline | covered | ITD-ST-010 | 行為測試加靜態測試（程式行只准用完整 ref）；突變（短名稱、任一查詢改回 origin/main）各被擊殺 |
 | issue-references-no-paths | partial | ITD-ST-003, ITS-DT-013 | 腳本輸出 NOT_APPLICABLE 已測；「不是證據」由 runbook 規定，只有 `[doc]` 層 |
 | never-existed-path-is-not-evidence-of-absence | partial | ITD-ST-004, ITS-DT-013 | 腳本層回報 never-existed 已測；「不是消失的證據」只有 runbook 的 `[doc]` 層，agent 是否遵守見 MV-001 |
 | premise-artifacts-removed-with-positive-control | partial | ITS-DT-005 | 正向對照屬 agent 執行期，MV-002 |
@@ -143,7 +152,7 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | apply-run-with-confirmation | partial | ITS-DT-010 | 同上，MV-003 |
 | incomplete-marker-is-human-activity | partial | ITA-ST-009, ITA-ST-010, ITA-ST-011, ITA-ST-013, ITS-DT-003 | 腳本層四種不完整標記都算人為活動（已測）；runbook 要求標記是最後一行的完整標記只有 `[doc]` 層 |
 | merge-note-carries-the-marker | partial | ITS-DT-003 | 8g 的 GitHub 端留言模板有寫；實際貼出的留言屬執行期，MV-003 |
-| drift-lookup-fails-for-one-issue | partial | ITS-DT-012 | 漂移腳本 exit 1、3 的分支有寫；執行期見 MV-001 |
+| drift-lookup-fails-for-one-issue | partial | ITS-DT-012, ITD-EG-011 | 腳本層：四個 git 子指令失敗各 exit 1 已測（突變 `fail 1` 改 `true` 各被擊殺）；runbook 的 exit 1、3 分支只有 `[doc]` 層，執行期見 MV-001 |
 | repeated-comment-lookup-failure | partial | ITS-DT-012 | 第二次 exit 3 即停止的數字門檻有寫；執行期見 MV-001 |
 | comment-lookup-fails-for-one-issue | partial | ITA-EG-009, ITS-DT-012 | 腳本 exit 3 且無輸出已測；「其餘 issue 照常」屬執行期，MV-001 |
 | old-jira-bug | partial | ITS-DT-011 | 文字有寫；執行期不驗 |

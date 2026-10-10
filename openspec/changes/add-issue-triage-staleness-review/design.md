@@ -110,7 +110,8 @@ Step 6 的「時效」列把長期無活動導向低優先，與新的過期檢�
 
 - 輸入：issue 建立時間（ISO 8601），以及一個或多個 repo 根目錄相對路徑；腳本先切到 repo 根目錄，從子目錄呼叫的結果與從根目錄相同。
 - 輸出：每個路徑一行，以 tab 分隔三欄：路徑、狀態（unchanged、changed、deleted、renamed、never-existed 其中之一）、細節（changed 時為 commit 數，deleted 時為刪除它的 commit SHA，renamed 時為新路徑）。
-- 失敗：基準 ref 不存在時 exit 非 0 並在 stderr 輸出 `[FAIL]`，不輸出任何狀態行。
+- 基準：一律用完整 ref `refs/remotes/origin/main`，只解析一次、之後每個 `ls-tree`、`rev-list`、`log` 都用解析出的 SHA；短名稱 `origin/main` 會先解析到同名的本機分支（refs/heads 的優先序高於 refs/remotes），讓遠端已刪掉的檔案被當成還在。刪除查詢取最近一次（`log -1`），改名只認「舊路徑等於查詢路徑」的那一行（`R` 加任意相似度），並以 `core.quotepath=false` 讓非 ASCII 路徑不被引號跳脫。
+- 失敗：基準 ref 不存在（或不在 git repo）時 exit 3 並在 stderr 輸出 `[FAIL]`，不輸出任何狀態行；任何 git 子指令非 0 是 exit 1，不當成「沒有漂移」。
 
 **Failure modes**
 

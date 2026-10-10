@@ -19,21 +19,25 @@ Exit code 契約（與 staleness-signals.sh 檔頭一致）：
 
     0  成功
     1  腳本自身的未預期錯誤
-    2  參數錯誤（缺建立時間、時間格式不對、路徑為絕對路徑或含 ..）
-    3  origin/main 不存在（請先跑 check-baseline.sh）
+    2  參數錯誤（缺建立時間、時間格式不對；路徑為空、絕對路徑、含 .. 段，或含 tab 或換行）
+    3  不在 git repo 內，或 refs/remotes/origin/main 不存在（請先跑 check-baseline.sh）
 """
 
 from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess  # nosec B404
 from pathlib import Path
+
+import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 STALENESS_SIGNALS = SCRIPTS_DIR / "staleness-signals.sh"
 
 EXIT_OK = 0
+EXIT_UNEXPECTED = 1
 EXIT_USAGE = 2
 EXIT_NO_BASELINE = 3
 
@@ -146,6 +150,23 @@ class TestStaticContract:
         assert "origin/main" in self.SRC
         assert "[ -e " not in self.SRC
         assert "[ -f " not in self.SRC
+
+    def test_ss_dt_005_every_baseline_reference_uses_the_full_ref(self) -> None:
+        """短名稱 `origin/main` 會先解析到同名的本機分支（refs/heads/origin/main）。
+
+        非註解的程式行只要提到 origin/main，就必須是完整的 refs/remotes/origin/main。
+
+        spec: issue-triage-staleness-review#same-named-local-branch-does-not-shadow-the-baseline
+        tc: ITD-ST-010
+        """
+        lines = [
+            line
+            for line in self.SRC.splitlines()
+            if "origin/main" in line and not line.lstrip().startswith("#")
+        ]
+        assert lines, "找不到任何提到 origin/main 的程式行；空迴圈會讓下面的斷言空洞地通過"
+        for line in lines:
+            assert "refs/remotes/origin/main" in line, line
 
 
 class TestBehaviour:
@@ -319,6 +340,124 @@ class TestBehaviour:
         assert proc.returncode == EXIT_OK, proc.stderr
         assert _rows(proc) == [["ok.py", "unchanged", ""]]
 
+    def test_ss_st_018_same_named_local_branch_does_not_shadow_the_baseline(
+        self, tmp_path: Path
+    ) -> None:
+        """本機分支叫 `origin/main` 時，短名稱會先解析到它：remote 已刪掉的檔案會被當成還在。
+
+        local 分支停在還有 premise.txt 的 commit，remote 的 main 已刪掉它：
+        必須回報 deleted（遠端的事實），而不是 changed。
+
+        spec: issue-triage-staleness-review#same-named-local-branch-does-not-shadow-the-baseline
+        tc: ITD-ST-010
+        """
+        repo = _make_repo(tmp_path)
+        _write(repo, "premise.txt", "premise\n")
+        _commit(repo, "add premise", BEFORE)
+        _publish(repo)
+        _git(repo, "branch", "origin/main", "HEAD")
+        (repo / "premise.txt").unlink()
+        deleting = _commit(repo, "remove premise", AFTER_1)
+        _publish(repo)
+        proc = _run(repo, CREATED_AT, "premise.txt")
+        assert proc.returncode == EXIT_OK, proc.stderr
+        assert _rows(proc) == [["premise.txt", "deleted", deleting]]
+        assert "warning" not in proc.stderr
+
+    def test_ss_st_019_local_branch_named_origin_main_is_not_a_baseline(
+        self, tmp_path: Path
+    ) -> None:
+        """對照：沒有遠端 main（從未 push），但有本機分支 `origin/main`：仍然是 exit 3。
+
+        spec: issue-triage-staleness-review#same-named-local-branch-does-not-shadow-the-baseline
+        tc: ITD-ST-010
+        """
+        repo = _make_repo(tmp_path)
+        _git(repo, "branch", "origin/main", "HEAD")
+        proc = _run(repo, CREATED_AT, "anchor.txt")
+        assert proc.returncode == EXIT_NO_BASELINE, proc.stdout
+        assert proc.stdout == ""
+
+    def test_ss_st_020_delete_recreate_delete_reports_the_last_deleting_commit(
+        self, tmp_path: Path
+    ) -> None:
+        """刪除、重建、再刪除：細節必須是「最近一次」刪除它的 commit，單一 SHA。
+
+        刪除紀錄的查詢少了 `-1` 會回傳兩個 SHA（換行分隔），輸出就不是單一欄位。
+
+        spec: issue-triage-staleness-review#deleted-again-after-recreation
+        tc: ITD-ST-009
+        """
+        repo = _make_repo(tmp_path)
+        _write(repo, "cycle.py", "v1\n")
+        _commit(repo, "add", BEFORE)
+        (repo / "cycle.py").unlink()
+        first_delete = _commit(repo, "delete", AFTER_1)
+        _write(repo, "cycle.py", "v2\n")
+        _commit(repo, "recreate", AFTER_2)
+        (repo / "cycle.py").unlink()
+        last_delete = _commit(repo, "delete again", AFTER_3)
+        _publish(repo)
+        proc = _run(repo, CREATED_AT, "cycle.py")
+        assert proc.returncode == EXIT_OK, proc.stderr
+        assert first_delete != last_delete
+        assert _rows(proc) == [["cycle.py", "deleted", last_delete]]
+        assert len(proc.stdout.splitlines()) == 1
+
+    def test_ss_st_021_non_ascii_path_rename_is_reported(self, tmp_path: Path) -> None:
+        """非 ASCII 檔名的改名：`git show` 預設把路徑引號跳脫成八進位，比對會失敗而誤判成 deleted。
+
+        spec: issue-triage-staleness-review#referenced-file-was-renamed
+        tc: ITD-ST-006
+        """
+        repo = _make_repo(tmp_path)
+        _write(repo, "設計.md", "設計文件的內容，長到足以讓 git 偵測改名\n" * 5)
+        _commit(repo, "add 設計", BEFORE)
+        _git(repo, "mv", "設計.md", "design.md")
+        _commit(repo, "rename 設計", AFTER_1)
+        _publish(repo)
+        proc = _run(repo, CREATED_AT, "設計.md")
+        assert proc.returncode == EXIT_OK, proc.stderr
+        assert _rows(proc) == [["設計.md", "renamed", "design.md"]]
+
+    def test_ss_st_022_rename_with_edits_is_still_a_rename(self, tmp_path: Path) -> None:
+        """改名同時小幅修改（相似度低於 100%，狀態是 R 加兩位數）仍然是 renamed。
+
+        spec: issue-triage-staleness-review#referenced-file-was-renamed
+        tc: ITD-ST-007
+        """
+        repo = _make_repo(tmp_path)
+        body = "".join(f"line {i} of the original file\n" for i in range(10))
+        _write(repo, "src/old.py", body)
+        _commit(repo, "add old", BEFORE)
+        _git(repo, "mv", "src/old.py", "src/new.py")
+        _write(repo, "src/new.py", body.replace("line 3 of", "line three of"))
+        _commit(repo, "rename with an edit", AFTER_1)
+        status = _git(repo, "show", "-M", "--name-status", "--format=", "HEAD").stdout
+        assert re.match(r"R\d{3}\t", status) and not status.startswith("R100"), status
+        _publish(repo)
+        proc = _run(repo, CREATED_AT, "src/old.py")
+        assert proc.returncode == EXIT_OK, proc.stderr
+        assert _rows(proc) == [["src/old.py", "renamed", "src/new.py"]]
+
+    def test_ss_st_023_two_renames_in_one_commit_report_each_target(self, tmp_path: Path) -> None:
+        """同一個 commit 改名兩個檔案：每個路徑必須對應到自己的新路徑，不是第一個 R 行。
+
+        spec: issue-triage-staleness-review#referenced-file-was-renamed
+        tc: ITD-ST-008
+        """
+        repo = _make_repo(tmp_path)
+        _write(repo, "a.py", "".join(f"alpha {i} unique text\n" for i in range(8)))
+        _write(repo, "b.py", "".join(f"beta {i} different words\n" for i in range(8)))
+        _commit(repo, "add a and b", BEFORE)
+        _git(repo, "mv", "a.py", "a_new.py")
+        _git(repo, "mv", "b.py", "b_new.py")
+        _commit(repo, "rename both", AFTER_1)
+        _publish(repo)
+        proc = _run(repo, CREATED_AT, "a.py", "b.py")
+        assert proc.returncode == EXIT_OK, proc.stderr
+        assert _rows(proc) == [["a.py", "renamed", "a_new.py"], ["b.py", "renamed", "b_new.py"]]
+
 
 class TestArguments:
     def test_ss_st_014_missing_creation_time_is_a_usage_error(self, tmp_path: Path) -> None:
@@ -379,3 +518,69 @@ class TestArguments:
         from_sub = _run(repo / "sub", CREATED_AT, "sub/x.txt", "sub/y.txt")
         assert from_sub.returncode == EXIT_OK, from_sub.stderr
         assert _rows(from_sub) == expected
+
+
+# 假的 git：只讓指定的子指令失敗，其餘轉給真的 git。略過 -c 與 -C 這類全域選項後的第一個字是子指令。
+SHIM = """#!/usr/bin/env bash
+args=("$@")
+i=0
+while [ "$i" -lt "${#args[@]}" ]; do
+  case "${args[$i]}" in
+    -c | -C) i=$((i + 2)) ;;
+    -*) i=$((i + 1)) ;;
+    *) break ;;
+  esac
+done
+if [ "${args[$i]:-}" = "${SHIM_FAIL_SUBCMD}" ]; then
+  echo "shim: simulated failure of git ${SHIM_FAIL_SUBCMD}" >&2
+  exit 3
+fi
+exec "${SHIM_REAL_GIT}" "$@"
+"""
+
+
+class TestUnexpectedGitFailure:
+    @pytest.mark.parametrize(
+        ("subcommand", "path"),
+        [
+            ("ls-tree", "anchor.txt"),
+            ("rev-list", "anchor.txt"),
+            ("log", "gone.py"),
+            ("show", "gone.py"),
+        ],
+    )
+    def test_ss_eg_024_a_failing_git_subcommand_exits_1_without_state_lines(
+        self, tmp_path: Path, subcommand: str, path: str
+    ) -> None:
+        """git 自己壞掉不是「沒有漂移」：exit 1、stdout 為空、stderr 以 [FAIL] 說明。
+
+        每個子指令都在「會走到它」的路徑上測：rev-list 對仍存在的路徑，log 與 show 對已刪除的路徑。
+        分支若把 `fail 1` 改成 `true`，這裡會變成 exit 0 並輸出一行錯誤的狀態。
+
+        spec: issue-triage-staleness-review#drift-lookup-fails-for-one-issue
+        tc: ITD-EG-011
+        """
+        repo = _make_repo(tmp_path)
+        _write(repo, "gone.py", "old\n")
+        _commit(repo, "add gone", BEFORE)
+        (repo / "gone.py").unlink()
+        _commit(repo, "remove gone", AFTER_1)
+        _publish(repo)
+        shim_dir = tmp_path / "shim-bin"
+        shim_dir.mkdir()
+        shim = shim_dir / "git"
+        shim.write_text(SHIM, encoding="utf-8")
+        shim.chmod(0o755)
+        real_git = shutil.which("git")
+        assert real_git, "找不到真的 git"
+        proc = _run(
+            repo,
+            CREATED_AT,
+            path,
+            PATH=f"{shim_dir}{os.pathsep}{os.environ['PATH']}",
+            SHIM_FAIL_SUBCMD=subcommand,
+            SHIM_REAL_GIT=real_git,
+        )
+        assert proc.returncode == EXIT_UNEXPECTED, (proc.stdout, proc.stderr)
+        assert proc.stdout == ""
+        assert "[FAIL]" in proc.stderr
