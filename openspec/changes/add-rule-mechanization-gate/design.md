@@ -37,7 +37,7 @@
 
 ### 缺宣告與假宣告在所有 rule 檔一律為 error
 
-缺宣告與假宣告**都是 error，不分新檔或既有檔**。本 change 起草時，既有 rule 檔新增 section 缺宣告只 warn（沿用 evidence lint 的漸進原則，避免歷史 corpus 一次爆紅）；該殘餘風險經人類審視後**不被接受**，改為 error。歷史 corpus 不會爆紅，因為只掃「新增」的 section，既有 section 不回溯。假宣告（連結指向不存在或不合格目標、豁免理由不在列舉內、說明為佔位字樣、同 section 兩個宣告互相矛盾）本來就不降級：降為 warn 等於教人用亂填通過。被否決：維持既有檔 warn 並等 warn 出現率再收緊（起步期的 warn 在 pre-commit 與 CI 都不擋，等於這段期間新增的 section 沒有任何 gate）。代價：見 Risks 的同 hunk 限制。
+缺宣告與假宣告**都是 error，不分新檔或既有檔**。本 change 起草時，既有 rule 檔新增 section 缺宣告只 warn（沿用 evidence lint 的漸進原則，避免歷史 corpus 一次爆紅）；該殘餘風險經人類審視後**不被接受**，改為 error。歷史 corpus 不會爆紅，因為只掃「新增」的 section，既有 section 不回溯。假宣告（連結指向不存在或不合格目標、豁免理由不在列舉內、說明為佔位字樣、同 section 兩個宣告互相矛盾）本來就不降級：降為 warn 等於教人用亂填通過。被否決：維持既有檔 warn 並等 warn 出現率再收緊（起步期的 warn 在 pre-commit 與 CI 都不擋，等於這段期間新增的 section 沒有任何 gate）。原本的代價（同 hunk 限制）已隨完整 post-image 解除，見 Risks。
 
 ### 豁免理由為三值封閉列舉
 

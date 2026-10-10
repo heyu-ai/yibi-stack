@@ -840,7 +840,8 @@ def check_rule_mechanization(diff_text: str, read_gate_file: GateReader) -> list
       檔案層級宣告，否則整份檔案會逃過檢查。
     - 假宣告：連結指向不存在或不合格的目標、豁免理由不在列舉內、說明為佔位、同 section 多個
       宣告。把它降級成 warn 等於教人亂填通過。
-    - 看不到內容：100% 相似度的 rename、沒有 hunk 的 copy、binary 新檔、空的新檔都沒有可讀的
+    - 看不到內容：100% 相似度的 rename、沒有 hunk 的 copy、binary 的 rule 檔（新檔或既有檔；
+      `main` 會先對它們以 `--text` 重讀，重讀後仍含 NUL 者報 NUL 錯誤）、空的新檔都沒有可讀的
       內容行，進入 `.claude/rules/` 時無從檢查，fail-closed 擋下——「看不到」不能等於「通過」。
 
     缺宣告原本在既有檔只是 warn（起步期漸進），現在是 error。staged / range 模式讀整份 post-image
@@ -1069,7 +1070,8 @@ def main(argv: list[str], read_gate_file: GateReader | None = None) -> int:
     for w in warns:
         _eprint(f"  [WARN] {w}")
 
-    # gate 連結的資料來源跟著輸入走：staged 讀 index、range 讀 `--head`、diff 檔讀工作樹。
+    # gate 連結的資料來源跟著輸入走：staged 讀 `git write-tree` 的樹（index 將被 commit 的內容）、
+    # range 讀 `--head`、diff 檔讀工作樹。
     if read_gate_file is None:
         if base is not None and head is not None:
             read_gate_file = _git_gate_reader(head)
