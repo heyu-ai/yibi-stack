@@ -1,0 +1,16 @@
+diff --git a/.claude/rules/13-bash-anti-patterns.md b/.claude/rules/13-bash-anti-patterns.md
+--- a/.claude/rules/13-bash-anti-patterns.md
++++ b/.claude/rules/13-bash-anti-patterns.md
+@@ -300,0 +301,12 @@
++### Syntax Examples Do Not Count
++
++內文。(Source: PR #339)
++
++```text
++<!-- gate: scripts/does_not_exist.py -->
++```
++
++| 範例 | 說明 |
++|------|------|
++| `<!-- gate: none (reason: other) — x -->` | 表格內的引用不計 |
++<!-- gate: .claude/hooks/protect-push.sh -->

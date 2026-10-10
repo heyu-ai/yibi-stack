@@ -1,0 +1,11 @@
+diff --git a/.claude/rules/22-unknown-reason.md b/.claude/rules/22-unknown-reason.md
+new file mode 100644
+--- /dev/null
++++ b/.claude/rules/22-unknown-reason.md
+@@ -0,0 +1,5 @@
++# Unknown Reason
++
++## Reason Outside The Closed Set
++
++內文。(Source: PR #339)
++<!-- gate: none (reason: other) — 這個理由不在封閉列舉內所以必須被擋下 -->

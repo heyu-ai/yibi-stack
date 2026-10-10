@@ -559,3 +559,41 @@ class TestSkipRulesAreRelativeToTheRoot:
         proc = _run("--repo-root", str(repo), "--strict", "--change", "demo")
         assert proc.returncode == 0, proc.stdout
         assert "DEMO-VL-002" not in proc.stdout, "a worktrees/ test was skipped"
+
+
+class TestDiscoverTestFiles:
+    """discover_test_files 只能略過 root *底下*的巢狀 worktree，不可因 root 自己的路徑而略過。"""
+
+    def test_tpt_dt_009_root_inside_a_worktree_still_discovers_its_tests(
+        self, tmp_path: Path
+    ) -> None:
+        """TPT-DT-009: repo root 本身位於 .claude/worktrees/<name>/ 時，測試仍要被找到。
+
+        原本用絕對路徑的每個組成部分判斷，root 在 worktree 內時整個 repo 的測試都被略過，
+        於是每個 TC 被誤判 missing（CI 的 checkout 路徑不含這段，所以只有本機 worktree 誤報）。
+        """
+        from check_testplan_trace import discover_test_files
+
+        root = tmp_path / ".claude" / "worktrees" / "feature-x"
+        _write(root, "scripts/tests/test_demo.py", "def test_demo():\n    pass\n")
+
+        found = discover_test_files([root])
+
+        assert [p.name for p in found] == ["test_demo.py"]
+
+    def test_tpt_dt_010_nested_worktree_below_the_root_is_still_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        """TPT-DT-010: 對照組：root 底下巢狀的別個 worktree 照舊略過，不可因修正而放行。"""
+        from check_testplan_trace import discover_test_files
+
+        _write(tmp_path, "tests/test_real.py", "def test_real():\n    pass\n")
+        _write(
+            tmp_path,
+            ".claude/worktrees/other/tests/test_nested.py",
+            "def test_nested():\n    pass\n",
+        )
+
+        found = discover_test_files([tmp_path])
+
+        assert [p.name for p in found] == ["test_real.py"]

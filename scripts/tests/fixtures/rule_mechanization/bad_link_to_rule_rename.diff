@@ -1,0 +1,13 @@
+diff --git a/scripts/notes.md b/.claude/rules/renamed-in.md
+similarity index 80%
+rename from scripts/notes.md
+rename to .claude/rules/renamed-in.md
+--- a/scripts/notes.md
++++ b/.claude/rules/renamed-in.md
+@@ -1,0 +1,5 @@
++# Renamed In
++
++## Links To A Rule
++
++內文。(Source: PR #339)
++<!-- gate: .claude/rules/13-bash-anti-patterns.md -->

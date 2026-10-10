@@ -126,13 +126,7 @@ def parse_bindings(path: Path, root: Path) -> list[Binding]:
 
 
 def discover_test_files(roots: list[Path]) -> list[Path]:
-    """列出 roots 下的 test_*.py 與 *_test.py，略過虛擬環境與 .claude/worktrees。
-
-    略過規則只看「相對於 root 的路徑」：它描述的是被掃描的 repo **裡面**有什麼，不該取決於
-    repo 本身被 checkout 在哪裡。舊版看絕對路徑，於是 repo root 位於 `.claude/worktrees/<name>/`
-    （每個 background job 的 worktree）或祖先目錄叫 `venv` 時，所有測試檔都被略過，
-    enforced 且 tasks 全勾的 change 會把每個 auto TC 都報成 missing。
-    """
+    """列出 roots 下的 test_*.py 與 *_test.py，略過虛擬環境與 .claude/worktrees。"""
     found: list[Path] = []
     for root in roots:
         if root.is_file():
@@ -141,6 +135,12 @@ def discover_test_files(roots: list[Path]) -> list[Path]:
         if not root.is_dir():
             continue
         for path in sorted(root.rglob("*.py")):
+            # 只看 root「底下」的組成部分：root 自己的路徑不能參與判斷。repo 本身位於
+            # `.claude/worktrees/<name>/` 時（worktree 內開發），絕對路徑一定含這兩段，
+            # 舊寫法會把整個 repo 的測試全部略過，每個 TC 都被誤判 missing；
+            # CI 的 checkout 路徑不含這段，所以不受影響。
+            # `root.rglob` 產生的路徑一定在 root 底下，`relative_to` 不會失敗；不加 fallback，
+            # 否則萬一失敗會悄悄退回「用絕對路徑判斷」——正是上面這個 bug 本身。
             rel_parts = path.relative_to(root).parts
             if set(rel_parts) & _SKIP_DIRS:
                 continue

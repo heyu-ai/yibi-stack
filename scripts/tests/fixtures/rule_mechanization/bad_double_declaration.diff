@@ -1,0 +1,12 @@
+diff --git a/.claude/rules/23-double.md b/.claude/rules/23-double.md
+new file mode 100644
+--- /dev/null
++++ b/.claude/rules/23-double.md
+@@ -0,0 +1,6 @@
++# Double Declaration
++
++## Both A Link And An Exemption
++
++內文。(Source: PR #339)
++<!-- gate: scripts/lint_rule_evidence.py::check_rule_evidence -->
++<!-- gate: none (reason: judgment) — 同一個 section 不能同時宣稱有 gate 又宣稱沒有 -->

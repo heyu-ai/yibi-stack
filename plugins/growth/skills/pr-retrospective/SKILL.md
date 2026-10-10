@@ -659,7 +659,7 @@ metadata / preference 類 lesson 本就適合 CLAUDE.md；若整體已過長，
 | Q5 勾選 | 動作 |
 |---|---|
 | 查歷史 lesson | `Skill(skill="lessons", args="find <Q1 keyword>")` **自動執行**。headless / 直接打 CLI 時用 `mycelium lessons search "<keyword>" --project "$ORIG_PROJECT"` — CLI 子指令是 **`search`**（`find` 只是 `/lessons` slash 的別名，raw CLI **無** `find` 子指令），且**不要**加 `2>/dev/null`，否則子指令打錯會被靜默吞成「無結果」 |
-| 寫入規則文件 | **須先通過 Step 5.0 Evidence Gate（Tier 1/2 帶證據；判為 Tier 3 則改 park，不寫 rule）**。通過後**先走下方「批次佇列分流」判斷**。緊急例外、或 target repo 無佇列時，才照原行為——依 Lesson Classifier 輸出建議：「lesson N 屬於 <類別>，建議 append 到 `.claude/rules/XX.md`（最相關段落後；不確定就 append 到檔尾）。草稿：`<draft text>`（附證據標記：Tier 1 標 `<!-- verified: probe -->`、Tier 2 標 `(Source: PR #NNN`）。用 Edit 工具直接寫入 rule 檔。」|
+| 寫入規則文件 | **須先通過 Step 5.0 Evidence Gate（Tier 1/2 帶證據；判為 Tier 3 則改 park，不寫 rule）**。通過後**先走下方「批次佇列分流」判斷**。緊急例外、或 target repo 無佇列時，才照原行為——依 Lesson Classifier 輸出建議：「lesson N 屬於 <類別>，建議 append 到 `.claude/rules/XX.md`（最相關段落後；不確定就 append 到檔尾）。草稿：`<draft text>`（附證據標記：Tier 1 標 `<!-- verified: probe -->`、Tier 2 標 `(Source: PR #NNN`；**另附機械化宣告**——Promotion Gate G1 的結論寫進草稿：已有機械 gate 者標 `<!-- gate: <path>[::<symbol>] -->`，路徑須存在於 `scripts/`、`.claude/hooks/`、`.github/workflows/`、`.pre-commit-config.yaml`、`tasks/**/tests/`，rule 檔與 SKILL.md 不算 gate；無法機械化者標 `<!-- gate: none (reason: judgment\|no-observable-signal\|hook-cost) — <說明> -->`。缺宣告或宣告為假時 `scripts/lint_rule_evidence.py` 一律 error，不分新檔或既有 rule 檔）。用 Edit 工具直接寫入 rule 檔。」|
 | 新增 hook | **須先通過 Step 5.0 Evidence Gate（Tier 1/2 帶證據；判為 Tier 3 則改 park）**。輸出建議文字：「執行 `hookify:hookify`，建議的 trigger：`<draft>`（附正 / 負樣本作為 Tier 1 證據）」|
 | 建立 skill | 輸出建議文字：「執行 `superpowers:writing-skills`，問題定義：`<Q4 lesson>`」|
 | 找 automation | 輸出建議文字：「執行 `/claude-code-setup:claude-automation-recommender`」|
