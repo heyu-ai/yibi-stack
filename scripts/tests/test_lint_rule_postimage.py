@@ -132,13 +132,26 @@ def test_a_nul_byte_is_rejected_even_when_the_new_section_is_declared(
     assert _lint(repo, monkeypatch) == 1
 
 
+def _lint_staged_or_range(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, mode: str, message: str = "change"
+) -> int:
+    """`git add -A` 之後以 staged 或 range 模式跑 lint；range 模式先 commit 目前的 index。"""
+    _git(repo, "add", "-A")
+    if mode == "staged":
+        return _lint(repo, monkeypatch)
+    base, head = _commit(repo, message)
+    return _lint(repo, monkeypatch, ["--base", base, "--head", head])
+
+
+@pytest.mark.parametrize("mode", ["staged", "range"])
 @pytest.mark.parametrize("attribute", ["binary", "-diff"])
 def test_a_binary_attribute_neither_hides_nor_falsely_blocks_a_rule_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attribute: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attribute: str, mode: str
 ) -> None:
     """`.gitattributes` 把 rule 檔標成 binary / -diff 時，git 不輸出內容；lint 要針對該檔以 `--text` 重讀。
 
     重讀後內容可見：未宣告的新 section 照樣被擋（不是繞過），宣告齊全的則通過（不是誤擋）。
+    staged 與 range 各走 `_text_rediff` 的一個分支，兩個都要有測試守著。
 
     spec: rule-mechanization-gate#a-binary-attribute-does-not-hide-or-falsely-block-a-rule-file
     tc: RMG-DT-043
@@ -152,29 +165,50 @@ def test_a_binary_attribute_neither_hides_nor_falsely_blocks_a_rule_file(
         },
     )
     _write(repo, {".claude/rules/01-a.md": old + b"\n## Brand New\nno decl\n"})
-    _git(repo, "add", "-A")
-    assert _lint(repo, monkeypatch) == 1, "未宣告的新 section 必須被擋"
+    assert _lint_staged_or_range(repo, monkeypatch, mode) == 1, "未宣告的新 section 必須被擋"
 
     _write(repo, {".claude/rules/01-a.md": old + b"\n" + _declared("Brand New").encode()})
-    _git(repo, "add", "-A")
-    assert _lint(repo, monkeypatch) == 0, "宣告齊全的不可被誤擋"
+    assert _lint_staged_or_range(repo, monkeypatch, mode, "declare") == 0, "宣告齊全的不可被誤擋"
 
 
+@pytest.mark.parametrize("mode", ["staged", "range"])
 def test_a_real_binary_elsewhere_in_the_diff_is_not_dumped_as_text(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
 ) -> None:
-    """`--text` 只針對被判為 binary 的 rule 檔；diff 裡真正的二進位檔（圖片等）不能被當文字處理而讓 lint 壞掉。
+    """`--text` 重讀只針對 rule 檔；diff 裡真正的二進位檔（圖片等）不能被一起當文字傾印。
+
+    rule 檔被標成 `-diff`，所以 `_text_rediff` 一定會執行；直接檢查重讀附加的那一段：有 rule 的文字、
+    沒有 `assets/logo.bin` 的任何東西。拿掉 pathspec 限制會讓 logo 的位元組整個傾進 diff。
 
     spec: rule-mechanization-gate#a-binary-attribute-does-not-hide-or-falsely-block-a-rule-file
     tc: RMG-DT-043
     """
     old = _rule(_declared("Old"))
-    repo = _make_repo(tmp_path, {".claude/rules/01-a.md": old})
-    _write(repo, {"assets/logo.bin": bytes(range(256)) * 400})
+    repo = _make_repo(
+        tmp_path,
+        {".claude/rules/01-a.md": old, ".gitattributes": b".claude/rules/*.md -diff\n"},
+    )
+    _write(repo, {"assets/logo.bin": b"LOGO-PAYLOAD\x00" + bytes(range(256)) * 40})
     _write(repo, {".claude/rules/01-a.md": old + b"\n" + _declared("New").encode()})
     _git(repo, "add", "-A")
+    monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", repo)
+    if mode == "staged":
+        base = head = None
+        initial = lint_rule_evidence._staged_diff()
+    else:
+        base, head = _commit(repo)
+        initial = lint_rule_evidence._range_diff(base, head)
+    assert "Binary files" in initial and "assets/logo.bin" in initial, (
+        "錨點：兩個檔案都是 binary 佔位"
+    )
 
-    assert _lint(repo, monkeypatch) == 0
+    out = lint_rule_evidence._with_binary_rules_reread(initial, base, head)
+    reread = out[len(initial) :]
+
+    assert "## New" in reread, "重讀必須讓 rule 檔的文字可見"
+    assert "assets/logo.bin" not in reread and "LOGO-PAYLOAD" not in reread
+    argv = [] if mode == "staged" else ["--base", str(base), "--head", str(head)]
+    assert _lint(repo, monkeypatch, argv) == 0
 
 
 # --- B：舊的結尾 fence 被 git 對齊進 hunk -------------------------------------------------
@@ -511,3 +545,218 @@ def test_range_mode_blocks_each_postimage_shape_on_its_own(
     rc = _lint(repo, monkeypatch, ["--base", base, "--head", head])
 
     assert rc == 1, capsys.readouterr().err
+
+
+# --- C-1：未合併的 index（write-tree 失敗）不可因為「沒讀 gate link」而印 [OK] ---------------------
+
+
+def _conflicted_repo(tmp_path: Path) -> Path:
+    """真的 merge conflict：index 留下 stage 1/2/3 的 `conflict.txt`，`git write-tree` 會失敗。"""
+    repo = _make_repo(tmp_path, {"conflict.txt": b"base\n"})
+    _git(repo, "checkout", "-q", "-b", "other")
+    _write(repo, {"conflict.txt": b"other\n"})
+    _git(repo, "commit", "-q", "-am", "other")
+    _git(repo, "checkout", "-q", "main")
+    _write(repo, {"conflict.txt": b"main\n"})
+    _git(repo, "commit", "-q", "-am", "main")
+    merge = subprocess.run(  # nosec B603 B607
+        ["git", "-C", str(repo), "merge", "other"], capture_output=True, text=True, timeout=30
+    )
+    assert merge.returncode == 1 and _git(repo, "ls-files", "-u"), "錨點：真的有未合併項目"
+    return repo
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [DECLARATION, "<!-- gate: scripts/gate.py -->\n"],
+    ids=["exemption-only", "gate-link"],
+)
+def test_an_unmerged_index_is_exit_two_even_when_no_gate_link_is_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    declaration: str,
+) -> None:
+    """未合併的 index 讓 `git write-tree` 失敗；契約是 exit 2。
+
+    舊版 `write-tree` 是惰性的，只有讀 gate link 時才跑：只用 `none` 豁免的 rule 從頭到尾沒碰它，
+    `git diff --cached` 又成功，於是印 `[OK]` 回 0。gate link 那一格是對照（本來就 exit 2）。
+
+    spec: rule-mechanization-gate#git-failure-while-reading-a-gate-exits-2
+    tc: RMG-EG-035
+    """
+    repo = _conflicted_repo(tmp_path)
+    _write(
+        repo,
+        {".claude/rules/90-new.md": _rule("## Sec\n\n" + EVIDENCE + declaration)},
+    )
+    _git(repo, "add", ".claude/rules/90-new.md")
+
+    rc = _lint(repo, monkeypatch)
+
+    captured = capsys.readouterr()
+    assert rc == 2, captured.err
+    assert "[FAIL]" in captured.err and "[OK]" not in captured.out + captured.err
+
+
+def test_an_injected_reader_does_not_trigger_write_tree_on_an_unmerged_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """注入的 `read_gate_file` 優先：測試 / 呼叫端自帶讀檔函式時，不該為了它去跑 `git write-tree`。
+
+    spec: rule-mechanization-gate#git-failure-while-reading-a-gate-exits-2
+    tc: RMG-EG-035
+    """
+    repo = _conflicted_repo(tmp_path)
+    _write(repo, {".claude/rules/90-new.md": _rule("## Sec\n\n" + EVIDENCE + DECLARATION)})
+    _git(repo, "add", ".claude/rules/90-new.md")
+    monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", repo)
+
+    assert lint_rule_evidence.main([], read_gate_file=lambda _path: None) == 0
+
+
+# --- I-1：縮排 4 個空白以上是 indented code block，不是 fence ---------------------------------------
+
+
+def _append_to_declared_rule(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tail: str) -> int:
+    old = _rule(_declared("Old"))
+    repo = _make_repo(tmp_path, {".claude/rules/01-a.md": old})
+    _write(repo, {".claude/rules/01-a.md": old + tail.encode()})
+    _git(repo, "add", "-A")
+    return _lint(repo, monkeypatch)
+
+
+def test_a_four_space_indented_fence_marker_does_not_open_a_fence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`    ~~~` 在 CommonMark 是 indented code block 的內容，不是 fence。
+
+    舊版以 `line.strip()` 比對，縮排多少都開 fence，且永遠不會關，後面所有 heading 都被當成 fence 內容
+    而隱形；本測試的未宣告 section 因此被放行（exit 0）。
+
+    spec: rule-mechanization-gate#fence-state-comes-from-the-whole-file-not-the-hunk
+    tc: RMG-DT-044
+    """
+    tail = "\nIndented code example:\n\n    ~~~\n    foo\n\n## New undeclared\n\nbody\n"
+    assert _append_to_declared_rule(tmp_path, monkeypatch, tail) == 1
+
+
+def test_without_the_indented_marker_the_same_undeclared_section_is_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """對照：拿掉縮排的那兩行，同一個未宣告 section 本來就會被擋，證明上一個測試測的是縮排。
+
+    spec: rule-mechanization-gate#fence-state-comes-from-the-whole-file-not-the-hunk
+    tc: RMG-DT-044
+    """
+    assert _append_to_declared_rule(tmp_path, monkeypatch, "\n## New undeclared\n\nbody\n") == 1
+
+
+@pytest.mark.parametrize("indent", ["", " ", "   "])
+def test_a_fence_indented_up_to_three_spaces_still_hides_its_example_heading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, indent: str
+) -> None:
+    """對照：縮排 0-3 個空白的真 fence 仍是 fence，裡面的 `##` 範例不是 section。
+
+    spec: rule-mechanization-gate#fence-state-comes-from-the-whole-file-not-the-hunk
+    tc: RMG-DT-044
+    """
+    tail = f"\n{indent}~~~\n{indent}## Fenced example\n{indent}~~~\n"
+    assert _append_to_declared_rule(tmp_path, monkeypatch, tail) == 0
+
+
+# --- I-3：binary 屬性的 rule 檔在 `.claude/rules/` 內改名，重讀時 pathspec 要含舊路徑 ---------------
+
+_LEGACY_BIG = _rule(
+    "## Legacy\n\n" + "舊的內文，沒有任何宣告。\n" * 20,
+    _declared("Declared"),
+)
+
+
+@pytest.mark.parametrize("mode", ["staged", "range"])
+@pytest.mark.parametrize("new_section", ["declared", "undeclared"])
+def test_renaming_a_binary_attributed_rule_file_keeps_legacy_sections_legacy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, new_section: str
+) -> None:
+    """`-diff` 的 rule 檔在 rules 目錄內改名並新增 section：`--text` 重讀只給新路徑時 git 配不到改名，
+    整個檔案變成新檔，既有的未宣告 legacy section 被當成新增而誤擋。pathspec 含舊路徑才配得回來。
+    新增的 section 本身未宣告時仍要擋（不是因此放行）。
+
+    spec: rule-mechanization-gate#a-binary-attribute-does-not-hide-or-falsely-block-a-rule-file
+    tc: RMG-DT-043
+    """
+    repo = _make_repo(
+        tmp_path,
+        {
+            ".claude/rules/01-a.md": _LEGACY_BIG,
+            ".gitattributes": b".claude/rules/*.md -diff\n",
+        },
+    )
+    _git(repo, "mv", ".claude/rules/01-a.md", ".claude/rules/02-b.md")
+    added = _declared("New") if new_section == "declared" else "## New\n\n沒有宣告。\n"
+    _write(repo, {".claude/rules/02-b.md": _LEGACY_BIG + b"\n" + added.encode()})
+
+    rc = _lint_staged_or_range(repo, monkeypatch, mode)
+
+    assert rc == (0 if new_section == "declared" else 1)
+
+
+# --- I-5：改標題豁免是「同層級、一對一」 --------------------------------------------------------------
+
+
+def test_one_removed_heading_exempts_only_one_new_heading_with_the_same_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """移除一個 `### Old`、新增兩個內文相同的標題：只有一個是改標題，另一個是真的新 section。
+
+    spec: rule-mechanization-gate#retitle-exemption-requires-an-identical-body-and-a-real-heading
+    tc: RMG-DT-045
+    """
+    before = _rule(_declared("Keep") + "\n### Old\n\nsame\n")
+    after = _rule(_declared("Keep") + "\n### New1\n\nsame\n\n### New2\n\nsame\n")
+    repo = _make_repo(tmp_path, {".claude/rules/60-x.md": before})
+    _write(repo, {".claude/rules/60-x.md": after})
+    _git(repo, "add", "-A")
+
+    rc = _lint(repo, monkeypatch)
+
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert err.count("缺少機械化宣告") == 1, err
+
+
+def test_a_retitle_must_stay_at_the_same_heading_level(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`### Old` 改成 `## New`（內文相同）：層級變了，不是改標題。
+
+    spec: rule-mechanization-gate#retitle-exemption-requires-an-identical-body-and-a-real-heading
+    tc: RMG-DT-045
+    """
+    before = _rule(_declared("Keep") + "\n### Old\n\nsame\n")
+    after = _rule(_declared("Keep") + "\n## New\n\nsame\n")
+    repo = _make_repo(tmp_path, {".claude/rules/60-x.md": before})
+    _write(repo, {".claude/rules/60-x.md": after})
+    _git(repo, "add", "-A")
+
+    assert _lint(repo, monkeypatch) == 1
+
+
+# --- I-6：pre-image 的 context heading 不是「被移除的 heading」 ---------------------------------------
+
+
+def test_an_unchanged_heading_in_the_pre_image_is_not_a_removed_heading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """既有且未動的 legacy `## B`（內文 `body`）不能拿來豁免新增的、內文相同的 `## C`。
+
+    spec: rule-mechanization-gate#retitle-exemption-requires-an-identical-body-and-a-real-heading
+    tc: RMG-DT-045
+    """
+    before = _rule(_declared("A") + "\n## B\n\nbody\n")
+    after = _rule(_declared("A") + "\n## B\n\nbody\n\n## C\n\nbody\n")
+    repo = _make_repo(tmp_path, {".claude/rules/60-x.md": before})
+    _write(repo, {".claude/rules/60-x.md": after})
+    _git(repo, "add", "-A")
+
+    assert _lint(repo, monkeypatch) == 1

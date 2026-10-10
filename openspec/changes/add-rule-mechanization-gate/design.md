@@ -2,7 +2,7 @@
 
 `scripts/lint_rule_evidence.py` 目前對 `.claude/rules/*.md` 只問「這個教訓有證據嗎」（證據標記：probe、incident PR、`Source: PR #NNN` 等）。它不問「這件事為什麼沒有被做成 gate」。`pr-retrospective` 的 Promotion Gate G1 負責問這題，但 G1 是 agent 自評的散文，沒有任何機械檢查確認它被誠實套用。
 
-現有 lint 的結構可以直接重用：`_parse_diff` 把 unified diff 切成 per-file、per-hunk 的新增行；`_missing_evidence_in_chunk` 以「新增的 heading」為錨點，逐 hunk 判斷該 section 內有無標記；`_evidence_eligible_lines` 濾掉 table row 與 fenced code block；`_is_newly_protected` 處理 rename 進來的檔案；`main()` 回傳 exit code（0 通過、1 有 error、2 設定錯誤）。diff 最初以 `--unified=0` 產生，所以 section 內容只看得到「同一 hunk 內新增的行」；PR #528 的 Round 2 證明這種局部資訊推不出 fence 狀態與改標題，改為讀完整 post-image（見「從完整 post-image 計算」）。
+現有 lint 的結構可以直接重用：`_parse_diff` 把 unified diff 切成 per-file、per-hunk 的 `_Hunk`（post / pre 兩份行，標記每行是否為這次新增 / 移除）；`_split_sections` / `_new_sections` 以「新增的 heading」為錨點切出 section，`_sections_missing_evidence` 判斷該 section 內有無標記；`_evidence_eligible_lines` 濾掉 table row 與 fenced code block；`_is_newly_protected` 處理 rename 進來的檔案；`main()` 回傳 exit code（0 通過、1 有 error、2 設定錯誤）。diff 最初以 `--unified=0` 產生，所以 section 內容只看得到「同一 hunk 內新增的行」；PR #528 的 Round 2 證明這種局部資訊推不出 fence 狀態與改標題，改為讀完整 post-image（見「從完整 post-image 計算」）。
 
 約束：兩個前置事實不能被本 change 破壞。(1) 證據標記行為由未 archive 的 `add-retro-evidence-gate` 定義，本 change 不得改變它。(2) 該 change 的自我約束「always-loaded 面淨增為零」同樣適用於本 change：不在 01/03/13/15/16 新增文字。
 
@@ -64,8 +64,8 @@ mob review 以真實 git 重現了數個「lint 讀到的輸出形狀與手寫 f
 
 兩組檢查共用 `_split_sections` / `_new_sections`（取代原本的 `_sections_in_chunk`），因此下列規則同時作用於證據與宣告：
 
-- **fence 狀態對整份檔案逐行追蹤**（`_FenceTracker`：``` 與 ~~~，關閉條件依 CommonMark，較長的外層 fence 不被內層提早結束；post-image 與 pre-image 各追蹤一次）：fence 內的 `## ...` 是範例，不是 section。舊實作把它們當成 section，產生一個「宣告放哪都救不了」的錯誤。`_evidence_eligible_lines` 也改用同一個 tracker，使宣告在 `~~~` fence 內同樣不計。
-- **改標題**：pre-image 裡有被移除的同層級**真** heading（fence 內的不算）且去掉空白後內文完全相同，新增的 heading 才視為改標題；每個被移除的 heading 只豁免一個新增 heading（一對一消耗），層級、內文不同或沒有成對的移除仍算新 section。這維持「不回溯補既有 section」的 Non-goal，同時讓「整段換成全新規則」不再借改標題之名通過（Round 2 Critical C 與 #534 第 3 項）。
+- **fence 狀態對整份檔案逐行追蹤**（`_FenceTracker`：``` 與 ~~~，關閉條件依 CommonMark，較長的外層 fence 不被內層提早結束；開 / 關行最多縮排 3 個空白，4 個以上是 indented code block，否則 `    ~~~` 會開一個永不關閉的 fence 把後面的 heading 全藏起來——3 個空白剛好涵蓋本 repo 有序清單項目內的 fence，更深的巢狀清單內的 fence 不認得，方向是多報而非漏報；post-image 與 pre-image 各追蹤一次）：fence 內的 `## ...` 是範例，不是 section。舊實作把它們當成 section，產生一個「宣告放哪都救不了」的錯誤。`_evidence_eligible_lines` 也改用同一個 tracker，使宣告在 `~~~` fence 內同樣不計。
+- **改標題**：pre-image 裡有被移除的同層級**真** heading（fence 內的不算）且內文相同（同樣的那些行，忽略行尾空白與頭尾空行；內部空行與縮排要一致，見 `_Section.body`），新增的 heading 才視為改標題；每個被移除的 heading 只豁免一個新增 heading（一對一消耗），層級、內文不同或沒有成對的移除仍算新 section。這維持「不回溯補既有 section」的 Non-goal，同時讓「整段換成全新規則」不再借改標題之名通過（Round 2 Critical C 與 #534 第 3 項）。
 - **Setext 與縮排 heading 刻意不支援**：`.markdownlint.yaml` 為 `default: true`，MD003（heading 風格一致）會先擋下 ATX 檔案裡的 setext heading，而 rule 檔全是 ATX；實作它只會增加一條從不被走到的路徑。理由記於 lint docstring、rule 11 與 spec，避免日後被當成漏洞重複回報。
 - **每個 section 各自檢查**：同一個 hunk 的多個 section 都要檢查（過去沒有測試能分辨「只檢查第一個／最後一個」）。
 - **移除 `_PLACEHOLDER_EXPLANATIONS`**：每個佔位字樣都短於 12 個字元，長度檢查已涵蓋；那份清單藏在長度檢查之後、永遠走不到。
@@ -79,8 +79,8 @@ Round 2 以真實 git 重現四個 Critical，共同根因是 `--unified=0` 的 
 - **完整 context diff**：`_run_git_diff` 改 `--unified=1000000`，每個檔案一個 hunk，等於 index（staged）或 `--head`（range）的整份 post-image 加 pre-image；`_Hunk` 保存兩邊的行並標記哪些是這次新增 / 移除。fence 狀態與 section 範圍都對整份檔案計算，宣告在新 heading 之下的既有行也算。實測（本分支對 `origin/main`）：diff 364 KB、7848 行、0.04 秒，lint 整體同樣 0.04 秒。diff 檔模式與合成 diff 不帶整份檔案，退化成只看 diff 裡出現的行，hunk 之間的空隙不可跨越（文件化）。
 - **改標題要求相同內文**：見上節。pre-image 的 fence 狀態同樣對整份追蹤。
 - **hunk 內文與檔頭的分辨**：不再把任何 `--- ` / `+++ ` 開頭的行當檔頭。`_parse_diff` 讀 `@@ -a,b +c,d @@` 的行數，行數還沒用完的行一律是內文；用完之後只有「相鄰的 `--- ` / `+++ ` 配對」才是下一個檔案的檔頭，合成 diff 常把行數寫錯，所以行數只用在這個判斷（缺 count 視為 1）。這修掉 `++ note` 吞掉後面 heading、`-- "x" y` 被當成引號路徑而 exit 2（#534 第 1 項）。
-- **binary 的 rule 檔不分新舊都 fail-closed，並針對該檔以 `--text` 重讀**：`.gitattributes` 的 `binary` / `-diff` 只是不讓 git 輸出內容，檔案本身是文字；重讀後內容可見，照常檢查（既不隱形也不誤擋）。重讀後仍含 NUL 的 rule 檔報錯（不是文字檔，宣告齊全也不放行）。只對被判為 binary 的 rule 檔重讀，不用全域 `--text`，避免 diff 裡真正的二進位檔被傾印。重讀以 `:(literal)` pathspec 限定，結果附加在原 diff 之後，由 `_parse_diff` 讓同路徑的完整記錄取代 binary 佔位。被否決：全域 `--text`（傾印圖片、拖慢）；只報錯不重讀（`.gitattributes` 標 binary 的合法 rule 檔會被永久誤擋，且作者無從修正）。
-- **staged 模式的 gate 讀 `git write-tree`**：它就是 `git commit` 會寫的樹，intent-to-add 項目不在其中，合法 `git add` 的空檔仍在。被否決：`ls-files --stage` 加上辨識「空 blob 且 intent-to-add」的旗標（`ls-files -s` 看不出 ITA，要另開 `--debug` 解析，且仍然是在猜 commit 會寫什麼）。`write-tree` 對未合併的 index 失敗，轉成 `OSError` → exit 2，與先前的未合併行為一致；它會把樹物件寫進 object store，無害。
+- **binary 的 rule 檔不分新舊都 fail-closed，並針對該檔以 `--text` 重讀**：`.gitattributes` 的 `binary` / `-diff` 只是不讓 git 輸出內容，檔案本身是文字；重讀後內容可見，照常檢查（既不隱形也不誤擋）。重讀後仍含 NUL 的 rule 檔報錯（不是文字檔，宣告齊全也不放行）。只對被判為 binary 的 rule 檔重讀，不用全域 `--text`，避免 diff 裡真正的二進位檔被傾印。重讀以 `:(literal)` pathspec 限定（同時含改名 / 複製的來源路徑，否則 git 在被限縮的 diff 裡配不到改名，legacy section 全被當成新增），結果附加在原 diff 之後，由 `_parse_diff` 讓同路徑的完整記錄取代 binary 佔位。被否決：全域 `--text`（傾印圖片、拖慢）；只報錯不重讀（`.gitattributes` 標 binary 的合法 rule 檔會被永久誤擋，且作者無從修正）。
+- **staged 模式的 gate 讀 `git write-tree`**：它就是 `git commit` 會寫的樹，intent-to-add 項目不在其中，合法 `git add` 的空檔仍在。被否決：`ls-files --stage` 加上辨識「空 blob 且 intent-to-add」的旗標（`ls-files -s` 看不出 ITA，要另開 `--debug` 解析，且仍然是在猜 commit 會寫什麼）。`write-tree` 對未合併的 index 失敗，轉成 `OSError` → exit 2，與先前的未合併行為一致；它會把樹物件寫進 object store，無害。**樹在 `_git_gate_reader` 建構時就解出來**（而非第一次讀 gate 時）：只用 `none` 豁免的 rule 從不讀 gate，惰性解析讓未合併的 index 印 `[OK]` 回 0；注入的 `read_gate_file` 優先、不會觸發 `write-tree`。
 - **diff 以 bytes 讀入、`surrogateescape` 解碼**：非 UTF-8 的內容或檔名不再 `UnicodeDecodeError`，也不再是「看不懂所以 exit 2」，而是被檢查；`_unquote_c_path` 同樣保留原位元組，只有格式錯誤的引號才 raise。輸出訊息以 backslashreplace 處理 surrogate，否則 `print` 會 `UnicodeEncodeError`。斷行改用 `split("\n")`，不用 `splitlines()`（後者會在 `\f`、`\x1c` 等內容字元上斷行）。timeout 由 30 秒放寬到 120 秒，因為 diff 變大。
 - **取捨**：改標題的判斷現在比舊版嚴，過去被放行的「改標題兼改內文」會被要求宣告，這是預期的收緊；證據 warn 的範圍也從「新增行」變成「整個 section」，heading 之下既有的證據標記現在算數（少報，不多報）。
 
@@ -129,6 +129,8 @@ Round 2 以真實 git 重現四個 Critical，共同根因是 `--unified=0` 的 
 - [同一個盲點在 `.claude/hooks/` 仍存在：證據 lint 對新 hook 的檢查看不到純 rename] → 已知殘留，不在本 change 範圍（證據 lint 對純 rename 刻意維持既有行為）；記於 rule 11，另案處理。
 - [既有檔缺宣告改為 error 後，「heading 插在既有內文之上、宣告落在未變動行」曾被誤判為缺宣告] → 完整 post-image 下已不是誤報（宣告屬於該 section）；僅不帶整份檔案的 diff 仍會，修法是把宣告緊接在 heading 之後。
 - [完整 context diff 變大，且 binary 的 rule 檔多一次 `--text` 子程序] → 實測本分支對 `origin/main` 為 364 KB、7848 行、0.04 秒；只有被判為 binary 的 rule 檔才重讀。極端情況（單一檔案超過一百萬行）hunk 會被切開，退化成上述「不帶整份檔案」的行為。
+- [`_parse_diff` 的檔頭判斷] → 行數只用來分辨 `++ note` / `-- "x" y` 這類內文；行數寫得比實際大的手寫 diff 以 `--- ` + `+++ ` + 緊接的 `@@`（內文不可能沒有前綴）判定下一個檔案的檔頭，不看行數。
+- [positional diff 檔模式不做 `--text` 重讀（沒有 git 脈絡）] → `Binary files ... differ` 佔位就是最終結果，一律 fail-closed。
 - [staged / range 模式因此多出對 git 的 IO（`write-tree` / `ls-tree` / `cat-file`），每個 gate 連結多一到兩次子程序] → 只有宣告了連結的 section 才會觸發，數量級是個位數；換來驗證對象與被 commit 的內容一致。diff 檔模式不受影響。
 - [讀 gate 時 git 失敗現在是 exit 2（過去讀工作樹只會是「存在 / 不存在」）] → 這是刻意的：無法驗證不等於通過，也不等於 dangling；CI 缺物件（shallow checkout）時 `_range_diff` 早已 exit 2，行為一致。
 - [與 `add-retro-evidence-gate` 同改一支腳本，merge 衝突] → 建議該 change 先 archive；本 change 只新增函式與並列呼叫，不改動其函式本體。

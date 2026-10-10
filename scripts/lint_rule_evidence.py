@@ -30,8 +30,10 @@ fenced code block ```...``` / `~~~...~~~` 內的文字，避免把「範例說�
 「看不到內容」一律 fail-closed（機械化宣告檢查對 `.claude/rules/` 回 error；證據檢查維持原行為，
 不重複回報）：100% 相似度的 rename（沒有 hunk）、沒有 hunk 的 copy、空的新檔（沒有地方放宣告），
 以及被 git 判為 binary 的 rule 檔（**新檔或既有檔**）。binary 的 rule 檔會只針對該檔以 `--text`
-重讀：含 NUL 位元組者報錯（rule 檔必須是文字檔）；只是 `.gitattributes` 標成 `binary` / `-diff`
-者內容因此可見、照常檢查，不被隱形也不被誤擋。「看不到」不能等於「通過」。
+重讀（pathspec 含改名 / 複製的來源路徑，否則 git 配不到改名）：含 NUL 位元組者報錯（rule 檔必須是
+文字檔）；只是 `.gitattributes` 標成 `binary` / `-diff` 者內容因此可見、照常檢查，不被隱形也不被
+誤擋。**positional diff 檔模式不重讀**（沒有 git 脈絡可重讀），那裡的 `Binary files ... differ` 佔位
+就是最終結果，一律 fail-closed 報錯。「看不到」不能等於「通過」。
 
 **完整 post-image**：staged 與 range 模式以 `--unified=1000000` 讀 diff，每個檔案只有一個 hunk，
 等於該檔在 index（staged）或 `--head`（range）的整份 post-image 加上 pre-image（`_Hunk.post` /
@@ -42,11 +44,13 @@ hunk 邊界切斷——`--unified=0` 時 git 會把舊的結尾 fence 對齊進 
 section 的切法（兩組檢查共用 `_split_sections` / `_new_sections`）：section 是從 heading 到下一個
 `##` / `###` heading 的整段 post-image（含未變動的 context 行，所以宣告在新 heading 之下的既有行也算）；
 只有 heading 行本身是新增的才算新 section；fenced code block 內的 heading 不算。**改標題**不算新
-section：pre-image 裡有被移除的同層級真 heading（fence 內的不算）且去掉空白後內文完全相同，一對一消耗，
-整段換掉或只重用標題都不被豁免。diff 若不帶整份檔案（`-U0` 的 diff 檔、合成 diff），退化成只看
+section：pre-image 裡有被移除的同層級真 heading（fence 內的不算）且內文逐行相同，一對一消耗，
+整段換掉或只重用標題都不被豁免。「內文相同」精確的定義是：同樣的那些行，忽略每行的行尾空白與
+內文頭尾的空行；內文**內部**的空行與行首縮排都要一致（見 `_Section.body`）。diff 若不帶整份檔案（`-U0` 的 diff 檔、合成 diff），退化成只看
 diff 裡出現的行，hunk 之間的空隙不可跨越——宣告與 heading 在不同 hunk 時會保守地報缺宣告。
 hunk 內文行與檔頭的分辨：內文行 `++ note` 在 diff 裡是 `+++ note`，用 `@@ -a,b +c,d @@` 的行數
-判斷它還在 hunk 內，不會被當成檔頭。**Setext heading 與縮排 heading 刻意不支援**：
+判斷它還在 hunk 內，不會被當成檔頭；行數寫得比實際大時，`--- ` + `+++ ` + 緊接的 `@@`（內文不可能
+沒有前綴）仍算下一個檔案的檔頭。fence 的開 / 關行最多縮排 3 個空白，4 個以上是 indented code block。**Setext heading 與縮排 heading 刻意不支援**：
 `.markdownlint.yaml` 為 `default: true`，MD003（heading 風格一致）會先擋下 ATX 檔案裡的 setext
 heading，rule 檔也全是 ATX。
 
@@ -65,7 +69,8 @@ runner 上永遠是空的，gate 會「跑完、通過、什麼都沒檢查」�
 
 gate 連結的驗證資料來源跟著輸入走（驗的是「將被 commit / 被審查的內容」，不是工作樹）：
 staged 模式讀 `git write-tree` 的樹（就是 `git commit` 會 commit 的內容；`git add -N` 的 intent-to-add
-項目不在其中，所以不會被當成存在的 gate）、range 模式讀 `--head` 的樹（`git ls-tree`）、
+項目不在其中，所以不會被當成存在的 gate；樹在讀任何 gate 之前就解出來，未合併的 index 讓 `write-tree`
+失敗即 exit 2，即使 rule 只用 `none` 豁免、完全沒讀 gate）、range 模式讀 `--head` 的樹（`git ls-tree`）、
 positional diff 檔模式沒有 git 脈絡，讀**工作樹**。路徑必須精確指到一個 blob：連到目錄不算存在。
 
 讀 diff 時不受使用者的 git 設定影響：`core.quotePath=false`、`--no-color --no-ext-diff
@@ -316,7 +321,8 @@ def _parse_diff(diff_text: str) -> list[_FileDiff]:
     `+` `-` ` ` 開頭），唯一會撞的是內文行本身長得像檔頭——新增行 `++ note` 在 diff 裡是 `+++ note`，
     被移除的行 `-- "x" y` 是 `--- "x" y`。所以用 `@@ -a,b +c,d @@` 宣告的行數：行數還沒用完時，
     這些行一律是內文。只有行數用完之後的 `--- ` / `+++ ` 才是下一個檔案的檔頭。合成的 diff
-    常把行數寫錯，所以行數只用在這一個判斷上，其餘行照舊處理。
+    常把行數寫錯，所以行數只用在這一個判斷上，其餘行照舊處理；且行數說謊（寫得比實際大）時，
+    `--- ` + `+++ ` + 緊接的 `@@` 行（沒有前綴，內文不可能長這樣）仍算下一個檔案的檔頭。
     """
     files: list[_FileDiff] = []
     current: _FileDiff | None = None
@@ -356,14 +362,14 @@ def _parse_diff(diff_text: str) -> list[_FileDiff]:
         line = lines[i]
         i += 1
         if hunk is not None and line and line[0] in "+- ":
-            # 行數還沒用完 -> 一定是內文。用完之後（合成 diff 常把行數寫錯）仍當內文，除非它是下一個
-            # 檔案的 `--- ` / `+++ ` 檔頭配對。
-            is_next_header = (
-                old_left == 0
-                and new_left == 0
-                and line.startswith("--- ")
-                and i < len(lines)
-                and lines[i].startswith("+++ ")
+            # 行數還沒用完 -> 通常是內文；用完之後（合成 diff 常把行數寫錯）也當內文，除非它是下一個
+            # 檔案的 `--- ` / `+++ ` 檔頭配對。另有一條**不看行數**的判斷：`--- ` + `+++ ` 之後緊接
+            # 一行以 `@@` 開頭——內文行一定有 `+` `-` 空白的前綴，沒有前綴的 `@@` 不可能是內文，所以
+            # 即使行數寫得比實際大，這組仍是下一個檔案的檔頭。
+            header_pair = line.startswith("--- ") and i < len(lines) and lines[i].startswith("+++ ")
+            is_next_header = header_pair and (
+                (old_left == 0 and new_left == 0)
+                or (i + 1 < len(lines) and lines[i + 1].startswith("@@"))
             )
             if not is_next_header:
                 _consume(line)
@@ -430,6 +436,7 @@ def _strip_diff_path(raw: str) -> str:
 
 
 _FENCE_OPEN_RE = re.compile(r"^(`{3,}|~{3,})")
+_FENCE_MAX_INDENT = 3  # fence 開關行最多縮排幾個空白（CommonMark：4 個以上是 indented code block）
 
 
 class _FenceTracker:
@@ -437,7 +444,11 @@ class _FenceTracker:
 
     `feed(line)` 回傳這一行是否「屬於 fence」：開關 fence 的那兩行本身與其中間的行都算。
     關閉條件依 CommonMark：只由同一種字元組成、且長度不短於開啟的 fence——所以 ```` 外層
-    fence 裡的 ``` 不會提早結束它。縮排不限（list item 內的 fence 也要認得）。
+    fence 裡的 ``` 不會提早結束它。開 / 關 fence 的那一行最多可縮排 3 個空白（CommonMark）：4 個以上
+    是 indented code block 的內容，不是 fence——舊版以 `strip()` 比對、縮排不限，`    ~~~` 會開一個永遠
+    不關的 fence，把後面所有 heading 藏起來。3 個空白也剛好涵蓋本 repo 的有序清單項目內的 fence
+    （`1. ` 後內文縮排 3，見 rule 15）；更深的巢狀清單內的 fence 不認得（有限度的已知限制：其內的
+    `##` 範例會被當成真 heading，方向是多報而不是漏報）。tab 視為 4 個空白以上。
     staged / range 模式的 diff 帶整份 post-image，所以 fence 狀態從檔案開頭連續追蹤。限制：不帶整份
     檔案的 diff（`-U0` 的 diff 檔、合成 diff）可能只含半個 fence（例如只新增了結尾的 ```），那時
     狀態會反過來；這種輸入本來就看不到完整脈絡，與 hunk 之間的空隙不可跨越是同一類限制。
@@ -447,9 +458,12 @@ class _FenceTracker:
         self._marker: str | None = None
 
     def feed(self, line: str) -> bool:
-        stripped = line.strip()
+        body = line.lstrip(" ")
+        # indented code block（縮排 >= 4 或帶 tab）不可開 fence，也不可關 fence。
+        can_toggle = len(line) - len(body) <= _FENCE_MAX_INDENT and not body.startswith("\t")
+        stripped = body.strip()
         if self._marker is None:
-            match = _FENCE_OPEN_RE.match(stripped)
+            match = _FENCE_OPEN_RE.match(stripped) if can_toggle else None
             # backtick fence 的 info string 不可含 backtick（那是行內 code，如 ```x``` 之類）
             if match is not None and not (
                 match.group(1)[0] == "`" and "`" in stripped[len(match.group(1)) :]
@@ -457,7 +471,7 @@ class _FenceTracker:
                 self._marker = match.group(1)
                 return True
             return False
-        if len(stripped) >= len(self._marker) and set(stripped) == {self._marker[0]}:
+        if can_toggle and len(stripped) >= len(self._marker) and set(stripped) == {self._marker[0]}:
             self._marker = None
         return True
 
@@ -495,7 +509,10 @@ class _Section:
         self.lines = [first_line]
 
     def body(self) -> tuple[str, ...]:
-        """去掉行尾空白與頭尾空行後的內文（不含 heading 行），給「改標題」比對內文是否相同。"""
+        """去掉每行行尾空白、再去掉頭尾空行後的內文（不含 heading 行），給「改標題」比對內文是否相同。
+
+        只做這兩件事：內部空行與行首縮排都算內容，兩邊不同就不相同。
+        """
         body = [line.rstrip() for line in self.lines[1:]]
         while body and not body[0]:
             body.pop(0)
@@ -533,8 +550,9 @@ def _new_sections(hunk: _Hunk) -> list[_Section]:
     只有 heading 行本身是這次新增的才算新 section；既有 section 內新增內容不產生任何 section。
     section 的範圍是整份 post-image 的範圍（含 context 行），所以宣告 / 證據標記在 heading 之下的
     未變動行也算。一個例外——改標題：pre-image 裡有被移除的同層級 heading（fence 內的不算，兩邊都
-    對整份檔案追蹤 fence）且去掉空白後內文完全相同，這個新 heading 只是改標題，不算新 section
-    （一對一消耗，所以整段換掉或只重用標題都不被豁免）。
+    對整份檔案追蹤 fence）且內文相同，這個新 heading 只是改標題，不算新 section
+    （一對一消耗，所以整段換掉或只重用標題都不被豁免）。「內文相同」見 `_Section.body`：同樣的那些行，
+    忽略行尾空白與頭尾空行；內部空行與縮排要一致，不是「空白不計」。
     """
     removed = [section for section in _split_sections(hunk.pre) if section.changed]
     new: list[_Section] = []
@@ -673,7 +691,8 @@ _UNSEEN_REASONS = {
     "binary": (
         "被 git 判為二進位檔（Binary files differ）的 rule 檔（新檔或既有檔），"
         + _UNSEEN_FIX
-        + "rule 檔必須是文字檔（檢查檔案是否含 NUL 位元組）"
+        + "rule 檔必須是文字檔（檢查檔案是否含 NUL 位元組，或 .gitattributes 是否把它標成 binary / -diff；"
+        + "diff 檔模式不會以 --text 重讀）"
     ),
     "empty": (
         "空的新 rule 檔（沒有任何內容行），沒有地方可以放證據標記與機械化宣告；"
@@ -688,7 +707,8 @@ def _git_bytes(args: list[str]) -> bytes:
     """在 `REPO_ROOT` 跑 git 並回傳 stdout；任何失敗都 raise `OSError`（由 `main()` 轉 exit 2）。
 
     沒有加 `--literal-pathspecs`：實測它不改變任何輸出（git 的 pathspec 比對本來就會先試字面相等），
-    「gate 連結是路徑不是 pattern」這件事由 `_blob_sha` 的精確路徑比對負責，並有突變測試守著。
+    「gate 連結是路徑不是 pattern」這件事由 `_blob_sha` 的精確路徑比對負責。注意：`ls-tree` 本身不展開
+    glob，所以這個精確比對是縱深防禦，目前沒有任何測試能讓拿掉它的突變變紅（突變存活，已知）。
     """
     cmd = ["git", "-C", str(REPO_ROOT), *args]
     try:
@@ -728,17 +748,15 @@ def _git_gate_reader(ref: str | None) -> GateReader:
     `git add -N` 的 intent-to-add 項目在 index 裡是 stage 0 的空 blob，但 commit 不含它，讀 index 會
     把它當成存在的 gate；而合法 `git add` 的空檔仍在樹裡。未合併的 index 讓 `write-tree` 失敗，
     以 `OSError` 大聲失敗（exit 2）。
+
+    樹在**建構時**就解出來，不是第一次讀 gate 時才解：只用 `none` 豁免的 rule 從頭到尾不讀任何 gate，
+    惰性解析會讓這條失敗路徑永遠不跑，未合併的 index 因此印 `[OK]` 回 0（契約要求 exit 2）。
     介面與 `_read_repo_file` 相同：不存在回 `None`、其他失敗 raise `OSError`。
     """
-    resolved: list[str] = []
-
-    def tree() -> str:
-        if not resolved:
-            resolved.append(ref if ref is not None else _git_bytes(["write-tree"]).decode().strip())
-        return resolved[0]
+    tree = ref if ref is not None else _git_bytes(["write-tree"]).decode().strip()
 
     def read(rel_path: str) -> str | None:
-        sha = _blob_sha(tree(), rel_path)
+        sha = _blob_sha(tree, rel_path)
         if sha is None:
             return None
         try:
@@ -947,14 +965,20 @@ def _with_binary_rules_reread(diff_text: str, base: str | None, head: str | None
 
     `_parse_diff` 讓後出現的完整記錄取代同路徑的 binary 佔位。重讀後仍含 NUL 的檔案由
     `check_rule_mechanization` 報錯；沒有 NUL 的則內容可見、照常檢查（不誤擋）。
+
+    pathspec 同時包含改名 / 複製的**來源路徑**（`old_path`，非 `/dev/null` 時）：只給新路徑的話，
+    git 在被限縮的 diff 裡看不到來源，配不到改名，整個檔案變成新檔，既有的 legacy section 就全被當成
+    新增而誤擋。來源路徑一起給，`-M` 才配得回來。
+
+    只在 staged / range 模式呼叫（`main` 在 positional diff 檔模式跳過它：沒有 git 脈絡可重讀）。
     """
-    paths = sorted(
-        {
-            fd.new_path
-            for fd in _parse_diff(diff_text)
-            if fd.unseen == "binary" and _NEW_RULE_FILE_RE.fullmatch(fd.new_path)
-        }
-    )
+    found: set[str] = set()
+    for fd in _parse_diff(diff_text):
+        if fd.unseen == "binary" and _NEW_RULE_FILE_RE.fullmatch(fd.new_path):
+            found.add(fd.new_path)
+            if fd.old_path != "/dev/null":
+                found.add(fd.old_path)
+    paths = sorted(found)
     if not paths:
         return diff_text
     return diff_text + ("" if diff_text.endswith("\n") else "\n") + _text_rediff(base, head, paths)
@@ -1019,7 +1043,12 @@ def _parse_args(argv: list[str]) -> tuple[str | None, str | None, str | None]:
 
 
 def _eprint(text: str) -> None:
-    """寫到 stderr；路徑可能帶 surrogateescape 的非 UTF-8 位元組，直接 print 會 UnicodeEncodeError。"""
+    """寫到 stderr，路徑中帶 surrogateescape 的非 UTF-8 位元組一律以 backslashreplace 輸出。
+
+    stderr 的預設錯誤處理本來就是 backslashreplace，直接 print 通常不會崩潰；只有使用者把
+    `PYTHONIOENCODING` 設成 `utf-8:strict` 之類時才會 `UnicodeEncodeError`。這裡顯式處理，讓輸出
+    不依賴該環境變數。
+    """
     print(text.encode("utf-8", errors="backslashreplace").decode("utf-8"), file=sys.stderr)
 
 
@@ -1072,14 +1101,16 @@ def main(argv: list[str], read_gate_file: GateReader | None = None) -> int:
 
     # gate 連結的資料來源跟著輸入走：staged 讀 `git write-tree` 的樹（index 將被 commit 的內容）、
     # range 讀 `--head`、diff 檔讀工作樹。
-    if read_gate_file is None:
-        if base is not None and head is not None:
-            read_gate_file = _git_gate_reader(head)
-        elif diff_file is not None:
-            read_gate_file = _read_repo_file
-        else:
-            read_gate_file = _git_gate_reader(None)
+    # staged 模式的樹在這裡就解出來（`_git_gate_reader` 建構時），不論 rule 有沒有 gate link：
+    # `write-tree` 失敗（未合併的 index 等）一律 exit 2；注入的 `read_gate_file` 優先、不碰 git。
     try:
+        if read_gate_file is None:
+            if base is not None and head is not None:
+                read_gate_file = _git_gate_reader(head)
+            elif diff_file is not None:
+                read_gate_file = _read_repo_file
+            else:
+                read_gate_file = _git_gate_reader(None)
         mechanization_errors = check_rule_mechanization(diff_text, read_gate_file)
     except OSError as e:
         # 無法驗證 gate link 不是「連結有效」也不是「連結無效」；絕不可往下印 [OK]。

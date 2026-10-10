@@ -8,7 +8,7 @@ Rule files under `.claude/rules/` are always-loaded or path-scoped prose that ag
 
 The lint SHALL require every newly added `##` or `###` section in a file matching `.claude/rules/*.md` to contain exactly one mechanization declaration, which is either a gate link `<!-- gate: <path>[::<symbol>] -->` or a gate exemption `<!-- gate: none (reason: <reason>) — <explanation> -->`. A section without any declaration SHALL be reported as missing a declaration. Declaration lines inside fenced code blocks or table rows SHALL NOT count, because those contexts quote the syntax as an example rather than make the claim. Every added section in a hunk SHALL be checked on its own, not only the first or the last one.
 
-The lint SHALL compute sections over the whole post-image of each changed file, not over the changed lines alone: a section runs from its heading to the next `##` or `###` heading, unchanged lines under an added heading belong to it, and fence state is tracked from the start of the file. A line inside a fenced code block (backtick or tilde fence, including a longer outer fence that contains a shorter inner one) SHALL NOT start a section, because a heading in an example is not a section. An added heading SHALL be treated as a retitle of an existing section, not a new section, only when the pre-image contains a removed heading of the same level that is a real heading (not a line inside a fenced code block) and whose body is identical to the added section's body once whitespace is ignored; each removed heading excuses at most one added heading, and a heading whose level or body differs stays a new section. Setext headings and indented headings are intentionally not recognised: `.markdownlint.yaml` sets `default: true`, so MD003 (consistent heading style) rejects a setext heading in an ATX file before this lint runs, and every rule file is ATX.
+The lint SHALL compute sections over the whole post-image of each changed file, not over the changed lines alone: a section runs from its heading to the next `##` or `###` heading, unchanged lines under an added heading belong to it, and fence state is tracked from the start of the file. A line inside a fenced code block (backtick or tilde fence, including a longer outer fence that contains a shorter inner one) SHALL NOT start a section, because a heading in an example is not a section. A fence is opened or closed only by a marker line indented at most three spaces; a line indented four or more spaces (or with a tab) is an indented code block, not a fence marker. An added heading SHALL be treated as a retitle of an existing section, not a new section, only when the pre-image contains a removed heading of the same level that is a real heading (not a line inside a fenced code block) and whose body is identical to the added section's body (the same lines, ignoring trailing whitespace on each line and blank lines at the start and end of the body; interior blank lines and indentation must match); each removed heading excuses at most one added heading, and a heading whose level or body differs stays a new section. Setext headings and indented headings are intentionally not recognised: `.markdownlint.yaml` sets `default: true`, so MD003 (consistent heading style) rejects a setext heading in an ATX file before this lint runs, and every rule file is ATX.
 
 #### Scenario: Section with a valid gate link passes
 
@@ -47,8 +47,8 @@ The lint SHALL compute sections over the whole post-image of each changed file, 
 
 #### Scenario: Fence state comes from the whole file, not the hunk
 
-- **WHEN** a diff edits the last code block of an existing rule file and adds an undeclared `##` section after it (git aligns the old closing fence into the changed lines), or adds a declared rule file whose fenced example contains `## When to use` and `## Steps`
-- **THEN** the lint SHALL report the undeclared section by heading and exit with code 1, and SHALL report no finding for the declared file with the fenced example, because the fence's opening line is read even when it is not part of the change
+- **WHEN** a diff edits the last code block of an existing rule file and adds an undeclared `##` section after it (git aligns the old closing fence into the changed lines), or adds a declared rule file whose fenced example contains `## When to use` and `## Steps`, or appends an undeclared `##` section after a line `    ~~~` indented four spaces
+- **THEN** the lint SHALL report the undeclared section by heading and exit with code 1, and SHALL report no finding for the declared file with the fenced example, because the fence's opening line is read even when it is not part of the change; the four-space `~~~` line SHALL NOT open a fence, while a fence marker indented up to three spaces SHALL still hide its fenced example headings
 
 #### Scenario: Declaration below an inserted heading counts even if not added
 
@@ -58,7 +58,7 @@ The lint SHALL compute sections over the whole post-image of each changed file, 
 #### Scenario: Content lines that look like diff headers are content
 
 - **WHEN** an existing rule file gains the line `++ note` followed by an undeclared `## Brand New` section, or a file loses the line `-- "x" y`, or a line `-- "x" y` is replaced by `++ "x" y` so git emits an adjacent `--- "x" y` and `+++ "x" y`
-- **THEN** the lint SHALL still report the undeclared section after `++ note`, and SHALL NOT treat the other two as file headers or exit 2, because the hunk's `@@ -a,b +c,d @@` line counts show those lines are still inside the hunk
+- **THEN** the lint SHALL still report the undeclared section after `++ note`, and SHALL NOT treat the other two as file headers or exit 2, because the hunk's `@@ -a,b +c,d @@` line counts show those lines are still inside the hunk; and when a hand-made diff declares a hunk larger than it really is, a `--- ` line followed by a `+++ ` line followed by a line starting with `@@` (an unprefixed `@@` can never be hunk content) SHALL still start the next file, so a new rule file after it is not swallowed
 
 #### Scenario: Every section in a hunk is checked
 
@@ -180,8 +180,8 @@ A newly added section that lacks a declaration SHALL produce an error and a non-
 
 #### Scenario: A binary attribute does not hide or falsely block a rule file
 
-- **WHEN** `.gitattributes` marks `.claude/rules/*.md` as `binary` (or `-diff`) and an existing rule file gains an undeclared section, and separately a declared one, and separately a real binary file is changed elsewhere in the same diff
-- **THEN** the lint SHALL exit with code 1 for the undeclared section, exit with code 0 for the declared one and for the unrelated binary file
+- **WHEN** `.gitattributes` marks `.claude/rules/*.md` as `binary` (or `-diff`) and an existing rule file gains an undeclared section, and separately a declared one, and separately a real binary file is changed elsewhere in the same diff, and separately such a rule file is renamed inside `.claude/rules/` while gaining a section (in both the staged and the range mode)
+- **THEN** the lint SHALL exit with code 1 for the undeclared section, exit with code 0 for the declared one and for the unrelated binary file, and SHALL NOT report the renamed file's legacy sections as new (the `--text` re-read names the rename source as well as the new path so git can pair them); the re-read output SHALL contain the rule file's text and none of the unrelated binary file. The re-read does not run in the positional diff-file mode (no git context): a `Binary files ... differ` placeholder there fails closed
 
 #### Scenario: Empty new rule file is rejected
 
@@ -253,7 +253,7 @@ Resolving a gate link SHALL use the repository root of the checkout being linted
 
 ### Requirement: The check fails loudly when it cannot verify a link
 
-If a path check raises an operating-system error other than the path being absent, or the git command used to read the index or the head fails (an unresolvable revision, a git error, an unmerged index entry), the lint SHALL exit with code 2 and a `[FAIL]` message (in the staged mode that includes `git write-tree` failing on an unmerged index). Only "no such path" is an answer; every other failure means the link could not be verified. The repository root is derived from the lint script's own location, so there is no separate root-resolution failure to report. The lint SHALL NOT treat an unverifiable link as resolved.
+If a path check raises an operating-system error other than the path being absent, or the git command used to read the index or the head fails (an unresolvable revision, a git error, an unmerged index entry), the lint SHALL exit with code 2 and a `[FAIL]` message (in the staged mode that includes `git write-tree` failing on an unmerged index, which SHALL exit 2 even when no gate link is read, for example a rule that uses only `none` exemptions: the staged tree is resolved before the declarations are checked, and an injected gate reader takes precedence and never triggers it). Only "no such path" is an answer; every other failure means the link could not be verified. The repository root is derived from the lint script's own location, so there is no separate root-resolution failure to report. The lint SHALL NOT treat an unverifiable link as resolved.
 
 #### Scenario: Unverifiable gate link exits 2
 

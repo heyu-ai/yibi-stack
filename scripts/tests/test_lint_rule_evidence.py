@@ -1193,7 +1193,10 @@ def test_new_file_without_sections_or_declaration_exits_one() -> None:
 
 
 def test_declaration_outside_the_headings_hunk_is_reported_missing(tmp_path: Path) -> None:
-    """宣告在別的 hunk（heading 插在既有內文之上，宣告落在未變動行）：保守地報缺宣告。
+    """不帶整份檔案的 diff（合成 / `-U0`）：宣告在別的 hunk 時保守地報缺宣告。
+
+    heading 插在既有內文之上，宣告落在未變動行；staged / range 模式有完整 post-image，不受此限
+    （見 RMG-DT-047）。
 
     spec: rule-mechanization-gate#declaration-outside-the-headings-hunk-is-reported-missing
     tc: RMG-DT-013
@@ -2135,3 +2138,77 @@ def test_exemption_explanation_length_boundary(explanation: str, accepted: bool)
     diff = _existing_rule_section_diff([f"<!-- gate: none (reason: judgment) — {explanation} -->"])
     errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
     assert (errors == []) is accepted, f"{explanation!r} -> {errors}"
+
+
+# --- diff 檔模式（沒有 git 脈絡、不重讀）的 binary 佔位形狀與標頭判斷 ---
+
+_BINARY_OLD = ".claude/rules/old-name.md"
+_BINARY_NEW = ".claude/rules/new-name.md"
+
+
+def test_existing_rule_file_shown_as_binary_in_a_diff_file_is_an_error() -> None:
+    """既有 rule 檔在手寫 / diff 檔裡只剩 `Binary files a/x and b/x differ`：看不到內容，不可當成通過。
+
+    staged / range 模式會先以 `--text` 重讀；diff 檔模式沒有 git 脈絡，這個佔位就是最終結果。
+
+    spec: rule-mechanization-gate#binary-new-rule-file-is-rejected
+    tc: RMG-DT-030
+    """
+    diff = (
+        f"diff --git a/{_RULE_13} b/{_RULE_13}\n"
+        "index 1111111..2222222 100644\n"
+        f"Binary files a/{_RULE_13} and b/{_RULE_13} differ\n"
+    )
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert len(errors) == 1 and _RULE_13 in errors[0] and "二進位" in errors[0]
+
+
+def test_rename_inside_rules_that_is_binary_is_an_error() -> None:
+    """目錄內改名 + binary：只是改名時不報，但 binary 看不到內容，仍要報（rename 分支的 binary 旗標）。
+
+    spec: rule-mechanization-gate#binary-new-rule-file-is-rejected
+    tc: RMG-DT-030
+    """
+    diff = (
+        f"diff --git a/{_BINARY_OLD} b/{_BINARY_NEW}\n"
+        "similarity index 90%\n"
+        f"rename from {_BINARY_OLD}\n"
+        f"rename to {_BINARY_NEW}\n"
+        f"Binary files a/{_BINARY_OLD} and b/{_BINARY_NEW} differ\n"
+    )
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert len(errors) == 1 and _BINARY_NEW in errors[0] and "二進位" in errors[0]
+
+
+def test_copy_into_rules_that_is_binary_reports_the_binary_reason() -> None:
+    """copy + binary：不論哪一種都要擋，但說明要是「二進位」而不是「純 copy」（copy 分支的 binary 旗標）。
+
+    spec: rule-mechanization-gate#binary-new-rule-file-is-rejected
+    tc: RMG-DT-030
+    """
+    diff = (
+        f"diff --git a/{_BINARY_OLD} b/{_BINARY_NEW}\n"
+        "similarity index 90%\n"
+        f"copy from {_BINARY_OLD}\n"
+        f"copy to {_BINARY_NEW}\n"
+        f"Binary files a/{_BINARY_OLD} and b/{_BINARY_NEW} differ\n"
+    )
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert len(errors) == 1 and _BINARY_NEW in errors[0] and "二進位" in errors[0]
+
+
+def test_an_oversized_hunk_count_does_not_swallow_the_next_files_header() -> None:
+    """合成 diff 把 `@@` 的行數寫大（或少了 `diff --git`）時，下一個檔案的 `--- ` / `+++ ` / `@@`
+    仍是檔頭：只靠行數會把它們當成上一個 hunk 的內文，新的 rule 檔整個隱形。
+
+    spec: rule-mechanization-gate#content-lines-that-look-like-diff-headers-are-content
+    tc: RMG-DT-048
+    """
+    diff = (
+        "--- a/x.md\n+++ b/x.md\n@@ -1,1 +1,9 @@\n+a\n"
+        "--- /dev/null\n+++ b/.claude/rules/new.md\n@@ -0,0 +1,2 @@\n+## S\n+body\n"
+    )
+    files = lint_rule_evidence._parse_diff(diff)
+    assert [f.new_path for f in files] == ["x.md", ".claude/rules/new.md"]
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert errors and "「S」" in errors[0]
