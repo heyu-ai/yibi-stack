@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 已知限制：基準固定為 `origin/main`（fork 的 origin 落後 upstream 尚未處理）；untracked 檔案不算基準失敗；
     Jira bug 不套用過期判斷
 
+### Fixed
+
+- sdd：`check_testplan_trace.py` 的略過規則（虛擬環境、巢狀 `.claude/worktrees`）改看「相對 repo root 的路徑」。
+  舊版看絕對路徑，所以 repo root 位於 `.claude/worktrees/<name>/`（每個 background job 的 worktree）
+  或祖先目錄叫 `venv` 時，**所有測試檔都被略過**：enforced 且 tasks 全勾的 change 會把每個 auto TC 報成
+  `missing`，pre-commit 的 `check-testplan-trace` 因此在 worktree 內無法通過，其他 change 也會出現假的 WARN。
+  CI 與主 checkout 不受影響。新增回歸測試 TPT-ST-009 到 012（含防矯枉過正的對照），四個單點突變各被恰好一個測試擊殺
+
 ## [1.23.10] - 2026-10-03
 
 ### Fixed
