@@ -661,7 +661,9 @@ Four enforcement points, matching the "gate belongs at every entrance" disciplin
 2. **Commit-time** — `scripts/lint_rule_evidence.py` (pre-commit `lint-rule-evidence`, staged-diff
    mode) fails the commit when a **new** `.claude/rules/NN-*.md` file or a new `.claude/hooks/*`
    script carries no evidence marker; a **new section in an existing** rule file is warn-only at
-   first (advisory, `verbose: true`), so the historical corpus is not retro-blocked. The checker is
+   first (advisory, `verbose: true`), so the historical corpus is not retro-blocked. That tier
+   applies to the *evidence marker* only — a missing mechanization declaration (see "Every New
+   Rule Section Declares Whether It Could Have Been a Gate") is an error in existing files too. The checker is
    the pure function `check_rule_evidence(diff_text) -> list[str]` — test its failure paths with
    synthetic diffs, not only against real files (same reason `lint_shell_subshell_exit.py`'s
    negative controls matter).
@@ -680,6 +682,82 @@ Self-constraint (dogfood): this norm lives here in rule 11 (`paths: skills/**`, 
 editing skills/rules), **not** in a new always-loaded rule file — a change that treats corpus
 inflation must not itself inflate the always-loaded surface. `scripts/check_always_loaded_growth.py`
 asserts the net line growth of the `paths:`-less rule files is 0.
+
+## Every New Rule Section Declares Whether It Could Have Been a Gate
+
+<!-- verified: probe -->
+<!-- gate: scripts/lint_rule_evidence.py::check_rule_mechanization -->
+
+The Evidence Gate above asks "is the lesson true". It does not ask "why is this a rule and not a
+gate". Promotion Gate G1 asks that second question, but G1 is an agent's own prose judgment — a rule
+deciding whether to write a rule — and nothing checked that it was applied honestly. rule 17 records
+the result: the subshell-`exit` lesson recurred three times as prose before it became
+`lint_shell_subshell_exit.py`. So every new `##` / `###` section in `.claude/rules/*.md` now carries
+exactly one declaration, and the lint verifies it mechanically.
+
+| Declaration | Meaning |
+|-------------|---------|
+| `<!-- gate: <path>[::<symbol>] -->` | An existing mechanical gate covers this. The path must exist; the symbol, if given, must appear in that file as a whole word |
+| `<!-- gate: none (reason: <reason>) — <explanation> -->` | No gate is feasible. `<reason>` is one of `judgment`, `no-observable-signal`, `hook-cost`; the explanation needs 12+ non-space characters and cannot be `TBD` / `TODO` / `N/A` / `none` |
+
+Eligible link targets are a closed list: `scripts/`, `.claude/hooks/`, `.github/workflows/`,
+`.pre-commit-config.yaml`, and `tasks/**/tests/`. A rule file or a `SKILL.md` is **not** a gate —
+pointing a rule at prose is the thing this check exists to stop. Absolute paths and `..` are rejected.
+
+Reason meanings: `judgment` needs a semantic read (for example, whether a reviewer prompt embeds an
+unverified causal claim). `no-observable-signal` means nothing is detectable at a tool boundary.
+`hook-cost` means it is detectable but the hook costs more than it buys — registering a hook from a
+worktree can brick the session, and a `PreToolUse` hook on `Edit|Write` removes the Edit escape.
+There is no catch-all reason: adding one means editing the constant, the spec and the fixtures.
+
+A missing declaration is an **error**, in a new rule file and in a new section of an existing one
+alike. So is a **false** declaration (dangling link, rule-file target, reason outside the list,
+placeholder explanation, two declarations in one section) — downgrading either would let a section
+land with no gate decision recorded. Only **added** sections are checked; existing sections are not
+backfilled — so a hunk that removes `### Old` and adds `### New` is a retitle, not a new section (one
+removed heading excuses one added heading of the **same level** in the same hunk; a different level, or
+an extra added heading, is still checked). A `##` / `###` line inside a fenced code block (backtick or
+tilde, including a longer fence wrapping a shorter one) is example text, not a section.
+
+Where a gate link is read from: the lint verifies the content being **committed or reviewed**, not
+whatever is on disk. Staged mode (pre-commit) reads the git **index**, range mode (CI) reads the tree
+of `--head`, and only the positional diff-file mode (no git context) reads the working tree. So a
+gate script that exists only as an untracked file is a dangling link, and a staged one that was
+deleted from disk is still valid. The link must name a file exactly; a directory or a glob is absent.
+If git itself fails while reading the index or head, the lint exits 2 rather than guessing.
+
+Known limits, so a reader does not over-trust a green run:
+
+- A valid link proves the target exists and is gate-class, **not** that it covers this rule. A rule
+  linked to an unrelated script passes. Catching that is the gate-trigger-rate job of
+  `harness-weekly-review`, not this lint.
+- The diff is read with `--unified=0`, so the declaration must be added in the **same hunk** as its
+  heading. A heading inserted above pre-existing body text reports as missing — a deliberate
+  over-report rather than a miss — and, because a missing declaration is an error, it blocks the
+  commit. Put the declaration directly under the heading.
+- A pure rename with 100% similarity produces no `---`/`+++` lines (probed on git 2.56.0), so its
+  content cannot be inspected. A pure rename **into** `.claude/rules/` therefore fails closed: add the
+  evidence marker and the declaration in the same commit (the rename then has a hunk), or add the file
+  instead. A rename inside `.claude/rules/`, or unrelated to it, is not flagged. The same blind spot
+  still exists for a pure rename into `.claude/hooks/`, which only the evidence lint covers and which
+  this change leaves alone. Re-probe after a git upgrade.
+- Three other shapes also show no content and fail closed when the target is a new rule file: a copy
+  without a hunk (the source may itself be a rule file; the target is still new), a file git classifies
+  as binary (it contains a NUL byte), and an empty file (nowhere to put a declaration). The evidence
+  lint ignores all three, as it does a pure rename, so nothing is reported twice. `diff.renames=copies`
+  cannot hide a copy: the lint passes `-M` explicitly (not `--no-renames`, which would turn an
+  in-directory rename into an undeclared new file).
+- The lint reads git with `core.quotePath=false`, `--no-color --no-ext-diff --no-textconv` and fixed
+  `a/` `b/` prefixes, so `color.ui`, `diff.external`, textconv and `diff.mnemonicPrefix` cannot change
+  what it sees. A path git still quotes (tab, `"`) is decoded; an undecodable one exits 2.
+- Setext headings (`Title` underlined with `===`) and indented headings are **not** recognised, on
+  purpose: `.markdownlint.yaml` sets `default: true`, so MD003 (consistent heading style) rejects a
+  setext heading in an ATX file before this lint runs, and every rule file is ATX.
+- A fence state that begins before the hunk (a hunk that adds only the closing fence) is invisible with
+  `--unified=0`, the same class of limit as the same-hunk declaration rule above.
+
+Self-constraint: this section lives here in rule 11 (scoped), not in an always-loaded rule file, and
+it carries its own declaration above — the lint runs over its own addition.
 
 ## Inserting a New Blockquote After an Existing One Requires Removing the Blank Line (MD028)
 

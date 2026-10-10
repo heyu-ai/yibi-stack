@@ -1,0 +1,8 @@
+diff --git a/.claude/rules/13-bash-anti-patterns.md b/.claude/rules/13-bash-anti-patterns.md
+--- a/.claude/rules/13-bash-anti-patterns.md
++++ b/.claude/rules/13-bash-anti-patterns.md
+@@ -300,0 +301,4 @@
++### Missing Symbol Section
++
++內文。(Source: PR #339)
++<!-- gate: scripts/lint_rule_evidence.py::no_such_function -->

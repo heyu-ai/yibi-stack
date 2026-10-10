@@ -109,3 +109,78 @@ def test_tier3_park_and_recurrence_anchors() -> None:
 def test_rule_11_evidence_standard_section_exists() -> None:
     text = _rule_11_text()
     assert "Retro-authored rule/hook 的三層證據標準" in text
+
+
+# --- rule-mechanization-gate：rule 草稿須附機械化宣告 ---
+#
+# 文件與程式碼對照：宣告語法、合格目錄、豁免理由的**唯一真相**是 `lint_rule_evidence.py`
+# 的常數；SKILL.md 模板與 rule 11 各抄了一份給人讀。直接拿常數去比對文件，任何一邊改了
+# 另一邊沒跟，這裡就轉紅（不靠人記得同步）。
+
+_RULE_11_MECHANIZATION_HEADING = (
+    "## Every New Rule Section Declares Whether It Could Have Been a Gate"
+)
+
+
+def _lint_module():
+    import importlib
+    import sys
+
+    scripts_dir = str(REPO_ROOT / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    return importlib.import_module("lint_rule_evidence")
+
+
+def _skill_rule_writing_row() -> str:
+    rows = [ln for ln in _skill_text().splitlines() if ln.startswith("| 寫入規則文件 |")]
+    assert len(rows) == 1, f"Step 5 Q5 映射表應恰有一列「寫入規則文件」，實得 {len(rows)}"
+    return rows[0]
+
+
+def _rule_11_mechanization_section() -> str:
+    text = _rule_11_text()
+    start = text.index(_RULE_11_MECHANIZATION_HEADING)
+    end = text.index("\n## ", start + 1)
+    return text[start:end]
+
+
+def test_skill_rule_draft_template_carries_the_declaration_fields() -> None:
+    row = _skill_rule_writing_row()
+    assert "<!-- gate: <path>[::<symbol>] -->" in row
+    assert "<!-- gate: none (reason:" in row
+    assert "scripts/lint_rule_evidence.py" in row
+
+
+def test_skill_template_lists_every_eligible_gate_location_and_reason() -> None:
+    lint = _lint_module()
+    row = _skill_rule_writing_row()
+    for prefix in lint._GATE_DIR_PREFIXES:
+        assert prefix in row, f"SKILL.md 模板缺合格 gate 目錄 {prefix}"
+    for exact in lint._GATE_EXACT_FILES:
+        assert exact in row, f"SKILL.md 模板缺合格 gate 檔 {exact}"
+    assert "tasks/**/tests/" in row
+    for reason in lint._EXEMPT_REASONS:
+        assert reason in row, f"SKILL.md 模板缺豁免理由 {reason}"
+
+
+def test_rule_11_mechanization_section_matches_the_lint_constants() -> None:
+    lint = _lint_module()
+    section = _rule_11_mechanization_section()
+    for prefix in lint._GATE_DIR_PREFIXES:
+        assert prefix in section, f"rule 11 缺合格 gate 目錄 {prefix}"
+    for exact in lint._GATE_EXACT_FILES:
+        assert exact in section, f"rule 11 缺合格 gate 檔 {exact}"
+    for reason in lint._EXEMPT_REASONS:
+        assert reason in section, f"rule 11 缺豁免理由 {reason}"
+    assert str(lint._MIN_EXPLANATION_CHARS) in section
+
+
+def test_rule_11_mechanization_section_passes_its_own_lint() -> None:
+    """dogfood：這個 section 自己的宣告必須是個真宣告——對自己新增的內容跑一次 lint。"""
+    lint = _lint_module()
+    section = _rule_11_mechanization_section()
+    block = section.splitlines()
+    payloads = lint._declaration_payloads(block)
+    assert len(payloads) == 1, f"section 內應恰有一個宣告，實得 {payloads}"
+    assert lint._declaration_problems(payloads, lint._read_repo_file) == []
