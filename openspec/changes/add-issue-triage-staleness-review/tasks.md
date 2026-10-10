@@ -1,0 +1,55 @@
+## 1. 先驗證未實測的前提
+
+- [x] 1.1 找出含 bot 留言的 GitHub issue 當樣本（本 repo 的留言只有單一作者，無法驗證），實測 bot 留言的 author.login 實際形式，定案「Last substantive human activity measurement」的 bot 判定規則（design 的「人為活動度量排除 skill 自己與 bot 的留言」）。驗證：把觀測到的 login 與最終規則寫回 design.md 的 Open Questions 並標示已解決；對樣本以 jq 套用規則，bot 留言被排除、人為留言保留。規則若與 spec 內的 [bot] 後綴與 app/ 前綴不同，同步修正 specs/issue-triage-staleness-review/spec.md
+
+## 2. 基準檢查腳本（先寫測試再實作）
+
+- [x] 2.1 先寫 plugins/dev-cycle/skills/issue-triage/scripts/tests/test_check_baseline.py：在暫時的 git repo fixture 上涵蓋 Distinct exit codes for baseline failures 的每一種結果（通過、不在 git repo、fetch 失敗、落後、領先、tracked 檔案被修改），斷言 Checkout must equal the origin main commit 的 ahead、behind、modified 數量出現在 stderr，並斷言 untracked 檔案不造成失敗；同時把新測試目錄加入 pyproject.toml 的 testpaths（該清單是明列的，不加入就不會被 make ci 收集）。驗證：腳本尚不存在時整份測試為紅（red-first），執行 uv run pytest 該檔確認
+- [x] 2.2 實作 plugins/dev-cycle/skills/issue-triage/scripts/check-baseline.sh（design 的「以 origin/main 為證據基準並 fail loud」）：落實 Fetch before verification（fetch 失敗即停、不回退到本機 ref），通過時 stdout 輸出 BASELINE_SHA 與 FETCHED_AT，失敗時 stderr 輸出 [FAIL] 並以 2、3、4、5 區分。驗證：2.1 的測試全綠；再做 Baseline check is verified by a negative control 的突變驗證——只改一件事，把腳本主體短路成永遠 exit 0，斷言測試轉紅且突變錨點確實套用，最後以反向替換還原（不得用 git checkout 還原），還原後測試再次全綠
+
+## 3. 漂移蒐集腳本（先寫測試再實作）
+
+- [x] 3.1 先寫 plugins/dev-cycle/skills/issue-triage/scripts/tests/test_staleness_signals.py：在暫時 git repo 上涵蓋 Code drift signal 的五種狀態（unchanged、changed 附 commit 數、deleted 附刪除 commit、renamed、never-existed）、沒有任何路徑時回報不適用，以及基準 ref 不存在時 exit 非 0 且不輸出狀態行。驗證：腳本尚不存在時測試全紅
+- [x] 3.2 實作 plugins/dev-cycle/skills/issue-triage/scripts/staleness-signals.sh（design 的「程式碼漂移訊號用 git 歷史計算」與「多步驟邏輯放進輔助腳本」）：輸入 issue 建立時間與一個以上 repo 相對路徑，每個路徑輸出一行 tab 分隔的路徑、狀態、細節。驗證：3.1 的測試全綠；對 deleted 狀態做單一突變（把刪除判斷改成永遠回報 unchanged），斷言對應測試轉紅，再以反向替換還原
+
+- [x] 3.3 先寫 plugins/dev-cycle/skills/issue-triage/scripts/tests/test_last_human_activity.py：以 PATH 上的假 gh 執行檔回放 REST 留言 JSON，涵蓋 Last substantive human activity measurement 的情境——type 為 Bot 的留言被排除（含 login 沒有後綴的 Copilot 型態）、空 login 的已刪除作者視為人為活動、內文含 triage 標記且作者為目前登入帳號的留言被排除、同樣標記但作者是另一個帳號則計為人為活動、沒有留言時回傳 issue 建立時間、輸出附帶 stale notice 標記的時間、gh api user 失敗時 exit 非 0 且不輸出時間。驗證：腳本尚不存在時測試全紅
+- [x] 3.4 實作 plugins/dev-cycle/skills/issue-triage/scripts/last-human-activity.sh（design 的「人為活動度量排除 skill 自己與 bot 的留言」與「多步驟邏輯放進輔助腳本」）：以 REST 逐 issue 取得留言與帳號型別，輸出最後實質人為活動時間與 stale notice 標記時間。驗證：3.3 的測試全綠；做單一突變——移除排除 Bot 型別的判斷，斷言 bot 相關測試轉紅且突變錨點確實套用，再以反向替換還原並確認測試再次全綠
+
+## 4. SKILL.md 改寫
+
+- [x] 4.1 在 plugins/dev-cycle/skills/issue-triage/SKILL.md 新增 Step 1c 證據基準檢查：只留單一 bash 呼叫 check-baseline.sh，並把 exit 0、2、3、4、5、1 各列為獨立分支與對應的 [FAIL] 訊息，不合併成單一失敗分支；Step 7 報告模板頂端加入 Baseline commit recorded in the report 所要求的基準 SHA 與 fetch 時間，且 Jira-only 與單一項目執行同樣先過基準檢查。驗證：閱讀 SKILL.md 確認六個 exit code 皆有分支，並 grep 確認報告模板第一個區塊含基準 SHA 欄位
+- [x] 4.2 在 SKILL.md Step 3 加入 Last substantive human activity measurement 與 Triage marker on every skill-authored comment：定義活動度量（排除 bot 與 skill 自己、且標記必須是留言最後一個非空行的完整標記，並搭配「留言作者的 login 等於 gh api user 的目前登入帳號（不分大小寫）」才生效，見 design 的「過期狀態記在 issue 留言標記上而不是本機檔案」），活動度量以 last-human-activity.sh 的單一呼叫取得，不由 agent 現場推算，且只對「以全部留言計算天數仍小於 180」或「任一留言含 stale notice 標記」的 issue 呼叫；並落實 Unavailable staleness data fails safe（任一 issue 取不到過期資料時，不得升為 STALE-CANDIDATE 或 OBSOLETE，報告列為過期檢視不可用，且不得把缺資料當成人為活動）；並要求 Step 8 每一則 gh issue comment 的內文模板都帶標記。驗證：grep 確認 Step 8 每個 gh issue comment 區塊都含標記，且文件說明另一帳號貼出的標記視為人為活動
+- [x] 4.3 在 SKILL.md Step 3c′ 前後加入 Inactivity tiers escalate the evidence burden 的分層表（30、90、180 天為初始值並註明首次執行與使用者校準），說明 fast 與 deep 都套用分層、archive 與 ADR 比對仍只在 deep（design 的「天數分層提高證據門檻而不決定結果」）；並把 Step 3c′ 的「越舊的 issue 越要查」改成指向此分層表。驗證：分層表與 spec 內 tier assignment 的邊界範例（29、30、89、90、179、180 天）逐列一致
+- [x] 4.4 修改 SKILL.md Step 3e 決策表：新增 OBSOLETE verdict（含 design 的「OBSOLETE 需要正向對照」：零命中不是證據、搜尋目錄不存在為 UNCLEAR、部分症狀失去前提為 UPDATE-SCOPE、關閉原因為 not planned），並依 Verdict precedence with the new verdicts 把優先序改為 MERGE、CLOSE、OBSOLETE、UPDATE-SCOPE、STALE-CANDIDATE、KEEP，並落實 Staleness verdicts apply to GitHub issues only（OBSOLETE 與 STALE-CANDIDATE 不套用 Jira bug）。驗證：決策表每一列與 spec 的 scenario 逐項對照，且文件內不再有舊的三段優先序字串
+- [x] 4.5 在 SKILL.md 決策表新增 STALE-CANDIDATE verdict and grace period（只由 KEEP 與 KEEP external 升級、14 天寬限期、寬限期滿且無人為活動才提議 not planned 關閉、有人為活動則重算、絕不僅憑天數關閉），並加入 Exemptions from staleness verdicts 的五種豁免與報告中列出豁免原因。驗證：對 spec 內 STALE-CANDIDATE 與豁免的每個 scenario 在 SKILL.md 找到對應規則
+- [x] 4.6 修改 SKILL.md Step 6「時效」列與 FAQ 的 close-as-stale 條目，落實 Inactivity does not lower the priority of unresolved severe issues（design 的「久未更新拆成 review-urgency 而不是降優先」）：久未更新改為 review-urgency 註記，不降低嚴重且未解 issue 的優先級。驗證：grep 確認「KEEP 並降優先」舊字串不再出現，且 Step 6 與 FAQ 不再互相矛盾
+- [x] 4.7 在 SKILL.md Step 8 新增 stale notice 與寬限期滿關閉兩個寫入動作，落實 Write actions for the new verdicts remain opt-in：只在 --apply 且逐項確認後執行、排程與 webhook 情境一律停在報告、寫入失敗跳過該筆並彙總。驗證：與 Core Contract 逐條對照，並在 spec 的兩個 scenario（排程情境、確認後貼 notice）找得到對應文字
+
+## 5. 驗證與整合
+
+- [x] 5.1 若 SKILL.md 的 description 或 Usage 文字有變，同步更新 skills/README.md 索引列；先 git add 新檔，再跑 make ci（--all-files 的 pre-commit 與 pytest，含 markdownlint MD013 與 lint-skill-overlap）。驗證：make ci 全綠，且確認 git diff --name-only 在 hook 跑完後為空
+- [x] 5.2 以 spectra analyze 與 spectra validate 驗證本 change 的 artifact 一致性，並逐一對照兩份 spec 的 Requirement 與 SKILL.md、兩支腳本的行為，確認沒有只存在於其中一邊的 guard。驗證：analyze 無 Critical 與 Warning，validate 通過
+- [x] 5.3 依 plugin 版本 lockstep 慣例，在 PR 內用 scripts/sync-plugin-versions.sh 升版（不在本 change 內執行 make release）。驗證：所有 plugin 的 package.json 與 .claude-plugin/plugin.json 版本一致
+
+## 6. 範圍追加（Review Contract AC-14，howie 同意納入）
+
+- [x] 6.1 補上 testplan.md（pr-cycle-deep 的 pre-review check 擋下「feat 缺 testplan」）：trace: enforced、TC 與 scenario 的對應、Manual Verification，並在既有測試的 docstring 加上 spec 與 tc 綁定，新增 test_skill_contract.py 的 SKILL.md 文字契約測試與突變自檢。驗證：check_testplan_trace.py 在 --repo-root . 下無 finding，換成無關測試目錄會回報 missing，--strict 只剩 4 個 manual-open
+- [x] 6.2 修正 plugins/sdd/scripts/check_testplan_trace.py 的 discover_test_files：略過規則改看相對 root 的路徑，修正 repo root 位於 .claude/worktrees 時所有測試檔被略過、enforced 且 tasks 全勾的 change 把每個 auto TC 報成 missing。驗證：回歸測試 TPT-ST-009 到 012（修正前 009、011 轉紅，010、012 維持綠），四個單點突變各被恰好一個測試擊殺，hook 指令在 worktree 內不再報 FAIL
+
+## 7. PR #532 第一輪 review 的修正（Review Contract 範圍內，先寫失敗的測試再修）
+
+- [x] 7.1 check-baseline.sh：被 assume-unchanged（ls-files -v 的小寫 tag）或 skip-worktree（S）隱藏的 tracked 修改，磁碟上存在且 hash-object 與 HEAD 的 blob 不同時 exit 5；sparse 缺檔與旗標但內容相同維持通過。順手：比較一律用完整 ref refs/remotes/origin/main 的 SHA、解析值只取 stdout（stderr 另存）、git 呼叫加 GIT_TERMINAL_PROMPT=0。驗證：ITB-ST-006 到 009（修正前 006、007、009 為紅）；旗標清單只留 S、只留小寫、改回短名稱 origin/main 三個突變各被擊殺
+- [x] 7.2 last-human-activity.sh：只認「最後一個非空行」恰好是 `<!-- issue-triage:<close、update-scope、merge、stale-notice> YYYY-MM-DD -->` 的留言（stale-notice 精確比對，不再用 `\b`）。驗證：ITA-ST-009 到 013（修正前 009 到 012 為紅）；放寬種類、改用第一行、拿掉開頭或結尾錨點三個突變各被擊殺
+- [x] 7.3 staleness-signals.sh：驗證完參數後切到 repo 根目錄，路徑一律是根目錄相對；stderr 不再併入解析值；檔頭補上 exit 2 涵蓋空字串、tab、換行。test_ss_st_016 擴充 tab、換行、空字串、`..`、`src/..`。驗證：ITD-ST-005（修正前為紅）；移除任一個路徑守衛分支的突變各被擊殺，拿掉 cd 的突變被擊殺
+- [x] 7.4 SKILL.md：漂移腳本 exit 1、3 與 last-human-activity.sh exit 1、3、4 都導向「過期檢視不可用」；以數字取代「連續失敗」（同一次執行第二次 exit 3 即停止）；guard 列限縮為 Step 1／Step 2 的必要前置呼叫，另加「任一過期資料取不到」的 guard 列；8g 的 GitHub 端留言帶 merge 標記並更新 8a 到 8j 的清單；標記定義改為最後一行的完整標記。驗證：ITS-DT-003、012、014 的新錨點在舊文字上為紅
+- [x] 7.5 design.md／spec／tasks.md 同步：renamed 的細節是新路徑、deleted 才是 commit SHA；viewerDidAuthor 改為作者 login 比對（design.md 開頭的歷史背景保留）；腳本與寫入動作的數量與 REST 呼叫條件。驗證：grep 確認沒有殘留「兩支腳本」「兩個新寫入動作」
+- [x] 7.6 test_skill_contract.py：錨點綁定到負責段落、每個錨點在段落內唯一、逐列錨點（決策表與寬限期表）、ITS-EG-014 改為一次只移除一處。驗證：突變 M1（14 天改 1 天）、M3（列 6 的 180 改 30）、M4（列 6 拿掉無豁免）、M5（列 4 的 not planned 改 completed）各被擊殺
+- [x] 7.7 testplan.md：ITD-ST-003、ITD-ST-004 改為 partial，Legend 的 covered 限縮為腳本層，AC 範圍改為 AC-1～AC-14，並補上新增的 TC。驗證：check_testplan_trace.py --strict 只剩 MV-001 到 004
+- [x] 7.8 test_check_testplan_trace.py：新增 repo 內部 `.claude/hooks/tests/test_x.py` 綁定 TC、並在 `.claude` 之外放 `worktrees/` 目錄，鎖住 discover_test_files 的 `and`（改成 `or` 的突變必須被擊殺）
+
+## 8. PR #532 第二輪 review 的修正（Review Contract 範圍內，先寫失敗的測試再修）
+
+- [x] 8.1 check-baseline.sh：確認在工作樹內後先 `cd` 到 `rev-parse --show-toplevel`（失敗 exit 2），`status`、`ls-files`、hash 比對都從 repo 根目錄做；旗標隱藏的缺檔只有「core.sparseCheckout 為 true 且 tag 為 S 或 s」才豁免，其餘（assume-unchanged 缺檔、沒開 sparse 的 skip-worktree 缺檔）算修改 exit 5，tag 明列不用 `[a-z]`。補測 symlink 改指向、未變的旗標 symlink、index 有但 HEAD 沒有的檔案，以及以假 git 讓 rev-list、status、config、ls-files、hash-object 失敗時 exit 1。驗證：ITB-ST-010、011（子目錄兩個方向）、012、013（缺檔）修正前為紅；突變（移除 cd、豁免加入 h、移除 sparse 條件、哨兵值等於磁碟 hash、略過 symlink 分支、六個 `fail 1` 改 `true`）各被擊殺
+- [x] 8.2 staleness-signals.sh：定義 `REF=refs/remotes/origin/main`，`rev-parse --verify` 只解析一次，之後 `ls-tree`、`rev-list`、`log` 都用解析出的 SHA；不在 repo 與找不到 ref 的 exit 3 訊息附上 git 的 stderr，不再丟進 /dev/null。補測同名本機分支 `origin/main`（遠端已刪檔案要回報 deleted；沒有遠端 ref 仍 exit 3）、刪除、重建、再刪除（單一 SHA）、非 ASCII 改名、改名加小幅修改、同 commit 兩個改名，以及假 git 讓 ls-tree、rev-list、log、show 失敗時 exit 1。驗證：ITD-ST-010 修正前為紅；突變（回到短名稱、任一查詢改回 origin/main、log 拿掉 `-1`、只認 R100、不比對舊路徑、關掉 core.quotepath、四個 `fail 1` 改 `true`）各被擊殺；順手修正測試檔 docstring 的 exit 2、3 敘述
+- [x] 8.3 test_last_human_activity.py：假 gh 可用 `FAKE_GH_USER_JSON`、`FAKE_GH_ISSUE_JSON` 覆寫回應；補測目前帳號與 issue 的回應都是 `{}`（缺 login、缺 created_at）時 exit 4 且 stdout 為空，鎖住腳本的 `jq -er`（缺欄位非 0）而不是 `jq -r`（印出 null 並 exit 0）。驗證：兩處 `jq -er` 各改成 `jq -r` 的突變各被擊殺
+- [x] 8.4 SKILL.md：3d′ 呼叫漂移腳本前先丟掉以 `/` 開頭、含 `..` 路徑段、空字串、含 tab 或換行的 token 並在條目註明「已略過的路徑」；漂移腳本 exit 2 依 stderr 區分來源（內文路徑漏網：該 issue 過期檢視不可用、不停止整個盤點；時間參數錯誤：skill 自己的 bug、停止），並納入「標過期檢視不可用」的清單。8j 寫入前的重新量測失敗（exit 1、3、4）時放棄該筆、列入已取消並註明原因、不貼留言、不關閉，回報計數含這一類。順手：exit 3 的 `[FAIL]` 註明只停止過期檢視；exit 4 以 stderr 區分缺 jq 與無法解析。驗證：ITS-DT-015、016 與 ITS-DT-012 新增的錨點在舊文字上為紅（各一個測試套用即變紅，錨點逐段落且各恰好出現一次）

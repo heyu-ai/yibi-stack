@@ -1828,7 +1828,7 @@ wheels = [
 
 [[package]]
 name = "yibi-stack"
-version = "1.23.10"
+version = "1.23.13"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
