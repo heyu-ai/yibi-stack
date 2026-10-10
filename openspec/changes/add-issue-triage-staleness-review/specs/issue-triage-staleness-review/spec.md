@@ -248,7 +248,7 @@ Posting a stale notice, closing an issue as obsolete, and closing a stale issue 
 
 ### Requirement: Unavailable staleness data fails safe
 
-When the inactivity measurement or the code drift signal cannot be obtained for an issue, the skill SHALL NOT assign STALE-CANDIDATE or OBSOLETE to that issue, SHALL NOT treat the missing data as human activity or as the absence of drift, and SHALL list the issue in the report as staleness review unavailable together with the reason. The remaining verdicts for that issue SHALL still be computed. A second failure of the comment lookup within the same run SHALL stop the staleness review, and every issue not yet reviewed SHALL then be listed as staleness review unavailable. A missing JSON processing tool SHALL list every issue that needs the lookup as staleness review unavailable. Only run-wide preconditions (the baseline check and the issue listing) stop the whole run.
+When the inactivity measurement or the code drift signal cannot be obtained for an issue, the skill SHALL NOT assign STALE-CANDIDATE or OBSOLETE to that issue, SHALL NOT treat the missing data as human activity or as the absence of drift, and SHALL list the issue in the report as staleness review unavailable together with the reason. The remaining verdicts for that issue SHALL still be computed. A second failure of the comment lookup within the same run SHALL stop the staleness review, and every issue not yet reviewed SHALL then be listed as staleness review unavailable. A missing JSON processing tool SHALL list every issue that needs the lookup as staleness review unavailable. A response that lacks a field the measurement depends on, such as the login of the current account or the creation time of the issue, SHALL be treated as an unparsable response, not as a value. Only run-wide preconditions (the baseline check and the issue listing) stop the whole run.
 
 #### Scenario: Comment lookup fails for one issue
 
@@ -259,6 +259,11 @@ When the inactivity measurement or the code drift signal cannot be obtained for 
 
 - **WHEN** the code drift script fails with an unexpected error, or cannot find the baseline ref, for one issue while the other issues succeed
 - **THEN** that issue is listed as staleness review unavailable, is not treated as having no drift, receives no STALE-CANDIDATE or OBSOLETE verdict, and the other issues are triaged normally
+
+#### Scenario: Malformed API response
+
+- **WHEN** the response for the current account has no login, or the response for the issue has no creation time
+- **THEN** the measurement fails with the unparsable-response outcome and prints no time, and the issue is listed as staleness review unavailable
 
 #### Scenario: Repeated comment lookup failure
 

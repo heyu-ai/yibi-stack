@@ -79,6 +79,8 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | ITA-ST-011 | auto | activity-script | incomplete-marker-is-human-activity | 完整標記在內文中段、後面還有文字不算標記 | DT | High | 標記後接一行補充 | 執行腳本 | 標記加後續文字 | 該留言時間被採用 |
 | ITA-ST-012 | auto | activity-script | grace-period-elapsed-without-response | 對照：CRLF 與尾端空白行的真標記仍被辨識 | EP | High | 網頁編輯器格式的 stale notice | 執行腳本 | CRLF 加空白行 | 第二欄為 notice 時間；第一欄不含它 |
 | ITA-ST-013 | auto | activity-script | incomplete-marker-is-human-activity | 最後一行前後有別的文字（前綴、後綴、引用符號）不算標記 | DT | High | 最後一行為文字加標記、標記加文字、引用標記 | 執行腳本 | 三種形狀 | 各自算人為活動 |
+| ITA-EG-014 | auto | activity-script | malformed-api-response | 目前帳號的回應沒有 login（`{}`）時失敗，不把字串 null 當帳號 | EP | High | 假 gh 的 api user 回 `{}` | 執行腳本 | FAKE_GH_USER_JSON={} | exit 4；stdout 為空；stderr 含 [FAIL] |
+| ITA-EG-015 | auto | activity-script | malformed-api-response | issue 的回應沒有 created_at（`{}`）時失敗，不輸出字串 null 當時間 | EP | High | 假 gh 的 issue 回應為 `{}` | 執行腳本 | FAKE_GH_ISSUE_JSON={} | exit 4；stdout 為空；stderr 含 [FAIL] |
 | ITS-DT-001 | auto | skill-runbook-doc | jira-only-run | [doc] Step 1c 在 Step 2 之前且涵蓋 Jira-only，exit 0 到 5 各一列 | DT | High | 真實 SKILL.md | 讀取並比對錨點 | 無 | 錨點與順序皆成立 |
 | ITS-DT-002 | auto | skill-runbook-doc | report-header | [doc] 報告模板第一區塊是證據基準 | DT | Medium | 真實 SKILL.md | 讀取並比對 | 無 | 證據基準在來源之前 |
 | ITS-DT-003 | auto | skill-runbook-doc | closing-note-carries-the-marker | [doc] 各留言模板都明寫 triage 標記 | DT | High | 真實 SKILL.md | 讀取並比對 | close、update-scope、merge、stale-notice | 四種標記錨點在場 |
@@ -154,6 +156,7 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | merge-note-carries-the-marker | partial | ITS-DT-003 | 8g 的 GitHub 端留言模板有寫；實際貼出的留言屬執行期，MV-003 |
 | drift-lookup-fails-for-one-issue | partial | ITS-DT-012, ITD-EG-011 | 腳本層：四個 git 子指令失敗各 exit 1 已測（突變 `fail 1` 改 `true` 各被擊殺）；runbook 的 exit 1、3 分支只有 `[doc]` 層，執行期見 MV-001 |
 | repeated-comment-lookup-failure | partial | ITS-DT-012 | 第二次 exit 3 即停止的數字門檻有寫；執行期見 MV-001 |
+| malformed-api-response | covered | ITA-EG-014, ITA-EG-015 | 突變（兩處 `jq -er` 各改成 `jq -r`）各被擊殺 |
 | comment-lookup-fails-for-one-issue | partial | ITA-EG-009, ITS-DT-012 | 腳本 exit 3 且無輸出已測；「其餘 issue 照常」屬執行期，MV-001 |
 | old-jira-bug | partial | ITS-DT-011 | 文字有寫；執行期不驗 |
 

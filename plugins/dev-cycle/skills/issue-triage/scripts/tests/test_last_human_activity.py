@@ -53,7 +53,11 @@ args="$*"
 case "$args" in
   "api user")
     if [ "${FAKE_GH_FAIL:-}" = "user" ]; then echo "gh: simulated user failure" >&2; exit 1; fi
-    printf '{"login":"%s"}\\n' "${FAKE_GH_VIEWER}"
+    if [ -n "${FAKE_GH_USER_JSON:-}" ]; then
+      printf '%s\\n' "${FAKE_GH_USER_JSON}"
+    else
+      printf '{"login":"%s"}\\n' "${FAKE_GH_VIEWER}"
+    fi
     ;;
   "api repos/{owner}/{repo}/issues/"*"/comments --paginate")
     if [ "${FAKE_GH_FAIL:-}" = "comments" ]; then
@@ -64,7 +68,11 @@ case "$args" in
     ;;
   "api repos/{owner}/{repo}/issues/"*)
     if [ "${FAKE_GH_FAIL:-}" = "issue" ]; then echo "gh: simulated issue failure" >&2; exit 1; fi
-    printf '{"created_at":"%s"}\\n' "${FAKE_GH_ISSUE_CREATED}"
+    if [ -n "${FAKE_GH_ISSUE_JSON:-}" ]; then
+      printf '%s\\n' "${FAKE_GH_ISSUE_JSON}"
+    else
+      printf '{"created_at":"%s"}\\n' "${FAKE_GH_ISSUE_CREATED}"
+    fi
     ;;
   *)
     echo "unexpected gh args: $args" >&2
@@ -491,6 +499,35 @@ class TestFailures:
         assert proc.returncode == EXIT_BAD_RESPONSE, proc.stdout
         assert "jq" in proc.stderr
         assert proc.stdout == ""
+
+    def test_lh_st_032_user_response_without_login_exits_4_without_output(
+        self, tmp_path: Path
+    ) -> None:
+        """目前帳號的回應是 `{}`（沒有 login）：exit 4、stdout 為空，不得把字串 null 當成帳號。
+
+        `jq -r '.login'` 對缺欄位印出 `null` 且 exit 0，`jq -er` 才會非 0。腳本若退回 `-r`，
+        就會拿 `null` 當作目前帳號去比對作者，沒有任何留言被認成 skill 自己的。
+
+        spec: issue-triage-staleness-review#malformed-api-response
+        tc: ITA-EG-014
+        """
+        proc = _run(tmp_path, [], FAKE_GH_USER_JSON="{}")
+        assert proc.returncode == EXIT_BAD_RESPONSE, (proc.stdout, proc.stderr)
+        assert proc.stdout == ""
+        assert "[FAIL]" in proc.stderr
+
+    def test_lh_st_033_issue_response_without_created_at_exits_4_without_output(
+        self, tmp_path: Path
+    ) -> None:
+        """issue 的回應是 `{}`（沒有 created_at）：exit 4、stdout 為空，不得輸出字串 null 當時間。
+
+        spec: issue-triage-staleness-review#malformed-api-response
+        tc: ITA-EG-015
+        """
+        proc = _run(tmp_path, [], FAKE_GH_ISSUE_JSON="{}")
+        assert proc.returncode == EXIT_BAD_RESPONSE, (proc.stdout, proc.stderr)
+        assert proc.stdout == ""
+        assert "[FAIL]" in proc.stderr
 
     def test_lh_st_023_missing_issue_number_is_a_usage_error(self, tmp_path: Path) -> None:
         bindir = _setup(tmp_path, "[]")
