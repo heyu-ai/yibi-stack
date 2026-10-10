@@ -54,5 +54,9 @@ issue-triage 目前的偏誤是單向的：只防「誤關」，沒有任何機�
   - New: plugins/dev-cycle/skills/issue-triage/scripts/tests/test_last_human_activity.py
   - New: plugins/dev-cycle/skills/issue-triage/scripts/tests/test_check_baseline.py
   - New: plugins/dev-cycle/skills/issue-triage/scripts/tests/test_staleness_signals.py
+  - New: plugins/dev-cycle/skills/issue-triage/scripts/tests/test_skill_contract.py
+  - New: openspec/changes/add-issue-triage-staleness-review/testplan.md
+  - Modified: plugins/sdd/scripts/check_testplan_trace.py（範圍追加，見 Review Contract AC-14）
+  - Modified: plugins/sdd/scripts/tests/test_check_testplan_trace.py（回歸測試 TPT-ST-009 到 012）
   - Removed: (none)
 - 動到 plugins 下的檔案，發版時需走 plugin 版本 lockstep bump，由 PR 流程處理，不在本 change 內執行 make release。

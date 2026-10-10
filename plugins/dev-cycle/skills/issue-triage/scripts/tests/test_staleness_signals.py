@@ -159,6 +159,11 @@ class TestBehaviour:
         assert _rows(proc) == [["src/stable.py", "unchanged", ""]]
 
     def test_ss_st_002_changed_counts_only_commits_after_creation(self, tmp_path: Path) -> None:
+        """只計 issue 建立之後動過該檔案的 commit 數；建立前的不算。
+
+        spec: issue-triage-staleness-review#referenced-file-changed-repeatedly
+        tc: ITD-ST-002
+        """
         repo = _make_repo(tmp_path)
         _write(repo, "src/hot.py", "v0\n")
         _commit(repo, "add hot", BEFORE)
@@ -173,6 +178,11 @@ class TestBehaviour:
         assert _rows(proc) == [["src/hot.py", "changed", "3"]]
 
     def test_ss_st_003_deleted_reports_the_deleting_commit(self, tmp_path: Path) -> None:
+        """已被刪除的路徑回報 deleted，細節為刪除它的 commit SHA。
+
+        spec: issue-triage-staleness-review#referenced-file-was-deleted
+        tc: ITD-ST-001
+        """
         repo = _make_repo(tmp_path)
         _write(repo, "src/legacy.py", "old\n")
         _commit(repo, "add legacy", BEFORE)
@@ -197,6 +207,13 @@ class TestBehaviour:
         assert _rows(proc) == [["src/old_name.py", "renamed", "src/new_name.py"]]
 
     def test_ss_st_005_never_existed(self, tmp_path: Path) -> None:
+        """歷史上從未存在的路徑回報 never-existed。
+
+        「不是前提消失的證據」這條規則由 runbook 規定，見 ITS-DT-013。
+
+        spec: issue-triage-staleness-review#never-existed-path-is-not-evidence-of-absence
+        tc: ITD-ST-004
+        """
         repo = _make_repo(tmp_path)
         _publish(repo)
         proc = _run(repo, CREATED_AT, "src/typo_path.py")
@@ -204,6 +221,11 @@ class TestBehaviour:
         assert _rows(proc) == [["src/typo_path.py", "never-existed", ""]]
 
     def test_ss_st_006_no_paths_is_not_applicable(self, tmp_path: Path) -> None:
+        """沒有任何路徑時輸出 NOT_APPLICABLE，而不是「沒有漂移」。
+
+        spec: issue-triage-staleness-review#issue-references-no-paths
+        tc: ITD-ST-003
+        """
         repo = _make_repo(tmp_path)
         _publish(repo)
         proc = _run(repo, CREATED_AT)

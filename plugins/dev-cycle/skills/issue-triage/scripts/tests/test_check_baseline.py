@@ -170,6 +170,12 @@ class TestStaticContract:
 
 class TestBehaviour:
     def test_cb_st_001_clean_and_equal_passes_with_sha_and_time(self, tmp_path: Path) -> None:
+        """乾淨且等於 origin/main 的 checkout 通過，stdout 帶基準 SHA 與 fetch 時間。
+
+        spec: issue-triage-evidence-baseline#clean-and-equal
+        spec: issue-triage-evidence-baseline#passing-baseline
+        tc: ITB-ST-001
+        """
         repo, _ = _make_repo(tmp_path)
         proc = _run(repo)
         assert proc.returncode == EXIT_OK, proc.stderr
@@ -183,6 +189,10 @@ class TestBehaviour:
         """本機從未 fetch 過新 commit。
 
         若腳本沒自己 fetch，本機 origin/main 仍等於 HEAD，會誤判通過。
+
+        spec: issue-triage-evidence-baseline#checkout-is-behind
+        spec: issue-triage-evidence-baseline#fetch-succeeds
+        tc: ITB-ST-002
         """
         repo, origin = _make_repo(tmp_path)
         _advance_origin(tmp_path, origin, commits=3)
@@ -195,6 +205,11 @@ class TestBehaviour:
         assert proc.stdout == ""
 
     def test_cb_st_003_ahead_of_origin_main_fails_with_count(self, tmp_path: Path) -> None:
+        """checkout 有 origin/main 沒有的 commit（未合併的分支）：失敗並回報 ahead 數。
+
+        spec: issue-triage-evidence-baseline#checkout-is-on-an-unmerged-branch
+        tc: ITB-ST-003
+        """
         repo, _ = _make_repo(tmp_path)
         _commit_file(repo, "local-a.txt", "a\n", "local a")
         _commit_file(repo, "local-b.txt", "b\n", "local b")
@@ -215,6 +230,11 @@ class TestBehaviour:
     def test_cb_st_005_modified_tracked_file_fails_with_count_and_name(
         self, tmp_path: Path
     ) -> None:
+        """tracked 檔案有未提交的修改：失敗並回報檔案數與檔名。
+
+        spec: issue-triage-evidence-baseline#tracked-file-modified
+        tc: ITB-ST-004
+        """
         repo, _ = _make_repo(tmp_path)
         (repo / "tracked.txt").write_text("uncommitted edit\n", encoding="utf-8")
         proc = _run(repo)
@@ -235,6 +255,9 @@ class TestBehaviour:
         """untracked 暫存檔在主 checkout 極常見。
 
         列為失敗會讓檢查幾乎永遠紅，design 已明文接受這個殘餘風險。
+
+        spec: issue-triage-evidence-baseline#clean-and-equal
+        tc: ITB-EG-008
         """
         repo, _ = _make_repo(tmp_path)
         (repo / "scratch.txt").write_text("untracked\n", encoding="utf-8")
@@ -244,7 +267,11 @@ class TestBehaviour:
     def test_cb_st_008_unreachable_origin_fails_even_if_local_ref_matches(
         self, tmp_path: Path
     ) -> None:
-        """fetch 失敗不得回退到本機 origin/main：此時本機 ref 恰好等於 HEAD，回退就會誤判通過。"""
+        """fetch 失敗不得回退到本機 origin/main：此時本機 ref 恰好等於 HEAD，回退就會誤判通過。
+
+        spec: issue-triage-evidence-baseline#fetch-fails
+        tc: ITB-ST-005
+        """
         repo, _ = _make_repo(tmp_path)
         _git(repo, "remote", "set-url", "origin", str(tmp_path / "does-not-exist.git"))
         assert (
@@ -262,6 +289,11 @@ class TestBehaviour:
         assert proc.returncode == EXIT_FETCH_FAILED, proc.stdout
 
     def test_cb_st_010_outside_a_git_repo_exits_2(self, tmp_path: Path) -> None:
+        """不在 git repo：exit 2、stdout 為空。
+
+        spec: issue-triage-evidence-baseline#each-failure-is-distinguishable
+        tc: ITB-EG-007
+        """
         plain = tmp_path / "plain"
         plain.mkdir()
         proc = _run(plain)
@@ -299,7 +331,11 @@ class TestBehaviour:
 
 class TestDistinctExitCodes:
     def test_cb_dt_006_every_failure_has_its_own_code(self, tmp_path: Path) -> None:
-        """四種失敗必須是四個互不相同的非 0 code，SKILL.md 才能逐一分支而不是塌成單一失敗。"""
+        """四種失敗必須是四個互不相同的非 0 code，SKILL.md 才能逐一分支而不是塌成單一失敗。
+
+        spec: issue-triage-evidence-baseline#each-failure-is-distinguishable
+        tc: ITB-DT-006
+        """
         codes: dict[str, int] = {}
 
         plain = tmp_path / "plain"

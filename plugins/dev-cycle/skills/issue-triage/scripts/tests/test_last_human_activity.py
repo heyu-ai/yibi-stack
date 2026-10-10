@@ -173,6 +173,11 @@ class TestStaticContract:
 
 class TestBehaviour:
     def test_lh_st_001_no_comments_falls_back_to_issue_creation(self, tmp_path: Path) -> None:
+        """沒有留言時，最後人為活動就是 issue 建立時間。
+
+        spec: issue-triage-staleness-review#issue-without-comments
+        tc: ITA-ST-001
+        """
         proc = _run(tmp_path, [])
         assert proc.returncode == EXIT_OK, proc.stderr
         assert _fields(proc) == [ISSUE_CREATED, ""]
@@ -188,6 +193,11 @@ class TestBehaviour:
         assert _fields(proc) == ["2026-03-01T00:00:00Z", ""]
 
     def test_lh_st_003_bot_with_suffix_does_not_reset_the_clock(self, tmp_path: Path) -> None:
+        """github-actions[bot] 這類 type 為 Bot 的留言不重置時鐘。
+
+        spec: issue-triage-staleness-review#bot-comment-does-not-reset-the-clock
+        tc: ITA-ST-002
+        """
         comments = [
             _comment("alice", "User", "2026-02-01T00:00:00Z"),
             _comment("github-actions[bot]", "Bot", "2026-09-30T00:00:00Z"),
@@ -197,7 +207,11 @@ class TestBehaviour:
         assert _fields(proc) == ["2026-02-01T00:00:00Z", ""]
 
     def test_lh_st_004_bot_without_suffix_is_still_a_bot(self, tmp_path: Path) -> None:
-        """Copilot 的 login 本來就沒有 [bot] 後綴，只能靠帳號型別辨識。"""
+        """Copilot 的 login 本來就沒有 [bot] 後綴，只能靠帳號型別辨識。
+
+        spec: issue-triage-staleness-review#bot-account-without-a-login-suffix
+        tc: ITA-ST-003
+        """
         comments = [
             _comment("alice", "User", "2026-02-01T00:00:00Z"),
             _comment("Copilot", "Bot", "2026-09-30T00:00:00Z"),
@@ -216,6 +230,11 @@ class TestBehaviour:
         assert _fields(proc) == ["2026-05-01T00:00:00Z", ""]
 
     def test_lh_st_006_deleted_author_counts_as_human(self, tmp_path: Path) -> None:
+        """已刪除帳號（user 為 null）的留言算人為活動，往較安全的方向失敗。
+
+        spec: issue-triage-staleness-review#deleted-author-counts-as-human
+        tc: ITA-ST-004
+        """
         comments = [
             _comment("alice", "User", "2026-02-01T00:00:00Z"),
             _comment(None, "User", "2026-04-01T00:00:00Z"),
@@ -234,6 +253,11 @@ class TestBehaviour:
     def test_lh_st_008_skill_comment_from_the_running_account_is_excluded(
         self, tmp_path: Path
     ) -> None:
+        """標記加上「作者是目前登入帳號」才是 skill 自己的留言，不重置時鐘。
+
+        spec: issue-triage-staleness-review#triage-comment-does-not-reset-the-clock
+        tc: ITA-ST-005
+        """
         comments = [
             _comment("alice", "User", "2026-02-01T00:00:00Z"),
             _comment(VIEWER, "User", "2026-09-01T00:00:00Z", f"請確認\n{CLOSE_MARKER}"),
@@ -245,6 +269,11 @@ class TestBehaviour:
     def test_lh_st_009_marker_pasted_by_another_account_counts_as_activity(
         self, tmp_path: Path
     ) -> None:
+        """另一個帳號貼上 triage 標記：該留言算人為活動，不會被隱形。
+
+        spec: issue-triage-staleness-review#pasted-marker-from-another-account-counts-as-activity
+        tc: ITA-ST-006
+        """
         comments = [
             _comment("alice", "User", "2026-02-01T00:00:00Z"),
             _comment("mallory", "User", "2026-09-15T00:00:00Z", f"我也貼一個\n{CLOSE_MARKER}"),
@@ -272,6 +301,11 @@ class TestBehaviour:
         assert _fields(proc) == ["2026-02-01T00:00:00Z", ""]
 
     def test_lh_st_012_stale_notice_time_is_reported_and_excluded(self, tmp_path: Path) -> None:
+        """stale notice 的時間單獨回報（供寬限期判斷），且不計入人為活動。
+
+        spec: issue-triage-staleness-review#grace-period-elapsed-without-response
+        tc: ITA-ST-007
+        """
         comments = [
             _comment("alice", "User", "2026-02-01T00:00:00Z"),
             _comment(VIEWER, "User", "2026-09-01T00:00:00Z", f"仍需要嗎？\n{STALE_MARKER}"),
@@ -298,6 +332,11 @@ class TestBehaviour:
     def test_lh_st_015_stale_notice_marker_from_another_account_is_ignored(
         self, tmp_path: Path
     ) -> None:
+        """另一個帳號貼出的 stale notice 標記不被辨識，且該留言算人為活動。
+
+        spec: issue-triage-staleness-review#stale-notice-marker-from-another-account-is-ignored
+        tc: ITA-ST-008
+        """
         comments = [_comment("mallory", "User", "2026-09-01T00:00:00Z", STALE_MARKER)]
         proc = _run(tmp_path, comments)
         assert proc.returncode == EXIT_OK, proc.stderr
@@ -321,7 +360,11 @@ class TestBehaviour:
 
 class TestFailures:
     def test_lh_st_018_viewer_lookup_failure_exits_3_without_output(self, tmp_path: Path) -> None:
-        """取不到目前帳號時，不得回退成「沒有人是 skill」而把 skill 的留言算成人為活動。"""
+        """取不到目前帳號時，不得回退成「沒有人是 skill」而把 skill 的留言算成人為活動。
+
+        spec: issue-triage-staleness-review#comment-lookup-fails-for-one-issue
+        tc: ITA-EG-009
+        """
         proc = _run(
             tmp_path, [_comment("alice", "User", "2026-02-01T00:00:00Z")], FAKE_GH_FAIL="user"
         )

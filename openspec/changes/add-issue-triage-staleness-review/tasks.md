@@ -30,3 +30,8 @@
 - [x] 5.1 若 SKILL.md 的 description 或 Usage 文字有變，同步更新 skills/README.md 索引列；先 git add 新檔，再跑 make ci（--all-files 的 pre-commit 與 pytest，含 markdownlint MD013 與 lint-skill-overlap）。驗證：make ci 全綠，且確認 git diff --name-only 在 hook 跑完後為空
 - [x] 5.2 以 spectra analyze 與 spectra validate 驗證本 change 的 artifact 一致性，並逐一對照兩份 spec 的 Requirement 與 SKILL.md、兩支腳本的行為，確認沒有只存在於其中一邊的 guard。驗證：analyze 無 Critical 與 Warning，validate 通過
 - [x] 5.3 依 plugin 版本 lockstep 慣例，在 PR 內用 scripts/sync-plugin-versions.sh 升版（不在本 change 內執行 make release）。驗證：所有 plugin 的 package.json 與 .claude-plugin/plugin.json 版本一致
+
+## 6. 範圍追加（Review Contract AC-14，howie 同意納入）
+
+- [x] 6.1 補上 testplan.md（pr-cycle-deep 的 pre-review check 擋下「feat 缺 testplan」）：trace: enforced、TC 與 scenario 的對應、Manual Verification，並在既有測試的 docstring 加上 spec 與 tc 綁定，新增 test_skill_contract.py 的 SKILL.md 文字契約測試與突變自檢。驗證：check_testplan_trace.py 在 --repo-root . 下無 finding，換成無關測試目錄會回報 missing，--strict 只剩 4 個 manual-open
+- [x] 6.2 修正 plugins/sdd/scripts/check_testplan_trace.py 的 discover_test_files：略過規則改看相對 root 的路徑，修正 repo root 位於 .claude/worktrees 時所有測試檔被略過、enforced 且 tasks 全勾的 change 把每個 auto TC 報成 missing。驗證：回歸測試 TPT-ST-009 到 012（修正前 009、011 轉紅，010、012 維持綠），四個單點突變各被恰好一個測試擊殺，hook 指令在 worktree 內不再報 FAIL
