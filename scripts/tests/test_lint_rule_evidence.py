@@ -645,6 +645,13 @@ _BLOCKING_SHAPES = frozenset(
         "bad_unknown_reason.diff",
         "bad_placeholder_explanation.diff",
         "bad_double_declaration.diff",
+        # 以下五個形狀來自 PR #528 review：同一 hunk 兩個 section、git 對特殊檔名的 C-style 引號、
+        # 二進位新檔、空的新檔、copy 進 rules（其中三個是真實 git 輸出）。
+        "bad_two_sections_one_undeclared.diff",
+        "bad_quoted_path_new_file.diff",
+        "bad_binary_new_rule_file.diff",
+        "bad_empty_new_rule_file.diff",
+        "bad_copy_into_rules.diff",
     }
 )
 
@@ -660,6 +667,12 @@ _FAKE_FS = {
     ".claude/rules/13-bash-anti-patterns.md": "# rule\n",
     ".claude/rules/17-shell-script-authoring.md": "# rule\n",
     "plugins/growth/skills/pr-retrospective/SKILL.md": "# skill\n",
+    # 下面三筆各自只被「一個」資格條件擋下，讓 eligibility 參數化測試能分辨是哪個條件在作用：
+    # 子目錄的 SKILL.md（只有 SKILL.md 條件會擋）、tasks/ 下非 tests/ 的檔案（只有 tests/ 正則會擋）、
+    # 含反斜線的路徑（前綴合格，只有反斜線條件會擋）。
+    "scripts/sub/SKILL.md": "# skill\n",
+    "tasks/foo/bar.py": "def bar():\n    pass\n",
+    "scripts/sub\\x.py": "def x():\n    pass\n",
 }
 
 
@@ -701,7 +714,7 @@ def test_bad_fixture_passes_the_evidence_check(name: str) -> None:
 
 @pytest.mark.parametrize("name", sorted(_BLOCKING_SHAPES))
 def test_bad_fixture_is_rejected_by_pure_function(name: str) -> None:
-    # 十個形狀全是 error 層級：任何 rule 檔缺宣告（新檔、既有檔）、任何假宣告，或看不到內容的純 rename
+    # 所有擋下形狀都是 error 層級：任何 rule 檔缺宣告（新檔、既有檔）、任何假宣告，或看不到內容的純 rename
     errors = lint_rule_evidence.check_rule_mechanization(_fixture_text(name), _fake_read)
     assert errors, f"{name} 應為 error 層級"
 
@@ -747,13 +760,20 @@ def test_good_fixtures_report_nothing(name: str) -> None:
         ("scripts/missing.py", False),
         ("scripts/../.claude/rules/13-bash-anti-patterns.md", False),
         ("/etc/passwd", False),
+        # 每列只有一個資格條件能擋下它（見 `_FAKE_FS` 的註解）：拿掉該條件，該列就會轉成 True。
+        ("scripts/sub/SKILL.md", False),
+        ("tasks/foo/bar.py", False),
+        ("scripts/sub\\x.py", False),
+        # symbol 的前綴邊界：`rule_evidence` 是 `check_rule_evidence` 的後綴，不是獨立的字。
+        ("scripts/lint_rule_evidence.py::rule_evidence", False),
     ],
 )
 def test_gate_link_eligibility(link: str, resolves: bool) -> None:
     """
     spec: rule-mechanization-gate#link-to-a-nonexistent-path-is-an-error
     spec: rule-mechanization-gate#link-to-another-rule-file-is-rejected
-    tc: RMG-VL-005, RMG-VL-006
+    spec: rule-mechanization-gate#each-eligibility-condition-is-individually-enforced
+    tc: RMG-VL-005, RMG-VL-006, RMG-EP-041
     """
     diff = _existing_rule_section_diff([f"<!-- gate: {link} -->"])
     errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
@@ -1304,3 +1324,778 @@ def test_injection_anchor_missing_fails() -> None:
     """
     with pytest.raises(LookupError):
         _inject_section("# 只有 H1\n\n沒有二級標題。\n", None)
+
+
+# =====================================================================================
+# PR #528 review 修補（一）：lint 讀 diff 的方式與 gate 連結的資料來源
+#
+# 下面的測試全部用真實 git 在暫存 repo 產生 diff，不手寫 git 輸出：這一組缺陷（C-style 引號、
+# 使用者的 diff 設定、binary / 空檔 / copy 的輸出形狀）都是「git 實際輸出的形狀與手寫 fixture
+# 不同」造成的，手寫 fixture 只會證明 parser 讀得懂自己想像的輸入。
+# =====================================================================================
+
+_UNDECLARED = "# T\n\n## Section\n\n內文。(Source: PR #339)\n"
+_DECLARED = _UNDECLARED + _VALID_EXEMPTION
+
+
+def _real_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    _init_repo(tmp_path)
+    monkeypatch.setattr(lint_rule_evidence, "REPO_ROOT", tmp_path)
+    return tmp_path
+
+
+def _put(repo: Path, rel: str, content: str | bytes) -> Path:
+    path = repo / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(content, bytes):
+        path.write_bytes(content)
+    else:
+        path.write_text(content, encoding="utf-8")
+    return path
+
+
+def _commit_all(repo: Path, message: str) -> str:
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", message)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+# --- C-style 引號：非 ASCII / 特殊字元檔名不可讓整個檔案對兩個 lint 隱形 ---
+
+
+@pytest.mark.parametrize("filename", ["規則.md", 'a"b.md', "tab\tname.md"])
+def test_special_filename_new_rule_file_is_checked_in_staged_and_range_modes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    filename: str,
+) -> None:
+    """git 預設把非 ASCII 與特殊字元路徑 C-style 引號成 `"b/\\350..."`，舊 parser 留著開頭的引號，
+    路徑正則對不上，整個檔案靜默通過（exit 0 `[OK]`）。
+
+    spec: rule-mechanization-gate#non-ascii-and-special-character-paths-are-checked
+    tc: RMG-DT-026
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    base = _git(repo, "rev-parse", "HEAD")
+    rel = f".claude/rules/{filename}"
+    _put(repo, rel, _UNDECLARED)
+    _git(repo, "add", "-A")
+
+    assert lint_rule_evidence.main([]) == 1, "staged 模式：未宣告的特殊檔名 rule 檔必須被擋下"
+    err = capsys.readouterr().err
+    assert filename in err and "缺少機械化宣告" in err, "錯誤輸出要點名真實檔名，不是引號形式"
+
+    head1 = _commit_all(repo, "add undeclared rule")
+    assert lint_rule_evidence.main(["--base", base, "--head", head1]) == 1, "range 模式"
+
+    # 對照：同樣特殊檔名、宣告齊全的另一個檔案必須通過（不能因為修補而誤擋）
+    _put(repo, f".claude/rules/declared-{filename}", _DECLARED)
+    _git(repo, "add", "-A")
+    assert lint_rule_evidence.main([]) == 0, "對照：宣告齊全的特殊檔名不得誤報"
+    head2 = _commit_all(repo, "add declared rule")
+    assert lint_rule_evidence.main(["--base", head1, "--head", head2]) == 0
+
+
+def test_cjk_pure_rename_into_rules_is_blocked_in_staged_and_range_modes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """純 rename 的 `rename to "..."` 同樣被引號：CJK 檔名的 `git mv` 進 rules 曾經完全隱形。
+
+    spec: rule-mechanization-gate#non-ascii-and-special-character-paths-are-checked
+    tc: RMG-DT-026
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    _put(repo, "scripts/筆記.md", _UNDECLARED)
+    base = _commit_all(repo, "seed notes")
+    (repo / ".claude" / "rules").mkdir(parents=True)
+
+    _git(repo, "mv", "scripts/筆記.md", ".claude/rules/筆記.md")
+    assert lint_rule_evidence.main([]) == 1, "staged 模式"
+    assert ".claude/rules/筆記.md" in capsys.readouterr().err
+
+    head = _commit_all(repo, "move notes into rules")
+    assert lint_rule_evidence.main(["--base", base, "--head", head]) == 1, "range 模式"
+
+
+def test_diff_file_with_git_default_quoting_is_decoded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """positional diff 檔模式讀到的是別處產生的 diff（可能是 git 預設引號形式）：同樣要解碼。
+
+    spec: rule-mechanization-gate#non-ascii-and-special-character-paths-are-checked
+    tc: RMG-DT-026
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    _put(repo, ".claude/rules/規則.md", _UNDECLARED)
+    _git(repo, "add", "-A")
+    raw = _git(
+        repo,
+        "-c",
+        "core.quotePath=true",
+        "diff",
+        "--cached",
+        "--unified=0",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+    )
+    assert '+++ "b/.claude/rules/\\350\\246\\217\\345\\211\\207.md"' in raw, (
+        "錨點：git 真的輸出了引號形式"
+    )
+    diff_file = tmp_path.parent / f"{tmp_path.name}-quoted.diff"
+    diff_file.write_text(raw + "\n", encoding="utf-8")
+
+    assert lint_rule_evidence.main([str(diff_file)]) == 1
+
+
+def test_undecodable_quoted_path_exits_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """引號裡不是合法 UTF-8 的路徑無法判定是不是 rules 檔：fail loud（exit 2），不可略過。
+
+    spec: rule-mechanization-gate#undecodable-quoted-path-exits-2
+    tc: RMG-EG-027
+    """
+    diff = (
+        'diff --git "a/x" "b/\\377\\376.md"\n'
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        '+++ "b/.claude/rules/\\377\\376.md"\n'
+        "@@ -0,0 +1 @@\n"
+        "+內容\n"
+    )
+    diff_file = tmp_path / "bad-quote.diff"
+    diff_file.write_text(diff, encoding="utf-8")
+
+    assert lint_rule_evidence.main([str(diff_file)]) == 2
+    captured = capsys.readouterr()
+    assert "[FAIL]" in captured.err and "[OK]" not in captured.out
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("plain/path.md", "plain/path.md"),
+        ('"a\\tb"', "a\tb"),
+        ('"a\\"b"', 'a"b'),
+        ('"a\\\\b"', "a\\b"),
+        ('"a\\nb"', "a\nb"),
+        ('"\\350\\246\\217\\345\\211\\207"', "規則"),
+        ('"mix\\350\\246\\217-ascii"', "mix規-ascii"),
+    ],
+)
+def test_unquote_c_path_decodes_git_escapes(raw: str, expected: str) -> None:
+    """
+    spec: rule-mechanization-gate#non-ascii-and-special-character-paths-are-checked
+    tc: RMG-DT-026
+    """
+    assert lint_rule_evidence._unquote_c_path(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ['"\\377"', '"unterminated', '"bad\\qescape"', '"\\35"'])
+def test_unquote_c_path_rejects_what_it_cannot_decode(raw: str) -> None:
+    """
+    spec: rule-mechanization-gate#undecodable-quoted-path-exits-2
+    tc: RMG-EG-027
+    """
+    with pytest.raises(ValueError):
+        lint_rule_evidence._unquote_c_path(raw)
+
+
+# --- 使用者的 git 設定不可讓 staged 模式變成 no-op ---
+
+
+@pytest.mark.parametrize("setting", ["color", "external", "textconv"])
+def test_user_diff_config_cannot_turn_staged_mode_into_a_noop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, setting: str
+) -> None:
+    """`color.ui=always`、`diff.external`、textconv 都會改寫 `git diff` 的輸出，舊指令因此讀不到
+    `+## Section` 而靜默通過；`--no-color --no-ext-diff --no-textconv` 把輸出釘回純文字。
+
+    spec: rule-mechanization-gate#user-diff-configuration-cannot-hide-a-change
+    tc: RMG-DT-028
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    if setting == "color":
+        _git(repo, "config", "color.ui", "always")
+    elif setting == "external":
+        _git(repo, "config", "diff.external", "true")
+    else:
+        _put(repo, ".gitattributes", "*.md diff=hide\n")
+        _git(repo, "config", "diff.hide.textconv", "true")
+    _put(repo, ".claude/rules/30-cfg.md", _UNDECLARED)
+    _git(repo, "add", "-A")
+
+    raw = _git(repo, "diff", "--cached", "--unified=0")
+    assert "\n+## Section" not in raw, f"錨點：{setting} 設定確實改壞了未加旗標的 git diff 輸出"
+    assert lint_rule_evidence.main([]) == 1
+
+    # 對照：宣告齊全的內容必須通過。textconv 讓新檔看起來像空檔，沒有 `--no-textconv` 時會被
+    # 「空的新 rule 檔」fail-closed 擋下——只看上面那個 exit 1，這個旗標拿掉也不會有人發現。
+    _put(repo, ".claude/rules/30-cfg.md", _DECLARED)
+    _git(repo, "add", "-A")
+    assert lint_rule_evidence.main([]) == 0
+
+
+# --- copy 偵測：`diff.renames=copies` 不可讓 copy 進 rules 變成看不到內容 ---
+
+
+@pytest.mark.parametrize("declared", [False, True])
+def test_diff_renames_copies_config_cannot_hide_a_copy_into_rules(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    declared: bool,
+) -> None:
+    """來源檔在同一次變更裡也被修改時，`diff.renames=copies` 會讓 git 輸出沒有 hunk 的
+    `copy from/to`。明確的 `-M` 讓 git 改輸出一般的新檔 diff，lint 於是看得到內容：
+
+    - 未宣告的內容：被擋下，且錯誤點名 section 標題（證明是內容被看見，不是 fail-closed 的盲擋）。
+    - 宣告齊全的內容：通過（若退回只看 copy 標頭，合法的複製反而會被誤擋）。
+
+    spec: rule-mechanization-gate#copy-into-the-rules-directory-is-rejected
+    tc: RMG-DT-029
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    content = _DECLARED if declared else _UNDECLARED
+    _put(repo, "scripts/notes.md", content)
+    _commit_all(repo, "seed notes")
+    _git(repo, "config", "diff.renames", "copies")
+    _put(repo, ".claude/rules/copied.md", content)
+    _put(repo, "scripts/notes.md", content + "額外一行。\n")
+    _git(repo, "add", "-A")
+
+    raw = _git(repo, "diff", "--cached", "--unified=0")
+    assert "copy from scripts/notes.md" in raw, "錨點：未加 -M 時 git 真的輸出沒有 hunk 的 copy"
+
+    rc = lint_rule_evidence.main([])
+    err = capsys.readouterr().err
+    if declared:
+        assert rc == 0, err
+    else:
+        assert rc == 1
+        assert "Section" in err and "純 copy" not in err
+
+
+def test_copy_without_hunk_into_rules_is_rejected_by_the_parser_fallback() -> None:
+    """即使輸出仍出現沒有 hunk 的 copy（例如非本 lint 產生的 diff 檔），也不可當成通過。
+
+    spec: rule-mechanization-gate#copy-into-the-rules-directory-is-rejected
+    tc: RMG-DT-029
+    """
+    errors = lint_rule_evidence.check_rule_mechanization(
+        _fixture_text("bad_copy_into_rules.diff"), _fake_read
+    )
+    assert len(errors) == 1
+    assert ".claude/rules/copied.md" in errors[0] and "copy" in errors[0]
+
+
+def test_copy_between_rule_files_is_still_a_new_rule_file() -> None:
+    """來源本身就在 rules 目錄內的 copy 也是新檔：不能套用「目錄內改名」的豁免。
+
+    spec: rule-mechanization-gate#copy-into-the-rules-directory-is-rejected
+    tc: RMG-DT-029
+    """
+    diff = (
+        "diff --git a/.claude/rules/a.md b/.claude/rules/b.md\n"
+        "similarity index 100%\n"
+        "copy from .claude/rules/a.md\n"
+        "copy to .claude/rules/b.md\n"
+    )
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert len(errors) == 1 and ".claude/rules/b.md" in errors[0]
+
+
+def test_copy_out_of_rules_is_not_flagged() -> None:
+    diff = (
+        "diff --git a/.claude/rules/a.md b/docs/a.md\n"
+        "similarity index 100%\n"
+        "copy from .claude/rules/a.md\n"
+        "copy to docs/a.md\n"
+    )
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
+
+
+# --- 看不到內容的新 rule 檔：二進位與空檔 ---
+
+
+def test_binary_new_rule_file_is_rejected_in_staged_and_range_modes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """含 NUL 的新檔被 git 判為 `Binary files /dev/null and b/<p> differ`：沒有 `+++`，
+    舊 parser 建不出記錄，整個檔案靜默通過。證據 lint 的結果不變（仍忽略它）。
+
+    spec: rule-mechanization-gate#binary-new-rule-file-is-rejected
+    tc: RMG-DT-030
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    base = _git(repo, "rev-parse", "HEAD")
+    _put(repo, ".claude/rules/31-bin.md", b"# B\n\x00\x01\n")
+    _git(repo, "add", "-A")
+    raw = lint_rule_evidence._staged_diff()
+    assert "Binary files /dev/null and b/.claude/rules/31-bin.md differ" in raw, "錨點"
+
+    assert lint_rule_evidence.main([]) == 1
+    err = capsys.readouterr().err
+    assert ".claude/rules/31-bin.md" in err and "二進位" in err
+
+    head = _commit_all(repo, "add binary rule")
+    assert lint_rule_evidence.main(["--base", base, "--head", head]) == 1
+
+    assert lint_rule_evidence.check_rule_evidence(raw) == [], "證據 lint 的既有行為不變"
+    assert lint_rule_evidence.warn_rule_evidence(raw) == []
+
+
+def test_empty_new_rule_file_is_rejected_in_staged_and_range_modes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """空的新檔只有 `new file mode` + `index`、沒有 `+++`。空檔沒有任何地方可以放宣告，
+    檔案層級宣告規則因此一定不滿足。
+
+    spec: rule-mechanization-gate#empty-new-rule-file-is-rejected
+    tc: RMG-DT-031
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    base = _git(repo, "rev-parse", "HEAD")
+    _put(repo, ".claude/rules/32-empty.md", "")
+    _git(repo, "add", "-A")
+    raw = lint_rule_evidence._staged_diff()
+    assert "new file mode" in raw and "+++" not in raw, "錨點：空檔的 diff 沒有 `+++`"
+
+    assert lint_rule_evidence.main([]) == 1
+    err = capsys.readouterr().err
+    assert ".claude/rules/32-empty.md" in err and "空" in err
+
+    head = _commit_all(repo, "add empty rule")
+    assert lint_rule_evidence.main(["--base", base, "--head", head]) == 1
+
+    assert lint_rule_evidence.check_rule_evidence(raw) == []
+    assert lint_rule_evidence.warn_rule_evidence(raw) == []
+
+
+def test_binary_and_empty_files_outside_rules_are_not_flagged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """對照：同樣的形狀放在 rules 目錄之外，不是本 gate 的事。"""
+    repo = _real_repo(tmp_path, monkeypatch)
+    _put(repo, "scripts/blob.bin", b"\x00\x01\x02")
+    _put(repo, "scripts/empty.txt", "")
+    _git(repo, "add", "-A")
+
+    assert lint_rule_evidence.main([]) == 0
+
+
+# --- gate 連結的資料來源：看「將被 commit / 被審查」的內容，不是工作樹 ---
+
+
+def test_staged_mode_reads_the_gate_from_the_index_not_the_working_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """只存在於磁碟、沒有 stage 的 gate script，commit 之後連結就是 dangling：舊實作讀工作樹，
+    誤報通過；反過來，已 stage 但磁碟上已不在的 gate 連結其實有效，不該誤擋。
+
+    spec: rule-mechanization-gate#staged-mode-reads-gate-links-from-the-index
+    tc: RMG-DT-032
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    link = "<!-- gate: scripts/new_gate.py::gate -->\n"
+    _put(repo, ".claude/rules/33-link.md", _UNDECLARED + link)
+    _put(repo, "scripts/new_gate.py", "def gate():\n    pass\n")
+    _git(repo, "add", ".claude/rules/33-link.md")  # gate script 刻意不 stage
+
+    assert lint_rule_evidence.main([]) == 1, "gate 只在磁碟上：commit 後會是 dangling link"
+    assert "scripts/new_gate.py" in capsys.readouterr().err
+
+    _git(repo, "add", "scripts/new_gate.py")
+    assert lint_rule_evidence.main([]) == 0, "對照：gate 已 stage 則通過"
+
+    (repo / "scripts" / "new_gate.py").write_text("# 工作樹版本沒有 symbol\n", encoding="utf-8")
+    assert lint_rule_evidence.main([]) == 0, "symbol 比對用 index 的內容，不是工作樹"
+
+    (repo / "scripts" / "new_gate.py").unlink()
+    assert lint_rule_evidence.main([]) == 0, "對照：index 有、磁碟沒有，連結有效"
+
+
+def test_range_mode_reads_the_gate_from_the_requested_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """range 模式審的是 `--head`：checkout 在別的 commit 時，不可拿 checkout 的內容當答案。
+
+    spec: rule-mechanization-gate#range-mode-reads-gate-links-from-the-head
+    tc: RMG-DT-033
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    base = _git(repo, "rev-parse", "HEAD")
+    link = "<!-- gate: scripts/new_gate.py -->\n"
+
+    _put(repo, ".claude/rules/34-link.md", _UNDECLARED + link)
+    _put(repo, "scripts/new_gate.py", "def gate():\n    pass\n")
+    head_with_gate = _commit_all(repo, "rule and gate")
+    _git(repo, "checkout", "-q", base)
+    assert not (repo / "scripts" / "new_gate.py").exists(), "錨點：checkout 不含 gate"
+    assert lint_rule_evidence.main(["--base", base, "--head", head_with_gate]) == 0
+
+    # 對照：head 沒有 gate，但目前 checkout 的工作樹有 -> 仍須判為 dangling
+    _git(repo, "checkout", "-q", "-b", "gate-only", base)
+    _put(repo, "scripts/new_gate.py", "def gate():\n    pass\n")
+    _commit_all(repo, "gate only")
+    _git(repo, "checkout", "-q", "-b", "rule-only", base)
+    _put(repo, ".claude/rules/34-link.md", _UNDECLARED + link)
+    head_without_gate = _commit_all(repo, "rule only")
+    _git(repo, "checkout", "-q", "gate-only")
+    assert (repo / "scripts" / "new_gate.py").exists(), "錨點：checkout 含 gate"
+    assert lint_rule_evidence.main(["--base", base, "--head", head_without_gate]) == 1
+
+
+def test_diff_file_mode_reads_the_gate_from_the_working_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """positional diff 檔不帶 git 脈絡，沒有 index 或 head 可讀，所以讀工作樹（文件化的行為）。
+
+    spec: rule-mechanization-gate#diff-file-mode-reads-gate-links-from-the-working-tree
+    tc: RMG-DT-034
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    diff = _existing_rule_section_diff(["<!-- gate: scripts/new_gate.py -->"])
+    diff_file = tmp_path.parent / f"{tmp_path.name}-link.diff"
+    diff_file.write_text(diff, encoding="utf-8")
+
+    assert lint_rule_evidence.main([str(diff_file)]) == 1
+    _put(repo, "scripts/new_gate.py", "def gate():\n    pass\n")
+    assert lint_rule_evidence.main([str(diff_file)]) == 0
+
+
+def test_git_failure_while_reading_a_gate_exits_2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """讀 gate 時 git 本身失敗不是「路徑不存在」：必須 exit 2，不可吞成連結有效或無效。
+
+    spec: rule-mechanization-gate#git-failure-while-reading-a-gate-exits-2
+    tc: RMG-EG-035
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    _put(repo, ".claude/rules/35-link.md", _UNDECLARED + "<!-- gate: scripts/g.py -->\n")
+    _put(repo, "scripts/g.py", "x = 1\n")
+    _git(repo, "add", "-A")
+    assert lint_rule_evidence.main([]) == 0, "前提：不壞掉時是通過的"
+    capsys.readouterr()
+
+    def broken(*_args: object, **_kwargs: object) -> bytes:
+        raise OSError("simulated git failure")
+
+    monkeypatch.setattr(lint_rule_evidence, "_git_bytes", broken)
+    assert lint_rule_evidence.main([]) == 2
+    captured = capsys.readouterr()
+    assert "[FAIL]" in captured.err and "[OK]" not in captured.out
+
+
+def test_git_gate_reader_raises_for_an_unresolvable_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """spec: rule-mechanization-gate#git-failure-while-reading-a-gate-exits-2
+    tc: RMG-EG-035
+    """
+    _real_repo(tmp_path, monkeypatch)
+    read = lint_rule_evidence._git_gate_reader("0" * 40)
+    with pytest.raises(OSError):
+        read("scripts/x.py")
+
+
+@pytest.mark.parametrize("ref", [None, "HEAD"])
+def test_git_gate_reader_only_accepts_an_exact_blob(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ref: str | None
+) -> None:
+    """連到目錄、或帶 glob 字元的路徑不是 gate 檔：只有精確路徑的 blob 才算存在。
+
+    spec: rule-mechanization-gate#link-to-a-directory-is-treated-as-absent
+    tc: RMG-VL-036
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    _put(repo, "scripts/sub/a.py", "def a():\n    pass\n")
+    _put(repo, "scripts/b.py", "def b():\n    pass\n")
+    _commit_all(repo, "add scripts")
+    read = lint_rule_evidence._git_gate_reader(ref)
+
+    assert "def a" in (read("scripts/sub/a.py") or "")
+    assert read("scripts/sub") is None, "目錄不是 gate 檔"
+    assert read("scripts/*.py") is None, "pathspec glob 不可展開成別的檔案"
+    assert read("scripts/absent.py") is None
+
+
+@pytest.mark.parametrize("ref", [None, "HEAD"])
+def test_git_gate_reader_treats_the_path_literally(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ref: str | None
+) -> None:
+    """檔名本身含 glob 字元（`[1]`）時，連結要精確指到那個檔案，而不是被當成 pattern 後找不到自己。
+
+    spec: rule-mechanization-gate#link-to-a-directory-is-treated-as-absent
+    tc: RMG-VL-036
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    _put(repo, "scripts/x[1].py", "def literal():\n    pass\n")
+    _commit_all(repo, "add bracket-named gate")
+
+    assert "def literal" in (lint_rule_evidence._git_gate_reader(ref)("scripts/x[1].py") or "")
+
+
+def test_git_gate_reader_refuses_an_unmerged_index_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """合併衝突中的檔案（index stage 非 0）無法判定內容：raise，不可挑一個 stage 當答案。
+
+    spec: rule-mechanization-gate#git-failure-while-reading-a-gate-exits-2
+    tc: RMG-EG-035
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    _put(repo, "scripts/g.py", "x = 0\n")
+    base = _commit_all(repo, "seed gate")
+    _git(repo, "checkout", "-q", "-b", "side", base)
+    _put(repo, "scripts/g.py", "x = 'side'\n")
+    _commit_all(repo, "side edit")
+    _git(repo, "checkout", "-q", "main")
+    _put(repo, "scripts/g.py", "x = 'main'\n")
+    _commit_all(repo, "main edit")
+    merge = subprocess.run(  # nosec B603
+        ["git", "-C", str(repo), "merge", "side"], capture_output=True, text=True, check=False
+    )
+    assert merge.returncode != 0, "錨點：這個合併必須真的產生衝突"
+
+    with pytest.raises(OSError):
+        lint_rule_evidence._git_gate_reader(None)("scripts/g.py")
+
+
+def test_staged_diff_does_not_quote_non_ascii_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`-c core.quotePath=false` 讓非 ASCII 路徑照原樣輸出（解碼器是第二道防線，不是唯一一道）。
+
+    spec: rule-mechanization-gate#non-ascii-and-special-character-paths-are-checked
+    tc: RMG-DT-026
+    """
+    repo = _real_repo(tmp_path, monkeypatch)
+    _put(repo, ".claude/rules/規則.md", _UNDECLARED)
+    _git(repo, "add", "-A")
+
+    assert "+++ b/.claude/rules/規則.md" in lint_rule_evidence._staged_diff()
+
+
+# =====================================================================================
+# PR #528 review 修補（二）：section 的切法（fence、改標題、同一 hunk 多個 section）與邊界釘死
+# =====================================================================================
+
+_EXEMPTION_LINE = "<!-- gate: none (reason: judgment) — 這個判斷需要讀完整個 prompt 才能做 -->"
+_RULE_13 = ".claude/rules/13-bash-anti-patterns.md"
+
+
+def _hunk_diff(path: str, removed: list[str], added: list[str]) -> str:
+    """帶有被移除行的單一 hunk（`--unified=0`）；用來構造「改標題」這類形狀。"""
+    rem = "".join(f"-{line}\n" for line in removed)
+    add = "".join(f"+{line}\n" for line in added)
+    return (
+        f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n"
+        f"@@ -10,{len(removed)} +10,{len(added)} @@\n{rem}{add}"
+    )
+
+
+# --- fenced code block 內的 heading 不是 section ---
+
+
+@pytest.mark.parametrize(
+    "fence",
+    [
+        ["```markdown", "## When to use", "## Steps", "```"],
+        ["~~~markdown", "## When to use", "## Steps", "~~~"],
+        ["````markdown", "```", "## When to use", "```", "## Steps", "````"],
+    ],
+    ids=["backtick", "tilde", "nested-longer-fence"],
+)
+def test_heading_inside_a_code_fence_is_not_a_section(fence: list[str]) -> None:
+    """rule 11 之類的文件會在 fence 裡示範 `## When to use`：那不是新 section，錯誤也沒有辦法修
+    （宣告放在哪都救不了一個不存在的 section）。
+
+    spec: rule-mechanization-gate#heading-inside-a-code-fence-is-not-a-section
+    tc: RMG-EP-037
+    """
+    body = ["### Real Section", "", "(Source: PR #339)", _EXEMPTION_LINE, "", *fence]
+    diff = _existing_file_diff(_RULE_13, body)
+
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
+    assert lint_rule_evidence.warn_rule_evidence(diff) == [], "證據檢查共用同一個切法"
+
+
+def test_heading_after_a_closed_fence_is_still_a_section() -> None:
+    """對照：fence 關閉之後的 heading 仍是 section，不能因為前面出現過 fence 就整段放行。
+
+    spec: rule-mechanization-gate#heading-inside-a-code-fence-is-not-a-section
+    tc: RMG-EP-037
+    """
+    body = ["### Real Section", _EXEMPTION_LINE, "(Source: PR #339)", "```", "## Inside", "```"]
+    body += ["### After Fence", "(Source: PR #339)"]
+    errors = lint_rule_evidence.check_rule_mechanization(
+        _existing_file_diff(_RULE_13, body), _fake_read
+    )
+    assert len(errors) == 1 and "After Fence" in errors[0]
+
+
+def test_tilde_fenced_declaration_does_not_count() -> None:
+    """宣告引用在 `~~~` fence 裡同樣只是範例（過去只認 backtick fence）。
+
+    spec: rule-mechanization-gate#declaration-quoted-in-a-code-fence-does-not-count
+    tc: RMG-DT-003
+    """
+    diff = _existing_rule_section_diff(
+        ["~~~text", "<!-- gate: scripts/lint_rule_evidence.py -->", "~~~"]
+    )
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+
+
+# --- 改標題不是新 section ---
+
+
+def test_retitled_heading_is_not_a_new_section() -> None:
+    """`-### Old` / `+### New` 是改標題：既有 section 不回溯補宣告（Non-goal），不可擋 commit。
+
+    spec: rule-mechanization-gate#retitled-heading-is-not-a-new-section
+    tc: RMG-DT-038
+    """
+    diff = _hunk_diff(_RULE_13, ["### Old Title"], ["### New Title", "改過的內文。"])
+
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
+    assert lint_rule_evidence.warn_rule_evidence(diff) == []
+    assert lint_rule_evidence.check_rule_evidence(diff) == []
+
+
+def test_heading_whose_level_changed_is_still_checked() -> None:
+    """對照：同一段文字但層級不同（`##` -> `###`）不算改標題，仍是一個新 section。
+
+    spec: rule-mechanization-gate#retitled-heading-is-not-a-new-section
+    tc: RMG-DT-038
+    """
+    diff = _hunk_diff(_RULE_13, ["## Same Words"], ["### Same Words", "內文。(Source: PR #339)"])
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert len(errors) == 1 and "Same Words" in errors[0]
+
+
+def test_each_removed_heading_excuses_only_one_added_heading() -> None:
+    """對照：改標題只豁免「一對一」；多出來的新 heading 仍是新 section。
+
+    spec: rule-mechanization-gate#retitled-heading-is-not-a-new-section
+    tc: RMG-DT-038
+    """
+    diff = _hunk_diff(
+        _RULE_13,
+        ["### Old Title"],
+        ["### New Title", "改過的內文。", "### Brand New", "(Source: PR #339)"],
+    )
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert len(errors) == 1 and "Brand New" in errors[0]
+
+
+def test_removed_heading_in_another_hunk_does_not_excuse_an_added_one() -> None:
+    """被移除的 heading 只在「同一個 hunk」內豁免新增的 heading，不跨 hunk 借用。
+
+    spec: rule-mechanization-gate#retitled-heading-is-not-a-new-section
+    tc: RMG-DT-038
+    """
+    diff = (
+        f"diff --git a/{_RULE_13} b/{_RULE_13}\n--- a/{_RULE_13}\n+++ b/{_RULE_13}\n"
+        "@@ -10 +9,0 @@\n-### Gone Elsewhere\n"
+        "@@ -50,0 +50,2 @@\n+### Truly New\n+(Source: PR #339)\n"
+    )
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert len(errors) == 1 and "Truly New" in errors[0]
+
+
+def test_retitled_heading_fixture_reports_nothing() -> None:
+    """committed 的真實 git 形狀：改標題的 diff 通過兩個入口。
+
+    spec: rule-mechanization-gate#retitled-heading-is-not-a-new-section
+    tc: RMG-DT-038
+    """
+    diff = _fixture_text("good_retitled_heading.diff")
+    assert "\n-### " in diff and "\n+### " in diff, "錨點：fixture 真的含一對被移除與新增的 heading"
+    assert lint_rule_evidence.check_rule_mechanization(diff, _fake_read) == []
+    assert lint_rule_evidence.main([str(_FIXTURE_DIR / "good_retitled_heading.diff")]) == 0
+
+
+# --- 同一個 hunk 裡的每個 section 都要各自檢查 ---
+
+
+def test_second_undeclared_section_in_one_hunk_is_reported_exactly_once() -> None:
+    """第一個 section 有宣告、第二個沒有：只報第二個。能讓「只檢查第一個」的實作現形。
+
+    spec: rule-mechanization-gate#every-section-in-a-hunk-is-checked
+    tc: RMG-DT-039
+    """
+    body = [
+        "### Declared First",
+        "(Source: PR #339)",
+        _EXEMPTION_LINE,
+        "### Undeclared Second",
+        "(Source: PR #339)",
+    ]
+    errors = lint_rule_evidence.check_rule_mechanization(
+        _existing_file_diff(_RULE_13, body), _fake_read
+    )
+    assert len(errors) == 1 and "Undeclared Second" in errors[0]
+    assert "Declared First" not in errors[0]
+
+
+def test_first_undeclared_section_in_one_hunk_is_reported_exactly_once() -> None:
+    """順序相反：第一個沒宣告、第二個有。能讓「只檢查最後一個」的實作現形。
+
+    spec: rule-mechanization-gate#every-section-in-a-hunk-is-checked
+    tc: RMG-DT-039
+    """
+    body = [
+        "### Undeclared First",
+        "(Source: PR #339)",
+        "### Declared Second",
+        "(Source: PR #339)",
+        _EXEMPTION_LINE,
+    ]
+    errors = lint_rule_evidence.check_rule_mechanization(
+        _existing_file_diff(_RULE_13, body), _fake_read
+    )
+    assert len(errors) == 1 and "Undeclared First" in errors[0]
+    assert "Declared Second" not in errors[0]
+
+
+def test_a_declaration_belongs_to_the_section_it_follows_not_the_next_one() -> None:
+    """兩個 section 各自帶宣告：互不侵佔，也不會被誤判成「同一個 section 兩個宣告」。
+
+    spec: rule-mechanization-gate#every-section-in-a-hunk-is-checked
+    tc: RMG-DT-039
+    """
+    body = ["### One", _EXEMPTION_LINE, "(Source: PR #339)", "### Two", _EXEMPTION_LINE]
+    body.append("(Source: PR #339)")
+    assert (
+        lint_rule_evidence.check_rule_mechanization(_existing_file_diff(_RULE_13, body), _fake_read)
+        == []
+    )
+
+
+# --- 豁免說明的長度邊界與空白處理 ---
+
+
+@pytest.mark.parametrize(
+    ("explanation", "accepted"),
+    [
+        ("abcdefghijk", False),  # 11 個非空白字元：差一個
+        ("abcdefghijkl", True),  # 12 個：恰好達標
+        ("abcdef ghijk", False),  # 含空白共 12 個字元但只有 11 個非空白：空白不可算進去
+        ("abcdef ghijkl", True),  # 12 個非空白，中間有空白
+        ("   abcdefghijk   ", False),  # 前後空白不可把 11 個字元墊成 17 個
+    ],
+)
+def test_exemption_explanation_length_boundary(explanation: str, accepted: bool) -> None:
+    """下限是「12 個非空白字元」：差一個要擋、空白不算數、前後空白不能墊高長度。
+
+    spec: rule-mechanization-gate#exemption-explanation-length-boundary
+    tc: RMG-BVA-040
+    """
+    diff = _existing_rule_section_diff([f"<!-- gate: none (reason: judgment) — {explanation} -->"])
+    errors = lint_rule_evidence.check_rule_mechanization(diff, _fake_read)
+    assert (errors == []) is accepted, f"{explanation!r} -> {errors}"

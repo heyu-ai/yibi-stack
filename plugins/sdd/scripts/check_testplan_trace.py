@@ -139,10 +139,9 @@ def discover_test_files(roots: list[Path]) -> list[Path]:
             # `.claude/worktrees/<name>/` 時（worktree 內開發），絕對路徑一定含這兩段，
             # 舊寫法會把整個 repo 的測試全部略過，每個 TC 都被誤判 missing；
             # CI 的 checkout 路徑不含這段，所以不受影響。
-            try:
-                rel_parts = path.relative_to(root).parts
-            except ValueError:
-                rel_parts = path.parts
+            # `root.rglob` 產生的路徑一定在 root 底下，`relative_to` 不會失敗；不加 fallback，
+            # 否則萬一失敗會悄悄退回「用絕對路徑判斷」——正是上面這個 bug 本身。
+            rel_parts = path.relative_to(root).parts
             if set(rel_parts) & _SKIP_DIRS:
                 continue
             if ".claude" in rel_parts and "worktrees" in rel_parts:

@@ -7,7 +7,7 @@
 
 ## 2. 宣告偵測
 
-- [x] 2.1 實作「宣告語法使用 HTML 註解，與證據標記同形」：新增宣告 regex 常數，能解析 gate link（含 `::symbol`）與 gate exemption 兩種形式；宣告行在 fenced code block 與 table row 內不計。實作 `check_rule_mechanization` / `warn_rule_mechanization` 的 section 掃描（重用 `_missing_evidence_in_chunk` 的 hunk 內 heading 錨點邏輯）。驗證：Added rule sections carry a mechanization declaration 的四個 scenario 對應測試轉綠（有效 link 通過、缺宣告被報告、code fence 內不計、雙重宣告被拒）。
+- [x] 2.1 實作「宣告語法使用 HTML 註解，與證據標記同形」：新增宣告 regex 常數，能解析 gate link（含 `::symbol`）與 gate exemption 兩種形式；宣告行在 fenced code block 與 table row 內不計。實作 `check_rule_mechanization`（warn 版本於 9.1 移除）的 section 掃描（與證據檢查共用 `_sections_in_chunk` 的 hunk 內 heading 錨點邏輯）。驗證：Added rule sections carry a mechanization declaration 的四個 scenario 對應測試轉綠（有效 link 通過、缺宣告被報告、code fence 內不計、雙重宣告被拒）。
 
 ## 3. 連結解析
 
@@ -59,3 +59,13 @@
 - [x] 11.2 新增 `testplan.md`（`trace: enforced`，4 個 seam、25 個 auto TC、1 個 manual 項目），並為 23 個測試加上 `spec:` / `tc:` 綁定 docstring。驗證：`python3 plugins/sdd/scripts/check_testplan_trace.py --repo-root . --change add-rule-mechanization-gate --strict` 對本 change 的 TC 無 missing / mismatch / orphan；唯一的 FAIL 是 MV-001（突變驗證，須 human quick pass 確認，不預先勾選）。
 - [x] 11.3 `git add` 後重跑 `make ci`，commit 並推送，再跑 `pre_review_check.py --pr 528`。驗證：`make ci` 綠燈；pre-review check 不再因 testplan 缺失而 exit 2。
 - [x] 11.4 修正 `plugins/sdd/scripts/check_testplan_trace.py` 的 `discover_test_files`：只用 root 底下的相對路徑判斷是否略過 `.claude/worktrees`，root 本身位於 worktree 內時不再把整個 repo 的測試略過（原本每個 TC 都被誤判 missing，任務全勾後 pre-commit 會誤擋 commit）。驗證：`test_tpt_dt_009_root_inside_a_worktree_still_discovers_its_tests` 先紅後綠，對照組 `test_tpt_dt_010_nested_worktree_below_the_root_is_still_skipped` 維持綠；預設 root 下 `check_testplan_trace.py --summary` 對本 change 不再有 missing。
+
+## 12. PR #528 mob review 的修補（Critical 兩項、Important 十一項；Review Contract 不變）
+
+- [x] 12.1 讀 diff 不受使用者 git 設定影響，並解碼引號路徑：`_run_git_diff` 加 `-c core.quotePath=false`、`--no-color --no-ext-diff --no-textconv`、`-M`；`_unquote_c_path` 解碼 C-style 引號（解不開 raise `ValueError`，`main()` 轉 exit 2）。驗證：RMG-DT-026 / RMG-EG-027 / RMG-DT-028 的真實 git 測試先紅（39 個）後綠；旗標與解碼各自單點突變（拿掉 `core.quotePath`、拿掉解碼、拿掉三個旗標各一）皆轉紅。
+- [x] 12.2 看不到內容的新 rule 檔全部 fail-closed：parser 以 `_BlockHeader` 為沒有 `+++` 的區塊建立記錄，新增 copy、binary、空檔三種（連同既有的純 rename 共四種，`_FileDiff.unseen`）；copy 不看來源是否在 rules 內；證據 lint 的行為不變。驗證：RMG-DT-029 / 030 / 031，對應四個 committed fixture（真實 git 輸出）；突變：binary 旗標、空檔記錄、copy 條件各自轉紅。
+- [x] 12.3 gate 連結對「將被 commit / 被審查的內容」驗證：staged 讀 index（`git ls-files --stage`）、range 讀 `--head`（`git ls-tree`）、diff 檔模式仍讀工作樹；路徑必須精確指到 blob；git 失敗與未合併 index raise `OSError` 轉 exit 2。驗證：RMG-DT-032 / 033 / 034 / RMG-EG-035 / RMG-VL-036 的真實 git 測試；突變：staged 或 range 退回讀工作樹、拿掉精確路徑比對、git 非零 exit 被吞、未合併 stage 被忽略，皆轉紅。實測 `--literal-pathspecs` 不改變任何輸出（git 本來就先試字面相等），因此不加，由精確路徑比對負責。
+- [x] 12.4 section 切法：fenced code block（backtick、tilde、較長的外層 fence）內的 heading 不算 section；同 hunk 移除同層級 heading 時新增的 heading 視為改標題；Setext 與縮排 heading 刻意不支援（`.markdownlint.yaml` 的 MD003 會先擋下，記入 lint docstring、rule 11 與 spec）。證據檢查與宣告檢查共用同一個切法。驗證：RMG-EP-037 / RMG-DT-038 先紅後綠；七個單點突變（fence 狀態、tilde、fence 長度、改標題豁免、一對一消耗、層級、跨 hunk 借用）皆轉紅。
+- [x] 12.5 釘死先前未被測試守住的邊界：同一 hunk 兩個 section（兩種順序，加 committed `bad_two_sections_one_undeclared.diff` 經純函式與 `main()`）、12 與 11 個非空白字元與前後空白、四個資格條件各自的專屬案例（子目錄 SKILL.md、tasks 下非 tests、反斜線、後綴 symbol）。移除永遠走不到的 `_PLACEHOLDER_EXPLANATIONS`（每個佔位字樣都短於 12 個字元，長度檢查已涵蓋）。驗證：RMG-DT-039 / RMG-BVA-040 / RMG-EP-041；突變 `units[:1]`、`units[-1:]`、splitter 不開第二個 block、下限改 5、不去空白、拿掉四個資格條件各一，皆轉紅。
+- [x] 12.6 文件同步：lint docstring（兩組檢查、fail-closed 四種形狀、資料來源、setext 排除原因、exit code）、spec（新 scenario）、design（決策與風險）、testplan（16 個 TC，十五個 bad fixture）、rule 11 限制；修正 tasks 2.1 的過時名稱、`check_testplan_trace.py` 不可達的 `except ValueError`、testplan MV-001 的 fixture 數、design 的輸出描述、rule 11 的 first draft 句子。驗證：`python3 plugins/sdd/scripts/check_testplan_trace.py --repo-root <worktree 絕對路徑> --change add-rule-mechanization-gate --strict` 唯一的 FAIL 是 MV-001（人工，不預先勾選）。
+- [x] 12.7 `git add` 後 `make ci`、`git diff --name-only` 為空、commit 並推送。驗證：`make ci` exit 0（3787 passed）。

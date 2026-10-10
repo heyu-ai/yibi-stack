@@ -714,7 +714,17 @@ A missing declaration is an **error**, in a new rule file and in a new section o
 alike. So is a **false** declaration (dangling link, rule-file target, reason outside the list,
 placeholder explanation, two declarations in one section) — downgrading either would let a section
 land with no gate decision recorded. Only **added** sections are checked; existing sections are not
-backfilled. (This was a warn for existing files in the first draft; that tier was dropped.)
+backfilled — so a hunk that removes `### Old` and adds `### New` is a retitle, not a new section (one
+removed heading excuses one added heading of the **same level** in the same hunk; a different level, or
+an extra added heading, is still checked). A `##` / `###` line inside a fenced code block (backtick or
+tilde, including a longer fence wrapping a shorter one) is example text, not a section.
+
+Where a gate link is read from: the lint verifies the content being **committed or reviewed**, not
+whatever is on disk. Staged mode (pre-commit) reads the git **index**, range mode (CI) reads the tree
+of `--head`, and only the positional diff-file mode (no git context) reads the working tree. So a
+gate script that exists only as an untracked file is a dangling link, and a staged one that was
+deleted from disk is still valid. The link must name a file exactly; a directory or a glob is absent.
+If git itself fails while reading the index or head, the lint exits 2 rather than guessing.
 
 Known limits, so a reader does not over-trust a green run:
 
@@ -731,6 +741,20 @@ Known limits, so a reader does not over-trust a green run:
   instead. A rename inside `.claude/rules/`, or unrelated to it, is not flagged. The same blind spot
   still exists for a pure rename into `.claude/hooks/`, which only the evidence lint covers and which
   this change leaves alone. Re-probe after a git upgrade.
+- Three other shapes also show no content and fail closed when the target is a new rule file: a copy
+  without a hunk (the source may itself be a rule file; the target is still new), a file git classifies
+  as binary (it contains a NUL byte), and an empty file (nowhere to put a declaration). The evidence
+  lint ignores all three, as it does a pure rename, so nothing is reported twice. `diff.renames=copies`
+  cannot hide a copy: the lint passes `-M` explicitly (not `--no-renames`, which would turn an
+  in-directory rename into an undeclared new file).
+- The lint reads git with `core.quotePath=false`, `--no-color --no-ext-diff --no-textconv` and fixed
+  `a/` `b/` prefixes, so `color.ui`, `diff.external`, textconv and `diff.mnemonicPrefix` cannot change
+  what it sees. A path git still quotes (tab, `"`) is decoded; an undecodable one exits 2.
+- Setext headings (`Title` underlined with `===`) and indented headings are **not** recognised, on
+  purpose: `.markdownlint.yaml` sets `default: true`, so MD003 (consistent heading style) rejects a
+  setext heading in an ATX file before this lint runs, and every rule file is ATX.
+- A fence state that begins before the hunk (a hunk that adds only the closing fence) is invisible with
+  `--unified=0`, the same class of limit as the same-hunk declaration rule above.
 
 Self-constraint: this section lives here in rule 11 (scoped), not in an always-loaded rule file, and
 it carries its own declaration above — the lint runs over its own addition.

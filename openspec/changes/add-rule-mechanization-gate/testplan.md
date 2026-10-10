@@ -2,7 +2,7 @@
 
 trace: enforced
 
-這份 testplan 是**補寫**的（retro-fit）：測試先於本檔存在（本 change 以 TDD 先紅後綠實作，紅燈與突變證據在 PR #528 本文），此處把已存在的測試綁回 spec scenario，不是事前設計。補寫時盤點出 spec 有 7 個 scenario 沒有專屬測試（含「宣告在 heading 的 hunk 之外」完全沒被測過），已補上；另有 2 個 scenario 原本不在 spec（兩個執行點、mnemonicPrefix），因測試早已存在而補進 spec。
+這份 testplan 是**補寫**的（retro-fit）：測試先於本檔存在（本 change 以 TDD 先紅後綠實作，紅燈與突變證據在 PR #528 本文），此處把已存在的測試綁回 spec scenario，不是事前設計。補寫時盤點出 spec 有 7 個 scenario 沒有專屬測試（含「宣告在 heading 的 hunk 之外」完全沒被測過），已補上；另有 2 個 scenario 原本不在 spec（兩個執行點、mnemonicPrefix），因測試早已存在而補進 spec。PR #528 的 mob review 之後再補 16 個 TC（RMG-DT-026 至 RMG-EP-041），涵蓋引號路徑、使用者 git 設定、copy／binary／空檔、gate 連結的資料來源（index／head）、fence 與改標題的 section 切法，以及先前未被釘死的邊界；其中 git 輸出相關者一律用真實 git 暫存 repo，不手寫 diff。
 測試邊界為 `scripts/lint_rule_evidence.py` 的公開介面（`check_rule_mechanization`、`check_rule_evidence`、`main`）與 committed fixture 目錄；不針對內部函式（`_parse_diff` 等）寫 TC，它們的測試是支撐性的，不在綁定範圍。
 
 ## Test Seams
@@ -40,9 +40,25 @@ trace: enforced
 | RMG-EG-020 | auto | evidence-check | pure-rename-is-reported-once-by-the-declaration-check | 純 rename 只由宣告檢查報一次 | DT | Medium | 純 rename 進 rules | 跑證據檢查與其 warn | 100% 相似度 rename | 證據檢查與 warn 皆為空，宣告檢查恰好一個錯誤 |
 | RMG-EG-021 | auto | lint-cli | unverifiable-gate-link-exits-2 | 非不存在的 OSError 使 main exit 2 | EP | High | 讀檔函式 raise PermissionError | 注入會 raise 的讀檔函式；另測預設讀檔函式 | PermissionError | exit 2，stderr 含 FAIL，stdout 無 OK；預設讀檔函式不吞錯 |
 | RMG-VL-022 | auto | fixture-corpus | injection-anchor-absent-fails-the-control | 注入錨點找不到時對照失敗而非空洞通過 | EP | High | 沒有二級標題的文字 | 對該文字注入 | 只有 H1 的文字 | raise LookupError |
-| RMG-VL-023 | auto | fixture-corpus | each-blocking-shape-has-its-own-fixture | 每個擋下形狀各有 committed fixture | BVA | High | fixture 目錄 | 列舉 bad fixture 並與形狀集合比對 | 十個形狀 | 集合完全相等，無缺漏無多餘 |
+| RMG-VL-023 | auto | fixture-corpus | each-blocking-shape-has-its-own-fixture | 每個擋下形狀各有 committed fixture | BVA | High | fixture 目錄 | 列舉 bad fixture 並與形狀集合比對 | 十五個形狀 | 集合完全相等，無缺漏無多餘 |
 | RMG-DT-024 | auto | lint-cli | both-execution-points-run-the-declaration-check | staged 與 range 兩個執行點都跑宣告檢查 | DT | High | tmp git repo | 未宣告的新 rule 檔先 staged，再 commit 後跑 range | 28-staged.md 與 26-range.md | 兩個模式都 exit 1 |
 | RMG-DT-025 | auto | lint-cli | staged-mode-survives-diff-mnemonicprefix | mnemonicPrefix 下 staged 模式仍有效 | DT | High | repo 內開啟 diff.mnemonicPrefix | staged 未宣告的新 rule 檔 | diff.mnemonicPrefix true | exit 1 而不是靜默通過 |
+| RMG-DT-026 | auto | lint-cli | non-ascii-and-special-character-paths-are-checked | 非 ASCII 與特殊字元檔名不可讓整個檔案對兩個 lint 隱形 | DT | High | 暫存 git repo，檔名含 CJK、雙引號、tab | 未宣告的新檔 staged 與 range 各跑一次；CJK 純 rename 進 rules；git 預設引號的 diff 檔；解碼器單元；staged diff 不引號非 ASCII | 規則.md、a"b.md、tab 檔名、筆記.md | exit 1 且輸出真實檔名；同檔名補宣告後 exit 0；`-c core.quotePath=false` 拿掉時 staged diff 測試轉紅 |
+| RMG-EG-027 | auto | lint-cli | undecodable-quoted-path-exits-2 | 解不開的引號路徑大聲失敗而不是被略過 | EP | High | diff 檔含 `"b/\377\376.md"` | main 讀該 diff 檔；解碼器收四種壞輸入 | 非 UTF-8 位元組、未結尾引號、未知跳脫、不完整八進位 | exit 2、stderr 含 FAIL、stdout 無 OK；解碼器 raise ValueError |
+| RMG-DT-028 | auto | lint-cli | user-diff-configuration-cannot-hide-a-change | 使用者的 git 設定不可讓 staged 模式變成 no-op | DT | High | repo 設定 color.ui=always、diff.external 或 textconv | 先斷言未加旗標的 git diff 確實被改壞，再跑 main；最後換成宣告齊全的內容 | 三種設定各一 | 未宣告 exit 1，宣告齊全 exit 0（後者能擋住 textconv 把新檔變成空檔的誤擋） |
+| RMG-DT-029 | auto | lint-cli | copy-into-the-rules-directory-is-rejected | copy 進 rules 不可變成看不到內容，也不可因 `diff.renames=copies` 而誤擋 | DT | High | diff.renames=copies，來源檔同時被修改 | 先斷言 git 真的輸出無 hunk 的 copy，再跑 main；另以真實 git copy fixture、rules 內 copy、rules 外 copy 跑純函式 | 宣告與未宣告各一；bad_copy_into_rules.diff | 未宣告 exit 1 且點名 section，宣告齊全 exit 0；hunk-less copy 回一個錯誤；rules 內 copy 也是新檔；移出 rules 不報 |
+| RMG-DT-030 | auto | lint-cli | binary-new-rule-file-is-rejected | 含 NUL 的新 rule 檔被擋，證據 lint 行為不變 | DT | High | 暫存 git repo | staged 與 range 各一次；對照 rules 外的 binary | 31-bin.md 含 NUL | exit 1 且輸出含路徑與二進位；證據 lint 回空；rules 外不報 |
+| RMG-DT-031 | auto | lint-cli | empty-new-rule-file-is-rejected | 空的新 rule 檔被擋，證據 lint 行為不變 | DT | High | 暫存 git repo | staged 與 range 各一次；對照 rules 外的空檔 | 32-empty.md | exit 1 且輸出含路徑與空；證據 lint 回空；rules 外不報 |
+| RMG-DT-032 | auto | lint-cli | staged-mode-reads-gate-links-from-the-index | staged 模式的 gate 連結讀 index 不讀工作樹 | DT | High | 暫存 git repo，gate script 只在磁碟上 | 連結先指向未 stage 的 script，再 stage，再改工作樹內容、再刪除工作樹檔案 | scripts/new_gate.py::gate | 未 stage 時 exit 1 並點名路徑；stage 後 exit 0；工作樹改壞或刪除仍 exit 0 |
+| RMG-DT-033 | auto | lint-cli | range-mode-reads-gate-links-from-the-head | range 模式的 gate 連結讀 `--head` 的樹 | DT | High | 暫存 git repo，checkout 在別的 commit | head 含 gate 而 checkout 不含；head 不含而 checkout 含 | 兩個分支各一 | 前者 exit 0，後者 exit 1 |
+| RMG-DT-034 | auto | lint-cli | diff-file-mode-reads-gate-links-from-the-working-tree | diff 檔模式沒有 git 脈絡，讀工作樹 | DT | Medium | 暫存 repo 作為 REPO_ROOT | 同一個 diff 檔在 script 不存在與存在時各跑一次 | scripts/new_gate.py | 先 exit 1，後 exit 0 |
+| RMG-EG-035 | auto | lint-cli | git-failure-while-reading-a-gate-exits-2 | 讀 gate 時 git 失敗、解不開的 revision、未合併的 index 都 exit 2 | EP | High | 暫存 git repo | 注入會 raise 的 git 呼叫；讀不存在的 revision；製造真實合併衝突後讀該檔 | 假的 OSError、全 0 的 SHA、衝突中的 scripts/g.py | main exit 2 且無 OK；reader 對後兩者 raise OSError |
+| RMG-VL-036 | auto | mechanization-check | link-to-a-directory-is-treated-as-absent | 連到目錄或 glob 視為不存在，檔名含 glob 字元仍精確解析 | EP | Medium | 已 commit 的 scripts 目錄與 x[1].py | 對 index 與 HEAD 兩種來源各讀目錄、glob、不存在的檔、方括號檔名 | scripts/sub、scripts/*.py、scripts/x[1].py | 前三者 None，最後一個回內容 |
+| RMG-EP-037 | auto | mechanization-check | heading-inside-a-code-fence-is-not-a-section | fence 內的 heading 不是 section | EP | High | 既有 rule 檔 diff | 新增一個已宣告 section，內含三種 fence 範例；另測 fence 關閉後的 heading 與 tilde fence 內的宣告 | backtick、tilde、四個 backtick 包三個 | 宣告檢查與證據 warn 皆為空；fence 之後的 heading 仍被點名；tilde fence 內的宣告不算 |
+| RMG-DT-038 | auto | mechanization-check | retitled-heading-is-not-a-new-section | 改標題不是新 section，但成對才豁免 | DT | High | 含被移除行的 diff | 改標題；層級改變；多出一個新 heading；被移除的 heading 在別的 hunk；committed good fixture | 五組 diff | 改標題無錯誤；其餘三組各回一個點名的錯誤；fixture 經純函式與 main 皆通過 |
+| RMG-DT-039 | auto | mechanization-check | every-section-in-a-hunk-is-checked | 同一個 hunk 的每個 section 各自檢查 | DT | High | 既有 rule 檔 diff | 先宣告後未宣告、先未宣告後宣告、兩個各自宣告；另跑 committed bad fixture | 兩個 section 的 hunk | 恰好一個錯誤且點名未宣告者；兩個皆宣告無錯誤；fixture 經純函式與 main 皆被擋 |
+| RMG-BVA-040 | auto | mechanization-check | exemption-explanation-length-boundary | 說明長度下限是 12 個非空白字元 | BVA | Medium | reason 合法 | 11 個、含空白共 12 但非空白 11、前後空白墊長、12 個、12 個含空白 | abcdefghijk 等五組 | 前三組被擋，後兩組通過 |
+| RMG-EP-041 | auto | mechanization-check | each-eligibility-condition-is-individually-enforced | 每個資格條件各自有一個只有它能擋的案例 | EP | Medium | 假檔案系統含這些「存在但不合格」的檔案 | 連結子目錄 SKILL.md、tasks 下非 tests 的檔案、含反斜線的路徑、只是後綴的 symbol | scripts/sub/SKILL.md 等四組 | 全部被拒；拿掉任一資格條件至少一列轉成通過 |
 
 ## Coverage Analysis
 
@@ -74,10 +90,26 @@ trace: enforced
 | entry-point-short-circuit-turns-the-controls-red | manual | — | MV-001；需要對 production 入口做突變，不是 pytest 能在自己身上做的 |
 | injection-anchor-absent-fails-the-control | covered | RMG-VL-022 | Auto |
 | each-blocking-shape-has-its-own-fixture | covered | RMG-VL-023 | Auto |
+| non-ascii-and-special-character-paths-are-checked | covered | RMG-DT-026 | 真實 git；PR #528 review 的 Critical |
+| undecodable-quoted-path-exits-2 | covered | RMG-EG-027 | Auto |
+| user-diff-configuration-cannot-hide-a-change | covered | RMG-DT-028 | 三種設定各自單點突變驗證過 |
+| copy-into-the-rules-directory-is-rejected | covered | RMG-DT-029 | 真實 git 的 copy 輸出 |
+| binary-new-rule-file-is-rejected | covered | RMG-DT-030 | 真實 git |
+| empty-new-rule-file-is-rejected | covered | RMG-DT-031 | 真實 git |
+| staged-mode-reads-gate-links-from-the-index | covered | RMG-DT-032 | 真實 git；PR #528 review 的 Critical |
+| range-mode-reads-gate-links-from-the-head | covered | RMG-DT-033 | 真實 git |
+| diff-file-mode-reads-gate-links-from-the-working-tree | covered | RMG-DT-034 | 文件化的行為 |
+| git-failure-while-reading-a-gate-exits-2 | covered | RMG-EG-035 | Auto |
+| link-to-a-directory-is-treated-as-absent | covered | RMG-VL-036 | Auto |
+| heading-inside-a-code-fence-is-not-a-section | covered | RMG-EP-037 | Auto |
+| retitled-heading-is-not-a-new-section | covered | RMG-DT-038 | 含 committed good fixture |
+| every-section-in-a-hunk-is-checked | covered | RMG-DT-039 | 含 committed bad fixture |
+| exemption-explanation-length-boundary | covered | RMG-BVA-040 | Auto |
+| each-eligibility-condition-is-individually-enforced | covered | RMG-EP-041 | Auto |
 
 ## Manual Verification
 
-- [ ] MV-001 AC-9（scenario: entry-point-short-circuit-turns-the-controls-red）：把 main() 在讀 diff 之前改成 return 0，確認八個以上 fixture 的 main() 測試轉紅，並以反向替換還原。已在實作期間做過（PR #528 本文的突變 A，21 個紅燈），human quick pass 仍待確認；它驗證的是對照本身有效，無法由會被突變的測試自己斷言。
+- [ ] MV-001 AC-9（scenario: entry-point-short-circuit-turns-the-controls-red）：把 main() 在讀 diff 之前改成 return 0，確認十五個 bad fixture 的 main() 測試轉紅，並以反向替換還原。已在實作期間做過（PR #528 本文的突變 A，21 個紅燈），human quick pass 仍待確認；它驗證的是對照本身有效，無法由會被突變的測試自己斷言。
 
 ## Missing Coverage
 
@@ -86,7 +118,7 @@ trace: enforced
 
 ## Redundant TCs
 
-無。參數化的 fixture 測試（`test_bad_fixture_is_rejected_by_pure_function`、`test_bad_fixture_is_rejected_by_main_entry`）同時覆蓋十個擋下形狀，但各 scenario 都另有專屬 TC，不算重複。
+無。參數化的 fixture 測試（`test_bad_fixture_is_rejected_by_pure_function`、`test_bad_fixture_is_rejected_by_main_entry`）同時覆蓋十五個擋下形狀，但各 scenario 都另有專屬 TC，不算重複。
 
 ## Traceability Matrix
 

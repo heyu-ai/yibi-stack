@@ -1,0 +1,10 @@
+diff --git a/scripts/notes.md b/.claude/rules/copied.md
+similarity index 100%
+copy from scripts/notes.md
+copy to .claude/rules/copied.md
+diff --git a/scripts/notes.md b/scripts/notes.md
+index 78bd6cb..d307902 100644
+--- a/scripts/notes.md
++++ b/scripts/notes.md
+@@ -7,0 +8 @@
++額外一行。
