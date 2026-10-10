@@ -17,13 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     fetch 失敗不回退到本機殘留的 origin/main。報告頂端記錄基準 SHA 與 fetch 時間。被 `assume-unchanged`
     或 `skip-worktree` 隱藏的 tracked 修改（`git status` 看不到、Read/Grep 讀得到）也算修改：磁碟上存在的
     這類檔案會與 HEAD 的 blob 比對，不同即 exit 5；比較一律用完整 ref `refs/remotes/origin/main`，
-    本機若有叫 `origin/main` 的分支不會蓋過遠端 ref
+    本機若有叫 `origin/main` 的分支不會蓋過遠端 ref。腳本確認在工作樹內後先切到 repo 根目錄，從任何子目錄執行結果都相同
+    （`git status` 與 `git ls-files` 預設只看 cwd，舊版從子目錄會漏掉子目錄之外被旗標隱藏的修改、並誤報 cwd 內未變的檔案）；
+    被旗標隱藏又已從磁碟刪除的檔案同樣算修改，只有真的 sparse checkout（`core.sparseCheckout` 為 true 且 tag 為 S 或 s）的缺檔豁免
   - **OBSOLETE**：所有未解症狀的前提都證實不存在於基準才成立，且需要正向對照（零命中的搜尋沒有資訊量）；
     以 `not planned` 關閉。部分症狀失去前提時是 UPDATE-SCOPE
   - **STALE-CANDIDATE**：無人為活動 180 天以上、前提未被證實消失、無豁免的 KEEP；先貼 stale notice、
     14 天寬限期、無回應才建議以 `not planned` 關閉。**絕不僅憑天數關閉**
   - **過期分層**（30／90／180 天，初始值待校準）只提高證據門檻，不決定結果；`staleness-signals.sh`
-    以 origin/main 歷史判斷 issue 引用的路徑是 unchanged／changed／deleted／renamed／never-existed
+    以 origin/main 歷史判斷 issue 引用的路徑是 unchanged／changed／deleted／renamed／never-existed；
+    基準一律用完整 ref `refs/remotes/origin/main` 解析一次（同名的本機分支 `origin/main` 不會蓋過它，
+    舊版會把遠端已刪掉的檔案回報成 changed）
   - **最後實質人為活動**排除 bot 與 skill 自己的留言。bot 只看 REST 的帳號型別：實測 `gh issue list`
     的 JSON 會去掉 `[bot]` 後綴（`github-actions[bot]` 顯示為 `github-actions`），`Copilot` 本來就沒有後綴。
     skill 自己的留言 = 內文最後一個非空行是完整的 triage 標記（`<!-- issue-triage:<close|update-scope|merge|stale-notice> YYYY-MM-DD -->`）
@@ -32,9 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **優先級**：久未更新不再降低優先級，改標 `review-urgency`；FAQ 原本的「KEEP 並降優先」已改寫
   - 過期資料取不到的 issue 一律標「過期檢視不可用」、不得升為 STALE-CANDIDATE 或 OBSOLETE（`last-human-activity.sh`
     exit 1／3／4 與 `staleness-signals.sh` exit 1／3 各自有分支）；同一次執行第二次 exit 3 即停止過期檢視。
-    `staleness-signals.sh` 從子目錄執行時路徑仍是 repo 根目錄相對。8g 跨系統整併的 GitHub 端留言也帶 `merge` 標記
-  - 三支腳本共 80 個測試（真實 git repo fixture、假 gh 回放 REST 形狀 JSON），每個守衛都以單點突變驗證
-    會讓對應測試轉紅；`last-human-activity.sh` 另對 cli/cli 的真實 issue 核對過。SKILL.md 文字契約測試的錨點
+    `staleness-signals.sh` 從子目錄執行時路徑仍是 repo 根目錄相對。8g 跨系統整併的 GitHub 端留言也帶 `merge` 標記。
+    issue 內文抽出的路徑若以 `/` 開頭、含 `..`、為空或含 tab 與換行，呼叫腳本前先丟掉並在條目註明（舊版會讓腳本 exit 2 而中止整個盤點）；
+    腳本 exit 2 依 stderr 區分來源，只有建立時間參數錯誤才是 skill 自己的 bug。8j 寬限期滿關閉前的重新量測若失敗，
+    放棄該筆、列入已取消，不貼留言、不關閉
+  - 三支腳本共 107 個測試（真實 git repo fixture、假 gh 回放 REST 形狀 JSON、PATH 上的假 git 讓單一子指令失敗以驗證 exit 1 分支），
+    每個守衛都以單點突變驗證會讓對應測試轉紅；`last-human-activity.sh` 另對 cli/cli 的真實 issue 核對過。SKILL.md 文字契約測試的錨點
     綁定到負責段落、逐列錨點，自檢一次只移除一個出現處
   - 已知限制：基準固定為 `origin/main`（fork 的 origin 落後 upstream 尚未處理）；untracked 檔案不算基準失敗；
     Jira bug 不套用過期判斷

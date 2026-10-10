@@ -117,7 +117,7 @@ Step 6 的「時效」列把長期無活動導向低優先，與新的過期檢�
 
 - fetch 失敗、基準不一致、tracked 檔案被修改：整個盤點停止，不產出任何 verdict。
 - 腳本自身未預期錯誤（exit 1）：視為工具錯誤，回報並停止，不當成「沒有漂移」。
-- 單一 issue 的過期資料取不到（last-human-activity.sh 或 staleness-signals.sh 失敗）：該 issue 不得升為 STALE-CANDIDATE 或 OBSOLETE，報告列為「過期檢視不可用」，其餘 verdict 照常計算；缺資料不得被當成人為活動，也不得被當成沒有漂移。對應的 exit code：last-human-activity.sh 的 1、3、4 與 staleness-signals.sh 的 1、3 都是這個分支；同一次執行內 last-human-activity.sh 第二次出現 exit 3（認證或網路問題）即停止過期檢視，其餘尚未檢視的 issue 全部標「過期檢視不可用」；缺 jq 則所有需要呼叫的 issue 都標「過期檢視不可用」。只有 Step 1／Step 2 的必要前置呼叫（基準檢查、issue 清單）失敗才停止整個盤點。
+- 單一 issue 的過期資料取不到（last-human-activity.sh 或 staleness-signals.sh 失敗）：該 issue 不得升為 STALE-CANDIDATE 或 OBSOLETE，報告列為「過期檢視不可用」，其餘 verdict 照常計算；缺資料不得被當成人為活動，也不得被當成沒有漂移。對應的 exit code：last-human-activity.sh 的 1、3、4 與 staleness-signals.sh 的 1、3 都是這個分支，staleness-signals.sh 的 exit 2 要看 stderr：來自 issue 內文抽出的路徑（絕對路徑、含 `..`、空字串、含 tab 或換行，前置過濾應已丟掉）也是這個分支，來自建立時間參數才是 skill 自己的 bug 而停止；寫入前的重新量測（8j）若失敗（exit 1、3、4）則放棄該筆、列入已取消，不貼留言、不關閉；同一次執行內 last-human-activity.sh 第二次出現 exit 3（認證或網路問題）即停止過期檢視，其餘尚未檢視的 issue 全部標「過期檢視不可用」；缺 jq 則所有需要呼叫的 issue 都標「過期檢視不可用」。只有 Step 1／Step 2 的必要前置呼叫（基準檢查、issue 清單）失敗才停止整個盤點。
 - tier 2 以上的 KEEP 找不到「前提仍成立」的正向證據：維持 KEEP，報告標 premise-unverified；這個旗標本身不得導致任何關閉建議。
 - 無法判定 bot 或 skill 留言：往「視為人為活動」的方向失敗（較安全）。
 

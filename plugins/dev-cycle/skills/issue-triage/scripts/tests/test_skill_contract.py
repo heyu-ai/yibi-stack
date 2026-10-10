@@ -158,6 +158,13 @@ ANCHORS: dict[str, list[Anchor]] = {
         ("staleness", "所有需要呼叫腳本的 issue 都標「過期檢視不可用」"),
         ("staleness", "**標「過期檢視不可用」的 issue**"),
         ("staleness", "缺資料不是「有人為活動」，也不是「沒有漂移」"),
+        # exit 3 的 [FAIL] 只停止過期檢視；exit 4 以 stderr 區分缺 jq 與無法解析
+        ("staleness", "這個 `[FAIL]` 只停止過期檢視，不終止整個盤點"),
+        ("staleness", "看 stderr 區分：訊息含「找不到 jq」是缺 jq"),
+        (
+            "staleness",
+            "訊息含「無法解析」或「沒有 login 欄位」「沒有 created_at 欄位」是單一回應壞掉",
+        ),
         # staleness-signals.sh 的 exit 1、3
         (
             "drift",
@@ -172,6 +179,23 @@ ANCHORS: dict[str, list[Anchor]] = {
             "| **過期檢視不可用** | 該 issue 不得成為 OBSOLETE 或 STALE-CANDIDATE",
         ),
         ("report", "## 過期檢視不可用"),
+    ],
+    "ITS-DT-015": [
+        # 呼叫漂移腳本之前先過濾 issue 內文抽出的 token，不合法的不帶進腳本
+        ("drift", "**呼叫腳本之前先丟掉不合法的 token**"),
+        ("drift", "以 `/` 開頭、含 `..` 路徑段、空字串、含 tab 或換行"),
+        ("drift", "「已略過的路徑」"),
+        # exit 2 依 stderr 區分來源
+        ("drift", "訊息含「路徑必須是 repo 相對路徑」，是 issue 內文抽出的路徑漏網"),
+        ("drift", "**不要停止整個盤點**"),
+        ("drift", "訊息含「缺少 issue 建立時間」或「issue 建立時間格式不對」，是 skill 自己的 bug"),
+        ("staleness", "與「路徑不合法」的 exit 2"),
+    ],
+    "ITS-DT-016": [
+        ("writes", "**重新量測本身失敗（exit 非 0，即 1、3、4）時同樣放棄這筆**"),
+        ("writes", "「重新量測失敗，無法確認 notice 之後沒有人回覆」"),
+        ("writes", "**不貼留言、不關閉**"),
+        ("writes", "因新活動或重新量測失敗而取消幾筆"),
     ],
     "ITS-DT-013": [
         ("drift", "多半是 issue 寫錯路徑"),
@@ -422,6 +446,23 @@ class TestSkillContract:
         tc: ITS-DT-014
         """
         assert _missing(_skill_text(), "ITS-DT-014") == []
+
+    def test_its_dt_015_unsafe_paths_are_filtered_before_the_drift_script(self) -> None:
+        """issue 內文抽出的 token 可能是絕對路徑、含 `..`、空字串或含 tab 與換行：
+        先丟掉並報告，腳本若仍 exit 2 只影響該 issue；只有時間參數錯誤才是 skill 自己的 bug。
+
+        spec: issue-triage-staleness-review#unsafe-path-in-an-issue-body
+        tc: ITS-DT-015
+        """
+        assert _missing(_skill_text(), "ITS-DT-015") == []
+
+    def test_its_dt_016_a_failed_remeasurement_cancels_the_close(self) -> None:
+        """8j 寫入前的重新量測若本身失敗（exit 1、3、4），放棄這筆、列入已取消，不貼留言、不關閉。
+
+        spec: issue-triage-staleness-review#re-measurement-fails-before-the-write
+        tc: ITS-DT-016
+        """
+        assert _missing(_skill_text(), "ITS-DT-016") == []
 
 
 class TestSelfCheck:

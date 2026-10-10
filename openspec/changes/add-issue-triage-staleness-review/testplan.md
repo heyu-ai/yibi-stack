@@ -19,7 +19,7 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 `ITS` 測試的 PASS 不得被讀成行為證明。
 
 三支腳本各自做過單點突變驗證（記錄於 commit `3d0d08c9`、`83cd4509`、`2f446f92`）。`ITS` 另有突變自檢（`ITS-EG-014`、`ITS-EG-015`、`ITS-EG-016`）：
-把任一錨點從真實 SKILL.md 的所有出現處移除、或把舊措辭注入，檢查器必須變紅。
+一次只移除錨點的一個出現處（負責段落內的那一處必須讓檢查器變紅、段落外的不得影響），或把舊措辭注入，檢查器必須變紅。
 
 ## Test Seams
 
@@ -94,6 +94,8 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | ITS-DT-011 | auto | skill-runbook-doc | old-jira-bug | [doc] 過期 verdict 只適用 GitHub issue | DT | Medium | 真實 SKILL.md | 讀取並比對 | 無 | 錨點在場 |
 | ITS-DT-012 | auto | skill-runbook-doc | comment-lookup-fails-for-one-issue | [doc] 過期資料取不到時 fail-safe | DT | High | 真實 SKILL.md | 讀取並比對 | 無 | 錨點在場 |
 | ITS-DT-013 | auto | skill-runbook-doc | never-existed-path-is-not-evidence-of-absence | [doc] 沒有漂移訊號不是前提仍成立的證據 | DT | High | 真實 SKILL.md | 讀取並比對 | 無 | 錨點在場 |
+| ITS-DT-015 | auto | skill-runbook-doc | unsafe-path-in-an-issue-body | [doc] 漂移腳本前先丟掉不合法的 token 並報告；exit 2 依 stderr 區分路徑與時間參數 | DT | High | 真實 SKILL.md | 讀取並在漂移段落內比對 | 絕對路徑、`..`、空字串、tab 與換行 | 前置過濾、已略過的路徑、exit 2 兩種來源與「不要停止整個盤點」錨點在場 |
+| ITS-DT-016 | auto | skill-runbook-doc | re-measurement-fails-before-the-write | [doc] 8j 寫入前重新量測失敗時放棄該筆，不貼留言、不關閉 | DT | High | 真實 SKILL.md | 讀取並在寫入動作段落內比對 | exit 1、3、4 | 放棄、已取消與原因、不貼留言不關閉、回報計數錨點在場 |
 | ITS-EG-014 | auto | skill-runbook-doc | age-alone-never-closes | 突變自檢：一次只移除錨點的一個出現處；段落內的那一處變紅，段落外的不影響 | EP | High | 真實 SKILL.md | 對每個錨點的每個出現處逐一移除 | 全部錨點 | 段落內的移除使檢查器回報該錨點；段落外的移除不改變結果 |
 | ITS-DT-014 | auto | skill-runbook-doc | all-symptoms-done-and-premise-also-gone | [doc] 決策表 guard 與每一列的逐列錨點 | DT | High | 真實 SKILL.md | 讀取並在決策表段落內比對 | 兩個 guard 列、列 1 到 8、RELABEL | 單一欄位（天數、not planned、無豁免）被改掉時變紅 |
 | ITS-EG-015 | auto | skill-runbook-doc | old-severe-bug-keeps-its-priority | 突變自檢：注入舊措辭檢查器必須抓到 | EP | High | 真實 SKILL.md | 注入舊優先序、舊 FAQ 句 | 三個舊措辭 | 檢查器回報該措辭，原文本身乾淨 |
@@ -157,6 +159,8 @@ Review Contract AC-1～AC-14 已由 howie 確認。
 | drift-lookup-fails-for-one-issue | partial | ITS-DT-012, ITD-EG-011 | 腳本層：四個 git 子指令失敗各 exit 1 已測（突變 `fail 1` 改 `true` 各被擊殺）；runbook 的 exit 1、3 分支只有 `[doc]` 層，執行期見 MV-001 |
 | repeated-comment-lookup-failure | partial | ITS-DT-012 | 第二次 exit 3 即停止的數字門檻有寫；執行期見 MV-001 |
 | malformed-api-response | covered | ITA-EG-014, ITA-EG-015 | 突變（兩處 `jq -er` 各改成 `jq -r`）各被擊殺 |
+| unsafe-path-in-an-issue-body | partial | ITS-DT-015 | runbook 有寫前置過濾與 exit 2 的兩種來源；agent 是否遵守見 MV-001 |
+| re-measurement-fails-before-the-write | partial | ITS-DT-016 | runbook 有寫；寬限期滿路徑無法端到端驗證，見 MV-003 |
 | comment-lookup-fails-for-one-issue | partial | ITA-EG-009, ITS-DT-012 | 腳本 exit 3 且無輸出已測；「其餘 issue 照常」屬執行期，MV-001 |
 | old-jira-bug | partial | ITS-DT-011 | 文字有寫；執行期不驗 |
 

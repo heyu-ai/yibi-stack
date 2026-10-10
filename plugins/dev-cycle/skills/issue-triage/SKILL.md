@@ -363,10 +363,10 @@ bash ~/.agents/skills/issue-triage/scripts/last-human-activity.sh {{issue_number
 | 0 | 成功 | 取兩個欄位繼續 |
 | 1 | 腳本自身的未預期錯誤 | 該 issue 標「過期檢視不可用」，不得升為 STALE-CANDIDATE 或 OBSOLETE；最後彙總列出，不要當成「有人為活動」 |
 | 2 | 參數錯誤（issue 編號不合法） | 這是 skill 自己的 bug：`[FAIL] last-human-activity.sh 參數錯誤` 並停止 |
-| 3 | gh API 呼叫失敗（目前帳號、issue、留言任一個） | 同 exit 1 處理；同一次執行內**第二次**出現 exit 3 時，代表認證或網路問題：`[FAIL] gh API 連續失敗，停止過期檢視`，其餘尚未檢視的 issue 全部標「過期檢視不可用」 |
-| 4 | 缺 jq，或 API 回應無法解析 | 缺 jq：`[WARN] 缺 jq，略過過期檢視`，所有需要呼叫腳本的 issue 都標「過期檢視不可用」，其餘 verdict 照常；無法解析：同 exit 1 處理 |
+| 3 | gh API 呼叫失敗（目前帳號、issue、留言任一個） | 同 exit 1 處理；同一次執行內**第二次**出現 exit 3 時，代表認證或網路問題：`[FAIL] gh API 連續失敗，停止過期檢視`，其餘尚未檢視的 issue 全部標「過期檢視不可用」。這個 `[FAIL]` 只停止過期檢視，不終止整個盤點：其餘 verdict 照常產出 |
+| 4 | 缺 jq，或 API 回應無法解析 | 看 stderr 區分：訊息含「找不到 jq」是缺 jq：`[WARN] 缺 jq，略過過期檢視`，所有需要呼叫腳本的 issue 都標「過期檢視不可用」，其餘 verdict 照常；訊息含「無法解析」或「沒有 login 欄位」「沒有 created_at 欄位」是單一回應壞掉：同 exit 1 處理 |
 
-**標「過期檢視不可用」的 issue**（上表的 exit 1、3、4，以及下方漂移腳本的 exit 1、3）不得成為 STALE-CANDIDATE
+**標「過期檢視不可用」的 issue**（上表的 exit 1、3、4，以及下方漂移腳本的 exit 1、3 與「路徑不合法」的 exit 2）不得成為 STALE-CANDIDATE
 或 OBSOLETE：缺資料不是「有人為活動」，也不是「沒有漂移」。其餘 verdict（CLOSE、UPDATE-SCOPE、MERGE、KEEP）
 照常計算，報告列在「過期檢視不可用」一節。
 
@@ -387,8 +387,10 @@ bash ~/.agents/skills/issue-triage/scripts/last-human-activity.sh {{issue_number
 #### 程式碼漂移訊號
 
 tier 1 以上的 issue，從 issue body 抽出 repo 相對路徑（含 `/` 與副檔名的 token，例如
-`plugins/dev-cycle/skills/issue-triage/SKILL.md`；排除 URL、去掉結尾標點、去重）。有路徑時，每個 issue
-呼叫一次（單一 bash 呼叫，路徑逐一帶入，不要用迴圈）：
+`plugins/dev-cycle/skills/issue-triage/SKILL.md`；排除 URL、去掉結尾標點、去重）。**呼叫腳本之前先丟掉不合法的 token**：
+以 `/` 開頭、含 `..` 路徑段、空字串、含 tab 或換行的 token 一律不帶進腳本，並在該 issue 的條目註明「已略過的路徑」
+與原因。issue body 是任意文字，`/etc/hosts`、`../x.md` 這類 token 很常見；帶進腳本會讓整支腳本 exit 2，
+而不是只略過那一個路徑。有路徑時，每個 issue 呼叫一次（單一 bash 呼叫，路徑逐一帶入，不要用迴圈）：
 
 ```bash
 bash ~/.agents/skills/issue-triage/scripts/staleness-signals.sh {{issue_created_at}} {{path_1}} {{path_2}}
@@ -411,7 +413,7 @@ bash ~/.agents/skills/issue-triage/scripts/staleness-signals.sh {{issue_created_
 |------|------|------|
 | 0 | 成功 | 逐行取用 |
 | 1 | 腳本自身的未預期錯誤 | 該 issue 標「過期檢視不可用」，不得升為 STALE-CANDIDATE 或 OBSOLETE；不要當成「沒有漂移」 |
-| 2 | 參數錯誤 | 這是 skill 自己的 bug：`[FAIL] staleness-signals.sh 參數錯誤` 並停止 |
+| 2 | 參數錯誤 | 看 stderr 區分來源：訊息含「路徑必須是 repo 相對路徑」，是 issue 內文抽出的路徑漏網（前置過濾沒擋下）：該 issue 標「過期檢視不可用」並列出該路徑，**不要停止整個盤點**，其餘 issue 照常；訊息含「缺少 issue 建立時間」或「issue 建立時間格式不對」，是 skill 自己的 bug：`[FAIL] staleness-signals.sh 參數錯誤` 並停止 |
 | 3 | 不在 git repo 內，或找不到 origin/main | 該 issue 標「過期檢視不可用」，並提醒使用者回 1c 重跑基準檢查 |
 
 #### 豁免
@@ -799,11 +801,13 @@ gh issue close <n> --reason "not planned"
 ### 8j. 寬限期滿後關閉（STALE-CANDIDATE，已有已辨識的 notice）
 
 **寫入前必須重新呼叫** `last-human-activity.sh {{issue_number}}`（見 3d′），確認 notice 之後仍然沒有實質
-人為活動；從 3e 判定到使用者逐項確認之間可能有人回覆了。有新活動就放棄這筆，列入「已取消」。確認無誤後，
+人為活動；從 3e 判定到使用者逐項確認之間可能有人回覆了。有新活動就放棄這筆，列入「已取消」。
+**重新量測本身失敗（exit 非 0，即 1、3、4）時同樣放棄這筆**：列入「已取消」並註明
+「重新量測失敗，無法確認 notice 之後沒有人回覆」，**不貼留言、不關閉**；看不到新活動不等於沒有新活動。確認無誤後，
 留言（寫到 `$OUT/close-<n>.md`，kind 為 `close`）說明「stale notice 已於 <日期> 貼出，寬限期 14 天內
 沒有回應」，再以 `not planned` 關閉（指令同 8h）。
 
-執行完回報：關閉幾筆、更新幾筆、改 label 幾筆、貼 stale notice 幾筆、因新活動而取消幾筆、失敗幾筆（附 issue/bug 號）。
+執行完回報：關閉幾筆、更新幾筆、改 label 幾筆、貼 stale notice 幾筆、因新活動或重新量測失敗而取消幾筆、失敗幾筆（附 issue/bug 號）。
 
 ---
 
