@@ -470,3 +470,61 @@ class TestCli:
         assert proc.returncode == 1
         assert "[FAIL] missing: demo DEMO-VL-002" in proc.stdout
         assert "WARN" not in proc.stdout
+
+
+class TestSkipRulesAreRelativeToTheRoot:
+    """The skip rules (virtualenv dirs, nested ``.claude/worktrees``) describe what lives *inside*
+    the repo being scanned. They must not depend on where the repo itself is checked out.
+
+    Before the fix they looked at the absolute path, so a repo whose root sat under
+    ``.claude/worktrees/<name>/`` (every background-job worktree) had *every* test file skipped, and
+    an enforced, all-tasks-done change reported every auto TC as ``missing``.
+    """
+
+    def test_tpt_st_009_repo_inside_a_worktree_dir_still_finds_its_tests(
+        self, tmp_path: Path
+    ) -> None:
+        """TPT-ST-009: a repo root under .claude/worktrees/ still binds its own tests."""
+        repo = _repo(tmp_path / ".claude" / "worktrees" / "job-1")
+        proc = _run("--repo-root", str(repo), "--strict", "--change", "demo")
+        assert proc.returncode == 1
+        assert "[FAIL] missing: demo DEMO-VL-002" in proc.stdout
+        assert "DEMO-VL-001" not in proc.stdout, "the bound test was skipped as if it were nested"
+
+    def test_tpt_st_010_nested_worktree_inside_the_repo_is_still_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        """TPT-ST-010: a worktree *inside* the repo must still not bind (guards over-correction)."""
+        repo = _repo(tmp_path)
+        _write(
+            repo,
+            ".claude/worktrees/other/tests/test_dup.py",
+            'def test_dup():\n    """\n    spec: demo#demo-slug\n    tc: DEMO-VL-002\n    """\n',
+        )
+        proc = _run("--repo-root", str(repo), "--strict", "--change", "demo")
+        assert proc.returncode == 1
+        assert "[FAIL] missing: demo DEMO-VL-002" in proc.stdout, (
+            "a nested worktree test bound a TC"
+        )
+
+    def test_tpt_st_011_repo_under_a_venv_named_ancestor_still_finds_its_tests(
+        self, tmp_path: Path
+    ) -> None:
+        """TPT-ST-011: an ancestor directory named like a virtualenv must not hide the repo."""
+        repo = _repo(tmp_path / "venv" / "checkout")
+        proc = _run("--repo-root", str(repo), "--strict", "--change", "demo")
+        assert proc.returncode == 1
+        assert "[FAIL] missing: demo DEMO-VL-002" in proc.stdout
+        assert "DEMO-VL-001" not in proc.stdout, "the bound test was skipped as if it were a venv"
+
+    def test_tpt_st_012_venv_inside_the_repo_is_still_skipped(self, tmp_path: Path) -> None:
+        """TPT-ST-012: a virtualenv *inside* the repo must not bind (guards over-correction)."""
+        repo = _repo(tmp_path)
+        _write(
+            repo,
+            ".venv/lib/test_dup.py",
+            'def test_dup():\n    """\n    spec: demo#demo-slug\n    tc: DEMO-VL-002\n    """\n',
+        )
+        proc = _run("--repo-root", str(repo), "--strict", "--change", "demo")
+        assert proc.returncode == 1
+        assert "[FAIL] missing: demo DEMO-VL-002" in proc.stdout, "a venv test bound a TC"

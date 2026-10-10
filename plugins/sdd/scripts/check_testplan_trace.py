@@ -126,7 +126,13 @@ def parse_bindings(path: Path, root: Path) -> list[Binding]:
 
 
 def discover_test_files(roots: list[Path]) -> list[Path]:
-    """列出 roots 下的 test_*.py 與 *_test.py，略過虛擬環境與 .claude/worktrees。"""
+    """列出 roots 下的 test_*.py 與 *_test.py，略過虛擬環境與 .claude/worktrees。
+
+    略過規則只看「相對於 root 的路徑」：它描述的是被掃描的 repo **裡面**有什麼，不該取決於
+    repo 本身被 checkout 在哪裡。舊版看絕對路徑，於是 repo root 位於 `.claude/worktrees/<name>/`
+    （每個 background job 的 worktree）或祖先目錄叫 `venv` 時，所有測試檔都被略過，
+    enforced 且 tasks 全勾的 change 會把每個 auto TC 都報成 missing。
+    """
     found: list[Path] = []
     for root in roots:
         if root.is_file():
@@ -135,10 +141,10 @@ def discover_test_files(roots: list[Path]) -> list[Path]:
         if not root.is_dir():
             continue
         for path in sorted(root.rglob("*.py")):
-            parts = set(path.parts)
-            if parts & _SKIP_DIRS:
+            rel_parts = path.relative_to(root).parts
+            if set(rel_parts) & _SKIP_DIRS:
                 continue
-            if ".claude" in path.parts and "worktrees" in path.parts:
+            if ".claude" in rel_parts and "worktrees" in rel_parts:
                 continue
             name = path.name
             if name.startswith("test_") or name.endswith("_test.py"):
