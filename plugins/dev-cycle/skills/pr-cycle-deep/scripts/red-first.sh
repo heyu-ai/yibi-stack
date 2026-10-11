@@ -33,7 +33,8 @@
 #      不論 checker 的 exit code 都先檢查這一項。
 #      **不要自行還原**（git checkout 屬 rule 15 不可逆操作），把狀態交給人
 #
-# 跑之前工作樹必須乾淨（`git status --porcelain --ignore-submodules=none` 為空，含 staged、
+# 跑之前工作樹必須乾淨（`git status --porcelain --untracked-files=all --ignore-submodules=none`
+# 為空，含 staged、
 # 未 stage、untracked 與 submodule 內的改動）。這是刻意的（#496 NIT 1 不收）：checker 若就地
 # 把產品碼還原到 merge-base，會覆蓋使用者未 commit 的改動，而乾淨的樹沒有可遺失的東西。
 # 乾淨也代表 index 與 HEAD 一致，所以跑後只要同一個指令仍為空、HEAD 與分支不變，就是已還原。
@@ -146,9 +147,12 @@ if [ -n "$IN_PROGRESS" ]; then
     fail 2 "有操作進行中：${IN_PROGRESS# }；HEAD 不是要檢查的樹，先完成或中止進行中的操作，或解決衝突再跑"
 fi
 
-# 跑之前工作樹必須乾淨（AC-3）。--ignore-submodules=none：.gitmodules 或 config 設了
-# submodule.<name>.ignore 時，預設的 git status 看不到 submodule 內的改動
-if ! BEFORE=$(git status --porcelain --ignore-submodules=none); then
+# 跑之前工作樹必須乾淨（AC-3）。兩個旗標都是為了不讓使用者的 git 設定壓掉輸出：
+#   --untracked-files=all：設了 status.showUntrackedFiles=no（大型 repo 常見）時，
+#     預設的 git status 完全不列 untracked 檔
+#   --ignore-submodules=none：.gitmodules 或 config 設了 submodule.<name>.ignore 時，
+#     預設的 git status 看不到 submodule 內的改動
+if ! BEFORE=$(git status --porcelain --untracked-files=all --ignore-submodules=none); then
     fail 2 "git status 失敗"
 fi
 if [ -n "$BEFORE" ]; then
@@ -219,7 +223,7 @@ cat "$OUT_DIR/red-first.out"
 # 不論 checker 的 exit code，先確認已還原（AC-4）：同一個 porcelain 指令仍為空，HEAD 的 commit
 # 與所在分支都沒變。不再豁免 checker 自己列出的「工具副作用」（#496 NIT 2）：那份清單只會讓
 # 「自稱是副作用」的改動溜過去
-if ! AFTER=$(git status --porcelain --ignore-submodules=none); then
+if ! AFTER=$(git status --porcelain --untracked-files=all --ignore-submodules=none); then
     fail 2 "跑完後 git status 失敗"
 fi
 read_head_state
@@ -235,7 +239,7 @@ if [ "$HEAD_REF" != "$HEAD_REF_BEFORE" ]; then
 fi
 if [ -n "$NOT_RESTORED" ]; then
     # 診斷指令失敗不得把 exit 3 變成 exit 2：放在 if 條件裡，不觸發 ERR trap
-    if ! git status --short --ignore-submodules=none >&2; then
+    if ! git status --short --untracked-files=all --ignore-submodules=none >&2; then
         echo "[WARN] red-first: 無法列出 git status" >&2
     fi
     echo "[FAIL] red-first: 跑完後沒有還原：${NOT_RESTORED# }。產品碼可能沒還原；不要自行還原，交給人判斷" >&2

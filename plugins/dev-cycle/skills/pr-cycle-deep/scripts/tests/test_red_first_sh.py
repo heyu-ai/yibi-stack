@@ -676,3 +676,39 @@ class TestDirtyBeforeRun:
         assert DIRTY_BEFORE_MSG in proc.stderr
         assert "RED_FIRST_RESULT=error" in proc.stdout
         assert not argv_out.exists(), "工作樹不乾淨時不得執行 checker"
+
+
+# 以環境變數注入 `status.showUntrackedFiles=no`：只作用於 red-first.sh 內的 git 呼叫，
+# 不動 fixture 的 repo config。大型 repo 常為了效能這樣設；設了之後，不帶
+# --untracked-files=all 的 `git status --porcelain` 完全不列 untracked 檔
+HIDE_UNTRACKED = {
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "status.showUntrackedFiles",
+    "GIT_CONFIG_VALUE_0": "no",
+}
+
+
+class TestUntrackedHiddenByConfig:
+    """使用者設定不得讓乾淨檢查漏看 untracked 檔（Round 2 Critical）。
+
+    與 submodule 的 `--ignore-submodules=none` 是同一類問題：git 設定會壓掉 status 的輸出。
+    拿掉任一處的 `--untracked-files=all`，對應的案例就會轉紅。
+    """
+
+    def test_rfs_st_022_untracked_before_run_is_error_despite_config(self, tmp_path: Path) -> None:
+        repo = _setup(tmp_path)
+        _untracked_file(repo)
+        proc, argv_out = _run(tmp_path, repo, **HIDE_UNTRACKED)
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert DIRTY_BEFORE_MSG in proc.stderr
+        assert "RED_FIRST_RESULT=error" in proc.stdout
+        assert not argv_out.exists(), "有 untracked 檔時不得執行 checker"
+
+    def test_rfs_st_023_untracked_left_by_checker_exits_3_despite_config(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _setup(tmp_path)
+        proc, _ = _run(tmp_path, repo, FAKE_CHECKER_MODE="dirty", **HIDE_UNTRACKED)
+        assert proc.returncode == EXIT_TREE_NOT_RESTORED, proc.stdout + proc.stderr
+        assert proc.stdout.rstrip().splitlines()[-1] == "RED_FIRST_RESULT=tree-not-restored"
+        assert "leak.txt" in proc.stderr

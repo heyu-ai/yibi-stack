@@ -15,8 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- dev-cycle：`red-first.sh` 仍要求跑之前工作樹乾淨，且改用 `git status --porcelain --ignore-submodules=none`，
-  連 submodule 內的改動也算（exit 2）；`cherry-pick --no-commit` 與 `merge --squash` 只留 staged 改動，也由這一項擋下。
+- dev-cycle：`red-first.sh` 仍要求跑之前工作樹乾淨，且改用
+  `git status --porcelain --untracked-files=all --ignore-submodules=none`：submodule 內的改動也算，
+  使用者設了 `status.showUntrackedFiles=no` 時 untracked 檔也不會被漏看（exit 2）；`cherry-pick --no-commit` 與 `merge --squash` 只留 staged 改動，也由這一項擋下。
   跑完後除了工作樹仍須乾淨，另比對 HEAD 的 commit 與所在分支，任一不同即 exit 3。新增進行中操作守衛（exit 2，錯誤訊息
   指出具體操作）：MERGE_HEAD、CHERRY_PICK_HEAD、REVERT_HEAD、rebase 進行中或有未解衝突。移除 checker 自列「工具副作用」
   的豁免：跑後任何改動一律 exit 3（#496 NIT 2）。#496 NIT 1（放寬跑前乾淨）刻意不收：checker 若就地還原產品碼，
