@@ -241,6 +241,7 @@ REQUIRED_ANCHORS: list[str] = [
     'scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR"',
     "never as hand-split steps",  # Bash calls do not share shell variables
     "(`RED_FIRST_RESULT=fail`) → **stop before Step 2**",  # a verdict FAIL blocks review
+    "`RED_FIRST_RESULT=unchecked` is also exit `0` but is **not a pass**",  # issue #521
     "do not restore by hand (rule 15)",  # exit 3 / killed call hands the tree to a human
     "Step 3.1 pastes them into `prompt-r1.md`",  # [WEAK-RED] is carried to every voice
     "Weak-red tests (inspect for tautology)",  # ... via a slot in the Step 3.1 template

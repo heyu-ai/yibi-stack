@@ -334,28 +334,28 @@ and CI does not check prose.
 
 ### Step 1.7 — Red-first gate (the PR's tests must catch the PR's change)
 
-**Blocking.** With production code reverted to the merge-base and the branch's tests kept, a
-`feat`/`fix` PR's tests must **fail** and a `refactor`/`perf` PR's must still **pass** (other types
-`[SKIP]`). The checker is repo-provided — rationale and limits live in its docstring. Run it only
-through this one call (Bash `timeout: 600000`), never as hand-split steps: shell variables do not
-survive between Bash calls, and a title pasted into a command expands (`${N}`, backticks). The
-script fetches the base, passes the title only as a variable and checks the tree before and after:
+**Blocking.** With production code reverted to the merge-base and the branch's tests kept, a `feat`/`fix` PR's tests must
+**fail** and a `refactor`/`perf` PR's must still **pass** (other types `[SKIP]`). The checker is repo-provided — rationale and
+limits live in its docstring. Run it only through this one call (Bash `timeout: 600000`), never as hand-split steps: shell
+variables do not survive between Bash calls, and a title pasted into a command expands (`${N}`, backticks). The script fetches the
+base, passes the title only as a variable, refuses to run mid merge/rebase/cherry-pick/revert, and requires the tree's content
+after the run to equal its content before (uncommitted changes are allowed):
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR"
 ```
 
-Append its output to `pre-review-check.md`. Exit `0` → continue (includes `[SKIP] red-first: no
-checker`). Exit `1` (`RED_FIRST_RESULT=fail`) → **stop before Step 2**; add a test that fails on the
-base code (or restore the refactor's expectation), push, rerun.
-Retyping the title to dodge it (`fix` → `chore`) is a material amendment (Step 1), and reviewers
-cannot waive it — none of them ran the tests against base code. Exit `2` (tool or precondition
-error, incl. a traceback) → `[FAIL]` verbatim, stop. Exit `3` or a killed call → the revert may not
-be restored: show `git status --short`, stop, do not restore by hand (rule 15).
-Exit-0 lines carry forward: `[WEAK-RED]` (red came only from an import/compile error, which cannot
-show the assertion is meaningful) — Step 3.1 pastes them into `prompt-r1.md`; `[EXEMPT]` (a
-`Red-first-exempt: <reason>` line) — the lead may not accept it; Step 8 shows it, and any
-`[WARN] red-first:` line (checker edited by the PR, tool side effects), for the human to confirm.
+Append its output to `pre-review-check.md`. Exit `0` → continue (includes `[SKIP] red-first: no checker`).
+`RED_FIRST_RESULT=unchecked` is also exit `0` but is **not a pass**: the checker said it checked nothing (e.g. every production
+change is in a directory it cannot map to tests); treat it like `[EXEMPT]` and require other evidence, e.g. a manual mutation.
+Exit `1` (`RED_FIRST_RESULT=fail`) → **stop before Step 2**; add a test that fails on the base code (or restore the refactor's
+expectation), push, rerun. Retyping the title to dodge it (`fix` → `chore`) is a material amendment (Step 1), and reviewers
+cannot waive it — none of them ran the tests against base code. Exit `2` (tool or precondition error, incl. a traceback or an
+operation in progress) → `[FAIL]` verbatim, stop. Exit `3` or a killed call → the revert may not be restored: show `git status --short`, stop, do not restore by hand (rule 15).
+Exit-0 lines carry forward: `[WEAK-RED]` (red came only from an import/compile error, which cannot show the assertion is
+meaningful) — Step 3.1 pastes them into `prompt-r1.md`; `[EXEMPT]` (a `Red-first-exempt: <reason>` line) —
+the lead may not accept it; Step 8 shows it, and any `[WARN] red-first:` line (checker edited by the PR, checker checked
+nothing), for the human to confirm.
 
 ---
 

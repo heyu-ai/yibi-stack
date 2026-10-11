@@ -169,14 +169,15 @@ exit `4` 代表 review 期間基準已改變。**不要**默默採信該輪 find
 規則、exit code 語意與各項防護同 `/pr-cycle-deep` Step 1.7（該處為正本，本段不複述理由）。
 **只能用下面這一個呼叫**（Bash 要給 `timeout: 600000`，checker 會跑兩次測試），不要自己拆成多個
 步驟：Bash call 之間不保留 shell 變數，而把標題貼進指令會被展開（`${N}`、反引號）。腳本會 fetch
-base、只用變數傳標題，並在執行前後檢查工作區：
+base、只用變數傳標題、在 merge／rebase／cherry-pick／revert 進行中時拒絕執行，並確認跑完後工作樹的
+內容與跑之前一致（可以有未 commit 的改動，但不能被改到）：
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$REPO_ROOT" --out-dir "$CLAUDE_JOB_DIR"
 ```
 
-輸出最後一行是 `RED_FIRST_RESULT=<token>`，token 只會是 `skip-no-checker`、`pass`、`fail`、
-`error`、`tree-not-restored` 其中之一，是腳本寫死的字串，可以直接放進下面的 `--reason`。
+輸出最後一行是 `RED_FIRST_RESULT=<token>`，token 只會是 `skip-no-checker`、`pass`、`unchecked`、
+`fail`、`error`、`tree-not-restored` 其中之一，是腳本寫死的字串，可以直接放進下面的 `--reason`。
 
 token 不是 `skip-no-checker` 時（包括失敗），一律把輸出留在 PR 上，讓換 session resume 也讀得到：
 用 Write 寫 `$CLAUDE_JOB_DIR/red-first.md`，第一行是 `<!-- red-first:<git -C "$REPO_ROOT" rev-parse HEAD 的結果> -->`，
@@ -191,17 +192,17 @@ gh pr comment {{pr_number}} --body-file "$CLAUDE_JOB_DIR/red-first.md"
 
 | Exit | 動作 |
 |------|------|
-| `0` | PASS、SKIP 或 EXEMPT，往下走。`[WEAK-RED]` 的測試交給 code-review subagent 優先檢查是否 tautological；`[EXEMPT]` 不得自行認可，Step 6 列給 user 確認 |
+| `0` | PASS、SKIP、EXEMPT 或 UNCHECKED，往下走。`[WEAK-RED]` 的測試交給 code-review subagent 優先檢查是否 tautological；`[EXEMPT]` 不得自行認可，Step 6 列給 user 確認。token 為 `unchecked` 時**不是通過**：checker 以 exit 0 結束但說它沒有檢查任何東西，比照 `[EXEMPT]`，它的 `[WARN] red-first:` 行在 Step 6 列給 user，並要求另附證據（例如手動 mutation） |
 | `1` | 測試抓不到這次改動（或 refactor 改了期望值）。transition 到 `BLOCKED`，**不要**派 review subagent |
-| `2` | 前提不成立或工具出錯（含 traceback、跑之前工作區就不乾淨）。原文回報並 transition 到 `BLOCKED` |
+| `2` | 前提不成立或工具出錯（含 traceback、merge／rebase 等操作進行中）。原文回報並 transition 到 `BLOCKED` |
 | `3` 或呼叫被中斷 | 產品碼可能沒還原。顯示 `git -C "$REPO_ROOT" status --short`，transition 到 `BLOCKED`（中斷時沒有 token，reason 寫 `red-first: interrupted`），**不要**自行還原（rule 15） |
 
 ```bash
 pr-orchestrator transition --pr {{pr_number}} --to BLOCKED --reason "red-first: <RED_FIRST_RESULT token>" --repo-root "$REPO_ROOT"
 ```
 
-3.0 走 `check --sha`（merge 進行中仍 review）時工作區不乾淨，腳本會以 exit 2 拒絕執行 → `BLOCKED`；
-這是預期行為，red-first 要等 merge 完成、工作區乾淨後再跑。
+3.0 走 `check --sha`（merge 進行中仍 review）時，HEAD 不是合併後的樹，腳本會以 exit 2 拒絕執行 →
+`BLOCKED`；這是預期行為，red-first 要等 merge 完成後再跑。
 
 先 transition 到 REVIEWING：
 

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.14] - 2026-10-11
+
+### Fixed
+
+- dev-cycle：`red-first.sh` 在檢查器以 exit 0 結束但表示「沒有檢查任何東西」時，不再印 `RED_FIRST_RESULT=pass`，
+  改印獨立的 `RED_FIRST_RESULT=unchecked`（#521）。偵測整行機讀標記 `red-first: UNCHECKED`，並暫時接受 yibi-mvp
+  檢查器目前印的句子。`pr-cycle-deep` Step 1.7 與 `pr-cycle-fast` 3.0b 寫明 unchecked 不是通過，要另附證據。
+
+### Changed
+
+- dev-cycle：`red-first.sh` 不再要求跑之前整個工作區乾淨，改為比對跑前跑後工作樹的**內容**（暫存 index 的 tree OID），
+  連「已修改的檔案被再改」與「既有 untracked 檔被改」都能偵測；另加 merge／rebase／cherry-pick／revert 進行中
+  與未解衝突的守衛（exit 2）。移除走不到的「工具副作用清單」豁免分支：任何前後不一致一律 exit 3（#496 的兩項 NIT）。
+
 ## [1.23.13] - 2026-10-11
 
 ### Added

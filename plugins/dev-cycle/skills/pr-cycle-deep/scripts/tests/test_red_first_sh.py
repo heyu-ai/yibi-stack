@@ -15,6 +15,7 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 from __future__ import annotations
 
 import os
+import re
 import subprocess  # nosec B404
 from pathlib import Path
 
@@ -74,6 +75,33 @@ if mode == "side":
     (repo / "side.txt").write_text("tool side effect\\n", encoding="utf-8")
     print("[WARN] 執行期間出現新的工作樹改動：", file=sys.stderr)
     print("    ?? side.txt", file=sys.stderr)
+    print("red-first: PASS")
+    sys.exit(0)
+if mode == "unchecked":
+    # yibi-mvp 檢查器現在的輸出形狀：產品碼改動全在不支援的目錄，exit 0 且不印判定行
+    print("[WARN] 檢查器不支援的目錄，未檢查：scripts/harness/gate.py")
+    print("[WARN] 產品碼改動只在檢查器不支援的目錄（1 個檔），"
+          "red-first 沒有檢查任何東西，不是通過；請另附證據（例如手動 mutation）")
+    sys.exit(0)
+if mode == "unchecked-marker":
+    print("red-first: UNCHECKED")
+    sys.exit(0)
+if mode == "pass-and-unchecked":
+    print("red-first: UNCHECKED")
+    print("red-first: PASS")
+    sys.exit(0)
+if mode == "partial-unsupported":
+    # 只有部分改動在不支援的目錄，其餘有跑測試：這是 PASS，不是 unchecked
+    print("[WARN] 檢查器不支援的目錄，未檢查：scripts/harness/gate.py")
+    print("red-first: PASS")
+    sys.exit(0)
+if mode == "append":
+    with (repo / "f.txt").open("a", encoding="utf-8") as fh:
+        fh.write("checker wrote here\\n")
+    print("red-first: PASS")
+    sys.exit(0)
+if mode == "touch-wip":
+    (repo / "wip.txt").write_text("checker changed this\\n", encoding="utf-8")
     print("red-first: PASS")
     sys.exit(0)
 sys.exit(99)
@@ -173,6 +201,28 @@ class TestStaticContract:
         assert "git rev-parse FETCH_HEAD" in self.SRC
         assert "origin/{{base_branch}}" not in self.SRC
 
+    def test_rfs_dt_004_header_documents_unchecked(self) -> None:
+        """檔頭的 exit code 表是呼叫端的正本，unchecked 必須列在 exit 0 那一列。"""
+        header = self.SRC.split("set -euo pipefail", 1)[0]
+        assert "RED_FIRST_RESULT=unchecked" in header
+        assert "red-first: UNCHECKED" in header
+
+    def test_rfs_dt_005_pr_cycle_fast_token_list_covers_every_token(self) -> None:
+        """pr-cycle-fast 3.0b 把 token 寫成封閉清單（「只會是…其中之一」）並直接放進 --reason。
+
+        腳本新增 token 而清單沒跟上時，下游會把沒列出的 token 當成意外值；從原始碼抽出所有
+        token 與清單比對，讓兩邊不能各自漂移。
+        """
+        emitted = set(re.findall(r"RED_FIRST_RESULT=([a-z][a-z-]*)", self.SRC))
+        assert {"pass", "unchecked", "fail", "error", "tree-not-restored"} <= emitted
+        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        start = fast.index("token 只會是")
+        token_list = fast[start : fast.index("其中之一", start)]
+        missing = sorted(t for t in emitted if f"`{t}`" not in token_list)
+        assert not missing, f"pr-cycle-fast 3.0b 的 token 清單缺少：{missing}"
+
 
 class TestBehaviour:
     def test_rfs_st_001_no_checker_skips_with_exit_0(self, tmp_path: Path) -> None:
@@ -225,19 +275,29 @@ class TestBehaviour:
         assert "leak.txt" in proc.stderr
         assert "RED_FIRST_RESULT=tree-not-restored" in proc.stdout
 
-    def test_rfs_st_008_listed_side_effect_warns_and_keeps_verdict(self, tmp_path: Path) -> None:
+    def test_rfs_st_008_self_reported_side_effect_is_not_excused(self, tmp_path: Path) -> None:
+        """checker 自己列出的副作用不再被豁免（#496 NIT）：工作樹前後不一致一律 exit 3。
+
+        舊版會把 checker 以縮排列出的改動當成「工具副作用」放行；但 checker 在暫存
+        worktree 執行、不寫使用者的工作區，那條分支只會讓「自稱是副作用」的改動溜過去。
+        """
         repo = _setup(tmp_path)
         proc, _ = _run(tmp_path, repo, FAKE_CHECKER_MODE="side")
-        assert proc.returncode == EXIT_CONTINUE, proc.stderr
-        assert "[WARN] red-first: 測試工具留下副作用" in proc.stdout
-        assert "side.txt" in proc.stdout
+        assert proc.returncode == EXIT_TREE_NOT_RESTORED, proc.stdout + proc.stderr
+        assert "side.txt" in proc.stderr
+        assert "RED_FIRST_RESULT=tree-not-restored" in proc.stdout
 
-    def test_rfs_st_009_dirty_before_run_is_error(self, tmp_path: Path) -> None:
+    def test_rfs_st_009_uncommitted_change_before_run_is_allowed(self, tmp_path: Path) -> None:
+        """跑之前就有未 commit 的改動不再擋下（#496 NIT）：只要求跑完後與跑之前一致。"""
         repo = _setup(tmp_path)
         (repo / "wip.txt").write_text("uncommitted\n", encoding="utf-8")
+        (repo / "f.txt").write_text("local edit\n", encoding="utf-8")
         proc, argv_out = _run(tmp_path, repo)
-        assert proc.returncode == EXIT_ERROR, proc.stdout
-        assert not argv_out.exists(), "工作區不乾淨時不得執行 checker"
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        assert argv_out.exists(), "工作區有未 commit 改動時仍應執行 checker"
+        assert "RED_FIRST_RESULT=pass" in proc.stdout
+        assert (repo / "wip.txt").read_text(encoding="utf-8") == "uncommitted\n"
+        assert (repo / "f.txt").read_text(encoding="utf-8") == "local edit\n"
 
     def test_rfs_st_010_gh_failure_is_error(self, tmp_path: Path) -> None:
         repo = _setup(tmp_path)
@@ -275,3 +335,143 @@ class TestBehaviour:
         repo = _setup(tmp_path)
         proc, _ = _run(tmp_path, repo)
         assert "checker modified by this PR" not in proc.stdout
+
+
+class TestUnchecked:
+    """checker 沒有檢查任何東西時，結論不得是 pass（issue #521）。"""
+
+    @pytest.mark.parametrize("mode", ["unchecked", "unchecked-marker", "pass-and-unchecked"])
+    def test_rfs_st_015_unchecked_is_its_own_verdict(self, tmp_path: Path, mode: str) -> None:
+        """三種形狀：yibi-mvp 現在印的句子、機讀標記、標記與 PASS 同時出現（unchecked 優先）。"""
+        repo = _setup(tmp_path)
+        proc, _ = _run(tmp_path, repo, FAKE_CHECKER_MODE=mode)
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        assert proc.stdout.rstrip().splitlines()[-1] == "RED_FIRST_RESULT=unchecked"
+        assert "RED_FIRST_RESULT=pass" not in proc.stdout
+
+    def test_rfs_st_016_partially_unsupported_is_still_pass(self, tmp_path: Path) -> None:
+        """RFS-ST-015 的對照：只有部分改動在不支援的目錄、其餘有跑測試時，結論仍是 pass。"""
+        repo = _setup(tmp_path)
+        proc, _ = _run(tmp_path, repo, FAKE_CHECKER_MODE="partial-unsupported")
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        assert proc.stdout.rstrip().splitlines()[-1] == "RED_FIRST_RESULT=pass"
+
+    def test_rfs_st_017_unchecked_marker_does_not_rescue_a_fail(self, tmp_path: Path) -> None:
+        """unchecked 只在 checker exit 0 時判定；exit 1 的 FAIL 判定不受影響。"""
+        repo = _setup(tmp_path)
+        proc, _ = _run(tmp_path, repo, FAKE_CHECKER_MODE="fail")
+        assert proc.returncode == EXIT_VERDICT_FAIL, proc.stdout + proc.stderr
+        assert "RED_FIRST_RESULT=unchecked" not in proc.stdout
+
+
+class TestTreeRestoredByContent:
+    """跑完後的工作樹要與跑之前**內容**一致，不只是 `git status` 的那幾行一致。
+
+    跑之前已修改的檔案若被 checker 再改，`git status --porcelain` 的那一行不會變；
+    這兩個案例就是只比 porcelain 時會漏掉的形狀。
+    """
+
+    def test_rfs_st_018_already_modified_file_changed_again_exits_3(self, tmp_path: Path) -> None:
+        repo = _setup(tmp_path)
+        (repo / "f.txt").write_text("local edit\n", encoding="utf-8")
+        proc, _ = _run(tmp_path, repo, FAKE_CHECKER_MODE="append")
+        assert proc.returncode == EXIT_TREE_NOT_RESTORED, proc.stdout + proc.stderr
+        assert "RED_FIRST_RESULT=tree-not-restored" in proc.stdout
+
+    def test_rfs_st_019_existing_untracked_file_changed_exits_3(self, tmp_path: Path) -> None:
+        repo = _setup(tmp_path)
+        (repo / "wip.txt").write_text("uncommitted\n", encoding="utf-8")
+        proc, _ = _run(tmp_path, repo, FAKE_CHECKER_MODE="touch-wip")
+        assert proc.returncode == EXIT_TREE_NOT_RESTORED, proc.stdout + proc.stderr
+        assert "RED_FIRST_RESULT=tree-not-restored" in proc.stdout
+
+
+def _commit_on_branch(repo: Path, branch: str, path: str, content: str) -> None:
+    """從 feature 開 branch，寫一個檔並 commit，再切回 feature。"""
+    _git(repo, "checkout", "-q", "-b", branch, "feature")
+    (repo / path).write_text(content, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", branch)
+    _git(repo, "checkout", "-q", "feature")
+
+
+def _merge_no_commit(repo: Path) -> None:
+    _commit_on_branch(repo, "side", "g.txt", "side\n")
+    _git(repo, "merge", "-q", "--no-commit", "--no-ff", "side")
+
+
+def _revert_no_commit(repo: Path) -> None:
+    _git(repo, "revert", "--no-commit", "HEAD")
+
+
+def _cherry_pick_resolved_not_committed(repo: Path) -> None:
+    """衝突已 `git add` 解決但尚未 commit：只剩 CHERRY_PICK_HEAD，沒有 unmerged 項目。"""
+    _commit_on_branch(repo, "side", "f.txt", "side version\n")
+    (repo / "f.txt").write_text("feature version 2\n", encoding="utf-8")
+    _git(repo, "commit", "-q", "-am", "feature 2")
+    subprocess.run(  # nosec B603
+        ["git", "cherry-pick", "side"], cwd=repo, capture_output=True, check=False, timeout=60
+    )
+    (repo / "f.txt").write_text("resolved\n", encoding="utf-8")
+    _git(repo, "add", "f.txt")
+
+
+def _rebase_stopped_at_break(repo: Path) -> None:
+    """互動式 rebase 停在 `break`：工作樹乾淨，只剩 rebase-merge 目錄。"""
+    editor = repo.parent / "seq-editor.py"
+    editor.write_text(
+        "import sys, pathlib\n"
+        "p = pathlib.Path(sys.argv[1])\n"
+        "p.write_text('break\\n' + p.read_text(encoding='utf-8'), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    env = {**os.environ, "GIT_SEQUENCE_EDITOR": f"python3 {editor}"}
+    subprocess.run(  # nosec B603
+        ["git", "rebase", "-q", "-i", "main"],
+        cwd=repo,
+        capture_output=True,
+        check=True,
+        timeout=60,
+        env=env,
+    )
+
+
+def _stash_apply_conflict(repo: Path) -> None:
+    """`stash apply` 衝突：留下 unmerged 項目，但沒有任何 *_HEAD 狀態檔。"""
+    (repo / "f.txt").write_text("stashed\n", encoding="utf-8")
+    _git(repo, "stash", "push", "-q", "-m", "rfs-test")
+    (repo / "f.txt").write_text("committed differently\n", encoding="utf-8")
+    _git(repo, "commit", "-q", "-am", "diverge")
+    subprocess.run(  # nosec B603
+        ["git", "stash", "apply"], cwd=repo, capture_output=True, check=False, timeout=60
+    )
+
+
+class TestOperationInProgress:
+    """merge／rebase／cherry-pick／revert 進行中時，HEAD 不是要檢查的樹，不得執行 checker。
+
+    每一個偵測條件各有一個**只觸發它自己**的案例：拿掉任一條件，對應案例就會讓 checker
+    被執行而轉紅。
+    """
+
+    @pytest.mark.parametrize(
+        ("prepare", "expected_state"),
+        [
+            (_merge_no_commit, "MERGE_HEAD"),
+            (_revert_no_commit, "REVERT_HEAD"),
+            (_cherry_pick_resolved_not_committed, "CHERRY_PICK_HEAD"),
+            (_rebase_stopped_at_break, "rebase"),
+            (_stash_apply_conflict, "未解衝突"),
+        ],
+        ids=["merge", "revert", "cherry-pick", "rebase", "unmerged"],
+    )
+    def test_rfs_st_020_in_progress_operation_is_error(
+        self, tmp_path: Path, prepare, expected_state: str
+    ) -> None:
+        repo = _setup(tmp_path)
+        prepare(repo)
+        proc, argv_out = _run(tmp_path, repo)
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert expected_state in proc.stderr
+        assert "RED_FIRST_RESULT=error" in proc.stdout
+        assert not argv_out.exists(), "操作進行中時不得執行 checker"
