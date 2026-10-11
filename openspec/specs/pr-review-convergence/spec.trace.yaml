@@ -1,0 +1,23 @@
+# Traceability for spec.md, written by `spectra archive` and
+# `spectra trace migrate`. Entries are appended in order: one per archive,
+# plus entries absorbed from inline footers.
+version: 1
+traces:
+- source: bound-review-loop-with-evidence-gate
+  updated: 2026-07-18
+  imported:
+  - Blocking findings require executable evidence
+  - Evidence forms are enumerated by finding type
+  - Evidence verification is tiered by severity
+  - Review surface is bounded to two rounds
+  - Actionable NIT never blocks merge
+  - Demoted findings have a defined destination
+  - Skill document line budget
+  code: []
+- source: fix-review-isolation-and-scope
+  updated: 2026-10-11
+  added:
+  - Skill document contract validation
+  removed:
+  - Skill document line budget
+  code: []

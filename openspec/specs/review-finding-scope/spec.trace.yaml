@@ -1,0 +1,11 @@
+# Traceability for spec.md, written by `spectra archive` and
+# `spectra trace migrate`. Entries are appended in order: one per archive,
+# plus entries absorbed from inline footers.
+version: 1
+traces:
+- source: fix-review-isolation-and-scope
+  updated: 2026-10-11
+  added:
+  - Step 2 consumes a fresh immutable PR scope
+  - Only admitted findings reach the repair list
+  code: []

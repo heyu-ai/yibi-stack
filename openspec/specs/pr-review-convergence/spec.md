@@ -1,5 +1,7 @@
 # pr-review-convergence Specification
 
+<!-- @trace-sidecar: spec.trace.yaml -->
+
 ## Purpose
 
 TBD - created by archiving change 'bound-review-loop-with-evidence-gate'. Update Purpose after archive.
@@ -33,12 +35,6 @@ Reviewers SHALL supply the evidence. The lead SHALL NOT construct evidence on a 
 **WHEN** the aggregator emits its output
 **THEN** the output MUST contain the finding's original title and description in the deferred section
   AND the aggregator MUST NOT silently discard the finding
-
-<!-- @trace
-source: bound-review-loop-with-evidence-gate
-updated: 2026-07-18
-code: []
--->
 
 ---
 ### Requirement: Evidence forms are enumerated by finding type
@@ -76,12 +72,6 @@ For logic and security defects the acceptable form SHALL be a concrete failure s
 **WHEN** a reviewer reports that prose is imprecise, potentially misleading, or would benefit from a counter-example
 **THEN** the aggregator MUST demote the finding regardless of any `Evidence:` content supplied
   AND the aggregator MUST NOT place the finding in the blocking set
-
-<!-- @trace
-source: bound-review-loop-with-evidence-gate
-updated: 2026-07-18
-code: []
--->
 
 ---
 ### Requirement: Evidence verification is tiered by severity
@@ -127,12 +117,6 @@ Execution SHALL yield exactly one of three outcomes: **reproduced**, **not repro
 **THEN** the aggregator MUST demote the finding by structural inspection
   AND the lead MUST NOT execute anything for that finding
 
-<!-- @trace
-source: bound-review-loop-with-evidence-gate
-updated: 2026-07-18
-code: []
--->
-
 ---
 ### Requirement: Review surface is bounded to two rounds
 
@@ -176,12 +160,6 @@ Termination SHALL depend only on the round cap, and SHALL NOT depend on the Roun
 | 2 | `baseline..HEAD` (fix delta; disjoint from Round 1, not a subset, size not guaranteed smaller) | Critical only, evidenced | merge |
 | 3 | does not exist | — | — |
 
-<!-- @trace
-source: bound-review-loop-with-evidence-gate
-updated: 2026-07-18
-code: []
--->
-
 ---
 ### Requirement: Actionable NIT never blocks merge
 
@@ -198,12 +176,6 @@ US-002 / AC-002-2. An Actionable NIT SHALL NOT block merge in any round. The lea
 **GIVEN** the skill document is inspected for a convention requiring every actionable NIT to be cleared before merge
 **WHEN** the document is searched by string content rather than by line number
 **THEN** no such convention MUST be present
-
-<!-- @trace
-source: bound-review-loop-with-evidence-gate
-updated: 2026-07-18
-code: []
--->
 
 ---
 ### Requirement: Demoted findings have a defined destination
@@ -232,44 +204,38 @@ At most one issue SHALL be created per pull request regardless of how many Impor
 **WHEN** the deferral batch is routed
 **THEN** no issue MUST be created
 
-<!-- @trace
-source: bound-review-loop-with-evidence-gate
-updated: 2026-07-18
-code: []
--->
+---
 
 ---
-### Requirement: Skill document line budget
+### Requirement: Skill document contract validation
 
-US-003 / AC-003-2. The `pr-cycle-deep` skill document SHALL NOT exceed 1220 lines, its count immediately before this change. A mechanical check SHALL enforce the budget.
+The skill document SHOULD remain focused, but a historical total line count MUST NOT be used as
+proof of review correctness. Changes to executable review helpers SHALL be verified through their
+observable admission, isolation, error and lifecycle behavior rather than source-string or fixed
+line-count assertions.
 
-The mechanical check SHALL anchor on string content rather than line numbers. When an anchor string is absent, the check SHALL fail loudly rather than pass silently.
+Existing document-contract checks SHALL anchor on required content rather than line numbers.
+When a required anchor is absent, a retained document check SHALL fail loudly rather than pass
+silently. Passing such a check SHALL mean document conformance only, not that an agent obeyed it.
 
-#### Scenario: line-budget-enforced -- 超出預算即失敗
+#### Scenario: fixed line ceiling is not a correctness gate
 
-**GIVEN** the mechanical check is run
-**WHEN** the skill document holds 1221 lines or more
-**THEN** the check MUST fail
-  AND the failure message MUST state the actual line count and the budget
+- **GIVEN** a runbook update describes newly implemented isolation and finding admission behavior
+- **WHEN** its total line count exceeds an old snapshot's count
+- **THEN** that count alone MUST NOT fail a correctness check
+- **AND** observable behavior regressions MUST still fail their regression checks
 
 #### Scenario: anchor-absent-fails-loud -- 錨點失效必須紅燈
 
-**GIVEN** the mechanical check searches for a required anchor string
-**WHEN** the anchor string is absent from the document
-**THEN** the check MUST fail
-  AND the check MUST NOT report success on the grounds that nothing was found to inspect
+- **GIVEN** a retained document check searches for a required anchor string
+- **WHEN** the anchor string is absent from the document
+- **THEN** the check MUST fail
+- **AND** it MUST NOT report success because nothing was found to inspect
 
-##### Example: mechanical check outcomes
+##### Example: document check outcomes
 
 | Condition | Check result |
-| --------- | ------------ |
-| 1220 lines, every anchor found | pass |
-| 1221 lines | fail: line budget exceeded |
-| 900 lines, NIT-blocking convention string still present | fail: removal not applied |
-| 900 lines, `Evidence:` anchor absent from the prompt spec | fail: anchor absent, verification inconclusive |
-
-<!-- @trace
-source: bound-review-loop-with-evidence-gate
-updated: 2026-07-18
-code: []
--->
+| --- | --- |
+| Empty document | fail: required content absent |
+| Required Evidence anchor absent | fail: anchor absent, verification inconclusive |
+| Required content present with different line wrapping | no fixed-line-count failure |
