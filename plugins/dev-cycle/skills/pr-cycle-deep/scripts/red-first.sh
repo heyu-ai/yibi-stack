@@ -27,15 +27,17 @@
 #      往下走，但要把它帶到人面前，並要求另附證據（例如手動 mutation），不得當成 pass
 #   1  red-first 判定失敗（checker 印出 `red-first: FAIL`）：測試抓不到這次改動
 #   2  前提不成立或工具出錯：參數錯、gh/git 失敗、標題為空、merge／rebase／cherry-pick／
-#      revert 進行中、有未解衝突或有 staged 改動（此時 HEAD 不一定是要檢查的樹）、
+#      revert 進行中或有未解衝突（此時 HEAD 不是要檢查的樹）、跑之前工作樹就不乾淨、
 #      checker exit 2、沒有判定行的 exit 1（traceback）或其他 exit code
-#   3  跑完後工作樹的內容與跑之前不一致：產品碼可能沒還原。
+#   3  跑完後工作樹不乾淨，或 HEAD 的 commit／所在分支與跑之前不同：產品碼可能沒還原。
+#      不論 checker 的 exit code 都先檢查這一項。
 #      **不要自行還原**（git checkout 屬 rule 15 不可逆操作），把狀態交給人
 #
-# 跑之前可以有未 stage 的修改與 untracked 檔（#496）：比對的是跑前跑後的**內容**，不是要求
-# 跑前乾淨。staged 改動則拒絕（見 exit 2）。
-# checker 自己負責拒絕它在意的未 commit 改動（例如 yibi-mvp 的 checker 檢查 stack 目錄），
-# 並在暫存 worktree 執行測試，不會寫使用者的工作區。
+# 跑之前工作樹必須乾淨（`git status --porcelain --ignore-submodules=none` 為空，含 staged、
+# 未 stage、untracked 與 submodule 內的改動）。這是刻意的（#496 NIT 1 不收）：checker 若就地
+# 把產品碼還原到 merge-base，會覆蓋使用者未 commit 的改動，而乾淨的樹沒有可遺失的東西。
+# 乾淨也代表 index 與 HEAD 一致，所以跑後只要同一個指令仍為空、HEAD 與分支不變，就是已還原。
+# 不涵蓋 .gitignore 忽略的檔案（已接受的殘留風險）。
 #
 # 刻意**不**清除繼承的 GIT_DIR / GIT_WORK_TREE：本 script 問的是「呼叫端要檢查哪個
 # checkout」，由 --repo-root 明確指定，與 preflight-review-snapshot.sh 同一族。
@@ -110,51 +112,68 @@ cd "$REPO_ROOT"
 
 # merge／rebase／cherry-pick／revert 進行中時，HEAD 不是要檢查的那棵樹，checker 會對錯的
 # commit 下判定且沒有任何警告（pr-cycle-fast 3.0 走 check --sha 時就會碰到）。
-# 每個條件各自偵測：cherry-pick --no-commit 不留狀態檔，但衝突解決後仍會留 CHERRY_PICK_HEAD；
-# stash apply 衝突沒有任何 *_HEAD，只能從 unmerged 項目看出來
+# 這一段排在乾淨檢查之前，讓錯誤訊息指出具體的操作。每個條件各自偵測：一般的 cherry-pick
+# 衝突即使已 `git add` 解決，commit 之前仍留著 CHERRY_PICK_HEAD；stash apply 衝突沒有任何
+# *_HEAD，只能從 unmerged 項目看出來。`cherry-pick --no-commit` 與 `merge --squash` 不留任何
+# 狀態檔，只留 staged 改動，由下面的乾淨檢查擋下
 IN_PROGRESS=""
 for state_ref in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
-    if git rev-parse -q --verify "$state_ref" >/dev/null; then
-        IN_PROGRESS="${IN_PROGRESS} ${state_ref}"
-    fi
+    # rev-parse -q --verify：0 = 存在、1 = 不存在，其他是 git 本身出錯
+    REF_RC=0
+    git rev-parse -q --verify "$state_ref" >/dev/null || REF_RC=$?
+    case "$REF_RC" in
+        0) IN_PROGRESS="${IN_PROGRESS} ${state_ref}" ;;
+        1) ;;
+        *) fail 2 "git rev-parse --verify ${state_ref} 失敗（exit ${REF_RC}）" ;;
+    esac
 done
 for state_dir in rebase-merge rebase-apply; do
-    if [ -d "$(git rev-parse --git-path "$state_dir")" ]; then
+    # 先取路徑再判斷：寫成 [ -d "$(git rev-parse ...)" ] 時 rev-parse 失敗會被讀成「沒有 rebase」
+    if ! STATE_PATH=$(git rev-parse --git-path "$state_dir"); then
+        fail 2 "git rev-parse --git-path ${state_dir} 失敗"
+    fi
+    if [ -d "$STATE_PATH" ]; then
         IN_PROGRESS="${IN_PROGRESS} rebase（${state_dir}）"
     fi
 done
-UNMERGED=$(git ls-files --unmerged)
+if ! UNMERGED=$(git ls-files --unmerged); then
+    fail 2 "git ls-files --unmerged 失敗"
+fi
 if [ -n "$UNMERGED" ]; then
     IN_PROGRESS="${IN_PROGRESS} 未解衝突"
 fi
 if [ -n "$IN_PROGRESS" ]; then
-    fail 2 "有操作進行中：${IN_PROGRESS# }；HEAD 不是要檢查的樹，等 merge／rebase 完成再跑"
+    fail 2 "有操作進行中：${IN_PROGRESS# }；HEAD 不是要檢查的樹，先完成或中止進行中的操作，或解決衝突再跑"
 fi
 
-# 有 staged 改動也拒絕（AC-8）：cherry-pick --no-commit 與 merge --squash 不留任何狀態檔，
-# 只留 staged 改動，上面的偵測看不到。使用者自己 `git add` 的改動在 git 裡與它們無法分辨，
-# 一併拒絕；未 stage 的修改與 untracked 檔仍可執行。
-# `git diff --cached --quiet`：0 = 沒有差異、1 = 有差異，其他是 git 本身出錯
-STAGED_RC=0
-git diff --cached --quiet || STAGED_RC=$?
-case "$STAGED_RC" in
-    0) ;;
-    1) fail 2 "index 有 staged 改動（可能是 cherry-pick --no-commit、merge --squash，或手動 git add）；先 commit 或 unstage 再跑" ;;
-    *) fail 2 "git diff --cached 失敗（exit ${STAGED_RC}）" ;;
-esac
+# 跑之前工作樹必須乾淨（AC-3）。--ignore-submodules=none：.gitmodules 或 config 設了
+# submodule.<name>.ignore 時，預設的 git status 看不到 submodule 內的改動
+if ! BEFORE=$(git status --porcelain --ignore-submodules=none); then
+    fail 2 "git status 失敗"
+fi
+if [ -n "$BEFORE" ]; then
+    printf '%s\n' "$BEFORE" >&2
+    fail 2 "跑 checker 前工作樹就不乾淨（見上方）；先 commit 或 stash 再跑"
+fi
 
-# 工作樹內容的指紋：把整個工作樹（含 untracked、不含 ignored）放進一份暫存 index 後取 tree
-# OID。只比 `git status --porcelain` 不夠：跑之前已修改的檔案若被 checker 再改，或既有
-# untracked 檔的內容被改，那幾行字完全不變。用暫存 index，真實 index 不會被動到
-INDEX_TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$INDEX_TMP_DIR"' EXIT
-tree_fingerprint() {
-    local idx="$INDEX_TMP_DIR/index.$1"
-    cp "$(git rev-parse --git-path index)" "$idx"
-    GIT_INDEX_FILE="$idx" git add -A
-    GIT_INDEX_FILE="$idx" git write-tree
+# 記下 HEAD 的 commit 與所在分支，跑完後比對（AC-4）。結果寫進全域變數 HEAD_SHA／HEAD_REF；
+# 刻意不在 $() 裡呼叫，fail 才能真的結束 script
+read_head_state() {
+    if ! HEAD_SHA=$(git rev-parse --verify HEAD); then
+        fail 2 "git rev-parse HEAD 失敗"
+    fi
+    # symbolic-ref -q：0 = 在分支上、1 = detached HEAD，其他是 git 本身出錯
+    local ref_rc=0
+    HEAD_REF=$(git symbolic-ref -q HEAD) || ref_rc=$?
+    case "$ref_rc" in
+        0) ;;
+        1) HEAD_REF="DETACHED" ;;
+        *) fail 2 "git symbolic-ref HEAD 失敗（exit ${ref_rc}）" ;;
+    esac
 }
-TREE_BEFORE=$(tree_fingerprint before)
+read_head_state
+HEAD_SHA_BEFORE="$HEAD_SHA"
+HEAD_REF_BEFORE="$HEAD_REF"
 
 if ! PR_TITLE=$(gh pr view "$PR" --json title -q .title); then
     fail 2 "gh pr view ${PR}（title）失敗"
@@ -197,13 +216,29 @@ python3 "$CHECKER" --repo "$REPO_ROOT" --base "$BASE_SHA" --title "$PR_TITLE" \
     --pr-body-file "$OUT_DIR/pr-body.md" >| "$OUT_DIR/red-first.out" 2>&1 || CHECKER_EXIT=$?
 cat "$OUT_DIR/red-first.out"
 
-# 不論 checker 的 exit code，先確認工作樹內容與跑之前一致。不再豁免 checker 自己列出的
-# 「工具副作用」（#496）：checker 在暫存 worktree 跑測試、不寫使用者的工作區，那份清單只會
-# 讓「自稱是副作用」的改動溜過去
-TREE_AFTER=$(tree_fingerprint after)
-if [ "$TREE_AFTER" != "$TREE_BEFORE" ]; then
-    git status --porcelain >&2
-    echo "[FAIL] red-first: 跑完後工作樹的內容與跑之前不一致（目前狀態見上方；跑之前已修改的檔被再改時，那一行不會變），產品碼可能沒還原；不要自行還原，交給人判斷" >&2
+# 不論 checker 的 exit code，先確認已還原（AC-4）：同一個 porcelain 指令仍為空，HEAD 的 commit
+# 與所在分支都沒變。不再豁免 checker 自己列出的「工具副作用」（#496 NIT 2）：那份清單只會讓
+# 「自稱是副作用」的改動溜過去
+if ! AFTER=$(git status --porcelain --ignore-submodules=none); then
+    fail 2 "跑完後 git status 失敗"
+fi
+read_head_state
+NOT_RESTORED=""
+if [ -n "$AFTER" ]; then
+    NOT_RESTORED="${NOT_RESTORED} 工作樹不乾淨"
+fi
+if [ "$HEAD_SHA" != "$HEAD_SHA_BEFORE" ]; then
+    NOT_RESTORED="${NOT_RESTORED} HEAD 的 commit 變了（${HEAD_SHA_BEFORE} -> ${HEAD_SHA}）"
+fi
+if [ "$HEAD_REF" != "$HEAD_REF_BEFORE" ]; then
+    NOT_RESTORED="${NOT_RESTORED} 所在分支變了（${HEAD_REF_BEFORE} -> ${HEAD_REF}）"
+fi
+if [ -n "$NOT_RESTORED" ]; then
+    # 診斷指令失敗不得把 exit 3 變成 exit 2：放在 if 條件裡，不觸發 ERR trap
+    if ! git status --short --ignore-submodules=none >&2; then
+        echo "[WARN] red-first: 無法列出 git status" >&2
+    fi
+    echo "[FAIL] red-first: 跑完後沒有還原：${NOT_RESTORED# }。產品碼可能沒還原；不要自行還原，交給人判斷" >&2
     echo "RED_FIRST_RESULT=tree-not-restored"
     exit 3
 fi
@@ -213,9 +248,23 @@ fi
 #   1. 整行 `red-first: UNCHECKED`：與 `red-first: FAIL` 對稱的機讀標記，checker 應改印這個
 #   2. 含 `red-first 沒有檢查任何東西` 的行：yibi-mvp checker 目前印的句子。這是給人看的文字，
 #      不是 API，只是過渡用，等 checker 改印機讀標記後移除
+# grep 的 exit 2（例如讀不到檔）不是「沒有」：當成沒有會讓 unchecked 靜默退回 pass。
+# 只在 `if is_unchecked` 直接呼叫（不在 $() 裡），fail 才能結束 script
 is_unchecked() {
-    grep -qx 'red-first: UNCHECKED' "$OUT_DIR/red-first.out" \
-        || grep -qF 'red-first 沒有檢查任何東西' "$OUT_DIR/red-first.out"
+    local rc=0
+    grep -qx 'red-first: UNCHECKED' "$OUT_DIR/red-first.out" || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1) ;;
+        *) fail 2 "讀取 checker 輸出失敗（grep exit ${rc}）" ;;
+    esac
+    rc=0
+    grep -qF 'red-first 沒有檢查任何東西' "$OUT_DIR/red-first.out" || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1) return 1 ;;
+        *) fail 2 "讀取 checker 輸出失敗（grep exit ${rc}）" ;;
+    esac
 }
 
 case "$CHECKER_EXIT" in
