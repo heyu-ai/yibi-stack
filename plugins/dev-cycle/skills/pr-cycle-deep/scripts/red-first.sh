@@ -27,10 +27,11 @@
 #      往下走，但要把它帶到人面前，並要求另附證據（例如手動 mutation），不得當成 pass
 #   1  red-first 判定失敗（checker 印出 `red-first: FAIL`）：測試抓不到這次改動
 #   2  前提不成立或工具出錯：參數錯、gh/git 失敗、標題為空、merge／rebase／cherry-pick／
-#      revert 進行中或有未解衝突（此時 HEAD 不是要檢查的樹）、跑之前工作樹就不乾淨、
+#      revert 進行中（含停在中途的 cherry-pick／revert 序列）或有未解衝突（此時 HEAD 不是
+#      要檢查的樹）、跑之前 HEAD 就解析不到（unborn，或 HEAD 指向的 ref 損壞）、跑之前工作樹就不乾淨、
 #      checker exit 2、沒有判定行的 exit 1（traceback）或其他 exit code
-#   3  跑完後工作樹不乾淨，或 HEAD 的 commit／所在分支與跑之前不同：產品碼可能沒還原。
-#      不論 checker 的 exit code 都先檢查這一項。
+#   3  跑完後工作樹不乾淨，或 HEAD 的 commit／所在分支與跑之前不同（含 checker 把 HEAD 變成
+#      unborn，例如切到 orphan 分支）：產品碼可能沒還原。不論 checker 的 exit code 都先檢查這一項。
 #      **不要自行還原**（git checkout 屬 rule 15 不可逆操作），把狀態交給人
 #
 # 跑之前工作樹必須乾淨（`git status --porcelain --untracked-files=all --ignore-submodules=none`
@@ -128,13 +129,24 @@ for state_ref in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
         *) fail 2 "git rev-parse --verify ${state_ref} 失敗（exit ${REF_RC}）" ;;
     esac
 done
-for state_dir in rebase-merge rebase-apply; do
-    # 先取路徑再判斷：寫成 [ -d "$(git rev-parse ...)" ] 時 rev-parse 失敗會被讀成「沒有 rebase」
+# sequencer：多 commit 的 cherry-pick／revert 停在中途。衝突以 `git commit` 解決（而非
+# --continue）後，CHERRY_PICK_HEAD／REVERT_HEAD 已被移除、工作樹也乾淨，只剩這個目錄，
+# 後面的 commit 還沒套用
+SEQUENCER_HINT=""
+for state_dir in rebase-merge rebase-apply sequencer; do
+    # 先取路徑再判斷：寫成 [ -d "$(git rev-parse ...)" ] 時 rev-parse 失敗會被讀成「沒有進行中的操作」
     if ! STATE_PATH=$(git rev-parse --git-path "$state_dir"); then
         fail 2 "git rev-parse --git-path ${state_dir} 失敗"
     fi
     if [ -d "$STATE_PATH" ]; then
-        IN_PROGRESS="${IN_PROGRESS} rebase（${state_dir}）"
+        case "$state_dir" in
+            sequencer)
+                IN_PROGRESS="${IN_PROGRESS} cherry-pick／revert 序列（sequencer）"
+                # --abort 會把 HEAD 倒回序列開始前；只想清掉殘留的序列狀態時用 --quit
+                SEQUENCER_HINT="；sequencer 是殘留（序列其實已不打算繼續）時，用 git cherry-pick --quit 或 git revert --quit 清除（--abort 可能把 HEAD 倒回序列開始前）"
+                ;;
+            *) IN_PROGRESS="${IN_PROGRESS} rebase（${state_dir}）" ;;
+        esac
     fi
 done
 if ! UNMERGED=$(git ls-files --unmerged); then
@@ -144,7 +156,7 @@ if [ -n "$UNMERGED" ]; then
     IN_PROGRESS="${IN_PROGRESS} 未解衝突"
 fi
 if [ -n "$IN_PROGRESS" ]; then
-    fail 2 "有操作進行中：${IN_PROGRESS# }；HEAD 不是要檢查的樹，先完成或中止進行中的操作，或解決衝突再跑"
+    fail 2 "有操作進行中：${IN_PROGRESS# }；HEAD 不是要檢查的樹，先完成或中止進行中的操作，或解決衝突再跑${SEQUENCER_HINT}"
 fi
 
 # 跑之前工作樹必須乾淨（AC-3）。兩個旗標都是為了不讓使用者的 git 設定壓掉輸出：
@@ -161,11 +173,26 @@ if [ -n "$BEFORE" ]; then
 fi
 
 # 記下 HEAD 的 commit 與所在分支，跑完後比對（AC-4）。結果寫進全域變數 HEAD_SHA／HEAD_REF；
-# 刻意不在 $() 裡呼叫，fail 才能真的結束 script
+# 刻意不在 $() 裡呼叫，fail 才能真的結束 script。
+# $1 = before／after。`rev-parse -q --verify HEAD`：0 = 有 commit、1 = HEAD 解析不到（unborn，
+# 例如 orphan 分支；HEAD 指向的分支 ref 內容損壞或名稱不合法時也回 1），其他是 git 本身出錯。
+# 跑之前解析不到是前提不成立（exit 2）；跑完後才解析不到代表 checker 把 HEAD 改掉了，記成
+# UNBORN，交給下面的比對走 exit 3（#545 第 1 項）。跑完後若是 HEAD 指向的 ref 損壞，rev-parse
+# 雖回 1，接著的 `symbolic-ref -q HEAD` 會回 128，由下面以 exit 2 回報（git 2.56.0 實測）
 read_head_state() {
-    if ! HEAD_SHA=$(git rev-parse --verify HEAD); then
-        fail 2 "git rev-parse HEAD 失敗"
-    fi
+    local phase="$1"
+    local sha_rc=0
+    HEAD_SHA=$(git rev-parse -q --verify HEAD) || sha_rc=$?
+    case "$sha_rc" in
+        0) ;;
+        1)
+            if [ "$phase" = "before" ]; then
+                fail 2 "HEAD 解析不到（unborn，或 HEAD 指向的 ref 損壞）；red-first 需要已 commit 的 HEAD"
+            fi
+            HEAD_SHA="UNBORN"
+            ;;
+        *) fail 2 "git rev-parse HEAD 失敗（exit ${sha_rc}）" ;;
+    esac
     # symbolic-ref -q：0 = 在分支上、1 = detached HEAD，其他是 git 本身出錯
     local ref_rc=0
     HEAD_REF=$(git symbolic-ref -q HEAD) || ref_rc=$?
@@ -175,7 +202,7 @@ read_head_state() {
         *) fail 2 "git symbolic-ref HEAD 失敗（exit ${ref_rc}）" ;;
     esac
 }
-read_head_state
+read_head_state before
 HEAD_SHA_BEFORE="$HEAD_SHA"
 HEAD_REF_BEFORE="$HEAD_REF"
 
@@ -226,7 +253,7 @@ cat "$OUT_DIR/red-first.out"
 if ! AFTER=$(git status --porcelain --untracked-files=all --ignore-submodules=none); then
     fail 2 "跑完後 git status 失敗"
 fi
-read_head_state
+read_head_state after
 NOT_RESTORED=""
 if [ -n "$AFTER" ]; then
     NOT_RESTORED="${NOT_RESTORED} 工作樹不乾淨"
