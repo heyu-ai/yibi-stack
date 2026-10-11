@@ -23,14 +23,14 @@ issues: [390, 530]
 
 ## Success Criteria
 
-- AC-1：R1/R2 reviewer 讀得到 HEAD 檔案，但相對、絕對路徑與 symlink 寫入無法改變原工作樹或 Git metadata。
-- AC-2：錯誤、timeout、signal 會停止 child 並清掉隔離目錄，原有 log／timeout／validator 契約仍可觀察。
-- AC-3：缺少或失效的 OS backend 不呼叫 unrestricted agy；髒 tracked tree 不靜默以舊 HEAD 取代。
-- AC-4：本機 main 落後且 PR branch 無 upstream 時，scope 仍等於 fresh base 到 HEAD 的 PR 變更。
-- AC-5：diff 外 finding 被移出修復清單，完整保留拒絕原因与數量；diff 內結果保持原資料。
-- AC-6：malformed findings 或 HEAD 已移動會失敗，舊 filtered 結果不得被重用；正常空清單有效。
-- AC-7：Step 2、aggregation、Step 6 與 opt-in cleanup 均使用同一 scope 契約，不能繞過 filter 自動修复。
-
+- AC-1: R1/R2 的 cwd 與 absolute add-dir 指向獨立 committed-HEAD snapshot；完整 tracked blob 不受 export-ignore 遺漏；不帶原始 .git/shared index/hardlink 或 untracked secrets。
+- AC-2: relative、absolute、symlink、hardlink 與 Git-metadata 寫入探針均不能改動原資料；missing/unusable backend、髒 tracked tree／衝突均 loud fail，不能 unrestricted fallback。
+- AC-3: 成功、失敗、timeout、SIGINT/SIGTERM 都保留原有 log／validator／timeout quarantine 行為，回收 owned process group 與暫存狀態；PRE/POST 原樹比較保留；不刪其他 session 的 shared scratch。
+- AC-4: local main 落後且 PR branch 無 upstream 的真實 Git 對照中，scope 只來自 fresh fetched base 到 HEAD；fresh-main 對照結果相同。缺少 local main 不誤判失敗，損壞 ref 不冒充不存在。
+- AC-5: 結構化 findings 只依 captured canonical changed paths admission，涵蓋 rename/deletion／特殊檔名；accepted item 除 file 正規化外保留原資料與 evidence，rejected item 原文／原因／數量保留在 audit。
+- AC-6: malformed input、缺失或無效 manifest、HEAD 變動及 setup 失敗均不能留下可重用的舊 accepted 結果；合法空清單可通過；重跑只更新 final.md 的 owned audit 區塊，不覆蓋其他證據。
+- AC-7: Step 2 明確指定 PR、先 fresh scope 再 filter；aggregation 與 Step 6 只消費 filtered findings；pre-filter fix/comment 不能繞過；scope 改變後不能沿用舊 admission。
+- AC-8: wrappers、helpers、runbook、CHANGELOG 與 change artifacts 一致；受影響的 source-string／固定行數測試可退役，但可觀察安全／錯誤／生命週期行為必須由回歸測試與 smoke 支撐。
 ## Capabilities
 
 ### New Capabilities

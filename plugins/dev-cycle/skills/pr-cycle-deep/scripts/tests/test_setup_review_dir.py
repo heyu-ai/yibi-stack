@@ -538,7 +538,7 @@ class TestReviewScopeBehavior:
         _git(repo, "merge", "-q", "--no-edit", "origin/main")
         _git(repo, "mv", "old name.txt", "new 名.txt")
         (repo / "gone.txt").unlink()
-        unusual = ["a/file.txt", "b/file.txt", '空 白\t"quote\nname.txt']
+        unusual = ["a/file.txt", "b/file.txt", "notes:12", "doc#L3", '空 白\t"quote\nname.txt']
         for name in unusual:
             path = repo / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -573,14 +573,20 @@ class TestReviewScopeBehavior:
         first = final.read_bytes()
         assert _filter(repo, source).returncode == 0
         assert final.read_bytes() == first
-        source = _review_input(repo, [_finding("feature.txt")])
+        source = _review_input(
+            repo,
+            [
+                _finding("feature.txt"),
+                _finding("outside.txt", evidence="nested <!-- code-review-scope:end --> payload"),
+            ],
+        )
         assert _filter(repo, source).returncode == 0
         result = final.read_text()
         assert result.startswith(amplifier) and result.endswith(footer)
         assert result.count("<!-- code-review-scope:start -->") == 1
-        assert "0 out-of-scope discarded" in result
-        assert "1 out-of-scope discarded" not in result
-        assert _audit_items(repo) == []
+        assert "1 out-of-scope discarded" in result
+        assert "0 out-of-scope discarded" not in result
+        assert len(_audit_items(repo)) == 1
 
     @pytest.mark.parametrize(
         "invalid",
@@ -629,6 +635,9 @@ class TestReviewScopeBehavior:
         assert scope_path.read_bytes() == before
         assert _run_setup(repo, "main").returncode == 0
         assert json.loads(scope_path.read_text())["head"] != json.loads(before)["head"]
+        # Re-running setup resets code-review.json so stale reviews cannot be reused
+        assert not (repo / ".pr-review" / "code-review.json").exists()
+        source = _review_input(repo, [_finding("feature.txt")])
         assert _filter(repo, source).returncode == 0
 
     def test_empty_review_and_empty_scope_are_valid(

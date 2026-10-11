@@ -350,13 +350,22 @@ def test_missing_backend_fails_closed(
 
 
 @pytest.mark.parametrize("stage", STAGES)
-def test_unusable_backend_never_starts_agy(isolated_repo: dict, stage: str) -> None:
+@pytest.mark.parametrize("exit_mode", ["exit77", "passthrough"])
+def test_unusable_backend_never_starts_agy(isolated_repo: dict, stage: str, exit_mode: str) -> None:
     if sys.platform not in ("darwin", "linux"):
         pytest.skip("no supported backend on this OS")
     backend = isolated_repo["bin"] / ("sandbox-exec" if sys.platform == "darwin" else "bwrap")
-    backend.write_text("#!/bin/sh\necho 'sandbox unavailable' >&2\nexit 77\n")
+    if exit_mode == "exit77":
+        backend.write_text("#!/bin/sh\necho 'sandbox unavailable' >&2\nexit 77\n")
+    else:
+        # Passthrough stub that allows protected writes: startup probe must catch it
+        if sys.platform == "darwin":
+            backend.write_text('#!/bin/sh\nshift 4\nexec "$@"\n')
+        else:
+            backend.write_text(
+                '#!/bin/sh\nwhile [ "$1" != "--" ]; do shift; done; shift\nexec "$@"\n'
+            )
     backend.chmod(0o755)
-    # An unrestricted fallback would execute this and leave observable damage.
     agy = isolated_repo["bin"] / "agy"
     agy.write_text('#!/bin/sh\nprintf CORRUPTED > "$SOURCE/seed.txt"\n')
     agy.chmod(0o755)
@@ -365,6 +374,24 @@ def test_unusable_backend_never_starts_agy(isolated_repo: dict, stage: str) -> N
     stderr_name = "gemini-r1.stage1.log" if stage == "r1" else "gemini-r2.log"
     assert "agy was not started" in (isolated_repo["review"] / stderr_name).read_text()
     assert_preserved(isolated_repo)
+
+
+def test_submodule_gitlink_fails_loudly_before_review(isolated_repo: dict) -> None:
+    repo = isolated_repo["repo"]
+    oid = git(repo, "rev-parse", "HEAD:seed.txt")
+    subprocess.run(  # nosec B603 B607
+        ["git", "-C", str(repo), "update-index", "--add", "--cacheinfo", f"160000,{oid},sub"],
+        check=True,
+    )
+    git(repo, "commit", "-qm", "add gitlink")
+    git(repo, "checkout", "-f", "HEAD")
+    result = run_stage(isolated_repo, "r1")
+    assert result.returncode != 0
+    assert (
+        "submodules require a separate review"
+        in (isolated_repo["review"] / "gemini-r1.stage1.log").read_text()
+    )
+    assert not list(isolated_repo["tmp"].glob("agy-review-*"))
 
 
 @pytest.mark.parametrize("stage", STAGES)

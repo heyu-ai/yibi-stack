@@ -44,6 +44,8 @@ def clean_head(repo: Path) -> str:
 def snapshot_head(repo: Path, snapshot: Path, head: str) -> None:
     """Read Git objects, not archive attributes, checkout filters or shared indexes."""
     entries = git(repo, "ls-tree", "-rz", "--full-tree", head).split(b"\0")
+    regular_blobs = []
+    symlinks = []
     with subprocess.Popen(  # nosec B603 B607
         ["git", "-C", str(repo), "cat-file", "--batch"],
         stdin=subprocess.PIPE,
@@ -63,8 +65,6 @@ def snapshot_head(repo: Path, snapshot: Path, head: str) -> None:
                     f"unsupported tracked entry {path} ({mode.decode()}); "
                     "submodules require a separate review"
                 )
-            destination = snapshot / path
-            destination.parent.mkdir(parents=True, exist_ok=True)
             objects.stdin.write(oid + b"\n")
             objects.stdin.flush()
             header = objects.stdout.readline().split()
@@ -75,13 +75,42 @@ def snapshot_head(repo: Path, snapshot: Path, head: str) -> None:
             if len(data) != size or objects.stdout.read(1) != b"\n":
                 raise ValueError(f"incomplete committed blob for {path}")
             if mode == b"120000":
-                destination.symlink_to(os.fsdecode(data))
+                symlinks.append((path, os.fsdecode(data)))
             else:
-                destination.write_bytes(data)
-                destination.chmod(0o755 if mode == b"100755" else 0o644)
+                regular_blobs.append((path, mode, data))
         objects.stdin.close()
         if objects.wait() != 0:
             raise ValueError("git cat-file failed while creating the review snapshot")
+
+    def ensure_dir(target_dir: Path) -> None:
+        current = snapshot
+        for part in target_dir.relative_to(snapshot).parts:
+            current = current / part
+            if current.is_symlink():
+                raise ValueError(f"snapshot directory traverses a symlink: {current}")
+            if not current.exists():
+                current.mkdir()
+            elif not current.is_dir():
+                raise ValueError(f"snapshot path collision for directory: {current}")
+
+    for path, mode, data in regular_blobs:
+        dest = snapshot / path
+        ensure_dir(dest.parent)
+        if dest.is_symlink() or dest.exists():
+            raise ValueError(f"snapshot path collision: {dest}")
+        fd = os.open(
+            dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o755 if mode == b"100755" else 0o644
+        )
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+
+    for path, target in symlinks:
+        dest = snapshot / path
+        ensure_dir(dest.parent)
+        if dest.is_symlink() or dest.exists():
+            raise ValueError(f"snapshot path collision for symlink: {dest}")
+        dest.symlink_to(target)
+
     if clean_head(repo) != head:
         raise ValueError("HEAD moved while creating the review snapshot; restart review")
 
@@ -176,7 +205,7 @@ def sandbox_prefix(root: Path, scratch: Path) -> list[str]:
 def stop_group(process: subprocess.Popen[bytes]) -> None:
     # Even a successful reviewer may have left commands running in its process group.
     # SIGKILL avoids racing scratch deletion against a descendant's SIGTERM handler.
-    with contextlib.suppress(ProcessLookupError):
+    with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(process.pid, signal.SIGKILL)
 
 
@@ -370,9 +399,17 @@ def main() -> int:
     finally:
         for sig in old_handlers:
             signal.signal(sig, signal.SIG_IGN)
+
+        def remove_readonly(func: object, path: str, _: object) -> None:
+            with contextlib.suppress(OSError):
+                os.chmod(path, 0o700)
+            with contextlib.suppress(OSError):
+                if callable(func):
+                    func(path)
+
         try:
             if root is not None:
-                shutil.rmtree(root)
+                shutil.rmtree(root, onexc=remove_readonly)
         finally:
             for sig, handler in old_handlers.items():
                 signal.signal(sig, handler)

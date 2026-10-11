@@ -84,6 +84,8 @@ def update_final(directory: Path, section: str | None) -> None:
 def invalidate(directory: Path, *, capture: bool = False, final: bool = True) -> None:
     for name in (ACCEPTED, AUDIT, *(CAPTURED if capture else ())):
         (directory / name).unlink(missing_ok=True)
+    if capture:
+        (directory / "code-review.json").unlink(missing_ok=True)
     if final:
         update_final(directory, None)
 
@@ -181,13 +183,11 @@ def load_review(path: Path) -> dict[str, Any]:
     return review
 
 
-def canonical_file(value: str, root: Path) -> tuple[str | None, str | None]:
+def canonical_file(value: str, root: Path, allowed: set[str]) -> tuple[str | None, str | None]:
     if not value or "\0" in value:
         return None, "empty or invalid file path"
     if ".." in value.split("/"):
         return None, "path traversal is not allowed"
-    if LINE_SUFFIX.search(value):
-        return None, "line-suffixed file path; use separate line_start/line_end fields"
     path = PurePosixPath(value)
     if path.is_absolute():
         try:
@@ -196,9 +196,12 @@ def canonical_file(value: str, root: Path) -> tuple[str | None, str | None]:
             return None, "absolute path is outside the repository"
     if str(path) == ".":
         return None, "file path does not resolve to a repository file"
-    # Membership in Git's canonical tree paths is the authority, not filesystem existence:
-    # deleted paths remain valid and resolving symlinks would change the reviewed file identity.
-    return str(path), None
+    raw_path = str(path)
+    if raw_path in allowed:
+        return raw_path, None
+    if LINE_SUFFIX.search(value):
+        return None, "line-suffixed file path; use separate line_start/line_end fields"
+    return raw_path, "file is not in the captured changed_paths (or cannot resolve exactly)"
 
 
 def audit_section(scope: dict[str, Any], dropped: list[dict[str, Any]]) -> str:
@@ -232,9 +235,7 @@ def filter_review(root: Path, directory: Path, input_path: Path) -> None:
     accepted = []
     dropped = []
     for index, finding in enumerate(review["findings"]):
-        canonical, reason = canonical_file(finding["file"], root)
-        if reason is None and canonical not in allowed:
-            reason = "file is not in the captured changed_paths (or cannot resolve exactly)"
+        canonical, reason = canonical_file(finding["file"], root, allowed)
         if reason is not None:
             dropped.append({"index": index, "reason": reason, "finding": finding})
         else:
