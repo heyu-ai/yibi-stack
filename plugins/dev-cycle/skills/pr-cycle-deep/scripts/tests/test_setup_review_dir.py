@@ -1,123 +1,17 @@
-"""Tests for setup-review-dir.sh's base-branch resolution.
-
-Two layers, mirroring test_agy_scripts.py's convention:
-  * Static contract tests -- read each script's source and assert the PR #175
-    invariants (no bare `rev-parse --verify` on the caller-supplied branch, "--"
-    end-of-options separator before the ref, an explicit empty-branch guard).
-    These guard against silent regressions of the exact bugs PR #175 fixed.
-  * Behavioral integration tests -- run setup-review-dir.sh end-to-end against a
-    real throwaway origin+clone pair, exercising: a stale local base branch (the
-    PR #22 mob-review bug this file's whole fetch+FETCH_HEAD approach exists to
-    fix), a nonexistent branch, an empty branch, and an argument-injection attempt.
-"""
+"""Behavioral scope/base-resolution tests using real throwaway Git remotes."""
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess  # nosec B404
+import sys
 from pathlib import Path
 
 import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 SETUP_SCRIPT = SCRIPTS_DIR / "setup-review-dir.sh"
-
-# codex-r1-stage1.sh no longer does its own fetch (issue #194: it now reviews the shared
-# $REVIEW_DIR/diff.patch via codex exec), so only setup-review-dir.sh still carries the
-# fetch+FETCH_HEAD base-resolution block these PR #175 contract tests protect.
-FETCH_SCRIPTS = [SETUP_SCRIPT]
-
-
-# --------------------------------------------------------------------------- #
-# Static contract tests
-# --------------------------------------------------------------------------- #
-
-
-class TestBaseResolutionContract:
-    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
-    def test_srd_dt_001_no_bare_rev_parse_verify_on_base_branch(self, script: Path) -> None:
-        """SRD-DT-001: the caller-supplied branch is never validated with a bare
-        `git rev-parse --verify "$BASE_BRANCH"` -- that only checks local-ref
-        existence, not freshness vs origin, which was PR #22's stale-diff bug.
-        """
-        src = script.read_text(encoding="utf-8")
-        assert 'rev-parse --verify "$BASE_BRANCH"' not in src, (
-            f"{script.name}: must not re-introduce local-ref-only validation of BASE_BRANCH"
-        )
-
-    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
-    def test_srd_dt_002_fetch_uses_end_of_options_separator(self, script: Path) -> None:
-        """SRD-DT-002: `git fetch` must terminate options with "--" before the
-        caller-derived ref, or a branch name starting with "-" is parsed as a git
-        flag (verified command-injection risk, e.g. --upload-pack=<cmd>). The remote
-        is now selected into $BASE_REMOTE (issue #196), so the invariant is the "--"
-        separator, not a hardcoded `origin`.
-        """
-        src = script.read_text(encoding="utf-8")
-        assert 'git fetch "$BASE_REMOTE" --quiet -- "$FETCH_BRANCH"' in src, (
-            f"{script.name}: git fetch must use -- before $FETCH_BRANCH via $BASE_REMOTE"
-        )
-
-    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
-    def test_srd_dt_003_empty_fetch_branch_guarded(self, script: Path) -> None:
-        """SRD-DT-003: an empty FETCH_BRANCH (e.g. BASE_BRANCH="origin/") must be
-        rejected before `git fetch` -- otherwise `git fetch origin ""` silently
-        falls back to the remote's default branch instead of failing.
-        """
-        src = script.read_text(encoding="utf-8")
-        assert '[ -z "$FETCH_BRANCH" ]' in src, f"{script.name}: must guard empty FETCH_BRANCH"
-
-    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
-    def test_srd_dt_004_fetch_failure_message_names_remote_constraint(self, script: Path) -> None:
-        """SRD-DT-004: the fetch-failure message must name the actual new
-        constraint (branch must exist on the selected base remote), not just "check
-        your network" -- a valid local-only unpushed branch now fails here by design.
-        The remote is $BASE_REMOTE (issue #196), so the message interpolates it.
-        """
-        src = script.read_text(encoding="utf-8")
-        assert "已存在於 ${BASE_REMOTE}" in src, (
-            f"{script.name}: fetch-failure message must name the $BASE_REMOTE constraint"
-        )
-
-    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
-    def test_srd_dt_005_prefers_upstream_remote_when_present(self, script: Path) -> None:
-        """SRD-DT-005: base remote resolution must prefer an `upstream` remote over
-        `origin` when one exists (issue #196: origin may be a personal fork whose
-        default branch lags the real base repo). Guards against a regression to an
-        unconditional `git fetch origin`.
-        """
-        src = script.read_text(encoding="utf-8")
-        assert "BASE_REMOTE=origin" in src, f"{script.name}: must default BASE_REMOTE to origin"
-        assert "git remote get-url upstream" in src, (
-            f"{script.name}: must probe for an upstream remote"
-        )
-        assert "BASE_REMOTE=upstream" in src, (
-            f"{script.name}: must prefer upstream when the probe succeeds"
-        )
-        # Ordering guard (PR #198 review): substring presence alone can't catch a reset-after-if
-        # or inverted probe -- pin the resolution order default -> probe -> override.
-        assert (
-            src.index("BASE_REMOTE=origin")
-            < src.index("git remote get-url upstream")
-            < src.index("BASE_REMOTE=upstream")
-        ), f"{script.name}: remote resolution must be default -> probe -> override"
-
-    @pytest.mark.parametrize("script", FETCH_SCRIPTS)
-    def test_srd_dt_006_emits_chosen_base_remote_to_stderr(self, script: Path) -> None:
-        """SRD-DT-006 (PR #198): the script must announce the selected base remote on
-        stderr. The name-based heuristic has two residual silent surfaces (a mis-selected
-        unrelated upstream, and the origin-only fork no-op); a stderr breadcrumb turns an
-        otherwise-silent mis-selection into a diagnosable line.
-        """
-        src = script.read_text(encoding="utf-8")
-        assert "[INFO] base remote = ${BASE_REMOTE}" in src, (
-            f"{script.name}: must echo the chosen base remote to stderr"
-        )
-
-
-# --------------------------------------------------------------------------- #
-# Behavioral integration tests (setup-review-dir.sh)
-# --------------------------------------------------------------------------- #
 
 
 def _git(
@@ -278,6 +172,17 @@ class TestSetupReviewDirBehavioral:
 
         result = _run_setup(repo, "main")
         assert result.returncode == 0, result.stderr
+        assert "[WARN]" in result.stderr and "2 commit(s)" in result.stderr
+        scope = json.loads((repo / ".pr-review" / "review-scope.json").read_text())
+        assert scope["base"] == sha_c
+        assert scope["head"] == _git(repo, "rev-parse", "HEAD").stdout.strip()
+        assert scope["changed_paths"] == ["feature.txt"]
+        # Refreshing local main changes only the warning, never the review scope.
+        _git(repo, "branch", "-f", "main", sha_c)
+        fresh = _run_setup(repo, "main")
+        assert fresh.returncode == 0, fresh.stderr
+        assert "[WARN]" not in fresh.stderr
+        assert json.loads((repo / ".pr-review" / "review-scope.json").read_text()) == scope
 
         changed = (repo / ".pr-review" / "changed-files.txt").read_text(encoding="utf-8")
         assert "feature.txt" in changed
@@ -500,3 +405,321 @@ class TestSetupReviewDirBehavioral:
         # Must fail as an unresolvable ref, never as an attempt to run the sentinel command.
         assert "touch_pwned_sentinel: command not found" not in result.stderr
         assert not (repo / "touch_pwned_sentinel").exists()
+
+
+def _finding(file: str, **extra: object) -> dict[str, object]:
+    return {
+        "severity": "important",
+        "title": f"Review {file}",
+        "file": file,
+        "issue": "Observable issue",
+        "fix": "Concrete correction",
+        **extra,
+    }
+
+
+def _review_input(repo: Path, findings: list[dict[str, object]]) -> Path:
+    path = repo / ".pr-review" / "code-review.json"
+    path.write_text(
+        json.dumps(
+            {
+                "verdict": "NEEDS_CHANGES",
+                "summary": "Review completed",
+                "findings": findings,
+                "contract": {"criterion": "AC-1", "evidence": ["verified"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _scope_cli(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # nosec B603
+        [sys.executable, str(SCRIPTS_DIR / "review_scope.py"), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _filter(repo: Path, input_path: Path) -> subprocess.CompletedProcess[str]:
+    return _scope_cli(repo, "filter", "--input", str(input_path))
+
+
+def _audit_items(repo: Path) -> list[dict[str, object]]:
+    text = (repo / ".pr-review" / "code-review-scope.md").read_text()
+    return [json.loads(part.split("\n```", 1)[0]) for part in text.split("```json\n")[1:]]
+
+
+def _accepted(repo: Path) -> dict[str, object]:
+    return json.loads((repo / ".pr-review" / "code-review-filtered.json").read_text())
+
+
+def _assert_invalidated(repo: Path) -> None:
+    directory = repo / ".pr-review"
+    assert not (directory / "code-review-filtered.json").exists()
+    assert not (directory / "code-review-scope.md").exists()
+    if (directory / "final.md").exists():
+        assert "<!-- code-review-scope:start -->" not in (directory / "final.md").read_text()
+
+
+class TestReviewScopeBehavior:
+    def test_scope_without_branch_upstream_and_without_local_main(
+        self, origin_and_clone: dict[str, Path]
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        assert _git(repo, "remote").stdout.splitlines() == ["origin"]
+        assert not _git(
+            repo, "for-each-ref", "--format=%(upstream)", "refs/heads/feature"
+        ).stdout.strip()
+        _git(repo, "tag", "main")  # A same-named tag must not substitute for refs/heads/main.
+        _git(repo, "branch", "-D", "main")
+        result = _run_setup(repo, "main")
+        assert result.returncode == 0, result.stderr
+        assert "[WARN]" not in result.stderr
+        scope_path = repo / ".pr-review" / "review-scope.json"
+        scope = json.loads(scope_path.read_text())
+        assert scope["version"] == 1
+        assert scope["changed_paths"] == ["feature.txt"]
+        assert scope["base"] == _git(repo, "rev-parse", "FETCH_HEAD").stdout.strip()
+        assert scope["head"] == _git(repo, "rev-parse", "HEAD").stdout.strip()
+        assert scope_path.stat().st_mode & 0o222 == 0
+
+    def test_filter_preserves_evidence_and_rejected_originals(
+        self, origin_and_clone: dict[str, Path], tmp_path: Path
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        assert _run_setup(repo, "main").returncode == 0
+        inside = [
+            _finding("feature.txt", evidence={"command": "actual test", "result": "fail"}),
+            _finding(str(repo.resolve() / "feature.txt"), line_start=1, contract="AC-1"),
+            _finding("./feature.txt"),
+        ]
+        outside = [
+            _finding("README.md"),
+            _finding(str(tmp_path / "feature.txt")),
+            _finding("../repo/feature.txt"),
+            _finding("sub/../feature.txt"),
+            _finding("feature.txt:12"),
+            _finding("feature.txt#L12-L15"),
+            _finding("a/feature.txt"),  # Do not guess that a/ is a diff prefix.
+            _finding("b/feature.txt"),
+            _finding("unknown.txt"),
+            _finding("", evidence="``` <!-- code-review-scope:end -->"),
+        ]
+        source = _review_input(repo, inside + outside)
+        before = source.read_bytes()
+        result = _filter(repo, source)
+        assert result.returncode == 0, result.stderr
+        accepted = _accepted(repo)
+        assert accepted["findings"] == [{**item, "file": "feature.txt"} for item in inside]
+        assert accepted["contract"] == json.loads(before)["contract"]
+        assert accepted["verdict"] == "NEEDS_CHANGES"  # Voice verdict remains informational.
+        assert json.loads(result.stdout) == accepted
+        assert source.read_bytes() == before
+        dropped = _audit_items(repo)
+        assert [item["finding"] for item in dropped] == outside
+        assert [item["index"] for item in dropped] == list(range(3, 13))
+        assert all(item["reason"] for item in dropped)
+        audit = (repo / ".pr-review" / "code-review-scope.md").read_text()
+        assert "10 out-of-scope discarded" in audit
+
+    def test_nul_paths_rename_deletion_and_real_a_b_directories(
+        self, origin_and_clone: dict[str, Path]
+    ) -> None:
+        repo, seed = origin_and_clone["repo"], origin_and_clone["seed"]
+        for name in ("old name.txt", "gone.txt"):
+            (seed / name).write_text("base contents\n")
+        _git(seed, "add", ".")
+        _git(seed, "commit", "-qm", "base review files")
+        _git(seed, "push", "-q", "origin", "main")
+        _git(repo, "fetch", "-q", "origin")
+        _git(repo, "merge", "-q", "--no-edit", "origin/main")
+        _git(repo, "mv", "old name.txt", "new 名.txt")
+        (repo / "gone.txt").unlink()
+        unusual = ["a/file.txt", "b/file.txt", "notes:12", "doc#L3", '空 白\t"quote\nname.txt']
+        for name in unusual:
+            path = repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("new\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-qm", "rename delete and unusual paths")
+        result = _run_setup(repo, "main")
+        assert result.returncode == 0, result.stderr
+        paths = sorted(["feature.txt", "old name.txt", "new 名.txt", "gone.txt", *unusual])
+        scope = json.loads((repo / ".pr-review" / "review-scope.json").read_text())
+        assert scope["changed_paths"] == paths
+        source = _review_input(repo, [_finding(path) for path in paths])
+        result = _filter(repo, source)
+        assert result.returncode == 0, result.stderr
+        assert _accepted(repo)["findings"] == [_finding(path) for path in paths]
+        assert _audit_items(repo) == []
+        assert not (repo / "gone.txt").exists()
+        assert not (repo / "old name.txt").exists()
+
+    def test_repeat_run_updates_only_owned_final_section(
+        self, origin_and_clone: dict[str, Path]
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        assert _run_setup(repo, "main").returncode == 0
+        final = repo / ".pr-review" / "final.md"
+        amplifier = "# Final review\n\n## Critical\nAmplifier AC-9 finding must stay.\n"
+        final.write_text(amplifier)
+        source = _review_input(repo, [_finding("README.md")])
+        assert _filter(repo, source).returncode == 0
+        footer = "\n## Other voice\nIndependent finding.\n"
+        final.write_text(final.read_text() + footer)
+        first = final.read_bytes()
+        assert _filter(repo, source).returncode == 0
+        assert final.read_bytes() == first
+        source = _review_input(
+            repo,
+            [
+                _finding("feature.txt"),
+                _finding("outside.txt", evidence="nested <!-- code-review-scope:end --> payload"),
+            ],
+        )
+        assert _filter(repo, source).returncode == 0
+        result = final.read_text()
+        assert result.startswith(amplifier) and result.endswith(footer)
+        assert result.count("<!-- code-review-scope:start -->") == 1
+        assert "1 out-of-scope discarded" in result
+        assert "0 out-of-scope discarded" not in result
+        assert len(_audit_items(repo)) == 1
+
+    @pytest.mark.parametrize(
+        "invalid",
+        [
+            "{",
+            "[]",
+            "{}",
+            '{"verdict":"LGTM","summary":"done","findings":{}}',
+            '{"verdict":"LGTM","summary":"done","findings":[null]}',
+            '{"verdict":"LGTM","summary":"done","findings":[{}]}',
+            '{"verdict":"LGTM","summary":"done","findings":[{"file":42}]}',
+            '{"verdict":"LGTM","summary":null,"findings":[]}',
+        ],
+    )
+    def test_malformed_input_never_leaves_old_acceptance(
+        self, origin_and_clone: dict[str, Path], invalid: str
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        assert _run_setup(repo, "main").returncode == 0
+        final = repo / ".pr-review" / "final.md"
+        final.write_text("Amplifier finding remains.\n")
+        source = _review_input(repo, [_finding("feature.txt")])
+        assert _filter(repo, source).returncode == 0
+        source.write_text(invalid)
+        result = _filter(repo, source)
+        assert result.returncode != 0 and "[FAIL]" in result.stderr
+        _assert_invalidated(repo)
+        assert "Amplifier finding remains." in final.read_text()
+        assert source.read_text() == invalid
+
+    def test_moved_head_invalidates_old_results_and_manifest_stays_frozen(
+        self, origin_and_clone: dict[str, Path]
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        assert _run_setup(repo, "main").returncode == 0
+        scope_path = repo / ".pr-review" / "review-scope.json"
+        before = scope_path.read_bytes()
+        final = repo / ".pr-review" / "final.md"
+        final.write_text("Amplifier finding\n")
+        source = _review_input(repo, [_finding("feature.txt")])
+        assert _filter(repo, source).returncode == 0
+        _git(repo, "commit", "--allow-empty", "-qm", "head moved")
+        result = _filter(repo, source)
+        assert result.returncode != 0 and "HEAD moved" in result.stderr
+        _assert_invalidated(repo)
+        assert scope_path.read_bytes() == before
+        assert _run_setup(repo, "main").returncode == 0
+        assert json.loads(scope_path.read_text())["head"] != json.loads(before)["head"]
+        # Re-running setup resets code-review.json so stale reviews cannot be reused
+        assert not (repo / ".pr-review" / "code-review.json").exists()
+        source = _review_input(repo, [_finding("feature.txt")])
+        assert _filter(repo, source).returncode == 0
+
+    def test_empty_review_and_empty_scope_are_valid(
+        self, origin_and_clone: dict[str, Path]
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        _git(repo, "checkout", "-q", "main")
+        assert _run_setup(repo, "main").returncode == 0
+        source = _review_input(repo, [_finding("feature.txt")])
+        assert _filter(repo, source).returncode == 0
+        assert _accepted(repo)["findings"] == []
+        assert len(_audit_items(repo)) == 1
+        source = _review_input(repo, [])
+        assert _filter(repo, source).returncode == 0
+        assert _accepted(repo)["findings"] == []
+        assert _audit_items(repo) == []
+
+    @pytest.mark.parametrize("failure", ["fetch", "empty-base", "missing-input", "missing-flag"])
+    def test_failed_refresh_or_cli_invalidates_previous_results(
+        self, origin_and_clone: dict[str, Path], failure: str
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        assert _run_setup(repo, "main").returncode == 0
+        source = _review_input(repo, [_finding("feature.txt")])
+        assert _filter(repo, source).returncode == 0
+        if failure == "fetch":
+            result = _run_setup(repo, "does-not-exist")
+        elif failure == "empty-base":
+            result = _run_setup(repo, "")
+        elif failure == "missing-input":
+            result = _filter(repo, source.with_name("missing.json"))
+        else:
+            result = _scope_cli(repo, "filter")
+        assert result.returncode != 0 and "[FAIL]" in result.stderr
+        _assert_invalidated(repo)
+        if failure in ("fetch", "empty-base"):
+            for name in ("review-scope.json", "diff.patch", "changed-files.txt"):
+                assert not (repo / ".pr-review" / name).exists()
+
+    @pytest.mark.parametrize("damage", ["missing", "malformed", "paths"])
+    def test_invalid_manifest_fails_instead_of_accepting_findings(
+        self, origin_and_clone: dict[str, Path], damage: str
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        assert _run_setup(repo, "main").returncode == 0
+        source = _review_input(repo, [_finding("feature.txt")])
+        assert _filter(repo, source).returncode == 0
+        manifest = repo / ".pr-review" / "review-scope.json"
+        scope = json.loads(manifest.read_text())
+        manifest.unlink()
+        if damage == "malformed":
+            manifest.write_text("null")
+        elif damage == "paths":
+            scope["changed_paths"] = ["../feature.txt"]
+            manifest.write_text(json.dumps(scope))
+        result = _filter(repo, source)
+        assert result.returncode != 0 and "[FAIL]" in result.stderr
+        _assert_invalidated(repo)
+
+    def test_real_main_ref_error_is_not_treated_as_missing_main(
+        self, origin_and_clone: dict[str, Path]
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        assert _run_setup(repo, "main").returncode == 0
+        source = _review_input(repo, [_finding("feature.txt")])
+        assert _filter(repo, source).returncode == 0
+        base = _git(repo, "rev-parse", "FETCH_HEAD").stdout.strip()
+        main_ref = repo / _git(repo, "rev-parse", "--git-path", "refs/heads/main").stdout.strip()
+        main_ref.write_text("not-an-object-id\n")
+        result = _scope_cli(repo, "capture", "--base", base)
+        assert result.returncode != 0 and "[FAIL]" in result.stderr
+        _assert_invalidated(repo)
+        assert not (repo / ".pr-review" / "review-scope.json").exists()
+
+    def test_help_does_not_invalidate_accepted_review(
+        self, origin_and_clone: dict[str, Path]
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        assert _run_setup(repo, "main").returncode == 0
+        source = _review_input(repo, [_finding("feature.txt")])
+        assert _filter(repo, source).returncode == 0
+        before = _accepted(repo)
+        result = _scope_cli(repo, "filter", "--help")
+        assert result.returncode == 0, result.stderr
+        assert _accepted(repo) == before

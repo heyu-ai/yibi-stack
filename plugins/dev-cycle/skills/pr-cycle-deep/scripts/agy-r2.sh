@@ -14,10 +14,10 @@
 #   - stderr log 寫到 $WT_ROOT/.pr-review/gemini-r2.log；agy log 寫到 gemini-r2.agy.log
 #   - print timeout 時半截輸出改名為 gemini-r2.timeout-partial.md（0600，issue #443）
 #   - 暫存 gemini-r2-input.md（完成後自動刪除）
-#   - CWD 切換到 $WT_ROOT（--add-dir 傳的是 "$WT_ROOT" 絕對路徑，不是相對的 `.`）
+#   - agy CWD / --add-dir 為一次性 HEAD snapshot；OS sandbox 禁止原始 worktree 與 snapshot 寫入
 #
 # issue #153：nested worktree 下 agy 無法解析 @file，靜默進入 agentic 模式（R2 實測觀察到
-# timeout 這個結局）。修法同 stage1：inline prompt 取代 @file、開頭清 scratch、跑 agy_validate.py。
+# timeout 這個結局）。修法同 stage1：inline prompt、無舊 scratch 的私有 HOME、agy_validate.py。
 #
 # --dangerously-skip-permissions 與 subagent 權限等級的完整理由見 agy-r1-stage1.sh 開頭註解
 # （<!-- verified: probe, agy 1.1.12，2026-08-13 重驗仍成立 -->）；allow-list 同樣用本 script
@@ -35,10 +35,6 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 if ! AGY_PRINT_TIMEOUT_SECS=$(python3 "$SCRIPT_DIR/agy_print_timeout.py" budget); then
     exit 2
 fi
-
-# issue #153 fix 2：清掉殘留的 agy scratch input，避免 agentic 檔案搜尋撈到 stale input。
-# 不吞掉真實失敗（如權限錯誤）——清理失敗代表 stale-input 防線失效，須讓使用者看到 [WARN]。
-rm -f "$HOME"/.gemini/antigravity-cli/scratch/gemini-*-input.md || echo "[WARN] agy scratch cleanup failed; stale-input vector not cleared" >&2
 
 if ! WT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
     echo "[FAIL] 當前目錄不在 git repo 內（請在 worktree 目錄執行此 script）" >&2
@@ -61,14 +57,12 @@ fi
 
 # cd 到 worktree root：本檔在 cd 之後的 `git status --porcelain`（越界編輯偵測）沒有帶 -C，
 # 需要 cwd 落在 worktree 內才會量到正確的樹。產物路徑則不依賴它（$REVIEW_DIR 等皆為絕對）。
-# 此 cd 亦**不再**是 agy context 的來源：--add-dir 傳的是 "$WT_ROOT" 絕對路徑（見下方註解）。
+# agy context 由 agy_isolate.py 的獨立 HEAD snapshot 提供，不使用此 CWD。
 cd "$WT_ROOT"
 
-# 防越界編輯（PR #194 retro）：agy 以權限繞過旗標執行，具 worktree 寫入權；review 階段
-# 應為唯讀。快照 agy 執行前的 git 狀態，執行後比對，若工作樹被改動則 fail-loud [WARN]。
-# review 產物不誤報：.pr-review/ 全部未追蹤，git status 摺疊成單行 `?? .pr-review/`，
-# PRE/POST 相同——只有 agy 改動「已追蹤」檔才觸發。
-PRE_TREE=$(git status --porcelain)
+# OS sandbox 是寫入邊界；PRE/POST 另保留為原始 worktree 的稽核訊號。
+# helper 失敗或逾時也必須執行 POST，不得因非零退出而略過。
+PRE_TREE=$(GIT_OPTIONAL_LOCKS=0 git status --porcelain)
 
 # issue #153 fix 1：inline prompt 取代 @file，移除 agentic 觸發點。
 # 256000B 上限：macOS ARG_MAX 約 1 MiB（單一 arg 與 env 共用該預算），256KB 留足 headroom。
@@ -78,30 +72,47 @@ if [ "$INPUT_BYTES" -gt 256000 ]; then
     echo "[FAIL] R2 輸入 ${INPUT_BYTES}B 超過 256000B inline 上限" >&2
     exit 1
 fi
-# REVIEW-ONLY guard：prepend 到餵給 agy 的 prompt，顯式禁止編輯（權限繞過旗標讓 agy 能寫，
-# 唯一防線是明確約束 + 下方的 tree-diff 偵測）。
+# REVIEW-ONLY guard 是行為指示；真正寫入隔離由 agy_isolate.py 的 OS sandbox 強制。
 REVIEW_ONLY_GUARD="[REVIEWER CONSTRAINT — 最高優先] 你是唯讀 code reviewer。禁止修改、建立或刪除任何檔案，禁止執行任何寫入／編輯指令。只讀取檔案與 diff，然後輸出你的 review 文字。改動工作樹是協議違規——若你發現自己正要編輯，停手，改在 review 裡用文字描述該修改建議。"
 INPUT_CONTENT="$REVIEW_ONLY_GUARD
 
 $(cat "$REVIEW_DIR/gemini-r2-input.md")"
 
-# --add-dir 傳 "$WT_ROOT" 絕對路徑，不可傳相對的 `.`（agy 1.1.22 實測，見 agy-r1-stage1.sh 與
-# 3rd-tools/skills/agy-consult/scripts/consult.sh）：相對路徑不再被解析成 active workspace，
-# agy 會在沒有任何檔案 context 的情況下 exit 0 回一段看似正常的 review。
+# helper 為 agy 設定絕對 snapshot --add-dir，保留 command 探索但不給來源寫入權。
 AGY_START=$SECONDS
-if ! agy -p "$INPUT_CONTENT" --model 'Gemini 3.8 Flash (High)' --add-dir "$WT_ROOT" --dangerously-skip-permissions \
-    --print-timeout "${AGY_PRINT_TIMEOUT_SECS}s" --log-file "$REVIEW_DIR/gemini-r2.agy.log" \
-    > "$REVIEW_DIR/gemini-r2.md" \
-    2>"$REVIEW_DIR/gemini-r2.log"; then
-    echo "[FAIL] agy R2 失敗，請查看 $REVIEW_DIR/gemini-r2.log" >&2
-    exit 1
+AGY_EXIT=0
+AGY_SIGNAL_EXIT=0
+AGY_PID=
+interrupt_agy() {
+    AGY_SIGNAL_EXIT=$((128 + $1))
+    if [ -n "$AGY_PID" ]; then
+        kill -"$1" "$AGY_PID" 2>/dev/null || true
+    fi
+}
+trap 'interrupt_agy 15' TERM
+trap 'interrupt_agy 2' INT
+python3 "$SCRIPT_DIR/agy_isolate.py" --repo-root "$WT_ROOT" -p "$INPUT_CONTENT" \
+    --model 'Gemini 3.8 Flash (High)' --timeout-secs "$AGY_PRINT_TIMEOUT_SECS" \
+    --agy-log "$REVIEW_DIR/gemini-r2.agy.log" \
+    > "$REVIEW_DIR/gemini-r2.md" 2>"$REVIEW_DIR/gemini-r2.log" &
+AGY_PID=$!
+if [ "$AGY_SIGNAL_EXIT" -ne 0 ]; then
+    kill -"$((AGY_SIGNAL_EXIT - 128))" "$AGY_PID" 2>/dev/null || true
 fi
+wait "$AGY_PID" || AGY_EXIT=$?
+if [ "$AGY_SIGNAL_EXIT" -ne 0 ]; then
+    trap '' TERM INT
+    wait "$AGY_PID" || true
+    AGY_EXIT=$AGY_SIGNAL_EXIT
+fi
+AGY_PID=
+trap - TERM INT
 AGY_ELAPSED=$((SECONDS - AGY_START))
 
 # 偵測 agy 是否在 review 階段越界編輯工作樹（PR #194 retro：agy R2 曾自主改 6 個檔）。
 # 不 hard-fail（review 文字仍有價值），但 loud [WARN] 要 lead 逐行稽核並 revert 非預期編輯。
-# 放在 timeout 判定之前：逾時的那一輪同樣可能改過工作樹。
-POST_TREE=$(git status --porcelain)
+# 放在失敗／timeout 判定之前：所有已啟動的 reviewer 都必須有 POST 稽核。
+POST_TREE=$(GIT_OPTIONAL_LOCKS=0 git status --porcelain)
 if [ "$PRE_TREE" != "$POST_TREE" ]; then
     echo "[WARN] agy 在 review 階段改動了工作樹（review 應唯讀）；請稽核以下變更並在採用前 revert 非預期編輯：" >&2
     git status --short >&2
@@ -122,6 +133,11 @@ if [ "$TIMEOUT_CHECK_EXIT" -eq 1 ]; then
 elif [ "$TIMEOUT_CHECK_EXIT" -ne 0 ]; then
     echo "[FAIL] agy R2 的 timeout 檢查本身失敗（exit ${TIMEOUT_CHECK_EXIT}），無法確認輸出是否完整" >&2
     exit 1
+fi
+
+if [ "$AGY_EXIT" -ne 0 ]; then
+    echo "[FAIL] agy R2 失敗（exit ${AGY_EXIT}），請查看 $REVIEW_DIR/gemini-r2.log" >&2
+    exit "$AGY_EXIT"
 fi
 
 if [ ! -s "$REVIEW_DIR/gemini-r2.md" ]; then

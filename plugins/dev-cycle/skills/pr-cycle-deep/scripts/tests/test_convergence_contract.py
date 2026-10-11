@@ -25,7 +25,6 @@ import pytest
 # scripts/tests/ -> scripts/ -> pr-cycle-deep/
 SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 
-
 # Spec-drift preflight (issue #510). These anchors name each rule clause so a failure says WHICH
 # clause went missing, and check_preflight_position requires each to sit inside Step 1 before
 # drafting. They are diagnostics, not the guard: PR #515's review found new unpinned clauses three
@@ -339,8 +338,7 @@ def test_prc_dt_008_preflight_sits_between_template_and_drafting():
 
 
 def test_prc_eg_001_empty_text_fails_loud_not_vacuous():
-    """PRC-EG-001: empty text must NOT pass just because 0 <= 1220 — it must list every missing
-    anchor."""
+    """PRC-EG-001: empty input must list every missing required anchor, not pass vacuously."""
     failures = check_convergence_contract("")
     assert failures  # never []
     for anchor in REQUIRED_ANCHORS:
