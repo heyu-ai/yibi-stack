@@ -401,8 +401,15 @@ def main() -> int:
             signal.signal(sig, signal.SIG_IGN)
 
         def remove_readonly(func: object, path: str, _: object) -> None:
-            with contextlib.suppress(OSError):
-                os.chmod(path, 0o700)
+            target_path = Path(path)
+            # If unlinking fails because parent is read-only, chmod the parent
+            parent = target_path.parent
+            if parent.exists() and not parent.is_symlink():
+                with contextlib.suppress(OSError):
+                    os.chmod(parent, 0o700)
+            if not target_path.is_symlink():
+                with contextlib.suppress(OSError):
+                    os.chmod(path, 0o700)
             with contextlib.suppress(OSError):
                 if callable(func):
                     func(path)

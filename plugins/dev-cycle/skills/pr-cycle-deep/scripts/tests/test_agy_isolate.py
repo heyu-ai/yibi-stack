@@ -426,4 +426,31 @@ def test_original_tree_comparison_runs_on_failed_reviewer(isolated_repo: dict, s
             if process.poll() is None:
                 process.terminate()
                 process.communicate(timeout=20)
-        assert not list(isolated_repo["tmp"].glob("agy-review-*"))
+
+
+def test_cleanup_never_chmods_symlink_targets_outside_scratch(isolated_repo: dict) -> None:
+    require_isolation()
+    # Create a protected target with strict permissions (0600)
+    target = isolated_repo["tmp"] / "protected_target.txt"
+    target.write_text("protected content\n")
+    target.chmod(0o600)
+    initial_mode = target.stat().st_mode
+
+    # Make stand-in create a 0500 directory inside scratch containing a symlink to target
+    stand_in = isolated_repo["bin"] / "agy"
+    stand_in.write_text(f"""#!{sys.executable}
+import os, pathlib
+scratch = pathlib.Path(os.environ['TMPDIR'])
+ro_dir = scratch / 'ro_dir'
+ro_dir.mkdir()
+(ro_dir / 'symlink_to_target').symlink_to('{target}')
+ro_dir.chmod(0o500)
+print("## Verdict\\nLGTM\\n")
+""")
+    stand_in.chmod(0o755)
+
+    result = run_stage(isolated_repo, "r1")
+    assert result.returncode == 0, result.stderr
+    # Target file permissions must NOT have been changed to 0700 by cleanup
+    assert target.stat().st_mode == initial_mode
+    assert not list(isolated_repo["tmp"].glob("agy-review-*"))
