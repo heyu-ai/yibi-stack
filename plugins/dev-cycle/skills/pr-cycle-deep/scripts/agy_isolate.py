@@ -29,8 +29,9 @@ class ReviewInterrupted(Exception):
 
 
 def git(repo: Path, *args: str) -> bytes:
+    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
     result = subprocess.run(  # nosec B603 B607
-        ["git", "-C", str(repo), *args], capture_output=True, check=True
+        ["git", "-C", str(repo), *args], capture_output=True, check=True, env=env
     )
     return result.stdout
 
@@ -400,23 +401,20 @@ def main() -> int:
         for sig in old_handlers:
             signal.signal(sig, signal.SIG_IGN)
 
-        def remove_readonly(func: object, path: str, _: object) -> None:
-            target_path = Path(path)
-            # If unlinking fails because parent is read-only, chmod the parent
-            parent = target_path.parent
-            if parent.exists() and not parent.is_symlink():
-                with contextlib.suppress(OSError):
-                    os.chmod(parent, 0o700)
-            if not target_path.is_symlink():
-                with contextlib.suppress(OSError):
-                    os.chmod(path, 0o700)
+        def make_writable_tree(p: Path) -> None:
+            if p.is_symlink():
+                return
             with contextlib.suppress(OSError):
-                if callable(func):
-                    func(path)
+                os.chmod(p, 0o700)
+            if p.is_dir():
+                with contextlib.suppress(OSError), os.scandir(p) as it:
+                    for entry in it:
+                        make_writable_tree(Path(entry.path))
 
         try:
             if root is not None:
-                shutil.rmtree(root, onexc=remove_readonly)
+                make_writable_tree(root)
+                shutil.rmtree(root, ignore_errors=True)
         finally:
             for sig, handler in old_handlers.items():
                 signal.signal(sig, handler)

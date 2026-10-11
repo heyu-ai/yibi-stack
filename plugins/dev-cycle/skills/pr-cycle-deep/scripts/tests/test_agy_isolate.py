@@ -176,8 +176,8 @@ def isolated_repo(tmp_path: Path) -> dict:
     stand_in.chmod(0o755)
     common = main / ".git"
     index = Path(git(linked, "rev-parse", "--absolute-git-dir")) / "index"
-    # Warm git status before byte-comparing the index (git itself may refresh it).
-    git(linked, "status", "--porcelain")
+    seed_file = linked / "seed.txt"
+    os.utime(seed_file, (seed_file.stat().st_atime + 30, seed_file.stat().st_mtime + 30))
     protected = [linked / "seed.txt", linked / ".git", common / "config", common / "index", index]
     protected.append(shared_input)
     original = {path: (path.read_bytes(), path.stat().st_mode) for path in protected}
@@ -444,7 +444,7 @@ scratch = pathlib.Path(os.environ['TMPDIR'])
 ro_dir = scratch / 'ro_dir'
 ro_dir.mkdir()
 (ro_dir / 'symlink_to_target').symlink_to('{target}')
-ro_dir.chmod(0o500)
+ro_dir.chmod(0o000)
 print("## Verdict\\nLGTM\\n")
 """)
     stand_in.chmod(0o755)

@@ -62,7 +62,7 @@ cd "$WT_ROOT"
 
 # OS sandbox 是寫入邊界；PRE/POST 另保留為原始 worktree 的稽核訊號。
 # helper 失敗或逾時也必須執行 POST，不得因非零退出而略過。
-PRE_TREE=$(git status --porcelain)
+PRE_TREE=$(GIT_OPTIONAL_LOCKS=0 git status --porcelain)
 
 # issue #153 fix 1：inline prompt 取代 @file，移除 agentic 觸發點。
 # 256000B 上限：macOS ARG_MAX 約 1 MiB（單一 arg 與 env 共用該預算），256KB 留足 headroom。
@@ -112,7 +112,7 @@ AGY_ELAPSED=$((SECONDS - AGY_START))
 # 偵測 agy 是否在 review 階段越界編輯工作樹（PR #194 retro：agy R2 曾自主改 6 個檔）。
 # 不 hard-fail（review 文字仍有價值），但 loud [WARN] 要 lead 逐行稽核並 revert 非預期編輯。
 # 放在失敗／timeout 判定之前：所有已啟動的 reviewer 都必須有 POST 稽核。
-POST_TREE=$(git status --porcelain)
+POST_TREE=$(GIT_OPTIONAL_LOCKS=0 git status --porcelain)
 if [ "$PRE_TREE" != "$POST_TREE" ]; then
     echo "[WARN] agy 在 review 階段改動了工作樹（review 應唯讀）；請稽核以下變更並在採用前 revert 非預期編輯：" >&2
     git status --short >&2
