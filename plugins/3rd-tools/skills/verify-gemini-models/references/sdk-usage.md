@@ -3,6 +3,20 @@
 > **實作前先驗證**：把你要用的 model ID 丟進 `verify-gemini-models` 跑一次，
 > 確認 `✅ FUNCTIONAL` 後再把這份指引的範例碼貼進專案。
 
+## Contents
+
+- TL;DR — 三件事
+- 新舊 SDK 對照
+- 環境設定
+- 認證
+- Python 範例
+- Node.js / TypeScript 範例
+- OpenAI 相容層（可選）
+- Model ID 命名規則
+- Pinning 最佳實務
+- Region 限制速查
+- 常見錯誤排除
+
 ## TL;DR — 三件事
 
 1. 用 `google-genai >= 1.51.0`（**不是** `google-cloud-aiplatform` 的 `vertexai.generative_models`，那已 deprecated）

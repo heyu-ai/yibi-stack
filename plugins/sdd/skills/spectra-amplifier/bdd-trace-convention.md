@@ -6,6 +6,14 @@ Gherkin Scenarios in spec files to pytest test functions.
 Convention source: yibi-mvp ADR-0008 (BDD Spec-Test Traceability — docstring trace 機制,
 2026-05-19). Adapted for plugin distribution; no third-party dependency added.
 
+## Contents
+
+- Scenario Anchor Slug (in spec files)
+- Pytest Docstring Trace (in test files)
+- Traceability Matrix (in testplan.md / proposal.md)
+- Scanner
+- Migration from Legacy ST-NNN Smoke Tests
+
 ---
 
 ## Scenario Anchor Slug (in spec files)

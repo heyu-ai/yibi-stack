@@ -3,6 +3,17 @@
 TestFlight 上傳由 GitHub Actions CI 自動處理。推 git tag 觸發 workflow，
 CI 完成 .ipa 建置後上傳 TestFlight。
 
+## Contents
+
+- 前置條件
+- Step 1：建立 App Store Connect API Key
+- Step 2：設定 GitHub Secrets
+- Step 3：建立 GitHub Actions Workflow
+- Step 4：設定 fastlane
+- Step 5：在本地測試 fastlane（選用）
+- 常見問題
+- 參考資源
+
 ## 前置條件
 
 | 工具 | 說明 |
