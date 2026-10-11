@@ -311,6 +311,9 @@ In the report, check the detected `type:` on the `spectra change detected` line 
 it decides whether the gate blocks) and any `[WARN]` naming several active change dirs (only the
 first was verified). Allow-list: `Bash(python3 /Users/<you>/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py *)`.
 
+Step 2 additionally prepares the fresh Git scope and reports local-main lag. Treat that warning
+as diagnostic only: local `main` is never the review base, even when the PR branch has no upstream.
+
 ---
 
 ### Step 1.6 — Fact-assertion sweep (widen the review surface beyond the diff)
@@ -361,29 +364,46 @@ show the assertion is meaningful) — Step 3.1 pastes them into `prompt-r1.md`; 
 
 ### Step 2 — Code Review (defect detection)
 
-Run `/code-review` to scan all PR changes for correctness bugs (`/code-review high` for stricter
-effort; add `--comment` to post findings as GitHub PR inline comments):
+先固定審查範圍，再呼叫內建 reviewer。從 PR worktree 執行既有的 fresh-fetch owner：
 
-```text
-/code-review
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 ```
 
-- **No findings** → proceed to Step 3.
-- **Has findings** → bring into Step 6 (Fix) with the mob results. `/code-review` **does not modify code**; findings are review comments, no separate commit needed.
+任何失敗都停止。此步產生 `$REVIEW_DIR/diff.patch`、`changed-files.txt` 與
+`review-scope.json`（fresh base、HEAD、canonical changed paths），本機 main 落後時會印 WARN。
+不要用本機 main 或 reviewer 自行解析的 base 取代它。明確傳 PR 號，維持 report-only：
+
+```text
+/code-review {{pr_number}}
+```
+
+不要帶 `--fix` 或 `--comment`：在驗證範圍前寫檔或貼 inline finding 都會繞過 admission。
+保留 raw 回應，使用 Write tool 將每個 finding 忠實轉成 `$REVIEW_DIR/code-review.json`；
+沿用 `schemas/codex-finding.schema.json` 的 `verdict`、`summary`、`findings` envelope 與
+`file` 欄位，保留原有 evidence／contract mapping 等附加欄位。file 只放明確檔案路徑，
+行號另放欄位；無法確定位置時不得猜測或丟掉該 item，停止並釐清。
+真的沒有 finding 時也寫出合法的空 `findings` 陣列，不把錯誤回應轉成 LGTM。
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.pr-review"
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_scope.py filter --input "$REVIEW_DIR/code-review.json"
+```
+
+Filter 非零退出即停止；HEAD 已移動時從本 Step 重跑，不重用舊結果。
+**只有 `code-review-filtered.json` 的 accepted findings 可進入 aggregation／Step 6。**
+`code-review-scope.md` 保留被捨棄的原 item、原因與數量，必須原樣帶入 `final.md`；
+這些項目不是 evidence-deferred findings，不能再次流入修復清單。全部被排除也不代表
+reviewer 已證明 PR 正確，只表示這次 Step 2 沒有可採用的 finding。
 
 #### Auto-apply cleanups (optional)
 
-The default stays report-only — run this sub-step only when the user explicitly asks for
-auto-applied cleanups.
+預設仍是 report-only。使用者明確要求 cleanup 時，也只能由 Step 6 對已通過 scope admission
+且符合 Review Contract 的項目動手；不在本流程直接執行 `/code-review --fix` 或未固定 base 的
+`/simplify`。兩者可能在過濾前套用與 PR 無關的改動，不能靠事後報告補救。
 
-- `/code-review --fix` — detects correctness bugs and auto-applies its findings (including
-  reuse / simplification / efficiency / altitude cleanups) to the working tree.
-- `/simplify` — cleanup-only review (reuse / simplification / efficiency); applies fixes
-  without hunting for bugs.
-
-Auto-applied changes modify the working tree: review the resulting diff and commit it through
-the existing diff-review + commit flow before any push. (Division of labor verified against
-the official /code-review docs, 2026-07-23, Claude Code 2.1.218.)
+若使用者另外執行了 cleanup，先檢閱與提交其 diff、確認是否需更新 Review Contract，再從
+Step 2 重新準備 fresh scope 與審查。舊 filtered findings 不可跨 HEAD 沿用。
 
 ---
 
@@ -395,10 +415,9 @@ in the review dir (referred to below as `$REVIEW_DIR`).
 
 #### 3.0 — Snapshot preflight (blocking; before any voice is dispatched)
 
-Voices read the **working tree**, which is not an immutable snapshot: a concurrent session in this
-worktree, or an in-progress merge, lets a voice read an intermediate state and report a finding
-that **does not hold for what landed** — costing a full fix + re-review round and reading exactly
-like a real finding.
+Claude/Codex voices read the working tree; agy R1/R2 read a protected disposable committed-HEAD
+snapshot. Concurrent changes can still invalidate the shared diff or another voice's observations,
+so keep this common preflight and the after-review HEAD check for every voice.
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh check
@@ -425,15 +444,16 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh verify 
 
 #### 3.1 — Prepare working directory and shared prompt
 
-Write all R1/R2 intermediate files to the review dir (`<worktree-root>/.pr-review/`, `$REVIEW_DIR`).
-The worktree-root namespace isolates concurrent sessions, overwrites old output on re-run, and keeps
-files off `/tmp/` (the sandbox rejects it). The agy scripts **inline** this content into
-`agy -p "$CONTENT" --model 'Gemini 3.8 Flash (High)'` rather than `@file` (issue #153:
-`@file` fails in nested worktrees and triggers agentic mode); `--add-dir "$WT_ROOT"` still lets agy look up surrounding code.
+所有永久 R1/R2 產物仍放在 `<worktree-root>/.pr-review/`（`$REVIEW_DIR`）。
+Step 2 已準備 fresh diff 與 scope；此處不要再次呼叫 setup、失效剛通過的 Step 2 結果。
+若 HEAD 改變，回 Step 2。將確認過的 contract 寫進 `prompt-r1.md`。
 
-```bash
-bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
-```
+agy R1/R2 以 inline prompt 執行，cwd 與絕對 `--add-dir` 指向一次性 HEAD snapshot，
+不是原工作樹。macOS 需可用的 `sandbox-exec`，Linux 需可用的 `bwrap`；
+無 backend、backend 不可用、tracked tree 有未提交修改或衝突時，該 voice 明確失敗，
+**不得改回直接在原工作樹執行**。OS 防護使原工作樹、Git metadata 與 snapshot 原始碼不可寫；
+暫存 home／scratch／log 由 helper 管理，結束或中斷後回收，永久 log 回到既有 review 目錄。
+上游 agy 的 command 探索仍使用既有權限旗標，但旗標不再是檔案系統的安全邊界。
 
 The script's last line outputs `REVIEW_DIR=<absolute path>` as informational; subsequent bash
 calls do not need to parse this output — derive directly from the worktree root
@@ -802,6 +822,11 @@ After reading all R1 plus any activated R2, produce `$REVIEW_DIR/final.md`, grad
 [Review Severity Standard](#review-severity-standard-rfc-2119) (Critical = MUST, Important = SHOULD,
 Actionable NIT = MAY). Blocking is decided by the Evidence gate below; NIT never blocks any round.
 
+Step 2 只讀取 `code-review-filtered.json`，不得從 raw 回應或被排除的項目重建候選。
+將 `code-review-scope.md` 的整個 owned marker 區塊原樣保留於 `final.md`（含零筆與捨棄數量），
+不要在重建 final 報告時覆蓋掉它，也不要覆蓋 pre-review amplifier 已產生的 findings。
+若本輪重新準備過 scope，舊 Step 2 結果已失效；需要該 reviewer 時重跑 Step 2。
+
 | Grade | Condition | Action |
 | --- | --- | --- |
 | **Consensus Critical** | ≥2 voices mark Critical with no DISAGREE | Must fix |
@@ -911,6 +936,8 @@ group-review ({{N}}/3 voices active)
 
 ## Voices unavailable
 - <voice>: <reason>
+
+<paste code-review-scope.md verbatim, including its owned markers and rejected-item audit>
 ```
 
 Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 5b.
@@ -983,6 +1010,8 @@ it as `ci_command:` in `state.md`. Prompt (fill in the real `$REVIEW_DIR` and `<
 Fix the blocking findings in $REVIEW_DIR/final.md in order: Consensus Critical, Consensus
 Important, then the Disputed items ruled "fix" in $REVIEW_DIR/state.md `disputed:`; Actionable NIT
 only if trivial. The frozen Review Contract is in $REVIEW_DIR/prompt-r1.md — do not expand scope.
+For Step 2 findings, only code-review-filtered.json is admissible. Never fix raw or scope-rejected
+items from code-review.json or the final report's scope audit.
 Run <ci_command> and fix until it passes. Commit each batch with a message describing what was
 fixed (never "fix review comments"), then git push. Do not touch .pr-review/. Reply with only:
 commit SHAs, each finding FIXED / NOT FIXED + one-line reason, the CI exit code.

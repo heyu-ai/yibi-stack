@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- dev-cycle：`pr-cycle-deep` Step 2 先固定 fresh base／HEAD／變更路徑，再明確指定 PR 執行
+  report-only code review（#530）。新增確定性 finding scope filter：diff 外項目不得進修復清單，
+  原 item、原因與捨棄數量保留於 final audit；HEAD 變動或輸入錯誤會失效舊結果。
+  本機 main 落後只警告、不當 base；取消過濾前直接 `--fix`／`--comment` 的繞過路徑。
+- dev-cycle：agy R1/R2 改讀一次性的 committed-HEAD snapshot，使用 macOS `sandbox-exec`／
+  Linux `bwrap` 保護原工作樹、Git metadata 與 snapshot 不可寫（#390）。缺少可用 backend
+  或 tracked tree 未提交時明確失敗，不回退 unrestricted；保留認證、command 探索、既有
+  log／validator／timeout 產物與原樹前後比對。結束與中斷均清理 process group 和暫存狀態，
+  避免 macOS 在 timeout 後重複終止已回收 group 而遺失診斷產物。
+
 ## [1.23.13] - 2026-10-11
 
 ### Added
