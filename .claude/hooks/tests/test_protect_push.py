@@ -157,6 +157,32 @@ class TestBlockGitPushMain:
         assert run_hook("git push origin refs/heads/master") == 2
 
 
+# ── 攔截訊息必須走 stderr ────────────────────────────────────────────
+#
+# Claude Code 2.1.296 探針：PreToolUse hook exit 2 時，stdout 的訊息不會送達 model（model 只看到
+# `PreToolUse:Bash hook error: [...]: No stderr output`），stderr 的訊息才會原文送達。
+
+
+class TestBlockMessageGoesToStderr:
+    def _run(self, command: str) -> subprocess.CompletedProcess[str]:
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+        return subprocess.run(  # nosec B603
+            [str(HOOK)], input=payload, capture_output=True, text=True, timeout=10
+        )
+
+    def test_pp_msg_001_gh_pr_merge_reason_on_stderr(self) -> None:
+        res = self._run("gh pr merge 1 --squash")
+        assert res.returncode == 2
+        assert "BLOCKED" in res.stderr
+        assert res.stdout == ""
+
+    def test_pp_msg_002_push_main_reason_on_stderr(self) -> None:
+        res = self._run("git push origin main")
+        assert res.returncode == 2
+        assert "BLOCKED" in res.stderr
+        assert res.stdout == ""
+
+
 # ── 保護 4：推到 PR 已 merged/closed 的分支 ──────────────────────────
 #
 # 這一層的判斷細節由 test_protect_push_pr_state.py 覆蓋；這裡只驗證「hook 有把 helper 接起來」，
@@ -221,15 +247,16 @@ class TestMergedPrPush:
             "git push origin feat-a:feat-a", _throwaway_repo(tmp_path), tmp_path / "bin"
         )
         assert res.returncode == 2
-        assert "448" in res.stdout
-        assert "MERGED" in res.stdout
+        assert "448" in res.stderr
+        assert "MERGED" in res.stderr
+        assert res.stdout == "", "訊息只能走 stderr：exit 2 時 stdout 不會送達 model"
 
     def test_pp_block_020_bare_push_to_merged_pr_branch(self, tmp_path: Path) -> None:
         """PR 已 merged 的分支 + 裸 push → 攔截。"""
         _write_fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": "MERGED"}]))
         res = run_hook_with_env("git push", _throwaway_repo(tmp_path), tmp_path / "bin")
         assert res.returncode == 2
-        assert "448" in res.stdout
+        assert "448" in res.stderr
 
     def test_pp_allow_011_open_pr_branch(self, tmp_path: Path) -> None:
         """PR 仍 open → 放行（負向對照：證明上面兩個攔截不是無條件擋 push）。"""

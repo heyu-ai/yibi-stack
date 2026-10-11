@@ -12,7 +12,7 @@
 #
 # Exit code 規範（Claude Code PreToolUse 約定）：
 #   exit 0  → 放行，工具正常執行
-#   exit 2  → 攔截，中止工具呼叫並顯示 stdout 訊息
+#   exit 2  → 攔截，中止工具呼叫；訊息必須寫到 stderr（探針：stdout 的訊息不會送達 model）
 #   （exit 1 不攔截，僅表示 hook 本身出錯）
 #
 # 安裝方式：參考 skills/protect-push/SKILL.md
@@ -55,10 +55,10 @@ for part in parts:
 " 2>/dev/null || true)
 
 if [ "${GH_MATCH:-}" = "yes" ]; then
-    echo "BLOCKED: 偵測到 gh pr merge 指令！"
-    echo ""
-    echo "合併 PR 是高風險、不可逆的操作。"
-    echo "請在對話中明確輸入「確認合併」或「merge the PR」後，Claude 才可執行。"
+    echo "BLOCKED: 偵測到 gh pr merge 指令！" >&2
+    echo "" >&2
+    echo "合併 PR 是高風險、不可逆的操作。" >&2
+    echo "請在對話中明確輸入「確認合併」或「merge the PR」後，Claude 才可執行。" >&2
     exit 2
 fi
 
@@ -95,9 +95,9 @@ for part in parts:
 " 2>/dev/null || true)
 
 if [ "${PUSH_MAIN_MATCH:-}" = "yes" ]; then
-    echo "BLOCKED: 禁止直接 git push 到 main/master！"
-    echo ""
-    echo "請透過 PR 流程：建立 feature branch → push → gh pr create → 請使用者確認後合併"
+    echo "BLOCKED: 禁止直接 git push 到 main/master！" >&2
+    echo "" >&2
+    echo "請透過 PR 流程：建立 feature branch → push → gh pr create → 請使用者確認後合併" >&2
     exit 2
 fi
 
@@ -186,10 +186,10 @@ else:
 # 非零指令直接以 0 結束，helper 的 exit 2 會被靜默吞掉、攔截完全失效。
 # （判定細節與逐條 fail-open 條件見 protect_push_pr_state.py 的 docstring。）
 PR_STATE_RC=0
-PR_STATE_OUT=$(echo "$CMD" | python3 "$(dirname "$0")/protect_push_pr_state.py" 2>/dev/null) \
+PR_STATE_OUT=$(echo "$CMD" | python3 "$(dirname "$0")/protect_push_pr_state.py" 2>&1 >/dev/null) \
     || PR_STATE_RC=$?
 if [ "${PR_STATE_RC:-0}" -eq 2 ]; then
-    echo "${PR_STATE_OUT:-BLOCKED: 目標分支的 PR 已結束}"
+    echo "${PR_STATE_OUT:-BLOCKED: 目標分支的 PR 已結束}" >&2
     exit 2
 fi
 
@@ -207,11 +207,11 @@ REMOTE=$(git config "branch.${BRANCH}.remote" 2>/dev/null || true)
 MERGE=$(git config "branch.${BRANCH}.merge" 2>/dev/null || true)
 
 if [ "${REMOTE:-}" = "origin" ] && [[ "${MERGE:-}" =~ ^refs/heads/(main|master)$ ]]; then
-    echo "BLOCKED: branch '${BRANCH}' 追蹤 origin/main！"
-    echo "推送會直接到 main，繞過 PR 流程。"
-    echo ""
-    echo "請先修正 tracking 再 push："
-    echo "  git branch --unset-upstream && git push -u origin HEAD"
+    echo "BLOCKED: branch '${BRANCH}' 追蹤 origin/main！" >&2
+    echo "推送會直接到 main，繞過 PR 流程。" >&2
+    echo "" >&2
+    echo "請先修正 tracking 再 push：" >&2
+    echo "  git branch --unset-upstream && git push -u origin HEAD" >&2
     exit 2
 fi
 

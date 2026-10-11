@@ -183,8 +183,12 @@ class TestCli:
         _fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": "MERGED"}]))
         res = _run_cli("git push origin feat-a:feat-a", tmp_path / "bin", repo)
         assert res.returncode == 2, res.stdout + res.stderr
-        assert "448" in res.stdout
-        assert "MERGED" in res.stdout or "merged" in res.stdout
+        assert "448" in res.stderr
+        assert res.stdout == ""
+        assert "MERGED" in res.stderr or "merged" in res.stderr
+        assert res.stdout == "", (
+            "exit 2 的訊息必須走 stderr，stdout 不會送達 model（Claude Code 2.1.296 探針）"
+        )
 
     def test_pps_st_002_open_pr_allows(self, repo: Path, tmp_path: Path) -> None:
         """PPS-ST-002: 目標分支有 open PR -> exit 0 且不輸出雜訊。"""
