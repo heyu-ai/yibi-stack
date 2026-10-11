@@ -11,6 +11,8 @@ import os
 import subprocess  # nosec B404
 from pathlib import Path
 
+import pytest
+
 HOOK = Path(__file__).parent.parent / "protect-push.sh"
 
 
@@ -157,6 +159,32 @@ class TestBlockGitPushMain:
         assert run_hook("git push origin refs/heads/master") == 2
 
 
+# ── 攔截訊息必須走 stderr ────────────────────────────────────────────
+#
+# Claude Code 2.1.296 探針：PreToolUse hook exit 2 時，stdout 的訊息不會送達 model（model 只看到
+# `PreToolUse:Bash hook error: [...]: No stderr output`），stderr 的訊息才會原文送達。
+
+
+class TestBlockMessageGoesToStderr:
+    def _run(self, command: str) -> subprocess.CompletedProcess[str]:
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+        return subprocess.run(  # nosec B603
+            [str(HOOK)], input=payload, capture_output=True, text=True, timeout=10
+        )
+
+    def test_pp_msg_001_gh_pr_merge_reason_on_stderr(self) -> None:
+        res = self._run("gh pr merge 1 --squash")
+        assert res.returncode == 2
+        assert "BLOCKED" in res.stderr
+        assert res.stdout == ""
+
+    def test_pp_msg_002_push_main_reason_on_stderr(self) -> None:
+        res = self._run("git push origin main")
+        assert res.returncode == 2
+        assert "BLOCKED" in res.stderr
+        assert res.stdout == ""
+
+
 # ── 保護 4：推到 PR 已 merged/closed 的分支 ──────────────────────────
 #
 # 這一層的判斷細節由 test_protect_push_pr_state.py 覆蓋；這裡只驗證「hook 有把 helper 接起來」，
@@ -209,27 +237,62 @@ def _throwaway_repo(tmp_path: Path) -> Path:
     return repo
 
 
+class TestTrackingOriginMainBlock:
+    def test_pp_msg_003_tracking_origin_main_reason_on_stderr(self, tmp_path: Path) -> None:
+        """保護 3：branch 追蹤 origin/main 時裸 push -> exit 2，原因只在 stderr。
+
+        branch 要有至少一個 commit（unborn branch 讓 `rev-parse --abbrev-ref HEAD` 失敗，hook 會
+        提早 exit 0）；用 PROTECT_PUSH_SKIP_PR_STATE=1 跳過保護 4，避免這個測試打到真的 gh。
+        """
+        repo = _throwaway_repo(tmp_path)
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+        for key, value in (
+            ("branch.feat-a.remote", "origin"),
+            ("branch.feat-a.merge", "refs/heads/main"),
+        ):
+            subprocess.run(  # nosec B603 B607
+                ["git", "config", key, value], cwd=repo, check=True, env=env
+            )
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push"}})
+        res = subprocess.run(  # nosec B603
+            [str(HOOK)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PROTECT_PUSH_SKIP_PR_STATE": "1"},
+            cwd=str(repo),
+            timeout=30,
+        )
+        assert res.returncode == 2
+        assert "追蹤 origin/main" in res.stderr
+        assert res.stdout == "", "訊息只能走 stderr：exit 2 時 stdout 不會送達 model"
+
+
 class TestMergedPrPush:
-    def test_pp_block_019_explicit_refspec_to_merged_pr_branch(self, tmp_path: Path) -> None:
-        """PR 已 merged 的分支 + explicit refspec → 攔截。
+    @pytest.mark.parametrize("state", ["MERGED", "CLOSED"])
+    def test_pp_block_019_explicit_refspec_to_finished_pr_branch(
+        self, tmp_path: Path, state: str
+    ) -> None:
+        """PR 已 merged / closed 的分支 + explicit refspec → 攔截。
 
         explicit refspec 是保護 3 直接放行的形式（PR #449 事故用的就是它），所以這個案例證明
         保護 4 掛在早退之前，而不是被早退繞過。
         """
-        _write_fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": "MERGED"}]))
+        _write_fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": state}]))
         res = run_hook_with_env(
             "git push origin feat-a:feat-a", _throwaway_repo(tmp_path), tmp_path / "bin"
         )
         assert res.returncode == 2
-        assert "448" in res.stdout
-        assert "MERGED" in res.stdout
+        assert f"#448 ({state})" in res.stderr
+        assert res.stdout == "", "訊息只能走 stderr：exit 2 時 stdout 不會送達 model"
 
     def test_pp_block_020_bare_push_to_merged_pr_branch(self, tmp_path: Path) -> None:
         """PR 已 merged 的分支 + 裸 push → 攔截。"""
         _write_fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": "MERGED"}]))
         res = run_hook_with_env("git push", _throwaway_repo(tmp_path), tmp_path / "bin")
         assert res.returncode == 2
-        assert "448" in res.stdout
+        assert "448" in res.stderr
+        assert res.stdout == ""
 
     def test_pp_allow_011_open_pr_branch(self, tmp_path: Path) -> None:
         """PR 仍 open → 放行（負向對照：證明上面兩個攔截不是無條件擋 push）。"""

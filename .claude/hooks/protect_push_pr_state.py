@@ -25,9 +25,10 @@ fail-open 是刻意的，且逐條具名（推到已 merged 分支會浪費工�
   5. 指令裡沒有可靜態解析的 push 目標（變數展開、glob、刪除 refspec）
   6. 目標分支查無 PR，或存在 open PR
 
-退出碼：0 放行；2 攔截（訊息走 stdout，符合 Claude Code PreToolUse 約定）。
-**絕不回傳其他非零值**：`.claude/settings.json` 對本 hook 註冊的是 `... || exit 2`，任何非零
-都會被當成攔截，所以未預期的錯誤必須自行吞掉並回 0。
+退出碼：0 放行；2 攔截（訊息走 stderr：探針顯示 exit 2 時 stdout 的訊息不會送達 model，
+只有 stderr 會）。
+**絕不回傳其他非零值**：`.claude/settings.json` 把呼叫端 `protect-push.sh` 註冊為
+`... || exit 2`，本 helper 的非零值經它轉成攔截，所以未預期的錯誤必須自行吞掉並回 0。
 """
 
 from __future__ import annotations
@@ -177,14 +178,20 @@ def main(stdin_text: str | None = None) -> int:
             continue
         finished = [pr for pr in prs if str(pr.get("state", "")).upper() in {"MERGED", "CLOSED"}]
         numbers = ", ".join(f"#{pr.get('number')} ({pr.get('state')})" for pr in finished)
-        print(f"BLOCKED: 分支 '{branch}' 的 PR 已結束：{numbers}")
-        print("")
-        print("推上去的 commit 不會進入那個 PR，也不會到 main，而且不會有任何錯誤訊息。")
-        print("請確認目前狀態後再決定：")
-        print("  gh pr view <n> --json state,mergedAt   # 先查 PR 真實狀態")
-        print("  git fetch origin main                  # 再從最新 main 另開分支")
-        print("")
-        print("若確定要推（例如刻意保留分支內容），設 PROTECT_PUSH_SKIP_PR_STATE=1 再執行。")
+        print(f"BLOCKED: 分支 '{branch}' 的 PR 已結束：{numbers}", file=sys.stderr)
+        print("", file=sys.stderr)
+        print(
+            "推上去的 commit 不會進入那個 PR，也不會到 main，而且不會有任何錯誤訊息。",
+            file=sys.stderr,
+        )
+        print("請確認目前狀態後再決定：", file=sys.stderr)
+        print("  gh pr view <n> --json state,mergedAt   # 先查 PR 真實狀態", file=sys.stderr)
+        print("  git fetch origin main                  # 再從最新 main 另開分支", file=sys.stderr)
+        print("", file=sys.stderr)
+        print(
+            "若確定要推（例如刻意保留分支內容），設 PROTECT_PUSH_SKIP_PR_STATE=1 再執行。",
+            file=sys.stderr,
+        )
         return 2
     return 0
 
