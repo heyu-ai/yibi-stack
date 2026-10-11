@@ -602,7 +602,7 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r1-stage1.sh
 ```
 
 The script takes no base-branch argument — it reviews the shared `$REVIEW_DIR/diff.patch` that
-Step 3.1 already produced, so all three voices review the identical diff. Raw output lands in
+Step 2 already produced, so all three voices review the identical diff. Raw output lands in
 `codex-r1-raw.md` — **do not read it in the main context**.
 
 Review stages pin `-m gpt-6-astra` and gate on codex-cli >= 0.154.0 (0.149.0 answers it with a 400); the extract pins the cheap `-m gpt-5.6-luna` plus `--ignore-user-config` (issue #444).
@@ -638,12 +638,12 @@ agy does not accept a combined stdin prompt + diff path; concatenate into a sing
 ###### Stage 1: Native review (raw output lands on disk, does not enter main context)
 
 > **Execution/security contract**: run the script verbatim; never append `$?` logic or redirects.
-> It inlines prompt+diff (never `@file`, issue #153), clears stale scratch input, and validates
-> timeout/agentic/wrong-target output with `agy_validate.py`. Stage 1 retains
-> `--dangerously-skip-permissions` for surrounding-code lookup, so use only on trusted repos: the
-> review-only guard forbids edits and before/after `git status` emits `[WARN]` on mutation, but the
-> lead must audit and undo any unintended change. Stage 2 stays sandboxed. On failure, read
-> `$REVIEW_DIR/gemini-r1.stage1.log`; never trust a voice claiming it implemented a fix.
+> It inlines prompt+diff (never `@file`, issue #153) and validates output with `agy_validate.py`.
+> R1/R2 run in a protected HEAD snapshot with a private HOME; they do not delete shared scratch.
+> `--dangerously-skip-permissions` permits command exploration inside the OS write boundary.
+> Original-tree before/after comparison remains an audit signal, not the isolation mechanism.
+> Use trusted repos: filesystem write isolation does not prevent reading secrets or network access.
+> Stage 2 keeps its existing CLI sandbox. On failure read `$REVIEW_DIR/gemini-r1.stage1.log`.
 >
 > **`subagent` permission class**: invoked by this skill, not the user — allow-list by this
 > script's own absolute path, never a bare `Bash(agy:*)`. `--sandbox` was empirically confirmed
@@ -806,9 +806,9 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/codex-r2.sh
 bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r2.sh
 ```
 
-> **Security note**: `agy-r2.sh` uses `--dangerously-skip-permissions` (for `--add-dir`, same as Stage 1)
-> and inlines the prompt (issue #153); it assumes a trusted repo — for external-fork PRs, evaluate prompt-injection risk first.
-> Same `subagent` permission class as Stage 1 (own absolute script path in the allow-list, not `Bash(agy:*)`).
+> **Security note**: `agy-r2.sh` uses the same protected HEAD snapshot and private HOME as Stage 1.
+> Its permission-bypass flag permits command exploration inside OS write containment, not source writes.
+> Keep the trusted-repo boundary and the per-script allow-list; do not use a bare `Bash(agy:*)`.
 
 Only send to available voices (CODEX_OK / GEMINI_OK).
 
@@ -1372,7 +1372,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Step 0 detects only one external voice (Codex or agy, not both) | Enter 2-voice mob (Claude + that voice); normal workflow |
 | Codex detected but auth failed | `codex login`; or `export OPENAI_API_KEY=...` |
 | agy detected but auth failed | Run `agy` to complete OAuth; or `export GEMINI_API_KEY=...` |
-| agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | issue #153: agy could not resolve `@file` and entered agentic file-search. The agy scripts now **inline** the prompt (no `@file`), clear stale `~/.gemini/antigravity-cli/scratch/gemini-*-input.md` at start, and run `agy_validate.py` (fail-loud: timeout / agentic narration / missing Verdict / mentions no changed file = wrong target; a `brain/<uuid>/*.md` pointer is auto-rescued into the raw file). If `agy_validate.py` exits non-zero the voice is correctly marked failed — read the `[FAIL]` message for the reason. Exit **124** = agy print timeout (issue #443; agy >= 1.1.28 returns partial output with exit 0): the partial output was moved to `*.timeout-partial*`, never aggregate it; check `*.agy.log` for 429 `RESOURCE_EXHAUSTED`, or set `AGY_PRINT_TIMEOUT_SECS` (1-570, default 480) |
+| agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | R1/R2 inline prompts (no `@file`), use a private HOME without old scratch, and run `agy_validate.py`; they leave shared scratch untouched. Brain artifacts are rescued before private HOME cleanup. Stage 2 retains its existing extraction sandbox/cleanup. Validator failure means the voice failed. Exit **124** means timeout: partial output is quarantined as `*.timeout-partial*`, never aggregate it; inspect `*.agy.log` for `RESOURCE_EXHAUSTED` or use `AGY_PRINT_TIMEOUT_SECS` (1–570, default 480). |
 | agy background bash `>` redirect output not updating target file (unverified) | If this occurs: switch to synchronous bash call (without `run_in_background`) |
 | Codex Stage 1 `codex-r1-raw.md` is empty (review missing) | Stage 1 now uses `codex exec ... > codex-r1-raw.md` (stdout); read `$REVIEW_DIR/codex-r1.stage1.log` (stderr) for the error. For the `codex exec \| tee` stages (Stage 2 / R2), `set -o pipefail` keeps `$?` reflecting the failing command in the pipeline (bash/zsh) |
 | Why Stage 1 uses `codex exec`, not `codex review --base` + a guard prompt | `codex review --base` and a positional `[PROMPT]` are mutually exclusive (codex-cli 0.142.5: `the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`), so the skill-hijack guard cannot ride on `codex review`. Stage 1 drives the review through `codex exec` with the guard on stdin instead (issue #194). Do not "fix" it back to `codex review --base` |

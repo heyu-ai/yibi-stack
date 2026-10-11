@@ -45,7 +45,7 @@ WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
 
 if [ ! -f "$REVIEW_DIR/diff.patch" ]; then
-    echo "[FAIL] $REVIEW_DIR/diff.patch 不存在；請先執行 setup-review-dir.sh（Step 3.1）" >&2
+    echo "[FAIL] $REVIEW_DIR/diff.patch 不存在；請先執行 setup-review-dir.sh" >&2
     exit 1
 fi
 if [ ! -s "$REVIEW_DIR/diff.patch" ]; then

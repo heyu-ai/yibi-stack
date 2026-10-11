@@ -40,7 +40,7 @@ issues: [390, 530]
 
 ### Modified Capabilities
 
-無。既有 agy 權限旗標與 review convergence 原則不變；本次加上執行邊界。
+- `pr-review-convergence`: 同步已退役的固定文件行數上限；既有收斂、證據與必要內容檢查原則不變。
 
 ## Impact
 

@@ -345,8 +345,7 @@ def test_prc_dt_008_preflight_sits_between_template_and_drafting():
 
 
 def test_prc_eg_001_empty_text_fails_loud_not_vacuous():
-    """PRC-EG-001: empty text must NOT pass just because 0 <= 1220 — it must list every missing
-    anchor."""
+    """PRC-EG-001: empty input must list every missing required anchor, not pass vacuously."""
     failures = check_convergence_contract("")
     assert failures  # never []
     for anchor in REQUIRED_ANCHORS:

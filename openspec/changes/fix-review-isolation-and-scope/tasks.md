@@ -12,3 +12,4 @@
 
 - [x] 3.1 更新 Step 2/3/5/6 與 opt-in cleanup，明確 PR 目標，禁止未過濾 finding 進修復，保留 final audit；逐段核對 CLI 介面與 runbook 的一致性（AC-7）。
 - [x] 3.2 執行相關測試、lint／format 檢查與實際 CLI containment／filter smoke，更新 changelog，記錄 OS／上游驗證限制；無漏項後通過 Spectra validate/analyze。
+- [x] 3.3 依 AC-8 的 fact sweep 同步 R1/R2 私有 HOME、OS 防寫與 Step 2 setup；將 Skill document line budget 替換為 Skill document contract validation，保留必要內容檢查、退役固定行數正確性裁決，驗證 Spectra validate/analyze 與 changed-file checks。
