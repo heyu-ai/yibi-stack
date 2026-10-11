@@ -1006,7 +1006,27 @@ Delegate the fix loop to **one** `general-purpose` Task subagent. Reading code, 
 iterating on CI are the most turn-heavy part of the cycle; in the lead's context every one of
 those turns re-reads the whole review history. First pick the CI command yourself (Makefile
 `ci`/`test` target, else `uv run pytest` / `npm test` / `go test ./...` / `flutter test`) and record
-it as `ci_command:` in `state.md`. Prompt (fill in the real `$REVIEW_DIR` and `<ci_command>`):
+it as `ci_command:` in `state.md`. Pass the last verified PR `headRefOid` from that checkpoint
+as `expected_pr_head` — not a newly observed, unreviewed head. Both the lead and a fix subagent
+MUST use the same **pre-push gate**, immediately followed by the push in one `&&` chain:
+
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-pr-push.sh "{{pr_number}}" "{{expected_pr_head}}" && git push
+```
+
+`preflight-pr-push.sh` requires `git`, `gh` and `jq` on PATH. It is read-only: only live `OPEN`, the expected PR head, a matching local
+branch, and a local fast-forward pass. Exit `2` means `MERGED`/`CLOSED`; exit `3` means the
+branch/head moved or local history is not a fast-forward; exit `1` means invalid input,
+unavailable tools/API, malformed metadata, or invalid local state. **Every nonzero blocks
+the push**; preserve local fix commits and report the reason. Never refresh the expected SHA
+blindly, force-push, or retry an unguarded push to bypass the gate.
+
+This applies to each existing-PR fix push, including CI fixes and conflict/base-update fixes.
+The initial branch publication in Step 1 has no PR yet and is outside this gate. A successful
+check is **not an atomic lock** across the GitHub API and Git push: the PR could change in that
+short interval, so retain the post-push status/head checks below.
+
+Prompt (fill in the real `$REVIEW_DIR`, `<ci_command>`, `<pr_number>` and `<expected_pr_head>`):
 
 ```text
 Fix the blocking findings in $REVIEW_DIR/final.md in order: Consensus Critical, Consensus
@@ -1015,11 +1035,22 @@ only if trivial. The frozen Review Contract is in $REVIEW_DIR/prompt-r1.md — d
 For Step 2 findings, only code-review-filtered.json is admissible. Never fix raw or scope-rejected
 items from code-review.json or the final report's scope audit.
 Run <ci_command> and fix until it passes. Commit each batch with a message describing what was
-fixed (never "fix review comments"), then git push. Do not touch .pr-review/. Reply with only:
-commit SHAs, each finding FIXED / NOT FIXED + one-line reason, the CI exit code.
+fixed (never "fix review comments"). Immediately before EACH push, run:
+bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-pr-push.sh <pr_number> <expected_pr_head> && git push
+The initial expected_pr_head is the lead-supplied reviewed SHA. After a successful push, the
+next batch may use that successfully pushed commit SHA; never adopt an arbitrary new remote
+head to bypass a refusal. Any nonzero gate result means STOP without pushing or retrying;
+keep local fixes and return the gate status/reason. Do not touch .pr-review/. Reply with only:
+commit SHAs, each finding FIXED / NOT FIXED + one-line reason, CI exit code, and push status
+(PUSHED or BLOCKED with the gate output).
 ```
 
-Task call errors or returns empty → `[FAIL]` stop. Then **verify, do not trust the summary** —
+If the subagent reports BLOCKED, route the observed state before the receipt checks:
+`MERGED` → stop the cycle and go to Step 11 without another push; `CLOSED` → stop and wait for
+the user; query/metadata failure or branch/head mismatch → stop and resolve the reported
+problem before authorizing any new push. Local commits remain available for recovery.
+
+Task call errors or returns empty → `[FAIL]` stop. For PUSHED, **verify, do not trust the summary** —
 any mismatch is `[FAIL]` stop: `git status --porcelain` empty; `git log --oneline <baseline>..HEAD`
 non-empty if anything is FIXED; `gh pr view {{pr_number}} --json headRefOid -q .headRefOid` equals
 `git rev-parse HEAD` (the push landed). Re-run CI yourself in one call, gating on its exit code
@@ -1219,7 +1250,7 @@ Wait for GitHub Actions to pass:
 gh pr checks "{{pr_number}}" --watch
 ```
 
-CI fails: reproduce locally (using CI command from Step 6) → fix → commit + push → wait again.
+CI fails: reproduce locally (using CI command from Step 6) → fix → commit → **Step 6 guarded push** → wait again.
 Local CI is authoritative: when CI and local differ, trust local; check for CI environment differences.
 
 ---
@@ -1229,7 +1260,8 @@ Local CI is authoritative: when CI and local differ, trust local; check for CI e
 **Pre-merge gate: confirm PR is still OPEN.** Re-run Step 6's "Recheck PR status" `gh pr view` query, but route as below, **not** by Step 6's table (it routes to Step 7).
 Why: a bump push after an out-of-band merge silently recreates the deleted branch (issue #462).
 `MERGED` → **STOP**: no bump, merge, or push; go to Step 11. `CLOSED` → **STOP**; surface to the user and wait. `gh pr view` error → stop and report (empty ≠ OPEN).
-`OPEN` + `DIRTY` / `CONFLICTING` / `BEHIND` → update from `{{base_branch}}`, push, return to Step 9 (CI), then re-run this gate. Any other `OPEN` → continue to the version-bump check below.
+`OPEN` + `DIRTY` / `CONFLICTING` / `BEHIND` → update from `{{base_branch}}`, use the **Step 6 guarded push**,
+return to Step 9 (CI), then re-run this gate. Any other `OPEN` → continue to the version-bump check below.
 
 ### Pre-merge check: version bump
 

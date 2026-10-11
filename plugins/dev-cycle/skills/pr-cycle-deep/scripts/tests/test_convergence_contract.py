@@ -227,17 +227,9 @@ def read_skill_md(path: Path = SKILL_MD) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _fixture(n_lines: int, *, trailing_newline: bool = True, eol: str = "\n") -> str:
-    """Build a synthetic document with every required anchor, no forbidden string, and exactly
-    `n_lines` logical lines."""
-    lines = list(REQUIRED_ANCHORS)
-    i = 0
-    while len(lines) < n_lines:
-        lines.append(f"filler line {i}")
-        i += 1
-    lines = lines[:n_lines]
-    body = eol.join(lines)
-    return body + eol if trailing_newline else body
+def _fixture() -> str:
+    """Build a synthetic document containing every required contract clause."""
+    return "\n".join(REQUIRED_ANCHORS) + "\n"
 
 
 # --------------------------------------------------------------------------- anchors (DT)
@@ -245,27 +237,27 @@ def _fixture(n_lines: int, *, trailing_newline: bool = True, eol: str = "\n") ->
 
 def test_prc_dt_001_all_anchors_present_passes():
     """PRC-DT-001: anchors complete and no forbidden string → []."""
-    assert check_convergence_contract(_fixture(900)) == []
+    assert check_convergence_contract(_fixture()) == []
 
 
 def test_prc_dt_002_missing_anchor_fails_loud():
     """PRC-DT-002: removing a required anchor yields a failure naming it plus 'absent' — never []
     and never a skip."""
-    text = _fixture(900).replace("baseline..HEAD", "")
+    text = _fixture().replace("baseline..HEAD", "")
     failures = check_convergence_contract(text)
     assert any("baseline..HEAD" in f and "absent" in f for f in failures), failures
 
 
 def test_prc_dt_003_forbidden_convention_present_fails():
     """PRC-DT-003: the removed NIT-must-be-cleaned convention, if present, fails the checker."""
-    text = _fixture(900) + "每個 actionable NIT 都要在 merge 前清掉\n"
+    text = _fixture() + "每個 actionable NIT 都要在 merge 前清掉\n"
     failures = check_convergence_contract(text)
     assert any("每個 actionable NIT 都要在 merge 前清掉" in f for f in failures), failures
 
 
 def test_prc_dt_004_no_forbidden_convention_passes():
     """PRC-DT-004: a clean fixture with anchors complete and no forbidden string → []."""
-    assert check_convergence_contract(_fixture(900)) == []
+    assert check_convergence_contract(_fixture()) == []
 
 
 @pytest.mark.parametrize(
@@ -285,7 +277,7 @@ def test_prc_dt_005_review_contract_headings_are_required(heading: str):
     Removing any fixed Review Contract heading turns the pure checker red, so a partial PR-body
     template cannot silently launch the expensive reviewers.
     """
-    text = _fixture(900).replace(heading, "")
+    text = _fixture().replace(heading, "")
     failures = check_convergence_contract(text)
     assert any(heading in f and "absent" in f for f in failures), failures
 
@@ -308,7 +300,7 @@ def test_prc_dt_006_contract_decision_anchors_are_required(anchor: str):
     Contract amendment, mapping, human risk ownership, LGTM, and conditional-R2 rules are all
     load-bearing; removing one is a conformance failure rather than an optional documentation edit.
     """
-    text = _fixture(900).replace(anchor, "")
+    text = _fixture().replace(anchor, "")
     failures = check_convergence_contract(text)
     assert any(anchor in f and "absent" in f for f in failures), failures
 
@@ -329,7 +321,7 @@ def test_prc_dt_007_unanimous_voice_and_mandatory_r2_wording_is_forbidden(wordin
     Known semantic variants of the old unanimous-veto and always-R2 rules must not survive merely
     because the original checker searched one exact English phrase.
     """
-    failures = check_convergence_contract(_fixture(900) + wording + "\n")
+    failures = check_convergence_contract(_fixture() + wording + "\n")
     assert any("forbidden string present" in f for f in failures), failures
 
 
@@ -356,7 +348,7 @@ def test_prc_eg_001_empty_text_fails_loud_not_vacuous():
 def test_prc_eg_002_cjk_forbidden_detected_ascii_not():
     """PRC-EG-002: a CJK forbidden string is detected by raw UTF-8 match; an ASCII transliteration
     is NOT falsely matched."""
-    base = _fixture(900)
+    base = _fixture()
     detected = check_convergence_contract(base + "每個 actionable NIT 都要在 merge 前清掉\n")
     assert any("每個 actionable NIT" in f for f in detected)
     # ASCII transliteration of the same intent — must not trip any forbidden matcher.
@@ -367,7 +359,7 @@ def test_prc_eg_002_cjk_forbidden_detected_ascii_not():
 def test_prc_eg_003_forbidden_inside_code_fence_still_detected():
     """PRC-EG-003: a forbidden string inside a code fence is still detected (deliberate, documented
     behaviour — the checker searches the whole document, it does not exempt fences)."""
-    text = _fixture(900) + "```\nLGTM-with-trickle-NITs\n```\n"
+    text = _fixture() + "```\nLGTM-with-trickle-NITs\n```\n"
     failures = check_convergence_contract(text)
     assert any("LGTM-with-trickle-NITs" in f for f in failures), failures
 
@@ -378,7 +370,7 @@ def test_prc_eg_004_duplicate_anchor_no_crash_no_double_count():
     T045 decision: KEPT (minimal). The checker uses `in`, so per the testplan this TC is
     low-value; it stays as a one-line regression guard documenting the `in`-based design.
     """
-    text = _fixture(900) + "baseline..HEAD baseline..HEAD baseline..HEAD\n"
+    text = _fixture() + "baseline..HEAD baseline..HEAD baseline..HEAD\n"
     assert check_convergence_contract(text) == []
 
 
