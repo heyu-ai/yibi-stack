@@ -1,6 +1,6 @@
 {
   "name": "methodology",
-  "version": "1.23.16",
+  "version": "1.23.17",
   "description": "Portable methodology plugin for Claude Code: event storming, problem frames, and QA test design.",
   "omp": {},
   "keywords": [

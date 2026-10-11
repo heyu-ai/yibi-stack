@@ -453,6 +453,8 @@ agy R1/R2 以 inline prompt 執行，cwd 與絕對 `--add-dir` 指向一次性 H
 無 backend、backend 不可用、tracked tree 有未提交修改或衝突時，該 voice 明確失敗，
 **不得改回直接在原工作樹執行**。OS 防護使原工作樹、Git metadata 與 snapshot 原始碼不可寫；
 暫存 home／scratch／log 由 helper 管理，結束或中斷後回收，永久 log 回到既有 review 目錄。
+若 OS 拒絕清理，helper 會非零退出並列出殘留工作目錄；該 voice 不算成功。
+先依診斷處理剩餘狀態，不得把留下暫存資料的執行回報為已完成回收。
 上游 agy 的 command 探索仍使用既有權限旗標，但旗標不再是檔案系統的安全邊界。
 
 The script's last line outputs `REVIEW_DIR=<absolute path>` as informational; subsequent bash

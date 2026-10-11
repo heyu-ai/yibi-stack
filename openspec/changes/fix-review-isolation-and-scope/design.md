@@ -75,9 +75,12 @@ code-review-scope:start/end marker 之間的區塊。
 
 ## Verification
 
+### 初始實作驗證（非最終交付證據）
+
 - review scripts 全套：629 passed（包含 scope 與真實 macOS sandbox 寫入探針）。
 - timeout cleanup 壓力驗證：6 個並行 worker、12 次皆通過。先前錯誤已由 traceback 定位為
-  timeout 後重複 killpg；改為回收前只終止一次，未吞掉 EPERM。
+  timeout 後重複 killpg；當時修法避免重複終止。後續 review 又加入 PermissionError 抑制，
+  與「避免重複 killpg」不同；此歷史紀錄不宣稱目前沒有抑制 EPERM。
 - 真實 CLI：agy 1.3.3 於 OS sandbox 下完成認證，讀回未放進 prompt 的 committed nonce，
   與原檔逐字相同；第一次 60 秒 smoke 逾時，後續 150 秒上限的 smoke 於約 26 秒完成。
   產品的既有預設時間預算沒有提高。
@@ -87,3 +90,16 @@ code-review-scope:start/end marker 之間的區塊。
   已如實保留，未為這次工作抑制。
 - Linux bwrap 未在此 macOS 主機執行；內建 code-review 的模型決策未實跑，
   scope filter 本身已透過真實 CLI 驗證，不宣稱上游 base 解析方式已被修改或證明。
+
+### 交付時的補充驗證
+
+- howie 核准修正交付清理缺陷，並選擇 patch 版本在 PR 內準備、tag 僅在合併後建立。
+- 真實不可變檔案探針曾觀測到 helper exit 0、無診斷、暫存目錄仍存在。修正後同路徑
+  exit 1，stderr 明列殘留目錄，沒有 traceback，也未改動來源檔案；探針僅使用假憑證。
+- 一般唯讀／不可讀目錄由 parent-directory descriptor 相對操作恢復權限；
+  不跟隨 symlink、不修改非目錄項目的權限。若 OS 仍拒絕刪除，錯誤必須明確傳回。
+- 對應測試涵蓋 R1/R2 不可變假憑證的失敗診斷，以及不依賴 sandbox backend 的
+  unreadable-directory／外部 symlink target 保護；38 個 isolation tests 通過。
+- GitHub Linux CI 的原始失敗是 gitlink 測試先遇到 missing bwrap；已改用合法 commit OID
+  直接驗證 snapshot builder 的 gitlink 拒絕，沒有以 skip 或錯誤字串放寬來製造綠燈。
+- CI 修正 commit `2bd7d198` 已通過遠端 CI；這不是後續 cleanup／release commit 的 CI 證據。

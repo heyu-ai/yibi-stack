@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from agy_isolate import sandbox_prefix, snapshot_head
+from agy_isolate import cleanup_workspace, sandbox_prefix, snapshot_head
 from test_agy_scripts import require_isolation
 
 SCRIPTS = Path(__file__).resolve().parent.parent
@@ -452,3 +452,59 @@ print("## Verdict\\nLGTM\\n")
     # Target file permissions must NOT have been changed to 0700 by cleanup
     assert target.stat().st_mode == initial_mode
     assert not list(isolated_repo["tmp"].glob("agy-review-*"))
+
+
+def test_cleanup_restores_owned_directories_without_changing_link_targets(tmp_path: Path) -> None:
+    protected = tmp_path / "protected"
+    protected.write_text("outside data\n")
+    protected.chmod(0o600)
+    original_mode = protected.stat().st_mode
+    workspace = tmp_path / "workspace"
+    locked = workspace / "scratch" / "locked"
+    locked.mkdir(parents=True)
+    (locked / "cache").write_text("private cache\n")
+    (locked / "link").symlink_to(protected)
+    locked.chmod(0o000)
+
+    cleanup_workspace(workspace)
+
+    assert not workspace.exists()
+    assert protected.read_text() == "outside data\n"
+    assert protected.stat().st_mode == original_mode
+
+
+@pytest.mark.parametrize("stage", STAGES)
+@pytest.mark.skipif(sys.platform != "darwin", reason="immutable-file regression uses macOS flags")
+def test_incomplete_cleanup_fails_loudly_with_leftover_path(
+    isolated_repo: dict, stage: str
+) -> None:
+    require_isolation()
+    stand_in = isolated_repo["bin"] / "agy"
+    stand_in.write_text(f"""#!{sys.executable}
+import os, pathlib, stat
+credential = pathlib.Path.home() / '.gemini/oauth_creds.json'
+assert credential.read_text() == 'fake-auth'
+os.chflags(credential, stat.UF_IMMUTABLE)
+print('## Verdict')
+print('LGTM')
+print('Reviewed seed.txt', flush=True)
+""")
+    stand_in.chmod(0o755)
+    try:
+        result = run_stage(isolated_repo, stage)
+        assert result.returncode == 1
+        stderr_name = "gemini-r1.stage1.log" if stage == "r1" else "gemini-r2.log"
+        diagnostic = (isolated_repo["review"] / stderr_name).read_text()
+        leftovers = list(isolated_repo["tmp"].glob("agy-review-*"))
+        assert len(leftovers) == 1
+        assert "[FAIL] 無法清除隔離工作目錄" in diagnostic
+        assert str(leftovers[0]) in diagnostic
+        assert "Traceback" not in diagnostic
+        assert (leftovers[0] / "scratch/home/.gemini/oauth_creds.json").read_text() == "fake-auth"
+    finally:
+        for leftover in isolated_repo["tmp"].glob("agy-review-*"):
+            credential = leftover / "scratch/home/.gemini/oauth_creds.json"
+            if credential.exists():
+                os.chflags(credential, 0, follow_symlinks=False)
+            cleanup_workspace(leftover)
+    assert_preserved(isolated_repo)

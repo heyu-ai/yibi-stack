@@ -298,6 +298,39 @@ def interrupt(signum: int, _frame: object) -> None:
     raise ReviewInterrupted(signum)
 
 
+def cleanup_workspace(root: Path) -> None:
+    """Remove owned state without following links or concealing incomplete cleanup."""
+    try:
+        shutil.rmtree(root)
+        return
+    except PermissionError:
+        # A command may create an unreadable/read-only directory in private scratch.
+        # Restore only directory permissions, anchored to open parent descriptors.
+        # Immutable flags and other deletion failures remain explicit errors.
+        pass
+
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+    def restore_directories(parent_fd: int) -> None:
+        with os.scandir(parent_fd) as entries:
+            for entry in entries:
+                if not entry.is_dir(follow_symlinks=False):
+                    continue
+                os.chmod(entry.name, 0o700, dir_fd=parent_fd, follow_symlinks=False)
+                child_fd = os.open(entry.name, flags, dir_fd=parent_fd)
+                try:
+                    restore_directories(child_fd)
+                finally:
+                    os.close(child_fd)
+
+    root_fd = os.open(root, flags)
+    try:
+        restore_directories(root_fd)
+    finally:
+        os.close(root_fd)
+    shutil.rmtree(root)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-backend", action="store_true")
@@ -401,20 +434,12 @@ def main() -> int:
         for sig in old_handlers:
             signal.signal(sig, signal.SIG_IGN)
 
-        def make_writable_tree(p: Path) -> None:
-            if p.is_symlink():
-                return
-            with contextlib.suppress(OSError):
-                os.chmod(p, 0o700)
-            if p.is_dir():
-                with contextlib.suppress(OSError), os.scandir(p) as it:
-                    for entry in it:
-                        make_writable_tree(Path(entry.path))
-
         try:
             if root is not None:
-                make_writable_tree(root)
-                shutil.rmtree(root, ignore_errors=True)
+                cleanup_workspace(root)
+        except (OSError, NotImplementedError) as exc:
+            print(f"[FAIL] 無法清除隔離工作目錄 {root}；仍有暫存狀態需處理：{exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
         finally:
             for sig, handler in old_handlers.items():
                 signal.signal(sig, handler)
