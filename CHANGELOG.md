@@ -19,6 +19,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   log／validator／timeout 產物與原樹前後比對。結束與中斷均清理 process group 和暫存狀態，
   避免 macOS 在 timeout 後重複終止已回收 group 而遺失診斷產物。
 
+## [1.23.16] - 2026-10-11
+
+### Fixed
+
+- dev-cycle：`red-first.sh` 在 checker 把 HEAD 變成 unborn（例如切到 orphan 分支）時，改回報 exit 3
+  （`tree-not-restored`），不再以 exit 2 蓋過「沒有還原」的結論；跑之前 HEAD 就解析不到時仍為 exit 2（#545）。
+- dev-cycle：`red-first.sh` 的進行中操作守衛新增 sequencer 偵測：多 commit 的 cherry-pick／revert 停在中途
+  （衝突以 `git commit` 解決而非 `--continue`，只剩 `.git/sequencer`、工作樹乾淨）時以 exit 2 拒絕，
+  不再對少了後續 commit 的 HEAD 下判定；錯誤訊息提示殘留時用 `git cherry-pick --quit`／`git revert --quit` 清除（#545）。
+- dev-cycle：補上 detached HEAD 起點的測試（照常 pass；checker 切到分支時 exit 3），先前沒有任何測試守住（#545）。
+
+## [1.23.15] - 2026-10-11
+
+### Fixed
+
+- dev-cycle：`/clean-wt --apply` 不會再刪掉使用者沒核准的分支（#543）。`--apply` 會重新分類一次，
+  報告之後才變成 SAFE 的分支（例如另一個 session 剛建立、沒有 lock、停在 main commit 上的工作區）
+  原本會連同 worktree 被一起刪掉。新增 `--only BRANCH`（可重複、只能搭配 `--apply`）：只刪列出的
+  SAFE 分支，多出來的 SAFE 跳過並 `[WARN]`；核准過但已不是 SAFE 的分支不刪、exit 1。報告模式最後
+  會印出綁定本次 SAFE 名單的 `--apply --only ...` 參數（含 `--base` / `--stale-days`），`/clean-wt`
+  改成逐字使用那組參數。不帶 `--only` 的 `--apply` 維持原行為。
+
+## [1.23.14] - 2026-10-11
+
+### Fixed
+
+- dev-cycle：`red-first.sh` 在檢查器以 exit 0 結束但表示「沒有檢查任何東西」時，不再印 `RED_FIRST_RESULT=pass`，
+  改印獨立的 `RED_FIRST_RESULT=unchecked`（#521）。偵測整行機讀標記 `red-first: UNCHECKED`，並暫時接受 yibi-mvp
+  檢查器目前印的句子。`pr-cycle-deep` Step 1.7 與 `pr-cycle-fast` 3.0b 寫明 unchecked 不是通過，要另附證據。
+
+### Changed
+
+- dev-cycle：`red-first.sh` 仍要求跑之前工作樹乾淨，且改用
+  `git status --porcelain --untracked-files=all --ignore-submodules=none`：submodule 內的改動也算，
+  使用者設了 `status.showUntrackedFiles=no` 時 untracked 檔也不會被漏看（exit 2）；`cherry-pick --no-commit` 與 `merge --squash` 只留 staged 改動，也由這一項擋下。
+  跑完後除了工作樹仍須乾淨，另比對 HEAD 的 commit 與所在分支，任一不同即 exit 3。新增進行中操作守衛（exit 2，錯誤訊息
+  指出具體操作）：MERGE_HEAD、CHERRY_PICK_HEAD、REVERT_HEAD、rebase 進行中或有未解衝突。移除 checker 自列「工具副作用」
+  的豁免：跑後任何改動一律 exit 3（#496 NIT 2）。#496 NIT 1（放寬跑前乾淨）刻意不收：checker 若就地還原產品碼，
+  會覆蓋使用者未 commit 的改動。
+
 ## [1.23.13] - 2026-10-11
 
 ### Added

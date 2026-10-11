@@ -4,12 +4,22 @@
 # 用法：
 #   bash commands/scripts/clean_wt.sh                  # 只報告，不刪（預設）
 #   bash commands/scripts/clean_wt.sh --apply          # 實際刪除 SAFE 分類的項目
+#   bash commands/scripts/clean_wt.sh --apply --only a --only b  # 只刪核准過的 a、b（建議）
 #   bash commands/scripts/clean_wt.sh --stale-days 30  # 調整 STALE 報告門檻（預設 30）
 #   bash commands/scripts/clean_wt.sh --base develop   # 改用別的基準分支（預設 main）
 #
 # stdout: 分類報告；stderr: [WARN]/[FAIL] 診斷
 # exit 0: 正常（含「無事可做」）
-# exit 1: 前置條件不足，或 --apply 期間有刪除／清理失敗
+# exit 1: 前置條件不足，或 --apply 期間有刪除／清理失敗，或 --only 核准的分支沒有被刪
+#
+# ── 為什麼需要 --only（issue #543）──
+# --apply 會**重新分類一次**，再刪除當下所有 SAFE。報告與 --apply 之間新變成 SAFE 的分支，
+# 使用者從沒看過，卻會被一起刪掉。實測事故（2026-10-11）：使用者核准 2 個 SAFE，--apply
+# 時多出一個另一個 session 剛建立、沒有 lock、停在 main commit 上的分支（E1 必然成立），
+# 連同它的 worktree 一起被刪。--only 把刪除範圍綁在「使用者核准的名單」上：
+#   - 重新分類多出來、不在 --only 的 SAFE -> 跳過並 [WARN]（不算失敗：沒刪是正確結果）
+#   - 列在 --only、但已不是 SAFE 的分支 -> 不刪、[WARN]、exit 1（核准的動作沒有完成）
+# 報告模式會印出可逐字使用的 --apply --only 參數。不帶 --only 的 --apply 維持舊行為（向後相容）。
 #
 # ── 為什麼這支腳本存在（合併 clean-gone / clean-merged 的理由）──
 # 舊的兩個指令把 bash 直接寫在 markdown 裡，而 agent 讀 command 檔時會「理解意圖後重新
@@ -142,10 +152,23 @@ STALE_DAYS=30
 APPLY=0
 BASE_BRANCH="main"
 GH_PR_LIMIT=800
+ONLY_SET=0
+ONLY_BRANCHES=()
+ONLY_MISSED=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --apply) APPLY=1; shift ;;
+    --only)
+      if [ "$#" -lt 2 ]; then
+        echo "[FAIL] --only 需要一個分支名稱" >&2
+        exit 1
+      fi
+      # 擋空字串與像 flag 的值：否則 `--only --apply` 會把 --apply 吞成分支名
+      case "$2" in
+        ''|-*) echo "[FAIL] --only 分支名稱不合法：$2" >&2; exit 1 ;;
+      esac
+      ONLY_BRANCHES+=("$2"); ONLY_SET=1; shift 2 ;;
     --stale-days)
       if [ "$#" -lt 2 ]; then
         echo "[FAIL] --stale-days 需要一個數值" >&2
@@ -159,7 +182,7 @@ while [ "$#" -gt 0 ]; do
       fi
       BASE_BRANCH="$2"; shift 2 ;;
     -h|--help)
-      echo "用法: clean_wt.sh [--apply] [--stale-days N] [--base BRANCH]"
+      echo "用法: clean_wt.sh [--apply [--only BRANCH]...] [--stale-days N] [--base BRANCH]"
       exit 0 ;;
     *)
       echo "[FAIL] 未知參數：$1" >&2
@@ -173,6 +196,20 @@ esac
 case "$BASE_BRANCH" in
   ''|-*) echo "[FAIL] --base 分支名稱不合法：$BASE_BRANCH" >&2; exit 1 ;;
 esac
+# 報告模式不刪任何東西，--only 在那裡沒有意義；靜默接受會讓人以為報告已被「過濾」
+if [ "$ONLY_SET" = "1" ] && [ "$APPLY" != "1" ]; then
+  echo "[FAIL] --only 只能搭配 --apply 使用" >&2
+  exit 1
+fi
+
+# $1 是否列在 --only 名單內
+in_only() {
+  local x
+  for x in ${ONLY_BRANCHES[@]+"${ONLY_BRANCHES[@]}"}; do
+    [ "$x" = "$1" ] && return 0
+  done
+  return 1
+}
 
 if ! command -v git >/dev/null 2>&1; then
   echo "[FAIL] git 不存在" >&2
@@ -577,12 +614,42 @@ print_section "══ REVIEW：無證據顯示內容已進 ${BASE}，需人工�
 
 if [ "$APPLY" != "1" ]; then
   echo ""
-  echo "（預設只報告。確認 SAFE 清單無誤後，加 --apply 實際刪除。）"
+  echo "（預設只報告。確認 SAFE 清單無誤後，才執行刪除。）"
+  if [ "${#SAFE_BRANCHES[@]}" -gt 0 ]; then
+    # 印出綁定本次 SAFE 名單的 --apply 參數：--apply 會重新分類，這組 --only 確保只刪
+    # 使用者在上面看到並核准的那些分支（issue #543）。--base / --stale-days 一律明列，
+    # 讓 --apply 的分類依據與這次報告相同。%q 讓分支名可安全貼回 shell。
+    apply_args="--apply --base $(printf '%q' "$BASE_BRANCH") --stale-days $STALE_DAYS"
+    for b in "${SAFE_BRANCHES[@]}"; do
+      apply_args="$apply_args --only $(printf '%q' "$b")"
+    done
+    echo "核准後執行刪除，請原樣使用這組參數：$apply_args"
+  fi
   exit 0
+fi
+
+# ── --only：刪除範圍綁在使用者核准的名單上（issue #543）──
+# 核准過、但重新分類後已不是 SAFE 的分支：不刪，而且算失敗——使用者要求的動作沒有完成，
+# 必須讓 exit code 反映出來，不能被讀成「全部照辦」。
+if [ "$ONLY_SET" = "1" ]; then
+  for want in "${ONLY_BRANCHES[@]}"; do
+    found=0
+    for b in ${SAFE_BRANCHES[@]+"${SAFE_BRANCHES[@]}"}; do
+      [ "$b" = "$want" ] && found=1 && break
+    done
+    if [ "$found" = "0" ]; then
+      echo "[WARN] --only 核准的分支重新分類後已不是 SAFE，不刪除：${want}（見上方分類）" >&2
+      ONLY_MISSED=1
+    fi
+  done
 fi
 
 if [ "${#SAFE_BRANCHES[@]}" -eq 0 ]; then
   echo ""
+  if [ "${ONLY_MISSED:-0}" = "1" ]; then
+    echo "[FAIL] 沒有可刪除的分支，且有 --only 核准的分支沒有被刪（見上方 [WARN]）" >&2
+    exit 1
+  fi
   echo "[OK] 沒有可安全刪除的分支"
   exit 0
 fi
@@ -635,12 +702,23 @@ EOF
 }
 
 echo ""
-echo "── 執行刪除（僅 SAFE 清單）──"
-FAILED=0
+if [ "$ONLY_SET" = "1" ]; then
+  echo "── 執行刪除（僅 SAFE 且列在 --only 的分支）──"
+else
+  echo "── 執行刪除（僅 SAFE 清單）──"
+fi
+FAILED=${ONLY_MISSED:-0}
 i=0
 for b in ${SAFE_BRANCHES[@]+"${SAFE_BRANCHES[@]}"}; do
   expected_tip="${SAFE_TIPS[$i]}"
   i=$((i + 1))
+
+  # 重新分類多出來的 SAFE：使用者沒看過、沒核准，一律不碰（連 worktree 也不移除）。
+  # 不算失敗：跳過它正是正確結果；[WARN] 讓使用者知道報告之後狀態變了。
+  if [ "$ONLY_SET" = "1" ] && ! in_only "$b"; then
+    echo "  [WARN] 不在 --only 核准名單內，跳過：${b}（報告之後才變成 SAFE；需要的話重跑報告再核准）" >&2
+    continue
+  fi
 
   # ── 破壞任何東西**之前**先驗證所有前提 ──
   # 順序是刻意的（Codex R2 I1）：舊版先移除 worktree、再釋放 port、最後才 CAS。若 ref 在

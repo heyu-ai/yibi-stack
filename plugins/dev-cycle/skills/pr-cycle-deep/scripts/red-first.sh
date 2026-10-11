@@ -20,13 +20,26 @@
 # PR body 寫到 <out-dir>/pr-body.md。最後一行固定是 `RED_FIRST_RESULT=<名稱>`。
 #
 # 退出碼（每一個都是具名結果）：
-#   0  可以往下走：PASS、SKIP（沒有 checker、PR 類型不需要）或 EXEMPT。
-#      輸出中的 [EXEMPT]、[WEAK-RED]、[WARN] red-first: 行由呼叫端帶到人／reviewer 面前
+#   0  可以往下走：PASS、SKIP（沒有 checker、PR 類型不需要）、EXEMPT，或 UNCHECKED。
+#      輸出中的 [EXEMPT]、[WEAK-RED]、[WARN] red-first: 行由呼叫端帶到人／reviewer 面前。
+#      `RED_FIRST_RESULT=unchecked` **不是通過**：checker 以 exit 0 結束，但說它沒有檢查任何東西
+#      （輸出有整行 `red-first: UNCHECKED`，或過渡期接受的舊句子，見下方偵測處）。呼叫端照常
+#      往下走，但要把它帶到人面前，並要求另附證據（例如手動 mutation），不得當成 pass
 #   1  red-first 判定失敗（checker 印出 `red-first: FAIL`）：測試抓不到這次改動
-#   2  前提不成立或工具出錯：參數錯、gh/git 失敗、標題為空、跑之前工作區就不乾淨、
+#   2  前提不成立或工具出錯：參數錯、gh/git 失敗、標題為空、merge／rebase／cherry-pick／
+#      revert 進行中（含停在中途的 cherry-pick／revert 序列）或有未解衝突（此時 HEAD 不是
+#      要檢查的樹）、跑之前 HEAD 就解析不到（unborn，或 HEAD 指向的 ref 損壞）、跑之前工作樹就不乾淨、
 #      checker exit 2、沒有判定行的 exit 1（traceback）或其他 exit code
-#   3  跑完後工作區有 checker 沒列為副作用的改動：產品碼可能沒還原。
+#   3  跑完後工作樹不乾淨，或 HEAD 的 commit／所在分支與跑之前不同（含 checker 把 HEAD 變成
+#      unborn，例如切到 orphan 分支）：產品碼可能沒還原。不論 checker 的 exit code 都先檢查這一項。
 #      **不要自行還原**（git checkout 屬 rule 15 不可逆操作），把狀態交給人
+#
+# 跑之前工作樹必須乾淨（`git status --porcelain --untracked-files=all --ignore-submodules=none`
+# 為空，含 staged、
+# 未 stage、untracked 與 submodule 內的改動）。這是刻意的（#496 NIT 1 不收）：checker 若就地
+# 把產品碼還原到 merge-base，會覆蓋使用者未 commit 的改動，而乾淨的樹沒有可遺失的東西。
+# 乾淨也代表 index 與 HEAD 一致，所以跑後只要同一個指令仍為空、HEAD 與分支不變，就是已還原。
+# 不涵蓋 .gitignore 忽略的檔案（已接受的殘留風險）。
 #
 # 刻意**不**清除繼承的 GIT_DIR / GIT_WORK_TREE：本 script 問的是「呼叫端要檢查哪個
 # checkout」，由 --repo-root 明確指定，與 preflight-review-snapshot.sh 同一族。
@@ -95,16 +108,103 @@ if [ ! -f "$CHECKER" ]; then
     exit 0
 fi
 
-# 跑之前工作區就必須乾淨，否則跑完後的「是否已還原」無從判斷
-# （例如 pr-cycle-fast 3.0 的 check --sha 在 merge 進行中 review，工作區本來就不乾淨）
-BEFORE=$(git -C "$REPO_ROOT" status --porcelain)
-if [ -n "$BEFORE" ]; then
-    echo "$BEFORE" >&2
-    fail 2 "跑 checker 前工作區就不乾淨（見上方）；先 commit 或等 merge 完成再跑"
+# gh 從 cwd 推斷 repo，所以在本 script 自己的 shell 內切到目標 checkout。
+# 下面的 git 呼叫因此都以 cwd 為準（含 --git-path 回傳的相對路徑）
+cd "$REPO_ROOT"
+
+# merge／rebase／cherry-pick／revert 進行中時，HEAD 不是要檢查的那棵樹，checker 會對錯的
+# commit 下判定且沒有任何警告（pr-cycle-fast 3.0 走 check --sha 時就會碰到）。
+# 這一段排在乾淨檢查之前，讓錯誤訊息指出具體的操作。每個條件各自偵測：一般的 cherry-pick
+# 衝突即使已 `git add` 解決，commit 之前仍留著 CHERRY_PICK_HEAD；stash apply 衝突沒有任何
+# *_HEAD，只能從 unmerged 項目看出來。`cherry-pick --no-commit` 與 `merge --squash` 不留任何
+# 狀態檔，只留 staged 改動，由下面的乾淨檢查擋下
+IN_PROGRESS=""
+for state_ref in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
+    # rev-parse -q --verify：0 = 存在、1 = 不存在，其他是 git 本身出錯
+    REF_RC=0
+    git rev-parse -q --verify "$state_ref" >/dev/null || REF_RC=$?
+    case "$REF_RC" in
+        0) IN_PROGRESS="${IN_PROGRESS} ${state_ref}" ;;
+        1) ;;
+        *) fail 2 "git rev-parse --verify ${state_ref} 失敗（exit ${REF_RC}）" ;;
+    esac
+done
+# sequencer：多 commit 的 cherry-pick／revert 停在中途。衝突以 `git commit` 解決（而非
+# --continue）後，CHERRY_PICK_HEAD／REVERT_HEAD 已被移除、工作樹也乾淨，只剩這個目錄，
+# 後面的 commit 還沒套用
+SEQUENCER_HINT=""
+for state_dir in rebase-merge rebase-apply sequencer; do
+    # 先取路徑再判斷：寫成 [ -d "$(git rev-parse ...)" ] 時 rev-parse 失敗會被讀成「沒有進行中的操作」
+    if ! STATE_PATH=$(git rev-parse --git-path "$state_dir"); then
+        fail 2 "git rev-parse --git-path ${state_dir} 失敗"
+    fi
+    if [ -d "$STATE_PATH" ]; then
+        case "$state_dir" in
+            sequencer)
+                IN_PROGRESS="${IN_PROGRESS} cherry-pick／revert 序列（sequencer）"
+                # --abort 會把 HEAD 倒回序列開始前；只想清掉殘留的序列狀態時用 --quit
+                SEQUENCER_HINT="；sequencer 是殘留（序列其實已不打算繼續）時，用 git cherry-pick --quit 或 git revert --quit 清除（--abort 可能把 HEAD 倒回序列開始前）"
+                ;;
+            *) IN_PROGRESS="${IN_PROGRESS} rebase（${state_dir}）" ;;
+        esac
+    fi
+done
+if ! UNMERGED=$(git ls-files --unmerged); then
+    fail 2 "git ls-files --unmerged 失敗"
+fi
+if [ -n "$UNMERGED" ]; then
+    IN_PROGRESS="${IN_PROGRESS} 未解衝突"
+fi
+if [ -n "$IN_PROGRESS" ]; then
+    fail 2 "有操作進行中：${IN_PROGRESS# }；HEAD 不是要檢查的樹，先完成或中止進行中的操作，或解決衝突再跑${SEQUENCER_HINT}"
 fi
 
-# gh 從 cwd 推斷 repo，所以在本 script 自己的 shell 內切到目標 checkout
-cd "$REPO_ROOT"
+# 跑之前工作樹必須乾淨（AC-3）。兩個旗標都是為了不讓使用者的 git 設定壓掉輸出：
+#   --untracked-files=all：設了 status.showUntrackedFiles=no（大型 repo 常見）時，
+#     預設的 git status 完全不列 untracked 檔
+#   --ignore-submodules=none：.gitmodules 或 config 設了 submodule.<name>.ignore 時，
+#     預設的 git status 看不到 submodule 內的改動
+if ! BEFORE=$(git status --porcelain --untracked-files=all --ignore-submodules=none); then
+    fail 2 "git status 失敗"
+fi
+if [ -n "$BEFORE" ]; then
+    printf '%s\n' "$BEFORE" >&2
+    fail 2 "跑 checker 前工作樹就不乾淨（見上方）；先 commit 或 stash 再跑"
+fi
+
+# 記下 HEAD 的 commit 與所在分支，跑完後比對（AC-4）。結果寫進全域變數 HEAD_SHA／HEAD_REF；
+# 刻意不在 $() 裡呼叫，fail 才能真的結束 script。
+# $1 = before／after。`rev-parse -q --verify HEAD`：0 = 有 commit、1 = HEAD 解析不到（unborn，
+# 例如 orphan 分支；HEAD 指向的分支 ref 內容損壞或名稱不合法時也回 1），其他是 git 本身出錯。
+# 跑之前解析不到是前提不成立（exit 2）；跑完後才解析不到代表 checker 把 HEAD 改掉了，記成
+# UNBORN，交給下面的比對走 exit 3（#545 第 1 項）。跑完後若是 HEAD 指向的 ref 損壞，rev-parse
+# 雖回 1，接著的 `symbolic-ref -q HEAD` 會回 128，由下面以 exit 2 回報（git 2.56.0 實測）
+read_head_state() {
+    local phase="$1"
+    local sha_rc=0
+    HEAD_SHA=$(git rev-parse -q --verify HEAD) || sha_rc=$?
+    case "$sha_rc" in
+        0) ;;
+        1)
+            if [ "$phase" = "before" ]; then
+                fail 2 "HEAD 解析不到（unborn，或 HEAD 指向的 ref 損壞）；red-first 需要已 commit 的 HEAD"
+            fi
+            HEAD_SHA="UNBORN"
+            ;;
+        *) fail 2 "git rev-parse HEAD 失敗（exit ${sha_rc}）" ;;
+    esac
+    # symbolic-ref -q：0 = 在分支上、1 = detached HEAD，其他是 git 本身出錯
+    local ref_rc=0
+    HEAD_REF=$(git symbolic-ref -q HEAD) || ref_rc=$?
+    case "$ref_rc" in
+        0) ;;
+        1) HEAD_REF="DETACHED" ;;
+        *) fail 2 "git symbolic-ref HEAD 失敗（exit ${ref_rc}）" ;;
+    esac
+}
+read_head_state before
+HEAD_SHA_BEFORE="$HEAD_SHA"
+HEAD_REF_BEFORE="$HEAD_REF"
 
 if ! PR_TITLE=$(gh pr view "$PR" --json title -q .title); then
     fail 2 "gh pr view ${PR}（title）失敗"
@@ -147,32 +247,64 @@ python3 "$CHECKER" --repo "$REPO_ROOT" --base "$BASE_SHA" --title "$PR_TITLE" \
     --pr-body-file "$OUT_DIR/pr-body.md" >| "$OUT_DIR/red-first.out" 2>&1 || CHECKER_EXIT=$?
 cat "$OUT_DIR/red-first.out"
 
-# 不論 checker 的 exit code，先確認工作區已還原。checker 以 [WARN] 標題後的縮排行列出
-# 測試工具的副作用（例如 flutter test 改寫 pubspec.lock）；不在那份清單裡的改動才算沒還原。
-AFTER=$(git -C "$REPO_ROOT" status --porcelain)
-if [ -n "$AFTER" ]; then
-    UNEXPLAINED=""
-    SIDE_EFFECTS=""
-    while IFS= read -r line; do
-        [ -z "$line" ] && continue
-        if grep -qF -- "    ${line}" "$OUT_DIR/red-first.out"; then
-            SIDE_EFFECTS="${SIDE_EFFECTS}${line}"$'\n'
-        else
-            UNEXPLAINED="${UNEXPLAINED}${line}"$'\n'
-        fi
-    done <<< "$AFTER"
-    if [ -n "$UNEXPLAINED" ]; then
-        printf '%s' "$UNEXPLAINED" >&2
-        echo "[FAIL] red-first: 跑完後工作區有未列為副作用的改動（見上方），產品碼可能沒還原；不要自行還原，交給人判斷" >&2
-        echo "RED_FIRST_RESULT=tree-not-restored"
-        exit 3
-    fi
-    echo "[WARN] red-first: 測試工具留下副作用，還原前先問 user（git checkout HEAD -- <path>，rule 15）："
-    printf '%s' "$SIDE_EFFECTS"
+# 不論 checker 的 exit code，先確認已還原（AC-4）：同一個 porcelain 指令仍為空，HEAD 的 commit
+# 與所在分支都沒變。不再豁免 checker 自己列出的「工具副作用」（#496 NIT 2）：那份清單只會讓
+# 「自稱是副作用」的改動溜過去
+if ! AFTER=$(git status --porcelain --untracked-files=all --ignore-submodules=none); then
+    fail 2 "跑完後 git status 失敗"
 fi
+read_head_state after
+NOT_RESTORED=""
+if [ -n "$AFTER" ]; then
+    NOT_RESTORED="${NOT_RESTORED} 工作樹不乾淨"
+fi
+if [ "$HEAD_SHA" != "$HEAD_SHA_BEFORE" ]; then
+    NOT_RESTORED="${NOT_RESTORED} HEAD 的 commit 變了（${HEAD_SHA_BEFORE} -> ${HEAD_SHA}）"
+fi
+if [ "$HEAD_REF" != "$HEAD_REF_BEFORE" ]; then
+    NOT_RESTORED="${NOT_RESTORED} 所在分支變了（${HEAD_REF_BEFORE} -> ${HEAD_REF}）"
+fi
+if [ -n "$NOT_RESTORED" ]; then
+    # 診斷指令失敗不得把 exit 3 變成 exit 2：放在 if 條件裡，不觸發 ERR trap
+    if ! git status --short --untracked-files=all --ignore-submodules=none >&2; then
+        echo "[WARN] red-first: 無法列出 git status" >&2
+    fi
+    echo "[FAIL] red-first: 跑完後沒有還原：${NOT_RESTORED# }。產品碼可能沒還原；不要自行還原，交給人判斷" >&2
+    echo "RED_FIRST_RESULT=tree-not-restored"
+    exit 3
+fi
+
+# checker 以 exit 0 結束不代表有檢查（issue #521）。偵測兩種形狀，任一出現即為 unchecked，
+# 且優先於 `red-first: PASS`：
+#   1. 整行 `red-first: UNCHECKED`：與 `red-first: FAIL` 對稱的機讀標記，checker 應改印這個
+#   2. 含 `red-first 沒有檢查任何東西` 的行：yibi-mvp checker 目前印的句子。這是給人看的文字，
+#      不是 API，只是過渡用，等 checker 改印機讀標記後移除
+# grep 的 exit 2（例如讀不到檔）不是「沒有」：當成沒有會讓 unchecked 靜默退回 pass。
+# 只在 `if is_unchecked` 直接呼叫（不在 $() 裡），fail 才能結束 script
+is_unchecked() {
+    local rc=0
+    grep -qx 'red-first: UNCHECKED' "$OUT_DIR/red-first.out" || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1) ;;
+        *) fail 2 "讀取 checker 輸出失敗（grep exit ${rc}）" ;;
+    esac
+    rc=0
+    grep -qF 'red-first 沒有檢查任何東西' "$OUT_DIR/red-first.out" || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1) return 1 ;;
+        *) fail 2 "讀取 checker 輸出失敗（grep exit ${rc}）" ;;
+    esac
+}
 
 case "$CHECKER_EXIT" in
     0)
+        if is_unchecked; then
+            echo "[WARN] red-first: checker 沒有檢查任何東西（exit 0 不是通過）；請另附證據，例如手動 mutation"
+            echo "RED_FIRST_RESULT=unchecked"
+            exit 0
+        fi
         echo "RED_FIRST_RESULT=pass"
         exit 0
         ;;
