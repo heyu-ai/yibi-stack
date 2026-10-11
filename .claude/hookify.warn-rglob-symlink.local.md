@@ -6,7 +6,7 @@ conditions:
   - field: file_path
     operator: regex_match
     pattern: \.py$
-  - field: new_text
+  - field: content
     operator: regex_match
     pattern: \.rglob\(
 action: warn
