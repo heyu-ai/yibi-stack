@@ -5,13 +5,13 @@ event: file
 conditions:
   - field: file_path
     operator: regex_match
-    pattern: "\\.sh$"
+    pattern: \.sh$
   - field: new_text
     operator: regex_match
-    pattern: "=\\$\\(_\\w+"
+    pattern: =\$\(_\w+
   - field: new_text
     operator: regex_match
-    pattern: "\\n\\s+exit\\s+\\d"
+    pattern: \n\s+exit\s+\d
 action: warn
 ---
 
