@@ -2,7 +2,7 @@
 name: warn-plugin-version-lockstep
 enabled: true
 event: bash
-pattern: "plugins/[^/]+/package\\.json"
+pattern: plugins/[^/]+/package\.json
 action: warn
 ---
 
