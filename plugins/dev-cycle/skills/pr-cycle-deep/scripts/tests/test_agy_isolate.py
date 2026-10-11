@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from agy_isolate import sandbox_prefix
+from agy_isolate import sandbox_prefix, snapshot_head
 from test_agy_scripts import require_isolation
 
 SCRIPTS = Path(__file__).resolve().parent.parent
@@ -378,20 +378,18 @@ def test_unusable_backend_never_starts_agy(isolated_repo: dict, stage: str, exit
 
 def test_submodule_gitlink_fails_loudly_before_review(isolated_repo: dict) -> None:
     repo = isolated_repo["repo"]
-    oid = git(repo, "rev-parse", "HEAD:seed.txt")
+    oid = git(repo, "rev-parse", "HEAD")
     subprocess.run(  # nosec B603 B607
         ["git", "-C", str(repo), "update-index", "--add", "--cacheinfo", f"160000,{oid},sub"],
         check=True,
     )
     git(repo, "commit", "-qm", "add gitlink")
-    git(repo, "checkout", "-f", "HEAD")
-    result = run_stage(isolated_repo, "r1")
-    assert result.returncode != 0
-    assert (
-        "submodules require a separate review"
-        in (isolated_repo["review"] / "gemini-r1.stage1.log").read_text()
-    )
-    assert not list(isolated_repo["tmp"].glob("agy-review-*"))
+    snapshot = isolated_repo["tmp"] / "snapshot"
+    snapshot.mkdir()
+    # Git-tree validation must run even on hosts without an OS sandbox backend.
+    with pytest.raises(ValueError, match="submodules require a separate review"):
+        snapshot_head(repo, snapshot, git(repo, "rev-parse", "HEAD"))
+    assert not (snapshot / "sub").exists()
 
 
 @pytest.mark.parametrize("stage", STAGES)
