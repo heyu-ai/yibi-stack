@@ -26,16 +26,22 @@ effort: medium
 bash ~/.claude/commands/scripts/clean_wt.sh $ARGUMENTS
 ```
 
-把 SAFE 清單原樣呈現給使用者，**等他確認後**才執行刪除（把同一組參數原樣帶上）：
+把 SAFE 清單原樣呈現給使用者，**等他確認後**才執行刪除。報告最後一行會印出
+`核准後執行刪除，請原樣使用這組參數：--apply ... --only <分支> ...`，把那組參數**逐字**接在腳本後面：
 
 ```bash
-bash ~/.claude/commands/scripts/clean_wt.sh --apply $ARGUMENTS
+bash ~/.claude/commands/scripts/clean_wt.sh <報告印出的那組參數>
 ```
+
+使用者若只核准其中幾個，就把沒核准的 `--only <分支>` 拿掉；**不要自己新增**報告裡沒有的分支。
 
 `--apply` 只刪 SAFE 分類；BLOCKED / REVIEW / KEEP 永遠不會被自動刪除。
 
-> **`--apply` 要把第一次的參數原樣帶上**（`--base` / `--stale-days`）。它會重新分類一次，
-> 若參數不同，實際刪除的清單就不是使用者剛才核准的那一份。
+> **為什麼一定要帶 `--only`**（issue #543）：`--apply` 會**重新分類一次**。報告與 `--apply`
+> 之間新變成 SAFE 的分支（例如另一個 session 剛建立、沒有 lock、停在 main commit 上的工作區），
+> 使用者從沒看過，不帶 `--only` 就會被一起刪掉——2026-10-11 實際發生過，連 worktree 一起刪。
+> 帶了 `--only`：多出來的 SAFE 會跳過並 `[WARN]`；核准過但已不是 SAFE 的分支不刪、exit 1。
+> 報告印出的參數也已明列 `--base` / `--stale-days`，讓 `--apply` 的分類依據與報告相同。
 
 可選參數：
 
@@ -43,6 +49,7 @@ bash ~/.claude/commands/scripts/clean_wt.sh --apply $ARGUMENTS
 |------|------|
 | `--base BRANCH` | 改用別的基準分支（預設 `main`，即比對 `origin/main`） |
 | `--stale-days N` | 調整 REVIEW 區的 `[STALE]` 標記門檻（預設 30 天） |
+| `--only BRANCH` | 只能搭配 `--apply`，可重複。只刪列出的 SAFE 分支；其他 SAFE 跳過並 `[WARN]` |
 
 ## 分類語意
 
@@ -214,4 +221,5 @@ worktree 一起消失。這是刻意接受的取捨——worktree 是暫時的�
 | 報告顯示「無 SAFE」但我確定有分支已合併 | 見已知限制：可能是 git < 2.38、merge-tree 遇到 conflict、或 PR 太舊查不到；查 REVIEW 區人工確認 |
 | BLOCKED 的分支我確定不要了 | 自行確認那些未提交變更後手動處理；腳本刻意不提供 `--force`，避免無法復原的誤刪 |
 | 想連遠端分支一起刪 | 本腳本只動本地。遠端分支請用 `gh pr merge --delete-branch` 或手動 `git push origin --delete <b>` |
-| `--apply` 回 exit 1 | 有項目刪除失敗（常見：worktree 被 lock 或有殘留檔案）。看 stderr 的 `[WARN]`/`[FAIL]`；失敗不會被吞掉 |
+| `--apply` 回 exit 1 | 有項目刪除失敗（常見：worktree 被 lock 或有殘留檔案），或 `--only` 核准的分支重新分類後已不是 SAFE。看 stderr 的 `[WARN]`/`[FAIL]`；失敗不會被吞掉 |
+| `--apply` 出現「不在 --only 核准名單內，跳過」 | 報告之後有分支新變成 SAFE。它沒被刪，這是正確結果；要刪它請重跑報告、確認後再用新印出的參數 |

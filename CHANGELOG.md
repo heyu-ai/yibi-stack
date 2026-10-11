@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.15] - 2026-10-11
+
+### Fixed
+
+- dev-cycle：`/clean-wt --apply` 不會再刪掉使用者沒核准的分支（#543）。`--apply` 會重新分類一次，
+  報告之後才變成 SAFE 的分支（例如另一個 session 剛建立、沒有 lock、停在 main commit 上的工作區）
+  原本會連同 worktree 被一起刪掉。新增 `--only BRANCH`（可重複、只能搭配 `--apply`）：只刪列出的
+  SAFE 分支，多出來的 SAFE 跳過並 `[WARN]`；核准過但已不是 SAFE 的分支不刪、exit 1。報告模式最後
+  會印出綁定本次 SAFE 名單的 `--apply --only ...` 參數（含 `--base` / `--stale-days`），`/clean-wt`
+  改成逐字使用那組參數。不帶 `--only` 的 `--apply` 維持原行為。
+
 ## [1.23.14] - 2026-10-11
 
 ### Fixed
