@@ -27,8 +27,9 @@ fail-open 是刻意的，且逐條具名（推到已 merged 分支會浪費工�
 
 退出碼：0 放行；2 攔截（訊息走 stderr：探針顯示 exit 2 時 stdout 的訊息不會送達 model，
 只有 stderr 會）。
-**絕不回傳其他非零值**：`.claude/settings.json` 把呼叫端 `protect-push.sh` 註冊為
-`... || exit 2`，本 helper 的非零值經它轉成攔截，所以未預期的錯誤必須自行吞掉並回 0。
+**絕不回傳 0 與 2 以外的值**：呼叫端 `protect-push.sh` 只把本 helper 的 exit 2 當成攔截，
+其他非零值（1、127 等）一律放行（fail-open）。回 2 以外的非零值不會誤擋，但代表攔截悄悄失效，
+所以未預期的錯誤必須自行吞掉並回 0，讓「放行」只有一種語意。
 """
 
 from __future__ import annotations

@@ -292,7 +292,7 @@ class TestMergedPrPush:
         res = run_hook_with_env("git push", _throwaway_repo(tmp_path), tmp_path / "bin")
         assert res.returncode == 2
         assert "448" in res.stderr
-        assert res.stdout == ""
+        assert res.stdout == "", "訊息只能走 stderr：exit 2 時 stdout 不會送達 model"
 
     def test_pp_allow_011_open_pr_branch(self, tmp_path: Path) -> None:
         """PR 仍 open → 放行（負向對照：證明上面兩個攔截不是無條件擋 push）。"""
