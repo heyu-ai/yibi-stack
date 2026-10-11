@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess  # nosec B404
 from pathlib import Path
 
@@ -489,6 +490,10 @@ class TestTreeNotRestored:
         assert argv_out.exists(), "乾淨的起點應執行 checker"
         assert proc.returncode == EXIT_TREE_NOT_RESTORED, proc.stdout + proc.stderr
         assert proc.stdout.rstrip().splitlines()[-1] == "RED_FIRST_RESULT=tree-not-restored"
+        if mode == "orphan":
+            # 切到 orphan 時工作樹不乾淨、分支也變了，三個條件同時觸發 exit 3；
+            # 單獨鎖住 UNBORN 比對，拿掉它時這一行會轉紅
+            assert "-> UNBORN）" in proc.stderr
 
     def test_rfs_st_024_detached_start_is_supported(self, tmp_path: Path) -> None:
         """從 detached HEAD 起跑是支援的形狀，結論照常是 pass（#545 第 6 項）。"""
@@ -514,6 +519,49 @@ class TestTreeNotRestored:
         proc, _ = _run(tmp_path, repo)
         assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
         assert proc.stdout.rstrip().splitlines()[-1] == "RED_FIRST_RESULT=pass"
+
+
+class TestHeadProbeError:
+    """跑完後解析 HEAD 時 git 本身出錯，是工具錯誤（exit 2），不得當成 unborn（AC-2）。"""
+
+    def test_rfs_st_026_head_probe_error_after_run_is_error(self, tmp_path: Path) -> None:
+        """跑完後 `git rev-parse -q --verify HEAD` 回 1 以外的非 0（git 本身出錯）→ exit 2（AC-2）。
+
+        跑後的 rc=1 是 unborn，交給比對走 exit 3；其他 rc 不得被當成 unborn 吞掉。在 PATH 前面
+        放一個 git shim：只對參數剛好是 `rev-parse -q --verify HEAD` 的呼叫計數，第 2 次（跑後）
+        以 exit 128 結束，其餘呼叫都轉給真的 git。只靠弄壞 `.git` 測不到這一支：跑後的
+        `git status` 會先失敗。
+        """
+        repo = _setup(tmp_path)
+        # 必須在改 PATH 之前取得真的 git，否則 shim 會找到自己
+        real_git = shutil.which("git")
+        assert real_git, "前提：PATH 上要有 git"
+        counter = tmp_path / "head-probe-count"
+        shim = tmp_path / "bin" / "git"
+        shim.write_text(
+            "#!/usr/bin/env bash\n"
+            "# 假的 git：跑後那一次 HEAD 解析模擬 git 本身出錯，其餘轉給真的 git\n"
+            'if [ "$#" -eq 4 ] && [ "$1" = rev-parse ] && [ "$2" = -q ] '
+            '&& [ "$3" = --verify ] && [ "$4" = HEAD ]; then\n'
+            "  n=0\n"
+            f'  if [ -f "{counter}" ]; then n=$(cat "{counter}"); fi\n'
+            "  n=$((n + 1))\n"
+            f'  printf \'%s\\n\' "$n" >| "{counter}"\n'
+            '  if [ "$n" -eq 2 ]; then\n'
+            '    echo "fatal: simulated rev-parse failure" >&2\n'
+            "    exit 128\n"
+            "  fi\n"
+            "fi\n"
+            f'exec "{real_git}" "$@"\n',
+            encoding="utf-8",
+        )
+        shim.chmod(0o755)
+        proc, argv_out = _run(tmp_path, repo)
+        assert argv_out.exists(), "跑前的 HEAD 解析正常，應執行 checker"
+        assert counter.read_text(encoding="utf-8").strip() == "2", "shim 應剛好攔到跑前、跑後兩次"
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert "git rev-parse HEAD 失敗（exit 128）" in proc.stderr
+        assert proc.stdout.rstrip().splitlines()[-1] == "RED_FIRST_RESULT=error"
 
 
 def _commit_on_branch(repo: Path, branch: str, path: str, content: str) -> None:
@@ -608,6 +656,9 @@ def _cherry_pick_sequence_mid(repo: Path) -> None:
     _git(repo, "add", "f.txt")
     _git(repo, "commit", "-q", "-m", "resolved A")
     assert (repo / ".git" / "sequencer").is_dir(), "前提：sequencer 應仍存在"
+    assert not (repo / ".git" / "CHERRY_PICK_HEAD").exists(), "前提：CHERRY_PICK_HEAD 已被移除"
+    porcelain = _git(repo, "status", "--porcelain", "--untracked-files=all").stdout
+    assert porcelain == "", f"前提：工作樹應乾淨：{porcelain!r}"
     assert not (repo / "g.txt").exists(), "前提：B 尚未套用"
 
 
@@ -641,7 +692,9 @@ class TestOperationInProgress:
             (_rebase_stopped_at_break, "rebase（rebase-merge）"),
             (_rebase_apply_conflict, "rebase（rebase-apply）"),
             (_stash_apply_conflict, "未解衝突"),
-            (_cherry_pick_sequence_mid, "sequencer"),
+            # 完整標籤：拿掉 `sequencer)` 分支時訊息會退成 `rebase（sequencer）`，
+            # 只比 `sequencer` 抓不到
+            (_cherry_pick_sequence_mid, "cherry-pick／revert 序列（sequencer）"),
         ],
         ids=["merge", "revert", "cherry-pick", "rebase", "rebase-apply", "unmerged", "sequencer"],
     )
@@ -653,6 +706,9 @@ class TestOperationInProgress:
         proc, argv_out = _run(tmp_path, repo)
         assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
         assert expected_state in proc.stderr
+        # 只有 sequencer 殘留時提示 --quit：照「中止」做 --abort 可能把 HEAD 倒回序列開始前
+        quit_hint = "git cherry-pick --quit 或 git revert --quit"
+        assert (quit_hint in proc.stderr) == ("sequencer" in expected_state)
         assert "RED_FIRST_RESULT=error" in proc.stdout
         assert not argv_out.exists(), "操作進行中時不得執行 checker"
 
