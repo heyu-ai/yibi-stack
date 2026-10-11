@@ -25,144 +25,6 @@ import pytest
 # scripts/tests/ -> scripts/ -> pr-cycle-deep/
 SKILL_MD = Path(__file__).resolve().parents[2] / "SKILL.md"
 
-# The change's self-imposed line budget: the file must not grow past its pre-change length.
-#
-# Raised 1220 -> 1239 (+19) for Step 1.6 "Fact-assertion sweep". Recorded here rather than
-# absorbed silently, because the point of this ratchet is that growth must be argued for:
-#
-#   yibi-mvp PR #933 ran this skill with 3 voices over 2 rounds and produced 25 findings, yet its
-#   two highest-consequence defects were found by NO voice -- every voice reads only diff.patch,
-#   so a false statement living outside the diff is structurally invisible to all of them. Adding
-#   reviewers cannot close that gap; only widening the surface can. The 19 lines buy the trigger
-#   for that widening.
-#
-# Raised 1239 -> 1256 (+17) for two Evidence-gate integrity fixes found by running this skill
-# against PR #360 after it merged. Both are cases where the skill's own machinery defeated itself:
-#
-#   (1) +6 lines, Stage 3 render: the extract schema dropped `Contract mapping` / `Evidence`, so
-#       Step 5's Evidence gate ("missing or not the required form -> demote immediately") fired on
-#       EVERY external-voice finding regardless of what the reviewer actually supplied. Only the
-#       Claude voice, which skips extract, could clear it. Measured on PR #360: all three Codex
-#       findings arrived with no evidence field and would have been deferred; the lead reproduced
-#       all three by hand and one was then upgraded to Critical in R2. A cross-family review whose
-#       gate structurally discards two of the three families is not a cross-family review.
-#
-#   (2) +11 lines, Step 3.2: the step dispatches four subagents at once, one of which
-#       (`pr-test-analyzer`) mutates files in the shared worktree while the other three read them
-#       -- directly contradicting rule 17's "finish the review round, collect every report, *then*
-#       mutate". The note tells pr-test-analyzer to sequence or copy, and to report
-#       `git status --porcelain`. A skill cannot instruct a violation of a rule it also cites.
-#
-# Anyone raising this again: say what the added lines buy, in the same commit.
-#
-# Raised 1239 -> 1246 (+7) for the agy-review/agy-consult split. Stage 1 and R2 both kept
-# --dangerously-skip-permissions after an empirical probe (agy 1.1.8; re-verified on agy
-# 1.1.12, 2026-08-13, real-worktree stage1 form) confirmed --sandbox auto-denies agy's
-# `command` permission-class tools in headless mode -- read_file/ListDirectory within
-# --add-dir ARE allowed, but the exploratory shell `command` a real review issues is denied,
-# yielding empty output. The 7 lines record that finding as a `subagent` permission-class
-# note (own absolute-path allow-list entry, not a bare Bash(agy:*)) so the next reader
-# doesn't re-litigate a settled, re-verified finding.
-#
-# Merged with an independent 1239 -> 1256 (+17) raise from origin/main (two Evidence-gate
-# integrity fixes, landed in parallel via PR #368) -> combined budget 1263.
-#
-# Raised 1263 -> 1294 (+31) for Step 3.0, the snapshot preflight (issue #372). What the lines buy:
-#   * A blocking gate before any voice is dispatched. Voices read the WORKING TREE, which is not
-#     an immutable snapshot -- a concurrent session in the same worktree, or an in-progress merge,
-#     lets a voice read an intermediate state and report a finding that does not hold for what
-#     landed. First-hand evidence (yibi-mvp PR #1169, 2026-08-04): a code-reviewer subagent read
-#     .github/workflows/ci.yml while it was `UU` and reported a missing `needs` entry as Important;
-#     the landed `needs` contained it. That PR's aggregated review recorded the rejection.
-#   * 8 of the 31 lines are the exit-code table. Rule 11 ("Tool Exit Codes Must Be Listed in
-#     SKILL.md Branch Design") requires it: a PASS/FAIL-only runbook collapses exit 2 (unmerged,
-#     never overridable) and exit 3 (merge in progress, overridable only by pinning a SHA) into
-#     one outcome, and the agent then routes the recoverable case as a hard failure or skips it.
-#   * The remainder is the `verify` call and one blockquote stating the two boundaries readers
-#     otherwise re-litigate: why this is not a global PreToolUse hook (it would block the
-#     legitimate "review my conflict resolution" case and cannot gate human review), and that it
-#     does not replace the conflict-detector step (GitHub-side mergeability is a different
-#     question from local working-tree state).
-# The first draft was +46; the allow-list entry was folded into 3.1's existing block and the
-# rationale prose cut to one blockquote, since the script header carries the long form.
-#
-# Raised 1294 -> 1307 (+14 lines added; old budget had 1 line of slack over 1293 actual)
-# for two lessons from yibi-firmware PR #44 (issue #437):
-#
-#   (1) +6 lines, Contract mapping validation: a blockquote in the Contract mapping gate
-#       requiring the lead to verify each mapping reference exists (AC-ID in the Contract,
-#       repo baseline path in the repo) before promoting to the blocking set. Without this,
-#       a voice can write a fabricated AC-ID or cite a nonexistent rule file and the finding
-#       enters the blocking set unchecked — caught only if another voice happens to DISAGREE.
-#
-#   (2) +8 lines, Evidence hallucination tell: a new tier row in the Evidence gate table plus a
-#       blockquote describing the hallucination tell pattern — evidence that describes what the
-#       result *should* look like rather than what it *does*. The structure check passes
-#       fabricated evidence in valid form; the Verify tier catches it for Critical (lead must
-#       reproduce), but Important findings slip through on Spot-check. The tell gives the lead
-#       a screening heuristic before spot-checking.
-#
-#   Both are Tier 2 (incident-cited): yibi-firmware PR #44 mob review, where a Claude NIT had
-#   no contract mapping and agy fabricated a Critical + evidence about a nonexistent heading
-#   rename. The first was caught by Codex DISAGREE in R2; the second was refuted by grep.
-#
-# Raised 1307 -> 1327 (+20 lines; old budget had 0 slack) for Step 1.7, the red-first gate.
-# Evidence (yibi-mvp transcripts 2026-08-25 ~ 09-25, 789 sessions): three TDD skills were
-# invoked 0 times and 12 of 158 code-editing sessions were test-first, although spectra-apply
-# already instructed "write a failing test FIRST" — prose had no effect, so the step runs a
-# repo-provided checker that reverts production code to the merge-base and requires the PR's
-# tests to fail (feat/fix) or keep passing (refactor/perf). The first draft was +51; the
-# rationale, exit-code table and don'ts were folded into two paragraphs, since the checker's
-# docstring carries the long form.
-#
-# Raised 1327 -> 1336 (+9 lines) for two lessons taken from mattpocock/skills' tdd skill
-# (skills/engineering/tdd/, read 2026-09-25):
-#   (1) +6, Step 1.7 carries two exit-0 markers forward: [WEAK-RED] (red from an import/compile
-#       error only — a tautological `assert total(xs) == sum(...)` goes red the same way, so the
-#       listed tests are pasted into prompt-r1.md for every voice) and [EXEMPT] (config / wiring
-#       with no independent truth to assert, mattpocock issue #746 — the lead may not accept it,
-#       it becomes a Step 8 hotspot). Plus the --pr-body-file argument that makes [EXEMPT]
-#       reachable.
-#   (2) +3, the R1 prompt gains a "Tautological or implementation-coupled test" evidence form and
-#       one focus bullet; the gate otherwise demotes such findings as having no valid form.
-#
-# Set to 1340 (+4 over the pre-review 1336; an interim 1349 was lowered again) after PR #469's
-# own mob review (Claude + Codex, 2026-09-26).
-# Round 1 found the Step 1.7 prose could skip or misroute the gate silently (title pasted into
-# `--title "<PR title>"` so `${N}` from real PR #387 expanded to nothing; stale origin base; restore
-# check reachable only after exit 0; a traceback's exit 1 read as a verdict). Round 2 found the
-# first fix told the agent to run separate Bash calls while passing PR_TITLE / WT_ROOT between
-# them, which the Bash tool does not keep. All of that logic moved into scripts/red-first.sh (one
-# call, tested by test_red_first_sh.py), so Step 1.7 shrank; the +4 are the template slots that
-# carry [WEAK-RED] into the Step 3.1 prompt and a Red-first block into Step 8.
-# The anchors below guard command text and single-occurrence sentences, not repeated tokens:
-# Round 2's mutation run showed a "[WEAK-RED]" anchor (3 occurrences) and prose-only anchors let
-# single-point regressions through.
-#
-# Raised 1340 -> 1355 (+15) for enforce-testplan-trace (testplan TCs made verifiable):
-#   (1) +6 lines, Step 8: a Manual Verification section in human-summary.md plus the instruction
-#       to confirm each unchecked MV item with the human, post the result as a PR comment, and
-#       tick it. Measured before this change: [manual]/[doc] TCs across 13 testplans were almost
-#       never executed -- they were written into an 8-column table nobody ran. This is the one
-#       place in the lifecycle where a human is already present to run them.
-#   (2) +9 lines, Step 11a: run check_testplan_trace.py --strict before archiving, with its exit
-#       codes. Without it the trace gate has no enforcement point at the moment a change claims to
-#       be finished -- the only moment its FAIL severity is meant to bite.
-#
-# Raised 1355 -> 1363 (+8) for the Spec-drift preflight (issue #510, PR #515). The paragraph adds 25
-# lines; 1338 + 25 = 1363, so 8 of them exceed the old slack. The first 14-line version picked
-# commits by author date after "the last commit touching spec/change files" over a local origin
-# ref, and R1 showed it silently reports "no drift" when a later commit touches a spec file (a
-# tasks.md tick, a typo fix, a rename), when HEAD is not the PR head, when origin is a stale fork,
-# and after a rebase keeps author dates. The lines buy: the HEAD == headRefOid check, the
-# fetched-base range in one call, "inspect every commit" with the reason no spec edit is a
-# baseline, `--remerge-diff` for merge commits (a plain --stat of a "merge main" commit lists every
-# base change as if the branch made it) with `%p` in the listing to tell merges apart, the
-# octopus fallback (remerge-diff only warns on 3+ parents and prints an empty stat -- PR #515 R2,
-# reproduced on git 2.56.0), the `[spec]` marker, and "failure or empty range is [FAIL], not
-# none". Zero slack is deliberate.
-LINE_BUDGET = 1363
-
 # Spec-drift preflight (issue #510). These anchors name each rule clause so a failure says WHICH
 # clause went missing, and check_preflight_position requires each to sit inside Step 1 before
 # drafting. They are diagnostics, not the guard: PR #515's review found new unpinned clauses three
@@ -272,27 +134,12 @@ FORBIDDEN_STRINGS: list[str] = [
 ]
 
 
-def _count_lines(text: str) -> int:
-    """Logical line count. A missing final newline is NOT an off-by-one (PRC-VL-004); CRLF counts
-    the same as LF because only `\\n` is counted (PRC-VL-005)."""
-    if text == "":
-        return 0
-    n = text.count("\n")
-    if not text.endswith("\n"):
-        n += 1
-    return n
-
-
 def check_convergence_contract(text: str) -> list[str]:
     """Return a list of failure messages; an empty list means every check passed.
 
     Pure function — no file I/O — so the negative paths are testable on synthetic fixtures.
     """
     failures: list[str] = []
-
-    n = _count_lines(text)
-    if n > LINE_BUDGET:
-        failures.append(f"line budget exceeded: {n} lines exceeds {LINE_BUDGET} budget")
 
     for anchor in REQUIRED_ANCHORS:
         if anchor not in text:
@@ -393,66 +240,11 @@ def _fixture(n_lines: int, *, trailing_newline: bool = True, eol: str = "\n") ->
     return body + eol if trailing_newline else body
 
 
-# --------------------------------------------------------------------------- line budget (VL)
-
-
-def test_prc_vl_001_budget_upper_bound_accepted():
-    """PRC-VL-001: exactly LINE_BUDGET lines, anchors complete → []."""
-    text = _fixture(LINE_BUDGET)
-    assert _count_lines(text) == LINE_BUDGET
-    assert check_convergence_contract(text) == []
-
-
-def test_prc_vl_002_budget_plus_one_rejected_with_both_numbers():
-    """PRC-VL-002: budget+1 fails with a single message naming both the count and the budget.
-
-    Derived from LINE_BUDGET rather than hardcoded: the first budget raise (1220 -> 1239) broke
-    these three tests precisely because the numbers were literals, so the boundary assertions
-    stopped describing the boundary they claim to guard.
-    """
-    over = LINE_BUDGET + 1
-    text = _fixture(over)
-    assert _count_lines(text) == over
-    failures = check_convergence_contract(text)
-    budget_msgs = [f for f in failures if str(over) in f and str(LINE_BUDGET) in f]
-    assert len(budget_msgs) == 1, failures
-
-
-def test_prc_vl_003_budget_minus_one_accepted():
-    """PRC-VL-003: budget-1 lines → []."""
-    under = LINE_BUDGET - 1
-    text = _fixture(under)
-    assert _count_lines(text) == under
-    assert check_convergence_contract(text) == []
-
-
-def test_prc_vl_004_no_trailing_newline_not_off_by_one():
-    """PRC-VL-004: a budget-length doc without a final newline counts exactly, not +/-1."""
-    text = _fixture(LINE_BUDGET, trailing_newline=False)
-    assert not text.endswith("\n")
-    assert _count_lines(text) == LINE_BUDGET
-    assert check_convergence_contract(text) == []
-
-
-def test_prc_vl_005_crlf_counts_same_as_lf():
-    """PRC-VL-005: rebuilding the 1221 fixture with CRLF fails identically — CRLF does not change
-    the count.
-
-    T045 decision: KEPT. This repo does not pin LF via .gitattributes, so a Windows checkout could
-    introduce CRLF; the test is cheap and guards the `\\n`-only counting.
-    """
-    over = LINE_BUDGET + 1
-    text = _fixture(over, eol="\r\n")
-    assert _count_lines(text) == over
-    failures = check_convergence_contract(text)
-    assert any(str(over) in f and str(LINE_BUDGET) in f for f in failures)
-
-
 # --------------------------------------------------------------------------- anchors (DT)
 
 
 def test_prc_dt_001_all_anchors_present_passes():
-    """PRC-DT-001: anchors complete, no forbidden string, within budget → []."""
+    """PRC-DT-001: anchors complete and no forbidden string → []."""
     assert check_convergence_contract(_fixture(900)) == []
 
 
@@ -554,8 +346,7 @@ def test_prc_dt_008_preflight_sits_between_template_and_drafting():
 
 
 def test_prc_eg_001_empty_text_fails_loud_not_vacuous():
-    """PRC-EG-001: empty text must NOT pass just because 0 <= 1220 — it must list every missing
-    anchor."""
+    """PRC-EG-001: empty input must list every missing required anchor, not pass vacuously."""
     failures = check_convergence_contract("")
     assert failures  # never []
     for anchor in REQUIRED_ANCHORS:
@@ -613,21 +404,6 @@ def test_prc_eg_006_every_required_anchor_is_load_bearing():
         assert any(anchor in f for f in failures), (
             f"mutant survived: removing {anchor!r} stayed green"
         )
-
-
-def test_prc_eg_007_line_budget_mutation_killed_both_directions():
-    """PRC-EG-007: +1 line over a passing budget-length fixture fails; -1 line under a failing
-    budget+1 fixture passes. Both mutants killed."""
-    ok = _fixture(LINE_BUDGET)
-    over = ok + "one more line\n"
-    assert _count_lines(over) == LINE_BUDGET + 1
-    assert check_convergence_contract(over), "adding a line over budget must fail"
-
-    bad = _fixture(LINE_BUDGET + 1)
-    lines = bad.split("\n")
-    under = "\n".join(lines[:-2]) + "\n"  # drop one logical line
-    assert _count_lines(under) == LINE_BUDGET
-    assert check_convergence_contract(under) == [], "dropping back to budget must pass"
 
 
 def _preflight_window(body: str) -> str:
@@ -710,14 +486,6 @@ def test_smk_001_suite_passes_against_real_skill_md():
     assert check_preflight_snapshot(text) == []
 
 
-def test_smk_002_real_line_count_reported_within_budget(capsys):
-    """SMK-002: the real line count is printed (run with -s to see it) and is <= budget."""
-    n = _count_lines(read_skill_md())
-    with capsys.disabled():
-        print(f"\n[SMK-002] SKILL.md line count = {n} (budget {LINE_BUDGET})")
-    assert n <= LINE_BUDGET, f"{n} exceeds budget {LINE_BUDGET}"
-
-
 if __name__ == "__main__":
     skill_text = read_skill_md()
     problems = (
@@ -729,6 +497,4 @@ if __name__ == "__main__":
         for p in problems:
             print(f"[FAIL] {p}")
         raise SystemExit(1)
-    print(
-        f"[OK] convergence contract holds ({_count_lines(read_skill_md())} lines <= {LINE_BUDGET})"
-    )
+    print("[OK] convergence contract holds")

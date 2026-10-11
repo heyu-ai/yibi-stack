@@ -16,7 +16,7 @@
 #   1. 建立 $WT_ROOT/.pr-review/ 目錄
 #   2. 把 .pr-review/ 加進 git exclude（路徑用 `git rev-parse --git-path info/exclude` 解析，
 #      worktree 下正確落在 common dir，不污染 committed .gitignore）
-#   3. 產生 .pr-review/diff.patch 與 .pr-review/changed-files.txt
+#   3. 產生 diff.patch、changed-files.txt 與固定 base/head 的 review-scope.json
 #   4. 執行 `git fetch <base-remote> <branch>`（每次執行都會發出網路請求；base remote
 #      存在 upstream 時優先用它、否則 origin，一律以該 remote 上的版本為 base，本地未
 #      push 的 branch 或離線環境不適用，fetch 失敗即 [FAIL] 退出，不 fallback 回本地 ref）
@@ -27,15 +27,18 @@
 
 set -euo pipefail
 
-BASE_BRANCH="${1:-}"
-if [ -z "$BASE_BRANCH" ]; then
-    echo "[FAIL] base branch 未提供（例：bash setup-review-dir.sh main）" >&2
-    exit 1
-fi
-
 # 先確認在 git repo 內，避免後續 git rev-parse 把「不在 repo」報成「ref 不存在」。
 if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
     echo "[FAIL] 當前目錄不在 git repo 內（請在 worktree 目錄執行此 script）" >&2
+    exit 1
+fi
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# Invalidate before argument/fetch failures; old accepted reviews cannot survive a refresh.
+python3 "$SCRIPT_DIR/review_scope.py" reset
+BASE_BRANCH="${1:-}"
+if [ -z "$BASE_BRANCH" ]; then
+    echo "[FAIL] base branch 未提供（例：bash setup-review-dir.sh main）" >&2
     exit 1
 fi
 
@@ -129,17 +132,9 @@ if ! grep -qF '.pr-review/' "$EXCLUDE_FILE" 2>/dev/null; then
     echo '.pr-review/' >> "$EXCLUDE_FILE"
 fi
 
-# 三點 diff 需要 BASE_SHA 與 HEAD 有共同祖先；若選到的 base remote 與 HEAD 完全無關
-# （罕見：不相關的 upstream），`git diff A...HEAD` 會以 `fatal: no merge base` 非零退出，
-# set -e 會直接中止但不附 [FAIL]，違反 header 的「每種失敗都附 [FAIL]」契約。故明確包起。
-if ! git diff "$BASE_SHA"...HEAD > "$REVIEW_DIR/diff.patch"; then
-    echo "[FAIL] git diff ${BASE_SHA}...HEAD 失敗（base 與 HEAD 可能無共同祖先，請確認 base remote 選取正確——見上方 [INFO] base remote 行）" >&2
-    exit 1
-fi
-if ! git diff "$BASE_SHA"...HEAD --name-only > "$REVIEW_DIR/changed-files.txt"; then
-    echo "[FAIL] git diff --name-only ${BASE_SHA}...HEAD 失敗（同上，base 與 HEAD 可能無共同祖先）" >&2
-    exit 1
-fi
+# This script alone selects/fetches the base; freeze its exact object ID and derive
+# all scope artifacts together, using NUL-delimited Git paths rather than display text.
+python3 "$SCRIPT_DIR/review_scope.py" capture --base "$BASE_SHA"
 
 # Informational：呼叫端可選擇解析此行或自行 git rev-parse --show-toplevel 推導。
 echo "REVIEW_DIR=$REVIEW_DIR"
