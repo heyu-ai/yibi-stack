@@ -4,6 +4,12 @@
 agent 執行 MCP 呼叫；helper 只產生決定性的 JSON 與觀測報表，不連線、不修改 Mycelium。
 不得繞過缺少的 MCP 能力，偷偷改用 HTTP 或杜撰參數。
 
+## Contents
+
+- Availability and call receipts
+- Canonical projection and lifecycle reconciliation
+- Human decisions and measurement
+
 ## Availability and call receipts
 
 1. 每次 invocation 產生唯一 UUID。project 從主 Git repo 解析，不能使用 worktree branch 名。

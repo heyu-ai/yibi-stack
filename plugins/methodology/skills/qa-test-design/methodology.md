@@ -4,6 +4,16 @@ Single source of truth for QA test design techniques. Both `SKILL.md` (human ent
 `plugins/sdd/agents/qa-test-designer.md` (programmatic entry) reference this document.
 When updating methodology, update this file then re-summarize the condensed technique section in `qa-test-designer.md` if technique semantics changed.
 
+## Contents
+
+- Core Philosophy
+- Six Core Testing Techniques
+- Technique Selection Decision Logic
+- Common Blind Spots Checklist
+- AI-Generated Case Review Workflow
+- Test Case Output Standard
+- Quick Reference
+
 ---
 
 ## Core Philosophy

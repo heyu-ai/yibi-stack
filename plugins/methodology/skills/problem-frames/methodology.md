@@ -4,6 +4,17 @@
 > `SKILL.md` 是給 agent 在 context 內快速執行的**壓縮摘要**；當方法論語意改變時，
 > 在此檔修訂，再回頭重新摘要 `SKILL.md`——不要把本檔內容整段複製進 `SKILL.md`。
 
+## Contents
+
+- 核心洞見（Michael Jackson, 2001）
+- 為什麼這條式子能箝制 AI 產出
+- Frame 型別與 Frame Concern
+- Frame Concern 檢查表
+- Design by Contract 對應（文件化，強制屬 Phase 2）
+- Worked Example：「家長只能查看自己孩子的睡眠紀錄」
+- 輸出檔案模板（`problem-frame.md` 骨架，owner）
+- 反模式
+
 ---
 
 ## 核心洞見（Michael Jackson, 2001）

@@ -4,6 +4,12 @@
 manifest 進 git；agent 直接讀 JSON 逐欄比對——欄位可讀、diff 可解釋
 （「size 390x844 → 390x900」比 hash 不等有用得多），不需要 hash、不需要 Python。
 
+## Contents
+
+- 完整範例
+- 欄位說明
+- 比對機制（結構指紋）
+
 ---
 
 ## 完整範例

@@ -4,6 +4,11 @@
 spectra-amplifier 與 design.md 只**引用**本產出物，不複製內容；
 若章節語意變更，直接修改本 template，下游以引用方式自然取得新結構。
 
+## Contents
+
+- 骨架
+- 填寫指引
+
 ---
 
 ## 骨架
