@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.15] - 2026-10-11
+
+### Fixed
+
+- dev-cycle：`red-first.sh` 在 checker 把 HEAD 變成 unborn（例如切到 orphan 分支）時，改回報 exit 3
+  （`tree-not-restored`），不再以 exit 2 蓋過「沒有還原」的結論；跑之前 HEAD 就解析不到時仍為 exit 2（#545）。
+- dev-cycle：`red-first.sh` 的進行中操作守衛新增 sequencer 偵測：多 commit 的 cherry-pick／revert 停在中途
+  （衝突以 `git commit` 解決而非 `--continue`，只剩 `.git/sequencer`、工作樹乾淨）時以 exit 2 拒絕，
+  不再對少了後續 commit 的 HEAD 下判定（#545）。
+- dev-cycle：補上 detached HEAD 起點的測試（照常 pass；checker 切到分支時 exit 3），先前沒有任何測試守住（#545）。
+
 ## [1.23.14] - 2026-10-11
 
 ### Fixed
