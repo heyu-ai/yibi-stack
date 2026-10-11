@@ -339,7 +339,7 @@ and CI does not check prose.
 limits live in its docstring. Run it only through this one call (Bash `timeout: 600000`), never as hand-split steps: shell
 variables do not survive between Bash calls, and a title pasted into a command expands (`${N}`, backticks). The script fetches the
 base, passes the title only as a variable, refuses to run mid merge/rebase/cherry-pick/revert, and requires the tree's content
-after the run to equal its content before (uncommitted changes are allowed):
+after the run to equal its content before (unstaged and untracked changes are allowed; staged changes are refused, exit `2`):
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR"

@@ -15,9 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- dev-cycle：`red-first.sh` 不再要求跑之前整個工作區乾淨，改為比對跑前跑後工作樹的**內容**（暫存 index 的 tree OID），
-  連「已修改的檔案被再改」與「既有 untracked 檔被改」都能偵測；另加 merge／rebase／cherry-pick／revert 進行中
-  與未解衝突的守衛（exit 2）。移除走不到的「工具副作用清單」豁免分支：任何前後不一致一律 exit 3（#496 的兩項 NIT）。
+- dev-cycle：`red-first.sh` 不再要求跑之前整個工作區乾淨：未 stage 的修改與 untracked 檔可以存在，改為比對跑前跑後
+  工作樹的**內容**（暫存 index 的 tree OID），連「已修改的檔案被再改」與「既有 untracked 檔被改」都能偵測。另加守衛
+  （exit 2）：merge／rebase／cherry-pick／revert 進行中、有未解衝突，或 index 有 staged 改動（`cherry-pick --no-commit`
+  與 `merge --squash` 不留狀態檔，只能從 staged 改動看出來）。移除走不到的「工具副作用清單」豁免分支：任何前後不一致
+  一律 exit 3（#496 的兩項 NIT）。
 
 ## [1.23.13] - 2026-10-11
 

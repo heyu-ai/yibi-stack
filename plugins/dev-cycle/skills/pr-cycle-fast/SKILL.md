@@ -170,7 +170,7 @@ exit `4` 代表 review 期間基準已改變。**不要**默默採信該輪 find
 **只能用下面這一個呼叫**（Bash 要給 `timeout: 600000`，checker 會跑兩次測試），不要自己拆成多個
 步驟：Bash call 之間不保留 shell 變數，而把標題貼進指令會被展開（`${N}`、反引號）。腳本會 fetch
 base、只用變數傳標題、在 merge／rebase／cherry-pick／revert 進行中時拒絕執行，並確認跑完後工作樹的
-內容與跑之前一致（可以有未 commit 的改動，但不能被改到）：
+內容與跑之前一致（可以有未 stage 的修改與 untracked 檔，但不能被改到；有 staged 改動時以 exit 2 拒絕）：
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$REPO_ROOT" --out-dir "$CLAUDE_JOB_DIR"

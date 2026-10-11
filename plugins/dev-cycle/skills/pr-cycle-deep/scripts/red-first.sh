@@ -27,12 +27,13 @@
 #      往下走，但要把它帶到人面前，並要求另附證據（例如手動 mutation），不得當成 pass
 #   1  red-first 判定失敗（checker 印出 `red-first: FAIL`）：測試抓不到這次改動
 #   2  前提不成立或工具出錯：參數錯、gh/git 失敗、標題為空、merge／rebase／cherry-pick／
-#      revert 進行中或有未解衝突（此時 HEAD 不是要檢查的樹）、checker exit 2、
-#      沒有判定行的 exit 1（traceback）或其他 exit code
+#      revert 進行中、有未解衝突或有 staged 改動（此時 HEAD 不一定是要檢查的樹）、
+#      checker exit 2、沒有判定行的 exit 1（traceback）或其他 exit code
 #   3  跑完後工作樹的內容與跑之前不一致：產品碼可能沒還原。
 #      **不要自行還原**（git checkout 屬 rule 15 不可逆操作），把狀態交給人
 #
-# 跑之前可以有未 commit 的改動（#496）：比對的是跑前跑後的**內容**，不是要求跑前乾淨。
+# 跑之前可以有未 stage 的修改與 untracked 檔（#496）：比對的是跑前跑後的**內容**，不是要求
+# 跑前乾淨。staged 改動則拒絕（見 exit 2）。
 # checker 自己負責拒絕它在意的未 commit 改動（例如 yibi-mvp 的 checker 檢查 stack 目錄），
 # 並在暫存 worktree 執行測試，不會寫使用者的工作區。
 #
@@ -129,6 +130,18 @@ fi
 if [ -n "$IN_PROGRESS" ]; then
     fail 2 "有操作進行中：${IN_PROGRESS# }；HEAD 不是要檢查的樹，等 merge／rebase 完成再跑"
 fi
+
+# 有 staged 改動也拒絕（AC-8）：cherry-pick --no-commit 與 merge --squash 不留任何狀態檔，
+# 只留 staged 改動，上面的偵測看不到。使用者自己 `git add` 的改動在 git 裡與它們無法分辨，
+# 一併拒絕；未 stage 的修改與 untracked 檔仍可執行。
+# `git diff --cached --quiet`：0 = 沒有差異、1 = 有差異，其他是 git 本身出錯
+STAGED_RC=0
+git diff --cached --quiet || STAGED_RC=$?
+case "$STAGED_RC" in
+    0) ;;
+    1) fail 2 "index 有 staged 改動（可能是 cherry-pick --no-commit、merge --squash，或手動 git add）；先 commit 或 unstage 再跑" ;;
+    *) fail 2 "git diff --cached 失敗（exit ${STAGED_RC}）" ;;
+esac
 
 # 工作樹內容的指紋：把整個工作樹（含 untracked、不含 ignored）放進一份暫存 index 後取 tree
 # OID。只比 `git status --porcelain` 不夠：跑之前已修改的檔案若被 checker 再改，或既有

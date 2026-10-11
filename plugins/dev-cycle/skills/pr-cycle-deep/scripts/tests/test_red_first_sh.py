@@ -475,3 +475,39 @@ class TestOperationInProgress:
         assert expected_state in proc.stderr
         assert "RED_FIRST_RESULT=error" in proc.stdout
         assert not argv_out.exists(), "操作進行中時不得執行 checker"
+
+
+def _cherry_pick_no_commit(repo: Path) -> None:
+    """`cherry-pick --no-commit` 不留任何狀態檔，只留 staged 改動（AC-8 的起因）。"""
+    _commit_on_branch(repo, "side", "g.txt", "side\n")
+    _git(repo, "cherry-pick", "--no-commit", "side")
+
+
+def _merge_squash(repo: Path) -> None:
+    """`merge --squash` 同樣不留 MERGE_HEAD，只留 staged 改動。"""
+    _commit_on_branch(repo, "side", "g.txt", "side\n")
+    _git(repo, "merge", "-q", "--squash", "side")
+
+
+def _staged_edit(repo: Path) -> None:
+    """使用者自己 `git add` 的改動：與上面兩種在 git 裡無法分辨，一併拒絕。"""
+    (repo / "f.txt").write_text("staged edit\n", encoding="utf-8")
+    _git(repo, "add", "f.txt")
+
+
+class TestStagedChanges:
+    """index 與 HEAD 不同時拒絕執行（AC-8）：有些進行中的操作不留狀態檔，只留 staged 改動。"""
+
+    @pytest.mark.parametrize(
+        "prepare",
+        [_cherry_pick_no_commit, _merge_squash, _staged_edit],
+        ids=["cherry-pick-no-commit", "merge-squash", "staged-edit"],
+    )
+    def test_rfs_st_021_staged_changes_are_error(self, tmp_path: Path, prepare) -> None:
+        repo = _setup(tmp_path)
+        prepare(repo)
+        proc, argv_out = _run(tmp_path, repo)
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert "staged" in proc.stderr
+        assert "RED_FIRST_RESULT=error" in proc.stdout
+        assert not argv_out.exists(), "有 staged 改動時不得執行 checker"
