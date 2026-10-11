@@ -178,14 +178,19 @@ def repo(tmp_path: Path) -> Path:
 
 
 class TestCli:
-    def test_pps_st_001_merged_pr_blocks_with_exit_2(self, repo: Path, tmp_path: Path) -> None:
-        """PPS-ST-001: 目標分支的 PR 已 merged -> exit 2，訊息指出 PR 號與原因。"""
-        _fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": "MERGED"}]))
+    @pytest.mark.parametrize("state", ["MERGED", "CLOSED"])
+    def test_pps_st_001_finished_pr_blocks_with_exit_2(
+        self, repo: Path, tmp_path: Path, state: str
+    ) -> None:
+        """PPS-ST-001: 目標分支的 PR 已 merged / closed -> exit 2，訊息指出 PR 號與狀態。
+
+        CLOSED 要單獨驗：訊息清單用 main() 自己的狀態篩選，與 decide() 分開，漏掉 CLOSED 會印出
+        空清單卻仍 exit 2。
+        """
+        _fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": state}]))
         res = _run_cli("git push origin feat-a:feat-a", tmp_path / "bin", repo)
         assert res.returncode == 2, res.stdout + res.stderr
-        assert "448" in res.stderr
-        assert res.stdout == ""
-        assert "MERGED" in res.stderr or "merged" in res.stderr
+        assert f"#448 ({state})" in res.stderr
         assert res.stdout == "", (
             "exit 2 的訊息必須走 stderr，stdout 不會送達 model（Claude Code 2.1.296 探針）"
         )

@@ -185,6 +185,8 @@ else:
 # 必須用 `|| RC=$?` 承接非零退出：本檔開頭的 `trap 'exit 0' ERR` 會讓任何未加保護的
 # 非零指令直接以 0 結束，helper 的 exit 2 會被靜默吞掉、攔截完全失效。
 # （判定細節與逐條 fail-open 條件見 protect_push_pr_state.py 的 docstring。）
+# `2>&1 >/dev/null` 的順序不可對調：先把 stderr 接到擷取管線、再丟掉 stdout，只擷取 helper 的
+# stderr；對調成 `>/dev/null 2>&1` 會讓 PR_STATE_OUT 恆為空，block 訊息退化成沒有 PR 號的 fallback。
 PR_STATE_RC=0
 PR_STATE_OUT=$(echo "$CMD" | python3 "$(dirname "$0")/protect_push_pr_state.py" 2>&1 >/dev/null) \
     || PR_STATE_RC=$?

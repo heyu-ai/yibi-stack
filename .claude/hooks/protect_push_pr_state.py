@@ -27,8 +27,8 @@ fail-open 是刻意的，且逐條具名（推到已 merged 分支會浪費工�
 
 退出碼：0 放行；2 攔截（訊息走 stderr：探針顯示 exit 2 時 stdout 的訊息不會送達 model，
 只有 stderr 會）。
-**絕不回傳其他非零值**：`.claude/settings.json` 對本 hook 註冊的是 `... || exit 2`，任何非零
-都會被當成攔截，所以未預期的錯誤必須自行吞掉並回 0。
+**絕不回傳其他非零值**：`.claude/settings.json` 把呼叫端 `protect-push.sh` 註冊為
+`... || exit 2`，本 helper 的非零值經它轉成攔截，所以未預期的錯誤必須自行吞掉並回 0。
 """
 
 from __future__ import annotations
