@@ -338,8 +338,8 @@ and CI does not check prose.
 **fail** and a `refactor`/`perf` PR's must still **pass** (other types `[SKIP]`). The checker is repo-provided — rationale and
 limits live in its docstring. Run it only through this one call (Bash `timeout: 600000`), never as hand-split steps: shell
 variables do not survive between Bash calls, and a title pasted into a command expands (`${N}`, backticks). The script fetches the
-base, passes the title only as a variable, refuses to run mid merge/rebase/cherry-pick/revert, and requires the tree's content
-after the run to equal its content before (unstaged and untracked changes are allowed; staged changes are refused, exit `2`):
+base, passes the title only as a variable, refuses to run mid merge/rebase/cherry-pick/revert or on a dirty tree (staged,
+unstaged, untracked or submodule changes; exit `2`), and after the run requires a clean tree and an unchanged HEAD (exit `3`):
 
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR"
@@ -350,12 +350,12 @@ Append its output to `pre-review-check.md`. Exit `0` → continue (includes `[SK
 change is in a directory it cannot map to tests); treat it like `[EXEMPT]` and require other evidence, e.g. a manual mutation.
 Exit `1` (`RED_FIRST_RESULT=fail`) → **stop before Step 2**; add a test that fails on the base code (or restore the refactor's
 expectation), push, rerun. Retyping the title to dodge it (`fix` → `chore`) is a material amendment (Step 1), and reviewers
-cannot waive it — none of them ran the tests against base code. Exit `2` (tool or precondition error, incl. a traceback or an
-operation in progress) → `[FAIL]` verbatim, stop. Exit `3` or a killed call → the revert may not be restored: show `git status --short`, stop, do not restore by hand (rule 15).
+cannot waive it — none of them ran the tests against base code. Exit `2` (tool or precondition error, incl. a traceback, a dirty
+tree or an operation in progress) → `[FAIL]` verbatim, stop. Exit `3` or a killed call → the revert may not be restored (or the
+checker moved HEAD): show `git status --short` and compare HEAD/branch with the pre-run ones, stop, do not restore by hand (rule 15).
 Exit-0 lines carry forward: `[WEAK-RED]` (red came only from an import/compile error, which cannot show the assertion is
 meaningful) — Step 3.1 pastes them into `prompt-r1.md`; `[EXEMPT]` (a `Red-first-exempt: <reason>` line) —
-the lead may not accept it; Step 8 shows it, and any `[WARN] red-first:` line (checker edited by the PR, checker checked
-nothing), for the human to confirm.
+the lead may not accept it; Step 8 shows it, and any `[WARN] red-first:` line (checker edited by the PR, checker checked nothing), for the human to confirm.
 
 ---
 
