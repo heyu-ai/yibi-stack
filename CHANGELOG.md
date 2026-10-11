@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.14] - 2026-10-11
+
+### Fixed
+
+- dev-cycle：`red-first.sh` 在檢查器以 exit 0 結束但表示「沒有檢查任何東西」時，不再印 `RED_FIRST_RESULT=pass`，
+  改印獨立的 `RED_FIRST_RESULT=unchecked`（#521）。偵測整行機讀標記 `red-first: UNCHECKED`，並暫時接受 yibi-mvp
+  檢查器目前印的句子。`pr-cycle-deep` Step 1.7 與 `pr-cycle-fast` 3.0b 寫明 unchecked 不是通過，要另附證據。
+
+### Changed
+
+- dev-cycle：`red-first.sh` 仍要求跑之前工作樹乾淨，且改用
+  `git status --porcelain --untracked-files=all --ignore-submodules=none`：submodule 內的改動也算，
+  使用者設了 `status.showUntrackedFiles=no` 時 untracked 檔也不會被漏看（exit 2）；`cherry-pick --no-commit` 與 `merge --squash` 只留 staged 改動，也由這一項擋下。
+  跑完後除了工作樹仍須乾淨，另比對 HEAD 的 commit 與所在分支，任一不同即 exit 3。新增進行中操作守衛（exit 2，錯誤訊息
+  指出具體操作）：MERGE_HEAD、CHERRY_PICK_HEAD、REVERT_HEAD、rebase 進行中或有未解衝突。移除 checker 自列「工具副作用」
+  的豁免：跑後任何改動一律 exit 3（#496 NIT 2）。#496 NIT 1（放寬跑前乾淨）刻意不收：checker 若就地還原產品碼，
+  會覆蓋使用者未 commit 的改動。
+
 ## [1.23.13] - 2026-10-11
 
 ### Added
