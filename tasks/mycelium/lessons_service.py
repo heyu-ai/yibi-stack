@@ -565,6 +565,8 @@ def show_lessons(
 
     回傳 dict 的 source 欄位值域：
     "handover"、"handover-approach"（legacy）、"insight"、"typed"（typed lessons table）。
+    每列都帶 "id"：typed 列是 lessons table 的 uuid（可直接餵給 `lessons retire --id`）；
+    legacy 列沒有 uuid，明確為 None，讓下游不必判斷欄位是否存在（issue #555）。
     """
     _insights = insights_path if include_insights else None
     if include_insights and _insights is None:
@@ -582,32 +584,31 @@ def show_lessons(
         insights_path=_insights,
     )
 
-    results: list[dict[str, Any]] = []
-    for row in typed_rows:
-        if row.get("_legacy"):
-            src = row.get("_legacy_source", "handover")
-            ctx = row.get("_context", "")
-            results.append(
-                {
-                    "source": src,
-                    "text": row.get("insight", ""),
-                    "timestamp": row.get("ts", ""),
-                    "project": row.get("project", ""),
-                    "context": ctx,
-                }
-            )
-        else:
-            results.append(
-                {
-                    "source": "typed",
-                    "text": row.get("insight", ""),
-                    "timestamp": row.get("ts", ""),
-                    "project": row.get("project", ""),
-                    "context": f"[{row.get('type', '')}] {row.get('key', '')}",
-                }
-            )
+    return [_to_compat_row(row) for row in typed_rows]
 
-    return results
+
+def _to_compat_row(row: dict[str, Any]) -> dict[str, Any]:
+    """把 typed/legacy 混合列映射回 show/search 的舊 dict 格式（加 id）。
+
+    id 只有 typed 列有 uuid；legacy 列（handover、insight）一律 None。
+    """
+    if row.get("_legacy"):
+        return {
+            "id": None,
+            "source": row.get("_legacy_source", "handover"),
+            "text": row.get("insight", ""),
+            "timestamp": row.get("ts", ""),
+            "project": row.get("project", ""),
+            "context": row.get("_context", ""),
+        }
+    return {
+        "id": row.get("id"),
+        "source": "typed",
+        "text": row.get("insight", ""),
+        "timestamp": row.get("ts", ""),
+        "project": row.get("project", ""),
+        "context": f"[{row.get('type', '')}] {row.get('key', '')}",
+    }
 
 
 def search_lessons(
@@ -621,7 +622,8 @@ def search_lessons(
     """在 handover 教訓、試過的方案（與可選 insight）中搜尋關鍵字。
 
     委託 search_lessons_typed（include_legacy=True, with_decay=False, min_confidence=1）
-    並映射回舊 dict 格式，保持 backward compat。
+    並映射回舊 dict 格式，保持 backward compat；每列帶 "id"（typed 為 uuid，legacy 為 None，
+    見 show_lessons，issue #555）。
     """
     _insights = insights_path if include_insights else None
     if include_insights and _insights is None:
@@ -640,31 +642,7 @@ def search_lessons(
         insights_path=_insights,
     )
 
-    results: list[dict[str, Any]] = []
-    for row in typed_rows:
-        if row.get("_legacy"):
-            src = row.get("_legacy_source", "handover")
-            ctx = row.get("_context", "")
-            results.append(
-                {
-                    "source": src,
-                    "text": row.get("insight", ""),
-                    "timestamp": row.get("ts", ""),
-                    "project": row.get("project", ""),
-                    "context": ctx,
-                }
-            )
-        else:
-            results.append(
-                {
-                    "source": "typed",
-                    "text": row.get("insight", ""),
-                    "timestamp": row.get("ts", ""),
-                    "project": row.get("project", ""),
-                    "context": f"[{row.get('type', '')}] {row.get('key', '')}",
-                }
-            )
-    return results[:limit]
+    return [_to_compat_row(row) for row in typed_rows][:limit]
 
 
 def save_lesson(

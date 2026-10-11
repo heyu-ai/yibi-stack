@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -302,6 +303,134 @@ class TestBackwardCompat:
         rows = search_lessons(query="edge cases", db_path=db_path)
         assert len(rows) >= 1
         assert any("edge cases" in r["text"] for r in rows)
+
+
+class TestLessonIdExposure:
+    """issue #555：預設 show/search 路徑要帶 id，`lessons add` 輸出要帶 key。
+
+    retire 只吃 uuid；若預設輸出看不到 id，使用者只能靠 add 的輸出順序推論哪個 id
+    對應哪個 key，推論錯了就退掉別條。
+    """
+
+    def test_lsn_id_001_show_lessons_typed_row_has_id(self, tmp_path: Path) -> None:
+        """LSN-ID-001: show_lessons 的 typed 列帶 id，且等於 add_lesson 回傳的 id"""
+        db_path = make_db_path(tmp_path)
+        added = add_lesson(make_lesson_data(project="p", key="id-show-key"), db_path=db_path)
+
+        rows = show_lessons(project="p", db_path=db_path)
+
+        typed = [r for r in rows if r["source"] == "typed"]
+        assert len(typed) == 1
+        assert typed[0]["id"] == added["id"]
+
+    def test_lsn_id_002_search_lessons_typed_row_has_id(self, tmp_path: Path) -> None:
+        """LSN-ID-002: search_lessons 的 typed 列帶 id，且等於 add_lesson 回傳的 id"""
+        db_path = make_db_path(tmp_path)
+        added = add_lesson(
+            make_lesson_data(project="p", key="id-search-key", insight="unique-needle-555"),
+            db_path=db_path,
+        )
+
+        rows = search_lessons(query="unique-needle-555", project="p", db_path=db_path)
+
+        assert len(rows) == 1
+        assert rows[0]["id"] == added["id"]
+
+    def test_lsn_id_003_legacy_rows_have_explicit_none_id(self, tmp_path: Path) -> None:
+        """LSN-ID-003: legacy 列沒有 uuid，但 id 欄位仍存在且為 None（schema 一致）"""
+        db_path = make_db_path(tmp_path)
+        db = AgentsDB(db_path=db_path)
+        db.init_db()
+        db.insert_handover(make_record(lessons_learned=["legacy-needle-555"]))
+        db.close()
+
+        shown = [r for r in show_lessons(db_path=db_path) if "legacy-needle-555" in r["text"]]
+        found = search_lessons(query="legacy-needle-555", db_path=db_path)
+
+        assert len(shown) == 1
+        assert len(found) == 1
+        assert "id" in shown[0] and shown[0]["id"] is None
+        assert "id" in found[0] and found[0]["id"] is None
+
+    def test_lsn_id_004_add_stdout_prints_key_and_keeps_id_first(self, tmp_path: Path) -> None:
+        """LSN-ID-004: lessons add 的 stdout 為 `id=<uuid> key=<key> trusted=<bool>`，id 仍在行首"""
+        db_path = make_db_path(tmp_path)
+        runner = CliRunner()
+
+        result = runner.invoke(
+            cli,
+            [
+                "lessons",
+                "add",
+                "--type",
+                "pitfall",
+                "--key",
+                "print-key-555",
+                "--insight",
+                "add output should name the key it wrote for scripts",
+                "--confidence",
+                "7",
+                "--source",
+                "observed",
+                "--project",
+                "p",
+            ],
+            env={"MYCELIUM_DB_OVERRIDE": str(db_path)},
+        )
+
+        assert result.exit_code == 0, result.output
+        # harness_review.py 以 ^id=\S+ 判斷寫入成功，id 必須維持在行首
+        assert re.match(r"^id=\S+ key=print-key-555 trusted=(True|False)$", result.stdout.strip())
+
+    def test_lsn_id_005_id_from_search_json_can_retire_the_right_lesson(
+        self, tmp_path: Path
+    ) -> None:
+        """LSN-ID-005: 端到端：add 兩筆 → search --json 取 id → retire，只退掉指定那筆
+
+        重現 issue #555：兩筆同批寫入，使用者要退其中一筆，必須能從輸出確認 id 對應的 key。
+        """
+        db_path = make_db_path(tmp_path)
+        env = {"MYCELIUM_DB_OVERRIDE": str(db_path)}
+        runner = CliRunner()
+
+        def _add(key: str, insight: str) -> str:
+            res = runner.invoke(
+                cli,
+                ["lessons", "add", "--type", "pitfall", "--key", key, "--insight", insight]
+                + ["--confidence", "7", "--source", "observed", "--project", "p"],
+                env=env,
+            )
+            assert res.exit_code == 0, res.output
+            match = re.match(r"^id=(\S+) key=(\S+) ", res.stdout)
+            assert match is not None, res.stdout
+            assert match.group(2) == key
+            return match.group(1)
+
+        keep_id = _add("keep-key-555", "keep needle-keep-555 stays active in circulation")
+        retire_id = _add("retire-key-555", "retire needle-retire-555 should leave circulation")
+
+        searched = runner.invoke(
+            cli, ["lessons", "search", "needle-retire-555", "--project", "p", "--json"], env=env
+        )
+        assert searched.exit_code == 0, searched.output
+        hits = json.loads(searched.stdout)
+        assert [h["id"] for h in hits] == [retire_id]
+
+        retired = runner.invoke(
+            cli,
+            ["lessons", "retire", "--id", hits[0]["id"], "--reason", "duplicate of another lesson"],
+            env=env,
+        )
+        assert retired.exit_code == 0, retired.output
+
+        still_active = runner.invoke(
+            cli, ["lessons", "search", "needle-keep-555", "--project", "p", "--json"], env=env
+        )
+        gone = runner.invoke(
+            cli, ["lessons", "search", "needle-retire-555", "--project", "p", "--json"], env=env
+        )
+        assert [h["id"] for h in json.loads(still_active.stdout)] == [keep_id]
+        assert json.loads(gone.stdout) == []
 
 
 class TestShowLessons:
