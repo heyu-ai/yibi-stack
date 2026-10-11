@@ -1481,3 +1481,107 @@ class TestCleanWtArgs:
         r = _run(repo, env, "--force")
         assert r.returncode == 1
         assert "[FAIL]" in r.stderr
+
+    def test_cwt_vl_006_only_without_value_fails(self, repo: Path, tmp_path: Path) -> None:
+        """CWT-VL-006: --only 漏傳值時給 clean [FAIL]，不得因 set -u 噴 stacktrace。"""
+        env = _env(tmp_path)
+        r = _run(repo, env, "--apply", "--only")
+        assert r.returncode == 1
+        assert "[FAIL]" in r.stderr
+        assert "unbound variable" not in r.stderr
+        # 排除「--only 根本不被認得」也會回 [FAIL] 的錯誤理由
+        assert "未知參數" not in r.stderr, r.stderr
+
+    @pytest.mark.parametrize("bad", ["", "--apply", "-x"])
+    def test_cwt_vl_007_only_rejects_empty_or_flaglike_value(
+        self, repo: Path, tmp_path: Path, bad: str
+    ) -> None:
+        """CWT-VL-007: --only 的值為空或像 flag 時 fail，不得把下一個參數吞成分支名。"""
+        env = _env(tmp_path)
+        _git(repo, "branch", "keep-me", "HEAD", env=env)
+        r = _run(repo, env, "--apply", "--only", bad)
+        assert r.returncode == 1
+        # 必須是參數檢查擋下的：若把 `--apply` 吞成分支名，下游「核准分支已不是 SAFE」
+        # 也會 exit 1，那會讓這個測試因為錯的理由變綠（mutation 實測過）
+        assert "分支名稱不合法" in r.stderr, r.stderr
+        assert "同步 remote 狀態" not in r.stdout, "參數錯誤時不應進入分類流程"
+        assert "keep-me" in _git(repo, "branch", "--format=%(refname:short)", env=env)
+
+    def test_cwt_vl_008_only_requires_apply(self, repo: Path, tmp_path: Path) -> None:
+        """CWT-VL-008: 沒有 --apply 卻帶 --only 時 fail：報告模式不刪東西，--only 沒有意義。"""
+        env = _env(tmp_path)
+        r = _run(repo, env, "--only", "whatever")
+        assert r.returncode == 1
+        assert "[FAIL]" in r.stderr
+        assert "未知參數" not in r.stderr, r.stderr
+
+
+class TestCleanWtOnlyApproved:
+    """--apply 只能刪「報告時被核准」的分支（issue #543）。
+
+    --apply 會重新分類一次。報告與 --apply 之間新變成 SAFE 的分支（例如另一個 session
+    剛建立、沒有 lock、停在 main commit 上的工作區）使用者從沒看過，不得被一起刪掉。
+    """
+
+    def test_cwt_eg_026_apply_only_skips_safe_branch_not_approved(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-EG-026: --only 之外的 SAFE 分支一律跳過並 [WARN]，只刪核准的那一個。"""
+        env = _env(tmp_path)
+        _git(repo, "branch", "approved", "HEAD", env=env)
+        # 模擬「報告之後才出現」的分支：同樣符合 E1、沒有 lock，重新分類必定歸 SAFE
+        wt = tmp_path / "wt-fresh"
+        _git(repo, "worktree", "add", "-q", "-b", "appeared-later", str(wt), env=env)
+
+        r = _run(repo, env, "--apply", "--only", "approved")
+
+        assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
+        branches = _git(repo, "branch", "--format=%(refname:short)", env=env)
+        assert "approved" not in branches, r.stdout
+        assert "appeared-later" in branches, f"未核准的 SAFE 分支被刪了:\n{r.stdout}\n{r.stderr}"
+        assert wt.is_dir(), "未核准分支的 worktree 不得被移除"
+        assert "[WARN]" in r.stderr and "appeared-later" in r.stderr, r.stderr
+
+    def test_cwt_eg_027_approved_branch_no_longer_safe_is_not_deleted(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-EG-027: --only 列的分支重新分類後已不是 SAFE -> 不刪、[WARN]、exit 1。"""
+        env = _env(tmp_path)
+        _git(repo, "checkout", "-q", "-b", "gained-commit", env=env)
+        _commit(repo, env, "new.txt", "new\n", "unique work after approval")
+        _git(repo, "checkout", "-q", "main", env=env)
+
+        r = _run(repo, env, "--apply", "--only", "gained-commit")
+
+        assert r.returncode == 1, f"核准的動作沒有完成，exit code 必須是 1:\n{r.stdout}"
+        assert "gained-commit" in _git(repo, "branch", "--format=%(refname:short)", env=env)
+        assert "[WARN]" in r.stderr and "gained-commit" in r.stderr, r.stderr
+
+    def test_cwt_st_006_report_prints_apply_command_with_only(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-ST-006: 報告模式印出逐一列出 SAFE 分支的 --apply --only 指令，供逐字複製。"""
+        env = _env(tmp_path)
+        _git(repo, "branch", "safe-a", "HEAD", env=env)
+        _git(repo, "branch", "safe-b", "HEAD", env=env)
+
+        r = _run(repo, env, "--stale-days", "7")
+
+        assert r.returncode == 0, r.stderr
+        cmd_lines = [ln for ln in r.stdout.splitlines() if "--apply" in ln and "--only" in ln]
+        assert len(cmd_lines) == 1, r.stdout
+        line = cmd_lines[0]
+        assert "--only safe-a" in line and "--only safe-b" in line, line
+        # 第一次的參數要原樣帶上，否則 --apply 的分類依據會不同
+        assert "--stale-days 7" in line, line
+
+    def test_cwt_st_007_report_without_safe_prints_no_apply_command(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        """CWT-ST-007: 沒有 SAFE 時不印 --apply 指令（避免給出一個空清單的刪除指令）。"""
+        env = _env(tmp_path)
+
+        r = _run(repo, env)
+
+        assert r.returncode == 0, r.stderr
+        assert "--only" not in r.stdout, r.stdout
