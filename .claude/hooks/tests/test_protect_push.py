@@ -16,6 +16,17 @@ import pytest
 HOOK = Path(__file__).parent.parent / "protect-push.sh"
 
 
+def _hook_env() -> dict[str, str]:
+    """`run_hook` 用的環境：跳過保護 4，避免這些測試打到真的 gh（issue #562）。
+
+    保護 4 會用 `gh pr list --head <分支>` 查 PR 狀態，結果取決於執行當下所在分支在 GitHub 上的
+    PR；分支的 PR 合併後，放行測試會被攔下而假紅。這些測試要驗的是保護 1～3，保護 4 的接線另由
+    本檔「保護 4」一節（假 gh、刻意不設這個逃生口）與 test_protect_push_pr_state.py 覆蓋。
+    每次呼叫都重新組環境，所以測試用 monkeypatch 改過的 PATH 也會被繼承。
+    """
+    return {**os.environ, "PROTECT_PUSH_SKIP_PR_STATE": "1"}
+
+
 def run_hook(command: str) -> int:
     """以給定指令字串執行 hook，回傳 exit code。"""
     payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
@@ -24,6 +35,7 @@ def run_hook(command: str) -> int:
         input=payload,
         capture_output=True,
         text=True,
+        env=_hook_env(),
         timeout=10,
     )
     return result.returncode
@@ -31,6 +43,8 @@ def run_hook(command: str) -> int:
 
 def run_hook_raw(stdin: str) -> int:
     """以原始字串（非 JSON）執行 hook，測試 fail-open 行為。"""
+    # 非 JSON／空輸入在保護 4 之前就 fail-open（探針：假 gh 回 MERGED、不帶逃生口仍 exit 0），
+    # 所以不需要 _hook_env()。
     result = subprocess.run(
         [str(HOOK)],
         input=stdin,
@@ -323,3 +337,37 @@ class TestMergedPrPush:
             timeout=30,
         )
         assert result.returncode == 0
+
+
+class TestRunHookIsolatedFromRealGh:
+    """issue #562：`run_hook` 系列不可依賴真的 gh。
+
+    以前 `run_hook` 繼承呼叫端的完整環境，所以放行測試會打真的 GitHub，結果取決於執行當下所在分支
+    的 PR 狀態：分支的 PR 合併後，在該分支上跑本機 `make ci` 會假紅。這裡用 PATH 注入一個「任何
+    分支都回 MERGED」的假 gh；`run_hook` 若沒隔離就會被保護 4 攔下（exit 2）。
+    """
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git push origin feature-branch",
+            "git push -u origin HEAD",
+            "git push --set-upstream origin my-branch",
+            "git commit -m 'test' && git push origin feature-branch",
+            'git commit -m "docs: do not push origin main" && git push origin docs/update',
+        ],
+    )
+    def test_pp_iso_001_allowed_pushes_ignore_gh_reporting_merged_pr(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+    ) -> None:
+        """PP-ISO-001: gh 回報 MERGED 時，run_hook 的放行測試仍放行（保護 4 已被跳過）。
+
+        `git push -u origin HEAD` 的目標是「當前分支」，在 detached HEAD（例如 CI checkout）下
+        本來就不會查 gh，所以它只在本機有分支時才有鑑別力；其餘四個指令的目標是字面分支名，
+        在任何 checkout 都有鑑別力。
+        """
+        _write_fake_gh(tmp_path / "bin", json.dumps([{"number": 448, "state": "MERGED"}]))
+        monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
+        monkeypatch.delenv("PROTECT_PUSH_SKIP_PR_STATE", raising=False)
+
+        assert run_hook(command) == 0
