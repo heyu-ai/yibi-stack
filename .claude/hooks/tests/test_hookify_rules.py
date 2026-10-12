@@ -121,7 +121,7 @@ def _conditions(fm: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _field(field: str, tool: str, tool_input: dict[str, str]) -> str | None:
-    """照 hookify rule_engine._extract_field（只涵蓋 Bash 與 Edit）。"""
+    """照 hookify rule_engine._extract_field（只涵蓋 Bash、Edit、Write；不含 MultiEdit）。"""
     if field in tool_input:
         return tool_input[field]
     if tool == "Bash" and field == "command":
