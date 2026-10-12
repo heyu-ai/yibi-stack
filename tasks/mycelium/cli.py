@@ -954,7 +954,8 @@ def lessons_add(  # pylint: disable=too-many-arguments
                 err=True,
             )
         result_data = add_lesson(record_data, db_path=_ctl_db_path())
-        click.echo(f"id={result_data['id']} trusted={result_data['trusted']}")
+        # id 必須維持在行首：harness_review.py 以 ^id=\S+ 判斷寫入成功；key 供腳本對應 id
+        click.echo(f"id={result_data['id']} key={key} trusted={result_data['trusted']}")
     except ValidationError as e:
         msgs = "; ".join(err["msg"] for err in e.errors())
         click.echo(f"ValidationError: {msgs}", err=True)
