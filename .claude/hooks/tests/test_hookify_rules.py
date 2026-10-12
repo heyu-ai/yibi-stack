@@ -7,7 +7,8 @@ hookify 是外部 plugin，CI 沒有安裝它，所以這裡**重現**它讀取�
   value 一律只做 `strip()` 與 `.strip('"').strip("'")`，**不處理任何跳脫**。
 - `_fires`：照 `core/rule_engine.py`——所有 condition 都成立才觸發；`regex_match` 用
   `re.compile(pattern, re.IGNORECASE).search`；欄位取值照 `_extract_field`
-  （Bash 的 `command`；Edit 的 `file_path` / `new_text`→`new_string`）。
+  （Bash 的 `command`；Edit 與 Write 的 `file_path`；`new_text` 只對應 Edit 的 `new_string`，
+  `content` 對 Write 取 `content`、對 Edit 退回 `new_string`）。
 
 「不處理跳脫」是這個檔案存在的主要理由：pattern 一旦寫成加引號的 `"...\\\\."`，engine 拿到的
 就是字面雙反斜線，規則**靜默永不觸發**、也不報錯。warn-plugin-version-lockstep 與
@@ -16,6 +17,10 @@ warn-subshell-exit-fail-open 兩條規則從建立起就是這個形狀，本 PR
 Probed. 修正前後都用真實 hookify engine（plugin cache `a9fd21643fc1` 的 `load_rule_file` +
 `RuleEngine.evaluate_rules`）跑過下方 `SAMPLES`：修正前兩條規則的正樣本全部不觸發，修正後
 12 個樣本全部與預期一致。(Source: PR #552 發現 warn-plugin-version-lockstep 不觸發)
+
+Probed. warn-subshell-exit-fail-open 與 warn-rglob-symlink 的欄位從 `new_text` 改成 `content`
+（PR #553 retro 發現 `new_text` 對 Write 永不觸發）：改之前真實 engine 對 Write 正樣本不觸發、
+Edit 正常；改之後下方含 Write 的樣本全部與預期一致。
 
 Test ID 規則見 .claude/rules/09-test-conventions.md。
 """
@@ -203,6 +208,11 @@ def _edit(path: str, text: str) -> dict[str, str]:
     return {"file_path": path, "old_string": "", "new_string": text}
 
 
+def _write(path: str, text: str) -> dict[str, str]:
+    """Write 工具只送 `content`，沒有 `new_string`——用 `new_text` 欄位的規則對它永遠不觸發。"""
+    return {"file_path": path, "content": text}
+
+
 # (規則名稱, tool, tool_input, 是否應觸發)；修正前後都已對真實 engine 跑過，見模組 docstring
 SAMPLES = [
     (
@@ -230,9 +240,16 @@ SAMPLES = [
     ("warn-subshell-exit-fail-open", "Edit", _edit("scripts/a.py", SUBSHELL_FIRES), False),
     ("warn-subshell-exit-fail-open", "Edit", _edit("scripts/a.sh", SUBSHELL_NO_EXIT), False),
     ("warn-subshell-exit-fail-open", "Edit", _edit("scripts/a.shx", SUBSHELL_FIRES), False),
+    # Write 寫整個新檔：欄位用 `content` 才會觸發（`new_text` 只對應 Edit 的 new_string）
+    ("warn-subshell-exit-fail-open", "Write", _write("scripts/a.sh", SUBSHELL_FIRES), True),
+    ("warn-subshell-exit-fail-open", "Write", _write("scripts/a.py", SUBSHELL_FIRES), False),
+    ("warn-subshell-exit-fail-open", "Write", _write("scripts/a.sh", SUBSHELL_NO_EXIT), False),
     ("warn-rglob-symlink", "Edit", _edit("tasks/x.py", "for p in d.rglob('*.md'):"), True),
     ("warn-rglob-symlink", "Edit", _edit("tasks/x.py", "for p in d.glob('*.md'):"), False),
     ("warn-rglob-symlink", "Edit", _edit("docs/x.md", "d.rglob('*.md')"), False),
+    ("warn-rglob-symlink", "Write", _write("tasks/x.py", "for p in d.rglob('*.md'):"), True),
+    ("warn-rglob-symlink", "Write", _write("tasks/x.py", "for p in d.glob('*.md'):"), False),
+    ("warn-rglob-symlink", "Write", _write("docs/x.md", "d.rglob('*.md')"), False),
 ]
 
 

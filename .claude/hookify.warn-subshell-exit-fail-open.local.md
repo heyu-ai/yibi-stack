@@ -6,10 +6,10 @@ conditions:
   - field: file_path
     operator: regex_match
     pattern: \.sh$
-  - field: new_text
+  - field: content
     operator: regex_match
     pattern: =\$\(_\w+
-  - field: new_text
+  - field: content
     operator: regex_match
     pattern: \n\s+exit\s+\d
 action: warn
