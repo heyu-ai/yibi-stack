@@ -113,8 +113,9 @@ _EVIDENCE_MARKERS = [
 _NEW_RULE_FILE_RE = re.compile(r"^\.claude/rules/[^/]+\.md$")
 # 允許子目錄（如 `.claude/hooks/lib/foo.py`）——過去單層路徑假設讓巢狀 hook script 逃過檢查。
 _NEW_HOOK_FILE_RE = re.compile(r"^\.claude/hooks/.+$")
-# 既有 always-loaded 文件面：rule 檔 + CLAUDE.md（rule 11 對 always-loaded 的定義包含兩者）。
-_EXISTING_ALWAYS_LOADED_DOC_RE = re.compile(r"^(\.claude/rules/[^/]+\.md|CLAUDE\.md)$")
+# 既有 always-loaded 文件面：rule 檔 + CLAUDE.md／AGENTS.md（rule 11 對 always-loaded 的定義包含兩者）。
+# AGENTS.md 是實體檔，CLAUDE.md 為指向它的 symlink；section 改動在 diff 中出現在 AGENTS.md。
+_EXISTING_ALWAYS_LOADED_DOC_RE = re.compile(r"^(\.claude/rules/[^/]+\.md|CLAUDE\.md|AGENTS\.md)$")
 # section heading（`## ` / `### `）。作用在「行內容」上（不含 diff 的 `+` `-` ` ` 前綴）。
 _HEADING_RE = re.compile(r"^(#{2,3})\s+(.*)$")
 
