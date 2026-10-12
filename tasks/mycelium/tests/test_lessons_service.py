@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from tasks.mycelium.cli import cli
@@ -336,21 +337,54 @@ class TestLessonIdExposure:
         assert len(rows) == 1
         assert rows[0]["id"] == added["id"]
 
-    def test_lsn_id_003_legacy_rows_have_explicit_none_id(self, tmp_path: Path) -> None:
-        """LSN-ID-003: legacy 列沒有 uuid，但 id 欄位仍存在且為 None（schema 一致）"""
+    @pytest.mark.parametrize("legacy_source", ["handover", "handover-approach", "insight"])
+    def test_lsn_id_003_legacy_rows_have_explicit_none_id(
+        self, tmp_path: Path, legacy_source: str
+    ) -> None:
+        """LSN-ID-003: 三個 legacy 來源都沒有 uuid，但 id 欄位仍存在且為 None（schema 一致）"""
+        needle = "legacy-needle-555"
         db_path = make_db_path(tmp_path)
-        db = AgentsDB(db_path=db_path)
-        db.init_db()
-        db.insert_handover(make_record(lessons_learned=["legacy-needle-555"]))
-        db.close()
+        insights_file: Path | None = None
+        if legacy_source == "insight":
+            insights_file = make_insights_file(
+                tmp_path, [{**_SAMPLE_INSIGHT, "insight_text": f"★ {needle} 洞察"}]
+            )
+        else:
+            # db.query_lessons 只撈 lessons_learned 非空的 handover，所以 handover-approach
+            # 必須與一則（不含 needle 的）lessons_learned 同列才會出現
+            record = (
+                {"lessons_learned": [needle]}
+                if legacy_source == "handover"
+                else {
+                    "lessons_learned": ["unrelated legacy lesson"],
+                    "attempted_approaches": [needle],
+                }
+            )
+            db = AgentsDB(db_path=db_path)
+            db.init_db()
+            db.insert_handover(make_record(**record))
+            db.close()
+        use_insights = insights_file is not None
 
-        shown = [r for r in show_lessons(db_path=db_path) if "legacy-needle-555" in r["text"]]
-        found = search_lessons(query="legacy-needle-555", db_path=db_path)
+        shown = [
+            r
+            for r in show_lessons(
+                db_path=db_path, include_insights=use_insights, insights_path=insights_file
+            )
+            if needle in r["text"]
+        ]
+        found = search_lessons(
+            query=needle,
+            db_path=db_path,
+            include_insights=use_insights,
+            insights_path=insights_file,
+        )
 
         assert len(shown) == 1
         assert len(found) == 1
-        assert "id" in shown[0] and shown[0]["id"] is None
-        assert "id" in found[0] and found[0]["id"] is None
+        for row in (shown[0], found[0]):
+            assert row["source"] == legacy_source
+            assert "id" in row and row["id"] is None
 
     def test_lsn_id_004_add_stdout_prints_key_and_keeps_id_first(self, tmp_path: Path) -> None:
         """LSN-ID-004: lessons add 的 stdout 為 `id=<uuid> key=<key> trusted=<bool>`，id 仍在行首"""
@@ -431,6 +465,55 @@ class TestLessonIdExposure:
         )
         assert [h["id"] for h in json.loads(still_active.stdout)] == [keep_id]
         assert json.loads(gone.stdout) == []
+
+    def test_lsn_id_006_cli_show_json_carries_id(self, tmp_path: Path) -> None:
+        """LSN-ID-006: `lessons show --json`（預設路徑）每個 typed 列帶 id，且等於 add 回傳的 id
+
+        AC-2 同時點名 show 與 search；LSN-ID-001 只測服務層，這裡補上 CLI 的 JSON 輸出層。
+        """
+        db_path = make_db_path(tmp_path)
+        added = add_lesson(make_lesson_data(project="p", key="cli-show-key"), db_path=db_path)
+
+        result = CliRunner().invoke(
+            cli,
+            ["lessons", "show", "--project", "p", "--json"],
+            env={"MYCELIUM_DB_OVERRIDE": str(db_path)},
+        )
+
+        assert result.exit_code == 0, result.output
+        rows = [r for r in json.loads(result.stdout) if r["context"] == "[pitfall] cli-show-key"]
+        assert len(rows) == 1
+        assert rows[0]["id"] == added["id"]
+
+    def test_lsn_id_007_multi_hit_search_pairs_each_id_with_its_own_key(
+        self, tmp_path: Path
+    ) -> None:
+        """LSN-ID-007: 一次 search 回傳多筆時，每個 id 對應自己的 key（issue #555 的失敗模式）
+
+        LSN-ID-005 每次都把搜尋縮到單一命中，id 與 key 配錯也看不出來；這裡讓兩筆同時命中。
+        """
+        db_path = make_db_path(tmp_path)
+        first = add_lesson(
+            make_lesson_data(project="p", key="pair-key-a", insight="pair-needle-555 first body"),
+            db_path=db_path,
+        )
+        second = add_lesson(
+            make_lesson_data(project="p", key="pair-key-b", insight="pair-needle-555 second body"),
+            db_path=db_path,
+        )
+
+        result = CliRunner().invoke(
+            cli,
+            ["lessons", "search", "pair-needle-555", "--project", "p", "--json"],
+            env={"MYCELIUM_DB_OVERRIDE": str(db_path)},
+        )
+
+        assert result.exit_code == 0, result.output
+        hits = json.loads(result.stdout)
+        assert {h["id"]: h["context"] for h in hits} == {
+            first["id"]: "[pitfall] pair-key-a",
+            second["id"]: "[pitfall] pair-key-b",
+        }
 
 
 class TestShowLessons:
