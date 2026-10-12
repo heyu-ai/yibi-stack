@@ -590,7 +590,7 @@ def show_lessons(
 def _to_compat_row(row: dict[str, Any]) -> dict[str, Any]:
     """把 typed/legacy 混合列映射回 show/search 的舊 dict 格式（加 id）。
 
-    id 只有 typed 列有 uuid；legacy 列（handover、insight）一律 None。
+    id 只有 typed 列有 uuid；legacy 列（handover、handover-approach、insight）一律 None。
     """
     if row.get("_legacy"):
         return {
