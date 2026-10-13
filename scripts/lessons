@@ -11,6 +11,8 @@
 #   讀取（show / search / --help）→ 不注入。mycelium CLI 對這兩個子命令的 --project 預設是
 #     「顯示全部 project」；wrapper 若注入，就靜默覆寫了 CLI 文件宣稱的預設，讓呼叫端
 #     以為拿到跨 project 結果、實際只拿到 cwd 那個 repo 的，且無任何訊號。
+#   讀取（rows）→ 也不注入，但理由不同：rows 的 --project 是必填，漏帶要讓 click exit 2，
+#     不能被補成 cwd 的 repo（詳見下方豁免清單的說明）。
 #
 # 子命令偵測採嚴格位置制（只看第一個位置引數）。這在今日是安全的：`lessons` group
 # 未定義任何 group-level option（cli.py 的 `@cli.group()` 為裸宣告），故除 -h/--help

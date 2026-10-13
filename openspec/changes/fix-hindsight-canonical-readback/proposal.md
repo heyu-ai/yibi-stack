@@ -13,7 +13,7 @@ pr-retrospective 的 Hindsight 投影協議（plugins/growth/skills/pr-retrospec
 - 新增 mycelium CLI 子指令 `mycelium lessons rows`：依 project 加上一或多個 key 及／或 lesson id，唯讀回傳 lessons table 中**所有**相符的列（含 retired、parked、superseded），不去重、不設筆數上限，輸出固定為 JSON，每列附 effective_confidence。
 - 該指令以「不建立檔案、可建立 WAL 輔助檔、SQL 層禁止寫入」的方式開 DB：DB 檔不存在時直接失敗而不建立；不執行 journal_mode 變更或建表；連線設定 query_only，任何寫入語句都會被拒絕。
 - 該指令的 exit code 區分「查詢成功（可為零列）」與「DB 不可用」，讓協議能把後者判為 degraded，而不是誤判成「沒有列」。
-- 改寫 HINDSIGHT.md 第 3 步：以 `mycelium lessons rows` 取代直接開 SQLite，保留原有語意（一次收齊本次所有相關 key 與 receipt owner、缺列或歧義即 degraded、不得逐列邊查邊寫）。
+- 改寫 HINDSIGHT.md 第 2、3 步（合併為一次呼叫）：以 `mycelium lessons rows` 取代 `lessons show` 加直接開 SQLite，保留原有語意（一次收齊本次所有相關 key 與 receipt owner、缺列或歧義即 degraded、不得逐列邊查邊寫）。
 
 ## Capabilities
 
