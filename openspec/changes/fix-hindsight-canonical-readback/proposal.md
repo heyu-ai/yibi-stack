@@ -30,6 +30,6 @@ pr-retrospective 的 Hindsight 投影協議（plugins/growth/skills/pr-retrospec
 - Affected specs: lesson-canonical-readback（新增）
 - Affected code:
   - New: tasks/mycelium/tests/test_lessons_rows.py
-  - Modified: tasks/mycelium/db.py, tasks/mycelium/lessons_service.py, tasks/mycelium/cli.py, plugins/growth/skills/pr-retrospective/HINDSIGHT.md, scripts/lessons, scripts/tests/test_lessons_wrapper.py（lessons wrapper 把新子指令歸為不注入 --project；實作時由既有 drift guard 測試要求）
+  - Modified: tasks/mycelium/db.py, tasks/mycelium/lessons_service.py, tasks/mycelium/cli.py, plugins/growth/skills/pr-retrospective/HINDSIGHT.md, commands/lessons.md（補上 rows 子指令的說明）, scripts/lessons, scripts/tests/test_lessons_wrapper.py（lessons wrapper 把新子指令歸為不注入 --project；實作時由既有 drift guard 測試要求）
   - Modified（版本同步）：各 plugin 的 package.json 與 .claude-plugin/plugin.json、pyproject.toml，由 scripts/sync-plugin-versions.sh 統一改寫（plugins/** 有變動時的 lockstep 版本規則）
 - 相依：integrate-retro-hindsight change（PR #512 已 merge、尚未 archive）所定義的 retro-hindsight-projection 行為不變；其「Lifecycle reconciliation」只要求從 canonical storage 重讀含 inactive 的列，未規定讀取機制，本變更只替換機制。

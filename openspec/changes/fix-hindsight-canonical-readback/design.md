@@ -45,7 +45,7 @@ Hindsight 投影協議（plugins/growth/skills/pr-retrospective/HINDSIGHT.md，�
 新增 DB 層的唯讀開啟函式：用 `file:<absolute path>?mode=rw` URI 連線，連上後立刻執行 `PRAGMA query_only = ON`，不執行 journal_mode PRAGMA、不呼叫 init_db。mode=rw 不會建立不存在的檔案（實測），但允許 SQLite 建立 WAL 所需的 -shm／-wal；query_only 讓任何寫入語句在 SQL 層被拒。
 
 替代方案與否決理由：
-- 維持 mode=ro：在 WAL 且無 -shm 時一定失敗（實測），就是本次要修的問題。
+- 維持 mode=ro：在部分 SQLite 版本（實測 3.51.0）遇到 WAL 且無 -shm 時失敗，且結果取決於呼叫端的直譯器，就是本次要修的問題。
 - mode=ro 加 immutable=1：可以開檔，但 immutable 會忽略尚未 checkpoint 的 -wal 內容，可能讀到過期資料，對 canonical 讀回不可接受。
 - 先用一般連線建立 -shm 再改用 mode=ro：仍需一次可寫連線，複雜度更高且沒有額外保證。
 - 直接用 `AgentsDB`：會改 journal_mode 並建表，DB 不存在時會建檔。
@@ -68,7 +68,7 @@ exit code 契約：0 = 查詢成功（rows 可為空）；2 = 參數錯誤（Cli
 
 ### HINDSIGHT.md 讀回步驟改呼叫 lessons rows
 
-把 HINDSIGHT.md 第 2、3 步合併為一次 `mycelium lessons rows` 呼叫：本次所有候選 key、所有先前 accepted receipt 的 key 與其 lesson_id，一次傳入。保留原有規則：每個 canonical ID 只收一次、缺 owner／歧義／缺欄位／錯 tags 即 degraded、同 key 多個 active rows 拒絕、不得逐列邊查邊寫。任何非 0 exit 都判 degraded；exit 2 另提示「installed CLI 可能過舊，請重新安裝」。移除 SQLite 連線形式與 bound query 的描述。
+把 HINDSIGHT.md 第 2、3 步合併為一次 `mycelium lessons rows` 呼叫：本次所有候選 key、所有先前 accepted receipt 的 key 與其 lesson_id，一次傳入。保留原有規則：每個 canonical ID 只收一次、缺 owner／歧義／缺欄位／錯 tags 即 degraded、同 key 多個 active rows 拒絕、不得逐列邊查邊寫。識別碼合計超過 200 時可拆成多次 rows 呼叫，但必須在本次 invocation 任何寫入之前全部完成並合併結果（讀寫不交錯）。任何非 0 exit 都判 degraded；exit 2 只有 stderr 含 `No such command` 時才提示「installed CLI 過舊，請以新 release tag 重新安裝」，其餘 exit 2 回報為該次呼叫的參數錯誤。移除 SQLite 連線形式與 bound query 的描述。
 
 ## Implementation Contract
 
@@ -94,7 +94,7 @@ exit code 契約：0 = 查詢成功（rows 可為空）；2 = 參數錯誤（Cli
 - 只查一次：所有條件組成單一參數化 SELECT（`project = ? AND (key IN (...) OR id IN (...))`），同一快照內完成。
 
 **Failure modes**：
-- DB 檔不存在、無法開啟、lessons table 不存在、查詢 sqlite 錯誤 → exit 3，stdout 空，stderr 為 `[FAIL]` 加原因；不建立任何檔案（不存在的 DB 路徑在指令結束後仍不存在）。
+- DB 檔不存在、無法開啟、lessons table 不存在、查詢 sqlite 錯誤、列的 tags／files 不是合法 JSON 陣列、列缺欄位或欄位值無法計算衰減 → exit 3，stdout 空，stderr 為 `[FAIL]` 加原因；不建立任何檔案（不存在的 DB 路徑在指令結束後仍不存在）。
 - 參數不合法 → exit 2（Click usage error）。
 - 不會靜默把錯誤當成零列：零列只在查詢成功時出現，且會反映在 missing_keys／missing_ids。
 
@@ -107,7 +107,8 @@ exit code 契約：0 = 查詢成功（rows 可為空）；2 = 參數錯誤（Cli
 - missing_keys／missing_ids 正確；另一 project 的同 id 不會被回傳且列入 missing_ids。
 - 未給 `--key`／`--id`、或 key 格式不合 → exit 2。
 - effective_confidence 與 `show_lessons_typed` 對同一列的值相同。
-- `uv run python -m tasks.mycelium lessons --help` 列出 rows 子指令。
+
+人工確認（不是自動化測試）：`uv run python -m tasks.mycelium lessons --help` 列出 rows 子指令。
 
 **Scope boundaries**：
 - In scope：DB 層唯讀開啟函式與依 project+key/id 查詢函式、service 函式、CLI 子指令、上述測試、HINDSIGHT.md 讀回步驟改寫、plugin 版本同步，以及 lessons wrapper（scripts/lessons）把 rows 歸為「不注入 --project」。最後這項是實作時由既有 drift guard 測試（LSW-VL-001，要求每個 lessons 子指令都要分類）發現的：wrapper 對未分類子指令預設注入 cwd 的 project，若 rows 被注入，呼叫端漏帶 --project 時讀回會被靜默窄化成錯的 repo；歸為不注入後，漏帶會由 Click 以 exit 2 大聲失敗。
@@ -116,6 +117,7 @@ exit code 契約：0 = 查詢成功（rows 可為空）；2 = 參數錯誤（Cli
 ## Risks / Trade-offs
 
 - [mode=rw 連線會在 DB 目錄建立 -shm／-wal] → 這是 SQLite 的 WAL 基礎設施檔案，不是資料寫入；lesson 資料的寫入由 query_only 擋下，測試以 INSERT 被拒驗證。
+- [關閉最後一條連線時可能 checkpoint 主檔] → WAL 模式下，rows 若是最後一條關閉的連線，SQLite 可能把 -wal 中其他寫入者已 commit 的 frame checkpoint 回主檔。這會改寫主檔的頁面，但內容是早已 commit 的資料，不會寫入新的 lesson 資料。因此 4.4 的「主檔 sha256 前後不變」只在 -wal 為空時成立；-wal 有未 checkpoint 的 frame 時，主檔雜湊可能改變而資料語意不變。
 - [DB 目錄不可寫（例如 sandbox 禁止建檔）時 mode=rw 也開不了] → 指令以 exit 3 回報，協議判 degraded，與現況相同但原因明確；不另做繞道。
 - [query_only 可被 SQL 關閉] → 指令只執行程式內固定的參數化查詢，不接受使用者提供的 SQL。
 - [installed CLI 未更新時沒有 rows 子指令] → Click 回 exit 2；協議把任何非 0 判 degraded，並提示重新安裝，不會誤判成零列。

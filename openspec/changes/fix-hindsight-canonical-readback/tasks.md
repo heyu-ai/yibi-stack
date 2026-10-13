@@ -22,3 +22,17 @@
 - [x] 4.2 git add 所有新檔後執行 make ci，全部通過（pre-commit --all-files、pytest、lint、typecheck）。驗證：make ci exit 0，且 make ci 之後 git diff --name-only 為空（formatter 未改檔）。
 - [x] 4.3 （執行紀錄：mode=ro 與去重兩個突變照原計畫在原始碼上做，分別讓 EG-002〔SQLite 3.51.0〕與 DT-001 轉紅並已還原；拿掉 query_only 的原始碼突變被 auto mode 判為削弱安全控制而拒絕，改以不動原始碼的對照取代：在拋棄式 DB 上證明 mode=rw 連線未開 query_only 時 INSERT 成功、開啟後被拒，即 EG-004 斷言的「寫入被拒」唯一依賴 query_only。）對 rows 子指令做突變驗證：分別把 query_only PRAGMA 拿掉、把 mode=rw 改回 mode=ro、在查詢後加上依 key 去重，每次只改一處，確認對應測試（EG-004、EG-002、DT-001）轉紅，再以反向套用同一替換還原。mode=ro 那個突變必須在會重現問題的 SQLite 3.51.0 直譯器上跑（uv run --isolated --python 指向 asdf 的 Python 3.13.3），因為 uv 預設的 SQLite 3.47.1 本來就能以 mode=ro 開啟，該突變在那裡必然存活、驗不出東西。驗證：三個突變各自讓指定測試失敗，還原後全綠。
 - [x] 4.4 在實際的 ~/.agents/handover/handover.db 上以 checkout 版本跑一次 uv run python -m tasks.mycelium lessons rows --project yibi-stack --key precommit-files-regex-follow-renamed-file，確認 exit 0、回傳 id 為 e46f5b6a 開頭的一列，且執行前後 handover.db 主檔的 sha256 相同（沒有寫入資料）。驗證：貼出指令輸出與前後兩次 shasum -a 256 的結果。
+
+## 5. Review 修正（PR #564 Round 1）
+
+- [x] 5.1 （A）query_lesson_rows 改用嚴格解碼 _decode_lesson_row_strict：tags／files 不是合法 JSON 陣列即拋 RuntimeError，CLI exit 3；show／search 用的 _decode_lesson_row 維持寬鬆不動。驗證：LROWS-EG-011（parked 列 tags 為截斷 JSON → exit 3、stdout 空、stderr 以 [FAIL] 開頭）；把查詢改回 _decode_lesson_row 時轉紅。
+- [x] 5.2 （B）補同 project 的 --id 正向查詢。驗證：LROWS-DT-006（只給 --id 回傳該列、missing_ids 為空）、LROWS-DT-007（--key 與 --id 命中同列只回一次）；拿掉 id 條件時 DT-006 轉紅，found_ids 改為空集合時兩者皆紅。
+- [x] 5.3 （C）父目錄存在但 DB 檔不存在時不建檔。驗證：LROWS-EG-007（db_path 為 tmp_path/handover.db → exit 3、stdout 空、[FAIL]、檔案仍不存在）；mode=rw 改為 mode=rwc 時轉紅。
+- [x] 5.4 （D）補 exit 3 的 schema 讀取與查詢錯誤路徑，EG-005 加 [FAIL] 斷言。驗證：LROWS-EG-008（MYCELIUM_DB_OVERRIDE 指向內容為 not a db 的檔案）、LROWS-EG-009（lessons table 缺 ts 欄位使 ORDER BY 失敗），皆 exit 3、stdout 空、[FAIL]；把對應的 except sqlite3.Error 縮窄時分別轉紅。
+- [x] 5.5 （E）list_lesson_rows 把組列時的 KeyError／TypeError／ValueError 轉成 RuntimeError（raise from），CLI exit 3 而非 exit 1 加 traceback。驗證：LROWS-EG-010（lessons table 缺 confidence 欄位 → exit 3、[FAIL]）；拿掉轉換時轉紅。
+- [x] 5.6 （F）design.md 否決「維持 mode=ro」的理由改為依版本而定（實測 3.51.0 失敗、取決於呼叫端直譯器），與同檔實測表一致。驗證：人工核對 design.md 第 9 列表格與否決理由不再矛盾。
+- [x] 5.7 （G）HINDSIGHT.md 第 2 步允許識別碼超過 200 時拆成多次 lessons rows 呼叫，前提是全部在本次 invocation 任何寫入之前完成、不讀寫交錯，rows 合併、missing 取聯集，任一次非 0 即 degraded；design.md 對應決策同步。驗證：人工核對 HINDSIGHT.md 第 2 步。
+- [x] 5.8 （H）HINDSIGHT.md 的 exit 2 處理：只有 stderr 含 No such command 才提示以新 release tag 重裝，其餘回報為參數錯誤（超過 200、key 格式不合、project 為空），一律 degraded；design.md 對應決策同步。驗證：人工核對 HINDSIGHT.md exit 2 條目。
+- [x] 5.9 （I）open_lessons_readonly docstring 與 design.md Risks 寫明：關閉最後一條連線可能把 -wal 中已 commit 的 frame checkpoint 回主檔，會改寫頁面但不寫入新的 lesson 資料，「主檔 sha256 不變」只在 -wal 為空時成立。驗證：人工核對兩處敘述一致（無程式碼變更）。
+- [x] 5.10 （J）LROWS-ST-001 以 monkeypatch 替換 tasks.mycelium.lessons_service 的 datetime（now() 固定為 2026-04-15），show_lessons_typed 與 rows CLI 共用同一時鐘，並斷言衰減值為 confidence - 3；保留「observed 列確實衰減」的守衛。驗證：拿掉時鐘釘選時 ST-001 轉紅（實際日期下衰減值不同）。
+- [x] 5.11 （NIT）rows 子指令拒絕前後帶空白的 --project（exit 2），VL-001 補空白 project、前後空白 project、空 --id 三個參數；新增 LROWS-CV-002 斷言同 key 同 ts 依 id 排序；design.md 把 lessons --help 改列為人工確認；proposal.md Impact 的 Modified 補 commands/lessons.md。驗證：拿掉空白檢查時 VL-001 的 surrounding-whitespace-project 轉紅；ORDER BY 的 id 改為遞減時 CV-002 轉紅。
