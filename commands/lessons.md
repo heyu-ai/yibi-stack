@@ -7,7 +7,7 @@ description: 查詢、搜尋、寫入 typed lessons。取代 /recall。
 
 查詢累積的 typed lessons、legacy handover 教訓，以及寫入新教訓。
 
-所有操作透過 wrapper：`~/.agents/bin/lessons {add|show|search|delete|retire|finalize|supersede} [args]`
+所有操作透過 wrapper：`~/.agents/bin/lessons {add|show|search|rows|delete|retire|finalize|supersede} [args]`
 Wrapper 透過 `~/.agents/bin/resolve-skill-repo` 取得 skill_repo 路徑。
 
 **`--project` 注入策略（刻意為之）**：
@@ -15,6 +15,7 @@ Wrapper 透過 `~/.agents/bin/resolve-skill-repo` 取得 skill_repo 路徑。
 | 指令 | wrapper 行為 | 結果 |
 | --- | --- | --- |
 | `show` / `search`（讀取） | **不注入** `--project` | 預設回傳**全部 project**，與 CLI 文件一致；要限縮請自行加 `--project <name>` |
+| `rows`（canonical 讀回） | **不注入** `--project` | `--project` 為必填，漏帶時 click exit 2；不會被補成 cwd 的 repo（Hindsight 投影協議的讀回，見 pr-retrospective HINDSIGHT.md） |
 | `delete` / `retire`（id-targeted） | **不注入** `--project` | 以精確 `--id` 操作單一 lesson；CLI 不定義 `--project`，注入會讓 click exit 2（issue #242） |
 | `add`（寫入） | 注入 `git rev-parse` 偵測到的 project | 教訓記到當前 repo（issue #243 的防線） |
 

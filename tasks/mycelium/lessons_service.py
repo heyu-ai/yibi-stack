@@ -238,6 +238,49 @@ def _dedup_latest_winner(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(seen.values())
 
 
+def list_lesson_rows(
+    project: str,
+    keys: list[str],
+    ids: list[str],
+    db_path: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """唯讀列出 project 下指定 key／id 的所有 canonical lesson 列（供 Hindsight 投影讀回）。
+
+    與 show_lessons_typed 不同：不去重、不截斷、含 retired／parked／superseded，且不會建立
+    DB 或建表。每列附與 show 相同衰減算法的 effective_confidence。DB 不可用時拋
+    RuntimeError（由 open_lessons_readonly／query_lesson_rows 產生），不會回傳空結果冒充成功。
+    """
+    from .config import HANDOVER_DB_PATH
+    from .db import open_lessons_readonly, query_lesson_rows
+
+    requested_keys = sorted(set(keys))
+    requested_ids = sorted(set(ids))
+    conn = open_lessons_readonly(db_path if db_path is not None else HANDOVER_DB_PATH)
+    try:
+        rows = query_lesson_rows(conn, project, requested_keys, requested_ids)
+    finally:
+        conn.close()
+
+    try:
+        for row in rows:
+            row["effective_confidence"] = _apply_decay(
+                row["confidence"], row["source"], row["ts"], now=now
+            )
+        found_keys = {row["key"] for row in rows}
+        found_ids = {row["id"] for row in rows}
+    except (KeyError, TypeError, ValueError) as e:
+        raise RuntimeError(f"lessons 列缺欄位或欄位值不合法，無法組出讀回結果：{e!r}") from e
+    return {
+        "schema_version": 1,
+        "project": project,
+        "requested": {"keys": requested_keys, "ids": requested_ids},
+        "rows": rows,
+        "missing_keys": [k for k in requested_keys if k not in found_keys],
+        "missing_ids": [i for i in requested_ids if i not in found_ids],
+    }
+
+
 def show_lessons_typed(  # pylint: disable=too-many-arguments
     project: str | None = None,
     lesson_type: str | None = None,

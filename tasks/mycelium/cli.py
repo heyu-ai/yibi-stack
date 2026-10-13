@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import textwrap
 from pathlib import Path
 from typing import Any
@@ -1089,6 +1090,49 @@ def lessons_show(  # pylint: disable=too-many-arguments
         if r.get("project"):
             click.echo(f"  project = {r['project']}")
         click.echo(f"  {r['text']}")
+
+
+_ROWS_MAX_IDENTIFIERS = 200
+_ROWS_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+@lessons.command("rows")
+@click.option("--project", required=True, help="所屬專案（必填，只讀這個 project 的列）")
+@click.option("--key", "keys", multiple=True, help="lesson key（可重複）")
+@click.option("--id", "ids", multiple=True, help="lesson id（可重複）")
+def lessons_rows(project: str, keys: tuple[str, ...], ids: tuple[str, ...]) -> None:
+    """唯讀列出指定 key／id 的所有 canonical lesson 列（JSON；不去重、含 retired／parked）。
+
+    供 Hindsight 投影協議做 ownership／lifecycle 判定。exit 0 = 查詢成功（可為零列）；
+    exit 2 = 參數錯誤；exit 3 = DB 不可用（不存在、無法開啟、缺 lessons table、查詢錯誤）。
+    """
+    from .lessons_service import list_lesson_rows
+
+    if not project.strip():
+        raise click.UsageError("--project 不可為空字串")
+    if project != project.strip():
+        raise click.UsageError("--project 前後不可有空白")
+    unique_keys = sorted(set(keys))
+    unique_ids = sorted(set(ids))
+    total = len(unique_keys) + len(unique_ids)
+    if total == 0:
+        raise click.UsageError("至少要提供一個 --key 或 --id")
+    if total > _ROWS_MAX_IDENTIFIERS:
+        raise click.UsageError(
+            f"--key 與 --id 合計最多 {_ROWS_MAX_IDENTIFIERS} 個，目前 {total} 個"
+        )
+    bad_keys = [k for k in unique_keys if not _ROWS_KEY_RE.fullmatch(k)]
+    if bad_keys:
+        raise click.UsageError(f"key 只能含英數字、底線、連字號：{', '.join(bad_keys)}")
+    if any(not i.strip() for i in unique_ids):
+        raise click.UsageError("--id 不可為空字串")
+
+    try:
+        result = list_lesson_rows(project, unique_keys, unique_ids, db_path=_ctl_db_path())
+    except RuntimeError as e:
+        click.echo(f"[FAIL] {e}", err=True)
+        raise SystemExit(3) from e
+    click.echo(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 @lessons.command("search")
