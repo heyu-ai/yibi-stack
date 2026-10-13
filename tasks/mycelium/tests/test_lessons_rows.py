@@ -23,6 +23,16 @@ from tasks.mycelium.models import LessonRecord, LessonSource, LessonType
 
 _PROJECT = "yibi-stack"
 _TS = datetime(2026, 7, 18, tzinfo=UTC)
+_PINNED_NOW = datetime(2026, 4, 15, tzinfo=UTC)
+
+
+class _FixedNowDatetime(datetime):
+    """now() 固定回傳 _PINNED_NOW 的 datetime，用來釘住 _apply_decay 的衰減時鐘。"""
+
+    @classmethod
+    def now(cls, tz: Any = None) -> _FixedNowDatetime:
+        pinned = cls.fromtimestamp(_PINNED_NOW.timestamp(), tz=UTC)
+        return pinned if tz is None else pinned.astimezone(tz)
 
 
 def _make_lesson(**kwargs: object) -> LessonRecord:
@@ -228,6 +238,57 @@ class TestCompleteCanonicalRowListing:
         assert data["requested"] == {"keys": ["a-key", "b-key"], "ids": []}
         assert [r["id"] for r in data["rows"]] == [a_only.id, b_early.id, b_late.id]
 
+    def test_lrows_cv_002_same_key_same_ts_ordered_by_id(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LROWS-CV-002: 同 key 同 ts 的多列以 id 遞增排序"""
+        db_path = tmp_path / "tie.db"
+        same_ts = "2026-07-03T00:00:00+00:00"
+        records = [_make_lesson(key="tie-key", ts=same_ts) for _ in range(3)]
+        _seed(db_path, *records)
+
+        data = _ok_json(_run(monkeypatch, db_path, "--project", _PROJECT, "--key", "tie-key"))
+        ids = [r["id"] for r in data["rows"]]
+        assert ids == sorted(r.id for r in records)
+
+    def test_lrows_dt_006_id_only_lookup_returns_row(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LROWS-DT-006: 只給 --id 時回傳同 project 的該列，missing_ids 為空"""
+        db_path = tmp_path / "byid.db"
+        target = _make_lesson(key="target-key")
+        other = _make_lesson(key="other-key")
+        _seed(db_path, target, other)
+
+        data = _ok_json(_run(monkeypatch, db_path, "--project", _PROJECT, "--id", target.id))
+        assert [r["id"] for r in data["rows"]] == [target.id]
+        assert data["missing_ids"] == []
+        assert data["missing_keys"] == []
+
+    def test_lrows_dt_007_key_and_id_hitting_same_row_returned_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LROWS-DT-007: --key 與 --id 命中同一列時只回傳一次，兩者都不列入 missing"""
+        db_path = tmp_path / "mixed.db"
+        target = _make_lesson(key="mixed-key")
+        _seed(db_path, target)
+
+        data = _ok_json(
+            _run(
+                monkeypatch,
+                db_path,
+                "--project",
+                _PROJECT,
+                "--key",
+                "mixed-key",
+                "--id",
+                target.id,
+            )
+        )
+        assert [r["id"] for r in data["rows"]] == [target.id]
+        assert data["missing_keys"] == []
+        assert data["missing_ids"] == []
+
 
 class TestReadOnlyOpenWithoutCreatingTheDatabase:
     def test_lrows_eg_003_missing_database_not_created(
@@ -270,6 +331,7 @@ class TestReadOnlyOpenWithoutCreatingTheDatabase:
         result = _run(monkeypatch, db_path, "--project", _PROJECT, "--key", "sample-key")
         assert result.exit_code == 3
         assert result.stdout == ""
+        assert result.stderr.startswith("[FAIL]")
         conn = sqlite3.connect(db_path)
         try:
             tables = {
@@ -278,6 +340,85 @@ class TestReadOnlyOpenWithoutCreatingTheDatabase:
         finally:
             conn.close()
         assert tables == {"other"}
+
+    def test_lrows_eg_007_missing_file_in_existing_dir_not_created(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LROWS-EG-007: 父目錄存在但 DB 檔不存在時 exit 3，且不建立空檔"""
+        db_path = tmp_path / "handover.db"
+        assert tmp_path.is_dir()
+        result = _run(monkeypatch, db_path, "--project", _PROJECT, "--key", "sample-key")
+        assert result.exit_code == 3
+        assert result.stdout == ""
+        assert result.stderr.startswith("[FAIL]")
+        assert not db_path.exists()
+
+    def test_lrows_eg_008_not_a_database_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LROWS-EG-008: MYCELIUM_DB_OVERRIDE 指向非 SQLite 檔時 exit 3、stdout 空、[FAIL]"""
+        db_path = tmp_path / "garbage.db"
+        db_path.write_bytes(b"not a db")
+        result = _run(monkeypatch, db_path, "--project", _PROJECT, "--key", "sample-key")
+        assert result.exit_code == 3
+        assert result.stdout == ""
+        assert result.stderr.startswith("[FAIL]")
+
+    def test_lrows_eg_009_query_error_on_missing_ts_column(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LROWS-EG-009: lessons table 缺 ts 欄位使 ORDER BY 查詢失敗時 exit 3、[FAIL]"""
+        db_path = tmp_path / "nots.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE lessons (id TEXT, project TEXT, key TEXT)")
+        conn.execute("INSERT INTO lessons VALUES ('x1', ?, 'sample-key')", (_PROJECT,))
+        conn.commit()
+        conn.close()
+
+        result = _run(monkeypatch, db_path, "--project", _PROJECT, "--key", "sample-key")
+        assert result.exit_code == 3
+        assert result.stdout == ""
+        assert result.stderr.startswith("[FAIL]")
+
+    def test_lrows_eg_010_missing_confidence_column(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LROWS-EG-010: lessons table 缺 confidence 欄位時 exit 3、[FAIL]，不吐 traceback"""
+        db_path = tmp_path / "noconf.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE lessons (id TEXT, ts TEXT, project TEXT, type TEXT, key TEXT, "
+            "insight TEXT, source TEXT, tags TEXT, files TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO lessons VALUES ('x1', ?, ?, 'pitfall', 'sample-key', "
+            "'insight text here', 'observed', '[]', '[]')",
+            (_TS.isoformat(), _PROJECT),
+        )
+        conn.commit()
+        conn.close()
+
+        result = _run(monkeypatch, db_path, "--project", _PROJECT, "--key", "sample-key")
+        assert result.exit_code == 3
+        assert result.stdout == ""
+        assert result.stderr.startswith("[FAIL]")
+
+    def test_lrows_eg_011_corrupted_tags_json_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LROWS-EG-011: parked 列的 tags 是截斷的 JSON 時 exit 3，不得靜默重設為 []"""
+        db_path = tmp_path / "badtags.db"
+        parked = _make_lesson(key="parked-key", confidence=3, tags=["parked"])
+        _seed(db_path, parked)
+        conn = sqlite3.connect(db_path)
+        conn.execute("UPDATE lessons SET tags = ? WHERE id = ?", ('["park', parked.id))
+        conn.commit()
+        conn.close()
+
+        result = _run(monkeypatch, db_path, "--project", _PROJECT, "--key", "parked-key")
+        assert result.exit_code == 3
+        assert result.stdout == ""
+        assert result.stderr.startswith("[FAIL]")
 
 
 class TestExitStatusDistinguishesFailureFromAnEmptyResult:
@@ -291,6 +432,12 @@ class TestExitStatusDistinguishesFailureFromAnEmptyResult:
             ),
             pytest.param(["--project", _PROJECT, "--key", "has space"], id="key-with-space"),
             pytest.param(["--project", "", "--key", "sample-key"], id="empty-project"),
+            pytest.param(["--project", "   ", "--key", "sample-key"], id="whitespace-project"),
+            pytest.param(
+                ["--project", f" {_PROJECT} ", "--key", "sample-key"],
+                id="surrounding-whitespace-project",
+            ),
+            pytest.param(["--project", _PROJECT, "--id", ""], id="empty-id"),
         ],
     )
     def test_lrows_vl_001_invalid_arguments_exit_2(
@@ -323,7 +470,12 @@ class TestEffectiveConfidenceParity:
     def test_lrows_st_001_matches_show_lessons_typed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """LROWS-ST-001: effective_confidence 與 show_lessons_typed 對同一列的值相同"""
+        """LROWS-ST-001: effective_confidence 與 show_lessons_typed 對同一列的值相同
+
+        衰減時鐘釘在固定時點（ts 後 104 天，observed 衰減 3），兩邊都用同一個 now，
+        期望值不隨實際日期漂移，也不會因兩次呼叫跨過 30 天邊界而偶發失敗。
+        """
+        monkeypatch.setattr("tasks.mycelium.lessons_service.datetime", _FixedNowDatetime)
         db_path = tmp_path / "parity.db"
         decaying = _make_lesson(
             key="decay-key", source=LessonSource.observed, ts="2026-01-01T00:00:00+00:00"
@@ -358,3 +510,5 @@ class TestEffectiveConfidenceParity:
         rows = {r["id"]: r["effective_confidence"] for r in data["rows"]}
         assert rows == shown
         assert rows[decaying.id] < decaying.confidence, "observed 列應已衰減，否則對照無意義"
+        assert rows[decaying.id] == decaying.confidence - 3
+        assert rows[stable.id] == stable.confidence

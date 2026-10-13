@@ -262,12 +262,15 @@ def list_lesson_rows(
     finally:
         conn.close()
 
-    for row in rows:
-        row["effective_confidence"] = _apply_decay(
-            row["confidence"], row["source"], row["ts"], now=now
-        )
-    found_keys = {row["key"] for row in rows}
-    found_ids = {row["id"] for row in rows}
+    try:
+        for row in rows:
+            row["effective_confidence"] = _apply_decay(
+                row["confidence"], row["source"], row["ts"], now=now
+            )
+        found_keys = {row["key"] for row in rows}
+        found_ids = {row["id"] for row in rows}
+    except (KeyError, TypeError, ValueError) as e:
+        raise RuntimeError(f"lessons 列缺欄位或欄位值不合法，無法組出讀回結果：{e!r}") from e
     return {
         "schema_version": 1,
         "project": project,

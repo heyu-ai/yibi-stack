@@ -1110,6 +1110,8 @@ def lessons_rows(project: str, keys: tuple[str, ...], ids: tuple[str, ...]) -> N
 
     if not project.strip():
         raise click.UsageError("--project 不可為空字串")
+    if project != project.strip():
+        raise click.UsageError("--project 前後不可有空白")
     unique_keys = sorted(set(keys))
     unique_ids = sorted(set(ids))
     total = len(unique_keys) + len(unique_ids)
