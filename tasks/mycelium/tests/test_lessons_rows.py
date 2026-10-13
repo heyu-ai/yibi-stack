@@ -403,15 +403,32 @@ class TestReadOnlyOpenWithoutCreatingTheDatabase:
         assert result.stdout == ""
         assert result.stderr.startswith("[FAIL]")
 
+    @pytest.mark.parametrize(
+        ("column", "raw"),
+        [
+            pytest.param("tags", '["park', id="tags-truncated-json"),
+            pytest.param("tags", "{}", id="tags-json-object"),
+            pytest.param("tags", "null", id="tags-json-null"),
+            pytest.param("files", '["a.py', id="files-truncated-json"),
+            pytest.param("files", '{"a": 1}', id="files-json-object"),
+            pytest.param("files", "null", id="files-json-null"),
+        ],
+    )
     def test_lrows_eg_011_corrupted_tags_json_fails(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, column: str, raw: str
     ) -> None:
-        """LROWS-EG-011: parked 列的 tags 是截斷的 JSON 時 exit 3，不得靜默重設為 []"""
+        """LROWS-EG-011: tags／files 不是合法 JSON 陣列時 exit 3，不得靜默重設為 []
+
+        涵蓋截斷 JSON、JSON 物件、JSON null。物件與 null 能通過 json.loads，
+        只有「不是陣列」的檢查擋得住，所以兩類都要測。
+        """
         db_path = tmp_path / "badtags.db"
         parked = _make_lesson(key="parked-key", confidence=3, tags=["parked"])
         _seed(db_path, parked)
         conn = sqlite3.connect(db_path)
-        conn.execute("UPDATE lessons SET tags = ? WHERE id = ?", ('["park', parked.id))
+        # column 只來自上方固定的參數清單，不是外部輸入
+        sql = f"UPDATE lessons SET {column} = ? WHERE id = ?"  # nosec B608
+        conn.execute(sql, (raw, parked.id))
         conn.commit()
         conn.close()
 

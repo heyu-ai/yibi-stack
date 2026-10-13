@@ -68,7 +68,7 @@ exit code 契約：0 = 查詢成功（rows 可為空）；2 = 參數錯誤（Cli
 
 ### HINDSIGHT.md 讀回步驟改呼叫 lessons rows
 
-把 HINDSIGHT.md 第 2、3 步合併為一次 `mycelium lessons rows` 呼叫：本次所有候選 key、所有先前 accepted receipt 的 key 與其 lesson_id，一次傳入。保留原有規則：每個 canonical ID 只收一次、缺 owner／歧義／缺欄位／錯 tags 即 degraded、同 key 多個 active rows 拒絕、不得逐列邊查邊寫。識別碼合計超過 200 時可拆成多次 rows 呼叫，但必須在本次 invocation 任何寫入之前全部完成並合併結果（讀寫不交錯）。任何非 0 exit 都判 degraded；exit 2 只有 stderr 含 `No such command` 時才提示「installed CLI 過舊，請以新 release tag 重新安裝」，其餘 exit 2 回報為該次呼叫的參數錯誤。移除 SQLite 連線形式與 bound query 的描述。
+把 HINDSIGHT.md 第 2、3 步合併為一次 `mycelium lessons rows` 呼叫：本次所有候選 key、所有先前 accepted receipt 的 key 與其 lesson_id，一次傳入。保留原有規則：每個 canonical ID 只收一次、缺 owner／歧義／缺欄位／錯 tags 即 degraded、同 key 多個 active rows 拒絕、不得逐列邊查邊寫。識別碼合計超過 200 時不拆分：判 degraded、本次不發布，並回報識別碼數量。曾考慮允許拆成多次呼叫（PR #564 Round 1 的修正 G），但 Round 2 review 指出多次呼叫是多個 SQLite 快照，其他 session 在兩次之間的寫入（例如 k1 被 retire、改由 k2 接替）會讓合併結果撕裂，而「同 key 多個 active」擋不住不同 key 的情況；因此改為不拆分（人類於 Round 2 後裁決）。任何非 0 exit 都判 degraded；exit 2 只有 stderr 含 `No such command` 時才提示「installed CLI 過舊，請以新 release tag 重新安裝」，其餘 exit 2 回報為該次呼叫的參數錯誤。移除 SQLite 連線形式與 bound query 的描述。
 
 ## Implementation Contract
 
@@ -94,7 +94,7 @@ exit code 契約：0 = 查詢成功（rows 可為空）；2 = 參數錯誤（Cli
 - 只查一次：所有條件組成單一參數化 SELECT（`project = ? AND (key IN (...) OR id IN (...))`），同一快照內完成。
 
 **Failure modes**：
-- DB 檔不存在、無法開啟、lessons table 不存在、查詢 sqlite 錯誤、列的 tags／files 不是合法 JSON 陣列、列缺欄位或欄位值無法計算衰減 → exit 3，stdout 空，stderr 為 `[FAIL]` 加原因；不建立任何檔案（不存在的 DB 路徑在指令結束後仍不存在）。
+- DB 檔不存在、無法開啟、lessons table 不存在、查詢 sqlite 錯誤、列的 tags／files 不是合法 JSON 陣列、列缺欄位，或 ts／confidence 型別錯誤（例如 NULL）→ exit 3（ts 字串存在但無法解析時沿用 show 的行為：不衰減、照常 exit 0，維持 AC-5 的一致性），stdout 空，stderr 為 `[FAIL]` 加原因；不建立任何檔案（不存在的 DB 路徑在指令結束後仍不存在）。
 - 參數不合法 → exit 2（Click usage error）。
 - 不會靜默把錯誤當成零列：零列只在查詢成功時出現，且會反映在 missing_keys／missing_ids。
 

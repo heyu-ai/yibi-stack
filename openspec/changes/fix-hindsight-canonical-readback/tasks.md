@@ -31,8 +31,14 @@
 - [x] 5.4 （D）補 exit 3 的 schema 讀取與查詢錯誤路徑，EG-005 加 [FAIL] 斷言。驗證：LROWS-EG-008（MYCELIUM_DB_OVERRIDE 指向內容為 not a db 的檔案）、LROWS-EG-009（lessons table 缺 ts 欄位使 ORDER BY 失敗），皆 exit 3、stdout 空、[FAIL]；把對應的 except sqlite3.Error 縮窄時分別轉紅。
 - [x] 5.5 （E）list_lesson_rows 把組列時的 KeyError／TypeError／ValueError 轉成 RuntimeError（raise from），CLI exit 3 而非 exit 1 加 traceback。驗證：LROWS-EG-010（lessons table 缺 confidence 欄位 → exit 3、[FAIL]）；拿掉轉換時轉紅。
 - [x] 5.6 （F）design.md 否決「維持 mode=ro」的理由改為依版本而定（實測 3.51.0 失敗、取決於呼叫端直譯器），與同檔實測表一致。驗證：人工核對 design.md 第 9 列表格與否決理由不再矛盾。
-- [x] 5.7 （G）HINDSIGHT.md 第 2 步允許識別碼超過 200 時拆成多次 lessons rows 呼叫，前提是全部在本次 invocation 任何寫入之前完成、不讀寫交錯，rows 合併、missing 取聯集，任一次非 0 即 degraded；design.md 對應決策同步。驗證：人工核對 HINDSIGHT.md 第 2 步。
+- [x] 5.7 （已被 6.1 取代）（G）HINDSIGHT.md 第 2 步允許識別碼超過 200 時拆成多次 lessons rows 呼叫，前提是全部在本次 invocation 任何寫入之前完成、不讀寫交錯，rows 合併、missing 取聯集，任一次非 0 即 degraded；design.md 對應決策同步。驗證：人工核對 HINDSIGHT.md 第 2 步。
 - [x] 5.8 （H）HINDSIGHT.md 的 exit 2 處理：只有 stderr 含 No such command 才提示以新 release tag 重裝，其餘回報為參數錯誤（超過 200、key 格式不合、project 為空），一律 degraded；design.md 對應決策同步。驗證：人工核對 HINDSIGHT.md exit 2 條目。
 - [x] 5.9 （I）open_lessons_readonly docstring 與 design.md Risks 寫明：關閉最後一條連線可能把 -wal 中已 commit 的 frame checkpoint 回主檔，會改寫頁面但不寫入新的 lesson 資料，「主檔 sha256 不變」只在 -wal 為空時成立。驗證：人工核對兩處敘述一致（無程式碼變更）。
 - [x] 5.10 （J）LROWS-ST-001 以 monkeypatch 替換 tasks.mycelium.lessons_service 的 datetime（now() 固定為 2026-04-15），show_lessons_typed 與 rows CLI 共用同一時鐘，並斷言衰減值為 confidence - 3；保留「observed 列確實衰減」的守衛。驗證：拿掉時鐘釘選時 ST-001 轉紅（實際日期下衰減值不同）。
 - [x] 5.11 （NIT）rows 子指令拒絕前後帶空白的 --project（exit 2），VL-001 補空白 project、前後空白 project、空 --id 三個參數；新增 LROWS-CV-002 斷言同 key 同 ts 依 id 排序；design.md 把 lessons --help 改列為人工確認；proposal.md Impact 的 Modified 補 commands/lessons.md。驗證：拿掉空白檢查時 VL-001 的 surrounding-whitespace-project 轉紅；ORDER BY 的 id 改為遞減時 CV-002 轉紅。
+
+## 6. Review 修正（PR #564 Round 2 後的人類裁決）
+
+- [x] 6.1 HINDSIGHT.md 第 2 步改為「識別碼合計超過 200 時不拆分，判 degraded、本次不發布並回報數量」，取代 5.7 的分批規則：分批會變成多個 SQLite 快照，兩次呼叫之間其他 session 的寫入會讓合併結果撕裂（Round 2 Claude voice 指出，人類選擇方案 c）；design.md 對應決策同步並記錄被否決的分批方案與理由。驗證：rg '拆成多次' plugins/growth/skills/pr-retrospective/HINDSIGHT.md 只命中「不要拆成多次呼叫」那一句。
+- [x] 6.2 design.md 的 Failure modes 更正：ts／confidence 型別錯誤（例如 NULL）或缺欄位才 exit 3；ts 字串存在但無法解析時沿用 show 的行為（不衰減、exit 0），維持 AC-5 一致性。驗證：Round 2 探針 ts='not-a-date' 得 exit 0，與更正後文字相符。
+- [x] 6.3 LROWS-EG-011 參數化為 tags／files × 截斷 JSON、JSON 物件、JSON null 六格，補上「合法 JSON 但不是陣列」的路徑（Round 2 Codex 指出）。驗證：把 _decode_lesson_row_strict 的非陣列檢查改成 if False 時，物件與 null 的四格轉紅、截斷 JSON 兩格仍綠（在 json.loads 即失敗），還原後 32 passed、1 skipped。
