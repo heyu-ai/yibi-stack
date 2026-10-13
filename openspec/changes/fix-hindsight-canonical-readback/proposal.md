@@ -1,3 +1,7 @@
+---
+type: bug
+---
+
 ## Why
 
 pr-retrospective 的 Hindsight 投影協議（plugins/growth/skills/pr-retrospective/HINDSIGHT.md「Canonical projection and lifecycle reconciliation」第 3 步）規定用唯讀 SQLite URI（加上 mode=ro 參數）收齊同 key 的所有 canonical 列。這台機器的 handover.db 是 WAL 模式，DB 關閉後 -shm 檔會被移除，agent 讀回時用的是 PATH 上的 python3（SQLite 3.51.0），它的 mode=ro 連線無法自己建立 -shm，於是固定回 `unable to open database file`（SQLite 3.47.1 則能開啟，失敗取決於版本，細節見 design）。協議規定此時 projection degraded、不發布，結果 2026-10-02（PR #515，5 則 lesson、其中 4 則合格）與 2026-10-12（PR #556）兩次 retro 的投影都被跳過，PR #515 那 4 則直到 2026-10-13 才人工補寫。只要這條讀回路徑不改，之後每次 /pr-retro 都會重複漏投。
