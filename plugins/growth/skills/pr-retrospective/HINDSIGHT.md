@@ -74,16 +74,24 @@ Audit 留下 source IDs 與人類 recurrence 決定；回答確實使用記憶�
 1. 從過去 audit 讀取**每個**先前 accepted projection identity，不限本次搜尋／新候選；即使無新候選也做。
    依 accepted_at 的實際時間選該 document 最新 receipt，保留 lesson_id。Receipt 是傳送帳本，不是知識權威。
    同 identity 的 pending/unknown 必須先解決，否則不寫。
-2. 正常候選用 installed CLI 讀回：
-   `mycelium lessons show --project <project> --no-include-legacy --include-retired --include-parked --min-confidence 0 --last 10000 --json`。
-   此 API 會 dedup 且有筆數限制；找不到不代表退休／刪除。
-3. 用同一 canonical DB 的 read-only SQLite 收齊本次所有相關 key 的 rows，而非邊查一列邊寫一列。
-   尊重 MYCELIUM_DB_OVERRIDE，否則是 `~/.agents/handover/handover.db`；不能初始化缺少的 DB 或 import checkout tasks。
-   連線形式為 `sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)`。
-   先以 project＋receipt lesson_id 查明 owner，再對每個不同 key 使用 bound query：
-   `SELECT * FROM lessons WHERE project = ? AND key = ?`。缺 owner、歧義、缺欄位、錯 tags 或 DB 不可用都 degraded。
-   每個 canonical ID 只收一次；不得為不同搜尋來源重複加入同一列。新發布的 effective_confidence
-   採正常 CLI readback（若有），合併到同 ID 的 canonical row；不能因 SQLite 只有 raw confidence 就繞過門檻。
+2. 用 installed CLI **一次**讀回本次所有相關 canonical 列，不得逐列邊查邊寫：
+   `mycelium lessons rows --project <project> --key <k1> --key <k2> ... --id <receipt-lesson-id> ...`。
+   `--key` 涵蓋本次所有候選 key 與第 1 步每份先前 accepted receipt 的 source_id；`--id` 涵蓋那些
+   receipt 的 lesson_id（合計上限 200）。此指令唯讀：不建立 DB、不建表、不去重，含 retired／parked／
+   superseded，尊重 MYCELIUM_DB_OVERRIDE。**不要自行開 SQLite**：mode=ro 遇到沒有 -shm 的 WAL DB，
+   在部分 SQLite 版本（實測 3.51.0）會回 unable to open database file，結果取決於當下的 python3；
+   也不要用 `lessons show` 取代——它會依 key 去重並截斷，藏住同 key 的多列。
+   依 exit code 處理，任何非 0 都不發布、記 `hindsight_sync=degraded`：
+   - **0**：繼續第 3 步（rows 可為空，空不等於失敗）。
+   - **2**：參數錯誤，或 installed CLI 缺 `rows` 子指令（版本早於加入它的 release）→ degraded，提示以新
+     release tag 重裝：`uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@<tag>"`。
+   - **3**：DB 不可用（不存在、無法開啟、缺 lessons table、查詢錯誤）→ degraded；不初始化 DB、不改用其他讀法。
+3. 以 stdout 的 JSON（`rows`、`missing_keys`、`missing_ids`）判定 ownership 與 lifecycle：
+   receipt 的 lesson_id 出現在 `missing_ids`（owner 不存在）→ 該 document degraded，不推定刪除或新 owner；
+   候選 key 出現在 `missing_keys` → 該候選 degraded。先以 project＋receipt lesson_id 查明 owner，再看同 key
+   的所有列；缺 owner、歧義、缺欄位或錯 tags 都 degraded。每個 canonical ID 只收一次；不得為不同搜尋來源
+   重複加入同一列。每列的 `effective_confidence` 與 show 用相同衰減算法，發布門檻以它為準，不得改用 raw
+   confidence 繞過門檻。
 4. 把這些 rows 放進單一 INPUT_FILE 的 items。要發布的候選另帶 summary/evidence_ids；
    只用於 ownership／lifecycle 判定的舊列或已發布 active owner，只帶 record。
    receipts 每份文件只放最新一份 accepted receipt；仍為 pending/unknown 的整個 key 不進發布 batch，記 degraded。

@@ -29,10 +29,13 @@ SUBCMD="${1:-}"
 #     （issue #242、PR #347、PR #413），CLI 根本不定義 --project option。注入會讓 click
 #     因未知 option 以 exit 2 大聲失敗——不是「多帶 scope」而是「直接壞掉」，故 fail-safe
 #     注入預設對它們不成立，必須明確豁免。
+#   rows → Hindsight 投影的 canonical 讀回，CLI 把 --project 設為必填。呼叫端漏帶時必須讓
+#     click 以 exit 2 大聲失敗；若比照寫入注入 cwd 的 project，讀回會被靜默窄化成錯的 repo，
+#     ownership／lifecycle 判定隨之錯誤且零訊號。
 #   -h/--help → 注入後會變成 `lessons --help --project X`，click 的 parser 會先因未知
 #     option 而 exit 2，eager 的 --help 根本來不及觸發，help 永遠印不出來（實測）。
 case "$SUBCMD" in
-  show|search|delete|retire|finalize|supersede|-h|--help) exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons "$@" ;;
+  show|search|rows|delete|retire|finalize|supersede|-h|--help) exec uv run --directory "$SKILL_REPO" python -m tasks.mycelium lessons "$@" ;;
 esac
 
 # 自動偵測 project（若 caller 已用 --project 指定則跳過，避免重複）

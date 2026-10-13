@@ -165,6 +165,19 @@ class TestReadCommandsSkipProjectInjection:
         )
         assert f"lessons {subcmd} --json" in result.stdout
 
+    def test_lsw_dt_007_rows_does_not_inject_project(self, tmp_path: Path) -> None:
+        """LSW-DT-007: rows 的 --project 必須由呼叫端明確給，wrapper 不得以 cwd 補上。
+
+        rows 是 Hindsight 投影的 canonical 讀回；漏帶 --project 時應讓 CLI 以 exit 2
+        失敗，而不是被 wrapper 靜默窄化成 cwd 的 repo。
+        """
+        result = _run_wrapper(tmp_path, ["rows", "--key", "some-key"])
+        assert result.returncode == 0, result.stderr
+        assert _project_of(result.stdout) is None, (
+            f"rows 被注入了 --project，漏帶時會靜默查 cwd 的 repo：{result.stdout!r}"
+        )
+        assert "lessons rows --key some-key" in result.stdout
+
     @pytest.mark.parametrize(
         "project_args",
         [["--project", "yibi-mvp"], ["--project=yibi-mvp"]],
@@ -345,7 +358,8 @@ class TestReadListDriftGuard:
         # 不注入 --project 的子命令：讀取（保留全部 project 語意）或 id-targeted
         # （delete / retire / finalize 以精確 --id 操作，CLI 不定義 --project；
         # 注入會讓 click exit 2）。
-        known_no_inject = {"show", "search", "delete", "retire", "finalize", "supersede"}
+        # rows 是 canonical 讀回，--project 必填，漏帶必須 exit 2 而不是被補成 cwd。
+        known_no_inject = {"show", "search", "rows", "delete", "retire", "finalize", "supersede"}
         # 注入 cwd project 的寫入子命令。
         known_write = {"add"}
         unclassified = set(lessons.commands) - known_no_inject - known_write

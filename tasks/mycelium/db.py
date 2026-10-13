@@ -1411,6 +1411,67 @@ def _decode_retro_row(row: sqlite3.Row) -> dict[str, Any]:
     return out
 
 
+def open_lessons_readonly(db_path: str | Path) -> sqlite3.Connection:
+    """以「不建檔、不建表、SQL 層禁止寫入」的方式開啟 lessons DB，供 canonical 讀回。
+
+    用 mode=rw URI 而非 mode=ro：mode=rw 不會建立不存在的檔案，但允許 SQLite 自行建立
+    WAL 的 -shm／-wal；mode=ro 在部分 SQLite 版本（實測 3.51.0）遇到沒有 -shm 的 WAL DB
+    會回 unable to open database file。連上後立刻開 query_only，不改 journal_mode、
+    不呼叫 init_db、不建父目錄（與 AgentsDB 的連線不同）。
+
+    檔案不存在、無法開啟或沒有 lessons table 時拋 RuntimeError。
+    """
+    path = Path(db_path)
+    try:
+        conn = sqlite3.connect(path.resolve().as_uri() + "?mode=rw", uri=True)
+    except sqlite3.Error as e:
+        raise RuntimeError(f"無法開啟 lessons DB：{path}（{e}）") from e
+    try:
+        conn.execute("PRAGMA query_only = ON")
+        conn.row_factory = sqlite3.Row
+        has_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'lessons'"
+        ).fetchone()
+    except sqlite3.Error as e:
+        conn.close()
+        raise RuntimeError(f"無法讀取 lessons DB：{path}（{e}）") from e
+    if has_table is None:
+        conn.close()
+        raise RuntimeError(f"DB 沒有 lessons table：{path}")
+    return conn
+
+
+def query_lesson_rows(
+    conn: sqlite3.Connection,
+    project: str,
+    keys: list[str],
+    ids: list[str],
+) -> list[dict[str, Any]]:
+    """回傳 project 相符且 key 或 id 在指定集合內的所有 lesson 列（不去重、不截斷）。
+
+    單一參數化 SELECT，在同一快照內完成；依 key、ts、id 遞增排序。
+    keys 與 ids 皆空時回傳空 list，不查詢。sqlite 錯誤轉成 RuntimeError。
+    """
+    clauses: list[str] = []
+    params: list[str] = [project]
+    if keys:
+        clauses.append(f"key IN ({', '.join('?' for _ in keys)})")
+        params.extend(keys)
+    if ids:
+        clauses.append(f"id IN ({', '.join('?' for _ in ids)})")
+        params.extend(ids)
+    if not clauses:
+        return []
+    where = " OR ".join(clauses)
+    sql = f"SELECT * FROM lessons WHERE project = ? AND ({where})"  # nosec B608
+    sql += " ORDER BY key, ts, id"
+    try:
+        rows = conn.execute(sql, params).fetchall()
+    except sqlite3.Error as e:
+        raise RuntimeError(f"查詢 lessons 失敗：{e}") from e
+    return [_decode_lesson_row(row) for row in rows]
+
+
 def _decode_lesson_row(row: sqlite3.Row) -> dict[str, Any]:
     """把 lessons 的 sqlite3.Row 轉成 dict，files / tags 欄位 decode 回 list。"""
     out = dict(row)
