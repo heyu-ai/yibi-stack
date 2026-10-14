@@ -57,6 +57,7 @@ def test_merged_deferred_and_withdrawn_sources_are_accounted_for(tmp_path: Path)
         ("CR-1, CR-1", "duplicates=['CR-1']"),
         ("CR-1, CR-3", "unexpected=['CR-3']"),
         ("CR-1, CR-2, CR-2", "duplicates=['CR-2']"),
+        ("CR-1, CR-2, CR-3", "unexpected=['CR-3']"),
     ],
 )
 def test_missing_duplicate_and_unknown_sources_block(
@@ -80,6 +81,14 @@ def test_missing_duplicate_and_unknown_sources_block(
         "<!-- code-review-scope:start -->\n- Code-review source: CR-1\n"
         "<!-- code-review-scope:end -->\n",
         "accepted=1 listed=1\n",
+        "<!--\n- Code-review source: CR-1\n-->\n",
+        "    - Code-review source: CR-1\n",
+        "1. Example:\n\n       - Code-review source: CR-1\n",
+        "- Example:\n    ```text\n  - Code-review source: CR-1\n    ```\n",
+        "- ```text\n  - Code-review source: CR-1\n  ```\n",
+        "~~~\n```\n- Code-review source: CR-1\n```\n~~~\n",
+        "````\n```\n- Code-review source: CR-1\n```\n````\n",
+        "```\n```text\n- Code-review source: CR-1\n```\n",
     ],
 )
 def test_examples_audit_and_summary_do_not_replace_a_finding(tmp_path: Path, decoy: str) -> None:
@@ -137,3 +146,89 @@ def test_invalid_inputs_fail_closed(tmp_path: Path, broken: str) -> None:
     result = _run(tmp_path)
     assert result.returncode == 2
     assert "[FAIL]" in result.stderr
+
+
+@pytest.mark.parametrize("indent", ["    ", "\t"])
+def test_multidigit_list_sources_use_container_relative_indentation(
+    tmp_path: Path, indent: str
+) -> None:
+    _accepted(tmp_path, 1)
+    (tmp_path / "final.md").write_text(
+        f"# Final\n10. finding\n{indent}- Code-review source: CR-1\n", encoding="utf-8"
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "accepted=1 listed=1" in result.stdout
+
+
+def test_extra_source_blocks_when_no_findings_were_accepted(tmp_path: Path) -> None:
+    _accepted(tmp_path, 0)
+    (tmp_path / "final.md").write_text("# Final\n- Code-review source: CR-1\n", encoding="utf-8")
+    result = _run(tmp_path)
+    assert result.returncode == 1
+    assert "unexpected=['CR-1']" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "- Code-review source : CR-1",
+        "* Code-review source: CR-1",
+        "- **Code-review source:** CR-1",
+        "- code-review source： CR-1",
+    ],
+)
+def test_malformed_extra_source_cannot_hide_behind_complete_coverage(
+    tmp_path: Path, malformed: str
+) -> None:
+    _accepted(tmp_path, 1)
+    (tmp_path / "final.md").write_text(
+        f"# Final\n- Code-review source: CR-1\n{malformed}\n", encoding="utf-8"
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 2
+    assert "來源列格式錯誤" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "```foo```\n",
+        "`<!-- code-review-scope:start -->`\n",
+        "```text\n<!-- code-review-scope:start -->\n```\n",
+    ],
+)
+def test_literal_evidence_does_not_become_a_fence_or_audit_boundary(
+    tmp_path: Path, evidence: str
+) -> None:
+    _accepted(tmp_path, 1)
+    (tmp_path / "final.md").write_text(
+        "# Final\n" + evidence + "1. finding\n   - Code-review source: CR-1\n"
+        "<!-- code-review-scope:start -->\n## Code-review scope audit\n"
+        "<!-- code-review-scope:end -->\n",
+        encoding="utf-8",
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "accepted=1 listed=1" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "broken_structure",
+    [
+        "<!-- code-review-scope:end -->\n",
+        "<!-- code-review-scope:end -->\n<!-- code-review-scope:start -->\n",
+        "<!-- code-review-scope:start -->\n<!-- code-review-scope:end -->\n"
+        "<!-- code-review-scope:start -->\n<!-- code-review-scope:end -->\n",
+        "<!-- code-review-scope:start -->\n```text\n<!-- code-review-scope:end -->\n",
+        "<!--\n- Code-review source: CR-1\n",
+    ],
+)
+def test_structure_is_validated_even_in_excluded_regions(
+    tmp_path: Path, broken_structure: str
+) -> None:
+    _accepted(tmp_path, 0)
+    (tmp_path / "final.md").write_text("# Final\n" + broken_structure, encoding="utf-8")
+    result = _run(tmp_path)
+    assert result.returncode == 2
+    assert "[FAIL] review-count" in result.stderr

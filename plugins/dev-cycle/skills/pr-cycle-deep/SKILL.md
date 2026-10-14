@@ -827,13 +827,17 @@ Actionable NIT = MAY). Blocking is decided by the Evidence gate below; NIT never
 Step 2 只讀取 `code-review-filtered.json`，不得從 raw 回應或被排除的項目重建候選。
 將 `code-review-scope.md` 的整個 owned marker 區塊原樣保留於 `final.md`（含零筆與捨棄數量），
 不要在重建 final 報告時覆蓋掉它，也不要覆蓋 pre-review amplifier 已產生的 findings。
-若本輪重新準備過 scope，舊 Step 2 結果已失效；需要該 reviewer 時重跑 Step 2。
+若本輪重新準備過 scope，舊 Step 2 結果已失效；MUST 重跑 Step 2 reviewer、正規化與 filter，
+再用本輪 filtered 陣列重建 final 的來源編號與去向；不得沿用舊 CR 列或手寫 filtered JSON。
 
 按 filtered `findings` 陣列順序（從 1 起）給 Step 2 來源編號 `CR-1`、`CR-2`……；
 在 final 的對應 finding 下加獨立列 `- Code-review source: CR-1`。合併重複 finding 時，
 同列列出全部來源，例如 `- Code-review source: CR-1, CR-2`。每個來源只出現一次；
 降級／Outside contract／Disputed 仍保留來源，WITHDRAW 則移到 `## Withdrawn` 記錄原因與來源，
 不留在修復清單。其他 voices／amplifier 不編 CR 號；不得用總數摘要或 scope audit 代替逐項列出。
+來源列可頂格或相對所屬清單縮排（包含 `10.` 之後的四格縮排）；清單容器之外的四格
+indented code、code fence 與 HTML 註解不算正文來源。欄位拼法固定，其他 bullet／大小寫／冒號
+變體視為格式錯誤，不會靜默略過。
 
 | Grade | Condition | Action |
 | --- | --- | --- |
@@ -910,6 +914,8 @@ Disposition by severity × evidence × round (every cell defined — no gaps, no
 > that no longer holds and the finding is now correct. The `@file` caution stands: inline via `-p "$CONTENT"`, never `@file`.
 
 `final.md` format:
+範本的來源列只用於 Step 2 findings：將 `<n>` 換成實際索引，合併時用逗號分隔全部 CR 號；
+其他 voices 的 finding 刪掉該列，不留下佔位符或附註文字。
 
 ```text
 # Final Aggregated Review — PR #{{pr_number}}
@@ -924,23 +930,33 @@ group-review ({{N}}/3 voices active)
 
 ## Consensus Critical (must fix)
 1. <finding>...
+   - Code-review source: CR-<n>
 
 ## Consensus Important (must fix)
 1. <finding>...
+   - Code-review source: CR-<n>
 
 ## Actionable NIT (deferred — never blocks; fix opportunistically)
 1. <finding>...
+   - Code-review source: CR-<n>
 
 ## Deferred for lack of evidence (not blocking; reason stated per item)
 1. <finding> — demoted: <reason>... (For single-voice Critical demotions, include `Grep verification: <command> → <N> hits` in the demotion reason.)
+   - Code-review source: CR-<n>
 
 ## Outside contract (not blocking; mapping reason stated per item)
 1. <finding> — <Non-goal / accepted boundary / Follow-up / invalid mapping>...
+   - Code-review source: CR-<n>
 
 ## Disputed (user decides)
 - Voice X argues Critical: <reason>
 - Voice Y disagrees: <reason>
 - Lead recommendation: <decision guidance>
+- Code-review source: CR-<n>
+
+## Withdrawn (not in fix list)
+1. <finding> — withdrawn: <reason>
+   - Code-review source: CR-<n>
 
 ## Voices unavailable
 - <voice>: <reason>
@@ -961,19 +977,25 @@ user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> 
 
 ### Step 5a — 收下筆數與 final 列出筆數 gate（blocking）
 
-每次進入 Step 5b 前（含 `--resume` 直接跳入與 Step 7 重彙整），MUST 從 PR worktree 執行：
+每次進入 Step 5b **或 Step 6** 前（含 `--resume` 直接跳入與 Step 7 重彙整），MUST 從 PR worktree 執行：
 
 ```bash
-REVIEW_DIR="$(git rev-parse --show-toplevel)/.pr-review"
+WT_ROOT=$(git rev-parse --show-toplevel)
+REVIEW_DIR="$WT_ROOT/.pr-review"
 python3 ~/.agents/skills/pr-cycle-deep/scripts/check_review_counts.py --review-dir "$REVIEW_DIR"
 ```
 
 核對 `code-review-filtered.json` 的 `findings` 筆數與 final 正文 CR 來源筆數，並要求來源編號
-一一對應，防止「漏一筆、重複一筆」仍以相同總數過關；code fence 與 scope audit 不計入。
+一一對應，防止「漏一筆、重複一筆」仍以相同總數過關；code fence、indented code、HTML 註解
+與 scope audit 不計入來源，但 audit 內的 fence 仍須完整；引用的 marker 不當成 audit 邊界。
 零筆也必須有合法 filtered JSON 與非空 final，得到 `accepted=0 listed=0` 才通過。
-Exit `0` → 才可進 Step 5b；`1` → 筆數／來源不符；`2` → 缺檔、JSON／來源格式錯誤。
-任何非零 MUST 停止，不貼 PR、不進 Step 6，保留 `next: Step 5a`；回 Step 5 補齊逐項去向後重跑，
-不得刪減 filtered JSON 來湊數。final 修改後必須重新核對；此 gate 不改變 finding 的 blocking 等級。
+Exit `0` → 才可進 Step 5b／6；`1` → 筆數／來源不符；`2` → 缺檔、JSON／來源格式錯誤、
+空 final、未閉合 fence／HTML 註解、重複或不完整 audit markers。
+任何非零 MUST 停止，不貼 PR、不進 Step 6；filtered JSON 缺漏／非法 → 回 Step 2 重做 review/filter，
+final 格式／來源不符 → 回 Step 5 補齊逐項去向，checkpoint 指向該修復步驟，修好再跑 Step 5a。
+沒有 `[FAIL] review-count` 診斷的非零（例如 traceback／`can't open file`）屬執行錯誤，
+先查 stderr 與安裝版本；不得修改 review 資料湊數，也不得從 worktree 執行 `make install`。
+此 gate 不改變 finding 的 blocking 等級；final 修改後必須重新核對。
 
 ---
 
@@ -1020,6 +1042,9 @@ gh issue create --repo {{owner/repo}} --label deferred-from-review --title "Defe
 ---
 
 ### Step 6 — Fix (Critical → Important → NIT)
+
+進入修復前 MUST 通過 Step 5a；`--resume` 直接跳入 Step 6 也不能省略。
+gate 非零先回指定步驟補齊 review 產物，不得先修程式。
 
 Delegate the fix loop to **one** `general-purpose` Task subagent. Reading code, editing and
 iterating on CI are the most turn-heavy part of the cycle; in the lead's context every one of
@@ -1110,8 +1135,8 @@ re-runs Step 3, and Step 4 only if the Step 3.4 gate activates — so one pass c
 
 | Round | Review surface | Can block merge | On exit |
 | --- | --- | --- | --- |
-| Round 1 | the **full diff**; record the baseline head SHA (`git rev-parse HEAD`) before Step 6 fixes — the next round's surface is defined relative to it | evidenced Critical / Important | blocking set empty → Step 8 merge; non-empty → Step 6 fix, then Round 2 |
-| Round 2 | only `baseline..HEAD` (the commits this round's fixes added) | evidenced Critical only | blocking set empty → merge; non-empty → circuit breaker (human adjudication) |
+| Round 1 | the **full diff**; record the baseline head SHA (`git rev-parse HEAD`) before Step 6 fixes — the next round's surface is defined relative to it | evidenced Critical / Important | 先完成 Step 5 → 5a；gate 非零停止，通過後 blocking set empty → Step 8；non-empty → Step 6 fix, then Round 2 |
+| Round 2 | only `baseline..HEAD` (the commits this round's fixes added) | evidenced Critical only | 先完成 Step 5 → 5a；gate 非零停止，通過後 blocking set empty → Step 8；non-empty → circuit breaker (human adjudication) |
 | Round 3 | **does not exist** — the loop never starts a third round | — | — |
 
 Recording the baseline SHA in Round 1 is load-bearing: the `baseline..HEAD` surface cannot be
@@ -1133,6 +1158,11 @@ hand-roll `git diff "{{base_branch}}"...HEAD` here — that uses the local ref a
 ```bash
 bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 ```
+
+本次 refresh 會刪除舊 `code-review-filtered.json`。在派出 Step 3 voices 前，MUST 重跑 Step 2
+的 `/code-review {{pr_number}}` → 正規化 → filter（不要再重跑 setup）；即使零 findings 也要
+由 filter 產生本輪合法空陣列。保留上一輪 final 作歷史後，依新陣列重新編 CR 號與彙整，
+不能以不存在的 filtered JSON 進 Step 5a，也不能保留上一輪來源列來湊數。
 
 **7.2 Apply the R2 activation gate**: all active voices re-run R1 to catch regressions. Recompute
 candidate blockers and disputes from the new R1; previous voice verdicts have no gate authority. If
