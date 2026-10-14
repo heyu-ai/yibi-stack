@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess  # nosec B404
 import sys
 from pathlib import Path
@@ -587,6 +588,175 @@ class TestReviewScopeBehavior:
         assert "1 out-of-scope discarded" in result
         assert "0 out-of-scope discarded" not in result
         assert len(_audit_items(repo)) == 1
+
+    @pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+    def test_shared_markdown_audit_replace_reset_and_regenerate(
+        self, origin_and_clone: dict[str, Path], newline: str
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        setup = _run_setup(repo, "main")
+        assert setup.returncode == 0, setup.stderr
+        directory = repo / ".pr-review"
+        final = directory / "final.md"
+        prefix = newline.join(
+            [
+                "# Final review",
+                "",
+                "## Amplifier 證據",
+                "Keep this finding and `<!-- code-review-scope:start -->` literally.",
+                "The inline `<!--` is evidence, not an unclosed comment.",
+                "",
+                "```markdown",
+                "<!-- code-review-scope:start -->",
+                "- Code-review source: CR-999",
+                "<!-- code-review-scope:end -->",
+                "```",
+                "",
+                "    <!-- code-review-scope:end -->",
+                "",
+                "1. Finding",
+                "   - Code-review source: CR-1",
+                "",
+                "",
+            ]
+        )
+        old_audit = newline.join(
+            [
+                "  <!-- code-review-scope:start -->  ",
+                "",
+                "Old audit evidence:",
+                "- Code-review source: CR-998",
+                "",
+                " <!-- code-review-scope:end --> \t",
+            ]
+        )
+        suffix = newline + newline + "## Other voice\nKeep independent evidence.\r\n"
+        final.write_bytes((prefix + old_audit + suffix).encode())
+        findings = [_finding("feature.txt"), _finding("README.md", evidence="`<!--`")]
+        source = _review_input(repo, findings)
+
+        def assert_count_gate_passes() -> None:
+            gate = subprocess.run(  # nosec B603
+                [
+                    sys.executable,
+                    str(SCRIPTS_DIR / "check_review_counts.py"),
+                    "--review-dir",
+                    str(directory),
+                ],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            assert gate.returncode == 0, gate.stdout + gate.stderr
+
+        filtered = _filter(repo, source)
+        assert filtered.returncode == 0, filtered.stderr
+        assert _accepted(repo)["findings"] == findings[:1]
+        assert [item["finding"] for item in _audit_items(repo)] == findings[1:]
+        audit = (directory / "code-review-scope.md").read_bytes().rstrip(b"\r\n")
+        expected = prefix.encode() + audit + suffix.encode()
+        assert final.read_bytes() == expected
+        assert_count_gate_passes()
+        repeated = _filter(repo, source)
+        assert repeated.returncode == 0, repeated.stderr
+        assert final.read_bytes() == expected
+
+        reset = _scope_cli(repo, "reset")
+        assert reset.returncode == 0, reset.stderr
+        assert final.read_bytes() == (prefix + suffix).encode()
+        for name in (
+            "code-review-filtered.json",
+            "code-review-scope.md",
+            "code-review.json",
+            "review-scope.json",
+            "diff.patch",
+            "changed-files.txt",
+        ):
+            assert not (directory / name).exists()
+
+        setup = _run_setup(repo, "main")
+        assert setup.returncode == 0, setup.stderr
+        source = _review_input(repo, findings)
+        regenerated = _filter(repo, source)
+        assert regenerated.returncode == 0, regenerated.stderr
+        new_audit = (directory / "code-review-scope.md").read_bytes()
+        assert final.read_bytes() == (prefix + suffix + "\n\n").encode() + new_audit
+        assert_count_gate_passes()
+
+    @pytest.mark.parametrize("uv_available", [False, True])
+    def test_setup_fails_loudly_when_script_environment_cannot_run(
+        self, origin_and_clone: dict[str, Path], tmp_path: Path, uv_available: bool
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        binaries = tmp_path / "runtime-bin"
+        binaries.mkdir()
+        for name in ("git", "dirname"):
+            executable = shutil.which(name)
+            assert executable is not None
+            (binaries / name).symlink_to(executable)
+        if uv_available:
+            uv = binaries / "uv"
+            uv.write_text("#!/bin/sh\necho 'dependency environment unavailable' >&2\nexit 42\n")
+            uv.chmod(0o755)
+        result = subprocess.run(  # nosec B603
+            ["/bin/bash", str(SETUP_SCRIPT), "main"],
+            cwd=repo,
+            env={**os.environ, "PATH": str(binaries)},
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode != 0
+        assert "[FAIL]" in result.stderr
+        assert "uv" in result.stderr
+        assert "REVIEW_DIR=" not in result.stdout
+        assert not (repo / ".pr-review" / "review-scope.json").exists()
+        if uv_available:
+            assert "dependency environment unavailable" in result.stderr
+
+    @pytest.mark.parametrize(
+        "malformed",
+        [
+            "  <!-- code-review-scope:start -->  \n",
+            " <!-- code-review-scope:end --> \n",
+            "<!-- code-review-scope:end -->\n<!-- code-review-scope:start -->\n",
+            (
+                "<!-- code-review-scope:start -->\n"
+                "<!-- code-review-scope:start -->\n"
+                "<!-- code-review-scope:end -->\n"
+            ),
+            (
+                "<!-- code-review-scope:start -->\n\n"
+                "```markdown\nunclosed audit evidence\n"
+                "<!-- code-review-scope:end -->\n"
+            ),
+        ],
+    )
+    def test_malformed_report_fails_filter_and_reset_without_rewriting_evidence(
+        self, origin_and_clone: dict[str, Path], malformed: str
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        setup = _run_setup(repo, "main")
+        assert setup.returncode == 0, setup.stderr
+        directory = repo / ".pr-review"
+        source = _review_input(repo, [_finding("feature.txt")])
+        accepted = _filter(repo, source)
+        assert accepted.returncode == 0, accepted.stderr
+        final = directory / "final.md"
+        evidence = ("# Amplifier finding stays\n\n" + malformed).encode()
+        final.write_bytes(evidence)
+        rejected = _filter(repo, source)
+        assert rejected.returncode == 1, rejected.stderr
+        assert "[FAIL]" in rejected.stderr
+        assert final.read_bytes() == evidence
+        assert not (directory / "code-review-filtered.json").exists()
+        assert not (directory / "code-review-scope.md").exists()
+        reset = _scope_cli(repo, "reset")
+        assert reset.returncode == 1, reset.stderr
+        assert "[FAIL]" in reset.stderr
+        assert final.read_bytes() == evidence
+        assert not (directory / "review-scope.json").exists()
 
     @pytest.mark.parametrize(
         "invalid",

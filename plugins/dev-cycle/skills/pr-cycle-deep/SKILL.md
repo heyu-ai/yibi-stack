@@ -364,6 +364,13 @@ the lead may not accept it; Step 8 shows it, and any `[WARN] red-first:` line (c
 
 ### Step 2 — Code Review (defect detection)
 
+Scope helper 與 Step 5a gate 使用 `uv` 管理的獨立 script 環境，依 PEP 723 metadata 與隨附
+`.py.lock` 固定 `markdown-it-py` 依賴；不使用目標 repo 的 Python 環境，也不安裝到全域 Python。
+首次執行可能需要下載依賴。缺少 `uv`、lockfile 不符或依賴解析／下載失敗 → `[FAIL]` 停止，
+先處理 runtime 前置條件；不得改用裸 `python3` 或退回舊 parser。
+部分 uv 版本在 script lockfile 缺失時只警告並忽略 `--locked`；兩個 Python 入口另行拒絕缺鎖檔，
+不把「runner 有執行」誤當成「依賴已鎖定」。
+
 先固定審查範圍，再呼叫內建 reviewer。從 PR worktree 執行既有的 fresh-fetch owner：
 
 ```bash
@@ -386,8 +393,9 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 真的沒有 finding 時也寫出合法的空 `findings` 陣列，不把錯誤回應轉成 LGTM。
 
 ```bash
-REVIEW_DIR="$(git rev-parse --show-toplevel)/.pr-review"
-python3 ~/.agents/skills/pr-cycle-deep/scripts/review_scope.py filter --input "$REVIEW_DIR/code-review.json"
+WT_ROOT=$(git rev-parse --show-toplevel)
+REVIEW_DIR="$WT_ROOT/.pr-review"
+uv run --locked --script ~/.agents/skills/pr-cycle-deep/scripts/review_scope.py filter --input "$REVIEW_DIR/code-review.json"
 ```
 
 Filter 非零退出即停止；HEAD 已移動時從本 Step 重跑，不重用舊結果。
@@ -835,9 +843,11 @@ Step 2 只讀取 `code-review-filtered.json`，不得從 raw 回應或被排除�
 同列列出全部來源，例如 `- Code-review source: CR-1, CR-2`。每個來源只出現一次；
 降級／Outside contract／Disputed 仍保留來源，WITHDRAW 則移到 `## Withdrawn` 記錄原因與來源，
 不留在修復清單。其他 voices／amplifier 不編 CR 號；不得用總數摘要或 scope audit 代替逐項列出。
-來源列可頂格或相對所屬清單縮排（包含 `10.` 之後的四格縮排）；清單容器之外的四格
-indented code、code fence 與 HTML 註解不算正文來源。欄位拼法固定，其他 bullet／大小寫／冒號
-變體視為格式錯誤，不會靜默略過。
+來源列必須是獨立的純文字 hyphen list item；可頂格或相對所屬清單縮排（包含多位數與多層清單）。
+`markdown-it-py` 的 CommonMark tokens 決定正文／code／HTML 結構，不以正規表示式猜縮排。
+indented code、code fence、HTML 註解與 audit 不算來源；inline code 中的 comment／marker 字面值
+不改變解析狀態。同一個 `Code-review source` 欄位的 bullet、大小寫或冒號格式錯誤會被拒絕；
+不對一般 finding 標題做模糊比對。觸及 parser 的安全深度上限時 exit `2`，不得把被省略的內容當成零筆。
 
 | Grade | Condition | Action |
 | --- | --- | --- |
@@ -982,12 +992,13 @@ user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
-python3 ~/.agents/skills/pr-cycle-deep/scripts/check_review_counts.py --review-dir "$REVIEW_DIR"
+uv run --locked --script ~/.agents/skills/pr-cycle-deep/scripts/check_review_counts.py --review-dir "$REVIEW_DIR"
 ```
 
 核對 `code-review-filtered.json` 的 `findings` 筆數與 final 正文 CR 來源筆數，並要求來源編號
 一一對應，防止「漏一筆、重複一筆」仍以相同總數過關；code fence、indented code、HTML 註解
 與 scope audit 不計入來源，但 audit 內的 fence 仍須完整；引用的 marker 不當成 audit 邊界。
+Gate 與 scope writer 共用 `review_markdown.py` 的結構解析與 audit span；scope 的 finding 准入規則不變。
 零筆也必須有合法 filtered JSON 與非空 final，得到 `accepted=0 listed=0` 才通過。
 Exit `0` → 才可進 Step 5b／6；`1` → 筆數／來源不符；`2` → 缺檔、JSON／來源格式錯誤、
 空 final、未閉合 fence／HTML 註解、重複或不完整 audit markers。
