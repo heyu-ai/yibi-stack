@@ -370,6 +370,8 @@ Scope helper 與 Step 5a gate 使用 `uv` 管理的獨立 script 環境，依 PE
 先處理 runtime 前置條件；不得改用裸 `python3` 或退回舊 parser。
 部分 uv 版本在 script lockfile 缺失時只警告並忽略 `--locked`；兩個 Python 入口另行拒絕缺鎖檔，
 不把「runner 有執行」誤當成「依賴已鎖定」。
+`--no-config` 排除目標 repo／使用者設定檔的 index、timestamp cutoff 等干擾，不宣稱清除 `UV_*`
+環境變數；若公司 mirror／TLS 設定因此不適用，先備妥明確的 runtime 前置條件，不略過 gate。
 
 先固定審查範圍，再呼叫內建 reviewer。從 PR worktree 執行既有的 fresh-fetch owner：
 
@@ -395,7 +397,7 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
-uv run --locked --script ~/.agents/skills/pr-cycle-deep/scripts/review_scope.py filter --input "$REVIEW_DIR/code-review.json"
+uv run --no-config --locked --script ~/.agents/skills/pr-cycle-deep/scripts/review_scope.py filter --input "$REVIEW_DIR/code-review.json"
 ```
 
 Filter 非零退出即停止；HEAD 已移動時從本 Step 重跑，不重用舊結果。
@@ -992,7 +994,7 @@ user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
-uv run --locked --script ~/.agents/skills/pr-cycle-deep/scripts/check_review_counts.py --review-dir "$REVIEW_DIR"
+uv run --no-config --locked --script ~/.agents/skills/pr-cycle-deep/scripts/check_review_counts.py --review-dir "$REVIEW_DIR"
 ```
 
 核對 `code-review-filtered.json` 的 `findings` 筆數與 final 正文 CR 來源筆數，並要求來源編號
@@ -1003,7 +1005,7 @@ Gate 與 scope writer 共用 `review_markdown.py` 的結構解析與 audit span�
 Exit `0` → 才可進 Step 5b／6；`1` → 筆數／來源不符；`2` → 缺檔、JSON／來源格式錯誤、
 空 final、未閉合 fence／HTML 註解、重複或不完整 audit markers。
 任何非零 MUST 停止，不貼 PR、不進 Step 6；filtered JSON 缺漏／非法 → 回 Step 2 重做 review/filter，
-final 格式／來源不符 → 回 Step 5 補齊逐項去向，checkpoint 指向該修復步驟，修好再跑 Step 5a。
+final 缺檔／為空／格式或來源不符 → 回 Step 5 重新彙整並補齊去向；checkpoint 指向該修復步驟，修好再跑 Step 5a。
 沒有 `[FAIL] review-count` 診斷的非零（例如 traceback／`can't open file`）屬執行錯誤，
 先查 stderr 與安裝版本；不得修改 review 資料湊數，也不得從 worktree 執行 `make install`。
 此 gate 不改變 finding 的 blocking 等級；final 修改後必須重新核對。
@@ -1174,6 +1176,9 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 的 `/code-review {{pr_number}}` → 正規化 → filter（不要再重跑 setup）；即使零 findings 也要
 由 filter 產生本輪合法空陣列。保留上一輪 final 作歷史後，依新陣列重新編 CR 號與彙整，
 不能以不存在的 filtered JSON 進 Step 5a，也不能保留上一輪來源列來湊數。
+Round 2 的 Step 2 仍更新完整 PR 的 source inventory；`baseline..HEAD` 限制的是 mob review 與
+本輪 blocking 判定，不是 scope filter 的檔案准入。CR 號依新 filtered 陣列分配；落在 fix surface
+外的項目標為 `Outside Round 2 contract` 並保留來源，不據此重開修復迴圈，也不偽造零筆輸入。
 
 **7.2 Apply the R2 activation gate**: all active voices re-run R1 to catch regressions. Recompute
 candidate blockers and disputes from the new R1; previous voice verdicts have no gate authority. If

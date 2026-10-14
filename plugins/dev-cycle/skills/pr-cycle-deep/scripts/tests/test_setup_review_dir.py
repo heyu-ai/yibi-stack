@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess  # nosec B404
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -893,3 +894,51 @@ class TestReviewScopeBehavior:
         result = _scope_cli(repo, "filter", "--help")
         assert result.returncode == 0, result.stderr
         assert _accepted(repo) == before
+
+    def test_real_uv_setup_isolates_host_config_and_blocks_lock_drift(
+        self,
+        origin_and_clone: dict[str, Path],
+        review_runtime_copy: Path,
+        drift_review_metadata: Callable[[Path], None],
+    ) -> None:
+        repo = origin_and_clone["repo"]
+        (repo / "pyproject.toml").write_text(
+            '[project]\nname="unrelated-host"\nversion="0.0.0"\nrequires-python=">=99"\n'
+            '[tool.uv]\nindex-url="https://invalid.example.invalid/simple"\n'
+            'exclude-newer="2020-01-01T00:00:00Z"\n',
+            encoding="utf-8",
+        )
+        setup = review_runtime_copy / "setup-review-dir.sh"
+        scope = review_runtime_copy / "review_scope.py"
+
+        def run(args: list[str]) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(  # nosec B603 B607
+                args,
+                cwd=repo,
+                env={**os.environ, "UV_OFFLINE": "1"},
+                capture_output=True,
+                text=True,
+                timeout=90,
+                check=False,
+            )
+
+        control = run(["bash", str(setup), "main"])
+        assert control.returncode == 0, control.stdout + control.stderr
+        manifest = repo / ".pr-review" / "review-scope.json"
+        assert json.loads(manifest.read_text())["changed_paths"] == ["feature.txt"]
+        before_manifest = manifest.read_bytes()
+        lock = scope.with_suffix(".py.lock")
+        before_lock = lock.read_bytes()
+        drift_review_metadata(scope)
+        rejected = run(["bash", str(setup), "main"])
+        assert rejected.returncode != 0
+        assert "[FAIL]" in rejected.stderr and "lockfile" in rejected.stderr
+        assert "REVIEW_DIR=" not in rejected.stdout
+        assert manifest.read_bytes() == before_manifest
+        assert lock.read_bytes() == before_lock
+        assert not (repo / "uv.lock").exists()
+        repaired = run(["uv", "lock", "--no-config", "--script", str(scope)])
+        assert repaired.returncode == 0, repaired.stderr
+        recovered = run(["bash", str(setup), "main"])
+        assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+        assert json.loads(manifest.read_text())["changed_paths"] == ["feature.txt"]

@@ -38,8 +38,9 @@ if ! command -v uv >/dev/null 2>&1; then
     echo "[FAIL] 需要 uv 才能執行鎖定依賴的 review-scope script 環境" >&2
     exit 1
 fi
-# Invalidate before argument/fetch failures; old accepted reviews cannot survive a refresh.
-if ! uv run --locked --script "$SCRIPT_DIR/review_scope.py" reset; then
+# Runtime 前置條件失敗時保留前輪證據並停止；reset 可執行後，
+# 先失效舊產物，再處理參數或 fetch 失敗。
+if ! uv run --no-config --locked --script "$SCRIPT_DIR/review_scope.py" reset; then
     echo "[FAIL] review-scope reset 失敗；請檢查 uv 與 script 的鎖定依賴" >&2
     exit 1
 fi
@@ -141,7 +142,7 @@ fi
 
 # This script alone selects/fetches the base; freeze its exact object ID and derive
 # all scope artifacts together, using NUL-delimited Git paths rather than display text.
-if ! uv run --locked --script "$SCRIPT_DIR/review_scope.py" capture --base "$BASE_SHA"; then
+if ! uv run --no-config --locked --script "$SCRIPT_DIR/review_scope.py" capture --base "$BASE_SHA"; then
     echo "[FAIL] review-scope capture 失敗；請檢查 uv 與 script 的鎖定依賴" >&2
     exit 1
 fi

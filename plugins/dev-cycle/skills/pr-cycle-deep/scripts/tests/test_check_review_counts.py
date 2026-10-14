@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess  # nosec B404
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -379,3 +380,56 @@ def test_missing_script_lock_stops_before_accepting_or_resetting(
     assert result.returncode == expected_exit
     assert "lockfile" in result.stderr
     assert (directory / "code-review-filtered.json").read_bytes() == accepted_before
+
+
+def test_locked_uv_count_ignores_host_config_and_rejects_metadata_drift(
+    tmp_path: Path,
+    review_runtime_copy: Path,
+    drift_review_metadata: Callable[[Path], None],
+) -> None:
+    host = tmp_path / "host-project"
+    host.mkdir()
+    (host / "pyproject.toml").write_text(
+        '[project]\nname="unrelated-host"\nversion="0.0.0"\nrequires-python=">=99"\n'
+        '[tool.uv]\nindex-url="https://invalid.example.invalid/simple"\n'
+        'exclude-newer="2020-01-01T00:00:00Z"\n',
+        encoding="utf-8",
+    )
+    directory = host / ".pr-review"
+    directory.mkdir()
+    _accepted(directory, 1)
+    (directory / "final.md").write_text("# Final\n- Code-review source: CR-1\n", encoding="utf-8")
+    script = review_runtime_copy / "check_review_counts.py"
+    command = [
+        "uv",
+        "run",
+        "--offline",
+        "--no-config",
+        "--locked",
+        "--script",
+        str(script),
+        "--review-dir",
+        str(directory),
+    ]
+
+    def run(args: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # nosec B603 B607
+            args, cwd=host, capture_output=True, text=True, timeout=90, check=False
+        )
+
+    control = run(command)
+    assert control.returncode == 0, control.stdout + control.stderr
+    assert "accepted=1 listed=1" in control.stdout
+    lock = script.with_suffix(".py.lock")
+    before = lock.read_bytes()
+    drift_review_metadata(script)
+    rejected = run(command)
+    assert rejected.returncode != 0
+    assert "lockfile" in rejected.stderr
+    assert lock.read_bytes() == before
+    assert not (host / "uv.lock").exists()
+    repaired = run(["uv", "lock", "--offline", "--no-config", "--script", str(script)])
+    assert repaired.returncode == 0, repaired.stderr
+    recovered = run(command)
+    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+    assert "accepted=1 listed=1" in recovered.stdout
