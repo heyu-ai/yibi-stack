@@ -829,6 +829,12 @@ Step 2 只讀取 `code-review-filtered.json`，不得從 raw 回應或被排除�
 不要在重建 final 報告時覆蓋掉它，也不要覆蓋 pre-review amplifier 已產生的 findings。
 若本輪重新準備過 scope，舊 Step 2 結果已失效；需要該 reviewer 時重跑 Step 2。
 
+按 filtered `findings` 陣列順序（從 1 起）給 Step 2 來源編號 `CR-1`、`CR-2`……；
+在 final 的對應 finding 下加獨立列 `- Code-review source: CR-1`。合併重複 finding 時，
+同列列出全部來源，例如 `- Code-review source: CR-1, CR-2`。每個來源只出現一次；
+降級／Outside contract／Disputed 仍保留來源，WITHDRAW 則移到 `## Withdrawn` 記錄原因與來源，
+不留在修復清單。其他 voices／amplifier 不編 CR 號；不得用總數摘要或 scope audit 代替逐項列出。
+
 | Grade | Condition | Action |
 | --- | --- | --- |
 | **Consensus Critical** | ≥2 voices mark Critical with no DISAGREE | Must fix |
@@ -836,7 +842,7 @@ Step 2 只讀取 `code-review-filtered.json`，不得從 raw 回應或被排除�
 | **Disputed** | 1 voice marks Critical/Important; others DISAGREE | List the dispute; user decides |
 | **Single-voice Critical** | 1 voice marks Critical; others did not mention | Lead MUST execute before adopting — do NOT skip by reasoning alone: ① Extract the finding's claimed pattern (the specific syntax, string, or construct the finding says is problematic) ② `grep -rn '<pattern>' <relevant-dirs>` — report hit count ③ Zero hits + pre-existing limitation (old code also didn't handle it) → demote to Deferred with `Grep verification: <command> → 0 hits` ④ Nonzero hits → confirm as Consensus Critical ⑤ Can't grep (no concrete pattern) → list as Disputed. (4× recurrence: PR #626/#653/#815/#1774 — lead adopted single-voice Criticals by reasoning without grepping actual usage; all turned out to be zero-hit pre-existing limitations.) |
 | **Actionable NIT** | Any 1 voice marks NIT and it's not subjective preference | **Deferred — never blocks**, any round. Lead MAY fix trivially in-round; doing so is not a gate |
-| **Withdrawn** | Marked WITHDRAW in R2 | Remove from list |
+| **Withdrawn** | Marked WITHDRAW in R2 | 移出修復清單；Step 2 來源留在 Withdrawn 區塊供 Step 5a 核對 |
 | **Voice unavailable** | That voice failed R1/R2 twice in a row | Note in final.md; do not block |
 
 #### Contract mapping gate
@@ -942,31 +948,44 @@ group-review ({{N}}/3 voices active)
 <paste code-review-scope.md verbatim, including its owned markers and rejected-item audit>
 ```
 
-Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 5b.
+Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 5a.
 
 **Checkpoint (context lifetime).** With the Write tool, write `$REVIEW_DIR/state.md`: PR number,
 base branch, baseline SHA, `head:` (PR `headRefOid`), re-review round, `ci_command:` (Step 6),
 `disputed:` (each Disputed item + the user's ruling), and `next: Step 5` while any Disputed item
-lacks a ruling, else `next: Step 5b`; rewrite `head:` / `next:` at every later step boundary. Later steps need nothing beyond `$REVIEW_DIR` (`prompt-r1.md` = frozen contract,
+lacks a ruling, else `next: Step 5a`; rewrite `head:` / `next:` at every later step boundary. Later steps need nothing beyond `$REVIEW_DIR` (`prompt-r1.md` = frozen contract,
 `final.md` = blocking set), so this human pause is the cheapest place to shed context: tell the
 user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> --resume`.
 
 ---
 
+### Step 5a — 收下筆數與 final 列出筆數 gate（blocking）
+
+每次進入 Step 5b 前（含 `--resume` 直接跳入與 Step 7 重彙整），MUST 從 PR worktree 執行：
+
+```bash
+REVIEW_DIR="$(git rev-parse --show-toplevel)/.pr-review"
+python3 ~/.agents/skills/pr-cycle-deep/scripts/check_review_counts.py --review-dir "$REVIEW_DIR"
+```
+
+核對 `code-review-filtered.json` 的 `findings` 筆數與 final 正文 CR 來源筆數，並要求來源編號
+一一對應，防止「漏一筆、重複一筆」仍以相同總數過關；code fence 與 scope audit 不計入。
+零筆也必須有合法 filtered JSON 與非空 final，得到 `accepted=0 listed=0` 才通過。
+Exit `0` → 才可進 Step 5b；`1` → 筆數／來源不符；`2` → 缺檔、JSON／來源格式錯誤。
+任何非零 MUST 停止，不貼 PR、不進 Step 6，保留 `next: Step 5a`；回 Step 5 補齊逐項去向後重跑，
+不得刪減 filtered JSON 來湊數。final 修改後必須重新核對；此 gate 不改變 finding 的 blocking 等級。
+
+---
+
 ### Step 5b — Post review summary to PR
 
-Post the aggregated consensus as a PR comment **before** fixes start, so the decision trail is
-recorded for later readers. Recompute `REVIEW_DIR` in the same block as `gh pr comment` (each Bash
-call is a fresh shell, else `--body-file` expands empty); skip without blocking if `final.md` is missing:
+先執行 Step 5a 並確認 exit `0`（即使 resume 的 `next:` 是 Step 5b 也不能跳過）。
+在修復前將彙整結果貼到 PR，留下決策紀錄。每個 Bash call 重新取得 `REVIEW_DIR`：
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
 REVIEW_DIR="$WT_ROOT/.pr-review"
-if [ ! -f "$REVIEW_DIR/final.md" ]; then
-  echo "[WARN] final.md missing -- skip posting; complete Step 5 first, then continue to Step 6"
-else
-  gh pr comment "{{pr_number}}" --body-file "$REVIEW_DIR/final.md"
-fi
+gh pr comment "{{pr_number}}" --body-file "$REVIEW_DIR/final.md"
 ```
 
 - **exit 0** → report the comment URL.
