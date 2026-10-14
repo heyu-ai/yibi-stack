@@ -1,8 +1,16 @@
 """共用 script import 路徑與獨立安裝 runtime fixtures。"""
 
+import base64
+import csv
+import hashlib
+import importlib.metadata
+import io
+import json
 import shutil
+import subprocess  # nosec B404
 import sys
 import tomllib
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -29,19 +37,71 @@ def review_runtime_copy(tmp_path: Path) -> Path:
     return target
 
 
-@pytest.fixture
-def drift_review_metadata() -> Callable[[Path], None]:
-    """加入已鎖定的傳遞依賴作為直接依賴，製造可解析但未更新 lock 的 metadata。"""
+@pytest.fixture(scope="session")
+def review_dependency_wheels(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """以已安裝的真實純 Python 依賴建立本機 wheels，不使用 registry 快取或假 parser。"""
+    target = tmp_path_factory.mktemp("review-dependency-wheels")
+    for name in ("markdown-it-py", "mdurl"):
+        distribution = importlib.metadata.distribution(name)
+        files = list(distribution.files or ())
+        info = next(
+            item.parent
+            for item in files
+            if item.name == "METADATA" and item.parent.name.endswith(".dist-info")
+        )
+        wheel = target / f"{name.replace('-', '_')}-{distribution.version}-py3-none-any.whl"
+        records = []
+        with zipfile.ZipFile(wheel, "w", zipfile.ZIP_DEFLATED) as archive:
+            for item in files:
+                if (
+                    ".." in item.parts
+                    or "__pycache__" in item.parts
+                    or item.name in ("RECORD", "INSTALLER", "REQUESTED", "direct_url.json")
+                ):
+                    continue
+                content = Path(distribution.locate_file(item)).read_bytes()
+                archive.writestr(item.as_posix(), content)
+                digest = base64.urlsafe_b64encode(hashlib.sha256(content).digest()).rstrip(b"=")
+                records.append((item.as_posix(), "sha256=" + digest.decode(), str(len(content))))
+            record_path = (info / "RECORD").as_posix()
+            records.append((record_path, "", ""))
+            record = io.StringIO()
+            csv.writer(record, lineterminator="\n").writerows(records)
+            archive.writestr(record_path, record.getvalue())
+    return target
 
-    def drift(script: Path) -> None:
-        lock = tomllib.loads(script.with_suffix(".py.lock").read_text(encoding="utf-8"))
+
+@pytest.fixture
+def drift_review_metadata(review_dependency_wheels: Path) -> Callable[[Path], bytes]:
+    """在 shipped-lock 正向對照後，改用本機 wheel feed，建立不依賴 registry cache 的 drift。"""
+
+    def drift(script: Path) -> bytes:
+        original = script.read_text(encoding="utf-8")
+        settings = (
+            "\n# [tool.uv]\n# no-index = true\n"
+            f"# find-links = [{json.dumps(str(review_dependency_wheels))}]\n# ///\n"
+        )
+        local = original.replace("\n# ///\n", settings, 1)
+        if local == original:
+            raise AssertionError("無法建立本機 runtime fixture")
+        script.write_text(local, encoding="utf-8")
+        subprocess.run(  # nosec B603 B607
+            ["uv", "lock", "--offline", "--no-config", "--script", str(script)],
+            cwd=script.parent,
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=True,
+        )
+        before = script.with_suffix(".py.lock").read_bytes()
+        lock = tomllib.loads(before.decode("utf-8"))
         direct = {item["name"] for item in lock["manifest"]["requirements"]}
         extra = next(package for package in lock["package"] if package["name"] not in direct)
         requirement = f"{extra['name']}=={extra['version']}"
-        original = script.read_text(encoding="utf-8")
-        changed = original.replace("# dependencies = [", f'# dependencies = ["{requirement}", ', 1)
-        if changed == original:
+        changed = local.replace("# dependencies = [", f'# dependencies = ["{requirement}", ', 1)
+        if changed == local:
             raise AssertionError("無法建立 metadata drift fixture")
         script.write_text(changed, encoding="utf-8")
+        return before
 
     return drift

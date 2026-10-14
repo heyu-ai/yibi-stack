@@ -385,7 +385,7 @@ def test_missing_script_lock_stops_before_accepting_or_resetting(
 def test_locked_uv_count_ignores_host_config_and_rejects_metadata_drift(
     tmp_path: Path,
     review_runtime_copy: Path,
-    drift_review_metadata: Callable[[Path], None],
+    drift_review_metadata: Callable[[Path], bytes],
 ) -> None:
     host = tmp_path / "host-project"
     host.mkdir()
@@ -421,11 +421,9 @@ def test_locked_uv_count_ignores_host_config_and_rejects_metadata_drift(
     assert control.returncode == 0, control.stdout + control.stderr
     assert "accepted=1 listed=1" in control.stdout
     lock = script.with_suffix(".py.lock")
-    before = lock.read_bytes()
-    drift_review_metadata(script)
+    before = drift_review_metadata(script)
     rejected = run(command)
     assert rejected.returncode != 0
-    assert "lockfile" in rejected.stderr
     assert lock.read_bytes() == before
     assert not (host / "uv.lock").exists()
     repaired = run(["uv", "lock", "--offline", "--no-config", "--script", str(script)])

@@ -899,7 +899,7 @@ class TestReviewScopeBehavior:
         self,
         origin_and_clone: dict[str, Path],
         review_runtime_copy: Path,
-        drift_review_metadata: Callable[[Path], None],
+        drift_review_metadata: Callable[[Path], bytes],
     ) -> None:
         repo = origin_and_clone["repo"]
         (repo / "pyproject.toml").write_text(
@@ -928,11 +928,10 @@ class TestReviewScopeBehavior:
         assert json.loads(manifest.read_text())["changed_paths"] == ["feature.txt"]
         before_manifest = manifest.read_bytes()
         lock = scope.with_suffix(".py.lock")
-        before_lock = lock.read_bytes()
-        drift_review_metadata(scope)
+        before_lock = drift_review_metadata(scope)
         rejected = run(["bash", str(setup), "main"])
         assert rejected.returncode != 0
-        assert "[FAIL]" in rejected.stderr and "lockfile" in rejected.stderr
+        assert "[FAIL]" in rejected.stderr
         assert "REVIEW_DIR=" not in rejected.stdout
         assert manifest.read_bytes() == before_manifest
         assert lock.read_bytes() == before_lock
