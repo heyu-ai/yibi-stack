@@ -34,8 +34,16 @@ if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
 fi
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-# Invalidate before argument/fetch failures; old accepted reviews cannot survive a refresh.
-python3 "$SCRIPT_DIR/review_scope.py" reset
+if ! command -v uv >/dev/null 2>&1; then
+    echo "[FAIL] 需要 uv 才能執行鎖定依賴的 review-scope script 環境" >&2
+    exit 1
+fi
+# Runtime 前置條件失敗時保留前輪證據並停止；reset 可執行後，
+# 先失效舊產物，再處理參數或 fetch 失敗。
+if ! uv run --no-config --locked --script "$SCRIPT_DIR/review_scope.py" reset; then
+    echo "[FAIL] review-scope reset 失敗；請檢查 uv 與 script 的鎖定依賴" >&2
+    exit 1
+fi
 BASE_BRANCH="${1:-}"
 if [ -z "$BASE_BRANCH" ]; then
     echo "[FAIL] base branch 未提供（例：bash setup-review-dir.sh main）" >&2
@@ -134,7 +142,10 @@ fi
 
 # This script alone selects/fetches the base; freeze its exact object ID and derive
 # all scope artifacts together, using NUL-delimited Git paths rather than display text.
-python3 "$SCRIPT_DIR/review_scope.py" capture --base "$BASE_SHA"
+if ! uv run --no-config --locked --script "$SCRIPT_DIR/review_scope.py" capture --base "$BASE_SHA"; then
+    echo "[FAIL] review-scope capture 失敗；請檢查 uv 與 script 的鎖定依賴" >&2
+    exit 1
+fi
 
 # Informational：呼叫端可選擇解析此行或自行 git rev-parse --show-toplevel 推導。
 echo "REVIEW_DIR=$REVIEW_DIR"

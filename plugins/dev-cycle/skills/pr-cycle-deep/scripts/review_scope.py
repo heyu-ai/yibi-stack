@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["markdown-it-py==4.2.0"]
+# ///
 """Capture setup's fetched base, then scope normalized /code-review findings.
 
 setup-review-dir.sh owns fetch/remote policy and calls capture --base <object ID>.
@@ -18,8 +22,8 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-START = "<!-- code-review-scope:start -->"
-END = "<!-- code-review-scope:end -->"
+from review_markdown import END, START, parse_report
+
 ACCEPTED = "code-review-filtered.json"
 AUDIT = "code-review-scope.md"
 CAPTURED = ("review-scope.json", "diff.patch", "changed-files.txt")
@@ -64,15 +68,12 @@ def update_final(directory: Path, section: str | None) -> None:
     final = directory / "final.md"
     if not final.exists():
         return
-    text = final.read_text(encoding="utf-8")
-    if START in text or END in text:
-        if text.count(START) != 1 or text.count(END) != 1:
-            raise ScopeError("final.md has malformed code-review-scope delimiters")
-        start = text.index(START)
-        end = text.index(END) + len(END)
-        if text.index(END) < start:
-            raise ScopeError("final.md has reversed code-review-scope delimiters")
-        replacement = section.rstrip("\n") if section is not None else ""
+    # 直接解碼 bytes，避免 universal-newline 轉換改動其他 reviewer 的文字。
+    text = final.read_bytes().decode("utf-8")
+    span = parse_report(text).audit_span
+    if span is not None:
+        start, end = span
+        replacement = section.rstrip("\r\n") if section is not None else ""
         text = text[:start] + replacement + text[end:]
     elif section is not None:
         text += ("" if not text or text.endswith("\n\n") else "\n\n") + section
@@ -256,6 +257,9 @@ class Parser(argparse.ArgumentParser):
 
 
 def main() -> int:
+    if not Path(__file__).resolve().with_suffix(".py.lock").is_file():
+        print("[FAIL] review-scope 缺少 script lockfile；請更新完整 skill", file=sys.stderr)
+        return 1
     directory = None
     reset_capture = False
     try:
