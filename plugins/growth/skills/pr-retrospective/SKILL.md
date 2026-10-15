@@ -58,30 +58,25 @@ Lesson 從儲存升級到 `.claude/rules/` 時也不需要再翻譯。
 
 ### Step 0 — 環境與 PR 解析（只在 skill 啟動時跑一次）
 
-先定位 bootstrap.sh。**不要用 `~/.agents/config.json` 的 `skill_repo` 來找它**：該 key 是多個
-repo 的 `make install` 共寫的單一值，會被最後一個安裝者覆寫而指向錯 repo，而只驗 `[ -d ]`
-的 gate 擋不住（錯 repo 也「存在」），用該值拼出的 bootstrap 路徑會直接死在
-No such file——bootstrap 一行都跑不到。
+以**本次實際載入的 skill 目錄**定位，不從 `installed_plugins.json` 挑第一筆安裝、
+不讀 `~/.agents/config.json` 的 `skill_repo`，也不依賴呼叫端 cwd 猜 source checkout。
+Claude Code 會在載入 skill 時展開 `${CLAUDE_SKILL_DIR}`，它不是要留給下一個 Bash call 的環境變數。
 
-依序從目前生效的 plugin cache、`make install` symlink、source checkout 定位，且每個候選都直接
-檢查 bootstrap.sh 可讀。tasks-backed 操作一律呼叫 PATH 中 installed `mycelium`，不從 checkout
-import `tasks/mycelium`：
+將這個已解析的絕對目錄記為 invocation 狀態 `RETRO_ROOT`，供同目錄的 HINDSIGHT.md 等資源使用。
+若執行器沒有展開此佔位符，從載入訊息的 **Skill directory／SKILL.md 絕對路徑**取得目錄，
+在每個命令中直接代入並正確引用；取不到就 `[FAIL]` 並重新載入 skill，不把空值交給 shell。
 
-```bash
-PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('growth@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
-RETRO_ROOT=""
-if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="$PR_FLOW_CACHED/skills/pr-retrospective"; elif [ -r "$HOME/.claude/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="$HOME/.claude/skills/pr-retrospective"; elif [ -r "plugins/growth/skills/pr-retrospective/scripts/bootstrap.sh" ]; then RETRO_ROOT="plugins/growth/skills/pr-retrospective"; fi
-if ! test -n "$RETRO_ROOT"; then echo "[FAIL] 讀不到 pr-retrospective bootstrap.sh；請執行 claude plugin install growth@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
-if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2; exit 1; fi
-```
-
-再執行環境檢查 + 專案偵測（prereqs check / case-free project detection / config）：
+直接執行 bootstrap；`mycelium`／`jq`／`gh` 前置檢查由 script 擁有。tasks-backed 操作仍只用
+PATH 中 installed `mycelium`，不從 checkout import `tasks/mycelium`：
 
 ```bash
-bash "$RETRO_ROOT/scripts/bootstrap.sh"
+bash "${CLAUDE_SKILL_DIR}/scripts/bootstrap.sh"
 ```
 
-Script stdout 輸出 `KEY=VALUE`，agent 解析並記住：
+任一啟動命令非零即停止並回報 stderr。若隨附 script 缺失／不可讀，更新 `growth@yibi-stack`
+plugin，或在 yibi-stack **主 checkout** 執行 `make install`；不得改用另一份 cache 混搭執行。
+
+Script stdout 輸出 `KEY=VALUE`，agent 解析並記住為 invocation 狀態（不是跨 call 的 shell 變數）：
 
 - `ORIG_PROJECT` — 呼叫端 git repo 名稱
 - `REAL_WORKDIR` — 目前工作目錄
@@ -89,22 +84,24 @@ Script stdout 輸出 `KEY=VALUE`，agent 解析並記住：
 
 偵測 PR 號（從 ARGUMENTS 解析 `--pr <n>` 或 fallback 到 `gh pr view`）。
 
-`detect-pr.sh` 是 `bootstrap.sh` 的同目錄 sibling，一律用 `$RETRO_ROOT` 定址。
+`detect-pr.sh` 是 bootstrap 的 sibling；每次呼叫都以同一個已解析的 skill 目錄定址：
 
 **無 `--pr` 引數時**（在 PR branch 上，gh 自動偵測）：
 
 ```bash
-bash "$RETRO_ROOT/scripts/detect-pr.sh"
+bash "${CLAUDE_SKILL_DIR}/scripts/detect-pr.sh"
 ```
 
 **有 `--pr <n>` 引數時**（agent 把實際 PR 號附在後）：
 
 ```bash
-bash "$RETRO_ROOT/scripts/detect-pr.sh" --pr 65
+bash "${CLAUDE_SKILL_DIR}/scripts/detect-pr.sh" --pr 65
 ```
 
 Agent 依 ARGUMENTS 選擇對應形式。Script 用 `$*` 合併所有位置引數，支援 shell-split 傳入。
 Script stdout 輸出 `PR_NUMBER=<n>`；agent 解析並記住供後續步驟使用。
+後續範例中的 `$PR_NUMBER`、`$ORIG_PROJECT` 等值，也必須由 agent 在該次 Bash 呼叫中帶入；
+不得假設前一個 Bash process 的賦值或 stdout 會自動成為下一個 process 的環境變數。
 
 檢查是否已有 retro（重跑提示；`--pr-number` 是精確匹配，不依賴 topic 字串）：
 

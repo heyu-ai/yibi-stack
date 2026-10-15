@@ -7,6 +7,11 @@
 
 set -euo pipefail
 
+if ! command -v mycelium >/dev/null 2>&1; then
+  echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2
+  exit 1
+fi
+
 if ! command -v jq >/dev/null 2>&1; then
   echo '[FAIL] jq not installed' >&2
   exit 1

@@ -6,18 +6,20 @@
 ——例如判斷式與賦值指向不同路徑、或 `-r` 檢查的檔名與實際 script 名不符。那類缺陷在靜態
 層面完全合法。
 
-**三個 skill 的三段 fallback 實際上只有兩段可用（skill-form）**
+**仍採用 skill-form 的三段 fallback，實際上只有兩段可用**
 
   tier-1  plugin cache（讀 ~/.claude/plugins/installed_plugins.json 的 <pack>@yibi-stack）
   tier-2  $HOME/.claude/skills/<name>/scripts/...   <-- 死的
   tier-3  plugins/<pack>/skills/<name>/scripts/...  <-- 唯一備援
 
 tier-2 之所以是死的：`make install` 只為「頂層 skills/ 有 symlink」的 skill 建
-`~/.claude/skills/<name>`，而 pr-retrospective / pr-control-log / pr-cycle-fast 三者都是
+`~/.claude/skills/<name>`，而 pr-control-log / pr-cycle-fast 都是
 plugin-only（無頂層 symlink）。所以那一段從來不會命中。多出來的那層讓人以為還有餘裕，
 實際上一旦 tier-1 miss 就直接落到 tier-3。
+pr-retrospective 已改用載入時的 skill 目錄，獨立 shell／cache／symlink 行為由
+test_retro_bootstrap.py 驗證，不再依賴這條 fallback。
 
-**第四個案例（spectra-amplifier）是不同形狀：pack-root fallback，機制也不同**
+**spectra-amplifier 是不同形狀：pack-root fallback，機制也不同**
 
   tier-1  ${CLAUDE_PLUGIN_ROOT}                      <-- Claude Code 執行期即時環境變數，非死
   tier-2  plugin cache（同上，經 SDD_CACHED 變數）
