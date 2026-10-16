@@ -62,9 +62,10 @@ MARKETPLACE_SLUG = "yibi-stack"
 _PATH_RE = re.compile(r"plugins/([a-z0-9][a-z0-9-]*)/skills/([a-z0-9][a-z0-9-]*)")
 # pack-root 形狀的 self-locate 賦值，例：SDD_ROOT="plugins/sdd"（無 /skills/ 段——
 # spectra-amplifier 的 tier-3 自我定位到整個 pack，而非特定 skill 子目錄）。
-# `_ROOT` 後綴限制縮小誤判面：本 repo 四個既有 self-locate 變數
-# （CL_ROOT/PCF_ROOT/RETRO_ROOT/SDD_ROOT）都以 `_ROOT` 結尾，任意 `VAR="plugins/<pack>"`
-# 賦值不應該全部被當成 self-locate（可能是無關的迭代/查表邏輯）。
+# `_ROOT` 後綴限制縮小誤判面：本 repo 的 self-locate 變數都以 `_ROOT` 結尾
+# （現存的有 SDD_ROOT；CL_ROOT/PCF_ROOT/RETRO_ROOT 已改用 `${CLAUDE_SKILL_DIR}`），
+# 任意 `VAR="plugins/<pack>"` 賦值不應該全部被當成 self-locate
+# （可能是無關的迭代/查表邏輯）。
 _PACKROOT_ASSIGN_RE = re.compile(
     r'(?P<var>[A-Z][A-Z0-9_]*_ROOT)="plugins/(?P<pack>[a-z0-9][a-z0-9-]*)"'
 )

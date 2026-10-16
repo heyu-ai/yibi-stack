@@ -49,7 +49,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PLUGINS_DIR = REPO_ROOT / "plugins"
 
 _BASH_FENCE = re.compile(r"^```bash\s*\n(.*?)\n```", re.DOTALL | re.MULTILINE)
-# skill-form 例：CL_ROOT="plugins/growth/skills/pr-control-log"
+# skill-form 形狀例：HARD_ROOT="plugins/growth/skills/pr-retro-hard"
+# （pr-control-log 的 CL_ROOT 已改用 `${CLAUDE_SKILL_DIR}`，不再是現存例子）
 _TIER3_ASSIGN = re.compile(
     r'(?P<var>[A-Z][A-Z0-9_]*)="(?P<path>plugins/[a-z0-9-]+/skills/[a-z0-9-]+)"'
 )
