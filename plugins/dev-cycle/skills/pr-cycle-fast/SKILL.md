@@ -20,20 +20,16 @@ description: PR 生命週期自動化 orchestrator（快速版）：偵測 open 
 
 ### Step 0 — Environment Check
 
-先定位本 skill 的 scripts 目錄（依序從目前生效的 plugin cache、`make install` symlink、
-source checkout 定位，每個候選都直接檢查 script 可讀）：
-
-```bash
-PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('dev-cycle@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
-PCF_ROOT=""
-if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="$PR_FLOW_CACHED/skills/pr-cycle-fast"; elif [ -r "$HOME/.claude/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="$HOME/.claude/skills/pr-cycle-fast"; elif [ -r "plugins/dev-cycle/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="plugins/dev-cycle/skills/pr-cycle-fast"; fi
-if ! test -n "$PCF_ROOT"; then echo "[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh；請執行 claude plugin install dev-cycle@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
-```
+以**本次實際載入的 skill 目錄**定位 scripts，不從 `installed_plugins.json` 挑第一筆安裝，
+也不依賴呼叫端 cwd 猜 source checkout。Claude Code 會在載入 skill 時展開 `${CLAUDE_SKILL_DIR}`，
+它不是要留給下一個 Bash call 的環境變數。若執行器沒有展開此佔位符，從載入訊息的
+**Skill directory／SKILL.md 絕對路徑**取得目錄，在每個命令中直接代入並正確引用；
+取不到就 `[FAIL]` 並重新載入 skill，不把空值交給 shell。
 
 確認 installed CLI **具備本 skill 實際會呼叫的介面**——不是只確認它存在：
 
 ```bash
-bash "$PCF_ROOT/scripts/check-cli-capability.sh"
+bash "${CLAUDE_SKILL_DIR}/scripts/check-cli-capability.sh"
 ```
 
 Exit code 語義：

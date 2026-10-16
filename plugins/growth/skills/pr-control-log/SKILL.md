@@ -33,36 +33,26 @@ description: >
 
 ### Step 0 — 環境與 PR 偵測
 
-先定位 bootstrap.sh。**不要用 `~/.agents/config.json` 的 `skill_repo` 來找它**：該 key 是多個
-repo 的 `make install` 共寫的單一值，會被最後一個安裝者覆寫而指向錯 repo，而只驗 `[ -d ]`
-的 gate 擋不住（錯 repo 也「存在」），用該值拼出的 bootstrap 路徑會直接死在
-No such file——bootstrap 一行都跑不到（PR #215 已在 pr-retrospective 實測此失敗）。
+以**本次實際載入的 skill 目錄**定位，不從 `installed_plugins.json` 挑第一筆安裝、
+不讀 `~/.agents/config.json` 的 `skill_repo`，也不依賴呼叫端 cwd 猜 source checkout。
+Claude Code 會在載入 skill 時展開 `${CLAUDE_SKILL_DIR}`，它不是要留給下一個 Bash call 的環境變數。
+若執行器沒有展開此佔位符，從載入訊息的 **Skill directory／SKILL.md 絕對路徑**取得目錄，
+在每個命令中直接代入並正確引用；取不到就 `[FAIL]` 並重新載入 skill，不把空值交給 shell。
 
-依序從目前生效的 plugin cache、`make install` symlink、source checkout 定位，且每個候選都直接
-檢查 bootstrap.sh 可讀。tasks-backed 操作一律呼叫 PATH 中 installed `mycelium`，不從 checkout
-import `tasks/mycelium`：
-
-```bash
-PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('growth@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
-CL_ROOT=""
-if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$PR_FLOW_CACHED/skills/pr-control-log"; elif [ -r "$HOME/.claude/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="$HOME/.claude/skills/pr-control-log"; elif [ -r "plugins/growth/skills/pr-control-log/scripts/bootstrap.sh" ]; then CL_ROOT="plugins/growth/skills/pr-control-log"; fi
-if ! test -n "$CL_ROOT"; then echo "[FAIL] 讀不到 pr-control-log bootstrap.sh；請執行 claude plugin install growth@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
-if ! command -v mycelium >/dev/null 2>&1; then echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2; exit 1; fi
-```
-
-再執行 bootstrap：
+直接執行 bootstrap；`mycelium`／`gh` 前置檢查由 script 擁有。tasks-backed 操作一律呼叫 PATH 中
+installed `mycelium`，不從 checkout import `tasks/mycelium`：
 
 ```bash
-bash "$CL_ROOT/scripts/bootstrap.sh"
+bash "${CLAUDE_SKILL_DIR}/scripts/bootstrap.sh"
 ```
 
 解析 stdout 的 `ORIG_PROJECT` / `REAL_WORKDIR` / `BRANCH`。
 如果 script 輸出 `[FAIL]`，停止並回報錯誤。
 
-然後偵測 PR 號（`detect-pr.sh` 是 bootstrap.sh 的同目錄 sibling，一律用 `$CL_ROOT` 定址）：
+然後偵測 PR 號（`detect-pr.sh` 是 bootstrap.sh 的同目錄 sibling，一律用 `${CLAUDE_SKILL_DIR}` 定址）：
 
 ```bash
-bash "$CL_ROOT/scripts/detect-pr.sh"
+bash "${CLAUDE_SKILL_DIR}/scripts/detect-pr.sh"
 ```
 
 解析 `PR_NUMBER`。
