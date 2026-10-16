@@ -38,6 +38,7 @@ Exit code 語義：
 - **exit 1** — PATH 中沒有 `pr-orchestrator`（未安裝）→ 停止，照 stderr 的安裝指令執行
 - **exit 2（安裝損毀）** — 已安裝但某子指令 `--help` 跑不起來 → 停止，照 stderr 的 `--force` 重裝指令執行
 - **exit 2（版本過舊）** — 已安裝且 `--help` 正常，但缺少 `--repo-root` → 停止，照 stderr 的升級指令執行
+- **exit 127** — 這不是本 script 的結果：bash 找不到 `/scripts/check-cli-capability.sh`，代表載入目錄沒有被代入 → 停止，重新載入 skill 或代入絕對路徑，不要當成 CLI 缺漏處理
 
   兩個 exit 2 子情況訊息不同、修法不同，不要互相套用（stderr 已指明各自的指令）
 
@@ -390,7 +391,7 @@ FAILED（terminal）
 | `[FAIL] 缺少 pr-orchestrator`（exit 1） | 執行 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"` |
 | `[FAIL] 已安裝的 pr-orchestrator 缺少 --repo-root`（exit 2） | 版本過舊。執行 `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"`；帶 `--force` 是因為它在「已安裝」與「未安裝」兩種狀態下都成立，不需要先判斷目前狀態 |
 | `[FAIL] pr-orchestrator <sub> --help 無法執行`（exit 2） | 安裝損毀，非版本問題。同樣以 `--force` 重裝；若仍失敗，先 `uv tool uninstall yibi-stack` 再安裝 |
-| `[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh` | 執行 `claude plugin install dev-cycle@yibi-stack`，或在 yibi-stack checkout 執行 `make install` |
+| bash 回報 `/scripts/check-cli-capability.sh: No such file or directory`（exit 127） | 載入目錄沒有被代入。重新載入 skill，或從載入訊息的 Skill directory 取得絕對路徑，代入 `${CLAUDE_SKILL_DIR}` 後再執行 |
 | `分支沒有對應的 open PR` | 先 `gh pr create` 建立 PR |
 | `多個 PR 對應同分支` | 加 `--pr <n>` 明確指定 |
 | State 停在 BLOCKED | 看 blockers 訊息，解除後跑 `/pr-cycle-fast resume` |

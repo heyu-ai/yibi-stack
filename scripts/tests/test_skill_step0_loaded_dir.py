@@ -20,13 +20,17 @@ CONTROL_LOG = REPO_ROOT / "plugins/growth/skills/pr-control-log"
 CYCLE_FAST = REPO_ROOT / "plugins/dev-cycle/skills/pr-cycle-fast"
 
 _FENCE = re.compile(r"^```bash\s*\n(.*?)\n```", re.MULTILINE | re.DOTALL)
-# 舊範本的兩個特徵：以命令替換讀 registry、依賴 registry 檔。
-_OLD_TEMPLATE_SIGNS = ("$(python3", "installed_plugins.json")
+# AC-1：Step 0 不得有任何命令替換（`$(`、反引號），也不得探測 installed_plugins.json。
+_OLD_TEMPLATE_SIGNS = ("$(", "`", "installed_plugins.json")
 
-# 舊範本原文（取自 #569 之前的 pr-control-log），作為偵測器的正向對照輸入。
+# 偵測器的正向對照輸入。第一筆是 #571 之前 pr-control-log Step 0 的精簡形式（只保留兩個特徵，
+# 不是原文）；其餘是 AC-1 要求也必須擋下的其他命令替換寫法。
 _KNOWN_BAD = (
     'PR_FLOW_CACHED=$(python3 -c "import json,pathlib; '
-    "pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json'\")\n"
+    "pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json'\")\n",
+    'R=$(dirname "$0")\n',
+    "R=$(pwd)\n",
+    "R=`pwd`\n",
 )
 
 
@@ -42,9 +46,10 @@ def _uses_old_template(block: str) -> bool:
     return any(sign in block for sign in _OLD_TEMPLATE_SIGNS)
 
 
-def test_detector_flags_known_bad_template() -> None:
-    """對照組：偵測器必須能抓到舊範本，否則下面兩個 PASS 沒有資訊量。"""
-    assert _uses_old_template(_KNOWN_BAD)
+@pytest.mark.parametrize("bad", _KNOWN_BAD)
+def test_detector_flags_known_bad_template(bad: str) -> None:
+    """對照組：偵測器必須能抓到舊範本與其他命令替換，否則下面的 PASS 沒有資訊量。"""
+    assert _uses_old_template(bad)
 
 
 @pytest.mark.parametrize("skill", [CONTROL_LOG, CYCLE_FAST], ids=lambda p: p.name)
@@ -56,6 +61,22 @@ def test_step0_has_no_command_substitution_or_registry_probe(skill: Path) -> Non
     assert any("${CLAUDE_SKILL_DIR}/scripts/" in block for block in blocks), (
         f"{skill.name} Step 0 沒有任何 fence 以載入的 skill 目錄呼叫 scripts"
     )
+    for block in blocks:
+        # 裸 $CLAUDE_SKILL_DIR 不會被載入期替換，shell 會展開成空字串。
+        assert not re.search(r"\$CLAUDE_SKILL_DIR\b", block), f"{skill.name} 含裸變數：\n{block}"
+
+
+@pytest.mark.parametrize("skill", [CONTROL_LOG, CYCLE_FAST], ids=lambda p: p.name)
+def test_every_step0_script_reference_resolves_to_a_file(skill: Path) -> None:
+    """Step 0 每個以載入目錄引用的 script（含 detect-pr.sh）都必須是實際存在的檔案。"""
+    refs = [
+        name
+        for block in _step0_fences(skill)
+        for name in re.findall(r"\$\{CLAUDE_SKILL_DIR\}/scripts/([\w.-]+)", block)
+    ]
+    assert refs, f"{skill.name} Step 0 沒有 script 引用"
+    for name in refs:
+        assert (skill / "scripts" / name).is_file(), f"{skill.name} Step 0 引用不存在的 {name}"
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -131,6 +152,29 @@ def test_control_log_bootstraps_from_loaded_directory(tmp_path: Path, caller_rep
     assert values["BRANCH"] == "feature"
 
 
+def test_control_log_detect_pr_runs_from_loaded_directory(
+    tmp_path: Path, caller_repo: Path
+) -> None:
+    """AC-2 的另一半：detect-pr.sh 以載入目錄呼叫時，在獨立 shell 回傳 PR_NUMBER。
+
+    載入目錄刻意含空白，確認 SKILL.md 要求的引用方式有效；gh 只是 exit 99 的 stub，
+    所以本測試也證明帶 --pr 時不需要呼叫 gh。
+    """
+    root = tmp_path / "active plugin cache/skills/pr-control-log"
+    shutil.copytree(CONTROL_LOG, root)
+    result = subprocess.run(  # nosec B603
+        ["/bin/bash", "-c", _command(CONTROL_LOG, "detect-pr.sh", root) + " --pr 73"],
+        cwd=caller_repo,
+        env=_env(tmp_path),
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "PR_NUMBER=73"
+
+
 def test_control_log_bootstrap_rejects_missing_mycelium(tmp_path: Path, caller_repo: Path) -> None:
     result = subprocess.run(  # nosec B603
         ["/bin/bash", str(CONTROL_LOG / "scripts/bootstrap.sh")],
@@ -146,7 +190,7 @@ def test_control_log_bootstrap_rejects_missing_mycelium(tmp_path: Path, caller_r
     assert result.stdout == ""
 
 
-def test_cycle_fast_step0_command_points_at_existing_script(tmp_path: Path) -> None:
+def test_cycle_fast_step0_command_points_at_existing_script() -> None:
     """代入載入目錄後，命令指向的 script 必須真的存在。"""
     command = _command(CYCLE_FAST, "check-cli-capability.sh", CYCLE_FAST)
     match = re.search(r'bash "([^"]+check-cli-capability\.sh)"', command)

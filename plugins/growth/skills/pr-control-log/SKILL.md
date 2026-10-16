@@ -222,7 +222,7 @@ mycelium control-log advice --since-days 90
 
 | 問題 | 解決方式 |
 |------|---------|
-| `[FAIL] 讀不到 pr-control-log bootstrap.sh` | 執行 `claude plugin install growth@yibi-stack`，或在 yibi-stack checkout 執行 `make install` |
+| bash 回報 `/scripts/bootstrap.sh: No such file or directory`（exit 127） | 載入目錄沒有被代入。重新載入 skill，或從載入訊息的 Skill directory 取得絕對路徑，代入 `${CLAUDE_SKILL_DIR}` 後再執行 |
 | detect-pr.sh `[FAIL] no PR detected` | 傳入 `--pr <n>` 引數，或確認在有 PR 的分支上 |
 | `control-log add` 失敗 | 確認 installed CLI 可用：`mycelium --help` |
 | artifact 路徑不存在 | `.runtime/control-logs/` 不存在時 agent 應先 `mkdir -p` 建立 |

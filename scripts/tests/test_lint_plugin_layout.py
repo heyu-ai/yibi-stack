@@ -227,8 +227,8 @@ class TestSelfReference:
         """LINTLAYOUT-SR-008: 沒有 `_ROOT` 後綴的賦值 -> 不當成 self-locate，放行
 
         負面對照：避免把任意 `VAR="plugins/<pack>"` 賦值都當成 self-locate 誤判——
-        `_ROOT` 後綴是本 repo self-locate 變數共同的命名慣例（現存的有 SDD_ROOT；
-        CL_ROOT/PCF_ROOT/RETRO_ROOT 已改用 `${CLAUDE_SKILL_DIR}`），用它縮小誤判面。
+        `_ROOT` 後綴是本 repo self-locate 變數共同的命名慣例（例如 SDD_ROOT、HARD_ROOT、
+        SKILL_ROOT；CL_ROOT/PCF_ROOT/RETRO_ROOT 已改用 `${CLAUDE_SKILL_DIR}`），用它縮小誤判面。
         """
         root = _make_repo(tmp_path)
         skill_md = root / "plugins" / "alpha" / "skills" / "foo" / "SKILL.md"
