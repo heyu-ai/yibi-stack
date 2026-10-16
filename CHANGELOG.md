@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.19] - 2026-10-17
+
+### Fixed
+
+- growth／dev-cycle：`pr-control-log` 與 `pr-cycle-fast` 的 Step 0 改以 `${CLAUDE_SKILL_DIR}` 呼叫
+  自己的 scripts，不再用命令替換讀 `installed_plugins.json`，在禁止命令替換的下游 repo（如 yibi-mvp
+  的 `protect-bash-cd.py`）也能啟動；`pr-control-log` 的 `mycelium` 存在性檢查移入 `bootstrap.sh`（#571）。
+
+## [1.23.18] - 2026-10-15
+
+### Fixed
+
+- dev-cycle：`pr-cycle-deep` Step 5b 前新增 blocking count gate，以 CR 來源編號逐項核對
+  `code-review-filtered.json` 收下的 finding 都已在 `final.md` 正文列出去向；漏列、重複、未知來源
+  exit 1，缺檔或格式錯誤 fail closed（exit 2）。相關 review scripts 改用 uv 管理的獨立執行環境（#566）。
+- growth：`pr-retrospective` Step 0 改從載入的 skill 目錄啟動 bootstrap 與 PR detector，不再掃
+  plugin registry 或依賴跨 Bash process 的 `RETRO_ROOT`；缺少 `mycelium` 時 bootstrap 明確 exit 1（#569）。
+
 ## [1.23.17] - 2026-10-11
 
 ### Fixed
