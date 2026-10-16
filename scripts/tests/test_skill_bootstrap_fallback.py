@@ -13,11 +13,10 @@
   tier-3  plugins/<pack>/skills/<name>/scripts/...  <-- 唯一備援
 
 tier-2 之所以是死的：`make install` 只為「頂層 skills/ 有 symlink」的 skill 建
-`~/.claude/skills/<name>`，而 pr-control-log / pr-cycle-fast 都是
-plugin-only（無頂層 symlink）。所以那一段從來不會命中。多出來的那層讓人以為還有餘裕，
-實際上一旦 tier-1 miss 就直接落到 tier-3。
-pr-retrospective 已改用載入時的 skill 目錄，獨立 shell／cache／symlink 行為由
-test_retro_bootstrap.py 驗證，不再依賴這條 fallback。
+`~/.claude/skills/<name>`，而 plugin-only 的 skill（無頂層 symlink）從來不會命中那一段。
+多出來的那層讓人以為還有餘裕，實際上一旦 tier-1 miss 就直接落到 tier-3。
+pr-retrospective、pr-control-log、pr-cycle-fast 已改用載入時的 skill 目錄，不再依賴這條
+fallback；行為分別由 test_retro_bootstrap.py 與 test_skill_step0_loaded_dir.py 驗證。
 
 **spectra-amplifier 是不同形狀：pack-root fallback，機制也不同**
 
@@ -50,7 +49,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PLUGINS_DIR = REPO_ROOT / "plugins"
 
 _BASH_FENCE = re.compile(r"^```bash\s*\n(.*?)\n```", re.DOTALL | re.MULTILINE)
-# skill-form 例：CL_ROOT="plugins/growth/skills/pr-control-log"
+# skill-form 形狀例：HARD_ROOT="plugins/growth/skills/pr-retro-hard"
+# （pr-control-log 的 CL_ROOT 已改用 `${CLAUDE_SKILL_DIR}`，不再是現存例子）
 _TIER3_ASSIGN = re.compile(
     r'(?P<var>[A-Z][A-Z0-9_]*)="(?P<path>plugins/[a-z0-9-]+/skills/[a-z0-9-]+)"'
 )

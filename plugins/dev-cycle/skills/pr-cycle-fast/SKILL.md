@@ -20,20 +20,16 @@ description: PR 生命週期自動化 orchestrator（快速版）：偵測 open 
 
 ### Step 0 — Environment Check
 
-先定位本 skill 的 scripts 目錄（依序從目前生效的 plugin cache、`make install` symlink、
-source checkout 定位，每個候選都直接檢查 script 可讀）：
-
-```bash
-PR_FLOW_CACHED=$(python3 -c "import json,pathlib; d=json.loads((pathlib.Path.home()/'.claude'/'plugins'/'installed_plugins.json').read_text(encoding='utf-8')); print(next((e.get('installPath','') for e in d.get('plugins',{}).get('dev-cycle@yibi-stack',[]) if e.get('installPath')), ''))" 2>/dev/null)
-PCF_ROOT=""
-if [ -r "${PR_FLOW_CACHED:-/nonexistent}/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="$PR_FLOW_CACHED/skills/pr-cycle-fast"; elif [ -r "$HOME/.claude/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="$HOME/.claude/skills/pr-cycle-fast"; elif [ -r "plugins/dev-cycle/skills/pr-cycle-fast/scripts/check-cli-capability.sh" ]; then PCF_ROOT="plugins/dev-cycle/skills/pr-cycle-fast"; fi
-if ! test -n "$PCF_ROOT"; then echo "[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh；請執行 claude plugin install dev-cycle@yibi-stack，或在 yibi-stack checkout 執行 make install" >&2; exit 1; fi
-```
+以**本次實際載入的 skill 目錄**定位 scripts，不從 `installed_plugins.json` 挑第一筆安裝，
+也不依賴呼叫端 cwd 猜 source checkout。Claude Code 會在載入 skill 時展開 `${CLAUDE_SKILL_DIR}`，
+它不是要留給下一個 Bash call 的環境變數。若執行器沒有展開此佔位符，從載入訊息的
+**Skill directory／SKILL.md 絕對路徑**取得目錄，在每個命令中直接代入並正確引用；
+取不到就 `[FAIL]` 並重新載入 skill，不把空值交給 shell。
 
 確認 installed CLI **具備本 skill 實際會呼叫的介面**——不是只確認它存在：
 
 ```bash
-bash "$PCF_ROOT/scripts/check-cli-capability.sh"
+bash "${CLAUDE_SKILL_DIR}/scripts/check-cli-capability.sh"
 ```
 
 Exit code 語義：
@@ -42,6 +38,7 @@ Exit code 語義：
 - **exit 1** — PATH 中沒有 `pr-orchestrator`（未安裝）→ 停止，照 stderr 的安裝指令執行
 - **exit 2（安裝損毀）** — 已安裝但某子指令 `--help` 跑不起來 → 停止，照 stderr 的 `--force` 重裝指令執行
 - **exit 2（版本過舊）** — 已安裝且 `--help` 正常，但缺少 `--repo-root` → 停止，照 stderr 的升級指令執行
+- **exit 127** — 這不是本 script 的結果：bash 找不到 `/scripts/check-cli-capability.sh`，代表載入目錄沒有被代入 → 停止，重新載入 skill 或代入絕對路徑，不要當成 CLI 缺漏處理
 
   兩個 exit 2 子情況訊息不同、修法不同，不要互相套用（stderr 已指明各自的指令）
 
@@ -394,7 +391,7 @@ FAILED（terminal）
 | `[FAIL] 缺少 pr-orchestrator`（exit 1） | 執行 `uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"` |
 | `[FAIL] 已安裝的 pr-orchestrator 缺少 --repo-root`（exit 2） | 版本過舊。執行 `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"`；帶 `--force` 是因為它在「已安裝」與「未安裝」兩種狀態下都成立，不需要先判斷目前狀態 |
 | `[FAIL] pr-orchestrator <sub> --help 無法執行`（exit 2） | 安裝損毀，非版本問題。同樣以 `--force` 重裝；若仍失敗，先 `uv tool uninstall yibi-stack` 再安裝 |
-| `[FAIL] 讀不到 pr-cycle-fast check-cli-capability.sh` | 執行 `claude plugin install dev-cycle@yibi-stack`，或在 yibi-stack checkout 執行 `make install` |
+| bash 回報 `/scripts/check-cli-capability.sh: No such file or directory`（exit 127） | 載入目錄沒有被代入。重新載入 skill，或從載入訊息的 Skill directory 取得絕對路徑，代入 `${CLAUDE_SKILL_DIR}` 後再執行 |
 | `分支沒有對應的 open PR` | 先 `gh pr create` 建立 PR |
 | `多個 PR 對應同分支` | 加 `--pr <n>` 明確指定 |
 | State 停在 BLOCKED | 看 blockers 訊息，解除後跑 `/pr-cycle-fast resume` |

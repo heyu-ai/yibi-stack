@@ -3,9 +3,14 @@
 # 環境檢查 + 專案偵測 + 工作目錄/branch 蒐集
 # stdout: KEY=VALUE 一行一對，供 agent 解析
 # stderr: [FAIL]/[WARN] 診斷訊息
-# exit 1: 環境條件不足
+# exit 1: 缺 mycelium 或 gh（此時 stdout 為空）
 
 set -euo pipefail
+
+if ! command -v mycelium >/dev/null 2>&1; then
+  echo '[FAIL] 缺少 mycelium，請執行：uv tool install "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@v1.23.2"' >&2
+  exit 1
+fi
 
 if ! command -v gh >/dev/null 2>&1; then
   echo '[FAIL] gh not installed' >&2
