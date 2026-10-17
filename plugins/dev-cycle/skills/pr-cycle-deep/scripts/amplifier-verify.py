@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """amplifier-verify.py — TC coverage + docstring traceability check for /pr-cycle-deep.
 
 Exit codes:
@@ -35,6 +39,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -419,37 +425,19 @@ _TEST_FUNC_RE = re.compile(r"^\+\s*def\s+(test_\w+)\s*\(")
 _DOCSTRING_START_RE = re.compile(r'^\+\s*"""')
 _FILE_HEADER_RE = re.compile(r"^\+\+\+\s+b/(.+)$")
 
-# Spectra change directory detected from a PR diff. Only diff *file-header* lines
-# (`diff --git`, `+++ `, `--- `) count — a real change adds/edits files under
-# openspec/changes/<slug>/, which appear as headers. Content lines that merely
-# mention such a path (e.g. the `<name>` placeholder examples inside generated
-# skill docs) must NOT be treated as a change, or a spectra-init PR that only
-# vendors those docs fails spuriously with "testplan.md not found for change
-# '<name>'". The slug is also validated to reject placeholder-looking matches.
-#
-# Group 1 captures the `archive/` container when present, so a header can be attributed to the
-# tree it points into; group 2 is the directory name. Without the group, a header under
-# `changes/archive/<YYYY-MM-DD>-<name>/` reported the change as the literal string `archive` and
-# the gate went looking for `openspec/changes/archive/testplan.md`, aborting the whole PR review.
-#
-# Capturing the dated name as an ordinary slug was worse, not better: it made the archived name a
-# *resolvable* candidate, and since only the first matching header was returned and git emits
-# headers in path byte order, the archived name won over any active slug sorting after `"archive"`
-# — turning a loud failure into a silent skip of that active change's verification. Attribution by
-# tree is what fixes it; see `detect_change_refs_from_diff`.
-#
-# The name capture is `[^/\s]+`, not `[^/\n]+`: git path fields on a header line are
-# space-separated, and a greedy newline-only capture can span the a/b boundary. On a rename
-# whose a-side is a stray file directly under `changes/` (`a/openspec/changes/notes.md
-# b/openspec/changes/real-change/notes.md`) it captured `notes.md b` — rejected by slug
-# validation, but the `b/` anchor was already consumed, so the destination change was never
-# seen and the gate exited 0. Excluding whitespace loses no legitimate capture:
-# _VALID_CHANGE_SLUG_RE rejects any name containing it.
-_CHANGE_DIR_RE = re.compile(r"[ab]/(?:docs/)?openspec/changes/(archive/)?([^/\s]+)/")
+# 所有路徑分類與磁碟查找共用 spec 根目錄；diff 只讀檔案標頭，不讀正文中的範例路徑。
 _VALID_CHANGE_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
-# Both layout roots a change directory can live under, in the order they are tried.
-_CHANGE_ROOTS = ("openspec/changes", "docs/openspec/changes")
+
+@dataclass(frozen=True)
+class SpecRoots:
+    """共用根目錄順序與明確設定的優先根目錄。"""
+
+    directories: tuple[str, ...]
+    configured: str | None = None
+
+
+_DEFAULT_SPEC_ROOTS = SpecRoots(("openspec", "docs/openspec"))
 # The container an archived change is moved into, and the date prefix it gains there.
 # Concatenated rather than str.format()-ed into a template: `{4}` in `\d{4}` is a
 # positional replacement field to str.format, which raises IndexError.
@@ -457,6 +445,50 @@ _ARCHIVE_SEGMENT = "archive"
 _ARCHIVE_DATE_PREFIX_RE = r"\d{4}-\d{2}-\d{2}-"
 _TESTPLAN_NAME = "testplan.md"
 _PROPOSAL_NAME = "proposal.md"
+
+
+def load_spec_roots(repo_root: Path) -> SpecRoots:
+    """讀取專案 YAML 設定，依序保留設定根目錄與支援的舊版根目錄。"""
+    config_path = repo_root / ".spectra.yaml"
+    try:
+        text = config_path.read_text(encoding="utf-8-sig")
+    except FileNotFoundError as exc:
+        if config_path.is_symlink():
+            raise ValueError(f"無法讀取 {config_path}：{exc}") from exc
+        text = None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"無法讀取 {config_path}：{exc}") from exc
+
+    configured: list[str] = []
+    if text is not None:
+        try:
+            config = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"{config_path} 不是有效 YAML：{exc}") from exc
+        if not isinstance(config, dict):
+            raise ValueError(f"{config_path} 必須是 YAML mapping")
+        if "spec_dir" in config:
+            value = config["spec_dir"]
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{config_path} 的 spec_dir 必須是非空字串")
+            configured.append(value)
+
+    roots: list[str] = []
+    for value in (*configured, *_DEFAULT_SPEC_ROOTS.directories):
+        path = Path(value)
+        if path.is_absolute() or ".." in path.parts or "\x00" in value:
+            raise ValueError(f"spec_dir 必須位於專案內：{value!r}")
+        try:
+            contained = (repo_root / path).resolve().is_relative_to(repo_root.resolve())
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ValueError(f"無法解析 spec_dir {value!r}：{exc}") from exc
+        if not contained:
+            raise ValueError(f"spec_dir 不可指向專案外：{value!r}")
+        root = path.as_posix()
+        if root not in roots:
+            roots.append(root)
+    return SpecRoots(tuple(roots), roots[0] if configured else None)
+
 
 # 缺 testplan.md 時依 proposal.md frontmatter 的 `type:` 分級。只有這兩類必須附 testplan；
 # 其餘已知類型缺檔只警告。讀不到 type、或值不在兩個清單內，一律比照「必須」處理：
@@ -528,11 +560,13 @@ class DiffChangeRefs:
     archive_tree: list[str] = field(default_factory=list)
 
 
-def classify_spectra_path(path: str) -> tuple[str, str | None]:
+def classify_spectra_path(
+    path: str, spec_roots: SpecRoots = _DEFAULT_SPEC_ROOTS
+) -> tuple[str, str | None]:
     """將儲存庫相對路徑分類為啟用中、封存或非 Spectra 變更。"""
     segments = path.split("/")
-    for root in _CHANGE_ROOTS:
-        root_segments = root.split("/")
+    for root in spec_roots.directories:
+        root_segments = [*Path(root).parts, "changes"]
         if segments[: len(root_segments)] != root_segments:
             continue
         remainder = segments[len(root_segments) :]
@@ -548,14 +582,16 @@ def classify_spectra_path(path: str) -> tuple[str, str | None]:
     return ("none", None)
 
 
-def derive_change_refs(changes: list[PRFileChange]) -> DiffChangeRefs:
+def derive_change_refs(
+    changes: list[PRFileChange], spec_roots: SpecRoots = _DEFAULT_SPEC_ROOTS
+) -> DiffChangeRefs:
     """依檔案變更的舊路徑再新路徑推導 Spectra 變更參照。"""
     refs = DiffChangeRefs()
     for change in changes:
         for path in (change.old_path, change.new_path):
             if path is None:
                 continue
-            tree, slug = classify_spectra_path(path)
+            tree, slug = classify_spectra_path(path, spec_roots)
             if tree == "active" and slug is not None and slug not in refs.active_tree:
                 refs.active_tree.append(slug)
             elif tree == "archive" and slug is not None and slug not in refs.archive_tree:
@@ -563,62 +599,27 @@ def derive_change_refs(changes: list[PRFileChange]) -> DiffChangeRefs:
     return refs
 
 
-def detect_change_refs_from_diff(diff_text: str) -> DiffChangeRefs:
-    """Attribute every change directory named by a diff FILE HEADER to its tree.
-
-    Scans only git file-header lines so a real changed file under ``openspec/changes/<slug>/``
-    is required; a placeholder-looking slug (angle brackets or other non-slug chars, e.g. the
-    literal ``<name>`` in generated skill docs) is rejected as defense-in-depth.
-
-    Both lists preserve header order and drop duplicates, so a change touched by several files
-    appears once.
-
-    The literal ``archive`` capture is still rejected explicitly, for a reason the optional
-    group does not cover: ``changes/archive/README.md`` — a file directly in the container —
-    cannot take that branch, because the group needs a trailing ``/`` after the captured
-    segment and ``README.md/`` has none. The regex backtracks and captures ``archive`` as an
-    *active-tree* slug, which without the guard becomes an obligation to verify a change named
-    ``archive``.
-    """
-    refs = DiffChangeRefs()
+def detect_change_refs_from_diff(
+    diff_text: str, spec_roots: SpecRoots = _DEFAULT_SPEC_ROOTS
+) -> DiffChangeRefs:
+    """只將 diff 檔案標頭交給共用路徑分類器，保留 rename 的舊、新兩側。"""
+    changes: list[PRFileChange] = []
     for line in diff_text.splitlines():
-        if not (
-            line.startswith("diff --git ") or line.startswith("+++ ") or line.startswith("--- ")
-        ):
+        if not line.startswith(("diff --git ", "+++ ", "--- ")):
             continue
-        # EVERY match on the line, not just the first. A `diff --git a/…old/… b/…new/…` header
-        # carries two paths, and a 100%-similarity rename emits no `---`/`+++` lines at all, so
-        # this header is the only line THIS SCANNER READS that carries either of them (the
-        # `rename from`/`rename to` lines also do, but are deliberately not scanned). Reading
-        # just the first attributed
-        # only the `a/` side: it happened to be right for the archiving direction (whose `a/` side
-        # is the active path) and silently wrong for the reverse — restoring a change out of the
-        # archive lost the obligation entirely and the gate exited 0.
-        #
-        # Ordinary `a/P b/P` headers name the same directory twice; the dedup below collapses them,
-        # so scanning both sides costs nothing on the common shape.
-        for m in _CHANGE_DIR_RE.finditer(line):
-            in_archive, name = m.group(1), m.group(2)
-            if not _VALID_CHANGE_SLUG_RE.match(name):
-                continue
-            if in_archive:
-                if name not in refs.archive_tree:
-                    refs.archive_tree.append(name)
-                continue
-            if name == _ARCHIVE_SEGMENT:
-                continue  # the container itself, not a change
-            if name not in refs.active_tree:
-                refs.active_tree.append(name)
-    return refs
+        for match in re.finditer(r"(?:^|\s)[ab]/(\S+)", line):
+            path = match.group(1)
+            changes.append(PRFileChange("modified", path, path))
+    return derive_change_refs(changes, spec_roots)
 
 
-def detect_change_from_diff(diff_text: str) -> str:
+def detect_change_from_diff(diff_text: str, spec_roots: SpecRoots = _DEFAULT_SPEC_ROOTS) -> str:
     """Return the change slug this PR obliges the gate to verify, or "" if none.
 
     That is the first **active-tree** slug. A diff touching only archived material returns "",
     because archived work has nothing left to gate — see :class:`DiffChangeRefs`.
     """
-    refs = detect_change_refs_from_diff(diff_text)
+    refs = detect_change_refs_from_diff(diff_text, spec_roots)
     return refs.active_tree[0] if refs.active_tree else ""
 
 
@@ -647,7 +648,7 @@ class ChangeLocation:
         return self.active_dir is None and self.archived_dir is not None
 
 
-def probed_locations(change_name: str) -> list[str]:
+def probed_locations(change_name: str, spec_roots: SpecRoots = _DEFAULT_SPEC_ROOTS) -> list[str]:
     """Every location :func:`locate_change` looks at, in the same order, as display strings.
 
     Derived from the same constants as the lookup and kept adjacent to it so the fatal
@@ -656,15 +657,17 @@ def probed_locations(change_name: str) -> list[str]:
     archive directory, which by construction never exists at an active root, so the message
     pointed at a path that could not have been there.
     """
-    active = [f"{root}/{change_name}/" for root in _CHANGE_ROOTS]
+    active = [f"{root}/changes/{change_name}/" for root in spec_roots.directories]
     archived = []
-    for root in _CHANGE_ROOTS:
-        archived.append(f"{root}/{_ARCHIVE_SEGMENT}/{change_name}/")
-        archived.append(f"{root}/{_ARCHIVE_SEGMENT}/<YYYY-MM-DD>-{change_name}/")
+    for root in spec_roots.directories:
+        archived.append(f"{root}/changes/{_ARCHIVE_SEGMENT}/{change_name}/")
+        archived.append(f"{root}/changes/{_ARCHIVE_SEGMENT}/<YYYY-MM-DD>-{change_name}/")
     return active + archived
 
 
-def locate_change(repo_root: Path, change_name: str) -> ChangeLocation:
+def locate_change(
+    repo_root: Path, change_name: str, spec_roots: SpecRoots = _DEFAULT_SPEC_ROOTS
+) -> ChangeLocation:
     """Resolve a change name against the active and archived layouts.
 
     Active wins over an archived namesake: a name reused after archival is a real
@@ -686,18 +689,24 @@ def locate_change(repo_root: Path, change_name: str) -> ChangeLocation:
     run. An explicit ``^…$`` with ``re.match`` would be equally correct; ``fullmatch`` is
     preferred only because it puts both anchors in the call rather than half in the pattern.
     """
-    if change_name == _ARCHIVE_SEGMENT:
+    if change_name == _ARCHIVE_SEGMENT or not _VALID_CHANGE_SLUG_RE.fullmatch(change_name):
         # The container is not a change, even though the directory exists. Only
         # reachable through an explicit --change; reported as "found nowhere".
         return ChangeLocation()
 
-    # Prefer an active directory that actually holds a testplan, so a name present under
-    # both layout roots resolves the same way it did before this function existed (the
-    # old code picked the first candidate whose testplan.md existed as a file -- note
-    # is_file() proves type and existence, not that the contents can be read).
+    # 明確設定的 active 目錄不可借用舊根目錄的同名 plan；未設定時保留舊版的 plan 優先規則。
     active_dirs = [
-        d for d in (repo_root / root / change_name for root in _CHANGE_ROOTS) if d.is_dir()
+        d
+        for d in (repo_root / root / "changes" / change_name for root in spec_roots.directories)
+        if d.is_dir()
     ]
+    for candidate in active_dirs:
+        if not candidate.resolve().is_relative_to(repo_root.resolve()):
+            raise ValueError(f"change 目錄不可指向專案外：{candidate}")
+    if spec_roots.configured is not None:
+        configured_dir = repo_root / spec_roots.configured / "changes" / change_name
+        if configured_dir in active_dirs:
+            return ChangeLocation(active_dir=configured_dir)
     for candidate in active_dirs:
         if (candidate / _TESTPLAN_NAME).is_file():
             return ChangeLocation(active_dir=candidate)
@@ -705,10 +714,14 @@ def locate_change(repo_root: Path, change_name: str) -> ChangeLocation:
         return ChangeLocation(active_dir=active_dirs[0])
 
     dated_re = re.compile(_ARCHIVE_DATE_PREFIX_RE + re.escape(change_name))
-    for root in _CHANGE_ROOTS:
-        archive_root = repo_root / root / _ARCHIVE_SEGMENT
+    for root in spec_roots.directories:
+        archive_root = repo_root / root / "changes" / _ARCHIVE_SEGMENT
+        if not archive_root.resolve().is_relative_to(repo_root.resolve()):
+            raise ValueError(f"archive 目錄不可指向專案外：{archive_root}")
         verbatim = archive_root / change_name
         if verbatim.is_dir():
+            if not verbatim.resolve().is_relative_to(repo_root.resolve()):
+                raise ValueError(f"archive change 不可指向專案外：{verbatim}")
             return ChangeLocation(archived_dir=verbatim)
         if not archive_root.is_dir():
             continue
@@ -716,6 +729,8 @@ def locate_change(repo_root: Path, change_name: str) -> ChangeLocation:
         # deterministically (oldest first) instead of following directory order.
         for entry in sorted(archive_root.iterdir()):
             if dated_re.fullmatch(entry.name) and entry.is_dir():
+                if not entry.resolve().is_relative_to(repo_root.resolve()):
+                    raise ValueError(f"archive change 不可指向專案外：{entry}")
                 return ChangeLocation(archived_dir=entry)
     return ChangeLocation()
 
@@ -1095,11 +1110,21 @@ class TraceResult:
     stderr: str
 
 
-def run_trace_checker(checker: Path, repo_root: Path, change_name: str) -> TraceResult:
-    """以非 strict 模式對單一 change 執行 checker，並拆出 FAIL／WARN 行。"""
+def run_trace_checker(checker: Path, repo_root: Path, change_dir: Path) -> TraceResult:
+    """依實際啟用中的 change 路徑傳入精確 spec 根目錄，並拆出 FAIL／WARN 行。"""
+    spec_root = change_dir.parent.parent.relative_to(repo_root).as_posix()
     try:
         proc = subprocess.run(  # nosec B603
-            [sys.executable, str(checker), "--repo-root", str(repo_root), "--change", change_name],
+            [
+                sys.executable,
+                str(checker),
+                "--repo-root",
+                str(repo_root),
+                "--openspec-dir",
+                spec_root,
+                "--change",
+                change_dir.name,
+            ],
             capture_output=True,
             text=True,
             timeout=300,
@@ -1158,6 +1183,14 @@ def main() -> None:
     )
     opts = parser.parse_args()
 
+    # 先解析目前 checkout／worktree 根目錄，避免從子目錄執行時漏讀專案設定。
+    repo_root = Path(_run(["git", "rev-parse", "--show-toplevel"]).strip())
+    try:
+        spec_roots = load_spec_roots(repo_root)
+    except ValueError as exc:
+        print(f"[FAIL] Spectra 設定錯誤：{exc}", file=sys.stderr)
+        sys.exit(2)
+
     diff_text = ""
     if opts.change:
         candidates = [opts.change]
@@ -1165,7 +1198,7 @@ def main() -> None:
     else:
         pre_meta = fetch_pr_metadata(opts.pr)
         file_changes = fetch_pr_file_changes(opts.pr)
-        refs = derive_change_refs(file_changes)
+        refs = derive_change_refs(file_changes, spec_roots)
         candidates = refs.active_tree
         if candidates:
             # 文字 diff 僅用於測試函式 docstring 的追溯分析。
@@ -1209,13 +1242,11 @@ def main() -> None:
             sys.exit(0)
 
     # Step 2 — resolve every candidate, then locate testplan.md
-    # Resolve the CURRENT checkout's root with --show-toplevel (not --git-common-dir,
-    # whose parent is the MAIN repo). The change under review is committed on the PR
-    # branch, which is checked out in the worktree we are running from; an unmerged
-    # change's testplan does not yet exist in the main checkout. --show-toplevel also
-    # handles being invoked from a subdir, returning the worktree (or repo) root.
-    repo_root = Path(_run(["git", "rev-parse", "--show-toplevel"]).strip())
-    resolved = [(name, locate_change(repo_root, name)) for name in candidates]
+    try:
+        resolved = [(name, locate_change(repo_root, name, spec_roots)) for name in candidates]
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"[FAIL] 無法解析 Spectra change 目錄：{exc}", file=sys.stderr)
+        sys.exit(2)
 
     # An ACTIVE candidate wins over an archived one regardless of position. Stopping at the
     # first candidate was a second shadowing bug, one layer below the first: the canonical
@@ -1237,7 +1268,7 @@ def main() -> None:
         # At least one candidate resolves NOWHERE. Report that one — an archived sibling must
         # not excuse it, or an unresolvable active name vanishes the same way.
         name = next(n for n, loc in resolved if not loc.is_active and not loc.is_archived_only)
-        roots = " or ".join(probed_locations(name))
+        roots = " or ".join(probed_locations(name, spec_roots))
         print(
             f"[FAIL] no change directory found for '{name}'. Searched {roots}."
             f" If this name came from the PR diff, the change may have been renamed,"
@@ -1338,7 +1369,7 @@ def main() -> None:
         sys.exit(2)
     trace_error = apply_trace_result(
         findings,
-        run_trace_checker(checker, repo_root, change_name),
+        run_trace_checker(checker, repo_root, location.active_dir),
         enforced=bool(_TRACE_ENFORCED_RE.search(testplan_text)),
     )
     if trace_error is not None:

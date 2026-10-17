@@ -301,6 +301,15 @@ to `.pr-review/pre-review-check.md` (path on the `REPORT=` line):
 python3 ~/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py --pr {{pr_number}}
 ```
 
+規格根目錄以**受審 repo** 根目錄的 `.spectra.yaml` `spec_dir` 為優先來源；未設定時使用
+`openspec`、`docs/openspec`。偵測與查找使用同一份去重後的根目錄集合，保留舊／新路徑以處理
+跨根目錄 rename；trace checker 的 `--openspec-dir` 必須來自實際選中的 active change，
+不能在偵測成功後又回退到 checker 的預設目錄。無法讀取或解析的設定是 exit `2`，不是
+「沒有 Spectra change」。
+
+此入口需要 `uv`；它以 locked standalone script 啟動 verifier，安裝 verifier 自己宣告的
+YAML 解析依賴，不使用受審 repo 的 Python 依賴，也不要求把套件裝進系統 `python3`。
+
 | Exit | Meaning | Action |
 |------|---------|--------|
 | `0` | Baseline OK; amplifier clean (no spectra change, all TCs traced, or TC check skipped for a non-`feat`/`refactor` `type:`) | Relay the summary; CI fail/pending is informational here; continue to Step 1.6 |

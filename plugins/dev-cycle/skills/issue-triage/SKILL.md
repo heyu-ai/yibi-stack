@@ -147,7 +147,7 @@ Step 7 報告頂端要寫出來。失敗時 stdout 為空、stderr 以 `[FAIL]` 
 
 | exit | 意義 | 處理 |
 |------|------|------|
-| 0 | 基準通過 | 記下 `BASELINE_SHA` 與 `FETCHED_AT`，繼續 Step 2 |
+| 0 | 基準通過 | 記下 `BASELINE_SHA` 與 `FETCHED_AT`，繼續 Step 1d |
 | 1 | 腳本自身的未預期錯誤 | `[FAIL] check-baseline.sh 自身錯誤，請回報 stderr 內容` 並停止；不要當成基準通過 |
 | 2 | 不在可讀取的 git repo | `[FAIL] 目前目錄不是可讀取的 git repo` 並停止，請切到要盤點的 repo |
 | 3 | fetch origin main 失敗 | `[FAIL] 無法 fetch origin main，無法確認證據基準` 並停止；不要回退到本機的 origin/main |
@@ -158,6 +158,34 @@ Step 7 報告頂端要寫出來。失敗時 stdout 為空、stderr 以 `[FAIL]` 
 untracked 暫存目錄極為常見，列為失敗會讓檢查幾乎永遠紅，所以刻意放行；懷疑時改在乾淨的 worktree 執行。
 
 > 已知限制：基準固定為 `origin/main`。fork 的 `origin` 可能落後 `upstream`，這種情境尚未處理。
+
+### 1d. 解析證據目錄（必要，fast / deep 共用）
+
+從**目標 repo 根目錄**開始，用 Read tool 讀 `.spectra.yaml`，不要讀 skill 所在 repo 的設定，
+也不要用 grep 擷取 YAML 值。後續統一使用以下記號（是路徑佔位符，不是預設存在的目錄或 shell 變數）：
+
+- `<spec-root>`：本次解析出的規格根目錄。若 `.spectra.yaml` 明確含 `spec_dir`，依 YAML 語意讀取
+  非空字串（含引號、註解與 flow mapping），以 repo 根目錄為相對基準。例如
+  `spec_dir: "docs/specs" # 規格目錄` 的根目錄是 `docs/specs/`。
+- 搜尋根目錄清單：**設定的根目錄優先**，再保留支援的 `openspec/`、`docs/openspec/`，
+  正規化並去重；只有設定檔不存在或未提供 `spec_dir` 時，才直接採用這兩個預設根目錄。
+  下文每個 `<spec-root>/...` 查詢都套用這份清單，不能只查其中一個預設路徑。
+  沒有設定值時，以清單中第一個實際存在的根目錄作為主要根目錄。
+- 所有根目錄必須是 repo 內的相對路徑；絕對路徑、`..` 越界或 symlink 解析後逃出 repo 都不接受。
+  設定檔存在卻無法讀取、YAML 不合法、`spec_dir` 非字串或空白字串，一律
+  `[FAIL] 無法解析規格根目錄` 並停止；**不能回退預設路徑，不能當成沒有 change**。
+- 用 Read/Glob 確認各根目錄與要查的子目錄是否存在、可讀。不存在的預設根目錄記為「不存在」，
+  不是零命中；明確設定的根目錄不存在、已有目錄不可讀或工具失敗則回報 `[FAIL] 證據目錄不可用`
+  並停止。子目錄缺失要記錄，涉及該證據的主張不能以零命中推斷完成或前提消失。
+  若沒有任何可用的預設根目錄，記錄「無可用規格目錄」；綁 change 的主張為 UNCLEAR，不得 CLOSE。
+- `<adr-root>`：由目標 repo 的文件導覽與實際目錄解析出的 ADR 目錄；若 ADR 位於規格樹內，
+  使用對應的 `<spec-root>/...`。不要假定 ADR 一定放在 `docs/adr/`，找不到或不可讀也不是零命中。
+  程式碼與 gate script 目錄同樣依該 repo 實際結構解析。
+- 跨根目錄搬移時，同時保留舊、新路徑證據，但**目前設定的根目錄是 canonical**；
+  同名 change 先查新路徑的 active change，再查其他 active 與 archive。舊路徑已刪除不代表
+  change 消失，舊 archive 也不能覆蓋目前仍進行中的 active change。
+
+把解析後的根目錄清單、主要根目錄、ADR 位置與目錄缺失／錯誤一併帶給後續蒐證步驟及 subagent。
 
 ---
 
@@ -243,9 +271,12 @@ issue/bug 數量多時，**平行 dispatch 一個唯讀探索 subagent**（不�
 
 若 issue body、Jira bug description 或 comment 提到某 openspec/spectra change：
 
-用 **Read tool** 讀 `openspec/changes/<name>/tasks.md`。
-以 checkbox 狀態為完成度 ground truth。找不到時查 archive。
-**若本體與 archive 皆讀不到 tasks.md，視為「未完成」，不得 CLOSE**。
+用 **Read tool** 依 Step 1d 的根目錄清單讀 `<spec-root>/changes/<name>/tasks.md`；
+所有 active 位置都找不到時，再查各根目錄的 `<spec-root>/changes/archive/`，依實際封存目錄名稱找 tasks.md。
+跨根目錄搬移以目前設定根目錄的 active tasks.md 為準，記下舊、新位置，不沿用舊副本的完成狀態。
+以 checkbox 狀態為完成度 ground truth。
+**若本體與 archive 皆讀不到 tasks.md，視為「未完成」，不得 CLOSE**；目錄或工具讀取錯誤
+依 Step 1d 處理，不能當成空清單。
 
 ### 3c′. 深度交叉比對（僅 `--depth deep`，預設啟用）
 
@@ -256,7 +287,8 @@ issue/bug 數量多時，**平行 dispatch 一個唯讀探索 subagent**（不�
 
 對以下三類 issue，**不能只靠 label 判 KEEP**：
 
-路徑依目標 repo 解析：openspec 根目錄預設 `openspec/`（repo 用 `docs/openspec/` 則改用之）；程式碼與 gate script 目錄依該 repo 實際結構填入。grep 零命中前先確認目錄存在，不存在不可當成「未實作」。
+所有路徑沿用 Step 1d 的解析結果。以下查詢以 Read/Glob 列出目錄、Grep 搜尋內容；
+先確認目錄可讀，再解讀零命中，不存在或不可讀不能當成「未實作」或「已失效」。
 
 #### (a) `waiting-pm` / `spec: waiting-pm` / `wait-PM` 類
 
@@ -264,11 +296,11 @@ issue/bug 數量多時，**平行 dispatch 一個唯讀探索 subagent**（不�
 
 1. **openspec archive**：issue 提到的 change 是否已 archive？archive 代表 delta 已套進
    stable spec，PM 裁決可能已在 archive 過程中落地。
-   查法：`ls docs/openspec/changes/archive/ | grep '<change-number>'`
+   查法：用 Glob 查各 `<spec-root>/changes/archive/`，比對 `<change-number>`。
 2. **ADR**：是否已有 ADR 承接該裁決？
-   查法：`grep -rl '<關鍵詞>' docs/adr/`
+   查法：用 Grep 在已解析的 `<adr-root>/` 搜尋 `<關鍵詞>`。
 3. **stable spec 內容**：PM 裁決的具體答案是否已寫進 spec normative 句？
-   查法：`grep -n '<裁決內容關鍵詞>' docs/openspec/specs/<cap>/spec.md`
+   查法：用 Read/Grep 查 `<spec-root>/specs/<cap>/spec.md` 的 `<裁決內容關鍵詞>`。
 
 **判準**：issue 問的「待裁決問題」本身已有答案（寫進 spec / ADR / code）→ CLOSE 或
 UPDATE-SCOPE。change 已 archive **不等於**裁決已完成——archive 是 delta 套進 stable spec，
@@ -279,9 +311,9 @@ OQ 可能仍開放。
 逐一交叉查：
 
 1. **有無 active 或 archived change 補齊**：
-   查法：`ls docs/openspec/changes/ docs/openspec/changes/archive/ | grep '<相關 Epic 或 capability>'`
+   查法：用 Glob 查各 `<spec-root>/changes/` 與 `<spec-root>/changes/archive/`，比對相關 Epic 或 capability。
 2. **ADR 是否裁決該 gap 為 non-goal 或由其他方案解決**：
-   查法：`grep -rl '<gap 關鍵詞>' docs/adr/`
+   查法：用 Grep 在已解析的 `<adr-root>/` 搜尋 `<gap 關鍵詞>`。
 3. **code 是否已實作**（即使 spec 未更新，code 端可能已補齊）：
    查法：`grep -rn '<功能關鍵詞>' backend/src/ mobile/lib/`
 
@@ -309,9 +341,10 @@ scope 已縮小（部分完成）→ UPDATE-SCOPE。
 issue 數量多時（>10），按上述三類各 dispatch 一個 fork subagent 平行交叉比對，
 與 Step 3b 的 code 驗證 subagent 並行。prompt 需附：
 
-- archived change 清單（`ls archive/`）
-- active change 清單（`ls docs/openspec/changes/`）
-- ADR 清單（`ls docs/adr/`）
+- Step 1d 解析的根目錄清單、主要根目錄與遷移的舊／新路徑對照
+- archived change 清單（各 `<spec-root>/changes/archive/`，附實際根目錄）
+- active change 清單（各 `<spec-root>/changes/`，排除 archive，附實際根目錄）
+- ADR 清單（已解析的 `<adr-root>/`），以及任何目錄缺失／錯誤；不可改寫成零筆
 
 ### 3d. 檢查留言意圖訊號（P3）
 
@@ -423,7 +456,7 @@ bash ~/.agents/skills/issue-triage/scripts/staleness-signals.sh {{issue_created_
 1. 有 security 相關 label（label 名稱含 `security`，不分大小寫）。
 2. `assignees` 非空（已有人認領）。
 3. `milestone` 非空，且其 `dueOn` 非 null 並晚於今天。`dueOn` 為 null 的 milestone 沒有期限，不豁免。
-4. 綁定進行中的 openspec change（3c 找到的 change 位於 `openspec/changes/` 而不在 archive）。
+4. 綁定進行中的 openspec change（3c 在 Step 1d 解析的 `<spec-root>/changes/` 找到 active change，而不在 archive）。
 5. 有 keep-open 訊號（3d）的留言，其 `authorAssociation` 為 OWNER、MEMBER 或 COLLABORATOR。
    路人（NONE、CONTRIBUTOR 等）的 keep-open 留言不構成豁免，但仍依 P3 在決策時納入考量。
 
@@ -449,7 +482,7 @@ issue 上，不記在本機檔案，也不新增 label。
 
 | # | 條件 | Verdict | 行動 |
 |---|------|---------|------|
-| **guard** | **Step 1 / Step 2 的必要前置呼叫失敗**（`gh auth status`、`gh repo view`、`check-baseline.sh` 非 0、`gh issue list`） | **STOP** | 回報錯誤並停止；單一 issue 的過期資料取不到不屬於此列，見下一列 |
+| **guard** | **Step 1 / Step 2 的必要前置呼叫或目錄解析失敗**（`gh auth status`、`gh repo view`、`check-baseline.sh` 非 0、Step 1d 的設定／讀取錯誤、`gh issue list`） | **STOP** | 回報錯誤並停止；單一 issue 的過期資料取不到不屬於此列，見下一列 |
 | **guard** | **任一過期資料取不到**（最後人為活動時間或漂移訊號，見 3d′） | **過期檢視不可用** | 該 issue 不得成為 OBSOLETE 或 STALE-CANDIDATE；其餘 verdict 照常，報告列在「過期檢視不可用」 |
 | **guard** | **任一症狀 = UNCLEAR** | **視同 NOT DONE** | 不得 CLOSE，也不得 OBSOLETE；落 KEEP 或 UPDATE-SCOPE |
 | 1 | 與另一 open issue/bug 覆蓋同一主題（含跨系統） | **MERGE** | 建議合併方向 |
@@ -819,7 +852,7 @@ gh issue close <n> --reason "not planned"
 | `gh issue edit --add-label` 失敗 | 該 label 不存在；先 `gh label list` 確認名稱 |
 | `gh issue list --json` 欄位名打錯 | 會 exit 1 且印 `Unknown JSON field`，被 Step 2 gate 擋下 |
 | issue/bug 很多、逐一讀 code 很慢 | Step 3b 平行 dispatch 唯讀探索 subagent 批次驗證 |
-| 綁的 openspec change 找不到 tasks.md | 可能已 archive -> 查 `openspec/changes/archive/` |
+| 綁的 openspec change 找不到 tasks.md | 依 Step 1d 的根目錄清單先查 active，再查 `<spec-root>/changes/archive/`；遷移追到目前設定根目錄，讀取失敗不是零命中，仍找不到不得 CLOSE |
 | 該不該 close-as-stale | **不憑天數關閉。** 前提已消失 -> OBSOLETE（附證據與正向對照，以 `not planned` 關閉）；tier 3（無人為活動 180 天以上）且前提未被證實消失 -> STALE-CANDIDATE，先貼 stale notice、寬限期 14 天、無回應才建議以 `not planned` 關閉；其餘一律 KEEP。優先級**不因久未更新而降低**，改標 `review-urgency` |
 | `check-baseline.sh` 回報 exit 4 或 5 | checkout 不是乾淨的 origin/main：從 origin/main 開乾淨的 worktree 再跑，或先更新主 checkout；不要為了讓它過而 stash 或硬重設別人的改動 |
 | 為什麼判斷 bot 要多一次 REST 呼叫 | `gh issue list --json comments` 會把 `github-actions[bot]` 顯示成 `github-actions`，`Copilot` 本來就沒有 `[bot]` 後綴，只看 login 文字會把 bot 留言全當成人為活動，過期檢視等於失效；REST 的 user.type 為 Bot 才可靠 |

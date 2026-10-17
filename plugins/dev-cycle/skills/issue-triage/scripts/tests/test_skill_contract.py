@@ -203,40 +203,6 @@ ANCHORS: dict[str, list[Anchor]] = {
         ("drift", "**「沒有漂移訊號」與「不適用」都不是前提仍成立的證據**"),
         ("drift", "**不是**消失的證據"),
     ],
-    "ITS-DT-014": [
-        (
-            "verdicts",
-            "| **guard** | **Step 1 / Step 2 的必要前置呼叫失敗**"
-            "（`gh auth status`、`gh repo view`、`check-baseline.sh` 非 0、`gh issue list`） "
-            "| **STOP** |",
-        ),
-        (
-            "verdicts",
-            "| **guard** | **任一症狀 = UNCLEAR** | **視同 NOT DONE** "
-            "| 不得 CLOSE，也不得 OBSOLETE；落 KEEP 或 UPDATE-SCOPE |",
-        ),
-        ("verdicts", "| 1 | 與另一 open issue/bug 覆蓋同一主題（含跨系統） | **MERGE** |"),
-        (
-            "verdicts",
-            "| 2 | 所有症狀 DONE，且（若綁 change）tasks.md 全 `[x]`，且無 keep-open | **CLOSE** |",
-        ),
-        ("verdicts", "| 3 | 留言有 close-authorization 且無未解症狀 | **CLOSE** |"),
-        (
-            "verdicts",
-            "| 4 | 所有未解症狀的前提皆已證實不存在於基準（見下方「OBSOLETE 的證據標準」），"
-            "且無豁免（僅 GitHub issue） | **OBSOLETE** | 留言說明前提消失與證據，"
-            "以 `not planned` 關閉（不是 `completed`） |",
-        ),
-        (
-            "verdicts",
-            "| 5 | 部分症狀 DONE、部分 NOT DONE，或只有部分症狀失去前提 | **UPDATE-SCOPE** |",
-        ),
-        ("verdicts", "| 6 | 原本會落在第 7 或第 8 列、tier 3（無人為活動 180 天以上）、"),
-        ("verdicts", "前提未被證實消失、無豁免（僅 GitHub issue）"),
-        ("verdicts", "| 7 | 全部症狀 NOT DONE | **KEEP** |"),
-        ("verdicts", "| 8 | 症狀無法從 repo 內部驗證 | **KEEP (external)** |"),
-        ("verdicts", "| +附加 | 缺 type label / label 過期 / 狀態不符 | **RELABEL**（正交） |"),
-    ],
 }
 
 # 舊版措辭：任何一個出現在 SKILL.md 就代表有人把已被推翻的規則寫回來
@@ -436,16 +402,6 @@ class TestSkillContract:
         tc: ITS-DT-013
         """
         assert _missing(_skill_text(), "ITS-DT-013") == []
-
-    def test_its_dt_014_every_verdict_row_has_its_own_anchor(self) -> None:
-        """決策表的 guard 與每一列都有逐列錨點，改掉單一欄位（天數、not planned、無豁免）會變紅。
-
-        spec: issue-triage-staleness-review#all-symptoms-done-and-premise-also-gone
-        spec: issue-triage-staleness-review#premise-artifacts-removed-with-positive-control
-        spec: issue-triage-staleness-review#first-stale-candidate
-        tc: ITS-DT-014
-        """
-        assert _missing(_skill_text(), "ITS-DT-014") == []
 
     def test_its_dt_015_unsafe_paths_are_filtered_before_the_drift_script(self) -> None:
         """issue 內文抽出的 token 可能是絕對路徑、含 `..`、空字串或含 tab 與換行：

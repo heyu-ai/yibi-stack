@@ -141,7 +141,7 @@ class TestMain:
         def fake(cmd: list[str], cwd: Path) -> RunResult:
             if cmd[0] == "git":
                 return real_run(cmd, cwd)
-            key = "amplifier" if cmd[1].endswith("amplifier-verify.py") else cmd[2]
+            key = "amplifier" if cmd[0] == "uv" else cmd[2]
             return responses[key]
 
         return fake

@@ -759,14 +759,7 @@ diff --git a/src/app.py b/src/app.py
 
 
 def _make_repo(tmp_path, active=(), archived=(), root="openspec/changes", testplans=()):
-    """Build a fake checkout with the given active and archived change dirs.
-
-    `root` is parameterised because BOTH layout roots are live in this repo and a helper
-    hardwired to one of them leaves the other's resolution path unexercised -- a mutation
-    truncating `_CHANGE_ROOTS` to a single entry then survives.
-    `testplans` writes `testplan.md` into the named active dirs, which is what the
-    cross-root preference loop keys on.
-    """
+    """建立指定根目錄的 active／archive 目錄，並可選擇寫入 testplan。"""
     changes = tmp_path.joinpath(*root.split("/"))
     for name in active:
         (changes / name).mkdir(parents=True, exist_ok=True)
@@ -884,12 +877,7 @@ def test_an_archive_header_does_not_shadow_an_active_change_in_the_same_diff():
 
 
 def test_a_container_only_header_is_neither_tree():
-    """`changes/archive/README.md` cannot take the `archive/` branch, so it needs the guard.
-
-    The optional group needs a trailing `/` after the captured segment; `README.md/` has
-    none, so the regex backtracks and captures the literal `archive` as an ACTIVE-tree slug.
-    Without the guard that becomes an obligation to verify a change named `archive`.
-    """
+    """封存容器內的直接檔案不是 change，不能建立啟用中的驗證義務。"""
     diff = _one_file_diff("openspec/changes/archive/README.md")
     assert amplifier_verify.detect_change_from_diff(diff) == ""
     refs = amplifier_verify.detect_change_refs_from_diff(diff)
@@ -1354,10 +1342,7 @@ def test_main_warns_when_several_active_changes_are_touched(tmp_path, monkeypatc
 
 
 def test_locate_change_resolves_under_the_docs_layout_root(tmp_path):
-    """The second layout root must resolve, not just appear in the regex.
-
-    Without this, truncating `_CHANGE_ROOTS` to a single entry survives the whole suite.
-    """
+    """第二種預設 layout 必須能實際解析，不只是被路徑分類器辨認。"""
     repo = _make_repo(tmp_path, active=["add-login"], root="docs/openspec/changes")
     location = amplifier_verify.locate_change(repo, "add-login")
     assert location.is_active
@@ -1510,10 +1495,7 @@ def test_main_verifies_the_first_active_candidate_not_the_last(tmp_path, monkeyp
 
 
 def test_detection_reads_the_docs_layout_root_too(tmp_path):
-    """`(?:docs/)?` in the regex needs a parsing test, not only a resolution one.
-
-    Removing it otherwise survives, because no diff fixture used that root.
-    """
+    """diff 與磁碟解析必須支援相同的預設 layout。"""
     diff = _one_file_diff("docs/openspec/changes/add-login/tasks.md")
     refs = amplifier_verify.detect_change_refs_from_diff(diff)
     assert refs.active_tree == ["add-login"]
@@ -2053,6 +2035,8 @@ def test_main_rejects_checkout_that_is_not_the_pr_head(tmp_path, monkeypatch, ca
     _stub_run(monkeypatch, "", tmp_path, file_changes=[])
 
     def fake_run(args, timeout=180):
+        if args == ["git", "rev-parse", "--show-toplevel"]:
+            return f"{tmp_path}\n"
         if args == ["git", "rev-parse", "HEAD"]:
             return "different-head\n"
         raise AssertionError(f"非預期命令：{args}")
