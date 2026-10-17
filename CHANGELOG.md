@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- dev-cycle／sdd：規格根目錄偵測與 trace checker 共用受審 repo 的 `.spectra.yaml`
+  `spec_dir`，保留 `openspec`／`docs/openspec` 的既有佈局與跨根目錄 rename 偵測（#440）。
+  checker 明確接收實際 active change 所在的 `--openspec-dir`；設定根目錄的同名 change
+  缺少必要 testplan 時，不再借用舊目錄放行。無效或無法讀取的設定以 exit 2 回報，
+  不誤報「沒有 Spectra change」；archive-only 與既有 PR metadata／HEAD 檢查維持原契約。
+  verifier 以 locked standalone script 攜帶 YAML 解析依賴，issue-triage 與 layout runbook
+  同步改為先解析設定根目錄，不再把 `docs/openspec` 當成所有 repo 的固定位置。
+- dev-cycle：補強 #440 的五項 review 修正：明確設定但不存在／不可用的規格根目錄不再靜默
+  略過；公開 diff helper 支援含空白、Git C-quoted Unicode 與 rename 兩側路徑；新增 archive
+  根目錄、原名與日期前綴目錄的越界 CLI regression；以本機真實依賴 wheels 新增完整
+  pre-review → uv locked verifier → trace checker 測試，涵蓋自訂根目錄的綁定／缺綁定結果、
+  host 設定隔離與 stale-lock 拒絕／明確 relock 後恢復，取代僅回放 verifier 結果的 wiring
+  測試；Step 1.5 的 exit 2 契約補列 YAML、明確不可用根目錄與 root／change／archive 越界原因。
+- dev-cycle：將自訂根目錄以明確的 option value 傳給 checker，`-specs` 這類合法相對路徑不再
+  被 argparse 當成另一個選項而錯報缺少 `--openspec-dir` 的值（#440）。
+
 ## [1.23.17] - 2026-10-11
 
 ### Fixed

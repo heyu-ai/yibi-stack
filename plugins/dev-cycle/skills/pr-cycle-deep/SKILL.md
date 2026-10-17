@@ -301,11 +301,22 @@ to `.pr-review/pre-review-check.md` (path on the `REPORT=` line):
 python3 ~/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py --pr {{pr_number}}
 ```
 
+規格根目錄以**受審 repo** 根目錄的 `.spectra.yaml` `spec_dir` 為優先來源，其後仍納入
+`openspec`、`docs/openspec` 兩個支援的標準佈局；未有設定檔或 mapping 未含該 key 時只使用
+這兩個標準佈局。偵測與查找使用同一份去重後的根目錄集合，保留舊／新路徑以處理跨根目錄
+rename；trace checker 的 `--openspec-dir` 必須來自實際選中的 active change，不能在偵測
+成功後又回退到 checker 的預設目錄。明確設定的根目錄必須存在且可用；無效／無法讀取的
+YAML 或無效根目錄是 exit `2`，即使本次 PR 沒有觸及規格檔也不例外。根目錄／change／archive
+查找時越出專案邊界同樣是 exit `2`，不能解讀成「沒有 Spectra change」。
+
+此入口需要 `uv`；它以 locked standalone script 啟動 verifier，安裝 verifier 自己宣告的
+YAML 解析依賴，不使用受審 repo 的 Python 依賴，也不要求把套件裝進系統 `python3`。
+
 | Exit | Meaning | Action |
 |------|---------|--------|
 | `0` | Baseline OK; amplifier clean (no spectra change, all TCs traced, or TC check skipped for a non-`feat`/`refactor` `type:`) | Relay the summary; CI fail/pending is informational here; continue to Step 1.6 |
 | `1` | amplifier-verify exit 1 **with** a `[MUST]`/`[SHOULD]` line (a bare exit 1 / traceback is mapped to `2`) | **Do not stop.** Read the report; write MUST findings to `$REVIEW_DIR/final.md` Critical and SHOULD to Important; continue |
-| `2` | `gh` failed (auth / PR not found); amplifier-verify exit 2 (change dir missing, missing/unparsable testplan on `feat`/`refactor`, HEAD ≠ PR head), exit 1 without a finding line, or did not run; report unwritable; internal error | **Stop** with `[FAIL]`. `gh` causes are the `[FAIL]` lines on stderr and the `- Diff:` / `- CI:` lines; an amplifier cause is in the report's amplifier-verify stderr section |
+| `2` | `gh` failed (auth / PR not found); amplifier-verify exit 2 (invalid/unreadable `.spectra.yaml`, explicit missing/unusable spec root, root/change/archive escape, change dir missing, missing/unparsable testplan on `feat`/`refactor`, HEAD ≠ PR head), exit 1 without a finding line, or did not run; report unwritable; internal error | **Stop** with `[FAIL]`. `gh` causes are the `[FAIL]` lines on stderr and the `- Diff:` / `- CI:` lines; an amplifier cause is in the report's amplifier-verify stderr section |
 
 In the report, check the detected `type:` on the `spectra change detected` line (author-declared;
 it decides whether the gate blocks) and any `[WARN]` naming several active change dirs (only the

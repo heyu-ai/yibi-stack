@@ -1,6 +1,6 @@
 # Delta Specs：{{feature-name}}
 
-> 對應規格：`docs/openspec/changes/{{change-name}}/proposal.md`
+> 對應規格：`<spec-root>/changes/{{change-name}}/proposal.md`（先依 `openspec-layout.md` 解析目標 repo 的根目錄）
 > 變更類型：ADDED（初版）
 
 每個 delta spec 對應一個 Scenario，用 `#### Scenario: <slug>` 格式描述可測試的行為。
