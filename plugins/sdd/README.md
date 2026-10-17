@@ -52,8 +52,11 @@ claude plugin install sdd@yibi-stack
 
 ## openspec 目錄範例
 
+`<spec-root>` 依目標 repo 的 `.spectra.yaml` `spec_dir` 解析；未設定時使用支援的預設佈局，
+規則見 `references/openspec-layout.md`，不要把下列骨架固定建立在 `docs/openspec`。
+
 ```text
-docs/openspec/changes/<feature-name>/
+<spec-root>/changes/<feature-name>/
 ├── proposal.md    (Step 1b US+AC + Step 4 假設 + Step 5 DoD + Traceability Matrix)
 ├── specs/
 │   └── <name>.md  (Step 1c Gherkin scenarios，#### Scenario: <slug> -- <title>)
