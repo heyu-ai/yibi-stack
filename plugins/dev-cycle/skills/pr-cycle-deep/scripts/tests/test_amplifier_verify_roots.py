@@ -151,6 +151,7 @@ def _run_verifier(
         ("specs.v2", 'spec_dir: "specs.v2"\n'),
         ("docs/specs", 'spec_dir: "./docs//specs/"\n'),
         (" docs/specs ", 'spec_dir: " docs/specs "\n'),
+        ("-specs", 'spec_dir: "-specs"\n'),
     ],
 )
 def test_cli_gates_enforced_plan_in_selected_spec_root(consumer_repo, tmp_path, root, config):

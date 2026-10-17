@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pre-review → uv locked verifier → trace checker 測試，涵蓋自訂根目錄的綁定／缺綁定結果、
   host 設定隔離與 stale-lock 拒絕／明確 relock 後恢復，取代僅回放 verifier 結果的 wiring
   測試；Step 1.5 的 exit 2 契約補列 YAML、明確不可用根目錄與 root／change／archive 越界原因。
+- dev-cycle：將自訂根目錄以明確的 option value 傳給 checker，`-specs` 這類合法相對路徑不再
+  被 argparse 當成另一個選項而錯報缺少 `--openspec-dir` 的值（#440）。
 
 ## [1.23.17] - 2026-10-11
 
