@@ -142,11 +142,15 @@ def _run_verifier(
         ("docs/openspec", None),
         ("openspec", "{}\n"),
         ("docs/openspec", "workflow: spectra\n"),
+        ("openspec", "spec_dir: openspec\n"),
+        ("docs/openspec", "spec_dir: docs/openspec\n"),
         ("docs/specs", "spec_dir: docs/specs\n"),
         ("docs/specs", 'spec_dir: "docs/specs" # current layout\n'),
         ("docs/specs", "spec_dir: 'docs/specs'\n"),
         ("docs/specs", '{spec_dir: "docs/specs", workflow: spectra}\n'),
         ("specs.v2", 'spec_dir: "specs.v2"\n'),
+        ("docs/specs", 'spec_dir: "./docs//specs/"\n'),
+        (" docs/specs ", 'spec_dir: " docs/specs "\n'),
     ],
 )
 def test_cli_gates_enforced_plan_in_selected_spec_root(consumer_repo, tmp_path, root, config):
@@ -205,6 +209,7 @@ def test_cli_cross_root_rename_uses_current_active_or_archived_destination(
 ):
     """舊路徑已不存在時仍檢查實際目的目錄；封存方向則保持無需 gate。"""
     _write(consumer_repo, ".spectra.yaml", "spec_dir: docs/specs\n")
+    (consumer_repo / "docs/specs").mkdir(parents=True, exist_ok=True)
     path = f"{destination}/testplan.md"
     _write(consumer_repo, path, _PLAN)
     _write(consumer_repo, f"{destination}/tasks.md", "- [x] root contract verified\n")
@@ -219,6 +224,7 @@ def test_cli_cross_root_rename_uses_current_active_or_archived_destination(
 
 def test_cli_custom_archive_only_deletion_skips_without_a_directory(consumer_repo, tmp_path):
     _write(consumer_repo, ".spectra.yaml", "spec_dir: docs/specs\n")
+    (consumer_repo / "docs/specs").mkdir(parents=True)
     files = [
         {"status": "removed", "filename": "docs/specs/changes/archive/2026-10-17-old/tasks.md"}
     ]
@@ -230,6 +236,7 @@ def test_cli_custom_archive_only_deletion_skips_without_a_directory(consumer_rep
 @pytest.mark.parametrize("active_root", ["docs/specs", "docs/openspec"])
 def test_cli_custom_archive_does_not_mask_active_change(consumer_repo, tmp_path, active_root):
     _write(consumer_repo, ".spectra.yaml", "spec_dir: docs/specs\n")
+    (consumer_repo / "docs/specs").mkdir(parents=True, exist_ok=True)
     active = _change(consumer_repo, active_root)
     result = _run_verifier(
         consumer_repo,
@@ -256,7 +263,6 @@ def test_cli_custom_archive_does_not_mask_active_change(consumer_repo, tmp_path,
         "spec_dir: []\n",
         "spec_dir: {}\n",
         'spec_dir: ""\n',
-        'spec_dir: "   "\n',
         "spec_dir: ../outside\n",
         "spec_dir: /tmp/outside\n",
         'spec_dir: "bad\\0path"\n',
@@ -269,6 +275,15 @@ def test_cli_invalid_configuration_is_fatal_even_without_spectra_paths(
     result = _run_verifier(consumer_repo, tmp_path, [])
     assert result.returncode == 2, result.stdout + result.stderr
     assert "[FAIL] Spectra 設定錯誤" in result.stderr
+    assert "no spectra change" not in result.stdout
+
+
+def test_cli_blank_root_is_invalid_even_when_a_whitespace_directory_exists(consumer_repo, tmp_path):
+    """空白設定值仍屬設定錯誤，不因同名目錄存在而繞過字串驗證。"""
+    (consumer_repo / "   ").mkdir()
+    _write(consumer_repo, ".spectra.yaml", 'spec_dir: "   "\n')
+    result = _run_verifier(consumer_repo, tmp_path, [])
+    assert result.returncode == 2, result.stdout + result.stderr
     assert "no spectra change" not in result.stdout
 
 
@@ -288,6 +303,7 @@ def test_cli_unreadable_configuration_is_fatal(consumer_repo, tmp_path, kind):
 
 def test_cli_missing_change_diagnostic_lists_configured_and_legacy_roots(consumer_repo, tmp_path):
     _write(consumer_repo, ".spectra.yaml", "spec_dir: docs/specs\n")
+    (consumer_repo / "docs/specs").mkdir(parents=True)
     result = _run_verifier(
         consumer_repo, tmp_path, [_modified("docs/specs/changes/missing/tasks.md")]
     )
@@ -320,17 +336,9 @@ def test_cli_reads_current_worktree_config_when_invoked_from_subdirectory(consum
     assert "[MUST]" in result.stdout and "ROOT-001" in result.stdout
 
 
-@pytest.mark.parametrize("configured", ["openspec", "docs/openspec", "./docs/specs/"])
-def test_root_collection_normalizes_and_deduplicates(tmp_path, configured):
-    _write(tmp_path, ".spectra.yaml", f"spec_dir: {configured}\n")
-    roots = av.load_spec_roots(tmp_path)
-    expected = tuple(dict.fromkeys((Path(configured).as_posix(), "openspec", "docs/openspec")))
-    assert roots.directories == expected
-    assert roots.configured == Path(configured).as_posix()
-
-
 def test_diff_helper_uses_the_same_custom_and_legacy_roots(tmp_path):
     _write(tmp_path, ".spectra.yaml", "spec_dir: docs/specs\n")
+    (tmp_path / "docs/specs").mkdir(parents=True)
     roots = av.load_spec_roots(tmp_path)
     diff = (
         "diff --git a/openspec/changes/archive/2026-10-17-old/tasks.md "
@@ -364,3 +372,226 @@ def test_cli_rejects_active_change_symlink_outside_project(consumer_repo, tmp_pa
     result = _run_verifier(consumer_repo, tmp_path, [_modified("docs/specs/changes/demo/tasks.md")])
     assert result.returncode == 2
     assert "change 目錄不可指向專案外" in result.stderr
+
+
+@pytest.mark.parametrize("with_spec_path", [False, True], ids=["no-spec-paths", "default-change"])
+@pytest.mark.parametrize(
+    "kind", ["missing", "file", "dangling-symlink", "unreadable", "unsearchable"]
+)
+def test_cli_explicit_unavailable_root_is_fatal(consumer_repo, tmp_path, kind, with_spec_path):
+    """明確根目錄的拼錯、檔案或不可讀狀態，不能以零命中或舊根目錄掩蓋。"""
+    _write(consumer_repo, ".spectra.yaml", "spec_dir: docs/specs\n")
+    root = consumer_repo / "docs/specs"
+    root.parent.mkdir()
+    if kind == "file":
+        root.write_text("not a directory\n", encoding="utf-8")
+    elif kind == "dangling-symlink":
+        root.symlink_to(consumer_repo / "missing-root", target_is_directory=True)
+    elif kind in {"unreadable", "unsearchable"}:
+        root.mkdir()
+        root.chmod(0o300 if kind == "unreadable" else 0o600)
+        if os.access(root, os.R_OK | os.X_OK):
+            root.chmod(0o700)
+            pytest.skip("目前使用者可略過目錄權限，無法建立不可讀／搜尋的實際目錄")
+    path = _change(consumer_repo, "openspec", bound=True) if with_spec_path else None
+    try:
+        result = _run_verifier(
+            consumer_repo, tmp_path, [_modified(path)] if path is not None else []
+        )
+    finally:
+        if kind in {"unreadable", "unsearchable"}:
+            root.chmod(0o700)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "[FAIL] Spectra 設定錯誤" in result.stderr
+    assert "規格根目錄" in result.stderr
+    assert "no spectra change" not in result.stdout
+    assert "spectra change detected" not in result.stdout
+
+
+@pytest.mark.parametrize("config", [None, "{}\n", "workflow: spectra\n"])
+def test_cli_absent_default_roots_allow_non_spec_pr(consumer_repo, tmp_path, config):
+    """沒有明確根目錄時，尚未建立兩個標準佈局不代表設定錯誤。"""
+    if config is not None:
+        _write(consumer_repo, ".spectra.yaml", config)
+    result = _run_verifier(consumer_repo, tmp_path, [_modified("README.txt")])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == "no spectra change"
+
+
+@pytest.mark.parametrize("quote_path", ["true", "false"])
+@pytest.mark.parametrize(
+    "root",
+    [
+        "docs/my specs",
+        "docs/規格",
+        "docs/spec\troot",
+        'docs/"specs"',
+        "docs/spec\\root",
+        " docs/specs ",
+        "docs/path b/segment",
+    ],
+)
+def test_real_git_diff_matches_rest_for_ordinary_paths(consumer_repo, root, quote_path):
+    """真實 Git 的空白、C 引號、UTF-8 與跳脫路徑，與 REST 回傳相同實際 slug。"""
+    _write(consumer_repo, ".spectra.yaml", json.dumps({"spec_dir": root}))
+    path = f"{root}/changes/demo/tasks.md"
+    _write(consumer_repo, path, f"-- a/{root}/changes/removed-decoy/tasks.md\nold\n")
+    _git(consumer_repo, "add", ".")
+    _git(consumer_repo, "commit", "-m", "original spec")
+    _write(consumer_repo, path, f"++ b/{root}/changes/added-decoy/tasks.md\nnew\n")
+    diff = _git(
+        consumer_repo,
+        "-c",
+        f"core.quotePath={quote_path}",
+        "diff",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+    )
+    roots = av.load_spec_roots(consumer_repo)
+    helper = av.detect_change_refs_from_diff(diff, roots)
+    rest = av.derive_change_refs([av.PRFileChange("modified", path, path)], roots)
+    assert helper.active_tree == ["demo"]
+    assert rest.active_tree == ["demo"]
+    assert helper.archive_tree == []
+    assert rest.archive_tree == []
+    assert av.detect_change_from_diff(diff, roots) == "demo"
+
+
+@pytest.mark.parametrize(
+    ("old_root", "new_root", "old_name", "new_name", "active", "archived"),
+    [
+        ("openspec", "docs/my specs", "old", "demo", ["old", "demo"], []),
+        ("docs/規格", "docs/openspec", "old", "demo", ["old", "demo"], []),
+        (
+            'docs/"specs"',
+            "openspec",
+            "demo",
+            "archive/2026-10-17-demo",
+            ["demo"],
+            ["2026-10-17-demo"],
+        ),
+        (
+            "openspec",
+            "docs/spec\\root",
+            "archive/2026-10-17-demo",
+            "demo",
+            ["demo"],
+            ["2026-10-17-demo"],
+        ),
+        ("docs/path b/segment", "openspec", "old", "demo", ["old", "demo"], []),
+    ],
+)
+def test_real_git_pure_rename_matches_rest_for_both_sides(
+    consumer_repo, old_root, new_root, old_name, new_name, active, archived
+):
+    """無 hunk 的純 rename 保留舊／新兩側，不能靠內容標頭才能發現 change。"""
+    configured = new_root if new_root not in {"openspec", "docs/openspec"} else old_root
+    _write(consumer_repo, ".spectra.yaml", json.dumps({"spec_dir": configured}))
+    old = f"{old_root}/changes/{old_name}/tasks.md"
+    new = f"{new_root}/changes/{new_name}/tasks.md"
+    _write(consumer_repo, old, "unchanged spec\n")
+    _git(consumer_repo, "add", ".")
+    _git(consumer_repo, "commit", "-m", "before rename")
+    (consumer_repo / new).parent.mkdir(parents=True)
+    _git(consumer_repo, "mv", "--", old, new)
+    (consumer_repo / configured).mkdir(parents=True, exist_ok=True)
+    diff = _git(
+        consumer_repo,
+        "-c",
+        "core.quotePath=true",
+        "diff",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        "--cached",
+        "--find-renames=100%",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+    )
+    assert "similarity index 100%" in diff and "@@" not in diff
+    roots = av.load_spec_roots(consumer_repo)
+    helper = av.detect_change_refs_from_diff(diff, roots)
+    rest = av.derive_change_refs([av.PRFileChange("renamed", old, new)], roots)
+    assert helper.active_tree == active
+    assert rest.active_tree == active
+    assert helper.archive_tree == archived
+    assert rest.archive_tree == archived
+
+
+@pytest.mark.parametrize("entry_kind", ["archive-root", "verbatim", "dated"])
+@pytest.mark.parametrize("explicit", [False, True], ids=["active-origin", "explicit-change"])
+@pytest.mark.parametrize("outside", [False, True], ids=["internal-control", "escape"])
+def test_cli_archive_lookup_rejects_escape_and_accepts_internal_control(
+    consumer_repo, tmp_path, entry_kind, explicit, outside
+):
+    """由 active 來源或 --change 真正進入封存查找，逐一守住三個 containment guard。"""
+    _write(consumer_repo, ".spectra.yaml", "spec_dir: docs/specs\n")
+    root = consumer_repo / "docs/specs"
+    root.mkdir(parents=True)
+    archive = root / "changes/archive"
+    target = tmp_path / "outside" if outside else consumer_repo / "internal-archive"
+    target.mkdir()
+    if entry_kind == "archive-root":
+        (target / "2026-10-17-demo").mkdir()
+        archive.parent.mkdir()
+        archive.symlink_to(target, target_is_directory=True)
+    else:
+        archive.mkdir(parents=True)
+        entry = archive / ("demo" if entry_kind == "verbatim" else "2026-10-17-demo")
+        entry.symlink_to(target, target_is_directory=True)
+    files = (
+        []
+        if explicit
+        else [
+            {
+                "status": "renamed",
+                "previous_filename": "docs/specs/changes/demo/tasks.md",
+                "filename": "docs/specs/changes/archive/2026-10-17-demo/tasks.md",
+            }
+        ]
+    )
+    result = _run_verifier(consumer_repo, tmp_path, files, change="demo" if explicit else None)
+    assert result.returncode == (2 if outside else 0), result.stdout + result.stderr
+    if outside:
+        assert "[FAIL] 無法解析 Spectra change 目錄" in result.stderr
+        assert "archive" in result.stderr and "不可指向專案外" in result.stderr
+        assert "exists only in the archive" not in result.stdout
+        assert "touches only archived material" not in result.stdout
+    else:
+        assert "exists only in the archive" in result.stdout
+
+
+@pytest.mark.parametrize("source_change", ["old", "archive/2026-10-17-old"])
+def test_real_git_copy_does_not_gate_its_unchanged_source(consumer_repo, source_change):
+    """真實 copy 只引入目的 change，不把未修改的 active／archive 來源當成本次變更。"""
+    _write(consumer_repo, ".spectra.yaml", 'spec_dir: "docs/my specs"\n')
+    old = f"openspec/changes/{source_change}/tasks.md"
+    new = "docs/my specs/changes/demo/tasks.md"
+    _write(consumer_repo, old, "content unique to the copy source\n")
+    _git(consumer_repo, "add", ".")
+    _git(consumer_repo, "commit", "-m", "copy source")
+    _write(consumer_repo, new, (consumer_repo / old).read_text(encoding="utf-8"))
+    _git(consumer_repo, "add", ".")
+    diff = _git(
+        consumer_repo,
+        "diff",
+        "--cached",
+        "--find-copies-harder",
+        "--find-copies=100%",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+    )
+    assert f"\ncopy from {old}\n" in diff, "fixture 必須真正進入 Git copy 路徑"
+    roots = av.load_spec_roots(consumer_repo)
+    helper = av.detect_change_refs_from_diff(diff, roots)
+    rest = av.derive_change_refs([av.PRFileChange("copied", old, new)], roots)
+    assert helper.active_tree == ["demo"]
+    assert rest.active_tree == ["demo"]
+    assert helper.archive_tree == []
+    assert rest.archive_tree == []

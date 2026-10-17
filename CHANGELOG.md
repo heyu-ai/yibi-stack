@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   不誤報「沒有 Spectra change」；archive-only 與既有 PR metadata／HEAD 檢查維持原契約。
   verifier 以 locked standalone script 攜帶 YAML 解析依賴，issue-triage 與 layout runbook
   同步改為先解析設定根目錄，不再把 `docs/openspec` 當成所有 repo 的固定位置。
+- dev-cycle：補強 #440 的五項 review 修正：明確設定但不存在／不可用的規格根目錄不再靜默
+  略過；公開 diff helper 支援含空白、Git C-quoted Unicode 與 rename 兩側路徑；新增 archive
+  根目錄、原名與日期前綴目錄的越界 CLI regression；以本機真實依賴 wheels 新增完整
+  pre-review → uv locked verifier → trace checker 測試，涵蓋自訂根目錄的綁定／缺綁定結果、
+  host 設定隔離與 stale-lock 拒絕／明確 relock 後恢復，取代僅回放 verifier 結果的 wiring
+  測試；Step 1.5 的 exit 2 契約補列 YAML、明確不可用根目錄與 root／change／archive 越界原因。
 
 ## [1.23.17] - 2026-10-11
 

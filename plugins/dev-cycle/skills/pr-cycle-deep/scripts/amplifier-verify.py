@@ -19,11 +19,13 @@ Exit codes:
       Test Seam, or TCs carrying a Seam column with no recognised declaration; printed as [WARN];
       document reason before deferring). A plan with neither a Test Seams table nor a Seam
       column is INFO only, so plans written before Check 4 existed are not retroactively flagged.
-  2 — fatal error: change directory not found, testplan.md missing on a feat / refactor change
-      (or one whose `type:` cannot be read), testplan contains no TC
-      table, a `gh` / `git` invocation failed (binary not found, timed out, or non-zero),
+  2 — fatal error: invalid/unreadable Spectra YAML or an explicit spec root that is missing,
+      not a directory, or unreadable/unsearchable; root/change/archive paths escaping the
+      repository; invalid change name or change directory not found; testplan.md missing
+      on a feat / refactor change (or one whose `type:` cannot be read), testplan contains
+      no TC table, a `gh` / `git` invocation failed (binary not found, timed out, or non-zero),
       metadata snapshot inconsistency (pre/post PR refs changed during scan), file count
-      mismatch (API record count != changedFiles), or checkout HEAD/PR headRefOid skew, or the
+      mismatch (API record count != changedFiles), checkout HEAD/PR headRefOid skew, or the
       sdd plugin's check_testplan_trace.py cannot be located or exits with a configuration error
 """
 
@@ -31,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess  # nosec B404
 import sys
@@ -448,7 +451,7 @@ _PROPOSAL_NAME = "proposal.md"
 
 
 def load_spec_roots(repo_root: Path) -> SpecRoots:
-    """讀取專案 YAML 設定，依序保留設定根目錄與支援的舊版根目錄。"""
+    """讀取目前 checkout／worktree 的 YAML；明確根目錄必須可用，標準佈局可不存在。"""
     config_path = repo_root / ".spectra.yaml"
     try:
         text = config_path.read_text(encoding="utf-8-sig")
@@ -477,16 +480,27 @@ def load_spec_roots(repo_root: Path) -> SpecRoots:
     for value in (*configured, *_DEFAULT_SPEC_ROOTS.directories):
         path = Path(value)
         if path.is_absolute() or ".." in path.parts or "\x00" in value:
-            raise ValueError(f"spec_dir 必須位於專案內：{value!r}")
+            raise ValueError(f"規格根目錄必須位於專案內：{value!r}")
         try:
             contained = (repo_root / path).resolve().is_relative_to(repo_root.resolve())
         except (OSError, RuntimeError, ValueError) as exc:
-            raise ValueError(f"無法解析 spec_dir {value!r}：{exc}") from exc
+            raise ValueError(f"無法解析規格根目錄 {value!r}：{exc}") from exc
         if not contained:
-            raise ValueError(f"spec_dir 不可指向專案外：{value!r}")
+            raise ValueError(f"規格根目錄不可指向專案外：{value!r}")
         root = path.as_posix()
         if root not in roots:
             roots.append(root)
+    if configured:
+        directory = repo_root / roots[0]
+        try:
+            if not directory.is_dir():
+                raise ValueError(f"明確設定的規格根目錄不存在或不是目錄：{configured[0]!r}")
+            with os.scandir(directory) as entries:
+                next(entries, None)
+            if not os.access(directory, os.R_OK | os.X_OK):
+                raise PermissionError(f"目錄缺少讀取或搜尋權限：{directory}")
+        except OSError as exc:
+            raise ValueError(f"無法讀取明確設定的規格根目錄 {configured[0]!r}：{exc}") from exc
     return SpecRoots(tuple(roots), roots[0] if configured else None)
 
 
@@ -585,10 +599,13 @@ def classify_spectra_path(
 def derive_change_refs(
     changes: list[PRFileChange], spec_roots: SpecRoots = _DEFAULT_SPEC_ROOTS
 ) -> DiffChangeRefs:
-    """依檔案變更的舊路徑再新路徑推導 Spectra 變更參照。"""
+    """rename 保留舊／新路徑；copy 的來源未變，只對目的路徑產生驗證義務。"""
     refs = DiffChangeRefs()
     for change in changes:
-        for path in (change.old_path, change.new_path):
+        paths = (
+            (change.new_path,) if change.status == "copied" else (change.old_path, change.new_path)
+        )
+        for path in paths:
             if path is None:
                 continue
             tree, slug = classify_spectra_path(path, spec_roots)
@@ -599,17 +616,103 @@ def derive_change_refs(
     return refs
 
 
+# 與 repository 的 lint_rule_evidence 一樣解碼 Git C-style 路徑，但 standalone plugin
+# 不依賴未隨 plugin 發布的 scripts 模組。八進位代表原始位元組，不能逐字元解碼 UTF-8。
+_GIT_C_ESCAPES = {
+    "a": 7,
+    "b": 8,
+    "t": 9,
+    "n": 10,
+    "v": 11,
+    "f": 12,
+    "r": 13,
+    '"': 34,
+    "\\": 92,
+}
+
+
+def _unquote_git_path(raw: str) -> str:
+    """還原 Git 引號與跳脫；格式錯誤時明確拒絕，不把不明路徑當成零命中。"""
+    if not raw.startswith('"'):
+        return raw
+    if len(raw) < 2 or not raw.endswith('"'):
+        raise ValueError(f"Git 路徑引號沒有正確結尾：{raw}")
+    body = raw[1:-1]
+    out = bytearray()
+    i = 0
+    while i < len(body):
+        if body[i] != "\\":
+            out.extend(body[i].encode("utf-8", errors="surrogateescape"))
+            i += 1
+            continue
+        i += 1
+        if i >= len(body):
+            raise ValueError(f"Git 路徑含未完成的跳脫：{raw}")
+        escape = body[i]
+        if escape in "01234567":
+            digits = body[i : i + 3]
+            if len(digits) != 3 or any(d not in "01234567" for d in digits):
+                raise ValueError(f"Git 路徑含不完整的八進位跳脫：{raw}")
+            value = int(digits, 8)
+            if value > 255:
+                raise ValueError(f"Git 路徑的八進位跳脫超出位元組範圍：{raw}")
+            out.append(value)
+            i += 3
+        elif escape in _GIT_C_ESCAPES:
+            out.append(_GIT_C_ESCAPES[escape])
+            i += 1
+        else:
+            raise ValueError(f"Git 路徑含未知跳脫：{raw}")
+    return out.decode("utf-8", errors="surrogateescape")
+
+
+def _split_git_paths(header: str) -> tuple[str, str]:
+    """以引號或相同兩側辨識標頭；rename 的不相同路徑由後續專用標頭覆寫。"""
+    if header.startswith('"'):
+        i = 1
+        while i < len(header):
+            if header[i] == "\\":
+                i += 2
+                continue
+            if header[i] == '"':
+                return (
+                    _unquote_git_path(header[: i + 1])[2:],
+                    _unquote_git_path(header[i + 1 :].lstrip(" "))[2:],
+                )
+            i += 1
+        raise ValueError(f"Git 檔案標頭的引號沒有結尾：{header}")
+    candidates = [i for i in range(len(header)) if header.startswith((" b/", ' "b/'), i)]
+    if not candidates:
+        raise ValueError(f"Git 檔案標頭缺少新路徑：{header}")
+    pairs = [
+        (_unquote_git_path(header[:i])[2:], _unquote_git_path(header[i + 1 :])[2:])
+        for i in candidates
+    ]
+    return next((pair for pair in pairs if pair[0] == pair[1]), pairs[0])
+
+
 def detect_change_refs_from_diff(
     diff_text: str, spec_roots: SpecRoots = _DEFAULT_SPEC_ROOTS
 ) -> DiffChangeRefs:
-    """只將 diff 檔案標頭交給共用路徑分類器，保留 rename 的舊、新兩側。"""
+    """只讀 Git 區塊標頭與 rename/copy 路徑；hunk 正文中的假標頭不參與分類。"""
     changes: list[PRFileChange] = []
-    for line in diff_text.splitlines():
-        if not line.startswith(("diff --git ", "+++ ", "--- ")):
-            continue
-        for match in re.finditer(r"(?:^|\s)[ab]/(\S+)", line):
-            path = match.group(1)
-            changes.append(PRFileChange("modified", path, path))
+    current: PRFileChange | None = None
+    in_header = False
+    for line in diff_text.split("\n"):
+        if line.startswith("diff --git "):
+            old, new = _split_git_paths(line[len("diff --git ") :])
+            current = PRFileChange("modified", old, new)
+            changes.append(current)
+            in_header = True
+        elif line.startswith(("@@", "GIT binary patch", "Binary files ")):
+            in_header = False
+        elif in_header and current is not None:
+            if line.startswith(("copy from ", "copy to ")):
+                current.status = "copied"
+            if line.startswith(("rename from ", "copy from ")):
+                current.old_path = _unquote_git_path(line.split(" from ", 1)[1])
+            elif line.startswith(("rename to ", "copy to ")):
+                current.new_path = _unquote_git_path(line.split(" to ", 1)[1])
     return derive_change_refs(changes, spec_roots)
 
 
@@ -668,10 +771,10 @@ def probed_locations(change_name: str, spec_roots: SpecRoots = _DEFAULT_SPEC_ROO
 def locate_change(
     repo_root: Path, change_name: str, spec_roots: SpecRoots = _DEFAULT_SPEC_ROOTS
 ) -> ChangeLocation:
-    """Resolve a change name against the active and archived layouts.
+    """依設定與標準佈局查找 change；無效 slug／archive 容器不算 change。
 
-    Active wins over an archived namesake: a name reused after archival is a real
-    change that must still be verified.
+    Active 優先於封存同名目錄，明確設定的 active 目錄優先於標準佈局。
+    根目錄、active 或 archive 路徑逃出專案時拋出錯誤，不可當成已封存放行。
 
     Two archived spellings are accepted, because the name can arrive by two routes — neither
     of which is a prose mention: :func:`detect_change_refs_from_diff` reads only file headers,
@@ -690,8 +793,7 @@ def locate_change(
     preferred only because it puts both anchors in the call rather than half in the pattern.
     """
     if change_name == _ARCHIVE_SEGMENT or not _VALID_CHANGE_SLUG_RE.fullmatch(change_name):
-        # The container is not a change, even though the directory exists. Only
-        # reachable through an explicit --change; reported as "found nowhere".
+        # archive 容器與無效 slug 都不能作為 change；明確 --change 會回報找不到目錄。
         return ChangeLocation()
 
     # 明確設定的 active 目錄不可借用舊根目錄的同名 plan；未設定時保留舊版的 plan 優先規則。
@@ -1179,7 +1281,7 @@ def main() -> None:
         "--change",
         required=False,
         default="",
-        help="Spectra change name (directory under openspec/changes/)",
+        help="Spectra change name (directory under the configured or supported spec roots)",
     )
     opts = parser.parse_args()
 
