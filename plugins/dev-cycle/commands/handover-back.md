@@ -34,6 +34,8 @@ exit code 非 0 時停止執行，告知使用者在 yibi-stack 目錄執行 `ma
 bash "<SKILL_REPO>/commands/scripts/handover-read.sh"
 ```
 
+exit code 非 0 時停止，回報 `[FAIL] handover-read 執行失敗` 並附上 stderr 原文，不要當成「查無記錄」處理。常見原因：`<SKILL_REPO>` 沒有換成第一步的輸出（找不到檔案）、`uv` 不存在、mycelium DB 讀取失敗。
+
 若查無記錄，明確告知使用者所用的 project name，方便確認是否有誤：
 
 > 「以 project='$PROJECT' 過濾，查無記錄。

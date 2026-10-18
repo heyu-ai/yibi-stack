@@ -52,7 +52,8 @@ between Bash tool calls, so a `SKILL_REPO` set in one block is empty in the next
 
 Reference: `plugins/dev-cycle/commands/handover-back.md`. (Source: yibi-stack PR #575.)
 
-**In a shell script in this repo, use the one-line form:**
+**In a shell script, the one-line form works** (a script that already lives in this repo can
+also self-locate directly; see the self-location note below):
 
 ```bash
 if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
@@ -130,8 +131,8 @@ for the symlink-walking form and how to verify it.
 
 **Note (error handling form)**: `cmd || { echo '[FAIL]' >&2; exit 1; }` contains a `'` quote
 inside `{}`, triggering the "brace with quote character" confirmation dialog.
-Always use `if ! cmd; then echo '[FAIL]' >&2; exit 1; fi` instead (the canonical call-site form
-at the top of this file already uses this).
+Always use `if ! cmd; then echo '[FAIL]' >&2; exit 1; fi` instead (the shell-script one-line
+form above already uses this; it is not a form for an agent-run block).
 
 Makefile / install-guard rules (worktree guard, gate at every entrance, shared helper messages) live in [rule 17](17-shell-script-authoring.md#global-state-install-guard).
 
