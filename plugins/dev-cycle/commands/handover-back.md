@@ -26,7 +26,7 @@ git repo 根目錄名稱作為 project name（與 `detect_project()` 行為一�
 ~/.agents/bin/resolve-skill-repo
 ```
 
-exit code 非 0 時，resolver 已在 stderr 印出 `[FAIL]` 原因。停止執行，告知使用者在 yibi-stack 目錄執行 `make install`。
+exit code 非 0 時停止執行，告知使用者在 yibi-stack 目錄執行 `make install`。resolver 能執行但解析失敗時，stderr 會有 `[FAIL]` 原因；resolver 本身不存在時（從未執行 `make install`），shell 只會回報找不到檔案，沒有 `[FAIL]` 字樣，處理方式相同。
 
 第二步，把第一步輸出的絕對路徑代入 `<SKILL_REPO>` 後執行：
 

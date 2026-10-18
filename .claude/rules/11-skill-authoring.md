@@ -45,6 +45,21 @@ the **script itself is missing** (`make install` never ran) the shell fails with
 `No such file or directory` and there is no resolver alive to print guidance. Keep that
 `[FAIL]` line so the failure names its own fix.
 
+**The one-line form above is for shell scripts, not for a bash block that the agent runs.**
+A SKILL.md or command bash block is sent to the Bash tool as a command string. Some
+repos block command substitution in that string with a PreToolUse hook (yibi-mvp
+`protect-bash-cd.py` rejects `$(...)`), so the one-line form fails on every run there.
+Shell variables also do not persist between Bash tool calls, so a `SKILL_REPO` set in one
+block is empty in the next. In an agent-run block, use two steps:
+
+1. Run `~/.agents/bin/resolve-skill-repo` alone. If the exit code is not 0, stop and tell the
+   user to run `make install` in this repo. A missing resolver gives only a shell
+   "no such file" error, so the step text must name the fix.
+2. Write the printed absolute path into the next command, for example
+   `bash <SKILL_REPO>/commands/scripts/handover-read.sh`.
+
+Reference: `plugins/dev-cycle/commands/handover-back.md`. (Source: yibi-stack PR #575.)
+
 **Bootstrapping dependency — `make install` is required after pulling this repo.** Because
 every call site goes through `~/.agents/bin/resolve-skill-repo`, a checkout that is pulled but
 not re-installed has skills calling a resolver that does not exist yet, and they fail until
