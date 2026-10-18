@@ -4,8 +4,13 @@
 # stderr: [FAIL] 診斷訊息
 # exit 1: 無法解析，或解析結果不是本 repo
 #
-# 用法（SKILL.md / command 的 inline bash）：
+# 用法（shell script 內部）：
 #   if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+#
+# 用法（SKILL.md / command 讓 agent 執行的 bash）：不要照抄上面那行。有些 repo 的 PreToolUse
+# hook 會擋下指令字串裡的 command substitution（yibi-mvp 的 protect-bash-cd.py），而且 shell
+# 變數不會跨 Bash 呼叫保留。改成兩步：先單獨執行 ~/.agents/bin/resolve-skill-repo，再由 agent
+# 把輸出的絕對路徑直接寫進下一個指令。範例見 plugins/dev-cycle/commands/handover-back.md。
 #
 # 為何不讀 ~/.agents/config.json 的 skill_repo：
 # 該 key 是多個 skill repo 的 make install 共寫的「單一值」，會被最後一個安裝者
