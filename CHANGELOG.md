@@ -5,377 +5,125 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.23.19] - 2026-10-18
 
 ### Fixed
 
-- dev-cycle／sdd：規格根目錄偵測與 trace checker 共用受審 repo 的 `.spectra.yaml`
-  `spec_dir`，保留 `openspec`／`docs/openspec` 的既有佈局與跨根目錄 rename 偵測（#440）。
-  checker 明確接收實際 active change 所在的 `--openspec-dir`；設定根目錄的同名 change
-  缺少必要 testplan 時，不再借用舊目錄放行。無效或無法讀取的設定以 exit 2 回報，
-  不誤報「沒有 Spectra change」；archive-only 與既有 PR metadata／HEAD 檢查維持原契約。
-  verifier 以 locked standalone script 攜帶 YAML 解析依賴，issue-triage 與 layout runbook
-  同步改為先解析設定根目錄，不再把 `docs/openspec` 當成所有 repo 的固定位置。
-- dev-cycle：補強 #440 的五項 review 修正：明確設定但不存在／不可用的規格根目錄不再靜默
-  略過；公開 diff helper 支援含空白、Git C-quoted Unicode 與 rename 兩側路徑；新增 archive
-  根目錄、原名與日期前綴目錄的越界 CLI regression；以本機真實依賴 wheels 新增完整
-  pre-review → uv locked verifier → trace checker 測試，涵蓋自訂根目錄的綁定／缺綁定結果、
-  host 設定隔離與 stale-lock 拒絕／明確 relock 後恢復，取代僅回放 verifier 結果的 wiring
-  測試；Step 1.5 的 exit 2 契約補列 YAML、明確不可用根目錄與 root／change／archive 越界原因。
-- dev-cycle：將自訂根目錄以明確的 option value 傳給 checker，`-specs` 這類合法相對路徑不再
-  被 argparse 當成另一個選項而錯報缺少 `--openspec-dir` 的值（#440）。
+- Respect configured specification roots in review gates (#574)
+- Handover-back 拆成兩步解析 SKILL_REPO，避免被 hook 擋下 (#575)
+
+## [1.23.18] - 2026-10-16
+
+### Changed
+
+- Archive review isolation and scope
+- Git stash 沒帶 -u 時提醒 untracked 檔不會被存 (#552)
+- 將 CLAUDE.md 改為 AGENTS.md（保留 CLAUDE.md symlink） (#558)
+- Lessons add 輸出加印 key，show/search 預設路徑補上 id (#557)
+- 修正 _field docstring 的工具涵蓋範圍 (#560)
+- Archive fix-hindsight-canonical-readback (#565)
+
+### Fixed
+
+- 修正兩條規則的雙反斜線 pattern，並對所有規則加載入測試 (#553)
+- Gate review-fix pushes on live PR state (#554)
+- Rglob 與 subshell-exit 規則改用 content 欄位，讓 Write 也會觸發 (#556)
+- 補 PR #557 mob review 的 NIT：docstring 與三個測試缺口 (#561)
+- Run_hook 跳過保護 4，避免放行測試打到真的 gh (#563)
+- 新增唯讀 lessons rows 取代 HINDSIGHT.md 的 SQLite mode=ro 讀回 (#564)
+- Bootstrap from the loaded skill directory (#569)
+- Gate final report against accepted finding counts (#566)
+- Pr-control-log 與 pr-cycle-fast 的 Step 0 改用載入的 skill 目錄 (#571)
 
 ## [1.23.17] - 2026-10-11
 
-### Fixed
-
-- dev-cycle：`pr-cycle-deep` Step 2 先固定 fresh base／HEAD／變更路徑，再明確指定 PR 執行
-  report-only code review（#530）。新增確定性 finding scope filter：diff 外項目不得進修復清單，
-  原 item、原因與捨棄數量保留於 final audit；HEAD 變動或輸入錯誤會失效舊結果。
-  本機 main 落後只警告、不當 base；取消過濾前直接 `--fix`／`--comment` 的繞過路徑。
-- dev-cycle：agy R1/R2 改讀一次性的 committed-HEAD snapshot，使用 macOS `sandbox-exec`／
-  Linux `bwrap` 保護原工作樹、Git metadata 與 snapshot 不可寫（#390）。缺少可用 backend
-  或 tracked tree 未提交時明確失敗，不回退 unrestricted；保留認證、command 探索、既有
-  log／validator／timeout 產物與原樹前後比對。結束與中斷回收 owned process group 和暫存狀態；
-  清理只透過不跟隨 symlink 的目錄 descriptor 恢復自有目錄權限，無法清除時非零退出並點名
-  殘留路徑，不再吞掉清理錯誤後回報成功。gitlink 拒絕測試不依賴 OS backend，在缺少 bwrap 的 CI
-  也會驗證真正的 Git-tree 邊界；此項不冒充 Linux containment 已驗證。
-
-## [1.23.16] - 2026-10-11
-
-### Fixed
-
-- dev-cycle：`red-first.sh` 在 checker 把 HEAD 變成 unborn（例如切到 orphan 分支）時，改回報 exit 3
-  （`tree-not-restored`），不再以 exit 2 蓋過「沒有還原」的結論；跑之前 HEAD 就解析不到時仍為 exit 2（#545）。
-- dev-cycle：`red-first.sh` 的進行中操作守衛新增 sequencer 偵測：多 commit 的 cherry-pick／revert 停在中途
-  （衝突以 `git commit` 解決而非 `--continue`，只剩 `.git/sequencer`、工作樹乾淨）時以 exit 2 拒絕，
-  不再對少了後續 commit 的 HEAD 下判定；錯誤訊息提示殘留時用 `git cherry-pick --quit`／`git revert --quit` 清除（#545）。
-- dev-cycle：補上 detached HEAD 起點的測試（照常 pass；checker 切到分支時 exit 3），先前沒有任何測試守住（#545）。
-
-## [1.23.15] - 2026-10-11
-
-### Fixed
-
-- dev-cycle：`/clean-wt --apply` 不會再刪掉使用者沒核准的分支（#543）。`--apply` 會重新分類一次，
-  報告之後才變成 SAFE 的分支（例如另一個 session 剛建立、沒有 lock、停在 main commit 上的工作區）
-  原本會連同 worktree 被一起刪掉。新增 `--only BRANCH`（可重複、只能搭配 `--apply`）：只刪列出的
-  SAFE 分支，多出來的 SAFE 跳過並 `[WARN]`；核准過但已不是 SAFE 的分支不刪、exit 1。報告模式最後
-  會印出綁定本次 SAFE 名單的 `--apply --only ...` 參數（含 `--base` / `--stale-days`），`/clean-wt`
-  改成逐字使用那組參數。不帶 `--only` 的 `--apply` 維持原行為。
-
-## [1.23.14] - 2026-10-11
-
-### Fixed
-
-- dev-cycle：`red-first.sh` 在檢查器以 exit 0 結束但表示「沒有檢查任何東西」時，不再印 `RED_FIRST_RESULT=pass`，
-  改印獨立的 `RED_FIRST_RESULT=unchecked`（#521）。偵測整行機讀標記 `red-first: UNCHECKED`，並暫時接受 yibi-mvp
-  檢查器目前印的句子。`pr-cycle-deep` Step 1.7 與 `pr-cycle-fast` 3.0b 寫明 unchecked 不是通過，要另附證據。
-
 ### Changed
 
-- dev-cycle：`red-first.sh` 仍要求跑之前工作樹乾淨，且改用
-  `git status --porcelain --untracked-files=all --ignore-submodules=none`：submodule 內的改動也算，
-  使用者設了 `status.showUntrackedFiles=no` 時 untracked 檔也不會被漏看（exit 2）；`cherry-pick --no-commit` 與 `merge --squash` 只留 staged 改動，也由這一項擋下。
-  跑完後除了工作樹仍須乾淨，另比對 HEAD 的 commit 與所在分支，任一不同即 exit 3。新增進行中操作守衛（exit 2，錯誤訊息
-  指出具體操作）：MERGE_HEAD、CHERRY_PICK_HEAD、REVERT_HEAD、rebase 進行中或有未解衝突。移除 checker 自列「工具副作用」
-  的豁免：跑後任何改動一律 exit 3（#496 NIT 2）。#496 NIT 1（放寬跑前乾淨）刻意不收：checker 若就地還原產品碼，
-  會覆蓋使用者未 commit 的改動。
-
-## [1.23.13] - 2026-10-11
-
-### Added
-
-- dev-cycle：`issue-triage` 新增 OBSOLETE 與 STALE-CANDIDATE verdict，並在驗證程式碼症狀前固定證據基準。
-  原本的偏誤是單向的（只防誤關、沒有機制對抗堆積）：前提已消失的 issue 落不進 CLOSE，久未更新反而被當成
-  降優先的理由，且程式碼驗證沒有固定基準，本機 main 落後或停在別的分支時 DONE 與 NOT DONE 會判反。
-  - **證據基準**：驗證前先 `check-baseline.sh`——fetch origin main，確認 checkout 等於 origin/main 且
-    tracked 檔案沒被修改，以 exit 2／3／4／5 區分不在 repo、fetch 失敗、commit 不一致、有未提交修改；
-    fetch 失敗不回退到本機殘留的 origin/main。報告頂端記錄基準 SHA 與 fetch 時間。被 `assume-unchanged`
-    或 `skip-worktree` 隱藏的 tracked 修改（`git status` 看不到、Read/Grep 讀得到）也算修改：磁碟上存在的
-    這類檔案會與 HEAD 的 blob 比對，不同即 exit 5；比較一律用完整 ref `refs/remotes/origin/main`，
-    本機若有叫 `origin/main` 的分支不會蓋過遠端 ref。腳本確認在工作樹內後先切到 repo 根目錄，從任何子目錄執行結果都相同
-    （`git status` 與 `git ls-files` 預設只看 cwd，舊版從子目錄會漏掉子目錄之外被旗標隱藏的修改、並誤報 cwd 內未變的檔案）；
-    被旗標隱藏又已從磁碟刪除的檔案同樣算修改，只有真的 sparse checkout（`core.sparseCheckout` 為 true 且 tag 為 S 或 s）的缺檔豁免
-  - **OBSOLETE**：所有未解症狀的前提都證實不存在於基準才成立，且需要正向對照（零命中的搜尋沒有資訊量）；
-    以 `not planned` 關閉。部分症狀失去前提時是 UPDATE-SCOPE
-  - **STALE-CANDIDATE**：無人為活動 180 天以上、前提未被證實消失、無豁免的 KEEP；先貼 stale notice、
-    14 天寬限期、無回應才建議以 `not planned` 關閉。**絕不僅憑天數關閉**
-  - **過期分層**（30／90／180 天，初始值待校準）只提高證據門檻，不決定結果；`staleness-signals.sh`
-    以 origin/main 歷史判斷 issue 引用的路徑是 unchanged／changed／deleted／renamed／never-existed；
-    基準一律用完整 ref `refs/remotes/origin/main` 解析一次（同名的本機分支 `origin/main` 不會蓋過它，
-    舊版會把遠端已刪掉的檔案回報成 changed）
-  - **最後實質人為活動**排除 bot 與 skill 自己的留言。bot 只看 REST 的帳號型別：實測 `gh issue list`
-    的 JSON 會去掉 `[bot]` 後綴（`github-actions[bot]` 顯示為 `github-actions`），`Copilot` 本來就沒有後綴。
-    skill 自己的留言 = 內文最後一個非空行是完整的 triage 標記（`<!-- issue-triage:<close|update-scope|merge|stale-notice> YYYY-MM-DD -->`）
-    加上作者是目前登入帳號；只比對前綴、種類長得像（`stale-notice-foo`）、標記不在最後一行的留言都算人為活動，
-    只看標記會讓任何人貼上標記就能隱形自己的留言
-  - **優先級**：久未更新不再降低優先級，改標 `review-urgency`；FAQ 原本的「KEEP 並降優先」已改寫
-  - 過期資料取不到的 issue 一律標「過期檢視不可用」、不得升為 STALE-CANDIDATE 或 OBSOLETE（`last-human-activity.sh`
-    exit 1／3／4 與 `staleness-signals.sh` exit 1／3 各自有分支）；同一次執行第二次 exit 3 即停止過期檢視。
-    `staleness-signals.sh` 從子目錄執行時路徑仍是 repo 根目錄相對。8g 跨系統整併的 GitHub 端留言也帶 `merge` 標記。
-    issue 內文抽出的路徑若以 `/` 開頭、含 `..`、為空或含 tab 與換行，呼叫腳本前先丟掉並在條目註明（舊版會讓腳本 exit 2 而中止整個盤點）；
-    腳本 exit 2 依 stderr 區分來源，只有建立時間參數錯誤才是 skill 自己的 bug。8j 寬限期滿關閉前的重新量測若失敗，
-    放棄該筆、列入已取消，不貼留言、不關閉
-  - 三支腳本共 107 個測試（真實 git repo fixture、假 gh 回放 REST 形狀 JSON、PATH 上的假 git 讓單一子指令失敗以驗證 exit 1 分支），
-    每個守衛都以單點突變驗證會讓對應測試轉紅；`last-human-activity.sh` 另對 cli/cli 的真實 issue 核對過。SKILL.md 文字契約測試的錨點
-    綁定到負責段落、逐列錨點，自檢一次只移除一個出現處
-  - 已知限制：基準固定為 `origin/main`（fork 的 origin 落後 upstream 尚未處理）；untracked 檔案不算基準失敗；
-    Jira bug 不套用過期判斷
+- 拆出 rule 17 讓常駐指令檔回到 150k 字元上限內 (#486)
+- Step 0 外部 reviewer 偵測收進 detect_voices.py (#494)
+- Enforce-testplan-trace -- testplan 與測試的雙向追溯 gate (#474)
+- Check_pr_line_budget 加總 open PR 對同一檔案的行數增減 (#500)
+- Rule 02 改為 paths: scoped，常駐指令檔騰出 17.5k 字元 (#499)
+- 2026-09-28 prompt audit -- 修正過期事實與矛盾規則 (#502)
+- 新增 harness-weekly-review，每週用執行期資料盤點 rule／hook／gate (#504)
+- Uv sync 加 --locked，lock 與 pyproject 不一致時直接失敗 (#503)
+- 新增 weekly 子命令接本機 scheduler（疊在 #506 上） (#508)
+- Integrate retrospective Hindsight projection and audit (#512)
+- Bump urllib3 (#517)
+- Bump urllib3 (#518)
+- Rule 新增 section 須宣告機械化狀態（連結既有 gate 或封閉列舉的豁免） (#528)
+- 新增 OBSOLETE／STALE-CANDIDATE verdict，驗證前固定 origin/main 基準 (#532)
+- Archive add-issue-triage-staleness-review (#538)
+- 從舊 stash 救回 worktree 研究文件與 agy-sandbox 規格 archive (#540)
+- 更正 protect_push_pr_state.py 對非零退出碼的說明（PR #539 R2 遺留） (#542)
+- 為超過 100 行的 reference 檔案補上 Contents 目錄 (#550)
 
 ### Fixed
 
-- sdd：`check_testplan_trace.py` 的略過規則（虛擬環境、巢狀 `.claude/worktrees`）改看「相對 repo root 的路徑」。
-  舊版看絕對路徑，所以 repo root 位於 `.claude/worktrees/<name>/`（每個 background job 的 worktree）
-  或祖先目錄叫 `venv` 時，**所有測試檔都被略過**：enforced 且 tasks 全勾的 change 會把每個 auto TC 報成
-  `missing`，pre-commit 的 `check-testplan-trace` 因此在 worktree 內無法通過，其他 change 也會出現假的 WARN。
-  CI 與主 checkout 不受影響。新增回歸測試 TPT-ST-009 到 014（含防矯枉過正的對照；013、014 鎖住 `.claude` 與 `worktrees` 必須同時出現才略過），單點突變各被測試擊殺
-
-## [1.23.10] - 2026-10-03
-
-### Fixed
-
-- harness-weekly-review：把「上週建議已解除（resolved）」從黑名單改成白名單（#509）。三輪 review
-  找到同一族問題（完整性旗標預設為 True、只有被列舉到的失敗才設 False；resolved 不需要正向證據），
-  依「同形狀累積 3 次就重新設計」的紀律整組重做：
-  - 每個資料來源回傳 `source: {complete, errors}`，預設不完整；目錄列舉改走會回報錯誤的 `scan_dir`，
-    取代 `Path.glob`、未防護的 `iterdir`、沒有 `onerror` 的 `os.walk`。格式錯誤行與被截斷的
-    transcript 行也計入 errors。`evaluation_scope` 只信 `source`，缺漏或型別不符一律當量不到，
-    `ci.measured` 缺漏不再拋 `KeyError`
-  - 上週建議要判 resolved，除了類型可判定，還要本週觀察到該對象：hook-error／hook-slow／
-    hook-silent-block 需本週呼叫數 >= 3（與產生建議的門檻相同）；gate-silent 需 gate 所在的 workflow 在觀察期內
-    至少跑過 1 次；transcript 類需觀察期內至少 3 筆事件。不滿足判 unmeasured 並 carried
-  - gate 歸因只接受精確的 step 名稱：移除 `stem in key`、`stem in step` 的子字串比對；同一個
-    workflow 檔內有 step 名稱含 `${{ }}`、無法解碼的跳脫序列或多行 plain scalar 時整支 gate 不可歸因
-  - gate 上線日期改用 `git log --follow`，shallow clone 或無法判斷時為未知；CI runs 清單比對
-    `total_count`，缺欄位或筆數不符即標記 CI 不完整
-  - 上週快照只跑過 collect（沒有 `carried`）時，持續中的建議週數重設為 1 並在報告寫出原因
-  - `SNAPSHOT_VERSION` 2 → 3：判定語意改變，v2 的 resolved 結論不可信，所以不寫遷移；升級後的第一週
-    沒有可比較的上週，週數從 1 開始
-  - 改以家族層級的注入測試（每個來源 × 檔案／目錄／單行／API 形狀）取代逐條補洞，並以 27 種
-    mutation 驗證每個注入點都有測試守住；新增 `cmd_collect` 對 `--max-rule-candidates` 的端到端測試
-  - 已知取捨：任何一個 rule 檔讀不到時 rule 類建議整類不判定；gate-silent 的觀察證據是 workflow
-    層級而非 job 層級；plugin hook 的 hook-silent-block 沒有呼叫次數可當證據，會長期維持 unmeasured
-
-## [1.23.9] - 2026-10-01
-
-### Added
-
-- growth：`pr-retrospective` 接入可降級的 Hindsight preflight、search-first recurrence、
-  Step 5 canonical readback 後的 lesson projection／lifecycle tombstone，以及依 Epic/change
-  identity 更新 initiative。新增共用 protocol、deterministic projection helper 與 audit
-  measurement report；content envelope 不冒充原生 metadata，accepted 不等於可搜尋（#425）。
-
-### Fixed
-
-- Hindsight 投影：receipt 綁定 canonical lesson ID，active 接替須核實 predecessor；
-  audit 以含時區的實際時間排序，合併 GitHub PR identity 別名，拒絕空 CLI 路徑與身分空白。
-  補回執行出貨 Bash 範本與真實隔離 Mycelium DB 的安全回歸測試，不鎖定文件標題措辭（#512）。
-- Hindsight 的 prepare 改為 invocation-wide batch；每 doc 只輸出一個權威意圖，合格 successor
-  不再被同批舊列 tombstone 覆蓋。移除舊單列 input，遷移 runbook 與行為測試（#512）。
-- pr-cycle-deep Step 1 起草 Review Contract 前新增 Spec-drift preflight（#510）：既有 PR 先確認 HEAD
-  等於 PR head；依 `setup-review-dir.sh` 的規則 fetch base，並在同一個呼叫列出 `FETCH_HEAD..HEAD` 的 commit；
-  範圍內**每個** commit 都要檢查（清單用 `%h %p %s` 區分 merge；merge commit 用 `git show --remerge-diff --stat`，
-  只看 merge 本身的改動，不把 base 帶進來的改動算成分支的；octopus merge 在 remerge-diff 下只有 warning、
-  stat 為空，改用一般 `--stat` 並標 `[octopus]`）。不以「最後一個改到 spec 檔的 commit」切範圍：改到 spec 檔（勾 `tasks.md`、
-  修 typo、改名）不代表重新對齊了意圖，只在清單中標 `[spec]`。改變 Goal 層級意圖的 commit 必須以
-  `Spec vs implementation drift` 清單附在給人類確認的 contract 上，讓人類在第一次確認時就裁決；
-  fetch／log 失敗或範圍為空一律停下，不可寫成「沒有偏離」
-- `test_convergence_contract.py` 以 golden snapshot（`PREFLIGHT_SHA256`）鎖住整段 preflight 文字：
-  review 連續三輪都找到逐字 anchor 沒鎖到的子句，最後一輪是保留所有 anchor、只加一句反話的突變，
-  子字串比對在結構上擋不住。另有 25 條逐字 anchor（標題、指令與規則子句）作為定位用的診斷訊息，
-  `check_preflight_position` 要求它們都位於 Step 1 contract 模板之後、起草段之前；`LINE_BUDGET` 1355 → 1363
-
-## [1.23.8] - 2026-10-01
-
-### Fixed
-
-- codex-consult／codex-review／codex-cli 的 `codex exec` 未指定模型，ChatGPT 帳號登入下 codex 預設選到的
-  `gpt-6-sol` 直接回 400（#511）。5 處呼叫統一 pin `-m gpt-6-astra`（與 pr-cycle-deep review stage 同一個
-  slug），移除已 deprecated 的 `--enable web_search_cached`，失敗提示補上 codex-cli >= 0.154.0 的版本條件
-- 新增 `scripts/tests/test_codex_exec_model_pin.py`：掃描 `plugins/` 下所有 SKILL.md 與 `.sh` 的 `codex exec`
-  指令行，要求每一處都 pin 模型且只能是共用的 frontier／extract slug，避免兩處各自維護再漂移
-
-## [1.23.7] - 2026-09-30
-
-### Fixed
-
-- fleet-usage-guard 與 mycelium token 用量估算的 Claude 定價表過期，依官方定價頁（2026-09-30 查核）修正：
-  - Opus 5 / 4.8 / 4.7 / 4.6 從 $15/$75 改為 $5/$25；Sonnet 5 從 $3/$15 改為 $2/$10
-  - 新增 Opus 5.5（$4/$20，cache read 0.05x）、Mythos 5.1（cache read 0.025x）、Sonnet 5.5；
-    `claude-opus-5-5` 不再落到 `claude-opus-5` 前綴而被高估
-  - mycelium：補上 Opus 5、Opus 5.5、Fable 5.1、Mythos 5.1；cache read 倍率改為逐 model 設定；
-    dated snapshot 的前綴比對改為最長 key 優先
-  - fleet-usage-guard 的 fixture 預期金額隨 Opus 5 價格等比例調整（$216.78/hr → $72.26/hr）
-
-## [1.23.6] - 2026-09-28
-
-### Fixed
-
-- 依 2026-09-28 prompt audit（`docs/audits/2026-09-28-prompt-audit.md`）修正指令檔中過期的事實與互相矛盾的規則。主要項目：
-  - pr-cycle-deep 的 `extract-r1.md` 補上 `[P0]`，P-tag 嚴重度對照改為 P0=critical、P1=important
-  - mob-code-review-only 明列只跑哪些引擎步驟，排除會改碼或推送的 Step 1.6／1.7
-  - growth skill 的安裝提示改 pin 到 `v1.23.2`（`v1.14.0` 缺 `--park`／`finalize`）
-  - mycelium 文件中的 CLI 名稱統一為 `mycelium`
-  - Makefile／install guard 規則從 rule 11 搬到 rule 17，讓改 Makefile 時會載入
-  - 移除與內建 Explore 重複的 `explorer` agent
-- handover 翻譯改用 `claude-sonnet-5` 與 structured outputs，並依 block type 讀取回應（原本的 `content[0]` 在 adaptive thinking 預設開啟時會讀到 thinking block）。HSBC 分類改用 enum schema，編號缺漏時會在寫入 DB 前報錯，不再靜默歸入「其他支出」。
-
-## [1.23.5] - 2026-09-28
-
-### Added
-
-- sdd：新增 `scripts/check_testplan_trace.py`，雙向檢查 testplan 的 TC 與測試。測試以 docstring 的 `tc: <TC-ID>` 行宣告綁定（以 `ast` 解析，測試資料與註解裡的 ID 不算）；報出 missing／orphan／mismatch／collision／manual-open，legacy testplan 無法解析時報 unparsable。只有宣告 `trace: enforced` 且有 `Kind` 欄的 testplan 會在 `--strict` 或 tasks.md 全勾時報 FAIL，舊 testplan 一律 WARN。`--report` 列出 TC 對 test nodeid，`--summary` 把 WARN 收成每個 change 一行（#474）
-- 新增 pre-commit hook `check-testplan-trace`（摘要模式）；CI 經 `pre-commit run --all-files` 執行（#474）
-- pr-cycle-deep：Step 1.5 的 amplifier-verify 以子程序呼叫 trace checker，FAIL 逐筆成為 MUST，WARN 彙總成一筆（enforced 為 SHOULD、legacy 為 INFO），找不到 checker 即 exit 2；Step 8 以 `--strict` 列出未勾選的 Manual Verification 請人確認並留 PR comment；Step 11a 在 archive 前以 `--strict` 擋下（#474）
-
-### Changed
-
-- sdd：`qa-test-designer` 直接寫出 testplan.md，只回傳摘要；TC-ID 改依 Convention Detection 的約定（technique 只放 Technique 欄），無法自動化的檢查改列 Manual Verification。testplan 模板加入 `trace: enforced`、`Kind` 欄與 Manual Verification；tasks 模板的每個 US 以綁定 `tc:` 的 red-first 測試開頭（#474）
-
-### Fixed
-
-- sdd：`spectra-amplifier` 完工標準原本宣稱「testplan.md 所有 TC 均有對應測試（check_spec_coverage.py 驗證）」，但該工具不讀 testplan；改為指向 `check_testplan_trace.py --strict`。tasks 範例的 `pytest -k "<TC-ID>"` 驗收指令比對的是測試名稱而非 docstring，改用 trace checker（#474）
-
-## [1.23.4] - 2026-09-27
-
-### Changed
-
-- pr-cycle-deep／mob-code-review-only：Step 0 的外部 reviewer 偵測（codex／agy 的 binary、auth、agy allow-list）改由 `scripts/detect_voices.py` 一次完成，`--auth-only` 給 cache warm path 重驗 auth 用。原本是 SKILL.md 裡 5 段 inline bash，agent 每次照意圖重寫一份，跑的版本沒有測試守著，多行指令也無法用 prefix allow-list 覆蓋，每次 mob review 都要手動確認。輸出字串與原本相同，mode 判斷表與 `~/.claude/mob-detection-cache` 不受影響；allow-list 加兩條精確 entry 即可免確認（見 SKILL.md Step 0b）。設定檔讀不到（權限不足、非 UTF-8）、JSON 壞掉或形狀不對時，script 印 `[WARN]` 並視為不存在，不會中斷偵測；script 自身失敗（exit 非 0、行數不符）時 SKILL.md 要求 `[FAIL]` 停止，不得退回 inline bash（PR #494 mob review）
-
-### Fixed
-
-- pr-cycle-deep：codex extract stage 改 pin `gpt-reserve`，恢復 #445 的修正（#495）
-- shell 腳本 bare `$VAR` 接全形字元導致 unbound variable／吞字（`Makefile` 與 bump-version、protect-push 等 7 支 shell 腳本）（#493）
-
-## [1.23.3] - 2026-09-27
-
-### Fixed
-
-- pr-cycle-deep：`pre_review_check.py` 崩潰不再被當成「有 finding、繼續」。Python 對未捕捉例外也是 exit 1，實測子程序吐非 UTF-8 位元組時就會發生；現在子程序輸出以 `errors="replace"` 解碼、amplifier exit 1 須有 `[MUST]`／`[SHOULD]` 行才算 finding，其餘與任何內部例外都 exit 2（PR #471 mob review）
-- pr-cycle-deep：`--resume` 不再越過尚未裁決的 Disputed，`state.md` 的 `head:` 與 PR 實際 head 不符時 `[FAIL]`；Step 6 由 lead 決定 CI 指令，並驗證工作區乾淨、有新 commit、push 真的落地，CI log 改用 `>|`（PR #471 mob review）
-- mob-code-review-only：略過 Step 5 的 checkpoint，不再引導使用者 resume 進會 commit／push 的 Step 6
-- rule 13／16：allow-list 範例拿掉 `Bash(rg *)`（`rg --pre=<cmd>` 會執行指令）
+- 補上 #471 mob review 的 blocking finding (#483)
+- Plugin-cache-prune 不再把 cache root 下的非 marketplace 目錄當三層結構刪除 (#489)
+- 恢復 #445 的 codex extract 修正（被 #446 解衝突時回退） (#495)
+- Shell 腳本 bare $VAR 接全形字元導致 unbound variable / 吞字 (#493)
+- Codex extract 改 pin 可見的 gpt-5.6-luna，並補 stage2 失敗路徑測試（#495 follow-up） (#497)
+- Update stale Claude model pricing tables in fleet-usage-guard and mycelium (#505)
+- 量不到的資料不再判成已解除，補齊 PR #504 Round 2 review 的 7 個 Critical (#506)
+- Codex exec 一律 pin gpt-6-astra，移除 deprecated web_search_cached (#514)
+- Step 1 起草 Review Contract 前加 Spec-drift preflight（#510） (#515)
+- 「已解除」改為白名單：來源完整性＋正向證據＋精確歸因（#509） (#516)
+- 三個 change 的 spec 改為 delta 格式 (#524)
+- 移除 handover 指令檔的 markdownlint 停用註解 (#526)
+- Lint_rule_evidence 改從完整 post-image 計算（承接 #528 Round 2） (#535)
+- Protect-push 的 BLOCKED 訊息改寫到 stderr (#539)
+- Red-first 區分「沒有檢查」與通過，改以內容比對確認工作樹已還原 (#541)
+- --apply 加 --only，只刪報告時核准的分支 (#546)
+- Red-first 處理 orphan／sequencer 狀態，補 detached HEAD 測試 (#547)
+- 隔離 agy 執行並限制 PR finding 範圍 (#548)
 
 ## [1.23.2] - 2026-09-27
 
 ### Added
 
-- harness／`plugin-migration-check`：新增 skill 層級的移除偵測。原本只比對整個 pack 的改名／合併／移除，看不到「pack 還在、但裡面的 skill 被刪了」；1.23.0 從 `methodology` 刪掉 `tdd-kentbeck`、`flutter-tdd` 就屬於這種情況，其他安裝的專案只看 release note 很可能不會注意到
-  - `[notice]`：裝了 `methodology`（或舊的 `tdd` pack）時，說明哪支 skill 被刪、原本該用什麼替代（TDD 改由 pr-cycle 的 red-first gate 執行；技術棧專屬的 TDD skill 由各專案自行維護）。版本還沒更新到 1.23.0 的，會提示「更新後會消失」。只是資訊，不影響 exit code
-  - `[stale-link]`：找出 `~/.claude/skills/`、`~/.agents/skills/` 底下指向已刪除 skill 的 symlink（`make install` 留下的殘留），計入待處理數量；沒裝任何 plugin、只用 `make install` 的使用者也會被檢查到
-  - 移除紀錄集中在 `check_migration.py` 的 `REMOVED_SKILLS`；之後從 pack 刪 skill 時要在這裡登記
-
-## [1.23.1] - 2026-09-26
-
-### TDD 方法改變（1.23.0 + 1.23.1）與待觀察指標
-
-這兩版把 TDD 從「知識型 skill」改成「PR 流程裡的機械檢查」：
-
-- **之前**：`tdd-kentbeck`、`flutter-tdd` 兩支 skill 用散文教 Red→Green→Refactor，靠 agent 自己決定要不要用
-- **之後**：兩支 skill 刪除；`pr-cycle-deep` Step 1.7、`pr-cycle-fast` 3.0b 在 review 之前執行 repo 提供的 `scripts/red-first-check.py`：把產品碼退回 merge-base、保留 PR 的測試，`feat`／`fix` 的測試必須轉紅，`refactor`／`perf` 必須仍綠。repo 沒有 checker 時記 `[SKIP]`，**不會生效**（yibi-stack 本身目前就沒有；參考實作在 heyu-ai/yibi-mvp#2017）
-
-改變的理由與基準值（yibi-mvp transcript，2026-08-25 ~ 09-25，789 個 session）：三支 TDD skill 被呼叫 **0 次**；158 個有改程式碼的 session 只有 **12 個（7.6%）** 是先寫測試。
-
-這個改變**還沒有被證明有效**。建議在 **2026-10-27** 用同一套方法、同樣長度的期間重新量測，看兩件事是否改善：
-
-**1. 開發正確性**
-
-| 指標 | 基準 | 怎麼量 |
-| --- | --- | --- |
-| 先寫測試的 session 比例 | 12 / 158（7.6%） | 用同一套 transcript 分析重跑 |
-| red-first 判定分布 | 無（新指標） | 統計 `pre-review-check.md` 與 PR 上 `<!-- red-first:` comment 的 PASS／FAIL／SKIP／EXEMPT／WEAK-RED 次數。FAIL 代表 gate 攔下了「測試抓不到改動」的 PR；SKIP 太多代表 gate 沒在作用 |
-| 合併後的修正 PR | 待取基準 | 統計 merge 後 30 天內因同一功能回頭修 bug 的 `fix:` PR 數，與改變前同期比較 |
-| review 輪數 | 待取基準 | pr-cycle-deep 每個 PR 走到 Round 2 的比例；gate 若在 R1 前攔下假測試，這個比例應該下降 |
-
-**2. token 消耗**（以下是位元組數實測，不是 token 實測；只計 #469 與 #481 兩個 commit 自己的增量，不含同期 #470、#471 的改動）
-
-| 項目 | 變化 | 影響範圍 |
-| --- | --- | --- |
-| skill 清單裡的 description | −1,053 字元（tdd-kentbeck 660 + flutter-tdd 393） | 裝了 methodology plugin 的**每個** session |
-| `pr-cycle-deep/SKILL.md` | +2,581 bytes（+3.6%，以 #469 前的 71,945 為基準） | 每次呼叫 `/pr-cycle-deep` |
-| `pr-cycle-fast/SKILL.md` | +3,584 bytes（+22.8%，以 #469 前的 15,741 為基準） | 每次呼叫 `/pr-cycle-fast` |
-| red-first checker 的輸出 | 依 repo 而定（會跑兩次測試） | 有 checker 的 repo，每個 PR 一次 |
-| 修正輪數 | 若 gate 讓 review 少一輪，可省下整輪 mob review | 待量測 |
-
-淨效果要看兩邊的比例：一般 session 每次省一點；PR 流程每次多一點，但如果因此少一輪 fix + re-review，省下的會遠大於多出來的。量測時請用 retrospective 記錄的 token 用量（`token_input_tokens`、`token_output_tokens`、`token_total_cost_usd`，需在寫 retro 時加 `--auto-tokens` 才會填入；`token_usage_source` 標示資料來源），比較改變前後 pr-cycle session 的平均值，並分開看「有 checker」和「`[SKIP]`」的 repo。同期的 #471 另外降低了 pr-cycle-deep 的 token 成本，比較時要把它的效果分開。
-
-### Fixed
-
-- pr-cycle-deep／pr-cycle-fast：red-first gate 照字面執行時會靜默失效。1.23.0 的 runbook 要 agent 分多個 Bash call，並用 shell 變數（`PR_TITLE`、`WT_ROOT`、`BASE_REMOTE`）在 call 之間傳值，但 Bash tool 不保留變數：checker 路徑變成 `/scripts/red-first-check.py` 而誤判 `[SKIP] no checker`，或收到空的 `--title`。PR #469 mob review Round 2 由 Claude 與 Codex 4 個來源獨立指出，且 lead 已復現
-- 改為共用的 `scripts/red-first.sh` 單一呼叫：fetch base（有 upstream 先用 upstream）、PR 標題只經變數傳入（`${N}`、反引號不會被展開或執行）、執行前後檢查工作區，並收斂成 0 繼續／1 判定失敗／2 前提或工具錯誤（含 traceback）／3 工作區沒還原四個具名 exit code；未預期的指令失敗（例如 base 與 PR 沒有共同祖先）由 `ERR` trap 收斂成 2，不會以 1 被誤讀成判定失敗；PR 自己改了 checker 時印 `[WARN]`
-- pr-cycle-fast：有 checker 時一律把輸出貼成帶 head SHA 標記的 PR comment（貼失敗就 `BLOCKED`），Step 6 只讀最新一則；BLOCKED／REVIEWING reason 改用腳本輸出的固定 token，resume 時看得出失敗原因
-- `test_convergence_contract.py` 的錨點改為守指令本身與只出現一次的句子；新增 `test_red_first_sh.py`（18 個案例，7 個單點 mutation 全數被抓到）
-
-## [1.23.0] - 2026-09-26
-
-### Added
-
-- pr-cycle-deep：新增 Step 1.7 red-first gate。repo 有 `scripts/red-first-check.py` 時，在 R1 之前把產品碼退回 merge-base、保留分支的測試：`feat`／`fix` 的測試必須轉紅，`refactor`／`perf` 必須仍綠；沒有 checker 則記 `[SKIP]`。`[WEAK-RED]` 列出的測試貼進 R1 prompt 讓每個 voice 檢查，`[EXEMPT]` 列為 Step 8 hotspot 交給人確認（#469）
-- pr-cycle-fast：新增 3.0b red-first preflight，規則同上，exit 1／2 時 transition 到 `BLOCKED`（#469）
-- pr-cycle-deep：R1 prompt 的 Evidence forms 新增「Tautological or implementation-coupled test」，focus 與 `pr-test-analyzer` 焦點同步（#469）
-- pr-cycle-deep：新增 `/pr-cycle-deep #<PR> --resume` 與 `.pr-review/state.md` checkpoint。Step 5 起每個 step 邊界都會更新 `next:`，所以在等人裁決 Disputed 的停頓點可以 `/compact` 或開新 session 接續，不必把整個生命週期留在同一個主 context
-- pr-cycle-deep：新增 `scripts/pre_review_check.py`，一次 Bash call 取得 diff 統計、CI 狀態與 amplifier-verify 結果，完整輸出寫進 `.pr-review/pre-review-check.md`
-
-### Changed
-
-- pr-cycle-deep／mob-code-review-only：Step 1.5 改用 `pre_review_check.py`，取代原本的 3 個 Task agent。每個 agent 只跑一行固定指令，卻都要重新載入 110-165k token 的基底 context。`gh` 失敗（auth、PR 不存在）一律 exit 2，不會被當成「CI 沒問題」
-- pr-cycle-deep：Step 6 Fix 改派一個 subagent 執行讀碼、改檔、跑 CI，lead 只收 15 行以內的摘要；lead 自己看 `git log` 並自己重跑 CI（只 gate exit code），不採信 subagent 的「CI passed」。實測這類 session 主 context 達 99-367 turn、峰值 322k-947k，output 只佔 input 的 0.1-0.3%，成本乘數是「turn 數 × context 長度」
-
-### Removed
-
-- methodology：刪除 `tdd-kentbeck` 與 `flutter-tdd`。一個月的 yibi-mvp transcript 實測 TDD skill 被呼叫 0 次，TDD 改由 red-first gate 機械執行；需要特定技術棧 TDD skill 的專案請在自己的 repo 維護。已安裝者合併後跑 `make install` 或手動刪除 `~/.claude/skills/tdd-kentbeck`、`~/.claude/skills/flutter-tdd` symlink（#469）
-
-## [1.22.5] - 2026-09-17
-
-### Added
-
-- protect-push 新增保護 4（`.claude/hooks/protect_push_pr_state.py`）：push 到「PR 已 merged/closed」的分支時 exit 2 攔截並說明後果。此失誤為同族第 4 次，且 2026-07-07 的教訓已預言「push 前無 PR state 自動檢查會持續復發」；逃生口 `PROTECT_PUSH_SKIP_PR_STATE=1`，查不到 PR 狀態（無 gh／離線／輸出無法解析）一律放行
-
-### Fixed
-
-- pr-cycle-deep：SKILL.md 的 codex 版本門檻說明不再叫讀者「去 `models_cache.json` 確認 slug」。該檔可能由機器上另一個較新的 codex binary 刷新（實測 ChatGPT app 內建 0.154.0-alpha.6.2 刷新了 cache，而 PATH 上的 0.149.0 呼叫其中列出的 `gpt-6-astra` 仍回 400），改為指出 slug 只適用於與該檔 `client_version` 相符的 CLI
-
-## [1.22.4] - 2026-09-16
-
-### Changed
-
-- pr-cycle-deep：Codex R1／R2 review 改 pin `gpt-6-astra`（codex-cli 0.154.0 catalog 的 priority 1，"Our most capable model for complex, demanding work"），取代 `gpt-5.6-sol`
-- pr-cycle-deep：新增 `codex_version_gate.py`，兩支 review 腳本在呼叫 `codex exec` 之前先確認 codex-cli >= 0.154.0。舊版（實測 0.149.0）會在送出請求後才回 400「requires a newer version of Codex」，錯誤埋在 stage log、腳本只回報「輸出空白」；門檻不足時改為直接給升級指令
-
-## [1.22.3] - 2026-09-16
-
-### Fixed
-
-- pr-cycle-deep：三支 agy 腳本（R1 Stage 1／Stage 2、R2）在 agy print timeout 時改為 exit 124 fail loud。agy 自 1.1.28 起逾時會回傳半截輸出並 exit 0，半截的 R2 因第一個 heading 就含 verdict 而通過 `agy_validate.py`，會被當成完整一票計入 mob consensus（#443）
-- pr-cycle-deep：以 stderr 標記 ∨ 實際耗時超過預算雙訊號判定逾時，半截輸出改名為 `*.timeout-partial*`（0600）讓聚合讀不到；預算由 `10m` 改為預設 480 秒並強制 1-570（`AGY_PRINT_TIMEOUT_SECS`，低於 Bash tool 600 秒上限）；agy log 落地到 `.pr-review/*.agy.log`，逾時時印出最後一筆 429 `RESOURCE_EXHAUSTED`
-- pr-cycle-deep：Codex extract（`codex-r1-stage2.sh`）改為 `--ignore-user-config -m gpt-5.6-luna`，不再繼承 `~/.codex/config.toml`；先前 config 的 model 不被本機 codex-cli 支援時（實測 0.149.0 搭 `gpt-6-astra`）每次 extract 都回 400，整個 stage 失敗（#444）
-- clean-wt：被 lock 的 worktree（有 session 正在使用）改歸 KEEP；剛開工的 session 分支停在 main 的 commit 上，先前會被判成 SAFE
-- clean-wt：worktree 快照改在列舉分支之後才拍，刪 ref 前也重新讀取；先前在 fetch／gh 期間建立的 branch + worktree 不會被檢查，實際刪掉了一個活躍 background session 的分支
-
-## [1.22.1] - 2026-09-15
-
-### Fixed
-
-- agy-consult / agy-review：agy print timeout 時 exit 0 並回半截輸出（自 agy 1.1.28 起的行為，1.2.3 複驗），改為以 exit 124 fail loud 並保留被丟棄的輸出；預算 480 秒且強制 1-599（低於 Bash tool 600 秒上限），並從 agy log 撈出 429 RESOURCE_EXHAUSTED 額度訊息
-- agy-consult / agy-review：腳本被外部訊號中止時，agy 的 stderr 改由 trap 補送（先前改成緩衝後回放，會在這條路徑全數遺失）；agy log 一律保留並印出路徑（`--log-file` 是改道，預設目錄不會有副本）
-- agy-consult / agy-review：agy 版本太舊時在呼叫前給出升級指示，不再與 agy 自身的未知 flag exit 2 混淆；移除兩份 SKILL.md 共 4 處不存在的 `agy auth` 子命令
-
-## [1.22.0] - 2026-09-05
-
-### Added
-
-- Add OMP manifest to all plugin packs
-- Address review findings from mob review
 - Add fleet burn-rate guard (#428)
+- Add contract-mapping validation and evidence hallucination tell (#438)
 
 ### Changed
 
-- Update CLAUDE.md gotcha for plugin skill iteration
-- Merge remote-tracking branch 'origin/main' into worktree-fix-plugin-skill-install
+- Standardize Gemini 3.8 Flash across skills (#431)
+- V1.22.0 (#433)
+- Bump the python-minor-patch group across 1 directory with 5 updates (#430)
+- 加入 --depth fast|deep 參數與深度盤點方法論 (#434)
+- Bump the python-minor-patch group with 2 updates (#439)
+- Codex R1／R2 review 改用 gpt-6-astra，並加上 CLI 版本門檻 (#448)
+- Models_cache.json 的 slug 只對應同 client_version 的 CLI (#449)
+- 攔截推到「PR 已 merged/closed」的分支 (#450)
+- Bump anyio (#452)
+- Bump anyio in the python-security group across 1 directory (#453)
+- Bump the python-minor-patch group with 4 updates (#451)
+- Disable claude.ai skill/plugin auto-sync (Closes #456) (#461)
+- 記錄 claude -p exit code 1 新語意（v2.1.277） (#465)
+- W39 release note 的 OTEL 與 worktree 巢狀展開補充 (#466)
+- 依週報開票前檢查引用路徑存在於目標 repo (#468)
+- Bump the python-minor-patch group with 3 updates (#475)
+- Testplan 加入 Test Seams，amplifier-verify 新增 Check 4 (#470)
+- Pr-cycle 加入 red-first gate，並刪除 tdd-kentbeck 與 flutter-tdd (#469)
+- Step 1.5 改 script、fix 階段切 context，附 token 成本研究 (#471)
+- 1.23.1 記錄 TDD 方法改變與待觀察指標 (#484)
+- Plugin-migration-check 偵測 pack 內被刪除的 skill (#485)
 
 ### Fixed
 
-- Install plugin-only skills to ~/.agents/skills/
+- Plugin-only skill 三層分發管道修復 + OMP 相容性 (#432)
+- Expose handover mirror failures (#429)
+- Surface event diagnostic on mirror failure + add tests (#435)
+- 把 single-voice Critical grep 驗證從散文規則改為 numbered checklist (#436)
+- Amplifier-verify 缺 testplan 時依 change type 分級，只擋 feat／refactor (#441)
+- Agy print timeout 時 fail loud 並講出真正原因 (#442)
+- Codex extract 改 pin gpt-5.6-luna 並忽略本機 config (#444) (#445)
+- Agy print timeout 的半截輸出不再計入 mob consensus (#443) (#446)
+- Locked worktree 歸 KEEP，worktree 清單改為當下讀取 (#447)
+- Step 10 前加入 PR 狀態重查 gate (#462) (#464)
+- Check_cited_paths 不再追蹤 fence，宣告只認文件開頭 (#477)
+- Red-first gate 收進 red-first.sh 單一呼叫（#469 follow-up） (#481)
 
 ## [1.21.0] - 2026-09-04
 
@@ -1088,25 +836,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove bash anti-patterns triggering CC confirmation dialogs (#137)
 - Remove unnecessary rm-f after git commit-F (#105)
 
-[1.22.0]: https://github.com///compare/v1.21.0..v1.22.0
-[1.21.0]: https://github.com///compare/v1.20.3..v1.21.0
-[1.20.3]: https://github.com///compare/v1.16.0..v1.20.3
-[1.16.0]: https://github.com///compare/v1.15.2..v1.16.0
-[1.15.2]: https://github.com///compare/v1.15.0..v1.15.2
-[1.15.0]: https://github.com///compare/v1.14.0..v1.15.0
-[1.14.0]: https://github.com///compare/v1.13.0..v1.14.0
-[1.13.0]: https://github.com///compare/v1.12.0..v1.13.0
-[1.12.0]: https://github.com///compare/v1.11.0..v1.12.0
-[1.11.0]: https://github.com///compare/v1.10.0..v1.11.0
-[1.10.0]: https://github.com///compare/v1.9.0..v1.10.0
-[1.9.0]: https://github.com///compare/v1.8.0..v1.9.0
-[1.8.0]: https://github.com///compare/v1.7.0..v1.8.0
-[1.7.0]: https://github.com///compare/v1.6.0..v1.7.0
-[1.6.0]: https://github.com///compare/v1.5.2..v1.6.0
-[1.5.2]: https://github.com///compare/v1.5.1..v1.5.2
-[1.5.1]: https://github.com///compare/v1.5.0..v1.5.1
-[1.5.0]: https://github.com///compare/v1.3.3..v1.5.0
-[1.3.3]: https://github.com///compare/v1.3.2..v1.3.3
-[1.3.2]: https://github.com///compare/v1.3.1..v1.3.2
+[1.23.19]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.18..v1.23.19
+[1.23.18]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.17..v1.23.18
+[1.23.17]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.2..v1.23.17
+[1.23.2]: https://github.com/heyu-ai/yibi-stack/compare/v1.21.0..v1.23.2
+[1.21.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.20.3..v1.21.0
+[1.20.3]: https://github.com/heyu-ai/yibi-stack/compare/v1.16.0..v1.20.3
+[1.16.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.15.2..v1.16.0
+[1.15.2]: https://github.com/heyu-ai/yibi-stack/compare/v1.15.0..v1.15.2
+[1.15.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.14.0..v1.15.0
+[1.14.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.13.0..v1.14.0
+[1.13.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.12.0..v1.13.0
+[1.12.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.11.0..v1.12.0
+[1.11.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.10.0..v1.11.0
+[1.10.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.9.0..v1.10.0
+[1.9.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.8.0..v1.9.0
+[1.8.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.7.0..v1.8.0
+[1.7.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.6.0..v1.7.0
+[1.6.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.5.2..v1.6.0
+[1.5.2]: https://github.com/heyu-ai/yibi-stack/compare/v1.5.1..v1.5.2
+[1.5.1]: https://github.com/heyu-ai/yibi-stack/compare/v1.5.0..v1.5.1
+[1.5.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.3.3..v1.5.0
+[1.3.3]: https://github.com/heyu-ai/yibi-stack/compare/v1.3.2..v1.3.3
+[1.3.2]: https://github.com/heyu-ai/yibi-stack/compare/v1.3.1..v1.3.2
 
 <!-- generated by git-cliff -->
