@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.19] - 2026-10-17
+
+### Fixed
+
+- growth／dev-cycle：`pr-control-log` 與 `pr-cycle-fast` 的 Step 0 改以 `${CLAUDE_SKILL_DIR}` 呼叫
+  自己的 scripts，不再用命令替換讀 `installed_plugins.json`，在禁止命令替換的下游 repo（如 yibi-mvp
+  的 `protect-bash-cd.py`）也能啟動；`pr-control-log` 的 `mycelium` 存在性檢查移入 `bootstrap.sh`（#571）。
+
+## [1.23.18] - 2026-10-15
+
+### Fixed
+
+- dev-cycle：`pr-cycle-deep` Step 5b 前新增 blocking count gate，以 CR 來源編號逐項核對
+  `code-review-filtered.json` 收下的 finding 都已在 `final.md` 正文列出去向；漏列、重複、未知來源
+  exit 1，缺檔或格式錯誤 fail closed（exit 2）。相關 review scripts 改用 uv 管理的獨立執行環境（#566）。
+- growth：`pr-retrospective` Step 0 改從載入的 skill 目錄啟動 bootstrap 與 PR detector，不再掃
+  plugin registry 或依賴跨 Bash process 的 `RETRO_ROOT`；缺少 `mycelium` 時 bootstrap 明確 exit 1（#569）。
+
+## [1.23.17] - 2026-10-11
+
+### Fixed
+
+- dev-cycle：`pr-cycle-deep` Step 2 先固定 fresh base／HEAD／變更路徑，再明確指定 PR 執行
+  report-only code review（#530）。新增確定性 finding scope filter：diff 外項目不得進修復清單，
+  原 item、原因與捨棄數量保留於 final audit；HEAD 變動或輸入錯誤會失效舊結果。
+  本機 main 落後只警告、不當 base；取消過濾前直接 `--fix`／`--comment` 的繞過路徑。
+- dev-cycle：agy R1/R2 改讀一次性的 committed-HEAD snapshot，使用 macOS `sandbox-exec`／
+  Linux `bwrap` 保護原工作樹、Git metadata 與 snapshot 不可寫（#390）。缺少可用 backend
+  或 tracked tree 未提交時明確失敗，不回退 unrestricted；保留認證、command 探索、既有
+  log／validator／timeout 產物與原樹前後比對。結束與中斷回收 owned process group 和暫存狀態；
+  清理只透過不跟隨 symlink 的目錄 descriptor 恢復自有目錄權限，無法清除時非零退出並點名
+  殘留路徑，不再吞掉清理錯誤後回報成功。gitlink 拒絕測試不依賴 OS backend，在缺少 bwrap 的 CI
+  也會驗證真正的 Git-tree 邊界；此項不冒充 Linux containment 已驗證。
+
+## [1.23.16] - 2026-10-11
+
+### Fixed
+
+- dev-cycle：`red-first.sh` 在 checker 把 HEAD 變成 unborn（例如切到 orphan 分支）時，改回報 exit 3
+  （`tree-not-restored`），不再以 exit 2 蓋過「沒有還原」的結論；跑之前 HEAD 就解析不到時仍為 exit 2（#545）。
+- dev-cycle：`red-first.sh` 的進行中操作守衛新增 sequencer 偵測：多 commit 的 cherry-pick／revert 停在中途
+  （衝突以 `git commit` 解決而非 `--continue`，只剩 `.git/sequencer`、工作樹乾淨）時以 exit 2 拒絕，
+  不再對少了後續 commit 的 HEAD 下判定；錯誤訊息提示殘留時用 `git cherry-pick --quit`／`git revert --quit` 清除（#545）。
+- dev-cycle：補上 detached HEAD 起點的測試（照常 pass；checker 切到分支時 exit 3），先前沒有任何測試守住（#545）。
+
+## [1.23.15] - 2026-10-11
 ## [1.23.19] - 2026-10-18
 
 ### Fixed
