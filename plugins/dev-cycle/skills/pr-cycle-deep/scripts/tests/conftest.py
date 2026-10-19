@@ -32,6 +32,9 @@ def review_runtime_copy(tmp_path: Path) -> Path:
         "check_review_counts.py",
         "check_review_counts.py.lock",
         "setup-review-dir.sh",
+        "pre_review_check.py",
+        "amplifier-verify.py",
+        "amplifier-verify.py.lock",
     ):
         shutil.copy2(source / name, target / name)
     return target
@@ -39,9 +42,9 @@ def review_runtime_copy(tmp_path: Path) -> Path:
 
 @pytest.fixture(scope="session")
 def review_dependency_wheels(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """以已安裝的真實純 Python 依賴建立本機 wheels，不使用 registry 快取或假 parser。"""
+    """重建已安裝的真實依賴 wheels，保留原始 ABI／平台標籤與套件內容。"""
     target = tmp_path_factory.mktemp("review-dependency-wheels")
-    for name in ("markdown-it-py", "mdurl"):
+    for name in ("markdown-it-py", "mdurl", "PyYAML"):
         distribution = importlib.metadata.distribution(name)
         files = list(distribution.files or ())
         info = next(
@@ -49,7 +52,15 @@ def review_dependency_wheels(tmp_path_factory: pytest.TempPathFactory) -> Path:
             for item in files
             if item.name == "METADATA" and item.parent.name.endswith(".dist-info")
         )
-        wheel = target / f"{name.replace('-', '_')}-{distribution.version}-py3-none-any.whl"
+        wheel_metadata = distribution.read_text("WHEEL")
+        if wheel_metadata is None:
+            raise AssertionError(f"依賴缺少 WHEEL metadata：{name}")
+        tag = next(
+            line.removeprefix("Tag: ")
+            for line in wheel_metadata.splitlines()
+            if line.startswith("Tag: ")
+        )
+        wheel = target / f"{name.lower().replace('-', '_')}-{distribution.version}-{tag}.whl"
         records = []
         with zipfile.ZipFile(wheel, "w", zipfile.ZIP_DEFLATED) as archive:
             for item in files:
@@ -105,3 +116,32 @@ def drift_review_metadata(review_dependency_wheels: Path) -> Callable[[Path], by
         return before
 
     return drift
+
+
+@pytest.fixture(scope="session")
+def review_uv() -> Path:
+    """在原 HOME 下解析 uv 真實執行檔，避免隔離 HOME 使 asdf／mise shim 失效。"""
+    executable = shutil.which("uv")
+    if executable is None:
+        pytest.skip("找不到 uv，無法執行 locked standalone launcher 行為測試")
+    candidate = Path(executable)
+    if candidate.parent.name == "shims":
+        for name in ("asdf", "mise"):
+            manager = shutil.which(name)
+            if manager is None:
+                continue
+            resolved = subprocess.run(  # nosec B603
+                [manager, "which", "uv"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if resolved.returncode == 0 and resolved.stdout.strip():
+                candidate = Path(resolved.stdout.strip()).resolve()
+                break
+        else:
+            pytest.fail("uv 存在但無法透過原本的 tool manager 解析真實執行檔")
+    if not candidate.is_file():
+        pytest.fail(f"uv 執行檔無法讀取：{candidate}")
+    return candidate.resolve()

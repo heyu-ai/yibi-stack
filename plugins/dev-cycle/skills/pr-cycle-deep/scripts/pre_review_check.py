@@ -181,7 +181,10 @@ def _check(args: argparse.Namespace) -> int:
     checks_summary, checks_err = summarize_checks(
         run(["gh", "pr", "checks", pr, "--json", "name,bucket"], repo_root)
     )
-    amp = run([sys.executable, str(_AMPLIFIER), "--pr", pr], repo_root)
+    amp = run(
+        ["uv", "run", "--no-config", "--locked", "--script", str(_AMPLIFIER), "--pr", pr],
+        repo_root,
+    )
     amp_summary, exit_code = classify_amplifier(amp)
 
     errors = [e for e in (diff_err, checks_err) if e]

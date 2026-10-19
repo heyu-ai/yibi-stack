@@ -27,32 +27,53 @@ A missing `scope:` field causes install to fail with exit 1 and an error message
 
 If a skill's implementation lives in this repo but is semantically useful cross-project
 (e.g. mycelium, local-port-manager), resolve the repo path at the start of
-the execution steps and set scope to `global`:
+the execution steps and set scope to `global`.
+
+`scripts/resolve-skill-repo` (symlinked to `~/.agents/bin/resolve-skill-repo` by
+`make install`) prints the repo's absolute path on stdout and a `[FAIL]` diagnostic on
+stderr. It takes no argument. The caller does **not** re-validate the path — the script
+already fails loudly on both "cannot resolve" and "resolved to the wrong repo", so a
+`-z` / `-d` gate at the call site is dead code (and a `-d` gate re-asserts the very
+existence-only check this rule forbids).
+
+**In a SKILL.md or command bash block (the agent runs it), use two steps.** The block is
+sent to the Bash tool as a command string. Some repos block command substitution in that
+string with a PreToolUse hook (yibi-mvp `protect-bash-cd.py` rejects `$(...)`), so a
+`SKILL_REPO=$(...)` form fails on every run there. Shell variables also do not persist
+between Bash tool calls, so a `SKILL_REPO` set in one block is empty in the next.
+
+1. Run `~/.agents/bin/resolve-skill-repo` alone. If the exit code is not 0, stop and tell the
+   user to run `make install` in this repo. When the resolver itself is missing (`make install`
+   never ran), the shell gives only a "no such file" error with exit 127 and no `[FAIL]` line,
+   so the step text must name the fix.
+2. Write the printed absolute path into the next command, in double quotes, for example
+   `bash "<SKILL_REPO>/commands/scripts/handover-read.sh"`. The quotes keep a path with spaces
+   as one argument. If a later block needs the path and it is not at hand, run step 1 again.
+
+Reference: `plugins/dev-cycle/commands/handover-back.md`. (Source: yibi-stack PR #575.)
+
+**In a shell script, the one-line form works** (a script that already lives in this repo can
+also self-locate directly; see the self-location note below):
 
 ```bash
 if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
 ```
 
-`scripts/resolve-skill-repo` (symlinked to `~/.agents/bin/resolve-skill-repo` by
-`make install`) prints the repo's absolute path on stdout and a `[FAIL]` diagnostic on
-stderr. It takes no argument.
-
-The caller does **not** re-validate the path — the script already fails loudly on both
-"cannot resolve" and "resolved to the wrong repo", so a `-z` / `-d` gate at the call site is
-dead code (and a `-d` gate re-asserts the very existence-only check this rule forbids).
-The caller's one `echo` covers a different case the script cannot report on its own: when
-the **script itself is missing** (`make install` never ran) the shell fails with a bare
-`No such file or directory` and there is no resolver alive to print guidance. Keep that
-`[FAIL]` line so the failure names its own fix.
+The `echo` covers the case that the script cannot report on its own: when the **script itself
+is missing** (`make install` never ran) the shell fails with a bare `No such file or directory`
+and there is no resolver alive to print guidance. Keep that `[FAIL]` line so the failure names
+its own fix. Do not copy this form into an agent-run block.
 
 **Bootstrapping dependency — `make install` is required after pulling this repo.** Because
 every call site goes through `~/.agents/bin/resolve-skill-repo`, a checkout that is pulled but
 not re-installed has skills calling a resolver that does not exist yet, and they fail until
 `make install` runs. This is a deliberate, accepted trade-off, decided when the resolver landed:
 
-- The failure is **loud and self-describing** (`[FAIL] ... 請在 yibi-stack 目錄執行 make install`),
-  never a silent wrong answer — which is the whole point of retiring the config.json lookup, where
-  the *failure mode was silence*.
+- The failure is **loud and self-describing**, never a silent wrong answer — which is the whole
+  point of retiring the config.json lookup, where the *failure mode was silence*. In a shell
+  script the one-line form prints `[FAIL] ... 請在 yibi-stack 目錄執行 make install`. In an
+  agent-run block the two-step form has no such line, so the step text names `make install`
+  (see the two-step form above).
 - The alternative — giving each in-repo script its own fallback copy of the symlink-resolution
   preamble — would re-scatter the exact logic this rule consolidates into one implementation, and
   every copy is a place for the file-symlink trap (see the gotcha below) to be re-introduced.
@@ -110,8 +131,8 @@ for the symlink-walking form and how to verify it.
 
 **Note (error handling form)**: `cmd || { echo '[FAIL]' >&2; exit 1; }` contains a `'` quote
 inside `{}`, triggering the "brace with quote character" confirmation dialog.
-Always use `if ! cmd; then echo '[FAIL]' >&2; exit 1; fi` instead (the canonical call-site form
-at the top of this file already uses this).
+Always use `if ! cmd; then echo '[FAIL]' >&2; exit 1; fi` instead (the shell-script one-line
+form above already uses this; it is not a form for an agent-run block).
 
 Makefile / install-guard rules (worktree guard, gate at every entrance, shared helper messages) live in [rule 17](17-shell-script-authoring.md#global-state-install-guard).
 

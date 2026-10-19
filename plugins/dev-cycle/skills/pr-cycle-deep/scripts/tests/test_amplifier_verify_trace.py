@@ -110,7 +110,9 @@ class TestRunTraceChecker:
             "[FAIL] missing: c A-VL-001 -- x\n[WARN] collision: c SMK-001 -- y\nnoise line\n",
             1,
         )
-        result = amplifier_verify.run_trace_checker(checker, tmp_path, "c")
+        result = amplifier_verify.run_trace_checker(
+            checker, tmp_path, tmp_path / "openspec" / "changes" / "c"
+        )
         assert result.returncode == 1
         assert result.fails == ["[FAIL] missing: c A-VL-001 -- x"]
         assert result.warns == ["[WARN] collision: c SMK-001 -- y"]

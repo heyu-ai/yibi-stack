@@ -2,14 +2,31 @@
 
 OpenSpec 是 Spectra CLI 使用的變更管理目錄格式，用於追蹤功能規格從提案到封存的生命週期。
 
-> **路徑前綴**：本模板使用 `docs/openspec/`（適合有 docs/ 組織的 repo）。
-> 無 docs/ 組織的 repo 可改用 `openspec/` 作為根目錄；plugin SKILL.md 預設即如此。
-> 選定一種，在 repo 內保持一致即可。
+## 解析規格根目錄
+
+以下 `<spec-root>` 是依**目標 repo 根目錄**的 `.spectra.yaml` 解析出的路徑佔位符，
+不是固定的 `docs/openspec/`，也不是本 plugin 所在 repo 的路徑：
+
+1. 若設定檔明確提供 `spec_dir`，依 YAML 語意讀取非空字串（支援引號、註解與 flow mapping）。
+   例如 `spec_dir: "docs/specs" # 規格目錄` 會將 `<spec-root>` 解析成 `docs/specs/`。
+   路徑以 repo 根目錄為相對基準，必須留在 repo 內；絕對路徑、`..` 越界及 symlink 逃出 repo 都不接受。
+2. 搜尋既有證據時，依序查設定根目錄、支援的 `openspec/`、`docs/openspec/`，正規化並去重。
+   只有設定檔不存在或省略 `spec_dir` 時，才直接使用兩個預設根目錄，並以第一個實際存在者為主要根目錄。
+   新增與更新文件使用目前設定根目錄；不要在預設路徑另建副本。
+3. 設定檔存在卻不可讀、YAML 不合法、`spec_dir` 非字串或空白字串是設定錯誤，必須明確失敗，
+   不能回退預設值或回報「沒有 change」。明確設定的根目錄不存在、已有目錄不可讀或查詢工具失敗，
+   同樣必須回報錯誤；預設根目錄或子目錄不存在要記錄為「不存在」，不能當成零命中或已完成的證據。
+4. 跨根目錄遷移時保留舊、新路徑證據，但目前設定根目錄是 canonical；同名 change 先查目前
+   根目錄的 active，再查其他 active，最後查 archive。舊路徑刪除不代表 change 消失，
+   舊 archive 不得覆蓋目前 active 的狀態。
+
+ADR 位置另依目標 repo 的文件導覽與實際目錄解析，以 `<adr-root>` 表示；若位於規格樹內，
+以解析後的 `<spec-root>/...` 定位，不假定固定為 `docs/adr/`。目錄不存在或不可讀不等於沒有 ADR。
 
 ## 標準目錄結構
 
 ```text
-docs/openspec/changes/<change-name>/
+<spec-root>/changes/<change-name>/
 ├── proposal.md         Step 1b/4/5 規格（User Stories / 假設約束 / 完工標準）
 ├── design.md           Step 3 資料模型與 API schema（按需）
 ├── testplan.md         Step 2 TC 表格 + Coverage Analysis
@@ -20,6 +37,15 @@ docs/openspec/changes/<change-name>/
 ```
 
 `<change-name>` 通常與 feature branch 名稱相近（kebab-case）。
+
+其他證據位置也使用同一份解析結果：
+
+| 類型 | 位置 |
+|------|------|
+| Active change | `<spec-root>/changes/<change-name>/` |
+| Archived change | `<spec-root>/changes/archive/<archive-name>/`（依實際封存名稱查找） |
+| Stable spec | `<spec-root>/specs/<cap>/spec.md` |
+| ADR | `<adr-root>/`（若在規格樹內，展開為對應的 `<spec-root>/...`） |
 
 ## Spectra CLI 生命週期指令
 
@@ -59,6 +85,8 @@ Tasks 是實作層（非 Step 層）：從 proposal/design 追溯建立，含 pa
 
 ## 範例
 
-live in-repo 範例（真實 change）：`docs/openspec/changes/auto-detect/`
+路徑示意（不宣稱任何 repo 目前存在此 change）：`<spec-root>/changes/auto-detect/`。
+例如目標 repo 設定 `spec_dir: docs/specs`，此示意路徑展開為 `docs/specs/changes/auto-detect/`；
+引用真實 change 前，仍須先確認目前根目錄與實際目錄存在。
 
 範本骨架（可複製開始）：此目錄下的 `*-template.md`

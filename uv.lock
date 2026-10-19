@@ -1861,6 +1861,7 @@ dev = [
     { name = "pre-commit" },
     { name = "pylint" },
     { name = "pytest" },
+    { name = "pyyaml" },
     { name = "ruff" },
 ]
 
@@ -1886,5 +1887,6 @@ dev = [
     { name = "pre-commit", specifier = ">=4.6.1" },
     { name = "pylint", specifier = ">=4.0.6" },
     { name = "pytest", specifier = ">=8.0" },
+    { name = "pyyaml", specifier = "==6.0.3" },
     { name = "ruff", specifier = ">=0.16.1" },
 ]
