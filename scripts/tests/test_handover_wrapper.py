@@ -362,6 +362,49 @@ def test_how_dt_006_implicit_workdir_precedes_end_of_options(tmp_path: Path) -> 
     ]
 
 
+@pytest.mark.parametrize(
+    ("file_args", "expected_args"),
+    [
+        (["--from-file", "notes dir/h.json"], ["--from-file", "{caller}/notes dir/h.json"]),
+        (["--from-file=notes dir/h.json"], ["--from-file={caller}/notes dir/h.json"]),
+        (["--from-file", "/abs path/h.json"], ["--from-file", "/abs path/h.json"]),
+        (["--from-file=/abs path/h.json"], ["--from-file=/abs path/h.json"]),
+    ],
+    ids=["relative-separate", "relative-equals", "absolute-separate", "absolute-equals"],
+)
+def test_how_dt_007_from_file_resolves_from_caller(
+    tmp_path: Path, file_args: list[str], expected_args: list[str]
+) -> None:
+    """HOW-DT-007：relative --from-file 在 uv 改 cwd 前依 caller 實體路徑解析，絕對路徑原樣保留。"""
+    caller = tmp_path / "caller repo"
+    caller.mkdir()
+    caller_real = str(caller.resolve())
+    result = subprocess.run(  # nosec B603
+        ["bash", str(WRAPPER), "write", *file_args],
+        cwd=caller,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env=_make_env(tmp_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert _argv(result) == [
+        "run",
+        "--directory",
+        str(tmp_path / "skill repo"),
+        "python",
+        "-m",
+        "tasks.mycelium",
+        "handover",
+        "write",
+        *[arg.format(caller=caller_real) for arg in expected_args],
+        "--workdir",
+        caller_real,
+    ]
+
+
 def test_how_st_001_public_install_makes_all_wrappers_reachable(tmp_path: Path) -> None:
     """HOW-ST-001：隔離 HOME 的 public make install 可執行三支 wrapper 的 dispatch。"""
     fixture = _make_install_fixture(tmp_path)
@@ -531,6 +574,36 @@ def test_how_st_002_installed_wrapper_executes_real_db_cli(tmp_path: Path) -> No
         check=False,
         env=env,
     )
+    (caller / "handover input.json").write_text(
+        json.dumps(
+            {
+                "session_type": "sdd",
+                "topic": "from-file 'quote' \"dq\"",
+                "summary": "人跑 alembic upgrade 與 rm -rf build/",
+                "next": ["ssh 進去看 log"],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    file_written = subprocess.run(  # nosec B603
+        [str(bin_dir / "handover"), "write", "--from-file", "handover input.json"],
+        cwd=caller,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env=env,
+    )
+    file_read_back = subprocess.run(  # nosec B603
+        [str(bin_dir / "handover"), "read", "--last", "10", "--json"],
+        cwd=caller,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env=env,
+    )
     mirror = home / ".agents" / "handover" / "handover.jsonl"
     mirror.unlink()
     mirror.mkdir()
@@ -568,6 +641,20 @@ def test_how_st_002_installed_wrapper_executes_real_db_cli(tmp_path: Path) -> No
     assert rows[0]["conversation_summary"] == "real DB payload"
     assert rows[0]["project"] == "runtime-caller"
     assert rows[0]["branch"] == "runtime-branch"
+    assert file_written.returncode == 0, file_written.stderr
+    assert file_read_back.returncode == 0, file_read_back.stderr
+    file_rows = [
+        row
+        for row in json.loads(file_read_back.stdout)
+        if row["topic"] == "from-file 'quote' \"dq\""
+    ]
+    assert len(file_rows) == 1
+    file_row = file_rows[0]
+    assert file_row["conversation_summary"] == "人跑 alembic upgrade 與 rm -rf build/"
+    assert file_row["next_priorities"] == ["ssh 進去看 log"]
+    assert file_row["session_type"] == "sdd"
+    assert file_row["project"] == "runtime-caller"
+    assert file_row["branch"] == "runtime-branch"
     assert failed_write.returncode == 1
     assert failed_write.stdout == ""
     assert failed_write.stderr == "Error: DB 資料已保存，但 JSONL 備份寫入失敗\n"
@@ -596,9 +683,12 @@ def test_hww_sync_001_wrapper_option_list_matches_click_cli() -> None:
         for opt in param.opts + param.secondary_opts:
             if opt.startswith("-"):
                 cli_opts.add(opt)
+    # --workdir / --from-file 的值是路徑，wrapper 各有獨立分支把相對路徑轉成絕對路徑
     cli_opts.discard("--workdir")
+    cli_opts.discard("--from-file")
 
     wrapper_src = WRAPPER.read_text(encoding="utf-8")
+    assert "      --from-file)\n" in wrapper_src, "wrapper 缺少 --from-file 的路徑解析分支"
     long_case = re.search(r"(--session-type[^)]+)\)", wrapper_src)
     assert long_case, "cannot find value-bearing option case pattern in wrapper"
     raw = long_case.group(1)

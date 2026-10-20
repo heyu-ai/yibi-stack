@@ -227,15 +227,82 @@ def _parse_json_list(value: str | None, field: str) -> list[str]:
     return [str(x) for x in parsed]
 
 
+# --from-file 的 key 與對應 CLI flag 同名（去掉 -- 並把 - 換成 _）
+_HANDOVER_FILE_STR_KEYS = ("session_type", "topic", "summary", "test_status", "tokens")
+_HANDOVER_FILE_LIST_KEYS = (
+    "completed",
+    "decisions",
+    "blocked",
+    "next",
+    "lessons",
+    "approaches",
+    "tags",
+    "files",
+)
+
+
+def _load_handover_file(path: Path) -> dict[str, Any]:
+    """讀取 --from-file 的 JSON object，並驗證 key 與值的型別。
+
+    交班內容放在檔案裡而不是指令列，是為了讓 Bash 指令字串只剩檔案路徑：
+    內容裡的自由文字（例如「alembic upgrade」）不會再撞上其他 repo 的
+    permission deny 規則或 PreToolUse hook。
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise click.BadParameter(f"無法讀取 {path}：{e}", param_hint="--from-file") from e
+    except json.JSONDecodeError as e:
+        raise click.BadParameter(f"{path} 不是合法 JSON：{e}", param_hint="--from-file") from e
+    if not isinstance(data, dict):
+        raise click.BadParameter(
+            f"{path} 必須是 JSON object，收到型別：{type(data).__name__}",
+            param_hint="--from-file",
+        )
+    unknown = sorted(set(data) - set(_HANDOVER_FILE_STR_KEYS) - set(_HANDOVER_FILE_LIST_KEYS))
+    if unknown:
+        raise click.BadParameter(
+            f"{path} 含未知欄位：{', '.join(unknown)}", param_hint="--from-file"
+        )
+    for key in _HANDOVER_FILE_STR_KEYS:
+        if key in data and not isinstance(data[key], str):
+            raise click.BadParameter(
+                f"{key} 必須為字串，收到型別：{type(data[key]).__name__}",
+                param_hint="--from-file",
+            )
+    for key in _HANDOVER_FILE_LIST_KEYS:
+        if key in data and not isinstance(data[key], list):
+            raise click.BadParameter(
+                f"{key} 必須為 JSON array，收到型別：{type(data[key]).__name__}",
+                param_hint="--from-file",
+            )
+    session_type = data.get("session_type")
+    valid_types = [e.value for e in SessionType]
+    if session_type is not None and session_type not in valid_types:
+        raise click.BadParameter(
+            f"session_type 必須是 {' / '.join(valid_types)} 之一，收到：{session_type}",
+            param_hint="--from-file",
+        )
+    return data
+
+
 @handover.command("write")
+@click.option(
+    "--from-file",
+    "from_file",
+    default=None,
+    type=click.Path(path_type=Path, dir_okay=False),
+    help="從 JSON object 檔讀取交班內容（key 與 flag 同名，如 topic、next、session_type）",
+)
 @click.option(
     "--session-type",
     "-t",
-    required=True,
+    default=None,
     type=click.Choice([e.value for e in SessionType]),
+    help="session 類型（未用 --from-file 時必填）",
 )
-@click.option("--topic", required=True, help="這次工作的主題")
-@click.option("--summary", required=True, help="對話重點摘要")
+@click.option("--topic", default=None, help="這次工作的主題（未用 --from-file 時必填）")
+@click.option("--summary", default=None, help="對話重點摘要（未用 --from-file 時必填）")
 @click.option("--operator", default="howie", help="操作者")
 @click.option("--completed", default=None, help="完成的事項（JSON array）")
 @click.option("--decisions", default=None, help="決策（JSON array）")
@@ -254,9 +321,10 @@ def _parse_json_list(value: str | None, field: str) -> list[str]:
 @click.option("--project", default=None, help="覆蓋自動偵測的 project")
 @click.option("--workdir", default=None, help="覆蓋自動偵測的 working_dir")
 def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
-    session_type: str,
-    topic: str,
-    summary: str,
+    from_file: Path | None,
+    session_type: str | None,
+    topic: str | None,
+    summary: str | None,
     operator: str,
     completed: str | None,
     decisions: str | None,
@@ -278,22 +346,60 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
     """寫入一筆 handover。"""
     from .handover_service import HandoverBackupError, write_handover
 
+    str_flags: dict[str, str | None] = {
+        "session_type": session_type,
+        "topic": topic,
+        "summary": summary,
+        "test_status": test_status,
+        "tokens": tokens,
+    }
+    list_flags: dict[str, str | None] = {
+        "completed": completed,
+        "decisions": decisions,
+        "blocked": blocked,
+        "next": next_priorities,
+        "lessons": lessons,
+        "approaches": approaches,
+        "tags": tags,
+        "files": files,
+    }
+    file_data = _load_handover_file(from_file) if from_file is not None else {}
+    conflicts = sorted(
+        key for key, value in {**str_flags, **list_flags}.items() if value and key in file_data
+    )
+    if conflicts:
+        raise click.UsageError(f"以下欄位同時出現在 --from-file 與指令列：{', '.join(conflicts)}")
+
+    strs: dict[str, Any] = {key: file_data.get(key, value) for key, value in str_flags.items()}
+    lists = {
+        key: (
+            [str(x) for x in file_data[key]]
+            if key in file_data
+            else _parse_json_list(value, f"--{key}")
+        )
+        for key, value in list_flags.items()
+    }
+    missing = [key for key in ("session_type", "topic", "summary") if not strs[key]]
+    if missing:
+        flags = ", ".join("--" + key.replace("_", "-") for key in missing)
+        raise click.UsageError(f"缺少必填欄位：{flags}（或在 --from-file 提供）")
+
     try:
         record = write_handover(
-            session_type=SessionType(session_type),
-            topic=topic,
-            summary=summary,
+            session_type=SessionType(strs["session_type"]),
+            topic=strs["topic"],
+            summary=strs["summary"],
             operator=operator,
-            completed=_parse_json_list(completed, "--completed"),
-            decisions=_parse_json_list(decisions, "--decisions"),
-            blocked=_parse_json_list(blocked, "--blocked"),
-            next_priorities=_parse_json_list(next_priorities, "--next"),
-            lessons_learned=_parse_json_list(lessons, "--lessons"),
-            attempted_approaches=_parse_json_list(approaches, "--approaches"),
-            tags=_parse_json_list(tags, "--tags"),
-            last_files=_parse_json_list(files, "--files"),
-            test_status=test_status,
-            token_usage_estimate=tokens,
+            completed=lists["completed"],
+            decisions=lists["decisions"],
+            blocked=lists["blocked"],
+            next_priorities=lists["next"],
+            lessons_learned=lists["lessons"],
+            attempted_approaches=lists["approaches"],
+            tags=lists["tags"],
+            last_files=lists["files"],
+            test_status=strs["test_status"],
+            token_usage_estimate=strs["tokens"],
             device=device,
             agent_type=agent,
             account=account_opt,

@@ -42,6 +42,26 @@ if [ "${args[0]:-}" = "write" ]; then
         esac
         i=$((i + 1))
         ;;
+      --from-file)
+        if [ $((i + 1)) -ge "${#args[@]}" ]; then
+          incomplete_option=1
+          break
+        fi
+        value="${args[$((i + 1))]}"
+        case "$value" in
+          /*) ;;
+          *) args[$((i + 1))]="$CALLER_CWD/$value" ;;
+        esac
+        i=$((i + 2))
+        ;;
+      --from-file=*)
+        value="${token#--from-file=}"
+        case "$value" in
+          /*) ;;
+          *) args[$i]="--from-file=$CALLER_CWD/$value" ;;
+        esac
+        i=$((i + 1))
+        ;;
       --session-type|-t|--topic|--summary|--operator|--completed|--decisions|--blocked|--next|--lessons|--approaches|--tags|--files|--test-status|--tokens|--device|--agent|--account|--branch|--project)
         if [ $((i + 1)) -ge "${#args[@]}" ]; then
           incomplete_option=1

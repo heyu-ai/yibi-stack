@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.20] - 2026-10-20
+
+### Fixed
+
+- dev-cycle：`/handover` 改用 Write 工具把交班內容寫成 JSON 檔，再以新的
+  `mycelium handover write --from-file` 寫入，指令列只剩檔案路徑。先前內容放在指令列，只要寫到
+  「alembic upgrade」就會撞上 yibi-mvp 的 `Bash(uv run --directory * alembic upgrade*)` deny 規則
+  （`*` 跨參數比對），被直接拒絕且不跳確認框；同時把 `SKILL_REPO=$(...)` 改成 #575 的兩步解析。
+  `--from-file` 會拒絕未知 key、型別錯誤，以及與指令列重複的欄位。
+
 ## [1.23.19] - 2026-10-17
 
 ### Fixed
