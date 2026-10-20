@@ -12,8 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - dev-cycle：`/handover` 改用 Write 工具把交班內容寫成 JSON 檔，再以新的
   `mycelium handover write --from-file` 寫入，指令列只剩檔案路徑。先前內容放在指令列，只要寫到
   「alembic upgrade」就會撞上 yibi-mvp 的 `Bash(uv run --directory * alembic upgrade*)` deny 規則
-  （`*` 跨參數比對），被直接拒絕且不跳確認框；同時把 `SKILL_REPO=$(...)` 改成 #575 的兩步解析。
-  `--from-file` 會拒絕未知 key、型別錯誤，以及與指令列重複的欄位。
+  （`*` 跨參數比對），被直接拒絕且不跳確認框。`/handover` 現在改呼叫 `~/.agents/bin/handover`
+  wrapper，由 wrapper 在內部解析 skill repo，指令列不再出現 `SKILL_REPO=$(...)`。
+  `--from-file` 會拒絕未知 key、型別錯誤（array 欄位的元素必須是字串）、非 UTF-8 檔案，以及與
+  指令列重複的欄位。合併後須在 yibi-stack 主 checkout 執行 `git pull`；未 pull 前 `/handover` 會
+  回報 `No such option '--from-file'`。
 
 ## [1.23.19] - 2026-10-17
 

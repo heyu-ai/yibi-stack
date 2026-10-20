@@ -35,12 +35,16 @@ model: sonnet
 | `lessons` | 字串 array | 學到什麼（若無則 `[]`） |
 | `approaches` | 字串 array | 試過的方案（debug 時特別重要） |
 | `tags` | 字串 array | 自由標籤 |
+| `files` | 字串 array（選填） | 這次碰過的檔案 |
+| `test_status` | 字串（選填） | 測試狀態（例如「make ci 全綠」） |
+| `tokens` | 字串（選填） | token 用量估計 |
 
-只能用上表的 key，拼錯會直接報錯。array 欄位要寫成真正的 JSON array，不是字串。
+只能用上表的 key，拼錯會直接報錯。array 欄位要寫成真正的 JSON array（不是字串），元素一律是
+字串：`null`、數字、object 都會被拒絕。
 
-檔名要唯一，避免讀到別的 session 留下的同名檔（例如 `handover-20261020-1530-a1b2.json`）。
-放在 background session 的 `$CLAUDE_JOB_DIR/tmp/` 底下；沒有這個環境變數時放在 `/tmp/`。
-完整絕對路徑記為 `<FILE>`。
+檔案一律放在 `/tmp/handover-<YYYYMMDD-HHMM>-<4 位隨機 hex>.json`，例如
+`/tmp/handover-20261020-1530-a1b2.json`。路徑由你直接組出完整的字面值（不需要展開任何環境變數），
+檔名帶時間與隨機碼是為了避免讀到別的 session 留下的同名檔。這個完整絕對路徑記為 `<FILE>`。
 
 ```json
 {
@@ -65,15 +69,26 @@ model: sonnet
 ~/.agents/bin/handover write --from-file "<FILE>"
 ```
 
-exit code 非 0 時停止，回報 `[FAIL] handover write 執行失敗` 並附上 stderr 原文。exit code 2 代表
-JSON 檔內容不合格式，依錯誤訊息修正檔案後重跑；不要改成把內容放回指令列。
+exit code 非 0 時，先讀 stderr 判斷原因，**不要只看 exit code**（exit 2 是 click 所有用法錯誤共用的
+代碼，不一定是 JSON 內容問題）：
+
+- stderr 含 `No such option '--from-file'`：yibi-stack 主 checkout 還是舊版。停止，回報
+  `[FAIL] handover write 執行失敗` 並附上 stderr 原文，請使用者在 yibi-stack 主 checkout 執行
+  `git pull`。**不要修改 JSON 檔**，檔案本身沒有問題。
+- stderr 含 `無法讀取`：`<FILE>` 路徑錯誤，或忘了把 `<FILE>` 換成實際路徑。確認路徑後重跑。
+- 其他情況（未知欄位、型別錯誤、缺必填欄位、與指令列重複的欄位）：依錯誤訊息修正 JSON 檔後重跑。
+- 修不好時停止，回報 `[FAIL] handover write 執行失敗` 並附上 stderr 原文。
+
+不論哪一種情況，都**不要**改成把內容放回指令列。
 
 未提供的環境 metadata 會自動偵測（`device` / `branch` / `project`）。
 
 ## Step 3 — 確認寫入
 
-```bash
-~/.agents/bin/handover read --last 1
-```
+以 Step 2 寫入指令**自己的 stdout** 確認成功，不要另外跑 `read`（`read --last 1` 讀到的可能是別的
+session 剛寫入的記錄）：
 
-輸出最新一筆確認寫入成功。
+- stdout 必須有 `✓ handover 已寫入：<id>` 這一行，而且 `topic =` 那一行要與 JSON 檔裡的 `topic` 相同。
+- 兩者都符合時，回報寫入成功並附上 `<id>`。
+- 缺少 `✓ handover 已寫入` 這一行，或 `topic` 不符時，回報 `[FAIL] handover 寫入結果無法確認` 並附上
+  stdout 原文。

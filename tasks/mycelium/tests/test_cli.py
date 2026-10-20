@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from tasks.mycelium.cli import cli
+from tasks.mycelium.cli import _HANDOVER_FILE_LIST_KEYS, _HANDOVER_FILE_STR_KEYS, cli
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -164,11 +164,17 @@ class TestHandoverWriteFromFile:
     def test_hwf_st_001_file_fields_reach_write_handover(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """HWF-ST-001：--from-file 的內容欄位原樣傳入 write_handover，指令列只剩路徑。"""
-        captured: dict[str, object] = {}
+        """HWF-ST-001：--from-file 的 13 個內容欄位經真實 write_handover 寫進 DB 後可原樣讀回。"""
+        from tasks.mycelium.handover_service import read_recent
+
+        db_path = tmp_path / "handover.db"
+        monkeypatch.setattr("tasks.mycelium.handover_service.HANDOVER_DB_PATH", db_path)
         monkeypatch.setattr(
-            "tasks.mycelium.handover_service.write_handover",
-            _make_fake_write_handover(captured),
+            "tasks.mycelium.handover_service.HANDOVER_JSONL_PATH", tmp_path / "handover.jsonl"
+        )
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service._emit_handover_written_event",
+            lambda *_args, **_kwargs: (None, []),
         )
         path = _write_handover_file(
             tmp_path,
@@ -193,20 +199,51 @@ class TestHandoverWriteFromFile:
             ["handover", "write", "--from-file", str(path), "--project", "yibi-mvp"],
         )
         assert result.exit_code == 0, result.output
-        assert captured["session_type"] == "sdd"
-        assert captured["topic"] == "含 'quote' 與 \"雙引號\""
-        assert captured["summary"] == "人跑 alembic upgrade 與 rm -rf build/"
-        assert captured["completed"] == ["a"]
-        assert captured["decisions"] == ["b"]
-        assert captured["blocked"] == ["c"]
-        assert captured["next_priorities"] == ["d"]
-        assert captured["lessons_learned"] == ["e"]
-        assert captured["attempted_approaches"] == ["f"]
-        assert captured["tags"] == ["g"]
-        assert captured["last_files"] == ["h.py"]
-        assert captured["test_status"] == "ok"
-        assert captured["token_usage_estimate"] == "10k"
-        assert captured["project"] == "yibi-mvp"
+        rows = read_recent(last=1, db_path=db_path)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["session_type"] == "sdd"
+        assert row["topic"] == "含 'quote' 與 \"雙引號\""
+        assert row["conversation_summary"] == "人跑 alembic upgrade 與 rm -rf build/"
+        assert row["completed"] == ["a"]
+        assert row["decisions"] == ["b"]
+        assert row["blocked"] == ["c"]
+        assert row["next_priorities"] == ["d"]
+        assert row["lessons_learned"] == ["e"]
+        assert row["attempted_approaches"] == ["f"]
+        assert row["tags"] == ["g"]
+        assert row["last_files"] == ["h.py"]
+        assert row["test_status"] == "ok"
+        assert row["token_usage_estimate"] == "10k"
+        assert row["project"] == "yibi-mvp"
+
+    def test_hwf_st_002_empty_summary_flag_matches_main(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWF-ST-002：沒帶 --from-file 時，空字串 --summary 的行為與 origin/main 相同（AC-3）。
+
+        origin/main 的 click `required=True` 接受空字串，交給 write_handover 以 ValueError
+        拒絕（exit 1、不寫入）；本 PR 的必填檢查只把 None 當缺漏，所以不得提早變成 exit 2。
+        """
+        from tasks.mycelium.handover_service import read_recent
+
+        db_path = tmp_path / "handover.db"
+        monkeypatch.setattr("tasks.mycelium.handover_service.HANDOVER_DB_PATH", db_path)
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service.HANDOVER_JSONL_PATH", tmp_path / "handover.jsonl"
+        )
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service._emit_handover_written_event",
+            lambda *_args, **_kwargs: (None, []),
+        )
+        result = CliRunner().invoke(
+            cli,
+            ["handover", "write", "--session-type", "debug", "--topic", "t", "--summary", ""],
+        )
+        assert result.exit_code == 1, result.output
+        assert isinstance(result.exception, ValueError)
+        assert "summary 不可為空" in str(result.exception)
+        assert read_recent(last=1, db_path=db_path) == []
 
     def test_hwf_vl_001_unknown_key_rejected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -225,23 +262,42 @@ class TestHandoverWriteFromFile:
         assert "nxt" in result.output
         assert captured == {}
 
+    @pytest.mark.parametrize(
+        ("extra_file_fields", "flag_args", "needle"),
+        [
+            ({}, ["--topic", "flag"], "topic"),
+            ({"next": ["a"]}, ["--next", '["b"]'], "next"),
+            ({}, ["--topic", ""], "topic"),
+        ],
+        ids=["str-field", "list-field", "empty-string-flag"],
+    )
     def test_hwf_vl_002_conflict_with_flag_rejected(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        extra_file_fields: dict[str, object],
+        flag_args: list[str],
+        needle: str,
     ) -> None:
-        """HWF-VL-002：同一欄位同時出現在檔案與指令列時報錯，不默默選一邊。"""
+        """HWF-VL-002：同一欄位同時出現在檔案與指令列時報錯，不默默選一邊。
+
+        涵蓋字串欄位、list 欄位，以及明確傳入的空字串 flag（`--topic ""` 也算衝突）。
+        """
         captured: dict[str, object] = {}
         monkeypatch.setattr(
             "tasks.mycelium.handover_service.write_handover",
             _make_fake_write_handover(captured),
         )
         path = _write_handover_file(
-            tmp_path, {"session_type": "debug", "topic": "file", "summary": "s"}
+            tmp_path,
+            {"session_type": "debug", "topic": "file", "summary": "s", **extra_file_fields},
         )
         result = CliRunner().invoke(
-            cli, ["handover", "write", "--from-file", str(path), "--topic", "flag"]
+            cli, ["handover", "write", "--from-file", str(path), *flag_args]
         )
-        assert result.exit_code == 2
-        assert "topic" in result.output
+        assert result.exit_code == 2, result.output
+        assert "同時出現在 --from-file 與指令列" in result.output
+        assert needle in result.output
         assert captured == {}
 
     @pytest.mark.parametrize(
@@ -303,6 +359,102 @@ class TestHandoverWriteFromFile:
         )
         assert result.exit_code == 2
         assert "topic" in result.output
+        assert captured == {}
+
+    @pytest.mark.parametrize("source", ["file", "flags"])
+    def test_hwf_vl_006_missing_session_type_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
+    ) -> None:
+        """HWF-VL-006：檔案或指令列缺 session_type 時 exit 2 並指出欄位，不是 traceback。"""
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service.write_handover",
+            _make_fake_write_handover(captured),
+        )
+        if source == "file":
+            path = _write_handover_file(tmp_path, {"topic": "t", "summary": "s"})
+            args = ["--from-file", str(path)]
+            needle = "session_type"
+        else:
+            args = ["--topic", "t", "--summary", "s"]
+            needle = "--session-type"
+        result = CliRunner().invoke(cli, ["handover", "write", *args])
+        assert result.exit_code == 2, result.output
+        assert needle in result.output
+        assert captured == {}
+
+    @pytest.mark.parametrize(
+        ("key", "bad_value"),
+        [(key, 3) for key in _HANDOVER_FILE_STR_KEYS]
+        + [(key, "not-an-array") for key in _HANDOVER_FILE_LIST_KEYS],
+    )
+    def test_hwf_vl_007_every_key_type_checked(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str, bad_value: object
+    ) -> None:
+        """HWF-VL-007：每一個字串欄位與 array 欄位都做型別檢查，錯誤訊息指出該 key。"""
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service.write_handover",
+            _make_fake_write_handover(captured),
+        )
+        payload: dict[str, object] = {"session_type": "debug", "topic": "t", "summary": "s"}
+        payload[key] = bad_value
+        path = _write_handover_file(tmp_path, payload)
+        result = CliRunner().invoke(cli, ["handover", "write", "--from-file", str(path)])
+        assert result.exit_code == 2, result.output
+        assert f"{key} 必須為" in result.output
+        assert captured == {}
+
+    @pytest.mark.parametrize("key", _HANDOVER_FILE_LIST_KEYS)
+    @pytest.mark.parametrize("element", [None, {"x": 1}, 3], ids=["null", "object", "number"])
+    def test_hwf_vl_008_list_elements_must_be_strings(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str, element: object
+    ) -> None:
+        """HWF-VL-008：array 欄位的元素只能是字串，null／object／數字不得被轉成 repr 寫入。"""
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service.write_handover",
+            _make_fake_write_handover(captured),
+        )
+        path = _write_handover_file(
+            tmp_path, {"session_type": "debug", "topic": "t", "summary": "s", key: [element]}
+        )
+        result = CliRunner().invoke(cli, ["handover", "write", "--from-file", str(path)])
+        assert result.exit_code == 2, result.output
+        assert f"{key} 的元素必須為字串" in result.output
+        assert captured == {}
+
+    def test_hwf_vl_009_non_utf8_file_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWF-VL-009：非 UTF-8 檔案 exit 2 並指出檔案，不是 UnicodeDecodeError traceback。"""
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service.write_handover",
+            _make_fake_write_handover(captured),
+        )
+        path = tmp_path / "latin1.json"
+        path.write_bytes(b"\xff")
+        result = CliRunner().invoke(cli, ["handover", "write", "--from-file", str(path)])
+        assert result.exit_code == 2, result.output
+        assert "latin1.json" in result.output
+        assert "無法讀取" in result.output
+        assert captured == {}
+
+    def test_hwf_vl_010_missing_file_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWF-VL-010：檔案不存在時 exit 2 並指出路徑。"""
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service.write_handover",
+            _make_fake_write_handover(captured),
+        )
+        path = tmp_path / "missing-handover.json"
+        result = CliRunner().invoke(cli, ["handover", "write", "--from-file", str(path)])
+        assert result.exit_code == 2, result.output
+        assert "missing-handover.json" in result.output
+        assert "無法讀取" in result.output
         assert captured == {}
 
 

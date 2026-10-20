@@ -250,7 +250,7 @@ def _load_handover_file(path: Path) -> dict[str, Any]:
     """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except OSError as e:
+    except (OSError, UnicodeDecodeError) as e:
         raise click.BadParameter(f"無法讀取 {path}：{e}", param_hint="--from-file") from e
     except json.JSONDecodeError as e:
         raise click.BadParameter(f"{path} 不是合法 JSON：{e}", param_hint="--from-file") from e
@@ -276,6 +276,12 @@ def _load_handover_file(path: Path) -> dict[str, Any]:
                 f"{key} 必須為 JSON array，收到型別：{type(data[key]).__name__}",
                 param_hint="--from-file",
             )
+        bad = [x for x in data.get(key, []) if not isinstance(x, str)]
+        if bad:
+            raise click.BadParameter(
+                f"{key} 的元素必須為字串，收到型別：{type(bad[0]).__name__}",
+                param_hint="--from-file",
+            )
     session_type = data.get("session_type")
     valid_types = [e.value for e in SessionType]
     if session_type is not None and session_type not in valid_types:
@@ -292,7 +298,10 @@ def _load_handover_file(path: Path) -> dict[str, Any]:
     "from_file",
     default=None,
     type=click.Path(path_type=Path, dir_okay=False),
-    help="從 JSON object 檔讀取交班內容（key 與 flag 同名，如 topic、next、session_type）",
+    help=(
+        "從 JSON object 檔讀取交班內容；key 是 flag 名稱去掉 -- 並把 - 換成 _"
+        "（如 session_type、topic、next）"
+    ),
 )
 @click.option(
     "--session-type",
@@ -365,24 +374,25 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
     }
     file_data = _load_handover_file(from_file) if from_file is not None else {}
     conflicts = sorted(
-        key for key, value in {**str_flags, **list_flags}.items() if value and key in file_data
+        key
+        for key, value in {**str_flags, **list_flags}.items()
+        if value is not None and key in file_data
     )
     if conflicts:
         raise click.UsageError(f"以下欄位同時出現在 --from-file 與指令列：{', '.join(conflicts)}")
 
     strs: dict[str, Any] = {key: file_data.get(key, value) for key, value in str_flags.items()}
     lists = {
-        key: (
-            [str(x) for x in file_data[key]]
-            if key in file_data
-            else _parse_json_list(value, f"--{key}")
-        )
+        key: (list(file_data[key]) if key in file_data else _parse_json_list(value, f"--{key}"))
         for key, value in list_flags.items()
     }
-    missing = [key for key in ("session_type", "topic", "summary") if not strs[key]]
+    # 只有 None 算缺漏，與舊版 click required=True 一致：明確傳入的空字串仍可寫入（AC-3）
+    missing = [key for key in ("session_type", "topic", "summary") if strs[key] is None]
     if missing:
         flags = ", ".join("--" + key.replace("_", "-") for key in missing)
-        raise click.UsageError(f"缺少必填欄位：{flags}（或在 --from-file 提供）")
+        raise click.UsageError(
+            f"缺少必填欄位：{flags}（或在 --from-file 的 JSON 提供 {', '.join(missing)}）"
+        )
 
     try:
         record = write_handover(

@@ -365,17 +365,37 @@ def test_how_dt_006_implicit_workdir_precedes_end_of_options(tmp_path: Path) -> 
 @pytest.mark.parametrize(
     ("file_args", "expected_args"),
     [
-        (["--from-file", "notes dir/h.json"], ["--from-file", "{caller}/notes dir/h.json"]),
-        (["--from-file=notes dir/h.json"], ["--from-file={caller}/notes dir/h.json"]),
-        (["--from-file", "/abs path/h.json"], ["--from-file", "/abs path/h.json"]),
-        (["--from-file=/abs path/h.json"], ["--from-file=/abs path/h.json"]),
+        (
+            ["--from-file", "notes dir/h.json"],
+            ["--from-file", "{caller}/notes dir/h.json", "--workdir", "{caller}"],
+        ),
+        (
+            ["--from-file=notes dir/h.json"],
+            ["--from-file={caller}/notes dir/h.json", "--workdir", "{caller}"],
+        ),
+        (
+            ["--from-file", "/abs path/h.json"],
+            ["--from-file", "/abs path/h.json", "--workdir", "{caller}"],
+        ),
+        (
+            ["--from-file=/abs path/h.json"],
+            ["--from-file=/abs path/h.json", "--workdir", "{caller}"],
+        ),
+        # 缺值時不補 --workdir，否則 click 會把 --workdir 當成 --from-file 的值吞掉
+        (["--from-file"], ["--from-file"]),
     ],
-    ids=["relative-separate", "relative-equals", "absolute-separate", "absolute-equals"],
+    ids=[
+        "relative-separate",
+        "relative-equals",
+        "absolute-separate",
+        "absolute-equals",
+        "missing-value",
+    ],
 )
 def test_how_dt_007_from_file_resolves_from_caller(
     tmp_path: Path, file_args: list[str], expected_args: list[str]
 ) -> None:
-    """HOW-DT-007：relative --from-file 在 uv 改 cwd 前依 caller 實體路徑解析，絕對路徑原樣保留。"""
+    """HOW-DT-007：relative --from-file 依 caller 實體路徑解析、絕對路徑原樣保留，缺值時不補 --workdir。"""
     caller = tmp_path / "caller repo"
     caller.mkdir()
     caller_real = str(caller.resolve())
@@ -400,8 +420,6 @@ def test_how_dt_007_from_file_resolves_from_caller(
         "handover",
         "write",
         *[arg.format(caller=caller_real) for arg in expected_args],
-        "--workdir",
-        caller_real,
     ]
 
 
@@ -688,7 +706,9 @@ def test_hww_sync_001_wrapper_option_list_matches_click_cli() -> None:
     cli_opts.discard("--from-file")
 
     wrapper_src = WRAPPER.read_text(encoding="utf-8")
-    assert "      --from-file)\n" in wrapper_src, "wrapper 缺少 --from-file 的路徑解析分支"
+    assert re.search(r"^\s*--from-file\)", wrapper_src, re.M), (
+        "wrapper 缺少 --from-file 的路徑解析分支"
+    )
     long_case = re.search(r"(--session-type[^)]+)\)", wrapper_src)
     assert long_case, "cannot find value-bearing option case pattern in wrapper"
     raw = long_case.group(1)
