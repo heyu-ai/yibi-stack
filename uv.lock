@@ -1833,7 +1833,7 @@ wheels = [
 
 [[package]]
 name = "yibi-stack"
-version = "1.23.19"
+version = "1.23.20"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

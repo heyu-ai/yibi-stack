@@ -6,59 +6,89 @@ model: sonnet
 
 結束本次工作階段前，將目前進度、決策、下一步寫入 handover 記錄，供下次（或其他 Agent）接手。
 
-## Step 1 — 環境確認
+> **執行注意**：
+>
+> - **交班內容一律寫進 JSON 檔，不要放在指令列**。指令列帶自由文字時，內容裡的字眼會被其他 repo 的
+>   permission deny 規則當成指令比對。實例：yibi-mvp 的 `Bash(uv run --directory * alembic upgrade*)`，
+>   `*` 會跨參數比對，交班的 `--next` 只要寫到「alembic upgrade」，整條指令就被直接拒絕，不會跳確認框。
+>   同類規則還有 `rm -rf *`、`ssh *`、`find * -delete*`。
+> - **用 `~/.agents/bin/handover` wrapper，不要自己組 `SKILL_REPO=$(...)`**：wrapper 會自行解析
+>   yibi-stack 路徑，並以目前工作目錄補上 `--workdir`（project 與 branch 由此偵測，在 worktree 內也會
+>   回報主 repo 名稱）。有些 repo 的 PreToolUse hook 會擋下指令字串裡的 command substitution
+>   （例如 yibi-mvp 的 `protect-bash-cd.py`），所以指令列不要出現 `$(...)`。
+> - wrapper 不存在（`no such file`、exit 127）或回報 `[FAIL] 無法解析 skill repo` 時停止，請使用者在
+>   yibi-stack 目錄執行 `make install`。
 
-```bash
-git rev-parse --show-toplevel
-[ -f ~/.agents/handover/handover.db ] || echo '[WARN] DB 不存在，請先跑 uv run python -m tasks.mycelium init'
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
+## Step 1 — 從對話萃取摘要並寫成 JSON 檔
+
+根據目前對話內容整理以下欄位，用 **Write 工具**寫成一個 JSON object 檔：
+
+| key | 型別 | 內容 |
+|-----|------|------|
+| `session_type` | 字串（必填） | `sdd` / `debug` / `discussion` / `admin` |
+| `topic` | 字串（必填） | 本次工作的主題（一句話） |
+| `summary` | 字串（必填） | 對話重點摘要（2-4 句） |
+| `completed` | 字串 array | 完成了什麼 |
+| `decisions` | 字串 array | 做了哪些決策 |
+| `blocked` | 字串 array | 卡住的事項（若無則 `[]`） |
+| `next` | 字串 array | 下一步優先事項 |
+| `lessons` | 字串 array | 學到什麼（若無則 `[]`） |
+| `approaches` | 字串 array | 試過的方案（debug 時特別重要） |
+| `tags` | 字串 array | 自由標籤 |
+| `files` | 字串 array（選填） | 這次碰過的檔案 |
+| `test_status` | 字串（選填） | 測試狀態（例如「make ci 全綠」） |
+| `tokens` | 字串（選填） | token 用量估計 |
+
+只能用上表的 key，拼錯會直接報錯。array 欄位要寫成真正的 JSON array（不是字串），元素一律是
+字串：`null`、數字、object 都會被拒絕。
+
+檔案一律放在 `/tmp/handover-<YYYYMMDD-HHMM>-<4 位隨機 hex>.json`，例如
+`/tmp/handover-20261020-1530-a1b2.json`。路徑由你直接組出完整的字面值（不需要展開任何環境變數），
+檔名帶時間與隨機碼是為了避免讀到別的 session 留下的同名檔。這個完整絕對路徑記為 `<FILE>`。
+
+```json
+{
+  "session_type": "sdd",
+  "topic": "change 0187 實作",
+  "summary": "完成 tasks 1.1 到 7.4，已 push。",
+  "completed": ["tasks 1.1-7.4 完成"],
+  "decisions": [],
+  "blocked": [],
+  "next": ["人跑 alembic upgrade"],
+  "lessons": [],
+  "approaches": [],
+  "tags": ["0187"]
+}
 ```
 
-## Step 2 — 從對話萃取摘要
+## Step 2 — 寫入交班
 
-根據目前對話內容，自動整理：
-
-- `topic`：本次工作的主題（一句話）
-- `session_type`：`sdd` / `debug` / `discussion` / `admin`
-- `summary`：對話重點摘要（2-4 句）
-- `completed`：完成了什麼（JSON array）
-- `decisions`：做了哪些決策（JSON array）
-- `blocked`：卡住的事項（JSON array，若無則 `[]`）
-- `next`：下一步優先事項（JSON array）
-- `lessons`：學到什麼（JSON array，若無則 `[]`）
-- `approaches`：試過的方案（JSON array，debug 時特別重要）
-- `tags`：自由標籤（JSON array）
-
-## Step 3 — 寫入交班
+在目前的工作目錄執行（不要先 `cd` 到 yibi-stack），把 `<FILE>` 換成上一步的絕對路徑，保留雙引號：
 
 ```bash
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
-REAL_WORKDIR=$(pwd)
-PROJECT=$(basename "$REAL_WORKDIR")
-uv run --directory "$SKILL_REPO" \
-  python -m tasks.mycelium handover write \
-  --workdir "$REAL_WORKDIR" \
-  --project "$PROJECT" \
-  --session-type {{session_type}} \
-  --topic "{{topic}}" \
-  --summary "{{summary}}" \
-  --completed '{{completed_json}}' \
-  --decisions '{{decisions_json}}' \
-  --blocked '{{blocked_json}}' \
-  --next '{{next_json}}' \
-  --lessons '{{lessons_json}}' \
-  --approaches '{{approaches_json}}' \
-  --tags '{{tags_json}}'
+~/.agents/bin/handover write --from-file "<FILE>"
 ```
 
-未提供的環境 metadata 會自動偵測（`device` / `branch` / `project` / `working_dir`）。
+exit code 非 0 時，先讀 stderr 判斷原因，**不要只看 exit code**（exit 2 是 click 所有用法錯誤共用的
+代碼，不一定是 JSON 內容問題）：
 
-## Step 4 — 確認寫入
+- stderr 含 `No such option '--from-file'`：yibi-stack 主 checkout 還是舊版。停止，回報
+  `[FAIL] handover write 執行失敗` 並附上 stderr 原文，請使用者在 yibi-stack 主 checkout 執行
+  `git pull`。**不要修改 JSON 檔**，檔案本身沒有問題。
+- stderr 含 `無法讀取`：`<FILE>` 路徑錯誤，或忘了把 `<FILE>` 換成實際路徑。確認路徑後重跑。
+- 其他情況（未知欄位、型別錯誤、缺必填欄位、與指令列重複的欄位）：依錯誤訊息修正 JSON 檔後重跑。
+- 修不好時停止，回報 `[FAIL] handover write 執行失敗` 並附上 stderr 原文。
 
-```bash
-if ! SKILL_REPO=$("$HOME/.agents/bin/resolve-skill-repo"); then echo '[FAIL] 無法解析 skill repo，請在 yibi-stack 目錄執行 make install' >&2; exit 1; fi
-uv run --directory "$SKILL_REPO" \
-  python -m tasks.mycelium handover read --last 1
-```
+不論哪一種情況，都**不要**改成把內容放回指令列。
 
-輸出最新一筆確認寫入成功。
+未提供的環境 metadata 會自動偵測（`device` / `branch` / `project`）。
+
+## Step 3 — 確認寫入
+
+以 Step 2 寫入指令**自己的 stdout** 確認成功，不要另外跑 `read`（`read --last 1` 讀到的可能是別的
+session 剛寫入的記錄）：
+
+- stdout 必須有 `✓ handover 已寫入：<id>` 這一行，而且 `topic =` 那一行要與 JSON 檔裡的 `topic` 相同。
+- 兩者都符合時，回報寫入成功並附上 `<id>`。
+- 缺少 `✓ handover 已寫入` 這一行，或 `topic` 不符時，回報 `[FAIL] handover 寫入結果無法確認` 並附上
+  stdout 原文。
