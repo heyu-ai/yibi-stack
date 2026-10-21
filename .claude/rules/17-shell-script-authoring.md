@@ -859,3 +859,44 @@ Pin it with a test, not a convention: `ANW-DT-016` asserts every Makefile call s
 command that **names its own target** (`"make <target>…"`), so dropping the prefix — or copying a
 guard line to a new target and forgetting to change it — fails loudly instead of shipping a hint
 that is uncopyable or points at the wrong target.
+
+## Doc-Guard Tests: Assert What Must Be There, Not Only What Must Not
+
+<!-- gate: none (reason: judgment) — telling whether a doc-guard test pins the requirement or only bans one spelling of its violation needs a semantic read of the test's intent -->
+
+A doc-guard test reads a runbook, SKILL.md, or command doc and asserts something about its text.
+The common first draft asserts that a known-bad literal is **absent**. That only bans one
+spelling of the defect: rewording reintroduces it and the test stays green, and deleting the
+correct instruction outright passes too, because absence of the bad text is all it checks.
+
+Three shapes have bitten here, each from the same root:
+
+| Shape | What survives it |
+|-------|------------------|
+| Negative-only assertion (`"bad literal" not in section`) | The same defect reworded; the correct instruction deleted entirely |
+| Substring anchors for prose semantics | Mutants that keep every anchor but flip meaning (`newest` to `oldest`) or append a contradiction |
+| Doc cites a code fact (output format, error string) that no test reads from the code | The code changing under the doc, leaving the doc pinned to a stale fact |
+
+What to assert instead:
+
+1. **The positive requirement**: the instruction that must be present (e.g. "compare the value
+   after `=`"), scoped to the section it belongs in, not the whole file.
+2. **The code facts the doc relies on, from their source**: read the literal from the
+   implementation file, or run the CLI and capture its output, then assert the doc matches.
+   A fact typed into both the doc and the test drifts in both places at once.
+3. **When the paragraph's meaning is the contract, pin the paragraph**: after anchors keep losing
+   to semantic mutants, snapshot the whole block (hash of the text between its heading and the
+   next marker) and keep anchors only as diagnostics that say *which* clause changed.
+
+Prove it by mutation, and design the mutants to dodge the assertions: reword the defect, delete
+the positive instruction, change the cited code fact. A probe whose mutants all delete the
+anchored literal only re-proves the anchor-presence check; it says nothing about whether
+rewording or a semantic flip survives.
+
+(Source: PR #583 — `HCD-VL-005` in `scripts/tests/test_handover_command_doc.py` checked only that
+the backticked `topic =` literal was gone; mutants reintroducing a literal comparison without
+backticks, deleting the "compare the value after `=`" instruction, or changing the CLI's output
+format all survived, and in round 2 a reworded "rerun" still slipped past the must-not-rerun
+regex. PR #515 — `test_convergence_contract.py`: three review passes in a row found unpinned
+clauses behind substring anchors (10 of 12 mutants survived, then 13 semantic mutants), resolved
+by a golden snapshot.)
