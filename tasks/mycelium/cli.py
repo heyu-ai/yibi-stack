@@ -391,8 +391,9 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
         key: (list(file_data[key]) if key in file_data else _parse_json_list(value, f"--{key}"))
         for key, value in list_flags.items()
     }
-    # 只有 None 算缺漏，與舊版 click required=True 一致；指令列的空字串交給 write_handover 拒絕
-    # （與 main 相同：exit 1、不寫入），檔案內的空白值已在 _load_handover_file 擋下
+    # 只有 None 算缺漏，與舊版 click required=True 一致。指令列傳入的空字串或全空白值不在這裡擋，
+    # 交給 write_handover 拒絕（ValueError，exit 1，不寫入）；--from-file 檔案內的空字串或全空白值
+    # 已在 _load_handover_file 以 exit 2 擋下
     missing = [key for key in ("session_type", "topic", "summary") if strs[key] is None]
     if missing:
         flags = ", ".join("--" + key.replace("_", "-") for key in missing)

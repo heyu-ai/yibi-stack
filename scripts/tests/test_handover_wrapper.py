@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 import sys
@@ -675,7 +676,11 @@ def test_how_st_002_installed_wrapper_executes_real_db_cli(tmp_path: Path) -> No
     assert file_row["branch"] == "runtime-branch"
     assert failed_write.returncode == 1
     assert failed_write.stdout == ""
-    assert failed_write.stderr == "Error: DB 資料已保存，但 JSONL 備份寫入失敗\n"
+    # 訊息保留固定子字串（/handover 文件以此分流），並帶出 JSONL 缺少的那筆記錄 id（uuid4）
+    assert re.fullmatch(
+        r"Error: DB 資料已保存，但 JSONL 備份寫入失敗（id=[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}）\n",
+        failed_write.stderr,
+    ), failed_write.stderr
     assert str(mirror) not in failed_write.stderr
     assert "Errno" not in failed_write.stderr
     assert "Traceback" not in failed_write.stderr
