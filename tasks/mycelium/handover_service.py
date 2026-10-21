@@ -227,7 +227,8 @@ def _expand_paths(row: dict[str, Any]) -> dict[str, Any]:
 def _append_jsonl(record: HandoverRecord, path: Path) -> None:
     """把 record 以單行 JSON 寫入 JSONL 備份尾端。
 
-    DB 已由呼叫端提交；備份失敗仍須 raise，並在訊息中明示 DB 資料已保存。
+    DB 已由呼叫端提交；備份失敗仍須 raise，並在訊息中明示 DB 資料已保存，且帶出 JSONL 缺少的
+    記錄 id。訊息前段「DB 資料已保存，但 JSONL 備份寫入失敗」是 /handover 文件分流用的固定字串。
     """
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -235,7 +236,7 @@ def _append_jsonl(record: HandoverRecord, path: Path) -> None:
         with path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError as e:
-        raise HandoverBackupError("DB 資料已保存，但 JSONL 備份寫入失敗") from e
+        raise HandoverBackupError(f"DB 資料已保存，但 JSONL 備份寫入失敗（id={record.id}）") from e
 
 
 def _now_iso() -> str:

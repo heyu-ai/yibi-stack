@@ -84,12 +84,14 @@ class TestHandoverWriteCli:
             )
 
         assert result.exit_code == 1
-        assert result.output == "Error: DB 資料已保存，但 JSONL 備份寫入失敗\n"
         assert "private mirror path" not in result.output
         assert "Errno" not in result.output
         assert "Traceback" not in result.output
         rows = read_recent(last=1, db_path=db_path)
         assert [row["topic"] for row in rows] == ["mirror failure"]
+        assert (
+            result.output == f"Error: DB 資料已保存，但 JSONL 備份寫入失敗（id={rows[0]['id']}）\n"
+        )
 
     def test_hwc_eg_002_event_and_mirror_failures_emit_one_sanitized_error(
         self, tmp_path: Path
@@ -127,7 +129,6 @@ class TestHandoverWriteCli:
 
         assert result.exit_code == 1
         assert "[WARN] event logging also failed" in result.output
-        assert "Error: DB 資料已保存，但 JSONL 備份寫入失敗" in result.output
         assert str(mirror_path) not in result.output
         assert "internal event diagnostic" not in result.output
         assert "Errno" not in result.output
@@ -135,6 +136,7 @@ class TestHandoverWriteCli:
         assert caught == []
         rows = read_recent(last=1, db_path=db_path)
         assert [row["topic"] for row in rows] == ["combined failure"]
+        assert f"Error: DB 資料已保存，但 JSONL 備份寫入失敗（id={rows[0]['id']}）" in result.output
 
 
 def _make_fake_write_handover(captured: dict[str, object]):
@@ -456,6 +458,36 @@ class TestHandoverWriteFromFile:
         assert "missing-handover.json" in result.output
         assert "無法讀取" in result.output
         assert captured == {}
+
+    @pytest.mark.parametrize(
+        ("key", "blank"),
+        [("topic", ""), ("topic", "   "), ("summary", ""), ("summary", "\t\n")],
+    )
+    def test_hwf_vl_011_blank_required_string_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str, blank: str
+    ) -> None:
+        """HWF-VL-011：檔案內空白 topic／summary 以 exit 2 拒絕，不是 traceback，且 DB 沒有新記錄。
+
+        走真實 write_handover（只把 DB／JSONL 導到 tmp），以 DB 內容判斷沒有寫入，
+        而不是 mock 掉 write_handover 再看它有沒有被呼叫。
+        """
+        from tasks.mycelium.handover_service import read_recent
+
+        db_path = tmp_path / "handover.db"
+        monkeypatch.setattr("tasks.mycelium.handover_service.HANDOVER_DB_PATH", db_path)
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service.HANDOVER_JSONL_PATH", tmp_path / "handover.jsonl"
+        )
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service._emit_handover_written_event",
+            lambda *_args, **_kwargs: (None, []),
+        )
+        payload = {"session_type": "debug", "topic": "t", "summary": "s", key: blank}
+        path = _write_handover_file(tmp_path, payload)
+        result = CliRunner().invoke(cli, ["handover", "write", "--from-file", str(path)])
+        assert result.exit_code == 2, result.output
+        assert f"{key} 不可為空" in result.output
+        assert read_recent(last=10, db_path=db_path) == []
 
 
 class TestLinkClaude:

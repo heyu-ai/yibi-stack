@@ -270,6 +270,11 @@ def _load_handover_file(path: Path) -> dict[str, Any]:
                 f"{key} 必須為字串，收到型別：{type(data[key]).__name__}",
                 param_hint="--from-file",
             )
+    # write_handover 對空白 topic／summary 丟 ValueError（traceback、exit 1）；
+    # 檔案路徑在這裡先擋成 exit 2，讓 /handover 的 stderr 分流接得住
+    for key in ("topic", "summary"):
+        if key in data and not data[key].strip():
+            raise click.BadParameter(f"{key} 不可為空", param_hint="--from-file")
     for key in _HANDOVER_FILE_LIST_KEYS:
         if key in data and not isinstance(data[key], list):
             raise click.BadParameter(
@@ -386,7 +391,9 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
         key: (list(file_data[key]) if key in file_data else _parse_json_list(value, f"--{key}"))
         for key, value in list_flags.items()
     }
-    # 只有 None 算缺漏，與舊版 click required=True 一致：明確傳入的空字串仍可寫入（AC-3）
+    # 只有 None 算缺漏，與舊版 click required=True 一致。指令列傳入的空字串或全空白值不在這裡擋，
+    # 交給 write_handover 拒絕（ValueError，exit 1，不寫入）；--from-file 檔案內的空字串或全空白值
+    # 已在 _load_handover_file 以 exit 2 擋下
     missing = [key for key in ("session_type", "topic", "summary") if strs[key] is None]
     if missing:
         flags = ", ".join("--" + key.replace("_", "-") for key in missing)
