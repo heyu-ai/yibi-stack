@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.21] - 2026-10-21
+
+### Fixed
+
+- mycelium：`handover write --from-file` 對 JSON 檔裡空白的 `topic`／`summary` 改以 exit 2 拒絕，
+  不再一路傳到 `write_handover` 丟出 ValueError traceback（exit 1）（#581 第 2 項）。
+- dev-cycle：`/handover` 的確認步驟不再要求字面比對 `topic =`，改為比對 `topic` 行 `=` 之後的值，
+  避免 CLI 的對齊空白把成功的寫入誤判成失敗（#581 第 1 項）；stderr 為「DB 資料已保存，但 JSONL
+  備份寫入失敗」時明確要求不要重跑，避免重複寫入交班（#581 第 8 項）。
+
 ## [1.23.20] - 2026-10-20
 
 ### Fixed

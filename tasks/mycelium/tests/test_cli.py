@@ -457,6 +457,26 @@ class TestHandoverWriteFromFile:
         assert "無法讀取" in result.output
         assert captured == {}
 
+    @pytest.mark.parametrize(
+        ("key", "blank"),
+        [("topic", ""), ("topic", "   "), ("summary", ""), ("summary", "\t\n")],
+    )
+    def test_hwf_vl_011_blank_required_string_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str, blank: str
+    ) -> None:
+        """HWF-VL-011：檔案內空白 topic／summary 以 exit 2 拒絕，不是 traceback。"""
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service.write_handover",
+            _make_fake_write_handover(captured),
+        )
+        payload = {"session_type": "debug", "topic": "t", "summary": "s", key: blank}
+        path = _write_handover_file(tmp_path, payload)
+        result = CliRunner().invoke(cli, ["handover", "write", "--from-file", str(path)])
+        assert result.exit_code == 2, result.output
+        assert f"{key} 不可為空" in result.output
+        assert captured == {}
+
 
 class TestLinkClaude:
     def test_link_claude_creates_registry_entry(self, tmp_path: Path) -> None:

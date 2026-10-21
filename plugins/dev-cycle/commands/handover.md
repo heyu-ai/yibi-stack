@@ -76,6 +76,7 @@ exit code 非 0 時，先讀 stderr 判斷原因，**不要只看 exit code**（
   `[FAIL] handover write 執行失敗` 並附上 stderr 原文，請使用者在 yibi-stack 主 checkout 執行
   `git pull`。**不要修改 JSON 檔**，檔案本身沒有問題。
 - stderr 含 `無法讀取`：`<FILE>` 路徑錯誤，或忘了把 `<FILE>` 換成實際路徑。確認路徑後重跑。
+- stderr 含 `DB 資料已保存，但 JSONL 備份寫入失敗`：交班**已經寫進 DB**，只有 JSONL 備份失敗，**不要重跑**（重跑會再寫一筆重複的交班）。回報 `[WARN] 交班已寫入 DB，但 JSONL 備份失敗` 並附上 stderr 原文，請使用者檢查 `~/.agents/handover/handover.jsonl`。
 - 其他情況（未知欄位、型別錯誤、缺必填欄位、與指令列重複的欄位）：依錯誤訊息修正 JSON 檔後重跑。
 - 修不好時停止，回報 `[FAIL] handover write 執行失敗` 並附上 stderr 原文。
 
@@ -88,7 +89,9 @@ exit code 非 0 時，先讀 stderr 判斷原因，**不要只看 exit code**（
 以 Step 2 寫入指令**自己的 stdout** 確認成功，不要另外跑 `read`（`read --last 1` 讀到的可能是別的
 session 剛寫入的記錄）：
 
-- stdout 必須有 `✓ handover 已寫入：<id>` 這一行，而且 `topic =` 那一行要與 JSON 檔裡的 `topic` 相同。
+- stdout 必須有 `✓ handover 已寫入：<id>` 這一行，而且以 `topic` 開頭的那一行，`=` 之後的值要與
+  JSON 檔裡的 `topic` 相同（實際輸出是縮排過的 `topic   = <topic>`，`topic` 與 `=` 之間有對齊用的空白，
+  比對時忽略這些空白，只比 `=` 之後的值）。
 - 兩者都符合時，回報寫入成功並附上 `<id>`。
 - 缺少 `✓ handover 已寫入` 這一行，或 `topic` 不符時，回報 `[FAIL] handover 寫入結果無法確認` 並附上
   stdout 原文。
