@@ -222,10 +222,10 @@ class TestHandoverWriteFromFile:
     def test_hwf_st_002_empty_summary_flag_matches_main(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """HWF-ST-002：沒帶 --from-file 時，空字串 --summary 的行為與 origin/main 相同（AC-3）。
+        """HWF-ST-002：沒帶 --from-file 時，空字串 --summary 以 exit 1 拒絕，訊息乾淨、沒有寫入。
 
-        origin/main 的 click `required=True` 接受空字串，交給 write_handover 以 ValueError
-        拒絕（exit 1、不寫入）；本 PR 的必填檢查只把 None 當缺漏，所以不得提早變成 exit 2。
+        必填檢查只把 None 當缺漏（與舊版 click `required=True` 一致），空字串交給 write_handover
+        判定；它丟出的 ValueError 由 CLI 轉成錯誤訊息，不是 traceback（issue #584 第 2 項）。
         """
         from tasks.mycelium.handover_service import read_recent
 
@@ -243,8 +243,8 @@ class TestHandoverWriteFromFile:
             ["handover", "write", "--session-type", "debug", "--topic", "t", "--summary", ""],
         )
         assert result.exit_code == 1, result.output
-        assert isinstance(result.exception, ValueError)
-        assert "summary 不可為空" in str(result.exception)
+        assert isinstance(result.exception, SystemExit), repr(result.exception)
+        assert "Error: summary 不可為空" in result.output
         assert read_recent(last=1, db_path=db_path) == []
 
     def test_hwf_vl_001_unknown_key_rejected(
@@ -466,7 +466,7 @@ class TestHandoverWriteFromFile:
     def test_hwf_vl_011_blank_required_string_rejected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str, blank: str
     ) -> None:
-        """HWF-VL-011：檔案內空白 topic／summary 以 exit 2 拒絕，不是 traceback，且 DB 沒有新記錄。
+        """HWF-VL-011：檔案內空白 topic／summary 以 exit 1 拒絕，不是 traceback，且 DB 沒有新記錄。
 
         走真實 write_handover（只把 DB／JSONL 導到 tmp），以 DB 內容判斷沒有寫入，
         而不是 mock 掉 write_handover 再看它有沒有被呼叫。
@@ -485,8 +485,42 @@ class TestHandoverWriteFromFile:
         payload = {"session_type": "debug", "topic": "t", "summary": "s", key: blank}
         path = _write_handover_file(tmp_path, payload)
         result = CliRunner().invoke(cli, ["handover", "write", "--from-file", str(path)])
-        assert result.exit_code == 2, result.output
-        assert f"{key} 不可為空" in result.output
+        assert result.exit_code == 1, result.output
+        assert isinstance(result.exception, SystemExit), repr(result.exception)
+        assert f"Error: {key} 不可為空" in result.output
+        assert read_recent(last=10, db_path=db_path) == []
+
+    def test_hwf_vl_012_db_write_failure_is_clean_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWF-VL-012：DB 寫入失敗（例如 database is locked）以 exit 1 回報，不是 traceback。
+
+        /handover 依 stderr 的「交班記錄寫入失敗」與「database is locked」決定是否重試，
+        兩段文字都必須出現在 CLI 的錯誤訊息裡（issue #584 第 2、3 項）。
+        """
+        import sqlite3
+
+        from tasks.mycelium.handover_service import read_recent
+
+        db_path = tmp_path / "handover.db"
+        monkeypatch.setattr("tasks.mycelium.handover_service.HANDOVER_DB_PATH", db_path)
+        monkeypatch.setattr(
+            "tasks.mycelium.handover_service.HANDOVER_JSONL_PATH", tmp_path / "handover.jsonl"
+        )
+
+        def _locked(*_args: object, **_kwargs: object) -> None:
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr("tasks.mycelium.db.AgentsDB.insert_handover", _locked)
+        path = _write_handover_file(
+            tmp_path, {"session_type": "debug", "topic": "t", "summary": "s"}
+        )
+        result = CliRunner().invoke(cli, ["handover", "write", "--from-file", str(path)])
+        assert result.exit_code == 1, result.output
+        assert isinstance(result.exception, SystemExit), repr(result.exception)
+        assert "Error: 交班記錄寫入失敗" in result.output
+        assert "database is locked" in result.output
+        assert "✓ handover 已寫入" not in result.output
         assert read_recent(last=10, db_path=db_path) == []
 
 

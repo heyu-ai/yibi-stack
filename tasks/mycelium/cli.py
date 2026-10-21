@@ -270,11 +270,6 @@ def _load_handover_file(path: Path) -> dict[str, Any]:
                 f"{key} 必須為字串，收到型別：{type(data[key]).__name__}",
                 param_hint="--from-file",
             )
-    # write_handover 對空白 topic／summary 丟 ValueError（traceback、exit 1）；
-    # 檔案路徑在這裡先擋成 exit 2，讓 /handover 的 stderr 分流接得住
-    for key in ("topic", "summary"):
-        if key in data and not data[key].strip():
-            raise click.BadParameter(f"{key} 不可為空", param_hint="--from-file")
     for key in _HANDOVER_FILE_LIST_KEYS:
         if key in data and not isinstance(data[key], list):
             raise click.BadParameter(
@@ -391,9 +386,8 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
         key: (list(file_data[key]) if key in file_data else _parse_json_list(value, f"--{key}"))
         for key, value in list_flags.items()
     }
-    # 只有 None 算缺漏，與舊版 click required=True 一致。指令列傳入的空字串或全空白值不在這裡擋，
-    # 交給 write_handover 拒絕（ValueError，exit 1，不寫入）；--from-file 檔案內的空字串或全空白值
-    # 已在 _load_handover_file 以 exit 2 擋下
+    # 只有 None 算缺漏，與舊版 click required=True 一致。空字串或全空白的 topic／summary
+    # （不論來自指令列或 --from-file）交給 write_handover 拒絕，由下方 except 轉成錯誤訊息
     missing = [key for key in ("session_type", "topic", "summary") if strs[key] is None]
     if missing:
         flags = ", ".join("--" + key.replace("_", "-") for key in missing)
@@ -428,6 +422,10 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
         if e.event_error is not None:
             click.echo("[WARN] event logging also failed", err=True)
         raise click.ClickException(str(e)) from None
+    except (ValueError, RuntimeError) as e:
+        # 空白 topic／summary（ValueError）與 DB 寫入失敗（RuntimeError）轉成錯誤訊息而非
+        # traceback；/handover 依 stderr 文字分流（issue #584）
+        raise click.ClickException(str(e)) from e
 
     click.echo(f"✓ handover 已寫入：{record.id}")
     click.echo(f"  topic   = {record.topic}")

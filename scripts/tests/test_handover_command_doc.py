@@ -7,8 +7,11 @@ permission deny 規則（例如 `Bash(uv run --directory * alembic upgrade*)`）
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HANDOVER_DOC = REPO_ROOT / "plugins" / "dev-cycle" / "commands" / "handover.md"
@@ -151,9 +154,56 @@ def test_hcd_vl_006_db_write_failure_must_not_edit_json() -> None:
     assert step2.index(message) < step2.index("其他情況")
 
 
-def test_hcd_vl_007_other_cases_lists_blank_required_fields() -> None:
-    """HCD-VL-007：「其他情況」列出 topic／summary 為空白（CLI 以「不可為空」拒絕）。"""
-    from tasks.mycelium import cli as mycelium_cli
+def _invoke_handover_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: dict) -> str:
+    """以真實 write_handover 跑 `handover write --from-file`（DB／JSONL 導到 tmp），回傳輸出。"""
+    from click.testing import CliRunner
 
-    assert '不可為空", param_hint="--from-file"' in _source(mycelium_cli.__file__)
+    from tasks.mycelium.cli import cli
+
+    monkeypatch.setattr("tasks.mycelium.handover_service.HANDOVER_DB_PATH", tmp_path / "h.db")
+    monkeypatch.setattr("tasks.mycelium.handover_service.HANDOVER_JSONL_PATH", tmp_path / "h.jsonl")
+    path = tmp_path / "handover.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    result = CliRunner().invoke(cli, ["handover", "write", "--from-file", str(path)])
+    assert result.exit_code == 1, result.output
+    return result.output
+
+
+def test_hcd_vl_007_other_cases_lists_blank_required_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HCD-VL-007：「其他情況」列出 topic／summary 為空白（CLI 實跑以「不可為空」拒絕）。"""
+    output = _invoke_handover_write(
+        tmp_path, monkeypatch, {"session_type": "debug", "topic": " ", "summary": "s"}
+    )
+    assert "topic 不可為空" in output
     assert "topic／summary 為空白" in _bullet(_section("## Step 2"), "其他情況")
+
+
+def test_hcd_vl_008_db_locked_allows_exactly_one_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HCD-VL-008：DB 被鎖住時只允許用同一個檔案重跑 Step 2 一次，仍失敗就停止並跳過 Step 3。"""
+    import sqlite3
+
+    def _locked(*_args: object, **_kwargs: object) -> None:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr("tasks.mycelium.db.AgentsDB.insert_handover", _locked)
+    output = _invoke_handover_write(
+        tmp_path, monkeypatch, {"session_type": "debug", "topic": "t", "summary": "s"}
+    )
+    # 文件依這兩段 stderr 文字分流，先以實跑 CLI 確認它們真的會一起出現
+    assert "交班記錄寫入失敗" in output
+    assert "database is locked" in output
+
+    branch = _bullet(_section("## Step 2"), "交班記錄寫入失敗")
+    retry = next((line for line in branch.splitlines() if "database is locked" in line), None)
+    assert retry is not None, "「交班記錄寫入失敗」分支必須處理 database is locked"
+    assert "同一個檔案" in retry
+    assert "**一次**" in retry
+    assert "**不要修改 JSON 檔**" in branch
+    # 重試後仍失敗，或不是鎖定造成的失敗：停止並跳過 Step 3
+    stop = next((line for line in branch.splitlines() if "[FAIL]" in line), None)
+    assert stop is not None and "重試後仍失敗" in branch
+    assert "跳過 Step 3" in branch
