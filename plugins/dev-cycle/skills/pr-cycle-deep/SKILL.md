@@ -300,9 +300,9 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh add {{pr_number}}
 
 | Exit | Meaning | Action |
 | --- | --- | --- |
-| `0` | Label on the PR, confirmed by read-back | Continue; the label stays through Steps 2-7 |
+| `0` | Label on the PR, confirmed by read-back | Continue; the label stays until Step 8 "ship", except the exits listed below |
 | `10` | The repo has no `review-in-progress` label (`[WARN]` already printed) | Continue; Step 8's summary MUST say `本 repo 沒有 review-in-progress 阻擋機制` |
-| other | `gh` failed or the read-back disagrees (`[FAIL]` on stderr) | **Stop**; never run R1 on a PR whose label state is unknown |
+| other | Any other non-zero exit (`[FAIL]` on stderr: gh failed, read-back disagrees, bad usage, missing gh/jq) | **Stop**; never run R1 on a PR whose label state is unknown |
 
 The label is removed **only** by the exits below, each with
 `bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh remove {{pr_number}}` (also read-back
@@ -310,7 +310,8 @@ confirmed; non-zero is `[FAIL]`, tell the user to remove it by hand — a stuck 
 which is the safe direction):
 
 - Step 8, **after** the user replies "ship" (fixes are done by then).
-- The Step 7 circuit breaker handing the findings to the user.
+- The Step 7 circuit breaker handing the findings to the user (its "Continue fixing" option re-adds the
+  label, following the exit table above).
 - The user cancelling, or the live PR turning `MERGED` / `CLOSED` (Step 6 recheck, Step 10 gate).
 
 **Never remove it in Step 5b**: posting the summary precedes the fixes, and yibi-mvp #2449 was merged
@@ -1145,8 +1146,8 @@ commit SHAs, each finding FIXED / NOT FIXED + one-line reason, CI exit code, and
 ```
 
 If the subagent reports BLOCKED, route the observed state before the receipt checks:
-`MERGED` → stop the cycle and go to Step 11 without another push; `CLOSED` → stop and wait for
-the user; query/metadata failure or branch/head mismatch → stop and resolve the reported
+`MERGED` → stop the cycle, run Step 1's `review-label.sh remove`, and go to Step 11 without another
+push; `CLOSED` → run Step 1's `review-label.sh remove`, stop and wait for the user; query/metadata failure or branch/head mismatch → stop and resolve the reported
 problem before authorizing any new push. Local commits remain available for recovery.
 
 Task call errors or returns empty → `[FAIL]` stop. For PUSHED, **verify, do not trust the summary** —
@@ -1276,8 +1277,14 @@ Choose: [False positive / Continue fixing / Return to redesign]
 
 Before showing this prompt, run Step 1's `review-label.sh remove {{pr_number}}` and tell the user the
 label is off: from here a human owns the decision, and a PR that still carries the label would
-stay unmergeable while they decide. If they pick "Continue fixing", re-add it with
-`review-label.sh add` before resuming. Wait for explicit instruction before continuing.
+stay unmergeable while they decide. Wait for explicit instruction, then act on the choice:
+
+- **False positive**: continue to Step 8 with the label already off. Step 8's summary MUST say it was
+  removed early by the circuit breaker (merge was unblocked from then).
+- **Continue fixing**: run `bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh add {{pr_number}}`
+  and follow Step 1's exit table (exit 0 continue; exit 10 note it for the Step 8 summary; any other
+  exit: **Stop** and report to the user, do not resume fixing), then go to Step 6.
+- **Return to redesign**: **Stop** the cycle; the label stays off.
 
 #### Gotcha: re-review must not use stale diff.patch
 
@@ -1326,7 +1333,7 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 - <verdict / [SKIP] reason>; <each [EXEMPT] or [WARN] red-first: line — needs your confirmation>
 
 ## Merge blocking (review-in-progress label)
-- <held during review, removed on "ship" / 本 repo 沒有 review-in-progress 阻擋機制 (Step 1 exit 10)>
+- <held during review, removed on "ship" / 本 repo 沒有 review-in-progress 阻擋機制 (Step 1 exit 10) / removed early by circuit breaker at Step 7 (merge was unblocked from then)>
 
 ## Change hotspots (top 3 places most worth human eyes)
 1. <file:line> — <why it's a hotspot>

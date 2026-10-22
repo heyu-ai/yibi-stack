@@ -3,7 +3,8 @@
 #   bash review-label.sh add <pr-number>      貼 label，回讀確認
 #   bash review-label.sh remove <pr-number>   撤 label，回讀確認
 # Exit 0:  已回讀確認（add：label 在；remove：label 不在，含「本來就沒有」）。
-# Exit 1:  用法錯誤、工具／API 不可用、gh 非零退出、回讀狀態不符。
+# Exit 1:  用法錯誤、工具／API 不可用、gh 非零退出、label metadata 格式不符、回讀狀態不符。
+# label 名稱比對不分大小寫（GitHub 的 label 名稱本來就不分），但必須整字相等。
 # Exit 10: 僅 add——repo 沒有這個 label，只 [WARN]，呼叫端照常繼續（不阻擋其他專案）。
 # 失效方向是 fail-closed：撤失敗會讓 merge 繼續被擋，需人工移除；這是可接受的方向。
 
@@ -41,14 +42,18 @@ pr_has_label() {
     if ! jq -e '.labels | type == "array"' <<< "$json" >/dev/null; then
         fail "PR #${PR_NUMBER} returned malformed label metadata"
     fi
-    jq -e --arg name "$LABEL" 'any(.labels[]; .name == $name)' <<< "$json" >/dev/null
+    # GitHub 的 label 名稱不分大小寫，兩邊都轉小寫再比；仍是整字相等，不是 contains。
+    jq -e --arg name "$LABEL" 'any(.labels[]; ((.name // "") | ascii_downcase) == ($name | ascii_downcase))' <<< "$json" >/dev/null
 }
 
 if [ "$ACTION" = add ]; then
     if ! LABELS_JSON=$(gh label list --search "$LABEL" --limit 100 --json name); then
         fail "gh label list failed; cannot tell whether this repo defines ${LABEL}"
     fi
-    if ! jq -e --arg name "$LABEL" 'any(.[]; .name == $name)' <<< "$LABELS_JSON" >/dev/null; then
+    if ! jq -e 'type == "array"' <<< "$LABELS_JSON" >/dev/null; then
+        fail "gh label list returned malformed metadata; cannot tell whether this repo defines ${LABEL}"
+    fi
+    if ! jq -e --arg name "$LABEL" 'any(.[]; ((.name // "") | ascii_downcase) == ($name | ascii_downcase))' <<< "$LABELS_JSON" >/dev/null; then
         echo "[WARN] repo has no '${LABEL}' label; no merge blocking for this review. State this in the Step 8 summary." >&2
         exit 10
     fi
