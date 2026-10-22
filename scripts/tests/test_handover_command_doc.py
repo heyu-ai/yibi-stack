@@ -3,6 +3,10 @@
 /handover 把交班內容寫進 JSON 檔，Bash 指令列只剩檔案路徑：內容放在指令列時，會被其他 repo 的
 permission deny 規則（例如 `Bash(uv run --directory * alembic upgrade*)`）當成指令比對；
 `$(...)` 則會被部分 repo 的 PreToolUse hook 擋下。這裡鎖住文件的 bash 區塊不得退回舊寫法。
+
+Step 2 的錯誤分流依 CLI 的 stderr 文字判斷，所以部分測試（HCD-VL-007／008）會以真實
+`write_handover` 實跑 `handover write`（DB／JSONL 導到 tmp），確認文件引用的訊息真的會出現，
+而不只比對原始碼字串。
 """
 
 from __future__ import annotations
@@ -12,6 +16,12 @@ import re
 from pathlib import Path
 
 import pytest
+
+from tasks.mycelium.tests._handover_lock import (
+    LOCK_STAGES,
+    assert_clean_lock_failure,
+    run_handover_write_under_lock,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HANDOVER_DOC = REPO_ROOT / "plugins" / "dev-cycle" / "commands" / "handover.md"
@@ -81,6 +91,20 @@ def _bullet(section: str, marker: str) -> str:
     while end < len(lines) and lines[end].strip() and not lines[end].startswith("- "):
         end += 1
     return "\n".join(lines[start:end])
+
+
+def _sub_bullet(bullet: str, marker: str) -> str:
+    """取出頂層 bullet 內以 `marker` 開頭的那一個子 bullet（`  - ` 行連同其續行）。
+
+    `marker` 必須出現在子 bullet 的第一行；續行是縮排比 `  - ` 更深的行。
+    """
+    lines = bullet.splitlines()
+    hits = [i for i, line in enumerate(lines) if line.startswith("  - ") and marker in line]
+    assert len(hits) == 1, f"應恰有一個以 {marker!r} 開頭的子 bullet，實際 {len(hits)} 個"
+    end = hits[0] + 1
+    while end < len(lines) and lines[end].startswith("    "):
+        end += 1
+    return "\n".join(lines[hits[0] : end])
 
 
 def _source(module_file: str | None) -> str:
@@ -154,7 +178,9 @@ def test_hcd_vl_006_db_write_failure_must_not_edit_json() -> None:
     assert step2.index(message) < step2.index("其他情況")
 
 
-def _invoke_handover_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: dict) -> str:
+def _invoke_handover_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: dict[str, str]
+) -> str:
     """以真實 write_handover 跑 `handover write --from-file`（DB／JSONL 導到 tmp），回傳輸出。"""
     from click.testing import CliRunner
 
@@ -180,30 +206,35 @@ def test_hcd_vl_007_other_cases_lists_blank_required_fields(
     assert "topic／summary 為空白" in _bullet(_section("## Step 2"), "其他情況")
 
 
+@pytest.mark.parametrize("stage", LOCK_STAGES)
 def test_hcd_vl_008_db_locked_allows_exactly_one_retry(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
 ) -> None:
-    """HCD-VL-008：DB 被鎖住時只允許用同一個檔案重跑 Step 2 一次，仍失敗就停止並跳過 Step 3。"""
-    import sqlite3
+    """HCD-VL-008：DB 被鎖住時只允許用同一個檔案重跑 Step 2 一次，仍失敗就停止並跳過 Step 3。
 
-    def _locked(*_args: object, **_kwargs: object) -> None:
-        raise sqlite3.OperationalError("database is locked")
-
-    monkeypatch.setattr("tasks.mycelium.db.AgentsDB.insert_handover", _locked)
-    output = _invoke_handover_write(
-        tmp_path, monkeypatch, {"session_type": "debug", "topic": "t", "summary": "s"}
-    )
-    # 文件依這兩段 stderr 文字分流，先以實跑 CLI 確認它們真的會一起出現
-    assert "交班記錄寫入失敗" in output
-    assert "database is locked" in output
+    重試的前提是「鎖定時什麼都沒寫出」，所以先在真實 SQLite 鎖定下實跑 CLI 確認這點，
+    再檢查文件的分流文字。
+    """
+    result = run_handover_write_under_lock(tmp_path, monkeypatch, stage=stage)
+    # 文件依這兩段 stderr 文字分流，且重試不得產生重複交班
+    assert_clean_lock_failure(result)
 
     branch = _bullet(_section("## Step 2"), "交班記錄寫入失敗")
-    retry = next((line for line in branch.splitlines() if "database is locked" in line), None)
-    assert retry is not None, "「交班記錄寫入失敗」分支必須處理 database is locked"
+    assert "**不要修改 JSON 檔**" in branch
+    # 鎖定分支：不另外等待，用同一個檔案只重跑一次，成功就照常進入 Step 3
+    retry = _sub_bullet(branch, "database is locked")
     assert "同一個檔案" in retry
     assert "**一次**" in retry
-    assert "**不要修改 JSON 檔**" in branch
-    # 重試後仍失敗，或不是鎖定造成的失敗：停止並跳過 Step 3
-    stop = next((line for line in branch.splitlines() if "[FAIL]" in line), None)
-    assert stop is not None and "重試後仍失敗" in branch
-    assert "跳過 Step 3" in branch
+    assert "等幾秒" not in retry
+    assert "照常進入 Step 3" in retry
+    assert "不要進入 Step 3" not in retry
+    # 重跑的結果要從頭重新分流：DB 已寫入但 JSONL 失敗時走 [WARN] 分支，不是 [FAIL]
+    assert "重新判斷" in retry
+    assert "DB 資料已保存，但 JSONL 備份寫入失敗" in retry
+    assert "[WARN]" in retry
+    # 停止分支：其他原因，或重試後仍失敗 → [FAIL] 並跳過 Step 3
+    stop = _sub_bullet(branch, "其他原因")
+    assert "其他原因" in stop and "重試後仍失敗" in stop
+    assert "交班記錄寫入失敗" in stop
+    assert "[FAIL] handover write 執行失敗" in stop
+    assert "跳過 Step 3" in stop

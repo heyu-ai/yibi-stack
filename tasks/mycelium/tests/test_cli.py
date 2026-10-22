@@ -14,6 +14,11 @@ import pytest
 from click.testing import CliRunner
 
 from tasks.mycelium.cli import _HANDOVER_FILE_LIST_KEYS, _HANDOVER_FILE_STR_KEYS, cli
+from tasks.mycelium.tests._handover_lock import (
+    LOCK_STAGES,
+    assert_clean_lock_failure,
+    run_handover_write_under_lock,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -219,7 +224,7 @@ class TestHandoverWriteFromFile:
         assert row["token_usage_estimate"] == "10k"
         assert row["project"] == "yibi-mvp"
 
-    def test_hwf_st_002_empty_summary_flag_matches_main(
+    def test_hwf_st_002_empty_summary_flag_is_clean_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """HWF-ST-002：沒帶 --from-file 時，空字串 --summary 以 exit 1 拒絕，訊息乾淨、沒有寫入。
@@ -490,38 +495,20 @@ class TestHandoverWriteFromFile:
         assert f"Error: {key} 不可為空" in result.output
         assert read_recent(last=10, db_path=db_path) == []
 
+    @pytest.mark.parametrize("stage", LOCK_STAGES)
     def test_hwf_vl_012_db_write_failure_is_clean_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
     ) -> None:
-        """HWF-VL-012：DB 寫入失敗（例如 database is locked）以 exit 1 回報，不是 traceback。
+        """HWF-VL-012：DB 被真實鎖住時以 exit 1 回報，不是 traceback，且什麼都沒寫出。
 
         /handover 依 stderr 的「交班記錄寫入失敗」與「database is locked」決定是否重試，
-        兩段文字都必須出現在 CLI 的錯誤訊息裡（issue #584 第 2、3 項）。
+        兩段文字都必須出現在 CLI 的錯誤訊息裡（issue #584 第 2、3 項）。鎖定時 DB 沒有寫入，
+        JSONL 備份與 handover_written 事件也不得寫出，重試才不會產生重複交班（AC-5）。
+        空 DB 鎖在 init_db、已初始化的 DB 鎖在 INSERT，兩個時點都必須落在同一個錯誤處理內。
         """
-        import sqlite3
-
-        from tasks.mycelium.handover_service import read_recent
-
-        db_path = tmp_path / "handover.db"
-        monkeypatch.setattr("tasks.mycelium.handover_service.HANDOVER_DB_PATH", db_path)
-        monkeypatch.setattr(
-            "tasks.mycelium.handover_service.HANDOVER_JSONL_PATH", tmp_path / "handover.jsonl"
-        )
-
-        def _locked(*_args: object, **_kwargs: object) -> None:
-            raise sqlite3.OperationalError("database is locked")
-
-        monkeypatch.setattr("tasks.mycelium.db.AgentsDB.insert_handover", _locked)
-        path = _write_handover_file(
-            tmp_path, {"session_type": "debug", "topic": "t", "summary": "s"}
-        )
-        result = CliRunner().invoke(cli, ["handover", "write", "--from-file", str(path)])
-        assert result.exit_code == 1, result.output
-        assert isinstance(result.exception, SystemExit), repr(result.exception)
+        result = run_handover_write_under_lock(tmp_path, monkeypatch, stage=stage)
+        assert_clean_lock_failure(result)
         assert "Error: 交班記錄寫入失敗" in result.output
-        assert "database is locked" in result.output
-        assert "✓ handover 已寫入" not in result.output
-        assert read_recent(last=10, db_path=db_path) == []
 
 
 class TestLinkClaude:

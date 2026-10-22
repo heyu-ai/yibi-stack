@@ -423,7 +423,8 @@ def handover_write(  # pylint: disable=too-many-arguments,too-many-locals
             click.echo("[WARN] event logging also failed", err=True)
         raise click.ClickException(str(e)) from None
     except (ValueError, RuntimeError) as e:
-        # 空白 topic／summary（ValueError）與 DB 寫入失敗（RuntimeError）轉成錯誤訊息而非
+        # write_handover 丟出的 ValueError（例如空白 topic／summary、HandoverRecord 驗證失敗）與
+        # RuntimeError（例如「交班記錄寫入失敗」、設定或環境偵測錯誤）都轉成一行錯誤訊息而非
         # traceback；/handover 依 stderr 文字分流（issue #584）
         raise click.ClickException(str(e)) from e
 
