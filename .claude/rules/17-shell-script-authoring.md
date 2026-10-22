@@ -859,3 +859,62 @@ Pin it with a test, not a convention: `ANW-DT-016` asserts every Makefile call s
 command that **names its own target** (`"make <target>…"`), so dropping the prefix — or copying a
 guard line to a new target and forgetting to change it — fails loudly instead of shipping a hint
 that is uncopyable or points at the wrong target.
+
+## Doc-Guard Tests: Assert What Must Be There, Not Only What Must Not
+
+<!-- gate: none (reason: judgment) — telling whether a doc-guard test pins the requirement or only bans one spelling of its violation needs a semantic read of the test's intent -->
+
+A doc-guard test reads a runbook, SKILL.md, or command doc and asserts something about its text.
+The common first draft asserts that a known-bad literal is **absent**. That only bans one
+spelling of the defect: rewording reintroduces it and the test stays green, and deleting the
+correct instruction outright passes too, because absence of the bad text is all it checks.
+
+Three shapes have bitten here, each from the same root:
+
+| Shape | What survives it |
+|-------|------------------|
+| Negative-only assertion (`"bad literal" not in section`) | The same defect reworded; the correct instruction deleted entirely |
+| Substring anchors for prose semantics | Mutants that keep every anchor but flip meaning (`newest` to `oldest`) or append a contradiction |
+| Doc cites a code fact (output format, error string) that no test reads from the code | The code changing under the doc, leaving the doc pinned to a stale fact |
+
+What to assert in addition (keep the ban; the positive assertion is added, not substituted):
+
+1. **The positive requirement**: the instruction that must be present (e.g. "compare the value
+   after `=`"), scoped to the section it belongs in, not the whole file. The helper that extracts
+   the section, bullet, or marker range must **fail** when its heading or marker is not found
+   (`scripts/tests/test_handover_command_doc.py`'s `_section` asserts "解析前提不成立"). One that
+   returns `""` turns every negative assertion vacuous after a heading rename, and one that falls
+   back to the whole file turns a scoped assertion into a whole-file substring check. Match the
+   whole heading line, not a prefix: that `_section` anchors only the start, so `## Step 20` or
+   `## Step 2 (legacy)` still satisfies a lookup for `## Step 2`.
+2. **The code facts the doc relies on, obtained from the code**: prefer running the CLI (Click's
+   `CliRunner`, or a subprocess) and capturing its real output; read a literal from the
+   implementation file only when the output cannot be produced in a test. A fact copied into both
+   the doc and the test keeps the two in sync with each other while both go stale against the
+   code, so the test stays green when the code changes. Either technique can itself be vacuous:
+   assert the run succeeded and produced non-empty output, or that the extraction matched,
+   before comparing (`"" in doc` is always true). A whole-file source substring passes while the
+   literal survives in a comment or dead branch after the real output has changed.
+3. **When the paragraph's meaning is the contract, pin the paragraph**: after anchors keep losing
+   to semantic mutants, snapshot the whole block (hash of the text between its heading and the
+   next marker). Keep the anchors as failing assertions too; their job is to say *which* clause
+   changed. A snapshot mismatch typically prints the new digest, and pasting it back makes the
+   suite green with no semantic check at all, so a snapshot update belongs in the same commit as
+   the doc edit and is reviewed as a rule change.
+
+Prove it by mutation, and design the mutants to dodge the assertions: reword the defect, delete
+the positive instruction, rename the section heading, change the real output while leaving the
+old literal in the source. A probe whose mutants all delete the anchored literal only re-proves
+the anchor-presence check; it says nothing about whether rewording or a semantic flip survives.
+The usual mutation discipline still applies: one change per mutant, assert the mutant's anchor
+actually matched, and restore the file byte-for-byte afterwards.
+
+(Source: PR #583 — `HCD-VL-005` in `scripts/tests/test_handover_command_doc.py` asserted that the
+backticked `topic =` literal was gone, plus a one-word anchor (`對齊`) that did not pin the
+requirement; mutants reintroducing a literal comparison without backticks, deleting the "compare
+the value after `=`" instruction, or changing the CLI's output format all survived, and in round 2
+a reworded "rerun" still slipped past the must-not-rerun regex. PR #515 —
+`plugins/dev-cycle/skills/pr-cycle-deep/scripts/tests/test_convergence_contract.py`: three review
+passes in a row found unpinned clauses behind substring anchors (10 of 12 mutants survived, then
+13 semantic mutants, then 14 that kept every anchor and appended a contradiction; counts recorded
+in that file's header comment), resolved by a golden snapshot.)

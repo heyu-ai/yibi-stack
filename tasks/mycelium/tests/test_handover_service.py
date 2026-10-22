@@ -85,7 +85,6 @@ class TestWriteHandover:
                 jsonl_path=paths["jsonl"],
             )
 
-        assert str(exc_info.value) == "DB 資料已保存，但 JSONL 備份寫入失敗"
         assert isinstance(exc_info.value.__cause__, IsADirectoryError)
         assert exc_info.value.event_error is event_error
         emit.assert_called_once()
@@ -93,6 +92,10 @@ class TestWriteHandover:
         rows = read_recent(last=1, db_path=paths["db"])
         assert len(rows) == 1
         assert rows[0]["topic"] == "mirror failure"
+        # 訊息保留固定子字串（/handover 文件以此分流），並帶出 JSONL 缺少的那筆記錄 id
+        assert str(exc_info.value) == (
+            f"DB 資料已保存，但 JSONL 備份寫入失敗（id={rows[0]['id']}）"
+        )
 
     def test_agents_eg_003_event_only_failure_emits_warning(self, paths: dict[str, Path]) -> None:
         """AGENTS-EG-003：event 失敗但 JSONL 成功時，應發出 warning 而非靜默。"""
