@@ -149,7 +149,7 @@ def _read_transcript(transcript_path: str) -> tuple[str, str, str, str, list[str
         print(f"[agents-insight] 無法讀取 transcript：{transcript_path}: {e}", file=sys.stderr)
         return session_id, working_dir, branch, project, text_blocks
 
-    if total_lines > 0 and decode_failures == total_lines:
+    if 0 < total_lines == decode_failures:
         print(
             f"[agents-insight] transcript 全部行解析失敗，可能格式不符：{transcript_path}",
             file=sys.stderr,
