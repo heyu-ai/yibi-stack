@@ -288,6 +288,36 @@ Use `/commit-commands:commit-push-pr` only when it preserves the confirmed contr
 Note the PR number as `{{pr_number}}` and the base branch as `{{base_branch}}` (usually `main`). At
 Step 3.1, paste the confirmed contract into `prompt-r1.md` (the copy the reviewers consume).
 
+#### Review-in-progress label (issue #587; draft is not a substitute)
+
+Once the PR exists and its contract is confirmed, mark it as "a review is still running" so a repo
+with a `Review Gate` check refuses merge until the fixes are in. Draft does not carry that meaning
+(yibi-mvp #1111 went `ready_for_review` to merged in 20 minutes), so do not use it instead.
+
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh add {{pr_number}}
+```
+
+| Exit | Meaning | Action |
+| --- | --- | --- |
+| `0` | Label on the PR, confirmed by read-back | Continue; the label stays until Step 8 "ship", except the exits listed below |
+| `10` | The repo has no `review-in-progress` label (`[WARN]` already printed) | Continue; Step 8's summary MUST say `本 repo 沒有 review-in-progress 阻擋機制` |
+| other | Any other non-zero exit (`[FAIL]` on stderr: gh failed, read-back disagrees, bad usage, missing gh/jq) | **Stop**; never run R1 on a PR whose label state is unknown |
+
+The label is removed **only** by the exits below, each with
+`bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh remove {{pr_number}}` (also read-back
+confirmed; non-zero is `[FAIL]`, tell the user to remove it by hand — a stuck label blocks merge,
+which is the safe direction):
+
+- Step 8, **after** the user replies "ship" (fixes are done by then).
+- The Step 7 circuit breaker handing the findings to the user (its "Continue fixing" option re-adds the
+  label, following the exit table above).
+- The user cancelling, or the live PR turning `MERGED` / `CLOSED` (Step 6 recheck, Step 10 gate).
+
+**Never remove it in Step 5b**: posting the summary precedes the fixes, and yibi-mvp #2449 was merged
+6 minutes after its summary with the Critical fix still local. Allow-list:
+`Bash(bash /Users/<you>/.agents/skills/pr-cycle-deep/scripts/review-label.sh *)`.
+
 ---
 
 ### Step 1.5 — Pre-review Check (one script, blocking)
@@ -1040,6 +1070,8 @@ gh pr comment "{{pr_number}}" --body-file "$REVIEW_DIR/final.md"
 First-time use may prompt for permission → add `Bash(gh pr comment:*)` to `settings.local.json`
 (rule 16 safe form). MVP posts one comment here; re-post after Step 7 only if consensus materially changed.
 
+Do **not** touch the `review-in-progress` label here: the fixes have not been made yet (see Step 1).
+
 ---
 
 ### Step 5c — 降級 Important 批次 issue
@@ -1114,8 +1146,8 @@ commit SHAs, each finding FIXED / NOT FIXED + one-line reason, CI exit code, and
 ```
 
 If the subagent reports BLOCKED, route the observed state before the receipt checks:
-`MERGED` → stop the cycle and go to Step 11 without another push; `CLOSED` → stop and wait for
-the user; query/metadata failure or branch/head mismatch → stop and resolve the reported
+`MERGED` → stop the cycle, run Step 1's `review-label.sh remove`, and go to Step 11 without another
+push; `CLOSED` → run Step 1's `review-label.sh remove`, stop and wait for the user; query/metadata failure or branch/head mismatch → stop and resolve the reported
 problem before authorizing any new push. Local commits remain available for recovery.
 
 Task call errors or returns empty → `[FAIL]` stop. For PUSHED, **verify, do not trust the summary** —
@@ -1138,8 +1170,8 @@ Route by the result. The decision table is authoritative — do not proceed on a
 
 | `state` | `mergeStateStatus` / `mergeable` | Meaning | Action |
 | --- | --- | --- | --- |
-| `MERGED` | any | Someone merged the PR out-of-band | **STOP the cycle** — skip re-review; go straight to Step 11 (archive / Jira). Do not push more. |
-| `CLOSED` | any | PR closed without merging | **STOP** — surface to the user and wait; do not continue. |
+| `MERGED` | any | Someone merged the PR out-of-band | **STOP the cycle** — skip re-review; run Step 1's `review-label.sh remove` and tell the user; go straight to Step 11 (archive / Jira). Do not push more. |
+| `CLOSED` | any | PR closed without merging | **STOP** — run Step 1's `review-label.sh remove`, surface to the user and wait; do not continue. |
 | `OPEN` | `DIRTY` / `mergeable=CONFLICTING` | Fixes (or a base advance) created merge conflicts | Resolve conflicts against `{{base_branch}}`, commit, push, then re-run this recheck before Step 7. |
 | `OPEN` | `BEHIND` | Base branch advanced since this branch forked | Update the branch from `{{base_branch}}` (merge or rebase per repo convention) and push, so Step 7 R1/R2 review against the current base — otherwise findings are computed against a stale base. |
 | `OPEN` | `CLEAN` / `BLOCKED` / `UNSTABLE` / `HAS_HOOKS` / `UNKNOWN` | Open and not conflicting (may still await CI/approvals) | Continue to Step 7. |
@@ -1243,7 +1275,16 @@ Possible causes:
 Choose: [False positive / Continue fixing / Return to redesign]
 ```
 
-Wait for explicit instruction before continuing.
+Before showing this prompt, run Step 1's `review-label.sh remove {{pr_number}}` and tell the user the
+label is off: from here a human owns the decision, and a PR that still carries the label would
+stay unmergeable while they decide. Wait for explicit instruction, then act on the choice:
+
+- **False positive**: continue to Step 8 with the label already off. Step 8's summary MUST say it was
+  removed early by the circuit breaker (merge was unblocked from then).
+- **Continue fixing**: run `bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh add {{pr_number}}`
+  and follow Step 1's exit table (exit 0 continue; exit 10 note it for the Step 8 summary; any other
+  exit: **Stop** and report to the user, do not resume fixing), then go to Step 6.
+- **Return to redesign**: **Stop** the cycle; the label stays off.
 
 #### Gotcha: re-review must not use stale diff.patch
 
@@ -1291,6 +1332,9 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 ## Red-first (always shown; from pre-review-check.md)
 - <verdict / [SKIP] reason>; <each [EXEMPT] or [WARN] red-first: line — needs your confirmation>
 
+## Merge blocking (review-in-progress label)
+- <held during review, removed on "ship" / 本 repo 沒有 review-in-progress 阻擋機制 (Step 1 exit 10) / removed early by circuit breaker at Step 7 (merge was unblocked from then)>
+
 ## Change hotspots (top 3 places most worth human eyes)
 1. <file:line> — <why it's a hotspot>
 2. ...
@@ -1316,6 +1360,16 @@ reply 'ship' to proceed to Step 9 CI."
 
 User raises a concern → lead responds directly (citing R1/R2 original findings if needed); unresolvable concern → return to Step 6 to fix; resolved → user replies "ship" before proceeding to Step 9.
 
+**On "ship" (and not before)**, remove the `review-in-progress` label so merge is unblocked once the
+fixes are in; a user cancel takes the same path:
+
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh remove {{pr_number}}
+```
+
+Non-zero is `[FAIL]`: report it, tell the user to run `gh pr edit {{pr_number}} --remove-label review-in-progress`
+by hand, and do not continue to Step 9 until they confirm.
+
 ---
 
 ### Step 9 — CI Check
@@ -1335,7 +1389,9 @@ Local CI is authoritative: when CI and local differ, trust local; check for CI e
 
 **Pre-merge gate: confirm PR is still OPEN.** Re-run Step 6's "Recheck PR status" `gh pr view` query, but route as below, **not** by Step 6's table (it routes to Step 7).
 Why: a bump push after an out-of-band merge silently recreates the deleted branch (issue #462).
-`MERGED` → **STOP**: no bump, merge, or push; go to Step 11. `CLOSED` → **STOP**; surface to the user and wait. `gh pr view` error → stop and report (empty ≠ OPEN).
+`MERGED` → **STOP**: no bump, merge, or push; go to Step 11. `CLOSED` → **STOP**; surface to the user and wait.
+Either way, if the label is somehow still on, run Step 1's `review-label.sh remove` (a no-op when it is already off).
+`gh pr view` error → stop and report (empty ≠ OPEN).
 `OPEN` + `DIRTY` / `CONFLICTING` / `BEHIND` → update from `{{base_branch}}`, use the **Step 6 guarded push**,
 return to Step 9 (CI), then re-run this gate. Any other `OPEN` → continue to the version-bump check below.
 
