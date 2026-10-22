@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.22] - 2026-10-21
+
+### Fixed
+
+- mycelium：`handover write` 對空白 `topic`／`summary` 與 DB 寫入失敗（「交班記錄寫入失敗」）改以
+  `Error: <訊息>` 回報（exit 1），不再印出 Python traceback。空白檢查只留在 `write_handover` 一處，
+  `--from-file` 檔案內的空白值因此從 exit 2 改為 exit 1；`/handover` 依 stderr 文字分流，不受影響
+  （#584 第 2 項）。
+- dev-cycle：`/handover` 遇到「交班記錄寫入失敗」且 stderr 含 `database is locked` 時，改為直接
+  用同一個檔案重跑一次（連線本身已等待約 5 秒，不另外等待）；鎖定時 DB、JSONL 與 `handover_written`
+  事件都沒有寫出，重試不會產生重複交班。重跑的結果從頭依各分支重新判斷（例如 DB 已寫入但 JSONL
+  備份失敗時回報 [WARN]），其他原因或重試仍出現「交班記錄寫入失敗」時照舊停止（#584 第 3 項）。
+
 ## [1.23.21] - 2026-10-21
 
 ### Fixed

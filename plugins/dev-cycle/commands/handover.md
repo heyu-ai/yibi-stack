@@ -81,8 +81,13 @@ exit code 非 0 時，先讀 stderr 判斷原因，**不要只看 exit code**（
   `[WARN] 交班已寫入 DB（id=<id>），但 JSONL 備份缺少這筆記錄` 並附上 stderr 原文。
   到此結束，**跳過 Step 3**（這種情況 stdout 不會有 `✓` 行）。
 - stderr 含 `交班記錄寫入失敗`：資料庫寫入失敗（ID 衝突、schema 不符或資料庫錯誤），交班**沒有寫入**。
-  這是 DB 端的問題，**不要修改 JSON 檔**，檔案本身沒有問題。停止，回報 `[FAIL] handover write 執行失敗`
-  並附上 stderr 原文。到此結束，**跳過 Step 3**。
+  這是 DB 端的問題，**不要修改 JSON 檔**，檔案本身沒有問題。
+  - stderr 同時含 `database is locked`：資料庫暫時被別的程序鎖住。連線本身已等待約 5 秒才放棄，
+    不必另外等待，直接用同一個檔案重跑 Step 2 **一次**。重跑的結果從本節第一個分支起重新判斷：
+    成功就照常進入 Step 3；stderr 含 `DB 資料已保存，但 JSONL 備份寫入失敗` 就照該分支回報 [WARN]
+    （交班已寫入，不是 [FAIL]，也不要再重跑）。
+  - 其他原因，或重試後仍失敗（重跑的 stderr 再次含 `交班記錄寫入失敗`）：停止，回報
+    `[FAIL] handover write 執行失敗` 並附上 stderr 原文。到此結束，**跳過 Step 3**，不要再重試。
 - 其他情況（未知欄位、型別錯誤、缺必填欄位、topic／summary 為空白、與指令列重複的欄位）：依錯誤訊息
   修正 JSON 檔後重跑。
 - 修不好時停止，回報 `[FAIL] handover write 執行失敗` 並附上 stderr 原文。
