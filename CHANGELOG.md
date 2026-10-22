@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.23.22] - 2026-10-21
 
+### Added
+
+- dev-cycle：`/pr-cycle-deep` 在 review 期間替 PR 貼 `review-in-progress` label（Step 1），Step 8
+  使用者回覆「ship」之後才撤；circuit breaker、使用者取消、PR 已 MERGED／CLOSED 的出口也會撤並告知
+  使用者，Step 5b 明文不撤（摘要先於修正，#2449 就是在這個空窗被 merge）。貼撤都用新的
+  `scripts/review-label.sh` 以 `gh pr view` 回讀確認；repo 沒有這個 label 時只 `[WARN]`（exit 10）
+  並繼續，Step 8 摘要會註明沒有阻擋機制。讓有 Review Gate 的 repo 在 review 期間無法 merge
+  （#587、#589；review 降級項目見 #592）。
+
 ### Fixed
 
 - mycelium：`handover write` 對空白 `topic`／`summary` 與 DB 寫入失敗（「交班記錄寫入失敗」）改以
