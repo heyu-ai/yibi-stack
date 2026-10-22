@@ -884,7 +884,9 @@ What to assert in addition (keep the ban; the positive assertion is added, not s
    the section, bullet, or marker range must **fail** when its heading or marker is not found
    (`scripts/tests/test_handover_command_doc.py`'s `_section` asserts "解析前提不成立"). One that
    returns `""` turns every negative assertion vacuous after a heading rename, and one that falls
-   back to the whole file turns a scoped assertion into a whole-file substring check.
+   back to the whole file turns a scoped assertion into a whole-file substring check. Match the
+   whole heading line, not a prefix: that `_section` anchors only the start, so `## Step 20` or
+   `## Step 2 (legacy)` still satisfies a lookup for `## Step 2`.
 2. **The code facts the doc relies on, obtained from the code**: prefer running the CLI (Click's
    `CliRunner`, or a subprocess) and capturing its real output; read a literal from the
    implementation file only when the output cannot be produced in a test. A fact copied into both
@@ -904,8 +906,8 @@ Prove it by mutation, and design the mutants to dodge the assertions: reword the
 the positive instruction, rename the section heading, change the real output while leaving the
 old literal in the source. A probe whose mutants all delete the anchored literal only re-proves
 the anchor-presence check; it says nothing about whether rewording or a semantic flip survives.
-The general mutation discipline (one change per mutant, restore byte-for-byte) is in the global
-`~/.claude/CLAUDE.md`; this list is only the doc-guard-specific mutants.
+The usual mutation discipline still applies: one change per mutant, assert the mutant's anchor
+actually matched, and restore the file byte-for-byte afterwards.
 
 (Source: PR #583 — `HCD-VL-005` in `scripts/tests/test_handover_command_doc.py` asserted that the
 backticked `topic =` literal was gone, plus a one-word anchor (`對齊`) that did not pin the
