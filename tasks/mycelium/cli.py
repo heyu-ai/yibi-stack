@@ -462,7 +462,14 @@ def handover_read(last: int, project: str | None, exclude_tags: str | None, as_j
             f"  account={r.get('subscription_account')}  "
             f"device={r.get('device')}  project={r.get('project')}"
         )
-        click.echo(f"  {r['conversation_summary'][:120]}")
+        # 交班是給接手者讀的完整記錄，summary 不截斷；/handover-back 依賴下列 list 欄位
+        click.echo(f"  {r['conversation_summary']}")
+        for field in ("completed", "decisions", "blocked", "next_priorities"):
+            items = r.get(field) or []
+            if items:
+                click.echo(f"  {field}:")
+                for item in items:
+                    click.echo(f"    - {item}")
 
 
 @handover.command("install-hooks")
