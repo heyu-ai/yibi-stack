@@ -61,8 +61,6 @@ def _load_state(repo: str, pr_number: int) -> OrchestratorState:
     """讀取並驗證 state 檔；失敗時拋出 RuntimeError。"""
     try:
         return OrchestratorState.model_validate(load_state_file(repo, pr_number))
-    except RuntimeError:
-        raise
     except ValidationError as e:
         p = state_path(repo, pr_number)
         raise RuntimeError(f"PR #{pr_number} state 檔損壞，請檢查 {p} 後重新執行 detect") from e
