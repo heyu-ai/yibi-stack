@@ -9,14 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- harness／dev-cycle／3rd-tools：background session 的 scratch 檔一律改放 `$CLAUDE_JOB_DIR/tmp/`。
+- harness／dev-cycle／3rd-tools、頂層 `skills/`（`skill-trigger-eval`）、`AGENTS.md` 與 rule 16：background session 的 scratch 檔一律改放 `$CLAUDE_JOB_DIR/tmp/`。
   Write tool 會拒絕寫入 `$CLAUDE_JOB_DIR` 根目錄，照舊指示每次都失敗。涵蓋多行 commit message
   （`AGENTS.md`、`plugins/harness/rules-context.md`、`/pr-cycle-deep`、`/pr-review-cycle`、`/debug-to-pr`）、
   PR body 與 review 摘要（`/pr-cycle-deep`、`/pr-review-cycle`、`/debug-to-pr`）、red-first 輸出
   （`/pr-cycle-deep`、`/pr-cycle-fast` 的 `--out-dir`）、`/codex-consult`、`/codex-review` packet、
-  `/skill-trigger-eval` 的 manifest／judgments，以及 `agy-consult` 的 `consult.sh` 改讀
+  `/skill-trigger-eval` 的 manifest／judgments、`/codex-cli` 的 brief／packet／report、`/issue-triage`
+  的報告與留言草稿，以及 `agy-consult` 的 `consult.sh` 改讀
   `$CLAUDE_JOB_DIR/tmp/agy-consult-question.txt`（PR #596 retro；2026-06-25 已記過同一個教訓但文件沒改，
-  這次第二次踩到）。
+  這次第二次踩到）。rule 16 的 Edit／Write allow-list 範例同步改為 `jobs/**`，才涵蓋 `<UUID>/tmp/`。
+  merge 後請在主 checkout `git pull`（agy-consult 等 skill 以 symlink 指向主 checkout，未 pull 前舊
+  `consult.sh` 仍讀根層路徑）。
 
 ## [1.23.22] - 2026-10-21
 

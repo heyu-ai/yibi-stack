@@ -272,11 +272,12 @@ the next session's UUID does not match and the prompt reappears.
 **(1) Edit/Write tool writes to job dir** — add trailing-wildcard patterns to `~/.claude/settings.local.json`:
 
 ```json
-"Edit(/Users/<you>/.claude/jobs/*)",
-"Write(/Users/<you>/.claude/jobs/*)"
+"Edit(/Users/<you>/.claude/jobs/**)",
+"Write(/Users/<you>/.claude/jobs/**)"
 ```
 
-The path prefix is fixed; `*` covers all future UUIDs.
+The path prefix is fixed; `**` covers every UUID and its `tmp/` subtree (scratch files must
+live under `<UUID>/tmp/`, which a single `*` does not reach).
 
 **(2) Bash redirect `>` writes to job dir** (e.g., `cmd > $CLAUDE_JOB_DIR/tmp/out.json`) —
 permission type is `Bash()`, not `Edit()`. Add a verb-prefix pattern per command:

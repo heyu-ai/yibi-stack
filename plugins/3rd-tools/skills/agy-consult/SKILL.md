@@ -146,7 +146,7 @@ Clean exit 後，呈現完整輸出，不截斷、不摘要。
 | Auth 失敗，`onboardingComplete` 為 false | 直接執行 `agy` 進互動模式完成瀏覽器 OAuth（agy 1.2.3 沒有 `auth` 子命令） |
 | 無 API key 且 onboarding 未完成 | 在 `.env` 加入 `GEMINI_API_KEY=<your-key>` 或 `GOOGLE_API_KEY=<your-key>`（兩者均可） |
 | `onboarding.json` 損毀（JSON 解析錯誤） | 刪除後重建：`rm ~/.gemini/antigravity-cli/cache/onboarding.json`，再執行 `agy` 完成 OAuth |
-| 問題內容含雙引號 / `$VAR` / backtick | 不影響——問題本文透過 Write tool 寫進檔案，`consult.sh` 只吃檔案路徑，問題內容不會被 shell 展開或執行 |
+| 問題內容含雙引號 / `$VAR` / backtick | 不影響——問題本文透過 Write tool 寫進固定路徑 `$CLAUDE_JOB_DIR/tmp/agy-consult-question.txt`，`consult.sh` 不吃任何參數、只讀這個檔案，問題內容不會被 shell 展開或執行 |
 | 一直 timeout、沒有任何輸出或原因 | 兩個常見成因（agy 1.2.3 實測）：(1) Bash tool timeout 沒設 600000，腳本在 agy 回來前就被砍（此時 exit 143，agy 的 stderr 仍會由 trap 補送）；(2) agy 自己的 `--print-timeout` 到期——此時 agy **exit 0 並回半截輸出**，腳本以 exit 124 擋下並把該輸出存檔。問題若需要 agy 翻遍整個目錄（例如「列出所有 module 的函式」），縮小範圍、直接點名檔案；或用 `AGY_PRINT_TIMEOUT_SECS` 調整，範圍 1-570（**再高會被腳本擋下**：預算計的是 agy 內部時間，牆鐘還要加上它約 2 秒的啟動，貼著 600 設等於讓 harness 先砍掉診斷） |
 | 回答看起來沒讀到 repo 的檔案，但 exit 0 | 這是最危險的形狀（語意完整、兩道 timeout 訊號都不命中）。腳本在成功路徑也會印 `[INFO] agy log：<path>`——查那個檔可看出 agy 實際做了什麼。注意 `--log-file` 是**改道**：`~/.gemini/antigravity-cli/log/` 不會有這次執行的副本，所以請用腳本印出的路徑 |
 | `[FAIL]` 訊息附帶 `RESOURCE_EXHAUSTED (code 429)` | agy 只把 429 重試寫進自己的 log（stderr 看不到），腳本失敗時才撈出來。`Individual quota reached ... Resets in <N>h` 是**帳號額度用完**，重試無效：把 agy 切換到另一個登入帳號（例如 GCP 帳號）或等重置；`try again later` 是暫時性容量不足，減少同時執行的 agy（mob review 會並行呼叫）後重試 |

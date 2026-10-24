@@ -590,7 +590,7 @@ STALE-CANDIDATE 與 OBSOLETE 的寫入動作同樣遵守 Core Contract：只有 
 
 ```bash
 if ! TOP=$(git rev-parse --show-toplevel); then echo "[FAIL] 不在 git repo" >&2; exit 1; fi
-OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
+if [ -n "${CLAUDE_JOB_DIR:-}" ]; then OUT="$CLAUDE_JOB_DIR/tmp/issue-triage"; else OUT="$TOP/tmp/issue-triage"; fi
 mkdir -p "$OUT"
 echo "OUT=$OUT"
 ```
@@ -664,7 +664,9 @@ echo "OUT=$OUT"
 - 久未更新者在該筆後面註記 review-urgency: <N> 天無人為活動（不影響所在的檔位）
 ```
 
-若 `$OUT` 落在 `$CLAUDE_JOB_DIR`（background job dir），回報時把重點**貼進對話**。
+若 `$OUT` 落在 `$CLAUDE_JOB_DIR/tmp/issue-triage`（background job session，`$CLAUDE_JOB_DIR` 有值；
+暫存檔必須放在 `tmp/` 底下，Write tool 會拒絕寫入 job dir 根層），它會隨 job 結束清掉，回報時把重點**貼進對話**。
+互動式 session（unset）則落在 repo 內的 `tmp/issue-triage`（已在 `.gitignore`）。
 
 **不帶 `--apply` 時，到此為止。**
 **不帶 `--jira` 時，報告省略所有 Jira Bugs 段落。**
@@ -700,7 +702,7 @@ body-file 路徑用 Step 7 解析的 `$OUT`。**shell state 不跨 bash call**�
 
 ```bash
 if ! TOP=$(git rev-parse --show-toplevel); then echo "[FAIL] 不在 git repo" >&2; exit 1; fi
-OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
+if [ -n "${CLAUDE_JOB_DIR:-}" ]; then OUT="$CLAUDE_JOB_DIR/tmp/issue-triage"; else OUT="$TOP/tmp/issue-triage"; fi
 mkdir -p "$OUT"
 gh issue comment <n> --body-file "$OUT/close-<n>.md"
 ```
@@ -715,7 +717,7 @@ gh issue close <n> --reason completed
 
 ```bash
 if ! TOP=$(git rev-parse --show-toplevel); then echo "[FAIL] 不在 git repo" >&2; exit 1; fi
-OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
+if [ -n "${CLAUDE_JOB_DIR:-}" ]; then OUT="$CLAUDE_JOB_DIR/tmp/issue-triage"; else OUT="$TOP/tmp/issue-triage"; fi
 mkdir -p "$OUT"
 gh issue comment <n> --body-file "$OUT/update-<n>.md"
 ```
@@ -736,7 +738,7 @@ gh issue edit <n> --add-label "<label>" --remove-label "<label>"
 
 ```bash
 if ! TOP=$(git rev-parse --show-toplevel); then echo "[FAIL] 不在 git repo" >&2; exit 1; fi
-OUT="${CLAUDE_JOB_DIR:-$TOP/tmp/issue-triage}"
+if [ -n "${CLAUDE_JOB_DIR:-}" ]; then OUT="$CLAUDE_JOB_DIR/tmp/issue-triage"; else OUT="$TOP/tmp/issue-triage"; fi
 mkdir -p "$OUT"
 gh issue comment <b> --body-file "$OUT/merge-<b>.md"
 ```

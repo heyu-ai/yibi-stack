@@ -309,6 +309,20 @@ class TestStaticContract:
         section = fast[start : fast.index("\n### ", start)]
         assert "token 為 `unchecked` 時**不是通過**" in section
 
+    def test_rfs_dt_007_pr_cycle_fast_out_dir_under_job_tmp(self) -> None:
+        """pr-cycle-fast 呼叫 red-first.sh 時 --out-dir 必須指向 $CLAUDE_JOB_DIR/tmp。
+
+        background session 的 Write tool 拒絕寫入 job dir 根層；out-dir 退回根層時
+        red-first.sh 寫出的 pr-body.md 會與 Write tool 的路徑規則衝突。
+        """
+        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        assert "red-first.sh" in fast, "解析前提不成立：pr-cycle-fast 未呼叫 red-first.sh"
+        assert '--out-dir "$CLAUDE_JOB_DIR/tmp"' in fast
+        assert '--out-dir "$CLAUDE_JOB_DIR"\n' not in fast
+        assert '--out-dir "$CLAUDE_JOB_DIR" ' not in fast
+
 
 class TestBehaviour:
     def test_rfs_st_001_no_checker_skips_with_exit_0(self, tmp_path: Path) -> None:
