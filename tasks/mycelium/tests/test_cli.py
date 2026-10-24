@@ -511,6 +511,88 @@ class TestHandoverWriteFromFile:
         assert "Error: 交班記錄寫入失敗" in result.output
 
 
+def _write_handover_for_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **kwargs: object
+) -> None:
+    """以真實 write_handover 寫一筆到暫存 DB，讓 handover read 讀到 DB 回傳的真實資料形狀。"""
+    from tasks.mycelium.handover_service import write_handover
+
+    db_path = tmp_path / "handover.db"
+    monkeypatch.setattr("tasks.mycelium.handover_service.HANDOVER_DB_PATH", db_path)
+    monkeypatch.setattr(
+        "tasks.mycelium.handover_service._emit_handover_written_event",
+        lambda *_args, **_kwargs: (None, []),
+    )
+    defaults: dict[str, object] = {
+        "session_type": "sdd",
+        "topic": "交班讀取測試",
+        "summary": "短摘要",
+        "device": "test-device",
+        "agent_type": "claude",
+        "account": "tester",
+        "branch": "main",
+        "project": "demo",
+        "working_dir": str(tmp_path),
+        "db_path": db_path,
+        "jsonl_path": tmp_path / "handover.jsonl",
+    }
+    write_handover(**{**defaults, **kwargs})  # type: ignore[arg-type]
+
+
+class TestHandoverReadCli:
+    def test_hrc_st_001_long_summary_printed_in_full(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HRC-ST-001：超過 120 字的 summary 完整輸出，不被截斷。"""
+        summary = "開頭" + "交班內容" * 60 + "結尾標記XYZ"
+        assert len(summary) > 120
+        _write_handover_for_read(tmp_path, monkeypatch, summary=summary)
+
+        result = CliRunner().invoke(cli, ["handover", "read", "--last", "1"])
+
+        assert result.exit_code == 0, result.output
+        assert summary in result.output
+
+    def test_hrc_st_002_list_fields_printed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HRC-ST-002：/handover-back 依賴的四個 list 欄位逐項輸出在各自標題下。"""
+        _write_handover_for_read(
+            tmp_path,
+            monkeypatch,
+            completed=["完成項目甲"],
+            decisions=["決策項目乙"],
+            blocked=["卡住項目丙"],
+            next_priorities=["下一步項目丁", "下一步項目戊"],
+        )
+
+        result = CliRunner().invoke(cli, ["handover", "read", "--last", "1"])
+
+        assert result.exit_code == 0, result.output
+        lines = result.output.splitlines()
+        for header, items in (
+            ("completed:", ["完成項目甲"]),
+            ("decisions:", ["決策項目乙"]),
+            ("blocked:", ["卡住項目丙"]),
+            ("next_priorities:", ["下一步項目丁", "下一步項目戊"]),
+        ):
+            idx = lines.index(f"  {header}")
+            assert lines[idx + 1 : idx + 1 + len(items)] == [f"    - {i}" for i in items]
+
+    def test_hrc_eg_001_empty_list_fields_omit_headers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HRC-EG-001：list 欄位為空時不印空標題。"""
+        _write_handover_for_read(tmp_path, monkeypatch)
+
+        result = CliRunner().invoke(cli, ["handover", "read", "--last", "1"])
+
+        assert result.exit_code == 0, result.output
+        assert "短摘要" in result.output
+        for header in ("completed:", "decisions:", "blocked:", "next_priorities:"):
+            assert header not in result.output
+
+
 class TestLinkClaude:
     def test_link_claude_creates_registry_entry(self, tmp_path: Path) -> None:
         """LCLI-DT-001：正常流程：輸入 email 後寫入 accounts.json。"""
