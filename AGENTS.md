@@ -40,7 +40,8 @@ To restore: `spectra unpark <name>`. The `/spectra-apply` and `/spectra-ingest` 
 
   路徑必須在 `tmp/` 底下：Write tool 會直接拒絕寫入 `$CLAUDE_JOB_DIR` 根目錄（訊息為
   `Scratch files of a background session go in $CLAUDE_JOB_DIR/tmp`），因為 Claude Code 從那裡
-  重啟 background session。
+  重啟 background session。這條適用於**所有** scratch 檔（PR body、review 摘要、consult packet 等），
+  不只 commit message；寫 skill 或 command 時指示的暫存路徑一律用 `$CLAUDE_JOB_DIR/tmp/<檔名>`。
 
   不需要（也不應該）之後執行 `rm -f "$CLAUDE_JOB_DIR/tmp/commit_msg.txt"`：
   `$CLAUDE_JOB_DIR` 在 job 結束後自動清理；`rm` 是 Bash call 且 Rule 16 Red Flag 2 禁止 allow-list `Bash(rm:*)`，每次都跳 permission prompt。

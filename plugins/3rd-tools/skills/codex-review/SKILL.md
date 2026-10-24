@@ -130,7 +130,7 @@ git fetch origin "<base>"
 ```
 
 ```bash
-git diff "origin/<base>...HEAD" > "$CLAUDE_JOB_DIR/codex-review-diff.patch"
+git diff "origin/<base>...HEAD" > "$CLAUDE_JOB_DIR/tmp/codex-review-diff.patch"
 ```
 
 **git 失敗 gate（先於空 diff 判斷）**：上面 `git fetch` 或 `git diff` 若**非零退出**（base ref
@@ -141,7 +141,7 @@ git diff "origin/<base>...HEAD" > "$CLAUDE_JOB_DIR/codex-review-diff.patch"
 停止並告知使用者：「空 diff，無可審查內容——確認 branch 有相對 `<base>` 的改動後重試。」
 不可繼續——空 diff 會讓下方 Pass/Fail gate 假性回 PASS。
 
-用 Write tool 把**靜態 prompt 前綴**（不含 diff）寫入 `$CLAUDE_JOB_DIR/codex-review-packet.txt`。
+用 Write tool 把**靜態 prompt 前綴**（不含 diff）寫入 `$CLAUDE_JOB_DIR/tmp/codex-review-packet.txt`。
 **diff 不經 Write tool**——要 LLM 逐字複述整份 diff 會 token 爆量、截斷或幻覺，破壞「Review ONLY
 the diff provided」契約。前綴內容（`## Summary` / `## Findings` / `## Verdict` 三標題是明確契約，
 下方 Hijack 偵測即以此為 anchor）：
@@ -167,7 +167,7 @@ Structure your output EXACTLY with these three markdown headings, in order:
 再用 bash redirection 把 diff 接到 packet 末端（不經 LLM）：
 
 ```bash
-cat "$CLAUDE_JOB_DIR/codex-review-diff.patch" >> "$CLAUDE_JOB_DIR/codex-review-packet.txt"
+cat "$CLAUDE_JOB_DIR/tmp/codex-review-diff.patch" >> "$CLAUDE_JOB_DIR/tmp/codex-review-packet.txt"
 ```
 
 執行（repo root 在同一個 bash block 內解析進 `ROOT` 變數、以 `"$ROOT"` 傳入——**不用 placeholder
@@ -176,7 +176,7 @@ Quoting Rule 2。**不用 `timeout`**——對齊 pr-cycle-deep proven 形式且
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
-codex exec -C "$ROOT" -s read-only -m gpt-6-astra -c 'model_reasoning_effort="high"' < "$CLAUDE_JOB_DIR/codex-review-packet.txt"
+codex exec -C "$ROOT" -s read-only -m gpt-6-astra -c 'model_reasoning_effort="high"' < "$CLAUDE_JOB_DIR/tmp/codex-review-packet.txt"
 ```
 
 若使用者指定 `--xhigh`，改用 `model_reasoning_effort="xhigh"`。
@@ -239,14 +239,14 @@ git fetch origin "<base>"
 ```
 
 ```bash
-git diff "origin/<base>...HEAD" > "$CLAUDE_JOB_DIR/codex-challenge-diff.patch"
+git diff "origin/<base>...HEAD" > "$CLAUDE_JOB_DIR/tmp/codex-challenge-diff.patch"
 ```
 
 **git 失敗 gate（先於空 diff 判斷，同 Step 2A）**：`git fetch` 或 `git diff` 非零退出 → 停止、報真實
 錯誤、刪除不完整 patch，不可當成空 diff。**空 diff gate（僅在成功後）**：若 `codex-challenge-diff.patch`
 為空（`test -s` 為假），停止並告知使用者：「空 diff，無可審查內容——確認 branch 有相對 `<base>` 的改動後重試。」
 
-用 Write tool 把**靜態對抗 prompt 前綴**（不含 diff）寫入 `$CLAUDE_JOB_DIR/codex-challenge-packet.txt`
+用 Write tool 把**靜態對抗 prompt 前綴**（不含 diff）寫入 `$CLAUDE_JOB_DIR/tmp/codex-challenge-packet.txt`
 （同 Step 2A：diff 不經 Write tool，避免 LLM 逐字複述）：
 
 ```text
@@ -270,7 +270,7 @@ Structure your output EXACTLY with these three markdown headings, in order:
 再用 bash redirection 把 diff 接到 packet 末端（不經 LLM）：
 
 ```bash
-cat "$CLAUDE_JOB_DIR/codex-challenge-diff.patch" >> "$CLAUDE_JOB_DIR/codex-challenge-packet.txt"
+cat "$CLAUDE_JOB_DIR/tmp/codex-challenge-diff.patch" >> "$CLAUDE_JOB_DIR/tmp/codex-challenge-packet.txt"
 ```
 
 執行（repo root 解析進 `ROOT` 變數、以 `"$ROOT"` 傳入——同 Step 2A，不用 placeholder / 不用
@@ -278,7 +278,7 @@ cat "$CLAUDE_JOB_DIR/codex-challenge-diff.patch" >> "$CLAUDE_JOB_DIR/codex-chall
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
-codex exec -C "$ROOT" -s read-only -m gpt-6-astra -c 'model_reasoning_effort="high"' < "$CLAUDE_JOB_DIR/codex-challenge-packet.txt"
+codex exec -C "$ROOT" -s read-only -m gpt-6-astra -c 'model_reasoning_effort="high"' < "$CLAUDE_JOB_DIR/tmp/codex-challenge-packet.txt"
 ```
 
 **Exit-code gate（先於 hijack 檢查）**：codex exec 非零退出 → 停止並告知使用者：

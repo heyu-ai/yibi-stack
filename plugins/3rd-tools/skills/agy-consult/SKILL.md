@@ -80,7 +80,7 @@ MISSING → 提示執行 `make patch-agy-allow-list`（或 `make install-all`）
 
 ## Step 1 — 執行
 
-> **執行說明**：`consult.sh` **不吃任何參數**，固定讀 `$CLAUDE_JOB_DIR/agy-consult-question.txt`。
+> **執行說明**：`consult.sh` **不吃任何參數**，固定讀 `$CLAUDE_JOB_DIR/tmp/agy-consult-question.txt`。
 > 先用 Write tool 把問題寫到這個固定檔案，再直接執行 script（不帶任何參數）。
 >
 > **不可把問題本文直接 inline 進 bash 指令，也不可把問題檔案路徑當成參數傳入**：
@@ -111,7 +111,7 @@ bash ~/.agents/skills/agy-consult/scripts/consult.sh
 ```
 
 實際範例（先用 Write tool 把問題寫進
-`$CLAUDE_JOB_DIR/agy-consult-question.txt`，內容是
+`$CLAUDE_JOB_DIR/tmp/agy-consult-question.txt`，內容是
 `tasks/mycelium 的 db.py 裡 park_lesson 跟 finalize_reassessed_lesson 共享哪些不變量？`，
 再不帶任何參數執行）：
 

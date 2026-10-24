@@ -278,7 +278,7 @@ the next session's UUID does not match and the prompt reappears.
 
 The path prefix is fixed; `*` covers all future UUIDs.
 
-**(2) Bash redirect `>` writes to job dir** (e.g., `cmd > $CLAUDE_JOB_DIR/out.json`) —
+**(2) Bash redirect `>` writes to job dir** (e.g., `cmd > $CLAUDE_JOB_DIR/tmp/out.json`) —
 permission type is `Bash()`, not `Edit()`. Add a verb-prefix pattern per command:
 
 ```json

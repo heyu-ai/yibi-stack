@@ -9,11 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- harness／dev-cycle：background session 的多行 commit message 檔改寫到
-  `$CLAUDE_JOB_DIR/tmp/commit_msg.txt`。Write tool 會拒絕寫入 `$CLAUDE_JOB_DIR` 根目錄，照舊指示
-  （`$CLAUDE_JOB_DIR/commit_msg.txt`）每次都失敗。修正 `AGENTS.md`、`plugins/harness/rules-context.md`、
-  `/pr-cycle-deep`、`/pr-review-cycle`、`/debug-to-pr` 五處（PR #596 retro；2026-06-25 已記過同一個
-  教訓但文件沒改，這次第二次踩到）。
+- harness／dev-cycle／3rd-tools：background session 的 scratch 檔一律改放 `$CLAUDE_JOB_DIR/tmp/`。
+  Write tool 會拒絕寫入 `$CLAUDE_JOB_DIR` 根目錄，照舊指示每次都失敗。涵蓋多行 commit message
+  （`AGENTS.md`、`plugins/harness/rules-context.md`、`/pr-cycle-deep`、`/pr-review-cycle`、`/debug-to-pr`）、
+  PR body 與 review 摘要（`/pr-cycle-deep`、`/pr-review-cycle`、`/debug-to-pr`）、red-first 輸出
+  （`/pr-cycle-deep`、`/pr-cycle-fast` 的 `--out-dir`）、`/codex-consult`、`/codex-review` packet、
+  `/skill-trigger-eval` 的 manifest／judgments，以及 `agy-consult` 的 `consult.sh` 改讀
+  `$CLAUDE_JOB_DIR/tmp/agy-consult-question.txt`（PR #596 retro；2026-06-25 已記過同一個教訓但文件沒改，
+  這次第二次踩到）。
 
 ## [1.23.22] - 2026-10-21
 
