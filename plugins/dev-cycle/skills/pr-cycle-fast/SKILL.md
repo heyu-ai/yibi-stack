@@ -170,18 +170,18 @@ base、只用變數傳標題；merge／rebase／cherry-pick／revert 進行中�
 untracked 或 submodule 內的改動）時以 exit 2 拒絕執行；跑完後工作樹必須仍乾淨、HEAD 的 commit 與分支不變，否則 exit 3：
 
 ```bash
-bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$REPO_ROOT" --out-dir "$CLAUDE_JOB_DIR"
+bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$REPO_ROOT" --out-dir "$CLAUDE_JOB_DIR/tmp"
 ```
 
 輸出最後一行是 `RED_FIRST_RESULT=<token>`，token 只會是 `skip-no-checker`、`pass`、`unchecked`、
 `fail`、`error`、`tree-not-restored` 其中之一，是腳本寫死的字串，可以直接放進下面的 `--reason`。
 
 token 不是 `skip-no-checker` 時（包括失敗），一律把輸出留在 PR 上，讓換 session resume 也讀得到：
-用 Write 寫 `$CLAUDE_JOB_DIR/red-first.md`，第一行是 `<!-- red-first:<git -C "$REPO_ROOT" rev-parse HEAD 的結果> -->`，
-其後貼 `$CLAUDE_JOB_DIR/red-first.out` 的內容，再執行：
+用 Write 寫 `$CLAUDE_JOB_DIR/tmp/red-first.md`，第一行是 `<!-- red-first:<git -C "$REPO_ROOT" rev-parse HEAD 的結果> -->`，
+其後貼 `$CLAUDE_JOB_DIR/tmp/red-first.out` 的內容，再執行：
 
 ```bash
-gh pr comment {{pr_number}} --body-file "$CLAUDE_JOB_DIR/red-first.md"
+gh pr comment {{pr_number}} --body-file "$CLAUDE_JOB_DIR/tmp/red-first.md"
 ```
 
 `gh pr comment` 非零退出 → `[FAIL]`，以 reason `red-first: comment-not-recorded` transition 到 `BLOCKED`

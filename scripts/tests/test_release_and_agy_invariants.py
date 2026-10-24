@@ -250,7 +250,7 @@ def _run_agy_script(
     convention (run.sh: positional mode/base/instruction args, invoked from an isolated
     throwaway git repo -- see `_make_isolated_git_repo` -- so `git diff origin/<base>...HEAD`
     resolves independent of the real checkout's state; consult.sh: no args, reads
-    $CLAUDE_JOB_DIR/agy-consult-question.txt).
+    $CLAUDE_JOB_DIR/tmp/agy-consult-question.txt).
 
     `agy_model=None` means "test the default path": `AGY_MODEL` is **removed** from the
     child environment rather than inherited. Inheriting it made these tests fail for anyone
@@ -278,7 +278,8 @@ def _run_agy_script(
         args: list[str] = ["review", "main", ""]
         cwd = _make_isolated_git_repo(tmp_path)
     else:
-        (tmp_path / "agy-consult-question.txt").write_text("測試問題", encoding="utf-8")
+        (tmp_path / "tmp").mkdir(exist_ok=True)
+        (tmp_path / "tmp" / "agy-consult-question.txt").write_text("測試問題", encoding="utf-8")
         env["CLAUDE_JOB_DIR"] = str(tmp_path)
         args = []
         cwd = REPO_ROOT
@@ -723,7 +724,8 @@ class TestAgyTimeoutAndQuotaContract:
         if script.name == "run.sh":
             args, cwd = ["review", "main", ""], _make_isolated_git_repo(tmp_path)
         else:
-            (tmp_path / "agy-consult-question.txt").write_text("測試問題", encoding="utf-8")
+            (tmp_path / "tmp").mkdir(exist_ok=True)
+            (tmp_path / "tmp" / "agy-consult-question.txt").write_text("測試問題", encoding="utf-8")
             env["CLAUDE_JOB_DIR"] = str(tmp_path)
             args, cwd = [], REPO_ROOT
 

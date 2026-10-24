@@ -2,7 +2,7 @@
 # agy standalone consult runner -- no diff, just a technical question against the repo
 # Usage: consult.sh (no arguments)
 #
-# 不吃任何參數，固定讀 $CLAUDE_JOB_DIR/agy-consult-question.txt（PR #367 mob review Critical，
+# 不吃任何參數，固定讀 $CLAUDE_JOB_DIR/tmp/agy-consult-question.txt（PR #367 mob review Critical，
 # 第二輪發現）：第一輪的修法是「吃問題檔案路徑而不是問題本文」，解決了雙引號擋不住 shell
 # 展開的問題，但把路徑做成參數本身就是新的漏洞——這支 script 的 allow-list entry 是
 # `Bash(bash .../consult.sh:*)`（見 scripts/patch_agy_allow_list.py），`:*` 允許任意參數，
@@ -16,7 +16,7 @@ if [ -z "${CLAUDE_JOB_DIR:-}" ]; then
     echo "[FAIL] CLAUDE_JOB_DIR 未設定，無法定位問題檔案。請在有 CLAUDE_JOB_DIR 的 Claude Code session 執行。" >&2
     exit 1
 fi
-QUESTION_FILE="$CLAUDE_JOB_DIR/agy-consult-question.txt"
+QUESTION_FILE="$CLAUDE_JOB_DIR/tmp/agy-consult-question.txt"
 
 if [ ! -f "$QUESTION_FILE" ]; then
     echo "[FAIL] $QUESTION_FILE 不存在。請先用 Write tool 把問題寫進這個檔案，再執行本 script。" >&2

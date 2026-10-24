@@ -26,7 +26,7 @@ _PR_CYCLE_DEEP_SCRIPTS = [
 
 # run.sh 帶尾端 `:*`（吃位置參數：mode/base/instruction）。consult.sh 與 pr-cycle-deep 的
 # 3 支 subagent script 都用 exact-match、不帶萬用字元——consult.sh 故意設計成不吃任何參數
-# （固定讀 $CLAUDE_JOB_DIR/agy-consult-question.txt，見 SKILL.md），因為帶 `:*` 的話允許
+# （固定讀 $CLAUDE_JOB_DIR/tmp/agy-consult-question.txt，見 SKILL.md），因為帶 `:*` 的話允許
 # 任意參數，會讓「讀取任意檔案內容再傳給外部 agy」變成被預先核准、免確認的原語
 # （PR #367 mob review Critical，Round 2 發現）；pr-cycle-deep 的 3 支則是依 SKILL.md
 # 呼叫方式一律無參數（見各 SKILL.md 的 GEMINI_ALLOW_LIST 檢查）。

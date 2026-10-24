@@ -95,13 +95,13 @@ git branch --show-current
 # Commit all uncommitted changes
 git add <files>
 git commit -m "..."
-# Multi-line message: write to $CLAUDE_JOB_DIR/commit_msg.txt with Write tool, then git commit -F
+# Multi-line message: write to $CLAUDE_JOB_DIR/tmp/commit_msg.txt with Write tool, then git commit -F
 
 # Push and create PR
 git push -u origin HEAD
-# Write PR body with Write tool to $CLAUDE_JOB_DIR/pr-body.md, then pass it in
+# Write PR body with Write tool to $CLAUDE_JOB_DIR/tmp/pr-body.md, then pass it in
 # (avoids hook intercepting markdown headers; job dir is auto-cleaned, no rm needed)
-gh pr create --title "..." --body-file "$CLAUDE_JOB_DIR/pr-body.md"
+gh pr create --title "..." --body-file "$CLAUDE_JOB_DIR/tmp/pr-body.md"
 ```
 
 If the project has `/commit-commands:commit-push-pr` installed, run that directly (auto commit + push + PR).
@@ -277,7 +277,7 @@ decision trail is permanently recorded on the PR for anyone reading it later. Th
 snapshot; the subsequent fix commits show what was changed in response.
 
 The parallel-review results live only in conversation context, so first compose the summary with
-the **Write tool** to `$CLAUDE_JOB_DIR/pr-review-summary.md` (multi-line content via Write, not a
+the **Write tool** to `$CLAUDE_JOB_DIR/tmp/pr-review-summary.md` (multi-line content via Write, not a
 heredoc; consistent with this skill's commit-message convention above). Mirror this structure:
 
 ```text
@@ -303,7 +303,7 @@ Then post it (`$CLAUDE_JOB_DIR` is an environment variable, so it stays in scope
 shell — no re-assignment needed):
 
 ```bash
-gh pr comment "{{pr_number}}" --body-file "$CLAUDE_JOB_DIR/pr-review-summary.md"
+gh pr comment "{{pr_number}}" --body-file "$CLAUDE_JOB_DIR/tmp/pr-review-summary.md"
 ```
 
 `gh pr comment` exit code semantics:

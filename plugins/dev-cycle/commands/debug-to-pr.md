@@ -60,17 +60,17 @@ git diff --cached --stat
 
 ```bash
 git commit -m "fix(scope): 描述修復內容"
-# Multi-line message: write to $CLAUDE_JOB_DIR/commit_msg.txt with Write tool, then git commit -F
+# Multi-line message: write to $CLAUDE_JOB_DIR/tmp/commit_msg.txt with Write tool, then git commit -F
 git branch -vv  # 確認 upstream
 git push -u origin <branch>:<branch>
 ```
 
 ## Step 6: Create PR
 
-用 Write tool 把 PR body 寫到 `$CLAUDE_JOB_DIR/pr-body.md`（job dir 自動清理，不需 rm），再執行：
+用 Write tool 把 PR body 寫到 `$CLAUDE_JOB_DIR/tmp/pr-body.md`（job dir 自動清理，不需 rm），再執行：
 
 ```bash
-gh pr create --title "fix(scope): 描述" --body-file "$CLAUDE_JOB_DIR/pr-body.md"
+gh pr create --title "fix(scope): 描述" --body-file "$CLAUDE_JOB_DIR/tmp/pr-body.md"
 ```
 
 回報 PR URL。

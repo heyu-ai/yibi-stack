@@ -213,7 +213,7 @@ git add <files>
 git commit -m "..."
 ```
 
-> 多行 message：用 Write tool 寫到 `$CLAUDE_JOB_DIR/commit_msg.txt`，再 `git commit -F`。
+> 多行 message：用 Write tool 寫到 `$CLAUDE_JOB_DIR/tmp/commit_msg.txt`（Write tool 拒絕寫入 job 目錄根層），再 `git commit -F`。
 > 不要用 `"$(cat <<'EOF')"` —— 外層 `"..."` 包 `$()` 觸發 Quoting Rule 2；heredoc 讓命令跨多行，allow-list 無法 match。
 
 ```bash
@@ -263,17 +263,17 @@ at the **first** confirmation; if none, say so. A failed fetch/log or an empty r
 and never report it as no drift.
 
 For a new PR, the lead drafts this contract from the matching spec/change and writes the complete PR
-body to `$CLAUDE_JOB_DIR/pr-body.md` with the Write tool. **Show the drafted contract to the user and
+body to `$CLAUDE_JOB_DIR/tmp/pr-body.md` with the Write tool. **Show the drafted contract to the user and
 wait for explicit confirmation before creating the PR** — do not launch R1 on a self-drafted,
 unconfirmed contract; the confirmed text is the frozen Review Contract for this pass. Then create the PR:
 
 ```bash
-gh pr create --title "..." --body-file "$CLAUDE_JOB_DIR/pr-body.md"
+gh pr create --title "..." --body-file "$CLAUDE_JOB_DIR/tmp/pr-body.md"
 ```
 
 For an existing PR, read `title,body`; if any heading is missing or Acceptance Criteria is empty,
 draft a complete body preserving unrelated content, show every missing field, and update it with
-`gh pr edit "{{pr_number}}" --body-file "$CLAUDE_JOB_DIR/pr-body.md"`. **Do not launch R1 while the
+`gh pr edit "{{pr_number}}" --body-file "$CLAUDE_JOB_DIR/tmp/pr-body.md"`. **Do not launch R1 while the
 contract is incomplete.** Show the final section to the user and wait for explicit confirmation.
 The confirmed text is the **frozen Review Contract** for this review pass.
 
@@ -386,7 +386,7 @@ base, passes the title only as a variable, refuses to run mid merge/rebase/cherr
 unstaged, untracked or submodule changes; exit `2`), and after the run requires a clean tree and an unchanged HEAD (exit `3`):
 
 ```bash
-bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR"
+bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR/tmp"
 ```
 
 Append its output to `pre-review-check.md`. Exit `0` → continue (includes `[SKIP] red-first: no checker`).

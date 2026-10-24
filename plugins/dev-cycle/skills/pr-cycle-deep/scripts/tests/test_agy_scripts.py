@@ -214,8 +214,8 @@ def agy_runtime_env(tmp_path: Path) -> dict[str, object]:
     )
 
     job_dir = tmp_path / "job"
-    job_dir.mkdir()
-    (job_dir / "agy-consult-question.txt").write_text("測試問題\n", encoding="utf-8")
+    (job_dir / "tmp").mkdir(parents=True)
+    (job_dir / "tmp" / "agy-consult-question.txt").write_text("測試問題\n", encoding="utf-8")
 
     argv_capture = tmp_path / "agy_argv.txt"
     out_file = tmp_path / "agy_out.md"
