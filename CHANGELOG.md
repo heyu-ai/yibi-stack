@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.23] - 2026-10-24
+
+### Fixed
+
+- harness／dev-cycle：background session 的多行 commit message 檔改寫到
+  `$CLAUDE_JOB_DIR/tmp/commit_msg.txt`。Write tool 會拒絕寫入 `$CLAUDE_JOB_DIR` 根目錄，照舊指示
+  （`$CLAUDE_JOB_DIR/commit_msg.txt`）每次都失敗。修正 `AGENTS.md`、`plugins/harness/rules-context.md`、
+  `/pr-cycle-deep`、`/pr-review-cycle`、`/debug-to-pr` 五處（PR #596 retro；2026-06-25 已記過同一個
+  教訓但文件沒改，這次第二次踩到）。
+
 ## [1.23.22] - 2026-10-21
 
 ### Added

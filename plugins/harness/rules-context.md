@@ -67,10 +67,11 @@ allow-list 無法 match，每次跳 approval prompt，且容易誤觸 outer-quot
 
 Fix:
 
-1. Write tool 寫入 commit message 到 `$CLAUDE_JOB_DIR/commit_msg.txt`
-2. `git commit -F "$CLAUDE_JOB_DIR/commit_msg.txt"`
+1. Write tool 寫入 commit message 到 `$CLAUDE_JOB_DIR/tmp/commit_msg.txt`
+   （必須在 `tmp/` 底下：Write tool 拒絕寫入 `$CLAUDE_JOB_DIR` 根目錄）
+2. `git commit -F "$CLAUDE_JOB_DIR/tmp/commit_msg.txt"`
 
-不需要事後 `rm -f "$CLAUDE_JOB_DIR/commit_msg.txt"`：job 結束後自動清理，且
+不需要事後 `rm -f "$CLAUDE_JOB_DIR/tmp/commit_msg.txt"`：job 結束後自動清理，且
 `Bash(rm:*)` 是 Rule 16 Red Flag 2 無法 allow-list。
 
 不要用 `git commit -m "$(cat <<'EOF'...)"` 形式：外層 `"..."` 包 `$()` 觸發

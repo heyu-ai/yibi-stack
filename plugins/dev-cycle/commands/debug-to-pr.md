@@ -60,7 +60,7 @@ git diff --cached --stat
 
 ```bash
 git commit -m "fix(scope): 描述修復內容"
-# Multi-line message: write to $CLAUDE_JOB_DIR/commit_msg.txt with Write tool, then git commit -F
+# Multi-line message: write to $CLAUDE_JOB_DIR/tmp/commit_msg.txt with Write tool, then git commit -F
 git branch -vv  # 確認 upstream
 git push -u origin <branch>:<branch>
 ```
