@@ -158,6 +158,14 @@ export OTEL_LOG_MANAGED_SETTINGS=0
 
 (Source: Claude Code CHANGELOG 2.1.274, read 2026-09-21 for the W39 release-note review.)
 
+Two more places carry the same content. The `user_prompt` event's `prompt_text` (2.1.287) is a copy
+of `prompt`, so mask or drop it wherever `prompt` is masked or dropped. Since 2.1.300 the local
+session transcript also records each API request's system prompt, tools and parameters, so treat a
+transcript you share as carrying the full text of every loaded rule. The `claude_code.safety_event`
+(2.1.307) carries only metadata such as categories, decisions and tool names, not command text, so it
+needs no switch. (Source: Claude Code CHANGELOG 2.1.287 / 2.1.300 / 2.1.307, read 2026-10-25 for the
+W44 review; `safety_event` attributes from the official monitoring docs.)
+
 ## Secret-Leak Fixes Are Reasons to Stay Upgraded (2.1.274 / 2.1.275)
 
 Two fixes from the same week close leaks that need no configuration change to trigger, so an
