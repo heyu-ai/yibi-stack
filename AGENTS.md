@@ -300,7 +300,11 @@ make install-all         # 等同 build-tools + install + install-project + inst
   `CLAUDE_CODE_MAX_RETRIES` silently clamps to 15; the watchdog lifts that cap and raises the
   default to 300 retries for non-capacity transient errors. Applies to `nightly-self-improvement`
   (the only `enabled: true` job in `.runtime/schedules.json`) and any future ACP Gateway `skill:`
-  job. (Verified against the Claude Code changelog, 2026-07-19.)
+  job. (Verified against the Claude Code changelog, 2026-07-19.) Two later knobs bound the wait at a
+  usage limit: `CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS` (2.1.301) ends a request at a
+  limit that resets too far away instead of waiting, so a job meant to wait for the reset must set it
+  large enough; `CLAUDE_CODE_RETRY_WATCHDOG_USAGE_LIMIT_RECHECK_MS` (2.1.305) lets the watchdog notice a
+  limit that was lifted before its reset. (Source: Claude Code CHANGELOG 2.1.301 / 2.1.305.)
 - **`claude -p` internal errors now exit 1 instead of hanging (v2.1.277)**: before 2.1.277,
   an internal error caused `claude -p` to hang silently until `timeout_seconds` expired; from
   2.1.277 it reports the error and exits with code 1. Any gate that relied on timeout as the
