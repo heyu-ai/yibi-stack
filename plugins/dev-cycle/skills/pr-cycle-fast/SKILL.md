@@ -173,12 +173,14 @@ untracked 或 submodule 內的改動）時以 exit 2 拒絕執行；跑完後工
 bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$REPO_ROOT" --out-dir "$CLAUDE_JOB_DIR"
 ```
 
-輸出最後一行是 `RED_FIRST_RESULT=<token>`，token 只會是 `skip-no-checker`、`pass`、`unchecked`、
-`fail`、`error`、`tree-not-restored` 其中之一，是腳本寫死的字串，可以直接放進下面的 `--reason`。
+輸出最後一行是 `RED_FIRST_RESULT=<token>`，token 只會是 `skip-no-checker`、`no-checker-needs-evidence`、
+`pass`、`unchecked`、`fail`、`error`、`tree-not-restored` 其中之一，是腳本寫死的字串，可以直接放進下面的 `--reason`。
 
 token 不是 `skip-no-checker` 時（包括失敗），一律把輸出留在 PR 上，讓換 session resume 也讀得到：
 用 Write 寫 `$CLAUDE_JOB_DIR/red-first.md`，第一行是 `<!-- red-first:<git -C "$REPO_ROOT" rev-parse HEAD 的結果> -->`，
-其後貼 `$CLAUDE_JOB_DIR/red-first.out` 的內容，再執行：
+其後貼 `$CLAUDE_JOB_DIR/red-first.out` 的內容。
+token 為 `unchecked` 或 `no-checker-needs-evidence` 時，再接一段 `### Red-first evidence`，格式與證據種類同
+`/pr-cycle-deep` Step 1.7（手動 mutation；或本 PR 改掉的舊斷言在 base 上會過，需搭配 mutation）。最後執行：
 
 ```bash
 gh pr comment {{pr_number}} --body-file "$CLAUDE_JOB_DIR/red-first.md"
@@ -189,7 +191,7 @@ gh pr comment {{pr_number}} --body-file "$CLAUDE_JOB_DIR/red-first.md"
 
 | Exit | 動作 |
 |------|------|
-| `0` | PASS、SKIP、EXEMPT 或 UNCHECKED，往下走。`[WEAK-RED]` 的測試交給 code-review subagent 優先檢查是否 tautological；`[EXEMPT]` 不得自行認可，Step 6 列給 user 確認。token 為 `unchecked` 時**不是通過**：checker 以 exit 0 結束但說它沒有檢查任何東西，比照 `[EXEMPT]`，它的 `[WARN] red-first:` 行在 Step 6 列給 user，並要求另附證據（例如手動 mutation） |
+| `0` | PASS、SKIP、EXEMPT 或 UNCHECKED，往下走。`[WEAK-RED]` 的測試交給 code-review subagent 優先檢查是否 tautological；`[EXEMPT]` 不得自行認可，Step 6 列給 user 確認。token 為 `unchecked` 時**不是通過**：checker 以 exit 0 結束但說它沒有檢查任何東西，比照 `[EXEMPT]`，它的 `[WARN] red-first:` 行在 Step 6 列給 user，並要求另附證據（例如手動 mutation）。token 為 `no-checker-needs-evidence` 時同樣**不是通過**：repo 沒有 checker，PR 卻是 feat／fix（或標題判斷不出型別），處理方式與 `unchecked` 相同 |
 | `1` | 測試抓不到這次改動（或 refactor 改了期望值）。transition 到 `BLOCKED`，**不要**派 review subagent |
 | `2` | 前提不成立或工具出錯（含 traceback、跑之前工作樹就不乾淨、merge／rebase 等操作進行中）。原文回報並 transition 到 `BLOCKED` |
 | `3` 或呼叫被中斷 | 產品碼可能沒還原（或 checker 動了 HEAD）。顯示 `git -C "$REPO_ROOT" status --short`，並比對 HEAD 的 commit 與分支是否與跑之前相同，transition 到 `BLOCKED`（中斷時沒有 token，reason 寫 `red-first: interrupted`），**不要**自行還原（rule 15） |
@@ -302,7 +304,7 @@ code-review 有任何 finding 時 Step 3 已轉 BLOCKED，不會走到這裡，�
 
 ```text
 PR #{{pr_number}} CI 已通過；code review：無 finding。
-red-first 待你確認：<[EXEMPT] / [WARN] red-first: 原文>
+red-first 待你確認：<[EXEMPT] / [WARN] red-first: 原文>；替代證據：<comment 裡的 Red-first evidence 段落，沒有就寫「未附證據」>
 準備 merge：gh pr merge {{pr_number}} --squash --delete-branch
 請確認後手動執行，或輸入 "ship" 確認由 skill 代為執行。
 ```

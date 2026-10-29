@@ -291,7 +291,15 @@ class TestStaticContract:
         token 與清單比對，讓兩邊不能各自漂移。
         """
         emitted = set(re.findall(r"RED_FIRST_RESULT=([a-z][a-z-]*)", self.SRC))
-        assert {"pass", "unchecked", "fail", "error", "tree-not-restored"} <= emitted
+        assert {
+            "skip-no-checker",
+            "no-checker-needs-evidence",
+            "pass",
+            "unchecked",
+            "fail",
+            "error",
+            "tree-not-restored",
+        } <= emitted
         fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
             encoding="utf-8"
         )
@@ -309,14 +317,78 @@ class TestStaticContract:
         section = fast[start : fast.index("\n### ", start)]
         assert "token 為 `unchecked` 時**不是通過**" in section
 
+    def test_rfs_dt_007_no_checker_needs_evidence_is_not_a_pass_downstream(self) -> None:
+        """no-checker-needs-evidence 在兩份 runbook 都寫明不是通過，並要求附證據段落。"""
+        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        start = fast.index("#### 3.0b")
+        section = fast[start : fast.index("\n### ", start)]
+        assert "token 為 `no-checker-needs-evidence` 時同樣**不是通過**" in section
+        assert "### Red-first evidence" in section
+        deep = (SCRIPTS_DIR.parent / "SKILL.md").read_text(encoding="utf-8")
+        start = deep.index("### Step 1.7")
+        step = deep[start : deep.index("\n### Step 2", start)]
+        assert "`RED_FIRST_RESULT=no-checker-needs-evidence` is the same" in step
+        assert "### Red-first evidence" in step
+        assert 'an empty block is "no evidence", not a pass' in step
+
 
 class TestBehaviour:
-    def test_rfs_st_001_no_checker_skips_with_exit_0(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "title", ["refactor: tidy", "docs(readme): typo", "chore!: drop py3.9", "perf: faster"]
+    )
+    def test_rfs_st_001_no_checker_skips_types_that_need_no_red(
+        self, tmp_path: Path, title: str
+    ) -> None:
         repo = _setup(tmp_path, with_checker=False)
-        proc, _ = _run(tmp_path, repo)
+        proc, _ = _run(tmp_path, repo, FAKE_GH_TITLE=title)
         assert proc.returncode == EXIT_CONTINUE, proc.stderr
         assert "[SKIP] red-first: no checker" in proc.stdout
-        assert "RED_FIRST_RESULT=skip-no-checker" in proc.stdout
+        assert proc.stdout.rstrip().splitlines()[-1] == "RED_FIRST_RESULT=skip-no-checker"
+        out = (tmp_path / "out" / "red-first.out").read_text(encoding="utf-8")
+        assert out.startswith("[SKIP] red-first: no checker")
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "feat: add thing",
+            "fix(ledger): 帳戶只在唯一時對應",
+            "feat(x)!: break api",
+            "  fix: leading space",
+            "隨便寫的標題",  # 判斷不出型別：保守當成需要證據
+            HOSTILE_TITLE,
+        ],
+    )
+    def test_rfs_st_027_no_checker_feat_fix_needs_evidence(
+        self, tmp_path: Path, title: str
+    ) -> None:
+        """沒有 checker 的 feat／fix 不得以 skip-no-checker 放行（以前一律 [SKIP] 當通過）。"""
+        repo = _setup(tmp_path, with_checker=False)
+        proc, _ = _run(tmp_path, repo, FAKE_GH_TITLE=title)
+        assert proc.returncode == EXIT_CONTINUE, proc.stderr
+        last = proc.stdout.rstrip().splitlines()[-1]
+        assert last == "RED_FIRST_RESULT=no-checker-needs-evidence"
+        assert "[WARN] red-first: no checker" in proc.stdout
+        assert "不是通過" in proc.stdout
+        assert "[SKIP]" not in proc.stdout
+        out = (tmp_path / "out" / "red-first.out").read_text(encoding="utf-8")
+        assert out.startswith("[WARN] red-first: no checker")
+        # 惡意標題不得被執行（反引號）
+        assert not (repo / "pwned").exists()
+
+    def test_rfs_st_028_no_checker_gh_failure_is_error(self, tmp_path: Path) -> None:
+        """讀不到標題時不得退回 skip：判斷不了型別就無法決定是否需要證據。"""
+        repo = _setup(tmp_path, with_checker=False)
+        proc, _ = _run(tmp_path, repo, FAKE_GH_FAIL="1")
+        assert proc.returncode == EXIT_ERROR
+        assert "RED_FIRST_RESULT=error" in proc.stdout
+
+    def test_rfs_st_029_no_checker_empty_title_is_error(self, tmp_path: Path) -> None:
+        repo = _setup(tmp_path, with_checker=False)
+        proc, _ = _run(tmp_path, repo, FAKE_GH_TITLE="")
+        assert proc.returncode == EXIT_ERROR
+        assert "RED_FIRST_RESULT=error" in proc.stdout
 
     def test_rfs_st_002_pass_passes_hostile_title_verbatim(self, tmp_path: Path) -> None:
         repo = _setup(tmp_path)
