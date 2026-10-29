@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- dev-cycle：`red-first.sh` 在 repo 沒有 checker 時先讀 PR 標題。`feat`／`fix`（以及判斷不出型別的
-  標題）不再印 `[SKIP]` 放行，改輸出新結果 `no-checker-needs-evidence`（exit 0，但與 `unchecked` 一樣不是
-  通過）；其他型別照舊 `skip-no-checker`。`/pr-cycle-deep` Step 1.7 與 `/pr-cycle-fast` 3.0b 要求在
-  `### Red-first evidence` 段落附替代證據（手動 mutation；或本 PR 改掉的舊斷言在 base 上會過，需搭配
-  mutation），Step 8／Step 6 交給人確認。讀不到標題時改為 exit 2，不再靜默 SKIP。
+- dev-cycle：`red-first.sh` 在 repo 沒有 checker 時，不論 PR 類型一律回報 `RED_FIRST_RESULT=unchecked`
+  （exit 0，但不是通過），不再印 `[SKIP]` 以 `skip-no-checker` 放行；也不讀 PR 標題，避免自報的型別關掉
+  gate。`red-first.out` 同樣寫入 `[WARN] red-first: no checker` 與 `red-first: UNCHECKED` 兩行。
+  `/pr-cycle-deep` Step 1.7／Step 8 與 `/pr-cycle-fast` 3.0b／Step 6 說明：手動 mutation 等證據只是補充，
+  不會讓結果變成通過；`/pr-cycle-fast` 改為每次都把 red-first 輸出貼成 PR comment。
 
 ## [1.23.22] - 2026-10-21
 

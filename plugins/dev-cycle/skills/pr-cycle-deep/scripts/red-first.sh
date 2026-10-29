@@ -16,18 +16,17 @@
 #   bash <path>/red-first.sh --pr <number> --repo-root <checkout> --out-dir <dir>
 #   （Bash tool 要給 timeout 600000：checker 會跑兩次測試）
 #
-# 輸出：checker 的完整輸出（沒有 checker 時是那一行 [SKIP]／[WARN]）寫到 <out-dir>/red-first.out，並同步印到 stdout；
-# PR body 寫到 <out-dir>/pr-body.md。最後一行固定是 `RED_FIRST_RESULT=<名稱>`。
+# 輸出：checker 的完整輸出（沒有 checker 時是本 script 寫的 [WARN] 與 UNCHECKED 兩行）寫到
+# <out-dir>/red-first.out，並同步印到 stdout；PR body 寫到 <out-dir>/pr-body.md。
+# 最後一行固定是 `RED_FIRST_RESULT=<名稱>`。
 #
 # 退出碼（每一個都是具名結果）：
-#   0  可以往下走：PASS、SKIP（沒有 checker、PR 類型不需要）、EXEMPT，或 UNCHECKED。
+#   0  可以往下走：PASS、SKIP（checker 判定 PR 類型不需要）、EXEMPT，或 UNCHECKED。
 #      輸出中的 [EXEMPT]、[WEAK-RED]、[WARN] red-first: 行由呼叫端帶到人／reviewer 面前。
 #      `RED_FIRST_RESULT=unchecked` **不是通過**：checker 以 exit 0 結束，但說它沒有檢查任何東西
-#      （輸出有整行 `red-first: UNCHECKED`，或過渡期接受的舊句子，見下方偵測處）。呼叫端照常
-#      往下走，但要把它帶到人面前，並要求另附證據（例如手動 mutation），不得當成 pass。
-#      `RED_FIRST_RESULT=no-checker-needs-evidence` 同樣**不是通過**：repo 沒有 checker，而 PR 是
-#      feat／fix（或標題判斷不出型別），需要 red-first 卻沒有機器判定；處理方式與 unchecked 相同。
-#      沒有 checker 且 PR 類型不需要轉紅時才是 `skip-no-checker`
+#      （輸出有整行 `red-first: UNCHECKED`，或過渡期接受的舊句子，見下方偵測處）；repo 沒有
+#      checker 時也是 unchecked，不論 PR 類型。呼叫端照常往下走，但要把它帶到人面前；手動 mutation
+#      等證據只是補充，不得把結果當成 pass
 #   1  red-first 判定失敗（checker 印出 `red-first: FAIL`）：測試抓不到這次改動
 #   2  前提不成立或工具出錯：參數錯、gh/git 失敗、標題為空、merge／rebase／cherry-pick／
 #      revert 進行中（含停在中途的 cherry-pick／revert 序列）或有未解衝突（此時 HEAD 不是
@@ -104,44 +103,23 @@ if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 mkdir -p "$OUT_DIR"
 
+CHECKER="$REPO_ROOT/scripts/red-first-check.py"
+if [ ! -f "$CHECKER" ]; then
+    # 沒有 checker 就是沒有檢查，不論 PR 類型：以前印 [SKIP] 並以 skip-no-checker 放行，呼叫端
+    # 當成通過。refactor／perf 也一樣需要「產品碼還原到 base 時測試仍綠」的驗證，所以不看標題
+    # 一律回報 unchecked（標題由作者自訂，拿它決定要不要檢查，等於讓作者自己關掉 gate）。
+    # 判定行與有 checker 時同形狀寫進 red-first.out，呼叫端不必分兩種情況取輸出
+    printf '%s\n' \
+        "[WARN] red-first: no checker（${CHECKER} 不存在），red-first 沒有檢查任何東西，不是通過；手動 mutation 等證據只能補充，不會讓結果變成通過" \
+        "red-first: UNCHECKED" >| "$OUT_DIR/red-first.out"
+    cat "$OUT_DIR/red-first.out"
+    echo "RED_FIRST_RESULT=unchecked"
+    exit 0
+fi
+
 # gh 從 cwd 推斷 repo，所以在本 script 自己的 shell 內切到目標 checkout。
 # 下面的 git 呼叫因此都以 cwd 為準（含 --git-path 回傳的相對路徑）
 cd "$REPO_ROOT"
-
-CHECKER="$REPO_ROOT/scripts/red-first-check.py"
-if [ ! -f "$CHECKER" ]; then
-    # 沒有 checker 不等於不需要 red-first：feat／fix 的 PR 仍然要證明測試抓得到改動，只是沒有
-    # 機器判定。以前一律 [SKIP] + exit 0，呼叫端當成通過，替代證據每次由 agent 臨場決定，
-    # 也沒有固定位置交給人。所以先讀標題：refactor／perf／docs 等型別照舊 SKIP；
-    # feat／fix，以及判斷不出型別的標題（保守），改成 no-checker-needs-evidence
-    if ! PR_TITLE=$(gh pr view "$PR" --json title -q .title); then
-        fail 2 "gh pr view ${PR}（title）失敗"
-    fi
-    if [ -z "$PR_TITLE" ]; then
-        fail 2 "PR #${PR} 的標題為空"
-    fi
-    # 與 yibi-mvp checker 的 expected_from_title 相同的 conventional commit 形狀
-    TYPE_RE='^[[:space:]]*([a-z]+)(\([^)]*\))?!?:'
-    PR_TYPE=""
-    if [[ "$PR_TITLE" =~ $TYPE_RE ]]; then
-        PR_TYPE="${BASH_REMATCH[1]}"
-    fi
-    # 與有 checker 時相同，判定行也寫進 red-first.out，呼叫端不必分兩種情況取輸出。
-    # RED_FIRST_RESULT= 保持字面值：RFS-DT-005 從原始碼抽 token 與 pr-cycle-fast 的清單比對
-    case "$PR_TYPE" in
-        feat|fix|"")
-            printf '%s\n' "[WARN] red-first: no checker（${CHECKER} 不存在），PR 類型 ${PR_TYPE:-（無法判斷）} 需要 red-first 卻沒有機器判定，不是通過；請另附證據（手動 mutation，或指出本 PR 改掉的舊斷言在 base 上會過）" >| "$OUT_DIR/red-first.out"
-            cat "$OUT_DIR/red-first.out"
-            echo "RED_FIRST_RESULT=no-checker-needs-evidence"
-            ;;
-        *)
-            printf '%s\n' "[SKIP] red-first: no checker（${CHECKER} 不存在），PR 類型 ${PR_TYPE} 不需要轉紅" >| "$OUT_DIR/red-first.out"
-            cat "$OUT_DIR/red-first.out"
-            echo "RED_FIRST_RESULT=skip-no-checker"
-            ;;
-    esac
-    exit 0
-fi
 
 # merge／rebase／cherry-pick／revert 進行中時，HEAD 不是要檢查的那棵樹，checker 會對錯的
 # commit 下判定且沒有任何警告（pr-cycle-fast 3.0 走 check --sha 時就會碰到）。
