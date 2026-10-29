@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.23] - 2026-10-29
+
+### Changed
+
+- dev-cycle：`red-first.sh` 在 repo 沒有 checker 時，不論 PR 類型一律回報 `RED_FIRST_RESULT=unchecked`
+  （exit 0，但不是通過），不再印 `[SKIP]` 以 `skip-no-checker` 放行；也不讀 PR 標題，避免自報的型別關掉
+  gate。`red-first.out` 同樣寫入 `[WARN] red-first: no checker` 與 `red-first: UNCHECKED` 兩行。
+  `/pr-cycle-deep` Step 1.7／Step 8 與 `/pr-cycle-fast` 3.0b／Step 6 說明：手動 mutation 等證據只是補充，
+  不會讓結果變成通過；`/pr-cycle-fast` 改為每次都把 red-first 輸出貼成 PR comment。
+
 ## [1.23.22] - 2026-10-21
 
 ### Added

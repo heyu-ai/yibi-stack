@@ -389,9 +389,14 @@ unstaged, untracked or submodule changes; exit `2`), and after the run requires 
 bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR"
 ```
 
-Append its output to `pre-review-check.md`. Exit `0` → continue (includes `[SKIP] red-first: no checker`).
-`RED_FIRST_RESULT=unchecked` is also exit `0` but is **not a pass**: the checker said it checked nothing (e.g. every production
-change is in a directory it cannot map to tests); treat it like `[EXEMPT]` and require other evidence, e.g. a manual mutation.
+Append its output to `pre-review-check.md`. Exit `0` → continue.
+`RED_FIRST_RESULT=unchecked` is also exit `0` but is **not a pass**: nothing ran the PR's tests against base code — either the
+checker said it checked nothing (e.g. every production change is in a directory it cannot map to tests), or the repo has
+**no checker at all** (`[WARN] red-first: no checker`; reported for every PR type — the title is not consulted, since a self-declared
+type must not switch the gate off). Treat it like `[EXEMPT]`: Step 8 shows the `[WARN]` line for the human to confirm. Evidence
+the lead gathers (a manual mutation: revert one production change, run the PR's tests, paste the failure, restore byte-for-byte)
+is a supplement shown next to it — it never turns the result into a pass. "The PR changed an old assertion that passed on base"
+alone does not show the new test catches the change; only a test that fails on base code does.
 Exit `1` (`RED_FIRST_RESULT=fail`) → **stop before Step 2**; add a test that fails on the base code (or restore the refactor's
 expectation), push, rerun. Retyping the title to dodge it (`fix` → `chore`) is a material amendment (Step 1), and reviewers
 cannot waive it — none of them ran the tests against base code. Exit `2` (tool or precondition error, incl. a traceback, a dirty
@@ -399,7 +404,7 @@ tree or an operation in progress) → `[FAIL]` verbatim, stop. Exit `3` or a kil
 checker moved HEAD): show `git status --short` and compare HEAD/branch with the pre-run ones, stop, do not restore by hand (rule 15).
 Exit-0 lines carry forward: `[WEAK-RED]` (red came only from an import/compile error, which cannot show the assertion is
 meaningful) — Step 3.1 pastes them into `prompt-r1.md`; `[EXEMPT]` (a `Red-first-exempt: <reason>` line) —
-the lead may not accept it; Step 8 shows it, and any `[WARN] red-first:` line (checker edited by the PR, checker checked nothing), for the human to confirm.
+the lead may not accept it; Step 8 shows it, and any `[WARN] red-first:` line (checker edited by the PR, checker checked nothing, no checker), for the human to confirm.
 
 ---
 
@@ -1331,6 +1336,7 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 
 ## Red-first (always shown; from pre-review-check.md)
 - <verdict / [SKIP] reason>; <each [EXEMPT] or [WARN] red-first: line — needs your confirmation>
+- <for unchecked: supplementary evidence the lead gathered (still not a pass), or "no evidence attached">
 
 ## Merge blocking (review-in-progress label)
 - <held during review, removed on "ship" / 本 repo 沒有 review-in-progress 阻擋機制 (Step 1 exit 10) / removed early by circuit breaker at Step 7 (merge was unblocked from then)>
