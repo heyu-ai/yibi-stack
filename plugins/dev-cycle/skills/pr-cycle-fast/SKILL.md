@@ -178,7 +178,8 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --re
 
 不論 token 為何（包括失敗），一律把輸出留在 PR 上，讓換 session resume 也讀得到：
 用 Write 寫 `$CLAUDE_JOB_DIR/red-first.md`，第一行是 `<!-- red-first:<git -C "$REPO_ROOT" rev-parse HEAD 的結果> -->`，
-其後貼 `$CLAUDE_JOB_DIR/red-first.out` 的內容（`error` 時這個檔可能不存在，改貼腳本的 stdout 與 stderr）。
+其後貼這次呼叫的完整 stdout（token 為 `error` 時再接上 stderr）。不要改貼 `red-first.out`：腳本自己的
+`[WARN] red-first:` 行（checker 被這個 PR 改過、checker 沒有檢查任何東西）只在 stdout，不在那個檔。
 token 為 `unchecked` 時，你另外取得的證據（例如手動 mutation 的失敗輸出）可以接在後面，標明是補充、不是通過。最後執行：
 
 ```bash

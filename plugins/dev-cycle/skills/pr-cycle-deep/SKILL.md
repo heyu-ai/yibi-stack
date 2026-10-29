@@ -404,7 +404,7 @@ tree or an operation in progress) → `[FAIL]` verbatim, stop. Exit `3` or a kil
 checker moved HEAD): show `git status --short` and compare HEAD/branch with the pre-run ones, stop, do not restore by hand (rule 15).
 Exit-0 lines carry forward: `[WEAK-RED]` (red came only from an import/compile error, which cannot show the assertion is
 meaningful) — Step 3.1 pastes them into `prompt-r1.md`; `[EXEMPT]` (a `Red-first-exempt: <reason>` line) —
-the lead may not accept it; Step 8 shows it, and any `[WARN] red-first:` line (checker edited by the PR, checker checked nothing), for the human to confirm.
+the lead may not accept it; Step 8 shows it, and any `[WARN] red-first:` line (checker edited by the PR, checker checked nothing, no checker), for the human to confirm.
 
 ---
 
