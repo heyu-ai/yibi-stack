@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """以 agy 的 NDJSON stdin 傳遞完整 prompt，不受 argv 大小限制。
 
-agy 1.1.15 起支援 stream-json 輸入；1.4.12 實測使用 event=user、
-message.role/content。只採用單次終端 result；進度文字不能當成完成的 review。
+版本依據：`agy changelog` 的 1.1.15 條目記載 print mode 新增
+`--input-format stream-json`，從 stdin 讀取 NDJSON。協定僅在 1.4.12 實測：
+使用 event=user、message.role/content；不代表所有 1.1.15+ 版本皆已驗證。
+只採用單次終端 result；進度文字不能當成完成的 review。
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ def encode_prompt(prompt: str) -> bytes:
 
 
 def decode_response(stdout: bytes) -> tuple[int, bytes, bytes]:
-    """還原回答與退出碼；不完整輸出僅供上層隔離存檔，不可計入共識。"""
+    """還原回答與退出碼；非零時 stdout 僅供診斷，只有 timeout 路徑由上層隔離。"""
     result: dict | None = None
     partial: list[str] = []
     try:
@@ -49,7 +51,7 @@ def decode_response(stdout: bytes) -> tuple[int, bytes, bytes]:
                         raise ValueError("text_delta 必須是字串")
                     partial.append(delta)
         if result is None:
-            raise ValueError("缺少終端 result；請確認 agy 支援 stream-json（1.1.15+）並查看 stderr")
+            raise ValueError("缺少終端 result；串流未完整結束，請查看 stderr 與 agy log")
         response = result["response"].encode("utf-8")
         reason = result.get("finished_reason")
         if reason == "print_timeout":

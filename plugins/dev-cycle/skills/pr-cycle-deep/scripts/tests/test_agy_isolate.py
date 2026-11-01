@@ -167,7 +167,7 @@ def isolated_repo(tmp_path: Path) -> dict:
     review = linked / ".pr-review"
     review.mkdir()
     for name in ("prompt-r1.md", "prompt-r2.md"):
-        (review / name).write_text("PROMPT MARKER\n")
+        (review / name).write_text("@diff.patch\nPROMPT MARKER\n")
     (review / "changed-files.txt").write_text("seed.txt\n")
     (review / "diff.patch").write_text("diff --git a/seed.txt b/seed.txt\n")
     (review / "r1-aggregate.md").write_text("## Other reviews\nseed.txt\n")

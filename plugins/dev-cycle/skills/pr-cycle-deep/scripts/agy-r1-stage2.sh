@@ -10,6 +10,7 @@
 #   - gemini-r1.json 寫到 $WT_ROOT/.pr-review/
 #   - stderr log 寫到 $WT_ROOT/.pr-review/gemini-r1.extract.log；agy log 寫到 gemini-r1.extract.agy.log
 #   - print timeout 時半截輸出改名為 gemini-r1.json.timeout-partial.tmp（0600，issue #443）
+#   - 其他失敗不做 timeout quarantine；EXIT trap 刪除 gemini-r1.json.tmp，log 保留診斷
 #   - 暫存 gemini-extract-input.md（完成後自動刪除）
 #
 # 退出碼：0 成功；124 agy print timeout（輸出不完整）；2 AGY_PRINT_TIMEOUT_SECS 不合法；
@@ -77,7 +78,8 @@ printf '\n---END RAW OUTPUT---\n' >> "$REVIEW_DIR/gemini-extract-input.md"
 cd "$WT_ROOT"
 
 # issue #153：完整 prompt 經 NDJSON stdin 傳送，不使用 @file 或內容 argv，也不截斷內容。
-# 萃取只需 raw 文字，--sandbox 即足夠（extraction 不需讀周邊程式碼，sandbox 更安全）。
+# 萃取只需 raw 文字，保留 --sandbox；模型若仍要求 command，可能 auto-deny，
+# 回傳缺少 result 或空 SUCCESS response，由 decoder fail closed，不為成功率放寬權限。
 TMP_JSON="$REVIEW_DIR/gemini-r1.json.tmp"
 AGY_START=$SECONDS
 AGY_EXIT=0
@@ -110,8 +112,10 @@ elif [ "$TIMEOUT_CHECK_EXIT" -ne 0 ]; then
     exit 1
 fi
 
-# decoder 的 print_timeout 會回傳 124；先交給上方 timeout checker 隔離半截輸出。
-# pipefail 保留 encoder、agy 或 decoder 的失敗，不把有效 JSON 外觀當成成功。
+# decoder 的 print_timeout 會回傳 124 並在 stderr 印出 "print timeout after"；
+# 上方 checker 依該標記（或耗時超過預算）隔離半截輸出，不是只看退出碼 124。
+# pipefail 保留 encoder、agy 或 decoder 的失敗，不把有效 JSON 外觀當成成功；
+# 非 timeout 失敗的暫存輸出由 EXIT trap 清除，不會進入下方 validator／JSON 萃取。
 if [ "$AGY_EXIT" -ne 0 ]; then
     echo "[FAIL] agy extract 失敗（exit ${AGY_EXIT}），請查看 $REVIEW_DIR/gemini-r1.extract.log" >&2
     exit "$AGY_EXIT"

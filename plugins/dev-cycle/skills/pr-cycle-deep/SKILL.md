@@ -699,12 +699,25 @@ R1 Stage 1/R2 pass the absolute input path to `agy_isolate.py --prompt-file`; th
 and prepends the review-only constraint before encoding. Stage 2 uses `agy_stream.py encode`
 and `decode` around its existing sandboxed agy call.
 
-**Version requirement:** stream-json requires agy **1.1.15+**; the current protocol probe used
-**1.4.12**. It returned a terminal `event: result` with nested `result.status: SUCCESS` and
-`result.response`. The decoder writes only that terminal response into review artifacts;
-malformed/missing/duplicate results, `ERROR` status, and nonempty `finished_reason` fail loudly.
-`finished_reason: print_timeout` exits **124** and reaches the existing timeout quarantine
-before generic failure handling. This protocol probe is not evidence of a completed mob review.
+**版本需求與來源：** `agy changelog` 的 **1.1.15** 條目記載 print mode 新增
+`--input-format stream-json`，從 stdin 讀取 NDJSON；因此需要支援此功能的 agy（1.1.15+）。
+本次協定探測僅使用 **1.4.12**，收到 `event: result`，內含 `result.status: SUCCESS` 與
+`result.response`；不代表所有 1.1.15+ 版本皆已驗證，也不代表完整 mob review 成功。
+
+**成功與診斷輸出的界線：** 成功時 decoder 只輸出單次 terminal response，不拼接進度文字。
+畸形／缺失／重複 result、`ERROR`、空回答與非正常 `finished_reason` 都會非零退出。
+非零退出時 stdout 仍可能含 terminal response 或已收到的進度片段；非 timeout 的 R1／R2
+失敗可將這些診斷內容留在原檔名 `gemini-r1-raw.md`／`gemini-r2.md`，**不會一律改名隔離**。
+檔案存在、大小足夠或內含 Verdict，都不能取代本次執行成功與 validator 通過。
+失敗的 R1／R2 內容不得計入共識；失敗的 R1 raw 不得送進 Stage 2，也不得拿來手動摘要 fallback。
+只有成功且通過驗證的 Stage 1 raw，才可在後續萃取失敗時沿用既有 fallback。
+Stage 2 的非零 stream 輸出只進 `gemini-r1.json.tmp`，在 validator／JSON 萃取前停止，
+由 EXIT trap 刪除暫存檔；不要把失敗輸出當成有效 JSON。
+
+只有 timeout 處理路徑會將半截輸出改名為 `*.timeout-partial*`。
+`finished_reason: print_timeout` 讓 decoder 回傳 **124**，並在 stderr 印出
+`print timeout after` 標記；既有 checker 依該標記或實際耗時超過預算判定隔離，
+**不是只看退出碼 124**。timeout 檢查先於一般失敗處理；隔離內容僅供診斷，不得聚合。
 
 ###### Stage 1: Native review (raw output lands on disk, does not enter main context)
 
@@ -751,13 +764,16 @@ The extract stage pins the same `Gemini 3.8 Flash (High)` model as review and de
 
 ###### Stage 3: Render (same as Codex voice: lead reads JSON → writes compact markdown)
 
-Lead reads `$REVIEW_DIR/gemini-r1.json` with the Read tool and branches:
+前提是本次 Stage 1 成功且通過驗證；失敗 raw 即使存在也不得使用。
+Stage 2 成功才讀取 `$REVIEW_DIR/gemini-r1.json`；Stage 2 失敗直接走下方 fallback，
+不得採用先前執行留下的 JSON。
 
 **JSON valid** → use the Write tool to render `$REVIEW_DIR/gemini-r1.md` (same format as Codex compact markdown, **including the `Contract mapping:` / `Evidence:` carry-through** described above).
 
-**JSON invalid** → read `$REVIEW_DIR/gemini-r1-raw.md` with the Read tool, manually summarize
-in main context, write compact markdown with the Write tool; note in final.md:
-"Gemini voice used raw form this round".
+**JSON invalid 或 Stage 2 失敗** → 僅可讀取本次已成功且通過驗證的
+`$REVIEW_DIR/gemini-r1-raw.md`，在主 context 手動摘要並用 Write tool 寫入 compact markdown；
+在 final.md 註明 "Gemini voice used raw form this round"。沒有有效 Stage 1 raw 時，
+按 voice failure 處理，不得從失敗 stream 的診斷片段重建 review。
 
 #### 3.3 — Sanity check
 
@@ -771,7 +787,7 @@ ls -lh "$REVIEW_DIR/gemini-r1.md" "$REVIEW_DIR/gemini-r1.json" 2>&1
 Check:
 
 1. `codex-r1.md` / `gemini-r1.md` (compact markdown) < 50 bytes or missing → Stage 3 render not completed; re-run
-2. `codex-r1.json` / `gemini-r1.json` is invalid JSON → extract failed; trigger fallback (see FAQ)
+2. `codex-r1.json` / `gemini-r1.json` is invalid JSON → extract failed; trigger fallback (see FAQ)，但 Gemini 必須先確認本次 Stage 1 成功且通過驗證，不能只看 raw 檔案存在
 3. `*-r1-raw.md` < 200 bytes or contains only error message → re-run Stage 1 (native review)
 
 2 consecutive failures → mark that voice as "unavailable for this PR"; record in the final aggregated report; do not block the workflow.
@@ -1559,7 +1575,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Step 0 detects only one external voice (Codex or agy, not both) | Enter 2-voice mob (Claude + that voice); normal workflow |
 | Codex detected but auth failed | `codex login`; or `export OPENAI_API_KEY=...` |
 | agy detected but auth failed | Run `agy` to complete OAuth; or `export GEMINI_API_KEY=...` |
-| agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | R1/R2 send complete prompts via NDJSON stdin (no `@file` or prompt argv), use a private HOME without old scratch, and run `agy_validate.py`; they leave shared scratch untouched. Brain artifacts are rescued before private HOME cleanup. Stage 2 retains its existing extraction sandbox/cleanup. Validator or stream decoder failure means the voice failed. Exit **124** means timeout: partial output is quarantined as `*.timeout-partial*`, never aggregate it; inspect `*.agy.log` for `RESOURCE_EXHAUSTED` or use `AGY_PRINT_TIMEOUT_SECS` (1–570, default 480). |
+| agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | R1／R2 透過 NDJSON stdin 傳送完整 prompt（不使用 `@file` 或 prompt argv），使用 private HOME 與 `agy_validate.py`，不清理 shared scratch；brain artifact 在 private HOME 清理前救回。Stage 2 保留既有 sandbox／cleanup。validator 或 decoder 失敗即表示本次輸出無效：非 timeout 的 R1／R2 診斷片段可能仍留在原檔名，不得聚合、萃取或當作 raw-summary fallback。只有 timeout 路徑會隔離成 `*.timeout-partial*`；decoder 的 `print_timeout` 同時回傳 124 與 stderr `print timeout after` 標記，checker 依標記或耗時超過預算判定，而非只看 124。可查 `*.agy.log` 的 `RESOURCE_EXHAUSTED` 或調整 `AGY_PRINT_TIMEOUT_SECS`（1–570，預設 480）。 |
 | agy background bash `>` redirect output not updating target file (unverified) | If this occurs: switch to synchronous bash call (without `run_in_background`) |
 | Codex Stage 1 `codex-r1-raw.md` is empty (review missing) | Stage 1 now uses `codex exec ... > codex-r1-raw.md` (stdout); read `$REVIEW_DIR/codex-r1.stage1.log` (stderr) for the error. For the `codex exec \| tee` stages (Stage 2 / R2), `set -o pipefail` keeps `$?` reflecting the failing command in the pipeline (bash/zsh) |
 | Why Stage 1 uses `codex exec`, not `codex review --base` + a guard prompt | `codex review --base` and a positional `[PROMPT]` are mutually exclusive (codex-cli 0.142.5: `the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`), so the skill-hijack guard cannot ride on `codex review`. Stage 1 drives the review through `codex exec` with the guard on stdin instead (issue #194). Do not "fix" it back to `codex review --base` |
@@ -1574,6 +1590,6 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Security scanner fails | bandit `# nosec BXXX` etc. ignore comments; explain reason in PR |
 | spectra archive validation fails | `spectra analyze {{change_name}}`; fix then archive; `--no-validate` requires explicit user instruction |
 | Jira: cannot detect key / transition unclear / MCP auth error | Ask user for the key (`PROJECT-123`), or confirm there is no associated ticket and skip; list transitions and ask user to confirm; Atlassian MCP requires OAuth — prompt user to authorize on claude.ai |
-| Codex/Gemini extract returns invalid JSON, JSON missing schema fields (`verdict` / `summary` / `findings`), or extract fails 2× in a row | Follow Stage 3 if/else: Read `$REVIEW_DIR/{codex,gemini}-r1-raw.md`, manually summarize in main context as compact markdown, Write to `$REVIEW_DIR/{codex,gemini}-r1.md` (do not cp raw → compact — verbose raw would enter r1-aggregate); note in final.md "{{voice}} voice used raw form this round, main context load higher". 2 consecutive extract failures → path C: lead extracts the compact form from raw in the main session without calling codex/agy again (slower, workflow not blocked) |
+| Codex/Gemini extract returns invalid JSON, JSON missing schema fields (`verdict` / `summary` / `findings`), or extract fails 2× in a row | 沿用 Stage 3 fallback；Gemini 的前提是本次 Stage 1 已成功且通過驗證，失敗 raw 即使留在原檔名也不得使用。讀取 `$REVIEW_DIR/{codex,gemini}-r1-raw.md`，在主 context 手動摘要，用 Write tool 寫入 `$REVIEW_DIR/{codex,gemini}-r1.md`（不可直接 cp raw → compact）；在 final.md 註明 "{{voice}} voice used raw form this round, main context load higher"。連續兩次萃取失敗 → path C：lead 從有效 raw 摘要，不再呼叫 codex／agy；沒有有效 raw 就按 voice failure 處理。 |
 | Extract prompt path missing (`~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md`) | Skill not installed; run `make install` in yibi-stack to create the symlink; verify: `ls ~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` should return the path, not "No such file" |
 | User skipped bump but needs a version tag later | Create a release branch, run [`/bump-version`](../bump-version/SKILL.md) on it, then open a PR to merge into main (CI pass + CHANGELOG confirmed is sufficient; no full review cycle needed; if main has new commits, CHANGELOG may include extra entries — verify manually) |

@@ -293,26 +293,49 @@ if mode == 'deny' and '--sandbox' in args:
     sys.exit(0)
 if mode == 'timeout' and os.environ.get('AGY_FAKE_SLEEP'):
     time.sleep(float(os.environ['AGY_FAKE_SLEEP']))
+if os.environ.get('AGY_FAKE_WRITE_PROBE') == '1':
+    target = pathlib.Path(args[args.index('--add-dir') + 1]) / 'seed.txt'
+    if '--sandbox' not in args or '--dangerously-skip-permissions' in args:
+        target.write_text('CORRUPTED by extraction\n', encoding='utf-8')
+        print('write probe: allowed', file=sys.stderr)
+    else:
+        print('write probe: denied', file=sys.stderr)
 
 response = pathlib.Path(os.environ['AGY_FAKE_OUTPUT']).read_text(encoding='utf-8')
 if os.environ.get('AGY_FAKE_DIGEST') == '1':
     assert streaming
-    report = {}
+    report = []
     for match in re.finditer(
         r'BEGIN_TRANSPORT_(\w+)\n(.*?)END_TRANSPORT_\1\n', prompt, re.DOTALL
     ):
         data = match[2].encode('utf-8')
-        report[match[1]] = {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
-    summary = json.dumps(report, sort_keys=True)
+        report.append({
+            'segment': match[1], 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(),
+        })
+    summary = json.dumps(report)
     if '--sandbox' in args:
         response = json.dumps({'verdict': 'LGTM', 'summary': summary, 'findings': []})
     else:
         response = '## Verdict\nLGTM\nReviewed seed.txt\n\n' + summary + '\n'
 if streaming:
+    stream_mode = os.environ.get('AGY_FAKE_STREAM_MODE', 'success')
+    if stream_mode in ('missing_result', 'malformed_result'):
+        print(json.dumps({'event': 'step_update', 'step_update': {
+            'step_type': 'agent_response', 'text_delta': response,
+        }}), flush=True)
     result = {'status': 'SUCCESS', 'response': response}
+    if stream_mode == 'error':
+        result.update(status='ERROR', error='external review failed')
+    elif stream_mode == 'interrupted':
+        result['finished_reason'] = 'interrupted'
+    elif stream_mode == 'malformed_result':
+        result['response'] = None
     if os.environ.get('AGY_FAKE_FINISHED_REASON'):
         result['finished_reason'] = os.environ['AGY_FAKE_FINISHED_REASON']
-    print(json.dumps({'event': 'result', 'result': result}), flush=True)
+    if stream_mode != 'missing_result':
+        print(json.dumps({'event': 'result', 'result': result}), flush=True)
+    if stream_mode == 'duplicate':
+        print(json.dumps({'event': 'result', 'result': result}), flush=True)
 else:
     sys.stdout.write(response)
 if mode == 'timeout' and os.environ.get('AGY_FAKE_MARKER') == '1':
@@ -474,7 +497,7 @@ def test_agys_st_003_large_input_reaches_published_review_losslessly(
             "raw": review / "gemini-r1-raw.md",
         }
         output = review / "gemini-r1.json"
-    expected = {}
+    expected = []
     for name, path in inputs.items():
         payload = (f'{name}: 雪🙂 "quoted" \\\\path\tline\n' * 20_000) + f"END {name} 尾端\n\n"
         data = payload.encode("utf-8")
@@ -482,7 +505,9 @@ def test_agys_st_003_large_input_reaches_published_review_losslessly(
         path.write_text(
             f"BEGIN_TRANSPORT_{name}\n{payload}END_TRANSPORT_{name}\n", encoding="utf-8"
         )
-        expected[name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        expected.append(
+            {"segment": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        )
     env.update(AGY_FAKE_CAPTURE="0", AGY_FAKE_DIGEST="1")
     result = subprocess.run(  # nosec B603
         ["bash", str(script)],
@@ -504,6 +529,116 @@ def test_agys_st_003_large_input_reaches_published_review_losslessly(
         actual = json.loads(published.split("\n\n", 1)[1])
     assert actual == expected
     assert not list(review.glob("*.timeout-partial*"))
+
+
+_STREAM_STAGES = {
+    "stage1": (STAGE1, "gemini-r1-raw.md", "gemini-r1.stage1.log", "agy R1 Stage 1 complete"),
+    "stage2": (STAGE2, "gemini-r1.json", "gemini-r1.extract.log", "agy R1 Stage 2 complete"),
+    "r2": (R2, "gemini-r2.md", "gemini-r2.log", "agy R2 complete"),
+}
+
+
+def _run_stream_stage(
+    runtime: dict[str, object], stage: str, response: str, **env_extra: str
+) -> subprocess.CompletedProcess[str]:
+    if stage != "stage2":
+        require_isolation()
+    env = dict(runtime["env"])  # type: ignore[call-overload]
+    Path(env["AGY_FAKE_OUTPUT"]).write_text(response, encoding="utf-8")
+    env.update(AGY_FAKE_CAPTURE="0", AGY_FAKE_STREAM_MODE="success")
+    env.update(env_extra)
+    return subprocess.run(  # nosec B603
+        ["bash", str(_STREAM_STAGES[stage][0])],
+        cwd=str(runtime["repo"]),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+@pytest.mark.parametrize("stage", _STREAM_STAGES)
+@pytest.mark.parametrize(
+    ("mode", "diagnostic"),
+    [
+        ("success", None),
+        ("error", "external review failed"),
+        ("missing_result", "缺少終端 result"),
+        ("interrupted", "finished_reason='interrupted'"),
+        ("duplicate", "終端 result 之後仍有 event"),
+        ("malformed_result", "result 缺少字串 response"),
+    ],
+)
+def test_agys_st_011_stream_failure_is_not_published(
+    stage: str, mode: str, diagnostic: str | None, agy_runtime_env: dict[str, object]
+) -> None:
+    """AGYS-ST-011：完整正文不能掩蓋失敗 envelope；成功對照必須可發布相同正文。"""
+    extraction = {"verdict": "LGTM", "summary": "Reviewed seed.txt", "findings": []}
+    response = (
+        json.dumps(extraction) if stage == "stage2" else "## Verdict\nLGTM\nReviewed seed.txt\n"
+    )
+    result = _run_stream_stage(agy_runtime_env, stage, response, AGY_FAKE_STREAM_MODE=mode)
+    _, artifact, log_name, completion = _STREAM_STAGES[stage]
+    review = Path(str(agy_runtime_env["repo"])) / ".pr-review"
+    if diagnostic is None:
+        assert result.returncode == 0, result.stderr
+        assert completion in result.stdout
+        published = (review / artifact).read_text(encoding="utf-8")
+        if stage == "stage2":
+            assert json.loads(published) == extraction
+        else:
+            assert published == response
+    else:
+        assert result.returncode != 0, result.stdout
+        assert completion not in result.stdout
+        assert "[FAIL]" in result.stderr
+        assert diagnostic in (review / log_name).read_text(encoding="utf-8")
+        if stage == "stage2":
+            assert not (review / artifact).exists()
+        else:
+            # 非逾時失敗仍保留原檔名的正文供診斷，不能誤稱所有失敗都會隔離改名。
+            assert (review / artifact).read_text(encoding="utf-8") == response
+
+
+@pytest.mark.parametrize("stage", ["stage1", "r2"])
+@pytest.mark.parametrize("with_verdict", [False, True], ids=["missing-verdict", "complete"])
+def test_agys_st_012_review_without_verdict_is_rejected(
+    stage: str, with_verdict: bool, agy_runtime_env: dict[str, object]
+) -> None:
+    """AGYS-ST-012：引用正確檔案且 stream 成功仍須通過 Verdict gate。"""
+    response = "## Summary\nReviewed seed.txt; no issues found.\n"
+    if with_verdict:
+        response += "\n## Verdict\nLGTM\n"
+    result = _run_stream_stage(agy_runtime_env, stage, response)
+    _, artifact, _, completion = _STREAM_STAGES[stage]
+    review = Path(str(agy_runtime_env["repo"])) / ".pr-review"
+    assert (review / artifact).read_text(encoding="utf-8") == response
+    if with_verdict:
+        assert result.returncode == 0, result.stderr
+        assert completion in result.stdout
+    else:
+        assert result.returncode != 0, result.stdout
+        assert completion not in result.stdout
+        assert "[FAIL]" in result.stderr
+
+
+def test_agys_st_013_extraction_does_not_authorize_writes(
+    agy_runtime_env: dict[str, object],
+) -> None:
+    """AGYS-ST-013：萃取成功也不能授權外部 CLI 寫入原始工作樹。"""
+    repo = Path(str(agy_runtime_env["repo"]))
+    seed = repo / "seed.txt"
+    original = seed.read_bytes()
+    extraction = {"verdict": "LGTM", "summary": "Reviewed seed.txt", "findings": []}
+    result = _run_stream_stage(
+        agy_runtime_env, "stage2", json.dumps(extraction), AGY_FAKE_WRITE_PROBE="1"
+    )
+    assert seed.read_bytes() == original
+    assert result.returncode == 0, result.stderr
+    assert "agy R1 Stage 2 complete" in result.stdout
+    review = repo / ".pr-review"
+    assert json.loads((review / "gemini-r1.json").read_text(encoding="utf-8")) == extraction
+    assert "write probe: denied" in (review / "gemini-r1.extract.log").read_text(encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #
