@@ -81,6 +81,21 @@ def test_password_change_requires_current_password() -> None:
 `$SDD_ROOT/scripts/check_testplan_trace.py` verifies these bindings in both directions
 (see `$SDD_ROOT/scripts/README.md`).
 
+For Vitest JS/TS, put the same declarations in direct comments inside the registered
+test callback (including `it.each`/`test.each`), not in suite comments or fixture strings:
+
+```tsx
+it.each(["playing", "paused"])("closes %s", (state) => {
+  // spec: player#close-player
+  // tc: PLAYER-VL-001
+  expect(closePlayer(state).playing).toBe(false);
+});
+```
+
+The checker uses the TypeScript compiler AST and does not execute test files.
+Skipped/todo tests and nested helper comments do not bind. Node.js 18+ and TypeScript
+must be available; see the checker README for dependency setup and unsupported forms.
+
 ### Cap Naming
 
 - Cap = **direct parent directory** of `spec.md`, not the grandparent

@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   補回 stream failure、Verdict 與萃取寫入權限的行為回歸覆蓋，釐清非零輸出的診斷用途、
   僅 timeout 路徑隔離與成功 R1 才可供 fallback 的界線。`agy changelog` 的 1.1.15 條目
   記載新增 `--input-format stream-json`；本次實測版本為 1.4.12，非所有 1.1.15+ 版本。
+- sdd：testplan trace checker 以 TypeScript compiler AST 支援 Vitest JS／TS／TSX 的測試 callback
+  與 `it.each` 綁定，不把 fixture 字串、巢狀 helper 或 skipped 測試當覆蓋（含 options 物件的
+  skip／todo）；目標 compiler 缺少必要 AST API 時退回鎖定版本，兩者均不可用或語法解析失敗回
+  exit 2。`--change` 保留其他 active／archive 的 TC 歸屬資訊，避免誤報 unrelated orphan，
+  並保留真正無歸屬或不明歸屬的警告。來源：heyu-ai/yibi-mvp#2668。
 
 ## [1.23.23] - 2026-10-29
 

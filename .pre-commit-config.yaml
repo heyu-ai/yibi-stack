@@ -118,7 +118,7 @@ repos:
         entry: python3 plugins/sdd/scripts/check_testplan_trace.py --summary
         language: system
         pass_filenames: false
-        files: (^|/)(testplan\.md|tasks\.md|test_[^/]*\.py|[^/]*_test\.py)$
+        files: (^|/)(testplan\.md|tasks\.md|test_[^/]*\.py|[^/]*_test\.py|[^/]*\.(test|spec)\.(js|jsx|ts|tsx))$
         verbose: true
 
       - id: lint-skill-overlap
