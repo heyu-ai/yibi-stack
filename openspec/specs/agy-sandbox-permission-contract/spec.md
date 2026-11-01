@@ -31,6 +31,11 @@ Each agy invocation in pr-cycle-deep SHALL use a specific permission flag that m
   AND the script MUST publish valid extracted JSON with a denial diagnostic
   AND removing `--sandbox`, replacing it with permission bypass, or adding permission bypass alongside it MUST fail this behavioral test
 
+This test pins the caller's permission choice using an external CLI stub. It does not
+verify the real agy's sandbox implementation; that remains the separate manual probe
+below. Stage 2 has no additional OS write sandbox; R1/R2 containment is tested against
+the real OS backend.
+
 ##### Example: behavioral permission regression matrix
 
 | Invocation | Regression | Required observable protection |
@@ -53,6 +58,12 @@ When agy is invoked with `--sandbox` in headless stream-json mode and the `comma
 **THEN** the script MUST exit non-zero
   AND stderr MUST contain `[FAIL]`
   AND no extracted JSON from the failed invocation MUST be published
+
+Coverage is layered: `test_agys_st_005_stage2_detects_empty_output` exercises the
+no-terminal auto-deny path through Stage 2; `test_agyst_002_invalid_or_incomplete_result_is_not_success`
+covers an empty SUCCESS response at the decoder boundary. `test_agys_st_011_stream_failure_is_not_published`
+exercises failure-code propagation and absence of a published extraction artifact.
+These are complementary checks, not a claim that ST-005 executes every row below.
 
 ##### Example: auto-deny detection matrix
 

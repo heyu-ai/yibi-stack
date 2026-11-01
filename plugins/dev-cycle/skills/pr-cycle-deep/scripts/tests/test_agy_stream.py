@@ -65,6 +65,8 @@ def test_agyst_004_interrupted_stream_preserves_only_assistant_partial() -> None
     stream = (
         b'{"event":"step_update","step_update":{"step_type":"agent_response",'
         b'"text_delta":"## Verdict\\n"}}\n'
+        b'{"event":"step_update","step_update":{"step_type":"tool_call",'
+        b'"text_delta":"not the review"}}\n'
         b'{"event":"step_update","step_update":{"step_type":"agent_response",'
         b'"text_delta":"LGTM"}}\n'
     )

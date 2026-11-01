@@ -48,7 +48,7 @@ assert len(lines) == 1
 event = json.loads(lines[0])
 assert event['event'] == 'user' and event['message']['role'] == 'user'
 prompt = event['message']['content']
-assert 'PROMPT MARKER' in prompt and not prompt.startswith('@')
+assert 'PROMPT MARKER' in prompt and not prompt.lstrip().startswith('@')
 assert workspace != pathlib.Path(os.environ['SOURCE'])
 assert not (workspace / '.git').exists()
 assert not (workspace / 'secret.txt').exists()

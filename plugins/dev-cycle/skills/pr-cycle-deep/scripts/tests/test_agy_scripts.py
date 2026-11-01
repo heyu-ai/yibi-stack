@@ -448,14 +448,6 @@ class TestStage1Behavioral:
 
         assert "[WARN]" not in result.stderr
 
-    def test_agys_st_002_wrong_target_review_fails(self, stage1_env: dict[str, object]) -> None:
-        """AGYS-ST-002: a review citing only foreign files is rejected (exit 1)."""
-        require_isolation()
-        Path(str(stage1_env["out_file"])).write_text(WRONG_TARGET_REVIEW, encoding="utf-8")
-        result = _run_stage1(stage1_env)
-        assert result.returncode != 0
-        assert "WRONG target" in result.stderr
-
     def test_agys_st_004_out_of_band_edit_is_denied(self, stage1_env: dict[str, object]) -> None:
         """AGYS-ST-004: a rogue review cannot modify even its disposable snapshot."""
         require_isolation()
@@ -555,6 +547,29 @@ def _run_stream_stage(
         text=True,
         timeout=120,
     )
+
+
+@pytest.mark.parametrize("stage", _STREAM_STAGES)
+def test_agys_st_002_wrong_target_review_fails(
+    stage: str, agy_runtime_env: dict[str, object]
+) -> None:
+    """AGYS-ST-002：格式合法但只引用不存在檔案的回應，三階段都不能採用。"""
+    response = WRONG_TARGET_REVIEW
+    if stage == "stage2":
+        response = json.dumps(
+            {
+                "verdict": "NEEDS_CHANGES",
+                "summary": "Found a defect",
+                "findings": [{"file": "lib/other/handler.go", "issue": "Missing synchronization"}],
+            }
+        )
+    result = _run_stream_stage(agy_runtime_env, stage, response)
+    assert result.returncode != 0, result.stdout
+    assert _STREAM_STAGES[stage][3] not in result.stdout
+    assert "[FAIL]" in result.stderr
+    if stage == "stage2":
+        review = Path(str(agy_runtime_env["repo"])) / ".pr-review"
+        assert not (review / "gemini-r1.json").exists()
 
 
 @pytest.mark.parametrize("stage", _STREAM_STAGES)
