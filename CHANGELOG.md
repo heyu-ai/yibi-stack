@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- dev-cycle：`pr-cycle-deep` 的 Gemini R1、R2 與萃取階段改以 NDJSON stdin 傳送完整輸入，
+  移除 256000-byte inline 限制，不截斷 diff、不改用 `@file`。保留 OS 寫入隔離與既有
+  timeout／review 驗證；結構化回應缺少完整結果、回報錯誤或逾時時不計入共識。
+  需要支援 `--input-format stream-json` 的 agy（1.1.15+）。
+
 ## [1.23.23] - 2026-10-29
 
 ### Changed

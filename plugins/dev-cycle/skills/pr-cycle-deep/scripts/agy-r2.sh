@@ -17,7 +17,7 @@
 #   - agy CWD / --add-dir 為一次性 HEAD snapshot；OS sandbox 禁止原始 worktree 與 snapshot 寫入
 #
 # issue #153：nested worktree 下 agy 無法解析 @file，靜默進入 agentic 模式（R2 實測觀察到
-# timeout 這個結局）。修法同 stage1：inline prompt、無舊 scratch 的私有 HOME、agy_validate.py。
+# timeout 這個結局）。修法同 stage1：完整 prompt 經 stdin、無舊 scratch 的私有 HOME、agy_validate.py。
 #
 # --dangerously-skip-permissions 與 subagent 權限等級的完整理由見 agy-r1-stage1.sh 開頭註解
 # （<!-- verified: probe, agy 1.1.12，2026-08-13 重驗仍成立 -->）；allow-list 同樣用本 script
@@ -64,19 +64,9 @@ cd "$WT_ROOT"
 # helper 失敗或逾時也必須執行 POST，不得因非零退出而略過。
 PRE_TREE=$(GIT_OPTIONAL_LOCKS=0 git status --porcelain)
 
-# issue #153 fix 1：inline prompt 取代 @file，移除 agentic 觸發點。
-# 256000B 上限：macOS ARG_MAX 約 1 MiB（單一 arg 與 env 共用該預算），256KB 留足 headroom。
-# 註：量的是 prepend REVIEW_ONLY_GUARD 前的 input；guard 為固定 ~400B，相對 headroom 可忽略。
-INPUT_BYTES=$(wc -c < "$REVIEW_DIR/gemini-r2-input.md")
-if [ "$INPUT_BYTES" -gt 256000 ]; then
-    echo "[FAIL] R2 輸入 ${INPUT_BYTES}B 超過 256000B inline 上限" >&2
-    exit 1
-fi
-# REVIEW-ONLY guard 是行為指示；真正寫入隔離由 agy_isolate.py 的 OS sandbox 強制。
-REVIEW_ONLY_GUARD="[REVIEWER CONSTRAINT — 最高優先] 你是唯讀 code reviewer。禁止修改、建立或刪除任何檔案，禁止執行任何寫入／編輯指令。只讀取檔案與 diff，然後輸出你的 review 文字。改動工作樹是協議違規——若你發現自己正要編輯，停手，改在 review 裡用文字描述該修改建議。"
-INPUT_CONTENT="$REVIEW_ONLY_GUARD
-
-$(cat "$REVIEW_DIR/gemini-r2-input.md")"
+# 完整 prompt+aggregate 由 helper 讀檔、加上 REVIEW-ONLY guard，編碼為 NDJSON 經 stdin 傳給 agy。
+# 不使用 @file 或內容 argv，不截斷內容，也不受 argv 大小上限限制。
+# REVIEW-ONLY guard 是行為指示；真正寫入隔離仍由 helper 的 OS sandbox 強制。
 
 # helper 為 agy 設定絕對 snapshot --add-dir，保留 command 探索但不給來源寫入權。
 AGY_START=$SECONDS
@@ -91,7 +81,8 @@ interrupt_agy() {
 }
 trap 'interrupt_agy 15' TERM
 trap 'interrupt_agy 2' INT
-python3 "$SCRIPT_DIR/agy_isolate.py" --repo-root "$WT_ROOT" -p "$INPUT_CONTENT" \
+python3 "$SCRIPT_DIR/agy_isolate.py" --repo-root "$WT_ROOT" \
+    --prompt-file "$REVIEW_DIR/gemini-r2-input.md" \
     --model 'Gemini 3.8 Flash (High)' --timeout-secs "$AGY_PRINT_TIMEOUT_SECS" \
     --agy-log "$REVIEW_DIR/gemini-r2.agy.log" \
     > "$REVIEW_DIR/gemini-r2.md" 2>"$REVIEW_DIR/gemini-r2.log" &

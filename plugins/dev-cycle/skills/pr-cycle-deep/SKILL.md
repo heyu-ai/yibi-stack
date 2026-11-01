@@ -504,7 +504,7 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh verify 
 Step 2 已準備 fresh diff 與 scope；此處不要再次呼叫 setup、失效剛通過的 Step 2 結果。
 若 HEAD 改變，回 Step 2。將確認過的 contract 寫進 `prompt-r1.md`。
 
-agy R1/R2 以 inline prompt 執行，cwd 與絕對 `--add-dir` 指向一次性 HEAD snapshot，
+agy R1/R2 以 NDJSON stdin 傳送完整 prompt，cwd 與絕對 `--add-dir` 指向一次性 HEAD snapshot，
 不是原工作樹。macOS 需可用的 `sandbox-exec`，Linux 需可用的 `bwrap`；
 無 backend、backend 不可用、tracked tree 有未提交修改或衝突時，該 voice 明確失敗，
 **不得改回直接在原工作樹執行**。OS 防護使原工作樹、Git metadata 與 snapshot 原始碼不可寫；
@@ -691,12 +691,26 @@ to tell "reviewer gave none" from "the pipeline lost it".
 
 ##### Gemini voice (when GEMINI_OK)
 
-agy does not accept a combined stdin prompt + diff path; concatenate into a single file first:
+All three agy stages concatenate their inputs into the existing temporary files, then send the
+complete content as one NDJSON user event over stdin with
+`--input-format stream-json --output-format stream-json`. Prompt content never travels in argv
+or through `@file`; there is no local byte cap, truncation, or fallback to `-p`.
+R1 Stage 1/R2 pass the absolute input path to `agy_isolate.py --prompt-file`; the helper reads it
+and prepends the review-only constraint before encoding. Stage 2 uses `agy_stream.py encode`
+and `decode` around its existing sandboxed agy call.
+
+**Version requirement:** stream-json requires agy **1.1.15+**; the current protocol probe used
+**1.4.12**. It returned a terminal `event: result` with nested `result.status: SUCCESS` and
+`result.response`. The decoder writes only that terminal response into review artifacts;
+malformed/missing/duplicate results, `ERROR` status, and nonempty `finished_reason` fail loudly.
+`finished_reason: print_timeout` exits **124** and reaches the existing timeout quarantine
+before generic failure handling. This protocol probe is not evidence of a completed mob review.
 
 ###### Stage 1: Native review (raw output lands on disk, does not enter main context)
 
 > **Execution/security contract**: run the script verbatim; never append `$?` logic or redirects.
-> It inlines prompt+diff (never `@file`, issue #153) and validates output with `agy_validate.py`.
+> It sends complete prompt+diff via NDJSON stdin (never `@file`, issue #153) and validates
+> decoded response text with `agy_validate.py`.
 > R1/R2 run in a protected HEAD snapshot with a private HOME; they do not delete shared scratch.
 > `--dangerously-skip-permissions` permits command exploration inside the OS write boundary.
 > Original-tree before/after comparison remains an audit signal, not the isolation mechanism.
@@ -969,7 +983,8 @@ Disposition by severity × evidence × round (every cell defined — no gaps, no
 > verdict** (esp. CLI flag-parsing / runtime claims, which often reason from a plausible-but-wrong model).
 > **Record the tool version**: a stored verdict expires when the tool changes. Example (PR #157 → #229): agy's
 > `[P0] --print eats --add-dir` was once refuted by `printf 'reply ALPHA' | agy --print` → `ALPHA`; on **agy 1.1.2**
-> that no longer holds and the finding is now correct. The `@file` caution stands: inline via `-p "$CONTENT"`, never `@file`.
+> that no longer holds and the finding is now correct. The `@file` caution stands: use the scripts'
+> NDJSON stdin transport, never `@file` or a large `-p "$CONTENT"` argument.
 
 `final.md` format:
 範本的來源列只用於 Step 2 findings：將 `<n>` 換成實際索引，合併時用逗號分隔全部 CR 號；
@@ -1544,7 +1559,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Step 0 detects only one external voice (Codex or agy, not both) | Enter 2-voice mob (Claude + that voice); normal workflow |
 | Codex detected but auth failed | `codex login`; or `export OPENAI_API_KEY=...` |
 | agy detected but auth failed | Run `agy` to complete OAuth; or `export GEMINI_API_KEY=...` |
-| agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | R1/R2 inline prompts (no `@file`), use a private HOME without old scratch, and run `agy_validate.py`; they leave shared scratch untouched. Brain artifacts are rescued before private HOME cleanup. Stage 2 retains its existing extraction sandbox/cleanup. Validator failure means the voice failed. Exit **124** means timeout: partial output is quarantined as `*.timeout-partial*`, never aggregate it; inspect `*.agy.log` for `RESOURCE_EXHAUSTED` or use `AGY_PRINT_TIMEOUT_SECS` (1–570, default 480). |
+| agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | R1/R2 send complete prompts via NDJSON stdin (no `@file` or prompt argv), use a private HOME without old scratch, and run `agy_validate.py`; they leave shared scratch untouched. Brain artifacts are rescued before private HOME cleanup. Stage 2 retains its existing extraction sandbox/cleanup. Validator or stream decoder failure means the voice failed. Exit **124** means timeout: partial output is quarantined as `*.timeout-partial*`, never aggregate it; inspect `*.agy.log` for `RESOURCE_EXHAUSTED` or use `AGY_PRINT_TIMEOUT_SECS` (1–570, default 480). |
 | agy background bash `>` redirect output not updating target file (unverified) | If this occurs: switch to synchronous bash call (without `run_in_background`) |
 | Codex Stage 1 `codex-r1-raw.md` is empty (review missing) | Stage 1 now uses `codex exec ... > codex-r1-raw.md` (stdout); read `$REVIEW_DIR/codex-r1.stage1.log` (stderr) for the error. For the `codex exec \| tee` stages (Stage 2 / R2), `set -o pipefail` keeps `$?` reflecting the failing command in the pipeline (bash/zsh) |
 | Why Stage 1 uses `codex exec`, not `codex review --base` + a guard prompt | `codex review --base` and a positional `[PROMPT]` are mutually exclusive (codex-cli 0.142.5: `the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`), so the skill-hijack guard cannot ride on `codex review`. Stage 1 drives the review through `codex exec` with the guard on stdin instead (issue #194). Do not "fix" it back to `codex review --base` |

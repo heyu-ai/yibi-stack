@@ -13,8 +13,8 @@ mode, producing three failure modes that all pass the legacy "non-empty" gate:
   3. agentic timeout — the file search exceeds ``--print-timeout`` and the
      output is ``Error: timed out waiting for response``.
 
-The companion shell scripts now inline the prompt (no ``@file``), which removes
-the agentic trigger. This script is the defence-in-depth layer that turns any
+The companion shell scripts send the complete prompt via NDJSON stdin (no
+``@file``), removing that trigger. This script is the defence-in-depth layer that turns any
 residual silent failure into a loud one. It post-processes the raw output file
 *in place*:
 
@@ -35,7 +35,7 @@ unfenced echo of the prompt (the prompt template carries ## Summary / ## Finding
 ## Verdict), or a bare "## Verdict\nLGTM" with no file references. This cannot be
 closed mechanically without re-introducing the issue #153 false reject for a
 legitimate terse "LGTM, no issues" review that opens with a preamble. It is bounded
-by: (1) the primary fix is the inline prompt (no @file), which removes the agentic
+by: (1) the primary fix sends prompt content via stdin (no @file), removing that
 trigger; (2) tool-call / brain-pointer / timeout / wrong-target outputs still
 hard-fail; (3) in mob mode two other independent voices review the same diff, so a
 single false LGTM here cannot merge a bug alone.
@@ -151,7 +151,7 @@ _TIMEOUT_MARKERS = (
 # explicit separator, never inside an adjacent char class. The earlier form
 # ``[\w.\-/]+/[\w.\-/]+`` let two quantifiers both consume ``/``, giving
 # super-linear backtracking on long slash-runs (a ReDoS on model-controlled
-# review text up to the 256KB cap). This form backtracks linearly.
+# review text). This form backtracks linearly.
 _SRC_EXT = (
     "py|ts|tsx|js|jsx|go|rs|java|rb|md|sh|ya?ml|json|sql|toml|c|h|cpp|hpp|kt|swift|dart|php|cs"
 )
@@ -338,8 +338,8 @@ def check_changed_files(
     An empty changed list is treated as "nothing to check" and never blocks.
     Residual gap (accepted, defence-in-depth): a stale review of a *different*
     module in the *same* repo that cites only a generic shared basename
-    (``service.py``) still passes — the primary defences (inline prompt + scratch
-    hygiene) prevent that input from reaching the model in the first place.
+    (``service.py``) still passes — the primary defences (prompt content over stdin +
+    scratch hygiene) prevent that input from reaching the model in the first place.
     """
     if not changed:
         return None

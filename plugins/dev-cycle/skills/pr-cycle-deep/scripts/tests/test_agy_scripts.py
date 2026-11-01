@@ -6,8 +6,9 @@ test_agy_isolate.py; source/argv-only assertions are not a safety boundary.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
-import re
 import shutil
 import subprocess  # nosec B404
 import sys
@@ -65,54 +66,6 @@ REPO_ROOT_DIR = Path(__file__).resolve().parents[6]
 PLUGINS_DIR = Path(__file__).resolve().parents[5]
 assert PLUGINS_DIR.name == "plugins", PLUGINS_DIR
 assert (REPO_ROOT_DIR / "pyproject.toml").is_file(), REPO_ROOT_DIR
-
-# --------------------------------------------------------------------------- #
-# Static contract tests
-# --------------------------------------------------------------------------- #
-
-
-class TestInlinePromptContract:
-    @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
-    def test_agys_dt_007_inline_size_guard_present(self, script: Path) -> None:
-        """AGYS-DT-007: every inlining script guards the 256000-byte argv limit.
-
-        Stage 2 was missing this guard (Codex R2 P2) while stage1/R2 had it — a
-        verbose R1 raw could otherwise hit 'argument list too long'.
-        """
-        src = script.read_text(encoding="utf-8")
-        assert "256000" in src
-        assert "wc -c <" in src
-
-
-class TestValidatorFlagContract:
-    """The per-stage validator arg contract (pr-test-analyzer finding)."""
-
-    @pytest.mark.parametrize("script", [STAGE1, R2])
-    def test_agys_dt_004_full_review_requires_verdict_and_changed(self, script: Path) -> None:
-        """AGYS-DT-004: stage1 / R2 validate with --require-verdict + --changed-files."""
-        src = script.read_text(encoding="utf-8")
-        assert "agy_validate.py" in src
-        assert "--require-verdict" in src
-        assert "--changed-files" in src
-
-    def test_agys_dt_005_stage2_changed_files_no_require_verdict(self) -> None:
-        """AGYS-DT-005: stage2 validates with --changed-files but NOT --require-verdict.
-
-        Stage 2 emits JSON; requiring a markdown Verdict section would wrongly
-        fail valid extractions (the JSON schema check owns verdict validation).
-        """
-        src = STAGE2.read_text(encoding="utf-8")
-        assert "agy_validate.py" in src
-        assert "--changed-files" in src
-        assert "--require-verdict" not in src
-
-    @pytest.mark.parametrize("script", [STAGE1, STAGE2, R2])
-    def test_agys_dt_006_validator_via_script_dir(self, script: Path) -> None:
-        """AGYS-DT-006: the validator is located via $SCRIPT_DIR (portable)."""
-        src = script.read_text(encoding="utf-8")
-        assert 'SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)' in src
-        assert '"$SCRIPT_DIR/agy_validate.py"' in src
-
 
 # --------------------------------------------------------------------------- #
 # Runtime --add-dir contract (authoritative)
@@ -302,64 +255,76 @@ class TestAgyRuntimeContract:
 # Behavioral integration test (stage 1)
 # --------------------------------------------------------------------------- #
 
-_FAKE_AGY = """#!/usr/bin/env bash
-# Fake agy: append this invocation's argv, NUL-delimited, then emit the canned review.
-#
-# NUL is the only byte that cannot occur inside an argv element, so this encoding is
-# lossless. A newline-delimited rendering is NOT: every one of these scripts passes the
-# whole review prompt -- including diff.patch -- as the `-p` value, and that argument sits
-# BEFORE --add-dir. Decoded by lines, a diff line reading `--add-dir` followed by a line
-# holding an absolute path is indistinguishable from the real flag and its value, so the
-# check reads PR-controlled content instead of the executed argument. That was a live
-# false PASS, not a hypothetical (PR #409 Round 2).
-#
-# \\1 terminates each record so a script invoking agy more than once stays inspectable;
-# appending rather than overwriting is what makes the second invocation visible at all.
-#
-# `--help` is answered without recording: the 3rd-tools scripts probe `agy --help` for
-# --print-timeout / --log-file before invoking agy (an agy too old for those flags exits 2,
-# which would otherwise be indistinguishable from their own argument-validation exit 2).
-# That probe is not a content invocation, so recording it would make the --add-dir contract
-# check below fail on an argv that legitimately carries no --add-dir.
-if [ "$1" = --help ]; then
-    printf '%s\\n' '  --print-timeout  Timeout for print mode wait (default 5m0s)'
-    printf '%s\\n' '  --log-file       Override CLI log file path'
-    exit 0
-fi
-if [ "${AGY_FAKE_CAPTURE:-1}" = 1 ]; then
-    printf '%s\\0' "$@" >> "$AGY_FAKE_ARGV"
-    printf '\\1' >> "$AGY_FAKE_ARGV"
-fi
-cat "$AGY_FAKE_OUTPUT"
+_FAKE_AGY_BODY = r"""
+import hashlib
+import json
+import os
+import pathlib
+import re
+import sys
+import time
+
+args = sys.argv[1:]
+if args == ['--help']:
+    print('--print-timeout --log-file')
+    sys.exit(0)
+if os.environ.get('AGY_FAKE_CAPTURE', '1') == '1':
+    with open(os.environ['AGY_FAKE_ARGV'], 'ab') as capture:
+        capture.write(b''.join(arg.encode() + b'\0' for arg in args) + b'\1')
+
+streaming = '--input-format' in args
+if streaming:
+    assert args[args.index('--input-format') + 1] == 'stream-json'
+    assert args[args.index('--output-format') + 1] == 'stream-json'
+    assert '-p' not in args and '--prompt' not in args
+    lines = sys.stdin.buffer.read().splitlines()
+    assert len(lines) == 1
+    event = json.loads(lines[0])
+    assert event['event'] == 'user' and event['message']['role'] == 'user'
+    prompt = event['message']['content']
+    assert isinstance(prompt, str) and not prompt.startswith('@')
+if mode == 'rogue':
+    try:
+        pathlib.Path('seed.txt').write_text('rogue edit\n')
+    except OSError as exc:
+        print(exc, file=sys.stderr)
+if mode == 'deny' and '--sandbox' in args:
+    print('no output produced -- a tool required the command permission', file=sys.stderr)
+    sys.exit(0)
+if mode == 'timeout' and os.environ.get('AGY_FAKE_SLEEP'):
+    time.sleep(float(os.environ['AGY_FAKE_SLEEP']))
+
+response = pathlib.Path(os.environ['AGY_FAKE_OUTPUT']).read_text(encoding='utf-8')
+if os.environ.get('AGY_FAKE_DIGEST') == '1':
+    assert streaming
+    report = {}
+    for match in re.finditer(
+        r'BEGIN_TRANSPORT_(\w+)\n(.*?)END_TRANSPORT_\1\n', prompt, re.DOTALL
+    ):
+        data = match[2].encode('utf-8')
+        report[match[1]] = {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+    summary = json.dumps(report, sort_keys=True)
+    if '--sandbox' in args:
+        response = json.dumps({'verdict': 'LGTM', 'summary': summary, 'findings': []})
+    else:
+        response = '## Verdict\nLGTM\nReviewed seed.txt\n\n' + summary + '\n'
+if streaming:
+    result = {'status': 'SUCCESS', 'response': response}
+    if os.environ.get('AGY_FAKE_FINISHED_REASON'):
+        result['finished_reason'] = os.environ['AGY_FAKE_FINISHED_REASON']
+    print(json.dumps({'event': 'result', 'result': result}), flush=True)
+else:
+    sys.stdout.write(response)
+if mode == 'timeout' and os.environ.get('AGY_FAKE_MARKER') == '1':
+    print(
+        '[agy] print timeout after 8m0s with turn in progress; returning partial output',
+        file=sys.stderr,
+    )
 """
 
-_ROGUE_AGY = """#!/usr/bin/env bash
-# Fake agy attempts a tracked-file write; the OS must deny it.
-echo "rogue edit" >> seed.txt
-cat "$AGY_FAKE_OUTPUT"
-"""
-
-_FAKE_AGY_SANDBOX_DENY = """#!/usr/bin/env bash
-# Fake agy simulating sandbox auto-deny: exits 0 with empty stdout and a
-# stderr message about the command permission being denied. This is the exact
-# failure shape agy produces in headless -p mode when --sandbox is used and a
-# tool requiring the "command" permission is needed but cannot be interactively
-# approved. <!-- verified: probe, agy 1.1.12 -->
-if [ "$1" = --help ]; then
-    printf '%s\\n' '  --print-timeout  Timeout for print mode wait (default 5m0s)'
-    printf '%s\\n' '  --log-file       Override CLI log file path'
-    exit 0
-fi
-printf '%s\\0' "$@" >> "$AGY_FAKE_ARGV"
-printf '\\1' >> "$AGY_FAKE_ARGV"
-for arg in "$@"; do
-    if [ "$arg" = "--sandbox" ]; then
-        echo "no output produced -- a tool required the command permission" >&2
-        exit 0
-    fi
-done
-cat "$AGY_FAKE_OUTPUT"
-"""
+_FAKE_AGY = f"#!{sys.executable}\nmode = 'normal'\n" + _FAKE_AGY_BODY
+_ROGUE_AGY = f"#!{sys.executable}\nmode = 'rogue'\n" + _FAKE_AGY_BODY
+_FAKE_AGY_SANDBOX_DENY = f"#!{sys.executable}\nmode = 'deny'\n" + _FAKE_AGY_BODY
 
 GOOD_REVIEW = """## Verdict
 NEEDS_CHANGES
@@ -447,7 +412,7 @@ def _run_stage1(env_info: dict[str, object]) -> subprocess.CompletedProcess[str]
 
 
 class TestStage1Behavioral:
-    def test_agys_st_001_happy_path_inlines_and_passes(self, stage1_env: dict[str, object]) -> None:
+    def test_agys_st_001_happy_path_streams_and_passes(self, stage1_env: dict[str, object]) -> None:
         """AGYS-ST-001: a good review survives isolation and the validation gate."""
         require_isolation()
         Path(str(stage1_env["out_file"])).write_text(GOOD_REVIEW, encoding="utf-8")
@@ -468,17 +433,6 @@ class TestStage1Behavioral:
         assert result.returncode != 0
         assert "WRONG target" in result.stderr
 
-    def test_agys_st_003_oversize_input_fails_loud(self, stage1_env: dict[str, object]) -> None:
-        """AGYS-ST-003: input over the 256000-byte inline guard fails before calling agy."""
-        review = Path(str(stage1_env["review"]))
-        (review / "diff.patch").write_text("x" * 300_000, encoding="utf-8")
-        Path(str(stage1_env["out_file"])).write_text(GOOD_REVIEW, encoding="utf-8")
-        result = _run_stage1(stage1_env)
-        assert result.returncode != 0
-        assert "256000" in result.stderr
-        # agy must NOT have been invoked (guard fires first)
-        assert not Path(str(stage1_env["argv_capture"])).exists()
-
     def test_agys_st_004_out_of_band_edit_is_denied(self, stage1_env: dict[str, object]) -> None:
         """AGYS-ST-004: a rogue review cannot modify even its disposable snapshot."""
         require_isolation()
@@ -495,58 +449,61 @@ class TestStage1Behavioral:
         assert "seed.txt" in log.read_text()
 
 
-# --------------------------------------------------------------------------- #
-# Permission flag contract (Layer 1)
-# --------------------------------------------------------------------------- #
-
-
-def _extract_agy_invocation_line(src: str) -> str:
-    """Extract the full agy invocation including backslash continuations."""
-    raw_lines = src.splitlines()
-    result_parts: list[str] = []
-    in_continuation = False
-    for line in raw_lines:
-        stripped = line.lstrip()
-        if stripped.startswith("#") and not in_continuation:
-            continue
-        if in_continuation:
-            result_parts.append(stripped.rstrip("\\").strip())
-            if not line.rstrip().endswith("\\"):
-                in_continuation = False
-            continue
-        if re.search(r"(^|\s)agy\s+-p\s+", stripped):
-            result_parts.append(stripped.rstrip("\\").strip())
-            if line.rstrip().endswith("\\"):
-                in_continuation = True
-    return " ".join(result_parts)
-
-
-class TestPermissionFlagContract:
-    """Permission flag contract: each agy script uses the correct permission mode.
-
-    stage1/R2 need the `command` tool for exploring surrounding code during review,
-    which --sandbox auto-denies in headless mode. stage2 does extraction only and
-    does not need `command`, so --sandbox is sufficient and more secure.
-
-    This contract was previously unguarded — zero tests pinned which script used
-    which flag, so regressions could ship silently.
-    """
-
-    def test_agys_dt_015_extract_stage_uses_sandbox(self) -> None:
-        """AGYS-DT-015: extract stage uses --sandbox, NOT --dangerously-skip-permissions.
-
-        spec: agy-sandbox-permission-contract#extract-flag-regressed-to-bypass
-        """
-        invocation = _extract_agy_invocation_line(STAGE2.read_text(encoding="utf-8"))
-        assert invocation, "agy-r1-stage2.sh: no agy invocation line found"
-        assert "--sandbox" in invocation, (
-            "agy-r1-stage2.sh: extract stage MUST use --sandbox "
-            "(extraction does not need the command tool)"
+@pytest.mark.parametrize("stage", ["stage1", "stage2", "r2"])
+def test_agys_st_003_large_input_reaches_published_review_losslessly(
+    stage: str, agy_runtime_env: dict[str, object]
+) -> None:
+    """AGYS-ST-003：完整傳送超過 argv 上限的 Unicode 多行輸入，並發布可驗證的結果。"""
+    if stage != "stage2":
+        require_isolation()
+    env = dict(agy_runtime_env["env"])  # type: ignore[call-overload]
+    repo = Path(str(agy_runtime_env["repo"]))
+    review = repo / ".pr-review"
+    if stage == "stage1":
+        script = STAGE1
+        inputs = {"prompt": review / "prompt-r1.md", "diff": review / "diff.patch"}
+        output = review / "gemini-r1-raw.md"
+    elif stage == "r2":
+        script = R2
+        inputs = {"prompt": review / "prompt-r2.md", "aggregate": review / "r1-aggregate.md"}
+        output = review / "gemini-r2.md"
+    else:
+        script = STAGE2
+        inputs = {
+            "prompt": Path(env["HOME"]) / ".agents/skills/pr-cycle-deep/prompts/extract-r1.md",
+            "raw": review / "gemini-r1-raw.md",
+        }
+        output = review / "gemini-r1.json"
+    expected = {}
+    for name, path in inputs.items():
+        payload = (f'{name}: 雪🙂 "quoted" \\\\path\tline\n' * 20_000) + f"END {name} 尾端\n\n"
+        data = payload.encode("utf-8")
+        assert len(data) > 300_000
+        path.write_text(
+            f"BEGIN_TRANSPORT_{name}\n{payload}END_TRANSPORT_{name}\n", encoding="utf-8"
         )
-        assert "--dangerously-skip-permissions" not in invocation, (
-            "agy-r1-stage2.sh: extract stage MUST NOT use --dangerously-skip-permissions "
-            "(unnecessary privilege escalation for a text extraction task)"
-        )
+        expected[name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+    env.update(AGY_FAKE_CAPTURE="0", AGY_FAKE_DIGEST="1")
+    result = subprocess.run(  # nosec B603
+        ["bash", str(script)],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    published = output.read_text(encoding="utf-8")
+    if stage == "stage2":
+        extraction = json.loads(published)
+        assert extraction["verdict"] == "LGTM"
+        assert extraction["findings"] == []
+        actual = json.loads(extraction["summary"])
+    else:
+        assert "## Verdict\nLGTM\nReviewed seed.txt\n" in published
+        actual = json.loads(published.split("\n\n", 1)[1])
+    assert actual == expected
+    assert not list(review.glob("*.timeout-partial*"))
 
 
 # --------------------------------------------------------------------------- #
@@ -628,30 +585,7 @@ class TestSandboxAutoDenyDetection:
 # Print-timeout detection (issue #443)
 # --------------------------------------------------------------------------- #
 
-_FAKE_AGY_TIMEOUT = """#!/usr/bin/env bash
-# Fake agy reproducing the agy >= 1.1.28 print-timeout shape: exit 0, whatever output
-# was produced so far on stdout, and the marker line only on stderr. Measured on agy
-# 1.2.4: `[agy] print timeout after 40s with turn in progress; returning partial output`.
-# AGY_FAKE_SLEEP delays the return (drives the elapsed-time signal); AGY_FAKE_MARKER=1
-# emits the stderr marker.
-if [ "$1" = --help ]; then
-    printf '%s\\n' '  --print-timeout  Timeout for print mode wait (default 5m0s)'
-    printf '%s\\n' '  --log-file       Override CLI log file path'
-    exit 0
-fi
-if [ "${AGY_FAKE_CAPTURE:-1}" = 1 ]; then
-    printf '%s\\0' "$@" >> "$AGY_FAKE_ARGV"
-    printf '\\1' >> "$AGY_FAKE_ARGV"
-fi
-if [ -n "${AGY_FAKE_SLEEP:-}" ]; then
-    sleep "$AGY_FAKE_SLEEP"
-fi
-cat "$AGY_FAKE_OUTPUT"
-if [ "${AGY_FAKE_MARKER:-0}" = 1 ]; then
-    echo "[agy] print timeout after 8m0s with turn in progress; returning partial output" >&2
-fi
-exit 0
-"""
+_FAKE_AGY_TIMEOUT = f"#!{sys.executable}\nmode = 'timeout'\n" + _FAKE_AGY_BODY
 
 # A Round 2 response cut off mid-finding. Its FIRST heading already contains "verdict", so
 # agy_validate.py's substring check passes it -- the exact hole issue #443 describes.
@@ -739,6 +673,28 @@ class TestPrintTimeoutDetection:
         result = _run_with_fake_timeout_agy(agy_runtime_env, script, "", AGY_FAKE_MARKER="1")
         assert result.returncode == 124, f"{name}: {result.stderr}"
         assert "print timeout" in result.stderr
+
+    @pytest.mark.parametrize("name", sorted(_TIMEOUT_SCRIPTS))
+    def test_stream_print_timeout_without_stderr_quarantines_partial(
+        self, name: str, agy_runtime_env: dict[str, object]
+    ) -> None:
+        """終端結果宣告逾時時，不得把半截回覆發布為有效 review。"""
+        result = _run_with_fake_timeout_agy(
+            agy_runtime_env,
+            _TIMEOUT_SCRIPTS[name],
+            TRUNCATED_R2,
+            AGY_FAKE_FINISHED_REASON="print_timeout",
+        )
+        assert result.returncode == 124, result.stderr
+        review = Path(str(agy_runtime_env["repo"])) / ".pr-review"
+        published, partial = {
+            "stage1": ("gemini-r1-raw.md", "gemini-r1-raw.timeout-partial.md"),
+            "stage2": ("gemini-r1.json", "gemini-r1.json.timeout-partial.tmp"),
+            "r2": ("gemini-r2.md", "gemini-r2.timeout-partial.md"),
+        }[name]
+        assert not (review / published).exists()
+        assert (review / partial).read_text(encoding="utf-8") == TRUNCATED_R2
+        assert (review / partial).stat().st_mode & 0o777 == 0o600
 
     def test_agys_st_008_elapsed_over_budget_without_marker_fails(
         self, agy_runtime_env: dict[str, object]
