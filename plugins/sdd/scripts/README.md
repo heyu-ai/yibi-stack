@@ -113,8 +113,16 @@ objects, suite comments, nested helpers, locally shadowed names, skipped/todo te
 and skipped suites do not. Indirect callbacks, dynamic aliases and `skipIf`/`runIf`
 are not inferred and cannot establish coverage. Test source is never executed.
 
+Literal options objects are inspected in either supported argument position:
+`skip`/`todo` must be absent or explicitly `false`. Options variables, spreads,
+computed unknown keys, and unresolved flag values cannot establish coverage.
+A literal numeric timeout after the callback is supported.
+
 Vitest scanning requires Node.js 18+ and a TypeScript compiler installed in the
 target test package, or the pinned compiler shipped as the SDD package dependency.
+The target compiler is used only when its required AST APIs are available; an
+incompatible version (such as TypeScript 4.8) falls back to the pinned compiler.
+If neither is usable, the diagnostic reports an unavailable/incompatible compiler.
 Install the fallback in a source checkout with
 `npm ci --ignore-scripts --prefix plugins/sdd`; for an installed plugin, use its
 SDD install directory as the prefix. Python-only scans do not require Node.

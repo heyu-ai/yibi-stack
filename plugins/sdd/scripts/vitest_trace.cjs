@@ -9,26 +9,44 @@ const { createRequire } = require('node:module');
 
 const resolutions = new Map();
 const compilers = new Map();
+const requiredCompilerApis = [
+  'createSourceFile', 'createProgram', 'isSatisfiesExpression',
+  'isClassLike', 'getLeadingCommentRanges', 'getTrailingCommentRanges',
+];
+
+function compatibleCompiler(resolved) {
+  if (!compilers.has(resolved)) {
+    const compiler = require(resolved);
+    const compatible = compiler && requiredCompilerApis.every((name) => typeof compiler[name] === 'function');
+    compilers.set(resolved, compatible ? compiler : null);
+  }
+  return compilers.get(resolved);
+}
 
 function compilerFor(file) {
   const directory = path.dirname(file);
-  if (!resolutions.has(directory)) {
+  if (resolutions.has(directory)) return compilers.get(resolutions.get(directory));
+  let reason;
+  for (const resolve of [
+    () => createRequire(file).resolve('typescript'),
+    () => require.resolve('typescript'),
+  ]) {
     let resolved;
     try {
-      resolved = createRequire(file).resolve('typescript');
+      resolved = resolve();
     } catch (error) {
       if (error.code !== 'MODULE_NOT_FOUND') throw error;
-      try {
-        resolved = require.resolve('typescript');
-      } catch (fallbackError) {
-        throw new Error(`TypeScript 不可用：${file}；請在目標專案或 plugins/sdd 安裝 typescript。`, { cause: fallbackError });
-      }
+      reason = error;
+      continue;
     }
-    resolutions.set(directory, resolved);
+    const compiler = compatibleCompiler(resolved);
+    if (compiler) {
+      resolutions.set(directory, resolved);
+      return compiler;
+    }
+    reason = new Error(`compiler 缺少必要 AST API：${resolved}`);
   }
-  const resolved = resolutions.get(directory);
-  if (!compilers.has(resolved)) compilers.set(resolved, require(resolved));
-  return compilers.get(resolved);
+  throw new Error(`TypeScript 不可用或不相容：${file}；請在目標專案或 SDD 安裝相容的 typescript。`, { cause: reason });
 }
 
 function bindingsFor(file, root) {
@@ -114,6 +132,30 @@ function bindingsFor(file, root) {
     return null;
   }
 
+  function optionsPermitBinding(options, legacyTimeout) {
+    if (!options) return true;
+    options = unwrap(options);
+    if (legacyTimeout && ts.isNumericLiteral(options)) return true;
+    if (!ts.isObjectLiteralExpression(options)) return false;
+    const flags = { skip: false, todo: false };
+    for (const property of options.properties) {
+      if (ts.isSpreadAssignment(property)) return false;
+      let name = property.name;
+      if (ts.isComputedPropertyName(name)) {
+        name = unwrap(name.expression);
+        if (!ts.isStringLiteral(name) && !ts.isNoSubstitutionTemplateLiteral(name) &&
+            !ts.isNumericLiteral(name)) return false;
+      }
+      const key = name.text;
+      if (key === 'skip' || key === 'todo') {
+        if (!ts.isPropertyAssignment(property)) return false;
+        // 只接受明確 false；不執行 flag、getter 或 spread 來猜是否停用。
+        flags[key] = unwrap(property.initializer).kind !== ts.SyntaxKind.FalseKeyword;
+      }
+    }
+    return !flags.skip && !flags.todo;
+  }
+
   function commentsIn(callback) {
     const tcIds = [];
     const specSlugs = [];
@@ -162,6 +204,8 @@ function bindingsFor(file, root) {
         const isCallback = (value) => value && (ts.isArrowFunction(value) || ts.isFunctionExpression(value));
         const callback = isCallback(callbackArgument) ? callbackArgument : isCallback(optionsCallback) ? optionsCallback : null;
         if (!callback || !node.arguments[0]) return;
+        const options = callback === callbackArgument ? optionsCallback : callbackArgument;
+        if (!optionsPermitBinding(options, callback === callbackArgument)) return;
         const title = titleOf(node.arguments[0]);
         if (registration.kind === 'describe') {
           visit(callback.body, [...suites, title]);

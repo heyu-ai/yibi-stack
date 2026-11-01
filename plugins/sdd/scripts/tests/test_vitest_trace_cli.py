@@ -163,3 +163,25 @@ def test_foreign_active_plan_is_ownership_context_not_selected_noise(tmp_path: P
     result = _run(repo)
     assert result.returncode == 0, result.stderr + result.stdout
     assert result.stdout == ""
+
+
+@pytest.mark.parametrize("suite", [False, True])
+@pytest.mark.parametrize("options_first", [False, True])
+def test_options_disabled_tests_fail_strict_cli(
+    tmp_path: Path, suite: bool, options_first: bool
+) -> None:
+    callback = "() => { /* spec: player#close-player\n tc: UI-VL-001 */ }"
+    if suite:
+        callback = f"() => {{ test('child', {callback}); }}"
+    options = "{ skip: true }" if options_first else "{ todo: true }"
+    arguments = f"{options}, {callback}" if options_first else f"{callback}, {options}"
+    callee = "describe" if suite else "test"
+    source = (
+        "import { test, describe } from 'vitest';\n"
+        f"{callee}('disabled', {arguments});\n"
+        "test('menu', () => { /* spec: player#menu-access\n tc: UI-VL-002 */ });\n"
+    )
+    result = _run(_repo(tmp_path, source))
+    assert result.returncode == 1, result.stderr + result.stdout
+    assert "[FAIL] missing: player UI-VL-001" in result.stdout
+    assert "UI-VL-002" not in result.stdout

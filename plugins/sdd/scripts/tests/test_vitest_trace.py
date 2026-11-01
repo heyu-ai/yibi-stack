@@ -337,3 +337,90 @@ def test_missing_compiler_is_an_explicit_tool_error(tmp_path: Path) -> None:
     assert result.stdout == ""
     assert "TypeScript 不可用" in result.stderr
     assert str(source) in result.stderr
+
+
+@pytest.mark.parametrize("callee", ["test", "it.each([1])", "describe"])
+@pytest.mark.parametrize("flag", ["skip", "todo"])
+@pytest.mark.parametrize("options_first", [False, True])
+def test_options_disabled_registration_never_binds(
+    tmp_path: Path, callee: str, flag: str, options_first: bool
+) -> None:
+    callback = "() => { /* tc: DISABLED-VL-001 */ }"
+    if callee == "describe":
+        callback = f"() => {{ it('child', {callback}); }}"
+    options = f"{{ {flag}: true }}"
+    arguments = f"{options}, {callback}" if options_first else f"{callback}, {options}"
+    source = _source(tmp_path, "disabled.test.ts", f"{callee}('excluded', {arguments});")
+    assert _bindings(tmp_path, [source]) == []
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        "{ skip: false, todo: false }",
+        "{ timeout: 100 }",
+        "{ ['skip']: false }",
+        "{ skip: true, skip: false }",
+    ],
+)
+@pytest.mark.parametrize("options_first", [False, True])
+def test_statically_enabled_options_preserve_bindings(
+    tmp_path: Path, options: str, options_first: bool
+) -> None:
+    callback = "() => { /* tc: ENABLED-VL-001 */ }"
+    arguments = f"{options}, {callback}" if options_first else f"{callback}, {options}"
+    source = _source(tmp_path, "enabled.test.ts", f"test('active', {arguments});")
+    assert [binding["tc_ids"] for binding in _bindings(tmp_path, [source])] == [["ENABLED-VL-001"]]
+
+
+@pytest.mark.parametrize(
+    "options", ["options", "{ ...options }", "{ skip: flag }", "{ skip }", "{ [flag]: true }"]
+)
+def test_unresolved_options_cannot_establish_coverage(tmp_path: Path, options: str) -> None:
+    source = _source(
+        tmp_path,
+        "unknown.test.ts",
+        f"test('unknown', {options}, () => {{ /* tc: UNKNOWN-VL-001 */ }});",
+    )
+    assert _bindings(tmp_path, [source]) == []
+
+
+def test_literal_timeout_after_callback_still_binds(tmp_path: Path) -> None:
+    source = _source(
+        tmp_path, "timeout.test.ts", "test('active', () => { /* tc: TIMEOUT-VL-001 */ }, 100);"
+    )
+    assert [binding["tc_ids"] for binding in _bindings(tmp_path, [source])] == [["TIMEOUT-VL-001"]]
+
+
+def _incompatible_project_compiler(root: Path) -> None:
+    compiler = HELPER.parents[1] / "node_modules" / "typescript"
+    _source(
+        root,
+        "node_modules/typescript/package.json",
+        '{"name":"typescript","main":"index.cjs"}',
+    )
+    # TypeScript <4.9 lacks this API; retain the real compiler for every other capability.
+    _source(
+        root,
+        "node_modules/typescript/index.cjs",
+        f"module.exports = {{...require({json.dumps(str(compiler))}), "
+        "isSatisfiesExpression: undefined};",
+    )
+
+
+def test_incompatible_project_compiler_uses_pinned_fallback(tmp_path: Path) -> None:
+    _incompatible_project_compiler(tmp_path)
+    source = _source(tmp_path, "old.test.ts", "it('active', () => { /* tc: OLD-VL-001 */ });")
+    assert [binding["tc_ids"] for binding in _bindings(tmp_path, [source])] == [["OLD-VL-001"]]
+
+
+def test_no_compatible_compiler_reports_configuration_failure(tmp_path: Path) -> None:
+    _incompatible_project_compiler(tmp_path)
+    isolated = tmp_path / "isolated-helper.cjs"
+    shutil.copyfile(HELPER, isolated)
+    source = _source(tmp_path, "old.test.ts", "it('active', () => { /* tc: OLD-VL-001 */ });")
+    result = _invoke(tmp_path, [source], helper=isolated)
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "TypeScript" in result.stderr and "不相容" in result.stderr
+    assert "is not a function" not in result.stderr
