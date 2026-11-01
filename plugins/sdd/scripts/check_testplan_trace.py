@@ -2,7 +2,8 @@
 """testplan 與測試之間的雙向追溯檢查（testplan-trace capability）。
 
 背景：過去判斷「TC 有沒有被測到」是拿 TC-ID 字串去 grep 測試碼，通用 ID（例如 SMK-001）會在
-fixture 裡誤命中，TC 改名後也沒有任何東西報錯。這支 checker 改以測試 docstring 的明確宣告為準：
+fixture 裡誤命中，TC 改名後也沒有任何東西報錯。這支 checker 以 Python docstring 或 Vitest
+callback 直接註解內的明確宣告為準，並以各語言 AST 確認測試邊界：
 
     def test_login():
         \"\"\"
@@ -15,14 +16,18 @@ fixture 裡誤命中，TC 改名後也沒有任何東西報錯。這支 checker 
                                   [--change <name>] [--tests-dir <path> ...]
                                   [--strict] [--report]
 
-退出碼：0 = 無 FAIL（可能有 WARN）；1 = 至少一筆 FAIL；2 = 設定錯誤（repo root 不存在、指定的
-change 不存在、enforced testplan 無法解析出 TC 表）。
+退出碼：0 = 無 FAIL（可能有 WARN）；1 = 至少一筆 FAIL；2 = 設定或 Vitest 解析工具錯誤。
+Python-only 不需 Node；Vitest 需要 Node.js 與目標專案或 SDD 套件內的 TypeScript compiler。
 """
 
 from __future__ import annotations
 
 import ast
+import json
+import os
 import re
+import shutil
+import subprocess  # nosec B404
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,6 +48,10 @@ _TC_CELL_RE = re.compile(r"^TC-ID", re.IGNORECASE)
 KIND_AUTO = "auto"
 KIND_MANUAL = "manual"
 _SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".tox", ".mypy_cache"}
+_JS_EXTENSIONS = frozenset({".js", ".jsx", ".ts", ".tsx"})
+_JS_TEST_SUFFIXES = tuple(
+    f".{kind}{extension}" for kind in ("test", "spec") for extension in sorted(_JS_EXTENSIONS)
+)
 
 
 @dataclass(frozen=True)
@@ -96,12 +105,60 @@ def _docstring_binding(docstring: str | None) -> tuple[tuple[str, ...], tuple[st
     return tuple(tc_ids), slugs
 
 
-def parse_bindings(path: Path, root: Path) -> list[Binding]:
-    """解析單一測試檔中所有 test_* 函式／方法的綁定。
+def _parse_vitest_bindings(paths: list[Path], root: Path) -> list[Binding]:
+    """用單一 Node 行程批次解析 Vitest AST；工具失敗不是零綁定。"""
+    if not paths:
+        return []
+    node = shutil.which("node")
+    if node is None:
+        raise ConfigError("Vitest 追溯需要 Node.js >=18；請安裝 Node.js 後重跑")
+    helper = Path(__file__).with_name("vitest_trace.cjs")
+    try:
+        proc = subprocess.run(  # nosec B603
+            [node, str(helper)],
+            input=json.dumps(
+                {"files": [str(path.resolve()) for path in paths], "repo_root": str(root.resolve())}
+            ),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ConfigError(f"Vitest AST 解析工具無法執行：{exc}") from exc
+    if proc.returncode:
+        detail = proc.stderr.strip() or f"exit {proc.returncode}"
+        raise ConfigError(f"Vitest AST 解析失敗：{detail}")
+    try:
+        rows = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise ConfigError("Vitest AST 解析工具未回傳有效 JSON") from exc
+    if not isinstance(rows, list):
+        raise ConfigError("Vitest AST 解析工具回傳格式錯誤：需要綁定清單")
+    bindings: list[Binding] = []
+    for row in rows:
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("nodeid"), str)
+            or not row["nodeid"]
+            or not isinstance(row.get("tc_ids"), list)
+            or not all(isinstance(value, str) for value in row["tc_ids"])
+            or not isinstance(row.get("spec_slugs"), list)
+            or not all(isinstance(value, str) for value in row["spec_slugs"])
+        ):
+            raise ConfigError("Vitest AST 解析工具回傳無效的測試綁定")
+        bindings.append(Binding(row["nodeid"], tuple(row["tc_ids"]), tuple(row["spec_slugs"])))
+    return bindings
 
-    以 ast 讀 docstring，所以字串常數、註解、測試資料裡的 TC-ID 都不算綁定。
-    檔案語法錯誤時 raise SyntaxError，由呼叫端決定如何回報。
+
+def parse_bindings(path: Path, root: Path) -> list[Binding]:
+    """解析 Python 測試 docstring 或 Vitest callback 的直接註解。
+
+    兩種語言都依語法樹識別測試，不以字串／fixture 內的 TC-ID 冒充綁定。
+    Python 語法錯誤 raise SyntaxError；Vitest 語法或工具失敗 raise ConfigError。
     """
+    if path.suffix in _JS_EXTENSIONS:
+        return _parse_vitest_bindings([path], root)
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
     try:
@@ -126,30 +183,40 @@ def parse_bindings(path: Path, root: Path) -> list[Binding]:
 
 
 def discover_test_files(roots: list[Path]) -> list[Path]:
-    """列出 roots 下的 test_*.py 與 *_test.py，略過虛擬環境與 .claude/worktrees。"""
+    """發現 Python 與 Vitest 測試，走訪時剪除依賴與巢狀 worktree。"""
     found: list[Path] = []
+    seen: set[Path] = set()
+
+    def add(path: Path) -> None:
+        resolved = path.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            found.append(path)
+
     for root in roots:
         if root.is_file():
-            found.append(root)
+            add(root)
             continue
         if not root.is_dir():
             continue
-        for path in sorted(root.rglob("*.py")):
-            # 只看 root「底下」的組成部分：root 自己的路徑不能參與判斷。repo 本身位於
-            # `.claude/worktrees/<name>/` 時（worktree 內開發），絕對路徑一定含這兩段，
-            # 舊寫法會把整個 repo 的測試全部略過，每個 TC 都被誤判 missing；
-            # CI 的 checkout 路徑不含這段，所以不受影響。
-            # `root.rglob` 產生的路徑一定在 root 底下，`relative_to` 不會失敗；不加 fallback，
-            # 否則萬一失敗會悄悄退回「用絕對路徑判斷」——正是上面這個 bug 本身。
-            rel_parts = path.relative_to(root).parts
-            if set(rel_parts) & _SKIP_DIRS:
-                continue
-            if ".claude" in rel_parts and "worktrees" in rel_parts:
-                continue
-            name = path.name
-            if name.startswith("test_") or name.endswith("_test.py"):
-                found.append(path)
-    return found
+        for directory, dirs, files in os.walk(root):
+            base = Path(directory)
+            relative_parts = base.relative_to(root).parts
+            dirs[:] = sorted(
+                name
+                for name in dirs
+                if name not in _SKIP_DIRS
+                and not (
+                    ".claude" in (*relative_parts, name) and "worktrees" in (*relative_parts, name)
+                )
+            )
+            for name in sorted(files):
+                python_test = name.endswith(".py") and (
+                    name.startswith("test_") or name.endswith("_test.py")
+                )
+                if python_test or name.endswith(_JS_TEST_SUFFIXES):
+                    add(base / name)
+    return sorted(found)
 
 
 # ---------------------------------------------------------------------------
@@ -317,10 +384,13 @@ def check_trace(
     bindings: list[Binding],
     *,
     strict: bool,
+    known_active: list[ChangeInput] | None = None,
 ) -> list[Finding]:
     """對 active change 做 missing／orphan／mismatch／collision／manual-open／unparsable 檢查。
 
     enforced testplan 無法解析出 TC 表時 raise ConfigError（呼叫端轉為 exit 2）。
+    known_active 提供未選取的 active ownership；只檢查 active，其他計畫僅用於辨識定義與歸屬。
+    未提供時保留全量檢查行為；選取模式遇到未解析的 ownership 時明確警告，不推定為空。
     """
     for change in active:
         if change.plan.enforced and not change.plan.parse_ok:
@@ -330,10 +400,27 @@ def check_trace(
 
     findings: list[Finding] = []
     severity = {change.name: _severity(change, strict) for change in active}
+    context = {change.name: change for change in (known_active or [])}
+    context.update((change.name, change) for change in active)
+    incomplete = []
+    if known_active is not None:
+        incomplete = [name for name, change in context.items() if not change.plan.parse_ok] + [
+            f"archive/{name}" for name, plan in archived.items() if not plan.parse_ok
+        ]
+        if incomplete:
+            findings.append(
+                Finding(
+                    SEVERITY_WARN,
+                    "ownership-unparsed",
+                    "-",
+                    "-",
+                    f"無法完整判定 TC 定義與歸屬，testplan 未解析：{', '.join(incomplete)}",
+                )
+            )
 
     # 每個 TC-ID 由哪些 testplan 定義（active 與 archived）
     defined_by: dict[str, list[str]] = {}
-    for change in active:
+    for change in context.values():
         for tc_id in change.plan.tcs:
             defined_by.setdefault(tc_id, []).append(change.name)
     for name, plan in archived.items():
@@ -412,15 +499,19 @@ def check_trace(
                         )
                     )
 
-    # orphan：綁定的 ID 不存在於任何 testplan；以 spec slug 歸屬到唯一的 active change，
-    # 歸屬不到（零個或多個）就只報 WARN
-    slugs_of = {change.name: set().union(*change.plan.tc_slugs.values()) for change in active}
+    # orphan：以所有 active 的 scenario 判定歸屬，只略過確定屬於未選取 change 的綁定。
+    # 零個或多個 owner，以及未解析的 ownership，皆保留 WARN。
+    slugs_of = {
+        name: set().union(*change.plan.tc_slugs.values()) for name, change in context.items()
+    }
     for tc_id, tests in bound.items():
         if tc_id in defined_by:
             continue
         for binding in tests:
             owners = [name for name, slugs in slugs_of.items() if set(binding.spec_slugs) & slugs]
-            if len(owners) == 1:
+            if len(owners) == 1 and not incomplete:
+                if owners[0] not in severity:
+                    continue
                 sev, owner = severity[owners[0]], owners[0]
             else:
                 sev, owner = SEVERITY_WARN, "-"
@@ -430,7 +521,11 @@ def check_trace(
                     "orphan",
                     owner,
                     tc_id,
-                    f"{binding.nodeid} 引用了任何 testplan 都沒有定義的 TC",
+                    (
+                        f"{binding.nodeid} 的 TC 未見於已解析 testplan；ownership 不完整"
+                        if incomplete
+                        else f"{binding.nodeid} 引用了任何 testplan 都沒有定義的 TC"
+                    ),
                 )
             )
 
@@ -483,15 +578,20 @@ def load_changes(
 
 
 def load_bindings(roots: list[Path], repo_root: Path) -> list[Binding]:
-    """解析所有測試檔的綁定；語法錯誤的檔案回報 [WARN] 後略過（pytest 自己會紅）。"""
+    """Python 語法錯誤沿用 WARN；Vitest 工具／語法錯誤 fail closed，exit 2。"""
     import sys
 
     bindings: list[Binding] = []
+    vitest_paths: list[Path] = []
     for path in discover_test_files(roots):
+        if path.suffix in _JS_EXTENSIONS:
+            vitest_paths.append(path)
+            continue
         try:
             bindings.extend(parse_bindings(path, repo_root))
         except (SyntaxError, UnicodeDecodeError, OSError) as e:
             print(f"[WARN] 無法解析測試檔 {path}：{e}", file=sys.stderr)
+    bindings.extend(_parse_vitest_bindings(vitest_paths, repo_root))
     return bindings
 
 
@@ -574,14 +674,31 @@ def main(argv: list[str] | None = None) -> int:
     test_roots = [p if p.is_absolute() else repo_root / p for p in (args.tests_dir or [repo_root])]
 
     try:
-        active, archived = load_changes(openspec_root, args.change)
+        known_active, archived = load_changes(openspec_root, None)
+        active = known_active
+        if args.change is not None:
+            active = [change for change in known_active if change.name == args.change]
+            if not active:
+                raise ConfigError(
+                    f"找不到 active change：{args.change}"
+                    f"（{openspec_root}/changes/{args.change}/testplan.md 不存在）"
+                )
         bindings = load_bindings(test_roots, repo_root)
-        findings = check_trace(active, archived, bindings, strict=args.strict)
+        findings = check_trace(
+            active,
+            archived,
+            bindings,
+            strict=args.strict,
+            known_active=known_active if args.change is not None else None,
+        )
     except ConfigError as e:
         print(f"[FAIL] {e}", file=sys.stderr)
         return 2
 
     if args.report:
+        for finding in findings:
+            if finding.kind == "ownership-unparsed":
+                print(finding.render(), file=sys.stderr)
         print("\n".join(render_report(active, bindings)))
         return 0
 

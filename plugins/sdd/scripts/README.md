@@ -91,8 +91,35 @@ def test_empty_password_rejected() -> None:
     """
 ```
 
-Only a docstring line that **starts with** `tc:` binds. TC-IDs in test data,
-comments, or docstring prose never count.
+For Python, only a docstring line that **starts with** `tc:` binds. TC-IDs in test
+data, ordinary comments, or docstring prose never count.
+
+Vitest uses direct callback comments, parsed with the TypeScript compiler AST:
+
+```tsx
+import { it } from "vitest";
+
+it.each(["playing", "paused"])("closes %s", (state) => {
+  // spec: player#close-player
+  // tc: PLAYER-VL-001
+  expect(closePlayer(state)).toEqual({ playing: false, visible: false });
+});
+```
+
+The checker recognizes inline `it`/`test` callbacks, including `each` factories
+and tagged tables, nested `describe`, and Vitest named-import aliases or namespaces.
+Only comments between the callback's direct statements bind; strings, JSX, fixture
+objects, suite comments, nested helpers, locally shadowed names, skipped/todo tests
+and skipped suites do not. Indirect callbacks, dynamic aliases and `skipIf`/`runIf`
+are not inferred and cannot establish coverage. Test source is never executed.
+
+Vitest scanning requires Node.js 18+ and a TypeScript compiler installed in the
+target test package, or the pinned compiler shipped as the SDD package dependency.
+Install the fallback in a source checkout with
+`npm ci --ignore-scripts --prefix plugins/sdd`; for an installed plugin, use its
+SDD install directory as the prefix. Python-only scans do not require Node.
+Missing Node/compiler, invalid syntax, and helper failures exit **2**, not a
+fabricated empty binding list or a successful check.
 
 ### Quick start
 
@@ -114,8 +141,8 @@ uv run python plugins/sdd/scripts/check_testplan_trace.py --report
 |------|---------|-------------|
 | `--repo-root` | git toplevel of cwd | Repository root |
 | `--openspec-dir` | `openspec` | OpenSpec directory relative to the repo root (e.g. `docs/openspec`) |
-| `--change` | all active changes | Check one change only; an unknown name exits 2 |
-| `--tests-dir` | repo root | Repeatable; scans `test_*.py` and `*_test.py` below it |
+| `--change` | all active changes | Check/report one change, retaining all active/archive TC ownership; an unknown name exits 2 |
+| `--tests-dir` | repo root | Repeatable; scans `test_*.py`, `*_test.py`, and `*.test.*`/`*.spec.*` with js/jsx/ts/tsx extensions |
 | `--strict` | false | Treat every enforced finding as FAIL and require all Manual Verification items checked |
 | `--report` | false | Print the TC-to-test-nodeid table; always exits 0 unless configuration is invalid |
 | `--summary` | false | Print every FAIL line, but collapse WARNs into one line per change with per-kind counts (used by the pre-commit hook) |
@@ -138,6 +165,13 @@ least one checkbox and every checkbox is checked. Everything else is WARN.
 Exit codes: `0` no FAIL; `1` at least one FAIL; `2` configuration error (repo root
 missing, unknown `--change`, enforced testplan without a parsable TC table).
 
+Selected-change scans do not report known IDs from other active/archive plans as
+orphans. A genuinely undefined ID owned only by the selected change still fails;
+one definitively owned by another active change is outside the selected report.
+Unknown or ambiguous ownership remains an explicit WARN. If an ownership
+testplan cannot be parsed, `ownership-unparsed` warns instead of treating it as
+proof of absence; uncertain orphan ownership is not silently discarded.
+
 ### Wiring a host project (manual)
 
 Installing the sdd plugin ships the checker, not the wiring. Add to the host
@@ -151,14 +185,15 @@ project's `.pre-commit-config.yaml`:
       entry: python3 <sdd-plugin-installPath>/scripts/check_testplan_trace.py --summary --openspec-dir openspec
       language: system
       pass_filenames: false
-      files: (^|/)(testplan\.md|tasks\.md|test_[^/]*\.py|[^/]*_test\.py)$
+      files: (^|/)(testplan\.md|tasks\.md|test_[^/]*\.py|[^/]*_test\.py|[^/]*\.(test|spec)\.(js|jsx|ts|tsx))$
       verbose: true
 ```
 
 Take `<sdd-plugin-installPath>` from the `installPath` of `sdd@yibi-stack` in
 `~/.claude/plugins/installed_plugins.json`; adjust `--openspec-dir` when openspec is
-not at the repo root. Only Python tests are parsed: a non-Python project (e.g.
-Flutter) must not declare `trace: enforced`, or every auto TC reports missing.
+not at the repo root. Python and Vitest JS/TS are supported; other frameworks
+(e.g. Flutter/Dart) are not parsed and must not use this checker as their
+`trace: enforced` evidence.
 
 ## Origin (check_spec_coverage.py)
 

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- sdd：testplan trace checker 以 TypeScript compiler AST 支援 Vitest JS／TS／TSX 的測試 callback
+  與 `it.each` 綁定，不把 fixture 字串、巢狀 helper 或 skipped 測試當覆蓋；Node／compiler 缺失或
+  語法解析失敗回 exit 2。`--change` 保留其他 active／archive 的 TC 歸屬資訊，避免誤報 unrelated
+  orphan，並保留真正無歸屬或不明歸屬的警告。來源：heyu-ai/yibi-mvp#2668。
+
 ## [1.23.23] - 2026-10-29
 
 ### Changed
