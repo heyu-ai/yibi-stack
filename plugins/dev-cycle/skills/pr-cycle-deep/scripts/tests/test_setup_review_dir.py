@@ -665,7 +665,8 @@ class TestReviewScopeBehavior:
 
         reset = _scope_cli(repo, "reset")
         assert reset.returncode == 0, reset.stderr
-        assert final.read_bytes() == (prefix + suffix).encode()
+        assert not final.exists()
+        assert (directory / "final.prev.md").read_bytes() == expected
         for name in (
             "code-review-filtered.json",
             "code-review-scope.md",
@@ -681,9 +682,8 @@ class TestReviewScopeBehavior:
         source = _review_input(repo, findings)
         regenerated = _filter(repo, source)
         assert regenerated.returncode == 0, regenerated.stderr
-        new_audit = (directory / "code-review-scope.md").read_bytes()
-        assert final.read_bytes() == (prefix + suffix + "\n\n").encode() + new_audit
-        assert_count_gate_passes()
+        assert not final.exists()
+        assert (directory / "final.prev.md").read_bytes() == expected
 
     @pytest.mark.parametrize("uv_available", [False, True])
     def test_setup_fails_loudly_when_script_environment_cannot_run(
@@ -734,7 +734,7 @@ class TestReviewScopeBehavior:
             ),
         ],
     )
-    def test_malformed_report_fails_filter_and_reset_without_rewriting_evidence(
+    def test_malformed_report_blocks_filter_but_reset_archives_evidence(
         self, origin_and_clone: dict[str, Path], malformed: str
     ) -> None:
         repo = origin_and_clone["repo"]
@@ -754,9 +754,9 @@ class TestReviewScopeBehavior:
         assert not (directory / "code-review-filtered.json").exists()
         assert not (directory / "code-review-scope.md").exists()
         reset = _scope_cli(repo, "reset")
-        assert reset.returncode == 1, reset.stderr
-        assert "[FAIL]" in reset.stderr
-        assert final.read_bytes() == evidence
+        assert reset.returncode == 0, reset.stderr
+        assert not final.exists()
+        assert (directory / "final.prev.md").read_bytes() == evidence
         assert not (directory / "review-scope.json").exists()
 
     @pytest.mark.parametrize(

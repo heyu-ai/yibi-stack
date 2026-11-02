@@ -47,6 +47,8 @@ a few minutes and the lead responds on the spot — faster than two senior engin
 `--resume`: run Step 0a, Read `state.md` + `final.md`, re-check live PR state (Step 6 recheck
 table), then jump to its `next:` step. `state.md` missing, naming another PR, or its `head:` ≠ the
 live `gh pr view --json headRefOid` (unreviewed commits) → `[FAIL]`; rerun without `--resume`.
+refresh 後若 `final.md` 缺檔，表示本輪尚未彙整；依 checkpoint 完成本輪 Step 2／5，
+不得以 `final.prev.md` 代替。`next:` 若已指向 Step 5a／5b／6，先回 Step 5 重建 final。
 
 ---
 
@@ -345,7 +347,7 @@ YAML 解析依賴，不使用受審 repo 的 Python 依賴，也不要求把套�
 | Exit | Meaning | Action |
 |------|---------|--------|
 | `0` | Baseline OK; amplifier clean (no spectra change, all TCs traced, or TC check skipped for a non-`feat`/`refactor` `type:`) | Relay the summary; CI fail/pending is informational here; continue to Step 1.6 |
-| `1` | amplifier-verify exit 1 **with** a `[MUST]`/`[SHOULD]` line (a bare exit 1 / traceback is mapped to `2`) | **Do not stop.** Read the report; write MUST findings to `$REVIEW_DIR/final.md` Critical and SHOULD to Important; continue |
+| `1` | amplifier-verify exit 1 **with** a `[MUST]`/`[SHOULD]` line (a bare exit 1 / traceback is mapped to `2`) | **Do not stop.** Read and retain the findings in `pre-review-check.md`; do not write `final.md` yet. Step 5 regenerates this independent input and includes MUST as Critical and SHOULD as Important. |
 | `2` | `gh` failed (auth / PR not found); amplifier-verify exit 2 (invalid/unreadable `.spectra.yaml`, explicit missing/unusable spec root, root/change/archive escape, change dir missing, missing/unparsable testplan on `feat`/`refactor`, HEAD ≠ PR head), exit 1 without a finding line, or did not run; report unwritable; internal error | **Stop** with `[FAIL]`. `gh` causes are the `[FAIL]` lines on stderr and the `- Diff:` / `- CI:` lines; an amplifier cause is in the report's amplifier-verify stderr section |
 
 In the report, check the detected `type:` on the `spectra change detected` line (author-declared;
@@ -910,11 +912,29 @@ After reading all R1 plus any activated R2, produce `$REVIEW_DIR/final.md`, grad
 [Review Severity Standard](#review-severity-standard-rfc-2119) (Critical = MUST, Important = SHOULD,
 Actionable NIT = MAY). Blocking is decided by the Evidence gate below; NIT never blocks any round.
 
+每次彙整（含 re-review）先重跑 Step 1.5 的 check，取得本輪 HEAD 的獨立 amplifier 輸入：
+此命令會覆寫 `pre-review-check.md`；執行前先 Read 並保留 Step 1.7 附加的 red-first
+原始輸出（含 `[WEAK-RED]`／`[EXEMPT]`／`[WARN]` 與 unchecked 狀態），完成後用 Write
+原樣附回新報告，供 Step 8 揭露。只帶回這段測試證據，不得帶回舊 amplifier findings。
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py --pr {{pr_number}}
+```
+
+沿用 Step 1.5 exit 分流：`0` → 繼續；`1` 且有 `[MUST]`／`[SHOULD]` → 讀取新產生的
+`pre-review-check.md`，將全部 MUST 納入 Critical、SHOULD 納入 Important；`2` → 停止。
+報告缺漏／無法讀取也停止，不能當成零 findings。此檔不受 scope reset／capture 影響，
+但仍須重新產生，不能沿用上一輪結果或從 `final.prev.md` 還原舊 amplifier findings。
+先完成這個輸入，再與 filtered CR findings 和各 voice 結果彙整；不得只依 CR 陣列建立 final。
+
 Step 2 只讀取 `code-review-filtered.json`，不得從 raw 回應或被排除的項目重建候選。
 將 `code-review-scope.md` 的整個 owned marker 區塊原樣保留於 `final.md`（含零筆與捨棄數量），
-不要在重建 final 報告時覆蓋掉它，也不要覆蓋 pre-review amplifier 已產生的 findings。
-若本輪重新準備過 scope，舊 Step 2 結果已失效；MUST 重跑 Step 2 reviewer、正規化與 filter，
-再用本輪 filtered 陣列重建 final 的來源編號與去向；不得沿用舊 CR 列或手寫 filtered JSON。
+不要在重建 final 報告時覆蓋掉它，也不要漏掉上述本輪 amplifier findings。
+重新準備 scope 時，reset／capture 會將任何既存 `final.md` 的全部原始 bytes 移到
+`final.prev.md`（只保留最近一份，含原 audit；草稿／格式損壞的檔案也會取代既有歷史，
+不驗證是否完成 review；沒有 final 時不動歷史檔）。舊 Step 2 結果已失效，MUST 重跑 Step 2
+reviewer、正規化與 filter，再用本輪 filtered 陣列建立新的 `final.md` 與來源去向；
+`final.prev.md` 僅供歷史查閱，不得複製回 final 或沿用舊 CR 列，也不得手寫 filtered JSON。
 
 按 filtered `findings` 陣列順序（從 1 起）給 Step 2 來源編號 `CR-1`、`CR-2`……；
 在 final 的對應 finding 下加獨立列 `- Code-review source: CR-1`。合併重複 finding 時，
@@ -1067,6 +1087,9 @@ user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> 
 ### Step 5a — 收下筆數與 final 列出筆數 gate（blocking）
 
 每次進入 Step 5b **或 Step 6** 前（含 `--resume` 直接跳入與 Step 7 重彙整），MUST 從 PR worktree 執行：
+
+MUST 先確認本輪 `final.md` 寫入成功，再執行 gate；不得把報告寫入與 gate 平行送出。
+refresh 後若尚未建立新 final，gate 會以缺檔回 exit `2`，即使兩輪 findings 筆數相同也不放行。
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
@@ -1253,8 +1276,10 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 
 本次 refresh 會刪除舊 `code-review-filtered.json`。在派出 Step 3 voices 前，MUST 重跑 Step 2
 的 `/code-review {{pr_number}}` → 正規化 → filter（不要再重跑 setup）；即使零 findings 也要
-由 filter 產生本輪合法空陣列。保留上一輪 final 作歷史後，依新陣列重新編 CR 號與彙整，
-不能以不存在的 filtered JSON 進 Step 5a，也不能保留上一輪來源列來湊數。
+由 filter 產生本輪合法空陣列。上一輪 final 已自動移到 `final.prev.md`，依新陣列重新編 CR 號
+並建立本輪 `final.md`；不能以不存在的 filtered JSON 進 Step 5a，也不能沿用歷史來源列來湊數。
+本輪 amplifier 由 Step 5 重新執行 pre-review check 取得，不能因舊 final 已歸檔就省略；
+仍存在的 MUST／SHOULD 必須重新納入本輪彙整，不從歷史報告推定已修復。
 Round 2 的 Step 2 仍更新完整 PR 的 source inventory；`baseline..HEAD` 限制的是 mob review 與
 本輪 blocking 判定，不是 scope filter 的檔案准入。CR 號依新 filtered 陣列分配；落在 fix surface
 外的項目標為 `Outside Round 2 contract` 並保留來源，不據此重開修復迴圈，也不偽造零筆輸入。

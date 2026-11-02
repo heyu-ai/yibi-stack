@@ -88,7 +88,13 @@ def invalidate(directory: Path, *, capture: bool = False, final: bool = True) ->
     if capture:
         (directory / "code-review.json").unlink(missing_ok=True)
     if final:
-        update_final(directory, None)
+        if capture:
+            report = directory / "final.md"
+            if report.exists():
+                # reset／capture 保留既存 final 的全部 bytes，不判定 review 是否完成。
+                report.replace(directory / "final.prev.md")
+        else:
+            update_final(directory, None)
 
 
 def changed_paths(root: Path, base: str, head: str) -> list[str]:
@@ -269,8 +275,12 @@ def main() -> int:
         reset_capture = len(sys.argv) > 1 and sys.argv[1] in ("reset", "capture")
         parser = Parser(description=__doc__)
         commands = parser.add_subparsers(dest="command", required=True)
-        commands.add_parser("reset", help="invalidate the previous capture and accepted findings")
-        capture = commands.add_parser("capture", help="freeze setup's fetched object ID")
+        commands.add_parser(
+            "reset", help="失效前輪 scope／findings，將既存 final.md 移至 final.prev.md"
+        )
+        capture = commands.add_parser(
+            "capture", help="歸檔既存 final.md 並固定 setup 抓取的 object ID"
+        )
         capture.add_argument("--base", required=True)
         filtered = commands.add_parser("filter", help="scope a normalized review envelope")
         filtered.add_argument("--input", type=Path, required=True)

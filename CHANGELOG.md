@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- dev-cycle：`pr-cycle-deep` 的 scope reset／capture 將既存 `final.md` 的全部 bytes 移至
+  `final.prev.md`（僅保留最近一份，草稿也可取代歷史；不驗證 review 是否完成），避免
+  re-review 兩輪 findings 筆數相同時，Step 5a gate 誤收舊正文；未建立本輪 final 前
+  以 exit 2 阻擋。amplifier 改由每次 Step 5 重新產生的獨立 `pre-review-check.md` 納入
+  彙整，避免本輪 MUST／SHOULD 在 scope refresh 時一併移出 blocking set（#620）。
 - harness／dev-cycle／3rd-tools、頂層 `skills/`（`skill-trigger-eval`）、`AGENTS.md` 與 rule 16：background session 的 scratch 檔一律改放 `$CLAUDE_JOB_DIR/tmp/`。
   Write tool 會拒絕寫入 `$CLAUDE_JOB_DIR` 根目錄，照舊指示每次都失敗。涵蓋多行 commit message
   （`AGENTS.md`、`plugins/harness/rules-context.md`、`/pr-cycle-deep`、`/pr-review-cycle`、`/debug-to-pr`）、
