@@ -49,6 +49,10 @@ table), then jump to its `next:` step. `state.md` missing, naming another PR, or
 live `gh pr view --json headRefOid` (unreviewed commits) → `[FAIL]`; rerun without `--resume`.
 refresh 後若 `final.md` 缺檔，表示本輪尚未彙整；依 checkpoint 完成本輪 Step 2／5，
 不得以 `final.prev.md` 代替。`next:` 若已指向 Step 5a／5b／6，先回 Step 5 重建 final。
+跳轉前先 Read `.pr-review/red-first.md`，依 Step 1.7 證據契約檢查。
+缺漏、不可讀、格式／PR 不符、不完整或 blocking 結果 → `[FAIL]` 停止；
+不得從 `pre-review-check.md`、scratch 輸出或對話記憶推定通過。
+修正後 captured HEAD 可與目前 HEAD 不同；必須揭露原始 identity，不宣稱在新 HEAD 重跑過。
 
 ---
 
@@ -391,7 +395,21 @@ unstaged, untracked or submodule changes; exit `2`), and after the run requires 
 bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR/tmp"
 ```
 
-Append its output to `pre-review-check.md`. Exit `0` → continue.
+腳本自動發布 `<repo-root>/.pr-review/red-first.md`，獨立於只存放 scratch
+`red-first.out` 與 `pr-body.md` 的 `--out-dir`。不得把 red-first 附加／複製到
+`pre-review-check.md`，也不得手動重建 canonical 報告。腳本會將 `.pr-review/` 加入
+本地 Git exclude；新一次有效目標執行先失效舊報告，再為具名 exit `0`–`3` 原子發布完整報告。
+中斷不會留下可採信的舊報告或半成品；尚未解析出目標時的失敗可能只有 stderr 與 result token。
+
+**證據契約（resume 與 Step 8 同樣適用）：** 直接讀取獨立報告。
+第一行是 `<!-- red-first:<captured HEAD SHA or unknown> -->`，第二行是
+`PR: {{pr_number}}`，完整終行必須是 `RED_FIRST_RESULT=<token>` 並以換行結束。
+正文保留 wrapper 警告、checker 的合併輸出與 wrapper 失敗診斷。缺漏／不可讀、identity
+格式錯誤、PR 不符、terminal token 缺漏／不完整，或結果不是 `pass`／`unchecked`，
+都必須 `[FAIL]` 停止，不能推定通過。`fail`、`error`、`tree-not-restored` 仍是阻擋結果，
+不是 amplifier findings。captured identity 是原始執行的 HEAD／PR，修正與 re-review
+可沿用該證據而不要求 HEAD 相等，但不得宣稱在新 HEAD 重新執行過測試。
+補充證據必須另存，不修改 canonical 報告或其結果。Exit `0` → 讀取有效報告後才繼續。
 `RED_FIRST_RESULT=unchecked` is also exit `0` but is **not a pass**: nothing ran the PR's tests against base code — either the
 checker said it checked nothing (e.g. every production change is in a directory it cannot map to tests), or the repo has
 **no checker at all** (`[WARN] red-first: no checker`; reported for every PR type — the title is not consulted, since a self-declared
@@ -551,7 +569,7 @@ Changed files: see {{REVIEW_DIR}}/changed-files.txt
 
 ## Frozen Review Contract
 <paste the exact human-confirmed ## Review Contract section from the PR body>
-<if pre-review-check.md has [WEAK-RED] lines: "## Weak-red tests (inspect for tautology)" + those lines>
+<if .pr-review/red-first.md has [WEAK-RED] lines: "## Weak-red tests (inspect for tautology)" + those lines; include its captured HEAD/PR, not the current HEAD as a rerun claim>
 
 Output format (strictly follow, for downstream aggregation):
 
@@ -912,13 +930,16 @@ After reading all R1 plus any activated R2, produce `$REVIEW_DIR/final.md`, grad
 [Review Severity Standard](#review-severity-standard-rfc-2119) (Critical = MUST, Important = SHOULD,
 Actionable NIT = MAY). Blocking is decided by the Evidence gate below; NIT never blocks any round.
 
-每次彙整（含 re-review）先重跑 Step 1.5 的 check，取得本輪 HEAD 的獨立 amplifier 輸入：
-此命令會覆寫 `pre-review-check.md`；執行前先 Read 並保留 Step 1.7 附加的 red-first
-原始輸出（含 `[WEAK-RED]`／`[EXEMPT]`／`[WARN]` 與 unchecked 狀態），完成後用 Write
-原樣附回新報告，供 Step 8 揭露。只帶回這段測試證據，不得帶回舊 amplifier findings。
+每次彙整（含 re-review）重跑 check，取得本輪 HEAD 的獨立 amplifier 輸入，並啟用 red-first 前置 gate：
+`--require-red-first` 在呼叫 gh／amplifier 或覆寫 `pre-review-check.md` **之前**，
+依 Step 1.7 的 evidence contract 檢查 `.pr-review/red-first.md`。缺漏、不可讀、格式／PR
+不符、未完成或 blocking 結果一律 exit `2` + `[FAIL] red-first`，不是 amplifier exit `1`。
+不要求 captured HEAD 等於目前 HEAD；這是保留原始測試證據，不是宣稱修正後重跑。
+成功、amplifier findings 與工具 exit `2` 都不改動獨立 red-first 報告，無須手動 Read／Write 保存或附回。
+Step 1.5 仍不帶此旗標，因為當時尚未執行 red-first。
 
 ```bash
-python3 ~/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py --pr {{pr_number}}
+python3 ~/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py --pr {{pr_number}} --require-red-first
 ```
 
 沿用 Step 1.5 exit 分流：`0` → 繼續；`1` 且有 `[MUST]`／`[SHOULD]` → 讀取新產生的
@@ -1367,6 +1388,10 @@ Stage 2 + Stage 3 render it from `codex-r1-raw.md`).
 
 After the contract LGTM gate passes, the lead gives the human a summary **scannable in a few minutes**:
 
+寫摘要或請人類 ship 前，再 Read `$REVIEW_DIR/red-first.md` 並依 Step 1.7 證據契約檢查。
+若缺漏、無效或結果為 blocking，一律 `[FAIL]` 停止；amplifier 報告、舊摘要與記憶中的
+verdict 都不能代替。即使修正已讓 HEAD 移動，也要引用報告原始 HEAD／PR，補充證據另列。
+
 ```bash
 git diff "{{base_branch}}"...HEAD --stat
 ```
@@ -1390,9 +1415,10 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 - Codex: LGTM / NEEDS_CHANGES / N/A
 - Gemini: LGTM / NEEDS_CHANGES / N/A
 
-## Red-first (always shown; from pre-review-check.md)
-- <verdict / [SKIP] reason>; <each [EXEMPT] or [WARN] red-first: line — needs your confirmation>
-- <for unchecked: supplementary evidence the lead gathered (still not a pass), or "no evidence attached">
+## Red-first (always shown; from .pr-review/red-first.md)
+- Captured identity: <HEAD SHA or unknown>; PR: <number> — original evidence, not a rerun on the current HEAD
+- <terminal result and verdict / [SKIP] reason>; <each [EXEMPT] or [WARN] red-first: line — needs your confirmation>
+- <for unchecked: separately recorded supplementary evidence (still not a pass), or "no evidence attached">
 
 ## Merge blocking (review-in-progress label)
 - <held during review, removed on "ship" / 本 repo 沒有 review-in-progress 阻擋機制 (Step 1 exit 10) / removed early by circuit breaker at Step 7 (merge was unblocked from then)>

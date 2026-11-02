@@ -129,6 +129,13 @@ into `prompt-r1.md` if one exists; otherwise write
 Use the **same scripts, the same R1/R2 prompts, the same sanity checks, and the same aggregation
 severity table**.
 
+**Red-first 繼承例外：** 此 read-only 流程仍略過 Step 1.7，不得為了產生證據而修改
+作者的工作樹。繼承的 Step 5 與 Step 1.5 相同，使用
+`pre_review_check.py --pr {{pr_number}}`，**不帶 `--require-red-first`**。
+略過繼承的 weak-red prompt 欄位，不採用其他流程留下的本機報告。交付回饋必須明列
+`Red-first not run: review-only workflow (unchecked, not a pass)`；不得偽造 canonical
+`red-first.md`、從 amplifier 輸出複製或替舊報告改標 PR。此例外不適用於 deep／fast lifecycle gate。
+
 | Engine step (owned by `/pr-cycle-deep`) | What runs |
 | --- | --- |
 | **Step 1.5** Pre-review check | One Bash call (no Task agents): `pre_review_check.py --pr {{pr_number}}` — diff stats + CI state + `amplifier-verify.py`; exit 0 continue / 1 findings, continue / 2 stop |
@@ -137,7 +144,7 @@ severity table**.
 | **Step 3** Round 1 | `setup-review-dir.sh origin/{{base_branch}}` → each voice reviews independently → `<voice>-r1.md` |
 | **Step 3.4** R2 activation gate | Decide from the R1 results whether Round 2 runs at all (the gate's criteria live in `/pr-cycle-deep` Step 3.4) |
 | **Step 4** Round 2 (conditional) | **Only when Step 3.4 activates it**: build `r1-aggregate.md` → each voice cross-debates → `<voice>-r2.md` |
-| **Step 5** Aggregation | Lead synthesizes `final.md` per the RFC 2119 severity table. **Skip Step 5's Checkpoint paragraph** — no `state.md`, no `/pr-cycle-deep --resume` hint: resuming leads into Step 6, which commits and pushes to someone else's PR |
+| **Step 5** Aggregation | Re-run check with `pre_review_check.py --pr {{pr_number}}` (without `--require-red-first`). Lead synthesizes `final.md` per the RFC 2119 severity table. **Skip Step 5's Checkpoint paragraph** — no `state.md`, no `/pr-cycle-deep --resume` hint: resuming leads into Step 6, which commits and pushes to someone else's PR |
 
 The script invocations are the same installed paths (shared with `/pr-cycle-deep`):
 
@@ -224,11 +231,12 @@ intact but rewriting the section headers into suggestion language:
 | `## Disputed (user decides)` | `## Points the reviewers disagreed on (your call)` |
 | `## Voices unavailable` | `## Voices unavailable` (unchanged) |
 
-Also add a one-line lead-in at the top so the author knows these are suggestions, e.g.:
+Also add a lead-in at the top so the author knows these are suggestions and that red-first was not run, e.g.:
 
 ```text
 Mob review by {{N}} independent LLM reviewers (Claude / Codex / agy). These are suggestions —
 the call on what to apply is yours.
+Red-first not run: review-only workflow (unchecked, not a pass)
 ```
 
 ### 4b — Show the report and confirm

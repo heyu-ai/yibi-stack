@@ -99,6 +99,12 @@ pr-orchestrator status --repo-root "$REPO_ROOT"
 
 將輸出 JSON 的 `current_state` 存入變數，依此進入對應步驟。
 
+resume 若進入 `REVIEWING`、`REVIEW_DONE`、`CI_WAIT`、`AUTO_FIX`、`CI_PASS` 或 `MERGEABLE`，
+先 Read `$REPO_ROOT/.pr-review/red-first.md`，依 deep Step 1.7 evidence contract 檢查
+header／PR identity／完整終行及 `pass` 或 `unchecked` 結果。缺漏、不可讀、格式錯誤或 blocking
+結果 → `[FAIL]`，transition 到 `BLOCKED`；不可從舊 comment、amplifier 報告或記憶推定通過。
+captured HEAD 可因修正而不同於目前 HEAD；只揭露原始 identity，不宣稱新 HEAD 重跑過。
+
 ### Step 2 — Execute Current-State Action
 
 依 `current_state` 執行對應動作：
@@ -176,14 +182,18 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --re
 輸出最後一行是 `RED_FIRST_RESULT=<token>`，token 只會是 `pass`、`unchecked`、`fail`、`error`、
 `tree-not-restored` 其中之一，是腳本寫死的字串，可以直接放進下面的 `--reason`。
 
-不論 token 為何（包括失敗），一律把輸出留在 PR 上，讓換 session resume 也讀得到：
-用 Write 寫 `$CLAUDE_JOB_DIR/tmp/red-first.md`，第一行是 `<!-- red-first:<git -C "$REPO_ROOT" rev-parse HEAD 的結果> -->`，
-其後貼這次呼叫的完整 stdout（token 為 `error` 時再接上 stderr）。不要改貼 `red-first.out`：腳本自己的
-`[WARN] red-first:` 行（checker 被這個 PR 改過、checker 沒有檢查任何東西）只在 stdout，不在那個檔。
-token 為 `unchecked` 時，你另外取得的證據（例如手動 mutation 的失敗輸出）可以接在後面，標明是補充、不是通過。最後執行：
+腳本自動產生 `$REPO_ROOT/.pr-review/red-first.md`；第一行已是
+`<!-- red-first:<captured HEAD SHA or unknown> -->`，第二行是 `PR: {{pr_number}}`，
+最後一行是完整 result token，中間包含 wrapper warnings、checker stdout/stderr 與失敗診斷。
+不論 token 為何（包括失敗），直接把這份完整報告貼上 PR，讓換 session 也讀得到。
+不要自行加 header、用目前 HEAD 重建 identity、複製到 amplifier 報告，或改貼 scratch `red-first.out`。
+若 target 尚未解析就失敗，或呼叫中斷而沒有完整報告，不得貼舊檔／重建一份假報告：
+顯示 stderr／已取得的 token，依下表 transition 到 `BLOCKED`。
+另取得的證據（例如手動 mutation 失敗輸出）必須另貼補充 comment，註明 captured HEAD／PR，
+標明「補充，不等於通過」，且不得使用 `<!-- red-first:` 開頭或改動 canonical 報告。
 
 ```bash
-gh pr comment {{pr_number}} --body-file "$CLAUDE_JOB_DIR/tmp/red-first.md"
+gh pr comment {{pr_number}} --body-file "$REPO_ROOT/.pr-review/red-first.md"
 ```
 
 `gh pr comment` 非零退出 → `[FAIL]`，以 reason `red-first: comment-not-recorded` transition 到 `BLOCKED`
@@ -219,7 +229,9 @@ pr-orchestrator write-manifest --pr {{pr_number}} --repo-root "$REPO_ROOT"
 
 > **重要**：所有三個 subagent 必須在同一個 message 中 dispatch（一個 Task tool call 一個），不得拆成多個 turn。
 
-1. **code-review subagent**（`pr-review-toolkit:code-reviewer`）：review PR #{{pr_number}}，findings 直接回傳給 lead；3.0b 有 `[WEAK-RED]` 時把那幾行附進 prompt（從 REVIEWING resume 時從 red-first PR comment 取回）
+1. **code-review subagent**（`pr-review-toolkit:code-reviewer`）：review PR #{{pr_number}}，findings 直接回傳給 lead；
+   3.0b 有 `[WEAK-RED]` 時把獨立 `.pr-review/red-first.md` 的那幾行與 captured HEAD／PR 附進 prompt
+   （從 REVIEWING resume 時也讀同一份報告並先驗證，不從舊 comment 推定通過）
 2. **ci-monitor subagent**（`general-purpose`）：`gh pr checks {{pr_number}} --watch`，完成後回傳 CI_PASS 或 CI_FAIL
 3. **conflict-detector subagent**（`general-purpose`）：`gh pr view {{pr_number}} --json mergeable,mergeStateStatus`，回傳 OK 或 CONFLICT
 
@@ -295,16 +307,18 @@ pr-orchestrator auto-fix --pr {{pr_number}} --repo-root "$REPO_ROOT"
 gh pr view {{pr_number}} --json comments -q '[.comments[].body | select(startswith("<!-- red-first:"))] | last'
 ```
 
-`gh` 非零退出 → `[FAIL]`，停止。讀不到這則 comment（3.0b 每次都要貼）→ 視為「3.0b 沒有記錄」，
-告訴 user，不要當成沒有要確認的項目。
-comment 第一行的 SHA 與目前 HEAD 不同（例如 auto-fix 之後又 push 了），就在第二行註明它是對哪個 SHA 跑的。
+`gh` 非零退出 → `[FAIL]`，停止。讀不到這則 comment（3.0b 每次都要貼），或 header／PR
+identity／完整 terminal token 不符 deep Step 1.7 evidence contract → `[FAIL]`，transition 到 `BLOCKED`。
+結果必須是 `pass` 或 `unchecked`；`fail`／`error`／`tree-not-restored` 不得往 merge 前進。
+comment 第一行的 SHA 是原始證據 identity；即使與目前 HEAD 不同（例如 auto-fix 之後又 push 了），
+也保留並揭露，不宣稱新 HEAD 重跑過。另讀補充 comment，與 canonical 結果分開呈現，不得用來升格成 pass。
 
-顯示給 user（有 `[EXEMPT]` 或 `[WARN] red-first:` 行、或上述任一例外時，第二行必填；否則省略）。
+顯示給 user（第二行固定揭露 captured identity；有 `[EXEMPT]`／`[WARN] red-first:` 時列出原文）。
 code-review 有任何 finding 時 Step 3 已轉 BLOCKED，不會走到這裡，所以第一行固定寫「無 finding」：
 
 ```text
 PR #{{pr_number}} CI 已通過；code review：無 finding。
-red-first 待你確認：<[EXEMPT] / [WARN] red-first: 原文>；補充證據（不等於通過）：<comment 裡附的證據，沒有就寫「未附證據」>
+red-first：<result>；原始 HEAD／PR：<captured identity>（不是新 HEAD 的重跑）；待確認：<[EXEMPT] / [WARN] red-first: 原文，沒有則寫「無」>；補充證據（不等於通過）：<另貼的補充 comment，沒有就寫「未附證據」>
 準備 merge：gh pr merge {{pr_number}} --squash --delete-branch
 請確認後手動執行，或輸入 "ship" 確認由 skill 代為執行。
 ```
