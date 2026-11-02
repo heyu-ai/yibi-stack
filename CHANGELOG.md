@@ -5,143 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- dev-cycle：`pr-cycle-deep` 的 scope reset／capture 將既存 `final.md` 的全部 bytes 移至
-  `final.prev.md`（僅保留最近一份，草稿也可取代歷史；不驗證 review 是否完成），避免
-  re-review 兩輪 findings 筆數相同時，Step 5a gate 誤收舊正文；未建立本輪 final 前
-  以 exit 2 阻擋。amplifier 改由每次 Step 5 重新產生的獨立 `pre-review-check.md` 納入
-  彙整，避免本輪 MUST／SHOULD 在 scope refresh 時一併移出 blocking set（#620）。
-- harness／dev-cycle／3rd-tools、頂層 `skills/`（`skill-trigger-eval`）、`AGENTS.md` 與 rule 16：background session 的 scratch 檔一律改放 `$CLAUDE_JOB_DIR/tmp/`。
-  Write tool 會拒絕寫入 `$CLAUDE_JOB_DIR` 根目錄，照舊指示每次都失敗。涵蓋多行 commit message
-  （`AGENTS.md`、`plugins/harness/rules-context.md`、`/pr-cycle-deep`、`/pr-review-cycle`、`/debug-to-pr`）、
-  PR body 與 review 摘要（`/pr-cycle-deep`、`/pr-review-cycle`、`/debug-to-pr`）、red-first 輸出
-  （`/pr-cycle-deep`、`/pr-cycle-fast` 的 `--out-dir`）、`/codex-consult`、`/codex-review` packet、
-  `/skill-trigger-eval` 的 manifest／judgments、`/codex-cli` 的 brief／packet／report、`/issue-triage`
-  的報告與留言草稿，以及 `agy-consult` 的 `consult.sh` 改讀
-  `$CLAUDE_JOB_DIR/tmp/agy-consult-question.txt`（PR #596 retro；2026-06-25 已記過同一個教訓但文件沒改，
-  這次第二次踩到）。rule 16 的 Edit／Write allow-list 範例同步改為 `jobs/**`，才涵蓋 `<UUID>/tmp/`。
-  merge 後請在主 checkout `git pull`（agy-consult 等 skill 以 symlink 指向主 checkout，未 pull 前舊
-  `consult.sh` 仍讀根層路徑）。
-- dev-cycle：`pr-cycle-deep` 的 Gemini R1、R2 與萃取階段改以 NDJSON stdin 傳送完整輸入，
-  移除 256000-byte inline 限制，不截斷 diff、不改用 `@file`。保留 OS 寫入隔離與既有
-  timeout／review 驗證；結構化回應缺少完整結果、回報錯誤或逾時時不計入共識。
-  補回 stream failure、Verdict 與萃取寫入權限的行為回歸覆蓋，釐清非零輸出的診斷用途、
-  僅 timeout 路徑隔離與成功 R1 才可供 fallback 的界線。`agy changelog` 的 1.1.15 條目
-  記載新增 `--input-format stream-json`；本次實測版本為 1.4.12，非所有 1.1.15+ 版本。
-- sdd：testplan trace checker 以 TypeScript compiler AST 支援 Vitest JS／TS／TSX 的測試 callback
-  與 `it.each` 綁定，不把 fixture 字串、巢狀 helper 或 skipped 測試當覆蓋（含 options 物件的
-  skip／todo）；目標 compiler 缺少必要 AST API 時退回鎖定版本，兩者均不可用或語法解析失敗回
-  exit 2。`--change` 保留其他 active／archive 的 TC 歸屬資訊，避免誤報 unrelated orphan，
-  並保留真正無歸屬或不明歸屬的警告。來源：heyu-ai/yibi-mvp#2668。
-
-## [1.23.23] - 2026-10-29
-
-### Changed
-
-- dev-cycle：`red-first.sh` 在 repo 沒有 checker 時，不論 PR 類型一律回報 `RED_FIRST_RESULT=unchecked`
-  （exit 0，但不是通過），不再印 `[SKIP]` 以 `skip-no-checker` 放行；也不讀 PR 標題，避免自報的型別關掉
-  gate。`red-first.out` 同樣寫入 `[WARN] red-first: no checker` 與 `red-first: UNCHECKED` 兩行。
-  `/pr-cycle-deep` Step 1.7／Step 8 與 `/pr-cycle-fast` 3.0b／Step 6 說明：手動 mutation 等證據只是補充，
-  不會讓結果變成通過；`/pr-cycle-fast` 改為每次都把 red-first 輸出貼成 PR comment。
-
-## [1.23.22] - 2026-10-21
+## [1.23.24] - 2026-11-02
 
 ### Added
 
-- dev-cycle：`/pr-cycle-deep` 在 review 期間替 PR 貼 `review-in-progress` label（Step 1），Step 8
-  使用者回覆「ship」之後才撤；circuit breaker、使用者取消、PR 已 MERGED／CLOSED 的出口也會撤並告知
-  使用者，Step 5b 明文不撤（摘要先於修正，#2449 就是在這個空窗被 merge）。貼撤都用新的
-  `scripts/review-label.sh` 以 `gh pr view` 回讀確認；repo 沒有這個 label 時只 `[WARN]`（exit 10）
-  並繼續，Step 8 摘要會註明沒有阻擋機制。讓有 Review Gate 的 repo 在 review 期間無法 merge
-  （#587、#589；review 降級項目見 #592）。
+- Support large Gemini review inputs via stdin (#618)
+
+### Changed
+
+- Bump plugins to 1.23.19 (#572)
+- Doc-guard 測試要斷言必須存在的內容 (#588)
+- Review 期間貼 review-in-progress label，Step 8 ship 後才撤 (#589)
+- Bump certifi (#585)
+- Bump the python-security group across 1 directory with 3 updates (#586)
+- Bump the python-minor-patch group across 1 directory with 7 updates (#573)
+- Bump virtualenv (#594)
+- 補記 1.23.22 CHANGELOG（#589），並修正 pylint 4.1.3 兩筆告警恢復 main CI (#595)
+- Bump the python-minor-patch group with 3 updates (#597)
+- Bump anthropic from 1.17.0 to 2.3.0 (#615)
+- Bump the python-minor-patch group with 4 updates (#614)
+- Bump the python-security group across 1 directory with 2 updates (#600)
+- Bump pyasn1 (#621)
+- 重試 gotcha 補 CLAUDE_CODE_RETRY_WATCHDOG 的兩個新旋鈕 (#605)
+- Rule 13 補 worktree 隔離守衛 2.1.309 新增拒絕的兩類形狀 (#606)
+- Rule 03 的 OTEL 一節補 prompt_text 與 transcript 內容擴大 (#607)
 
 ### Fixed
 
-- mycelium：`handover write` 對空白 `topic`／`summary` 與 DB 寫入失敗（「交班記錄寫入失敗」）改以
-  `Error: <訊息>` 回報（exit 1），不再印出 Python traceback。空白檢查只留在 `write_handover` 一處，
-  `--from-file` 檔案內的空白值因此從 exit 2 改為 exit 1；`/handover` 依 stderr 文字分流，不受影響
-  （#584 第 2 項）。
-- dev-cycle：`/handover` 遇到「交班記錄寫入失敗」且 stderr 含 `database is locked` 時，改為直接
-  用同一個檔案重跑一次（連線本身已等待約 5 秒，不另外等待）；鎖定時 DB、JSONL 與 `handover_written`
-  事件都沒有寫出，重試不會產生重複交班。重跑的結果從頭依各分支重新判斷（例如 DB 已寫入但 JSONL
-  備份失敗時回報 [WARN]），其他原因或重試仍出現「交班記錄寫入失敗」時照舊停止（#584 第 3 項）。
+- 交班內容改走 JSON 檔，避免撞上下游 repo 的 deny 規則 (#580)
+- 擋下空白 topic／summary，修正 /handover 確認與重試指引 (#583)
+- CLI 錯誤不再印 traceback，DB 鎖定時允許重試一次 (#590)
+- Handover read 完整輸出 summary 與交班清單欄位 (#596)
+- 沒有 red-first checker 時一律回報 unchecked，不再 SKIP 放行 (#608)
+- 支援 Vitest AST 追溯並修正單一 change 歸屬 (#616)
+- Background session scratch 檔一律改放 $CLAUDE_JOB_DIR/tmp/ (#598)
+- Invalidate stale final reports on review refresh (#622)
 
-## [1.23.21] - 2026-10-21
-
-### Fixed
-
-- mycelium：`handover write --from-file` 對 JSON 檔裡空白的 `topic`／`summary` 改以 exit 2 拒絕，
-  不再一路傳到 `write_handover` 丟出 ValueError traceback（exit 1）（#581 第 2 項）。
-- dev-cycle：`/handover` 的確認步驟改以 `✓ handover 已寫入：<id>` 這一行判定成功，不再要求字面比對
-  `topic =`；topic 只做核對，比較 `topic` 行 `=` 之後的值與 JSON 檔 `topic` 的第一行（兩者都去掉
-  首尾空白），不符時回報 `[WARN]` 而不重跑，避免 CLI 的對齊空白、多行或首尾帶空白的 topic 把成功的
-  寫入誤判成失敗（#581 第 1 項）。stderr 為「DB 資料已保存，但 JSONL 備份寫入失敗」時明確要求不要
-  重跑並跳過確認步驟，避免重複寫入交班（#581 第 8 項）；該錯誤訊息現在帶出 JSONL 缺少的記錄 id。
-  stderr 為「交班記錄寫入失敗」（DB 寫入失敗）時改為停止回報，不再落入「修正 JSON 檔後重跑」。
-
-## [1.23.20] - 2026-10-20
-
-### Fixed
-
-- dev-cycle：`/handover` 改用 Write 工具把交班內容寫成 JSON 檔，再以新的
-  `mycelium handover write --from-file` 寫入，指令列只剩檔案路徑。先前內容放在指令列，只要寫到
-  「alembic upgrade」就會撞上 yibi-mvp 的 `Bash(uv run --directory * alembic upgrade*)` deny 規則
-  （`*` 跨參數比對），被直接拒絕且不跳確認框。`/handover` 現在改呼叫 `~/.agents/bin/handover`
-  wrapper，由 wrapper 在內部解析 skill repo，指令列不再出現 `SKILL_REPO=$(...)`。
-  `--from-file` 會拒絕未知 key、型別錯誤（array 欄位的元素必須是字串）、非 UTF-8 檔案，以及與
-  指令列重複的欄位。合併後須在 yibi-stack 主 checkout 執行 `git pull`；未 pull 前 `/handover` 會
-  回報 `No such option '--from-file'`。
-
-## [1.23.19] - 2026-10-17
-
-### Fixed
-
-- growth／dev-cycle：`pr-control-log` 與 `pr-cycle-fast` 的 Step 0 改以 `${CLAUDE_SKILL_DIR}` 呼叫
-  自己的 scripts，不再用命令替換讀 `installed_plugins.json`，在禁止命令替換的下游 repo（如 yibi-mvp
-  的 `protect-bash-cd.py`）也能啟動；`pr-control-log` 的 `mycelium` 存在性檢查移入 `bootstrap.sh`（#571）。
-
-## [1.23.18] - 2026-10-15
-
-### Fixed
-
-- dev-cycle：`pr-cycle-deep` Step 5b 前新增 blocking count gate，以 CR 來源編號逐項核對
-  `code-review-filtered.json` 收下的 finding 都已在 `final.md` 正文列出去向；漏列、重複、未知來源
-  exit 1，缺檔或格式錯誤 fail closed（exit 2）。相關 review scripts 改用 uv 管理的獨立執行環境（#566）。
-- growth：`pr-retrospective` Step 0 改從載入的 skill 目錄啟動 bootstrap 與 PR detector，不再掃
-  plugin registry 或依賴跨 Bash process 的 `RETRO_ROOT`；缺少 `mycelium` 時 bootstrap 明確 exit 1（#569）。
-
-## [1.23.17] - 2026-10-11
-
-### Fixed
-
-- dev-cycle：`pr-cycle-deep` Step 2 先固定 fresh base／HEAD／變更路徑，再明確指定 PR 執行
-  report-only code review（#530）。新增確定性 finding scope filter：diff 外項目不得進修復清單，
-  原 item、原因與捨棄數量保留於 final audit；HEAD 變動或輸入錯誤會失效舊結果。
-  本機 main 落後只警告、不當 base；取消過濾前直接 `--fix`／`--comment` 的繞過路徑。
-- dev-cycle：agy R1/R2 改讀一次性的 committed-HEAD snapshot，使用 macOS `sandbox-exec`／
-  Linux `bwrap` 保護原工作樹、Git metadata 與 snapshot 不可寫（#390）。缺少可用 backend
-  或 tracked tree 未提交時明確失敗，不回退 unrestricted；保留認證、command 探索、既有
-  log／validator／timeout 產物與原樹前後比對。結束與中斷回收 owned process group 和暫存狀態；
-  清理只透過不跟隨 symlink 的目錄 descriptor 恢復自有目錄權限，無法清除時非零退出並點名
-  殘留路徑，不再吞掉清理錯誤後回報成功。gitlink 拒絕測試不依賴 OS backend，在缺少 bwrap 的 CI
-  也會驗證真正的 Git-tree 邊界；此項不冒充 Linux containment 已驗證。
-
-## [1.23.16] - 2026-10-11
-
-### Fixed
-
-- dev-cycle：`red-first.sh` 在 checker 把 HEAD 變成 unborn（例如切到 orphan 分支）時，改回報 exit 3
-  （`tree-not-restored`），不再以 exit 2 蓋過「沒有還原」的結論；跑之前 HEAD 就解析不到時仍為 exit 2（#545）。
-- dev-cycle：`red-first.sh` 的進行中操作守衛新增 sequencer 偵測：多 commit 的 cherry-pick／revert 停在中途
-  （衝突以 `git commit` 解決而非 `--continue`，只剩 `.git/sequencer`、工作樹乾淨）時以 exit 2 拒絕，
-  不再對少了後續 commit 的 HEAD 下判定；錯誤訊息提示殘留時用 `git cherry-pick --quit`／`git revert --quit` 清除（#545）。
-- dev-cycle：補上 detached HEAD 起點的測試（照常 pass；checker 切到分支時 exit 3），先前沒有任何測試守住（#545）。
-
-## [1.23.15] - 2026-10-11
 ## [1.23.19] - 2026-10-18
+
+### Changed
+
+- V1.23.19
 
 ### Fixed
 
@@ -972,6 +876,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove bash anti-patterns triggering CC confirmation dialogs (#137)
 - Remove unnecessary rm-f after git commit-F (#105)
 
+[1.23.24]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.19..v1.23.24
 [1.23.19]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.18..v1.23.19
 [1.23.18]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.17..v1.23.18
 [1.23.17]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.2..v1.23.17
@@ -994,6 +899,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [1.5.1]: https://github.com/heyu-ai/yibi-stack/compare/v1.5.0..v1.5.1
 [1.5.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.3.3..v1.5.0
 [1.3.3]: https://github.com/heyu-ai/yibi-stack/compare/v1.3.2..v1.3.3
-[1.3.2]: https://github.com/heyu-ai/yibi-stack/compare/v1.3.1..v1.3.2
+[1.3.2]: https://github.com/heyu-ai/yibi-stack/tree/v1.3.2
 
 <!-- generated by git-cliff -->
