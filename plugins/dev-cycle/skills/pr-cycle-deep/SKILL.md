@@ -913,6 +913,9 @@ After reading all R1 plus any activated R2, produce `$REVIEW_DIR/final.md`, grad
 Actionable NIT = MAY). Blocking is decided by the Evidence gate below; NIT never blocks any round.
 
 每次彙整（含 re-review）先重跑 Step 1.5 的 check，取得本輪 HEAD 的獨立 amplifier 輸入：
+此命令會覆寫 `pre-review-check.md`；執行前先 Read 並保留 Step 1.7 附加的 red-first
+原始輸出（含 `[WEAK-RED]`／`[EXEMPT]`／`[WARN]` 與 unchecked 狀態），完成後用 Write
+原樣附回新報告，供 Step 8 揭露。只帶回這段測試證據，不得帶回舊 amplifier findings。
 
 ```bash
 python3 ~/.agents/skills/pr-cycle-deep/scripts/pre_review_check.py --pr {{pr_number}}
