@@ -462,3 +462,33 @@ def test_require_red_first_fails_closed_before_refresh(launcher_consumer, invali
         assert evidence.is_dir()
     else:
         assert evidence.read_text(encoding="utf-8") == variants[invalid]
+
+
+def test_require_red_first_rejects_git_tracked_report(launcher_consumer):
+    """已被 Git 追蹤的 red-first.md 不得作為外部驗證證據。"""
+    repo, _, env = launcher_consumer
+    identity = _git(repo, env, "rev-parse", "HEAD")
+    _seed_red_first(repo, identity)
+    _git(repo, env, "add", "-f", ".pr-review/red-first.md")
+    result, _ = _launch(launcher_consumer, "--require-red-first")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "已被 Git 追蹤" in result.stderr
+
+
+def test_require_red_first_accepts_non_utf8_checker_body_with_valid_control_lines(
+    launcher_consumer,
+):
+    """checker 輸出包含非 UTF-8 位元組時，只要控制行合法，仍必須接受。"""
+    repo, _, env = launcher_consumer
+    identity = _git(repo, env, "rev-parse", "HEAD")
+    report = repo / ".pr-review/red-first.md"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    body = (
+        f"<!-- red-first:{identity} -->\nPR: 42\n[WARN] non-utf8 checker body: "
+    ).encode() + b"\xff\xfe\nRED_FIRST_RESULT=pass\n"
+    report.write_bytes(body)
+    result, report_file = _launch(launcher_consumer, "--require-red-first")
+    assert result.returncode == 0, result.stdout + result.stderr
+    content = report_file.read_text(encoding="utf-8", errors="surrogateescape")
+    assert identity in content
+    assert "RED_FIRST_RESULT=pass" in content

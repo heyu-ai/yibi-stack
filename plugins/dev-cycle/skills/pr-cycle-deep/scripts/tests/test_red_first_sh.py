@@ -151,6 +151,10 @@ if mode == "orphan":
     git("checkout", "-q", "--orphan", "tmp")
     print("red-first: PASS")
     sys.exit(0)
+if mode == "create-report-dir":
+    (repo / ".pr-review/red-first.md").mkdir(parents=True, exist_ok=True)
+    print("red-first: PASS")
+    sys.exit(0)
 sys.exit(99)
 '''
 
@@ -826,7 +830,9 @@ def _durable_report(repo: Path, head: str, token: str) -> str:
 
 
 class TestDurableReport:
-    def test_no_checker_persists_unchecked_without_dirtying_tree(self, tmp_path: Path) -> None:
+    def test_rfs_st_028_no_checker_persists_unchecked_without_dirtying_tree(
+        self, tmp_path: Path
+    ) -> None:
         repo = _setup(tmp_path, with_checker=False)
         head = _git(repo, "rev-parse", "HEAD").stdout.strip()
         proc, _ = _run(tmp_path, repo)
@@ -839,7 +845,7 @@ class TestDurableReport:
         shutil.rmtree(tmp_path / "out")
         assert _durable_report(repo, head, "unchecked") == content
 
-    def test_pass_preserves_checker_and_wrapper_evidence(self, tmp_path: Path) -> None:
+    def test_rfs_st_029_pass_preserves_checker_and_wrapper_evidence(self, tmp_path: Path) -> None:
         repo = _setup(tmp_path, checker_on_base=False)
         head = _git(repo, "rev-parse", "HEAD").stdout.strip()
         proc, _ = _run(tmp_path, repo, FAKE_CHECKER_MODE="pass-with-evidence")
@@ -865,7 +871,7 @@ class TestDurableReport:
             ("commit-empty", EXIT_TREE_NOT_RESTORED, "tree-not-restored"),
         ],
     )
-    def test_failed_rerun_replaces_old_pass(
+    def test_rfs_st_030_failed_rerun_replaces_old_pass(
         self, tmp_path: Path, mode: str, exit_code: int, token: str
     ) -> None:
         repo = _setup(tmp_path)
@@ -887,10 +893,14 @@ class TestDurableReport:
         for line in proc.stderr.splitlines():
             if line.startswith("[FAIL]"):
                 assert line in content
+        if mode == "dirty":
+            assert "leak.txt" in content
         assert proc.stdout.splitlines()[-1] == f"RED_FIRST_RESULT={token}"
 
     @pytest.mark.parametrize("failure", ["github", "dirty-tree"])
-    def test_pre_checker_error_replaces_old_report(self, tmp_path: Path, failure: str) -> None:
+    def test_rfs_st_031_pre_checker_error_replaces_old_report(
+        self, tmp_path: Path, failure: str
+    ) -> None:
         repo = _setup(tmp_path)
         first, argv = _run(tmp_path, repo)
         assert first.returncode == EXIT_CONTINUE, first.stdout + first.stderr
@@ -909,8 +919,10 @@ class TestDurableReport:
         for line in proc.stderr.splitlines():
             if line.startswith("[FAIL]"):
                 assert line in content
+        if failure == "dirty-tree":
+            assert "wip.txt" in content
 
-    def test_interrupted_rerun_leaves_no_accepted_old_or_partial_report(
+    def test_rfs_st_032_interrupted_rerun_leaves_no_accepted_old_or_partial_report(
         self, tmp_path: Path
     ) -> None:
         repo = _setup(tmp_path)
@@ -923,7 +935,7 @@ class TestDurableReport:
         assert argv.exists(), "interruption must occur inside the checker"
         assert not (repo / ".pr-review/red-first.md").exists()
 
-    def test_tracked_report_draft_is_not_overwritten(self, tmp_path: Path) -> None:
+    def test_rfs_st_033_tracked_report_draft_is_not_overwritten(self, tmp_path: Path) -> None:
         repo = _setup(tmp_path)
         report = repo / ".pr-review/red-first.md"
         report.parent.mkdir()
@@ -938,7 +950,7 @@ class TestDurableReport:
         assert report.read_bytes() == draft
         assert not argv.exists()
 
-    def test_checker_without_final_newline_still_publishes_complete_result(
+    def test_rfs_st_034_checker_without_final_newline_still_publishes_complete_result(
         self, tmp_path: Path
     ) -> None:
         repo = _setup(tmp_path)
@@ -951,3 +963,35 @@ class TestDurableReport:
         assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
         content = _durable_report(repo, head, "pass")
         assert content.endswith("red-first: PASS\nRED_FIRST_RESULT=pass\n")
+
+    def test_rfs_st_035_unchecked_checker_warning_persists_in_durable_report(
+        self, tmp_path: Path
+    ) -> None:
+        """checker 回報 unchecked 時，wrapper 的警告必須完整寫入持久報告。"""
+        repo = _setup(tmp_path)
+        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        proc, _ = _run(tmp_path, repo, FAKE_CHECKER_MODE="unchecked")
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        content = _durable_report(repo, head, "unchecked")
+        warning = (
+            "[WARN] red-first: checker 沒有檢查任何東西（exit 0 不是通過）；"
+            "手動 mutation 等證據只能補充，不會讓結果變成通過"
+        )
+        assert warning in content
+        assert warning in proc.stdout
+
+    def test_rfs_st_036_publication_to_directory_path_exits_2_with_error(
+        self, tmp_path: Path
+    ) -> None:
+        """checker 建立 red-first.md 目錄時，發布失敗必須以 exit 2 和 error token 停止，
+        且目錄不得被覆寫為檔案。
+        """
+        repo = _setup(tmp_path)
+        proc, argv = _run(tmp_path, repo, FAKE_CHECKER_MODE="create-report-dir")
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert argv.exists()
+        assert proc.stdout.rstrip().splitlines()[-1] == "RED_FIRST_RESULT=error"
+        assert "red-first.md 目標路徑為目錄，無法發布報告" in proc.stderr
+        report = repo / ".pr-review/red-first.md"
+        assert report.is_dir()
+        assert not (report / "red-first.md").exists()

@@ -144,7 +144,7 @@ severity table**.
 | **Step 3** Round 1 | `setup-review-dir.sh origin/{{base_branch}}` → each voice reviews independently → `<voice>-r1.md` |
 | **Step 3.4** R2 activation gate | Decide from the R1 results whether Round 2 runs at all (the gate's criteria live in `/pr-cycle-deep` Step 3.4) |
 | **Step 4** Round 2 (conditional) | **Only when Step 3.4 activates it**: build `r1-aggregate.md` → each voice cross-debates → `<voice>-r2.md` |
-| **Step 5** Aggregation | Lead synthesizes `final.md` per the RFC 2119 severity table. **Skip Step 5's Checkpoint paragraph** — no `state.md`, no `/pr-cycle-deep --resume` hint: resuming leads into Step 6, which commits and pushes to someone else's PR |
+| **Step 5** Aggregation | Re-run check with `pre_review_check.py --pr {{pr_number}}` (without `--require-red-first`). Lead synthesizes `final.md` per the RFC 2119 severity table. **Skip Step 5's Checkpoint paragraph** — no `state.md`, no `/pr-cycle-deep --resume` hint: resuming leads into Step 6, which commits and pushes to someone else's PR |
 
 The script invocations are the same installed paths (shared with `/pr-cycle-deep`):
 
@@ -231,11 +231,12 @@ intact but rewriting the section headers into suggestion language:
 | `## Disputed (user decides)` | `## Points the reviewers disagreed on (your call)` |
 | `## Voices unavailable` | `## Voices unavailable` (unchanged) |
 
-Also add a one-line lead-in at the top so the author knows these are suggestions, e.g.:
+Also add a lead-in at the top so the author knows these are suggestions and that red-first was not run, e.g.:
 
 ```text
 Mob review by {{N}} independent LLM reviewers (Claude / Codex / agy). These are suggestions —
 the call on what to apply is yours.
+Red-first not run: review-only workflow (unchecked, not a pass)
 ```
 
 ### 4b — Show the report and confirm

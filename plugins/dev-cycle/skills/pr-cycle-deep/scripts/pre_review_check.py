@@ -157,8 +157,11 @@ def ensure_review_dir(repo_root: Path) -> Path:
 
 def read_red_first_report(repo_root: Path, pr: str) -> tuple[str, str]:
     """檢查獨立證據完整性；保留原始 HEAD，不將舊測試冒稱為目前 HEAD 的執行結果。"""
+    res = run(["git", "ls-files", "--error-unmatch", "--", ".pr-review/red-first.md"], repo_root)
+    if res.returncode == 0:
+        raise ValueError("red-first.md 已被 Git 追蹤，不得作為外部驗證證據")
     report = repo_root / ".pr-review" / "red-first.md"
-    text = report.read_text(encoding="utf-8")
+    text = report.read_text(encoding="utf-8", errors="surrogateescape")
     lines = text.splitlines()
     if not text.endswith("\n") or len(lines) < 3:
         raise ValueError("red-first.md 不完整")

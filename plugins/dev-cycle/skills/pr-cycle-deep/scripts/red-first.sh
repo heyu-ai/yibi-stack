@@ -95,7 +95,15 @@ finish() {
     local code="$1" result="$2"
     append_report "RED_FIRST_RESULT=${result}"
     if [ -n "$REPORT_TMP" ]; then
+        if [ -d "$REPORT_PATH" ]; then
+            rm -f -- "$REPORT_TMP"
+            REPORT_TMP=""
+            fail 2 "red-first.md 目標路徑為目錄，無法發布報告"
+        fi
         if ! mv -f -- "$REPORT_TMP" "$REPORT_PATH"; then
+            report_error
+        fi
+        if [ ! -f "$REPORT_PATH" ]; then
             report_error
         fi
         REPORT_TMP=""
@@ -278,7 +286,9 @@ if ! BEFORE=$(git status --porcelain --untracked-files=all --ignore-submodules=n
     fail 2 "git status 失敗"
 fi
 if [ -n "$BEFORE" ]; then
-    printf '%s\n' "$BEFORE" >&2
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "$line" ] && diagnostic "$line"
+    done <<< "$BEFORE"
     fail 2 "跑 checker 前工作樹就不乾淨（見上方）；先 commit 或 stash 再跑"
 fi
 
@@ -376,7 +386,12 @@ if [ "$HEAD_REF" != "$HEAD_REF_BEFORE" ]; then
 fi
 if [ -n "$NOT_RESTORED" ]; then
     # 診斷指令失敗不得把 exit 3 變成 exit 2：放在 if 條件裡，不觸發 ERR trap
-    if ! git status --short --untracked-files=all --ignore-submodules=none >&2; then
+    STATUS_LINES=""
+    if STATUS_LINES=$(git status --short --untracked-files=all --ignore-submodules=none 2>&1); then
+        while IFS= read -r line || [ -n "$line" ]; do
+            [ -n "$line" ] && diagnostic "$line"
+        done <<< "$STATUS_LINES"
+    else
         diagnostic "[WARN] red-first: 無法列出 git status"
     fi
     diagnostic "[FAIL] red-first: 跑完後沒有還原：${NOT_RESTORED# }。產品碼可能沒還原；不要自行還原，交給人判斷"
