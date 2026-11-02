@@ -19,6 +19,7 @@ import tempfile
 from pathlib import Path
 
 from agy_print_timeout import resolve_budget
+from agy_stream import decode_response, encode_prompt
 from agy_validate import rescue_brain_artifact
 
 
@@ -211,7 +212,12 @@ def stop_group(process: subprocess.Popen[bytes]) -> None:
 
 
 def run_child(
-    command: list[str], *, cwd: Path, env: dict[str, str], timeout: int
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    timeout: int,
+    input_data: bytes | None = None,
 ) -> tuple[int, bytes, bytes]:
     # Do not let a signal arrive between creation of a child and ownership of its PID.
     signals = {signal.SIGTERM, signal.SIGINT}
@@ -222,7 +228,7 @@ def run_child(
             command,
             cwd=cwd,
             env=env,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
@@ -238,7 +244,7 @@ def run_child(
     output = None
     diagnostic = b""
     try:
-        output = process.communicate(timeout=timeout)
+        output = process.communicate(input=input_data, timeout=timeout)
         code = process.returncode
     except subprocess.TimeoutExpired:
         diagnostic = (
@@ -338,12 +344,12 @@ def main() -> int:
     parser.add_argument("--agy-log", type=Path)
     parser.add_argument("--timeout-secs", default=os.environ.get("AGY_PRINT_TIMEOUT_SECS"))
     parser.add_argument("--model", default="Gemini 3.8 Flash (High)")
-    parser.add_argument("-p", "--prompt")
+    parser.add_argument("--prompt-file", type=Path)
     args = parser.parse_args()
     if not args.check_backend and any(
-        value is None for value in (args.repo_root, args.agy_log, args.prompt)
+        value is None for value in (args.repo_root, args.agy_log, args.prompt_file)
     ):
-        parser.error("--repo-root, --agy-log and --prompt are required")
+        parser.error("--repo-root, --agy-log and --prompt-file are required")
     root = None
     old_handlers = {sig: signal.signal(sig, interrupt) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
@@ -371,6 +377,15 @@ def main() -> int:
         check_backend(prefix, root, scratch, env)
         if args.check_backend:
             return 0
+        # prompt 檔由父行程讀取，不交給模型解析 @file；大 diff 也不進任何 argv。
+        guard = (
+            "[REVIEWER CONSTRAINT — 最高優先] 你是唯讀 code reviewer。"
+            "禁止修改、建立或刪除任何檔案，禁止執行任何寫入／編輯指令。"
+            "只讀取檔案與 diff，然後輸出你的 review 文字。"
+            "改動工作樹是協議違規——若你發現自己正要編輯，停手，"
+            "改在 review 裡用文字描述該修改建議。"
+        )
+        prompt = guard + "\n\n" + args.prompt_file.read_bytes().decode("utf-8")
         snapshot = root / "snapshot"
         snapshot.mkdir()
         snapshot_head(repo, snapshot, head)
@@ -391,8 +406,10 @@ def main() -> int:
             [
                 *prefix,
                 executable,
-                "-p",
-                args.prompt,
+                "--input-format",
+                "stream-json",
+                "--output-format",
+                "stream-json",
                 "--model",
                 args.model,
                 "--add-dir",
@@ -406,7 +423,13 @@ def main() -> int:
             cwd=snapshot,
             env=env,
             timeout=budget,
+            input_data=encode_prompt(prompt),
         )
+        stream_code, stdout, diagnostic = decode_response(stdout)
+        stderr += diagnostic
+        # 保留行程本身的失敗／訊號退出碼，不能讓 stream 解析掩蓋真正原因。
+        if code == 0:
+            code = stream_code
         # Copy only the explicitly requested log. Never follow a reviewer-created
         # symlink out of scratch when recovering artifacts.
         if log.is_symlink():

@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - dev-cycle：`pr-cycle-deep` 的 scope reset／capture 將上一輪 `final.md` 完整移至
   `final.prev.md`（保留最近一輪與原 audit），避免 re-review 兩輪 findings 筆數相同時，
   Step 5a gate 誤收舊正文；未建立本輪 final 前以 exit 2 阻擋（#620）。
+- dev-cycle：`pr-cycle-deep` 的 Gemini R1、R2 與萃取階段改以 NDJSON stdin 傳送完整輸入，
+  移除 256000-byte inline 限制，不截斷 diff、不改用 `@file`。保留 OS 寫入隔離與既有
+  timeout／review 驗證；結構化回應缺少完整結果、回報錯誤或逾時時不計入共識。
+  補回 stream failure、Verdict 與萃取寫入權限的行為回歸覆蓋，釐清非零輸出的診斷用途、
+  僅 timeout 路徑隔離與成功 R1 才可供 fallback 的界線。`agy changelog` 的 1.1.15 條目
+  記載新增 `--input-format stream-json`；本次實測版本為 1.4.12，非所有 1.1.15+ 版本。
+- sdd：testplan trace checker 以 TypeScript compiler AST 支援 Vitest JS／TS／TSX 的測試 callback
+  與 `it.each` 綁定，不把 fixture 字串、巢狀 helper 或 skipped 測試當覆蓋（含 options 物件的
+  skip／todo）；目標 compiler 缺少必要 AST API 時退回鎖定版本，兩者均不可用或語法解析失敗回
+  exit 2。`--change` 保留其他 active／archive 的 TC 歸屬資訊，避免誤報 unrelated orphan，
+  並保留真正無歸屬或不明歸屬的警告。來源：heyu-ai/yibi-mvp#2668。
 
 ## [1.23.23] - 2026-10-29
 

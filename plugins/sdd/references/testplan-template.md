@@ -6,8 +6,9 @@
 trace: enforced
 
 <!-- trace: enforced opts this plan into check_testplan_trace.py's FAIL ratchet: once tasks.md is
-     fully checked (or under --strict), every auto TC needs a test whose docstring has `tc: <TC-ID>`,
-     and every Manual Verification item must be checked. Remove it only for a non-Python project. -->
+     fully checked (or under --strict), every auto TC needs an explicit `tc: <TC-ID>` declaration
+     in a Python test docstring or a Vitest callback comment. Every Manual Verification item
+     must be checked. Remove it for frameworks not supported by the checker. -->
 
 ---
 
@@ -41,8 +42,9 @@ Legend: ✓ covered · △ partial · ✗ missing
 |-------|------|------|-------------|-----------|------|-------------|-------|-----------|----------------|
 | LOGIN-VL-001 | auto | `login-api` | Verify empty password rejected | BVA | High | User not logged in | 1. Submit empty password | password='' | Return 422 Unprocessable |
 
-`Kind` is `auto` for every row here: each needs a test with `tc: <TC-ID>` in its docstring. A check
-no test can automate does not go in this table — list it under Manual Verification instead.
+`Kind` is `auto` for every row here: each needs `tc: <TC-ID>` in its Python test docstring
+or directly inside its Vitest callback comment. A check no test can automate does not go in
+this table — list it under Manual Verification instead.
 
 ---
 

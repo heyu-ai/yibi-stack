@@ -37,6 +37,15 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --locked --all-groups
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: plugins/sdd/package-lock.json
+
+      - name: Install syntax parser for SDD trace tests
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix plugins/sdd
+
       - name: Cache pre-commit environments
         uses: actions/cache@v6
         with:
