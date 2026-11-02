@@ -88,7 +88,13 @@ def invalidate(directory: Path, *, capture: bool = False, final: bool = True) ->
     if capture:
         (directory / "code-review.json").unlink(missing_ok=True)
     if final:
-        update_final(directory, None)
+        if capture:
+            report = directory / "final.md"
+            if report.exists():
+                # 保留最近一輪完整報告，但不得讓舊正文配上新 audit 通過 gate。
+                report.replace(directory / "final.prev.md")
+        else:
+            update_final(directory, None)
 
 
 def changed_paths(root: Path, base: str, head: str) -> list[str]:

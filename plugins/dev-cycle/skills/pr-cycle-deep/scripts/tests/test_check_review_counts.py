@@ -36,6 +36,84 @@ def _accepted(directory: Path, count: int) -> None:
     )
 
 
+@pytest.mark.parametrize("count", [0, 2])
+@pytest.mark.parametrize("refresh", ["reset", "capture"])
+def test_new_round_cannot_accept_previous_final(tmp_path: Path, count: int, refresh: str) -> None:
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # nosec B603
+            list(args), cwd=tmp_path, capture_output=True, text=True, timeout=30, check=True
+        )
+
+    def scope(*args: str) -> None:
+        run(sys.executable, str(SCRIPT.parent / "review_scope.py"), *args)
+
+    run("git", "init", "-q")
+    run(
+        "git",
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "base",
+    )
+    base = run("git", "rev-parse", "HEAD").stdout.strip()
+    (tmp_path / "feature.py").write_text("feature\n", encoding="utf-8")
+    run("git", "add", "feature.py")
+    run(
+        "git",
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "feature",
+    )
+    directory = tmp_path / ".pr-review"
+    directory.mkdir()
+    final = directory / "final.md"
+    previous = directory / "final.prev.md"
+    scope("capture", "--base", base)
+    for round_number in (1, 2, 3):
+        if round_number > 1:
+            previous_report = final.read_bytes()
+            if refresh == "reset":
+                scope("reset")
+                scope("reset")
+            scope("capture", "--base", base)
+        source = directory / "code-review.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "verdict": "NEEDS_CHANGES" if count else "LGTM",
+                    "summary": f"Round {round_number}",
+                    "findings": [
+                        {"file": "feature.py", "title": f"Round {round_number} finding {index}"}
+                        for index in range(count)
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        scope("filter", "--input", str(source))
+        if round_number > 1:
+            rejected = _run(directory)
+            assert rejected.returncode == 2, rejected.stdout + rejected.stderr
+            assert "final.md" in rejected.stderr
+            assert previous.read_bytes() == previous_report
+        report = (
+            f"# Round {round_number}\n"
+            + "".join(f"- Code-review source: CR-{index + 1}\n" for index in range(count))
+            + (directory / "code-review-scope.md").read_text(encoding="utf-8")
+        ).encode()
+        final.write_bytes(report)
+        accepted = _run(directory)
+        assert accepted.returncode == 0, accepted.stderr
+
+
 def test_merged_deferred_and_withdrawn_sources_are_accounted_for(tmp_path: Path) -> None:
     _accepted(tmp_path, 4)
     (tmp_path / "final.md").write_text(

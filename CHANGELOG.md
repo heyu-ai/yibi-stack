@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- dev-cycle：`pr-cycle-deep` 的 scope reset／capture 將上一輪 `final.md` 完整移至
+  `final.prev.md`（保留最近一輪與原 audit），避免 re-review 兩輪 findings 筆數相同時，
+  Step 5a gate 誤收舊正文；未建立本輪 final 前以 exit 2 阻擋（#620）。
+
 ## [1.23.23] - 2026-10-29
 
 ### Changed
