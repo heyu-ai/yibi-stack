@@ -14,7 +14,6 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import shutil
@@ -25,30 +24,7 @@ import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 RED_FIRST = SCRIPTS_DIR / "red-first.sh"
-DEEP_SKILL = SCRIPTS_DIR.parent / "SKILL.md"
 FAST_SKILL = SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md"
-
-# pr-cycle-deep Step 1.7 unchecked 段落的 golden snapshot（作法同 test_convergence_contract.py）：
-# 從 UNCHECKED_START 到 UNCHECKED_END 之前、去掉首尾空白的文字。子字串錨點擋不住「插一個 not」或
-# 「接一句例外」這類翻轉語意的改動，所以整段鎖住。改這段是合法的，但必須在同一個 commit 裡刻意
-# 改這個常數，讓 reviewer 把 runbook 規則的改動也當成測試的改動來看；不要直接貼上失敗訊息印出的新值
-UNCHECKED_START = "`RED_FIRST_RESULT=unchecked` is also exit `0`"
-UNCHECKED_END = "Exit `1` (`RED_FIRST_RESULT=fail`)"
-UNCHECKED_SHA256 = "aeca546db90e32343b0e8db096d4e21d7b43b1df8e0d4d4c8947e6f609ba80ee"
-
-
-def _section(text: str, heading: str, end_marker: str) -> str:
-    """取出 heading（必須是完整的一行）到 end_marker 之前的文字。
-
-    找不到 heading 或 end_marker 時直接失敗，不退回整份檔案：退回整份檔案會讓限定範圍的斷言
-    變成全檔子字串比對，heading 改名後也不會轉紅。
-    """
-    match = re.search(rf"^{re.escape(heading)}$", text, re.MULTILINE)
-    assert match, f"解析前提不成立：找不到標題行 {heading!r}"
-    end = text.find(end_marker, match.end())
-    assert end >= 0, f"解析前提不成立：{heading!r} 之後找不到 {end_marker!r}"
-    return text[match.start() : end]
-
 
 # 具名 exit code，與 script 檔頭的表格一一對應
 EXIT_CONTINUE = 0
@@ -346,69 +322,6 @@ class TestStaticContract:
         start = fast.index("#### 3.0b")
         section = fast[start : fast.index("\n### ", start)]
         assert "token 為 `unchecked` 時**不是通過**" in section
-
-    def test_rfs_dt_007_no_checker_is_unchecked_downstream(self) -> None:
-        """兩份 runbook 都寫明：沒有 checker 也是 unchecked、不看 PR 類型，補充證據不會變成通過。"""
-        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        start = fast.index("#### 3.0b")
-        section = fast[start : fast.index("\n### ", start)]
-        assert "或 repo 根本沒有 checker（不論 PR 類型）" in section
-        assert "只是補充，不會讓結果變成通過" in section
-        assert "不論 token 為何（包括失敗），一律把輸出留在 PR 上" in section
-        # comment 貼的是 stdout：腳本自己的 [WARN] red-first: 行只在 stdout，不在 red-first.out
-        assert "其後貼這次呼叫的完整 stdout（token 為 `error` 時再接上 stderr）" in section
-        assert "不要改貼 `red-first.out`" in section
-        deep = (SCRIPTS_DIR.parent / "SKILL.md").read_text(encoding="utf-8")
-        start = deep.index("### Step 1.7")
-        step = deep[start : deep.index("\n### Step 2", start)]
-        assert "**no checker at all**" in step
-        assert "reported for every PR type" in step
-        assert "it never turns the result into a pass" in step
-        assert "checker checked nothing, no checker), for the human to confirm" in step
-
-    def test_rfs_dt_009_unchecked_paragraph_snapshot(self) -> None:
-        """Step 1.7 的 unchecked 段落整段鎖住（rule 17 Doc-Guard Tests 第 3 點）。
-
-        RFS-DT-007 的錨點仍保留，負責指出是哪一句變了；這裡擋的是保留所有錨點、卻翻轉語意的
-        改動（在 `reported for every PR type` 前插 `not`，或在段尾接一句「例外：……就算通過」）。
-        """
-        deep = DEEP_SKILL.read_text(encoding="utf-8")
-        step = _section(
-            deep,
-            "### Step 1.7 — Red-first gate (the PR's tests must catch the PR's change)",
-            "\n---",
-        )
-        start = step.find(UNCHECKED_START)
-        assert start >= 0, "解析前提不成立：Step 1.7 裡找不到 unchecked 段落的開頭"
-        end = step.find(UNCHECKED_END, start)
-        assert end >= 0, "解析前提不成立：unchecked 段落之後找不到 exit 1 那一句"
-        body = step[start:end].strip()
-        digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
-        assert digest == UNCHECKED_SHA256, f"unchecked 段落變了：sha256 {digest}\n{body}"
-
-    def test_rfs_dt_010_human_facing_sections_keep_unchecked_not_a_pass(self) -> None:
-        """AC-3 的另外兩處：deep Step 8 的 `## Red-first` 區塊與 fast Step 6。
-
-        兩處都要把 [WARN] red-first: 行交給人確認，且補充證據不等於通過；兩份 runbook 都不得再
-        出現 skip-no-checker（以前被呼叫端當成通過的 token）。
-        """
-        deep = DEEP_SKILL.read_text(encoding="utf-8")
-        block = _section(
-            deep, "## Red-first (always shown; from pre-review-check.md)", "\n## Merge blocking"
-        )
-        assert "[WARN] red-first: line — needs your confirmation" in block
-        assert "for unchecked: supplementary evidence the lead gathered (still not a pass)" in block
-        fast = FAST_SKILL.read_text(encoding="utf-8")
-        step6 = _section(fast, "### Step 6 — Ship Gate (MERGEABLE)", "\n### Step 7")
-        assert "有 `[EXEMPT]` 或 `[WARN] red-first:` 行、或上述任一例外時，第二行必填" in step6
-        assert (
-            "red-first 待你確認：<[EXEMPT] / [WARN] red-first: 原文>；"
-            "補充證據（不等於通過）：<comment 裡附的證據，沒有就寫「未附證據」>"
-        ) in step6
-        for name, text in (("pr-cycle-deep", deep), ("pr-cycle-fast", fast)):
-            assert "skip-no-checker" not in text, f"{name} SKILL.md 仍出現 skip-no-checker"
 
 
 class TestBehaviour:

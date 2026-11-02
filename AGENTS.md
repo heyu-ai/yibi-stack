@@ -32,13 +32,18 @@ To restore: `spectra unpark <name>`. The `/spectra-apply` and `/spectra-ingest` 
 執行 `/spectra-commit`（以及任何需要 multi-line commit message 的 skill）時：
 
 - **單行 message**：直接 `git commit -m "type(scope): description"`
-- **多行 message**（含空行或多段落）：先用 Write tool 寫入 `$CLAUDE_JOB_DIR/commit_msg.txt`，再執行：
+- **多行 message**（含空行或多段落）：先用 Write tool 寫入 `$CLAUDE_JOB_DIR/tmp/commit_msg.txt`，再執行：
 
   ```bash
-  git commit -F "$CLAUDE_JOB_DIR/commit_msg.txt"
+  git commit -F "$CLAUDE_JOB_DIR/tmp/commit_msg.txt"
   ```
 
-  不需要（也不應該）之後執行 `rm -f "$CLAUDE_JOB_DIR/commit_msg.txt"`：
+  路徑必須在 `tmp/` 底下：Write tool 會直接拒絕寫入 `$CLAUDE_JOB_DIR` 根目錄（訊息為
+  `Scratch files of a background session go in $CLAUDE_JOB_DIR/tmp`），因為 Claude Code 從那裡
+  重啟 background session。這條適用於**所有** scratch 檔（PR body、review 摘要、consult packet 等），
+  不只 commit message；寫 skill 或 command 時指示的暫存路徑一律用 `$CLAUDE_JOB_DIR/tmp/<檔名>`。
+
+  不需要（也不應該）之後執行 `rm -f "$CLAUDE_JOB_DIR/tmp/commit_msg.txt"`：
   `$CLAUDE_JOB_DIR` 在 job 結束後自動清理；`rm` 是 Bash call 且 Rule 16 Red Flag 2 禁止 allow-list `Bash(rm:*)`，每次都跳 permission prompt。
 
 **不要**用 `git commit -m "$(cat <<'EOF' ... EOF)"`：外層 `"..."` 包 `$()`
@@ -273,7 +278,7 @@ make install-all         # 等同 build-tools + install + install-project + inst
   continues; `uninstall` silently skips.
 - **`.gitignore` does not mean absent from disk** — see rule 02 for fix.
 - **`$CLAUDE_JOB_DIR` permission cannot be permanently allowed via session dialog** —
-  see rule 16: Scenario 1 needs `Edit(/Users/<you>/.claude/jobs/*)` + `Write(/Users/<you>/.claude/jobs/*)`
+  see rule 16: Scenario 1 needs `Edit(/Users/<you>/.claude/jobs/**)` + `Write(/Users/<you>/.claude/jobs/**)`
   (Edit/Write tool writes); Scenario 2 needs `Bash(verb:*)` patterns (Bash redirect `>`).
   Using the wrong pattern type silently fails to match.
 - **Python module rename → `settings.json` hook commands not updated automatically**: after
@@ -300,7 +305,11 @@ make install-all         # 等同 build-tools + install + install-project + inst
   `CLAUDE_CODE_MAX_RETRIES` silently clamps to 15; the watchdog lifts that cap and raises the
   default to 300 retries for non-capacity transient errors. Applies to `nightly-self-improvement`
   (the only `enabled: true` job in `.runtime/schedules.json`) and any future ACP Gateway `skill:`
-  job. (Verified against the Claude Code changelog, 2026-07-19.)
+  job. (Verified against the Claude Code changelog, 2026-07-19.) Two later knobs bound the wait at a
+  usage limit: `CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS` (2.1.301) ends a request at a
+  limit that resets too far away instead of waiting, so a job meant to wait for the reset must set it
+  large enough; `CLAUDE_CODE_RETRY_WATCHDOG_USAGE_LIMIT_RECHECK_MS` (2.1.305) lets the watchdog notice a
+  limit that was lifted before its reset. (Source: Claude Code CHANGELOG 2.1.301 / 2.1.305.)
 - **`claude -p` internal errors now exit 1 instead of hanging (v2.1.277)**: before 2.1.277,
   an internal error caused `claude -p` to hang silently until `timeout_seconds` expired; from
   2.1.277 it reports the error and exits with code 1. Any gate that relied on timeout as the

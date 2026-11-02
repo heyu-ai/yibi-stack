@@ -56,7 +56,7 @@ IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claud
 
 **一律用 stdin packet**（不傳位置參數）。使用者問題可能含雙引號、`$VAR`、`$(...)` 或 backtick，
 inline 傳入 `codex exec "..."` 會 break bash 或求值 / 執行任意 shell（injection）。用 Write tool
-把 boundary + 使用者問題寫入 `$CLAUDE_JOB_DIR/codex-consult-packet.txt`（**禁用** `"$(cat ...)"`
+把 boundary + 使用者問題寫入 `$CLAUDE_JOB_DIR/tmp/codex-consult-packet.txt`（**禁用** `"$(cat ...)"`
 外層雙引號包 subshell——rule 13 Quoting Rule 2 違規）：
 
 Packet 格式：
@@ -73,7 +73,7 @@ Quoting Rule 2），**不用 `timeout`**——對齊 proven 形式且 stock macO
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
-codex exec -C "$ROOT" -s read-only -m gpt-6-astra -c 'model_reasoning_effort="medium"' < "$CLAUDE_JOB_DIR/codex-consult-packet.txt"
+codex exec -C "$ROOT" -s read-only -m gpt-6-astra -c 'model_reasoning_effort="medium"' < "$CLAUDE_JOB_DIR/tmp/codex-consult-packet.txt"
 ```
 
 **為什麼 pin `-m gpt-6-astra`**（issue #511）：不帶 `-m` 時 codex 自選模型，ChatGPT 帳號登入下

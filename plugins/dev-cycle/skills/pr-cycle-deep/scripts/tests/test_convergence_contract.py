@@ -100,7 +100,7 @@ REQUIRED_ANCHORS: list[str] = [
     *PREFLIGHT_ANCHORS,  # issue #510 Spec-drift preflight; also position-checked, see below
     "### Step 1.7 — Red-first gate",  # the gate step exists
     # the gate runs as ONE call to the tested wrapper (title/base/restore logic lives there)
-    'scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR"',
+    'scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR/tmp"',
     "never as hand-split steps",  # Bash calls do not share shell variables
     "(`RED_FIRST_RESULT=fail`) → **stop before Step 2**",  # a verdict FAIL blocks review
     "`RED_FIRST_RESULT=unchecked` is also exit `0` but is **not a pass**",  # issue #521
