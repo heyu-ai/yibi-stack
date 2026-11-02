@@ -17,7 +17,7 @@ turn 就有 110-165k token），換來的只是三個固定指令的輸出。這
 退出碼：
   0 = 基線取得成功，amplifier 無 MUST／SHOULD finding（CI 失敗或 pending 只是資訊，不在此阻斷）
   1 = amplifier-verify 回報 MUST／SHOULD finding（exit 1 且 stdout 有 `[MUST]`／`[SHOULD]` 行）：
-      不要停，讀報告檔把 finding 寫進 final.md
+      不要停；Step 1.5 保留獨立報告，不先寫 final.md；Step 5 重跑 check 後將本輪 findings 納入 final
   2 = 致命錯誤（gh 失敗、PR 不存在、amplifier-verify exit 2／沒有 finding 行的 exit 1／無法執行、
       報告寫不進去、本 script 內部例外）：停下並回報 [FAIL]
 """
