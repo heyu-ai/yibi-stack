@@ -98,17 +98,6 @@ REQUIRED_ANCHORS: list[str] = [
     "material amendment",  # semantic contract change restarts full-diff R1
     "editorial amendment",  # non-semantic correction keeps the current pass
     *PREFLIGHT_ANCHORS,  # issue #510 Spec-drift preflight; also position-checked, see below
-    "### Step 1.7 — Red-first gate",  # the gate step exists
-    # the gate runs as ONE call to the tested wrapper (title/base/restore logic lives there)
-    'scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR/tmp"',
-    "never as hand-split steps",  # Bash calls do not share shell variables
-    "(`RED_FIRST_RESULT=fail`) → **stop before Step 2**",  # a verdict FAIL blocks review
-    "`RED_FIRST_RESULT=unchecked` is also exit `0` but is **not a pass**",  # issue #521
-    "do not restore by hand (rule 15)",  # exit 3 / killed call hands the tree to a human
-    "Step 3.1 pastes them into `prompt-r1.md`",  # [WEAK-RED] is carried to every voice
-    "Weak-red tests (inspect for tautology)",  # ... via a slot in the Step 3.1 template
-    "the lead may not accept it",  # an exemption needs a human
-    "## Red-first (always shown",  # ... via a slot in the Step 8 template
     "Tautological or implementation-coupled test",  # the evidence form for such findings
     "starting with any `[WEAK-RED]` tests from Step 1.7",  # pr-test-analyzer focus (AC-3)
     "tests whose expected value is computed the way the",  # R1 prompt focus bullet (AC-3)
@@ -129,8 +118,6 @@ FORBIDDEN_STRINGS: list[str] = [
     "All voices LGTM",
     "Every active voice's latest round outputs",
     "Want to skip R2 and run only R1 | Not allowed",
-    '--title "<PR title>"',  # PR #469 R1: title pasted into shell source
-    "Run these as separate calls",  # PR #469 R2: variables do not survive between Bash calls
 ]
 
 

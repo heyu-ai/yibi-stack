@@ -7,7 +7,9 @@ turn 就有 110-165k token），換來的只是三個固定指令的輸出。這
 完整輸出寫進報告檔，stdout 只印幾行摘要，讓主 context 保持精簡。
 
 用法：
-  python3 pre_review_check.py --pr 123 [--repo-root /path/to/worktree]
+  python3 pre_review_check.py --pr 123 [--repo-root /path/to/worktree] [--require-red-first]
+  Step 1.5／read-only review 不帶新旗標；Step 5／resume 帶旗標檢查獨立 red-first.md，
+  缺漏、格式／PR 不符或 blocking 結果時先以 exit 2 停止，不呼叫 GitHub／amplifier。
 
 副作用：
   1. 建立 <repo-root>/.pr-review/ 並把 `.pr-review/` 加進 git exclude（與 setup-review-dir.sh
@@ -19,7 +21,7 @@ turn 就有 110-165k token），換來的只是三個固定指令的輸出。這
   1 = amplifier-verify 回報 MUST／SHOULD finding（exit 1 且 stdout 有 `[MUST]`／`[SHOULD]` 行）：
       不要停；Step 1.5 保留獨立報告，不先寫 final.md；Step 5 重跑 check 後將本輪 findings 納入 final
   2 = 致命錯誤（gh 失敗、PR 不存在、amplifier-verify exit 2／沒有 finding 行的 exit 1／無法執行、
-      報告寫不進去、本 script 內部例外）：停下並回報 [FAIL]
+      報告寫不進去、必要的 red-first 證據無效、本 script 內部例外）：停下並回報 [FAIL]
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess  # nosec B404
 import sys
 from dataclasses import dataclass
@@ -152,10 +155,33 @@ def ensure_review_dir(repo_root: Path) -> Path:
     return review_dir
 
 
+def read_red_first_report(repo_root: Path, pr: str) -> tuple[str, str]:
+    """檢查獨立證據完整性；保留原始 HEAD，不將舊測試冒稱為目前 HEAD 的執行結果。"""
+    report = repo_root / ".pr-review" / "red-first.md"
+    text = report.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    if not text.endswith("\n") or len(lines) < 3:
+        raise ValueError("red-first.md 不完整")
+    identity = re.fullmatch(r"<!-- red-first:([0-9a-f]{40}|[0-9a-f]{64}|unknown) -->", lines[0])
+    if identity is None or lines[1] != f"PR: {pr}":
+        raise ValueError("red-first.md 身分格式錯誤或 PR 不符")
+    prefix, separator, result = lines[-1].partition("=")
+    if prefix != "RED_FIRST_RESULT" or separator != "=":
+        raise ValueError("red-first.md 缺少完整的 terminal result")
+    if result not in {"pass", "unchecked"}:
+        raise ValueError(f"red-first.md 結果 {result!r} 不可繼續")
+    return identity.group(1), result
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="pr-cycle-deep Step 1.5 pre-review 基線檢查")
     parser.add_argument("--pr", required=True, type=int)
     parser.add_argument("--repo-root", type=Path, default=None)
+    parser.add_argument(
+        "--require-red-first",
+        action="store_true",
+        help="彙整／resume 前要求可繼續的獨立 red-first 證據，缺漏或失敗即停止",
+    )
     args = parser.parse_args(argv)
     try:
         return _check(args)
@@ -175,6 +201,20 @@ def _check(args: argparse.Namespace) -> int:
         repo_root = args.repo_root.resolve()
 
     pr = str(args.pr)
+    red_first_summary = None
+    if args.require_red_first:
+        try:
+            captured_head, result = read_red_first_report(repo_root, pr)
+        except (OSError, ValueError) as exc:
+            print(
+                f"[FAIL] red-first 證據無法採用：{exc}；請重跑 Step 1.7，不得推定通過",
+                file=sys.stderr,
+            )
+            return 2
+        red_first_summary = (
+            f"- Red-first: PR {pr}; captured HEAD={captured_head}; "
+            f"RED_FIRST_RESULT={result}; report={repo_root / '.pr-review' / 'red-first.md'}"
+        )
     diff_summary, diff_err = summarize_diff(
         run(["gh", "pr", "view", pr, "--json", "changedFiles,additions,deletions"], repo_root)
     )
@@ -197,6 +237,8 @@ def _check(args: argparse.Namespace) -> int:
         f"- CI: {checks_summary or '[FAIL] ' + str(checks_err)}",
         f"- Amplifier: {amp_summary}",
     ]
+    if red_first_summary is not None:
+        lines.append(red_first_summary)
     try:
         review_dir = ensure_review_dir(repo_root)
         report = review_dir / "pre-review-check.md"

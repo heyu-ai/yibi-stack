@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Red-first 證據由 wrapper 原子寫入獨立 `.pr-review/red-first.md`，保留 captured HEAD／PR、
+  warnings 與完整結果，不再因 amplifier 重審覆寫而遺失；deep 彙整加上 `--require-red-first`，
+  resume／human pass 缺漏或無效證據即阻擋，fast 直接貼原報告且補充證據分開記錄 (#623)
+
 ## [1.23.24] - 2026-11-02
 
 ### Added

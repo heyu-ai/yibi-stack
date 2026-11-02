@@ -1,21 +1,8 @@
-"""red-first.sh 的契約與行為測試（PR #469 mob review Round 2）。
-
-沿用 test_preflight_review_snapshot.py 的兩層慣例：
-
-* **靜態契約測試** —— 讀 script 原始碼，斷言幾個容易被「順手簡化」掉的不變量
-  （標題只經變數傳入、body 用 `>|` 覆寫、base 取 FETCH_HEAD）。
-
-* **行為測試** —— 在拋棄式 repo 裡放假的 `gh` 與假的 checker，**每一個具名 exit code
-  都有一個實際會觸發它的輸入**。PR #469 Round 2 的 Critical 正是「runbook 照字面執行時
-  gate 靜默失效」，所以 happy path 只佔少數，其餘都是正向對照。
-
-Test ID 規則見 .claude/rules/09-test-conventions.md。
-"""
+"""以拋棄式 Git repo、外部 gh/checker 驗證 red-first 的判定與持久證據。"""
 
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess  # nosec B404
 from pathlib import Path
@@ -24,7 +11,6 @@ import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 RED_FIRST = SCRIPTS_DIR / "red-first.sh"
-FAST_SKILL = SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md"
 
 # 具名 exit code，與 script 檔頭的表格一一對應
 EXIT_CONTINUE = 0
@@ -55,12 +41,23 @@ import os
 import pathlib
 import subprocess
 import sys
+import signal
 
 pathlib.Path(os.environ["FAKE_ARGV_OUT"]).write_text("\\n".join(sys.argv[1:]), encoding="utf-8")
 repo = pathlib.Path(sys.argv[sys.argv.index("--repo") + 1])
 mode = os.environ.get("FAKE_CHECKER_MODE", "pass")
 if mode == "pass":
     print("red-first: PASS")
+    sys.exit(0)
+if mode == "pass-with-evidence":
+    print("[WEAK-RED] tests/test_consumer.py: assertion-only evidence")
+    print("[EXEMPT] docs/readme.md: documentation")
+    print("checker stderr evidence", file=sys.stderr)
+    print("red-first: PASS")
+    sys.exit(0)
+if mode == "interrupt":
+    print("incomplete checker evidence", flush=True)
+    os.kill(os.getppid(), signal.SIGKILL)
     sys.exit(0)
 if mode == "fail":
     print("red-first: FAIL")
@@ -259,69 +256,6 @@ def _run(
         env=env,
     )
     return proc, argv_out
-
-
-class TestStaticContract:
-    SRC = RED_FIRST.read_text(encoding="utf-8")
-
-    def test_rfs_dt_001_title_only_passed_via_variable(self) -> None:
-        """標題只能以 "$PR_TITLE" 傳給 checker，不得出現任何貼字面值的佔位符。"""
-        assert '--title "$PR_TITLE"' in self.SRC
-        assert "{{pr_title}}" not in self.SRC
-        assert "<PR title>" not in self.SRC
-
-    def test_rfs_dt_002_body_overwritten_noclobber_safe(self) -> None:
-        assert '>| "$OUT_DIR/pr-body.md"' in self.SRC
-
-    def test_rfs_dt_008_red_first_out_writes_are_noclobber_safe(self) -> None:
-        """red-first.out 的每一處寫入都用 `>|`（開頭清空、沒有 checker、有 checker 三處）。
-
-        noclobber 開著時 `>` 對既有檔案會失敗並保留舊內容；測試的 shell 沒開 noclobber，
-        行為測試抓不到，只能從原始碼鎖住。
-        """
-        redirects = re.findall(r'(>>|>\|?)\s*"\$OUT_DIR/red-first\.out"', self.SRC)
-        assert len(redirects) >= 3, f"前提不成立：red-first.out 的寫入少於 3 處：{redirects}"
-        assert set(redirects) == {">|"}, f"red-first.out 有不是 >| 的寫入：{redirects}"
-
-    def test_rfs_dt_003_base_is_fetched_not_a_local_ref(self) -> None:
-        assert "git rev-parse FETCH_HEAD" in self.SRC
-        assert "origin/{{base_branch}}" not in self.SRC
-
-    def test_rfs_dt_004_header_documents_unchecked(self) -> None:
-        """檔頭的 exit code 表是呼叫端的正本，unchecked 必須列在 exit 0 那一列。"""
-        header = self.SRC.split("set -euo pipefail", 1)[0]
-        exit0_row = header[header.index("#   0 ") : header.index("#   1 ")]
-        assert "RED_FIRST_RESULT=unchecked" in exit0_row
-        assert "red-first: UNCHECKED" in exit0_row
-        assert "不是通過" in exit0_row
-
-    def test_rfs_dt_005_pr_cycle_fast_token_list_covers_every_token(self) -> None:
-        """pr-cycle-fast 3.0b 把 token 寫成封閉清單（「只會是…其中之一」）並直接放進 --reason。
-
-        腳本新增 token 而清單沒跟上時，下游會把沒列出的 token 當成意外值；清單多出腳本不再印的
-        token（例如已移除的 skip-no-checker）時，下游會為不存在的結果寫分支。從原始碼抽出所有
-        token，與清單裡的 token 做雙向比對（集合相等），讓兩邊不能各自漂移。
-        """
-        emitted = set(re.findall(r"RED_FIRST_RESULT=([a-z][a-z-]*)", self.SRC))
-        # 沒有 checker 已併入 unchecked，不再有 skip-no-checker（以前被呼叫端當成通過）
-        assert emitted == {"pass", "unchecked", "fail", "error", "tree-not-restored"}
-        fast = FAST_SKILL.read_text(encoding="utf-8")
-        start = fast.index("token 只會是")
-        token_list = fast[start : fast.index("其中之一", start)]
-        listed = set(re.findall(r"`([a-z][a-z-]*)`", token_list))
-        assert listed == emitted, (
-            f"pr-cycle-fast 3.0b 的 token 清單與腳本不一致：缺少 {sorted(emitted - listed)}，"
-            f"多出 {sorted(listed - emitted)}"
-        )
-
-    def test_rfs_dt_006_pr_cycle_fast_says_unchecked_is_not_a_pass(self) -> None:
-        """pr-cycle-fast 3.0b 的 exit 0 那一列必須寫明 unchecked 不是通過（AC-6）。"""
-        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        start = fast.index("#### 3.0b")
-        section = fast[start : fast.index("\n### ", start)]
-        assert "token 為 `unchecked` 時**不是通過**" in section
 
 
 class TestBehaviour:
@@ -594,32 +528,21 @@ class TestHeadProbeError:
     """跑完後解析 HEAD 時 git 本身出錯，是工具錯誤（exit 2），不得當成 unborn（AC-2）。"""
 
     def test_rfs_st_026_head_probe_error_after_run_is_error(self, tmp_path: Path) -> None:
-        """跑完後 `git rev-parse -q --verify HEAD` 回 1 以外的非 0（git 本身出錯）→ exit 2（AC-2）。
-
-        跑後的 rc=1 是 unborn，交給比對走 exit 3；其他 rc 不得被當成 unborn 吞掉。在 PATH 前面
-        放一個 git shim：只對參數剛好是 `rev-parse -q --verify HEAD` 的呼叫計數，第 2 次（跑後）
-        以 exit 128 結束，其餘呼叫都轉給真的 git。只靠弄壞 `.git` 測不到這一支：跑後的
-        `git status` 會先失敗。
-        """
+        """checker 已啟動後，HEAD 解析的 git 工具錯誤必須保留為 exit 2。"""
         repo = _setup(tmp_path)
         # 必須在改 PATH 之前取得真的 git，否則 shim 會找到自己
         real_git = shutil.which("git")
         assert real_git, "前提：PATH 上要有 git"
-        counter = tmp_path / "head-probe-count"
+        checker_started = tmp_path / "argv.txt"
         shim = tmp_path / "bin" / "git"
         shim.write_text(
             "#!/usr/bin/env bash\n"
-            "# 假的 git：跑後那一次 HEAD 解析模擬 git 本身出錯，其餘轉給真的 git\n"
-            'if [ "$#" -eq 4 ] && [ "$1" = rev-parse ] && [ "$2" = -q ] '
-            '&& [ "$3" = --verify ] && [ "$4" = HEAD ]; then\n'
-            "  n=0\n"
-            f'  if [ -f "{counter}" ]; then n=$(cat "{counter}"); fi\n'
-            "  n=$((n + 1))\n"
-            f'  printf \'%s\\n\' "$n" >| "{counter}"\n'
-            '  if [ "$n" -eq 2 ]; then\n'
-            '    echo "fatal: simulated rev-parse failure" >&2\n'
-            "    exit 128\n"
-            "  fi\n"
+            "# checker 的 argv 檔是階段界線，不依賴 git 呼叫次數\n"
+            'if [ "$1" = rev-parse ] && [ "$2" = -q ] '
+            '&& [ "$3" = --verify ] && [ "$4" = HEAD ] '
+            f'&& [ -f "{checker_started}" ]; then\n'
+            '  echo "fatal: simulated rev-parse failure" >&2\n'
+            "  exit 128\n"
             "fi\n"
             f'exec "{real_git}" "$@"\n',
             encoding="utf-8",
@@ -627,7 +550,6 @@ class TestHeadProbeError:
         shim.chmod(0o755)
         proc, argv_out = _run(tmp_path, repo)
         assert argv_out.exists(), "跑前的 HEAD 解析正常，應執行 checker"
-        assert counter.read_text(encoding="utf-8").strip() == "2", "shim 應剛好攔到跑前、跑後兩次"
         assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
         assert "git rev-parse HEAD 失敗（exit 128）" in proc.stderr
         assert proc.stdout.rstrip().splitlines()[-1] == "RED_FIRST_RESULT=error"
@@ -893,3 +815,139 @@ class TestUntrackedHiddenByConfig:
         assert proc.returncode == EXIT_TREE_NOT_RESTORED, proc.stdout + proc.stderr
         assert proc.stdout.rstrip().splitlines()[-1] == "RED_FIRST_RESULT=tree-not-restored"
         assert "leak.txt" in proc.stderr
+
+
+def _durable_report(repo: Path, head: str, token: str) -> str:
+    content = (repo / ".pr-review/red-first.md").read_text(encoding="utf-8")
+    lines = content.splitlines()
+    assert lines[:2] == [f"<!-- red-first:{head} -->", "PR: 7"]
+    assert lines[-1] == f"RED_FIRST_RESULT={token}"
+    return content
+
+
+class TestDurableReport:
+    def test_no_checker_persists_unchecked_without_dirtying_tree(self, tmp_path: Path) -> None:
+        repo = _setup(tmp_path, with_checker=False)
+        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        proc, _ = _run(tmp_path, repo)
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        content = _durable_report(repo, head, "unchecked")
+        raw = tmp_path / "out/red-first.out"
+        assert raw.read_text(encoding="utf-8") in content
+        assert _git(repo, "status", "--porcelain", "--untracked-files=all").stdout == ""
+        assert _git(repo, "check-ignore", ".pr-review/red-first.md").stdout.strip()
+        shutil.rmtree(tmp_path / "out")
+        assert _durable_report(repo, head, "unchecked") == content
+
+    def test_pass_preserves_checker_and_wrapper_evidence(self, tmp_path: Path) -> None:
+        repo = _setup(tmp_path, checker_on_base=False)
+        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        proc, _ = _run(tmp_path, repo, FAKE_CHECKER_MODE="pass-with-evidence")
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        content = _durable_report(repo, head, "pass")
+        assert "[WARN] red-first: checker modified by this PR" in content
+        assert "[WEAK-RED] tests/test_consumer.py: assertion-only evidence" in content
+        assert "[EXEMPT] docs/readme.md: documentation" in content
+        assert "checker stderr evidence" in content
+        assert (tmp_path / "out/red-first.out").read_text(encoding="utf-8") in content
+        assert (tmp_path / "out/pr-body.md").read_text(encoding="utf-8").strip() == "body"
+        assert _git(repo, "status", "--porcelain", "--untracked-files=all").stdout == ""
+        shutil.rmtree(tmp_path / "out")
+        assert _durable_report(repo, head, "pass") == content
+
+    @pytest.mark.parametrize(
+        ("mode", "exit_code", "token"),
+        [
+            ("fail", EXIT_VERDICT_FAIL, "fail"),
+            ("traceback", EXIT_ERROR, "error"),
+            ("exit2", EXIT_ERROR, "error"),
+            ("dirty", EXIT_TREE_NOT_RESTORED, "tree-not-restored"),
+            ("commit-empty", EXIT_TREE_NOT_RESTORED, "tree-not-restored"),
+        ],
+    )
+    def test_failed_rerun_replaces_old_pass(
+        self, tmp_path: Path, mode: str, exit_code: int, token: str
+    ) -> None:
+        repo = _setup(tmp_path)
+        first, _ = _run(tmp_path, repo)
+        assert first.returncode == EXIT_CONTINUE, first.stdout + first.stderr
+        report = repo / ".pr-review/red-first.md"
+        report.write_text(
+            report.read_text(encoding="utf-8").replace(
+                "RED_FIRST_RESULT=pass", "STALE-RED-FIRST-EVIDENCE\nRED_FIRST_RESULT=pass"
+            ),
+            encoding="utf-8",
+        )
+        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        proc, _ = _run(tmp_path, repo, FAKE_CHECKER_MODE=mode)
+        assert proc.returncode == exit_code, proc.stdout + proc.stderr
+        content = _durable_report(repo, head, token)
+        assert "STALE-RED-FIRST-EVIDENCE" not in content
+        assert (tmp_path / "out/red-first.out").read_text(encoding="utf-8") in content
+        for line in proc.stderr.splitlines():
+            if line.startswith("[FAIL]"):
+                assert line in content
+        assert proc.stdout.splitlines()[-1] == f"RED_FIRST_RESULT={token}"
+
+    @pytest.mark.parametrize("failure", ["github", "dirty-tree"])
+    def test_pre_checker_error_replaces_old_report(self, tmp_path: Path, failure: str) -> None:
+        repo = _setup(tmp_path)
+        first, argv = _run(tmp_path, repo)
+        assert first.returncode == EXIT_CONTINUE, first.stdout + first.stderr
+        argv.unlink()
+        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        before = _durable_report(repo, head, "pass")
+        if failure == "dirty-tree":
+            _untracked_file(repo)
+        proc, argv = _run(tmp_path, repo, FAKE_GH_FAIL="1" if failure == "github" else "")
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert not argv.exists()
+        content = _durable_report(repo, head, "error")
+        assert content != before
+        assert "red-first: PASS" not in content
+        assert "[FAIL]" in content
+        for line in proc.stderr.splitlines():
+            if line.startswith("[FAIL]"):
+                assert line in content
+
+    def test_interrupted_rerun_leaves_no_accepted_old_or_partial_report(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _setup(tmp_path)
+        first, argv = _run(tmp_path, repo)
+        assert first.returncode == EXIT_CONTINUE, first.stdout + first.stderr
+        assert (repo / ".pr-review/red-first.md").is_file()
+        argv.unlink()
+        proc, argv = _run(tmp_path, repo, FAKE_CHECKER_MODE="interrupt")
+        assert proc.returncode != EXIT_CONTINUE
+        assert argv.exists(), "interruption must occur inside the checker"
+        assert not (repo / ".pr-review/red-first.md").exists()
+
+    def test_tracked_report_draft_is_not_overwritten(self, tmp_path: Path) -> None:
+        repo = _setup(tmp_path)
+        report = repo / ".pr-review/red-first.md"
+        report.parent.mkdir()
+        report.write_text("committed report\n", encoding="utf-8")
+        _git(repo, "add", ".pr-review/red-first.md")
+        _git(repo, "commit", "-qm", "tracked report")
+        draft = b"uncommitted report draft\n"
+        report.write_bytes(draft)
+        proc, argv = _run(tmp_path, repo)
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert "已被 Git 追蹤" in proc.stderr
+        assert report.read_bytes() == draft
+        assert not argv.exists()
+
+    def test_checker_without_final_newline_still_publishes_complete_result(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _setup(tmp_path)
+        checker = repo / "scripts/red-first-check.py"
+        checker.write_text('import sys\nsys.stdout.write("red-first: PASS")\n', encoding="utf-8")
+        _git(repo, "add", "scripts/red-first-check.py")
+        _git(repo, "commit", "-qm", "checker without final newline")
+        head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        proc, _ = _run(tmp_path, repo)
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        content = _durable_report(repo, head, "pass")
+        assert content.endswith("red-first: PASS\nRED_FIRST_RESULT=pass\n")

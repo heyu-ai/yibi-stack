@@ -17,15 +17,14 @@
 #   bash <path>/red-first.sh --pr <number> --repo-root <checkout> --out-dir <dir>
 #   （Bash tool 要給 timeout 600000：checker 會跑兩次測試）
 #
-# 輸出：checker 的完整輸出（沒有 checker 時是本 script 寫的 [WARN] 與 UNCHECKED 兩行）寫到
-# <out-dir>/red-first.out，並同步印到 stdout；有 checker 時，PR body 寫到 <out-dir>/pr-body.md
-# （沒有 checker 時不寫）。red-first.out 在建立 <out-dir> 後立刻清空，上一輪的判定不會留到
-# 這一輪（例如這一輪在跑 checker 前就以 exit 2 結束時）。
-# 完整的紀錄是 stdout，不是 red-first.out：本 script 自己的 [WARN] red-first: 行（checker 被
-# 這個 PR 改過、checker 沒有檢查任何東西）只印到 stdout。這些 [WARN] 判定行刻意印到 stdout，
-# 是 rule 17「[WARN]／[FAIL]／[SKIP] 一律 >&2」的例外：呼叫端擷取 stdout 寫進
-# pre-review-check.md 與 PR comment，印到 stderr 會讓它們到不了人面前。[FAIL] 仍走 stderr。
-# 最後一行固定是 `RED_FIRST_RESULT=<名稱>`。
+# 輸出：checker 原始輸出仍寫到 <out-dir>/red-first.out；PR body 寫到 <out-dir>/pr-body.md。
+# 持久證據由本 script 原子發布到 <repo>/.pr-review/red-first.md，包含原始 HEAD／PR、
+# wrapper 警告、checker 的 stdout/stderr、wrapper 失敗診斷與最後的 RED_FIRST_RESULT。
+# 新一次執行先失效舊報告；中斷時不會把未完成的暫存檔當成成功證據。參數／repo 解析前的
+# 失敗沒有可信的輸出位置，僅回報 stderr 與 error token。
+# amplifier refresh 不得覆寫此檔；呼叫端直接讀取，不再從 stdout 手動拼回 pre-review-check.md。
+# [WARN] 判定仍印到 stdout，供既有呼叫端取得；[FAIL] 走 stderr，兩者同時存入持久報告。
+# stdout 最後一行固定是 `RED_FIRST_RESULT=<名稱>`；檔案發布失敗一律 exit 2。
 #
 # 退出碼（每一個都是具名結果）：
 #   0  可以往下走：PASS、SKIP（checker 判定 PR 類型不需要）、EXEMPT，或 UNCHECKED。
@@ -55,27 +54,84 @@
 
 set -euo pipefail
 
-# 任何沒被 `if !` / `|| X=$?` 保護到的指令失敗（例如 base 與 PR 沒有共同祖先時的
-# git merge-base），在 set -e 下會以該指令自己的 exit code 結束；那可能剛好是 1，
-# 被呼叫端讀成「判定失敗」並要求作者補測試。統一收斂成 exit 2（工具錯誤）。
-trap 'echo "[FAIL] red-first: 未預期的指令失敗（line ${LINENO}）" >&2; echo "RED_FIRST_RESULT=error"; exit 2' ERR
-
 PR=""
 REPO_ROOT=""
 OUT_DIR=""
+REPORT_TMP=""
+REPORT_PATH=""
+
+cleanup_report() {
+    if [ -n "$REPORT_TMP" ] && ! rm -f -- "$REPORT_TMP"; then
+        printf '%s\n' "[WARN] red-first: 無法清除暫存證據 ${REPORT_TMP}" >&2
+    fi
+}
+
+report_error() {
+    trap - ERR
+    printf '%s\n' "[FAIL] red-first: 無法保存持久證據，停止流程" >&2
+    printf '%s\n' "RED_FIRST_RESULT=error"
+    exit 2
+}
+
+append_report() {
+    if [ -n "$REPORT_TMP" ]; then
+        if ! printf '%s\n' "$*" >> "$REPORT_TMP"; then
+            report_error
+        fi
+    fi
+}
+
+emit() {
+    printf '%s\n' "$*"
+    append_report "$*"
+}
+
+diagnostic() {
+    printf '%s\n' "$*" >&2
+    append_report "$*"
+}
+
+finish() {
+    local code="$1" result="$2"
+    append_report "RED_FIRST_RESULT=${result}"
+    if [ -n "$REPORT_TMP" ]; then
+        if ! mv -f -- "$REPORT_TMP" "$REPORT_PATH"; then
+            report_error
+        fi
+        REPORT_TMP=""
+    fi
+    printf 'RED_FIRST_RESULT=%s\n' "$result"
+    exit "$code"
+}
+
+show_checker_output() {
+    if ! tee -a "$REPORT_TMP" < "$OUT_DIR/red-first.out"; then
+        report_error
+    fi
+    # checker 沒印結尾換行時，也要讓 wrapper 的 terminal token 自成一行。
+    local last_byte
+    if ! last_byte=$(tail -c 1 "$OUT_DIR/red-first.out"); then
+        report_error
+    fi
+    if [ -n "$last_byte" ]; then
+        emit ""
+    fi
+}
 
 usage() {
     echo "用法：red-first.sh --pr <number> --repo-root <checkout> --out-dir <dir>" >&2
 }
 
 fail() {
-    # $1 = exit code，其餘為訊息
     local code="$1"
     shift
-    echo "[FAIL] red-first: $*" >&2
-    echo "RED_FIRST_RESULT=error"
-    exit "$code"
+    diagnostic "[FAIL] red-first: $*"
+    finish "$code" error
 }
+
+# 未預期的外部指令失敗不是 checker 判決；保留診斷並統一為 exit 2。
+trap 'fail 2 "未預期的指令失敗（line ${LINENO}）"' ERR
+trap cleanup_report EXIT
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -108,6 +164,42 @@ esac
 if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     fail 2 "--repo-root 不是 git checkout：${REPO_ROOT}"
 fi
+
+REPORT_ROOT=$(git -C "$REPO_ROOT" rev-parse --show-toplevel)
+REPORT_DIR="$REPORT_ROOT/.pr-review"
+REPORT_PATH="$REPORT_DIR/red-first.md"
+TRACKED_REPORT=$(git -C "$REPORT_ROOT" ls-files -- .pr-review/red-first.md)
+if [ -n "$TRACKED_REPORT" ]; then
+    fail 2 "red-first.md 已被 Git 追蹤，不得覆寫工作樹內容；請先處理報告的追蹤狀態"
+fi
+mkdir -p "$REPORT_DIR"
+rm -f -- "$REPORT_PATH"
+REPORT_TMP=$(mktemp "$REPORT_DIR/.red-first.XXXXXX")
+REPORT_HEAD="unknown"
+if CAPTURED_HEAD=$(git -C "$REPO_ROOT" rev-parse --verify HEAD 2>/dev/null); then
+    REPORT_HEAD="$CAPTURED_HEAD"
+fi
+append_report "<!-- red-first:${REPORT_HEAD} -->"
+append_report "PR: ${PR}"
+
+# 與其他 review 產物相同，排除自己的輸出，不能讓 evidence 造成 dirty-tree 誤擋。
+EXCLUDE=$(git -C "$REPO_ROOT" rev-parse --git-path info/exclude)
+case "$EXCLUDE" in
+    /*) ;;
+    *) EXCLUDE="$REPO_ROOT/$EXCLUDE" ;;
+esac
+mkdir -p "$(dirname "$EXCLUDE")"
+if [ ! -e "$EXCLUDE" ]; then
+    : > "$EXCLUDE"
+fi
+EXCLUDE_RC=0
+grep -qxF '.pr-review/' "$EXCLUDE" || EXCLUDE_RC=$?
+case "$EXCLUDE_RC" in
+    0) ;;
+    1) printf '\n.pr-review/\n' >> "$EXCLUDE" ;;
+    *) fail 2 "無法讀取 Git exclude" ;;
+esac
+
 mkdir -p "$OUT_DIR"
 # 先清空：有 checker 時 red-first.out 要到所有 exit 2 檢查之後才寫，之前結束的話，同一個
 # out-dir 裡上一輪的判定（例如 PASS）會被呼叫端當成這一輪的結果。失敗走 ERR trap
@@ -118,14 +210,12 @@ if [ ! -f "$CHECKER" ]; then
     # 沒有 checker 就是沒有檢查，不論 PR 類型：以前印 [SKIP] 並以 skip-no-checker 放行，呼叫端
     # 當成通過。refactor／perf 也一樣需要「產品碼還原到 base 時測試仍綠」的驗證，所以不看標題
     # 一律回報 unchecked（標題由作者自訂，拿它決定要不要檢查，等於讓作者自己關掉 gate）。
-    # [WARN] 行與機讀標記 `red-first: UNCHECKED`（與有 checker 時同一個標記）寫進 red-first.out，
-    # 並原樣印到 stdout。呼叫端一律取 stdout：有 checker 時本 script 自己的 [WARN] 行只在 stdout
+    # 原始 checker 形狀留在 scratch；持久報告另包含 wrapper 的完整判定。
     printf '%s\n' \
         "[WARN] red-first: no checker（${CHECKER} 不存在），red-first 沒有檢查任何東西，不是通過；手動 mutation 等證據只能補充，不會讓結果變成通過" \
         "red-first: UNCHECKED" >| "$OUT_DIR/red-first.out"
-    cat "$OUT_DIR/red-first.out"
-    echo "RED_FIRST_RESULT=unchecked"
-    exit 0
+    show_checker_output
+    finish 0 unchecked
 fi
 
 # gh 從 cwd 推斷 repo，所以在本 script 自己的 shell 內切到目標 checkout。
@@ -259,13 +349,13 @@ MERGE_BASE=$(git merge-base "$BASE_SHA" HEAD)
 # 收到 SIGPIPE，整條 pipeline 變非零，警告就靜默消失
 CHECKER_DIFF=$(git diff --name-only "$MERGE_BASE" HEAD -- scripts/red-first-check.py)
 if [ -n "$CHECKER_DIFF" ]; then
-    echo "[WARN] red-first: checker modified by this PR（判定由 PR 自己改過的 checker 產生，須由人確認）"
+    emit "[WARN] red-first: checker modified by this PR（判定由 PR 自己改過的 checker 產生，須由人確認）"
 fi
 
 CHECKER_EXIT=0
 python3 "$CHECKER" --repo "$REPO_ROOT" --base "$BASE_SHA" --title "$PR_TITLE" \
     --pr-body-file "$OUT_DIR/pr-body.md" >| "$OUT_DIR/red-first.out" 2>&1 || CHECKER_EXIT=$?
-cat "$OUT_DIR/red-first.out"
+show_checker_output
 
 # 不論 checker 的 exit code，先確認已還原（AC-4）：同一個 porcelain 指令仍為空，HEAD 的 commit
 # 與所在分支都沒變。不再豁免 checker 自己列出的「工具副作用」（#496 NIT 2）：那份清單只會讓
@@ -287,11 +377,10 @@ fi
 if [ -n "$NOT_RESTORED" ]; then
     # 診斷指令失敗不得把 exit 3 變成 exit 2：放在 if 條件裡，不觸發 ERR trap
     if ! git status --short --untracked-files=all --ignore-submodules=none >&2; then
-        echo "[WARN] red-first: 無法列出 git status" >&2
+        diagnostic "[WARN] red-first: 無法列出 git status"
     fi
-    echo "[FAIL] red-first: 跑完後沒有還原：${NOT_RESTORED# }。產品碼可能沒還原；不要自行還原，交給人判斷" >&2
-    echo "RED_FIRST_RESULT=tree-not-restored"
-    exit 3
+    diagnostic "[FAIL] red-first: 跑完後沒有還原：${NOT_RESTORED# }。產品碼可能沒還原；不要自行還原，交給人判斷"
+    finish 3 tree-not-restored
 fi
 
 # checker 以 exit 0 結束不代表有檢查（issue #521）。偵測兩種形狀，任一出現即為 unchecked，
@@ -321,17 +410,14 @@ is_unchecked() {
 case "$CHECKER_EXIT" in
     0)
         if is_unchecked; then
-            echo "[WARN] red-first: checker 沒有檢查任何東西（exit 0 不是通過）；手動 mutation 等證據只能補充，不會讓結果變成通過"
-            echo "RED_FIRST_RESULT=unchecked"
-            exit 0
+            emit "[WARN] red-first: checker 沒有檢查任何東西（exit 0 不是通過）；手動 mutation 等證據只能補充，不會讓結果變成通過"
+            finish 0 unchecked
         fi
-        echo "RED_FIRST_RESULT=pass"
-        exit 0
+        finish 0 pass
         ;;
     1)
         if grep -qx 'red-first: FAIL' "$OUT_DIR/red-first.out"; then
-            echo "RED_FIRST_RESULT=fail"
-            exit 1
+            finish 1 fail
         fi
         fail 2 "checker exit 1 但沒有 'red-first: FAIL' 判定行（多半是 traceback），見上方輸出"
         ;;

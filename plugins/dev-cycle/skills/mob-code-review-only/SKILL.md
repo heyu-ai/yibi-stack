@@ -129,6 +129,13 @@ into `prompt-r1.md` if one exists; otherwise write
 Use the **same scripts, the same R1/R2 prompts, the same sanity checks, and the same aggregation
 severity table**.
 
+**Red-first 繼承例外：** 此 read-only 流程仍略過 Step 1.7，不得為了產生證據而修改
+作者的工作樹。繼承的 Step 5 與 Step 1.5 相同，使用
+`pre_review_check.py --pr {{pr_number}}`，**不帶 `--require-red-first`**。
+略過繼承的 weak-red prompt 欄位，不採用其他流程留下的本機報告。交付回饋必須明列
+`Red-first not run: review-only workflow (unchecked, not a pass)`；不得偽造 canonical
+`red-first.md`、從 amplifier 輸出複製或替舊報告改標 PR。此例外不適用於 deep／fast lifecycle gate。
+
 | Engine step (owned by `/pr-cycle-deep`) | What runs |
 | --- | --- |
 | **Step 1.5** Pre-review check | One Bash call (no Task agents): `pre_review_check.py --pr {{pr_number}}` — diff stats + CI state + `amplifier-verify.py`; exit 0 continue / 1 findings, continue / 2 stop |
