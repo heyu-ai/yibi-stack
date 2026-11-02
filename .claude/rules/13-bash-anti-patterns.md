@@ -565,7 +565,11 @@ main-checkout-versus-worktree difference can only show up for shapes that hook d
 Two exceptions let Rule 4's shape through the hook: its `git commit -m "$(cat <<` exemption, and
 its fail-open on internal errors (`trap 'exit 0' ERR`).
 The fix is unchanged: split into separate bash calls.
-(Source: Claude Code CHANGELOG 2.1.274, read 2026-09-21 for the W39 release-note review.)
+Claude Code 2.1.309 refuses two more shapes in worktree-isolated sessions: "some locale-prefixed
+commands" and, on zsh, "some arithmetic commands". The changelog does not name them either, so the
+list of refused shapes still is not complete.
+(Source: Claude Code CHANGELOG 2.1.274, read 2026-09-21 for the W39 release-note review; 2.1.309
+read 2026-10-25 for the W44 review.)
 
 ## Quoting Rule 5: Variable Expansion False Positive (Case 24)
 

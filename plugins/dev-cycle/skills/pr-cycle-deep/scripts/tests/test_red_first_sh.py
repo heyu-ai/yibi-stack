@@ -24,6 +24,7 @@ import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 RED_FIRST = SCRIPTS_DIR / "red-first.sh"
+FAST_SKILL = SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md"
 
 # 具名 exit code，與 script 檔頭的表格一一對應
 EXIT_CONTINUE = 0
@@ -272,6 +273,16 @@ class TestStaticContract:
     def test_rfs_dt_002_body_overwritten_noclobber_safe(self) -> None:
         assert '>| "$OUT_DIR/pr-body.md"' in self.SRC
 
+    def test_rfs_dt_008_red_first_out_writes_are_noclobber_safe(self) -> None:
+        """red-first.out 的每一處寫入都用 `>|`（開頭清空、沒有 checker、有 checker 三處）。
+
+        noclobber 開著時 `>` 對既有檔案會失敗並保留舊內容；測試的 shell 沒開 noclobber，
+        行為測試抓不到，只能從原始碼鎖住。
+        """
+        redirects = re.findall(r'(>>|>\|?)\s*"\$OUT_DIR/red-first\.out"', self.SRC)
+        assert len(redirects) >= 3, f"前提不成立：red-first.out 的寫入少於 3 處：{redirects}"
+        assert set(redirects) == {">|"}, f"red-first.out 有不是 >| 的寫入：{redirects}"
+
     def test_rfs_dt_003_base_is_fetched_not_a_local_ref(self) -> None:
         assert "git rev-parse FETCH_HEAD" in self.SRC
         assert "origin/{{base_branch}}" not in self.SRC
@@ -287,18 +298,21 @@ class TestStaticContract:
     def test_rfs_dt_005_pr_cycle_fast_token_list_covers_every_token(self) -> None:
         """pr-cycle-fast 3.0b 把 token 寫成封閉清單（「只會是…其中之一」）並直接放進 --reason。
 
-        腳本新增 token 而清單沒跟上時，下游會把沒列出的 token 當成意外值；從原始碼抽出所有
-        token 與清單比對，讓兩邊不能各自漂移。
+        腳本新增 token 而清單沒跟上時，下游會把沒列出的 token 當成意外值；清單多出腳本不再印的
+        token（例如已移除的 skip-no-checker）時，下游會為不存在的結果寫分支。從原始碼抽出所有
+        token，與清單裡的 token 做雙向比對（集合相等），讓兩邊不能各自漂移。
         """
         emitted = set(re.findall(r"RED_FIRST_RESULT=([a-z][a-z-]*)", self.SRC))
-        assert {"pass", "unchecked", "fail", "error", "tree-not-restored"} <= emitted
-        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
+        # 沒有 checker 已併入 unchecked，不再有 skip-no-checker（以前被呼叫端當成通過）
+        assert emitted == {"pass", "unchecked", "fail", "error", "tree-not-restored"}
+        fast = FAST_SKILL.read_text(encoding="utf-8")
         start = fast.index("token 只會是")
         token_list = fast[start : fast.index("其中之一", start)]
-        missing = sorted(t for t in emitted if f"`{t}`" not in token_list)
-        assert not missing, f"pr-cycle-fast 3.0b 的 token 清單缺少：{missing}"
+        listed = set(re.findall(r"`([a-z][a-z-]*)`", token_list))
+        assert listed == emitted, (
+            f"pr-cycle-fast 3.0b 的 token 清單與腳本不一致：缺少 {sorted(emitted - listed)}，"
+            f"多出 {sorted(listed - emitted)}"
+        )
 
     def test_rfs_dt_006_pr_cycle_fast_says_unchecked_is_not_a_pass(self) -> None:
         """pr-cycle-fast 3.0b 的 exit 0 那一列必須寫明 unchecked 不是通過（AC-6）。"""
@@ -309,28 +323,44 @@ class TestStaticContract:
         section = fast[start : fast.index("\n### ", start)]
         assert "token 為 `unchecked` 時**不是通過**" in section
 
-    def test_rfs_dt_007_pr_cycle_fast_out_dir_under_job_tmp(self) -> None:
-        """pr-cycle-fast 呼叫 red-first.sh 時 --out-dir 必須指向 $CLAUDE_JOB_DIR/tmp。
-
-        background session 的 Write tool 拒絕寫入 job dir 根層；out-dir 退回根層時
-        red-first.sh 寫出的 pr-body.md 會與 Write tool 的路徑規則衝突。
-        """
-        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        assert "red-first.sh" in fast, "解析前提不成立：pr-cycle-fast 未呼叫 red-first.sh"
-        assert '--out-dir "$CLAUDE_JOB_DIR/tmp"' in fast
-        assert '--out-dir "$CLAUDE_JOB_DIR"\n' not in fast
-        assert '--out-dir "$CLAUDE_JOB_DIR" ' not in fast
-
 
 class TestBehaviour:
-    def test_rfs_st_001_no_checker_skips_with_exit_0(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "env",
+        [
+            {"FAKE_GH_TITLE": "feat: add thing"},
+            {"FAKE_GH_TITLE": "fix(ledger): 帳戶只在唯一時對應"},
+            {"FAKE_GH_TITLE": "refactor: tidy"},
+            {"FAKE_GH_TITLE": "perf: faster"},
+            {"FAKE_GH_TITLE": "docs(readme): typo"},
+            {"FAKE_GH_TITLE": "chore: bump"},
+            {"FAKE_GH_TITLE": "banana: 不存在的型別"},
+            {"FAKE_GH_TITLE": "隨便寫的標題"},
+            {"FAKE_GH_TITLE": ""},
+            {"FAKE_GH_TITLE": HOSTILE_TITLE},
+            # gh 壞掉也一樣：這條路徑不讀標題，標題無法讓 no-checker 消失
+            {"FAKE_GH_FAIL": "1"},
+        ],
+    )
+    def test_rfs_st_001_no_checker_is_unchecked_for_any_title(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        """沒有 checker 一律 unchecked（以前印 [SKIP] 被當成通過；任何標題都不能關掉它）。"""
         repo = _setup(tmp_path, with_checker=False)
-        proc, _ = _run(tmp_path, repo)
+        proc, _ = _run(tmp_path, repo, **env)
         assert proc.returncode == EXIT_CONTINUE, proc.stderr
-        assert "[SKIP] red-first: no checker" in proc.stdout
-        assert "RED_FIRST_RESULT=skip-no-checker" in proc.stdout
+        assert proc.stdout.rstrip().splitlines()[-1] == "RED_FIRST_RESULT=unchecked"
+        assert "[SKIP]" not in proc.stdout
+        out = (tmp_path / "out" / "red-first.out").read_text(encoding="utf-8")
+        lines = out.splitlines()
+        assert lines[0].startswith("[WARN] red-first: no checker")
+        assert "不是通過" in lines[0]
+        # 與有 checker 時的機讀標記同形狀
+        assert "red-first: UNCHECKED" in lines
+        # 呼叫端讀的是 stdout（deep Step 1.7／Step 8、fast 3.0b 的 comment）：去掉最後一行
+        # token 後必須與 red-first.out 逐行相同，[WARN] 行才會到人面前
+        assert proc.stdout.splitlines()[:-1] == lines
+        assert not (repo / "pwned").exists()
 
     def test_rfs_st_002_pass_passes_hostile_title_verbatim(self, tmp_path: Path) -> None:
         repo = _setup(tmp_path)
@@ -417,6 +447,31 @@ class TestBehaviour:
         assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
         assert "RED_FIRST_RESULT=error" in proc.stdout
         assert not argv_out.exists()
+
+    @pytest.mark.parametrize(
+        ("prepare_env", "dirty"),
+        [({}, True), ({"FAKE_GH_FAIL": "1"}, False)],
+        ids=["dirty-tree", "gh-failure"],
+    )
+    def test_rfs_st_027_stale_red_first_out_is_cleared(
+        self, tmp_path: Path, prepare_env: dict[str, str], dirty: bool
+    ) -> None:
+        """上一輪留下的 red-first.out 不得活過這一輪：在跑 checker 前就以 exit 2 結束時也一樣。
+
+        有 checker 時 red-first.out 要到所有 exit 2 檢查之後才寫；不先清空的話，同一個 out-dir
+        裡上一輪的 `red-first: PASS` 會被當成這一輪（新 HEAD）的結果。
+        """
+        repo = _setup(tmp_path)
+        if dirty:
+            _untracked_file(repo)
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        stale = out_dir / "red-first.out"
+        stale.write_text("red-first: PASS\n", encoding="utf-8")
+        proc, argv_out = _run(tmp_path, repo, **prepare_env)
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert not argv_out.exists(), "前提：這一輪在跑 checker 前就結束"
+        assert "red-first: PASS" not in stale.read_text(encoding="utf-8")
 
     def test_rfs_st_013_checker_on_base_is_not_flagged(self, tmp_path: Path) -> None:
         """RFS-ST-012 的對照：checker 不在 PR diff 裡時不得誤報。"""

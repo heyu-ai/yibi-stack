@@ -389,9 +389,14 @@ unstaged, untracked or submodule changes; exit `2`), and after the run requires 
 bash ~/.agents/skills/pr-cycle-deep/scripts/red-first.sh --pr {{pr_number}} --repo-root "$PWD" --out-dir "$CLAUDE_JOB_DIR/tmp"
 ```
 
-Append its output to `pre-review-check.md`. Exit `0` → continue (includes `[SKIP] red-first: no checker`).
-`RED_FIRST_RESULT=unchecked` is also exit `0` but is **not a pass**: the checker said it checked nothing (e.g. every production
-change is in a directory it cannot map to tests); treat it like `[EXEMPT]` and require other evidence, e.g. a manual mutation.
+Append its output to `pre-review-check.md`. Exit `0` → continue.
+`RED_FIRST_RESULT=unchecked` is also exit `0` but is **not a pass**: nothing ran the PR's tests against base code — either the
+checker said it checked nothing (e.g. every production change is in a directory it cannot map to tests), or the repo has
+**no checker at all** (`[WARN] red-first: no checker`; reported for every PR type — the title is not consulted, since a self-declared
+type must not switch the gate off). Treat it like `[EXEMPT]`: Step 8 shows the `[WARN]` line for the human to confirm. Evidence
+the lead gathers (a manual mutation: revert one production change, run the PR's tests, paste the failure, restore byte-for-byte)
+is a supplement shown next to it — it never turns the result into a pass. "The PR changed an old assertion that passed on base"
+alone does not show the new test catches the change; only a test that fails on base code does.
 Exit `1` (`RED_FIRST_RESULT=fail`) → **stop before Step 2**; add a test that fails on the base code (or restore the refactor's
 expectation), push, rerun. Retyping the title to dodge it (`fix` → `chore`) is a material amendment (Step 1), and reviewers
 cannot waive it — none of them ran the tests against base code. Exit `2` (tool or precondition error, incl. a traceback, a dirty
@@ -399,7 +404,7 @@ tree or an operation in progress) → `[FAIL]` verbatim, stop. Exit `3` or a kil
 checker moved HEAD): show `git status --short` and compare HEAD/branch with the pre-run ones, stop, do not restore by hand (rule 15).
 Exit-0 lines carry forward: `[WEAK-RED]` (red came only from an import/compile error, which cannot show the assertion is
 meaningful) — Step 3.1 pastes them into `prompt-r1.md`; `[EXEMPT]` (a `Red-first-exempt: <reason>` line) —
-the lead may not accept it; Step 8 shows it, and any `[WARN] red-first:` line (checker edited by the PR, checker checked nothing), for the human to confirm.
+the lead may not accept it; Step 8 shows it, and any `[WARN] red-first:` line (checker edited by the PR, checker checked nothing, no checker), for the human to confirm.
 
 ---
 
@@ -499,7 +504,7 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh verify 
 Step 2 已準備 fresh diff 與 scope；此處不要再次呼叫 setup、失效剛通過的 Step 2 結果。
 若 HEAD 改變，回 Step 2。將確認過的 contract 寫進 `prompt-r1.md`。
 
-agy R1/R2 以 inline prompt 執行，cwd 與絕對 `--add-dir` 指向一次性 HEAD snapshot，
+agy R1/R2 以 NDJSON stdin 傳送完整 prompt，cwd 與絕對 `--add-dir` 指向一次性 HEAD snapshot，
 不是原工作樹。macOS 需可用的 `sandbox-exec`，Linux 需可用的 `bwrap`；
 無 backend、backend 不可用、tracked tree 有未提交修改或衝突時，該 voice 明確失敗，
 **不得改回直接在原工作樹執行**。OS 防護使原工作樹、Git metadata 與 snapshot 原始碼不可寫；
@@ -686,12 +691,39 @@ to tell "reviewer gave none" from "the pipeline lost it".
 
 ##### Gemini voice (when GEMINI_OK)
 
-agy does not accept a combined stdin prompt + diff path; concatenate into a single file first:
+All three agy stages concatenate their inputs into the existing temporary files, then send the
+complete content as one NDJSON user event over stdin with
+`--input-format stream-json --output-format stream-json`. Prompt content never travels in argv
+or through `@file`; there is no local byte cap, truncation, or fallback to `-p`.
+R1 Stage 1/R2 pass the absolute input path to `agy_isolate.py --prompt-file`; the helper reads it
+and prepends the review-only constraint before encoding. Stage 2 uses `agy_stream.py encode`
+and `decode` around its existing sandboxed agy call.
+
+**版本需求與來源：** `agy changelog` 的 **1.1.15** 條目記載 print mode 新增
+`--input-format stream-json`，從 stdin 讀取 NDJSON；因此需要支援此功能的 agy（1.1.15+）。
+本次協定探測僅使用 **1.4.12**，收到 `event: result`，內含 `result.status: SUCCESS` 與
+`result.response`；不代表所有 1.1.15+ 版本皆已驗證，也不代表完整 mob review 成功。
+
+**成功與診斷輸出的界線：** 成功時 decoder 只輸出單次 terminal response，不拼接進度文字。
+畸形／缺失／重複 result、`ERROR`、空回答與非正常 `finished_reason` 都會非零退出。
+非零退出時 stdout 仍可能含 terminal response 或已收到的進度片段；非 timeout 的 R1／R2
+失敗可將這些診斷內容留在原檔名 `gemini-r1-raw.md`／`gemini-r2.md`，**不會一律改名隔離**。
+檔案存在、大小足夠或內含 Verdict，都不能取代本次執行成功與 validator 通過。
+失敗的 R1／R2 內容不得計入共識；失敗的 R1 raw 不得送進 Stage 2，也不得拿來手動摘要 fallback。
+只有成功且通過驗證的 Stage 1 raw，才可在後續萃取失敗時沿用既有 fallback。
+Stage 2 的非零 stream 輸出只進 `gemini-r1.json.tmp`，在 validator／JSON 萃取前停止，
+由 EXIT trap 刪除暫存檔；不要把失敗輸出當成有效 JSON。
+
+只有 timeout 處理路徑會將半截輸出改名為 `*.timeout-partial*`。
+`finished_reason: print_timeout` 讓 decoder 回傳 **124**，並在 stderr 印出
+`print timeout after` 標記；既有 checker 依該標記或實際耗時超過預算判定隔離，
+**不是只看退出碼 124**。timeout 檢查先於一般失敗處理；隔離內容僅供診斷，不得聚合。
 
 ###### Stage 1: Native review (raw output lands on disk, does not enter main context)
 
 > **Execution/security contract**: run the script verbatim; never append `$?` logic or redirects.
-> It inlines prompt+diff (never `@file`, issue #153) and validates output with `agy_validate.py`.
+> It sends complete prompt+diff via NDJSON stdin (never `@file`, issue #153) and validates
+> decoded response text with `agy_validate.py`.
 > R1/R2 run in a protected HEAD snapshot with a private HOME; they do not delete shared scratch.
 > `--dangerously-skip-permissions` permits command exploration inside the OS write boundary.
 > Original-tree before/after comparison remains an audit signal, not the isolation mechanism.
@@ -732,13 +764,16 @@ The extract stage pins the same `Gemini 3.8 Flash (High)` model as review and de
 
 ###### Stage 3: Render (same as Codex voice: lead reads JSON → writes compact markdown)
 
-Lead reads `$REVIEW_DIR/gemini-r1.json` with the Read tool and branches:
+前提是本次 Stage 1 成功且通過驗證；失敗 raw 即使存在也不得使用。
+Stage 2 成功才讀取 `$REVIEW_DIR/gemini-r1.json`；Stage 2 失敗直接走下方 fallback，
+不得採用先前執行留下的 JSON。
 
 **JSON valid** → use the Write tool to render `$REVIEW_DIR/gemini-r1.md` (same format as Codex compact markdown, **including the `Contract mapping:` / `Evidence:` carry-through** described above).
 
-**JSON invalid** → read `$REVIEW_DIR/gemini-r1-raw.md` with the Read tool, manually summarize
-in main context, write compact markdown with the Write tool; note in final.md:
-"Gemini voice used raw form this round".
+**JSON invalid 或 Stage 2 失敗** → 僅可讀取本次已成功且通過驗證的
+`$REVIEW_DIR/gemini-r1-raw.md`，在主 context 手動摘要並用 Write tool 寫入 compact markdown；
+在 final.md 註明 "Gemini voice used raw form this round"。沒有有效 Stage 1 raw 時，
+按 voice failure 處理，不得從失敗 stream 的診斷片段重建 review。
 
 #### 3.3 — Sanity check
 
@@ -752,7 +787,7 @@ ls -lh "$REVIEW_DIR/gemini-r1.md" "$REVIEW_DIR/gemini-r1.json" 2>&1
 Check:
 
 1. `codex-r1.md` / `gemini-r1.md` (compact markdown) < 50 bytes or missing → Stage 3 render not completed; re-run
-2. `codex-r1.json` / `gemini-r1.json` is invalid JSON → extract failed; trigger fallback (see FAQ)
+2. `codex-r1.json` / `gemini-r1.json` is invalid JSON → extract failed; trigger fallback (see FAQ)，但 Gemini 必須先確認本次 Stage 1 成功且通過驗證，不能只看 raw 檔案存在
 3. `*-r1-raw.md` < 200 bytes or contains only error message → re-run Stage 1 (native review)
 
 2 consecutive failures → mark that voice as "unavailable for this PR"; record in the final aggregated report; do not block the workflow.
@@ -964,7 +999,8 @@ Disposition by severity × evidence × round (every cell defined — no gaps, no
 > verdict** (esp. CLI flag-parsing / runtime claims, which often reason from a plausible-but-wrong model).
 > **Record the tool version**: a stored verdict expires when the tool changes. Example (PR #157 → #229): agy's
 > `[P0] --print eats --add-dir` was once refuted by `printf 'reply ALPHA' | agy --print` → `ALPHA`; on **agy 1.1.2**
-> that no longer holds and the finding is now correct. The `@file` caution stands: inline via `-p "$CONTENT"`, never `@file`.
+> that no longer holds and the finding is now correct. The `@file` caution stands: use the scripts'
+> NDJSON stdin transport, never `@file` or a large `-p "$CONTENT"` argument.
 
 `final.md` format:
 範本的來源列只用於 Step 2 findings：將 `<n>` 換成實際索引，合併時用逗號分隔全部 CR 號；
@@ -1331,6 +1367,7 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 
 ## Red-first (always shown; from pre-review-check.md)
 - <verdict / [SKIP] reason>; <each [EXEMPT] or [WARN] red-first: line — needs your confirmation>
+- <for unchecked: supplementary evidence the lead gathered (still not a pass), or "no evidence attached">
 
 ## Merge blocking (review-in-progress label)
 - <held during review, removed on "ship" / 本 repo 沒有 review-in-progress 阻擋機制 (Step 1 exit 10) / removed early by circuit breaker at Step 7 (merge was unblocked from then)>
@@ -1538,7 +1575,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Step 0 detects only one external voice (Codex or agy, not both) | Enter 2-voice mob (Claude + that voice); normal workflow |
 | Codex detected but auth failed | `codex login`; or `export OPENAI_API_KEY=...` |
 | agy detected but auth failed | Run `agy` to complete OAuth; or `export GEMINI_API_KEY=...` |
-| agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | R1/R2 inline prompts (no `@file`), use a private HOME without old scratch, and run `agy_validate.py`; they leave shared scratch untouched. Brain artifacts are rescued before private HOME cleanup. Stage 2 retains its existing extraction sandbox/cleanup. Validator failure means the voice failed. Exit **124** means timeout: partial output is quarantined as `*.timeout-partial*`, never aggregate it; inspect `*.agy.log` for `RESOURCE_EXHAUSTED` or use `AGY_PRINT_TIMEOUT_SECS` (1–570, default 480). |
+| agy went agentic in a nested worktree (wrong-target review / brain-artifact pointer / `Error: timed out`) | R1／R2 透過 NDJSON stdin 傳送完整 prompt（不使用 `@file` 或 prompt argv），使用 private HOME 與 `agy_validate.py`，不清理 shared scratch；brain artifact 在 private HOME 清理前救回。Stage 2 保留既有 sandbox／cleanup。validator 或 decoder 失敗即表示本次輸出無效：非 timeout 的 R1／R2 診斷片段可能仍留在原檔名，不得聚合、萃取或當作 raw-summary fallback。只有 timeout 路徑會隔離成 `*.timeout-partial*`；decoder 的 `print_timeout` 同時回傳 124 與 stderr `print timeout after` 標記，checker 依標記或耗時超過預算判定，而非只看 124。可查 `*.agy.log` 的 `RESOURCE_EXHAUSTED` 或調整 `AGY_PRINT_TIMEOUT_SECS`（1–570，預設 480）。 |
 | agy background bash `>` redirect output not updating target file (unverified) | If this occurs: switch to synchronous bash call (without `run_in_background`) |
 | Codex Stage 1 `codex-r1-raw.md` is empty (review missing) | Stage 1 now uses `codex exec ... > codex-r1-raw.md` (stdout); read `$REVIEW_DIR/codex-r1.stage1.log` (stderr) for the error. For the `codex exec \| tee` stages (Stage 2 / R2), `set -o pipefail` keeps `$?` reflecting the failing command in the pipeline (bash/zsh) |
 | Why Stage 1 uses `codex exec`, not `codex review --base` + a guard prompt | `codex review --base` and a positional `[PROMPT]` are mutually exclusive (codex-cli 0.142.5: `the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`), so the skill-hijack guard cannot ride on `codex review`. Stage 1 drives the review through `codex exec` with the guard on stdin instead (issue #194). Do not "fix" it back to `codex review --base` |
@@ -1553,6 +1590,6 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Security scanner fails | bandit `# nosec BXXX` etc. ignore comments; explain reason in PR |
 | spectra archive validation fails | `spectra analyze {{change_name}}`; fix then archive; `--no-validate` requires explicit user instruction |
 | Jira: cannot detect key / transition unclear / MCP auth error | Ask user for the key (`PROJECT-123`), or confirm there is no associated ticket and skip; list transitions and ask user to confirm; Atlassian MCP requires OAuth — prompt user to authorize on claude.ai |
-| Codex/Gemini extract returns invalid JSON, JSON missing schema fields (`verdict` / `summary` / `findings`), or extract fails 2× in a row | Follow Stage 3 if/else: Read `$REVIEW_DIR/{codex,gemini}-r1-raw.md`, manually summarize in main context as compact markdown, Write to `$REVIEW_DIR/{codex,gemini}-r1.md` (do not cp raw → compact — verbose raw would enter r1-aggregate); note in final.md "{{voice}} voice used raw form this round, main context load higher". 2 consecutive extract failures → path C: lead extracts the compact form from raw in the main session without calling codex/agy again (slower, workflow not blocked) |
+| Codex/Gemini extract returns invalid JSON, JSON missing schema fields (`verdict` / `summary` / `findings`), or extract fails 2× in a row | 沿用 Stage 3 fallback；Gemini 的前提是本次 Stage 1 已成功且通過驗證，失敗 raw 即使留在原檔名也不得使用。讀取 `$REVIEW_DIR/{codex,gemini}-r1-raw.md`，在主 context 手動摘要，用 Write tool 寫入 `$REVIEW_DIR/{codex,gemini}-r1.md`（不可直接 cp raw → compact）；在 final.md 註明 "{{voice}} voice used raw form this round, main context load higher"。連續兩次萃取失敗 → path C：lead 從有效 raw 摘要，不再呼叫 codex／agy；沒有有效 raw 就按 voice failure 處理。 |
 | Extract prompt path missing (`~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md`) | Skill not installed; run `make install` in yibi-stack to create the symlink; verify: `ls ~/.agents/skills/pr-cycle-deep/prompts/extract-r1.md` should return the path, not "No such file" |
 | User skipped bump but needs a version tag later | Create a release branch, run [`/bump-version`](../bump-version/SKILL.md) on it, then open a PR to merge into main (CI pass + CHANGELOG confirmed is sufficient; no full review cycle needed; if main has new commits, CHANGELOG may include extra entries — verify manually) |

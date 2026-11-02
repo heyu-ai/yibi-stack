@@ -10,6 +10,7 @@
 #   - gemini-r1.json 寫到 $WT_ROOT/.pr-review/
 #   - stderr log 寫到 $WT_ROOT/.pr-review/gemini-r1.extract.log；agy log 寫到 gemini-r1.extract.agy.log
 #   - print timeout 時半截輸出改名為 gemini-r1.json.timeout-partial.tmp（0600，issue #443）
+#   - 其他失敗不做 timeout quarantine；EXIT trap 刪除 gemini-r1.json.tmp，log 保留診斷
 #   - 暫存 gemini-extract-input.md（完成後自動刪除）
 #
 # 退出碼：0 成功；124 agy print timeout（輸出不完整）；2 AGY_PRINT_TIMEOUT_SECS 不合法；
@@ -70,35 +71,28 @@ printf '\n---END RAW OUTPUT---\n' >> "$REVIEW_DIR/gemini-extract-input.md"
 #   - 不是為了 git：與 stage1／r2 不同，本檔在 cd 之後沒有任何 git 呼叫（僅有的兩個
 #     git rev-parse 都在 cd 之前）。
 #   - 不是為了 agy context：--add-dir 傳的是 "$WT_ROOT" 絕對路徑（見下方註解）。
-# 保留的唯一理由是 agy 自身在 -p 模式下的 cwd 語意未經探測，移除屬未驗證的行為變更。
+# 保留的唯一理由是 agy 自身在 headless 模式下的 cwd 語意未經探測，移除屬未驗證的行為變更。
 # 要移除請先實測 agy 在不同 cwd 下的行為，不要因為「看起來沒用到」就刪。
 # （前一版註解寫「相對路徑的產物寫入以 WT_ROOT 為基準」——那是錯的，本檔沒有這種寫入；
 #   它取代掉了原本正確的理由（`--add-dir .` context），讓下一個作者失去判斷依據。）
 cd "$WT_ROOT"
 
-# issue #153 fix 1：inline prompt 取代 @file。萃取任務只需 raw 文字，--sandbox 即足夠
-# （extraction 不需讀周邊程式碼，sandbox 更安全）。inline 後 agy 無需讀檔即無 agentic 觸發點。
-# 256000B 上限：與 stage1/r2 一致，避免 verbose R1 raw 讓 inline arg 逼近 macOS ARG_MAX。
+# issue #153：完整 prompt 經 NDJSON stdin 傳送，不使用 @file 或內容 argv，也不截斷內容。
+# 萃取只需 raw 文字，保留 --sandbox；模型若仍要求 command，可能 auto-deny，
+# 回傳缺少 result 或空 SUCCESS response，由 decoder fail closed，不為成功率放寬權限。
 TMP_JSON="$REVIEW_DIR/gemini-r1.json.tmp"
-EXTRACT_BYTES=$(wc -c < "$REVIEW_DIR/gemini-extract-input.md")
-if [ "$EXTRACT_BYTES" -gt 256000 ]; then
-    echo "[FAIL] extract 輸入 ${EXTRACT_BYTES}B 超過 256000B inline 上限，R1 raw 過大不適合 inline 萃取" >&2
-    exit 1
-fi
-EXTRACT_CONTENT=$(cat "$REVIEW_DIR/gemini-extract-input.md")
 AGY_START=$SECONDS
-if ! agy -p "$EXTRACT_CONTENT" \
-    --model 'Gemini 3.8 Flash (High)' \
-    --add-dir "$WT_ROOT" \
-    --sandbox \
-    --print-timeout "${AGY_PRINT_TIMEOUT_SECS}s" \
-    --log-file "$REVIEW_DIR/gemini-r1.extract.agy.log" \
-    > "$TMP_JSON" \
-    2>"$REVIEW_DIR/gemini-r1.extract.log"; then
-    echo "[FAIL] agy extract 失敗，請查看 $REVIEW_DIR/gemini-r1.extract.log" >&2
-    rm -f "$REVIEW_DIR/gemini-extract-input.md" "$TMP_JSON"
-    exit 1
-fi
+AGY_EXIT=0
+{
+    python3 "$SCRIPT_DIR/agy_stream.py" encode "$REVIEW_DIR/gemini-extract-input.md" |
+        agy --input-format stream-json --output-format stream-json \
+            --model 'Gemini 3.8 Flash (High)' \
+            --add-dir "$WT_ROOT" \
+            --sandbox \
+            --print-timeout "${AGY_PRINT_TIMEOUT_SECS}s" \
+            --log-file "$REVIEW_DIR/gemini-r1.extract.agy.log" |
+        python3 "$SCRIPT_DIR/agy_stream.py" decode > "$TMP_JSON"
+} 2>"$REVIEW_DIR/gemini-r1.extract.log" || AGY_EXIT=$?
 AGY_ELAPSED=$((SECONDS - AGY_START))
 
 # issue #443：逾時判定在 fail-loud 驗證與 JSON 萃取之前，否則逾時的空輸出會被誤報成
@@ -116,6 +110,15 @@ if [ "$TIMEOUT_CHECK_EXIT" -eq 1 ]; then
 elif [ "$TIMEOUT_CHECK_EXIT" -ne 0 ]; then
     echo "[FAIL] agy R1 Stage 2 的 timeout 檢查本身失敗（exit ${TIMEOUT_CHECK_EXIT}），無法確認輸出是否完整" >&2
     exit 1
+fi
+
+# decoder 的 print_timeout 會回傳 124 並在 stderr 印出 "print timeout after"；
+# 上方 checker 依該標記（或耗時超過預算）隔離半截輸出，不是只看退出碼 124。
+# pipefail 保留 encoder、agy 或 decoder 的失敗，不把有效 JSON 外觀當成成功；
+# 非 timeout 失敗的暫存輸出由 EXIT trap 清除，不會進入下方 validator／JSON 萃取。
+if [ "$AGY_EXIT" -ne 0 ]; then
+    echo "[FAIL] agy extract 失敗（exit ${AGY_EXIT}），請查看 $REVIEW_DIR/gemini-r1.extract.log" >&2
+    exit "$AGY_EXIT"
 fi
 
 # issue #153 fix 3+4：brain-artifact rescue + fail-loud 驗證。萃取若進入 agentic 模式，

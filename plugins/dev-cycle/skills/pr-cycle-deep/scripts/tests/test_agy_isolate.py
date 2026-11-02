@@ -41,7 +41,14 @@ workspace = pathlib.Path(flag('--add-dir'))
 assert workspace.is_absolute() and workspace == pathlib.Path.cwd()
 assert flag('--model') == 'Gemini 3.8 Flash (High)'
 assert '--dangerously-skip-permissions' in args and '--sandbox' not in args
-assert 'PROMPT MARKER' in flag('-p') and not flag('-p').startswith('@')
+assert flag('--input-format') == flag('--output-format') == 'stream-json'
+assert '-p' not in args and '--prompt' not in args
+lines = sys.stdin.buffer.read().splitlines()
+assert len(lines) == 1
+event = json.loads(lines[0])
+assert event['event'] == 'user' and event['message']['role'] == 'user'
+prompt = event['message']['content']
+assert 'PROMPT MARKER' in prompt and not prompt.lstrip().startswith('@')
 assert workspace != pathlib.Path(os.environ['SOURCE'])
 assert not (workspace / '.git').exists()
 assert not (workspace / 'secret.txt').exists()
@@ -109,14 +116,20 @@ if port:
         pass_fds=(connection.fileno(),), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     connection.sendall((json.dumps(report) + '\n').encode())
     connection.close()
-print('## Verdict\nLGTM\nReviewed `' + str(workspace / 'seed.txt') + '`.', flush=True)
+response = '## Verdict\nLGTM\nReviewed `' + str(workspace / 'seed.txt') + '`.\n'
 if mode == 'brain':
     brain = home / '.gemini/antigravity-cli/brain/abcdef12/review.md'
     brain.parent.mkdir(parents=True)
-    brain.write_text('## Verdict\nLGTM\nReviewed `' + str(workspace / 'seed.txt') + '`.\n')
-    print('I have written my analysis to ' + str(brain), flush=True)
+    brain.write_text(response)
+    response += 'I have written my analysis to ' + str(brain) + '\n'
 if mode in ('wait', 'timeout'):
+    print(json.dumps({'event': 'step_update', 'step_update': {
+        'step_type': 'agent_response', 'text_delta': response,
+    }}), flush=True)
     time.sleep(60)
+print(json.dumps({'event': 'result', 'result': {
+    'status': 'SUCCESS', 'response': response,
+}}), flush=True)
 if mode == 'marker':
     print('[agy] print timeout after 20s with turn in progress', file=sys.stderr)
 if mode == 'failure':
@@ -154,7 +167,7 @@ def isolated_repo(tmp_path: Path) -> dict:
     review = linked / ".pr-review"
     review.mkdir()
     for name in ("prompt-r1.md", "prompt-r2.md"):
-        (review / name).write_text("PROMPT MARKER\n")
+        (review / name).write_text("@diff.patch\nPROMPT MARKER\n")
     (review / "changed-files.txt").write_text("seed.txt\n")
     (review / "diff.patch").write_text("diff --git a/seed.txt b/seed.txt\n")
     (review / "r1-aggregate.md").write_text("## Other reviews\nseed.txt\n")
@@ -437,13 +450,17 @@ def test_cleanup_never_chmods_symlink_targets_outside_scratch(isolated_repo: dic
     # Make stand-in create a 0500 directory inside scratch containing a symlink to target
     stand_in = isolated_repo["bin"] / "agy"
     stand_in.write_text(f"""#!{sys.executable}
-import os, pathlib
+import json, os, pathlib, sys
+event = json.loads(sys.stdin.buffer.read())
+assert event['event'] == 'user'
 scratch = pathlib.Path(os.environ['TMPDIR'])
 ro_dir = scratch / 'ro_dir'
 ro_dir.mkdir()
 (ro_dir / 'symlink_to_target').symlink_to('{target}')
 ro_dir.chmod(0o000)
-print("## Verdict\\nLGTM\\n")
+print(json.dumps({{'event': 'result', 'result': {{
+    'status': 'SUCCESS', 'response': '## Verdict\\nLGTM\\n',
+}}}}))
 """)
     stand_in.chmod(0o755)
 
@@ -481,13 +498,15 @@ def test_incomplete_cleanup_fails_loudly_with_leftover_path(
     require_isolation()
     stand_in = isolated_repo["bin"] / "agy"
     stand_in.write_text(f"""#!{sys.executable}
-import os, pathlib, stat
+import json, os, pathlib, stat, sys
+event = json.loads(sys.stdin.buffer.read())
+assert event['event'] == 'user'
 credential = pathlib.Path.home() / '.gemini/oauth_creds.json'
 assert credential.read_text() == 'fake-auth'
 os.chflags(credential, stat.UF_IMMUTABLE)
-print('## Verdict')
-print('LGTM')
-print('Reviewed seed.txt', flush=True)
+print(json.dumps({{'event': 'result', 'result': {{
+    'status': 'SUCCESS', 'response': '## Verdict\\nLGTM\\nReviewed seed.txt\\n',
+}}}}), flush=True)
 """)
     stand_in.chmod(0o755)
     try:

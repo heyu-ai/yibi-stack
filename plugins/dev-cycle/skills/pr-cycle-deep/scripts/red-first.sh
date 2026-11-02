@@ -7,7 +7,8 @@
 # 為什麼要包成 script（PR #469 mob review Round 2，Claude + Codex 4 個來源一致）：
 # runbook 原本要 agent 分成數個 Bash call，並用 shell 變數（PR_TITLE、WT_ROOT、
 # BASE_REMOTE）在 call 之間傳值。Bash tool 不會在 call 之間保留變數，照字面執行時：
-# checker 路徑變成 `/scripts/red-first-check.py` 而誤判 `[SKIP] no checker`，或
+# checker 路徑變成 `/scripts/red-first-check.py` 而誤判 `[SKIP] no checker`（當時的輸出；
+# 現在沒有 checker 回報 unchecked），或
 # `--title ""` 讓 gate 失效，全程沒有警告。更早一版（Round 1）則把標題直接貼進雙引號，
 # `${N}`（本 repo PR #387 的真實標題）被展開成空字串、反引號會被執行。放進 script 後，
 # 標題只存在變數裡，所有值都在同一個 shell 內傳遞。
@@ -16,15 +17,23 @@
 #   bash <path>/red-first.sh --pr <number> --repo-root <checkout> --out-dir <dir>
 #   （Bash tool 要給 timeout 600000：checker 會跑兩次測試）
 #
-# 輸出：checker 的完整輸出寫到 <out-dir>/red-first.out，並同步印到 stdout；
-# PR body 寫到 <out-dir>/pr-body.md。最後一行固定是 `RED_FIRST_RESULT=<名稱>`。
+# 輸出：checker 的完整輸出（沒有 checker 時是本 script 寫的 [WARN] 與 UNCHECKED 兩行）寫到
+# <out-dir>/red-first.out，並同步印到 stdout；有 checker 時，PR body 寫到 <out-dir>/pr-body.md
+# （沒有 checker 時不寫）。red-first.out 在建立 <out-dir> 後立刻清空，上一輪的判定不會留到
+# 這一輪（例如這一輪在跑 checker 前就以 exit 2 結束時）。
+# 完整的紀錄是 stdout，不是 red-first.out：本 script 自己的 [WARN] red-first: 行（checker 被
+# 這個 PR 改過、checker 沒有檢查任何東西）只印到 stdout。這些 [WARN] 判定行刻意印到 stdout，
+# 是 rule 17「[WARN]／[FAIL]／[SKIP] 一律 >&2」的例外：呼叫端擷取 stdout 寫進
+# pre-review-check.md 與 PR comment，印到 stderr 會讓它們到不了人面前。[FAIL] 仍走 stderr。
+# 最後一行固定是 `RED_FIRST_RESULT=<名稱>`。
 #
 # 退出碼（每一個都是具名結果）：
-#   0  可以往下走：PASS、SKIP（沒有 checker、PR 類型不需要）、EXEMPT，或 UNCHECKED。
+#   0  可以往下走：PASS、SKIP（checker 判定 PR 類型不需要）、EXEMPT，或 UNCHECKED。
 #      輸出中的 [EXEMPT]、[WEAK-RED]、[WARN] red-first: 行由呼叫端帶到人／reviewer 面前。
 #      `RED_FIRST_RESULT=unchecked` **不是通過**：checker 以 exit 0 結束，但說它沒有檢查任何東西
-#      （輸出有整行 `red-first: UNCHECKED`，或過渡期接受的舊句子，見下方偵測處）。呼叫端照常
-#      往下走，但要把它帶到人面前，並要求另附證據（例如手動 mutation），不得當成 pass
+#      （輸出有整行 `red-first: UNCHECKED`，或過渡期接受的舊句子，見下方偵測處）；repo 沒有
+#      checker 時也是 unchecked，不論 PR 類型。呼叫端照常往下走，但要把它帶到人面前；手動 mutation
+#      等證據只是補充，不得把結果當成 pass
 #   1  red-first 判定失敗（checker 印出 `red-first: FAIL`）：測試抓不到這次改動
 #   2  前提不成立或工具出錯：參數錯、gh/git 失敗、標題為空、merge／rebase／cherry-pick／
 #      revert 進行中（含停在中途的 cherry-pick／revert 序列）或有未解衝突（此時 HEAD 不是
@@ -100,11 +109,22 @@ if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     fail 2 "--repo-root 不是 git checkout：${REPO_ROOT}"
 fi
 mkdir -p "$OUT_DIR"
+# 先清空：有 checker 時 red-first.out 要到所有 exit 2 檢查之後才寫，之前結束的話，同一個
+# out-dir 裡上一輪的判定（例如 PASS）會被呼叫端當成這一輪的結果。失敗走 ERR trap
+: >| "$OUT_DIR/red-first.out"
 
 CHECKER="$REPO_ROOT/scripts/red-first-check.py"
 if [ ! -f "$CHECKER" ]; then
-    echo "[SKIP] red-first: no checker（${CHECKER} 不存在）"
-    echo "RED_FIRST_RESULT=skip-no-checker"
+    # 沒有 checker 就是沒有檢查，不論 PR 類型：以前印 [SKIP] 並以 skip-no-checker 放行，呼叫端
+    # 當成通過。refactor／perf 也一樣需要「產品碼還原到 base 時測試仍綠」的驗證，所以不看標題
+    # 一律回報 unchecked（標題由作者自訂，拿它決定要不要檢查，等於讓作者自己關掉 gate）。
+    # [WARN] 行與機讀標記 `red-first: UNCHECKED`（與有 checker 時同一個標記）寫進 red-first.out，
+    # 並原樣印到 stdout。呼叫端一律取 stdout：有 checker 時本 script 自己的 [WARN] 行只在 stdout
+    printf '%s\n' \
+        "[WARN] red-first: no checker（${CHECKER} 不存在），red-first 沒有檢查任何東西，不是通過；手動 mutation 等證據只能補充，不會讓結果變成通過" \
+        "red-first: UNCHECKED" >| "$OUT_DIR/red-first.out"
+    cat "$OUT_DIR/red-first.out"
+    echo "RED_FIRST_RESULT=unchecked"
     exit 0
 fi
 
@@ -301,7 +321,7 @@ is_unchecked() {
 case "$CHECKER_EXIT" in
     0)
         if is_unchecked; then
-            echo "[WARN] red-first: checker 沒有檢查任何東西（exit 0 不是通過）；請另附證據，例如手動 mutation"
+            echo "[WARN] red-first: checker 沒有檢查任何東西（exit 0 不是通過）；手動 mutation 等證據只能補充，不會讓結果變成通過"
             echo "RED_FIRST_RESULT=unchecked"
             exit 0
         fi

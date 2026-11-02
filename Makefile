@@ -21,10 +21,14 @@ format: ## Run ruff formatter
 typecheck: ## Run mypy type checker
 	uv run mypy tasks/
 
-test: ## Run pytest
+.PHONY: sdd-parser-deps
+sdd-parser-deps: ## Install the pinned TypeScript parser used by SDD trace tests
+	npm ci --ignore-scripts --no-audit --no-fund --prefix plugins/sdd
+
+test: sdd-parser-deps ## Run pytest
 	uv run pytest
 
-check: ## Run all checks (lint + format check + typecheck + test + markdown bash lint + skill overlap check)
+check: sdd-parser-deps ## Run all checks (lint + format check + typecheck + test + markdown bash lint + skill overlap check)
 	uv run ruff check tasks/ .claude/hooks/
 	uv run ruff format --check tasks/ .claude/hooks/
 	uv run mypy tasks/
