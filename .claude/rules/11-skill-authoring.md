@@ -844,7 +844,7 @@ For scripts that **already write stderr to an internal log**, this extra capture
 and triggers a `~/.claude/` sensitive file permission dialog
 (`$CLAUDE_JOB_DIR` expands to a per-session UUID path; the session-dialog "always allow" option
 locks that specific UUID and the prompt reappears next session — see rule 16 **(2) Bash redirect `>`** for `Bash(verb:*)` allow-list patterns,
-or **(1) Edit/Write tool** for `Edit(/Users/<you>/.claude/jobs/*)` / `Write(...)` patterns).
+or **(1) Edit/Write tool** for `Edit(/Users/<you>/.claude/jobs/**)` / `Write(...)` patterns).
 
 **Fix**: add a blockquote execution note before the bash code block to explicitly tell the agent
 not to append external capture:

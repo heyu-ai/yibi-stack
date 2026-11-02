@@ -152,7 +152,7 @@ echo "SKILL_ROOT=$SKILL_ROOT"
 
 ```bash
 if ! ROOT=$(git rev-parse --show-toplevel); then echo '[FAIL] 不在 git repo（Step 0.3 應已擋下）' >&2; exit 1; fi
-JOB_DIR="${CLAUDE_JOB_DIR:-$ROOT/tmp/codex-cli}"
+if [ -n "${CLAUDE_JOB_DIR:-}" ]; then JOB_DIR="$CLAUDE_JOB_DIR/tmp/codex-cli"; else JOB_DIR="$ROOT/tmp/codex-cli"; fi
 if ! mkdir -p "$JOB_DIR"; then echo "[FAIL] 無法建立暫存目錄：${JOB_DIR}" >&2; exit 1; fi
 echo "JOB_DIR=$JOB_DIR"
 ```
@@ -161,7 +161,10 @@ echo "JOB_DIR=$JOB_DIR"
 
 **`$CLAUDE_JOB_DIR` 不可裸用**：它只在 background job session 有值，互動式 `/codex-cli`
 （本 skill 最主要的呼叫情境）通常 **unset**，裸用會讓路徑展開成 `/codex-cli-brief.md`
-這種絕對路徑，寫入失敗。fallback 用 repo 內的 `tmp/`（已在 `.gitignore`）而**不是**
+這種絕對路徑，寫入失敗。有值時也**不可**直接用 job dir 根層：background session 的暫存檔
+必須放在 `$CLAUDE_JOB_DIR/tmp/` 底下，Write tool 會拒絕寫入根層（訊息為
+`Scratch files of a background session go in $CLAUDE_JOB_DIR/tmp`），所以有值時用
+`$CLAUDE_JOB_DIR/tmp/codex-cli`。unset 時的 fallback 用 repo 內的 `tmp/`（已在 `.gitignore`）而**不是**
 `mktemp -d`：後者每個 bash call 會產生不同目錄，Step 3 找不到 Step 1 寫的 brief。
 同款 fallback 見 `plugins/dev-cycle/skills/issue-triage/SKILL.md`。
 

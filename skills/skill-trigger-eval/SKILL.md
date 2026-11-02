@@ -30,7 +30,7 @@ description: >
 ### Step 2 — 產生判斷任務 manifest
 
 ```bash
-uv run python -m tasks.skill_eval eval --skill {{skill_name}} --emit-manifest > "$CLAUDE_JOB_DIR/manifest.json"
+uv run python -m tasks.skill_eval eval --skill {{skill_name}} --emit-manifest > "$CLAUDE_JOB_DIR/tmp/manifest.json"
 ```
 
 `manifest.json` 是任務陣列，每個元素含 `index / skill / cls / prompt / expect_trigger`。
@@ -41,7 +41,7 @@ uv run python -m tasks.skill_eval eval --skill {{skill_name}} --emit-manifest > 
 以 `Explore` subagent（唯讀）判斷 manifest 中每個 task：讀 `skills/<task.skill>/SKILL.md`
 的 frontmatter `description`，判斷「若使用者輸入 `task.prompt`，這個 description 會不會觸發該
 skill」，回報依 `index` 排序的布林陣列（true=會觸發）。lead 收到後用 Write tool 寫入
-`$CLAUDE_JOB_DIR/judgments.json`；**陣列長度必須等於 manifest 長度**，否則 Step 4 會
+`$CLAUDE_JOB_DIR/tmp/judgments.json`；**陣列長度必須等於 manifest 長度**，否則 Step 4 會
 以 RuntimeError 中止（刻意不補零）。
 
 判斷準則（與 rule 11 一致）：只依 `description` 的觸發詞與 negative 導引文字判斷，
@@ -50,7 +50,7 @@ skill」，回報依 `index` 排序的布林陣列（true=會觸發）。lead �
 ### Step 4 — 計分並比對 baseline
 
 ```bash
-uv run python -m tasks.skill_eval eval --skill {{skill_name}} --manifest "$CLAUDE_JOB_DIR/manifest.json" --judgments "$CLAUDE_JOB_DIR/judgments.json"
+uv run python -m tasks.skill_eval eval --skill {{skill_name}} --manifest "$CLAUDE_JOB_DIR/tmp/manifest.json" --judgments "$CLAUDE_JOB_DIR/tmp/judgments.json"
 ```
 
 `--manifest` 為必要：judgments 依 index 對位，fixture 在 Step 2 之後只要改動就會靜默錯位。
@@ -67,7 +67,7 @@ uv run python -m tasks.skill_eval eval --skill {{skill_name}} --manifest "$CLAUD
 **須傳與 Step 4 相同的 `--manifest`**：
 
 ```bash
-uv run python -m tasks.skill_eval baseline --skill {{skill_name}} --manifest "$CLAUDE_JOB_DIR/manifest.json" --judgments "$CLAUDE_JOB_DIR/judgments.json"
+uv run python -m tasks.skill_eval baseline --skill {{skill_name}} --manifest "$CLAUDE_JOB_DIR/tmp/manifest.json" --judgments "$CLAUDE_JOB_DIR/tmp/judgments.json"
 ```
 
 `baseline` 的 `--manifest` 沒有跳過選項（`eval` 才有 `--no-manifest-check`）：`eval` 算錯只是
