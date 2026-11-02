@@ -38,7 +38,10 @@ def _accepted(directory: Path, count: int) -> None:
 
 @pytest.mark.parametrize("count", [0, 2])
 @pytest.mark.parametrize("refresh", ["reset", "capture"])
-def test_new_round_cannot_accept_previous_final(tmp_path: Path, count: int, refresh: str) -> None:
+@pytest.mark.parametrize("with_audit", [False, True])
+def test_new_round_cannot_accept_previous_final(
+    tmp_path: Path, count: int, refresh: str, with_audit: bool
+) -> None:
     def run(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # nosec B603
             list(args), cwd=tmp_path, capture_output=True, text=True, timeout=30, check=True
@@ -107,7 +110,11 @@ def test_new_round_cannot_accept_previous_final(tmp_path: Path, count: int, refr
         report = (
             f"# Round {round_number}\n"
             + "".join(f"- Code-review source: CR-{index + 1}\n" for index in range(count))
-            + (directory / "code-review-scope.md").read_text(encoding="utf-8")
+            + (
+                (directory / "code-review-scope.md").read_text(encoding="utf-8")
+                if with_audit
+                else ""
+            )
         ).encode()
         final.write_bytes(report)
         accepted = _run(directory)

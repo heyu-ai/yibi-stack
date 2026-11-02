@@ -9,9 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- dev-cycle：`pr-cycle-deep` 的 scope reset／capture 將上一輪 `final.md` 完整移至
-  `final.prev.md`（保留最近一輪與原 audit），避免 re-review 兩輪 findings 筆數相同時，
-  Step 5a gate 誤收舊正文；未建立本輪 final 前以 exit 2 阻擋（#620）。
+- dev-cycle：`pr-cycle-deep` 的 scope reset／capture 將既存 `final.md` 的全部 bytes 移至
+  `final.prev.md`（僅保留最近一份，草稿也可取代歷史；不驗證 review 是否完成），避免
+  re-review 兩輪 findings 筆數相同時，Step 5a gate 誤收舊正文；未建立本輪 final 前
+  以 exit 2 阻擋。amplifier 改由每次 Step 5 重新產生的獨立 `pre-review-check.md` 納入
+  彙整，避免本輪 MUST／SHOULD 在 scope refresh 時一併移出 blocking set（#620）。
 - dev-cycle：`pr-cycle-deep` 的 Gemini R1、R2 與萃取階段改以 NDJSON stdin 傳送完整輸入，
   移除 256000-byte inline 限制，不截斷 diff、不改用 `@file`。保留 OS 寫入隔離與既有
   timeout／review 驗證；結構化回應缺少完整結果、回報錯誤或逾時時不計入共識。
