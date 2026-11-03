@@ -316,6 +316,7 @@ status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.age
 
 status-own: ## Show install status for skills in THIS repo only (excludes gstack/external)
 	@echo "=== yibi-stack skills (CC=~/.claude/skills, AG=~/.agents/skills) ==="; \
+	echo "  CC: OK=已連結  PL=由 plugin 提供（刻意不連）  DUP=plugin 已提供但殘留舊連結（make install 會清掉）  --=未連結"; \
 	echo ""; \
 	if [ ! -d "$(SKILL_DIR)" ] || [ -z "$$(ls -A $(SKILL_DIR) 2>/dev/null)" ]; then \
 		echo "  (skills/ is empty)"; \
@@ -331,9 +332,12 @@ status-own: ## Show install status for skills in THIS repo only (excludes gstack
 			own="$(CURDIR)/$(SKILL_DIR)/$$name"; \
 			cc_target=$$(readlink "$(CLAUDE_SKILL_DIR)/$$name" 2>/dev/null); \
 			ag_target=$$(readlink "$(INSTALL_DIR)/$$name" 2>/dev/null); \
-			if [ "$$cc_target" = "$$own" ]; then cc_s="OK"; else cc_s="--"; fi; \
+			kind=$$("$(CURDIR)/scripts/link_claude_skill.sh" --check "$(CURDIR)" "$$name") || { echo "  [FAIL] link_claude_skill.sh --check $$name 失敗" >&2; exit 1; }; \
+			if [ "$$kind" = "plugin" ] && [ "$$cc_target" = "$$own" ]; then cc_s="DUP"; \
+			elif [ "$$kind" = "plugin" ]; then cc_s="PL"; \
+			elif [ "$$cc_target" = "$$own" ]; then cc_s="OK"; else cc_s="--"; fi; \
 			if [ "$$ag_target" = "$$own" ]; then ag_s="OK"; else ag_s="--"; fi; \
-			printf "  CC:%-2s AG:%-2s  %-30s [%s]\n" "$$cc_s" "$$ag_s" "$$name" "$$scope"; \
+			printf "  CC:%-3s AG:%-2s  %-30s [%s]\n" "$$cc_s" "$$ag_s" "$$name" "$$scope"; \
 		done; \
 	fi
 	@echo ""; \

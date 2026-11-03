@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Usage: link_claude_skill.sh <repo_root> <skill_name> <claude_skill_dir>
+#        link_claude_skill.sh --check <repo_root> <skill_name>
+#
+# --check：唯讀。stdout 印 `plugin`（由 plugin 提供）或 `native`，exit 0；
+#          不建立也不移除任何連結。供 make status-own 與安裝路徑共用同一份判準。
 #
 # 把 <repo_root>/skills/<skill_name> 連到 <claude_skill_dir>/<skill_name>，
 # 但「由 plugin 提供」的 skill 例外。
@@ -20,14 +24,26 @@
 
 set -u
 
-if [ "$#" -ne 3 ]; then
-    echo "  [FAIL] link_claude_skill.sh: 需要 3 個參數 <repo_root> <skill_name> <claude_skill_dir>" >&2
-    exit 1
+CHECK_ONLY=0
+if [ "${1:-}" = "--check" ]; then
+    CHECK_ONLY=1
+    shift
+    if [ "$#" -ne 2 ]; then
+        echo "  [FAIL] link_claude_skill.sh --check: 需要 2 個參數 <repo_root> <skill_name>" >&2
+        exit 1
+    fi
+    REPO_ROOT="$1"
+    NAME="$2"
+    DST_DIR=""
+else
+    if [ "$#" -ne 3 ]; then
+        echo "  [FAIL] link_claude_skill.sh: 需要 3 個參數 <repo_root> <skill_name> <claude_skill_dir>" >&2
+        exit 1
+    fi
+    REPO_ROOT="$1"
+    NAME="$2"
+    DST_DIR="$3"
 fi
-
-REPO_ROOT="$1"
-NAME="$2"
-DST_DIR="$3"
 
 SRC="${REPO_ROOT}/skills/${NAME}"
 DST="${DST_DIR}/${NAME}"
@@ -50,6 +66,16 @@ if [ -L "$SRC" ]; then
             "${RESOLVED_ROOT}/plugins/"*) PLUGIN_PROVIDED=1 ;;
         esac
     fi
+fi
+
+if [ "$CHECK_ONLY" = "1" ]; then
+    # 唯讀：只回報判準結果，供 make status-own 等呼叫端共用同一份判準，不碰任何檔案。
+    if [ "$PLUGIN_PROVIDED" = "1" ]; then
+        echo "plugin"
+    else
+        echo "native"
+    fi
+    exit 0
 fi
 
 if [ "$PLUGIN_PROVIDED" = "1" ]; then

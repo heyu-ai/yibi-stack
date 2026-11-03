@@ -8,6 +8,9 @@
 Test ID 規則見 .claude/rules/09-test-conventions.md（LCS = link_claude_skill）。
 """
 
+import os
+import re
+import shutil
 import subprocess  # nosec B404
 from pathlib import Path
 
@@ -183,3 +186,122 @@ class TestMakefileWiring:
         for line in install_loop.splitlines():
             if "safe_symlink.sh" in line:
                 assert "CLAUDE_SKILL_DIR" not in line, line
+
+
+def _run_check(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # nosec B603
+        ["bash", str(SCRIPT), "--check", *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+
+class TestCheckMode:
+    def test_lcs_ck_001_reports_plugin_and_native(self, tmp_path: Path) -> None:
+        """LCS-CK-001: --check 對 plugin 提供者印 plugin、對實體 skill 印 native"""
+        repo = _make_repo(tmp_path)
+
+        plugin = _run_check([str(repo), "viaplugin"])
+        native = _run_check([str(repo), "native"])
+
+        assert plugin.returncode == 0, plugin.stderr
+        assert plugin.stdout.strip() == "plugin"
+        assert native.returncode == 0, native.stderr
+        assert native.stdout.strip() == "native"
+
+    def test_lcs_ck_002_outside_plugins_and_dangling_are_native(self, tmp_path: Path) -> None:
+        """LCS-CK-002: --check 與安裝路徑共用同一判準：plugins/ 以外與失效 symlink 都是 native"""
+        repo = _make_repo(tmp_path)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (repo / "skills" / "outside").symlink_to(elsewhere)
+        (repo / "skills" / "dangling").symlink_to("../plugins/dev-cycle/skills/gone")
+
+        outside = _run_check([str(repo), "outside"])
+        dangling = _run_check([str(repo), "dangling"])
+
+        assert outside.stdout.strip() == "native"
+        assert dangling.stdout.strip() == "native"
+
+    def test_lcs_ck_003_is_read_only(self, tmp_path: Path) -> None:
+        """LCS-CK-003: --check 不建立也不移除任何東西（含既有的重複連結）"""
+        repo = _make_repo(tmp_path)
+        dst = tmp_path / "claude_skills"
+        dst.mkdir()
+        dup = dst / "viaplugin"
+        dup.symlink_to(repo / "skills" / "viaplugin")
+        before = sorted(p.name for p in dst.iterdir())
+
+        result = _run_check([str(repo), "viaplugin"])
+
+        assert result.returncode == 0, result.stderr
+        assert dup.is_symlink()
+        assert sorted(p.name for p in dst.iterdir()) == before
+
+    def test_lcs_ck_004_wrong_arg_count_fails_loud(self, tmp_path: Path) -> None:
+        """LCS-CK-004: --check 參數數量不對時 exit 1 並寫 [FAIL]，不靜默印出 native"""
+        result = _run_check([str(tmp_path)])
+
+        assert result.returncode == 1
+        assert "[FAIL]" in result.stderr
+        assert result.stdout.strip() == ""
+
+
+class TestStatusOwn:
+    def _make_fixture(self, tmp_path: Path) -> tuple[Path, Path]:
+        """最小 checkout + 隔離 HOME，讓 make status-own 只讀這份 fixture。"""
+        repo = _make_repo(tmp_path)
+        shutil.copy2(MAKEFILE, repo / "Makefile")
+        scripts = repo / "scripts"
+        scripts.mkdir()
+        shutil.copy2(SCRIPT, scripts / "link_claude_skill.sh")
+        # 第二個 plugin 提供的 skill 與第二個實體 skill，湊齊四種狀態
+        plugin2 = repo / "plugins" / "dev-cycle" / "skills" / "viaplugin2"
+        plugin2.mkdir(parents=True)
+        (plugin2 / "SKILL.md").write_text("x\n", encoding="utf-8")
+        (repo / "skills" / "viaplugin2").symlink_to("../plugins/dev-cycle/skills/viaplugin2")
+        (repo / "skills" / "native2").mkdir()
+        (repo / "skills" / "native2" / "SKILL.md").write_text("x\n", encoding="utf-8")
+        home = tmp_path / "home"
+        claude_skills = home / ".claude" / "skills"
+        claude_skills.mkdir(parents=True)
+        # native 已連結 -> OK；viaplugin 殘留舊重複連結 -> DUP；viaplugin2 乾淨 -> PL；native2 未連結 -> --
+        (claude_skills / "native").symlink_to(repo / "skills" / "native")
+        (claude_skills / "viaplugin").symlink_to(repo / "skills" / "viaplugin")
+        return repo, home
+
+    def _status_lines(self, repo: Path, home: Path) -> dict[str, str]:
+        result = subprocess.run(  # nosec B603 B607
+            ["make", "-C", str(repo), "status-own"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+            env={**os.environ, "HOME": str(home)},
+        )
+        assert result.returncode == 0, result.stderr
+        # 資料列格式：`  CC:<狀態> AG:<狀態>  <name> [<scope>]`；說明列也以 CC: 開頭，
+        # 但後面不接 AG:，所以要用完整格式比對，不能只看前綴。
+        row = re.compile(r"^\s+CC:(\S+)\s+AG:(\S+)\s+(\S+)\s+\[")
+        statuses: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            m = row.match(line)
+            if m:
+                statuses[m.group(3)] = m.group(1)
+        assert statuses, f"解析不到任何資料列，輸出：{result.stdout!r}"
+        return statuses
+
+    def test_lcs_so_001_status_own_distinguishes_the_four_states(self, tmp_path: Path) -> None:
+        """LCS-SO-001: status-own 的 CC 欄區分 OK / PL / DUP / --，不把刻意不連誤報成未安裝"""
+        repo, home = self._make_fixture(tmp_path)
+
+        statuses = self._status_lines(repo, home)
+
+        assert statuses == {
+            "native": "OK",
+            "native2": "--",
+            "viaplugin": "DUP",
+            "viaplugin2": "PL",
+        }
