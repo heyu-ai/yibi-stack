@@ -15,8 +15,9 @@
   - ~/.claude/projects/<slug> 與 <slug>--claude-worktrees-*/ 底下的 **/*.jsonl：
     Claude Code transcript（含 plugin hook 阻擋，保留約 30 天；slug 取主 repo 路徑）
   - <repo>/.claude/rules/*.md、CLAUDE.md：每次必載的 context 成本
-  - 同一批 transcript 的 instructions／nested_memory 事件：每個 rule 檔與子目錄 CLAUDE.md
-    實際被載入的 session 數（collect_rule_loads；只回答有沒有載入，不回答有沒有照做）
+  - 同一批 transcript 的 instructions／nested_memory 事件：每個 rule 檔與指令檔（根目錄與
+    子目錄的 CLAUDE.md／AGENTS.md）實際被載入的 session 數（collect_rule_loads；只回答有沒有
+    載入，不回答有沒有照做）
   - <repo>/.github/workflows/*.yml 與 gh api：CI failed run 與 failed job／step（可用 --no-ci 略過）
 
 Exit code（collect）：
@@ -57,7 +58,7 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -673,76 +674,124 @@ def collect_transcript_blocks(
 
 
 # ---------------------------------------------------------------------------
-# collect：rule 與子目錄 CLAUDE.md 的實際載入次數（transcript）
+# collect：rule 與指令檔（CLAUDE.md／AGENTS.md）的實際載入次數（transcript）
 # ---------------------------------------------------------------------------
 
 
-RULE_REL = re.compile(r"\.claude/rules/[^/]+\.md")
+# `.claude/rules/` 子目錄內的 rule 也收：collect_rules 只列直接子項，報告會標明它不在清單內
+RULE_REL = re.compile(r"\.claude/rules/.+\.md")
 MEMORY_REL = re.compile(r"(?:.+/)?(?:CLAUDE|AGENTS)\.md")
+WORKTREES_REL = ".claude/worktrees/"
+RULES_ANCHOR = "/.claude/rules/"
 
 
-def repo_relative(path: str, main_repo: Path) -> str | None:
-    """把 transcript 記錄的絕對路徑換成相對 repo 根目錄的路徑；不屬於本 repo 回 None。
+def _split_repo_path(path: str, main_repo: Path) -> tuple[bool, str] | None:
+    """回傳 (是否位於 `.claude/worktrees/` 底下, 去掉 repo 根目錄或該前綴後的剩餘路徑)。
 
-    主 checkout 與 `<main>/.claude/worktrees/<name>/` 底下的同一個檔案對應到同一個相對路徑，
-    週報才不會把同一條 rule 依 worktree 拆成很多列。
+    不屬於本 repo 回 None。
     """
     for root in dict.fromkeys((str(main_repo), str(main_repo.resolve()))):
         prefix = root.rstrip("/") + "/"
         if not path.startswith(prefix):
             continue
         rel = path[len(prefix) :]
-        wt = ".claude/worktrees/"
-        if rel.startswith(wt):
-            _name, sep, rest = rel[len(wt) :].partition("/")
-            return rest if sep and rest else None
-        return rel
+        if rel.startswith(WORKTREES_REL):
+            return True, rel[len(WORKTREES_REL) :]
+        return False, rel
     return None
+
+
+def worktree_root(path: str, main_repo: Path) -> str | None:
+    """worktree 內的 rule 路徑 → 該 worktree 相對 `.claude/worktrees/` 的名稱（可含 /）。
+
+    以最後一個 `/.claude/rules/` 為錨點，所以 `feat/x` 這種含 / 的名稱也取得完整。
+    不是 worktree 內的 rule 路徑回 None。
+    """
+    hit = _split_repo_path(path, main_repo)
+    if hit is None or not hit[0]:
+        return None
+    i = hit[1].rfind(RULES_ANCHOR)
+    return hit[1][:i] if i > 0 else None
+
+
+def _strip_worktree_name(rest: str, worktree_roots: Collection[str]) -> str | None:
+    """去掉 `.claude/worktrees/` 之後的 worktree 名稱，回傳相對 worktree 根目錄的路徑。
+
+    rule 以最後一個 `/.claude/rules/` 為錨點；其他檔案（CLAUDE.md／AGENTS.md）比對已知的
+    worktree 根目錄，取最長者。都對不上時才退回「名稱是第一段」，此時名稱含 / 的 worktree
+    根目錄 CLAUDE.md 會被當成子目錄的檔案（已知限制，只在該 worktree 一條 rule 都沒載入時發生）。
+    """
+    i = rest.rfind(RULES_ANCHOR)
+    if i > 0:
+        return rest[i + 1 :]
+    for name in sorted(worktree_roots, key=len, reverse=True):
+        if rest.startswith(name + "/"):
+            return rest[len(name) + 1 :] or None
+    _name, sep, tail = rest.partition("/")
+    return tail if sep and tail else None
+
+
+def repo_relative(path: str, main_repo: Path, worktree_roots: Collection[str] = ()) -> str | None:
+    """把 transcript 記錄的絕對路徑換成相對 repo 根目錄的路徑；不屬於本 repo 回 None。
+
+    主 checkout 與 `<main>/.claude/worktrees/<name>/` 底下的同一個檔案對應到同一個相對路徑，
+    週報才不會把同一條 rule 依 worktree 拆成很多列。worktree_roots 是已知的 worktree 名稱
+    （由 worktree_root 從 rule 路徑收集），用來正確切開名稱含 / 的 worktree。
+    """
+    hit = _split_repo_path(path, main_repo)
+    if hit is None:
+        return None
+    in_worktree, rest = hit
+    if not in_worktree:
+        return rest
+    return _strip_worktree_name(rest, worktree_roots)
 
 
 def collect_rule_loads(
     projects_dir: Path, main_repo: Path, since: dt.datetime, rules: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str]]:
-    """從 transcript 數每個 rule 檔與子目錄 CLAUDE.md 在觀察期內被載入的 session 數。
+    """從 transcript 數每個 rule 檔與指令檔（CLAUDE.md／AGENTS.md）在觀察期內被載入的 session 數。
 
     資料來源是 Claude Code 寫進 transcript 的兩種 attachment：
     - `instructions`：session 開始（或設定重載）時載入的指令檔，`files[].path`；
-      沒有 `paths:` 或 `paths: "**"` 的 rule 走這裡
+      根目錄 CLAUDE.md／AGENTS.md，以及沒有 `paths:` 或 `paths: "**"` 的 rule 走這裡
     - `nested_memory`：讀到某個路徑時才載入的 path-scoped rule 與子目錄 CLAUDE.md，`path`
 
     計數單位是 sessionId：同一個 session 重載多次只算一次。使用者層的指令檔
     （`instructions.files[].type == "User"`）與不在本 repo 底下的路徑不計；前者要靠 type 判斷，
     因為 repo 就是家目錄時（例如 dotfiles repo），`~/.claude/CLAUDE.md` 也在 repo 底下。
 
-    分母要分開記：不是每個 session 都會載入專案指令。實測（yibi-mvp，2026-10-20 起兩週）
-    `entrypoint == "cli"` 的 25 個 session 全部有 `instructions`，`sdk-py` 的 91 個一個都沒有。
-    所以佔比的分母用「觀察期內有 `instructions` 事件的 session 數」，並依 entrypoint 列出
-    「session 數／有載入專案指令的 session 數」，讓沒載入任何 rule 的 session 群看得見。
+    「觀察期內的 session」是至少有一筆事件的 timestamp 落在 since 之後的 session；這種 session
+    的所有載入紀錄都算，不論那筆 attachment 本身的時間——觀察期開始前載入的指令在期內仍在
+    context 裡。只看事件時間會讓跨越 since 的 session 進分子卻不進分母，佔比超過 100%。
 
-    正向對照：觀察期內有 session，但 collect_rules 判定為每次必載的 rule 有任一條是 0 次，
-    代表 attachment 格式變了或解析壞了，不是那條 rule 真的沒載入——記成錯誤、來源不完整，
-    報告顯示「量不到」而不是一張全是 0 的表。rules 來源本身不完整時同樣不完整。
+    分母要分開記：不是每個 session 都會載入專案指令。實測（yibi-mvp，2026-11-03 量測、觀察期
+    14 天）：`entrypoint == "cli"` 的 28 個 session 全部有載入專案指令，`sdk-py` 的 96 個一個都
+    沒有（量測指令與完整表見 openspec change add-weekly-review-rule-loads 的 design.md D3）。
+    所以佔比的分母是「有載入專案指令的 session」：instructions 列出至少一個本 repo 內、
+    非使用者層的檔案。其他 session 的載入不進分子，只記進 excluded_sessions；報告另依
+    entrypoint 列出「session 數／有載入專案指令的 session 數」，讓沒載入任何 rule 的
+    session 群看得見。
+
+    來源不完整的情況：任一檔案讀不到、目錄列不出來、壞行或非物件的行、attachment 形狀不符
+    （路徑不是字串、files 不是清單）、找不到 transcript、觀察期內有時間戳的事件少於
+    TRANSCRIPT_MIN_EVENTS、rules 來源不完整。
+
+    格式對照：觀察期內有 entrypoint 等於 cli 的 session，卻沒有 instructions 事件，或每次必載的
+    rule 一條都沒有載入，代表 attachment 格式變了或解析壞了，不是 rule 真的沒載入——記成錯誤、
+    來源不完整，報告顯示「量不到」而不是一張全是 0 的表。只有部分必載 rule 為 0 次時不判為格式
+    改變（可能是期間才新增或剛改成必載），名稱記進 always_missing 由報告列出。
     """
+    listing_errors: list[str] = []
+    files = transcript_files(projects_dir, main_repo, listing_errors)
     errors: list[str] = []
     file_errors: list[str] = []
-    files = transcript_files(projects_dir, main_repo, errors)
-    sessions: set[str] = set()
-    instr_sessions: set[str] = set()
-    entrypoints: dict[str, set[str]] = {}
-    rule_sessions: dict[str, set[str]] = {}
-    memory_sessions: dict[str, set[str]] = {}
+    # 先依 session 累積、掃完才定案：session 是否在觀察期內要看它所有的事件，worktree 路徑的
+    # 正規化也要等收齊所有 rule 路徑，才知道有哪些 worktree 名稱
+    per_session: dict[str, dict[str, Any]] = {}
+    in_window = 0
     bad_lines = 0
-
-    def record(path: Any, session: str) -> None:
-        if not isinstance(path, str):
-            return
-        rel = repo_relative(path, main_repo)
-        if rel is None:
-            return
-        if RULE_REL.fullmatch(rel):
-            rule_sessions.setdefault(rel, set()).add(session)
-        elif MEMORY_REL.fullmatch(rel):
-            memory_sessions.setdefault(rel, set()).add(session)
+    bad_shapes = 0
 
     for f in files:
         for line in _read_lines(Path(f), file_errors, "rule 載入"):
@@ -754,68 +803,146 @@ def collect_rule_loads(
                 bad_lines += 1
                 continue
             if not isinstance(ev, dict):
-                bad_lines += 1
+                bad_lines += 1  # 合法 JSON 但不是物件
                 continue
-            ts = parse_ts(ev.get("timestamp"))
-            if ts is None or ts < since:
-                continue
-            # 不需要像 collect_transcript_blocks 那樣依 uuid 去重：這裡只往 session 集合裡加，
-            # 同一事件出現兩次不會改變任何計數
             session = ev.get("sessionId") or "?"
-            sessions.add(session)
+            s = per_session.setdefault(
+                session,
+                {
+                    "in_window": False,
+                    "entry": set(),
+                    "saw_instructions": False,
+                    "instr": [],
+                    "nested": [],
+                    "nested_ids": set(),
+                },
+            )
+            ts = parse_ts(ev.get("timestamp"))
+            if ts is not None and ts >= since:
+                in_window += 1
+                s["in_window"] = True
             if isinstance(ev.get("entrypoint"), str):
-                entrypoints.setdefault(session, set()).add(ev["entrypoint"])
+                s["entry"].add(ev["entrypoint"])
             if ev.get("type") != "attachment":
                 continue
             att = ev.get("attachment") or {}
             if not isinstance(att, dict):
                 continue
-            if att.get("type") == "instructions":
-                instr_sessions.add(session)
-                for item in att.get("files") or []:
-                    if isinstance(item, dict) and item.get("type") != "User":
-                        record(item.get("path"), session)
-            elif att.get("type") == "nested_memory":
-                record(att.get("path"), session)
+            kind = att.get("type")
+            if kind == "instructions":
+                s["saw_instructions"] = True
+                items = att.get("files") or []
+                if not isinstance(items, list):
+                    bad_shapes += 1
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        bad_shapes += 1
+                    elif item.get("type") == "User":
+                        continue
+                    elif isinstance(item.get("path"), str):
+                        s["instr"].append(item["path"])
+                    else:
+                        bad_shapes += 1
+            elif kind == "nested_memory":
+                if isinstance(att.get("path"), str):
+                    s["nested"].append(att["path"])
+                    # 同一事件在主 checkout 與 worktree 的 transcript 各出現一次時只算一筆
+                    s["nested_ids"].add(ev.get("uuid") or f"no-uuid-{len(s['nested'])}")
+                else:
+                    bad_shapes += 1
+
+    roots = {
+        r
+        for s in per_session.values()
+        for p in s["instr"] + s["nested"]
+        if (r := worktree_root(p, main_repo)) is not None
+    }
+    sessions = {k: s for k, s in per_session.items() if s["in_window"]}
+    with_instr: set[str] = set()
+    rule_sessions: dict[str, set[str]] = {}
+    memory_sessions: dict[str, set[str]] = {}
+    excluded = 0
+    nested_events = 0
+    for sid, s in sessions.items():
+        instr_rel = [r for p in s["instr"] if (r := repo_relative(p, main_repo, roots)) is not None]
+        nested_rel = [
+            r for p in s["nested"] if (r := repo_relative(p, main_repo, roots)) is not None
+        ]
+        loaded = [
+            r for r in instr_rel + nested_rel if RULE_REL.fullmatch(r) or MEMORY_REL.fullmatch(r)
+        ]
+        if instr_rel:
+            with_instr.add(sid)
+            nested_events += len(s["nested_ids"])
+        elif loaded:
+            excluded += 1
+        if sid not in with_instr:
+            continue  # 沒有載入專案指令的 session 不進分子，否則佔比可超過 100%
+        for rel in loaded:
+            target = rule_sessions if RULE_REL.fullmatch(rel) else memory_sessions
+            target.setdefault(rel, set()).add(sid)
+
     errors += file_errors
     if bad_lines:
         errors.append(f"rule 載入：略過 {bad_lines} 行格式錯誤（可能被截斷）的紀錄")
-    if not files:
-        errors.append("rule 載入：找不到 transcript，載入次數本週未量測")
+    if bad_shapes:
+        errors.append(
+            f"rule 載入：{bad_shapes} 個 attachment 的形狀不符（路徑不是字串、files 不是清單或"
+            "含非物件項目）；transcript 格式可能已改變，本週未量測"
+        )
+    if files and in_window < TRANSCRIPT_MIN_EVENTS:
+        errors.append(
+            f"rule 載入：找到 {len(files)} 個 transcript 檔案，但觀察期內只有 {in_window} 筆"
+            f"有時間戳的事件（至少要 {TRANSCRIPT_MIN_EVENTS} 筆）；timestamp 欄位可能已改變，"
+            "本週未量測"
+        )
     # 對照的前提是「互動式 CLI session 一定會載入專案指令」；SDK 啟動的 session 可以不載入
-    # （見 docstring 的實測），不能拿來當前提，否則整週都是 SDK session 時會誤判格式改變
-    cli_sessions = {s for s in sessions if "cli" in entrypoints.get(s, ())}
+    # （見 design.md D3 的實測），不能拿來當前提，否則整週都是 SDK session 時會誤判格式改變
+    cli_sessions = [k for k, s in sessions.items() if "cli" in s["entry"]]
+    always_missing: list[str] = []
     if not source_ok(rules):
         errors.append("rule 載入：rules 來源不完整，無法判斷哪些 rule 每次必載，本週未量測")
-    elif cli_sessions:
-        if not instr_sessions:
-            errors.append(
-                f"rule 載入：觀察期內有 {len(cli_sessions)} 個 cli session，但沒有任何 "
-                "instructions 事件；transcript 格式可能已改變，本週未量測"
-            )
+    else:
         always = [x["file"] for x in rules.get("files", []) if x.get("always_loaded")]
         missing = sorted(r for r in always if r not in rule_sessions)
-        if missing:
-            errors.append(
-                f"rule 載入：觀察期內有 {len(cli_sessions)} 個 cli session，但每次必載的 "
-                f"{', '.join(missing)} 載入 0 次；transcript 格式可能已改變，本週未量測"
-            )
+        # 沒有任何 session 載入專案指令時（只有 SDK session 的一週），每條必載 rule 都是 0 次，
+        # 列出來沒有資訊量
+        always_missing = missing if with_instr else []
+        if cli_sessions:
+            if not any(s["saw_instructions"] for s in sessions.values()):
+                errors.append(
+                    f"rule 載入：觀察期內有 {len(cli_sessions)} 個 cli session，但沒有任何 "
+                    "instructions 事件；transcript 格式可能已改變，本週未量測"
+                )
+            # 只有部分必載 rule 為 0 次可能是期間才新增，不判為格式改變（報告列出 always_missing）
+            if always and len(missing) == len(always):
+                errors.append(
+                    f"rule 載入：觀察期內有 {len(cli_sessions)} 個 cli session，但每次必載的 rule "
+                    f"一條都沒有載入（{', '.join(missing)} 載入 0 次）；transcript 格式可能已改變，"
+                    "本週未量測"
+                )
     by_entry: dict[str, dict[str, int]] = {}
-    for s in sessions:
-        key = ",".join(sorted(entrypoints.get(s, ()))) or "(unknown)"
+    for sid, s in sessions.items():
+        key = ",".join(sorted(s["entry"])) or "(unknown)"
         row = by_entry.setdefault(key, {"sessions": 0, "with_instructions": 0})
         row["sessions"] += 1
-        row["with_instructions"] += s in instr_sessions
+        row["with_instructions"] += sid in with_instr
+    # 目錄列舉錯誤與「找不到 transcript」collect_transcript_blocks 已經發過 warning：
+    # 只記進本來源，不重複回傳
+    no_transcript = ["rule 載入：找不到 transcript，載入次數本週未量測"] if not files else []
     data = {
         "sessions": len(sessions),
-        "sessions_with_instructions": len(instr_sessions),
+        "sessions_with_instructions": len(with_instr),
+        "excluded_sessions": excluded,
+        "nested_memory_events": nested_events,
         "entrypoints": dict(sorted(by_entry.items())),
         "rules": {k: len(v) for k, v in sorted(rule_sessions.items())},
         "memory_files": {k: len(v) for k, v in sorted(memory_sessions.items())},
-        "source": make_source(errors),
+        "always_missing": always_missing,
+        "source": make_source(listing_errors + no_transcript + errors),
     }
-    # 找不到 transcript 時 collect_transcript_blocks 已發過 warning，這裡不重複
-    return data, [e for e in errors if "找不到 transcript" not in e]
+    return data, errors
 
 
 # ---------------------------------------------------------------------------
@@ -2050,17 +2177,24 @@ def render_report(snap: dict[str, Any], delta: dict[str, Any]) -> str:
 
 
 def render_rule_loads(snap: dict[str, Any]) -> list[str]:
-    """rule 與子目錄 CLAUDE.md 的載入次數表。
+    """rule 與指令檔（根目錄與子目錄的 CLAUDE.md／AGENTS.md）的載入次數表。
 
-    只回答「有沒有載入」，不回答「載入後有沒有照做」。來源不完整（含舊快照沒有這一節）時
+    只回答「有沒有載入」，不回答「載入後有沒有照做」。來源不完整或舊快照沒有這一節時
     只寫「量不到」，不印一張全是 0 的表——0 次與量不到在這張表上必須分得開。
+    有載入專案指令的 session 達 TRANSCRIPT_MIN_EVENTS 個、卻一筆 nested_memory 都沒有時，
+    path-scoped rule 的次數也不能判讀（nested_memory 的格式可能改了），該欄改寫「量不到」。
     """
     loads = snap.get("rule_loads")
     lines = ["", "## rule 載入次數（本期，以 session 計）", ""]
+    if loads is None:
+        lines.append("- 量不到：本快照產生於此功能之前，沒有載入紀錄")
+        return lines
     if not source_ok(loads):
         lines.append("- 量不到：本快照沒有可信的載入紀錄（原因見上方「量測不完整」）")
         return lines
     total = loads.get("sessions_with_instructions", 0)
+    # 舊快照沒有 nested_memory_events 欄位時照舊顯示次數
+    scoped_unmeasured = loads.get("nested_memory_events") == 0 and total >= TRANSCRIPT_MIN_EVENTS
     lines.append(
         f"- 觀察期內 {loads.get('sessions', 0)} 個 session，其中 {total} 個有載入專案指令；"
         "佔比以後者為分母"
@@ -2071,6 +2205,18 @@ def render_rule_loads(snap: dict[str, Any]) -> list[str]:
         lines.append(
             f"- 依 entrypoint（有載入專案指令／session 數）：{'；'.join(parts)}。"
             "沒有載入專案指令的 session 裡，下表任何 rule 都不在 context"
+        )
+    if scoped_unmeasured:
+        lines.append(
+            f"- path-scoped rule 量不到：{total} 個有載入專案指令的 session 裡，沒有看到任何 "
+            "nested_memory 事件；transcript 格式可能已改變，path-scoped rule 與子目錄指令檔的次數"
+            "不能判讀"
+        )
+    missing = loads.get("always_missing") or []
+    if missing:
+        lines.append(
+            "- 這些每次必載的 rule 本期 0 次，可能是期間才新增或剛改成必載："
+            + "、".join(f"`{r}`" for r in missing)
         )
     lines.append(
         "- 0 次的 path-scoped rule 可能是期間沒人碰那些路徑，也可能是 `paths:` 寫錯；"
@@ -2083,7 +2229,7 @@ def render_rule_loads(snap: dict[str, Any]) -> list[str]:
     for rel in sorted(set(on_disk) | set(counts)):
         info = on_disk.get(rel)
         if info is None:
-            scope = "（檔案已不存在）"
+            scope = "（不在 collect_rules 清單：已刪除，或位於 rules 子目錄）"
         elif info.get("always_loaded"):
             scope = "每次必載"
         else:
@@ -2092,13 +2238,18 @@ def render_rule_loads(snap: dict[str, Any]) -> list[str]:
             if len(pats) > 3:
                 scope += f" 等 {len(pats)} 個"
         n = counts.get(rel, 0)
-        rows.append((-n, rel, scope, n))
-    for _neg, rel, scope, n in sorted(rows):
-        pct = f"{n * 100 // total}%" if total else "-"
-        lines.append(f"| `{rel}` | {scope.replace('|', '/')} | {n} | {pct} |")
+        unmeasured = scoped_unmeasured and info is not None and not info.get("always_loaded")
+        rows.append((-n, rel, scope, n, unmeasured))
+    for _neg, rel, scope, n, unmeasured in sorted(rows):
+        if unmeasured:
+            shown = pct = "量不到"
+        else:
+            shown = str(n)
+            pct = f"{n * 100 // total}%" if total else "-"
+        lines.append(f"| `{rel}` | {scope.replace('|', '/')} | {shown} | {pct} |")
     memory = loads.get("memory_files") or {}
     if memory:
-        lines += ["", "| 子目錄指令檔 | session 數 |", "|---|---:|"]
+        lines += ["", "| 指令檔（CLAUDE.md／AGENTS.md） | session 數 |", "|---|---:|"]
         for rel, n in sorted(memory.items(), key=lambda x: (-x[1], x[0])):
             lines.append(f"| `{rel}` | {n} |")
     return lines
