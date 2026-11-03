@@ -104,9 +104,8 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 			echo "  [FAIL] $$name 的 scope 值無效（$${scope}），只接受 global 或 project"; exit 1; \
 		fi; \
 		if [ "$$scope" != "global" ]; then continue; fi; \
-		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
-			"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/$(SKILL_DIR)/$$name" "$$dir/$$name" || exit 1; \
-		done \
+		"$(CURDIR)/scripts/link_claude_skill.sh" "$(CURDIR)" "$$name" "$(CLAUDE_SKILL_DIR)" || exit 1; \
+		"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/$(SKILL_DIR)/$$name" "$(INSTALL_DIR)/$$name" || exit 1; \
 	done
 	@echo ""
 	@echo "  Installing plugin-only skills → $(INSTALL_DIR)/"
