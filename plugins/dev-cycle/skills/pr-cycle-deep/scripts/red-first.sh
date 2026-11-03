@@ -201,9 +201,17 @@ if [ -n "${CLAUDE_JOB_DIR:-}" ]; then
             *) fail 2 "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下：${OUT_DIR}" ;;
         esac
     else
-        PARENT_DIR=$(dirname "$OUT_DIR")
-        PARENT_CANONICAL=$(cd "$PARENT_DIR" 2>/dev/null && pwd -P) || true
-        case "${PARENT_CANONICAL:-}" in
+        # 向上尋找最接近且已存在的祖先目錄
+        CHECK_DIR="$OUT_DIR"
+        while [ -n "$CHECK_DIR" ] && [ ! -d "$CHECK_DIR" ]; do
+            PARENT=$(dirname "$CHECK_DIR")
+            if [ "$PARENT" = "$CHECK_DIR" ]; then
+                break
+            fi
+            CHECK_DIR="$PARENT"
+        done
+        ANCESTOR_CANONICAL=$(cd "$CHECK_DIR" 2>/dev/null && pwd -P) || true
+        case "${ANCESTOR_CANONICAL:-}" in
             "$TMP_CANONICAL"|"$TMP_CANONICAL"/*) ;;
             *) fail 2 "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下：${OUT_DIR}" ;;
         esac
@@ -212,7 +220,7 @@ if [ -n "${CLAUDE_JOB_DIR:-}" ]; then
         case "$OUT_CANONICAL" in
             "$TMP_CANONICAL"|"$TMP_CANONICAL"/*) ;;
             *)
-                rmdir "$OUT_DIR" 2>/dev/null || true
+                rmdir "$OUT_DIR" 2>/dev/null || rm -rf "$OUT_DIR" 2>/dev/null
                 fail 2 "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下：${OUT_DIR}"
                 ;;
         esac

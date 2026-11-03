@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 from pathlib import Path
@@ -1035,12 +1036,19 @@ class TestScratchDirectorySafety:
         assert not (job_dir / "red-first.out").exists()
         assert not (repo / ".pr-review" / "red-first.md").exists()
 
-    def test_rfs_st_038_out_dir_under_claude_job_dir_tmp_is_accepted(self, tmp_path: Path) -> None:
-        """CLAUDE_JOB_DIR/tmp 底下的目錄是安全的 scratch，正常執行並建立產物。"""
+    @pytest.mark.parametrize(
+        "safe_sub",
+        ["tmp", "tmp/scratch", "tmp/level1/level2/nested"],
+        ids=["existing_tmp", "single_child", "nested_children"],
+    )
+    def test_rfs_st_038_out_dir_under_claude_job_dir_tmp_is_accepted(
+        self, tmp_path: Path, safe_sub: str
+    ) -> None:
+        """CLAUDE_JOB_DIR/tmp 底下的目錄皆為安全 scratch（含既有 tmp/、單層與巢狀目錄）。"""
         repo = _setup(tmp_path)
         job_dir = tmp_path / "job"
         job_dir.mkdir()
-        safe_out = job_dir / "tmp" / "scratch"
+        safe_out = job_dir / safe_sub
         env = {
             **os.environ,
             "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
@@ -1230,6 +1238,9 @@ class TestRunbookContractPreservation:
             assert '--out-dir "$CLAUDE_JOB_DIR/tmp"' in text, f"{name} 缺少 --out-dir tmp"
             assert '--out-dir "$CLAUDE_JOB_DIR"\n' not in text, f"{name} 誤用根目錄"
             assert '--out-dir "$CLAUDE_JOB_DIR" ' not in text, f"{name} 誤用根目錄"
+            assert (
+                re.search(r'--out-dir "\$CLAUDE_JOB_DIR/tmp"\s*$', text, re.MULTILINE) is not None
+            ), f'{name} 的 --out-dir 參數未完整結束於 tmp"'
 
     def test_rfs_dt_008_runbooks_say_unchecked_is_not_a_pass(self) -> None:
         """兩份 runbook 必須寫明 unchecked 不是通過、需要人類確認。"""
