@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 from pathlib import Path
@@ -995,3 +996,273 @@ class TestDurableReport:
         report = repo / ".pr-review/red-first.md"
         assert report.is_dir()
         assert not (report / "red-first.md").exists()
+
+
+class TestScratchDirectorySafety:
+    def test_rfs_st_037_out_dir_at_claude_job_dir_root_is_rejected(self, tmp_path: Path) -> None:
+        """CLAUDE_JOB_DIR 根目錄禁止作為 --out-dir，必須以 exit 2 拒絕且不得建立檔案。"""
+        repo = _setup(tmp_path)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+            "CLAUDE_JOB_DIR": str(job_dir),
+        }
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+                "--out-dir",
+                str(job_dir),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下" in proc.stderr
+        assert not (job_dir / "red-first.out").exists()
+        assert not (repo / ".pr-review" / "red-first.md").exists()
+
+    @pytest.mark.parametrize(
+        "safe_sub",
+        ["tmp", "tmp/scratch", "tmp/level1/level2/nested"],
+        ids=["existing_tmp", "single_child", "nested_children"],
+    )
+    def test_rfs_st_038_out_dir_under_claude_job_dir_tmp_is_accepted(
+        self, tmp_path: Path, safe_sub: str
+    ) -> None:
+        """CLAUDE_JOB_DIR/tmp 底下的目錄皆為安全 scratch（含既有 tmp/、單層與巢狀目錄）。"""
+        repo = _setup(tmp_path)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        safe_out = job_dir / safe_sub
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+            "CLAUDE_JOB_DIR": str(job_dir),
+        }
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+                "--out-dir",
+                str(safe_out),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        assert (safe_out / "red-first.out").exists()
+        assert not (job_dir / "red-first.out").exists()
+
+    def test_rfs_st_039_omitted_out_dir_uses_safe_scratch(self, tmp_path: Path) -> None:
+        """省略 --out-dir 時自動在安全 scratch 目錄執行。"""
+        repo = _setup(tmp_path)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+            "CLAUDE_JOB_DIR": str(job_dir),
+        }
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        assert (repo / ".pr-review" / "red-first.md").exists()
+        assert not (job_dir / "red-first.out").exists()
+        tmp_children = list((job_dir / "tmp").glob("red-first-*"))
+        assert len(tmp_children) >= 1
+        assert (tmp_children[0] / "red-first.out").exists()
+
+    def test_rfs_st_043_out_dir_at_non_tmp_subdirectory_is_rejected(self, tmp_path: Path) -> None:
+        """CLAUDE_JOB_DIR 底下非 tmp/ 子目錄禁止作為 --out-dir，不得建立該目錄。"""
+        repo = _setup(tmp_path)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        forbidden = job_dir / "forbidden"
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+            "CLAUDE_JOB_DIR": str(job_dir),
+        }
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+                "--out-dir",
+                str(forbidden),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert "CLAUDE_JOB_DIR/tmp 底下" in proc.stderr
+        assert not forbidden.exists()
+        assert not (repo / ".pr-review" / "red-first.md").exists()
+
+    def test_rfs_st_044_out_dir_outside_claude_job_dir_is_rejected(self, tmp_path: Path) -> None:
+        """CLAUDE_JOB_DIR 設定時，指向外部的 --out-dir 必須被拒絕，且不得建立該目錄。"""
+        repo = _setup(tmp_path)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        outside = tmp_path / "outside"
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+            "CLAUDE_JOB_DIR": str(job_dir),
+        }
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+                "--out-dir",
+                str(outside),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert "CLAUDE_JOB_DIR/tmp 底下" in proc.stderr
+        assert not outside.exists()
+        assert not (repo / ".pr-review" / "red-first.md").exists()
+
+    def test_rfs_st_045_omitted_out_dir_without_claude_job_dir(self, tmp_path: Path) -> None:
+        """CLAUDE_JOB_DIR 未設定且省略 --out-dir 時，正常在系統 temp 執行並發布報告。"""
+        repo = _setup(tmp_path)
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+        }
+        env.pop("CLAUDE_JOB_DIR", None)
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        assert (repo / ".pr-review" / "red-first.md").exists()
+
+
+class TestRunbookContractPreservation:
+    """鎖住兩份 runbook（pr-cycle-deep 與 pr-cycle-fast）的關鍵契約。"""
+
+    def test_rfs_dt_007_runbooks_use_job_tmp_scratch(self) -> None:
+        """兩份 runbook 呼叫 red-first.sh 時必須使用 $CLAUDE_JOB_DIR/tmp。"""
+        deep = (SCRIPTS_DIR.parent / "SKILL.md").read_text(encoding="utf-8")
+        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        for name, text in (("pr-cycle-deep", deep), ("pr-cycle-fast", fast)):
+            assert '--out-dir "$CLAUDE_JOB_DIR/tmp"' in text, f"{name} 缺少 --out-dir tmp"
+            assert '--out-dir "$CLAUDE_JOB_DIR"\n' not in text, f"{name} 誤用根目錄"
+            assert '--out-dir "$CLAUDE_JOB_DIR" ' not in text, f"{name} 誤用根目錄"
+            assert (
+                re.search(r'--out-dir "\$CLAUDE_JOB_DIR/tmp"\s*$', text, re.MULTILINE) is not None
+            ), f'{name} 的 --out-dir 參數未完整結束於 tmp"'
+
+    def test_rfs_dt_008_runbooks_say_unchecked_is_not_a_pass(self) -> None:
+        """兩份 runbook 必須寫明 unchecked 不是通過、需要人類確認。"""
+        deep = (SCRIPTS_DIR.parent / "SKILL.md").read_text(encoding="utf-8")
+        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        assert "`RED_FIRST_RESULT=unchecked` is also exit `0` but is **not a pass**" in deep
+        assert "token 為 `unchecked` 時**不是通過**" in fast
+        assert "no checker at all" in deep
+        assert "repo 根本沒有 checker" in fast
+
+    def test_rfs_dt_009_runbooks_keep_supplementary_evidence_separate(self) -> None:
+        """兩份 runbook 必須寫明補充證據不等於通過、不能改變 canonical 判定。"""
+        deep = (SCRIPTS_DIR.parent / "SKILL.md").read_text(encoding="utf-8")
+        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        assert "it never turns the result into a pass" in deep
+        assert "補充證據（不等於通過）" in fast
+        assert "補充證據必須另存，不修改 canonical 報告或其結果" in deep
+        assert (
+            "標明「補充，不等於通過」，且不得使用 `<!-- red-first:` 開頭或改動 canonical 報告"
+            in fast
+        )

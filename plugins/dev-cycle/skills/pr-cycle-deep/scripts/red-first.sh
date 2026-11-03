@@ -14,7 +14,7 @@
 # 標題只存在變數裡，所有值都在同一個 shell 內傳遞。
 #
 # 用法：
-#   bash <path>/red-first.sh --pr <number> --repo-root <checkout> --out-dir <dir>
+#   bash <path>/red-first.sh --pr <number> --repo-root <checkout> [--out-dir <dir>]
 #   （Bash tool 要給 timeout 600000：checker 會跑兩次測試）
 #
 # 輸出：checker 原始輸出仍寫到 <out-dir>/red-first.out；PR body 寫到 <out-dir>/pr-body.md。
@@ -127,7 +127,7 @@ show_checker_output() {
 }
 
 usage() {
-    echo "用法：red-first.sh --pr <number> --repo-root <checkout> --out-dir <dir>" >&2
+    echo "用法：red-first.sh --pr <number> --repo-root <checkout> [--out-dir <dir>]" >&2
 }
 
 fail() {
@@ -162,15 +162,71 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-if [ -z "$PR" ] || [ -z "$REPO_ROOT" ] || [ -z "$OUT_DIR" ]; then
+if [ -z "$PR" ] || [ -z "$REPO_ROOT" ]; then
     usage
-    fail 2 "--pr、--repo-root、--out-dir 都必須指定"
+    fail 2 "--pr 與 --repo-root 都必須指定"
 fi
 case "$PR" in
     *[!0-9]*) fail 2 "--pr 必須是數字：${PR}" ;;
 esac
 if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     fail 2 "--repo-root 不是 git checkout：${REPO_ROOT}"
+fi
+
+if [ -z "$OUT_DIR" ]; then
+    if [ -n "${CLAUDE_JOB_DIR:-}" ]; then
+        OUT_DIR="${CLAUDE_JOB_DIR}/tmp/red-first-$$"
+    else
+        OUT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/red-first.XXXXXX" 2>/dev/null || mktemp -d -t red-first)
+    fi
+fi
+
+if [ -n "${CLAUDE_JOB_DIR:-}" ]; then
+    if [ ! -d "${CLAUDE_JOB_DIR}" ]; then
+        fail 2 "CLAUDE_JOB_DIR 目錄不存在：${CLAUDE_JOB_DIR}"
+    fi
+    JOB_CANONICAL=$(cd "$CLAUDE_JOB_DIR" 2>/dev/null && pwd -P) || fail 2 "無法解析 CLAUDE_JOB_DIR"
+    mkdir -p "$CLAUDE_JOB_DIR/tmp" 2>/dev/null || fail 2 "無法建立 CLAUDE_JOB_DIR/tmp"
+    TMP_CANONICAL=$(cd "$CLAUDE_JOB_DIR/tmp" 2>/dev/null && pwd -P) || fail 2 "無法解析 CLAUDE_JOB_DIR/tmp"
+    case "$TMP_CANONICAL" in
+        "$JOB_CANONICAL"/tmp|"$JOB_CANONICAL"/tmp/*) ;;
+        *) fail 2 "CLAUDE_JOB_DIR/tmp 經 symlink 逃離 job 目錄" ;;
+    esac
+
+    # 先驗證路徑安全，再實際建立目錄；禁止在 job 根目錄或非 tmp/ 目錄建立任何檔案
+    if [ -d "$OUT_DIR" ]; then
+        OUT_CANONICAL=$(cd "$OUT_DIR" 2>/dev/null && pwd -P) || fail 2 "無法解析 --out-dir"
+        case "$OUT_CANONICAL" in
+            "$TMP_CANONICAL"|"$TMP_CANONICAL"/*) ;;
+            *) fail 2 "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下：${OUT_DIR}" ;;
+        esac
+    else
+        # 向上尋找最接近且已存在的祖先目錄
+        CHECK_DIR="$OUT_DIR"
+        while [ -n "$CHECK_DIR" ] && [ ! -d "$CHECK_DIR" ]; do
+            PARENT=$(dirname "$CHECK_DIR")
+            if [ "$PARENT" = "$CHECK_DIR" ]; then
+                break
+            fi
+            CHECK_DIR="$PARENT"
+        done
+        ANCESTOR_CANONICAL=$(cd "$CHECK_DIR" 2>/dev/null && pwd -P) || true
+        case "${ANCESTOR_CANONICAL:-}" in
+            "$TMP_CANONICAL"|"$TMP_CANONICAL"/*) ;;
+            *) fail 2 "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下：${OUT_DIR}" ;;
+        esac
+        mkdir -p "$OUT_DIR" 2>/dev/null || fail 2 "無法建立 --out-dir：${OUT_DIR}"
+        OUT_CANONICAL=$(cd "$OUT_DIR" 2>/dev/null && pwd -P) || fail 2 "無法解析 --out-dir"
+        case "$OUT_CANONICAL" in
+            "$TMP_CANONICAL"|"$TMP_CANONICAL"/*) ;;
+            *)
+                rmdir "$OUT_DIR" 2>/dev/null || true
+                fail 2 "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下：${OUT_DIR}"
+                ;;
+        esac
+    fi
+else
+    mkdir -p "$OUT_DIR" 2>/dev/null || fail 2 "無法建立 --out-dir：${OUT_DIR}"
 fi
 
 REPORT_ROOT=$(git -C "$REPO_ROOT" rev-parse --show-toplevel)
@@ -207,8 +263,6 @@ case "$EXCLUDE_RC" in
     1) printf '\n.pr-review/\n' >> "$EXCLUDE" ;;
     *) fail 2 "無法讀取 Git exclude" ;;
 esac
-
-mkdir -p "$OUT_DIR"
 # 先清空：有 checker 時 red-first.out 要到所有 exit 2 檢查之後才寫，之前結束的話，同一個
 # out-dir 裡上一輪的判定（例如 PASS）會被呼叫端當成這一輪的結果。失敗走 ERR trap
 : >| "$OUT_DIR/red-first.out"
