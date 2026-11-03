@@ -220,7 +220,7 @@ if [ -n "${CLAUDE_JOB_DIR:-}" ]; then
         case "$OUT_CANONICAL" in
             "$TMP_CANONICAL"|"$TMP_CANONICAL"/*) ;;
             *)
-                rmdir "$OUT_DIR" 2>/dev/null || rm -rf "$OUT_DIR" 2>/dev/null
+                rmdir "$OUT_DIR" 2>/dev/null || true
                 fail 2 "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下：${OUT_DIR}"
                 ;;
         esac
