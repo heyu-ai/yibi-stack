@@ -4,8 +4,9 @@
 # 把 <repo_root>/skills/<skill_name> 連到 <claude_skill_dir>/<skill_name>，
 # 但「由 plugin 提供」的 skill 例外。
 #
-# 判準：<repo_root>/skills/<skill_name> 本身是 symlink（指向 plugins/<pack>/skills/...）
-# 代表這個 skill 的正本在 plugin 裡，Claude Code 會經由 plugin 機制載入它
+# 判準：<repo_root>/skills/<skill_name> 是 symlink，且解析後的實體路徑落在
+# <repo_root>/plugins/ 之下，代表這個 skill 的正本在 plugin 裡，
+# Claude Code 會經由 plugin 機制載入它（不驗證該 plugin 是否已安裝）
 # （skill 清單裡的 `dev-cycle:pr-cycle-deep`）。再連一份到 ~/.claude/skills/
 # 會讓同一個 skill 出現兩次（`pr-cycle-deep` 與 `dev-cycle:pr-cycle-deep`），
 # 且兩者指向不同來源（本機 checkout vs plugin cache），內容可能不同步。
@@ -32,7 +33,26 @@ SRC="${REPO_ROOT}/skills/${NAME}"
 DST="${DST_DIR}/${NAME}"
 SCRIPT_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
+# 「由 plugin 提供」= SRC 是 symlink，且解析後的實體目錄落在 <repo>/plugins/ 之下。
+# 只看 -L 太寬：指向 plugins/ 以外（或已失效）的 symlink 並不是 plugin 提供的，
+# 把它當成 plugin skill 會讓該 skill 在 Claude Code 憑空消失。
+# 兩個路徑都用 cd -P + pwd -P 取實體路徑，避免 macOS 的 /var -> /private/var 造成前綴不符。
+PLUGIN_PROVIDED=0
 if [ -L "$SRC" ]; then
+    if ! RESOLVED_SRC=$(cd -P "$SRC" 2>/dev/null && pwd -P); then
+        RESOLVED_SRC=""
+    fi
+    if ! RESOLVED_ROOT=$(cd -P "$REPO_ROOT" 2>/dev/null && pwd -P); then
+        RESOLVED_ROOT=""
+    fi
+    if [ -n "$RESOLVED_SRC" ] && [ -n "$RESOLVED_ROOT" ]; then
+        case "$RESOLVED_SRC" in
+            "${RESOLVED_ROOT}/plugins/"*) PLUGIN_PROVIDED=1 ;;
+        esac
+    fi
+fi
+
+if [ "$PLUGIN_PROVIDED" = "1" ]; then
     if [ -L "$DST" ]; then
         CURRENT=$(readlink "$DST")
         if [ "$CURRENT" = "$SRC" ]; then

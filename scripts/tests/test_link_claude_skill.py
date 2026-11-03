@@ -78,6 +78,52 @@ class TestLinkClaudeSkill:
         assert not (dst / "viaplugin").is_symlink()
         assert "[OK]" in result.stdout
 
+    def test_lcs_dt_004_symlink_outside_plugins_is_still_linked(self, tmp_path: Path) -> None:
+        """LCS-DT-004: skills/<name> 是 symlink 但指向 plugins/ 以外，不算 plugin 提供，照舊安裝"""
+        repo = _make_repo(tmp_path)
+        elsewhere = tmp_path / "elsewhere" / "outside"
+        elsewhere.mkdir(parents=True)
+        (elsewhere / "SKILL.md").write_text("x\n", encoding="utf-8")
+        (repo / "skills" / "outside").symlink_to(elsewhere)
+        dst = tmp_path / "claude_skills"
+        dst.mkdir()
+
+        result = _run(repo, "outside", dst)
+
+        assert result.returncode == 0, result.stderr
+        assert "[SKIP]" not in result.stderr
+        assert (dst / "outside").is_symlink()
+        assert (dst / "outside").readlink() == repo / "skills" / "outside"
+
+    def test_lcs_eg_003_dangling_symlink_is_not_treated_as_plugin(self, tmp_path: Path) -> None:
+        """LCS-EG-003: 失效的 symlink 無法證明由 plugin 提供，不可靜默跳過也不可誤刪既有連結"""
+        repo = _make_repo(tmp_path)
+        (repo / "skills" / "dangling").symlink_to("../plugins/dev-cycle/skills/gone")
+        dst = tmp_path / "claude_skills"
+        dst.mkdir()
+        (dst / "dangling").symlink_to(repo / "skills" / "dangling")
+
+        result = _run(repo, "dangling", dst)
+
+        assert result.returncode == 0, result.stderr
+        assert "[SKIP]" not in result.stderr
+        assert (dst / "dangling").is_symlink()
+        assert (dst / "dangling").readlink() == repo / "skills" / "dangling"
+
+    def test_lcs_eg_004_plugin_detected_through_symlinked_repo_root(self, tmp_path: Path) -> None:
+        """LCS-EG-004: repo 根目錄本身經由 symlink 傳入（如 macOS /var -> /private/var）仍要認得 plugin"""
+        repo = _make_repo(tmp_path)
+        repo_alias = tmp_path / "repo_alias"
+        repo_alias.symlink_to(repo, target_is_directory=True)
+        dst = tmp_path / "claude_skills"
+        dst.mkdir()
+
+        result = _run(repo_alias, "viaplugin", dst)
+
+        assert result.returncode == 0, result.stderr
+        assert "[SKIP]" in result.stderr
+        assert not (dst / "viaplugin").is_symlink()
+
     def test_lcs_eg_001_foreign_symlink_is_left_alone(self, tmp_path: Path) -> None:
         """LCS-EG-001: 指向別處的同名 symlink 不是我們建的，不可移除"""
         repo = _make_repo(tmp_path)
