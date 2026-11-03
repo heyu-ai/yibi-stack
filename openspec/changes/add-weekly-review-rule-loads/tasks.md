@@ -26,3 +26,25 @@
 - [x] 4.2 補寫 testplan.md（`trace: enforced`）與 proposal 的 `type: feat`，6 個測試以 `spec:`／`tc:` 綁定；
   spec 補上 unreadable-or-truncated-transcript 與 zero-load-rule-is-listed 兩個 scenario；驗證：
   `check_testplan_trace.py --strict --report --change add-weekly-review-rule-loads` 6 個 TC 皆為 bound
+
+## 5. PR #628 review 修正
+
+- [x] 5.1 跨越觀察期起點的 session 以整個 session 計，分子分母同一批（I-1）；驗證：HWR-DT-084
+- [x] 5.2 只有部分必載 rule 為 0 次不判為格式改變，改列 `always_missing`（I-2）；驗證：HWR-DT-085
+- [x] 5.3 「有載入專案指令」只認列出本 repo 內非使用者層檔案的 instructions，其他 session 記進
+  `excluded_sessions`（I-3）；驗證：HWR-DT-086
+- [x] 5.4 rules 子目錄內的 rule 照樣計數，報告標明不在 collect_rules 清單（I-4）；驗證：HWR-DT-087
+- [x] 5.5 指令檔表改名為「指令檔（CLAUDE.md／AGENTS.md）」，docstring 與 SKILL.md 涵蓋根目錄（I-5）；驗證：HWR-DT-083
+- [x] 5.6 觀察期內有時間戳的事件少於 `TRANSCRIPT_MIN_EVENTS` 時來源不完整（I-6）；驗證：HWR-DT-088
+- [x] 5.7 記錄 `nested_memory_events`，漂移時 path-scoped 次數顯示量不到；attachment 形狀不符時來源不完整（I-7）；
+  驗證：HWR-DT-089、HWR-DT-090
+- [x] 5.8 名稱含 `/` 的 worktree 正規化（I-8）；驗證：HWR-DT-091
+- [x] 5.9 補測試缺口 M1、M13、M2、M6（I-9）；驗證：HWR-DT-092、HWR-ST-028、HWR-ST-026、HWR-DT-082
+- [x] 5.10 docstring、spec、design D4 改寫為「entrypoint 等於 cli」（I-10）
+- [x] 5.11 舊快照與來源不完整的「量不到」各自說明原因（I-11）；驗證：HWR-DT-083
+- [x] 5.12 目錄列舉錯誤不重複發 warning、改用旗標判斷「找不到 transcript」，補排序與表頭總數斷言（NIT）；
+  驗證：HWR-DT-082、HWR-DT-083
+- [x] 5.13 對 8 個單點 mutation 確認全數被抓到；驗證：design.md「驗證」第 3 點
+- [x] 5.14 以同一份快照重寫 D3、proposal、design「驗證」、SKILL.md 與 docstring 的實測數字（I-12）；
+  驗證：design.md D3 的量測指令與時間
+- [x] 5.15 `check_testplan_trace.py --strict --report --change add-weekly-review-rule-loads` 全部 TC 皆為 bound

@@ -197,17 +197,25 @@ plugin hook 的 silent-block（repo 的註冊清單看不到它，也沒有它�
 沒有經過 report」是上週的快照沒有 `carried` 與累計週數（stdout 的 `prev_collect_only` 為 true），持續中的
 建議週數無從接續，從第 1 週重算。快照版本升級（目前是 3）後的第一週也一樣：舊版快照會被略過，沒有可比較的上週。
 
-**怎麼讀「rule 載入次數」表**：報告最後一節列出每個 rule 檔與子目錄 `CLAUDE.md` 在觀察期內被載入的 session 數，
-資料來自 transcript 的 `instructions`（session 開始時載入）與 `nested_memory`（讀到某路徑時才載入）兩種事件。
-這張表只回答「有沒有進 context」，**不回答載入後有沒有照做**。
+**怎麼讀「rule 載入次數」表**：報告最後一節列出每個 rule 檔與指令檔（根目錄與子目錄的 `CLAUDE.md`／`AGENTS.md`）
+在觀察期內被載入的 session 數，資料來自 transcript 的 `instructions`（session 開始時載入）與 `nested_memory`
+（讀到某路徑時才載入）兩種事件。這張表只回答「有沒有進 context」，**不回答載入後有沒有照做**。
 
-- 分母是「有載入專案指令的 session」。Python Agent SDK 啟動的 session（`entrypoint` 為 `sdk-py`）可以完全不載入專案
-  指令，表頭會依 entrypoint 列出各有幾個 session 載入了專案指令；這群 session 裡任何 rule 都不在 context。
-- 每次必載的 rule 應接近 100%。path-scoped rule 為 0 次，可能是期間沒人碰那些路徑，也可能是 `paths:` 寫錯，
-  連續多週 0 次才值得打開原文檢查。觀察到的例子（原因尚未確認）：yibi-mvp 的 `paths: ".claude/worktrees/**"`
-  在 28 個 worktree 內的 session 中只載入 1 次。
-- 表上顯示「量不到」而不是一張表時，代表載入紀錄不可信（transcript 讀取失敗、或有互動式 CLI session 卻看不到
-  每次必載的 rule——後者通常是 Claude Code 改了 transcript 格式）。原因列在報告開頭的「量測不完整」。
+- 分母是「有載入專案指令的 session」：`instructions` 列出至少一個本 repo 內、非使用者層的檔案。Python Agent SDK
+  啟動的 session（`entrypoint` 為 `sdk-py`）可以完全不載入專案指令，表頭會依 entrypoint 列出各有幾個 session
+  載入了專案指令；這群 session 裡任何 rule 都不在 context。觀察期開始前就啟動、期內仍在工作的 session 照算，
+  它在期前載入的指令也算進去。
+- 每次必載的 rule 應接近 100%。表頭若列出「這些每次必載的 rule 本期 0 次」，通常是那條 rule 期間才新增或剛改成必載。
+- path-scoped rule 為 0 次，可能是期間沒人碰那些路徑，也可能是 `paths:` 寫錯，連續多週 0 次才值得打開原文檢查。
+  觀察到的例子（原因尚未確認）：yibi-mvp 的 `paths: ".claude/worktrees/**"` 在 30 個有載入專案指令的 session 中
+  只載入 1 次（2026-11-03 量測，觀察期 14 天）。
+- `.claude/rules/` 子目錄內的 rule 也會計數，載入範圍欄標「不在 collect_rules 清單」，因為 rules 成本量測只看直接子項。
+- path-scoped rule 的次數欄寫「量不到」時，代表有載入專案指令的 session 夠多、卻一筆 `nested_memory` 事件都沒有，
+  通常是 Claude Code 改了這種事件的格式，0 次不能當成沒人碰那些路徑。
+- 整節只寫「量不到」而不是一張表時，代表載入紀錄不可信：transcript 讀取失敗、觀察期內事件太少、attachment 形狀不符，
+  或有 `entrypoint` 為 `cli` 的 session 卻看不到任何 `instructions` 事件、每次必載的 rule 一條都沒有載入（後兩者
+  通常是 Claude Code 改了 transcript 格式）。原因列在報告開頭的「量測不完整」。快照產生於這個功能之前時，該節會
+  直接寫明沒有載入紀錄。
 
 ### Step 4 — LLM 判讀（腳本只量測，語意判斷在這裡）
 
