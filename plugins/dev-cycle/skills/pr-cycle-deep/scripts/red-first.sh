@@ -14,7 +14,7 @@
 # 標題只存在變數裡，所有值都在同一個 shell 內傳遞。
 #
 # 用法：
-#   bash <path>/red-first.sh --pr <number> --repo-root <checkout> --out-dir <dir>
+#   bash <path>/red-first.sh --pr <number> --repo-root <checkout> [--out-dir <dir>]
 #   （Bash tool 要給 timeout 600000：checker 會跑兩次測試）
 #
 # 輸出：checker 原始輸出仍寫到 <out-dir>/red-first.out；PR body 寫到 <out-dir>/pr-body.md。
