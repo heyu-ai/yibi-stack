@@ -203,8 +203,9 @@ plugin hook 的 silent-block（repo 的註冊清單看不到它，也沒有它�
 
 - 分母是「有載入專案指令的 session」。Python Agent SDK 啟動的 session（`entrypoint` 為 `sdk-py`）可以完全不載入專案
   指令，表頭會依 entrypoint 列出各有幾個 session 載入了專案指令；這群 session 裡任何 rule 都不在 context。
-- 每次必載的 rule 應接近 100%。path-scoped rule 為 0 次，可能是期間沒人碰那些路徑，也可能是 `paths:` 寫錯
-  （例如 `.claude/worktrees/**` 這類 glob 在 worktree session 內永遠對不上），連續多週 0 次才值得打開原文檢查。
+- 每次必載的 rule 應接近 100%。path-scoped rule 為 0 次，可能是期間沒人碰那些路徑，也可能是 `paths:` 寫錯，
+  連續多週 0 次才值得打開原文檢查。觀察到的例子（原因尚未確認）：yibi-mvp 的 `paths: ".claude/worktrees/**"`
+  在 28 個 worktree 內的 session 中只載入 1 次。
 - 表上顯示「量不到」而不是一張表時，代表載入紀錄不可信（transcript 讀取失敗、或有互動式 CLI session 卻看不到
   每次必載的 rule——後者通常是 Claude Code 改了 transcript 格式）。原因列在報告開頭的「量測不完整」。
 
