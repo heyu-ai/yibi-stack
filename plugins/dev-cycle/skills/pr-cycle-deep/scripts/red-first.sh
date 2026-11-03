@@ -127,7 +127,7 @@ show_checker_output() {
 }
 
 usage() {
-    echo "用法：red-first.sh --pr <number> --repo-root <checkout> --out-dir <dir>" >&2
+    echo "用法：red-first.sh --pr <number> --repo-root <checkout> [--out-dir <dir>]" >&2
 }
 
 fail() {
@@ -162,15 +162,23 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-if [ -z "$PR" ] || [ -z "$REPO_ROOT" ] || [ -z "$OUT_DIR" ]; then
+if [ -z "$PR" ] || [ -z "$REPO_ROOT" ]; then
     usage
-    fail 2 "--pr、--repo-root、--out-dir 都必須指定"
+    fail 2 "--pr 與 --repo-root 都必須指定"
 fi
 case "$PR" in
     *[!0-9]*) fail 2 "--pr 必須是數字：${PR}" ;;
 esac
 if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     fail 2 "--repo-root 不是 git checkout：${REPO_ROOT}"
+fi
+
+if [ -z "$OUT_DIR" ]; then
+    if [ -n "${CLAUDE_JOB_DIR:-}" ]; then
+        OUT_DIR="${CLAUDE_JOB_DIR}/tmp/red-first-$$"
+    else
+        OUT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/red-first.XXXXXX" 2>/dev/null || mktemp -d -t red-first)
+    fi
 fi
 
 REPORT_ROOT=$(git -C "$REPO_ROOT" rev-parse --show-toplevel)
@@ -207,8 +215,19 @@ case "$EXCLUDE_RC" in
     1) printf '\n.pr-review/\n' >> "$EXCLUDE" ;;
     *) fail 2 "無法讀取 Git exclude" ;;
 esac
-
 mkdir -p "$OUT_DIR"
+if [ -n "${CLAUDE_JOB_DIR:-}" ] && [ -d "${CLAUDE_JOB_DIR}" ]; then
+    JOB_CANONICAL=$(cd "$CLAUDE_JOB_DIR" 2>/dev/null && pwd -P)
+    OUT_CANONICAL=$(cd "$OUT_DIR" 2>/dev/null && pwd -P)
+    case "$OUT_CANONICAL" in
+        "$JOB_CANONICAL"/tmp|"$JOB_CANONICAL"/tmp/*)
+            # 安全：在 CLAUDE_JOB_DIR/tmp 底下
+            ;;
+        "$JOB_CANONICAL"|"$JOB_CANONICAL"/*)
+            fail 2 "--out-dir 不能直接在 CLAUDE_JOB_DIR 根目錄或非 tmp/ 目錄，必須在 tmp/ 子目錄底下：${OUT_DIR}"
+            ;;
+    esac
+fi
 # 先清空：有 checker 時 red-first.out 要到所有 exit 2 檢查之後才寫，之前結束的話，同一個
 # out-dir 裡上一輪的判定（例如 PASS）會被呼叫端當成這一輪的結果。失敗走 ERR trap
 : >| "$OUT_DIR/red-first.out"

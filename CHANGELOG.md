@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Red-first 證據由 wrapper 原子寫入獨立 `.pr-review/red-first.md`，保留 captured HEAD／PR、
   warnings 與完整結果，不再因 amplifier 重審覆寫而遺失；deep 彙整加上 `--require-red-first`，
   resume／human pass 缺漏或無效證據即阻擋，fast 直接貼原報告且補充證據分開記錄 (#623)
+- dev-cycle：red-first.sh 在 CLAUDE_JOB_DIR 環境下禁止以 job 根目錄作為 --out-dir，必須在 tmp/ 子目錄底下，省略時自動安全選擇 scratch 目錄；補回 pr-cycle-fast 與 pr-cycle-deep 的 scratch 路徑與 unchecked 不可升格之契約測試。
 
 ## [1.23.24] - 2026-11-02
 

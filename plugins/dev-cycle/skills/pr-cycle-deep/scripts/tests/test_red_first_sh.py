@@ -995,3 +995,152 @@ class TestDurableReport:
         report = repo / ".pr-review/red-first.md"
         assert report.is_dir()
         assert not (report / "red-first.md").exists()
+
+
+class TestScratchDirectorySafety:
+    def test_rfs_st_037_out_dir_at_claude_job_dir_root_is_rejected(self, tmp_path: Path) -> None:
+        """CLAUDE_JOB_DIR 根目錄禁止作為 --out-dir，必須以 exit 2 拒絕且不得建立檔案。"""
+        repo = _setup(tmp_path)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+            "CLAUDE_JOB_DIR": str(job_dir),
+        }
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+                "--out-dir",
+                str(job_dir),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert "CLAUDE_JOB_DIR 根目錄" in proc.stderr
+        assert not (job_dir / "red-first.out").exists()
+
+    def test_rfs_st_038_out_dir_under_claude_job_dir_tmp_is_accepted(self, tmp_path: Path) -> None:
+        """CLAUDE_JOB_DIR/tmp 底下的目錄是安全的 scratch，正常執行並建立產物。"""
+        repo = _setup(tmp_path)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        safe_out = job_dir / "tmp" / "scratch"
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+            "CLAUDE_JOB_DIR": str(job_dir),
+        }
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+                "--out-dir",
+                str(safe_out),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        assert (safe_out / "red-first.out").exists()
+        assert not (job_dir / "red-first.out").exists()
+
+    def test_rfs_st_039_omitted_out_dir_uses_safe_scratch(self, tmp_path: Path) -> None:
+        """省略 --out-dir 時自動在安全 scratch 目錄執行。"""
+        repo = _setup(tmp_path)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+            "CLAUDE_JOB_DIR": str(job_dir),
+        }
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        assert (repo / ".pr-review" / "red-first.md").exists()
+        assert not (job_dir / "red-first.out").exists()
+
+
+class TestRunbookContractPreservation:
+    """鎖住兩份 runbook（pr-cycle-deep 與 pr-cycle-fast）的關鍵契約。"""
+
+    def test_rfs_dt_007_runbooks_use_job_tmp_scratch(self) -> None:
+        """兩份 runbook 呼叫 red-first.sh 時必須使用 $CLAUDE_JOB_DIR/tmp。"""
+        deep = (SCRIPTS_DIR.parent / "SKILL.md").read_text(encoding="utf-8")
+        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        for name, text in (("pr-cycle-deep", deep), ("pr-cycle-fast", fast)):
+            assert '--out-dir "$CLAUDE_JOB_DIR/tmp"' in text, f"{name} 缺少 --out-dir tmp"
+            assert '--out-dir "$CLAUDE_JOB_DIR"\n' not in text, f"{name} 誤用根目錄"
+            assert '--out-dir "$CLAUDE_JOB_DIR" ' not in text, f"{name} 誤用根目錄"
+
+    def test_rfs_dt_008_runbooks_say_unchecked_is_not_a_pass(self) -> None:
+        """兩份 runbook 必須寫明 unchecked 不是通過、需要人類確認。"""
+        deep = (SCRIPTS_DIR.parent / "SKILL.md").read_text(encoding="utf-8")
+        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        assert "`RED_FIRST_RESULT=unchecked` is also exit `0` but is **not a pass**" in deep
+        assert "token 為 `unchecked` 時**不是通過**" in fast
+        assert "no checker at all" in deep
+        assert "repo 根本沒有 checker" in fast
+
+    def test_rfs_dt_009_runbooks_keep_supplementary_evidence_separate(self) -> None:
+        """兩份 runbook 必須寫明補充證據不等於通過、不能改變 canonical 判定。"""
+        deep = (SCRIPTS_DIR.parent / "SKILL.md").read_text(encoding="utf-8")
+        fast = (SCRIPTS_DIR.parent.parent / "pr-cycle-fast" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        assert "it never turns the result into a pass" in deep
+        assert "補充證據（不等於通過）" in fast
+        assert "補充證據必須另存，不修改 canonical 報告或其結果" in deep
+        assert (
+            "標明「補充，不等於通過」，且不得使用 `<!-- red-first:` 開頭或改動 canonical 報告"
+            in fast
+        )
