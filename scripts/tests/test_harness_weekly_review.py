@@ -70,6 +70,14 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。mock 只放在外部邊
   - CI runs 回應形狀與 total_count、對照、workflow 活動量：HWR-DT-077、HWR-DT-078
   - cmd_collect 的 --max-rule-candidates 接線與截斷邊界（C5）：HWR-DT-079
   - SNAPSHOT_VERSION 升為 3、v2 快照被略過：HWR-ST-024；--prev auto 遇壞 JSON exit 2：HWR-ST-025
+- change add-weekly-review-rule-loads（rule 與子目錄 CLAUDE.md 的實際載入次數）：
+  - 主 checkout／worktree 路徑正規化、同前綴的別的 repo 不算：HWR-DT-080
+  - instructions 與 nested_memory 都計入、以 session 計、使用者層（含位於 repo 底下時）與
+    觀察期外不計、依 entrypoint 分母：HWR-ST-026
+  - 格式漂移對照（attachment 改名、必載 rule 缺席 → 不完整；只有 SDK session 不誤判）：HWR-DT-081
+  - rules 來源不完整、截斷行、讀不到的檔、沒有 transcript → 不完整：HWR-DT-082
+  - 報告：0 次與已不存在的檔案都列出；不完整或舊快照只寫「量不到」：HWR-DT-083
+  - cmd_collect 接線與 report 端對端：HWR-ST-027
 """
 
 from __future__ import annotations
@@ -2804,3 +2812,269 @@ class TestCollectWiring:
             for kind in hr.RULE_CANDIDATE_KINDS:
                 # 邊界：排名第 2（含）以內判定，第 3 名起不判定；差一名都會被抓到
                 assert (f"{kind}:{anchor}" in unevaluated) is (rank >= 2), (rank, kind)
+
+
+# ---------------------------------------------------------------------------
+# change add-weekly-review-rule-loads：rule 與子目錄 CLAUDE.md 的實際載入次數
+# ---------------------------------------------------------------------------
+
+LOADS_SINCE = "2026-09-01T00:00:00Z"
+
+
+def rules_section(repo: Path, always: list[str], scoped: dict[str, list[str]]) -> dict[str, Any]:
+    """collect_rules 回傳形狀的最小版本（只含 collect_rule_loads 用到的欄位）。"""
+    files = [{"file": f, "always_loaded": True, "paths": None} for f in always]
+    files += [{"file": f, "always_loaded": False, "paths": p} for f, p in scoped.items()]
+    return {"files": files, "source": complete_source()}
+
+
+def instructions_ev(
+    uid: str,
+    session: str,
+    paths: list[str],
+    *,
+    entry: str = "cli",
+    ts: str = "2026-09-29T00:00:00Z",
+) -> dict[str, Any]:
+    return {
+        "type": "attachment",
+        "uuid": uid,
+        "timestamp": ts,
+        "sessionId": session,
+        "entrypoint": entry,
+        "attachment": {
+            "type": "instructions",
+            "files": [{"path": p, "type": "Project", "content": "x"} for p in paths],
+        },
+    }
+
+
+def nested_ev(uid: str, session: str, path: str, *, entry: str = "cli") -> dict[str, Any]:
+    return {
+        "type": "attachment",
+        "uuid": uid,
+        "timestamp": "2026-09-29T00:00:01Z",
+        "sessionId": session,
+        "entrypoint": entry,
+        "attachment": {"type": "nested_memory", "path": path, "content": {"type": "Project"}},
+    }
+
+
+def plain_ev(uid: str, session: str, entry: str) -> dict[str, Any]:
+    return {
+        "type": "user",
+        "uuid": uid,
+        "timestamp": "2026-09-29T00:00:02Z",
+        "sessionId": session,
+        "entrypoint": entry,
+        "message": {"content": "hi"},
+    }
+
+
+def write_transcript(projects: Path, dirname: str, rows: list[dict[str, Any]]) -> Path:
+    d = projects / dirname
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{len(list(d.iterdir()))}.jsonl"
+    p.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    return p
+
+
+def loads_since() -> dt.datetime:
+    since = hr.parse_ts(LOADS_SINCE)
+    assert since is not None
+    return since
+
+
+class TestRuleLoads:
+    def test_hwr_dt_080_repo_relative(self, tmp_path: Path) -> None:
+        """HWR-DT-080: 主 checkout 與 worktree 的同一檔案對到同一相對路徑；同前綴的別的 repo 不算"""
+        repo = tmp_path / "demo"
+        repo.mkdir()
+        main = str(repo)
+        assert hr.repo_relative(f"{main}/.claude/rules/a.md", repo) == ".claude/rules/a.md"
+        wt = f"{main}/.claude/worktrees/feat/.claude/rules/a.md"
+        assert hr.repo_relative(wt, repo) == ".claude/rules/a.md"
+        assert hr.repo_relative(f"{main}/.claude/worktrees/feat", repo) is None
+        assert hr.repo_relative(f"{main}-other/.claude/rules/a.md", repo) is None
+        assert hr.repo_relative("/home/u/.claude/CLAUDE.md", repo) is None
+
+    def test_hwr_st_026_collect_rule_loads(self, tmp_path: Path) -> None:
+        """HWR-ST-026: 兩種 attachment 都計入、以 session 計（重複事件不重複計）、使用者層與觀察期外
+        不計，並依 entrypoint 分出沒有載入專案指令的 session"""
+        repo = tmp_path / "demo"
+        repo.mkdir()
+        projects = tmp_path / "projects"
+        slug = hr.project_slug(repo)
+        r = f"{repo}/.claude/rules"
+        w = f"{repo}/.claude/worktrees/feat"
+        # repo 就是家目錄時（dotfiles repo），使用者層指令檔也在 repo 底下，只能靠 type 排除
+        user_file = {"path": f"{repo}/.claude/CLAUDE.md", "type": "User", "content": "x"}
+        main_rows = [
+            instructions_ev("a1", "s1", [f"{r}/always.md", f"{repo}/CLAUDE.md"]),
+            # 同一 session 重載（account_change 之類），只算一次
+            instructions_ev("a2", "s1", [f"{r}/always.md"]),
+            nested_ev("a3", "s1", f"{r}/scoped.md"),
+            nested_ev("a4", "s1", f"{repo}/docs/CLAUDE.md"),
+            # 觀察期外不計
+            instructions_ev("a5", "s0", [f"{r}/always.md"], ts="2026-08-01T00:00:00Z"),
+            # SDK 啟動、沒有載入專案指令的 session
+            plain_ev("a6", "s3", "sdk-py"),
+        ]
+        main_rows[0]["attachment"]["files"].append(user_file)
+        write_transcript(projects, slug, main_rows)
+        write_transcript(
+            projects,
+            slug + "--claude-worktrees-feat",
+            [
+                instructions_ev("b1", "s2", [f"{w}/.claude/rules/always.md"]),
+                nested_ev("b2", "s2", f"{w}/.claude/rules/scoped.md"),
+                # 與主 checkout 那份重複的事件（同 uuid），不可重複計數
+                nested_ev("a3", "s1", f"{r}/scoped.md"),
+            ],
+        )
+        rules = rules_section(
+            repo, [".claude/rules/always.md"], {".claude/rules/scoped.md": ["x/**"]}
+        )
+        data, warnings = hr.collect_rule_loads(projects, repo, loads_since(), rules)
+        assert warnings == []
+        assert data["source"] == complete_source()
+        assert data["sessions"] == 3
+        assert data["sessions_with_instructions"] == 2
+        assert data["rules"] == {".claude/rules/always.md": 2, ".claude/rules/scoped.md": 2}
+        assert data["memory_files"] == {"CLAUDE.md": 1, "docs/CLAUDE.md": 1}
+        assert data["entrypoints"] == {
+            "cli": {"sessions": 2, "with_instructions": 2},
+            "sdk-py": {"sessions": 1, "with_instructions": 0},
+        }
+
+    def test_hwr_dt_081_format_drift_control(self, tmp_path: Path) -> None:
+        """HWR-DT-081: 有 cli session 但每次必載的 rule 為 0 次 → 來源不完整（格式漂移），
+        不是一張全為 0 的表；只有 SDK session 的一週不可誤判"""
+        repo = tmp_path / "demo"
+        repo.mkdir()
+        slug = hr.project_slug(repo)
+        rules = rules_section(repo, [".claude/rules/always.md"], {})
+        r = f"{repo}/.claude/rules/always.md"
+
+        healthy = tmp_path / "healthy"
+        write_transcript(healthy, slug, [instructions_ev("h1", "s1", [r])])
+        data, _ = hr.collect_rule_loads(healthy, repo, loads_since(), rules)
+        assert data["source"] == complete_source()  # 對照：格式正確時完整
+
+        renamed = tmp_path / "renamed"
+        ev = instructions_ev("m1", "s1", [r])
+        ev["attachment"]["type"] = "instructions_v2"  # 模擬 Claude Code 改了 attachment 名稱
+        write_transcript(renamed, slug, [ev])
+        data, warnings = hr.collect_rule_loads(renamed, repo, loads_since(), rules)
+        assert data["source"]["complete"] is False
+        assert any("沒有任何 instructions 事件" in e for e in data["source"]["errors"])
+        assert any("always.md 載入 0 次" in e for e in warnings)
+
+        partial = tmp_path / "partial"
+        write_transcript(partial, slug, [instructions_ev("p1", "s1", [f"{repo}/CLAUDE.md"])])
+        data, _ = hr.collect_rule_loads(partial, repo, loads_since(), rules)
+        assert data["source"]["complete"] is False
+        assert any("always.md 載入 0 次" in e for e in data["source"]["errors"])
+
+        sdk_only = tmp_path / "sdk"
+        write_transcript(sdk_only, slug, [plain_ev("q1", "s9", "sdk-py")])
+        data, warnings = hr.collect_rule_loads(sdk_only, repo, loads_since(), rules)
+        assert data["source"] == complete_source() and warnings == []
+        assert data["sessions"] == 1 and data["sessions_with_instructions"] == 0
+
+    def test_hwr_dt_082_incomplete_inputs(self, tmp_path: Path) -> None:
+        """HWR-DT-082: rules 來源不完整、截斷行、讀不到的檔、沒有 transcript → 載入次數不完整"""
+        repo = tmp_path / "demo"
+        repo.mkdir()
+        slug = hr.project_slug(repo)
+        rules = rules_section(repo, [".claude/rules/always.md"], {})
+        good = [instructions_ev("g1", "s1", [f"{repo}/.claude/rules/always.md"])]
+
+        projects = tmp_path / "p1"
+        write_transcript(projects, slug, good)
+        bad_rules = {**rules, "source": {"complete": False, "errors": ["x"]}}
+        data, _ = hr.collect_rule_loads(projects, repo, loads_since(), bad_rules)
+        assert data["source"]["complete"] is False
+
+        path = write_transcript(tmp_path / "p2", slug, good)
+        append_text(path, '{"type": "attachment", "uuid": "t')  # 被截斷的最後一行
+        data, _ = hr.collect_rule_loads(tmp_path / "p2", repo, loads_since(), rules)
+        assert data["source"]["complete"] is False
+        assert data["rules"] == {".claude/rules/always.md": 1}  # 截斷前的資料仍保留
+
+        path = write_transcript(tmp_path / "p3", slug, good)
+        write_transcript(tmp_path / "p3", slug, good)
+        with unreadable(path):
+            data, _ = hr.collect_rule_loads(tmp_path / "p3", repo, loads_since(), rules)
+        assert data["source"]["complete"] is False
+
+        data, warnings = hr.collect_rule_loads(tmp_path / "none", repo, loads_since(), rules)
+        assert data["source"]["complete"] is False
+        assert warnings == []  # collect_transcript_blocks 已對「找不到 transcript」發過 warning
+
+    def test_hwr_dt_083_render_rule_loads(self, tmp_path: Path) -> None:
+        """HWR-DT-083: 完整時列出 0 次與已不存在的檔案；不完整或舊快照只寫「量不到」、不印表"""
+        snap: dict[str, Any] = {
+            "rules": {
+                "files": [
+                    {"file": ".claude/rules/a.md", "always_loaded": True, "paths": None},
+                    {"file": ".claude/rules/b.md", "always_loaded": False, "paths": ["x/**"]},
+                ]
+            },
+            "rule_loads": {
+                "sessions": 5,
+                "sessions_with_instructions": 4,
+                "entrypoints": {"cli": {"sessions": 4, "with_instructions": 4}},
+                "rules": {".claude/rules/a.md": 4, ".claude/rules/gone.md": 1},
+                "memory_files": {"docs/CLAUDE.md": 2},
+                "source": complete_source(),
+            },
+        }
+        text = "\n".join(hr.render_rule_loads(snap))
+        assert "| `.claude/rules/a.md` | 每次必載 | 4 | 100% |" in text
+        assert "| `.claude/rules/b.md` | `x/**` | 0 | 0% |" in text
+        assert "| `.claude/rules/gone.md` | （檔案已不存在） | 1 | 25% |" in text
+        assert "| `docs/CLAUDE.md` | 2 |" in text
+        assert "cli 4/4" in text
+
+        snap["rule_loads"]["source"] = {"complete": False, "errors": ["x"]}
+        text = "\n".join(hr.render_rule_loads(snap))
+        assert "量不到" in text and "| rule |" not in text
+
+        del snap["rule_loads"]  # 這個 change 之前的舊快照
+        assert "量不到" in "\n".join(hr.render_rule_loads(snap))
+
+    def test_hwr_st_027_collect_wires_rule_loads(self, tmp_path: Path) -> None:
+        """HWR-ST-027: cmd_collect 把 rule_loads 寫進快照，report 印出載入次數表"""
+        repo = tmp_path / "demo"
+        git_init(repo)
+        rules = repo / ".claude" / "rules"
+        rules.mkdir(parents=True)
+        (rules / "always.md").write_text("# a\n")
+        (rules / "scoped.md").write_text('---\npaths:\n  - "x/**"\n---\n# s\n')
+        git_commit_all(repo)
+        write_transcript(
+            tmp_path / "projects",
+            hr.project_slug(repo),
+            [instructions_ev("c1", "s1", [f"{repo.resolve()}/.claude/rules/always.md"])],
+        )
+        assert hr.main(collect_args(repo, tmp_path, "--no-ci")) in (0, 3)
+        snap = load(tmp_path / "out" / "snap.json")
+        assert snap["rule_loads"]["source"] == complete_source()
+        assert snap["rule_loads"]["rules"] == {".claude/rules/always.md": 1}
+        report = tmp_path / "out" / "report.md"
+        rc = hr.main(
+            [
+                "report",
+                "--snapshot",
+                str(tmp_path / "out" / "snap.json"),
+                "--out",
+                str(report),
+                "--lessons-out",
+                str(tmp_path / "out" / "lessons.jsonl"),
+            ]
+        )
+        assert rc == 0
+        text = report.read_text()
+        assert "## rule 載入次數" in text
+        assert "| `.claude/rules/scoped.md` | `x/**` | 0 | 0% |" in text

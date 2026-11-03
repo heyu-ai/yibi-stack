@@ -197,6 +197,17 @@ plugin hook 的 silent-block（repo 的註冊清單看不到它，也沒有它�
 沒有經過 report」是上週的快照沒有 `carried` 與累計週數（stdout 的 `prev_collect_only` 為 true），持續中的
 建議週數無從接續，從第 1 週重算。快照版本升級（目前是 3）後的第一週也一樣：舊版快照會被略過，沒有可比較的上週。
 
+**怎麼讀「rule 載入次數」表**：報告最後一節列出每個 rule 檔與子目錄 `CLAUDE.md` 在觀察期內被載入的 session 數，
+資料來自 transcript 的 `instructions`（session 開始時載入）與 `nested_memory`（讀到某路徑時才載入）兩種事件。
+這張表只回答「有沒有進 context」，**不回答載入後有沒有照做**。
+
+- 分母是「有載入專案指令的 session」。Python Agent SDK 啟動的 session（`entrypoint` 為 `sdk-py`）可以完全不載入專案
+  指令，表頭會依 entrypoint 列出各有幾個 session 載入了專案指令；這群 session 裡任何 rule 都不在 context。
+- 每次必載的 rule 應接近 100%。path-scoped rule 為 0 次，可能是期間沒人碰那些路徑，也可能是 `paths:` 寫錯
+  （例如 `.claude/worktrees/**` 這類 glob 在 worktree session 內永遠對不上），連續多週 0 次才值得打開原文檢查。
+- 表上顯示「量不到」而不是一張表時，代表載入紀錄不可信（transcript 讀取失敗、或有互動式 CLI session 卻看不到
+  每次必載的 rule——後者通常是 Claude Code 改了 transcript 格式）。原因列在報告開頭的「量測不完整」。
+
 ### Step 4 — LLM 判讀（腳本只量測，語意判斷在這裡）
 
 腳本的 rule 候選只是啟發式排序（祈使句數 × min(反引號字面值數, 10)，以及段落是否點名既有 hook／gate），

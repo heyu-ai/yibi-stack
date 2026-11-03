@@ -15,6 +15,8 @@
   - ~/.claude/projects/<slug> 與 <slug>--claude-worktrees-*/ 底下的 **/*.jsonl：
     Claude Code transcript（含 plugin hook 阻擋，保留約 30 天；slug 取主 repo 路徑）
   - <repo>/.claude/rules/*.md、CLAUDE.md：每次必載的 context 成本
+  - 同一批 transcript 的 instructions／nested_memory 事件：每個 rule 檔與子目錄 CLAUDE.md
+    實際被載入的 session 數（collect_rule_loads；只回答有沒有載入，不回答有沒有照做）
   - <repo>/.github/workflows/*.yml 與 gh api：CI failed run 與 failed job／step（可用 --no-ci 略過）
 
 Exit code（collect）：
@@ -668,6 +670,152 @@ def collect_transcript_blocks(
         "hooks": per_hook,
         "source": make_source(errors),
     }, errors + warnings
+
+
+# ---------------------------------------------------------------------------
+# collect：rule 與子目錄 CLAUDE.md 的實際載入次數（transcript）
+# ---------------------------------------------------------------------------
+
+
+RULE_REL = re.compile(r"\.claude/rules/[^/]+\.md")
+MEMORY_REL = re.compile(r"(?:.+/)?(?:CLAUDE|AGENTS)\.md")
+
+
+def repo_relative(path: str, main_repo: Path) -> str | None:
+    """把 transcript 記錄的絕對路徑換成相對 repo 根目錄的路徑；不屬於本 repo 回 None。
+
+    主 checkout 與 `<main>/.claude/worktrees/<name>/` 底下的同一個檔案對應到同一個相對路徑，
+    週報才不會把同一條 rule 依 worktree 拆成很多列。
+    """
+    for root in dict.fromkeys((str(main_repo), str(main_repo.resolve()))):
+        prefix = root.rstrip("/") + "/"
+        if not path.startswith(prefix):
+            continue
+        rel = path[len(prefix) :]
+        wt = ".claude/worktrees/"
+        if rel.startswith(wt):
+            _name, sep, rest = rel[len(wt) :].partition("/")
+            return rest if sep and rest else None
+        return rel
+    return None
+
+
+def collect_rule_loads(
+    projects_dir: Path, main_repo: Path, since: dt.datetime, rules: dict[str, Any]
+) -> tuple[dict[str, Any], list[str]]:
+    """從 transcript 數每個 rule 檔與子目錄 CLAUDE.md 在觀察期內被載入的 session 數。
+
+    資料來源是 Claude Code 寫進 transcript 的兩種 attachment：
+    - `instructions`：session 開始（或設定重載）時載入的指令檔，`files[].path`；
+      沒有 `paths:` 或 `paths: "**"` 的 rule 走這裡
+    - `nested_memory`：讀到某個路徑時才載入的 path-scoped rule 與子目錄 CLAUDE.md，`path`
+
+    計數單位是 sessionId：同一個 session 重載多次只算一次。使用者層的指令檔
+    （`instructions.files[].type == "User"`）與不在本 repo 底下的路徑不計；前者要靠 type 判斷，
+    因為 repo 就是家目錄時（例如 dotfiles repo），`~/.claude/CLAUDE.md` 也在 repo 底下。
+
+    分母要分開記：不是每個 session 都會載入專案指令。實測（yibi-mvp，2026-10-20 起兩週）
+    `entrypoint == "cli"` 的 25 個 session 全部有 `instructions`，`sdk-py` 的 91 個一個都沒有。
+    所以佔比的分母用「觀察期內有 `instructions` 事件的 session 數」，並依 entrypoint 列出
+    「session 數／有載入專案指令的 session 數」，讓沒載入任何 rule 的 session 群看得見。
+
+    正向對照：觀察期內有 session，但 collect_rules 判定為每次必載的 rule 有任一條是 0 次，
+    代表 attachment 格式變了或解析壞了，不是那條 rule 真的沒載入——記成錯誤、來源不完整，
+    報告顯示「量不到」而不是一張全是 0 的表。rules 來源本身不完整時同樣不完整。
+    """
+    errors: list[str] = []
+    file_errors: list[str] = []
+    files = transcript_files(projects_dir, main_repo, errors)
+    sessions: set[str] = set()
+    instr_sessions: set[str] = set()
+    entrypoints: dict[str, set[str]] = {}
+    rule_sessions: dict[str, set[str]] = {}
+    memory_sessions: dict[str, set[str]] = {}
+    bad_lines = 0
+
+    def record(path: Any, session: str) -> None:
+        if not isinstance(path, str):
+            return
+        rel = repo_relative(path, main_repo)
+        if rel is None:
+            return
+        if RULE_REL.fullmatch(rel):
+            rule_sessions.setdefault(rel, set()).add(session)
+        elif MEMORY_REL.fullmatch(rel):
+            memory_sessions.setdefault(rel, set()).add(session)
+
+    for f in files:
+        for line in _read_lines(Path(f), file_errors, "rule 載入"):
+            if not line.strip():
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                bad_lines += 1
+                continue
+            if not isinstance(ev, dict):
+                bad_lines += 1
+                continue
+            ts = parse_ts(ev.get("timestamp"))
+            if ts is None or ts < since:
+                continue
+            # 不需要像 collect_transcript_blocks 那樣依 uuid 去重：這裡只往 session 集合裡加，
+            # 同一事件出現兩次不會改變任何計數
+            session = ev.get("sessionId") or "?"
+            sessions.add(session)
+            if isinstance(ev.get("entrypoint"), str):
+                entrypoints.setdefault(session, set()).add(ev["entrypoint"])
+            if ev.get("type") != "attachment":
+                continue
+            att = ev.get("attachment") or {}
+            if not isinstance(att, dict):
+                continue
+            if att.get("type") == "instructions":
+                instr_sessions.add(session)
+                for item in att.get("files") or []:
+                    if isinstance(item, dict) and item.get("type") != "User":
+                        record(item.get("path"), session)
+            elif att.get("type") == "nested_memory":
+                record(att.get("path"), session)
+    errors += file_errors
+    if bad_lines:
+        errors.append(f"rule 載入：略過 {bad_lines} 行格式錯誤（可能被截斷）的紀錄")
+    if not files:
+        errors.append("rule 載入：找不到 transcript，載入次數本週未量測")
+    # 對照的前提是「互動式 CLI session 一定會載入專案指令」；SDK 啟動的 session 可以不載入
+    # （見 docstring 的實測），不能拿來當前提，否則整週都是 SDK session 時會誤判格式改變
+    cli_sessions = {s for s in sessions if "cli" in entrypoints.get(s, ())}
+    if not source_ok(rules):
+        errors.append("rule 載入：rules 來源不完整，無法判斷哪些 rule 每次必載，本週未量測")
+    elif cli_sessions:
+        if not instr_sessions:
+            errors.append(
+                f"rule 載入：觀察期內有 {len(cli_sessions)} 個 cli session，但沒有任何 "
+                "instructions 事件；transcript 格式可能已改變，本週未量測"
+            )
+        always = [x["file"] for x in rules.get("files", []) if x.get("always_loaded")]
+        missing = sorted(r for r in always if r not in rule_sessions)
+        if missing:
+            errors.append(
+                f"rule 載入：觀察期內有 {len(cli_sessions)} 個 cli session，但每次必載的 "
+                f"{', '.join(missing)} 載入 0 次；transcript 格式可能已改變，本週未量測"
+            )
+    by_entry: dict[str, dict[str, int]] = {}
+    for s in sessions:
+        key = ",".join(sorted(entrypoints.get(s, ()))) or "(unknown)"
+        row = by_entry.setdefault(key, {"sessions": 0, "with_instructions": 0})
+        row["sessions"] += 1
+        row["with_instructions"] += s in instr_sessions
+    data = {
+        "sessions": len(sessions),
+        "sessions_with_instructions": len(instr_sessions),
+        "entrypoints": dict(sorted(by_entry.items())),
+        "rules": {k: len(v) for k, v in sorted(rule_sessions.items())},
+        "memory_files": {k: len(v) for k, v in sorted(memory_sessions.items())},
+        "source": make_source(errors),
+    }
+    # 找不到 transcript 時 collect_transcript_blocks 已發過 warning，這裡不重複
+    return data, [e for e in errors if "找不到 transcript" not in e]
 
 
 # ---------------------------------------------------------------------------
@@ -1897,7 +2045,63 @@ def render_report(snap: dict[str, Any], delta: dict[str, Any]) -> str:
             f"| {name} | {s['calls']} | {s['block']} | {s['warn']} | {s['error']} | "
             f"{s['p95_ms']} | {s['total_ms']} |"
         )
+    lines += render_rule_loads(snap)
     return "\n".join(lines) + "\n"
+
+
+def render_rule_loads(snap: dict[str, Any]) -> list[str]:
+    """rule 與子目錄 CLAUDE.md 的載入次數表。
+
+    只回答「有沒有載入」，不回答「載入後有沒有照做」。來源不完整（含舊快照沒有這一節）時
+    只寫「量不到」，不印一張全是 0 的表——0 次與量不到在這張表上必須分得開。
+    """
+    loads = snap.get("rule_loads")
+    lines = ["", "## rule 載入次數（本期，以 session 計）", ""]
+    if not source_ok(loads):
+        lines.append("- 量不到：本快照沒有可信的載入紀錄（原因見上方「量測不完整」）")
+        return lines
+    total = loads.get("sessions_with_instructions", 0)
+    lines.append(
+        f"- 觀察期內 {loads.get('sessions', 0)} 個 session，其中 {total} 個有載入專案指令；"
+        "佔比以後者為分母"
+    )
+    entries = loads.get("entrypoints") or {}
+    if entries:
+        parts = [f"{k} {v['with_instructions']}/{v['sessions']}" for k, v in entries.items()]
+        lines.append(
+            f"- 依 entrypoint（有載入專案指令／session 數）：{'；'.join(parts)}。"
+            "沒有載入專案指令的 session 裡，下表任何 rule 都不在 context"
+        )
+    lines.append(
+        "- 0 次的 path-scoped rule 可能是期間沒人碰那些路徑，也可能是 `paths:` 寫錯；"
+        "連續多週 0 次才值得檢查"
+    )
+    lines += ["", "| rule | 載入範圍 | session 數 | 佔比 |", "|---|---|---:|---:|"]
+    counts: dict[str, int] = dict(loads.get("rules") or {})
+    on_disk = {f["file"]: f for f in (snap.get("rules") or {}).get("files", [])}
+    rows = []
+    for rel in sorted(set(on_disk) | set(counts)):
+        info = on_disk.get(rel)
+        if info is None:
+            scope = "（檔案已不存在）"
+        elif info.get("always_loaded"):
+            scope = "每次必載"
+        else:
+            pats = info.get("paths") or []
+            scope = ", ".join(f"`{p}`" for p in pats[:3])
+            if len(pats) > 3:
+                scope += f" 等 {len(pats)} 個"
+        n = counts.get(rel, 0)
+        rows.append((-n, rel, scope, n))
+    for _neg, rel, scope, n in sorted(rows):
+        pct = f"{n * 100 // total}%" if total else "-"
+        lines.append(f"| `{rel}` | {scope.replace('|', '/')} | {n} | {pct} |")
+    memory = loads.get("memory_files") or {}
+    if memory:
+        lines += ["", "| 子目錄指令檔 | session 數 |", "|---|---:|"]
+        for rel, n in sorted(memory.items(), key=lambda x: (-x[1], x[0])):
+            lines.append(f"| `{rel}` | {n} |")
+    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -1950,6 +2154,10 @@ def cmd_collect(args: argparse.Namespace) -> int:
     guard_names = set(inventory["on_disk"]) | {g["script"] for g in gate_inv["gates"]}
     rules, w = collect_rules(repo, guard_names)
     warnings += w
+    rule_loads, w = collect_rule_loads(
+        Path(args.projects_dir).expanduser(), main_repo, since, rules
+    )
+    warnings += w
     if args.no_ci:
         failures: dict[str, Any] = unmeasured_ci("CI：依 --no-ci 略過，CI 未量測")
         notes.append("CI：依 --no-ci 略過，CI 未量測；gate-silent／gate-noisy 本週不判定")
@@ -1977,6 +2185,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
         "notes": notes,
         "hooks": {"inventory": inventory, "events": events, "transcript": transcript},
         "rules": rules,
+        "rule_loads": rule_loads,
         "ci": {"inventory": gate_inv, "failures": failures, "measured": ci_measured},
     }
     ev_hooks = events["hooks"].values()
