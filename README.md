@@ -73,8 +73,9 @@ scripts/          CI and lint tooling
 **Plugins** (`plugins/harness`, `plugins/sdd`, `plugins/growth`, `plugins/dev-cycle`, `plugins/3rd-tools`, `plugins/methodology`)
 are proper Claude Code plugins with `package.json` manifests. They install hooks, rules, and bundled skills. Installable via `claude plugin install` without cloning.
 
-**Skills** (`skills/*/SKILL.md`) are runbook files — not plugins. They're installed as symlinks into `~/.claude/skills/` via `make install`.
-They tell Claude *how* to approach a workflow; no hooks are involved. Skills are **not** individually installable via `claude plugin install`.
+**Skills** (`skills/*/SKILL.md`) are runbook files — not plugins. They're installed as symlinks into `~/.claude/skills/` via `make install`,
+except skills that a plugin already provides (`skills/<name>` is a symlink into `plugins/`): those load through the plugin, so `make install` does not link them a second time.
+They tell Claude *how* to approach a workflow; no hooks are involved. A skill is not installable on its own via `claude plugin install`; it ships either through `make install` or inside its plugin pack.
 
 ### Install
 
@@ -229,7 +230,9 @@ scripts/          CI 與 lint 工具腳本
 **Plugin**（`plugins/harness`、`plugins/sdd`、`plugins/growth`、`plugins/dev-cycle`、`plugins/3rd-tools`、`plugins/methodology`）
 是有 `package.json` manifest 的正式 Claude Code plugin，會安裝 hook、rules 和隨附 skill，不需 clone 即可用 `claude plugin install` 安裝。
 
-**Skill**（`skills/*/SKILL.md`）是 runbook 檔案，不是 plugin。透過 `make install` 以 symlink 安裝到 `~/.claude/skills/`，告訴 Claude 如何執行特定工作流程。**Skills 無法透過 `claude plugin install` 個別安裝。**
+**Skill**（`skills/*/SKILL.md`）是 runbook 檔案，不是 plugin。透過 `make install` 以 symlink 安裝到 `~/.claude/skills/`，告訴 Claude 如何執行特定工作流程。
+已由 plugin 提供的 skill（`skills/<name>` 是指向 `plugins/` 的 symlink）改由 plugin 載入，`make install` 不會重複連結。
+**單一 skill 無法獨立透過 `claude plugin install` 安裝；它隨 `make install` 或所屬 plugin pack 一起提供。**
 
 ### 安裝
 

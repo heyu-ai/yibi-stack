@@ -85,7 +85,7 @@ install-agent-wrappers: ## Install shared DB CLI wrappers into ~/.agents/bin
 # guard 必須是 recipe 的第一行（字面上，不是「第一個可執行動作」）：後面的步驟會把
 # $(CURDIR) 寫進全域 symlink，失敗得太晚就已經污染 ~/.claude/skills/ 與 ~/.agents/。
 # 說明寫在 target 宣告之上而非 recipe 內，好讓「第一行就是 guard」無須任何但書。
-install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/ + commands（跨專案可用）
+install: ## Install scope=global skills to ~/.claude/skills/（plugin 已提供者略過）+ ~/.agents/skills/ + commands（跨專案可用）
 	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" "make install"
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
