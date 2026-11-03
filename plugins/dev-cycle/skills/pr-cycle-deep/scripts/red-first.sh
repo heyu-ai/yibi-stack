@@ -181,6 +181,46 @@ if [ -z "$OUT_DIR" ]; then
     fi
 fi
 
+if [ -n "${CLAUDE_JOB_DIR:-}" ]; then
+    if [ ! -d "${CLAUDE_JOB_DIR}" ]; then
+        fail 2 "CLAUDE_JOB_DIR 目錄不存在：${CLAUDE_JOB_DIR}"
+    fi
+    JOB_CANONICAL=$(cd "$CLAUDE_JOB_DIR" 2>/dev/null && pwd -P) || fail 2 "無法解析 CLAUDE_JOB_DIR"
+    mkdir -p "$CLAUDE_JOB_DIR/tmp" 2>/dev/null || fail 2 "無法建立 CLAUDE_JOB_DIR/tmp"
+    TMP_CANONICAL=$(cd "$CLAUDE_JOB_DIR/tmp" 2>/dev/null && pwd -P) || fail 2 "無法解析 CLAUDE_JOB_DIR/tmp"
+    case "$TMP_CANONICAL" in
+        "$JOB_CANONICAL"/tmp|"$JOB_CANONICAL"/tmp/*) ;;
+        *) fail 2 "CLAUDE_JOB_DIR/tmp 經 symlink 逃離 job 目錄" ;;
+    esac
+
+    # 先驗證路徑安全，再實際建立目錄；禁止在 job 根目錄或非 tmp/ 目錄建立任何檔案
+    if [ -d "$OUT_DIR" ]; then
+        OUT_CANONICAL=$(cd "$OUT_DIR" 2>/dev/null && pwd -P) || fail 2 "無法解析 --out-dir"
+        case "$OUT_CANONICAL" in
+            "$TMP_CANONICAL"|"$TMP_CANONICAL"/*) ;;
+            *) fail 2 "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下：${OUT_DIR}" ;;
+        esac
+    else
+        PARENT_DIR=$(dirname "$OUT_DIR")
+        PARENT_CANONICAL=$(cd "$PARENT_DIR" 2>/dev/null && pwd -P) || true
+        case "${PARENT_CANONICAL:-}" in
+            "$TMP_CANONICAL"|"$TMP_CANONICAL"/*) ;;
+            *) fail 2 "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下：${OUT_DIR}" ;;
+        esac
+        mkdir -p "$OUT_DIR" 2>/dev/null || fail 2 "無法建立 --out-dir：${OUT_DIR}"
+        OUT_CANONICAL=$(cd "$OUT_DIR" 2>/dev/null && pwd -P) || fail 2 "無法解析 --out-dir"
+        case "$OUT_CANONICAL" in
+            "$TMP_CANONICAL"|"$TMP_CANONICAL"/*) ;;
+            *)
+                rmdir "$OUT_DIR" 2>/dev/null || true
+                fail 2 "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下：${OUT_DIR}"
+                ;;
+        esac
+    fi
+else
+    mkdir -p "$OUT_DIR" 2>/dev/null || fail 2 "無法建立 --out-dir：${OUT_DIR}"
+fi
+
 REPORT_ROOT=$(git -C "$REPO_ROOT" rev-parse --show-toplevel)
 REPORT_DIR="$REPORT_ROOT/.pr-review"
 REPORT_PATH="$REPORT_DIR/red-first.md"
@@ -215,19 +255,6 @@ case "$EXCLUDE_RC" in
     1) printf '\n.pr-review/\n' >> "$EXCLUDE" ;;
     *) fail 2 "無法讀取 Git exclude" ;;
 esac
-mkdir -p "$OUT_DIR"
-if [ -n "${CLAUDE_JOB_DIR:-}" ] && [ -d "${CLAUDE_JOB_DIR}" ]; then
-    JOB_CANONICAL=$(cd "$CLAUDE_JOB_DIR" 2>/dev/null && pwd -P)
-    OUT_CANONICAL=$(cd "$OUT_DIR" 2>/dev/null && pwd -P)
-    case "$OUT_CANONICAL" in
-        "$JOB_CANONICAL"/tmp|"$JOB_CANONICAL"/tmp/*)
-            # 安全：在 CLAUDE_JOB_DIR/tmp 底下
-            ;;
-        "$JOB_CANONICAL"|"$JOB_CANONICAL"/*)
-            fail 2 "--out-dir 不能直接在 CLAUDE_JOB_DIR 根目錄或非 tmp/ 目錄，必須在 tmp/ 子目錄底下：${OUT_DIR}"
-            ;;
-    esac
-fi
 # 先清空：有 checker 時 red-first.out 要到所有 exit 2 檢查之後才寫，之前結束的話，同一個
 # out-dir 裡上一輪的判定（例如 PASS）會被呼叫端當成這一輪的結果。失敗走 ERR trap
 : >| "$OUT_DIR/red-first.out"

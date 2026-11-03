@@ -1031,8 +1031,9 @@ class TestScratchDirectorySafety:
             env=env,
         )
         assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
-        assert "CLAUDE_JOB_DIR 根目錄" in proc.stderr
+        assert "--out-dir 必須在 CLAUDE_JOB_DIR/tmp 底下" in proc.stderr
         assert not (job_dir / "red-first.out").exists()
+        assert not (repo / ".pr-review" / "red-first.md").exists()
 
     def test_rfs_st_038_out_dir_under_claude_job_dir_tmp_is_accepted(self, tmp_path: Path) -> None:
         """CLAUDE_JOB_DIR/tmp 底下的目錄是安全的 scratch，正常執行並建立產物。"""
@@ -1104,6 +1105,116 @@ class TestScratchDirectorySafety:
         assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
         assert (repo / ".pr-review" / "red-first.md").exists()
         assert not (job_dir / "red-first.out").exists()
+        tmp_children = list((job_dir / "tmp").glob("red-first-*"))
+        assert len(tmp_children) >= 1
+        assert (tmp_children[0] / "red-first.out").exists()
+
+    def test_rfs_st_043_out_dir_at_non_tmp_subdirectory_is_rejected(self, tmp_path: Path) -> None:
+        """CLAUDE_JOB_DIR 底下非 tmp/ 子目錄禁止作為 --out-dir，不得建立該目錄。"""
+        repo = _setup(tmp_path)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        forbidden = job_dir / "forbidden"
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+            "CLAUDE_JOB_DIR": str(job_dir),
+        }
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+                "--out-dir",
+                str(forbidden),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert "CLAUDE_JOB_DIR/tmp 底下" in proc.stderr
+        assert not forbidden.exists()
+        assert not (repo / ".pr-review" / "red-first.md").exists()
+
+    def test_rfs_st_044_out_dir_outside_claude_job_dir_is_rejected(self, tmp_path: Path) -> None:
+        """CLAUDE_JOB_DIR 設定時，指向外部的 --out-dir 必須被拒絕，且不得建立該目錄。"""
+        repo = _setup(tmp_path)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        outside = tmp_path / "outside"
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+            "CLAUDE_JOB_DIR": str(job_dir),
+        }
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+                "--out-dir",
+                str(outside),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_ERROR, proc.stdout + proc.stderr
+        assert "CLAUDE_JOB_DIR/tmp 底下" in proc.stderr
+        assert not outside.exists()
+        assert not (repo / ".pr-review" / "red-first.md").exists()
+
+    def test_rfs_st_045_omitted_out_dir_without_claude_job_dir(self, tmp_path: Path) -> None:
+        """CLAUDE_JOB_DIR 未設定且省略 --out-dir 時，正常在系統 temp 執行並發布報告。"""
+        repo = _setup(tmp_path)
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_GH_TITLE": "feat: add thing",
+            "FAKE_ARGV_OUT": str(tmp_path / "argv.txt"),
+        }
+        env.pop("CLAUDE_JOB_DIR", None)
+        env.pop("GIT_DIR", None)
+        env.pop("GIT_WORK_TREE", None)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RED_FIRST),
+                "--pr",
+                "7",
+                "--repo-root",
+                str(repo),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == EXIT_CONTINUE, proc.stdout + proc.stderr
+        assert (repo / ".pr-review" / "red-first.md").exists()
 
 
 class TestRunbookContractPreservation:
