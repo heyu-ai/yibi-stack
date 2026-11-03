@@ -1,3 +1,7 @@
+---
+type: feat
+---
+
 # Proposal：add-weekly-review-rule-loads
 
 > 版本：v0.1 | 日期：2026-11-03 | 狀態：已實作，待 review

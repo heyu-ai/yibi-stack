@@ -2887,7 +2887,10 @@ def loads_since() -> dt.datetime:
 
 class TestRuleLoads:
     def test_hwr_dt_080_repo_relative(self, tmp_path: Path) -> None:
-        """HWR-DT-080: 主 checkout 與 worktree 的同一檔案對到同一相對路徑；同前綴的別的 repo 不算"""
+        """HWR-DT-080: 主 checkout 與 worktree 的同一檔案對到同一相對路徑；同前綴的別的 repo 不算
+        spec: weekly-review-rule-loads#worktree-and-main-count-as-one-file
+        tc: HWR-DT-080
+        """
         repo = tmp_path / "demo"
         repo.mkdir()
         main = str(repo)
@@ -2900,7 +2903,13 @@ class TestRuleLoads:
 
     def test_hwr_st_026_collect_rule_loads(self, tmp_path: Path) -> None:
         """HWR-ST-026: 兩種 attachment 都計入、以 session 計（重複事件不重複計）、使用者層與觀察期外
-        不計，並依 entrypoint 分出沒有載入專案指令的 session"""
+        不計，並依 entrypoint 分出沒有載入專案指令的 session
+        spec: weekly-review-rule-loads#worktree-and-main-count-as-one-file
+        spec: weekly-review-rule-loads#repeated-load-in-one-session
+        spec: weekly-review-rule-loads#user-level-file-inside-repo
+        spec: weekly-review-rule-loads#sdk-session-without-instructions
+        tc: HWR-ST-026
+        """
         repo = tmp_path / "demo"
         repo.mkdir()
         projects = tmp_path / "projects"
@@ -2949,7 +2958,11 @@ class TestRuleLoads:
 
     def test_hwr_dt_081_format_drift_control(self, tmp_path: Path) -> None:
         """HWR-DT-081: 有 cli session 但每次必載的 rule 為 0 次 → 來源不完整（格式漂移），
-        不是一張全為 0 的表；只有 SDK session 的一週不可誤判"""
+        不是一張全為 0 的表；只有 SDK session 的一週不可誤判
+        spec: weekly-review-rule-loads#renamed-instructions-attachment
+        spec: weekly-review-rule-loads#sdk-only-window
+        tc: HWR-DT-081
+        """
         repo = tmp_path / "demo"
         repo.mkdir()
         slug = hr.project_slug(repo)
@@ -2983,7 +2996,10 @@ class TestRuleLoads:
         assert data["sessions"] == 1 and data["sessions_with_instructions"] == 0
 
     def test_hwr_dt_082_incomplete_inputs(self, tmp_path: Path) -> None:
-        """HWR-DT-082: rules 來源不完整、截斷行、讀不到的檔、沒有 transcript → 載入次數不完整"""
+        """HWR-DT-082: rules 來源不完整、截斷行、讀不到的檔、沒有 transcript → 載入次數不完整
+        spec: weekly-review-rule-loads#unreadable-or-truncated-transcript
+        tc: HWR-DT-082
+        """
         repo = tmp_path / "demo"
         repo.mkdir()
         slug = hr.project_slug(repo)
@@ -3013,7 +3029,12 @@ class TestRuleLoads:
         assert warnings == []  # collect_transcript_blocks 已對「找不到 transcript」發過 warning
 
     def test_hwr_dt_083_render_rule_loads(self, tmp_path: Path) -> None:
-        """HWR-DT-083: 完整時列出 0 次與已不存在的檔案；不完整或舊快照只寫「量不到」、不印表"""
+        """HWR-DT-083: 完整時列出 0 次與已不存在的檔案；不完整或舊快照只寫「量不到」、不印表
+        spec: weekly-review-rule-loads#zero-load-rule-is-listed
+        spec: weekly-review-rule-loads#incomplete-source-hides-table
+        spec: weekly-review-rule-loads#snapshot-before-this-change
+        tc: HWR-DT-083
+        """
         snap: dict[str, Any] = {
             "rules": {
                 "files": [
@@ -3045,7 +3066,10 @@ class TestRuleLoads:
         assert "量不到" in "\n".join(hr.render_rule_loads(snap))
 
     def test_hwr_st_027_collect_wires_rule_loads(self, tmp_path: Path) -> None:
-        """HWR-ST-027: cmd_collect 把 rule_loads 寫進快照，report 印出載入次數表"""
+        """HWR-ST-027: cmd_collect 把 rule_loads 寫進快照，report 印出載入次數表
+        spec: weekly-review-rule-loads#zero-load-rule-is-listed
+        tc: HWR-ST-027
+        """
         repo = tmp_path / "demo"
         git_init(repo)
         rules = repo / ".claude" / "rules"

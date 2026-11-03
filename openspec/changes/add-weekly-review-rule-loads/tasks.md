@@ -23,3 +23,6 @@
 ## 4. 文件
 
 - [x] 4.1 SKILL.md 新增「怎麼讀 rule 載入次數表」，腳本 docstring 補資料來源
+- [x] 4.2 補寫 testplan.md（`trace: enforced`）與 proposal 的 `type: feat`，6 個測試以 `spec:`／`tc:` 綁定；
+  spec 補上 unreadable-or-truncated-transcript 與 zero-load-rule-is-listed 兩個 scenario；驗證：
+  `check_testplan_trace.py --strict --report --change add-weekly-review-rule-loads` 6 個 TC 皆為 bound

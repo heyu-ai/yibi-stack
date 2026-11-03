@@ -46,9 +46,19 @@ The rule-load source record SHALL be incomplete when any transcript file cannot 
 - **WHEN** every session in the window has entrypoint `sdk-py` and none loads project instructions
 - **THEN** the rule-load source record has `complete` true
 
+#### Scenario: unreadable-or-truncated-transcript
+
+- **WHEN** a transcript file cannot be read, or a transcript line is not valid JSON
+- **THEN** the rule-load source record has `complete` false
+
 ### Requirement: The report distinguishes zero loads from unmeasured
 
 The report SHALL list every rule file on disk, including files with zero sessions, and every loaded rule file that no longer exists on disk. When the rule-load source record is incomplete or absent, the report SHALL state that rule loads are unmeasured and SHALL NOT print the rule-load table.
+
+#### Scenario: zero-load-rule-is-listed
+
+- **WHEN** a rule file exists on disk and no session in the window loaded it
+- **THEN** the report lists that rule file with 0 sessions
 
 #### Scenario: incomplete-source-hides-table
 
