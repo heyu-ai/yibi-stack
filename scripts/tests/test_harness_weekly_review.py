@@ -73,26 +73,30 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。mock 只放在外部邊
 - change add-weekly-review-rule-loads（rule 與指令檔 CLAUDE.md／AGENTS.md 的實際載入次數）：
   - 主 checkout／worktree 路徑正規化、同前綴的別的 repo 不算：HWR-DT-080
   - instructions 與 nested_memory 都計入、以 session 計、使用者層（含位於 repo 底下時）與
-    觀察期外不計、AGENTS.md 計入、依 entrypoint 分母：HWR-ST-026
-  - 格式漂移對照（attachment 改名、必載 rule 一條都沒有 → 不完整；只有 SDK session 不誤判）：HWR-DT-081
-  - rules 來源不完整、截斷行、非物件的行、目錄列不出來（不重複發 warning）、讀不到的檔、
-    沒有 transcript → 不完整：HWR-DT-082
-  - 報告：0 次與不在清單的檔案都列出、依 session 數排序、表頭總數；不完整與舊快照的「量不到」
-    各自說明原因：HWR-DT-083
+    觀察期外不計、AGENTS.md 計入、依 entrypoint 分母、原始計數去重：HWR-ST-026
+  - 不以載入次數推論格式漂移（attachment 改名、instructions 沒有 rules 路徑、只有 SDK session
+    都是來源完整），instructions 事件為 0 時報告加「注意」一行：HWR-DT-081
+  - rules 來源不完整、截斷行、非物件的行、目錄列不出來、讀不到的檔、沒有 transcript → 不完整，
+    且每個原因都回傳成 warning：HWR-DT-082
+  - 報告：表頭的原始計數與固定註明、0 次與不在清單的檔案都列出、依 session 數排序；不完整時
+    直接列出原因、舊快照寫明產生於此功能之前：HWR-DT-083
   - cmd_collect 接線與 report 端對端：HWR-ST-027；從 git worktree 執行時讀主 repo 的 transcript：HWR-ST-028
-  - PR #628 review：跨越觀察期起點的 session：HWR-DT-084；新增的必載 rule：HWR-DT-085；
+  - PR #628 review：跨越觀察期起點的 session：HWR-DT-084；新增的必載 rule 只列進 always_missing：HWR-DT-085；
     只列使用者層檔案的 instructions 不進分母：HWR-DT-086；rules 子目錄：HWR-DT-087；
-    觀察期內事件不足：HWR-DT-088；nested_memory 格式漂移顯示量不到：HWR-DT-089；
+    觀察期內事件不足：HWR-DT-088；nested_memory 改名時來源仍完整、計數照實顯示：HWR-DT-089；
     attachment 形狀不符：HWR-DT-090；worktree 名稱含 /：HWR-DT-091；
     沒有載入專案指令的 session 時報告不除以零：HWR-DT-092
-  - PR #628 review 第 2 輪（重新設計）：觀察期結束時間：HWR-DT-093；attachment 形狀變形：HWR-DT-094；
-    只列 repo 外 Project 檔不進分母：HWR-DT-095；只有 User 檔不觸發對照：HWR-DT-096；
-    讀檔失敗不重複回傳 warning：HWR-DT-097，但快照 warnings 仍非空：HWR-ST-029；
-    格式對照不依賴 checkout 的必載 rule 名稱：HWR-DT-098；nested 路徑整批無法解析：HWR-DT-099；
-    權威 worktree 名稱與子專案 rule：HWR-DT-100；已刪除的 worktree：HWR-DT-101；
-    collect_worktree_roots 的來源與 git 失敗：HWR-DT-102；真實 git worktree 端對端：HWR-ST-030
-  - 已刪除 worktree 以 transcript 目錄名稱推回根目錄：HWR-DT-103；名稱含 `_`：HWR-DT-104；
-    目錄名稱對不上：HWR-DT-105；主 repo 目錄不套用：HWR-DT-106
+  - PR #628 review 第 2 輪：觀察期結束時間：HWR-DT-093；attachment 形狀變形：HWR-DT-094；
+    只列 repo 外 Project 檔不進分母：HWR-DT-095；instructions_events 數所有 instructions attachment：HWR-DT-096；
+    讀檔失敗與壞行的 warning 與 collect_transcript_blocks 逐位元相同：HWR-DT-097，快照 warnings 含所有原因：HWR-ST-029；
+    nested 路徑整批無法解析時照實計數：HWR-DT-099；
+    權威 worktree 名稱與子專案 rule：HWR-DT-100；已刪除的 worktree 不推論、計入 unresolved：HWR-DT-101；
+    collect_worktree_roots 只看第一層與 git 失敗：HWR-DT-102；真實 git worktree 端對端：HWR-ST-030
+  - PR #628 完整 diff 重審後（縮小宣稱）：`.claude/worktrees/` 列不出來：HWR-DT-107；觀察期外的形狀錯誤不檢查：
+    HWR-DT-108；沒有 uuid 的事件不跨 session 撞號：HWR-DT-109；「注意」一行的條件：HWR-DT-110；
+    兩次讀檔之間的落差仍發 warning：HWR-ST-031；只有 rule_loads 發現的原因也發 warning：HWR-ST-032
+  - 已移除（行為隨縮小宣稱拿掉）：HWR-DT-098（格式對照不依賴 checkout 的必載 rule 名稱）、
+    HWR-DT-103..106（已刪除 worktree 以 transcript 目錄名稱推回根目錄）
 """
 
 from __future__ import annotations
@@ -2935,7 +2939,7 @@ def run_loads(
 
 
 class TestRuleLoads:
-    def test_hwr_dt_080_repo_relative(self, tmp_path: Path) -> None:
+    def test_hwr_dt_080_resolve_repo_path(self, tmp_path: Path) -> None:
         """HWR-DT-080: 主 checkout 與 worktree 的同一檔案對到同一相對路徑；同前綴的別的 repo 不算
         spec: weekly-review-rule-loads#worktree-and-main-count-as-one-file
         tc: HWR-DT-080
@@ -2943,12 +2947,18 @@ class TestRuleLoads:
         repo = tmp_path / "demo"
         repo.mkdir()
         main = str(repo)
-        assert hr.repo_relative(f"{main}/.claude/rules/a.md", repo) == ".claude/rules/a.md"
-        wt = f"{main}/.claude/worktrees/feat/.claude/rules/a.md"
-        assert hr.repo_relative(wt, repo) == ".claude/rules/a.md"
-        assert hr.repo_relative(f"{main}/.claude/worktrees/feat", repo) is None
-        assert hr.repo_relative(f"{main}-other/.claude/rules/a.md", repo) is None
-        assert hr.repo_relative("/home/u/.claude/CLAUDE.md", repo) is None
+
+        def rel(path: str) -> tuple[str | None, bool]:
+            return hr.resolve_repo_path(path, repo, {"feat"})
+
+        assert rel(f"{main}/.claude/rules/a.md") == (".claude/rules/a.md", False)
+        assert rel(f"{main}/.claude/worktrees/feat/.claude/rules/a.md") == (
+            ".claude/rules/a.md",
+            False,
+        )
+        assert rel(f"{main}/.claude/worktrees/feat") == (None, False)  # worktree 根目錄本身
+        assert rel(f"{main}-other/.claude/rules/a.md") == (None, False)
+        assert rel("/home/u/.claude/CLAUDE.md") == (None, False)
 
     def test_hwr_st_026_collect_rule_loads(self, tmp_path: Path) -> None:
         """HWR-ST-026: 兩種 attachment 都計入、以 session 計（重複事件不重複計）、使用者層與觀察期外
@@ -3007,12 +3017,18 @@ class TestRuleLoads:
             "cli": {"sessions": 2, "with_instructions": 2},
             "sdk-py": {"sessions": 1, "with_instructions": 0},
         }
+        # 原始計數：主 checkout 與 worktree transcript 重複的事件（同 uuid）只算一筆
+        assert data["instructions_events"] == 3  # a1、a2、b1；a5 屬於觀察期外的 session
+        assert data["nested_memory_events"] == 3  # a3（兩份 transcript 各一次）、a4、b2
+        assert data["nested_unresolved_events"] == 0
 
-    def test_hwr_dt_081_format_drift_control(self, tmp_path: Path) -> None:
-        """HWR-DT-081: 有 cli session 但每次必載的 rule 為 0 次 → 來源不完整（格式漂移），
-        不是一張全為 0 的表；只有 SDK session 的一週不可誤判
-        spec: weekly-review-rule-loads#renamed-instructions-attachment
+    def test_hwr_dt_081_no_drift_inference(self, tmp_path: Path) -> None:
+        """HWR-DT-081: 不以載入次數推論格式漂移：instructions attachment 改名（有 cli session）、
+        instructions 沒有任何 rules 路徑、只有 SDK session 的一週，來源都完整；原始計數照實記錄，
+        instructions 事件為 0 而有 session 時報告加「注意」一行
+        spec: weekly-review-rule-loads#renamed-instructions-attachment-stays-complete
         spec: weekly-review-rule-loads#sdk-only-window
+        spec: weekly-review-rule-loads#no-instructions-events-notice
         tc: HWR-DT-081
         """
         repo = tmp_path / "demo"
@@ -3020,28 +3036,38 @@ class TestRuleLoads:
         slug = hr.project_slug(repo)
         rules = rules_section(repo, [".claude/rules/always.md"], {})
         r = f"{repo}/.claude/rules/always.md"
+        notice = "**注意**"
+
+        def render(data: dict[str, Any]) -> str:
+            return "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
 
         healthy = tmp_path / "healthy"
         write_transcript(healthy, slug, [instructions_ev("h1", "s1", [r]), *filler("s1")])
-        data, _ = run_loads(healthy, repo, rules)
-        assert data["source"] == complete_source()  # 對照：格式正確時完整
+        data, warnings = run_loads(healthy, repo, rules)
+        assert data["source"] == complete_source() and warnings == []  # 對照
+        assert data["instructions_events"] == 1
+        assert notice not in render(data)
 
         renamed = tmp_path / "renamed"
         ev = instructions_ev("m1", "s1", [r])
         ev["attachment"]["type"] = "instructions_v2"  # 模擬 Claude Code 改了 attachment 名稱
         write_transcript(renamed, slug, [ev, *filler("s1")])
         data, warnings = run_loads(renamed, repo, rules)
-        assert data["source"]["complete"] is False
-        assert any("沒有任何 instructions 事件" in e for e in data["source"]["errors"])
-        assert any("沒有任何一個位於 `.claude/rules/`" in e for e in warnings)
+        assert data["source"] == complete_source() and warnings == []
+        assert data["instructions_events"] == 0
+        assert data["sessions"] == 1 and data["sessions_with_instructions"] == 0
+        text = render(data)
+        assert "- **注意**：觀察期內有 1 個 session，但沒有看到任何 instructions 事件" in text
+        assert "| `.claude/rules/always.md` | 每次必載 | 0 | - |" in text
 
         partial = tmp_path / "partial"
         write_transcript(
             partial, slug, [instructions_ev("p1", "s1", [f"{repo}/CLAUDE.md"]), *filler("s1")]
         )
-        data, _ = run_loads(partial, repo, rules)
-        assert data["source"]["complete"] is False
-        assert any("沒有任何一個位於 `.claude/rules/`" in e for e in data["source"]["errors"])
+        data, warnings = run_loads(partial, repo, rules)
+        assert data["source"] == complete_source() and warnings == []
+        assert data["always_missing"] == [".claude/rules/always.md"]  # 只作資訊列出
+        assert notice not in render(data)
 
         sdk_only = tmp_path / "sdk"
         write_transcript(sdk_only, slug, [plain_ev("q1", "s9", "sdk-py"), *filler("s9", "sdk-py")])
@@ -3050,6 +3076,7 @@ class TestRuleLoads:
         assert data["sessions"] == 1 and data["sessions_with_instructions"] == 0
         # 沒有任何 session 載入專案指令時，列出每條必載 rule 沒有資訊量（pr-test-analyzer N9）
         assert data["always_missing"] == []
+        assert notice in render(data)  # 只有 SDK session 也看不到 instructions 事件，照樣提示
 
     def test_hwr_dt_082_incomplete_inputs(self, tmp_path: Path) -> None:
         """HWR-DT-082: rules 來源不完整、截斷行、讀不到的檔、沒有 transcript → 載入次數不完整
@@ -3066,48 +3093,49 @@ class TestRuleLoads:
         data, _ = run_loads(tmp_path / "p0", repo, rules)
         assert data["source"] == complete_source()  # 對照：同一份資料沒有壞行時完整
 
+        def incomplete(data: dict[str, Any], warnings: list[str]) -> None:
+            # 使來源不完整的每個原因都回傳成 warning（與 source.errors 同一份、同順序）
+            assert data["source"]["complete"] is False
+            assert data["source"]["errors"] and warnings == data["source"]["errors"]
+
         projects = tmp_path / "p1"
         write_transcript(projects, slug, good)
         bad_rules = {**rules, "source": {"complete": False, "errors": ["x"]}}
-        data, _ = run_loads(projects, repo, bad_rules)
-        assert data["source"]["complete"] is False
+        incomplete(*run_loads(projects, repo, bad_rules))
 
         path = write_transcript(tmp_path / "p2", slug, good)
         append_text(path, '{"type": "attachment", "uuid": "t')  # 被截斷的最後一行
-        data, _ = run_loads(tmp_path / "p2", repo, rules)
-        assert data["source"]["complete"] is False
+        data, warnings = run_loads(tmp_path / "p2", repo, rules)
+        incomplete(data, warnings)
         assert data["rules"] == {".claude/rules/always.md": 1}  # 截斷前的資料仍保留
 
         path = write_transcript(tmp_path / "p4", slug, good)
         append_text(path, "[1]\n")  # 合法 JSON 但不是物件
-        data, _ = run_loads(tmp_path / "p4", repo, rules)
-        assert data["source"]["complete"] is False
+        data, warnings = run_loads(tmp_path / "p4", repo, rules)
+        incomplete(data, warnings)
         assert any("略過 1 行格式錯誤" in e for e in data["source"]["errors"])
 
-        # 目錄列不出來：來源不完整，但不重複發 warning（collect_transcript_blocks 已發過）
         write_transcript(tmp_path / "p5", slug, good)
         sub = tmp_path / "p5" / slug / "sub"
         write_transcript(tmp_path / "p5", f"{slug}/sub", good)
         with unreadable(sub):
             data, warnings = run_loads(tmp_path / "p5", repo, rules)
-        assert data["source"]["complete"] is False
+        incomplete(data, warnings)
         assert any("無法列出" in e for e in data["source"]["errors"])
-        assert warnings == []
 
         path = write_transcript(tmp_path / "p3", slug, good)
         write_transcript(tmp_path / "p3", slug, good)
         with unreadable(path):
-            data, _ = run_loads(tmp_path / "p3", repo, rules)
-        assert data["source"]["complete"] is False
+            incomplete(*run_loads(tmp_path / "p3", repo, rules))
 
-        data, warnings = run_loads(tmp_path / "none", repo, rules)
-        assert data["source"]["complete"] is False
-        assert warnings == []  # collect_transcript_blocks 已對「找不到 transcript」發過 warning
+        incomplete(*run_loads(tmp_path / "none", repo, rules))
 
     def test_hwr_dt_083_render_rule_loads(self, tmp_path: Path) -> None:
-        """HWR-DT-083: 完整時列出 0 次與已不存在的檔案；不完整或舊快照只寫「量不到」、不印表
+        """HWR-DT-083: 完整時表頭列出所有原始計數與固定註明，表格列出 0 次與不在 collect_rules 清單的檔案；
+        不完整時只寫「量不到」並直接列出原因、不印表；舊快照寫明產生於此功能之前
         spec: weekly-review-rule-loads#zero-load-rule-is-listed
-        spec: weekly-review-rule-loads#incomplete-source-hides-table
+        spec: weekly-review-rule-loads#raw-counters-in-header
+        spec: weekly-review-rule-loads#incomplete-source-lists-reasons-inline
         spec: weekly-review-rule-loads#snapshot-before-this-change
         tc: HWR-DT-083
         """
@@ -3122,6 +3150,12 @@ class TestRuleLoads:
                 "sessions": 5,
                 "sessions_with_instructions": 4,
                 "entrypoints": {"cli": {"sessions": 4, "with_instructions": 4}},
+                "instructions_events": 6,
+                "nested_memory_events": 7,
+                "nested_unresolved_events": 2,
+                "unresolved_worktree_paths": 3,
+                "excluded_sessions": 1,
+                "always_missing": [".claude/rules/new.md"],
                 "rules": {".claude/rules/a.md": 4, ".claude/rules/gone.md": 1},
                 "memory_files": {"CLAUDE.md": 1, "docs/CLAUDE.md": 2},
                 "source": complete_source(),
@@ -3129,9 +3163,20 @@ class TestRuleLoads:
         }
         text = "\n".join(hr.render_rule_loads(snap))
         assert "- 觀察期內 5 個 session，其中 4 個有載入專案指令；佔比以後者為分母" in text
+        assert "cli 4/4" in text
+        for counter in (
+            "instructions 事件 6 筆",
+            "nested_memory 事件 7 筆可解析、2 筆無法解析",
+            "對不上現存 worktree 的路徑 3 個",
+            "沒有載入專案指令卻有載入紀錄的 session 1 個",
+            "每次必載但本期 0 次的 rule：`.claude/rules/new.md`",
+        ):
+            assert counter in text, counter
+        assert "- 格式漂移不保證偵測：表頭的原始計數請與前一週比對" in text
+        assert "**注意**" not in text
         row_a = "| `.claude/rules/a.md` | 每次必載 | 4 | 100% |"
         row_b = "| `.claude/rules/b.md` | `x/**` | 0 | 0% |"
-        label = "（不在 collect_rules 清單：已刪除，或位於 rules 子目錄）"
+        label = "（不在 collect_rules 清單：可能已刪除、位於 rules 子目錄，或屬於子專案）"
         row_gone = f"| `.claude/rules/gone.md` | {label} | 1 | 25% |"
         for row in (row_a, row_b, row_gone):
             assert row in text
@@ -3139,13 +3184,19 @@ class TestRuleLoads:
         assert text.index(row_a) < text.index(row_gone) < text.index(row_b)
         assert "| 指令檔（CLAUDE.md／AGENTS.md） | session 數 |" in text
         assert text.index("| `docs/CLAUDE.md` | 2 |") < text.index("| `CLAUDE.md` | 1 |")
-        assert "cli 4/4" in text
         assert "子目錄指令檔" not in text
 
-        snap["rule_loads"]["source"] = {"complete": False, "errors": ["x"]}
+        snap["rule_loads"]["always_missing"] = []
+        text = "\n".join(hr.render_rule_loads(snap))
+        assert "每次必載但本期 0 次的 rule：無" in text
+
+        reasons = ["rule 載入：第一個原因", "transcript：第二個原因"]
+        snap["rule_loads"]["source"] = {"complete": False, "errors": reasons}
         text = "\n".join(hr.render_rule_loads(snap))
         assert "量不到" in text and "| rule |" not in text
-        assert "原因見上方「量測不完整」" in text
+        for reason in reasons:
+            assert f"  - {reason}" in text  # 原因直接列在本節，不指向其他段落
+        assert "見上方" not in text and "instructions 事件" not in text
 
         del snap["rule_loads"]  # 這個 change 之前的舊快照
         text = "\n".join(hr.render_rule_loads(snap))
@@ -3228,8 +3279,8 @@ class TestRuleLoads:
         assert "| `.claude/rules/scoped.md` | `x/**` | 1 | 50% |" in text
 
     def test_hwr_dt_085_newly_added_always_loaded_rule(self, tmp_path: Path) -> None:
-        """HWR-DT-085: 只有部分每次必載的 rule 為 0 次（期間才新增或剛改成必載）不是格式改變：
-        來源完整，名稱記進 always_missing，報告列出
+        """HWR-DT-085: 每次必載的 rule 為 0 次（期間才新增或剛改成必載）只作資訊：
+        來源完整，名稱記進 always_missing，報告表頭列出
         spec: weekly-review-rule-loads#newly-added-always-loaded-rule
         tc: HWR-DT-085
         """
@@ -3243,7 +3294,7 @@ class TestRuleLoads:
         assert data.get("always_missing") == [".claude/rules/new.md"]
         text = "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
         assert (
-            "- 這些每次必載的 rule 本期 0 次，可能是期間才新增或剛改成必載：`.claude/rules/new.md`"
+            "- 每次必載但本期 0 次的 rule：`.claude/rules/new.md`（可能是期間才新增或剛改成必載）"
             in text
         )
 
@@ -3297,7 +3348,7 @@ class TestRuleLoads:
         assert data["source"] == complete_source()
         assert data["rules"] == {".claude/rules/always.md": 1, ".claude/rules/sub/deep.md": 1}
         text = "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
-        label = "（不在 collect_rules 清單：已刪除，或位於 rules 子目錄）"
+        label = "（不在 collect_rules 清單：可能已刪除、位於 rules 子目錄，或屬於子專案）"
         assert f"| `.claude/rules/sub/deep.md` | {label} | 1 | 100% |" in text
 
     def test_hwr_dt_088_no_events_in_window(self, tmp_path: Path) -> None:
@@ -3334,10 +3385,10 @@ class TestRuleLoads:
         data, warnings = run_loads(tmp_path / "three", repo, rules)
         assert data["source"] == complete_source() and warnings == []
 
-    def test_hwr_dt_089_nested_memory_drift_shows_unmeasured(self, tmp_path: Path) -> None:
-        """HWR-DT-089: 有載入專案指令的 session 達門檻、卻一筆 nested_memory 都沒有 →
-        path-scoped rule 顯示「量不到」而不是 0；對照：有 nested_memory 時照常計數
-        spec: weekly-review-rule-loads#nested-memory-drift-shows-unmeasured
+    def test_hwr_dt_089_nested_drift_stays_complete(self, tmp_path: Path) -> None:
+        """HWR-DT-089: nested_memory 改名（格式漂移）不推論：來源完整、path-scoped rule 照實顯示 0，
+        表頭的 nested_memory 事件數是 0，供人與前一週比對；對照：有 nested_memory 時照常計數
+        spec: weekly-review-rule-loads#nested-drift-stays-complete
         tc: HWR-DT-089
         """
         repo = tmp_path / "demo"
@@ -3347,36 +3398,29 @@ class TestRuleLoads:
             repo, [".claude/rules/always.md"], {".claude/rules/scoped.md": ["x/**"]}
         )
 
-        def run(name: str, kind: str, n_sessions: int) -> tuple[dict[str, Any], str]:
+        def run(name: str, kind: str) -> tuple[dict[str, Any], str]:
             rows: list[dict[str, Any]] = []
-            for i in range(n_sessions):
+            for i in range(3):
                 nested = nested_ev(f"n{i}", f"s{i}", f"{r}/scoped.md")
                 nested["attachment"]["type"] = kind
                 rows += [instructions_ev(f"i{i}", f"s{i}", [f"{r}/always.md"]), nested]
             write_transcript(tmp_path / name, hr.project_slug(repo), [*rows, *filler("s0")])
-            data, _ = run_loads(tmp_path / name, repo, rules)
-            assert data["source"] == complete_source(), name
+            data, warnings = run_loads(tmp_path / name, repo, rules)
+            assert data["source"] == complete_source() and warnings == [], name
             return data, "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
 
         # Claude Code 把 nested_memory 改名（PR #628 review I-7 的重現）
-        data, text = run("renamed", "nested_memory_v2", hr.RULE_LOAD_MIN_SESSIONS)
-        assert data.get("nested_memory_events") == 0
-        assert "| `.claude/rules/scoped.md` | `x/**` | 量不到 | 量不到 |" in text
-        assert "沒有任何可解析的 nested_memory 事件" in text
+        data, text = run("renamed", "nested_memory_v2")
+        assert data["nested_memory_events"] == 0
+        assert "| `.claude/rules/scoped.md` | `x/**` | 0 | 0% |" in text
+        assert "nested_memory 事件 0 筆可解析、0 筆無法解析" in text
         assert "| `.claude/rules/always.md` | 每次必載 | 3 | 100% |" in text
-
-        data, text = run("healthy", "nested_memory", 3)
-        assert data["nested_memory_events"] == 3
-        assert "| `.claude/rules/scoped.md` | `x/**` | 3 | 100% |" in text
         assert "量不到" not in text
 
-        # 有載入專案指令的 session 少於門檻時，0 次仍可能是真的沒碰到，照常顯示 0，但表頭註明未經對照
-        data, text = run("few", "nested_memory_v2", hr.RULE_LOAD_MIN_SESSIONS - 1)
-        assert "| `.claude/rules/scoped.md` | `x/**` | 0 | 0% |" in text
-        unchecked = "本期沒有任何可解析的 nested_memory 事件，以下 path-scoped 的 0 次未經對照確認"
-        assert unchecked in text
-        _, healthy_text = run("healthy-few", "nested_memory", hr.RULE_LOAD_MIN_SESSIONS - 1)
-        assert unchecked not in healthy_text
+        data, text = run("healthy", "nested_memory")
+        assert data["nested_memory_events"] == 3
+        assert "| `.claude/rules/scoped.md` | `x/**` | 3 | 100% |" in text
+        assert "nested_memory 事件 3 筆可解析、0 筆無法解析" in text
 
     def test_hwr_dt_090_malformed_attachment_shape(self, tmp_path: Path) -> None:
         """HWR-DT-090: nested_memory 的 path 不是字串、instructions 的 files 不是清單 → 來源不完整
@@ -3397,6 +3441,7 @@ class TestRuleLoads:
             data, warnings = run_loads(tmp_path / name, repo, rules)
             assert data["source"]["complete"] is False, name
             assert any("形狀不符" in e for e in warnings), (name, warnings)
+            assert warnings == data["source"]["errors"], name
 
     def test_hwr_dt_091_worktree_name_with_slash(self, tmp_path: Path) -> None:
         """HWR-DT-091: worktree 名稱含 /（feat/x）：rule 照樣計入，根目錄 CLAUDE.md 不被當成
@@ -3542,6 +3587,7 @@ class TestRuleLoads:
             data, warnings = run_loads(tmp_path / name, repo, rules)
             assert data["source"]["complete"] is False, name
             assert any("形狀不符" in e for e in warnings), (name, warnings)
+            assert warnings == data["source"]["errors"], name
 
     def test_hwr_dt_095_out_of_repo_instructions_not_in_denominator(self, tmp_path: Path) -> None:
         """HWR-DT-095: instructions 只列出 repo 外的 Project 檔（/elsewhere/CLAUDE.md）的 session 不進分母；
@@ -3569,10 +3615,10 @@ class TestRuleLoads:
         assert data["rules"] == {".claude/rules/always.md": 1}
         assert data["excluded_sessions"] == 1
 
-    def test_hwr_dt_096_user_only_instructions_do_not_trip_control(self, tmp_path: Path) -> None:
-        """HWR-DT-096: cli session 的 instructions 只列出使用者層檔案時，仍算「有 instructions 事件」，
-        不觸發「沒有任何 instructions 事件」（pr-test-analyzer N10）
-        spec: weekly-review-rule-loads#user-only-instructions-do-not-trip-control
+    def test_hwr_dt_096_instructions_events_count_every_attachment(self, tmp_path: Path) -> None:
+        """HWR-DT-096: instructions_events 數觀察期內所有 session 的 instructions attachment，包括只列出
+        使用者層檔案的；所以這種 session 不觸發「注意」一行（pr-test-analyzer N10）
+        spec: weekly-review-rule-loads#instructions-events-count-every-attachment
         tc: HWR-DT-096
         """
         repo = tmp_path / "demo"
@@ -3582,16 +3628,17 @@ class TestRuleLoads:
             {"path": "/home/u/.claude/CLAUDE.md", "type": "User", "content": "x"}
         ]
         write_transcript(tmp_path / "p", hr.project_slug(repo), [user_only, *filler("u")])
-        # 沒有每次必載的 rule：只剩「有沒有 instructions 事件」這一條對照
         rules = rules_section(repo, [], {".claude/rules/scoped.md": ["x/**"]})
         data, warnings = run_loads(tmp_path / "p", repo, rules)
-        assert not any("沒有任何 instructions 事件" in e for e in data["source"]["errors"])
         assert data["source"] == complete_source() and warnings == []
         assert data["sessions"] == 1 and data["sessions_with_instructions"] == 0
+        assert data["instructions_events"] == 1
+        text = "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
+        assert "**注意**" not in text
 
-    def test_hwr_dt_097_read_failures_not_returned_twice(self, tmp_path: Path) -> None:
-        """HWR-DT-097: 讀檔失敗與壞行只記進本來源、不回傳成 warning（collect_transcript_blocks 對同一批
-        檔案已回傳）；形狀不符照常回傳
+    def test_hwr_dt_097_read_failure_warnings_match_transcript_blocks(self, tmp_path: Path) -> None:
+        """HWR-DT-097: 讀檔失敗、壞行、目錄列舉錯誤、找不到 transcript 照樣回傳成 warning，且文字與
+        collect_transcript_blocks 對同一批檔案回傳的逐位元相同，cmd_collect 才能只去掉重複的那一筆
         spec: weekly-review-rule-loads#unreadable-or-truncated-transcript
         tc: HWR-DT-097
         """
@@ -3601,20 +3648,35 @@ class TestRuleLoads:
         rules = rules_section(repo, [".claude/rules/always.md"], {})
         good = [instructions_ev("g1", "s1", [f"{repo}/.claude/rules/always.md"]), *filler("s1")]
 
+        def both(projects: Path) -> tuple[dict[str, Any], list[str], list[str]]:
+            data, warnings = run_loads(projects, repo, rules)
+            _, blocks = hr.collect_transcript_blocks(projects, repo, loads_since())
+            return data, warnings, blocks
+
         path = write_transcript(tmp_path / "trunc", slug, good)
         append_text(path, '{"type": "attachment", "uuid": "t')
-        data, warnings = run_loads(tmp_path / "trunc", repo, rules)
-        assert data["source"]["complete"] is False
+        data, warnings, blocks = both(tmp_path / "trunc")
         assert any("略過 1 行格式錯誤" in e for e in data["source"]["errors"])
-        assert warnings == []
+        assert warnings == data["source"]["errors"] and set(warnings) <= set(blocks)
 
         path = write_transcript(tmp_path / "unread", slug, good)
         write_transcript(tmp_path / "unread", slug, good)
         with unreadable(path):
-            data, warnings = run_loads(tmp_path / "unread", repo, rules)
-        assert data["source"]["complete"] is False
+            data, warnings, blocks = both(tmp_path / "unread")
         assert any("讀取失敗" in e for e in data["source"]["errors"])
-        assert warnings == []
+        assert warnings == data["source"]["errors"] and set(warnings) <= set(blocks)
+
+        write_transcript(tmp_path / "list", slug, good)
+        sub = tmp_path / "list" / slug / "sub"
+        write_transcript(tmp_path / "list", f"{slug}/sub", good)
+        with unreadable(sub):
+            data, warnings, blocks = both(tmp_path / "list")
+        assert any("無法列出" in e for e in data["source"]["errors"])
+        assert warnings == data["source"]["errors"] and set(warnings) <= set(blocks)
+
+        data, warnings, blocks = both(tmp_path / "none")
+        assert data["source"]["complete"] is False
+        assert warnings == data["source"]["errors"] and set(warnings) <= set(blocks)
 
     def test_hwr_st_029_incomplete_rule_loads_always_warns(self, tmp_path: Path) -> None:
         """HWR-ST-029: rule 載入來源不完整、而 collect_rule_loads 自己不回傳 warning 的情況（讀不到的
@@ -3639,29 +3701,14 @@ class TestRuleLoads:
         assert snap["rule_loads"]["source"]["complete"] is False
         assert snap["warnings"] != []
         assert any("讀取失敗" in w for w in snap["warnings"])
+        assert set(snap["rule_loads"]["source"]["errors"]) <= set(snap["warnings"])
 
-    def test_hwr_dt_098_control_ignores_checkout_rule_names(self, tmp_path: Path) -> None:
-        """HWR-DT-098: 格式對照不依賴執行 collect 的 checkout 有哪些必載 rule：transcript 載入的是
-        old.md、checkout 的必載 rule 只有 new.md（在改名所有必載 rule 的分支執行）→ 來源仍完整，
-        new.md 記進 always_missing
-        spec: weekly-review-rule-loads#control-ignores-checkout-rule-names
-        tc: HWR-DT-098
-        """
-        repo = tmp_path / "demo"
-        repo.mkdir()
-        rows = [instructions_ev("a1", "s1", [f"{repo}/.claude/rules/old.md"]), *filler("s1")]
-        write_transcript(tmp_path / "p", hr.project_slug(repo), rows)
-        rules = rules_section(repo, [".claude/rules/new.md"], {})
-        data, warnings = run_loads(tmp_path / "p", repo, rules)
-        assert data["source"] == complete_source() and warnings == []
-        assert data["always_missing"] == [".claude/rules/new.md"]
-        assert data["rules"] == {".claude/rules/old.md": 1}
-
-    def test_hwr_dt_099_unresolved_nested_paths_show_unmeasured(self, tmp_path: Path) -> None:
+    def test_hwr_dt_099_unresolved_nested_paths_are_counted(self, tmp_path: Path) -> None:
         """HWR-DT-099: nested_memory 的 path 改成相對路徑、file:// URI，或期內只有 repo 外的 nested 事件時，
-        nested_memory_events 只計解析成本 repo rule／指令檔的事件 → 0，path-scoped rule 顯示量不到；
-        無法解析的另記 nested_unresolved_events（PR #628 review R2-5，probe.out 的三組）
-        spec: weekly-review-rule-loads#unresolved-nested-paths-show-unmeasured
+        nested_memory_events 只計解析成本 repo rule／指令檔的事件 → 0，無法解析的另記
+        nested_unresolved_events；來源仍完整，path-scoped rule 照實顯示 0，表頭列出兩個計數
+        （PR #628 review R2-5，probe.out 的三組）
+        spec: weekly-review-rule-loads#unresolved-nested-paths-are-counted
         tc: HWR-DT-099
         """
         repo = tmp_path / "demo"
@@ -3677,17 +3724,19 @@ class TestRuleLoads:
         }
         for name, paths in shapes.items():
             rows: list[dict[str, Any]] = []
-            for i in range(hr.RULE_LOAD_MIN_SESSIONS):
+            for i in range(3):
                 rows.append(instructions_ev(f"i{i}", f"s{i}", [f"{r}/always.md"]))
                 rows += [nested_ev(f"n{i}-{j}", f"s{i}", p) for j, p in enumerate(paths)]
             write_transcript(tmp_path / name, hr.project_slug(repo), [*rows, *filler("s0")])
-            data, _ = run_loads(tmp_path / name, repo, rules)
-            assert data["source"] == complete_source(), name
+            data, warnings = run_loads(tmp_path / name, repo, rules)
+            assert data["source"] == complete_source() and warnings == [], name
             assert data["nested_memory_events"] == 0, name
-            assert data["nested_unresolved_events"] == len(paths) * hr.RULE_LOAD_MIN_SESSIONS, name
+            assert data["nested_unresolved_events"] == len(paths) * 3, name
             text = "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
-            assert "| `.claude/rules/scoped.md` | `backend/**` | 量不到 | 量不到 |" in text, name
+            assert "| `.claude/rules/scoped.md` | `backend/**` | 0 | 0% |" in text, name
             assert "| `.claude/rules/always.md` | 每次必載 | 3 | 100% |" in text, name
+            counter = f"nested_memory 事件 0 筆可解析、{len(paths) * 3} 筆無法解析"
+            assert counter in text, name
 
     def test_hwr_dt_100_authoritative_worktree_roots(self, tmp_path: Path) -> None:
         """HWR-DT-100: worktree 根目錄由呼叫端注入（權威來源），不從路徑推論：worktree 內子專案的
@@ -3700,11 +3749,16 @@ class TestRuleLoads:
         repo.mkdir()
         m = str(repo)
         wt = f"{m}/.claude/worktrees"
-        assert hr.repo_relative(f"{wt}/feat/x/CLAUDE.md", repo, {"feat", "feat/x"}) == "CLAUDE.md"
-        assert hr.repo_relative(f"{wt}/feat/y/CLAUDE.md", repo, {"feat", "feat/x"}) == "y/CLAUDE.md"
-        assert hr.repo_relative(f"{wt}/feat/x", repo, {"feat/x"}) is None  # worktree 根目錄本身
-        rel = hr.repo_relative(f"{wt}/feat/x/mobile/.claude/rules/m.md", repo, {"feat/x"})
-        assert rel == "mobile/.claude/rules/m.md"
+
+        def rel(path: str, roots: set[str]) -> str | None:
+            return hr.resolve_repo_path(path, repo, roots)[0]
+
+        assert rel(f"{wt}/feat/x/CLAUDE.md", {"feat", "feat/x"}) == "CLAUDE.md"
+        assert rel(f"{wt}/feat/y/CLAUDE.md", {"feat", "feat/x"}) == "y/CLAUDE.md"
+        assert rel(f"{wt}/feat/x", {"feat/x"}) is None  # worktree 根目錄本身
+        assert rel(f"{wt}/feat/x/mobile/.claude/rules/m.md", {"feat/x"}) == (
+            "mobile/.claude/rules/m.md"
+        )
 
         # probe_a 的情境：主 checkout 與 worktree wt 都載入 mobile/ 子專案的 rule 與 CLAUDE.md
         w = f"{wt}/wt"
@@ -3729,107 +3783,46 @@ class TestRuleLoads:
         assert data["memory_files"] == {"CLAUDE.md": 1, "mobile/CLAUDE.md": 2}
         assert data.get("unresolved_worktree_paths") == 0
         text = "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
-        label = "（不在 collect_rules 清單：已刪除，或位於 rules 子目錄）"
+        label = "（不在 collect_rules 清單：可能已刪除、位於 rules 子目錄，或屬於子專案）"
         assert f"| `mobile/.claude/rules/m.md` | {label} | 2 | 100% |" in text
 
     def test_hwr_dt_101_deleted_worktree_counts_as_unresolved(self, tmp_path: Path) -> None:
-        """HWR-DT-101: 期間已刪除、名稱含 / 的 worktree（feat/x）對不上任何已知根目錄，transcript 目錄名稱
-        （`--claude-worktrees-other`）也對不上路徑：rule 路徑以第一個 `/.claude/rules/` 推回相對路徑；
-        其他檔案不猜，計入 unresolved_worktree_paths 並在報告表頭列出
+        """HWR-DT-101: 期間已刪除、名稱含 / 的 worktree（feat/x）對不上任何已知根目錄：不推論根目錄，
+        rule 與指令檔一律不計，計入 unresolved_worktree_paths 並在報告表頭列出。transcript 放在
+        `--claude-worktrees-feat-x` 目錄（目錄名稱正規化後剛好對得上），也不以目錄名稱推回
         spec: weekly-review-rule-loads#deleted-worktree-counts-as-unresolved
         tc: HWR-DT-101
         """
         repo = tmp_path / "demo"
         repo.mkdir()
         w = f"{repo}/.claude/worktrees/feat/x"
-        assert hr.repo_relative(f"{w}/.claude/rules/always.md", repo) == ".claude/rules/always.md"
-        assert hr.repo_relative(f"{w}/CLAUDE.md", repo) is None
+        assert hr.resolve_repo_path(f"{w}/.claude/rules/always.md", repo, ()) == (None, True)
+        assert hr.resolve_repo_path(f"{w}/CLAUDE.md", repo, ()) == (None, True)
         rows = [
             instructions_ev("w1", "s1", [f"{w}/.claude/rules/always.md", f"{w}/CLAUDE.md"]),
             nested_ev("w2", "s1", f"{w}/docs/CLAUDE.md"),
             *filler("s1"),
         ]
-        write_transcript(tmp_path / "p", hr.project_slug(repo) + "--claude-worktrees-other", rows)
+        write_transcript(tmp_path / "p", hr.project_slug(repo) + "--claude-worktrees-feat-x", rows)
         rules = rules_section(repo, [".claude/rules/always.md"], {})
         data, warnings = run_loads(tmp_path / "p", repo, rules)
         assert data["source"] == complete_source() and warnings == []
-        assert data["rules"] == {".claude/rules/always.md": 1}
-        assert data["memory_files"] == {}  # 不捏造 x/CLAUDE.md、x/docs/CLAUDE.md
-        assert data.get("unresolved_worktree_paths") == 2
+        assert data["rules"] == {}  # 不以 `/.claude/rules/` 推回相對路徑
+        assert data["memory_files"] == {}  # 不捏造 CLAUDE.md、x/CLAUDE.md、x/docs/CLAUDE.md
+        assert data["unresolved_worktree_paths"] == 3
+        assert data["sessions_with_instructions"] == 0  # 對不上的路徑也不算「有載入專案指令」
+        assert data["nested_unresolved_events"] == 0  # 只計入 unresolved_worktree_paths
         text = "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
-        assert "2 個 worktree 內的路徑對不上任何現存的 worktree" in text
-
-    def _deleted_worktree_loads(
-        self, tmp_path: Path, dirname_suffix: str | None, name: str, *, extra_dir: str | None = None
-    ) -> dict[str, Any]:
-        """已刪除的 worktree `name`（不在磁碟上、不注入名稱）載入根目錄與 backend/ 的 CLAUDE.md。
-
-        dirname_suffix 為 None 時 transcript 寫在主 repo 的目錄，否則寫在
-        `<slug>--claude-worktrees-<dirname_suffix>`；extra_dir 另建一個只有一般事件的 worktree 目錄。
-        """
-        repo = tmp_path / "demo"
-        repo.mkdir()
-        w = f"{repo}/.claude/worktrees/{name}"
-        rows = [
-            instructions_ev("w1", "s1", [f"{repo}/.claude/rules/always.md", f"{w}/CLAUDE.md"]),
-            nested_ev("w2", "s1", f"{w}/backend/CLAUDE.md"),
-            *filler("s1"),
-        ]
-        slug = hr.project_slug(repo)
-        dirname = slug if dirname_suffix is None else f"{slug}--claude-worktrees-{dirname_suffix}"
-        write_transcript(tmp_path / "p", dirname, rows)
-        if extra_dir is not None:
-            write_transcript(tmp_path / "p", f"{slug}--claude-worktrees-{extra_dir}", filler("s2"))
-        rules = rules_section(repo, [".claude/rules/always.md"], {})
-        data, warnings = run_loads(tmp_path / "p", repo, rules)
-        assert data["source"] == complete_source() and warnings == []
-        return data
-
-    def test_hwr_dt_103_deleted_worktree_root_from_transcript_dir(self, tmp_path: Path) -> None:
-        """HWR-DT-103: 已刪除的 worktree feat/x 的 transcript 位於 `--claude-worktrees-feat-x`：
-        路徑前綴 feat/x 正規化後等於目錄名稱，所以 feat/x 視為 worktree 根目錄
-        spec: weekly-review-rule-loads#deleted-worktree-root-from-transcript-dir
-        tc: HWR-DT-103
-        """
-        data = self._deleted_worktree_loads(tmp_path, "feat-x", "feat/x")
-        assert data["memory_files"] == {"CLAUDE.md": 1, "backend/CLAUDE.md": 1}
-        assert data["unresolved_worktree_paths"] == 0
-
-    def test_hwr_dt_104_deleted_worktree_name_with_underscore(self, tmp_path: Path) -> None:
-        """HWR-DT-104: worktree 名稱含 `_`（a_b），transcript 目錄名稱為 `a-b`，同樣對得上
-        spec: weekly-review-rule-loads#deleted-worktree-root-from-transcript-dir
-        tc: HWR-DT-104
-        """
-        data = self._deleted_worktree_loads(tmp_path, "a-b", "a_b")
-        assert data["memory_files"] == {"CLAUDE.md": 1, "backend/CLAUDE.md": 1}
-        assert data["unresolved_worktree_paths"] == 0
-
-    def test_hwr_dt_105_transcript_dir_mismatch_stays_unresolved(self, tmp_path: Path) -> None:
-        """HWR-DT-105: transcript 目錄名稱 `feat-y` 不等於路徑任何前綴的正規化結果：不猜，仍計入
-        unresolved_worktree_paths
-        spec: weekly-review-rule-loads#deleted-worktree-counts-as-unresolved
-        tc: HWR-DT-105
-        """
-        data = self._deleted_worktree_loads(tmp_path, "feat-y", "feat/x")
-        assert data["memory_files"] == {}
-        assert data["unresolved_worktree_paths"] == 2
-
-    def test_hwr_dt_106_main_transcript_does_not_use_dir_fallback(self, tmp_path: Path) -> None:
-        """HWR-DT-106: 同樣的路徑出現在主 repo 目錄的 transcript：不套用目錄名稱的推回，即使另有
-        `--claude-worktrees-feat-x` 目錄（其中沒有載入該路徑）
-        spec: weekly-review-rule-loads#main-transcript-does-not-derive-worktree-root
-        tc: HWR-DT-106
-        """
-        data = self._deleted_worktree_loads(tmp_path, None, "feat/x", extra_dir="feat-x")
-        assert data["memory_files"] == {}
-        assert data["unresolved_worktree_paths"] == 2
+        assert "對不上現存 worktree 的路徑 3 個" in text
 
     def test_hwr_dt_102_worktree_roots_lookup(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """HWR-DT-102: collect_worktree_roots 合併 git worktree list 與 `.claude/worktrees/` 底下含 .git 的
-        目錄；目錄不存在不算錯誤；git 失敗時記錯誤，傳進 collect_rule_loads 後來源不完整並回傳 warning
+        """HWR-DT-102: collect_worktree_roots 合併 git worktree list 與 `.claude/worktrees/` 第一層含 .git 的
+        目錄（不往下走、略過以 . 開頭的名稱）；目錄不存在不算錯誤；git 失敗時記錯誤，傳進
+        collect_rule_loads 後來源不完整並回傳 warning
         spec: weekly-review-rule-loads#authoritative-worktree-roots
+        spec: weekly-review-rule-loads#first-level-worktree-listing
         spec: weekly-review-rule-loads#roots-lookup-failure-is-incomplete
         tc: HWR-DT-102
         """
@@ -3848,9 +3841,15 @@ class TestRuleLoads:
         (base / "walked").mkdir()
         (base / "walked" / ".git").write_text("gitdir: /gone\n")  # git 已不認得、目錄還在
         (base / "plain" / "sub").mkdir(parents=True)  # 沒有 .git：不是 worktree
+        # 殘留目錄內的巢狀 repo（PR #628 review W-4）：不在第一層，不是 worktree 根目錄
+        (base / "old" / "vendor" / "lib").mkdir(parents=True)
+        (base / "old" / "vendor" / "lib" / ".git").mkdir()
+        (base / ".cache").mkdir()
+        (base / ".cache" / ".git").mkdir()  # 以 . 開頭的名稱略過
+        (base / "stray.txt").write_text("x\n")  # 檔案不是 worktree
         roots, errors = hr.collect_worktree_roots(repo)
         assert errors == []
-        # outer/inner 在 outer 底下，只有 git worktree list 看得到；walked 只有走目錄看得到
+        # outer/inner 在 outer 底下，只有 git worktree list 看得到；walked 只有列目錄看得到
         assert roots == {"outer", "outer/inner", "walked"}
 
         def failing(args: list[str], cwd: Path, timeout: int = 0) -> Any:
@@ -3859,7 +3858,7 @@ class TestRuleLoads:
         monkeypatch.setattr(hr, "run_cmd", failing)
         roots, errors = hr.collect_worktree_roots(repo)
         assert errors and any("git worktree list" in e for e in errors), errors
-        assert roots == {"outer", "walked"}  # 走目錄的結果仍保留，但來源已標為不齊
+        assert roots == {"outer", "walked"}  # 列目錄的結果仍保留，但來源已標為不齊
 
         rows = [instructions_ev("a1", "s1", [f"{repo}/.claude/rules/always.md"]), *filler("s1")]
         write_transcript(tmp_path / "p", hr.project_slug(repo), rows)
@@ -3867,6 +3866,179 @@ class TestRuleLoads:
         data, warnings = run_loads(tmp_path / "p", repo, rules, roots=roots, root_errors=errors)
         assert data["source"]["complete"] is False
         assert any("git worktree list" in w for w in warnings), warnings
+        assert warnings == data["source"]["errors"]
+
+    def test_hwr_dt_107_worktrees_dir_unlistable(self, tmp_path: Path) -> None:
+        """HWR-DT-107: `.claude/worktrees/` 列不出來（權限）→ 記錯誤，不當成「沒有 worktree」；
+        對照：同一目錄可讀時沒有錯誤
+        spec: weekly-review-rule-loads#roots-lookup-failure-is-incomplete
+        tc: HWR-DT-107
+        """
+        repo = tmp_path / "demo"
+        git_init(repo)
+        (repo / "README.md").write_text("x\n")
+        git_commit_all(repo)
+        base = repo / ".claude" / "worktrees"
+        (base / "walked").mkdir(parents=True)
+        (base / "walked" / ".git").write_text("gitdir: /gone\n")
+        assert hr.collect_worktree_roots(repo) == ({"walked"}, [])
+        with unreadable(base):
+            roots, errors = hr.collect_worktree_roots(repo)
+        assert any(str(base) in e and "無法列出" in e for e in errors), errors
+        assert roots == set()
+
+    def test_hwr_dt_108_out_of_window_shape_errors_ignored(self, tmp_path: Path) -> None:
+        """HWR-DT-108: 觀察期外 session 的 attachment 形狀不符不檢查（PR #628 review F-1）：來源完整；
+        對照：同一個壞事件屬於觀察期內的 session 時來源不完整
+        spec: weekly-review-rule-loads#out-of-window-shape-errors-ignored
+        tc: HWR-DT-108
+        """
+        repo = tmp_path / "demo"
+        repo.mkdir()
+        r = f"{repo}/.claude/rules"
+        rules = rules_section(repo, [".claude/rules/always.md"], {})
+        healthy = [instructions_ev("h1", "h", [f"{r}/always.md"]), *filler("h")]
+
+        def bad(session: str, ts: str) -> dict[str, Any]:
+            ev = instructions_ev(f"b-{session}", session, [], ts=ts)
+            ev["attachment"]["files"] = {"path": f"{r}/always.md"}
+            return ev
+
+        old = "2026-08-01T00:00:00Z"
+        write_transcript(tmp_path / "old", hr.project_slug(repo), [*healthy, bad("old", old)])
+        data, warnings = run_loads(tmp_path / "old", repo, rules)
+        assert data["source"] == complete_source() and warnings == []
+        assert data["sessions"] == 1
+
+        # 對照：壞事件本身在觀察期前，但它的 session 期內仍有事件 → 屬於觀察期內的 session
+        rows = [*healthy, bad("late", old), plain_ev("l1", "late", "cli")]
+        write_transcript(tmp_path / "in", hr.project_slug(repo), rows)
+        data, warnings = run_loads(tmp_path / "in", repo, rules)
+        assert data["source"]["complete"] is False
+        assert any("形狀不符" in e for e in warnings) and warnings == data["source"]["errors"]
+
+    def test_hwr_dt_109_uuidless_events_across_sessions(self, tmp_path: Path) -> None:
+        """HWR-DT-109: 同一個檔案裡兩個 session 各有一筆沒有 uuid 的 instructions 與 nested_memory 事件：
+        去重用的替代 id 含 sessionId 與行號，不跨 session 撞號（PR #628 review CR-4）
+        spec: weekly-review-rule-loads#repeated-load-in-one-session
+        tc: HWR-DT-109
+        """
+        repo = tmp_path / "demo"
+        repo.mkdir()
+        r = f"{repo}/.claude/rules"
+        rows: list[dict[str, Any]] = []
+        for sid in ("s1", "s2"):
+            instr = instructions_ev("x", sid, [f"{r}/always.md"])
+            nested = nested_ev("x", sid, f"{r}/scoped.md")
+            del instr["uuid"], nested["uuid"]
+            rows += [instr, nested]
+        write_transcript(tmp_path / "p", hr.project_slug(repo), [*rows, *filler("s1")])
+        rules = rules_section(
+            repo, [".claude/rules/always.md"], {".claude/rules/scoped.md": ["x/**"]}
+        )
+        data, warnings = run_loads(tmp_path / "p", repo, rules)
+        assert data["source"] == complete_source() and warnings == []
+        assert data["instructions_events"] == 2
+        assert data["nested_memory_events"] == 2
+        assert data["rules"] == {".claude/rules/always.md": 2, ".claude/rules/scoped.md": 2}
+
+    def test_hwr_dt_110_notice_only_when_sessions_without_instructions_events(self) -> None:
+        """HWR-DT-110: 「注意」一行只在有 session 而 instructions 事件為 0 時出現；沒有 session、或舊快照
+        沒有 instructions_events 欄位時不出現，後者的計數顯示「未記錄」
+        spec: weekly-review-rule-loads#no-instructions-events-notice
+        tc: HWR-DT-110
+        """
+        base: dict[str, Any] = {
+            "sessions": 2,
+            "sessions_with_instructions": 0,
+            "entrypoints": {"sdk-py": {"sessions": 2, "with_instructions": 0}},
+            "rules": {},
+            "memory_files": {},
+            "source": complete_source(),
+        }
+
+        def render(**over: Any) -> str:
+            loads = {**base, **over}
+            return "\n".join(hr.render_rule_loads({"rules": {"files": []}, "rule_loads": loads}))
+
+        assert "- **注意**：觀察期內有 2 個 session，但沒有看到任何 instructions 事件" in render(
+            instructions_events=0
+        )
+        assert "**注意**" not in render(instructions_events=1)
+        assert "**注意**" not in render(instructions_events=0, sessions=0, entrypoints={})
+        legacy = render()
+        assert "**注意**" not in legacy and "instructions 事件 未記錄" in legacy
+
+    def test_hwr_st_031_append_race_still_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWR-ST-031: 兩次讀 transcript 之間有一行被截斷的紀錄寫進來（collect_transcript_blocks 沒看到、
+        collect_rule_loads 看到）：rule_loads 不完整，且快照 warnings 含它的原因、exit 3
+        （PR #628 review F-5 的 p3_append_race；以檔案層 monkeypatch 在第二次開檔前寫入）
+        spec: weekly-review-rule-loads#unreadable-or-truncated-transcript
+        tc: HWR-ST-031
+        """
+        repo = tmp_path / "demo"
+        git_init(repo)
+        (repo / ".claude" / "rules").mkdir(parents=True)
+        (repo / ".claude" / "rules" / "always.md").write_text("# a\n")
+        git_commit_all(repo)
+        rows = [
+            instructions_ev("c1", "s1", [f"{repo.resolve()}/.claude/rules/always.md"]),
+            *filler("s1"),
+        ]
+        path = write_transcript(tmp_path / "projects", hr.project_slug(repo), rows)
+        real_open = Path.open
+        opens = {"n": 0}
+
+        def racing_open(self: Path, *args: Any, **kwargs: Any) -> Any:
+            if self == path and not args and kwargs.get("encoding") == "utf-8":
+                opens["n"] += 1
+                if opens["n"] == 2:  # 第二個 collector 開檔前，有一行寫到一半
+                    with real_open(path, "a", encoding="utf-8") as fh:
+                        fh.write('{"type": "attachment", "uuid": "t')
+            return real_open(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", racing_open)
+        rc = hr.main(collect_args(repo, tmp_path, "--no-ci"))
+        monkeypatch.undo()
+        assert opens["n"] == 2
+        snap = load(tmp_path / "out" / "snap.json")
+        assert snap["hooks"]["transcript"]["source"] == complete_source()  # 第一次讀沒有壞行
+        loads = snap["rule_loads"]
+        assert loads["source"]["complete"] is False
+        assert any("略過 1 行格式錯誤" in e for e in loads["source"]["errors"])
+        assert set(loads["source"]["errors"]) <= set(snap["warnings"])
+        assert rc == 3
+
+    def test_hwr_st_032_every_incomplete_reason_is_warned(self, tmp_path: Path) -> None:
+        """HWR-ST-032: 只有 rule_loads 會發現的不完整原因（`.claude/worktrees/` 列不出來、觀察期內的形狀不符），
+        cmd_collect 的快照 warnings 都含有，不依類別略過（PR #628 review F-5）
+        spec: weekly-review-rule-loads#roots-lookup-failure-is-incomplete
+        spec: weekly-review-rule-loads#attachment-shape-variants-are-incomplete
+        tc: HWR-ST-032
+        """
+        repo = tmp_path / "demo"
+        git_init(repo)
+        (repo / ".claude" / "rules").mkdir(parents=True)
+        (repo / ".claude" / "rules" / "always.md").write_text("# a\n")
+        git_commit_all(repo)
+        bad = instructions_ev("b1", "s1", [])
+        bad["attachment"]["files"] = {"path": "x"}
+        rows = [
+            instructions_ev("c1", "s1", [f"{repo.resolve()}/.claude/rules/always.md"]),
+            bad,
+            *filler("s1"),
+        ]
+        write_transcript(tmp_path / "projects", hr.project_slug(repo), rows)
+        base = repo / ".claude" / "worktrees"
+        base.mkdir()
+        with unreadable(base):
+            hr.main(collect_args(repo, tmp_path, "--no-ci"))
+        snap = load(tmp_path / "out" / "snap.json")
+        errors = snap["rule_loads"]["source"]["errors"]
+        assert any("形狀不符" in e for e in errors) and any(str(base) in e for e in errors)
+        assert set(errors) <= set(snap["warnings"])
 
     def test_hwr_st_030_collect_resolves_real_worktree(self, tmp_path: Path) -> None:
         """HWR-ST-030: 端對端：`<repo>/.claude/worktrees/feat/x` 是真的 git worktree 時，cmd_collect 取得的
