@@ -216,7 +216,7 @@ plugin hook 的 silent-block（repo 的註冊清單看不到它，也沒有它�
   所以指令檔表的次數會偏低（2026-11-04 的 yibi-mvp 量測有 33 個這樣的路徑，根目錄 `CLAUDE.md` 為 27/30）。
 - path-scoped rule 的次數欄寫「量不到」時，代表有載入專案指令的 session 至少 `RULE_LOAD_MIN_SESSIONS`（3）個、
   卻沒有任何路徑解析得出來的 `nested_memory` 事件，通常是 Claude Code 改了這種事件的名稱或路徑格式，0 次不能當成
-  沒人碰那些路徑。少於 3 個時照常顯示 0，表頭註明這些 0 次未經對照確認。
+  沒人碰那些路徑。只有 1 到 2 個時照常顯示 0，表頭註明這些 0 次未經對照確認。
 - 整節只寫「量不到」而不是一張表時，代表載入紀錄不可信：transcript 讀取失敗、觀察期內事件太少、attachment 形狀不符、
   worktree 名稱列不出來，或有 `entrypoint` 為 `cli` 的 session 卻看不到任何 `instructions` 事件、`instructions`
   列出的檔案沒有任何一個是 rule（後兩者通常是 Claude Code 改了 transcript 格式）。原因列在報告開頭的「量測不完整」。

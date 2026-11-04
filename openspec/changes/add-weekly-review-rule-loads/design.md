@@ -145,7 +145,7 @@ transcript 載入的是舊名稱，拿新名稱比對會整節量不到（R2-3�
   卻解析不出來的另記 `nested_unresolved_events`。有載入專案指令的 session 至少 `RULE_LOAD_MIN_SESSIONS`（3）個、
   `nested_memory_events` 卻是 0 時，path-scoped rule 的次數與佔比改寫「量不到」，表頭說明原因；不論
   `nested_unresolved_events` 是多少都一樣，因為路徑形狀整批改變時無法解析的事件可能很多。這不使來源不完整，
-  因為每次必載的 rule 仍可判讀。低於門檻時照常顯示 0，但表頭註明「以下 path-scoped 的 0 次未經對照確認」。
+  因為每次必載的 rule 仍可判讀。有載入專案指令的 session 至少 1 個但低於門檻時照常顯示 0，但表頭註明「以下 path-scoped 的 0 次未經對照確認」。
   快照沒有 `nested_memory_events` 欄位時照常顯示次數
   - 被否決的作法：數所有 path 是字串的 nested_memory 事件（I-7 的修法）。path 改成相對路徑、`file://` URI，或期內
     只有 repo 外的事件時偵測不會觸發（R2-5，silent-failure-hunter 的 probe.out 三組）

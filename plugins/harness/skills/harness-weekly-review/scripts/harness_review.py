@@ -2276,7 +2276,7 @@ def render_rule_loads(snap: dict[str, Any]) -> list[str]:
     只寫「量不到」，不印一張全是 0 的表——0 次與量不到在這張表上必須分得開。
     有載入專案指令的 session 達 RULE_LOAD_MIN_SESSIONS 個、卻沒有任何可解析的 nested_memory 事件時，
     path-scoped rule 的次數也不能判讀（nested_memory 的格式可能改了），該欄改寫「量不到」；
-    低於門檻時照常顯示 0，但表頭註明這些 0 次未經對照確認。
+    有載入專案指令的 session 至少 1 個但低於門檻時照常顯示 0，但表頭註明這些 0 次未經對照確認。
     """
     loads = snap.get("rule_loads")
     lines = ["", "## rule 載入次數（本期，以 session 計）", ""]
