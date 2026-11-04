@@ -4,7 +4,7 @@ type: feat
 
 # Proposal：add-weekly-review-rule-loads
 
-> 版本：v0.1 | 日期：2026-11-03 | 狀態：已實作，待 review
+> 版本：v0.2 | 日期：2026-11-04 | 狀態：已實作，PR #628 review 第 2 輪修正後待 review
 > 來源：yibi-mvp 2026-11-03 團隊會議「context 太肥」討論與其後續（yibi-mvp PR #2710）
 
 ## Summary
@@ -17,10 +17,14 @@ type: feat
 
 既有的 rule 量測只有「成本」：每個 rule 檔的字元數、是否每次必載、哪些段落適合機械化。它回答不了「這條 rule
 到底有沒有進過 context」。yibi-mvp 在縮減常駐 rule 時遇到三個只能靠載入次數回答的問題。以下數字取自同一份快照
-（2026-11-03 量測、觀察期 14 天，量測指令與完整表見 design.md D3）：
+（2026-11-04 量測、觀察期 14 天，量測指令與完整表見 design.md D3）。量測對象是 yibi-mvp 的
+`worktree-trim-always-loaded-rules` 分支 checkout，不是 main：
 
-1. **搬到子資料夾有沒有用？** 會議提議把 rule 搬進 `backend/`、`mobile/` 等子目錄延遲載入。實測 37 個 rule 裡已有
-   30 個用 `paths:` 延遲載入，但沒有數據說明它們實際多常被觸發；同一份快照裡有 5 個兩週 0 次。
+1. **搬到子資料夾有沒有用？** 會議提議把 rule 搬進 `backend/`、`mobile/` 等子目錄延遲載入。該分支 37 個 rule 裡有
+   30 個用 `paths:` 延遲載入（yibi-mvp main 為 35 個、28 個；差的兩個 incident-log 檔於 2026-11-03 才在該分支以
+   commit `247f5ae11` 建立），但沒有數據說明它們實際多常被觸發。同一份快照裡，存在滿兩週的 path-scoped rule 有
+   4 個兩週 0 次（`10`、`24`、`33`、`50-mobile-openspec-boundary`）；另一個 0 次的
+   `15-retirement-sweep-incident-log.md` 是量測前一天才建立，不算兩週的觀察。
 2. **path 有沒有寫錯？** yibi-mvp 的 `42-worktree-safety.md` 用 `paths: ".claude/worktrees/**"`，而多數 session 都在
    worktree 內執行。兩週內有載入專案指令的 30 個 session 中，它只載入 1 次。推論（未確認）：worktree session 的
    專案根目錄就是 worktree 本身，這個 glob 永遠對不上。沒有載入次數就看不出來。
@@ -31,10 +35,12 @@ type: feat
 
 - 新增 `collect_rule_loads` collector：沿用既有的 `transcript_files` 與 `_read_lines`，依 sessionId 計數，把主 checkout
   與 `.claude/worktrees/<name>/`（名稱可含 `/`）的同一檔案正規化成同一個相對路徑，並依 entrypoint 記錄 session 數與
-  其中載入了專案指令的 session 數。跨越觀察期起點的 session 以整個 session 計。
+  其中載入了專案指令的 session 數。跨越觀察期起點的 session 以整個 session 計，觀察期以 `now` 為上界。
+  worktree 名稱取自 `git worktree list` 與 `.claude/worktrees/` 的實際目錄（`collect_worktree_roots`），不從路徑推論。
 - 來源完整性遵守既有的白名單語意（預設不完整），另加一個領域對照：觀察期內有 `entrypoint` 等於 `cli` 的 session，
-  卻看不到任何 `instructions` 事件，或每次必載的 rule 一條都沒有載入，就判定 transcript 格式可能已改變，來源不完整。
-  只有部分必載 rule 為 0 次時（期間才新增或剛改成必載）只在報告列出，不判為不完整。
+  卻看不到任何 `instructions` 事件，或 `instructions` 列出的檔案沒有任何一個是 rule，就判定 transcript 格式可能已改變，
+  來源不完整。對照不比對執行 checkout 的必載 rule 名稱；checkout 的必載 rule 本期 0 次時（期間才新增、剛改成必載，
+  或在改名 rule 的分支執行）只在報告列出，不判為不完整。
 - 報告新增「rule 載入次數」一節；來源不完整或快照沒有這一節時，只寫「量不到」，不印一張全是 0 的表。
 
 ## Non-Goals

@@ -208,14 +208,19 @@ plugin hook 的 silent-block（repo 的註冊清單看不到它，也沒有它�
 - 每次必載的 rule 應接近 100%。表頭若列出「這些每次必載的 rule 本期 0 次」，通常是那條 rule 期間才新增或剛改成必載。
 - path-scoped rule 為 0 次，可能是期間沒人碰那些路徑，也可能是 `paths:` 寫錯，連續多週 0 次才值得打開原文檢查。
   觀察到的例子（原因尚未確認）：yibi-mvp 的 `paths: ".claude/worktrees/**"` 在 30 個有載入專案指令的 session 中
-  只載入 1 次（2026-11-03 量測，觀察期 14 天）。
-- `.claude/rules/` 子目錄內的 rule 也會計數，載入範圍欄標「不在 collect_rules 清單」，因為 rules 成本量測只看直接子項。
-- path-scoped rule 的次數欄寫「量不到」時，代表有載入專案指令的 session 夠多、卻一筆 `nested_memory` 事件都沒有，
-  通常是 Claude Code 改了這種事件的格式，0 次不能當成沒人碰那些路徑。
-- 整節只寫「量不到」而不是一張表時，代表載入紀錄不可信：transcript 讀取失敗、觀察期內事件太少、attachment 形狀不符，
-  或有 `entrypoint` 為 `cli` 的 session 卻看不到任何 `instructions` 事件、每次必載的 rule 一條都沒有載入（後兩者
-  通常是 Claude Code 改了 transcript 格式）。原因列在報告開頭的「量測不完整」。快照產生於這個功能之前時，該節會
-  直接寫明沒有載入紀錄。
+  只載入 1 次（2026-11-04 量測 `worktree-trim-always-loaded-rules` 分支 checkout，觀察期 14 天）。
+- `.claude/rules/` 子目錄內的 rule、子專案自帶的 rule（例如 `mobile/.claude/rules/x.md`）也會以自己的路徑計數，
+  載入範圍欄標「不在 collect_rules 清單」，因為 rules 成本量測只看根目錄 rules 的直接子項。
+- worktree 名稱取自 `git worktree list` 與 `.claude/worktrees/` 的實際目錄。表頭若寫「N 個 worktree 內的路徑對不上
+  任何現存的 worktree」，那些多半是期間已刪除的 worktree：其中的 rule 照常計入，`CLAUDE.md`／`AGENTS.md` 不計，
+  所以指令檔表的次數會偏低（2026-11-04 的 yibi-mvp 量測有 33 個這樣的路徑，根目錄 `CLAUDE.md` 為 27/30）。
+- path-scoped rule 的次數欄寫「量不到」時，代表有載入專案指令的 session 至少 `RULE_LOAD_MIN_SESSIONS`（3）個、
+  卻沒有任何路徑解析得出來的 `nested_memory` 事件，通常是 Claude Code 改了這種事件的名稱或路徑格式，0 次不能當成
+  沒人碰那些路徑。少於 3 個時照常顯示 0，表頭註明這些 0 次未經對照確認。
+- 整節只寫「量不到」而不是一張表時，代表載入紀錄不可信：transcript 讀取失敗、觀察期內事件太少、attachment 形狀不符、
+  worktree 名稱列不出來，或有 `entrypoint` 為 `cli` 的 session 卻看不到任何 `instructions` 事件、`instructions`
+  列出的檔案沒有任何一個是 rule（後兩者通常是 Claude Code 改了 transcript 格式）。原因列在報告開頭的「量測不完整」。
+  快照產生於這個功能之前時，該節會直接寫明沒有載入紀錄。
 
 ### Step 4 — LLM 判讀（腳本只量測，語意判斷在這裡）
 

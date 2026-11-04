@@ -15,7 +15,7 @@
   worktree 不正規化、報告忽略來源、分母改用全部 session、忽略觀察期、丟掉 nested_memory），全數被新測試抓到；
   備註：測試寫在實作之後，不是 red-first，所以改以 mutation 證明測試守得住
 - [x] 3.2 對 yibi-mvp 兩週真實 transcript 執行 collect 與 report；驗證：每次必載的 rule 皆 100%、分母排除 `sdk-py`
-- [x] 3.3 既有 harness-weekly-review 測試（133 個）全數通過；`make ci` 的 pre-commit 全數通過（`git add` 之後跑）。
+- [x] 3.3 既有 harness-weekly-review 測試（133 個，為當時的數量；第 1 輪 review 修正後為 149 個，第 2 輪見 6.10）全數通過；`make ci` 的 pre-commit 全數通過（`git add` 之後跑）。
   `make ci` 整體 exit 2：pytest 4,850 passed、70 failed，70 個全在 `test_red_first_sh.py`，在同一環境以乾淨的
   `origin/main` 跑該檔結果相同（70 failed），與本 change 無關；推測是 background session 設了 `CLAUDE_JOB_DIR`，
   未在一般終端機實測
@@ -48,3 +48,32 @@
 - [x] 5.14 以同一份快照重寫 D3、proposal、design「驗證」、SKILL.md 與 docstring 的實測數字（I-12）；
   驗證：design.md D3 的量測指令與時間
 - [x] 5.15 `check_testplan_trace.py --strict --report --change add-weekly-review-rule-loads` 全部 TC 皆為 bound
+
+## 6. PR #628 review 第 2 輪修正（owner 裁決重新設計）
+
+行為類項目先寫測試、在修正前的產品碼以斷言失敗（下列「紅燈」），再改產品碼。
+
+- [x] 6.1 觀察期以 `now` 為上界（R2-1）；驗證：HWR-DT-093。紅燈：`assert 2 == 1`（session 數）
+- [x] 6.2 worktree 名稱改取自 `git worktree list` 與 `.claude/worktrees/` 的實際目錄（`collect_worktree_roots`），
+  `RULE_REL` 收子專案 rule，拿掉「最後一個 `/.claude/rules/`」推論，對不上的非 rule 路徑計入
+  `unresolved_worktree_paths`（R2-2、R2-7、R2-8、CR-9）；驗證：HWR-DT-100、HWR-DT-101、HWR-DT-102、HWR-ST-030。
+  紅燈：DT-100 `assert 'x' is None`；DT-101 `assert 'x/CLAUDE.md' is None`；DT-102 `assert set() == {'outer', ...}`；
+  ST-030 `assert None == 0`
+- [x] 6.3 格式對照不比對執行 checkout 的必載 rule 名稱（R2-3）；驗證：HWR-DT-098。紅燈：
+  `{'complete': False} != {'complete': True}`
+- [x] 6.4 attachment 不是物件、`files` 缺漏或不是清單（含 `{}`、`""`）計為形狀不符（R2-4）；驗證：HWR-DT-094。
+  紅燈：`AssertionError: attachment-string`（`assert True is False`）
+- [x] 6.5 `nested_memory_events` 只數可解析的事件、另記 `nested_unresolved_events`；新增 `RULE_LOAD_MIN_SESSIONS`；
+  低於門檻時表頭註明未經對照確認（R2-5、CR-10、NIT）；驗證：HWR-DT-099、HWR-DT-089。紅燈：DT-099
+  `AssertionError: relative`（`assert 6 == 0`）；DT-089 新表頭文字不在報告中
+- [x] 6.6 補 N9、N10、N11 的區別測試（R2-6）：HWR-DT-081 追加 `always_missing == []`、HWR-DT-095、HWR-DT-096。
+  守既有行為，修正前即通過，以 design.md「驗證」第 4 點的 mutation (g)、(h) 證明有效
+- [x] 6.7 讀檔失敗與壞行不再重複回傳成 warning（CR-7）；驗證：HWR-DT-097，HWR-ST-029 確認快照 warnings 仍非空。
+  紅燈：`assert ['rule 載入：略過 1 行格式錯誤（可能被截斷）的紀錄'] == []`
+- [x] 6.8 以 2026-11-04 的同一份快照重寫 design D3、proposal、design「驗證」、SKILL.md 與 docstring 的數字，註明量的是
+  分支 checkout、兩個 incident-log 檔於 2026-11-03 建立、main 為 35／28（R2-9）；修 design D2 的去重矛盾、
+  HWR-DT-089 的註解來源、SKILL.md「夠多」改寫門檻（NIT）
+- [x] 6.9 spec 新增 10 個 scenario 並更新 AC-2 相關 requirement；testplan 新增 12 個 TC；
+  `check_testplan_trace.py --strict --report --change add-weekly-review-rule-loads` 28 個 TC 皆為 bound
+- [x] 6.10 9 個單點 mutation 全數被抓到（design.md「驗證」第 4 點）；`pytest scripts/tests/test_harness_weekly_review.py`
+  161 passed；`pre-commit run --all-files` 通過（`git add` 之後跑）

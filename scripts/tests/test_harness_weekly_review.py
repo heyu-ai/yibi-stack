@@ -85,6 +85,12 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。mock 只放在外部邊
     觀察期內事件不足：HWR-DT-088；nested_memory 格式漂移顯示量不到：HWR-DT-089；
     attachment 形狀不符：HWR-DT-090；worktree 名稱含 /：HWR-DT-091；
     沒有載入專案指令的 session 時報告不除以零：HWR-DT-092
+  - PR #628 review 第 2 輪（重新設計）：觀察期結束時間：HWR-DT-093；attachment 形狀變形：HWR-DT-094；
+    只列 repo 外 Project 檔不進分母：HWR-DT-095；只有 User 檔不觸發對照：HWR-DT-096；
+    讀檔失敗不重複回傳 warning：HWR-DT-097，但快照 warnings 仍非空：HWR-ST-029；
+    格式對照不依賴 checkout 的必載 rule 名稱：HWR-DT-098；nested 路徑整批無法解析：HWR-DT-099；
+    權威 worktree 名稱與子專案 rule：HWR-DT-100；已刪除的 worktree：HWR-DT-101；
+    collect_worktree_roots 的來源與 git 失敗：HWR-DT-102；真實 git worktree 端對端：HWR-ST-030
 """
 
 from __future__ import annotations
@@ -3486,7 +3492,9 @@ class TestRuleLoads:
         assert data["rules"] == {".claude/rules/always.md": 1}
 
         # 只有 now 之後的事件時，期內事件數不足 → 量不到
-        only_late = [instructions_ev(f"x{i}", "late", [f"{r}/always.md"], ts=late) for i in range(3)]
+        only_late = [
+            instructions_ev(f"x{i}", "late", [f"{r}/always.md"], ts=late) for i in range(3)
+        ]
         write_transcript(tmp_path / "q", hr.project_slug(repo), only_late)
         data, warnings = run_loads(tmp_path / "q", repo, rules)
         assert data["source"]["complete"] is False
