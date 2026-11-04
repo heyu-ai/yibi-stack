@@ -75,6 +75,7 @@ are proper Claude Code plugins with `package.json` manifests. They install hooks
 
 **Skills** (`skills/*/SKILL.md`) are runbook files — not plugins. They're installed as symlinks into `~/.claude/skills/` via `make install`,
 except skills that a plugin already provides (`skills/<name>` is a symlink into `plugins/`): those load through the plugin, so `make install` does not link them a second time.
+To get those skipped skills, install the owning pack with `claude plugin install <pack>@yibi-stack`.
 They tell Claude *how* to approach a workflow; no hooks are involved. A skill is not installable on its own via `claude plugin install`; it ships either through `make install` or inside its plugin pack.
 
 ### Install

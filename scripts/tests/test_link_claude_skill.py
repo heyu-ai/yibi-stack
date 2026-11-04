@@ -330,6 +330,22 @@ class TestExitCodes:
         assert "[FAIL]" in result.stderr
         assert still_there
 
+    def test_lcs_ec_005_nonexistent_repo_root_fails_in_both_modes(self, tmp_path: Path) -> None:
+        """LCS-EC-005: repo_root 進不去時 exit 1 並 [FAIL]，不可靜默當 native 或建出失效連結"""
+        missing = tmp_path / "no such repo"
+        dst = tmp_path / "claude_skills"
+        dst.mkdir()
+
+        install = _run(missing, "native", dst)
+        check = _run_check([str(missing), "native"])
+
+        assert install.returncode == 1, install.stderr
+        assert "[FAIL]" in install.stderr
+        assert not (dst / "native").is_symlink()
+        assert check.returncode == 1, check.stderr
+        assert "[FAIL]" in check.stderr
+        assert check.stdout.strip() == ""
+
     def test_lcs_ec_003_four_arguments_fail_loud(self, tmp_path: Path) -> None:
         """LCS-EC-003 (AC-6): 4 個參數 exit 1 並 [FAIL]，不靜默忽略多的參數"""
         result = subprocess.run(  # nosec B603

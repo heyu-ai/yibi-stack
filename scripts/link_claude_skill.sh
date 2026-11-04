@@ -10,8 +10,8 @@
 #
 # 判準：<repo_root>/skills/<skill_name> 是 symlink，且解析後的實體路徑落在
 # <repo_root>/plugins/ 之下，代表這個 skill 的正本在 plugin 裡，
-# Claude Code 會經由 plugin 機制載入它（不驗證該 plugin 是否已安裝）
-# （skill 清單裡的 `dev-cycle:pr-cycle-deep`）。再連一份到 ~/.claude/skills/
+# Claude Code 會經由 plugin 機制載入它（在 skill 清單中顯示為 `dev-cycle:pr-cycle-deep`），
+# 不驗證該 plugin 是否已安裝。再連一份到 ~/.claude/skills/
 # 會讓同一個 skill 出現兩次（`pr-cycle-deep` 與 `dev-cycle:pr-cycle-deep`），
 # 且兩者指向不同來源（本機 checkout vs plugin cache），內容可能不同步。
 #
@@ -49,7 +49,15 @@ fi
 
 SRC="${REPO_ROOT}/skills/${NAME}"
 DST="${DST_DIR}/${NAME}"
-SCRIPT_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd -P -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+# repo_root 進不去就無法判準：兩種模式都 fail loud，不可靜默當成 native
+# （否則安裝模式會建出指向不存在路徑的失效連結）。
+# 注意這與「SRC 是失效 symlink」不同：後者是 RESOLVED_SRC 為空，屬正常的 native。
+if ! RESOLVED_ROOT=$(cd -P -- "$REPO_ROOT" 2>/dev/null && pwd -P); then
+    echo "  [FAIL] link_claude_skill.sh: 無法進入 repo_root：${REPO_ROOT}" >&2
+    exit 1
+fi
 
 # 「由 plugin 提供」= SRC 是 symlink，且解析後的實體目錄落在 <repo>/plugins/ 之下。
 # 只看 -L 太寬：指向 plugins/ 以外（或已失效）的 symlink 並不是 plugin 提供的，
@@ -57,13 +65,10 @@ SCRIPT_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # 兩個路徑都用 cd -P + pwd -P 取實體路徑，避免 macOS 的 /var -> /private/var 造成前綴不符。
 PLUGIN_PROVIDED=0
 if [ -L "$SRC" ]; then
-    if ! RESOLVED_SRC=$(cd -P "$SRC" 2>/dev/null && pwd -P); then
+    if ! RESOLVED_SRC=$(cd -P -- "$SRC" 2>/dev/null && pwd -P); then
         RESOLVED_SRC=""
     fi
-    if ! RESOLVED_ROOT=$(cd -P "$REPO_ROOT" 2>/dev/null && pwd -P); then
-        RESOLVED_ROOT=""
-    fi
-    if [ -n "$RESOLVED_SRC" ] && [ -n "$RESOLVED_ROOT" ]; then
+    if [ -n "$RESOLVED_SRC" ]; then
         case "$RESOLVED_SRC" in
             "${RESOLVED_ROOT}/plugins/"*) PLUGIN_PROVIDED=1 ;;
         esac

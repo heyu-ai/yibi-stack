@@ -316,7 +316,7 @@ status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.age
 
 status-own: ## Show install status for skills in THIS repo only (excludes gstack/external)
 	@echo "=== yibi-stack skills (CC=~/.claude/skills, AG=~/.agents/skills) ==="; \
-	echo "  CC: OK=已連結  PL=由 plugin 提供（刻意不連）  DUP=plugin 已提供但殘留舊連結（make install 會清掉）  --=未連結"; \
+	echo "  CC: OK=已連結  PL=由 plugin 提供（刻意不連）  DUP=plugin 已提供但殘留舊連結（scope=global 者 make install 會清掉）  --=未連結"; \
 	echo ""; \
 	if [ ! -d "$(SKILL_DIR)" ] || [ -z "$$(ls -A $(SKILL_DIR) 2>/dev/null)" ]; then \
 		echo "  (skills/ is empty)"; \
