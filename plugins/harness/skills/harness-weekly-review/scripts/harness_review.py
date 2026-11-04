@@ -876,6 +876,7 @@ def collect_rule_loads(
     memory_sessions: dict[str, set[str]] = {}
     excluded = 0
     nested_events = 0
+    instr_has_rule = False  # 觀察期內是否有任何 instructions 路徑落在 `.claude/rules/`（格式對照用）
     for sid, s in sessions.items():
         instr_rel = [r for p in s["instr"] if (r := repo_relative(p, main_repo, roots)) is not None]
         nested_rel = [
@@ -884,6 +885,7 @@ def collect_rule_loads(
         loaded = [
             r for r in instr_rel + nested_rel if RULE_REL.fullmatch(r) or MEMORY_REL.fullmatch(r)
         ]
+        instr_has_rule = instr_has_rule or any(RULE_REL.fullmatch(r) for r in instr_rel)
         if instr_rel:
             with_instr.add(sid)
             nested_events += len(s["nested_ids"])
@@ -928,12 +930,14 @@ def collect_rule_loads(
                     f"rule 載入：觀察期內有 {len(cli_sessions)} 個 cli session，但沒有任何 "
                     "instructions 事件；transcript 格式可能已改變，本週未量測"
                 )
-            # 只有部分必載 rule 為 0 次可能是期間才新增，不判為格式改變（報告列出 always_missing）
-            if always and len(missing) == len(always):
+            # 對照只看 transcript 裡有沒有任何 rule 經 instructions 載入，不看本 checkout 的必載 rule
+            # 名稱：在改名所有必載 rule 的分支執行時，期內載入的是舊名稱，拿新名稱比對會整節量不到。
+            # 本 checkout 的必載清單只用於 always_missing。
+            if always and not instr_has_rule:
                 errors.append(
-                    f"rule 載入：觀察期內有 {len(cli_sessions)} 個 cli session，但每次必載的 rule "
-                    f"一條都沒有載入（{', '.join(missing)} 載入 0 次）；transcript 格式可能已改變，"
-                    "本週未量測"
+                    f"rule 載入：觀察期內有 {len(cli_sessions)} 個 cli session、本 checkout 有 "
+                    f"{len(always)} 條每次必載的 rule，但 instructions 列出的檔案沒有任何一個位於 "
+                    "`.claude/rules/`；transcript 格式可能已改變，本週未量測"
                 )
     by_entry: dict[str, dict[str, int]] = {}
     for sid, s in sessions.items():

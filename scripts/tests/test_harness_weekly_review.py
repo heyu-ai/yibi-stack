@@ -3025,7 +3025,7 @@ class TestRuleLoads:
         data, warnings = run_loads(renamed, repo, rules)
         assert data["source"]["complete"] is False
         assert any("沒有任何 instructions 事件" in e for e in data["source"]["errors"])
-        assert any("always.md 載入 0 次" in e for e in warnings)
+        assert any("沒有任何一個位於 `.claude/rules/`" in e for e in warnings)
 
         partial = tmp_path / "partial"
         write_transcript(
@@ -3033,7 +3033,7 @@ class TestRuleLoads:
         )
         data, _ = run_loads(partial, repo, rules)
         assert data["source"]["complete"] is False
-        assert any("always.md 載入 0 次" in e for e in data["source"]["errors"])
+        assert any("沒有任何一個位於 `.claude/rules/`" in e for e in data["source"]["errors"])
 
         sdk_only = tmp_path / "sdk"
         write_transcript(sdk_only, slug, [plain_ev("q1", "s9", "sdk-py"), *filler("s9", "sdk-py")])
@@ -3625,3 +3625,20 @@ class TestRuleLoads:
         assert snap["rule_loads"]["source"]["complete"] is False
         assert snap["warnings"] != []
         assert any("讀取失敗" in w for w in snap["warnings"])
+
+    def test_hwr_dt_098_control_ignores_checkout_rule_names(self, tmp_path: Path) -> None:
+        """HWR-DT-098: 格式對照不依賴執行 collect 的 checkout 有哪些必載 rule：transcript 載入的是
+        old.md、checkout 的必載 rule 只有 new.md（在改名所有必載 rule 的分支執行）→ 來源仍完整，
+        new.md 記進 always_missing
+        spec: weekly-review-rule-loads#control-ignores-checkout-rule-names
+        tc: HWR-DT-098
+        """
+        repo = tmp_path / "demo"
+        repo.mkdir()
+        rows = [instructions_ev("a1", "s1", [f"{repo}/.claude/rules/old.md"]), *filler("s1")]
+        write_transcript(tmp_path / "p", hr.project_slug(repo), rows)
+        rules = rules_section(repo, [".claude/rules/new.md"], {})
+        data, warnings = run_loads(tmp_path / "p", repo, rules)
+        assert data["source"] == complete_source() and warnings == []
+        assert data["always_missing"] == [".claude/rules/new.md"]
+        assert data["rules"] == {".claude/rules/old.md": 1}
