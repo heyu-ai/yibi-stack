@@ -15,6 +15,9 @@
   - ~/.claude/projects/<slug> 與 <slug>--claude-worktrees-*/ 底下的 **/*.jsonl：
     Claude Code transcript（含 plugin hook 阻擋，保留約 30 天；slug 取主 repo 路徑）
   - <repo>/.claude/rules/*.md、CLAUDE.md：每次必載的 context 成本
+  - 同一批 transcript 的 instructions／nested_memory 事件：每個 rule 檔與指令檔（根目錄與
+    子目錄的 CLAUDE.md／AGENTS.md）實際被載入的 session 數（collect_rule_loads；只回答有沒有
+    載入，不回答有沒有照做）
   - <repo>/.github/workflows/*.yml 與 gh api：CI failed run 與 failed job／step（可用 --no-ci 略過）
 
 Exit code（collect）：
@@ -55,7 +58,7 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +75,10 @@ HOOK_MIN_CALLS = 3
 
 # transcript 類建議要判定，觀察期內至少要有這麼多筆事件
 TRANSCRIPT_MIN_EVENTS = 3
+# 有載入專案指令的 session 至少這麼多個、卻沒有任何可解析的 nested_memory 事件時，path-scoped rule
+# 的 0 次不能判讀（render_rule_loads 改寫「量不到」）。與 TRANSCRIPT_MIN_EVENTS 數值相同但單位不同
+# （session 數 vs 事件數），分開定義以免調一個連帶改另一個
+RULE_LOAD_MIN_SESSIONS = 3
 
 # 外部指令（git／gh／mycelium）的逾時秒數；逾時視為讀取失敗，不讓排程卡住
 CMD_TIMEOUT_SECONDS = 60
@@ -511,7 +518,7 @@ def transcript_files(projects_dir: Path, main_repo: Path, errors: list[str]) -> 
 
     for entry in scan_dir(projects_dir, errors, "transcript"):
         name = entry.name
-        if entry.is_dir() and (name == slug or name.startswith(slug + "--claude-worktrees-")):
+        if entry.is_dir() and (name == slug or name.startswith(slug + WORKTREE_DIR_INFIX)):
             for root, _dirs, fnames in os.walk(entry.path, onerror=on_walk_error):
                 out.extend(os.path.join(root, n) for n in fnames if n.endswith(".jsonl"))
     return sorted(out)
@@ -668,6 +675,417 @@ def collect_transcript_blocks(
         "hooks": per_hook,
         "source": make_source(errors),
     }, errors + warnings
+
+
+# ---------------------------------------------------------------------------
+# collect：rule 與指令檔（CLAUDE.md／AGENTS.md）的實際載入次數（transcript）
+# ---------------------------------------------------------------------------
+
+
+# rule：repo 根目錄或子專案（例如 `mobile/.claude/rules/`）的 `.claude/rules/**/*.md`。
+# 子專案的 rule 以自己的路徑計數，主 checkout 與 worktree 一致；collect_rules 只列根目錄
+# rules 的直接子項，所以子專案與 rules 子目錄內的 rule 在報告標明不在清單內
+RULE_REL = re.compile(r"(?:.+/)?\.claude/rules/.+\.md")
+MEMORY_REL = re.compile(r"(?:.+/)?(?:CLAUDE|AGENTS)\.md")
+WORKTREES_REL = ".claude/worktrees/"
+RULES_ANCHOR = "/.claude/rules/"
+
+
+def _split_repo_path(path: str, main_repo: Path) -> tuple[bool, str] | None:
+    """回傳 (是否位於 `.claude/worktrees/` 底下, 去掉 repo 根目錄或該前綴後的剩餘路徑)。
+
+    不屬於本 repo 回 None。主 repo 路徑與它解析 symlink 後的路徑都認（transcript 與 git 記錄的
+    可能是其中任一種，例如 macOS 的 /var 與 /private/var）。
+    """
+    for root in dict.fromkeys((str(main_repo), str(main_repo.resolve()))):
+        prefix = root.rstrip("/") + "/"
+        if not path.startswith(prefix):
+            continue
+        rel = path[len(prefix) :]
+        if rel.startswith(WORKTREES_REL):
+            return True, rel[len(WORKTREES_REL) :]
+        return False, rel
+    return None
+
+
+def collect_worktree_roots(main_repo: Path) -> tuple[set[str], list[str]]:
+    """列出 `<main>/.claude/worktrees/` 底下的 worktree 名稱（相對該目錄，可含 /），與列舉錯誤。
+
+    名稱取自兩個權威來源的聯集，不從 transcript 的路徑推論（已刪除 worktree 的例外由
+    collect_rule_loads 處理，見 worktree_root_from_dir_slug）：
+    - `git worktree list --porcelain` 中位於 `<main>/.claude/worktrees/` 底下的 worktree
+    - 走訪 `<main>/.claude/worktrees/`，含 `.git` 項目（linked worktree 是檔案）的目錄即為 worktree
+      根目錄，不再往下走；git 已不認得但目錄還在的 worktree 靠這條取得
+    `.claude/worktrees/` 不存在是常態，不算錯誤。git 失敗或目錄列不出來時記進錯誤，代表名稱
+    可能不齊，呼叫端（collect_rule_loads）據此把來源標為不完整，不把「列不出來」當成「沒有」。
+    """
+    roots: set[str] = set()
+    errors: list[str] = []
+    r = run_cmd(["git", "-C", str(main_repo), "worktree", "list", "--porcelain"], main_repo)
+    if r.returncode != 0:
+        errors.append(
+            f"rule 載入：git worktree list 失敗（{(r.stderr or '').strip()[:200]}），"
+            "worktree 名稱可能不齊，本週未量測"
+        )
+    else:
+        for line in r.stdout.splitlines():
+            if not line.startswith("worktree "):
+                continue
+            hit = _split_repo_path(line[len("worktree ") :].rstrip("/"), main_repo)
+            if hit is not None and hit[0] and hit[1]:
+                roots.add(hit[1])
+    base = main_repo / WORKTREES_REL.rstrip("/")
+    if base.is_dir():
+
+        def on_walk_error(e: OSError) -> None:
+            errors.append(f"rule 載入：{e.filename} 無法列出（{e}），worktree 名稱可能不齊")
+
+        for root, dirs, fnames in os.walk(base, onerror=on_walk_error):
+            if ".git" in dirs or ".git" in fnames:
+                rel = os.path.relpath(root, base)
+                if rel != ".":
+                    roots.add(Path(rel).as_posix())
+                dirs[:] = []  # worktree 根目錄底下不再找：裡面的 .git 是子模組或巢狀 repo
+    return roots, errors
+
+
+def resolve_repo_path(
+    path: str, main_repo: Path, worktree_roots: Collection[str]
+) -> tuple[str | None, bool]:
+    """回傳 (相對 repo 根目錄的路徑或 None, 是否為對不上已知 worktree 的 worktree 路徑)。
+
+    - 主 checkout 底下：去掉 repo 根目錄。
+    - `<main>/.claude/worktrees/` 底下：去掉最長的已知 worktree 名稱（worktree_roots，來自
+      collect_worktree_roots），所以 `feat` 與 `feat/x` 並存時 `feat/x/CLAUDE.md` 對到 `CLAUDE.md`；
+      worktree 內子專案的 `mobile/.claude/rules/x.md` 也保留自己的路徑。路徑剛好是 worktree 根目錄
+      本身時回 (None, False)。
+    - 對不上任何已知 worktree（多半是期間已刪除，且 collect_rule_loads 無法以 transcript
+      目錄名稱推回）：rule 路徑以**第一個** `/.claude/rules/` 推回相對路徑，第二個欄位仍為
+      False；其他檔案不猜，回 (None, True) 由呼叫端計入 unresolved_worktree_paths。
+      已知限制：已刪除 worktree 內子專案的 rule（`mobile/.claude/rules/x.md`）會被推成
+      根目錄的 `.claude/rules/x.md`，因為名稱與子專案目錄在路徑上無法區分。
+    - 不屬於本 repo：(None, False)。
+    """
+    hit = _split_repo_path(path, main_repo)
+    if hit is None:
+        return None, False
+    in_worktree, rest = hit
+    if not in_worktree:
+        return rest, False
+    for name in sorted(worktree_roots, key=len, reverse=True):
+        if rest == name:
+            return None, False
+        if rest.startswith(name + "/"):
+            return rest[len(name) + 1 :], False
+    i = rest.find(RULES_ANCHOR)
+    if i > 0:
+        return rest[i + 1 :], False
+    return None, True
+
+
+WORKTREE_DIR_INFIX = "--claude-worktrees-"
+
+
+def transcript_worktree_slug(transcript: str, projects_dir: Path, main_repo: Path) -> str | None:
+    """transcript 檔所在的 `<slug>--claude-worktrees-<X>` 目錄的 X。
+
+    主 repo 目錄或其他目錄回 None。
+    """
+    first = Path(os.path.relpath(transcript, projects_dir)).parts[0]
+    prefix = project_slug(main_repo) + WORKTREE_DIR_INFIX
+    return first[len(prefix) :] if first.startswith(prefix) and len(first) > len(prefix) else None
+
+
+def worktree_root_from_dir_slug(rest: str, dir_slug: str) -> str | None:
+    """從 `.claude/worktrees/` 之後的剩餘路徑找出正規化後等於 transcript 目錄名稱 X 的前綴。
+
+    X 由 Claude Code 以 project_slug 的同一規則（每個非英數字元換成 -）產生，所以前綴依 `/` 分段、
+    取正規化後恰好等於 X 的最短前綴，就是該 worktree 的根目錄。沒有前綴相符時回 None，不再往下猜。
+    """
+    parts = rest.split("/")
+    for i in range(1, len(parts)):
+        prefix = "/".join(parts[:i])
+        if re.sub(r"[^A-Za-z0-9]", "-", prefix) == dir_slug:
+            return prefix
+    return None
+
+
+def repo_relative(path: str, main_repo: Path, worktree_roots: Collection[str] = ()) -> str | None:
+    """把 transcript 記錄的絕對路徑換成相對 repo 根目錄的路徑；不屬於本 repo 或無法解析回 None。
+
+    主 checkout 與 `<main>/.claude/worktrees/<name>/` 底下的同一個檔案對應到同一個相對路徑，
+    週報才不會把同一條 rule 依 worktree 拆成很多列。規則與限制見 resolve_repo_path。
+    """
+    return resolve_repo_path(path, main_repo, worktree_roots)[0]
+
+
+def collect_rule_loads(
+    projects_dir: Path,
+    main_repo: Path,
+    rules: dict[str, Any],
+    *,
+    since: dt.datetime,
+    now: dt.datetime,
+    worktree_roots: Collection[str],
+    worktree_root_errors: Collection[str] = (),
+) -> tuple[dict[str, Any], list[str]]:
+    """從 transcript 數每個 rule 檔與指令檔（CLAUDE.md／AGENTS.md）在觀察期內被載入的 session 數。
+
+    資料來源是 Claude Code 寫進 transcript 的兩種 attachment：
+    - `instructions`：session 開始（或設定重載）時載入的指令檔，`files[].path`；
+      根目錄 CLAUDE.md／AGENTS.md，以及沒有 `paths:` 或 `paths: "**"` 的 rule 走這裡
+    - `nested_memory`：讀到某個路徑時才載入的 path-scoped rule 與子目錄 CLAUDE.md，`path`
+
+    計數單位是 sessionId：同一個 session 重載多次只算一次。使用者層的指令檔
+    （`instructions.files[].type == "User"`）與不在本 repo 底下的路徑不計；前者要靠 type 判斷，
+    因為 repo 就是家目錄時（例如 dotfiles repo），`~/.claude/CLAUDE.md` 也在 repo 底下。
+
+    路徑正規化見 resolve_repo_path：worktree 名稱由呼叫端以 worktree_roots 傳入（cmd_collect 以
+    collect_worktree_roots 取自 git worktree list 與 `.claude/worktrees/` 的實際目錄），不從路徑
+    推論；worktree_root_errors 非空代表名稱可能不齊，來源不完整。
+    唯一例外是已刪除的 worktree：
+    路徑讀自 `<slug>--claude-worktrees-<X>` 目錄的 transcript、又對不上已知名稱時，以
+    worktree_root_from_dir_slug 取正規化後恰好等於 X 的前綴，加進已知名稱；
+    主 repo 目錄的路徑不套用。
+    兩者都對不上的非 rule 路徑不猜，計入 unresolved_worktree_paths（只供報告顯示，不使來源不完整）。
+
+    「觀察期內的 session」是至少有一筆事件的 timestamp 落在 [since, now] 的 session；這種 session
+    的所有載入紀錄都算，不論那筆 attachment 本身的時間——觀察期開始前載入的指令在期內仍在
+    context 裡。只看事件時間會讓跨越 since 的 session 進分子卻不進分母，佔比超過 100%。
+    now 是上界：以 --now 回補過去某週時，之後才開始的 session 不算。
+
+    分母要分開記：不是每個 session 都會載入專案指令。實測（yibi-mvp 的 trim-always-loaded-rules
+    分支 checkout，2026-11-04 量測、觀察期 14 天）：`entrypoint == "cli"` 的 28 個 session 全部有
+    載入專案指令，`sdk-py` 的 96 個一個都沒有（量測指令與完整表見 openspec change
+    add-weekly-review-rule-loads 的 design.md D3）。
+    所以佔比的分母是「有載入專案指令的 session」：instructions 列出至少一個本 repo 內、
+    非使用者層的檔案。其他 session 的載入不進分子，只記進 excluded_sessions；報告另依
+    entrypoint 列出「session 數／有載入專案指令的 session 數」，讓沒載入任何 rule 的
+    session 群看得見。
+
+    nested_memory_events 只數解析成本 repo rule 或指令檔的 nested_memory 事件（依 uuid 去重，
+    只計有載入專案指令的 session）；路徑是字串卻解析不出來的另記 nested_unresolved_events。
+    render_rule_loads 以前者判斷 nested_memory 格式是否漂移。
+
+    來源不完整的情況：任一檔案讀不到、目錄列不出來、壞行或非物件的行、attachment 形狀不符
+    （attachment 不是物件、路徑不是字串、files 缺漏或不是清單、files 含非物件項目）、找不到
+    transcript、觀察期內有時間戳的事件少於 TRANSCRIPT_MIN_EVENTS、worktree 名稱列舉失敗、
+    rules 來源不完整。
+
+    格式對照：觀察期內有 entrypoint 等於 cli 的 session，卻沒有任何 instructions 事件；或本 checkout
+    有每次必載的 rule，但期內 instructions 列出的檔案沒有任何一個位於 `.claude/rules/`。兩者都代表
+    attachment 格式變了或解析壞了，不是 rule 真的沒載入——記成錯誤、來源不完整，報告顯示「量不到」
+    而不是一張全是 0 的表。對照刻意不比對本 checkout 的必載 rule 名稱：在改名所有必載 rule 的分支
+    執行時，期內載入的是舊名稱。本 checkout 的必載清單只用來列出 always_missing（期內 0 次的必載
+    rule，可能是期間才新增或剛改成必載），不判為格式改變。
+
+    回傳的 warnings 不含讀檔失敗、壞行、目錄列舉錯誤與「找不到 transcript」：
+    collect_transcript_blocks 對同一批檔案已回傳，這些只記進本來源的 errors。
+    """
+    listing_errors: list[str] = []
+    files = transcript_files(projects_dir, main_repo, listing_errors)
+    errors: list[str] = []
+    file_errors: list[str] = []
+    # 先依 session 累積、掃完才定案：session 是否在觀察期內要看它所有的事件
+    per_session: dict[str, dict[str, Any]] = {}
+    in_window = 0
+    bad_lines = 0
+    bad_shapes = 0
+    # (transcript 目錄名稱 X, 路徑)：只收 `<slug>--claude-worktrees-<X>` 目錄內的檔案，
+    # 供已刪除 worktree 的根目錄推回（見 resolve_repo_path）
+    wt_dir_paths: set[tuple[str, str]] = set()
+
+    for f in files:
+        dir_slug = transcript_worktree_slug(f, projects_dir, main_repo)
+        for line in _read_lines(Path(f), file_errors, "rule 載入"):
+            if not line.strip():
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                bad_lines += 1
+                continue
+            if not isinstance(ev, dict):
+                bad_lines += 1  # 合法 JSON 但不是物件
+                continue
+            session = ev.get("sessionId") or "?"
+            s = per_session.setdefault(
+                session,
+                {
+                    "in_window": False,
+                    "entry": set(),
+                    "saw_instructions": False,
+                    "instr": [],
+                    "nested": [],
+                },
+            )
+            ts = parse_ts(ev.get("timestamp"))
+            if ts is not None and since <= ts <= now:
+                in_window += 1
+                s["in_window"] = True
+            if isinstance(ev.get("entrypoint"), str):
+                s["entry"].add(ev["entrypoint"])
+            if ev.get("type") != "attachment":
+                continue
+            att = ev.get("attachment")
+            if not isinstance(att, dict):
+                bad_shapes += 1  # 缺漏、字串化的 JSON、清單：都不是現行格式
+                continue
+            kind = att.get("type")
+            if kind == "instructions":
+                s["saw_instructions"] = True
+                items = att.get("files")
+                if not isinstance(items, list):
+                    bad_shapes += 1  # 缺漏或不是清單（含 {} 與 "" 這類 falsy 值）
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        bad_shapes += 1
+                    elif item.get("type") == "User":
+                        continue
+                    elif isinstance(item.get("path"), str):
+                        s["instr"].append(item["path"])
+                        if dir_slug is not None:
+                            wt_dir_paths.add((dir_slug, item["path"]))
+                    else:
+                        bad_shapes += 1
+            elif kind == "nested_memory":
+                if isinstance(att.get("path"), str):
+                    # 事件 id 供 nested_memory_events 去重：同一事件在主 checkout 與 worktree 的
+                    # transcript 各出現一次時只算一筆；沒有 uuid 的事件各自算一筆
+                    uid = ev.get("uuid") or f"no-uuid-{f}-{len(s['nested'])}"
+                    s["nested"].append((uid, att["path"]))
+                    if dir_slug is not None:
+                        wt_dir_paths.add((dir_slug, att["path"]))
+                else:
+                    bad_shapes += 1
+
+    # 已刪除的 worktree：權威來源沒有它的名稱時，以路徑所在 transcript 目錄的 X 推回根目錄。
+    # 只認正規化後恰好等於 X 的前綴，對不上的照舊計入 unresolved_worktree_paths
+    derived_roots: set[str] = set()
+    for dir_slug, p in wt_dir_paths:
+        if not resolve_repo_path(p, main_repo, worktree_roots)[1]:
+            continue
+        hit = _split_repo_path(p, main_repo)
+        root = worktree_root_from_dir_slug(hit[1], dir_slug) if hit else None
+        if root is not None:
+            derived_roots.add(root)
+    roots = set(worktree_roots) | derived_roots
+    unresolved_paths: set[str] = set()
+
+    def rel_of(p: str) -> str | None:
+        rel, unresolved = resolve_repo_path(p, main_repo, roots)
+        if unresolved:
+            unresolved_paths.add(p)
+        return rel
+
+    sessions = {k: s for k, s in per_session.items() if s["in_window"]}
+    with_instr: set[str] = set()
+    rule_sessions: dict[str, set[str]] = {}
+    memory_sessions: dict[str, set[str]] = {}
+    excluded = 0
+    # nested_memory 漂移偵測只數解析成本 repo rule／指令檔的事件：路徑改成相對路徑、URI，或期內只有
+    # repo 外的事件時，原始事件數不是 0，偵測就不會觸發（PR #628 review R2-5）
+    nested_resolved: set[str] = set()
+    nested_unresolved: set[str] = set()
+    instr_has_rule = (
+        False  # 觀察期內是否有任何 instructions 路徑落在 `.claude/rules/`（格式對照用）
+    )
+    for sid, s in sessions.items():
+        instr_rel = [r for p in s["instr"] if (r := rel_of(p)) is not None]
+        nested_rel: list[str] = []
+        nested_resolved_here: set[str] = set()
+        nested_unresolved_here: set[str] = set()
+        for uid, p in s["nested"]:
+            r = rel_of(p)
+            if r is not None and (RULE_REL.fullmatch(r) or MEMORY_REL.fullmatch(r)):
+                nested_rel.append(r)
+                nested_resolved_here.add(uid)
+            elif r is None:
+                nested_unresolved_here.add(uid)
+        loaded = [
+            r for r in instr_rel + nested_rel if RULE_REL.fullmatch(r) or MEMORY_REL.fullmatch(r)
+        ]
+        instr_has_rule = instr_has_rule or any(RULE_REL.fullmatch(r) for r in instr_rel)
+        if instr_rel:
+            with_instr.add(sid)
+            nested_resolved |= nested_resolved_here
+            nested_unresolved |= nested_unresolved_here
+        elif loaded:
+            excluded += 1
+        if sid not in with_instr:
+            continue  # 沒有載入專案指令的 session 不進分子，否則佔比可超過 100%
+        for rel in loaded:
+            target = rule_sessions if RULE_REL.fullmatch(rel) else memory_sessions
+            target.setdefault(rel, set()).add(sid)
+
+    # 讀檔失敗與壞行：collect_transcript_blocks 對同一批檔案已回傳成 warning，這裡只記進本來源
+    seen_elsewhere = list(file_errors)
+    errors += worktree_root_errors
+    if bad_lines:
+        seen_elsewhere.append(f"rule 載入：略過 {bad_lines} 行格式錯誤（可能被截斷）的紀錄")
+    if bad_shapes:
+        errors.append(
+            f"rule 載入：{bad_shapes} 個 attachment 的形狀不符（attachment 不是物件、路徑不是字串、"
+            "files 缺漏或不是清單、files 含非物件項目）；transcript 格式可能已改變，本週未量測"
+        )
+    if files and in_window < TRANSCRIPT_MIN_EVENTS:
+        errors.append(
+            f"rule 載入：找到 {len(files)} 個 transcript 檔案，但觀察期內只有 {in_window} 筆"
+            f"有時間戳的事件（至少要 {TRANSCRIPT_MIN_EVENTS} 筆）；timestamp 欄位可能已改變，"
+            "本週未量測"
+        )
+    # 對照的前提是「互動式 CLI session 一定會載入專案指令」；SDK 啟動的 session 可以不載入
+    # （見 design.md D3 的實測），不能拿來當前提，否則整週都是 SDK session 時會誤判格式改變
+    cli_sessions = [k for k, s in sessions.items() if "cli" in s["entry"]]
+    always_missing: list[str] = []
+    if not source_ok(rules):
+        errors.append("rule 載入：rules 來源不完整，無法判斷哪些 rule 每次必載，本週未量測")
+    else:
+        always = [x["file"] for x in rules.get("files", []) if x.get("always_loaded")]
+        missing = sorted(r for r in always if r not in rule_sessions)
+        # 沒有任何 session 載入專案指令時（只有 SDK session 的一週），每條必載 rule 都是 0 次，
+        # 列出來沒有資訊量
+        always_missing = missing if with_instr else []
+        if cli_sessions:
+            if not any(s["saw_instructions"] for s in sessions.values()):
+                errors.append(
+                    f"rule 載入：觀察期內有 {len(cli_sessions)} 個 cli session，但沒有任何 "
+                    "instructions 事件；transcript 格式可能已改變，本週未量測"
+                )
+            # 對照只看 transcript 裡有沒有任何 rule 經 instructions 載入，不看本 checkout 的
+            # 必載 rule 名稱：在改名所有必載 rule 的分支執行時，期內載入的是舊名稱，
+            # 拿新名稱比對會整節量不到。
+            # 本 checkout 的必載清單只用於 always_missing。
+            if always and not instr_has_rule:
+                errors.append(
+                    f"rule 載入：觀察期內有 {len(cli_sessions)} 個 cli session、本 checkout 有 "
+                    f"{len(always)} 條每次必載的 rule，但 instructions 列出的檔案沒有任何一個位於 "
+                    "`.claude/rules/`；transcript 格式可能已改變，本週未量測"
+                )
+    by_entry: dict[str, dict[str, int]] = {}
+    for sid, s in sessions.items():
+        key = ",".join(sorted(s["entry"])) or "(unknown)"
+        row = by_entry.setdefault(key, {"sessions": 0, "with_instructions": 0})
+        row["sessions"] += 1
+        row["with_instructions"] += sid in with_instr
+    # 目錄列舉錯誤與「找不到 transcript」collect_transcript_blocks 已經發過 warning：
+    # 只記進本來源，不重複回傳
+    no_transcript = ["rule 載入：找不到 transcript，載入次數本週未量測"] if not files else []
+    data = {
+        "sessions": len(sessions),
+        "sessions_with_instructions": len(with_instr),
+        "excluded_sessions": excluded,
+        "nested_memory_events": len(nested_resolved),
+        "nested_unresolved_events": len(nested_unresolved - nested_resolved),
+        "entrypoints": dict(sorted(by_entry.items())),
+        "rules": {k: len(v) for k, v in sorted(rule_sessions.items())},
+        "memory_files": {k: len(v) for k, v in sorted(memory_sessions.items())},
+        "always_missing": always_missing,
+        "unresolved_worktree_paths": len(unresolved_paths),
+        "source": make_source(listing_errors + no_transcript + seen_elsewhere + errors),
+    }
+    return data, errors
 
 
 # ---------------------------------------------------------------------------
@@ -1897,7 +2315,104 @@ def render_report(snap: dict[str, Any], delta: dict[str, Any]) -> str:
             f"| {name} | {s['calls']} | {s['block']} | {s['warn']} | {s['error']} | "
             f"{s['p95_ms']} | {s['total_ms']} |"
         )
+    lines += render_rule_loads(snap)
     return "\n".join(lines) + "\n"
+
+
+def render_rule_loads(snap: dict[str, Any]) -> list[str]:
+    """rule 與指令檔（根目錄與子目錄的 CLAUDE.md／AGENTS.md）的載入次數表。
+
+    只回答「有沒有載入」，不回答「載入後有沒有照做」。來源不完整或舊快照沒有這一節時
+    只寫「量不到」，不印一張全是 0 的表——0 次與量不到在這張表上必須分得開。
+    有載入專案指令的 session 達 RULE_LOAD_MIN_SESSIONS 個、卻沒有任何可解析的 nested_memory 事件時，
+    path-scoped rule 的次數也不能判讀（nested_memory 的格式可能改了），該欄改寫「量不到」；
+    有載入專案指令的 session 至少 1 個但低於門檻時照常顯示 0，但表頭註明這些 0 次未經對照確認。
+    """
+    loads = snap.get("rule_loads")
+    lines = ["", "## rule 載入次數（本期，以 session 計）", ""]
+    if loads is None:
+        lines.append("- 量不到：本快照產生於此功能之前，沒有載入紀錄")
+        return lines
+    if not source_ok(loads):
+        lines.append("- 量不到：本快照沒有可信的載入紀錄（原因見上方「量測不完整」）")
+        return lines
+    total = loads.get("sessions_with_instructions", 0)
+    # 舊快照沒有 nested_memory_events 欄位時照舊顯示次數。門檻只看 session 數，不看無法
+    # 解析的事件數：路徑形狀整批改變時，無法解析的事件可能很多，但可判讀的仍是 0 筆
+    no_nested = loads.get("nested_memory_events") == 0
+    scoped_unmeasured = no_nested and total >= RULE_LOAD_MIN_SESSIONS
+    lines.append(
+        f"- 觀察期內 {loads.get('sessions', 0)} 個 session，其中 {total} 個有載入專案指令；"
+        "佔比以後者為分母"
+    )
+    entries = loads.get("entrypoints") or {}
+    if entries:
+        parts = [f"{k} {v['with_instructions']}/{v['sessions']}" for k, v in entries.items()]
+        lines.append(
+            f"- 依 entrypoint（有載入專案指令／session 數）：{'；'.join(parts)}。"
+            "沒有載入專案指令的 session 裡，下表任何 rule 都不在 context"
+        )
+    lost = loads.get("unresolved_worktree_paths") or 0
+    if lost:
+        lines.append(
+            f"- {lost} 個 worktree 內的路徑對不上任何現存的 worktree（多半是期間已刪除），"
+            "不計入下表（rule 路徑另以第一個 `/.claude/rules/` 推回相對路徑照常計入，不在此數）"
+        )
+    unresolved = loads.get("nested_unresolved_events") or 0
+    unresolved_note = f"（另有 {unresolved} 筆路徑無法解析成本 repo 的檔案）" if unresolved else ""
+    if scoped_unmeasured:
+        lines.append(
+            f"- path-scoped rule 量不到：{total} 個有載入專案指令的 session 裡，沒有任何可解析的 "
+            f"nested_memory 事件{unresolved_note}；transcript 格式可能已改變，"
+            "下表 path-scoped rule 的次數與佔比改寫「量不到」"
+        )
+    elif no_nested and total:
+        lines.append(
+            "- 本期沒有任何可解析的 nested_memory 事件，以下 path-scoped 的 0 次未經對照確認"
+            f"{unresolved_note}：有載入專案指令的 session 只有 {total} 個，少於對照門檻 "
+            f"{RULE_LOAD_MIN_SESSIONS} 個"
+        )
+    missing = loads.get("always_missing") or []
+    if missing:
+        lines.append(
+            "- 這些每次必載的 rule 本期 0 次，可能是期間才新增或剛改成必載："
+            + "、".join(f"`{r}`" for r in missing)
+        )
+    lines.append(
+        "- 0 次的 path-scoped rule 可能是期間沒人碰那些路徑，也可能是 `paths:` 寫錯；"
+        "連續多週 0 次才值得檢查"
+    )
+    lines += ["", "| rule | 載入範圍 | session 數 | 佔比 |", "|---|---|---:|---:|"]
+    counts: dict[str, int] = dict(loads.get("rules") or {})
+    on_disk = {f["file"]: f for f in (snap.get("rules") or {}).get("files", [])}
+    rows = []
+    for rel in sorted(set(on_disk) | set(counts)):
+        info = on_disk.get(rel)
+        if info is None:
+            scope = "（不在 collect_rules 清單：已刪除，或位於 rules 子目錄）"
+        elif info.get("always_loaded"):
+            scope = "每次必載"
+        else:
+            pats = info.get("paths") or []
+            scope = ", ".join(f"`{p}`" for p in pats[:3])
+            if len(pats) > 3:
+                scope += f" 等 {len(pats)} 個"
+        n = counts.get(rel, 0)
+        unmeasured = scoped_unmeasured and info is not None and not info.get("always_loaded")
+        rows.append((-n, rel, scope, n, unmeasured))
+    for _neg, rel, scope, n, unmeasured in sorted(rows):
+        if unmeasured:
+            shown = pct = "量不到"
+        else:
+            shown = str(n)
+            pct = f"{n * 100 // total}%" if total else "-"
+        lines.append(f"| `{rel}` | {scope.replace('|', '/')} | {shown} | {pct} |")
+    memory = loads.get("memory_files") or {}
+    if memory:
+        lines += ["", "| 指令檔（CLAUDE.md／AGENTS.md） | session 數 |", "|---|---:|"]
+        for rel, n in sorted(memory.items(), key=lambda x: (-x[1], x[0])):
+            lines.append(f"| `{rel}` | {n} |")
+    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -1950,6 +2465,17 @@ def cmd_collect(args: argparse.Namespace) -> int:
     guard_names = set(inventory["on_disk"]) | {g["script"] for g in gate_inv["gates"]}
     rules, w = collect_rules(repo, guard_names)
     warnings += w
+    roots, root_errors = collect_worktree_roots(main_repo)
+    rule_loads, w = collect_rule_loads(
+        Path(args.projects_dir).expanduser(),
+        main_repo,
+        rules,
+        since=since,
+        now=now,
+        worktree_roots=roots,
+        worktree_root_errors=root_errors,
+    )
+    warnings += w
     if args.no_ci:
         failures: dict[str, Any] = unmeasured_ci("CI：依 --no-ci 略過，CI 未量測")
         notes.append("CI：依 --no-ci 略過，CI 未量測；gate-silent／gate-noisy 本週不判定")
@@ -1977,6 +2503,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
         "notes": notes,
         "hooks": {"inventory": inventory, "events": events, "transcript": transcript},
         "rules": rules,
+        "rule_loads": rule_loads,
         "ci": {"inventory": gate_inv, "failures": failures, "measured": ci_measured},
     }
     ev_hooks = events["hooks"].values()
