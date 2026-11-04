@@ -63,6 +63,7 @@ def _make_install_fixture(tmp_path: Path) -> Path:
     for name in (
         "assert_not_worktree.sh",
         "safe_symlink.sh",
+        "link_claude_skill.sh",
         "register_skill_repo.py",
         "lessons",
         "handover",

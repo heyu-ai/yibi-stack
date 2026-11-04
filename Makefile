@@ -85,7 +85,7 @@ install-agent-wrappers: ## Install shared DB CLI wrappers into ~/.agents/bin
 # guard 必須是 recipe 的第一行（字面上，不是「第一個可執行動作」）：後面的步驟會把
 # $(CURDIR) 寫進全域 symlink，失敗得太晚就已經污染 ~/.claude/skills/ 與 ~/.agents/。
 # 說明寫在 target 宣告之上而非 recipe 內，好讓「第一行就是 guard」無須任何但書。
-install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/ + commands（跨專案可用）
+install: ## Install scope=global skills to ~/.claude/skills/（plugin 已提供者略過）+ ~/.agents/skills/ + commands（跨專案可用）
 	@"$(CURDIR)/scripts/assert_not_worktree.sh" "$(CURDIR)" "make install"
 	@mkdir -p "$(CLAUDE_SKILL_DIR)" || { echo "  [FAIL] Cannot create $(CLAUDE_SKILL_DIR) -- check permissions"; exit 1; }
 	@mkdir -p "$(INSTALL_DIR)" || { echo "  [FAIL] Cannot create $(INSTALL_DIR) -- check permissions"; exit 1; }
@@ -104,9 +104,8 @@ install: ## Install scope=global skills to ~/.claude/skills/ + ~/.agents/skills/
 			echo "  [FAIL] $$name 的 scope 值無效（$${scope}），只接受 global 或 project"; exit 1; \
 		fi; \
 		if [ "$$scope" != "global" ]; then continue; fi; \
-		for dir in "$(CLAUDE_SKILL_DIR)" "$(INSTALL_DIR)"; do \
-			"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/$(SKILL_DIR)/$$name" "$$dir/$$name" || exit 1; \
-		done \
+		"$(CURDIR)/scripts/link_claude_skill.sh" "$(CURDIR)" "$$name" "$(CLAUDE_SKILL_DIR)" || exit 1; \
+		"$(CURDIR)/scripts/safe_symlink.sh" "$(CURDIR)/$(SKILL_DIR)/$$name" "$(INSTALL_DIR)/$$name" || exit 1; \
 	done
 	@echo ""
 	@echo "  Installing plugin-only skills → $(INSTALL_DIR)/"
@@ -317,6 +316,7 @@ status: ## Show skill link status for ~/.claude/skills/ (Claude Code) and ~/.age
 
 status-own: ## Show install status for skills in THIS repo only (excludes gstack/external)
 	@echo "=== yibi-stack skills (CC=~/.claude/skills, AG=~/.agents/skills) ==="; \
+	echo "  CC: OK=已連結  PL=由 plugin 提供（刻意不連）  DUP=plugin 已提供但殘留舊連結（scope=global 者 make install 會清掉）  --=未連結"; \
 	echo ""; \
 	if [ ! -d "$(SKILL_DIR)" ] || [ -z "$$(ls -A $(SKILL_DIR) 2>/dev/null)" ]; then \
 		echo "  (skills/ is empty)"; \
@@ -332,9 +332,12 @@ status-own: ## Show install status for skills in THIS repo only (excludes gstack
 			own="$(CURDIR)/$(SKILL_DIR)/$$name"; \
 			cc_target=$$(readlink "$(CLAUDE_SKILL_DIR)/$$name" 2>/dev/null); \
 			ag_target=$$(readlink "$(INSTALL_DIR)/$$name" 2>/dev/null); \
-			if [ "$$cc_target" = "$$own" ]; then cc_s="OK"; else cc_s="--"; fi; \
+			kind=$$("$(CURDIR)/scripts/link_claude_skill.sh" --check "$(CURDIR)" "$$name") || { echo "  [FAIL] link_claude_skill.sh --check $$name 失敗" >&2; exit 1; }; \
+			if [ "$$kind" = "plugin" ] && [ "$$cc_target" = "$$own" ]; then cc_s="DUP"; \
+			elif [ "$$kind" = "plugin" ]; then cc_s="PL"; \
+			elif [ "$$cc_target" = "$$own" ]; then cc_s="OK"; else cc_s="--"; fi; \
 			if [ "$$ag_target" = "$$own" ]; then ag_s="OK"; else ag_s="--"; fi; \
-			printf "  CC:%-2s AG:%-2s  %-30s [%s]\n" "$$cc_s" "$$ag_s" "$$name" "$$scope"; \
+			printf "  CC:%-3s AG:%-2s  %-30s [%s]\n" "$$cc_s" "$$ag_s" "$$name" "$$scope"; \
 		done; \
 	fi
 	@echo ""; \
