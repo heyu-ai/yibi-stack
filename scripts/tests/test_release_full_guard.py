@@ -52,14 +52,28 @@ def tagged_repo(tmp_path: Path) -> Path:
 
 
 def _run_release(
-    repo: Path, tmp_path: Path, *, force: bool = False
+    repo: Path,
+    tmp_path: Path,
+    *,
+    force: bool = False,
+    default_skill_dir: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """以隔離環境跑 release-full.sh：SKILL_DIR 指向空目錄，guard 放行後必停在
-    executable 檢查，保證測試不會真的走進 bump/gates。"""
-    empty_skill_dir = tmp_path / "no-skill"
-    empty_skill_dir.mkdir(exist_ok=True)
+    executable 檢查，保證測試不會真的走進 bump/gates。
+
+    default_skill_dir=True 時不設 SKILL_DIR、並把 HOME 指到沒有任何 ~/.claude/skills 的
+    空目錄，用來驗證預設路徑不依賴機器上的安裝狀態。此時 tmp repo 沒有 origin，腳本會停在
+    `git fetch origin main`——那是 bump 之前的唯讀步驟，不會改任何東西。"""
     env = {k: v for k, v in os.environ.items() if k not in _GIT_ENV_KEYS}
-    env["SKILL_DIR"] = str(empty_skill_dir)
+    if default_skill_dir:
+        env.pop("SKILL_DIR", None)
+        empty_home = tmp_path / "empty-home"
+        empty_home.mkdir(exist_ok=True)
+        env["HOME"] = str(empty_home)
+    else:
+        empty_skill_dir = tmp_path / "no-skill"
+        empty_skill_dir.mkdir(exist_ok=True)
+        env["SKILL_DIR"] = str(empty_skill_dir)
     if force:
         env["FORCE"] = "1"
     return subprocess.run(  # nosec B603
@@ -102,6 +116,56 @@ class TestEmptyReleaseGuard:
         assert result.returncode != 0
         assert _EMPTY_RELEASE_MARK not in result.stderr
         assert _SKILL_MISSING_MARK in result.stderr
+
+    def test_release_guard_005_default_skill_dir_does_not_need_home_install(
+        self, tagged_repo: Path, tmp_path: Path
+    ) -> None:
+        """RELEASE-GUARD-005: 沒設 SKILL_DIR 時，bump 腳本必須從本 repo 的 plugin 原始碼找，
+        不依賴 ~/.claude/skills/bump-version。
+
+        背景：bump-version 由 dev-cycle plugin 提供，PR #627 之後 `make install` 不再把它連到
+        ~/.claude/skills/，原本寫死該路徑的預設值讓 `make release` 在乾淨安裝後一律
+        `not executable`。HOME 指向空目錄就是那個狀態。"""
+        _git(tagged_repo, "commit", "--allow-empty", "-m", "feat: something")
+        result = _run_release(tagged_repo, tmp_path, default_skill_dir=True)
+        assert result.returncode != 0
+        assert _EMPTY_RELEASE_MARK not in result.stderr
+        # 核心斷言：預設路徑找得到腳本
+        assert _SKILL_MISSING_MARK not in result.stderr, result.stderr
+        # 正向對照：確實走過了 executable 檢查，停在後面的 git fetch（tmp repo 沒有 origin）
+        assert "origin" in result.stderr, result.stderr
+
+    def test_release_guard_006_cdpath_does_not_break_self_location(
+        self, tagged_repo: Path, tmp_path: Path
+    ) -> None:
+        """RELEASE-GUARD-006: 設了 CDPATH 且以相對路徑呼叫時，自我定位不可被干擾。
+
+        `dirname` 回 `scripts`（第一段不是 . 或 ..），CDPATH 底下若有同名目錄，cd 會跳過去並把
+        目的地多印一行到 stdout，SCRIPT_DIR 變兩行、預設 SKILL_DIR 失效（rule 17「Clear CDPATH」）。
+        拿掉腳本裡的 `export CDPATH=` 此測試必須轉紅。"""
+        _git(tagged_repo, "commit", "--allow-empty", "-m", "feat: something")
+        decoy = tmp_path / "decoy"
+        (decoy / "scripts").mkdir(parents=True)
+        # 讓相對路徑 scripts/release-full.sh 在 tmp repo 內可解析
+        (tagged_repo / "scripts").symlink_to(REPO_ROOT / "scripts", target_is_directory=True)
+        empty_home = tmp_path / "empty-home"
+        empty_home.mkdir()
+        env = {k: v for k, v in os.environ.items() if k not in _GIT_ENV_KEYS}
+        env.pop("SKILL_DIR", None)
+        env["HOME"] = str(empty_home)
+        env["CDPATH"] = str(decoy)
+        result = subprocess.run(  # nosec B603 B607
+            ["bash", "scripts/release-full.sh", "patch"],
+            cwd=tagged_repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode != 0
+        assert _SKILL_MISSING_MARK not in result.stderr, result.stderr
+        # 正向對照：確實走過 executable 檢查，停在後面的 dirty 檢查（上面的 symlink 是未追蹤檔）
+        assert "dirty" in result.stderr, result.stderr
 
     def test_release_guard_004_no_tags_skips_guard(self, tmp_path: Path) -> None:
         """RELEASE-GUARD-004: repo 完全沒有 tag（首次 release）-> guard 跳過。"""

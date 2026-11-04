@@ -17,12 +17,13 @@ Project-level 版本 bump、CHANGELOG 生成、git tag 標準流程。
 
 ## 腳本位置
 
-腳本住在 skill 目錄，`make install` 安裝後可直接呼叫（有 shebang，無需 `bash` 前綴）：
+腳本住在 skill 目錄的 `scripts/` 底下。以下範例的路徑開頭，是 Claude Code 載入此 skill 時展開成的
+**實際載入目錄**（用 plugin 安裝時，就是 plugin cache 內的 skill 目錄），所以不需要 `make install`，
+也不依賴 `~/.claude/skills/`。
 
-- `~/.claude/skills/bump-version/scripts/`（Claude Code 路徑，**以下範例均使用此路徑**）
-- `~/.agents/skills/bump-version/scripts/`（agents 共用路徑，功能等價；若使用此路徑，將以下所有範例的 `~/.claude/skills/` 替換為 `~/.agents/skills/`）
-
-若 `make install` 或 `make install-one SKILL=bump-version` 尚未執行，腳本不存在，需先安裝。
+bump-version 由 dev-cycle plugin 提供，`make install` 不會把它連到 `~/.claude/skills/`（會與
+plugin 重複列出）。`~/.agents/skills/bump-version/scripts/` 仍由 `make install` 提供，給不走
+plugin 機制的 agents 使用，功能等價。
 
 ## 主流程：bump + release
 
@@ -45,7 +46,7 @@ git-cliff --unreleased --bump 2>/dev/null | head -5
 ### Step 2: 執行版本 bump
 
 ```bash
-~/.claude/skills/bump-version/scripts/bump.sh {{patch|minor|major}}
+bash "${CLAUDE_SKILL_DIR}/scripts/bump.sh" {{patch|minor|major}}
 ```
 
 腳本輸出新版本到 `/tmp/bump_version_result.env`，讀取：
@@ -63,7 +64,7 @@ echo "BUMP_VERSION=$BUMP_VERSION, TAG_VERSION=$TAG_VERSION, VERSION_FILE=$VERSIO
 ### Step 3: 生成 CHANGELOG
 
 ```bash
-~/.claude/skills/bump-version/scripts/changelog.sh "$TAG_VERSION"
+bash "${CLAUDE_SKILL_DIR}/scripts/changelog.sh" "$TAG_VERSION"
 ```
 
 工具優先序：git-cliff（有 cliff.toml 或 .cliff.toml） > git-cliff（preset） > git log fallback。
@@ -72,13 +73,13 @@ echo "BUMP_VERSION=$BUMP_VERSION, TAG_VERSION=$TAG_VERSION, VERSION_FILE=$VERSIO
 ### Step 4 — Pre-release Test Gate
 
 ```bash
-~/.claude/skills/bump-version/scripts/gates.sh
+bash "${CLAUDE_SKILL_DIR}/scripts/gates.sh"
 ```
 
 若需略過測試（緊急情況）：
 
 ```bash
-~/.claude/skills/bump-version/scripts/gates.sh --skip-gates
+bash "${CLAUDE_SKILL_DIR}/scripts/gates.sh" --skip-gates
 ```
 
 `gates.sh` 依 `PROJECT_TYPE` 自動選擇對應的測試指令：
@@ -106,7 +107,7 @@ npm install --package-lock-only
 ### Step 6 — Release
 
 ```bash
-~/.claude/skills/bump-version/scripts/release.sh
+bash "${CLAUDE_SKILL_DIR}/scripts/release.sh"
 ```
 
 此腳本完整執行：
@@ -145,7 +146,7 @@ Flutter 專案另會印出 CI workflow run URL，可追蹤 TestFlight 上傳進�
 ### 安裝
 
 ```bash
-~/.claude/skills/bump-version/scripts/init-commit-hook.sh
+bash "${CLAUDE_SKILL_DIR}/scripts/init-commit-hook.sh"
 ```
 
 安裝後產生：
@@ -179,7 +180,7 @@ Jira 範例：`ticket_pattern: "(PROJ|MYTEAM)-[0-9]+"`
 
 | 問題 | 處理方式 |
 |------|---------|
-| `bump-version skill 未安裝` | `make install-one SKILL=bump-version`（在 yibi-stack repo 執行） |
+| `bump-version skill 未安裝` | 安裝 dev-cycle plugin：`claude plugin install dev-cycle@yibi-stack`；本 repo 的 `make release` 不需要安裝，它直接用 repo 內的原始碼 |
 | 無法偵測專案類型 | 確認根目錄有 pubspec.yaml / pyproject.toml / package.json / go.mod 其中之一 |
 | Python 偵測失敗 | pyproject.toml 需含頂層 `version = "x.y.z"` 行（Poetry 需使用 PEP 621 格式） |
 | Go major bump 後 module path 需更新 | 手動修改 `go.mod` 的 `module` 行，加 `/v2` 後綴 |

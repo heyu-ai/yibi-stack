@@ -85,7 +85,7 @@ sits, unpushed, on top of a real release with no error at any step.
 
 ```bash
 # Wrong: assumes you are the only process touching the shared main checkout
-(cd "$MAIN_REPO" && ~/.claude/skills/bump-version/scripts/bump.sh minor)
+(cd "$MAIN_REPO" && "$SKILL_DIR/bump.sh" minor)   # SKILL_DIR = the bump-version scripts/ dir
 # ... proceeds straight to commit/tag without re-checking origin/main
 
 # Correct: fetch and compare immediately before AND after any multi-step release flow

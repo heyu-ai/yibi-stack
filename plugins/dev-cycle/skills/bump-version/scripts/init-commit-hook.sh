@@ -4,7 +4,18 @@
 
 set -euo pipefail
 
-SKILL_DIR="${SKILL_DIR:-$HOME/.agents/skills/bump-version}"
+# cd 取自己所在目錄前先清 CDPATH，否則 $(cd ... && pwd) 可能多印一行（rule 17）
+export CDPATH=
+
+# 預設以本腳本自己的位置推出 skill 目錄（scripts/ 的上一層），不依賴任何安裝位置：
+# 這支腳本由 plugin 提供，plugin 使用者的機器上沒有 ~/.agents/skills/bump-version。
+# 本檔是一般檔案而非 symlink，用 dirname + cd -P + pwd 即可（rule 17 Self-Location）。
+if ! SCRIPT_DIR=$(cd -P -- "$(dirname "${BASH_SOURCE[0]}")" && pwd); then
+  echo "[FAIL] 無法解析腳本所在目錄：${BASH_SOURCE[0]}" >&2
+  exit 1
+fi
+SKILL_DIR_DEFAULT=$(dirname "$SCRIPT_DIR")
+SKILL_DIR="${SKILL_DIR:-$SKILL_DIR_DEFAULT}"
 HOOK_SRC="$SKILL_DIR/scripts/commit-msg-hook.sh"
 PARSE_SRC="$SKILL_DIR/scripts/commit-msg-parse.py"
 CONFIG_TEMPLATE="$SKILL_DIR/assets/commit-convention.yaml.tpl"
@@ -17,7 +28,7 @@ GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
 
 if [ ! -f "$HOOK_SRC" ]; then
   echo "[FAIL] hook 腳本不存在：$HOOK_SRC" >&2
-  echo "       請確認 bump-version skill 已安裝：make install-one SKILL=bump-version" >&2
+  echo "       預設位置是本腳本所在的 skill 目錄；若設了 SKILL_DIR，請確認它指向 bump-version skill 目錄" >&2
   exit 1
 fi
 

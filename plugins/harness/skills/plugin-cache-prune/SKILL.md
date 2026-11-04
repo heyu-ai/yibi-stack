@@ -24,9 +24,9 @@ scope 各一筆），每筆帶自己的 `installPath`；未被任何一筆參照
 ## 用法
 
 ```bash
-python3 ~/.claude/skills/plugin-cache-prune/scripts/prune_plugin_cache.py           # dry-run，只列出
-python3 ~/.claude/skills/plugin-cache-prune/scripts/prune_plugin_cache.py --apply   # 實際刪除
-python3 ~/.claude/skills/plugin-cache-prune/scripts/prune_plugin_cache.py --help    # 說明
+python3 "${CLAUDE_SKILL_DIR}/scripts/prune_plugin_cache.py"           # dry-run，只列出
+python3 "${CLAUDE_SKILL_DIR}/scripts/prune_plugin_cache.py" --apply   # 實際刪除
+python3 "${CLAUDE_SKILL_DIR}/scripts/prune_plugin_cache.py" --help    # 說明
 ```
 
 `--apply` 是唯一支援的旗標。**任何未知參數都會被 argparse 拒絕並以 exit 2 結束**——
