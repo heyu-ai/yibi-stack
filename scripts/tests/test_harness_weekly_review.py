@@ -91,6 +91,8 @@ Test ID 規則見 .claude/rules/09-test-conventions.md。mock 只放在外部邊
     格式對照不依賴 checkout 的必載 rule 名稱：HWR-DT-098；nested 路徑整批無法解析：HWR-DT-099；
     權威 worktree 名稱與子專案 rule：HWR-DT-100；已刪除的 worktree：HWR-DT-101；
     collect_worktree_roots 的來源與 git 失敗：HWR-DT-102；真實 git worktree 端對端：HWR-ST-030
+  - 已刪除 worktree 以 transcript 目錄名稱推回根目錄：HWR-DT-103；名稱含 `_`：HWR-DT-104；
+    目錄名稱對不上：HWR-DT-105；主 repo 目錄不套用：HWR-DT-106
 """
 
 from __future__ import annotations
@@ -3731,8 +3733,9 @@ class TestRuleLoads:
         assert f"| `mobile/.claude/rules/m.md` | {label} | 2 | 100% |" in text
 
     def test_hwr_dt_101_deleted_worktree_counts_as_unresolved(self, tmp_path: Path) -> None:
-        """HWR-DT-101: 期間已刪除、名稱含 / 的 worktree（feat/x）對不上任何已知根目錄：rule 路徑以第一個
-        `/.claude/rules/` 推回相對路徑；其他檔案不猜，計入 unresolved_worktree_paths 並在報告表頭列出
+        """HWR-DT-101: 期間已刪除、名稱含 / 的 worktree（feat/x）對不上任何已知根目錄，transcript 目錄名稱
+        （`--claude-worktrees-other`）也對不上路徑：rule 路徑以第一個 `/.claude/rules/` 推回相對路徑；
+        其他檔案不猜，計入 unresolved_worktree_paths 並在報告表頭列出
         spec: weekly-review-rule-loads#deleted-worktree-counts-as-unresolved
         tc: HWR-DT-101
         """
@@ -3746,7 +3749,7 @@ class TestRuleLoads:
             nested_ev("w2", "s1", f"{w}/docs/CLAUDE.md"),
             *filler("s1"),
         ]
-        write_transcript(tmp_path / "p", hr.project_slug(repo) + "--claude-worktrees-feat-x", rows)
+        write_transcript(tmp_path / "p", hr.project_slug(repo) + "--claude-worktrees-other", rows)
         rules = rules_section(repo, [".claude/rules/always.md"], {})
         data, warnings = run_loads(tmp_path / "p", repo, rules)
         assert data["source"] == complete_source() and warnings == []
@@ -3755,6 +3758,71 @@ class TestRuleLoads:
         assert data.get("unresolved_worktree_paths") == 2
         text = "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
         assert "2 個 worktree 內的路徑對不上任何現存的 worktree" in text
+
+    def _deleted_worktree_loads(
+        self, tmp_path: Path, dirname_suffix: str | None, name: str, *, extra_dir: str | None = None
+    ) -> dict[str, Any]:
+        """已刪除的 worktree `name`（不在磁碟上、不注入名稱）載入根目錄與 backend/ 的 CLAUDE.md。
+
+        dirname_suffix 為 None 時 transcript 寫在主 repo 的目錄，否則寫在
+        `<slug>--claude-worktrees-<dirname_suffix>`；extra_dir 另建一個只有一般事件的 worktree 目錄。
+        """
+        repo = tmp_path / "demo"
+        repo.mkdir()
+        w = f"{repo}/.claude/worktrees/{name}"
+        rows = [
+            instructions_ev("w1", "s1", [f"{repo}/.claude/rules/always.md", f"{w}/CLAUDE.md"]),
+            nested_ev("w2", "s1", f"{w}/backend/CLAUDE.md"),
+            *filler("s1"),
+        ]
+        slug = hr.project_slug(repo)
+        dirname = slug if dirname_suffix is None else f"{slug}--claude-worktrees-{dirname_suffix}"
+        write_transcript(tmp_path / "p", dirname, rows)
+        if extra_dir is not None:
+            write_transcript(tmp_path / "p", f"{slug}--claude-worktrees-{extra_dir}", filler("s2"))
+        rules = rules_section(repo, [".claude/rules/always.md"], {})
+        data, warnings = run_loads(tmp_path / "p", repo, rules)
+        assert data["source"] == complete_source() and warnings == []
+        return data
+
+    def test_hwr_dt_103_deleted_worktree_root_from_transcript_dir(self, tmp_path: Path) -> None:
+        """HWR-DT-103: 已刪除的 worktree feat/x 的 transcript 位於 `--claude-worktrees-feat-x`：
+        路徑前綴 feat/x 正規化後等於目錄名稱，所以 feat/x 視為 worktree 根目錄
+        spec: weekly-review-rule-loads#deleted-worktree-root-from-transcript-dir
+        tc: HWR-DT-103
+        """
+        data = self._deleted_worktree_loads(tmp_path, "feat-x", "feat/x")
+        assert data["memory_files"] == {"CLAUDE.md": 1, "backend/CLAUDE.md": 1}
+        assert data["unresolved_worktree_paths"] == 0
+
+    def test_hwr_dt_104_deleted_worktree_name_with_underscore(self, tmp_path: Path) -> None:
+        """HWR-DT-104: worktree 名稱含 `_`（a_b），transcript 目錄名稱為 `a-b`，同樣對得上
+        spec: weekly-review-rule-loads#deleted-worktree-root-from-transcript-dir
+        tc: HWR-DT-104
+        """
+        data = self._deleted_worktree_loads(tmp_path, "a-b", "a_b")
+        assert data["memory_files"] == {"CLAUDE.md": 1, "backend/CLAUDE.md": 1}
+        assert data["unresolved_worktree_paths"] == 0
+
+    def test_hwr_dt_105_transcript_dir_mismatch_stays_unresolved(self, tmp_path: Path) -> None:
+        """HWR-DT-105: transcript 目錄名稱 `feat-y` 不等於路徑任何前綴的正規化結果：不猜，仍計入
+        unresolved_worktree_paths
+        spec: weekly-review-rule-loads#deleted-worktree-counts-as-unresolved
+        tc: HWR-DT-105
+        """
+        data = self._deleted_worktree_loads(tmp_path, "feat-y", "feat/x")
+        assert data["memory_files"] == {}
+        assert data["unresolved_worktree_paths"] == 2
+
+    def test_hwr_dt_106_main_transcript_does_not_use_dir_fallback(self, tmp_path: Path) -> None:
+        """HWR-DT-106: 同樣的路徑出現在主 repo 目錄的 transcript：不套用目錄名稱的推回，即使另有
+        `--claude-worktrees-feat-x` 目錄（其中沒有載入該路徑）
+        spec: weekly-review-rule-loads#deleted-worktree-root-from-transcript-dir
+        tc: HWR-DT-106
+        """
+        data = self._deleted_worktree_loads(tmp_path, None, "feat/x", extra_dir="feat-x")
+        assert data["memory_files"] == {}
+        assert data["unresolved_worktree_paths"] == 2
 
     def test_hwr_dt_102_worktree_roots_lookup(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

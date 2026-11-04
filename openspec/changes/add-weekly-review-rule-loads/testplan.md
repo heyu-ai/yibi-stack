@@ -12,6 +12,10 @@ DT-089、093、094、097、098、099、100、101、102 與 ST-030 先寫測試�
 tasks.md 第 6 節）；DT-095、DT-096、ST-029 與 DT-081 追加的 always_missing 斷言守的是既有行為，以 design.md
 「驗證」第 4 點的 mutation (g)、(h) 與 tasks 6.6 證明有效。
 
+HWR-DT-103..106 守 design.md D2 的已刪除 worktree 例外（transcript 目錄名稱推回根目錄）。DT-103 與 DT-104 先寫、
+確認在加入例外前以斷言失敗（`assert {} == {'CLAUDE.md': 1, 'backend/CLAUDE.md': 1}`）再改產品碼；DT-105、DT-106
+守「不猜」，修正前即通過，以 design.md「驗證」第 5 點的 mutation (c) 證明 DT-106 有效。
+
 測試邊界為 `harness_review.py` 的公開介面 `repo_relative`、`collect_worktree_roots`、`collect_rule_loads`、
 `render_rule_loads` 與 CLI 入口 `main`；transcript 一律以 `tmp_path` 下的真實 jsonl 檔構造。唯一的替身是
 HWR-DT-102 把外部邊界 `run_cmd` 換成失敗的 git，模擬 `git worktree list` 失敗。
@@ -55,8 +59,12 @@ HWR-DT-102 把外部邊界 `run_cmd` 換成失敗的 git，模擬 `git worktree 
 | HWR-DT-098 | auto | rule-load-collector | control-ignores-checkout-rule-names | 格式對照不依賴 checkout 的必載 rule 名稱 | DT | High | 一個 cli session | 呼叫 collect_rule_loads | transcript 載入 old.md；checkout 必載 rule 只有 new.md | 來源完整、always_missing 為 new.md |
 | HWR-DT-099 | auto | rule-load-report | unresolved-nested-paths-show-unmeasured | nested_memory 路徑形狀整批改變時 path-scoped 顯示量不到 | EP | High | 三組 transcript，各 3 個有載入專案指令的 session | 呼叫 collect_rule_loads 後 render | nested path 為相對路徑、file:// URI、只有 repo 外 | nested_memory_events 0、nested_unresolved_events 等於事件數、scoped 量不到 |
 | HWR-DT-100 | auto | path-normalization | authoritative-worktree-roots | 以注入的 worktree 名稱正規化；子專案 rule 保留自己的路徑 | EP | High | 主 checkout 與 worktree wt 的 transcript | 呼叫 repo_relative 與 collect_rule_loads | 名稱 feat 與 feat/x 並存；worktree 根目錄本身；mobile/ 子專案的 rule 與 CLAUDE.md | feat/x/CLAUDE.md 對到 CLAUDE.md；mobile/.claude/rules/m.md 與 mobile/CLAUDE.md 各 2 次 |
-| HWR-DT-101 | auto | rule-load-collector | deleted-worktree-counts-as-unresolved | 對不上已知名稱的 worktree 路徑不猜 | EP | High | 已刪除的 feat/x 的 transcript | 呼叫 collect_rule_loads 後 render | rule、根目錄 CLAUDE.md、docs/CLAUDE.md，不注入名稱 | rule 計 1 次；指令檔不計；unresolved_worktree_paths 2，報告表頭列出 |
+| HWR-DT-101 | auto | rule-load-collector | deleted-worktree-counts-as-unresolved | 對不上已知名稱、也對不上 transcript 目錄名稱的 worktree 路徑不猜 | EP | High | 已刪除的 feat/x 的 transcript，寫在 `--claude-worktrees-other` | 呼叫 collect_rule_loads 後 render | rule、根目錄 CLAUDE.md、docs/CLAUDE.md，不注入名稱 | rule 計 1 次；指令檔不計；unresolved_worktree_paths 2，報告表頭列出 |
 | HWR-DT-102 | auto | worktree-roots | roots-lookup-failure-is-incomplete | worktree 名稱來源與 git 失敗 | DT | High | 真實 git repo | 呼叫 collect_worktree_roots，再把結果傳進 collect_rule_loads | 沒有 worktrees 目錄；outer 與 outer/inner 兩個 git worktree；git 不認得的 walked；沒有 .git 的 plain；git 失敗 | 沒有目錄時無錯誤；名稱為 outer、outer/inner、walked；git 失敗時有錯誤、來源不完整並回傳 warning |
+| HWR-DT-103 | auto | rule-load-collector | deleted-worktree-root-from-transcript-dir | 已刪除的 worktree 以 transcript 目錄名稱推回根目錄 | EP | High | 已刪除的 feat/x 的 transcript，寫在 `--claude-worktrees-feat-x`，不注入名稱 | 呼叫 collect_rule_loads | 根目錄 CLAUDE.md、backend/CLAUDE.md | CLAUDE.md 與 backend/CLAUDE.md 各 1、unresolved_worktree_paths 0 |
+| HWR-DT-104 | auto | rule-load-collector | deleted-worktree-root-from-transcript-dir | 名稱含 `_` 時目錄名稱為 `-`，同樣推得回 | EP | Medium | 已刪除的 a_b 的 transcript，寫在 `--claude-worktrees-a-b` | 呼叫 collect_rule_loads | 同 DT-103 | 同 DT-103 |
+| HWR-DT-105 | auto | rule-load-collector | deleted-worktree-counts-as-unresolved | 沒有前綴等於目錄名稱時不猜 | EP | High | 已刪除的 feat/x 的 transcript，寫在 `--claude-worktrees-feat-y` | 呼叫 collect_rule_loads | 同 DT-103 | 指令檔不計、unresolved_worktree_paths 2 |
+| HWR-DT-106 | auto | rule-load-collector | deleted-worktree-root-from-transcript-dir | 主 repo 目錄的 transcript 不套用目錄名稱推回 | DT | High | 同樣的路徑寫在主 repo 目錄；另有只含一般事件的 `--claude-worktrees-feat-x` 目錄 | 呼叫 collect_rule_loads | 同 DT-103 | 指令檔不計、unresolved_worktree_paths 2 |
 | HWR-ST-030 | auto | cli | authoritative-worktree-roots | 端對端：cmd_collect 取得真實 worktree 名稱 | ST | High | 真實 git repo 與 `.claude/worktrees/feat/x` worktree | main collect | 該 worktree 的 rule、根目錄 CLAUDE.md、docs/CLAUDE.md | CLAUDE.md 與 docs/CLAUDE.md 各 1、unresolved_worktree_paths 0 |
 
 ## Coverage Analysis
@@ -85,7 +93,8 @@ HWR-DT-102 把外部邊界 `run_cmd` 換成失敗的 git，模擬 `git worktree 
 | window-has-an-end | covered | HWR-DT-093 | Auto |
 | authoritative-worktree-roots | covered | HWR-DT-100, HWR-DT-102, HWR-ST-030 | ST-030 以真實 git worktree 端對端 |
 | subproject-rules-keep-their-path | covered | HWR-DT-100 | probe_a 的情境 |
-| deleted-worktree-counts-as-unresolved | covered | HWR-DT-101 | Auto |
+| deleted-worktree-counts-as-unresolved | covered | HWR-DT-101, HWR-DT-105 | DT-101 的目錄名稱與路徑無關；DT-105 只差一個字元 |
+| deleted-worktree-root-from-transcript-dir | covered | HWR-DT-103, HWR-DT-104, HWR-DT-106 | DT-106 守主 repo 目錄不套用 |
 | roots-lookup-failure-is-incomplete | covered | HWR-DT-102 | 外部邊界 run_cmd 替換成失敗的 git |
 | out-of-repo-instructions-not-in-denominator | covered | HWR-DT-095 | Auto |
 | control-ignores-checkout-rule-names | covered | HWR-DT-098 | Auto |
@@ -98,7 +107,7 @@ HWR-DT-102 把外部邊界 `run_cmd` 換成失敗的 git，模擬 `git worktree 
 - mutation 只以人工或一次性腳本執行並記錄於 design.md「驗證」，沒有自動化進 CI。
 - `entrypoint` 欄位本身消失或改值時格式對照靜默失效，只有報告的 `(unknown)` 列可見（PR #628 review 列為不修的 NIT）。
 - 「transcript 格式只在部分 session 改變」不會被格式對照抓到，屬已接受的殘餘風險（見 PR #628 的 Review Contract）。
-- 已刪除 worktree 內子專案的 rule 會被推成根目錄的 rule（resolve_repo_path 的已知限制），沒有測試鎖住這個
+- 例外也推不回的已刪除 worktree 內子專案的 rule 會被推成根目錄的 rule（resolve_repo_path 的已知限制），沒有測試鎖住這個
   「錯但已知」的行為；只在子專案自帶 `.claude/rules/` 時發生，yibi-mvp 目前沒有。
 
 ## Redundant TCs

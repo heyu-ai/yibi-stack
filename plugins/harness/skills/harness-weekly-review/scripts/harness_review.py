@@ -518,7 +518,7 @@ def transcript_files(projects_dir: Path, main_repo: Path, errors: list[str]) -> 
 
     for entry in scan_dir(projects_dir, errors, "transcript"):
         name = entry.name
-        if entry.is_dir() and (name == slug or name.startswith(slug + "--claude-worktrees-")):
+        if entry.is_dir() and (name == slug or name.startswith(slug + WORKTREE_DIR_INFIX)):
             for root, _dirs, fnames in os.walk(entry.path, onerror=on_walk_error):
                 out.extend(os.path.join(root, n) for n in fnames if n.endswith(".jsonl"))
     return sorted(out)
@@ -711,7 +711,8 @@ def _split_repo_path(path: str, main_repo: Path) -> tuple[bool, str] | None:
 def collect_worktree_roots(main_repo: Path) -> tuple[set[str], list[str]]:
     """列出 `<main>/.claude/worktrees/` 底下的 worktree 名稱（相對該目錄，可含 /），與列舉錯誤。
 
-    名稱取自兩個權威來源的聯集，不從 transcript 的路徑推論：
+    名稱取自兩個權威來源的聯集，不從 transcript 的路徑推論（已刪除 worktree 的例外由
+    collect_rule_loads 處理，見 worktree_root_from_dir_slug）：
     - `git worktree list --porcelain` 中位於 `<main>/.claude/worktrees/` 底下的 worktree
     - 走訪 `<main>/.claude/worktrees/`，含 `.git` 項目（linked worktree 是檔案）的目錄即為 worktree
       根目錄，不再往下走；git 已不認得但目錄還在的 worktree 靠這條取得
@@ -758,11 +759,11 @@ def resolve_repo_path(
       collect_worktree_roots），所以 `feat` 與 `feat/x` 並存時 `feat/x/CLAUDE.md` 對到 `CLAUDE.md`；
       worktree 內子專案的 `mobile/.claude/rules/x.md` 也保留自己的路徑。路徑剛好是 worktree 根目錄
       本身時回 (None, False)。
-    - 對不上任何已知 worktree（多半是期間已刪除）：rule 路徑以**第一個** `/.claude/rules/` 推回相對
-      路徑，第二個欄位仍為 False；其他檔案不猜，回 (None, True) 由呼叫端計入
-      unresolved_worktree_paths。已知限制：已刪除 worktree 內子專案的 rule
-      （`mobile/.claude/rules/x.md`）會被推成根目錄的 `.claude/rules/x.md`，因為名稱與子專案
-      目錄在路徑上無法區分。
+    - 對不上任何已知 worktree（多半是期間已刪除，且 collect_rule_loads 無法以 transcript
+      目錄名稱推回）：rule 路徑以**第一個** `/.claude/rules/` 推回相對路徑，第二個欄位仍為
+      False；其他檔案不猜，回 (None, True) 由呼叫端計入 unresolved_worktree_paths。
+      已知限制：已刪除 worktree 內子專案的 rule（`mobile/.claude/rules/x.md`）會被推成
+      根目錄的 `.claude/rules/x.md`，因為名稱與子專案目錄在路徑上無法區分。
     - 不屬於本 repo：(None, False)。
     """
     hit = _split_repo_path(path, main_repo)
@@ -780,6 +781,33 @@ def resolve_repo_path(
     if i > 0:
         return rest[i + 1 :], False
     return None, True
+
+
+WORKTREE_DIR_INFIX = "--claude-worktrees-"
+
+
+def transcript_worktree_slug(transcript: str, projects_dir: Path, main_repo: Path) -> str | None:
+    """transcript 檔所在的 `<slug>--claude-worktrees-<X>` 目錄的 X。
+
+    主 repo 目錄或其他目錄回 None。
+    """
+    first = Path(os.path.relpath(transcript, projects_dir)).parts[0]
+    prefix = project_slug(main_repo) + WORKTREE_DIR_INFIX
+    return first[len(prefix) :] if first.startswith(prefix) and len(first) > len(prefix) else None
+
+
+def worktree_root_from_dir_slug(rest: str, dir_slug: str) -> str | None:
+    """從 `.claude/worktrees/` 之後的剩餘路徑找出正規化後等於 transcript 目錄名稱 X 的前綴。
+
+    X 由 Claude Code 以 project_slug 的同一規則（每個非英數字元換成 -）產生，所以前綴依 `/` 分段、
+    取正規化後恰好等於 X 的最短前綴，就是該 worktree 的根目錄。沒有前綴相符時回 None，不再往下猜。
+    """
+    parts = rest.split("/")
+    for i in range(1, len(parts)):
+        prefix = "/".join(parts[:i])
+        if re.sub(r"[^A-Za-z0-9]", "-", prefix) == dir_slug:
+            return prefix
+    return None
 
 
 def repo_relative(path: str, main_repo: Path, worktree_roots: Collection[str] = ()) -> str | None:
@@ -814,8 +842,12 @@ def collect_rule_loads(
 
     路徑正規化見 resolve_repo_path：worktree 名稱由呼叫端以 worktree_roots 傳入（cmd_collect 以
     collect_worktree_roots 取自 git worktree list 與 `.claude/worktrees/` 的實際目錄），不從路徑
-    推論；worktree_root_errors 非空代表名稱可能不齊，來源不完整。對不上任何已知 worktree 的
-    非 rule 路徑不猜，計入 unresolved_worktree_paths（只供報告顯示，不使來源不完整）。
+    推論；worktree_root_errors 非空代表名稱可能不齊，來源不完整。
+    唯一例外是已刪除的 worktree：
+    路徑讀自 `<slug>--claude-worktrees-<X>` 目錄的 transcript、又對不上已知名稱時，以
+    worktree_root_from_dir_slug 取正規化後恰好等於 X 的前綴，加進已知名稱；
+    主 repo 目錄的路徑不套用。
+    兩者都對不上的非 rule 路徑不猜，計入 unresolved_worktree_paths（只供報告顯示，不使來源不完整）。
 
     「觀察期內的 session」是至少有一筆事件的 timestamp 落在 [since, now] 的 session；這種 session
     的所有載入紀錄都算，不論那筆 attachment 本身的時間——觀察期開始前載入的指令在期內仍在
@@ -859,8 +891,12 @@ def collect_rule_loads(
     in_window = 0
     bad_lines = 0
     bad_shapes = 0
+    # (transcript 目錄名稱 X, 路徑)：只收 `<slug>--claude-worktrees-<X>` 目錄內的檔案，
+    # 供已刪除 worktree 的根目錄推回（見 resolve_repo_path）
+    wt_dir_paths: set[tuple[str, str]] = set()
 
     for f in files:
+        dir_slug = transcript_worktree_slug(f, projects_dir, main_repo)
         for line in _read_lines(Path(f), file_errors, "rule 載入"):
             if not line.strip():
                 continue
@@ -909,6 +945,8 @@ def collect_rule_loads(
                         continue
                     elif isinstance(item.get("path"), str):
                         s["instr"].append(item["path"])
+                        if dir_slug is not None:
+                            wt_dir_paths.add((dir_slug, item["path"]))
                     else:
                         bad_shapes += 1
             elif kind == "nested_memory":
@@ -917,10 +955,22 @@ def collect_rule_loads(
                     # transcript 各出現一次時只算一筆；沒有 uuid 的事件各自算一筆
                     uid = ev.get("uuid") or f"no-uuid-{f}-{len(s['nested'])}"
                     s["nested"].append((uid, att["path"]))
+                    if dir_slug is not None:
+                        wt_dir_paths.add((dir_slug, att["path"]))
                 else:
                     bad_shapes += 1
 
-    roots = worktree_roots
+    # 已刪除的 worktree：權威來源沒有它的名稱時，以路徑所在 transcript 目錄的 X 推回根目錄。
+    # 只認正規化後恰好等於 X 的前綴，對不上的照舊計入 unresolved_worktree_paths
+    derived_roots: set[str] = set()
+    for dir_slug, p in wt_dir_paths:
+        if not resolve_repo_path(p, main_repo, worktree_roots)[1]:
+            continue
+        hit = _split_repo_path(p, main_repo)
+        root = worktree_root_from_dir_slug(hit[1], dir_slug) if hit else None
+        if root is not None:
+            derived_roots.add(root)
+    roots = set(worktree_roots) | derived_roots
     unresolved_paths: set[str] = set()
 
     def rel_of(p: str) -> str | None:

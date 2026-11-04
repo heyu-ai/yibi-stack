@@ -36,7 +36,9 @@ type: feat
 - 新增 `collect_rule_loads` collector：沿用既有的 `transcript_files` 與 `_read_lines`，依 sessionId 計數，把主 checkout
   與 `.claude/worktrees/<name>/`（名稱可含 `/`）的同一檔案正規化成同一個相對路徑，並依 entrypoint 記錄 session 數與
   其中載入了專案指令的 session 數。跨越觀察期起點的 session 以整個 session 計，觀察期以 `now` 為上界。
-  worktree 名稱取自 `git worktree list` 與 `.claude/worktrees/` 的實際目錄（`collect_worktree_roots`），不從路徑推論。
+  worktree 名稱取自 `git worktree list` 與 `.claude/worktrees/` 的實際目錄（`collect_worktree_roots`），不從路徑推論；
+  唯一例外是已刪除的 worktree：路徑讀自 `<slug>--claude-worktrees-<X>/` 的 transcript 時，取正規化後恰好等於 X 的
+  路徑前綴當根目錄（design.md D2）。
 - 來源完整性遵守既有的白名單語意（預設不完整），另加一個領域對照：觀察期內有 `entrypoint` 等於 `cli` 的 session，
   卻看不到任何 `instructions` 事件，或 `instructions` 列出的檔案沒有任何一個是 rule，就判定 transcript 格式可能已改變，
   來源不完整。對照不比對執行 checkout 的必載 rule 名稱；checkout 的必載 rule 本期 0 次時（期間才新增、剛改成必載，

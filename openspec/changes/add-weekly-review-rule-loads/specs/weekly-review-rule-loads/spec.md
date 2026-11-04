@@ -40,7 +40,7 @@ The collector SHALL count, for each repo-relative `.claude/rules/**/*.md` file (
 
 ### Requirement: Worktree paths are resolved against authoritative worktree roots
 
-The collector SHALL map a path under `.claude/worktrees/` to a repo-relative path by removing the longest known worktree name. Known worktree names SHALL come from `git worktree list --porcelain` entries under `<main>/.claude/worktrees/` and from directories under `<main>/.claude/worktrees/` that contain a `.git` entry; they SHALL NOT be inferred from transcript paths. When the git command fails or a directory cannot be listed, the rule-load source record SHALL be incomplete. A worktree path that matches no known worktree name SHALL be resolved from its first `/.claude/rules/` segment when it is a rule path; any other such path SHALL NOT be counted and SHALL be counted in `unresolved_worktree_paths`, which the report shows when it is greater than zero.
+The collector SHALL map a path under `.claude/worktrees/` to a repo-relative path by removing the longest known worktree name. Known worktree names SHALL come from `git worktree list --porcelain` entries under `<main>/.claude/worktrees/` and from directories under `<main>/.claude/worktrees/` that contain a `.git` entry; they SHALL NOT be inferred from transcript paths, with one exception. The exception: when a path that matches no known worktree name was read from a transcript under `<slug>--claude-worktrees-<X>/`, the collector SHALL add as a known worktree name the shortest `/`-separated prefix of the path after `.claude/worktrees/` whose characters, with every non-alphanumeric character replaced by `-`, equal `<X>`. The collector SHALL NOT apply this exception to paths read from the main repository's transcript directory, and SHALL NOT add a name when no prefix equals `<X>`. When the git command fails or a directory cannot be listed, the rule-load source record SHALL be incomplete. A worktree path that matches no known worktree name SHALL be resolved from its first `/.claude/rules/` segment when it is a rule path; any other such path SHALL NOT be counted and SHALL be counted in `unresolved_worktree_paths`, which the report shows when it is greater than zero.
 
 #### Scenario: authoritative-worktree-roots
 
@@ -59,8 +59,13 @@ The collector SHALL map a path under `.claude/worktrees/` to a repo-relative pat
 
 #### Scenario: deleted-worktree-counts-as-unresolved
 
-- **WHEN** a session loads `.claude/rules/always.md` and `CLAUDE.md` from `.claude/worktrees/feat/x/`, and `feat/x` is not a known worktree name
+- **WHEN** a session loads `.claude/rules/always.md` and `CLAUDE.md` from `.claude/worktrees/feat/x/`, `feat/x` is not a known worktree name, and no prefix of the path normalizes to the slug of the transcript directory the session was read from
 - **THEN** the snapshot records `.claude/rules/always.md` with 1 session, records no `CLAUDE.md` and no `x/CLAUDE.md`, and `unresolved_worktree_paths` counts the unresolved path
+
+#### Scenario: deleted-worktree-root-from-transcript-dir
+
+- **WHEN** the deleted worktree `feat/x` is not a known worktree name, and a session read from `<slug>--claude-worktrees-feat-x/` loads `.claude/worktrees/feat/x/CLAUDE.md` and `.claude/worktrees/feat/x/backend/CLAUDE.md`
+- **THEN** the snapshot records `CLAUDE.md` and `backend/CLAUDE.md` with 1 session each, `unresolved_worktree_paths` is 0, and the same paths read from the main repository's transcript directory stay unresolved
 
 #### Scenario: roots-lookup-failure-is-incomplete
 

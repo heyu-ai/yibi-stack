@@ -211,9 +211,11 @@ plugin hook 的 silent-block（repo 的註冊清單看不到它，也沒有它�
   只載入 1 次（2026-11-04 量測 `worktree-trim-always-loaded-rules` 分支 checkout，觀察期 14 天）。
 - `.claude/rules/` 子目錄內的 rule、子專案自帶的 rule（例如 `mobile/.claude/rules/x.md`）也會以自己的路徑計數，
   載入範圍欄標「不在 collect_rules 清單」，因為 rules 成本量測只看根目錄 rules 的直接子項。
-- worktree 名稱取自 `git worktree list` 與 `.claude/worktrees/` 的實際目錄。表頭若寫「N 個 worktree 內的路徑對不上
-  任何現存的 worktree」，那些多半是期間已刪除的 worktree：其中的 rule 照常計入，`CLAUDE.md`／`AGENTS.md` 不計，
-  所以指令檔表的次數會偏低（2026-11-04 的 yibi-mvp 量測有 33 個這樣的路徑，根目錄 `CLAUDE.md` 為 27/30）。
+- worktree 名稱取自 `git worktree list` 與 `.claude/worktrees/` 的實際目錄；已刪除的 worktree 則以 transcript 所在的
+  `<slug>--claude-worktrees-<X>` 目錄名稱推回（只認正規化後恰好等於 X 的路徑前綴）。表頭若寫「N 個 worktree 內的
+  路徑對不上任何現存的 worktree」，那些是兩種方法都對不上的路徑，多半是 session 讀到另一個已刪除 worktree 的檔案：
+  其中的 rule 照常計入，`CLAUDE.md`／`AGENTS.md` 不計，所以指令檔表的次數會偏低（2026-11-04 的 yibi-mvp 量測有
+  10 個這樣的路徑，根目錄 `CLAUDE.md` 為 30/30）。
 - path-scoped rule 的次數欄寫「量不到」時，代表有載入專案指令的 session 至少 `RULE_LOAD_MIN_SESSIONS`（3）個、
   卻沒有任何路徑解析得出來的 `nested_memory` 事件，通常是 Claude Code 改了這種事件的名稱或路徑格式，0 次不能當成
   沒人碰那些路徑。只有 1 到 2 個時照常顯示 0，表頭註明這些 0 次未經對照確認。

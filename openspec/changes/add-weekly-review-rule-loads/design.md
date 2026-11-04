@@ -27,22 +27,32 @@ attachment 不是物件，也沒有任何 `instructions` 缺 `files` 或 `files`
   collect_rules 清單」。
 - `<main_repo>/.claude/worktrees/` 底下的路徑要去掉 worktree 名稱，而名稱可以含 `/`（例如 `feat/x`）。名稱取自
   **權威來源**，不從 transcript 路徑推論（`collect_worktree_roots`，由 `cmd_collect` 算好再傳進
-  `collect_rule_loads`）：
+  `collect_rule_loads`；已刪除 worktree 的唯一例外見下）：
   - `git -C <main_repo> worktree list --porcelain` 中位於 `<main>/.claude/worktrees/` 底下的 worktree
   - 走訪 `<main>/.claude/worktrees/`，含 `.git` 項目（linked worktree 的 `.git` 是檔案）的目錄即為 worktree 根目錄，
     不再往下走。git 已不認得、目錄卻還在的 worktree 靠這條取得
   - 兩者取聯集，正規化時去掉最長的已知名稱，所以 `feat` 與 `feat/x` 並存時 `feat/x/CLAUDE.md` 對到 `CLAUDE.md`
   - `.claude/worktrees/` 不存在是常態，不算錯誤。git 失敗或目錄列不出來時名稱可能不齊，來源標為不完整
-- 對不上任何已知名稱的 worktree 路徑（多半是期間已刪除的 worktree）：rule 路徑以**第一個** `/.claude/rules/` 推回
+- 已刪除 worktree 的唯一例外：路徑讀自 `~/.claude/projects/<slug>--claude-worktrees-<X>/` 底下的 transcript，且
+  對不上任何已知名稱時，以 X 推回根目錄。X 是 Claude Code 以 `project_slug` 的同一規則（每個非英數字元換成 `-`）
+  從 worktree 名稱產生的，所以把路徑在 `.claude/worktrees/` 之後的部分依 `/` 分段，取正規化後**恰好等於** X 的
+  最短前綴，就是該 worktree 的根目錄（`worktree_root_from_dir_slug`）；它加進已知名稱，再正規化所有路徑。
+  只做這一種精確比對，不再往下猜：
+  - 沒有前綴等於 X 時照舊計入 `unresolved_worktree_paths`
+  - 讀自主 repo 目錄（`<slug>/`）的路徑不套用，也不拿其他 worktree 目錄的 X 來比
+  - 「最短」與「最長」在這條規則下等價：正規化逐字元替換、不改長度，而分段前綴每多一段至少長 2 個字元，所以
+    最多只有一個前綴的長度等於 X。mutation「改取最長前綴」因此是等價突變，無法被測試抓到（見「驗證」第 5 點）
+- 對不上任何已知名稱、也無法以上述例外推回的 worktree 路徑：rule 路徑以**第一個** `/.claude/rules/` 推回
   相對路徑照常計入；其他檔案不猜，計入 `unresolved_worktree_paths`，報告表頭列出。這不使來源不完整。
-- **真實限制**（2026-11-04 量測，見 D3）：已刪除 worktree 的根目錄與子目錄 `CLAUDE.md`／`AGENTS.md` 因此不計。
-  該觀察期有 33 個這樣的路徑；根目錄 `CLAUDE.md` 與 `AGENTS.md` 各為 27/30 個 session。前一份快照（2026-11-03、
-  以舊推論量測、觀察期早約 9 小時）兩者皆為 30，`backend/CLAUDE.md` 為 18，本次為 12；兩份的觀察期不同，差值只供
-  量級參考。本機全部 transcript 中無法解析的路徑來自 9 個已刪除的 worktree，名稱都不含 `/`，所以被否決的舊推論
-  （名稱是第一段）在這批資料上會算對；但它對名稱含 `/` 的 worktree 會捏造 `x/CLAUDE.md`。本 change 選擇少算並
-  揭露數量，不選擇可能捏造。另一個限制：已刪除 worktree
-  內子專案的 rule（`mobile/.claude/rules/x.md`）會被推成根目錄的 `.claude/rules/x.md`，因為 worktree 名稱與
-  子專案目錄在路徑上無法區分；yibi-mvp 目前沒有子專案自帶 `.claude/rules/`。
+- **真實限制**（2026-11-04 量測，見 D3）：例外推不回的已刪除 worktree，其根目錄與子目錄 `CLAUDE.md`／`AGENTS.md`
+  不計。該觀察期剩 10 個這樣的路徑（加入例外前的上一份快照為 33 個，根目錄 `CLAUDE.md` 與 `AGENTS.md` 為 27/30，
+  加入後為 30/30）。逐筆查證這 10 個：9 個是 session 在某個 worktree 啟動後讀到**另一個**已刪除 worktree 的檔案
+  （例如 `story-lab-v3-resumable-production-wait` 目錄內的 session 讀 `adr-0064-linkfix/` 底下的 5 個指令檔），
+  路徑與目錄名稱本來就對不上；1 個讀自主 repo 目錄。這兩種都屬於「不猜」的範圍。被否決的舊推論（名稱是第一段）
+  對名稱含 `/` 的 worktree 會捏造 `x/CLAUDE.md`；本 change 選擇少算並揭露數量，不選擇可能捏造。另一個限制：
+  例外也推不回的已刪除 worktree 內子專案的 rule（`mobile/.claude/rules/x.md`）會被推成根目錄的
+  `.claude/rules/x.md`，因為 worktree 名稱與子專案目錄在路徑上無法區分；yibi-mvp 目前沒有子專案自帶
+  `.claude/rules/`。
 - 被否決的作法，依時間順序：
   1. 只去掉 `.claude/worktrees/` 之後的第一段。PR #628 review 第 1 輪以 `feat/x` 重現它丟失 rule 載入，並捏造
      `x/CLAUDE.md`（I-8）。
@@ -60,14 +70,14 @@ attachment 不是物件，也沒有任何 `instructions` 缺 `files` 或 `files`
 
 ## D3 — 分母
 
-實測（yibi-mvp，2026-11-04 量測，觀察期 14 天：2026-10-21T00:48Z 到 2026-11-04T00:48Z）。量測對象是
+實測（yibi-mvp，2026-11-04 量測，觀察期 14 天：2026-10-21T01:57Z 到 2026-11-04T01:57Z）。量測對象是
 `worktree-trim-always-loaded-rules` 分支（HEAD `a4bb2bafa`）的 checkout，不是 yibi-mvp 的 main；transcript 取主 repo
-與其 worktree：
+與其 worktree。量測時的程式已含 D2 的已刪除 worktree 例外：
 
 ```bash
 python3 plugins/harness/skills/harness-weekly-review/scripts/harness_review.py collect \
   --repo /Users/howie/Workspace/github/heyu/yibi-mvp/.claude/worktrees/trim-always-loaded-rules \
-  --days 14 --no-ci --out snap-fix2.json
+  --days 14 --no-ci --out snap-fix3.json
 ```
 
 | entrypoint | session 數 | 有載入專案指令 | 看得到 rule 14 |
@@ -82,7 +92,8 @@ python3 plugins/harness/skills/harness-weekly-review/scripts/harness_review.py c
 （共 30 個），所以每個有載入專案指令的 session 都有它。同一份快照中：
 
 - 7 條每次必載的 rule 皆為 30 個 session，`always_missing` 為空，`excluded_sessions` 為 0
-- `nested_memory_events` 為 1043、`nested_unresolved_events` 為 133、`unresolved_worktree_paths` 為 33（見 D2 的限制）
+- `nested_memory_events` 為 1121、`nested_unresolved_events` 為 55、`unresolved_worktree_paths` 為 10（見 D2 的限制）
+- 根目錄 `CLAUDE.md` 與 `AGENTS.md` 皆為 30 個 session，`backend/CLAUDE.md` 為 19
 - 該分支 checkout 有 37 個 rule、其中 30 個 path-scoped；yibi-mvp 的 `origin/main` 是 35 個、28 個 path-scoped。
   差的兩個是 `15-retirement-sweep-incident-log.md` 與 `52-verification-incident-log.md`，2026-11-03 才在該分支以
   commit `247f5ae11` 建立
@@ -157,7 +168,7 @@ transcript 載入的是舊名稱，拿新名稱比對會整節量不到（R2-3�
 
 ## 驗證
 
-- 單元與端對端測試：HWR-DT-080..102、HWR-ST-026..030（見測試檔開頭的覆蓋對映）
+- 單元與端對端測試：HWR-DT-080..106、HWR-ST-026..030（見測試檔開頭的覆蓋對映）
 - mutation，依時間順序：
   1. 初版實作（commit `e0ef59a`）完成後，對 9 個單點各做一次突變：來源恆完整、使用者層計入、拿掉 cli 對照、對照改以
      任何 session 為前提、worktree 不正規化、報告忽略來源、分母改用全部 session、忽略觀察期、丟掉 nested_memory。
@@ -187,5 +198,11 @@ transcript 載入的是舊名稱，拿新名稱比對會整節量不到（R2-3�
      - (g) 分母改用原始 instructions 路徑（N11）→ HWR-DT-095
      - (h) 「沒有 instructions 事件」改用 `with_instr` 判斷（N10）→ HWR-DT-096
      - (i) `RULE_LOAD_MIN_SESSIONS` 門檻改成 `>= 1` → HWR-DT-089、HWR-ST-027
+  5. D2 的已刪除 worktree 例外，同一套腳本對 3 個單點各做一次突變：
+     - (a) 停用例外（推回的根目錄不加入已知名稱）→ 被抓到：HWR-DT-103、HWR-DT-104
+     - (b) 改取最長而非最短的相符前綴 → 存活。這是等價突變，理由見 D2：最多只有一個前綴的長度等於 X
+     - (c) 主 repo 目錄的路徑也拿所有 worktree 目錄的 X 來比 → 被抓到：HWR-DT-106
+     HWR-DT-101 原本把 transcript 寫在 `--claude-worktrees-feat-x`，加入例外後該路徑會被推回，所以改成對不上的
+     `--claude-worktrees-other`，仍守「對不上就不猜」
 - 真實資料：對 yibi-mvp 兩週 transcript 執行 `collect`（指令與時間見 D3），來源完整、沒有 warning；7 條每次必載的
-  rule 皆為 30/30
+  rule 皆為 30/30，根目錄 `CLAUDE.md` 為 30/30，`unresolved_worktree_paths` 為 10

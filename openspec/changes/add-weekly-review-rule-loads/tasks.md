@@ -77,3 +77,9 @@
   `check_testplan_trace.py --strict --report --change add-weekly-review-rule-loads` 28 個 TC 皆為 bound
 - [x] 6.10 9 個單點 mutation 全數被抓到（design.md「驗證」第 4 點）；`pytest scripts/tests/test_harness_weekly_review.py`
   161 passed；`pre-commit run --all-files` 通過（`git add` 之後跑）
+- [x] 6.11 已刪除的 worktree 以 transcript 目錄名稱（`<slug>--claude-worktrees-<X>`）推回根目錄：取正規化後恰好
+  等於 X 的最短路徑前綴，主 repo 目錄的路徑不套用（design.md D2）；HWR-DT-101 改用對不上的目錄名稱。驗證：
+  HWR-DT-103、HWR-DT-104、HWR-DT-105、HWR-DT-106。紅燈：DT-103、DT-104
+  `assert {} == {'CLAUDE.md': 1, 'backend/CLAUDE.md': 1}`。mutation 見 design.md「驗證」第 5 點
+- [x] 6.12 以 2026-11-04 的新快照（snap-fix3）重寫 design D2、D3、proposal、design「驗證」、SKILL.md 與 docstring 的
+  數字：`unresolved_worktree_paths` 33 降為 10、根目錄 `CLAUDE.md` 27/30 升為 30/30
