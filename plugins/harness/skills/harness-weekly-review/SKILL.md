@@ -59,7 +59,7 @@ description: >-
 不需要權限確認，可以無人值守執行。Step 4 的 LLM 判讀留給人打開報告時執行本 skill。
 
 ```bash
-python3 ~/.claude/skills/harness-weekly-review/scripts/harness_review.py weekly --repo /abs/path/to/repo
+python3 "${CLAUDE_SKILL_DIR}/scripts/harness_review.py" weekly --repo /abs/path/to/repo
 ```
 
 **只能用本機排程**：資料源（`~/.claude/hook-events/`、`~/.claude/projects/` transcript）都在本機。
@@ -76,7 +76,7 @@ Claude Code 的 `/schedule`（雲端 routine）讀不到這些檔案；`CronCrea
   "day_of_week": "monday",
   "day_of_month": null,
   "months": null,
-  "command": ["python3", "/Users/<you>/.claude/skills/harness-weekly-review/scripts/harness_review.py",
+  "command": ["python3", "/Users/<you>/.agents/skills/harness-weekly-review/scripts/harness_review.py",
               "weekly", "--repo", "/abs/path/to/repo", "--incomplete-ok"],
   "claude": null,
   "skill": null,
@@ -85,6 +85,10 @@ Claude Code 的 `/schedule`（雲端 routine）讀不到這些檔案；`CronCrea
   "timeout_seconds": 1200
 }
 ```
+
+排程 JSON 裡的腳本路徑要用 `make install` 管理的穩定路徑 `~/.agents/skills/harness-weekly-review/`
+（`~` 不會展開，寫成絕對路徑），不要用上面那條指令裡的 skill 載入目錄：它指向帶版本號的 plugin cache，
+plugin 更新後排程就會指到已被清掉的舊版本。plugin 提供的 skill 也不會出現在 `~/.claude/skills/`。
 
 不要用 `skill:` job：它需要 ACP Gateway（`~/.config/acp-gateway/.env`）在執行，而且 skill 的 Step 4 需要 LLM。
 `weekly` 的 exit code：`0` 完成；`3` 量測不完整但報告已產出；`2` 參數或環境錯誤。yibi-stack scheduler

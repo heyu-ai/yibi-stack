@@ -34,10 +34,11 @@ description: >-
 python3 "{{skill_root}}/scripts/fleet_usage_guard.py"
 ```
 
-源碼 repo 經 `make install` 安裝時，也可直接執行：
+源碼 repo 經 `make install` 安裝時（連到 `~/.agents/skills/`；plugin 提供的 skill 不會出現在
+`~/.claude/skills/`），也可直接執行：
 
 ```bash
-python3 ~/.claude/skills/fleet-usage-guard/scripts/fleet_usage_guard.py
+python3 ~/.agents/skills/fleet-usage-guard/scripts/fleet_usage_guard.py
 ```
 
 工具會掃 `~/.claude/projects/**/*.jsonl`，只取 assistant usage entry，依

@@ -5,12 +5,15 @@ Pre-release test gate 在推 tag 之前執行，確保程式碼品質。
 
 ## 執行方式
 
+`<skill 目錄>` 是 bump-version skill 的實際載入目錄（SKILL.md 的範例已展開成實際路徑；
+此檔不會被展開）。plugin 提供的 skill 不在 `~/.claude/skills/` 底下。
+
 ```bash
 # 正常執行（必跑）
-~/.claude/skills/bump-version/scripts/gates.sh
+bash <skill 目錄>/scripts/gates.sh
 
 # 緊急略過（GitHub Release notes 會加警告）
-~/.claude/skills/bump-version/scripts/gates.sh --skip-gates
+bash <skill 目錄>/scripts/gates.sh --skip-gates
 ```
 
 ## 各平台預設指令
@@ -29,7 +32,7 @@ Pre-release test gate 在推 tag 之前執行，確保程式碼品質。
 各平台的 gate script 住在：
 
 ```text
-~/.claude/skills/bump-version/scripts/gates/
+<skill 目錄>/scripts/gates/
 ├── flutter.sh
 ├── python.sh
 ├── nodejs.sh
@@ -54,7 +57,7 @@ Pre-release test gate 在推 tag 之前執行，確保程式碼品質。
 設定環境變數後執行：
 
 ```bash
-SKIP_GATES=true ~/.claude/skills/bump-version/scripts/release.sh
+SKIP_GATES=true bash <skill 目錄>/scripts/release.sh
 ```
 
 或在呼叫 `gates.sh` 時加旗標（`release.sh` 會讀 `SKIP_GATES` 環境變數）。

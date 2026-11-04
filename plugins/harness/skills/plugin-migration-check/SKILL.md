@@ -32,7 +32,7 @@ Claude Code 的 plugin 系統沒有 pack 改名／合併／拆分的遷移機制
 ## 用法
 
 ```bash
-python3 ~/.claude/skills/plugin-migration-check/scripts/check_migration.py
+python3 "${CLAUDE_SKILL_DIR}/scripts/check_migration.py"
 ```
 
 或若透過 plugin cache 安裝：`claude plugin install harness@yibi-stack` 後，路徑會在
