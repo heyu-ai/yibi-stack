@@ -64,7 +64,7 @@ HWR-DT-102 把外部邊界 `run_cmd` 換成失敗的 git，模擬 `git worktree 
 | HWR-DT-103 | auto | rule-load-collector | deleted-worktree-root-from-transcript-dir | 已刪除的 worktree 以 transcript 目錄名稱推回根目錄 | EP | High | 已刪除的 feat/x 的 transcript，寫在 `--claude-worktrees-feat-x`，不注入名稱 | 呼叫 collect_rule_loads | 根目錄 CLAUDE.md、backend/CLAUDE.md | CLAUDE.md 與 backend/CLAUDE.md 各 1、unresolved_worktree_paths 0 |
 | HWR-DT-104 | auto | rule-load-collector | deleted-worktree-root-from-transcript-dir | 名稱含 `_` 時目錄名稱為 `-`，同樣推得回 | EP | Medium | 已刪除的 a_b 的 transcript，寫在 `--claude-worktrees-a-b` | 呼叫 collect_rule_loads | 同 DT-103 | 同 DT-103 |
 | HWR-DT-105 | auto | rule-load-collector | deleted-worktree-counts-as-unresolved | 沒有前綴等於目錄名稱時不猜 | EP | High | 已刪除的 feat/x 的 transcript，寫在 `--claude-worktrees-feat-y` | 呼叫 collect_rule_loads | 同 DT-103 | 指令檔不計、unresolved_worktree_paths 2 |
-| HWR-DT-106 | auto | rule-load-collector | deleted-worktree-root-from-transcript-dir | 主 repo 目錄的 transcript 不套用目錄名稱推回 | DT | High | 同樣的路徑寫在主 repo 目錄；另有只含一般事件的 `--claude-worktrees-feat-x` 目錄 | 呼叫 collect_rule_loads | 同 DT-103 | 指令檔不計、unresolved_worktree_paths 2 |
+| HWR-DT-106 | auto | rule-load-collector | main-transcript-does-not-derive-worktree-root | 主 repo 目錄的 transcript 不套用目錄名稱推回 | DT | High | 同樣的路徑寫在主 repo 目錄；另有只含一般事件的 `--claude-worktrees-feat-x` 目錄 | 呼叫 collect_rule_loads | 同 DT-103 | 指令檔不計、unresolved_worktree_paths 2 |
 | HWR-ST-030 | auto | cli | authoritative-worktree-roots | 端對端：cmd_collect 取得真實 worktree 名稱 | ST | High | 真實 git repo 與 `.claude/worktrees/feat/x` worktree | main collect | 該 worktree 的 rule、根目錄 CLAUDE.md、docs/CLAUDE.md | CLAUDE.md 與 docs/CLAUDE.md 各 1、unresolved_worktree_paths 0 |
 
 ## Coverage Analysis
@@ -94,7 +94,8 @@ HWR-DT-102 把外部邊界 `run_cmd` 換成失敗的 git，模擬 `git worktree 
 | authoritative-worktree-roots | covered | HWR-DT-100, HWR-DT-102, HWR-ST-030 | ST-030 以真實 git worktree 端對端 |
 | subproject-rules-keep-their-path | covered | HWR-DT-100 | probe_a 的情境 |
 | deleted-worktree-counts-as-unresolved | covered | HWR-DT-101, HWR-DT-105 | DT-101 的目錄名稱與路徑無關；DT-105 只差一個字元 |
-| deleted-worktree-root-from-transcript-dir | covered | HWR-DT-103, HWR-DT-104, HWR-DT-106 | DT-106 守主 repo 目錄不套用 |
+| deleted-worktree-root-from-transcript-dir | covered | HWR-DT-103, HWR-DT-104 | Auto |
+| main-transcript-does-not-derive-worktree-root | covered | HWR-DT-106 | 另有不含該路徑的 worktree 目錄 |
 | roots-lookup-failure-is-incomplete | covered | HWR-DT-102 | 外部邊界 run_cmd 替換成失敗的 git |
 | out-of-repo-instructions-not-in-denominator | covered | HWR-DT-095 | Auto |
 | control-ignores-checkout-rule-names | covered | HWR-DT-098 | Auto |

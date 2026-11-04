@@ -65,7 +65,12 @@ The collector SHALL map a path under `.claude/worktrees/` to a repo-relative pat
 #### Scenario: deleted-worktree-root-from-transcript-dir
 
 - **WHEN** the deleted worktree `feat/x` is not a known worktree name, and a session read from `<slug>--claude-worktrees-feat-x/` loads `.claude/worktrees/feat/x/CLAUDE.md` and `.claude/worktrees/feat/x/backend/CLAUDE.md`
-- **THEN** the snapshot records `CLAUDE.md` and `backend/CLAUDE.md` with 1 session each, `unresolved_worktree_paths` is 0, and the same paths read from the main repository's transcript directory stay unresolved
+- **THEN** the snapshot records `CLAUDE.md` and `backend/CLAUDE.md` with 1 session each, and `unresolved_worktree_paths` is 0
+
+#### Scenario: main-transcript-does-not-derive-worktree-root
+
+- **WHEN** the deleted worktree `feat/x` is not a known worktree name, the only transcript that loads `.claude/worktrees/feat/x/CLAUDE.md` and `.claude/worktrees/feat/x/backend/CLAUDE.md` is in the main repository's transcript directory, and a `<slug>--claude-worktrees-feat-x/` directory exists without those loads
+- **THEN** the snapshot records no `CLAUDE.md` and no `backend/CLAUDE.md`, and `unresolved_worktree_paths` counts both paths
 
 #### Scenario: roots-lookup-failure-is-incomplete
 

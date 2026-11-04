@@ -39,7 +39,9 @@ attachment 不是物件，也沒有任何 `instructions` 缺 `files` 或 `files`
   最短前綴，就是該 worktree 的根目錄（`worktree_root_from_dir_slug`）；它加進已知名稱，再正規化所有路徑。
   只做這一種精確比對，不再往下猜：
   - 沒有前綴等於 X 時照舊計入 `unresolved_worktree_paths`
-  - 讀自主 repo 目錄（`<slug>/`）的路徑不套用，也不拿其他 worktree 目錄的 X 來比
+  - 讀自主 repo 目錄（`<slug>/`）的路徑不用來**推回**名稱，也不拿其他 worktree 目錄的 X 來比。推回的名稱加進
+    全域的已知名稱，所以同一次執行中，其他 worktree 目錄已推回 `feat/x` 時，主 repo 目錄讀到的同一路徑也會
+    正規化；只有主 repo 目錄讀到該路徑時仍計入 `unresolved_worktree_paths`
   - 「最短」與「最長」在這條規則下等價：正規化逐字元替換、不改長度，而分段前綴每多一段至少長 2 個字元，所以
     最多只有一個前綴的長度等於 X。mutation「改取最長前綴」因此是等價突變，無法被測試抓到（見「驗證」第 5 點）
 - 對不上任何已知名稱、也無法以上述例外推回的 worktree 路徑：rule 路徑以**第一個** `/.claude/rules/` 推回

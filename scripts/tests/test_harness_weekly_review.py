@@ -3817,7 +3817,7 @@ class TestRuleLoads:
     def test_hwr_dt_106_main_transcript_does_not_use_dir_fallback(self, tmp_path: Path) -> None:
         """HWR-DT-106: 同樣的路徑出現在主 repo 目錄的 transcript：不套用目錄名稱的推回，即使另有
         `--claude-worktrees-feat-x` 目錄（其中沒有載入該路徑）
-        spec: weekly-review-rule-loads#deleted-worktree-root-from-transcript-dir
+        spec: weekly-review-rule-loads#main-transcript-does-not-derive-worktree-root
         tc: HWR-DT-106
         """
         data = self._deleted_worktree_loads(tmp_path, None, "feat/x", extra_dir="feat-x")
