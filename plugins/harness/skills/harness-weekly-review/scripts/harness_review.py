@@ -747,8 +747,19 @@ def repo_relative(path: str, main_repo: Path, worktree_roots: Collection[str] = 
     return _strip_worktree_name(rest, worktree_roots)
 
 
+def collect_worktree_roots(main_repo: Path) -> tuple[set[str], list[str]]:
+    return set(), []
+
+
 def collect_rule_loads(
-    projects_dir: Path, main_repo: Path, since: dt.datetime, rules: dict[str, Any]
+    projects_dir: Path,
+    main_repo: Path,
+    rules: dict[str, Any],
+    *,
+    since: dt.datetime,
+    now: dt.datetime,
+    worktree_roots: Collection[str],
+    worktree_root_errors: Collection[str] = (),
 ) -> tuple[dict[str, Any], list[str]]:
     """從 transcript 數每個 rule 檔與指令檔（CLAUDE.md／AGENTS.md）在觀察期內被載入的 session 數。
 
@@ -818,22 +829,23 @@ def collect_rule_loads(
                 },
             )
             ts = parse_ts(ev.get("timestamp"))
-            if ts is not None and ts >= since:
+            if ts is not None and since <= ts <= now:
                 in_window += 1
                 s["in_window"] = True
             if isinstance(ev.get("entrypoint"), str):
                 s["entry"].add(ev["entrypoint"])
             if ev.get("type") != "attachment":
                 continue
-            att = ev.get("attachment") or {}
+            att = ev.get("attachment")
             if not isinstance(att, dict):
+                bad_shapes += 1  # 缺漏、字串化的 JSON、清單：都不是現行格式
                 continue
             kind = att.get("type")
             if kind == "instructions":
                 s["saw_instructions"] = True
-                items = att.get("files") or []
+                items = att.get("files")
                 if not isinstance(items, list):
-                    bad_shapes += 1
+                    bad_shapes += 1  # 缺漏或不是清單（含 {} 與 "" 這類 falsy 值）
                     continue
                 for item in items:
                     if not isinstance(item, dict):
@@ -883,13 +895,14 @@ def collect_rule_loads(
             target = rule_sessions if RULE_REL.fullmatch(rel) else memory_sessions
             target.setdefault(rel, set()).add(sid)
 
-    errors += file_errors
+    # 讀檔失敗與壞行：collect_transcript_blocks 對同一批檔案已回傳成 warning，這裡只記進本來源
+    seen_elsewhere = list(file_errors)
     if bad_lines:
-        errors.append(f"rule 載入：略過 {bad_lines} 行格式錯誤（可能被截斷）的紀錄")
+        seen_elsewhere.append(f"rule 載入：略過 {bad_lines} 行格式錯誤（可能被截斷）的紀錄")
     if bad_shapes:
         errors.append(
-            f"rule 載入：{bad_shapes} 個 attachment 的形狀不符（路徑不是字串、files 不是清單或"
-            "含非物件項目）；transcript 格式可能已改變，本週未量測"
+            f"rule 載入：{bad_shapes} 個 attachment 的形狀不符（attachment 不是物件、路徑不是字串、"
+            "files 缺漏或不是清單、files 含非物件項目）；transcript 格式可能已改變，本週未量測"
         )
     if files and in_window < TRANSCRIPT_MIN_EVENTS:
         errors.append(
@@ -940,7 +953,7 @@ def collect_rule_loads(
         "rules": {k: len(v) for k, v in sorted(rule_sessions.items())},
         "memory_files": {k: len(v) for k, v in sorted(memory_sessions.items())},
         "always_missing": always_missing,
-        "source": make_source(listing_errors + no_transcript + errors),
+        "source": make_source(listing_errors + no_transcript + seen_elsewhere + errors),
     }
     return data, errors
 
@@ -2305,8 +2318,15 @@ def cmd_collect(args: argparse.Namespace) -> int:
     guard_names = set(inventory["on_disk"]) | {g["script"] for g in gate_inv["gates"]}
     rules, w = collect_rules(repo, guard_names)
     warnings += w
+    roots, root_errors = collect_worktree_roots(main_repo)
     rule_loads, w = collect_rule_loads(
-        Path(args.projects_dir).expanduser(), main_repo, since, rules
+        Path(args.projects_dir).expanduser(),
+        main_repo,
+        rules,
+        since=since,
+        now=now,
+        worktree_roots=roots,
+        worktree_root_errors=root_errors,
     )
     warnings += w
     if args.no_ci:
