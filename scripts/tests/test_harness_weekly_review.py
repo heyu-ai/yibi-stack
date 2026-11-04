@@ -3350,11 +3350,11 @@ class TestRuleLoads:
             assert data["source"] == complete_source(), name
             return data, "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
 
-        # Claude Code 把 nested_memory 改名（claude-r1.md 的重現）
-        data, text = run("renamed", "nested_memory_v2", 3)
+        # Claude Code 把 nested_memory 改名（PR #628 review I-7 的重現）
+        data, text = run("renamed", "nested_memory_v2", hr.RULE_LOAD_MIN_SESSIONS)
         assert data.get("nested_memory_events") == 0
         assert "| `.claude/rules/scoped.md` | `x/**` | 量不到 | 量不到 |" in text
-        assert "沒有看到任何 nested_memory 事件" in text
+        assert "沒有任何可解析的 nested_memory 事件" in text
         assert "| `.claude/rules/always.md` | 每次必載 | 3 | 100% |" in text
 
         data, text = run("healthy", "nested_memory", 3)
@@ -3362,9 +3362,13 @@ class TestRuleLoads:
         assert "| `.claude/rules/scoped.md` | `x/**` | 3 | 100% |" in text
         assert "量不到" not in text
 
-        # 有載入專案指令的 session 少於門檻時，0 次仍可能是真的沒碰到，照常顯示 0
-        data, text = run("few", "nested_memory_v2", 2)
+        # 有載入專案指令的 session 少於門檻時，0 次仍可能是真的沒碰到，照常顯示 0，但表頭註明未經對照
+        data, text = run("few", "nested_memory_v2", hr.RULE_LOAD_MIN_SESSIONS - 1)
         assert "| `.claude/rules/scoped.md` | `x/**` | 0 | 0% |" in text
+        unchecked = "本期沒有任何可解析的 nested_memory 事件，以下 path-scoped 的 0 次未經對照確認"
+        assert unchecked in text
+        _, healthy_text = run("healthy-few", "nested_memory", hr.RULE_LOAD_MIN_SESSIONS - 1)
+        assert unchecked not in healthy_text
 
     def test_hwr_dt_090_malformed_attachment_shape(self, tmp_path: Path) -> None:
         """HWR-DT-090: nested_memory 的 path 不是字串、instructions 的 files 不是清單 → 來源不完整
@@ -3642,3 +3646,35 @@ class TestRuleLoads:
         assert data["source"] == complete_source() and warnings == []
         assert data["always_missing"] == [".claude/rules/new.md"]
         assert data["rules"] == {".claude/rules/old.md": 1}
+
+    def test_hwr_dt_099_unresolved_nested_paths_show_unmeasured(self, tmp_path: Path) -> None:
+        """HWR-DT-099: nested_memory 的 path 改成相對路徑、file:// URI，或期內只有 repo 外的 nested 事件時，
+        nested_memory_events 只計解析成本 repo rule／指令檔的事件 → 0，path-scoped rule 顯示量不到；
+        無法解析的另記 nested_unresolved_events（PR #628 review R2-5，probe.out 的三組）
+        spec: weekly-review-rule-loads#unresolved-nested-paths-show-unmeasured
+        tc: HWR-DT-099
+        """
+        repo = tmp_path / "demo"
+        repo.mkdir()
+        r = f"{repo}/.claude/rules"
+        rules = rules_section(
+            repo, [".claude/rules/always.md"], {".claude/rules/scoped.md": ["backend/**"]}
+        )
+        shapes = {
+            "relative": [".claude/rules/scoped.md", "backend/CLAUDE.md"],
+            "uri": [f"file://{repo}/.claude/rules/scoped.md"],
+            "outside-only": ["/Users/someone/.claude/rules/u.md"],
+        }
+        for name, paths in shapes.items():
+            rows: list[dict[str, Any]] = []
+            for i in range(hr.RULE_LOAD_MIN_SESSIONS):
+                rows.append(instructions_ev(f"i{i}", f"s{i}", [f"{r}/always.md"]))
+                rows += [nested_ev(f"n{i}-{j}", f"s{i}", p) for j, p in enumerate(paths)]
+            write_transcript(tmp_path / name, hr.project_slug(repo), [*rows, *filler("s0")])
+            data, _ = run_loads(tmp_path / name, repo, rules)
+            assert data["source"] == complete_source(), name
+            assert data["nested_memory_events"] == 0, name
+            assert data["nested_unresolved_events"] == len(paths) * hr.RULE_LOAD_MIN_SESSIONS, name
+            text = "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
+            assert "| `.claude/rules/scoped.md` | `backend/**` | 量不到 | 量不到 |" in text, name
+            assert "| `.claude/rules/always.md` | 每次必載 | 3 | 100% |" in text, name

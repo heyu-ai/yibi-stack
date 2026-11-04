@@ -75,6 +75,10 @@ HOOK_MIN_CALLS = 3
 
 # transcript 類建議要判定，觀察期內至少要有這麼多筆事件
 TRANSCRIPT_MIN_EVENTS = 3
+# 有載入專案指令的 session 至少這麼多個、卻沒有任何可解析的 nested_memory 事件時，path-scoped rule
+# 的 0 次不能判讀（render_rule_loads 改寫「量不到」）。與 TRANSCRIPT_MIN_EVENTS 數值相同但單位不同
+# （session 數 vs 事件數），分開定義以免調一個連帶改另一個
+RULE_LOAD_MIN_SESSIONS = 3
 
 # 外部指令（git／gh／mycelium）的逾時秒數；逾時視為讀取失敗，不讓排程卡住
 CMD_TIMEOUT_SECONDS = 60
@@ -825,7 +829,6 @@ def collect_rule_loads(
                     "saw_instructions": False,
                     "instr": [],
                     "nested": [],
-                    "nested_ids": set(),
                 },
             )
             ts = parse_ts(ev.get("timestamp"))
@@ -858,16 +861,17 @@ def collect_rule_loads(
                         bad_shapes += 1
             elif kind == "nested_memory":
                 if isinstance(att.get("path"), str):
-                    s["nested"].append(att["path"])
-                    # 同一事件在主 checkout 與 worktree 的 transcript 各出現一次時只算一筆
-                    s["nested_ids"].add(ev.get("uuid") or f"no-uuid-{len(s['nested'])}")
+                    # 事件 id 供 nested_memory_events 去重：同一事件在主 checkout 與 worktree 的
+                    # transcript 各出現一次時只算一筆；沒有 uuid 的事件各自算一筆
+                    uid = ev.get("uuid") or f"no-uuid-{f}-{len(s['nested'])}"
+                    s["nested"].append((uid, att["path"]))
                 else:
                     bad_shapes += 1
 
     roots = {
         r
         for s in per_session.values()
-        for p in s["instr"] + s["nested"]
+        for p in s["instr"] + [path for _uid, path in s["nested"]]
         if (r := worktree_root(p, main_repo)) is not None
     }
     sessions = {k: s for k, s in per_session.items() if s["in_window"]}
@@ -875,20 +879,31 @@ def collect_rule_loads(
     rule_sessions: dict[str, set[str]] = {}
     memory_sessions: dict[str, set[str]] = {}
     excluded = 0
-    nested_events = 0
+    # nested_memory 漂移偵測只數解析成本 repo rule／指令檔的事件：路徑改成相對路徑、URI，或期內只有
+    # repo 外的事件時，原始事件數不是 0，偵測就不會觸發（PR #628 review R2-5）
+    nested_resolved: set[str] = set()
+    nested_unresolved: set[str] = set()
     instr_has_rule = False  # 觀察期內是否有任何 instructions 路徑落在 `.claude/rules/`（格式對照用）
     for sid, s in sessions.items():
         instr_rel = [r for p in s["instr"] if (r := repo_relative(p, main_repo, roots)) is not None]
-        nested_rel = [
-            r for p in s["nested"] if (r := repo_relative(p, main_repo, roots)) is not None
-        ]
+        nested_rel: list[str] = []
+        nested_resolved_here: set[str] = set()
+        nested_unresolved_here: set[str] = set()
+        for uid, p in s["nested"]:
+            r = repo_relative(p, main_repo, roots)
+            if r is not None and (RULE_REL.fullmatch(r) or MEMORY_REL.fullmatch(r)):
+                nested_rel.append(r)
+                nested_resolved_here.add(uid)
+            elif r is None:
+                nested_unresolved_here.add(uid)
         loaded = [
             r for r in instr_rel + nested_rel if RULE_REL.fullmatch(r) or MEMORY_REL.fullmatch(r)
         ]
         instr_has_rule = instr_has_rule or any(RULE_REL.fullmatch(r) for r in instr_rel)
         if instr_rel:
             with_instr.add(sid)
-            nested_events += len(s["nested_ids"])
+            nested_resolved |= nested_resolved_here
+            nested_unresolved |= nested_unresolved_here
         elif loaded:
             excluded += 1
         if sid not in with_instr:
@@ -952,7 +967,8 @@ def collect_rule_loads(
         "sessions": len(sessions),
         "sessions_with_instructions": len(with_instr),
         "excluded_sessions": excluded,
-        "nested_memory_events": nested_events,
+        "nested_memory_events": len(nested_resolved),
+        "nested_unresolved_events": len(nested_unresolved - nested_resolved),
         "entrypoints": dict(sorted(by_entry.items())),
         "rules": {k: len(v) for k, v in sorted(rule_sessions.items())},
         "memory_files": {k: len(v) for k, v in sorted(memory_sessions.items())},
@@ -2210,8 +2226,10 @@ def render_rule_loads(snap: dict[str, Any]) -> list[str]:
         lines.append("- 量不到：本快照沒有可信的載入紀錄（原因見上方「量測不完整」）")
         return lines
     total = loads.get("sessions_with_instructions", 0)
-    # 舊快照沒有 nested_memory_events 欄位時照舊顯示次數
-    scoped_unmeasured = loads.get("nested_memory_events") == 0 and total >= TRANSCRIPT_MIN_EVENTS
+    # 舊快照沒有 nested_memory_events 欄位時照舊顯示次數。門檻只看 session 數，不看無法解析的事件數：
+    # 路徑形狀整批改變時，無法解析的事件可能很多，但可判讀的仍是 0 筆
+    no_nested = loads.get("nested_memory_events") == 0
+    scoped_unmeasured = no_nested and total >= RULE_LOAD_MIN_SESSIONS
     lines.append(
         f"- 觀察期內 {loads.get('sessions', 0)} 個 session，其中 {total} 個有載入專案指令；"
         "佔比以後者為分母"
@@ -2223,11 +2241,19 @@ def render_rule_loads(snap: dict[str, Any]) -> list[str]:
             f"- 依 entrypoint（有載入專案指令／session 數）：{'；'.join(parts)}。"
             "沒有載入專案指令的 session 裡，下表任何 rule 都不在 context"
         )
+    unresolved = loads.get("nested_unresolved_events") or 0
+    unresolved_note = f"（另有 {unresolved} 筆路徑無法解析成本 repo 的檔案）" if unresolved else ""
     if scoped_unmeasured:
         lines.append(
-            f"- path-scoped rule 量不到：{total} 個有載入專案指令的 session 裡，沒有看到任何 "
-            "nested_memory 事件；transcript 格式可能已改變，path-scoped rule 與子目錄指令檔的次數"
-            "不能判讀"
+            f"- path-scoped rule 量不到：{total} 個有載入專案指令的 session 裡，沒有任何可解析的 "
+            f"nested_memory 事件{unresolved_note}；transcript 格式可能已改變，下表 path-scoped rule "
+            "的次數與佔比改寫「量不到」"
+        )
+    elif no_nested and total:
+        lines.append(
+            "- 本期沒有任何可解析的 nested_memory 事件，以下 path-scoped 的 0 次未經對照確認"
+            f"{unresolved_note}：有載入專案指令的 session 只有 {total} 個，少於對照門檻 "
+            f"{RULE_LOAD_MIN_SESSIONS} 個"
         )
     missing = loads.get("always_missing") or []
     if missing:
