@@ -2987,7 +2987,7 @@ class TestRuleLoads:
         rules = rules_section(
             repo, [".claude/rules/always.md"], {".claude/rules/scoped.md": ["x/**"]}
         )
-        data, warnings = run_loads(projects, repo, rules)
+        data, warnings = run_loads(projects, repo, rules, roots={"feat"})
         assert warnings == []
         assert data["source"] == complete_source()
         assert data["sessions"] == 3
@@ -3406,7 +3406,7 @@ class TestRuleLoads:
         ]
         write_transcript(tmp_path / "p", hr.project_slug(repo) + "--claude-worktrees-feat-x", rows)
         rules = rules_section(repo, [".claude/rules/always.md"], {})
-        data, _ = run_loads(tmp_path / "p", repo, rules)
+        data, _ = run_loads(tmp_path / "p", repo, rules, roots={"feat/x"})
         assert data["rules"] == {".claude/rules/always.md": 1}
         assert data["memory_files"] == {"CLAUDE.md": 1, "docs/CLAUDE.md": 1}
         assert data["source"] == complete_source()
@@ -3678,3 +3678,147 @@ class TestRuleLoads:
             text = "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
             assert "| `.claude/rules/scoped.md` | `backend/**` | 量不到 | 量不到 |" in text, name
             assert "| `.claude/rules/always.md` | 每次必載 | 3 | 100% |" in text, name
+
+    def test_hwr_dt_100_authoritative_worktree_roots(self, tmp_path: Path) -> None:
+        """HWR-DT-100: worktree 根目錄由呼叫端注入（權威來源），不從路徑推論：worktree 內子專案的
+        rule 與指令檔保留自己的路徑，與主 checkout 一致；兩個根目錄 feat 與 feat/x 並存時取最長者
+        spec: weekly-review-rule-loads#authoritative-worktree-roots
+        spec: weekly-review-rule-loads#subproject-rules-keep-their-path
+        tc: HWR-DT-100
+        """
+        repo = tmp_path / "demo"
+        repo.mkdir()
+        m = str(repo)
+        wt = f"{m}/.claude/worktrees"
+        assert hr.repo_relative(f"{wt}/feat/x/CLAUDE.md", repo, {"feat", "feat/x"}) == "CLAUDE.md"
+        assert hr.repo_relative(f"{wt}/feat/y/CLAUDE.md", repo, {"feat", "feat/x"}) == "y/CLAUDE.md"
+        assert hr.repo_relative(f"{wt}/feat/x", repo, {"feat/x"}) is None  # worktree 根目錄本身
+        rel = hr.repo_relative(f"{wt}/feat/x/mobile/.claude/rules/m.md", repo, {"feat/x"})
+        assert rel == "mobile/.claude/rules/m.md"
+
+        # probe_a 的情境：主 checkout 與 worktree wt 都載入 mobile/ 子專案的 rule 與 CLAUDE.md
+        w = f"{wt}/wt"
+        main_rows = [
+            instructions_ev("m1", "main", [f"{m}/.claude/rules/always.md", f"{m}/CLAUDE.md"]),
+            nested_ev("m2", "main", f"{m}/mobile/.claude/rules/m.md"),
+            nested_ev("m3", "main", f"{m}/mobile/CLAUDE.md"),
+            *filler("main"),
+        ]
+        wt_rows = [
+            instructions_ev("w1", "wt", [f"{w}/.claude/rules/always.md"]),
+            nested_ev("w2", "wt", f"{w}/mobile/.claude/rules/m.md"),
+            nested_ev("w3", "wt", f"{w}/mobile/CLAUDE.md"),
+        ]
+        slug = hr.project_slug(repo)
+        write_transcript(tmp_path / "p", slug, main_rows)
+        write_transcript(tmp_path / "p", slug + "--claude-worktrees-wt", wt_rows)
+        rules = rules_section(repo, [".claude/rules/always.md"], {})
+        data, warnings = run_loads(tmp_path / "p", repo, rules, roots={"wt"})
+        assert data["source"] == complete_source() and warnings == []
+        assert data["rules"] == {".claude/rules/always.md": 2, "mobile/.claude/rules/m.md": 2}
+        assert data["memory_files"] == {"CLAUDE.md": 1, "mobile/CLAUDE.md": 2}
+        assert data.get("unresolved_worktree_paths") == 0
+        text = "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
+        label = "（不在 collect_rules 清單：已刪除，或位於 rules 子目錄）"
+        assert f"| `mobile/.claude/rules/m.md` | {label} | 2 | 100% |" in text
+
+    def test_hwr_dt_101_deleted_worktree_counts_as_unresolved(self, tmp_path: Path) -> None:
+        """HWR-DT-101: 期間已刪除、名稱含 / 的 worktree（feat/x）對不上任何已知根目錄：rule 路徑以第一個
+        `/.claude/rules/` 推回相對路徑；其他檔案不猜，計入 unresolved_worktree_paths 並在報告表頭列出
+        spec: weekly-review-rule-loads#deleted-worktree-counts-as-unresolved
+        tc: HWR-DT-101
+        """
+        repo = tmp_path / "demo"
+        repo.mkdir()
+        w = f"{repo}/.claude/worktrees/feat/x"
+        assert hr.repo_relative(f"{w}/.claude/rules/always.md", repo) == ".claude/rules/always.md"
+        assert hr.repo_relative(f"{w}/CLAUDE.md", repo) is None
+        rows = [
+            instructions_ev("w1", "s1", [f"{w}/.claude/rules/always.md", f"{w}/CLAUDE.md"]),
+            nested_ev("w2", "s1", f"{w}/docs/CLAUDE.md"),
+            *filler("s1"),
+        ]
+        write_transcript(tmp_path / "p", hr.project_slug(repo) + "--claude-worktrees-feat-x", rows)
+        rules = rules_section(repo, [".claude/rules/always.md"], {})
+        data, warnings = run_loads(tmp_path / "p", repo, rules)
+        assert data["source"] == complete_source() and warnings == []
+        assert data["rules"] == {".claude/rules/always.md": 1}
+        assert data["memory_files"] == {}  # 不捏造 x/CLAUDE.md、x/docs/CLAUDE.md
+        assert data.get("unresolved_worktree_paths") == 2
+        text = "\n".join(hr.render_rule_loads({"rules": rules, "rule_loads": data}))
+        assert "2 個 worktree 內的路徑對不上任何現存的 worktree" in text
+
+    def test_hwr_dt_102_worktree_roots_lookup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HWR-DT-102: collect_worktree_roots 合併 git worktree list 與 `.claude/worktrees/` 底下含 .git 的
+        目錄；目錄不存在不算錯誤；git 失敗時記錯誤，傳進 collect_rule_loads 後來源不完整並回傳 warning
+        spec: weekly-review-rule-loads#authoritative-worktree-roots
+        spec: weekly-review-rule-loads#roots-lookup-failure-is-incomplete
+        tc: HWR-DT-102
+        """
+        repo = tmp_path / "demo"
+        git_init(repo)
+        (repo / "README.md").write_text("x\n")
+        git_commit_all(repo)
+        assert hr.collect_worktree_roots(repo) == (set(), [])  # 沒有 .claude/worktrees/
+
+        base = repo / ".claude" / "worktrees"
+        for name in ("outer", "outer/inner"):
+            REAL_RUN(
+                ["git", "-C", str(repo), "worktree", "add", "-q", "--detach", str(base / name)],
+                check=True,
+            )
+        (base / "walked").mkdir()
+        (base / "walked" / ".git").write_text("gitdir: /gone\n")  # git 已不認得、目錄還在
+        (base / "plain" / "sub").mkdir(parents=True)  # 沒有 .git：不是 worktree
+        roots, errors = hr.collect_worktree_roots(repo)
+        assert errors == []
+        # outer/inner 在 outer 底下，只有 git worktree list 看得到；walked 只有走目錄看得到
+        assert roots == {"outer", "outer/inner", "walked"}
+
+        def failing(args: list[str], cwd: Path, timeout: int = 0) -> Any:
+            return cp(args, 128, "", "fatal: not a git repository")
+
+        monkeypatch.setattr(hr, "run_cmd", failing)
+        roots, errors = hr.collect_worktree_roots(repo)
+        assert errors and any("git worktree list" in e for e in errors), errors
+        assert roots == {"outer", "walked"}  # 走目錄的結果仍保留，但來源已標為不齊
+
+        rows = [instructions_ev("a1", "s1", [f"{repo}/.claude/rules/always.md"]), *filler("s1")]
+        write_transcript(tmp_path / "p", hr.project_slug(repo), rows)
+        rules = rules_section(repo, [".claude/rules/always.md"], {})
+        data, warnings = run_loads(tmp_path / "p", repo, rules, roots=roots, root_errors=errors)
+        assert data["source"]["complete"] is False
+        assert any("git worktree list" in w for w in warnings), warnings
+
+    def test_hwr_st_030_collect_resolves_real_worktree(self, tmp_path: Path) -> None:
+        """HWR-ST-030: 端對端：`<repo>/.claude/worktrees/feat/x` 是真的 git worktree 時，cmd_collect 取得的
+        根目錄讓該 worktree 的根目錄 CLAUDE.md 對到 CLAUDE.md，沒有無法解析的路徑
+        spec: weekly-review-rule-loads#authoritative-worktree-roots
+        tc: HWR-ST-030
+        """
+        repo = tmp_path / "demo"
+        git_init(repo)
+        (repo / ".claude" / "rules").mkdir(parents=True)
+        (repo / ".claude" / "rules" / "always.md").write_text("# a\n")
+        (repo / "CLAUDE.md").write_text("# c\n")
+        git_commit_all(repo)
+        wt = repo / ".claude" / "worktrees" / "feat" / "x"
+        REAL_RUN(["git", "-C", str(repo), "worktree", "add", "-q", "--detach", str(wt)], check=True)
+        w = str(wt.resolve())
+        write_transcript(
+            tmp_path / "projects",
+            hr.project_slug(repo) + "--claude-worktrees-feat-x",
+            [
+                instructions_ev("c1", "s1", [f"{w}/.claude/rules/always.md", f"{w}/CLAUDE.md"]),
+                nested_ev("c2", "s1", f"{w}/docs/CLAUDE.md"),
+                *filler("s1"),
+            ],
+        )
+        hr.main(collect_args(repo, tmp_path, "--no-ci"))
+        loads = load(tmp_path / "out" / "snap.json")["rule_loads"]
+        assert loads["source"] == complete_source()
+        assert loads["rules"] == {".claude/rules/always.md": 1}
+        assert loads["memory_files"] == {"CLAUDE.md": 1, "docs/CLAUDE.md": 1}
+        assert loads.get("unresolved_worktree_paths") == 0
