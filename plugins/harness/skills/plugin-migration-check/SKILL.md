@@ -35,9 +35,6 @@ Claude Code 的 plugin 系統沒有 pack 改名／合併／拆分的遷移機制
 python3 "${CLAUDE_SKILL_DIR}/scripts/check_migration.py"
 ```
 
-或若透過 plugin cache 安裝：`claude plugin install harness@yibi-stack` 後，路徑會在
-plugin 自己的 cache 目錄下，直接呼叫本檔同目錄的 `scripts/check_migration.py` 即可。
-
 ## 輸出範例
 
 ```text
