@@ -168,6 +168,105 @@ class TestLinkClaudeSkill:
         assert "[FAIL]" in result.stderr
 
 
+class TestNotPrunedWarning:
+    """plugin 提供的 skill，dst 已存在但不是本 repo 的連結：不處理，但要 [WARN] 提醒可能重複。"""
+
+    def test_lcs_pw_001_link_to_other_checkout_warns_and_is_untouched(self, tmp_path: Path) -> None:
+        """LCS-PW-001: 指向別的 checkout 的 skills/<name> 連結不刪除，並 [WARN]"""
+        repo = _make_repo(tmp_path)
+        other = tmp_path / "other checkout" / "skills" / "viaplugin"
+        other.mkdir(parents=True)
+        dst = tmp_path / "claude_skills"
+        dst.mkdir()
+        (dst / "viaplugin").symlink_to(other)
+
+        result = _run(repo, "viaplugin", dst)
+
+        assert result.returncode == 0, result.stderr
+        assert "[WARN]" in result.stderr
+        assert "viaplugin" in result.stderr
+        assert str(dst / "viaplugin") in result.stderr
+        assert (dst / "viaplugin").is_symlink()
+        assert (dst / "viaplugin").readlink() == other
+
+    def test_lcs_pw_002_foreign_symlink_warns(self, tmp_path: Path) -> None:
+        """LCS-PW-002: 指向任意他處的 symlink 也 [WARN]，且不動它"""
+        repo = _make_repo(tmp_path)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        dst = tmp_path / "claude_skills"
+        dst.mkdir()
+        (dst / "viaplugin").symlink_to(elsewhere)
+
+        result = _run(repo, "viaplugin", dst)
+
+        assert result.returncode == 0, result.stderr
+        assert "[WARN]" in result.stderr
+        assert (dst / "viaplugin").readlink() == elsewhere
+
+    def test_lcs_pw_003_real_directory_warns_and_is_untouched(self, tmp_path: Path) -> None:
+        """LCS-PW-003: 實體目錄 [WARN] 且內容原封不動"""
+        repo = _make_repo(tmp_path)
+        dst = tmp_path / "claude_skills"
+        (dst / "viaplugin").mkdir(parents=True)
+        (dst / "viaplugin" / "keep.txt").write_text("mine\n", encoding="utf-8")
+
+        result = _run(repo, "viaplugin", dst)
+
+        assert result.returncode == 0, result.stderr
+        assert "[WARN]" in result.stderr
+        assert (dst / "viaplugin" / "keep.txt").read_text(encoding="utf-8") == "mine\n"
+
+    def test_lcs_pw_004_absent_destination_does_not_warn(self, tmp_path: Path) -> None:
+        """LCS-PW-004: dst 不存在（正常乾淨狀態）只有 [SKIP]，不出現 [WARN]"""
+        repo = _make_repo(tmp_path)
+        dst = tmp_path / "claude_skills"
+        dst.mkdir()
+
+        result = _run(repo, "viaplugin", dst)
+
+        assert result.returncode == 0, result.stderr
+        assert "[SKIP]" in result.stderr
+        assert "[WARN]" not in result.stderr
+
+    def test_lcs_pw_005_exact_match_is_pruned_without_warning(self, tmp_path: Path) -> None:
+        """LCS-PW-005: 與預期完全相符的連結被移除，不 [WARN]，並提示如何取得 plugin"""
+        repo = _make_repo(tmp_path)
+        dst = tmp_path / "claude_skills"
+        dst.mkdir()
+        (dst / "viaplugin").symlink_to(repo / "skills" / "viaplugin")
+
+        result = _run(repo, "viaplugin", dst)
+
+        assert result.returncode == 0, result.stderr
+        assert not (dst / "viaplugin").is_symlink()
+        assert "[WARN]" not in result.stderr
+        assert "claude plugin install" in result.stdout
+
+
+class TestCdpathIsolation:
+    def test_lcs_cd_001_cdpath_does_not_hijack_relative_repo_root(self, tmp_path: Path) -> None:
+        """LCS-CD-001: 環境有 CDPATH 且含同名相對路徑時，判準不可被它帶偏"""
+        parent = tmp_path / "parent"
+        parent.mkdir()
+        _make_repo(parent)  # parent/repo：viaplugin 是 plugin 提供
+        decoy = tmp_path / "cdpath_dir"
+        (decoy / "repo" / "skills" / "viaplugin").mkdir(parents=True)
+
+        result = subprocess.run(  # nosec B603
+            ["bash", str(SCRIPT), "--check", "repo", "viaplugin"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            cwd=parent,
+            env={**os.environ, "CDPATH": str(decoy)},
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "plugin"
+
+
 class TestMakefileWiring:
     def test_lcs_st_001_install_routes_claude_dir_through_script(self) -> None:
         """LCS-ST-001: make install 的 skill 迴圈必須經由 link_claude_skill.sh

@@ -23,6 +23,8 @@
 # Exit：0 成功或 no-op；其餘沿用 safe_symlink.sh 的 exit code（1 執行失敗、2 被實體路徑擋住）。
 
 set -u
+# 環境若帶 CDPATH，相對路徑的 cd 會被導向別處，且 cd 還會把目的地印到 stdout。
+export CDPATH=
 
 CHECK_ONLY=0
 if [ "${1:-}" = "--check" ]; then
@@ -86,9 +88,14 @@ if [ "$PLUGIN_PROVIDED" = "1" ]; then
                 echo "  [FAIL] ${NAME}: 無法移除重複連結 ${DST}" >&2
                 exit 1
             fi
-            echo "  [OK] ${NAME}: 已移除與 plugin 重複的連結 (${DST_DIR})"
+            echo "  [OK] ${NAME}: 已移除與 plugin 重複的連結 (${DST_DIR})；若需要此 skill，請執行 claude plugin install <pack>@yibi-stack"
             exit 0
         fi
+    fi
+    # dst 存在卻不是本 repo 的連結（別的 checkout、其他 symlink、實體目錄）：不碰它，
+    # 但它可能讓同一個 skill 重複出現，必須讓使用者看見。-L 涵蓋失效的 symlink。
+    if [ -e "$DST" ] || [ -L "$DST" ]; then
+        echo "  [WARN] ${NAME}: ${DST} 已存在且非本 repo 連結，未處理（可能造成重複）" >&2
     fi
     echo "  [SKIP] ${NAME}: 由 plugin 提供，不安裝到 ${DST_DIR}" >&2
     exit 0
