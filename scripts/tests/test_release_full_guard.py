@@ -133,7 +133,7 @@ class TestEmptyReleaseGuard:
         # 核心斷言：預設路徑找得到腳本
         assert _SKILL_MISSING_MARK not in result.stderr, result.stderr
         # 正向對照：確實走過了 executable 檢查，停在後面的 git fetch（tmp repo 沒有 origin）
-        assert "origin" in result.stderr, result.stderr
+        assert "'origin' does not appear to be a git repository" in result.stderr, result.stderr
 
     def test_release_guard_006_cdpath_does_not_break_self_location(
         self, tagged_repo: Path, tmp_path: Path
@@ -165,7 +165,7 @@ class TestEmptyReleaseGuard:
         assert result.returncode != 0
         assert _SKILL_MISSING_MARK not in result.stderr, result.stderr
         # 正向對照：確實走過 executable 檢查，停在後面的 dirty 檢查（上面的 symlink 是未追蹤檔）
-        assert "dirty" in result.stderr, result.stderr
+        assert "Working tree is dirty" in result.stderr, result.stderr
 
     def test_release_guard_004_no_tags_skips_guard(self, tmp_path: Path) -> None:
         """RELEASE-GUARD-004: repo 完全沒有 tag（首次 release）-> guard 跳過。"""

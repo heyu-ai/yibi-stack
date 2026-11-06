@@ -19,6 +19,7 @@ Test ID 規則見 .claude/rules/09-test-conventions.md（PSP = plugin skill self
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess  # nosec B404
@@ -40,9 +41,12 @@ EXEMPT: dict[str, str] = {
 
 
 def _self_path_re(skill_name: str) -> re.Pattern[str]:
-    """匹配 `~`、`$HOME` 或 `/Users/<任何>` 開頭、指向 ~/.claude/skills/<skill_name>/ 的路徑。"""
+    """匹配 `~`、`$HOME`、`${HOME}`（可帶收尾引號，如 `"$HOME"/`）或 `/Users/<任何>` 開頭、
+    指向 ~/.claude/skills/<skill_name>/ 的路徑。"""
     return re.compile(
-        r"(?:~|\$HOME|/Users/[^/\s]+)/\.claude/skills/" + re.escape(skill_name) + r"(?![\w-])"
+        r"(?:~|\$HOME|\$\{HOME\}|/Users/[^/\s]+)\"?/\.claude/skills/"
+        + re.escape(skill_name)
+        + r"(?![\w-])"
     )
 
 
@@ -59,9 +63,8 @@ def _skill_docs() -> list[tuple[str, Path]]:
         skill_dir = Path(root)
         name = skill_dir.name
         docs.append((name, skill_dir / "SKILL.md"))
-        refs = skill_dir / "references"
-        if refs.is_dir():
-            docs.extend((name, p) for p in sorted(refs.rglob("*.md")))
+        for ref_root, _ref_dirs, ref_files in os.walk(skill_dir / "references", followlinks=True):
+            docs.extend((name, Path(ref_root) / f) for f in sorted(ref_files) if f.endswith(".md"))
     return docs
 
 
@@ -86,6 +89,9 @@ _KNOWN_BAD = (
     ("bump-version", 'python3 "$HOME/.claude/skills/bump-version/scripts/x.py"'),
     ("harness-weekly-review", '"/Users/<you>/.claude/skills/harness-weekly-review/scripts/a.py"'),
     ("plugin-cache-prune", "python3 ~/.claude/skills/plugin-cache-prune"),
+    ("bump-version", "bash ${HOME}/.claude/skills/bump-version/scripts/bump.sh"),
+    ("bump-version", 'bash "$HOME"/.claude/skills/bump-version/scripts/bump.sh'),
+    ("bump-version", 'bash "${HOME}"/.claude/skills/bump-version/scripts/bump.sh'),
 )
 # 負向對照：這些是合法寫法，被誤抓會讓人學會關掉這個測試。
 _KNOWN_GOOD = (
@@ -166,6 +172,55 @@ def test_psp_st_003_init_commit_hook_runs_from_the_plugin_dir_without_any_instal
     assert (target / ".claude/hooks/commit-msg-parse.py").is_file()
     # 沒有任何東西寫進（空的）HOME：安裝只動目標 repo
     assert list(empty_home.iterdir()) == []
+
+
+_WEEKLY_REVIEW_SKILL = PLUGINS / "harness/skills/harness-weekly-review/SKILL.md"
+_SCHEDULE_HEADING = "## 排程（每週自動量測，不含 LLM 判讀）"
+_STABLE_SCRIPT_RE = re.compile(
+    r"^(?:~|/Users/[^/\s]+)/\.agents/skills/harness-weekly-review/scripts/"
+)
+
+
+def _section(text: str, heading: str) -> str:
+    """擷取 `heading`（整行比對）到下一個 `## ` 標題之間的內容；找不到或不唯一就失敗。
+
+    code fence 內的 `## ` 不算標題。不可回傳空字串或退回整檔，否則後面的斷言會變成空轉。
+    """
+    lines = text.splitlines()
+    starts = [i for i, line in enumerate(lines) if line == heading]
+    assert len(starts) == 1, f"解析前提不成立：標題 {heading!r} 出現 {len(starts)} 次"
+    body: list[str] = []
+    in_fence = False
+    for line in lines[starts[0] + 1 :]:
+        if line.startswith("```"):
+            in_fence = not in_fence
+        elif not in_fence and line.startswith("## "):
+            break
+        body.append(line)
+    return "\n".join(body)
+
+
+def test_psp_st_004_schedule_json_uses_stable_agents_path_not_skill_dir() -> None:
+    """PSP-ST-004: harness-weekly-review 的排程 JSON 會被持久化進 .runtime/schedules.json，
+    所以 command 裡的腳本必須是 make install 管理的穩定路徑 ~/.agents/skills/<自己>/，
+    不能用 ${CLAUDE_SKILL_DIR}（展開成帶版本號的 plugin cache 路徑，plugin 更新後即失效）。
+
+    只掃該節的 json code fence：說明散文與 bash fence 合理地提到 ${CLAUDE_SKILL_DIR}。
+    """
+    section = _section(_WEEKLY_REVIEW_SKILL.read_text(encoding="utf-8"), _SCHEDULE_HEADING)
+    fences = re.findall(r"^```json\n(.*?)^```", section, flags=re.DOTALL | re.MULTILINE)
+    assert fences, "排程一節沒有任何 json code fence，解析前提不成立"
+
+    stable_scripts: list[str] = []
+    for fence in fences:
+        assert "CLAUDE_SKILL_DIR" not in fence, "排程 JSON 不可使用 ${CLAUDE_SKILL_DIR}"
+        assert ".claude/skills/" not in fence, "排程 JSON 不可使用 ~/.claude/skills/"
+        command = json.loads(fence).get("command")
+        assert isinstance(command, list) and command, "排程 JSON 缺少 command 陣列"
+        stable_scripts += [arg for arg in command if _STABLE_SCRIPT_RE.match(str(arg))]
+    assert stable_scripts, (
+        "排程 JSON 的 command 沒有指向 ~/.agents/skills/harness-weekly-review/scripts/"
+    )
 
 
 def test_psp_st_002_exemptions_are_not_stale() -> None:
