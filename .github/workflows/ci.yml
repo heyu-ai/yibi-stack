@@ -37,7 +37,7 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --locked --all-groups
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
