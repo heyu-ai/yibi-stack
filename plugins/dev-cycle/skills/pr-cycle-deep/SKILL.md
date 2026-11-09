@@ -1034,7 +1034,7 @@ indented code、code fence、HTML 註解與 audit 不算來源；inline code 中
 | **Single-voice Critical** | 1 voice marks Critical; others did not mention | Lead MUST execute before adopting — do NOT skip by reasoning alone: ① Extract the finding's claimed pattern (the specific syntax, string, or construct the finding says is problematic) ② `grep -rn '<pattern>' <relevant-dirs>` — report hit count ③ Zero hits + pre-existing limitation (old code also didn't handle it) → demote to Deferred with `Grep verification: <command> → 0 hits` ④ Nonzero hits → confirm as Consensus Critical ⑤ Can't grep (no concrete pattern) → list as Disputed. (4× recurrence: PR #626/#653/#815/#1774 — lead adopted single-voice Criticals by reasoning without grepping actual usage; all turned out to be zero-hit pre-existing limitations.) |
 | **Actionable NIT** | Any 1 voice marks NIT and it's not subjective preference | **Deferred — never blocks**, any round. Lead MAY fix trivially in-round; doing so is not a gate |
 | **Withdrawn** | Marked WITHDRAW in R2 | 移出修復清單；Step 2 來源留在 Withdrawn 區塊供 Step 5a 核對 |
-| **Voice unavailable** | That voice failed R1/R2 twice in a row | Note in final.md; do not block |
+| **Voice unavailable** | That voice failed R1/R2 twice in a row | 保留失敗原因與實際聲部數；外部成功聲部為 0 時適用 Step 3.3 人類裁決，未批准不得繼續 |
 
 #### Contract mapping gate
 
@@ -1710,7 +1710,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Codex Stage 1 `codex-r1-raw.md` is empty (review missing) | Stage 1 now uses `codex exec ... > codex-r1-raw.md` (stdout); read `$REVIEW_DIR/codex-r1.stage1.log` (stderr) for the error. For the `codex exec \| tee` stages (Stage 2 / R2), `set -o pipefail` keeps `$?` reflecting the failing command in the pipeline (bash/zsh) |
 | Why Stage 1 uses `codex exec`, not `codex review --base` + a guard prompt | `codex review --base` and a positional `[PROMPT]` are mutually exclusive (codex-cli 0.142.5: `the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`), so the skill-hijack guard cannot ride on `codex review`. Stage 1 drives the review through `codex exec` with the guard on stdin instead (issue #194). Do not "fix" it back to `codex review --base` |
 | codex Stage 1 runs against wrong repo | The stage-1 script passes `codex exec -C "$WT_ROOT"`, pinning the repo root; ensure you run the script from inside the worktree (avoid tools like gstack changing CWD, AP3 Sub-class A) |
-| A voice fails R1/R2 twice consecutively | Mark as unavailable; do not block; aggregate report notes the reason |
+| A voice fails R1/R2 twice consecutively | Mark unavailable and preserve the reason；外部成功聲部為 0 時先停在 Step 3.3 等人裁決，不自動以 mob 名義完成 |
 | R2 receives r1-aggregate that is too large for voice to process | Remove raw diff from r1-aggregate; keep only findings; diff was already processed in the r1 prompt |
 | Round 2 ends with unresolved blocking findings | Trigger circuit breaker; hand remaining findings to user with the three-option decision (no third round) |
 | User chooses to ignore a disputed finding | Add a Known Issues section to the PR description with the reason |
