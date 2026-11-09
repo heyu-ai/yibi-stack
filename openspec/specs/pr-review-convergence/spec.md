@@ -239,3 +239,70 @@ silently. Passing such a check SHALL mean document conformance only, not that an
 | Empty document | fail: required content absent |
 | Required Evidence anchor absent | fail: anchor absent, verification inconclusive |
 | Required content present with different line wrapping | no fixed-line-count failure |
+
+### Requirement: Draft readiness requires explicit human approval
+
+The pre-merge gate SHALL read live PR state and a boolean isDraft before version bump or merge.
+An OPEN draft PR SHALL stop even when mergeable is MERGEABLE and mergeStateStatus is CLEAN.
+Prior ship approval SHALL NOT authorize marking a draft ready. Only explicit human approval
+SHALL permit gh pr ready, followed by another live gate read confirming isDraft=false.
+API failure, missing metadata or a non-boolean isDraft SHALL stop rather than infer readiness.
+
+#### Scenario: draft-clean-stops -- CLEAN draft still blocks
+
+- **GIVEN** an OPEN PR with isDraft=true and mergeStateStatus=CLEAN
+- **WHEN** the pre-merge gate executes
+- **THEN** it MUST stop for human approval and MUST NOT mark ready or merge.
+
+#### Scenario: ready-rechecked -- Approval does not replace readback
+
+- **GIVEN** explicit approval to mark a draft ready
+- **WHEN** gh pr ready succeeds but live readback still has isDraft=true
+- **THEN** the gate MUST remain blocked until a live read confirms isDraft=false.
+
+### Requirement: Early checkpoints retain safe resume boundaries
+
+Before Step 1.5, the workflow SHALL atomically create a JSON state.md binding PR, base,
+head and next=Step 1.5. Each successful early step SHALL advance next; an interrupted step
+SHALL leave next unchanged. Resume SHALL reject a different live PR head, checkout HEAD,
+PR identity, base or malformed checkpoint. It SHALL NOT require final.md or red-first
+evidence before Step 1.7 has completed. From Step 2 onward valid red-first evidence SHALL
+remain mandatory, with unchecked distinct from pass. Missing final.md or unresolved
+disputes at later boundaries SHALL route back to Step 5, never to final.prev.md.
+Read-only review workflows SHALL skip all checkpoint writes.
+
+#### Scenario: resume-before-red-first -- Early interruption has no final yet
+
+- **GIVEN** Step 1.6 completed and next=Step 1.7 was saved
+- **WHEN** a new session resumes with the same PR, base and head and no final.md or red-first.md
+- **THEN** resume MUST return Step 1.7 without restarting Step 1.5.
+
+#### Scenario: resume-stale-head -- Checkpoint cannot adopt new commits
+
+- **GIVEN** a saved checkpoint and a changed live PR head or checkout HEAD
+- **WHEN** resume executes
+- **THEN** it MUST fail without rewriting the checkpoint.
+
+### Requirement: Runtime voice exhaustion requires a human decision
+
+Static auth detection SHALL NOT certify runtime voice availability. After each R1 pass,
+the workflow SHALL count only successfully verified current-pass voices and retain unavailable
+voice reasons. With zero successful external voices it SHALL stop, allowing the human to
+explicitly continue Claude-only, switch workflow, or retry later. Silence SHALL NOT authorize
+continuation. Approval SHALL bind the PR head, review pass and outcomes and SHALL NOT carry
+to a different pass or changed outcomes. Advance and resume after R1 SHALL reject missing or
+unapproved voice decisions. Final, human summary and Jira output SHALL use the actual mode
+and unavailable reasons, never a cached planned count. Read-only review SHALL produce the
+voice report without creating a lifecycle checkpoint.
+
+#### Scenario: external-exhaustion-stops -- Quota and 502 failures are not mob review
+
+- **GIVEN** Claude succeeded, Codex hit its usage limit and Gemini failed with HTTP 502
+- **WHEN** R1 availability is recorded without a human continuation decision
+- **THEN** the workflow MUST report Claude-only, retain both failure reasons, and stop.
+
+#### Scenario: continuation-is-pass-local -- Prior approval cannot waive a later outage
+
+- **GIVEN** explicit Claude-only approval for pass 1
+- **WHEN** pass 2 also has no external successful voice
+- **THEN** the workflow MUST ask for a new decision rather than reuse pass 1 approval.

@@ -44,15 +44,18 @@ a few minutes and the lead responds on the spot — faster than two senior engin
 /pr-cycle-deep #<PR number> --resume   ← continue from .pr-review/state.md (see Step 5 Checkpoint)
 ```
 
-`--resume`: run Step 0a, Read `state.md` + `final.md`, re-check live PR state (Step 6 recheck
-table), then jump to its `next:` step. `state.md` missing, naming another PR, or its `head:` ≠ the
-live `gh pr view --json headRefOid` (unreviewed commits) → `[FAIL]`; rerun without `--resume`.
-refresh 後若 `final.md` 缺檔，表示本輪尚未彙整；依 checkpoint 完成本輪 Step 2／5，
-不得以 `final.prev.md` 代替。`next:` 若已指向 Step 5a／5b／6，先回 Step 5 重建 final。
-跳轉前先 Read `.pr-review/red-first.md`，依 Step 1.7 證據契約檢查。
-缺漏、不可讀、格式／PR 不符、不完整或 blocking 結果 → `[FAIL]` 停止；
-不得從 `pre-review-check.md`、scratch 輸出或對話記憶推定通過。
-修正後 captured HEAD 可與目前 HEAD 不同；必須揭露原始 identity，不宣稱在新 HEAD 重跑過。
+`--resume`：先跑 Step 0a，再執行下列唯讀 gate；採用 stdout JSON 的 `next`：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py resume --pr {{pr_number}}
+```
+
+Exit `2`／非零即 `[FAIL]` 停止。state.md 必須是 schema_version=1 的 JSON；舊版自由格式
+checkpoint 不推測解析，改用不帶 --resume 的流程。gate 比對 PR、base、live head 與 checkout HEAD。
+Step 1.5／1.6／1.7 尚未執行 red-first，不要求 red-first.md／final.md；
+Step 2 起讀取有效 red-first 證據，保留 captured identity 與 unchecked 原樣、不升格成 pass。
+Step 5a 之後若 final.md 缺檔或 disputed 有未裁決項，next 回 Step 5；不得用 final.prev.md。
+即使 gate 放行，仍依 Step 6 live PR 狀態表與各步驟既有的人類／finding gates 執行。
 
 ---
 
@@ -76,7 +79,7 @@ Use the Read tool to try reading `~/.claude/mob-detection-cache`:
   - **All cached-available voices still auth OK** → report one line and **go directly to Step 1**:
 
     ```text
-    [Cache] Reusing detection ({{DATE}}): Mode={{MODE}} — auth re-verified OK, proceeding.
+    [Cache] Reusing detection ({{DATE}}): planned Mode={{MODE}} — static auth metadata OK; runtime availability is unverified until R1.
     ```
 
   - **Any cached-available voice now `NOT_AUTHED` / `KEY_WHITESPACE_PREFIX`** → that token expired
@@ -89,7 +92,7 @@ Use the Read tool to try reading `~/.claude/mob-detection-cache`:
 > **Why re-verify instead of asking**: valid auth is the common case, so silent reuse is the
 > default; only a real auth failure stops the flow. A present-but-expired token that slips the
 > static check is caught at use-time by R1 fail-loud (`agy_validate.py` / codex error), which marks
-> that voice unavailable and proceeds with the rest — no block. The warm path re-verifies auth only,
+> that voice unavailable；剩餘外部聲部為 0 時必須由 Step 3.3 停下詢問，不自動完成 mob review。The warm path re-verifies auth only,
 > not `GEMINI_ALLOW_LIST` (a stale allow-list only adds a per-call prompt). Force a full re-detect
 > by deleting `~/.claude/mob-detection-cache`.
 
@@ -327,6 +330,32 @@ which is the safe direction):
 ---
 
 ### Step 1.5 — Pre-review Check (one script, blocking)
+
+先在 PR worktree 建立 early checkpoint（開始新 invocation 才用 start，resume 不重建）：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py start --pr {{pr_number}}
+```
+
+helper 原子寫 `.pr-review/state.md`，綁定 pr/base/head 與 next=Step 1.5，並加入 Git exclude。
+任何非零（exit 2）停止。每個成功邊界都用同一 helper 推進，**先確認成功才推進**；
+失敗／中斷保持原 next。命令中的 next_step 直接代入下表值：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py advance --pr {{pr_number}} --next "{{next_step}}"
+```
+
+| 已完成的邊界 | next_step |
+| --- | --- |
+| Step 1.5 exit 0，或有 MUST／SHOULD 的 exit 1 | Step 1.6 |
+| Step 1.6 sweep 完成且 HEAD 未改變 | Step 1.7 |
+| Step 1.7 exit 0 且有效 pass／unchecked 證據 | Step 2 |
+| Step 2 本輪 scope/filter 完成 | Step 3 |
+| Step 3.4 決定進 R2 | Step 4 |
+| Step 3.4 合法跳過 R2，或 Step 4 完成 | Step 5 |
+
+sweep 修正造成 HEAD 改變時，先確認新 PR head，再從 Step 1.5 start；
+不能以 advance 採信新 HEAD。Step 3 中斷時 next 仍是 Step 3，重跑該步，不採用半份 reviewer 產物。
 
 One Bash call — **not** Task agents: each would reload the full base context just to run a fixed
 command. The script fetches diff stats and CI state from GitHub (never local `main`), runs
@@ -810,9 +839,35 @@ Check:
 2. `codex-r1.json` / `gemini-r1.json` is invalid JSON → extract failed; trigger fallback (see FAQ)，但 Gemini 必須先確認本次 Stage 1 成功且通過驗證，不能只看 raw 檔案存在
 3. `*-r1-raw.md` < 200 bytes or contains only error message → re-run Stage 1 (native review)
 
-2 consecutive failures → mark that voice as "unavailable for this PR"; record in the final aggregated report; do not block the workflow.
+2 consecutive failures → mark that voice as "unavailable for this PR"; preserve its exact failure reason.
 
 `r1-aggregate.md` only references compact versions (`*-r1.md`); **never reference raw versions (`*-r1-raw.md`)**.
+
+**本輪實際聲部 gate（blocking，不能用 Step 0 的 MODE／auth cache 代替）**：
+把完成驗證的結果寫入 `$REVIEW_DIR/voice-outcomes.json`，頂層恰含 claude、codex、gemini；
+每項有 status=success／unavailable／not-selected。unavailable 必須另帶非空 reason（保留額度、
+502、timeout 等原文）。success 只能在本輪 Stage 1／驗證與 compact report 成功後填入，
+合法 raw fallback 必須完成既有驗證；舊檔存在、auth OK、或 CLI exit 0 本身都不是 success。
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py voices --pr {{pr_number}} --round {{review_round}} --input "$REVIEW_DIR/voice-outcomes.json"
+```
+
+round 是 re-review pass（1／2），不是 R1／R2 debate。helper 原子保存 state.md 的實際 mode、
+active_voices、voice_failures、HEAD／round 與裁決，另發布 voice-status.json 給報告使用：
+
+| Exit | Meaning | Action |
+| --- | --- | --- |
+| `0` | 有外部聲部成功，或本輪明確批准 Claude-only | 繼續 Step 3.4，只採用 active_voices |
+| `2` | 輸入／identity／API／寫檔錯誤，或 Claude 尚未成功 | `[FAIL]` 停止，不以舊報告代替 |
+| `3` | 外部成功聲部為 0 | STOP，告知「本輪沒有跨模型家族審查」，請使用者選下列三項；無人回答不繼續 |
+
+1. 明確繼續 Claude-only：重跑同一 voices 命令並加 `--allow-claude-only`，不宣稱是 mob。
+2. 切換 `/pr-review-cycle`：停止本流程、保留產物，不進 Step 5／merge。
+3. 稍後重跑：保持 next=Step 3，恢復服務後重新取得 R1 結果再跑 gate。
+
+approve 只綁本輪 HEAD／round／outcomes；改變任一者須重新裁決。advance 與 resume 到
+Step 4 以後會機械檢查這個裁決。R2／Step 7 只派實際可用聲部；失效者除非使用者選擇 retry，不自動重試。
 
 ---
 
@@ -918,13 +973,16 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r2.sh
 > Its permission-bypass flag permits command exploration inside OS write containment, not source writes.
 > Keep the trusted-repo boundary and the per-script allow-list; do not use a bare `Bash(agy:*)`.
 
-Only send to available voices (CODEX_OK / GEMINI_OK).
+Only send to available voices from this pass's active_voices, not cached CODEX_OK / GEMINI_OK.
 
 Claude voice: the lead writes `$REVIEW_DIR/claude-r2.md` after reading r1-aggregate — no subagents needed (avoid 4×4 = 16 reviews generating too much noise).
 
 ---
 
 ### Step 5 — Aggregator synthesis
+
+deep lifecycle 先執行 Usage 的 review_checkpoint.py resume gate；非零停止，不繞過本輪
+voice 裁決與 red-first。review-only 略過 lifecycle checkpoint，依它的 voices --read-only 例外執行。
 
 After reading all R1 plus any activated R2, produce `$REVIEW_DIR/final.md`, graded per the
 [Review Severity Standard](#review-severity-standard-rfc-2119) (Critical = MUST, Important = SHOULD,
@@ -1051,7 +1109,7 @@ Disposition by severity × evidence × round (every cell defined — no gaps, no
 # Final Aggregated Review — PR #{{pr_number}}
 
 ## Mode
-group-review ({{N}}/3 voices active)
+<paste voice-status.json voice_summary verbatim; claude-only explicitly says no cross-model family review>
 
 ## Contract compliance
 - Acceptance Criteria verified: <AC-ID → evidence>
@@ -1096,10 +1154,11 @@ group-review ({{N}}/3 voices active)
 
 Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 5a.
 
-**Checkpoint (context lifetime).** With the Write tool, write `$REVIEW_DIR/state.md`: PR number,
-base branch, baseline SHA, `head:` (PR `headRefOid`), re-review round, `ci_command:` (Step 6),
-`disputed:` (each Disputed item + the user's ruling), and `next: Step 5` while any Disputed item
-lacks a ruling, else `next: Step 5a`; rewrite `head:` / `next:` at every later step boundary. Later steps need nothing beyond `$REVIEW_DIR` (`prompt-r1.md` = frozen contract,
+**Checkpoint (context lifetime).** 保留 early helper 寫出的 JSON schema_version、pr、base、head、
+next、disputed 與完整 voice gate 欄位，在 `$REVIEW_DIR/state.md` 補上 baseline SHA、review_round（1／2）與 ci_command。
+disputed 是物件陣列，每項包含 finding 與 ruling（未裁決為 null）；有未裁決項時 next=Step 5，
+否則 next=Step 5a。之後每個 step 邊界更新 head／next，但不得把新 HEAD 冒稱為已審。
+Later steps need nothing beyond `$REVIEW_DIR` (`prompt-r1.md` = frozen contract,
 `final.md` = blocking set), so this human pause is the cheapest place to shed context: tell the
 user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> --resume`.
 
@@ -1305,9 +1364,11 @@ Round 2 的 Step 2 仍更新完整 PR 的 source inventory；`baseline..HEAD` �
 本輪 blocking 判定，不是 scope filter 的檔案准入。CR 號依新 filtered 陣列分配；落在 fix surface
 外的項目標為 `Outside Round 2 contract` 並保留來源，不據此重開修復迴圈，也不偽造零筆輸入。
 
-**7.2 Apply the R2 activation gate**: all active voices re-run R1 to catch regressions. Recompute
-candidate blockers and disputes from the new R1; previous voice verdicts have no gate authority. If
-Step 3.4 skips R2, delete every stale R2 file before Step 5 aggregation:
+**7.2 Apply the R2 activation gate**: all active voices re-run R1 to catch regressions.
+每個新 pass 都更新 checkpoint 的 review_round、已核實的 head 與 next=Step 2，保留 baseline／disputed；
+完成本輪 Step 2 後 next=Step 3，重新跑 Step 3.3 voices gate。上一輪 mode／Claude-only 授權不能放行新一輪。
+Recompute candidate blockers and disputes from the new R1; previous voice verdicts have no gate
+authority. If Step 3.4 skips R2, delete every stale R2 file before Step 5 aggregation:
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
@@ -1406,6 +1467,10 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 - Change scope: N files +X/-Y lines
 - New tests: ...
 
+## Actual review mode
+- <paste voice-status.json voice_summary verbatim, not Step 0 MODE>
+- Unavailable voices: <paste voice_failures with original reasons>
+
 ## Key decisions handled during group review
 1. <Consensus Critical 1>: fix approach = ...
 2. <Disputed item>: user chose ___, reason ...
@@ -1475,13 +1540,27 @@ Local CI is authoritative: when CI and local differ, trust local; check for CI e
 
 ### Step 10 — Merge
 
-**Pre-merge gate: confirm PR is still OPEN.** Re-run Step 6's "Recheck PR status" `gh pr view` query, but route as below, **not** by Step 6's table (it routes to Step 7).
-Why: a bump push after an out-of-band merge silently recreates the deleted branch (issue #462).
-`MERGED` → **STOP**: no bump, merge, or push; go to Step 11. `CLOSED` → **STOP**; surface to the user and wait.
-Either way, if the label is somehow still on, run Step 1's `review-label.sh remove` (a no-op when it is already off).
-`gh pr view` error → stop and report (empty ≠ OPEN).
-`OPEN` + `DIRTY` / `CONFLICTING` / `BEHIND` → update from `{{base_branch}}`, use the **Step 6 guarded push**,
-return to Step 9 (CI), then re-run this gate. Any other `OPEN` → continue to the version-bump check below.
+**Pre-merge gate: confirm PR is still OPEN and not draft.** 執行唯讀 gate；
+它每次以 gh pr view 查詢 number、state、mergeable、mergeStateStatus、isDraft：
+
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-pr-merge.sh {{pr_number}}
+```
+
+| Exit | Meaning | Action |
+| --- | --- | --- |
+| `0` | OPEN，isDraft=false | 才可進入 version-bump check；CI 與人類 ship gate 仍適用 |
+| `1` | 參數／工具／API／格式錯誤 | `[FAIL]` 停止，完整回報 stderr，不採用空值或快取 |
+| `2` | MERGED／CLOSED | STOP，不 bump／merge／push；先執行 Step 1 的 `review-label.sh remove {{pr_number}}`（label 已關閉時為 no-op）；MERGED 到 Step 11，CLOSED 等人裁決 |
+| `3` | OPEN 且 isDraft=true | STOP，詢問使用者是否執行 gh pr ready；既有 ship 不視為 ready 授權；未明確同意不得轉 ready 或 merge |
+| `4` | DIRTY／CONFLICTING／BEHIND | 更新 base、Step 6 guarded push、Step 9 CI 後重跑本 gate |
+
+只有使用者明確同意時才執行下列命令，成功後重跑同一 gate；
+必須讀回 isDraft=false（exit 0）才進 version-bump check，失敗／仍 draft 即停止：
+
+```bash
+gh pr ready "{{pr_number}}"
+```
 
 ### Pre-merge check: version bump
 
@@ -1596,7 +1675,7 @@ and must not be silently ignored:
 ```text
 PR #{{pr_number}} squash-merged to main.
 Merge commit: {{merge_commit_sha}}
-Group review mode: {{N}}/3 voices active; Review Contract satisfied and blocking set empty.
+Review mode: <paste voice-status.json voice_summary verbatim>; unavailable: <voice_failures>. Review Contract satisfied and blocking set empty.
 ```
 
 If 11a archived a change, append:

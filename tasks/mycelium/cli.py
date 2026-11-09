@@ -1221,7 +1221,6 @@ def lessons_show(  # pylint: disable=too-many-arguments
         click.echo(f"  {r['text']}")
 
 
-_ROWS_MAX_IDENTIFIERS = 200
 _ROWS_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
@@ -1246,10 +1245,6 @@ def lessons_rows(project: str, keys: tuple[str, ...], ids: tuple[str, ...]) -> N
     total = len(unique_keys) + len(unique_ids)
     if total == 0:
         raise click.UsageError("至少要提供一個 --key 或 --id")
-    if total > _ROWS_MAX_IDENTIFIERS:
-        raise click.UsageError(
-            f"--key 與 --id 合計最多 {_ROWS_MAX_IDENTIFIERS} 個，目前 {total} 個"
-        )
     bad_keys = [k for k in unique_keys if not _ROWS_KEY_RE.fullmatch(k)]
     if bad_keys:
         raise click.UsageError(f"key 只能含英數字、底線、連字號：{', '.join(bad_keys)}")

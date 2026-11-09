@@ -443,10 +443,6 @@ class TestExitStatusDistinguishesFailureFromAnEmptyResult:
         "args",
         [
             pytest.param(["--project", _PROJECT], id="no-key-no-id"),
-            pytest.param(
-                ["--project", _PROJECT, *[a for i in range(201) for a in ("--key", f"k{i}")]],
-                id="201-identifiers",
-            ),
             pytest.param(["--project", _PROJECT, "--key", "has space"], id="key-with-space"),
             pytest.param(["--project", "", "--key", "sample-key"], id="empty-project"),
             pytest.param(["--project", "   ", "--key", "sample-key"], id="whitespace-project"),
@@ -463,13 +459,33 @@ class TestExitStatusDistinguishesFailureFromAnEmptyResult:
         """LROWS-VL-001: 參數不合法一律 exit 2"""
         assert _run(monkeypatch, wal_db, *args).exit_code == 2
 
-    def test_lrows_vl_002_two_hundred_identifiers_accepted(
-        self, wal_db: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("receipt_count", "new_count"), [(99, 5), (102, 0), (102, 5), (512, 5)]
+    )
+    def test_lrows_st_002_growing_receipts_preserve_all_canonical_rows(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        receipt_count: int,
+        new_count: int,
     ) -> None:
-        """LROWS-VL-002: 邊界值：合計 200 個識別碼可接受"""
-        args = [a for i in range(200) for a in ("--key", f"k{i}")]
-        data = _ok_json(_run(monkeypatch, wal_db, "--project", _PROJECT, *args))
-        assert len(data["missing_keys"]) == 200
+        """LROWS-ST-002: 累積 receipt 不得擋住新投影與舊 owner 的 lifecycle 讀回。"""
+        db_path = tmp_path / "receipts.db"
+        prior = [_make_lesson(key=f"receipt-{i}") for i in range(receipt_count)]
+        new = [_make_lesson(key=f"candidate-{i}") for i in range(new_count)]
+        foreign = _make_lesson(project="another-project", key=prior[0].key)
+        _seed(db_path, *prior, *new, foreign)
+        _retire(db_path, prior[0].id, None)
+        args = [arg for row in prior + new for arg in ("--key", row.key)]
+        args.extend(arg for row in prior for arg in ("--id", row.id))
+        data = _ok_json(_run(monkeypatch, db_path, "--project", _PROJECT, *args))
+        rows = {row["id"]: row for row in data["rows"]}
+        assert set(rows) == {row.id for row in prior + new}
+        assert rows[prior[0].id]["retired_at"] is not None
+        assert data["missing_keys"] == []
+        assert data["missing_ids"] == []
+        assert data["requested"]["keys"] == sorted(row.key for row in prior + new)
+        assert data["requested"]["ids"] == sorted(row.id for row in prior)
 
     def test_lrows_dt_005_zero_rows_is_success(
         self, wal_db: Path, monkeypatch: pytest.MonkeyPatch

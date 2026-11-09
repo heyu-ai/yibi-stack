@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess  # nosec B404
+import sys
 from pathlib import Path
 
 import pytest
@@ -67,22 +67,15 @@ def _environment(tmp_path: Path, *, mycelium: bool = True) -> dict[str, str]:
         assert executable is not None
         (binaries / name).symlink_to(executable)
     env = {**os.environ, "HOME": str(home), "PATH": str(binaries)}
-    for name in ("RETRO_ROOT", "PR_FLOW_CACHED", "CLAUDE_SKILL_DIR", "CLAUDE_PLUGIN_ROOT"):
+    for name in (
+        "RETRO_ROOT",
+        "PR_FLOW_CACHED",
+        "CLAUDE_SKILL_DIR",
+        "CLAUDE_PLUGIN_ROOT",
+        "GH_REPO",
+    ):
         env.pop(name, None)
     return env
-
-
-def _command(script_name: str, root: Path) -> str:
-    blocks = re.findall(
-        r"^```bash\s*\n(.*?)\n```",
-        (SKILL / "SKILL.md").read_text(encoding="utf-8"),
-        re.MULTILINE | re.DOTALL,
-    )
-    command = next(
-        block for block in blocks if f"/scripts/{script_name}" in block and "--pr" not in block
-    )
-    # 模擬已文件化的 skill 載入期替換；shell 裡刻意不提供這個變數。
-    return command.replace("${CLAUDE_SKILL_DIR}", str(root))
 
 
 @pytest.mark.parametrize("layout", ["plugin-cache", "directory-symlink", "checkout"])
@@ -99,7 +92,7 @@ def test_loaded_skill_bootstraps_from_independent_shells(
             root.symlink_to(copied, target_is_directory=True)
     env = _environment(tmp_path)
     bootstrap = subprocess.run(  # nosec B603
-        ["/bin/bash", "-c", _command("bootstrap.sh", root)],
+        ["/bin/bash", str(root / "scripts/bootstrap.sh")],
         cwd=caller_worktree,
         env=env,
         capture_output=True,
@@ -115,7 +108,7 @@ def test_loaded_skill_bootstraps_from_independent_shells(
         "BRANCH": "feature",
     }
     detected = subprocess.run(  # nosec B603
-        ["/bin/bash", "-c", _command("detect-pr.sh", root) + " --pr 73"],
+        ["/bin/bash", str(root / "scripts/detect-pr.sh"), "--pr", "73"],
         cwd=caller_worktree,
         env=env,
         capture_output=True,
@@ -140,3 +133,78 @@ def test_bootstrap_itself_rejects_missing_mycelium(tmp_path: Path, caller_worktr
     assert result.returncode == 1
     assert "[FAIL]" in result.stderr and "mycelium" in result.stderr
     assert result.stdout == ""
+
+
+@pytest.mark.parametrize(
+    ("repo_arg", "gh_repo", "target", "confirmation"),
+    [
+        (None, None, "heyu-ai/local-project", "false"),
+        ("heyu-ai/yibi-tts-service", None, "heyu-ai/yibi-tts-service", "true"),
+        (None, "heyu-ai/yibi-tts-service", "heyu-ai/yibi-tts-service", "true"),
+        ("heyu-ai/yibi-tts-service", "heyu-ai/wrong", "heyu-ai/yibi-tts-service", "true"),
+    ],
+)
+def test_bootstrap_pr_identity_does_not_relabel_session_workdir(
+    tmp_path: Path,
+    caller_worktree: Path,
+    repo_arg: str | None,
+    gh_repo: str | None,
+    target: str,
+    confirmation: str,
+) -> None:
+    """RETRO-ST-001: PR repo 決定 project；跨 repo 時保留 transcript cwd 並要求確認。"""
+    env = _environment(tmp_path)
+    if gh_repo:
+        env["GH_REPO"] = gh_repo
+    gh = tmp_path / "bin/gh"
+    gh.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args[:2] == ['repo', 'view']:\n"
+        "    print(os.environ.get('GH_REPO') or 'heyu-ai/local-project')\n"
+        "elif args[:2] == ['pr', 'view']:\n"
+        "    repo = (args[args.index('--repo') + 1] if '--repo' in args "
+        "else os.environ.get('GH_REPO') or 'heyu-ai/local-project')\n"
+        "    print(f'https://github.com/{repo}/pull/{args[2]}')\n"
+        "else:\n"
+        "    sys.exit(99)\n",
+        encoding="utf-8",
+    )
+    args = ["/bin/bash", str(SKILL / "scripts/bootstrap.sh"), "--pr", "116"]
+    if repo_arg:
+        args.extend(["--repo", repo_arg])
+    result = subprocess.run(
+        args, cwd=caller_worktree, env=env, capture_output=True, text=True, timeout=20, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert values["ORIG_PROJECT"] == target.split("/")[1]
+    assert values["PR_REPO"] == target
+    assert values["REAL_WORKDIR"] == str(caller_worktree.resolve())
+    assert values["BRANCH"] == "feature"
+    assert values["PROJECT_CONFIRMATION_REQUIRED"] == confirmation
+    if confirmation == "true":
+        assert "[WARN]" in result.stderr
+        assert "heyu-ai/local-project" in result.stderr and target in result.stderr
+
+
+@pytest.mark.parametrize("response", ["exit 7", "echo null", "echo https://github.com/a/b/pull/99"])
+def test_bootstrap_pr_lookup_failure_never_publishes_project(
+    tmp_path: Path, caller_worktree: Path, response: str
+) -> None:
+    """RETRO-EG-001: API 失敗、無效 URL 或不同 PR 不得退回 cwd 專案。"""
+    env = _environment(tmp_path)
+    (tmp_path / "bin/gh").write_text(f"#!/bin/sh\n{response}\n", encoding="utf-8")
+    result = subprocess.run(
+        ["/bin/bash", str(SKILL / "scripts/bootstrap.sh"), "--pr", "116"],
+        cwd=caller_worktree,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "[FAIL]" in result.stderr

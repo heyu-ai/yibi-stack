@@ -55,7 +55,6 @@ def check_label_contract(text: str) -> list[str]:
     step5b = _section(text, "Step 5b")
     step6 = _section(text, "Step 6")
     step8 = _section(text, "Step 8")
-    step10 = _section(text, "Step 10")
     breaker = _section(text, "Circuit breaker", level="####")
 
     # Step 1：貼 label，以及 exit table 的語意（AC-3）。
@@ -109,9 +108,6 @@ def check_label_contract(text: str) -> list[str]:
             "Step 8 must not continue to Step 9 until the user confirms a failed remove"
         )
 
-    # Step 10：merge gate 的出口。
-    if REMOVE not in step10:
-        problems.append("Step 10 gate must remove the label")
     return problems
 
 
@@ -195,14 +191,6 @@ _EXIT_MUTATIONS = [
         "**STOP** — run Step 1's `review-label.sh remove`",
         "**STOP** — run Step 1's `review-label.sh noop`",
         "Step 6 CLOSED row",
-    ),
-    (
-        "step10-gate",
-        "Step 10",
-        "###",
-        "run Step 1's `review-label.sh remove` (a no-op",
-        "run Step 1's `review-label.sh noop` (a no-op",
-        "Step 10 gate",
     ),
     (
         "breaker-remove",

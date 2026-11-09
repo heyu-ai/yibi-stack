@@ -77,10 +77,10 @@ Audit 留下 source IDs 與人類 recurrence 決定；回答確實使用記憶�
 2. 用 installed CLI **一次**讀回本次所有相關 canonical 列，不得逐列邊查邊寫：
    `mycelium lessons rows --project <project> --key <k1> --key <k2> ... --id <receipt-lesson-id> ...`。
    `--key` 涵蓋本次所有候選 key 與第 1 步每份先前 accepted receipt 的 source_id；`--id` 涵蓋那些
-   receipt 的 lesson_id（合計上限 200）。**合計超過 200 時不要拆成多次呼叫**：記 `hindsight_sync=degraded`、
-   本次不發布，並回報識別碼數量。拆分會變成多個 SQLite 快照，其他 session 在兩次呼叫之間的寫入（例如把
-   k1 retire 並由 k2 接替）會讓合併後的 ownership／lifecycle 前後不一致，而「同 key 多個 active」的檢查擋不住
-   不同 key 的撕裂。此指令唯讀：不建立 DB、不建表、不去重，含 retired／parked／
+   receipt 的 lesson_id，不設人為識別碼數量上限。**不得拆成多次 CLI 呼叫**：拆分會變成多個 SQLite 快照，
+   其他 session 在兩次呼叫之間的寫入（例如把 k1 retire 並由 k2 接替）會讓合併後的 ownership／lifecycle
+   前後不一致，而「同 key 多個 active」的檢查擋不住不同 key 的撕裂。
+   此指令以單一參數化 SELECT 完成，唯讀、不建立 DB、不建表、不去重，含 retired／parked／
    superseded，尊重 MYCELIUM_DB_OVERRIDE。**不要自行開 SQLite**：mode=ro 遇到沒有 -shm 的 WAL DB，
    在部分 SQLite 版本（實測 3.51.0）會回 unable to open database file，結果取決於當下的 python3；
    也不要用 `lessons show` 取代——它會依 key 去重並截斷，藏住同 key 的多列。
@@ -89,7 +89,7 @@ Audit 留下 source IDs 與人類 recurrence 決定；回答確實使用記憶�
    - **2**：一律 degraded，再依 stderr 分辨原因。stderr 含 `No such command` → installed CLI 缺 `rows`
      子指令（版本早於加入它的 release），提示以新 release tag 重裝：
      `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@<tag>"`。
-     其他情況 → 回報為本次呼叫的參數錯誤（例如識別碼超過 200、key 格式不合、project 為空），附上 stderr，
+     其他情況 → 回報為本次呼叫的參數錯誤（例如 key 格式不合、project 為空），附上 stderr，
      不要提示重裝。
    - **3**：DB 不可用（不存在、無法開啟、缺 lessons table、查詢錯誤）→ degraded；不初始化 DB、不改用其他讀法。
 3. 以 stdout 的 JSON（`rows`、`missing_keys`、`missing_ids`）判定 ownership 與 lifecycle：

@@ -136,6 +136,10 @@ severity table**.
 `Red-first not run: review-only workflow (unchecked, not a pass)`；不得偽造 canonical
 `red-first.md`、從 amplifier 輸出複製或替舊報告改標 PR。此例外不適用於 deep／fast lifecycle gate。
 
+**Voice gate 繼承例外：** Step 3.3 的 voices 命令加 `--read-only`；只發布 voice-status.json，
+不建立或更新 state.md。外部聲部全失效仍須人類明確裁決；只有明確同意才加 --allow-claude-only。
+Step 5 不執行 lifecycle resume gate，報告必須沿用 voice-status.json 的實際摘要與失敗原因。
+
 | Engine step (owned by `/pr-cycle-deep`) | What runs |
 | --- | --- |
 | **Step 1.5** Pre-review check | One Bash call (no Task agents): `pre_review_check.py --pr {{pr_number}}` — diff stats + CI state + `amplifier-verify.py`; exit 0 continue / 1 findings, continue / 2 stop |
@@ -144,7 +148,7 @@ severity table**.
 | **Step 3** Round 1 | `setup-review-dir.sh origin/{{base_branch}}` → each voice reviews independently → `<voice>-r1.md` |
 | **Step 3.4** R2 activation gate | Decide from the R1 results whether Round 2 runs at all (the gate's criteria live in `/pr-cycle-deep` Step 3.4) |
 | **Step 4** Round 2 (conditional) | **Only when Step 3.4 activates it**: build `r1-aggregate.md` → each voice cross-debates → `<voice>-r2.md` |
-| **Step 5** Aggregation | Re-run check with `pre_review_check.py --pr {{pr_number}}` (without `--require-red-first`). Lead synthesizes `final.md` per the RFC 2119 severity table. **Skip Step 5's Checkpoint paragraph** — no `state.md`, no `/pr-cycle-deep --resume` hint: resuming leads into Step 6, which commits and pushes to someone else's PR |
+| **Step 5** Aggregation | Re-run check with `pre_review_check.py --pr {{pr_number}}` (without `--require-red-first`). Lead synthesizes `final.md` per the RFC 2119 severity table. **Skip all Checkpoint operations**, including Step 1.5 start/advance and Step 5's Checkpoint paragraph — no `state.md`, no `/pr-cycle-deep --resume` hint: resuming leads into Step 6, which commits and pushes to someone else's PR |
 
 The script invocations are the same installed paths (shared with `/pr-cycle-deep`):
 

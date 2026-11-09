@@ -66,42 +66,40 @@ Claude Code 會在載入 skill 時展開 `${CLAUDE_SKILL_DIR}`，它不是要留
 若執行器沒有展開此佔位符，從載入訊息的 **Skill directory／SKILL.md 絕對路徑**取得目錄，
 在每個命令中直接代入並正確引用；取不到就 `[FAIL]` 並重新載入 skill，不把空值交給 shell。
 
-直接執行 bootstrap；`mycelium`／`jq`／`gh` 前置檢查由 script 擁有。tasks-backed 操作仍只用
-PATH 中 installed `mycelium`，不從 checkout import `tasks/mycelium`：
-
-```bash
-bash "${CLAUDE_SKILL_DIR}/scripts/bootstrap.sh"
-```
-
-任一啟動命令非零即停止並回報 stderr。若隨附 script 缺失／不可讀，更新 `growth@yibi-stack`
-plugin，或在 yibi-stack **主 checkout** 執行 `make install`；不得改用另一份 cache 混搭執行。
-
-Script stdout 輸出 `KEY=VALUE`，agent 解析並記住為 invocation 狀態（不是跨 call 的 shell 變數）：
-
-- `ORIG_PROJECT` — 呼叫端 git repo 名稱
-- `REAL_WORKDIR` — 目前工作目錄
-- `BRANCH` — 目前分支名稱
-
-偵測 PR 號（從 ARGUMENTS 解析 `--pr <n>` 或 fallback 到 `gh pr view`）。
-
-`detect-pr.sh` 是 bootstrap 的 sibling；每次呼叫都以同一個已解析的 skill 目錄定址：
-
-**無 `--pr` 引數時**（在 PR branch 上，gh 自動偵測）：
+先從 ARGUMENTS 取得 `--pr <n>`；未提供時，用同目錄的 detect-pr.sh 依目前 branch 偵測：
 
 ```bash
 bash "${CLAUDE_SKILL_DIR}/scripts/detect-pr.sh"
 ```
 
-**有 `--pr <n>` 引數時**（agent 把實際 PR 號附在後）：
+顯式指定 `--repo owner/name` 的跨 repo 回顧必須同時提供 `--pr <n>`，不得用 cwd 的 branch 猜 PR。
+把已取得的 PR 編號帶入 bootstrap；`mycelium`／`jq`／`gh` 前置檢查由 script 擁有。
+tasks-backed 操作仍只用 PATH 中 installed `mycelium`，不從 checkout import tasks：
 
 ```bash
-bash "${CLAUDE_SKILL_DIR}/scripts/detect-pr.sh" --pr 65
+bash "${CLAUDE_SKILL_DIR}/scripts/bootstrap.sh" --pr "$PR_NUMBER"
 ```
 
-Agent 依 ARGUMENTS 選擇對應形式。Script 用 `$*` 合併所有位置引數，支援 shell-split 傳入。
-Script stdout 輸出 `PR_NUMBER=<n>`；agent 解析並記住供後續步驟使用。
-後續範例中的 `$PR_NUMBER`、`$ORIG_PROJECT` 等值，也必須由 agent 在該次 Bash 呼叫中帶入；
-不得假設前一個 Bash process 的賦值或 stdout 會自動成為下一個 process 的環境變數。
+有 `--repo owner/name` 時，把該值一併帶入（優先於 GH_REPO）：
+
+```bash
+bash "${CLAUDE_SKILL_DIR}/scripts/bootstrap.sh" --pr "$PR_NUMBER" --repo "$PR_REPO"
+```
+
+任一啟動命令 exit 1（環境／API／PR identity 失敗）或 exit 2（參數錯誤）即停止並回報 stderr。
+若隨附 script 缺失／不可讀，更新 growth plugin，或在 yibi-stack 主 checkout 執行 make install；
+不得改用另一份 cache 混搭執行。
+
+Script stdout 輸出 `KEY=VALUE`，agent 解析並記住為 invocation 狀態（不是跨 call 的 shell 變數）：
+
+- `PR_REPO` — 由實際 PR URL 核實的 owner/repo；所有後續 gh PR 讀取均帶這個 repo。
+- `ORIG_PROJECT` — PR 所屬 repo 的名稱，用於 retro、lessons 與 audit，不取 cwd 名稱。
+- `REAL_WORKDIR`／`BRANCH` — 真實 session 工作目錄與分支，保留給 transcript 定位，不改指另一個 checkout。
+- `PROJECT_CONFIRMATION_REQUIRED` — true 時把 cwd repo、PR repo 與目標 project 列給使用者；
+  **必須在 Step 3 取得專案確認才可執行 Step 4／5 寫入**。取消或無人可確認時不寫。
+
+不得假設前一個 Bash process 的賦值或 stdout 會自動成為下一個 process 的環境變數；
+`PR_NUMBER`、`PR_REPO`、`ORIG_PROJECT` 等值必須在每次呼叫直接代入。
 
 檢查是否已有 retro（重跑提示；`--pr-number` 是精確匹配，不依賴 topic 字串）：
 
@@ -134,23 +132,23 @@ schema，並做一次有界限的 `hindsight_list_knowledge_pages({})` 唯讀連
 每個 call 獨立執行，agent 依輸出做推論（**不在 bash 裡寫 Python 解析**）：
 
 ```bash
-gh pr view "$PR_NUMBER" --json url,title,body,state,mergedAt,labels,commits,additions,deletions
+gh pr view "$PR_NUMBER" --repo "$PR_REPO" --json url,title,body,state,mergedAt,labels,commits,additions,deletions
 ```
 
 ```bash
-gh pr view "$PR_NUMBER" --json comments -q '.comments[] | select(.author.login | test("codex|claude")) | .body' | head -200
+gh pr view "$PR_NUMBER" --repo "$PR_REPO" --json comments -q '.comments[] | select(.author.login | test("codex|claude")) | .body' | head -200
 ```
 
 PR commit 訊息（PR-keyed，不依賴 current checkout）：
 
 ```bash
-gh pr view "$PR_NUMBER" --json commits -q '.commits[].messageHeadline' 2>/dev/null | head -30
+gh pr view "$PR_NUMBER" --repo "$PR_REPO" --json commits -q '.commits[].messageHeadline' 2>/dev/null | head -30
 ```
 
 可選（branch 還在時；若已 merge + delete 改用 gh api）：
 
 ```bash
-gh pr diff "$PR_NUMBER" --name-only 2>/dev/null | head -30
+gh pr diff "$PR_NUMBER" --repo "$PR_REPO" --name-only 2>/dev/null | head -30
 ```
 
 **GATE**：若 PR `state != MERGED`，用 `AskUserQuestion` 問「PR 還沒 merge，仍要做 retro 嗎？」（預設 No）。使用者選 No 則中止，不寫入 DB。
@@ -293,6 +291,8 @@ mycelium retro write \
 > 的估算值，若同一 session 裡混雜了其他不相關的工作，數字會偏高。
 
 若 Step 4 寫入失敗，輸出完整的 script 內容讓使用者手動重跑（`bash <path>`）。
+成功後以 `mycelium retro search --pr-number "$PR_NUMBER" --project "$ORIG_PROJECT" --limit 1`
+讀回，確認 id 與 project 是剛寫入的紀錄。查詢失敗或不符即停止，不宣稱寫入驗證成功。
 
 ---
 
@@ -419,6 +419,10 @@ add_lesson() {
     ${state_flag[@]+"${state_flag[@]}"} \
     --retro-pr "$PR_NUMBER" \
     --retrospective-id "$RETRO_ID"
+  # 讀回真實 canonical 列，包含 parked；不得只憑 add 的成功訊息判定專案正確。
+  mycelium lessons rows --project "$ORIG_PROJECT" --key "$key" |
+    jq -e --arg project "$ORIG_PROJECT" --arg key "$key" \
+      '.rows | any(.project == $project and .key == $key)' >/dev/null
 }
 
 # Step 5 完成後才加入呼叫；--skill 留空字串代表省略（避免把產生者誤記成主題）
