@@ -59,7 +59,7 @@ The rows subcommand SHALL open the database with a read-write file URI that does
 ---
 ### Requirement: Exit status distinguishes failure from an empty result
 
-The rows subcommand SHALL exit 0 when the query succeeds, including when it returns zero rows. It SHALL exit 2 for invalid arguments: no key and no id, more than 200 keys and ids combined, an empty project, or a key outside the pattern of letters, digits, underscore and hyphen. It SHALL exit 3 when the database is unavailable: missing file, open failure, missing lessons table, or an SQLite error during the query. On exit 3 stdout SHALL be empty and stderr SHALL contain a message starting with [FAIL].
+The rows subcommand SHALL exit 0 when the query succeeds, including when it returns zero rows. It SHALL NOT impose an application-level limit on the combined number of requested keys and ids. It SHALL exit 2 for invalid arguments: no key and no id, an empty project, or a key outside the pattern of letters, digits, underscore and hyphen. It SHALL exit 3 when the database is unavailable: missing file, open failure, missing lessons table, or an SQLite error during the query. On exit 3 stdout SHALL be empty and stderr SHALL contain a message starting with [FAIL].
 
 #### Scenario: zero-rows-success -- Successful query with no matches
 
@@ -73,8 +73,14 @@ The rows subcommand SHALL exit 0 when the query succeeds, including when it retu
 
 #### Scenario: invalid-arguments -- Missing or malformed identifiers
 
-- **WHEN** the command is run with no key and no id, with 201 identifiers, or with a key containing a space
+- **WHEN** the command is run with no key and no id, or with a key containing a space
 - **THEN** the command SHALL exit 2.
+
+#### Scenario: growing-receipts -- Historical receipts do not block reconciliation
+
+- **GIVEN** 102 or more accepted receipt owners and zero to five new candidate lessons
+- **WHEN** all receipt keys and ids and candidate keys are requested in one rows call
+- **THEN** all matching project rows, including inactive receipt owners, SHALL be returned in one parameterized SELECT and a single snapshot without truncation or an application-level identifier-count rejection.
 
 ---
 ### Requirement: Effective confidence parity

@@ -44,15 +44,21 @@ a few minutes and the lead responds on the spot — faster than two senior engin
 /pr-cycle-deep #<PR number> --resume   ← continue from .pr-review/state.md (see Step 5 Checkpoint)
 ```
 
-`--resume`: run Step 0a, Read `state.md` + `final.md`, re-check live PR state (Step 6 recheck
-table), then jump to its `next:` step. `state.md` missing, naming another PR, or its `head:` ≠ the
-live `gh pr view --json headRefOid` (unreviewed commits) → `[FAIL]`; rerun without `--resume`.
-refresh 後若 `final.md` 缺檔，表示本輪尚未彙整；依 checkpoint 完成本輪 Step 2／5，
-不得以 `final.prev.md` 代替。`next:` 若已指向 Step 5a／5b／6，先回 Step 5 重建 final。
-跳轉前先 Read `.pr-review/red-first.md`，依 Step 1.7 證據契約檢查。
-缺漏、不可讀、格式／PR 不符、不完整或 blocking 結果 → `[FAIL]` 停止；
-不得從 `pre-review-check.md`、scratch 輸出或對話記憶推定通過。
-修正後 captured HEAD 可與目前 HEAD 不同；必須揭露原始 identity，不宣稱在新 HEAD 重跑過。
+`--resume`：先跑 Step 0a，再執行下列唯讀 gate；採用 stdout JSON 的 `next`：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py resume --pr {{pr_number}}
+```
+
+Exit `2`／非零即 `[FAIL]` 停止。state.md 必須是 schema_version=1 的 JSON；舊版自由格式
+checkpoint 不推測解析，改用不帶 --resume 的流程。每個 action 都向 gh 核實 canonical PR URL／repo、
+base、live head 與 checkout HEAD；可加 `--repo owner/repo`，但仍須與實際 URL 一致。
+OPEN 的同步新 checkout/live HEAD 也不能覆寫舊 checkpoint；只能走下述 post-fix／new-pass。
+MERGED 的 resume 唯讀回 Step 11（允許 squash 後 checkout 不同），CLOSED 回 terminal STOP；
+兩者均不得 start／advance／voices、push 或 merge。
+Step 1.5／1.6／1.7 不要求 red-first.md／final.md；Step 2 起固定原始 red-first bytes、
+captured identity 與 unchecked，不升格成 pass。Step 5a 起 final 缺漏／過期或 disputed 未裁決時
+next 回 Step 5，不用 final.prev.md；以 checkpoint 命令修復，不能手寫 state.md。
 
 ---
 
@@ -76,7 +82,7 @@ Use the Read tool to try reading `~/.claude/mob-detection-cache`:
   - **All cached-available voices still auth OK** → report one line and **go directly to Step 1**:
 
     ```text
-    [Cache] Reusing detection ({{DATE}}): Mode={{MODE}} — auth re-verified OK, proceeding.
+    [Cache] Reusing detection ({{DATE}}): planned Mode={{MODE}} — static auth metadata OK; runtime availability is unverified until R1.
     ```
 
   - **Any cached-available voice now `NOT_AUTHED` / `KEY_WHITESPACE_PREFIX`** → that token expired
@@ -89,7 +95,7 @@ Use the Read tool to try reading `~/.claude/mob-detection-cache`:
 > **Why re-verify instead of asking**: valid auth is the common case, so silent reuse is the
 > default; only a real auth failure stops the flow. A present-but-expired token that slips the
 > static check is caught at use-time by R1 fail-loud (`agy_validate.py` / codex error), which marks
-> that voice unavailable and proceeds with the rest — no block. The warm path re-verifies auth only,
+> that voice unavailable；剩餘外部聲部為 0 時必須由 Step 3.3 停下詢問，不自動完成 mob review。The warm path re-verifies auth only,
 > not `GEMINI_ALLOW_LIST` (a stale allow-list only adds a per-call prompt). Force a full re-detect
 > by deleting `~/.claude/mob-detection-cache`.
 
@@ -328,6 +334,32 @@ which is the safe direction):
 
 ### Step 1.5 — Pre-review Check (one script, blocking)
 
+先在 PR worktree 建立 early checkpoint（開始新 invocation 才用 start，resume 不重建）：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py start --pr {{pr_number}}
+```
+
+helper 原子寫 `.pr-review/state.md`，綁定 canonical PR URL／repo／base／head 與 next=Step 1.5，並加入 Git exclude。
+任何非零（exit 2）停止。每個成功邊界都用同一 helper 推進，**先確認成功才推進**；
+失敗／中斷保持原 next。命令中的 next_step 直接代入下表值：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py advance --pr {{pr_number}} --next "{{next_step}}"
+```
+
+| 已完成的邊界 | next_step |
+| --- | --- |
+| Step 1.5 exit 0，或有 MUST／SHOULD 的 exit 1 | Step 1.6 |
+| Step 1.6 sweep 完成且 HEAD 未改變 | Step 1.7 |
+| Step 1.7 exit 0 且有效 pass／unchecked 證據 | Step 2 |
+| Step 2 本輪 scope/filter 完成 | Step 3 |
+| Step 3.4 決定進 R2 | Step 4 |
+| Step 3.4 合法跳過 R2，或 Step 4 完成 | Step 5 |
+
+sweep 修正造成 HEAD 改變時，先確認新 PR head，再從 Step 1.5 start；
+不能以 advance 採信新 HEAD。Step 3 中斷時 next 仍是 Step 3，重跑該步，不採用半份 reviewer 產物。
+
 One Bash call — **not** Task agents: each would reload the full base context just to run a fixed
 command. The script fetches diff stats and CI state from GitHub (never local `main`), runs
 `amplifier-verify.py --pr` (TC coverage + traceability + Test Seam mapping, Check 4), prints a short summary, and writes the full amplifier stdout/stderr
@@ -523,6 +555,10 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-review-snapshot.sh verify 
 所有永久 R1/R2 產物仍放在 `<worktree-root>/.pr-review/`（`$REVIEW_DIR`）。
 Step 2 已準備 fresh diff 與 scope；此處不要再次呼叫 setup、失效剛通過的 Step 2 結果。
 若 HEAD 改變，回 Step 2。將確認過的 contract 寫進 `prompt-r1.md`。
+
+在任何 reviewer dispatch 前，先執行 Step 3.3 所列的 `begin-attempt --phase r1`，保存本次 identity，
+加入 shared prompt，要求 reviewer／renderer 的 marker 與正文 Review scope 都綁定本次 scope。
+這是 dispatch 前置，不是在已完成 review 後補蓋章；到 Step 3.3 sanity 時不再次 begin。
 
 agy R1/R2 以 NDJSON stdin 傳送完整 prompt，cwd 與絕對 `--add-dir` 指向一次性 HEAD snapshot，
 不是原工作樹。macOS 需可用的 `sandbox-exec`，Linux 需可用的 `bwrap`；
@@ -810,9 +846,54 @@ Check:
 2. `codex-r1.json` / `gemini-r1.json` is invalid JSON → extract failed; trigger fallback (see FAQ)，但 Gemini 必須先確認本次 Stage 1 成功且通過驗證，不能只看 raw 檔案存在
 3. `*-r1-raw.md` < 200 bytes or contains only error message → re-run Stage 1 (native review)
 
-2 consecutive failures → mark that voice as "unavailable for this PR"; record in the final aggregated report; do not block the workflow.
+2 consecutive failures → mark that voice as "unavailable for this PR"; preserve its exact failure reason.
 
 `r1-aggregate.md` only references compact versions (`*-r1.md`); **never reference raw versions (`*-r1-raw.md`)**.
+
+**本輪實際聲部 gate（blocking，不能用 Step 0 的 MODE／auth cache 代替）**：
+以下是 Step 3.1 dispatch 前已執行的命令（retry 也先執行；sanity 時不重跑以免失效剛取得的結果）：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py begin-attempt --pr {{pr_number}} --phase r1 --round {{review_round}}
+```
+
+保存 stdout 的 `identity`，將其完整交給本次 reviewer／compact renderer。本次 canonical compact
+`$REVIEW_DIR/<voice>-r1.md` 第一行必須是 `<!-- review-evidence:<JSON identity 加 voice 欄位> -->`，
+正文必須有獨立列 `Review scope: <pr_url> head=<head> pass=<review_round> phase=r1 attempt=<attempt>`，
+再接本次完整 review 正文。由本次有效 Stage 1／驗證結果產生，不能替舊 body 換 header。
+begin-attempt 機械撤銷舊成功與 Claude-only 授權，保存舊 unavailable 原文；舊 body 不得重標成功。
+helper 比對去掉 marker／Review scope 後的正文 fingerprint；只更新 identity 兩列也不能採用舊正文，
+需保留本次實際 review 的具體內容／當前 scope，不能用靜態 LGTM 自報充當執行證據。
+metadata 不算正文。R1 必須依序有非空 Summary／Findings／Verdict；
+R2 必須依序有非空 Cross-review verdict／Per-finding response／New findings／Withdrawals／Final verdict。
+無 findings／withdrawals 時明寫 None，terminal verdict 只選 LGTM 或 NEEDS_CHANGES。
+只剩 identity／scope、截斷缺欄位，或完整 review 只出現在 fenced code／HTML comment 內，
+一律 exit 2，不計為成功聲部；欄位標題保留既有括號提示亦可。
+
+把完成驗證的結果寫入 `$REVIEW_DIR/voice-outcomes-r1.json`：
+`{"identity": <begin-attempt identity 原樣>, "outcomes": {"claude": {...}, "codex": {...}, "gemini": {...}}}`。
+outcomes 恰含三家，每項 status=success／unavailable／not-selected；unavailable 加非空 reason
+保留額度／502／timeout 原文，success 加 canonical compact `report` 路徑與檔案完整 bytes 的 `sha256`。
+success 只能在本次執行、驗證與 report 寫入全成功後填入；auth OK、靜態自報、舊檔或 exit 0 都不算。
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py voices --pr {{pr_number}} --phase r1 --round {{review_round}} --input "$REVIEW_DIR/voice-outcomes-r1.json"
+```
+
+round 是 bounded re-review pass（1／2），不是 R1／R2 debate。helper 先發布具共同 identity 的
+voice-status.json 再原子保存 checkpoint；任何部分失敗／不一致均不能放行。每個 consumer 都重新
+驗證 source identity／digest、report creation identity／fingerprint 與 publication，不只信 cached mode。
+
+| Exit | Meaning | Action |
+| --- | --- | --- |
+| `0` | 有外部 R1 成功，或本次明確批准 Claude-only | 繼續 Step 3.4，只採用 active_voices |
+| `2` | 輸入／identity／report／API／publication 錯誤，或 Claude 未成功 | `[FAIL]` 停止，不用舊報告代替 |
+| `3` | 外部 R1 成功為 0 | STOP；請使用者選 Claude-only、切換流程、或稍後 retry；無回應不繼續 |
+
+明確選 Claude-only 才能重跑**相同 source** 的 voices 並加 `--allow-claude-only`，不宣稱 mob。
+切換流程就停止本 lifecycle；選 retry 則先重新 begin-attempt，再取得新結果，不自動重試失效者。
+授權只綁 canonical PR／HEAD／pass／attempt／outcomes／reports；任一變更均不能沿用。
+advance／resume 在 Step 4 起機械檢查 R1；R2 失敗另外揭露，不回溯抹去有效 R1，也不聲稱其完成 debate。
 
 ---
 
@@ -904,6 +985,10 @@ Output format:
 
 #### 4.3 — Send R2 to each voice in parallel
 
+在下列任何 R2 dispatch 前，先執行
+`python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py begin-attempt --pr {{pr_number}} --phase r2 --round {{review_round}}`，
+並把本次 identity 與 phase=r2 的正文 Review scope 交給每個 reviewer／renderer。
+
 Each voice uses the same call pattern, but this time the prompt is R2 and the input is r1-aggregate (not the raw diff):
 
 ```bash
@@ -918,13 +1003,28 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/agy-r2.sh
 > Its permission-bypass flag permits command exploration inside OS write containment, not source writes.
 > Keep the trusted-repo boundary and the per-script allow-list; do not use a bare `Bash(agy:*)`.
 
-Only send to available voices (CODEX_OK / GEMINI_OK).
+Only send to available voices from this pass's active_voices, not cached CODEX_OK / GEMINI_OK.
+
+以下 R2 publication 使用 dispatch 前取得的 begin-attempt identity，**不在報告完成後重跑 begin**。
+同 R1 creation contract，report 改 `<voice>-r2.md`、正文 scope 的 phase=r2；outcomes envelope 使用
+該次 identity，寫 `$REVIEW_DIR/voice-outcomes-r2.json`，完成後執行：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py voices --pr {{pr_number}} --phase r2 --round {{review_round}} --input "$REVIEW_DIR/voice-outcomes-r2.json"
+```
+
+每個 R1 active voice 必須記 success／unavailable，其餘只能 not-selected。R2 全外部失敗不會
+抹去已驗證 R1 mode，也不重套 R1 exhaustion 裁決；`debate_failures` 與 R1 `voice_failures` 分列。
+完成 Step 4 後才 advance --next "Step 5"；缺 R2 結果不得跳過。原始 R1／失敗歷史保留。
 
 Claude voice: the lead writes `$REVIEW_DIR/claude-r2.md` after reading r1-aggregate — no subagents needed (avoid 4×4 = 16 reviews generating too much noise).
 
 ---
 
 ### Step 5 — Aggregator synthesis
+
+deep lifecycle 先執行 Usage 的 review_checkpoint.py resume gate；非零停止，不繞過本輪
+voice 裁決與 red-first。review-only 略過 lifecycle checkpoint，依它的 voices --read-only 例外執行。
 
 After reading all R1 plus any activated R2, produce `$REVIEW_DIR/final.md`, graded per the
 [Review Severity Standard](#review-severity-standard-rfc-2119) (Critical = MUST, Important = SHOULD,
@@ -976,7 +1076,7 @@ indented code、code fence、HTML 註解與 audit 不算來源；inline code 中
 | **Single-voice Critical** | 1 voice marks Critical; others did not mention | Lead MUST execute before adopting — do NOT skip by reasoning alone: ① Extract the finding's claimed pattern (the specific syntax, string, or construct the finding says is problematic) ② `grep -rn '<pattern>' <relevant-dirs>` — report hit count ③ Zero hits + pre-existing limitation (old code also didn't handle it) → demote to Deferred with `Grep verification: <command> → 0 hits` ④ Nonzero hits → confirm as Consensus Critical ⑤ Can't grep (no concrete pattern) → list as Disputed. (4× recurrence: PR #626/#653/#815/#1774 — lead adopted single-voice Criticals by reasoning without grepping actual usage; all turned out to be zero-hit pre-existing limitations.) |
 | **Actionable NIT** | Any 1 voice marks NIT and it's not subjective preference | **Deferred — never blocks**, any round. Lead MAY fix trivially in-round; doing so is not a gate |
 | **Withdrawn** | Marked WITHDRAW in R2 | 移出修復清單；Step 2 來源留在 Withdrawn 區塊供 Step 5a 核對 |
-| **Voice unavailable** | That voice failed R1/R2 twice in a row | Note in final.md; do not block |
+| **Voice unavailable** | 該 phase 執行失敗 | R1 原文列 voice_failures，R2 原文列 debate_failures；只有 R1 外部全失效才套 Step 3.3 stop，不能刪除有效 R1 或虛稱全家完成 debate |
 
 #### Contract mapping gate
 
@@ -1048,10 +1148,11 @@ Disposition by severity × evidence × round (every cell defined — no gaps, no
 其他 voices 的 finding 刪掉該列，不留下佔位符或附註文字。
 
 ```text
+<!-- checkpoint-final:<resume stdout final_identity 的完整 JSON> -->
 # Final Aggregated Review — PR #{{pr_number}}
 
 ## Mode
-group-review ({{N}}/3 voices active)
+<paste voice-status.json voice_summary verbatim; claude-only explicitly says no cross-model family review>
 
 ## Contract compliance
 - Acceptance Criteria verified: <AC-ID → evidence>
@@ -1089,19 +1190,47 @@ group-review ({{N}}/3 voices active)
    - Code-review source: CR-<n>
 
 ## Voices unavailable
-- <voice>: <reason>
+- R1: <voice_failures 原文；沒有則 none>
+- R2 debate: <debate_failures 原文；未啟動則 not run，不能說全部完成>
+- Previous attempts/passes: <voice_history 的失敗原文與 pass／phase，不虛構 retry 次數>
 
 <paste code-review-scope.md verbatim, including its owned markers and rejected-item audit>
 ```
 
 Report the final.md summary to the user and wait for Disputed item decisions before proceeding to Step 5a.
 
-**Checkpoint (context lifetime).** With the Write tool, write `$REVIEW_DIR/state.md`: PR number,
-base branch, baseline SHA, `head:` (PR `headRefOid`), re-review round, `ci_command:` (Step 6),
-`disputed:` (each Disputed item + the user's ruling), and `next: Step 5` while any Disputed item
-lacks a ruling, else `next: Step 5a`; rewrite `head:` / `next:` at every later step boundary. Later steps need nothing beyond `$REVIEW_DIR` (`prompt-r1.md` = frozen contract,
-`final.md` = blocking set), so this human pause is the cheapest place to shed context: tell the
-user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> --resume`.
+**Checkpoint (context lifetime).** 不得手寫／覆寫 state.md。在 pass 1 Step 5 記錄不可改寫的 baseline，
+並保存實際 CI 命令（只記命令，不代表 CI green）：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py baseline --pr {{pr_number}}
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py configure-ci --pr {{pr_number}} --ci-command "{{ci_command}}"
+```
+
+先執行 resume 取得 `final_identity`；final.md 第一行放 `<!-- checkpoint-final:<該完整 JSON> -->`，
+再寫本輪 synthesis。將本輪實際 blocking boolean 與 disputed array 寫到 `$REVIEW_DIR/aggregation.json`，
+例如 `{"blocking": true, "disputed": [{"id":"C1","finding":"完整 finding","ruling":null}]}`。
+沒有 dispute 用空陣列；保留舊 finding／ruling，新 dispute 不得自行填 human ruling。
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py checkpoint --pr {{pr_number}} --input "$REVIEW_DIR/aggregation.json"
+```
+
+helper 驗證目前 voices／final identity、保存 aggregation source digest、final fingerprint 與 reviewed_head；source／report
+之後若變更就不能沿用舊 checkpoint。未裁決則 next=Step 5，
+否則 next=Step 5a。人類裁決後才執行（ruling 只允許 fix／false-positive／accepted-risk，reason 不可空）：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py ruling --pr {{pr_number}} --finding "{{finding_id}}" --ruling "{{ruling}}" --reason "{{human_reason}}"
+```
+
+dispute id 必須綁定同一 finding：同 id 但內容不同時 checkpoint exit 2，保留原檔；
+新的問題使用新 id，不得繼承人類對別件事的裁決。只有 id 與 finding 相同才保留 ruling／reason。
+helper 在 ruling 時記錄 ruling_round；本 pass 的 fix 裁決在重建 checkpoint 時仍屬 blocking，
+不能被舊 aggregation 的 blocking=false 清除；前一 pass 已經重審的 fix 歷史不自動阻擋新 pass。
+
+最後一項裁決成功才到 Step 5a。任何失敗保持 prior checkpoint bytes 不變；final 失效時回 Step 5，
+重新彙整並執行 checkpoint。之後可 `/compact`，或新 session `/pr-cycle-deep #<PR> --resume`。
 
 ---
 
@@ -1131,6 +1260,9 @@ final 缺檔／為空／格式或來源不符 → 回 Step 5 重新彙整並補�
 先查 stderr 與安裝版本；不得修改 review 資料湊數，也不得從 worktree 執行 `make install`。
 此 gate 不改變 finding 的 blocking 等級；final 修改後必須重新核對。
 
+exit 0 且 final 未改變後，才執行 `review_checkpoint.py advance --pr {{pr_number}} --next "Step 5b"`。
+此 atomic 邊界重新驗證 final／voices／rulings；不能以 advance 跳過 Step 5 checkpoint。
+
 ---
 
 ### Step 5b — Post review summary to PR
@@ -1151,6 +1283,8 @@ First-time use may prompt for permission → add `Bash(gh pr comment:*)` to `set
 (rule 16 safe form). MVP posts one comment here; re-post after Step 7 only if consensus materially changed.
 
 Do **not** touch the `review-in-progress` label here: the fixes have not been made yet (see Step 1).
+
+貼文成功或依上表回報失敗後，執行 `review_checkpoint.py advance --pr {{pr_number}} --next "Step 5c"`。
 
 ---
 
@@ -1175,6 +1309,10 @@ gh issue create --repo {{owner/repo}} --label deferred-from-review --title "Defe
 
 `gh issue create` 非零退出（auth／label 不存在／網路）→ `[WARN]` 回報，不阻斷流程。
 
+Step 5c 完成（無需開票亦同）後，依本輪 blocking boolean 執行
+`review_checkpoint.py advance --pr {{pr_number}} --next "Step 6"`（有 blockers）或 `--next "Step 8"`（無 blockers）。
+helper 拒絕相反路由；Round 2 有 blockers 先依 circuit breaker 等待，不自動開始第三輪。
+
 ---
 
 ### Step 6 — Fix (Critical → Important → NIT)
@@ -1186,8 +1324,8 @@ Delegate the fix loop to **one** `general-purpose` Task subagent. Reading code, 
 iterating on CI are the most turn-heavy part of the cycle; in the lead's context every one of
 those turns re-reads the whole review history. First pick the CI command yourself (Makefile
 `ci`/`test` target, else `uv run pytest` / `npm test` / `go test ./...` / `flutter test`) and record
-it as `ci_command:` in `state.md`. Pass the last verified PR `headRefOid` from that checkpoint
-as `expected_pr_head` — not a newly observed, unreviewed head. Both the lead and a fix subagent
+it with `review_checkpoint.py configure-ci --pr {{pr_number}} --ci-command "<ci_command>"`，不手寫 state.md。
+Pass the checkpoint's last verified PR `head` as `expected_pr_head` — not a newly observed, unreviewed head. Both the lead and a fix subagent
 MUST use the same **pre-push gate**, immediately followed by the push in one `&&` chain:
 
 ```bash
@@ -1258,6 +1396,16 @@ Route by the result. The decision table is authoritative — do not proceed on a
 
 If `gh pr view` itself errors (auth / network), stop and report — an empty result is not "OPEN".
 
+完成合法 fix push、上述 live recheck 與 CI receipt 後，執行：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py post-fix --pr {{pr_number}}
+```
+
+只接受 checkout=live 的 fast-forward fix HEAD，原子記 current head、保留舊 reviewed_head／baseline／
+disputed／原始 red-first，next=Step 7。新 HEAD **未審查**，只能去 fresh review，不能進 Step 8／ship。
+CI／base-update／version-bump 的任何後期 push 也走此路；不得只重跑 CI 就把未審 HEAD 當已審。
+
 ---
 
 ### Step 7 — Group re-review (bounded to two rounds)
@@ -1285,6 +1433,9 @@ Re-run Step 3 on the round's review surface, then run Step 4 only if the Step 3.
 
 **7.1 Refresh diff state** (required — diff has changed after fixes):
 
+必須先執行 Step 7.2 列出的 `new-pass`（僅 pass 1 post-fix 可用），確認 exit 0，再 refresh；
+下方 Step 7.2 是該前置命令與後續 gate 說明，不要第二次執行 new-pass。
+
 Re-run `setup-review-dir.sh` — it is the sole owner of the safe base resolution
 (`git fetch` from the base remote — `upstream` if present, else `origin`, issue #196 — plus
 `FETCH_HEAD`, so neither a stale local base nor a stale fork `origin` can silently poison the
@@ -1305,9 +1456,17 @@ Round 2 的 Step 2 仍更新完整 PR 的 source inventory；`baseline..HEAD` �
 本輪 blocking 判定，不是 scope filter 的檔案准入。CR 號依新 filtered 陣列分配；落在 fix surface
 外的項目標為 `Outside Round 2 contract` 並保留來源，不據此重開修復迴圈，也不偽造零筆輸入。
 
-**7.2 Apply the R2 activation gate**: all active voices re-run R1 to catch regressions. Recompute
-candidate blockers and disputes from the new R1; previous voice verdicts have no gate authority. If
-Step 3.4 skips R2, delete every stale R2 file before Step 5 aggregation:
+**7.2 Apply the R2 activation gate**：先執行原子 new-pass，再依 Step 7.1 refresh 及本輪 Step 2 review/filter。
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py new-pass --pr {{pr_number}}
+```
+
+只有 pass 1 post-fix 的 Step 7 可建立 pass 2（next=Step 2）；保留 baseline／disputed／failure history，
+撤銷舊 mode、outcomes、final 與 approval。完成 Step 2 才 advance 到 Step 3，再 begin-attempt 取得 fresh R1。
+pass 2 後不允許 new-pass，也不能用 start 重設本 PR 的兩輪上限；需交人類裁決／重設計，不開始第三輪。
+Recompute candidate blockers and disputes from the new R1; previous verdicts cannot certify the new HEAD.
+If Step 3.4 skips R2, delete every stale R2 file before Step 5 aggregation:
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
@@ -1361,8 +1520,9 @@ Before showing this prompt, run Step 1's `review-label.sh remove {{pr_number}}` 
 label is off: from here a human owns the decision, and a PR that still carries the label would
 stay unmergeable while they decide. Wait for explicit instruction, then act on the choice:
 
-- **False positive**: continue to Step 8 with the label already off. Step 8's summary MUST say it was
-  removed early by the circuit breaker (merge was unblocked from then).
+- **False positive**: 將人類裁定與理由寫回本輪 final，重新執行 Step 5 checkpoint（blocking=false）
+  → 5a → 5b → 5c → Step 8，不手改 next 或略過 count gate。摘要 MUST 說明 label 由 circuit breaker
+  提前移除、merge 從當時已不受該 label 阻擋。
 - **Continue fixing**: run `bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh add {{pr_number}}`
   and follow Step 1's exit table (exit 0 continue; exit 10 note it for the Step 8 summary; any other
   exit: **Stop** and report to the user, do not resume fixing), then go to Step 6.
@@ -1406,6 +1566,12 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 - Change scope: N files +X/-Y lines
 - New tests: ...
 
+## Actual review mode
+- <paste voice-status.json voice_summary verbatim, not Step 0 MODE>
+- Unavailable voices: <paste voice_failures with original reasons>
+- R2 debate unavailable: <debate_failures 原文，與有效 R1 participation 分開>
+- Previous failures: <voice_history 按 pass／phase 保留，未 retry 不說 retry failed>
+
 ## Key decisions handled during group review
 1. <Consensus Critical 1>: fix approach = ...
 2. <Disputed item>: user chose ___, reason ...
@@ -1446,7 +1612,9 @@ echo "$REVIEW_DIR/human-summary.md"
 Reply (substitute the echoed path for `<path>`): "Contract satisfied and blocking set empty. Three hotspots in `<path>`. Raise concerns here — I (reviewer lead) respond immediately;
 reply 'ship' to proceed to Step 9 CI."
 
-User raises a concern → lead responds directly (citing R1/R2 original findings if needed); unresolvable concern → return to Step 6 to fix; resolved → user replies "ship" before proceeding to Step 9.
+User raises a concern → lead responds directly (citing originals). 需要修復時，先更新本輪 final／blocking，
+重新 Step 5 checkpoint → 5a → 5b → 5c → Step 6，不直接手改 next；已到 pass 2 就不開始第三輪。
+Concern resolved → wait for this HEAD's explicit "ship" before Step 9.
 
 **On "ship" (and not before)**, remove the `review-in-progress` label so merge is unblocked once the
 fixes are in; a user cancel takes the same path:
@@ -1458,6 +1626,9 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh remove {{pr_number}}
 Non-zero is `[FAIL]`: report it, tell the user to run `gh pr edit {{pr_number}} --remove-label review-in-progress`
 by hand, and do not continue to Step 9 until they confirm.
 
+收到本輪 ship 且 label 處理成功後，才執行
+`review_checkpoint.py advance --pr {{pr_number}} --next "Step 9" --ship-approved`；無明確授權不能加旗標。
+
 ---
 
 ### Step 9 — CI Check
@@ -1468,20 +1639,44 @@ Wait for GitHub Actions to pass:
 gh pr checks "{{pr_number}}" --watch
 ```
 
-CI fails: reproduce locally (using CI command from Step 6) → fix → commit → **Step 6 guarded push** → wait again.
+CI fails: reproduce using the saved command → fix → commit → Step 6 guarded push → post-fix → remaining bounded new-pass.
 Local CI is authoritative: when CI and local differ, trust local; check for CI environment differences.
+
+live checks 全綠後執行 `review_checkpoint.py ci --pr {{pr_number}}`，helper 重新查詢 CI 並原子推進
+Step 9 → Step 10。pending／fail／缺漏／API error 保持 Step 9；不能用 advance 跳到 Step 10。
+任何 fix push 都先 post-fix → new-pass（僅剩 pass 2 時可），不是採信舊 voices／ship。
 
 ---
 
 ### Step 10 — Merge
 
-**Pre-merge gate: confirm PR is still OPEN.** Re-run Step 6's "Recheck PR status" `gh pr view` query, but route as below, **not** by Step 6's table (it routes to Step 7).
-Why: a bump push after an out-of-band merge silently recreates the deleted branch (issue #462).
-`MERGED` → **STOP**: no bump, merge, or push; go to Step 11. `CLOSED` → **STOP**; surface to the user and wait.
-Either way, if the label is somehow still on, run Step 1's `review-label.sh remove` (a no-op when it is already off).
-`gh pr view` error → stop and report (empty ≠ OPEN).
-`OPEN` + `DIRTY` / `CONFLICTING` / `BEHIND` → update from `{{base_branch}}`, use the **Step 6 guarded push**,
-return to Step 9 (CI), then re-run this gate. Any other `OPEN` → continue to the version-bump check below.
+**Pre-merge gate: confirm PR is still OPEN and not draft.** 執行唯讀 gate；
+它每次以 gh pr view 查詢 number、state、mergeable、mergeStateStatus、isDraft：
+
+```bash
+bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-pr-merge.sh {{pr_number}}
+```
+
+| Exit | Meaning | Action |
+| --- | --- | --- |
+| `0` | OPEN，isDraft=false | 才可進入 version-bump check；CI 與人類 ship gate 仍適用 |
+| `1` | 參數／工具／API／格式錯誤 | `[FAIL]` 停止，完整回報 stderr，不採用空值或快取 |
+| `2` | MERGED／CLOSED | STOP，不 bump／merge／push；先執行 Step 1 的 `review-label.sh remove {{pr_number}}`（label 已關閉時為 no-op）；MERGED 到 Step 11，CLOSED 等人裁決 |
+| `3` | OPEN 且 isDraft=true | STOP，詢問使用者是否執行 gh pr ready；既有 ship 不視為 ready 授權；未明確同意不得轉 ready 或 merge |
+| `4` | DIRTY／CONFLICTING／BEHIND | 更新 base、guarded push、post-fix → 剩餘 bounded new-pass → 本輪 CI 後重跑；沒有剩餘 pass 即停止 |
+
+mergeable 僅接受 MERGEABLE／CONFLICTING／UNKNOWN；mergeStateStatus 僅接受 gh 的
+BEHIND／BLOCKED／CLEAN／DIRTY／DRAFT／HAS_HOOKS／UNKNOWN／UNSTABLE。
+未知字串／null／缺欄位都 exit 1；合法 UNKNOWN 保留既有待 CI／approval 分流，仍須 ship 與 CI。
+在執行 merge 前同時重跑 `review_checkpoint.py resume --pr {{pr_number}}`，只採 Step 10 的
+目前 final／voices／HEAD；不能只靠 draft gate 採信未審的新 HEAD。
+
+只有使用者明確同意時才執行下列命令，成功後重跑同一 gate；
+必須讀回 isDraft=false（exit 0）才進 version-bump check，失敗／仍 draft 即停止：
+
+```bash
+gh pr ready "{{pr_number}}"
+```
 
 ### Pre-merge check: version bump
 
@@ -1533,6 +1728,9 @@ gh pr merge "{{pr_number}}" --squash --delete-branch
 ```bash
 gh pr view "{{pr_number}}" --json mergeCommit -q .mergeCommit.oid
 ```
+
+merge 後執行 `python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py resume --pr {{pr_number}}`，
+只有 live MERGED 才路由 Step 11；不以 advance 偽造 completion，squash checkout 不同亦只做 terminal cleanup。
 
 Note the SHA as `{{merge_commit_sha}}` and report it to the user.
 
@@ -1596,7 +1794,7 @@ and must not be silently ignored:
 ```text
 PR #{{pr_number}} squash-merged to main.
 Merge commit: {{merge_commit_sha}}
-Group review mode: {{N}}/3 voices active; Review Contract satisfied and blocking set empty.
+Review mode: <voice_summary>; R1 unavailable: <voice_failures>; R2 debate unavailable: <debate_failures>; previous pass/attempt failures: <voice_history, original reasons>. Review Contract satisfied and blocking set empty.
 ```
 
 If 11a archived a change, append:
@@ -1631,7 +1829,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | Codex Stage 1 `codex-r1-raw.md` is empty (review missing) | Stage 1 now uses `codex exec ... > codex-r1-raw.md` (stdout); read `$REVIEW_DIR/codex-r1.stage1.log` (stderr) for the error. For the `codex exec \| tee` stages (Stage 2 / R2), `set -o pipefail` keeps `$?` reflecting the failing command in the pipeline (bash/zsh) |
 | Why Stage 1 uses `codex exec`, not `codex review --base` + a guard prompt | `codex review --base` and a positional `[PROMPT]` are mutually exclusive (codex-cli 0.142.5: `the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`), so the skill-hijack guard cannot ride on `codex review`. Stage 1 drives the review through `codex exec` with the guard on stdin instead (issue #194). Do not "fix" it back to `codex review --base` |
 | codex Stage 1 runs against wrong repo | The stage-1 script passes `codex exec -C "$WT_ROOT"`, pinning the repo root; ensure you run the script from inside the worktree (avoid tools like gstack changing CWD, AP3 Sub-class A) |
-| A voice fails R1/R2 twice consecutively | Mark as unavailable; do not block; aggregate report notes the reason |
+| A voice fails R1/R2 twice consecutively | Preserve exact phase-specific reasons. R1 external exhaustion stops for Step 3.3 human approval; R2 outage is disclosed separately without erasing valid R1 or claiming all voices completed debate. Do not invent retry failures. |
 | R2 receives r1-aggregate that is too large for voice to process | Remove raw diff from r1-aggregate; keep only findings; diff was already processed in the r1 prompt |
 | Round 2 ends with unresolved blocking findings | Trigger circuit breaker; hand remaining findings to user with the three-option decision (no third round) |
 | User chooses to ignore a disputed finding | Add a Known Issues section to the PR description with the reason |

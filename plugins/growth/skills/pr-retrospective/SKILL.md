@@ -66,42 +66,42 @@ Claude Code 會在載入 skill 時展開 `${CLAUDE_SKILL_DIR}`，它不是要留
 若執行器沒有展開此佔位符，從載入訊息的 **Skill directory／SKILL.md 絕對路徑**取得目錄，
 在每個命令中直接代入並正確引用；取不到就 `[FAIL]` 並重新載入 skill，不把空值交給 shell。
 
-直接執行 bootstrap；`mycelium`／`jq`／`gh` 前置檢查由 script 擁有。tasks-backed 操作仍只用
-PATH 中 installed `mycelium`，不從 checkout import `tasks/mycelium`：
-
-```bash
-bash "${CLAUDE_SKILL_DIR}/scripts/bootstrap.sh"
-```
-
-任一啟動命令非零即停止並回報 stderr。若隨附 script 缺失／不可讀，更新 `growth@yibi-stack`
-plugin，或在 yibi-stack **主 checkout** 執行 `make install`；不得改用另一份 cache 混搭執行。
-
-Script stdout 輸出 `KEY=VALUE`，agent 解析並記住為 invocation 狀態（不是跨 call 的 shell 變數）：
-
-- `ORIG_PROJECT` — 呼叫端 git repo 名稱
-- `REAL_WORKDIR` — 目前工作目錄
-- `BRANCH` — 目前分支名稱
-
-偵測 PR 號（從 ARGUMENTS 解析 `--pr <n>` 或 fallback 到 `gh pr view`）。
-
-`detect-pr.sh` 是 bootstrap 的 sibling；每次呼叫都以同一個已解析的 skill 目錄定址：
-
-**無 `--pr` 引數時**（在 PR branch 上，gh 自動偵測）：
+先從 ARGUMENTS 取得 `--pr <n>`；未提供時，用同目錄的 detect-pr.sh 依目前 branch 偵測：
 
 ```bash
 bash "${CLAUDE_SKILL_DIR}/scripts/detect-pr.sh"
 ```
 
-**有 `--pr <n>` 引數時**（agent 把實際 PR 號附在後）：
+顯式指定 `--repo owner/name` 的跨 repo 回顧必須同時提供 `--pr <n>`，不得用 cwd 的 branch 猜 PR。
+`GH_REPO`（未顯式 `--repo`）仍可使用 gh 的原生 branch 偵測；若目標 repo 沒有唯一可辨識
+PR、gh 回報歧義／失敗，就停止並要求 `--pr <n>`，不退回 cwd 的 PR。
+把已取得的 PR 編號帶入 bootstrap；`mycelium`／`jq`／`gh` 前置檢查由 script 擁有。
+tasks-backed 操作仍只用 PATH 中 installed `mycelium`，不從 checkout import tasks：
 
 ```bash
-bash "${CLAUDE_SKILL_DIR}/scripts/detect-pr.sh" --pr 65
+bash "${CLAUDE_SKILL_DIR}/scripts/bootstrap.sh" --pr "$PR_NUMBER"
 ```
 
-Agent 依 ARGUMENTS 選擇對應形式。Script 用 `$*` 合併所有位置引數，支援 shell-split 傳入。
-Script stdout 輸出 `PR_NUMBER=<n>`；agent 解析並記住供後續步驟使用。
-後續範例中的 `$PR_NUMBER`、`$ORIG_PROJECT` 等值，也必須由 agent 在該次 Bash 呼叫中帶入；
-不得假設前一個 Bash process 的賦值或 stdout 會自動成為下一個 process 的環境變數。
+有 `--repo owner/name` 時，把該值一併帶入（優先於 GH_REPO）：
+
+```bash
+bash "${CLAUDE_SKILL_DIR}/scripts/bootstrap.sh" --pr "$PR_NUMBER" --repo "$PR_REPO"
+```
+
+任一啟動命令 exit 1（環境／API／PR identity 失敗）或 exit 2（參數錯誤）即停止並回報 stderr。
+若隨附 script 缺失／不可讀，更新 growth plugin，或在 yibi-stack 主 checkout 執行 make install；
+不得改用另一份 cache 混搭執行。
+
+Script stdout 輸出 `KEY=VALUE`，agent 解析並記住為 invocation 狀態（不是跨 call 的 shell 變數）：
+
+- `PR_REPO` — 由實際 PR URL 核實的 owner/repo；所有後續 gh PR 讀取均帶這個 repo。
+- `ORIG_PROJECT` — PR 所屬 repo 的名稱，用於 retro、lessons 與 audit，不取 cwd 名稱。
+- `REAL_WORKDIR`／`BRANCH` — 真實 session 工作目錄與分支，保留給 transcript 定位，不改指另一個 checkout。
+- `PROJECT_CONFIRMATION_REQUIRED` — true 時把 cwd repo、PR repo 與目標 project 列給使用者；
+  **必須在 Step 3 取得專案確認才可執行 Step 4／5 寫入**。取消或無人可確認時不寫。
+
+不得假設前一個 Bash process 的賦值或 stdout 會自動成為下一個 process 的環境變數；
+`PR_NUMBER`、`PR_REPO`、`ORIG_PROJECT` 等值必須在每次呼叫直接代入。
 
 檢查是否已有 retro（重跑提示；`--pr-number` 是精確匹配，不依賴 topic 字串）：
 
@@ -134,23 +134,23 @@ schema，並做一次有界限的 `hindsight_list_knowledge_pages({})` 唯讀連
 每個 call 獨立執行，agent 依輸出做推論（**不在 bash 裡寫 Python 解析**）：
 
 ```bash
-gh pr view "$PR_NUMBER" --json url,title,body,state,mergedAt,labels,commits,additions,deletions
+gh pr view "$PR_NUMBER" --repo "$PR_REPO" --json url,title,body,state,mergedAt,labels,commits,additions,deletions
 ```
 
 ```bash
-gh pr view "$PR_NUMBER" --json comments -q '.comments[] | select(.author.login | test("codex|claude")) | .body' | head -200
+gh pr view "$PR_NUMBER" --repo "$PR_REPO" --json comments -q '.comments[] | select(.author.login | test("codex|claude")) | .body' | head -200
 ```
 
 PR commit 訊息（PR-keyed，不依賴 current checkout）：
 
 ```bash
-gh pr view "$PR_NUMBER" --json commits -q '.commits[].messageHeadline' 2>/dev/null | head -30
+gh pr view "$PR_NUMBER" --repo "$PR_REPO" --json commits -q '.commits[].messageHeadline' 2>/dev/null | head -30
 ```
 
 可選（branch 還在時；若已 merge + delete 改用 gh api）：
 
 ```bash
-gh pr diff "$PR_NUMBER" --name-only 2>/dev/null | head -30
+gh pr diff "$PR_NUMBER" --repo "$PR_REPO" --name-only 2>/dev/null | head -30
 ```
 
 **GATE**：若 PR `state != MERGED`，用 `AskUserQuestion` 問「PR 還沒 merge，仍要做 retro 嗎？」（預設 No）。使用者選 No 則中止，不寫入 DB。
@@ -293,6 +293,8 @@ mycelium retro write \
 > 的估算值，若同一 session 裡混雜了其他不相關的工作，數字會偏高。
 
 若 Step 4 寫入失敗，輸出完整的 script 內容讓使用者手動重跑（`bash <path>`）。
+成功後以 `mycelium retro search --pr-number "$PR_NUMBER" --project "$ORIG_PROJECT" --limit 1`
+讀回，確認 id 與 project 是剛寫入的紀錄。查詢失敗或不符即停止，不宣稱寫入驗證成功。
 
 ---
 
@@ -390,35 +392,14 @@ set -euo pipefail
 PR_NUMBER="<from Step 0>"
 ORIG_PROJECT="<from Step 0>"
 RETRO_ID="<id from Step 4 output>"
+RETRO_ROOT="<resolved skill directory from Step 0>"
 
 add_lesson() {
-  # 位置參數一律用 ${N} braced form，不可寫裸 $N（issue #386）：skill body 的 argument
-  # substitution 會在 agent 讀到之前把裸 $N 換成呼叫端的 argument token——磁碟上的檔案
-  # 完全正確，所以 grep 原始檔看不出問題。
-  local key="${1}" type="${2}" insight="${3}" confidence="${4}" source="${5}" skill_flag_val="${6}" state="${7}"
-  local skill_flag=()
-  local state_flag=()
-  if [ -n "$skill_flag_val" ]; then
-    skill_flag=(--skill "$skill_flag_val")
-  fi
-  # --park 與 --skip-if-exists 互斥（tasks/mycelium/cli.py 直接 raise），故依 state 二擇一：
-  # active 走冪等的 --skip-if-exists；park 的重跑語意由下方「park 出口不可重試」那段負責。
-  if [ "$state" = "park" ]; then
-    state_flag=(--park)
-  else
-    state_flag=(--skip-if-exists)
-  fi
-  mycelium lessons add \
-    --key "$key" \
-    --type "$type" \
-    --insight "$insight" \
-    --confidence "$confidence" \
-    --source "$source" \
-    --project "$ORIG_PROJECT" \
-    ${skill_flag[@]+"${skill_flag[@]}"} \
-    ${state_flag[@]+"${state_flag[@]}"} \
-    --retro-pr "$PR_NUMBER" \
-    --retrospective-id "$RETRO_ID"
+  # 複雜寫入／exact-ID readback 由隨附 runtime 擁有；不切換 session cwd。
+  python3 "$RETRO_ROOT/scripts/retro-lessons.py" add \
+    --project "$ORIG_PROJECT" --retro-pr "$PR_NUMBER" --retrospective-id "$RETRO_ID" \
+    --key "${1}" --type "${2}" --insight "${3}" --confidence "${4}" \
+    --source "${5}" --skill "${6}" --state "${7}"
 }
 
 # Step 5 完成後才加入呼叫；--skill 留空字串代表省略（避免把產生者誤記成主題）
@@ -433,16 +414,25 @@ add_lesson \
   '{{active|park；Tier 3 必須 park 且 confidence ≤ 4}}'
 ```
 
-> **`${skill_flag[@]+"${skill_flag[@]}"}` 而非 `"${skill_flag[@]}"`**：`set -u` 底下對空陣列
-> 直接展開 `"${skill_flag[@]}"` 在 macOS 系統 bash 3.2 會炸 `unbound variable`（homebrew
-> bash 5.x 沒事）；`${arr[@]+...}` 是可攜寫法，陣列為空時整段安全消失。
+> **Runtime 契約**：只呼叫 PATH 中 installed `mycelium`，沿用真正 session cwd；
+> `active` 帶 `--skip-if-exists`，`park` 只帶 `--park`。add 非 0 立即原樣傳遞 exit code，
+> 不執行 readback、不自動重試。成功時必須取得 add 回傳的唯一 id（skip 則取 CLI 回傳的
+> 合法既有 id），再以明確 project＋該 id 讀回並核對 id/project/type/key；其他同 key
+> retired／parked／history 列不能證明本次新增成功。成功輸出 `verified_id=<id>`，
+> 保留原始 add stdout/stderr；skip 不要求既有列屬於本次 retro，不拿候選內容覆寫既有值。
+> 回傳 id 缺失、readback JSON／身分不符 → exit 1；rows 的 exit 2／3 原樣傳遞；
+> CLI 不可用／逾時 → exit 1。全部停止本次 canonical 流程並跳過 A2/A3。
+> 寫入可能已落地而 readback 失敗時先查明該 id；**park 不得因失敗重跑**。
+> 必須整份 prepared script 以單一 shell 執行，不能把 `add_lesson` 放入會忽略 `set -e`
+> 的條件測試後繼續下一筆。runtime 的逐筆 write confirmation 不是 A2 的批次 snapshot，
+> A2 仍須另做一次完整 canonical readback。
 >
 > **範本一律單引號**：呼叫端的字面值若用雙引號包，insight 內文出現 `$` 時 bash 會嘗試參數展開，
 > 在 `set -euo pipefail` 下直接中止整個 script（實測回報 `retro_lessons.sh: line 63: ?: unbound
 > variable`，環境 `GNU bash 3.2.57(1)-release (arm64-apple-darwin25)`，即 macOS 內建 `/bin/bash`）。
 > 引用 regex、YAML 片段、shell 字串的 insight 在 harness / CI 主題的 retro 裡是常態，不是邊緣案例。
 > 單引號完全不展開，是這裡的正解。**唯一例外**是內文本身含單引號——此時不要硬拗跳脫，改把內文寫進
-> 一個檔案再 `--insight "$(cat <path>)"`，或改寫措辭避開。函式**內部**的 `"$insight"` / `"$key"`
+> 一個檔案再 `--insight "$(cat <path>)"`，或改寫措辭避開。函式內部的 `"${3}"` 等
 > 維持雙引號不變，那些是真的變數展開。
 >
 > **`active` 路徑帶 `--skip-if-exists`，所以整個 script 可安全重跑**：`lessons add` 本身是無條件

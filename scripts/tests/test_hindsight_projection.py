@@ -513,3 +513,86 @@ def test_hsp_eg_030_duplicate_receipts_are_rejected(payload):
     batch["receipts"].append(dict(batch["receipts"][0]))
     with pytest.raises(ValueError):
         projection.prepare(batch)
+
+
+@pytest.mark.parametrize("new_count", [0, 5])
+def test_hsp_st_031_large_real_readback_produces_new_and_tombstone_plans(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, new_count: int
+) -> None:
+    """HSP-ST-031: 102 份 receipt 與 0／5 個新候選經真實 rows CLI 後仍完整 reconcile。"""
+    from datetime import UTC, datetime
+
+    from click.testing import CliRunner
+
+    from tasks.mycelium.cli import cli
+    from tasks.mycelium.db import AgentsDB
+    from tasks.mycelium.models import LessonRecord, LessonSource, LessonType
+
+    db_path = tmp_path / "readback.db"
+    db = AgentsDB(str(db_path))
+    db.init_db()
+    now = datetime.now(UTC)
+    records = [
+        LessonRecord(
+            project="payments",
+            type=LessonType.pitfall,
+            key=f"receipt-{i:03}",
+            insight="A verified source record must remain available for reconciliation.",
+            confidence=8,
+            source=LessonSource.user_stated,
+            ts=now.isoformat(),
+        )
+        for i in range(102 + new_count)
+    ]
+    try:
+        for row in records:
+            db.insert_lesson(row)
+        monkeypatch.setenv("MYCELIUM_DB_OVERRIDE", str(db_path))
+
+        def readback(rows):
+            args = [arg for row in rows for arg in ("--key", row.key, "--id", row.id)]
+            result = CliRunner().invoke(cli, ["lessons", "rows", "--project", "payments", *args])
+            assert result.exit_code == 0, result.output
+            data = json.loads(result.stdout)
+            assert data["missing_ids"] == [] and data["missing_keys"] == []
+            return data["rows"]
+
+        prior_rows = readback(records[:102])
+        prior_items = [
+            {"record": row, "summary": "Verified prior projection.", "evidence_ids": ["p#1"]}
+            for row in prior_rows
+        ]
+        receipts = [
+            accepted(plan)
+            for plan in projection.prepare(
+                {"project": "payments", "items": prior_items, "receipts": []}
+            )["plans"]
+        ]
+        retired = records[0]
+        assert db.retire_lesson(retired.id, "no longer valid", None, now) is not None
+        new_ids = {row.id for row in records[102:]}
+        items = [
+            {
+                "record": row,
+                **(
+                    {"summary": "Verified new projection.", "evidence_ids": ["p#2"]}
+                    if row["id"] in new_ids
+                    else {}
+                ),
+            }
+            for row in readback(records)
+        ]
+        plans = projection.prepare({"project": "payments", "items": items, "receipts": receipts})[
+            "plans"
+        ]
+        by_id = {plan["lesson_id"]: plan for plan in plans}
+        assert set(by_id) == {row.id for row in records}
+        tombstone = by_id[retired.id]
+        assert tombstone["action"] == "ingest" and tombstone["lifecycle"] == "retired"
+        assert json.loads(tombstone["arguments"]["content"])["lifecycle"] == "retired"
+        assert {plan["lesson_id"] for plan in plans if plan["action"] == "ingest"} == (
+            new_ids | {retired.id}
+        )
+        assert all(by_id[row.id]["reason"] == "active_owner_unchanged" for row in records[1:102])
+    finally:
+        db.close()
