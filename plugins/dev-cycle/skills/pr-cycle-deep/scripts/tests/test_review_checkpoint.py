@@ -140,9 +140,15 @@ def _outcomes(
             body = (
                 f"Review scope: {attempt['pr_url']} head={attempt['head']} "
                 f"pass={attempt['review_round']} phase={phase} attempt={attempt['attempt']}\n"
-                "## Review findings\n"
-                f"Reviewed {attempt['head']} with current attempt {attempt['attempt']} by {name}. "
-                "No blockers after examining the current supplied review surface.\n"
+                f"## {'Summary' if phase == 'r1' else 'Cross-review verdict'}\n"
+                f"Reviewed {attempt['head']} with current attempt {attempt['attempt']} by {name}.\n"
+                + (
+                    "## Findings\nNone.\n## Verdict\n- LGTM\n"
+                    if phase == "r1"
+                    else "## Per-finding response\nAll reviewed.\n"
+                    "## New findings (missed in R1)\nNone.\n"
+                    "## Withdrawals (R1 items I'm retracting)\nNone.\n## Final verdict\n- LGTM\n"
+                )
             )
             path.write_text(header + body)
             item.update(report=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
@@ -704,3 +710,123 @@ def test_read_only_uses_same_provenance_and_exhaustion_without_lifecycle_state(
     report = _ok(_run(root, env, "verify-voices", "--read-only"))
     assert report["mode"] == "claude-only" and report["voice_failures"] == {"codex": "quota"}
     assert not (root / ".pr-review/state.md").exists()
+
+
+@pytest.mark.parametrize("phase", ["r1", "r2"])
+@pytest.mark.parametrize(
+    "content", ["metadata-only", "missing-verdict", "quoted-review", "commented-review"]
+)
+def test_review_success_requires_complete_substantive_report(
+    tmp_path: Path, phase: str, content: str
+) -> None:
+    """RCP-EG-003: 正確 identity／scope 不得替空白、截斷或僅引用的 review 提供成功證明。"""
+    root, env = _case(tmp_path)
+    _review_boundary(root, env)
+    if phase == "r2":
+        _voices(root, env)
+        _ok(_run(root, env, "advance", "--next", "Step 4"))
+    source = _outcomes(root, env, phase=phase)
+    payload = json.loads(source.read_text())
+    report = Path(payload["outcomes"]["codex"]["report"])
+    header, scope, substantive = report.read_text().split("\n", 2)
+    if content == "metadata-only":
+        substantive = ""
+    elif content == "missing-verdict":
+        substantive = substantive[
+            : substantive.index("## Verdict" if phase == "r1" else "## Final verdict")
+        ]
+    elif content == "commented-review":
+        substantive = "<!--\n" + substantive + "-->\n"
+    else:
+        substantive = "```text\n" + substantive + "```\n"
+    report.write_text(header + "\n" + scope + "\n" + substantive)
+    payload["outcomes"]["codex"]["sha256"] = hashlib.sha256(report.read_bytes()).hexdigest()
+    source.write_text(json.dumps(payload))
+    before_status = (
+        (root / ".pr-review/voice-status.json").read_bytes()
+        if (root / ".pr-review/voice-status.json").exists()
+        else None
+    )
+    _unchanged_failure(root, env, "voices", "--phase", phase, "--input", str(source))
+    after_status = (
+        (root / ".pr-review/voice-status.json").read_bytes()
+        if (root / ".pr-review/voice-status.json").exists()
+        else None
+    )
+    assert after_status == before_status
+
+
+@pytest.mark.parametrize("new_pass", [False, True])
+def test_conflicting_dispute_id_never_reuses_unrelated_human_ruling(
+    tmp_path: Path, new_pass: bool
+) -> None:
+    """RCP-ST-004: 同輪／跨輪同 id 不同 finding 必須拒絕，不可轉移人類 false-positive 裁決。"""
+    root, env = _case(tmp_path)
+    _late(root, env, blocking=True, disputed=[{"id": "C1", "finding": "finding A", "ruling": None}])
+    _ok(
+        _run(
+            root,
+            env,
+            "ruling",
+            "--finding",
+            "C1",
+            "--ruling",
+            "false-positive",
+            "--reason",
+            "human rejects only A",
+        )
+    )
+    if new_pass:
+        _ok(_run(root, env, "configure-ci", "--ci-command", "make ci"))
+        _route(root, env, "Step 6")
+        _move(root, env)
+        _ok(_run(root, env, "post-fix"))
+        _ok(_run(root, env, "new-pass"))
+        _ok(_run(root, env, "advance", "--next", "Step 3"))
+        _voices(root, env)
+        _ok(_run(root, env, "advance", "--next", "Step 5"))
+    resumed = _ok(_run(root, env, "resume"))
+    (root / ".pr-review/final.md").write_text(
+        "<!-- checkpoint-final:" + json.dumps(resumed["final_identity"]) + " -->\n"
+        "# Final\nNew finding B awaits human decision.\n"
+    )
+    source = root / ".pr-review/new-dispute.json"
+    source.write_text(
+        json.dumps(
+            {
+                "blocking": False,
+                "disputed": [{"id": "C1", "finding": "NEW finding B", "ruling": None}],
+            }
+        )
+    )
+    _unchanged_failure(root, env, "checkpoint", "--input", str(source))
+    assert _ok(_run(root, env, "resume"))["next"] == "Step 5"
+    assert _state(root)["disputed"][0]["finding"] == "finding A"
+
+
+def test_recheckpoint_cannot_erase_current_pass_human_fix_blocking(tmp_path: Path) -> None:
+    """RCP-ST-005: 同輪 fix 裁決的 blocking 不得被舊 aggregation 的 false 清除。"""
+    root, env = _case(tmp_path)
+    items = [{"id": "C1", "finding": "must fix current defect", "ruling": None}]
+    _late(root, env, blocking=False, disputed=items)
+    ruled = _ok(
+        _run(
+            root,
+            env,
+            "ruling",
+            "--finding",
+            "C1",
+            "--ruling",
+            "fix",
+            "--reason",
+            "human requires correction",
+        )
+    )
+    assert ruled["blocking"] is True
+    refreshed = _aggregate(root, env, blocking=False, disputed=items)
+    assert refreshed["blocking"] is True
+    assert refreshed["disputed"][0]["ruling"] == "fix"
+    for step in ("Step 5b", "Step 5c"):
+        _ok(_run(root, env, "advance", "--next", step))
+    _unchanged_failure(root, env, "advance", "--next", "Step 8")
+    assert _ok(_run(root, env, "advance", "--next", "Step 6"))["next"] == "Step 6"

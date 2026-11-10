@@ -864,6 +864,11 @@ python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py begin-attemp
 begin-attempt 機械撤銷舊成功與 Claude-only 授權，保存舊 unavailable 原文；舊 body 不得重標成功。
 helper 比對去掉 marker／Review scope 後的正文 fingerprint；只更新 identity 兩列也不能採用舊正文，
 需保留本次實際 review 的具體內容／當前 scope，不能用靜態 LGTM 自報充當執行證據。
+metadata 不算正文。R1 必須依序有非空 Summary／Findings／Verdict；
+R2 必須依序有非空 Cross-review verdict／Per-finding response／New findings／Withdrawals／Final verdict。
+無 findings／withdrawals 時明寫 None，terminal verdict 只選 LGTM 或 NEEDS_CHANGES。
+只剩 identity／scope、截斷缺欄位，或完整 review 只出現在 fenced code／HTML comment 內，
+一律 exit 2，不計為成功聲部；欄位標題保留既有括號提示亦可。
 
 把完成驗證的結果寫入 `$REVIEW_DIR/voice-outcomes-r1.json`：
 `{"identity": <begin-attempt identity 原樣>, "outcomes": {"claude": {...}, "codex": {...}, "gemini": {...}}}`。
@@ -1218,6 +1223,11 @@ helper 驗證目前 voices／final identity、保存 aggregation source digest�
 ```bash
 python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py ruling --pr {{pr_number}} --finding "{{finding_id}}" --ruling "{{ruling}}" --reason "{{human_reason}}"
 ```
+
+dispute id 必須綁定同一 finding：同 id 但內容不同時 checkpoint exit 2，保留原檔；
+新的問題使用新 id，不得繼承人類對別件事的裁決。只有 id 與 finding 相同才保留 ruling／reason。
+helper 在 ruling 時記錄 ruling_round；本 pass 的 fix 裁決在重建 checkpoint 時仍屬 blocking，
+不能被舊 aggregation 的 blocking=false 清除；前一 pass 已經重審的 fix 歷史不自動阻擋新 pass。
 
 最後一項裁決成功才到 Step 5a。任何失敗保持 prior checkpoint bytes 不變；final 失效時回 Step 5，
 重新彙整並執行 checkpoint。之後可 `/compact`，或新 session `/pr-cycle-deep #<PR> --resume`。

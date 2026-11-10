@@ -147,9 +147,13 @@ def load(path: Path, pr: int, live: dict[str, Any], *, moved: bool = False) -> d
         ):
             raise ValueError("disputed checkpoint 格式錯誤")
         if item.get("ruling") and (
-            not isinstance(item.get("reason"), str) or not item["reason"].strip()
+            not isinstance(item.get("reason"), str)
+            or not item["reason"].strip()
+            or type(item.get("ruling_round")) is not int
+            or item["ruling_round"] not in (1, 2)
+            or item["ruling_round"] > state["review_round"]
         ):
-            raise ValueError("human ruling 缺少 reason")
+            raise ValueError("human ruling 缺少 reason 或有效的 ruling_round")
         ids.add(item["id"])
     for key in ("baseline", "reviewed_head"):
         if key in state and (not isinstance(state[key], str) or not SHA.fullmatch(state[key])):
@@ -187,6 +191,68 @@ def report_body(raw: bytes) -> bytes:
         raw.split(b"\n", 1)[1] if raw.startswith(b"<!-- review-evidence:") and b"\n" in raw else raw
     )
     return b"\n".join(line for line in body.splitlines() if not line.startswith(b"Review scope:"))
+
+
+def complete_review_body(raw: bytes, phase: str) -> bool:
+    """只驗 canonical compact report 的完整欄位，不把 identity／scope 或程式碼引用當成 review。"""
+    wanted = (
+        ("Summary", "Findings", "Verdict")
+        if phase == "r1"
+        else (
+            "Cross-review verdict",
+            "Per-finding response",
+            "New findings",
+            "Withdrawals",
+            "Final verdict",
+        )
+    )
+    sections: dict[str, list[str]] = {}
+    current = None
+    fence: tuple[str, int] | None = None
+    comment = False
+    for line in raw.decode("utf-8").splitlines():
+        if fence is None:
+            if comment:
+                closing = line.find("-->")
+                if closing < 0:
+                    continue
+                line = line[closing + 3 :]
+                comment = False
+            while "<!--" in line:
+                before, _, after = line.partition("<!--")
+                if "-->" not in after:
+                    line, comment = before, True
+                    break
+                line = before + after.partition("-->")[2]
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if marker:
+            token = marker.group(1)
+            if fence is None:
+                fence = (token[0], len(token))
+            elif (
+                token[0] == fence[0] and len(token) >= fence[1] and not line[marker.end() :].strip()
+            ):
+                fence = None
+            continue
+        if fence is not None:
+            continue
+        if line.startswith("## "):
+            title = re.sub(r" \([^()\n]*\)$", "", line[3:].strip())
+            if title not in wanted or title in sections or wanted[len(sections)] != title:
+                return False
+            sections[title] = []
+            current = title
+        elif current is not None:
+            sections[current].append(line)
+    if (
+        comment
+        or fence is not None
+        or tuple(sections) != wanted
+        or any(not "\n".join(lines).strip() for lines in sections.values())
+    ):
+        return False
+    verdict = "\n".join(sections[wanted[-1]]).strip()
+    return re.fullmatch(r"(?:-\s*)?(?:\*\*)?(?:LGTM|NEEDS_CHANGES)(?:\*\*)?", verdict) is not None
 
 
 def begin_attempt(root: Path, state: dict[str, Any], phase: str) -> None:
@@ -267,9 +333,12 @@ def voice_result(
             )
             if scope.encode() not in body.splitlines():
                 raise ValueError("report 正文缺少本次 Review scope；不得只 restamp header")
-            if evidence != {**expected, "voice": name} or len(body.strip()) < 50:
+            substantive = report_body(report)
+            if evidence != {**expected, "voice": name} or not complete_review_body(
+                substantive, phase
+            ):
                 raise ValueError(f"{name} report 不是本次完整 review evidence")
-            body_hash = digest(report_body(report))
+            body_hash = digest(substantive)
             if body_hash in prior or body_hash in historical:
                 raise ValueError("舊 report 不得改標籤為本次成功；重新執行 review")
             if item.get("sha256") != digest(report):
@@ -654,11 +723,23 @@ def main() -> int:
                         )
                     ids.add(item["id"])
                 previous = {item["id"]: item for item in state["disputed"]}
+                for item in items:
+                    if (
+                        item["id"] in previous
+                        and previous[item["id"]]["finding"] != item["finding"]
+                    ):
+                        raise ValueError(
+                            "disputed id 對應不同 finding；請使用新 id，不能繼承舊 ruling"
+                        )
                 merged = [previous.get(item["id"], item) for item in items]
                 # 跨 pass 保留既有 dispute 與人類裁決。
                 merged.extend(item for key, item in previous.items() if key not in ids)
                 state["disputed"] = merged
-                state["blocking"] = payload["blocking"]
+                state["blocking"] = payload["blocking"] or any(
+                    item.get("ruling") == "fix"
+                    and item.get("ruling_round") == state["review_round"]
+                    for item in merged
+                )
                 state["final_report"] = final_report(root, state)
                 state["aggregation_source"] = str(args.input.resolve())
                 state["aggregation_digest"] = digest(source_bytes)
@@ -681,7 +762,9 @@ def main() -> int:
                 matches = [item for item in state["disputed"] if item["id"] == args.finding]
                 if len(matches) != 1:
                     raise ValueError("找不到唯一 disputed finding")
-                matches[0].update(ruling=args.ruling, reason=args.reason)
+                matches[0].update(
+                    ruling=args.ruling, reason=args.reason, ruling_round=state["review_round"]
+                )
                 state["blocking"] = state["blocking"] or args.ruling == "fix"
                 if not unresolved(state):
                     state["next"] = "Step 5a"

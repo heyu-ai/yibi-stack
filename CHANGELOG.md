@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - pr-cycle-deep 從 Step 1.5 原子保存 checkpoint；early resume 不要求尚未產生的 final／red-first，仍拒絕 HEAD 漂移並保留後期證據與 disputed gates（#633）。
 - pr-cycle-deep 依 R1 實際結果記錄聲部與失敗原因；外部聲部全失效時停止，Claude-only 必須取得綁定本輪的明確人類裁決，resume 不得沿用其他輪的批准（#630）。
 - PR #640 審查補強：以完整 PR identity 與本輪成果綁定 checkpoint／聲部裁決，補齊原子後期轉移及終態續接；lesson 寫後按回傳 id 驗證，保留冪等 skip 與舊 CLI 復原診斷，新增並行 snapshot 與大量 receipt 投影整合驗證。
+- 依人類 circuit-breaker 裁決修復 pass 2 三個 Critical：拒絕只有 metadata 的 review、拒絕同 id 不同 finding 轉移裁決，並讓本輪 fix 裁決的 blocking 不受重建 checkpoint 清除；未自動開第三輪 review。
 
 ## [1.24.0] - 2026-11-04
 

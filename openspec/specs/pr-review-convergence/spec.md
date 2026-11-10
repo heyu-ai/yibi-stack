@@ -274,6 +274,10 @@ validated interfaces, not handwritten state. Missing/stale current final or unre
 SHALL route to Step 5, never final.prev.md. Canonical final identity and fingerprint SHALL bind the
 current pass and voice decisions. A legal fast-forward post-fix transition SHALL preserve baseline,
 disputes and reviewed_head, record the new current head as unreviewed, and route only to Step 7.
+Dispute IDs SHALL identify the same finding content; conflicting reuse SHALL be rejected without
+changing state. Human rulings SHALL record their bounded pass. Re-checkpointing SHALL retain
+blocking for a fix ruling from the current pass, even if the aggregation input has blocking=false;
+retained fix history from an earlier pass SHALL NOT automatically block a newly reviewed pass.
 Only pass 1 post-fix SHALL start pass 2 at Step 2; all prior voice approvals SHALL be invalidated.
 There SHALL be no third pass or start-based reset of pass 2. MERGED resume SHALL route read-only
 to Step 11 even after squash changes checkout HEAD; CLOSED SHALL stop. Neither terminal state
@@ -298,6 +302,11 @@ begin-attempt SHALL invalidate prior outcomes/approval while preserving unavaila
 Each outcome source SHALL bind canonical PR URL, head, bounded pass, debate phase and fresh attempt.
 Success SHALL require a newly produced canonical voice report whose creation marker AND body scope
 carry this identity, plus its complete-byte fingerprint. Old reports SHALL NOT be restamped as success.
+Identity and scope metadata SHALL NOT satisfy substantive report completeness. R1 reports SHALL
+contain nonempty Summary, Findings and Verdict sections in order. R2 reports SHALL contain nonempty
+Cross-review verdict, Per-finding response, New findings, Withdrawals and Final verdict sections in
+order. The terminal verdict SHALL select LGTM or NEEDS_CHANGES. Metadata-only, truncated, or
+code/comment-quoted reports SHALL be rejected without publishing a successful decision.
 Consumers SHALL revalidate source identity/digest, report fingerprints and matching durable publication;
 cached active_voices or partial publication SHALL never certify success. After R1 only verified
 current-pass successes determine mode. With zero external R1 successes the workflow SHALL stop
@@ -320,3 +329,15 @@ their bounded pass stays 1, distinct from conditional R2 debate.
 - **GIVEN** explicit Claude-only approval for pass 1
 - **WHEN** pass 2 also has no external successful voice
 - **THEN** the workflow MUST ask for a new decision rather than reuse pass 1 approval.
+
+#### Scenario: dispute-id-collision -- A new finding cannot inherit old acceptance
+
+- **GIVEN** finding A with id C1 has a human false-positive ruling
+- **WHEN** a later checkpoint submits a different finding B with id C1 and no ruling
+- **THEN** checkpoint MUST reject the conflicting identity without changing the prior state.
+
+#### Scenario: current-fix-still-blocks -- Re-checkpoint preserves the human fix directive
+
+- **GIVEN** a human ruled that a current-pass finding must be fixed
+- **WHEN** checkpoint is repeated with the original aggregation input declaring blocking=false
+- **THEN** effective blocking MUST remain true until a fresh reviewed pass resolves the finding.
