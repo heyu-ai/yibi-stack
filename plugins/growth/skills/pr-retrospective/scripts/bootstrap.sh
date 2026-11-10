@@ -10,6 +10,7 @@ set -euo pipefail
 
 PR_NUMBER=""
 TARGET_REPO="${GH_REPO:-}"
+EXPLICIT_REPO=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --pr|--repo)
@@ -17,12 +18,21 @@ while [ "$#" -gt 0 ]; do
         echo "[FAIL] $1 缺少值" >&2
         exit 2
       fi
-      if [ "$1" = "--pr" ]; then PR_NUMBER="$2"; else TARGET_REPO="$2"; fi
+      if [ "$1" = "--pr" ]; then
+        PR_NUMBER="$2"
+      else
+        TARGET_REPO="$2"
+        EXPLICIT_REPO=true
+      fi
       shift 2
       ;;
     *) echo "[FAIL] 未知參數：$1" >&2; exit 2 ;;
   esac
 done
+if [ "$EXPLICIT_REPO" = true ] && [ -z "$PR_NUMBER" ]; then
+  echo '[FAIL] 顯式 --repo 必須同時提供 --pr <n>；不以 cwd branch 猜跨 repo PR' >&2
+  exit 2
+fi
 if [ -n "$PR_NUMBER" ] && ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
   echo '[FAIL] --pr 必須是正整數' >&2
   exit 2
@@ -61,9 +71,24 @@ unset _gcd _dir _top
 REAL_WORKDIR=$(pwd)
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
+# GH_REPO alone may use gh's native unambiguous branch detection. Never treat
+# repo lookup alone as evidence that a PR exists in that target repository.
+if [ -z "$PR_NUMBER" ] && [ -n "$TARGET_REPO" ]; then
+  SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
+  if ! DETECTED_PR=$(bash "$SCRIPT_DIR/detect-pr.sh"); then
+    echo '[FAIL] GH_REPO 的 branch PR 偵測失敗或有歧義；請明確提供 --pr <n>' >&2
+    exit 1
+  fi
+  PR_NUMBER="${DETECTED_PR#PR_NUMBER=}"
+  if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+    echo '[FAIL] 無效的 branch PR identity；請明確提供 --pr <n>' >&2
+    exit 1
+  fi
+fi
 if [ -n "$PR_NUMBER" ] || [ -n "$TARGET_REPO" ]; then
   CWD_REPO=""
   if ! CWD_REPO=$(GH_REPO= gh repo view --json nameWithOwner -q .nameWithOwner); then
+    CWD_REPO=""
     echo '[WARN] 無法確認 cwd 所屬 repo；寫入前必須確認目標專案' >&2
   fi
   if [ -n "$PR_NUMBER" ]; then
@@ -79,15 +104,6 @@ if [ -n "$PR_NUMBER" ] || [ -n "$TARGET_REPO" ]; then
       exit 1
     fi
     TARGET_REPO="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
-  else
-    if ! TARGET_REPO=$(gh repo view "$TARGET_REPO" --json nameWithOwner -q .nameWithOwner); then
-      echo '[FAIL] 無法確認目標 repo；停止，不使用 cwd 猜測專案' >&2
-      exit 1
-    fi
-    if ! [[ "$TARGET_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
-      echo '[FAIL] 目標 repo 回應格式錯誤' >&2
-      exit 1
-    fi
   fi
   ORIG_PROJECT="${TARGET_REPO##*/}"
   CONFIRM_PROJECT=false

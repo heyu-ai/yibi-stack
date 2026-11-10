@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - pr-cycle-deep pre-merge gate 讀取 isDraft，draft 須明確人類同意轉 ready 並重新讀回，不能僅憑 CLEAN 或 ship 放行（#617）。
 - pr-cycle-deep 從 Step 1.5 原子保存 checkpoint；early resume 不要求尚未產生的 final／red-first，仍拒絕 HEAD 漂移並保留後期證據與 disputed gates（#633）。
 - pr-cycle-deep 依 R1 實際結果記錄聲部與失敗原因；外部聲部全失效時停止，Claude-only 必須取得綁定本輪的明確人類裁決，resume 不得沿用其他輪的批准（#630）。
+- PR #640 審查補強：以完整 PR identity 與本輪成果綁定 checkpoint／聲部裁決，補齊原子後期轉移及終態續接；lesson 寫後按回傳 id 驗證，保留冪等 skip 與舊 CLI 復原診斷，新增並行 snapshot 與大量 receipt 投影整合驗證。
 
 ## [1.24.0] - 2026-11-04
 

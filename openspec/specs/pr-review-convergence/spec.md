@@ -246,7 +246,7 @@ The pre-merge gate SHALL read live PR state and a boolean isDraft before version
 An OPEN draft PR SHALL stop even when mergeable is MERGEABLE and mergeStateStatus is CLEAN.
 Prior ship approval SHALL NOT authorize marking a draft ready. Only explicit human approval
 SHALL permit gh pr ready, followed by another live gate read confirming isDraft=false.
-API failure, missing metadata or a non-boolean isDraft SHALL stop rather than infer readiness.
+API failure, missing metadata, non-boolean isDraft, or non-enumerated mergeable/mergeStateStatus SHALL stop rather than infer readiness. Valid UNKNOWN SHALL retain the documented CI/approval routing, not become a metadata error.
 
 #### Scenario: draft-clean-stops -- CLEAN draft still blocks
 
@@ -262,14 +262,22 @@ API failure, missing metadata or a non-boolean isDraft SHALL stop rather than in
 
 ### Requirement: Early checkpoints retain safe resume boundaries
 
-Before Step 1.5, the workflow SHALL atomically create a JSON state.md binding PR, base,
-head and next=Step 1.5. Each successful early step SHALL advance next; an interrupted step
-SHALL leave next unchanged. Resume SHALL reject a different live PR head, checkout HEAD,
-PR identity, base or malformed checkpoint. It SHALL NOT require final.md or red-first
-evidence before Step 1.7 has completed. From Step 2 onward valid red-first evidence SHALL
-remain mandatory, with unchecked distinct from pass. Missing final.md or unresolved
-disputes at later boundaries SHALL route back to Step 5, never to final.prev.md.
-Read-only review workflows SHALL skip all checkpoint writes.
+Before Step 1.5, the workflow SHALL atomically create schema_version=1 JSON state.md binding
+canonical PR URL/repository, PR number, base, head and next=Step 1.5. Every action SHALL verify
+the live canonical identity. Legacy free-format checkpoints SHALL fail closed with restart guidance.
+Only bounded public transitions SHALL save progress; failed transitions SHALL leave prior bytes
+unchanged. Resume SHALL reject changed live/checkout heads even when they move together.
+Before Step 2 it SHALL NOT require red-first/final reports. From Step 2 it SHALL retain and validate
+the original red-first capture, including unchanged bytes and unchecked distinct from pass.
+Late checkpoint, baseline, human ruling, CI configuration and CI completion SHALL use atomic
+validated interfaces, not handwritten state. Missing/stale current final or unresolved disputes
+SHALL route to Step 5, never final.prev.md. Canonical final identity and fingerprint SHALL bind the
+current pass and voice decisions. A legal fast-forward post-fix transition SHALL preserve baseline,
+disputes and reviewed_head, record the new current head as unreviewed, and route only to Step 7.
+Only pass 1 post-fix SHALL start pass 2 at Step 2; all prior voice approvals SHALL be invalidated.
+There SHALL be no third pass or start-based reset of pass 2. MERGED resume SHALL route read-only
+to Step 11 even after squash changes checkout HEAD; CLOSED SHALL stop. Neither terminal state
+SHALL admit start, advance or voice mutation, push or merge. Read-only reviews SHALL never write state.md.
 
 #### Scenario: resume-before-red-first -- Early interruption has no final yet
 
@@ -285,15 +293,21 @@ Read-only review workflows SHALL skip all checkpoint writes.
 
 ### Requirement: Runtime voice exhaustion requires a human decision
 
-Static auth detection SHALL NOT certify runtime voice availability. After each R1 pass,
-the workflow SHALL count only successfully verified current-pass voices and retain unavailable
-voice reasons. With zero successful external voices it SHALL stop, allowing the human to
-explicitly continue Claude-only, switch workflow, or retry later. Silence SHALL NOT authorize
-continuation. Approval SHALL bind the PR head, review pass and outcomes and SHALL NOT carry
-to a different pass or changed outcomes. Advance and resume after R1 SHALL reject missing or
-unapproved voice decisions. Final, human summary and Jira output SHALL use the actual mode
-and unavailable reasons, never a cached planned count. Read-only review SHALL produce the
-voice report without creating a lifecycle checkpoint.
+Static auth detection SHALL NOT certify runtime availability. Before dispatch or explicit retry,
+begin-attempt SHALL invalidate prior outcomes/approval while preserving unavailable reason history.
+Each outcome source SHALL bind canonical PR URL, head, bounded pass, debate phase and fresh attempt.
+Success SHALL require a newly produced canonical voice report whose creation marker AND body scope
+carry this identity, plus its complete-byte fingerprint. Old reports SHALL NOT be restamped as success.
+Consumers SHALL revalidate source identity/digest, report fingerprints and matching durable publication;
+cached active_voices or partial publication SHALL never certify success. After R1 only verified
+current-pass successes determine mode. With zero external R1 successes the workflow SHALL stop
+for explicit current-outcome Claude-only approval, switching workflow or a later retry; silence SHALL
+NOT authorize continuation. Approval SHALL NOT carry across changed head/pass/attempt/outcomes/reports.
+R2 SHALL select only valid R1 active voices and disclose its own unavailable reasons separately;
+R2 failure SHALL NOT retroactively remove valid R1 participation or claim all R1 voices debated.
+Final, human summary and Jira SHALL preserve actual mode and stage/pass-specific failure history.
+Read-only reviews SHALL use the same attempt/publication/verification contract without lifecycle state;
+their bounded pass stays 1, distinct from conditional R2 debate.
 
 #### Scenario: external-exhaustion-stops -- Quota and 502 failures are not mob review
 

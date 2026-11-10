@@ -73,6 +73,8 @@ bash "${CLAUDE_SKILL_DIR}/scripts/detect-pr.sh"
 ```
 
 顯式指定 `--repo owner/name` 的跨 repo 回顧必須同時提供 `--pr <n>`，不得用 cwd 的 branch 猜 PR。
+`GH_REPO`（未顯式 `--repo`）仍可使用 gh 的原生 branch 偵測；若目標 repo 沒有唯一可辨識
+PR、gh 回報歧義／失敗，就停止並要求 `--pr <n>`，不退回 cwd 的 PR。
 把已取得的 PR 編號帶入 bootstrap；`mycelium`／`jq`／`gh` 前置檢查由 script 擁有。
 tasks-backed 操作仍只用 PATH 中 installed `mycelium`，不從 checkout import tasks：
 
@@ -390,39 +392,14 @@ set -euo pipefail
 PR_NUMBER="<from Step 0>"
 ORIG_PROJECT="<from Step 0>"
 RETRO_ID="<id from Step 4 output>"
+RETRO_ROOT="<resolved skill directory from Step 0>"
 
 add_lesson() {
-  # 位置參數一律用 ${N} braced form，不可寫裸 $N（issue #386）：skill body 的 argument
-  # substitution 會在 agent 讀到之前把裸 $N 換成呼叫端的 argument token——磁碟上的檔案
-  # 完全正確，所以 grep 原始檔看不出問題。
-  local key="${1}" type="${2}" insight="${3}" confidence="${4}" source="${5}" skill_flag_val="${6}" state="${7}"
-  local skill_flag=()
-  local state_flag=()
-  if [ -n "$skill_flag_val" ]; then
-    skill_flag=(--skill "$skill_flag_val")
-  fi
-  # --park 與 --skip-if-exists 互斥（tasks/mycelium/cli.py 直接 raise），故依 state 二擇一：
-  # active 走冪等的 --skip-if-exists；park 的重跑語意由下方「park 出口不可重試」那段負責。
-  if [ "$state" = "park" ]; then
-    state_flag=(--park)
-  else
-    state_flag=(--skip-if-exists)
-  fi
-  mycelium lessons add \
-    --key "$key" \
-    --type "$type" \
-    --insight "$insight" \
-    --confidence "$confidence" \
-    --source "$source" \
-    --project "$ORIG_PROJECT" \
-    ${skill_flag[@]+"${skill_flag[@]}"} \
-    ${state_flag[@]+"${state_flag[@]}"} \
-    --retro-pr "$PR_NUMBER" \
-    --retrospective-id "$RETRO_ID"
-  # 讀回真實 canonical 列，包含 parked；不得只憑 add 的成功訊息判定專案正確。
-  mycelium lessons rows --project "$ORIG_PROJECT" --key "$key" |
-    jq -e --arg project "$ORIG_PROJECT" --arg key "$key" \
-      '.rows | any(.project == $project and .key == $key)' >/dev/null
+  # 複雜寫入／exact-ID readback 由隨附 runtime 擁有；不切換 session cwd。
+  python3 "$RETRO_ROOT/scripts/retro-lessons.py" add \
+    --project "$ORIG_PROJECT" --retro-pr "$PR_NUMBER" --retrospective-id "$RETRO_ID" \
+    --key "${1}" --type "${2}" --insight "${3}" --confidence "${4}" \
+    --source "${5}" --skill "${6}" --state "${7}"
 }
 
 # Step 5 完成後才加入呼叫；--skill 留空字串代表省略（避免把產生者誤記成主題）
@@ -437,16 +414,25 @@ add_lesson \
   '{{active|park；Tier 3 必須 park 且 confidence ≤ 4}}'
 ```
 
-> **`${skill_flag[@]+"${skill_flag[@]}"}` 而非 `"${skill_flag[@]}"`**：`set -u` 底下對空陣列
-> 直接展開 `"${skill_flag[@]}"` 在 macOS 系統 bash 3.2 會炸 `unbound variable`（homebrew
-> bash 5.x 沒事）；`${arr[@]+...}` 是可攜寫法，陣列為空時整段安全消失。
+> **Runtime 契約**：只呼叫 PATH 中 installed `mycelium`，沿用真正 session cwd；
+> `active` 帶 `--skip-if-exists`，`park` 只帶 `--park`。add 非 0 立即原樣傳遞 exit code，
+> 不執行 readback、不自動重試。成功時必須取得 add 回傳的唯一 id（skip 則取 CLI 回傳的
+> 合法既有 id），再以明確 project＋該 id 讀回並核對 id/project/type/key；其他同 key
+> retired／parked／history 列不能證明本次新增成功。成功輸出 `verified_id=<id>`，
+> 保留原始 add stdout/stderr；skip 不要求既有列屬於本次 retro，不拿候選內容覆寫既有值。
+> 回傳 id 缺失、readback JSON／身分不符 → exit 1；rows 的 exit 2／3 原樣傳遞；
+> CLI 不可用／逾時 → exit 1。全部停止本次 canonical 流程並跳過 A2/A3。
+> 寫入可能已落地而 readback 失敗時先查明該 id；**park 不得因失敗重跑**。
+> 必須整份 prepared script 以單一 shell 執行，不能把 `add_lesson` 放入會忽略 `set -e`
+> 的條件測試後繼續下一筆。runtime 的逐筆 write confirmation 不是 A2 的批次 snapshot，
+> A2 仍須另做一次完整 canonical readback。
 >
 > **範本一律單引號**：呼叫端的字面值若用雙引號包，insight 內文出現 `$` 時 bash 會嘗試參數展開，
 > 在 `set -euo pipefail` 下直接中止整個 script（實測回報 `retro_lessons.sh: line 63: ?: unbound
 > variable`，環境 `GNU bash 3.2.57(1)-release (arm64-apple-darwin25)`，即 macOS 內建 `/bin/bash`）。
 > 引用 regex、YAML 片段、shell 字串的 insight 在 harness / CI 主題的 retro 裡是常態，不是邊緣案例。
 > 單引號完全不展開，是這裡的正解。**唯一例外**是內文本身含單引號——此時不要硬拗跳脫，改把內文寫進
-> 一個檔案再 `--insight "$(cat <path>)"`，或改寫措辭避開。函式**內部**的 `"$insight"` / `"$key"`
+> 一個檔案再 `--insight "$(cat <path>)"`，或改寫措辭避開。函式內部的 `"${3}"` 等
 > 維持雙引號不變，那些是真的變數展開。
 >
 > **`active` 路徑帶 `--skip-if-exists`，所以整個 script 可安全重跑**：`lessons add` 本身是無條件

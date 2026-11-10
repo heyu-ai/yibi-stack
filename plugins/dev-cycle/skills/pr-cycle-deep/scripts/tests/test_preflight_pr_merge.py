@@ -72,6 +72,12 @@ def test_draft_clean_pr_blocks_until_live_readback_is_ready(tmp_path: Path) -> N
         ({"state": "CLOSED"}, 2),
         ({"mergeable": "CONFLICTING"}, 4),
         ({"mergeStateStatus": "BEHIND"}, 4),
+        ({"mergeStateStatus": "DIRTY"}, 4),
+        ({"mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN"}, 0),
+        ({"mergeable": "unexpected"}, 1),
+        ({"mergeable": None}, 1),
+        ({"mergeStateStatus": "unexpected"}, 1),
+        ({"mergeStateStatus": None}, 1),
         ({"isDraft": "false"}, 1),
         ({"isDraft": None}, 1),
         ({"number": 8}, 1),
@@ -91,3 +97,12 @@ def test_api_failure_does_not_use_even_valid_output(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert result.stdout == ""
     assert "[FAIL]" in result.stderr
+
+
+@pytest.mark.parametrize("missing", ["state", "isDraft", "mergeable", "mergeStateStatus"])
+def test_missing_live_field_fails_closed(tmp_path: Path, missing: str) -> None:
+    metadata = _metadata()
+    del metadata[missing]
+    result = _run(tmp_path, metadata)
+    assert result.returncode == 1
+    assert result.stdout == ""

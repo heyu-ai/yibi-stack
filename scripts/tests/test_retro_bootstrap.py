@@ -208,3 +208,141 @@ def test_bootstrap_pr_lookup_failure_never_publishes_project(
     assert result.returncode == 1
     assert result.stdout == ""
     assert "[FAIL]" in result.stderr
+
+
+def test_explicit_repo_without_pr_rejects_instead_of_guessing_branch(
+    tmp_path: Path, caller_worktree: Path
+) -> None:
+    result = subprocess.run(
+        ["/bin/bash", str(SKILL / "scripts/bootstrap.sh"), "--repo", "heyu-ai/target"],
+        cwd=caller_worktree,
+        env=_environment(tmp_path),
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "--repo" in result.stderr and "--pr <n>" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("explicit_repo", [False, True])
+def test_cwd_lookup_failure_with_valid_pr_still_requires_confirmation(
+    tmp_path: Path, caller_worktree: Path, explicit_repo: bool
+) -> None:
+    env = _environment(tmp_path)
+    target = "heyu-ai/target"
+    env["GH_REPO"] = "heyu-ai/wrong" if explicit_repo else target
+    (tmp_path / "bin/gh").write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args[:2] == ['repo', 'view']:\n"
+        # Even a failed command's nonempty stdout must never count as identity.
+        f"    print({target!r})\n"
+        "    sys.exit(7)\n"
+        "repo = args[args.index('--repo') + 1] if '--repo' in args else os.environ['GH_REPO']\n"
+        "print(f'https://github.com/{repo}/pull/{args[2]}')\n",
+        encoding="utf-8",
+    )
+    args = ["/bin/bash", str(SKILL / "scripts/bootstrap.sh"), "--pr", "116"]
+    if explicit_repo:
+        args.extend(["--repo", target])
+    result = subprocess.run(
+        args,
+        cwd=caller_worktree,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert values["PR_REPO"] == target
+    assert values["ORIG_PROJECT"] == "target"
+    assert values["PROJECT_CONFIRMATION_REQUIRED"] == "true"
+    assert values["REAL_WORKDIR"] == str(caller_worktree.resolve())
+    assert values["BRANCH"] == "feature"
+    assert "cwd repo=unknown" in result.stderr
+
+
+@pytest.mark.parametrize("ambiguous", [False, True])
+def test_gh_repo_without_pr_uses_actual_native_detector(
+    tmp_path: Path, caller_worktree: Path, ambiguous: bool
+) -> None:
+    env = _environment(tmp_path)
+    env["GH_REPO"] = "heyu-ai/target"
+    (tmp_path / "bin/gh").write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args[:2] == ['repo', 'view']:\n"
+        "    print('heyu-ai/local-project')\n"
+        "elif args == ['pr', 'view', '--json', 'number', '-q', '.number']:\n"
+        "    assert os.environ['GH_REPO'] == 'heyu-ai/target'\n"
+        f"    if {ambiguous!r}:\n"
+        "        print('multiple pull requests found for branch feature', file=sys.stderr)\n"
+        "        sys.exit(1)\n"
+        "    print('116')\n"
+        "elif args[:3] == ['pr', 'view', '116']:\n"
+        "    assert args[args.index('--repo') + 1] == 'heyu-ai/target'\n"
+        "    print('https://github.com/heyu-ai/target/pull/116')\n"
+        "else:\n"
+        "    sys.exit(99)\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["/bin/bash", str(SKILL / "scripts/bootstrap.sh")],
+        cwd=caller_worktree,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    if ambiguous:
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert "--pr <n>" in result.stderr and "GH_REPO" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+        assert values["PR_REPO"] == "heyu-ai/target"
+        assert values["ORIG_PROJECT"] == "target"
+        assert values["PROJECT_CONFIRMATION_REQUIRED"] == "true"
+
+
+def test_published_context_command_uses_verified_repo_not_gh_repo(
+    tmp_path: Path, caller_worktree: Path
+) -> None:
+    import re
+
+    env = _environment(tmp_path)
+    env["GH_REPO"] = "heyu-ai/wrong"
+    (tmp_path / "bin/gh").write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "args = sys.argv[1:]\n"
+        "repo = args[args.index('--repo') + 1] if '--repo' in args else os.environ['GH_REPO']\n"
+        "print(json.dumps({'url': f'https://github.com/{repo}/pull/{args[2]}', 'title': repo}))\n",
+        encoding="utf-8",
+    )
+    blocks = re.findall(r"```bash\n(.*?)```", (SKILL / "SKILL.md").read_text(), re.S)
+    command = next(block for block in blocks if "--json url,title,body,state" in block)
+    command = command.replace('"$PR_NUMBER"', "'116'").replace('"$PR_REPO"', "'heyu-ai/target'")
+    result = subprocess.run(
+        ["/bin/bash", "-c", command],
+        cwd=caller_worktree,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "url": "https://github.com/heyu-ai/target/pull/116",
+        "title": "heyu-ai/target",
+    }

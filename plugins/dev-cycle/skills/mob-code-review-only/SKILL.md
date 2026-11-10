@@ -136,9 +136,25 @@ severity table**.
 `Red-first not run: review-only workflow (unchecked, not a pass)`；不得偽造 canonical
 `red-first.md`、從 amplifier 輸出複製或替舊報告改標 PR。此例外不適用於 deep／fast lifecycle gate。
 
-**Voice gate 繼承例外：** Step 3.3 的 voices 命令加 `--read-only`；只發布 voice-status.json，
-不建立或更新 state.md。外部聲部全失效仍須人類明確裁決；只有明確同意才加 --allow-claude-only。
-Step 5 不執行 lifecycle resume gate，報告必須沿用 voice-status.json 的實際摘要與失敗原因。
+**Voice gate 繼承例外：** 不建立／更新 state.md，也不呼叫 lifecycle start／advance／resume。
+在 R1 dispatch **之前**執行 `review_checkpoint.py begin-attempt --pr {{pr_number}} --phase r1 --read-only`，
+使用其 identity 交給 reviewer／renderer；遵守 deep 的 report creation marker、正文 Review scope、
+canonical compact 路徑與 sha256 outcomes envelope。voices／verify-voices 都加 `--read-only`：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py voices --pr {{pr_number}} --phase r1 --read-only --input "$REVIEW_DIR/voice-outcomes-r1.json"
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py verify-voices --pr {{pr_number}} --read-only
+```
+
+helper 只保存 voice-attempt.json／voice-status.json，不建立可進入 fix／merge 的 lifecycle state。
+read-only 的 re-review pass 固定 1（不要把 debate R2 誤傳 --round 2）；R1 外部全失效 exit 3 必停，
+只有人類明確批准才對相同 source 加 --allow-claude-only。retry 必須先重新 begin-attempt，授權不沿用。
+R2 若啟動，在派出前執行同 helper 的 `begin-attempt --phase r2 --read-only`，只選已驗證 R1
+active_voices，完成後 voices 加 `--phase r2 --read-only` 與本次 r2 outcomes；不是重跑 R1 或 lifecycle pass。
+Step 5 彙整／發布之前一律 verify-voices --read-only，重新驗 source/report/publication fingerprints；
+只沿用其實際 mode、R1 voice_failures、R2 debate_failures 與失敗歷史。R2 失效不刪除有效 R1。
+略過 deep 的 checkpoint-final marker（它需要 lifecycle resume identity）及所有 late checkpoint，
+但不略過上述 read-only verification；不得為了生成 marker 建立 state.md。
 
 | Engine step (owned by `/pr-cycle-deep`) | What runs |
 | --- | --- |
@@ -186,9 +202,9 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh origin/{{base_br
 
 then per available voice: `codex-r1-stage1.sh` / `codex-r1-stage2.sh` (Codex), `agy-r1-stage1.sh` /
 `agy-r1-stage2.sh` (agy), the 4 `pr-review-toolkit` subagents (Claude), and for R2
-`codex-r2.sh` / `agy-r2.sh`. Read each voice's JSON → render compact `<voice>-r{1,2}.md`. Honour the
-JSON-invalid fallbacks and the 2-consecutive-failures "mark voice unavailable, do not block" rule
-exactly as `/pr-cycle-deep` specifies.
+`codex-r2.sh` / `agy-r2.sh`. Read each voice's JSON → render compact `<voice>-r{1,2}.md` with
+the current attempt creation identity and Review scope. Preserve exact execution failures by phase;
+R1 exhaustion stops for explicit approval, whereas R2 failures do not erase valid R1 participation.
 
 > **Single-voice [Critical] → empirically verify BEFORE writing it into the report.** This matters
 > *more* here than in `/pr-cycle-deep`: a wrong Critical posted to someone else's PR is a public

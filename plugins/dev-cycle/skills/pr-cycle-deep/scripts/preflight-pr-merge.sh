@@ -18,8 +18,8 @@ if ! jq -e --argjson number "$PR_NUMBER" '
     type == "object" and .number == $number
     and (.state == "OPEN" or .state == "CLOSED" or .state == "MERGED")
     and (.isDraft | type == "boolean")
-    and (.mergeable | type == "string" and length > 0)
-    and (.mergeStateStatus | type == "string" and length > 0)
+    and (.mergeable == "MERGEABLE" or .mergeable == "CONFLICTING" or .mergeable == "UNKNOWN")
+    and (.mergeStateStatus | IN("BEHIND", "BLOCKED", "CLEAN", "DIRTY", "DRAFT", "HAS_HOOKS", "UNKNOWN", "UNSTABLE"))
 ' <<< "$PR_JSON" >/dev/null; then
     fail 'PR metadata 不完整或格式錯誤'
 fi

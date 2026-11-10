@@ -70,12 +70,18 @@ Audit 留下 source IDs 與人類 recurrence 決定；回答確實使用記憶�
 新 projection 必須在使用者確認 retro、**所有本次必要 Step 5 canonical mutations 成功**之後。
 取消、Step 4 失敗或 Step 5 未成功收尾，不發布新 lesson／initiative。Step 4b 只準備，不發布。
 `--skip-if-exists` 成功也須讀回真正儲存的 row，不能拿準備中的參數當 canonical。
+Step 4b 使用 `scripts/retro-lessons.py add`，先綁定 installed CLI 實際回傳的 id
+（包括 `--skip-if-exists` 的既有 id），再以 project＋id 核對 canonical row；
+同 key 的舊 parked／retired／history 列不能充作新寫入證據。add 失敗立即停止，不能再以
+成功讀回舊列掩蓋；任何 canonical failure 都跳過 A2/A3，park 不自動重試。
 
 1. 從過去 audit 讀取**每個**先前 accepted projection identity，不限本次搜尋／新候選；即使無新候選也做。
    依 accepted_at 的實際時間選該 document 最新 receipt，保留 lesson_id。Receipt 是傳送帳本，不是知識權威。
    同 identity 的 pending/unknown 必須先解決，否則不寫。
-2. 用 installed CLI **一次**讀回本次所有相關 canonical 列，不得逐列邊查邊寫：
-   `mycelium lessons rows --project <project> --key <k1> --key <k2> ... --id <receipt-lesson-id> ...`。
+2. 經同一 loaded skill 的 runtime 呼叫 installed CLI **一次**讀回所有相關 canonical 列，
+   不得逐列邊查邊寫：
+   `python3 "$RETRO_ROOT/scripts/retro-lessons.py" rows --project <project> --key <k1> --key <k2> ... --id <receipt-lesson-id> ...`。
+   runtime 不切換 cwd，原樣轉交單次 `mycelium lessons rows` 的 stdout／exit code 並保留 stderr。
    `--key` 涵蓋本次所有候選 key 與第 1 步每份先前 accepted receipt 的 source_id；`--id` 涵蓋那些
    receipt 的 lesson_id，不設人為識別碼數量上限。**不得拆成多次 CLI 呼叫**：拆分會變成多個 SQLite 快照，
    其他 session 在兩次呼叫之間的寫入（例如把 k1 retire 並由 k2 接替）會讓合併後的 ownership／lifecycle
@@ -86,11 +92,14 @@ Audit 留下 source IDs 與人類 recurrence 決定；回答確實使用記憶�
    也不要用 `lessons show` 取代——它會依 key 去重並截斷，藏住同 key 的多列。
    依 exit code 處理，任何非 0 都不發布、記 `hindsight_sync=degraded`：
    - **0**：繼續第 3 步（rows 可為空，空不等於失敗）。
-   - **2**：一律 degraded，再依 stderr 分辨原因。stderr 含 `No such command` → installed CLI 缺 `rows`
-     子指令（版本早於加入它的 release），提示以新 release tag 重裝：
-     `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@<tag>"`。
-     其他情況 → 回報為本次呼叫的參數錯誤（例如 key 格式不合、project 為空），附上 stderr，
-     不要提示重裝。
+   - **1**：runtime 無法執行 CLI 或逾時 → degraded；保留診斷，不重試 canonical mutation。
+   - **2**：一律 degraded，再依 stderr 分辨原因。`No such command` 表示 installed CLI 缺 `rows`；
+     **`--key 與 --id 合計最多 200 個` 也表示 installed CLI 是仍保留舊上限的 stale release**，
+     不是使用者參數錯誤，不要求刪減 identifiers、不拆批、不自動安裝／release。
+     兩者皆提示選擇**已發布且包含 #634 無上限修正**的新 release tag 後手動更新 installed CLI：
+     `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@<fixed-release-tag>"`。
+     不以尚未發布的 tag 冒稱已可安裝；更新前本次維持 degraded。
+     其餘 exit 2 才是本次參數錯誤（例如 key 格式不合、project 為空），附 stderr，不提示重裝。
    - **3**：DB 不可用（不存在、無法開啟、缺 lessons table、查詢錯誤）→ degraded；不初始化 DB、不改用其他讀法。
 3. 以 stdout 的 JSON（`rows`、`missing_keys`、`missing_ids`）判定 ownership 與 lifecycle：
    receipt 的 lesson_id 出現在 `missing_ids`（owner 不存在）→ 該 document degraded，不推定刪除或新 owner；

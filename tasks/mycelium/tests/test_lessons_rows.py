@@ -499,6 +499,55 @@ class TestExitStatusDistinguishesFailureFromAnEmptyResult:
         assert data["missing_ids"] == ["none"]
 
 
+class TestConcurrentCanonicalReadback:
+    def test_lrows_st_003_concurrent_lifecycle_update_cannot_tear_snapshot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LROWS-ST-003: 讀回第一列後另一條 WAL 連線同時 retire 全部 owner，結果不可前後撕裂。"""
+        db_path = tmp_path / "concurrent.db"
+        owners = [_make_lesson(key=f"receipt-{i:03}") for i in range(102)]
+        _seed(db_path, *owners)
+        connect = sqlite3.connect
+        writer = connect(db_path)
+        updated = False
+
+        def interleave(cursor: sqlite3.Cursor, row: tuple[Any, ...]) -> sqlite3.Row:
+            nonlocal updated
+            decoded = sqlite3.Row(cursor, row)
+            if not updated:
+                updated = True
+                writer.execute(
+                    "UPDATE lessons SET retired_at = ? WHERE project = ?",
+                    (_TS.isoformat(), _PROJECT),
+                )
+                writer.commit()
+            return decoded
+
+        class InterleavingConnection(sqlite3.Connection):
+            def execute(self, sql: str, parameters: Any = ()) -> sqlite3.Cursor:
+                cursor = super().execute(sql, parameters)
+                if sql.startswith("SELECT * FROM lessons WHERE"):
+                    cursor.row_factory = interleave
+                return cursor
+
+        def open_reader(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+            return connect(*args, **kwargs, factory=InterleavingConnection)
+
+        # 僅在 SQLite 外部邊界插入真實並行寫入；不替換 query／service／CLI。
+        monkeypatch.setattr(sqlite3, "connect", open_reader)
+        args = [arg for row in owners for arg in ("--key", row.key, "--id", row.id)]
+        try:
+            data = _ok_json(_run(monkeypatch, db_path, "--project", _PROJECT, *args))
+            assert updated, "並行寫入必須確實發生"
+            assert {row["id"] for row in data["rows"]} == {row.id for row in owners}
+            assert all(row["retired_at"] is None for row in data["rows"])
+            assert writer.execute(
+                "SELECT count(*) FROM lessons WHERE retired_at IS NOT NULL"
+            ).fetchone()[0] == len(owners)
+        finally:
+            writer.close()
+
+
 class TestEffectiveConfidenceParity:
     def test_lrows_st_001_matches_show_lessons_typed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
