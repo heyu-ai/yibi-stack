@@ -48,7 +48,7 @@ a few minutes and the lead responds on the spot — faster than two senior engin
 table), then jump to its `next:` step. `state.md` missing, naming another PR, or its `head:` ≠ the
 live `gh pr view --json headRefOid` (unreviewed commits) → `[FAIL]`; rerun without `--resume`.
 refresh 後若 `final.md` 缺檔，表示本輪尚未彙整；依 checkpoint 完成本輪 Step 2／5，
-不得以 `final.prev.md` 代替。`next:` 若已指向 Step 5a／5b／6，先回 Step 5 重建 final。
+不得以 `final.prev.md` 代替。`next:` 若已指向 Step 5a／5b／5c／6，先回 Step 5 重建 final。
 跳轉前先 Read `.pr-review/red-first.md`，依 Step 1.7 證據契約檢查。
 缺漏、不可讀、格式／PR 不符、不完整或 blocking 結果 → `[FAIL]` 停止；
 不得從 `pre-review-check.md`、scratch 輸出或對話記憶推定通過。
@@ -447,7 +447,16 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/setup-review-dir.sh {{base_branch}}
 
 任何失敗都停止。此步產生 `$REVIEW_DIR/diff.patch`、`changed-files.txt` 與
 `review-scope.json`（fresh base、HEAD、canonical changed paths），本機 main 落後時會印 WARN。
-不要用本機 main 或 reviewer 自行解析的 base 取代它。明確傳 PR 號，維持 report-only：
+不要用本機 main 或 reviewer 自行解析的 base 取代它。本輪首次啟動（非 Step 7.1 重審 refresh）時，
+一併清除可能殘留的舊延後建票候選檔，避免跨次執行污染（Round 2 重審時不可先刪，須留給 Step 5c 承接 Round 1 候選項）：
+
+```bash
+WT_ROOT=$(git rev-parse --show-toplevel)
+REVIEW_DIR="$WT_ROOT/.pr-review"
+rm -f "$REVIEW_DIR/deferred-issue.md"
+```
+
+明確傳 PR 號，維持 report-only：
 
 ```text
 /code-review {{pr_number}}
@@ -1004,11 +1013,14 @@ any fixing, and is **tiered by cost** so most rejections execute nothing:
 | Structure check | any finding | `Evidence:` missing or not the required form → **demote immediately, executing nothing** |
 | Hallucination tell | any with well-formed evidence | evidence describes what *should* appear rather than what *does* → **screen and demote** if confirmed (see note below); Critical still reaches Verify as backstop |
 | Verify | Critical with well-formed evidence | lead **must** reproduce it (run the minimal repro / confirm the failure scenario) |
-| Spot-check | Important with well-formed evidence | lead **may** verify selectively; unverified Important stays blocking in Round 1 only |
+| Spot-check | Important with well-formed evidence | Round 1: lead **may** verify selectively (unverified Important stays blocking in Round 1 only); Round 2: lead **must** verify every Important carrying well-formed `Evidence:` before classifying |
 
 A demoted finding is **moved, never dropped**: it goes to `## Deferred for lack of evidence` with
 its original title, description, and demotion reason **preserved verbatim** — the lead must not
-silently discard it.
+silently discard it. Items in `## Deferred for lack of evidence` (missing/malformed evidence,
+precision-only, `evidence did not reproduce`, broken-evidence `Invalid` items not human-confirmed,
+single-voice zero-hit grep, or unreachable under the current architecture) stay in the Step 5b PR
+comment only — **禁止建立 GitHub issue**.
 
 Verifying well-formed evidence has three outcomes — do not collapse "invalid" into "absent":
 
@@ -1028,6 +1040,20 @@ Disposition by severity × evidence × round (every cell defined — no gaps, no
 | Important | none | deferred | deferred |
 | Actionable NIT | valid | non-blocking | non-blocking |
 | Actionable NIT | none | non-blocking | non-blocking |
+
+**延期區段分流規則（對應下方 `final.md` 區段與 Step 5c）：**
+
+- **`Invalid`（證據本身損壞／無法執行）**：修補一次仍無法執行的 Critical 降級項必須留在
+  `## Deferred for lack of evidence`（明確標記為證據損壞 `broken evidence`，不得記為 `not reproduced`），
+  並 MUST 列入 Step 8 `human-summary.md` 交由人類明確裁決；未獲人類確認前僅留於 PR comment，
+  絕不自動放入 `## Verified Deferred Important` 或寫入 `$REVIEW_DIR/deferred-issue.md`。
+- **Round 2 良構證據 `Important` 必驗**：Round 2 中每筆帶良構 `Evidence:` 的 `Important` finding，
+  lead MUST 先實測驗證再分類——驗證可重現且在現行架構可觸發者放入 `## Verified Deferred Important`；
+  未重現（`evidence did not reproduce`）或現行架構不可達者放入 `## Deferred for lack of evidence`。
+- **範圍外既有缺陷（`## Outside contract`／`Outside Round 2 contract`）**：超出本 PR `Non-goals`
+  的既有產品缺陷仍列於 `## Outside contract`（或 Round 2 的 `Outside Round 2 contract`）保留來源，
+  僅在 lead 實測確認於 `main` 真實可重現時，才可進入 Step 5c 第 3／4 路承接；未經驗證重現的 `Non-goals`
+  延伸建議一律只留 PR comment，不得建票。
 
 > **Evidence hallucination tell** — a reviewer can fabricate both defect and evidence in valid
 > form. The tell: evidence reads like a **template** ("one should see X") rather than **concrete
@@ -1074,6 +1100,10 @@ group-review ({{N}}/3 voices active)
 1. <finding> — demoted: <reason>... (For single-voice Critical demotions, include `Grep verification: <command> → <N> hits` in the demotion reason.)
    - Code-review source: CR-<n>
 
+## Verified Deferred Important (verified reproducible; routed after merge)
+1. <finding> — verified: <concrete reproduction or Round 2 non-blocking reason>...
+   - Code-review source: CR-<n>
+
 ## Outside contract (not blocking; mapping reason stated per item)
 1. <finding> — <Non-goal / accepted boundary / Follow-up / invalid mapping>...
    - Code-review source: CR-<n>
@@ -1099,15 +1129,17 @@ Report the final.md summary to the user and wait for Disputed item decisions bef
 **Checkpoint (context lifetime).** With the Write tool, write `$REVIEW_DIR/state.md`: PR number,
 base branch, baseline SHA, `head:` (PR `headRefOid`), re-review round, `ci_command:` (Step 6),
 `disputed:` (each Disputed item + the user's ruling), and `next: Step 5` while any Disputed item
-lacks a ruling, else `next: Step 5a`; rewrite `head:` / `next:` at every later step boundary. Later steps need nothing beyond `$REVIEW_DIR` (`prompt-r1.md` = frozen contract,
-`final.md` = blocking set), so this human pause is the cheapest place to shed context: tell the
-user they may `/compact`, or open a fresh session and run `/pr-cycle-deep #<PR> --resume`.
+lacks a ruling, else `next: Step 5a`; rewrite `head:` / `next:` at every later step boundary
+(`Step 5a → Step 5b → Step 5c → Step 6` or `Step 8`). Later steps need nothing beyond `$REVIEW_DIR`
+(`prompt-r1.md` = frozen contract, `final.md` = blocking set), so this human pause is the cheapest
+place to shed context: tell the user they may `/compact`, or open a fresh session and run
+`/pr-cycle-deep #<PR> --resume`.
 
 ---
 
 ### Step 5a — 收下筆數與 final 列出筆數 gate（blocking）
 
-每次進入 Step 5b **或 Step 6** 前（含 `--resume` 直接跳入與 Step 7 重彙整），MUST 從 PR worktree 執行：
+每次進入 Step 5b、Step 5c **或 Step 6** 前（含 `--resume` 直接跳入與 Step 7 重彙整），MUST 從 PR worktree 執行：
 
 MUST 先確認本輪 `final.md` 寫入成功，再執行 gate；不得把報告寫入與 gate 平行送出。
 refresh 後若尚未建立新 final，gate 會以缺檔回 exit `2`，即使兩輪 findings 筆數相同也不放行。
@@ -1123,9 +1155,9 @@ uv run --no-config --locked --script ~/.agents/skills/pr-cycle-deep/scripts/chec
 與 scope audit 不計入來源，但 audit 內的 fence 仍須完整；引用的 marker 不當成 audit 邊界。
 Gate 與 scope writer 共用 `review_markdown.py` 的結構解析與 audit span；scope 的 finding 准入規則不變。
 零筆也必須有合法 filtered JSON 與非空 final，得到 `accepted=0 listed=0` 才通過。
-Exit `0` → 才可進 Step 5b／6；`1` → 筆數／來源不符；`2` → 缺檔、JSON／來源格式錯誤、
-空 final、未閉合 fence／HTML 註解、重複或不完整 audit markers。
-任何非零 MUST 停止，不貼 PR、不進 Step 6；filtered JSON 缺漏／非法 → 回 Step 2 重做 review/filter，
+Exit `0` → 才可進 Step 5b → Step 5c（再依 blocking set 進 Step 6 或 Step 8）；`1` → 筆數／來源不符；
+`2` → 缺檔、JSON／來源格式錯誤、空 final、未閉合 fence／HTML 註解、重複或不完整 audit markers。
+任何非零 MUST 停止，不貼 PR、不進 Step 5c／6；filtered JSON 缺漏／非法 → 回 Step 2 重做 review/filter，
 final 缺檔／為空／格式或來源不符 → 回 Step 5 重新彙整並補齊去向；checkpoint 指向該修復步驟，修好再跑 Step 5a。
 沒有 `[FAIL] review-count` 診斷的非零（例如 traceback／`can't open file`）屬執行錯誤，
 先查 stderr 與安裝版本；不得修改 review 資料湊數，也不得從 worktree 執行 `make install`。
@@ -1144,36 +1176,53 @@ REVIEW_DIR="$WT_ROOT/.pr-review"
 gh pr comment "{{pr_number}}" --body-file "$REVIEW_DIR/final.md"
 ```
 
-- **exit 0** → report the comment URL.
-- **non-zero** (auth / network / PR not found) → `[WARN] 無法貼 review summary 到 PR`; show the user the manual command, then **continue to Step 6** (posting must not block fixes).
+- **exit 0** → report the comment URL; if Round 2 has a non-empty `blocking set`, jump to Step 7 circuit breaker, else **continue to Step 5c**.
+- **non-zero** (auth / network / PR not found) → `[WARN] 無法貼 review summary 到 PR`; show the user the manual command;
+  if Round 2 has a non-empty `blocking set`, jump to Step 7 circuit breaker, else **continue to Step 5c**.
 
 First-time use may prompt for permission → add `Bash(gh pr comment:*)` to `settings.local.json`
-(rule 16 safe form). MVP posts one comment here; re-post after Step 7 only if consensus materially changed.
+(rule 16 safe form). Post once in Round 1; after Step 7, MUST re-post `final.md` whenever consensus
+changed **or** Round 2 recorded any new non-blocking findings (so PR-comment-only items in Step 5c Route 1
+are actually recorded on the PR).
 
 Do **not** touch the `review-in-progress` label here: the fixes have not been made yet (see Step 1).
 
 ---
 
-### Step 5c — 降級 Important 批次 issue
+### Step 5c — 延後項目四路過濾（合併前禁止建票）
 
-降級的 Important（`final.md` 的 `## Deferred for lack of evidence` 段落中 severity 為 Important 者）
-需要有人承接，去處是**每個 PR 至多一張** GitHub issue，標 `deferred-from-review`，一次列出該 PR
-全部降級 Important。降級的 Actionable NIT **不開票**——它留在 Step 5b 已貼的 PR comment 裡。沒有降級
-Important 時**不建立** issue。
+PR 尚未完成合併前（含 Round 1／Round 2 結束與 circuit breaker 階段），**禁止執行 `gh issue create`**。
+所有非阻擋項目依下列四路順序分流，防止未實證雜訊或階段待辦污染外部 issue tracker：
 
-時機：Round 2 結束後建立一次。circuit breaker（人類裁決）路徑下**同樣建立**——降級 Important 與未解
-blocking 是兩回事，前者不因後者而消失。
+1. **未實證與不可達項目只留 PR 留言**：`final.md` 的 `## Deferred for lack of evidence`（缺證據、格式不符、
+   精確度挑剔、`evidence did not reproduce`、未經人類確認的 `Invalid` 壞證據項、單一 voice `grep` 0 命中、
+   現行架構不可達）、未經驗證於 `main` 可重現的 `Non-goals` 建議，以及 `## Actionable NIT` 一律只保留在
+   Step 5b 已貼出的 PR comment，**禁止建立 GitHub issue**。
+2. **Round 2 單檔小修當場結清**：`## Verified Deferred Important` 中已確認在現行架構可觸發的 Round 2 缺陷，
+   當本輪準備進 Step 8 時，若修改範圍在**單一檔案**、**15 行以內**且**不改變公開介面或 Review Contract**，
+   lead SHOULD 在進 Step 8 前直接修完、**通過本地與遠端 CI**（先跑過 `state.md` 的 `ci_command:`，再以
+   Step 6 的 `preflight-pr-push.sh` 守衛推送，推送成功後立即更新 `state.md` 的 `head:`），不啟動 Round 3 重審，
+   也不建立 issue。
+3. **進行中 Spectra change 優先承接**：若已確認的延後項目（含經 lead 驗證於 `main` 可重現的 `Outside contract`
+   既有缺陷）隸屬當前未封存（active）、且**不在本 PR Step 11a 立即封存**（合併後仍維持 active）的 Spectra change
+   （如後續開旗標前置條件、跨 PR 收尾項），MUST 直接**寫入該 change 的 `tasks.md`**，通過本地 `ci_command:` 後以
+   Step 6 的 `preflight-pr-push.sh` 守衛隨本分支推送，並立即更新 `state.md` 的 `head:`（若在 Round 1 進入
+   Step 6 前推送，同步更新 Round 1 `baseline` SHA），交由後續該 change 的 `spectra archive` 閘門把關，
+   禁止另建 issue。若該 change 將在本 PR 的 Step 11a 封存，不得寫入未勾選待辦（應於本 PR 修完，否則改走第 4 路）。
+4. **獨立跨範圍問題留待合併後具名建票**：僅通過上述三道過濾後仍需獨立追蹤的 `## Verified Deferred Important`
+   （或經 lead 驗證於 `main` 可重現的獨立 `Outside contract` 既有缺陷），
+   整理至 `$REVIEW_DIR/deferred-issue.md` 候選檔，留待 Step 10 **確認 PR 已 `MERGED` 後**（Step 10b）建立。
+   Round 2 執行時 MUST 先讀取並保留 Round 1 候選檔中未修掉／未被取代的第 4 路項目，與本輪新增項目合併，
+   不得盲目覆寫或遺留過期內容。若本步結束後剩餘 0 筆第 4 路項目，MUST 刪除候選檔防止跨輪殘留誤觸建票：
 
-執行前先確認 label 存在。若 `gh label list --repo {{owner/repo}}` 找不到 `deferred-from-review`：
-`[FAIL] deferred-from-review label 不存在 — 請先執行 gh label create deferred-from-review，再繼續。`
+   ```bash
+   WT_ROOT=$(git rev-parse --show-toplevel)
+   REVIEW_DIR="$WT_ROOT/.pr-review"
+   rm -f "$REVIEW_DIR/deferred-issue.md"
+   ```
 
-label 就位且有降級 Important 時，把它們彙整成單一 issue body（逐項保留原標題／描述／降級理由），建立一張：
-
-```bash
-gh issue create --repo {{owner/repo}} --label deferred-from-review --title "Deferred from review: PR #{{pr_number}}" --body-file "$REVIEW_DIR/deferred-issue.md"
-```
-
-`gh issue create` 非零退出（auth／label 不存在／網路）→ `[WARN]` 回報，不阻斷流程。
+完成分流後更新 `state.md` 的 `next:`（有守衛推送時確認 `head:` 已同步）：Round 1 `blocking set` 非空 → 進 Step 6；
+`blocking set` 為空（或經 circuit breaker `False positive`）→ 進 Step 8。
 
 ---
 
@@ -1226,9 +1275,11 @@ commit SHAs, each finding FIXED / NOT FIXED + one-line reason, CI exit code, and
 ```
 
 If the subagent reports BLOCKED, route the observed state before the receipt checks:
-`MERGED` → stop the cycle, run Step 1's `review-label.sh remove`, and go to Step 11 without another
-push; `CLOSED` → run Step 1's `review-label.sh remove`, stop and wait for the user; query/metadata failure or branch/head mismatch → stop and resolve the reported
-problem before authorizing any new push. Local commits remain available for recovery.
+`MERGED` → stop the cycle, run Step 1's `review-label.sh remove`, query `{{merge_commit_sha}}` via
+Step 10's `mergeCommit` check, and run Step 10b → Step 11 without another push; `CLOSED` → run
+Step 1's `review-label.sh remove`, stop and wait for the user; query/metadata failure or branch/head
+mismatch → stop and resolve the reported problem before authorizing any new push. Local commits remain
+available for recovery.
 
 Task call errors or returns empty → `[FAIL]` stop. For PUSHED, **verify, do not trust the summary** —
 any mismatch is `[FAIL]` stop: `git status --porcelain` empty; `git log --oneline <baseline>..HEAD`
@@ -1250,7 +1301,7 @@ Route by the result. The decision table is authoritative — do not proceed on a
 
 | `state` | `mergeStateStatus` / `mergeable` | Meaning | Action |
 | --- | --- | --- | --- |
-| `MERGED` | any | Someone merged the PR out-of-band | **STOP the cycle** — skip re-review; run Step 1's `review-label.sh remove` and tell the user; go straight to Step 11 (archive / Jira). Do not push more. |
+| `MERGED` | any | Someone merged the PR out-of-band | **STOP the cycle** — skip re-review; run Step 1's `review-label.sh remove` and tell the user; query `{{merge_commit_sha}}` via Step 10 and run Step 10b → Step 11 (archive / Jira). Do not push more. |
 | `CLOSED` | any | PR closed without merging | **STOP** — run Step 1's `review-label.sh remove`, surface to the user and wait; do not continue. |
 | `OPEN` | `DIRTY` / `mergeable=CONFLICTING` | Fixes (or a base advance) created merge conflicts | Resolve conflicts against `{{base_branch}}`, commit, push, then re-run this recheck before Step 7. |
 | `OPEN` | `BEHIND` | Base branch advanced since this branch forked | Update the branch from `{{base_branch}}` (merge or rebase per repo convention) and push, so Step 7 R1/R2 review against the current base — otherwise findings are computed against a stale base. |
@@ -1271,8 +1322,8 @@ re-runs Step 3, and Step 4 only if the Step 3.4 gate activates — so one pass c
 
 | Round | Review surface | Can block merge | On exit |
 | --- | --- | --- | --- |
-| Round 1 | the **full diff**; record the baseline head SHA (`git rev-parse HEAD`) before Step 6 fixes — the next round's surface is defined relative to it | evidenced Critical / Important | 先完成 Step 5 → 5a；gate 非零停止，通過後 blocking set empty → Step 8；non-empty → Step 6 fix, then Round 2 |
-| Round 2 | only `baseline..HEAD` (the commits this round's fixes added) | evidenced Critical only | 先完成 Step 5 → 5a；gate 非零停止，通過後 blocking set empty → Step 8；non-empty → circuit breaker (human adjudication) |
+| Round 1 | the **full diff**; record the baseline head SHA (`git rev-parse HEAD`) before Step 6 fixes — the next round's surface is defined relative to it | evidenced Critical / Important | 先完成 Step 5 → 5a → 5b → 5c；gate 非零停止，通過後 blocking set empty → Step 8；non-empty → Step 6 fix, then Round 2 |
+| Round 2 | only `baseline..HEAD` (the commits this round's fixes added) | evidenced Critical only | 先完成 Step 5 → 5a → 5b → 5c（若 blocking set non-empty 則於 Step 5b 後先進 circuit breaker，人類裁決 False positive 再走 Step 5c → Step 8）；blocking set empty → Step 8 |
 | Round 3 | **does not exist** — the loop never starts a third round | — | — |
 
 Recording the baseline SHA in Round 1 is load-bearing: the `baseline..HEAD` surface cannot be
@@ -1361,11 +1412,11 @@ Before showing this prompt, run Step 1's `review-label.sh remove {{pr_number}}` 
 label is off: from here a human owns the decision, and a PR that still carries the label would
 stay unmergeable while they decide. Wait for explicit instruction, then act on the choice:
 
-- **False positive**: continue to Step 8 with the label already off. Step 8's summary MUST say it was
-  removed early by the circuit breaker (merge was unblocked from then).
+- **False positive**: route remaining non-blocking items (`→ Step 5c → Step 8`) with the label already off.
+  Step 8's summary MUST say it was removed early by the circuit breaker (merge was unblocked from then).
 - **Continue fixing**: run `bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh add {{pr_number}}`
   and follow Step 1's exit table (exit 0 continue; exit 10 note it for the Step 8 summary; any other
-  exit: **Stop** and report to the user, do not resume fixing), then go to Step 6.
+  exit: **Stop** and report to the user, do not resume fixing), then go to Step 6 (and once CI passes, run Step 5c → Step 8).
 - **Return to redesign**: **Stop** the cycle; the label stays off.
 
 #### Gotcha: re-review must not use stale diff.patch
@@ -1409,6 +1460,7 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 ## Key decisions handled during group review
 1. <Consensus Critical 1>: fix approach = ...
 2. <Disputed item>: user chose ___, reason ...
+3. <Broken-evidence `Invalid` Critical in Deferred for lack of evidence, if any>: human ruling (confirm to append to deferred-issue.md / leave as PR comment only)
 
 ## Raw voice verdict (informational; no independent veto)
 - Claude: LGTM / NEEDS_CHANGES
@@ -1434,6 +1486,10 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 Manual Verification items are testplan TCs no test can automate: list them by running Step 11a's
 `check_testplan_trace.py --strict` command now (its `manual-open` lines), ask the human to confirm
 each, post the results as one PR comment, then mark confirmed items `- [x]` in testplan.md.
+
+若本輪 `final.md`（或經 Round 2 重審時的 `final.prev.md`）之 `## Deferred for lack of evidence` 含有證據損壞
+（`Invalid`／`broken evidence`）而降級的 Critical 項目，MUST 在 `human-summary.md` 單獨列出請人類裁決：
+僅在人類明確確認值得追蹤時，才將其加入 `$REVIEW_DIR/deferred-issue.md` 供 Step 10b 合併後建票；未確認者只留 PR 留言。
 
 Show the summary and hotspots to the user. Get the path, then reply conversationally so they can `cat` it:
 
@@ -1475,9 +1531,11 @@ Local CI is authoritative: when CI and local differ, trust local; check for CI e
 
 ### Step 10 — Merge
 
-**Pre-merge gate: confirm PR is still OPEN.** Re-run Step 6's "Recheck PR status" `gh pr view` query, but route as below, **not** by Step 6's table (it routes to Step 7).
+**Pre-merge gate: confirm PR is still OPEN.** Re-run Step 6's "Recheck PR status" `gh pr view` query,
+but route as below, **not** by Step 6's table (it routes to Step 7).
 Why: a bump push after an out-of-band merge silently recreates the deleted branch (issue #462).
-`MERGED` → **STOP**: no bump, merge, or push; go to Step 11. `CLOSED` → **STOP**; surface to the user and wait.
+`MERGED` → **STOP**: no bump, merge, or push; query `{{merge_commit_sha}}` via the `mergeCommit` check
+below, then run Step 10b → Step 11. `CLOSED` → **STOP**; surface to the user and wait.
 Either way, if the label is somehow still on, run Step 1's `review-label.sh remove` (a no-op when it is already off).
 `gh pr view` error → stop and report (empty ≠ OPEN).
 `OPEN` + `DIRTY` / `CONFLICTING` / `BEHIND` → update from `{{base_branch}}`, use the **Step 6 guarded push**,
@@ -1531,10 +1589,34 @@ gh pr merge "{{pr_number}}" --squash --delete-branch
 > `'main' is already used by worktree`).
 
 ```bash
-gh pr view "{{pr_number}}" --json mergeCommit -q .mergeCommit.oid
+gh pr view "{{pr_number}}" --json state,mergeCommit -q 'select(.state == "MERGED") | .mergeCommit.oid // empty'
 ```
 
-Note the SHA as `{{merge_commit_sha}}` and report it to the user.
+Require a non-empty output SHA; if empty (or `gh` errors), `[FAIL]` stop — do **not** run Step 10b
+without a verified merge commit SHA. Note the SHA as `{{merge_commit_sha}}` and report it to the user.
+
+#### Step 10b — 合併後建立已實證延後 issue
+
+僅在確認 PR 已 `MERGED` 後（由上方查詢取得非空 `{{merge_commit_sha}}`），且 Step 5c 第 4 路或 Step 8 人類裁決留有非空
+`$REVIEW_DIR/deferred-issue.md` 時執行；PR 未合併（`CLOSED` 或停在 circuit breaker）、`{{merge_commit_sha}}`
+為空或無獨立已實證延後項時**不建立** issue。
+
+去處是**每個 PR 至多一張** GitHub issue（禁止把無關的微末雜項混裝進同一張票；雜項只留 PR comment）：
+
+- 先以 Write／Edit 在 `$REVIEW_DIR/deferred-issue.md` 首段加上
+  `來源：PR #{{pr_number}}（merge commit {{merge_commit_sha}}）`，再帶入已實證項目原文與重現依據。
+- **標題必須寫明具體模組與問題症狀**（例如 `"Story Lab 重新生成失敗會誤刪舊故事"`），嚴禁使用無語意的制式前綴標題。
+- 標籤優先使用目標 repo 既有領域標籤（如 `bug`、`spec-gap`、`harness`、`infra`）；若該 repo 已建立
+  `deferred-from-review` 標籤可一併附上作為來源標記（先以 `gh label list --repo "{{owner/repo}}" --limit 300 --json name`
+  確認標籤存在；查詢失敗印 `[WARN]` 並回報手動指令，不存在則只貼該領域標籤，不因缺 `deferred-from-review` 阻斷）。
+
+```bash
+WT_ROOT=$(git rev-parse --show-toplevel)
+REVIEW_DIR="$WT_ROOT/.pr-review"
+gh issue create --repo "{{owner/repo}}" --label "<verified-existing-labels>" --title "<concrete-module-and-symptom-title>" --body-file "$REVIEW_DIR/deferred-issue.md"
+```
+
+`gh issue create` 非零退出（auth／網路）→ `[WARN]` 回報手動指令，不回滾已完成的合併。
 
 ---
 
@@ -1554,15 +1636,25 @@ Find the matching change (name is usually close to the feature branch), **report
 
 > Found a likely matching spectra change: `{{change_name}}`. Confirm archive?
 
-Before archiving, gate on the testplan trace (resolve `SDD_ROOT` with spectra-amplifier's
-"Plugin 資源路徑解析" block; add `--openspec-dir <dir>` if openspec is not at the repo root):
+Before archiving, gate on the testplan trace and verify `tasks.md` has zero unchecked `- [ ]` items
+(resolve `SDD_ROOT` with spectra-amplifier's "Plugin 資源路徑解析" block; add `--openspec-dir <dir>`
+and adjust `openspec/` to `<dir>/` if openspec is not at the repo root):
 
 ```bash
 python3 "$SDD_ROOT/scripts/check_testplan_trace.py" --strict --change "{{change_name}}"
 ```
 
 Exit 1 → stop and report the FAIL lines (unbound auto TC, orphan, mismatch, collision, open MV
-item); exit 2 → configuration error, stop and report stderr. After exit 0 and confirmation:
+item); exit 2 → configuration error, stop and report stderr. Next, check for unfinished tasks:
+
+```bash
+grep -En '^[[:space:]]*-[[:space:]]+\[ \]' "openspec/changes/{{change_name}}/tasks.md"
+```
+
+`grep` must produce empty output (exit `1`); if any `- [ ]` lines match (exit `0`) or `tasks.md`
+cannot be read (exit `2`), **STOP** and refuse `spectra archive` unless explicitly waived by the
+human (`spectra archive --yes` must not silently archive deferred unchecked items). After clean
+trace, zero unchecked tasks (or explicit human waiver), and user confirmation:
 
 ```bash
 spectra archive "{{change_name}}" --yes
