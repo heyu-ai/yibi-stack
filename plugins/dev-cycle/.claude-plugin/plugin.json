@@ -1,6 +1,6 @@
 {
   "name": "dev-cycle",
-  "description": "Full development workflow for Claude Code agents: PR review cycles, CI triage, bump-version, newjob/handover, local port management, debug, and PR slash commands.",
+  "description": "Full development workflow for Claude Code agents: PR review cycles, CI triage, bump-version, newjob/handover, local port management, debug, PM-facing decision explainers, and PR slash commands.",
   "version": "1.24.1",
   "author": {
     "name": "Howie Yu",
@@ -18,6 +18,7 @@
     "newjob",
     "handover",
     "local-port-manager",
-    "debug"
+    "debug",
+    "explain-to-pm"
   ]
 }

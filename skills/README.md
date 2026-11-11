@@ -21,7 +21,7 @@ Global skill 已依主題分組為 plugin pack，可透過 Claude Code marketpla
 claude plugin marketplace add heyu-ai/yibi-stack  # 一次性註冊
 
 claude plugin install growth@yibi-stack          # mycelium + learn + PR 回顧/審計 + CLAUDE.md 精簡
-claude plugin install dev-cycle@yibi-stack       # PR 全流程 + newjob/handover + port/debug + ci-triage
+claude plugin install dev-cycle@yibi-stack       # PR 全流程 + newjob/handover + port/debug + ci-triage + explain-to-pm
 claude plugin install sdd@yibi-stack             # spectra-amplifier + figma-design-sync + /sdd:setup
 claude plugin install harness@yibi-stack        # harness-eval + harness-weekly-review + bash hygiene + protect-push + fleet-usage-guard + plugin maintenance
 claude plugin install 3rd-tools@yibi-stack       # codex-review + codex-consult + codex-cli + agy-review + agy-consult + verify-gemini-models
@@ -45,6 +45,7 @@ claude plugin install methodology@yibi-stack     # event-storming + problem-fram
 | `harness-weekly-review` | exec | [plugins/harness/](../plugins/harness/README.md) | 每週 harness 盤點與復盤：以 hook-events 紀錄、transcript、CI failed step 與 rules 必載字元量測 rule／hook／gate 的觸發率、錯誤率與耗時，列出可改成機械 gate 的 rule、該退役或修正的 hook／gate，與上週快照比對形成閉環；可選擇寫入 Mycelium 與 Hindsight | [harness-weekly-review/SKILL.md](harness-weekly-review/SKILL.md) |
 | `bash-hygiene-audit` | exec | [tasks/bash_hygiene_audit/](../tasks/bash_hygiene_audit/) | bash-hygiene hook audit log 管理：啟用/停用記錄、查看近期 hook 攔截事件、統計違規比例與熱點 pattern | [bash-hygiene-audit/SKILL.md](bash-hygiene-audit/SKILL.md) |
 | `harness-eval` | exec | [plugins/harness/](../plugins/harness/README.md) | Claude Code harness 就緒度評量：11 維度（D1–D11）滿分 123，PASS/WARN/FAIL 清單，優先改善 TODO。涵蓋 CLAUDE.md / hooks / settings / skills / testing / git / rules / security / subagents / codebase-navigation / token-economy | [harness-eval/SKILL.md](harness-eval/SKILL.md) |
+| `explain-to-pm` | tool | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | 把技術決策、設計或 PR review 轉成 PM 看得懂的圖文 HTML：白話用語、生活類比、使用者情境與 SVG 圖解；需要決策時列出 2–4 個選項的優缺點、成本、風險，並寫出推薦與取捨。發布前先確認不含憑證、內部網址等敏感內容 | [explain-to-pm/SKILL.md](explain-to-pm/SKILL.md) |
 | `investigate` | tool | [plugins/dev-cycle/](../plugins/dev-cycle/README.md) | 系統化除錯：先根因調查（五階段 + Iron Law：沒找到根因不准修）再修，然後交棒給 PR 生命週期。改寫自 garrytan/gstack（MIT），剝除 gstack 產品 plumbing；Scope Lock 呼叫 `freeze` 鎖範圍 | [investigate/SKILL.md](investigate/SKILL.md) |
 | `claude-md-prune` | tool | [plugins/growth/](../plugins/growth/README.md) | 審查並精簡 CLAUDE.md：把累積的 gotcha 路由到對應的 `.claude/rules/` 子檔，刪除過期或重複內容，維持 CLAUDE.md 在 Anthropic 建議的 200 行軟上限內 | [claude-md-prune/SKILL.md](claude-md-prune/SKILL.md) |
 | `codex-review` | tool | [plugins/3rd-tools/](../plugins/3rd-tools/README.md) | OpenAI Codex CLI 對當前 branch diff 做 code review（含 `[P1]` pass/fail gate）或 challenge 對抗模式找 bug；改用 `codex exec` + stdin packet，含 hijack 偵測 | [codex-review/SKILL.md](codex-review/SKILL.md) |
