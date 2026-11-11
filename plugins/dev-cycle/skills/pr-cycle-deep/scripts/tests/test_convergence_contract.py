@@ -124,7 +124,7 @@ FORBIDDEN_STRINGS: list[str] = [
     "All voices LGTM",
     "Every active voice's latest round outputs",
     "Want to skip R2 and run only R1 | Not allowed",
-    '--title "Deferred from review: PR #',  # opaque generic deferral issue title retired
+    "Deferred from review: PR #",  # opaque generic deferral issue title retired (any quote/flag)
     "circuit breaker（人類裁決）路徑下**同樣建立**",  # pre-merge issue creation retired
 ]
 
@@ -143,6 +143,104 @@ def check_convergence_contract(text: str) -> list[str]:
     for forbidden in FORBIDDEN_STRINGS:
         if forbidden in text:
             failures.append(f"forbidden string present: {forbidden!r}")
+
+    failures.extend(check_deferral_sections(text))
+    return failures
+
+
+STEP5_START = "### Step 5 —"
+STEP5_END = "### Step 5a —"
+STEP5C_START = "### Step 5c —"
+STEP5C_END = "### Step 6 —"
+STEP10B_START = "#### Step 10b —"
+STEP10B_END = "### Step 11 —"
+
+VDI_HEADING = "## Verified Deferred Important (verified reproducible; routed after merge)"
+OUTSIDE_CONTRACT_HEADING = "## Outside contract (not blocking; mapping reason stated per item)"
+CR_SOURCE_CLAUSE = "- Code-review source: CR-<n>"
+
+STEP5_CLAUSES: tuple[str, ...] = (
+    "## Deferred for lack of evidence (not blocking; reason stated per item)",
+    VDI_HEADING,
+    "禁止建立 GitHub issue",
+)
+
+STEP5C_CLAUSES: tuple[str, ...] = (
+    "禁止執行 `gh issue create`",
+    "單一檔案",
+    "15 行以內",
+    "不改變公開介面或 Review Contract",
+    "通過本地與遠端 CI",
+    "寫入該 change 的 `tasks.md`",
+    "禁止建立 GitHub issue",
+)
+STEP5C_FORBIDDEN: tuple[str, ...] = ("gh issue create --repo",)
+
+STEP10B_CLAUSES: tuple[str, ...] = (
+    "確認 PR 已 `MERGED` 後",
+    "每個 PR 至多一張",
+    "標題必須寫明具體模組與問題症狀",
+    "既有領域標籤",
+    "WT_ROOT=$(git rev-parse --show-toplevel)",
+    'REVIEW_DIR="$WT_ROOT/.pr-review"',
+)
+
+
+def _slice_section(
+    text: str, start_marker: str, end_marker: str, label: str
+) -> tuple[str | None, list[str]]:
+    """Return (window, errors) for text between start_marker and end_marker."""
+    lo = text.find(start_marker)
+    hi = text.find(end_marker)
+    errs: list[str] = []
+    if lo < 0:
+        errs.append(f"{label} section marker absent: {start_marker!r}")
+    if hi < 0:
+        errs.append(f"{label} section marker absent: {end_marker!r}")
+    if errs:
+        return None, errs
+    if hi <= lo:
+        return None, [f"{label} section markers out of order: {start_marker!r} .. {end_marker!r}"]
+    return text[lo:hi], []
+
+
+def check_deferral_sections(text: str) -> list[str]:
+    """Verify deferral clauses live in their authoritative Step 5 / Step 5c / Step 10b sections."""
+    failures: list[str] = []
+
+    step5, errs = _slice_section(text, STEP5_START, STEP5_END, "Step 5")
+    failures.extend(errs)
+    if step5 is not None:
+        for clause in STEP5_CLAUSES:
+            if clause not in step5:
+                failures.append(f"Step 5 clause absent: {clause!r}")
+        vdi_idx = step5.find(VDI_HEADING)
+        outside_idx = step5.find(OUTSIDE_CONTRACT_HEADING, max(vdi_idx, 0))
+        if vdi_idx < 0 or outside_idx < 0 or outside_idx <= vdi_idx:
+            failures.append(
+                f"Step 5 Verified Deferred Important template bounds absent: {CR_SOURCE_CLAUSE!r}"
+            )
+        elif CR_SOURCE_CLAUSE not in step5[vdi_idx:outside_idx]:
+            failures.append(
+                f"Step 5 Verified Deferred Important clause absent: {CR_SOURCE_CLAUSE!r}"
+            )
+
+    step5c, errs = _slice_section(text, STEP5C_START, STEP5C_END, "Step 5c")
+    failures.extend(errs)
+    if step5c is not None:
+        for clause in STEP5C_CLAUSES:
+            if clause not in step5c:
+                failures.append(f"Step 5c clause absent: {clause!r}")
+        for bad in STEP5C_FORBIDDEN:
+            if bad in step5c:
+                failures.append(f"Step 5c forbidden call present: {bad!r}")
+
+    step10b, errs = _slice_section(text, STEP10B_START, STEP10B_END, "Step 10b")
+    failures.extend(errs)
+    if step10b is not None:
+        for clause in STEP10B_CLAUSES:
+            if clause not in step10b:
+                failures.append(f"Step 10b clause absent: {clause!r}")
 
     return failures
 
@@ -223,8 +321,24 @@ def read_skill_md(path: Path = SKILL_MD) -> str:
 
 
 def _fixture() -> str:
-    """Build a synthetic document containing every required contract clause."""
-    return "\n".join(REQUIRED_ANCHORS) + "\n"
+    """Build a synthetic document containing every required contract clause and section window."""
+    anchors = "\n".join(REQUIRED_ANCHORS)
+    sections = "\n".join(
+        [
+            f"{STEP5_START} Aggregator synthesis",
+            *STEP5_CLAUSES,
+            f"   {CR_SOURCE_CLAUSE}",
+            OUTSIDE_CONTRACT_HEADING,
+            f"{STEP5_END} Count gate",
+            f"{STEP5C_START} Deferral filter",
+            *STEP5C_CLAUSES,
+            f"{STEP5C_END} Fix",
+            f"{STEP10B_START} Post-merge issue",
+            *STEP10B_CLAUSES,
+            f"{STEP10B_END} Archive",
+        ]
+    )
+    return f"{anchors}\n{sections}\n"
 
 
 # --------------------------------------------------------------------------- anchors (DT)
@@ -329,41 +443,63 @@ def test_prc_dt_008_preflight_sits_between_template_and_drafting():
     assert check_preflight_snapshot(text) == []
 
 
-_DEFERRAL_FILTER_ANCHORS: list[str] = [
-    "## Verified Deferred Important",
-    "禁止建立 GitHub issue",
-    "15 行以內",
-    "寫入該 change 的 `tasks.md`",
-    "確認 PR 已 `MERGED` 後",
-    "標題必須寫明具體模組與問題症狀",
+_DEFERRAL_SECTION_CASES: list[tuple[str, str, str]] = [
+    *((STEP5_START, STEP5_END, c) for c in STEP5_CLAUSES),
+    (VDI_HEADING, OUTSIDE_CONTRACT_HEADING, CR_SOURCE_CLAUSE),
+    *((STEP5C_START, STEP5C_END, c) for c in STEP5C_CLAUSES),
+    *((STEP10B_START, STEP10B_END, c) for c in STEP10B_CLAUSES),
 ]
 
 
-@pytest.mark.parametrize("anchor", _DEFERRAL_FILTER_ANCHORS)
-def test_gdri_dt_001_deferral_filter_anchors_are_required(anchor: str):
+@pytest.mark.parametrize(("start_m", "end_m", "clause"), _DEFERRAL_SECTION_CASES)
+def test_gdri_dt_001_deferral_filter_anchors_are_required(start_m: str, end_m: str, clause: str):
     """
+    spec: pr-review-convergence#many-important-one-issue
+    spec: pr-review-convergence#nit-only-no-issue
+    spec: pr-review-convergence#no-demotions-no-issue
+    spec: pr-review-convergence#unverified-or-unreachable-no-issue
+    spec: pr-review-convergence#small-round2-fix-in-place
+    spec: pr-review-convergence#active-spectra-change-routes-to-tasks
+    spec: pr-review-convergence#pre-merge-issue-creation-forbidden
     spec: pr-review-convergence#opaque-deferred-title-forbidden
     tc: GDRI-DT-001
     """
-    text = _fixture().replace(anchor, "")
-    failures = check_convergence_contract(text)
-    assert any(anchor in f and "absent" in f for f in failures), failures
+    base = _fixture()
+    lo = base.index(start_m)
+    hi = base.index(end_m, lo)
+    window = base[lo:hi]
+    assert window.count(clause) == 1
+    mutated = base[:lo] + window.replace(clause, "", 1) + base[hi:]
+    failures = check_convergence_contract(mutated)
+    assert any(clause in f and "absent" in f for f in failures), failures
 
 
 @pytest.mark.parametrize(
     "forbidden",
     [
         '--title "Deferred from review: PR #{{pr_number}}"',
+        "-t 'Deferred from review: PR #999'",
+        '--title="Deferred from review: PR #42"',
         "circuit breaker（人類裁決）路徑下**同樣建立**",
     ],
 )
 def test_gdri_dt_002_opaque_deferred_title_and_premerge_creation_forbidden(forbidden: str):
     """
     spec: pr-review-convergence#pre-merge-issue-creation-forbidden
+    spec: pr-review-convergence#opaque-deferred-title-forbidden
     tc: GDRI-DT-002
     """
     failures = check_convergence_contract(_fixture() + forbidden + "\n")
     assert any("forbidden string present" in f for f in failures), failures
+
+    injected = _fixture().replace(
+        STEP5C_START, f'{STEP5C_START}\ngh issue create --repo "{{{{owner/repo}}}}"\n', 1
+    )
+    step5c_failures = check_convergence_contract(injected)
+    assert any(
+        "Step 5c forbidden call present" in f and "gh issue create --repo" in f
+        for f in step5c_failures
+    ), step5c_failures
 
 
 # --------------------------------------------------------------------------- edge / guard (EG)
@@ -513,25 +649,58 @@ def test_smk_001_suite_passes_against_real_skill_md():
 def test_gdri_eg_001_real_skill_deferral_anchors_kill_mutants():
     """
     spec: pr-review-convergence#many-important-one-issue
+    spec: pr-review-convergence#unverified-or-unreachable-no-issue
+    spec: pr-review-convergence#small-round2-fix-in-place
+    spec: pr-review-convergence#active-spectra-change-routes-to-tasks
+    spec: pr-review-convergence#pre-merge-issue-creation-forbidden
+    spec: pr-review-convergence#opaque-deferred-title-forbidden
     tc: GDRI-EG-001
     """
     text = read_skill_md()
-    for anchor in _DEFERRAL_FILTER_ANCHORS:
-        assert anchor in text, f"missing anchor in real SKILL.md: {anchor!r}"
-        failures = check_convergence_contract(text.replace(anchor, ""))
-        assert any(anchor in f and "absent" in f for f in failures), failures
+    assert check_convergence_contract(text) == []
+
+    for start_m, end_m, clause in _DEFERRAL_SECTION_CASES:
+        lo = text.index(start_m)
+        hi = text.index(end_m, lo)
+        window = text[lo:hi]
+        assert window.count(clause) == 1, f"expected unique {clause!r} in {start_m}..{end_m}"
+        mutant = text[:lo] + window.replace(clause, "", 1) + text[hi:]
+        failures = check_convergence_contract(mutant)
+        assert any(clause in f and "absent" in f for f in failures), (start_m, clause, failures)
+
+    for top_clause in (*STEP5_CLAUSES, *STEP5C_CLAUSES):
+        top_failures = check_convergence_contract(text.replace(top_clause, "", 1))
+        assert any(top_clause in f and "absent" in f for f in top_failures), (
+            top_clause,
+            top_failures,
+        )
+
+    injected_5c = text.replace(
+        STEP5C_START, f'{STEP5C_START}\ngh issue create --repo "{{{{owner/repo}}}}"\n', 1
+    )
+    assert any(
+        "Step 5c forbidden call present" in f and "gh issue create --repo" in f
+        for f in check_convergence_contract(injected_5c)
+    )
+
+    single_quoted = text + "\ngh issue create -t 'Deferred from review: PR #999'\n"
+    assert any("forbidden string present" in f for f in check_convergence_contract(single_quoted))
 
 
 def test_gdri_vl_001_real_skill_rejects_opaque_title_and_passes():
     """
-    spec: pr-review-convergence#unverified-or-unreachable-no-issue
+    spec: pr-review-convergence#many-important-one-issue
+    spec: pr-review-convergence#opaque-deferred-title-forbidden
     tc: GDRI-VL-001
     """
     text = read_skill_md()
     assert check_convergence_contract(text) == []
-    mutated = text + '\ngh issue create --title "Deferred from review: PR #999"\n'
-    failures = check_convergence_contract(mutated)
-    assert any("forbidden string present" in f for f in failures), failures
+    for bad_line in (
+        'gh issue create --title "Deferred from review: PR #999"',
+        "gh issue create -t 'Deferred from review: PR #999'",
+    ):
+        failures = check_convergence_contract(f"{text}\n{bad_line}\n")
+        assert any("forbidden string present" in f for f in failures), failures
 
 
 if __name__ == "__main__":
