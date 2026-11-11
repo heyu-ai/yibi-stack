@@ -8,7 +8,9 @@
 
 ## Test Seams
 
-- `check_convergence_contract(text: str) -> list[str]`：純函式輸入合成與真實 `SKILL.md` UTF-8 字串，驗證必要四路分流錨點在場且舊制式無語意建票字串缺席。
+| Seam | Public interface |
+| --- | --- |
+| `check_convergence_contract` | `check_convergence_contract(text: str) -> list[str]`（`test_convergence_contract.py` 純函式入口） |
 
 ---
 

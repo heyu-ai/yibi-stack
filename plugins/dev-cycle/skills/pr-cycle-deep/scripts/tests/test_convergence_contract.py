@@ -365,6 +365,7 @@ def test_gdri_dt_002_opaque_deferred_title_and_premerge_creation_forbidden(forbi
     failures = check_convergence_contract(_fixture() + forbidden + "\n")
     assert any("forbidden string present" in f for f in failures), failures
 
+
 # --------------------------------------------------------------------------- edge / guard (EG)
 
 
