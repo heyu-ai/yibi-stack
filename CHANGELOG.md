@@ -5,11 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.1] - 2026-11-11
+
+### Changed
+
+- 模型由 sonnet 改為 haiku (#642)
+
+### Fixed
+
+- Plugin 提供的 skill 不再依賴 ~/.claude/skills 下的自己 (#632)
+- 補上 PR #632 mob review 的兩個測試缺口 (#635)
+
 ## [1.24.0] - 2026-11-04
 
 ### Changed
 
 - 每週量出 rule 與子目錄 CLAUDE.md 實際被載入的 session 數 (#628)
+- V1.24.0
 
 ### Fixed
 
@@ -889,6 +901,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove bash anti-patterns triggering CC confirmation dialogs (#137)
 - Remove unnecessary rm-f after git commit-F (#105)
 
+[1.24.1]: https://github.com/heyu-ai/yibi-stack/compare/v1.24.0..v1.24.1
 [1.24.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.24..v1.24.0
 [1.23.24]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.19..v1.23.24
 [1.23.19]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.18..v1.23.19
