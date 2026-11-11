@@ -50,11 +50,7 @@
 
 | Requirement | Scenario slug | TC-ID | pytest docstring trace |
 | --- | --- | --- | --- |
-| Demoted findings have a defined destination | `many-important-one-issue` | GDRI-DT-001, GDRI-EG-001, GDRI-VL-001 | `spec: pr-review-convergence#many-important-one-issue` |
-| Demoted findings have a defined destination | `nit-only-no-issue` | GDRI-DT-001 | `spec: pr-review-convergence#nit-only-no-issue` |
-| Demoted findings have a defined destination | `no-demotions-no-issue` | GDRI-DT-001 | `spec: pr-review-convergence#no-demotions-no-issue` |
-| Demoted findings have a defined destination | `unverified-or-unreachable-no-issue` | GDRI-DT-001, GDRI-EG-001 | `spec: pr-review-convergence#unverified-or-unreachable-no-issue` |
-| Demoted findings have a defined destination | `small-round2-fix-in-place` | GDRI-DT-001, GDRI-EG-001 | `spec: pr-review-convergence#small-round2-fix-in-place` |
-| Demoted findings have a defined destination | `active-spectra-change-routes-to-tasks` | GDRI-DT-001, GDRI-EG-001 | `spec: pr-review-convergence#active-spectra-change-routes-to-tasks` |
-| Demoted findings have a defined destination | `pre-merge-issue-creation-forbidden` | GDRI-DT-001, GDRI-DT-002, GDRI-EG-001 | `spec: pr-review-convergence#pre-merge-issue-creation-forbidden` |
-| Demoted findings have a defined destination | `opaque-deferred-title-forbidden` | GDRI-DT-001, GDRI-DT-002, GDRI-EG-001, GDRI-VL-001 | `spec: pr-review-convergence#opaque-deferred-title-forbidden` |
+| Demoted findings have a defined destination | `opaque-deferred-title-forbidden` | GDRI-DT-001 | `spec: pr-review-convergence#opaque-deferred-title-forbidden` / `tc: GDRI-DT-001` |
+| Demoted findings have a defined destination | `pre-merge-issue-creation-forbidden` | GDRI-DT-002 | `spec: pr-review-convergence#pre-merge-issue-creation-forbidden` / `tc: GDRI-DT-002` |
+| Demoted findings have a defined destination | `many-important-one-issue` | GDRI-EG-001 | `spec: pr-review-convergence#many-important-one-issue` / `tc: GDRI-EG-001` |
+| Demoted findings have a defined destination | `opaque-deferred-title-forbidden` | GDRI-VL-001 | `spec: pr-review-convergence#opaque-deferred-title-forbidden` / `tc: GDRI-VL-001` |

@@ -174,13 +174,14 @@ STEP5C_CLAUSES: tuple[str, ...] = (
     "寫入該 change 的 `tasks.md`",
     "禁止建立 GitHub issue",
 )
-STEP5C_FORBIDDEN: tuple[str, ...] = ("gh issue create --repo",)
+STEP5C_FORBIDDEN: tuple[str, ...] = ("gh issue create ",)
 
 STEP10B_CLAUSES: tuple[str, ...] = (
     "確認 PR 已 `MERGED` 後",
     "每個 PR 至多一張",
     "標題必須寫明具體模組與問題症狀",
     "既有領域標籤",
+    "--limit 300 --json name",
     "WT_ROOT=$(git rev-parse --show-toplevel)",
     'REVIEW_DIR="$WT_ROOT/.pr-review"',
 )
@@ -231,9 +232,9 @@ def check_deferral_sections(text: str) -> list[str]:
         for clause in STEP5C_CLAUSES:
             if clause not in step5c:
                 failures.append(f"Step 5c clause absent: {clause!r}")
-        for bad in STEP5C_FORBIDDEN:
-            if bad in step5c:
-                failures.append(f"Step 5c forbidden call present: {bad!r}")
+        stripped_5c = step5c.replace("`gh issue create`", "")
+        if "gh issue create" in stripped_5c:
+            failures.append("Step 5c forbidden call present: 'gh issue create'")
 
     step10b, errs = _slice_section(text, STEP10B_START, STEP10B_END, "Step 10b")
     failures.extend(errs)
@@ -492,14 +493,15 @@ def test_gdri_dt_002_opaque_deferred_title_and_premerge_creation_forbidden(forbi
     failures = check_convergence_contract(_fixture() + forbidden + "\n")
     assert any("forbidden string present" in f for f in failures), failures
 
-    injected = _fixture().replace(
-        STEP5C_START, f'{STEP5C_START}\ngh issue create --repo "{{{{owner/repo}}}}"\n', 1
-    )
-    step5c_failures = check_convergence_contract(injected)
-    assert any(
-        "Step 5c forbidden call present" in f and "gh issue create --repo" in f
-        for f in step5c_failures
-    ), step5c_failures
+    for bad_call in (
+        'gh issue create --repo "{{owner/repo}}"',
+        'gh issue create --label bug --title "Module X"',
+    ):
+        injected = _fixture().replace(STEP5C_START, f"{STEP5C_START}\n{bad_call}\n", 1)
+        step5c_failures = check_convergence_contract(injected)
+        assert any(
+            "Step 5c forbidden call present: 'gh issue create'" in f for f in step5c_failures
+        ), step5c_failures
 
 
 # --------------------------------------------------------------------------- edge / guard (EG)
@@ -675,13 +677,15 @@ def test_gdri_eg_001_real_skill_deferral_anchors_kill_mutants():
             top_failures,
         )
 
-    injected_5c = text.replace(
-        STEP5C_START, f'{STEP5C_START}\ngh issue create --repo "{{{{owner/repo}}}}"\n', 1
-    )
-    assert any(
-        "Step 5c forbidden call present" in f and "gh issue create --repo" in f
-        for f in check_convergence_contract(injected_5c)
-    )
+    for bad_call in (
+        'gh issue create --repo "{{owner/repo}}"',
+        'gh issue create --label bug --title "Module X"',
+    ):
+        injected_5c = text.replace(STEP5C_START, f"{STEP5C_START}\n{bad_call}\n", 1)
+        assert any(
+            "Step 5c forbidden call present: 'gh issue create'" in f
+            for f in check_convergence_contract(injected_5c)
+        )
 
     single_quoted = text + "\ngh issue create -t 'Deferred from review: PR #999'\n"
     assert any("forbidden string present" in f for f in check_convergence_contract(single_quoted))

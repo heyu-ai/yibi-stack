@@ -1176,9 +1176,9 @@ REVIEW_DIR="$WT_ROOT/.pr-review"
 gh pr comment "{{pr_number}}" --body-file "$REVIEW_DIR/final.md"
 ```
 
-- **exit 0** → report the comment URL, then **continue to Step 5c**.
-- **non-zero** (auth / network / PR not found) → `[WARN] 無法貼 review summary 到 PR`; show the user the manual command,
-  then **continue to Step 5c** (posting must not block deferral routing or fixes).
+- **exit 0** → report the comment URL; if Round 2 has a non-empty `blocking set`, jump to Step 7 circuit breaker, else **continue to Step 5c**.
+- **non-zero** (auth / network / PR not found) → `[WARN] 無法貼 review summary 到 PR`; show the user the manual command;
+  if Round 2 has a non-empty `blocking set`, jump to Step 7 circuit breaker, else **continue to Step 5c**.
 
 First-time use may prompt for permission → add `Bash(gh pr comment:*)` to `settings.local.json`
 (rule 16 safe form). Post once in Round 1; after Step 7, MUST re-post `final.md` whenever consensus
@@ -1210,7 +1210,7 @@ PR 尚未完成合併前（含 Round 1／Round 2 結束與 circuit breaker 階�
    Step 6 前推送，同步更新 Round 1 `baseline` SHA），交由後續該 change 的 `spectra archive` 閘門把關，
    禁止另建 issue。若該 change 將在本 PR 的 Step 11a 封存，不得寫入未勾選待辦（應於本 PR 修完，否則改走第 4 路）。
 4. **獨立跨範圍問題留待合併後具名建票**：僅通過上述三道過濾後仍需獨立追蹤的 `## Verified Deferred Important`
-   （或經 lead 驗證於 `main` 可重現的獨立 `Outside contract` 既有缺陷、Step 8 人類明確裁決升格的 `Invalid` 項），
+   （或經 lead 驗證於 `main` 可重現的獨立 `Outside contract` 既有缺陷），
    整理至 `$REVIEW_DIR/deferred-issue.md` 候選檔，留待 Step 10 **確認 PR 已 `MERGED` 後**（Step 10b）建立。
    Round 2 執行時 MUST 先讀取並保留 Round 1 候選檔中未修掉／未被取代的第 4 路項目，與本輪新增項目合併，
    不得盲目覆寫或遺留過期內容。若本步結束後剩餘 0 筆第 4 路項目，MUST 刪除候選檔防止跨輪殘留誤觸建票：
@@ -1221,8 +1221,8 @@ PR 尚未完成合併前（含 Round 1／Round 2 結束與 circuit breaker 階�
    rm -f "$REVIEW_DIR/deferred-issue.md"
    ```
 
-完成分流後更新 `state.md` 的 `next:`（有守衛推送時確認 `head:` 已同步）：blocking set 非空 → 進 Step 6
-（Round 1）或 Step 7 circuit breaker（Round 2）；blocking set 為空（或經 circuit breaker `False positive`）→ 進 Step 8。
+完成分流後更新 `state.md` 的 `next:`（有守衛推送時確認 `head:` 已同步）：Round 1 `blocking set` 非空 → 進 Step 6；
+`blocking set` 為空（或經 circuit breaker `False positive`）→ 進 Step 8。
 
 ---
 
@@ -1416,7 +1416,7 @@ stay unmergeable while they decide. Wait for explicit instruction, then act on t
   Step 8's summary MUST say it was removed early by the circuit breaker (merge was unblocked from then).
 - **Continue fixing**: run `bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh add {{pr_number}}`
   and follow Step 1's exit table (exit 0 continue; exit 10 note it for the Step 8 summary; any other
-  exit: **Stop** and report to the user, do not resume fixing), then go to Step 6.
+  exit: **Stop** and report to the user, do not resume fixing), then go to Step 6 (and once CI passes, run Step 5c → Step 8).
 - **Return to redesign**: **Stop** the cycle; the label stays off.
 
 #### Gotcha: re-review must not use stale diff.patch
@@ -1487,9 +1487,9 @@ Manual Verification items are testplan TCs no test can automate: list them by ru
 `check_testplan_trace.py --strict` command now (its `manual-open` lines), ask the human to confirm
 each, post the results as one PR comment, then mark confirmed items `- [x]` in testplan.md.
 
-若 `final.md` 的 `## Deferred for lack of evidence` 含有證據損壞（`Invalid`／`broken evidence`）而降級的
-Critical 項目，MUST 在 `human-summary.md` 單獨列出請人類裁決：僅在人類明確確認值得追蹤時，才將其加入
-`$REVIEW_DIR/deferred-issue.md` 供 Step 10b 合併後建票；未經人類確認者維持 PR comment 紀錄，絕不自動建票。
+若本輪 `final.md`（或經 Round 2 重審時的 `final.prev.md`）之 `## Deferred for lack of evidence` 含有證據損壞
+（`Invalid`／`broken evidence`）而降級的 Critical 項目，MUST 在 `human-summary.md` 單獨列出請人類裁決：
+僅在人類明確確認值得追蹤時，才將其加入 `$REVIEW_DIR/deferred-issue.md` 供 Step 10b 合併後建票；未確認者只留 PR 留言。
 
 Show the summary and hotspots to the user. Get the path, then reply conversationally so they can `cat` it:
 
@@ -1597,7 +1597,7 @@ without a verified merge commit SHA. Note the SHA as `{{merge_commit_sha}}` and 
 
 #### Step 10b — 合併後建立已實證延後 issue
 
-僅在確認 PR 已 `MERGED` 後（由上方查詢取得非空 `{{merge_commit_sha}}`），且 Step 5c 第 4 路留有非空
+僅在確認 PR 已 `MERGED` 後（由上方查詢取得非空 `{{merge_commit_sha}}`），且 Step 5c 第 4 路或 Step 8 人類裁決留有非空
 `$REVIEW_DIR/deferred-issue.md` 時執行；PR 未合併（`CLOSED` 或停在 circuit breaker）、`{{merge_commit_sha}}`
 為空或無獨立已實證延後項時**不建立** issue。
 
@@ -1607,8 +1607,8 @@ without a verified merge commit SHA. Note the SHA as `{{merge_commit_sha}}` and 
   `來源：PR #{{pr_number}}（merge commit {{merge_commit_sha}}）`，再帶入已實證項目原文與重現依據。
 - **標題必須寫明具體模組與問題症狀**（例如 `"Story Lab 重新生成失敗會誤刪舊故事"`），嚴禁使用無語意的制式前綴標題。
 - 標籤優先使用目標 repo 既有領域標籤（如 `bug`、`spec-gap`、`harness`、`infra`）；若該 repo 已建立
-  `deferred-from-review` 標籤可一併附上作為來源標記（先以 `gh label list --repo "{{owner/repo}}"` 確認標籤存在，
-  不存在則只貼該領域標籤，不因缺 `deferred-from-review` 阻斷）。
+  `deferred-from-review` 標籤可一併附上作為來源標記（先以 `gh label list --repo "{{owner/repo}}" --limit 300 --json name`
+  確認標籤存在；查詢失敗印 `[WARN]` 並回報手動指令，不存在則只貼該領域標籤，不因缺 `deferred-from-review` 阻斷）。
 
 ```bash
 WT_ROOT=$(git rev-parse --show-toplevel)
@@ -1648,7 +1648,7 @@ Exit 1 → stop and report the FAIL lines (unbound auto TC, orphan, mismatch, co
 item); exit 2 → configuration error, stop and report stderr. Next, check for unfinished tasks:
 
 ```bash
-grep -n '^- \[ \]' "openspec/changes/{{change_name}}/tasks.md"
+grep -En '^[[:space:]]*-[[:space:]]+\[ \]' "openspec/changes/{{change_name}}/tasks.md"
 ```
 
 `grep` must produce empty output (exit `1`); if any `- [ ]` lines match (exit `0`) or `tasks.md`
