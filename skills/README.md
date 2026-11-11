@@ -21,7 +21,7 @@ Global skill 已依主題分組為 plugin pack，可透過 Claude Code marketpla
 claude plugin marketplace add heyu-ai/yibi-stack  # 一次性註冊
 
 claude plugin install growth@yibi-stack          # mycelium + learn + PR 回顧/審計 + CLAUDE.md 精簡
-claude plugin install dev-cycle@yibi-stack       # PR 全流程 + newjob/handover + port/debug + ci-triage
+claude plugin install dev-cycle@yibi-stack       # PR 全流程 + newjob/handover + port/debug + ci-triage + explain-to-pm
 claude plugin install sdd@yibi-stack             # spectra-amplifier + figma-design-sync + /sdd:setup
 claude plugin install harness@yibi-stack        # harness-eval + harness-weekly-review + bash hygiene + protect-push + fleet-usage-guard + plugin maintenance
 claude plugin install 3rd-tools@yibi-stack       # codex-review + codex-consult + codex-cli + agy-review + agy-consult + verify-gemini-models
