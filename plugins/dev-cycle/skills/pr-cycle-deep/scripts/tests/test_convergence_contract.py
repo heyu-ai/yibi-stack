@@ -101,6 +101,12 @@ REQUIRED_ANCHORS: list[str] = [
     "Tautological or implementation-coupled test",  # the evidence form for such findings
     "starting with any `[WEAK-RED]` tests from Step 1.7",  # pr-test-analyzer focus (AC-3)
     "tests whose expected value is computed the way the",  # R1 prompt focus bullet (AC-3)
+    "## Verified Deferred Important",  # verified reproducible deferrals separated from unverified
+    "禁止建立 GitHub issue",  # unverified / unreachable / active-change items never open issues
+    "15 行以內",  # single-file <=15-line Round 2 fixes handled in place without Round 3 or issue
+    "寫入該 change 的 `tasks.md`",  # active Spectra change items route to tasks.md
+    "確認 PR 已 `MERGED` 後",  # issue creation gated on post-merge confirmation
+    "標題必須寫明具體模組與問題症狀",  # concrete title required instead of generic PR prefix
 ]
 
 # Strings that MUST be absent. The NIT-must-be-cleaned convention (any spelling) and the old
@@ -118,6 +124,8 @@ FORBIDDEN_STRINGS: list[str] = [
     "All voices LGTM",
     "Every active voice's latest round outputs",
     "Want to skip R2 and run only R1 | Not allowed",
+    '--title "Deferred from review: PR #',  # opaque generic deferral issue title retired
+    "circuit breaker（人類裁決）路徑下**同樣建立**",  # pre-merge issue creation retired
 ]
 
 
@@ -321,6 +329,42 @@ def test_prc_dt_008_preflight_sits_between_template_and_drafting():
     assert check_preflight_snapshot(text) == []
 
 
+_DEFERRAL_FILTER_ANCHORS: list[str] = [
+    "## Verified Deferred Important",
+    "禁止建立 GitHub issue",
+    "15 行以內",
+    "寫入該 change 的 `tasks.md`",
+    "確認 PR 已 `MERGED` 後",
+    "標題必須寫明具體模組與問題症狀",
+]
+
+
+@pytest.mark.parametrize("anchor", _DEFERRAL_FILTER_ANCHORS)
+def test_gdri_dt_001_deferral_filter_anchors_are_required(anchor: str):
+    """
+    spec: pr-review-convergence#opaque-deferred-title-forbidden
+    tc: GDRI-DT-001
+    """
+    text = _fixture().replace(anchor, "")
+    failures = check_convergence_contract(text)
+    assert any(anchor in f and "absent" in f for f in failures), failures
+
+
+@pytest.mark.parametrize(
+    "forbidden",
+    [
+        '--title "Deferred from review: PR #{{pr_number}}"',
+        "circuit breaker（人類裁決）路徑下**同樣建立**",
+    ],
+)
+def test_gdri_dt_002_opaque_deferred_title_and_premerge_creation_forbidden(forbidden: str):
+    """
+    spec: pr-review-convergence#pre-merge-issue-creation-forbidden
+    tc: GDRI-DT-002
+    """
+    failures = check_convergence_contract(_fixture() + forbidden + "\n")
+    assert any("forbidden string present" in f for f in failures), failures
+
 # --------------------------------------------------------------------------- edge / guard (EG)
 
 
@@ -463,6 +507,30 @@ def test_smk_001_suite_passes_against_real_skill_md():
     assert check_convergence_contract(text) == []
     assert check_preflight_position(text) == []
     assert check_preflight_snapshot(text) == []
+
+
+def test_gdri_eg_001_real_skill_deferral_anchors_kill_mutants():
+    """
+    spec: pr-review-convergence#many-important-one-issue
+    tc: GDRI-EG-001
+    """
+    text = read_skill_md()
+    for anchor in _DEFERRAL_FILTER_ANCHORS:
+        assert anchor in text, f"missing anchor in real SKILL.md: {anchor!r}"
+        failures = check_convergence_contract(text.replace(anchor, ""))
+        assert any(anchor in f and "absent" in f for f in failures), failures
+
+
+def test_gdri_vl_001_real_skill_rejects_opaque_title_and_passes():
+    """
+    spec: pr-review-convergence#unverified-or-unreachable-no-issue
+    tc: GDRI-VL-001
+    """
+    text = read_skill_md()
+    assert check_convergence_contract(text) == []
+    mutated = text + '\ngh issue create --title "Deferred from review: PR #999"\n'
+    failures = check_convergence_contract(mutated)
+    assert any("forbidden string present" in f for f in failures), failures
 
 
 if __name__ == "__main__":

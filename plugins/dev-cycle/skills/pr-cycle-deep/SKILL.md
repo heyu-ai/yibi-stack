@@ -1008,7 +1008,9 @@ any fixing, and is **tiered by cost** so most rejections execute nothing:
 
 A demoted finding is **moved, never dropped**: it goes to `## Deferred for lack of evidence` with
 its original title, description, and demotion reason **preserved verbatim** — the lead must not
-silently discard it.
+silently discard it. Items in `## Deferred for lack of evidence` (missing/malformed evidence,
+precision-only, `evidence did not reproduce`, single-voice zero-hit grep, or unreachable under the
+current architecture) stay in the Step 5b PR comment only — **禁止建立 GitHub issue**.
 
 Verifying well-formed evidence has three outcomes — do not collapse "invalid" into "absent":
 
@@ -1016,7 +1018,7 @@ Verifying well-formed evidence has three outcomes — do not collapse "invalid" 
 | --- | --- |
 | Reproduced | stays blocking |
 | Not reproduced | moved to deferred, recorded as "evidence did not reproduce" |
-| Invalid (evidence itself is broken / won't run) | lead fixes it once; if still unusable, **demote to Important into deferred — never drop, never record it as "not reproduced"** |
+| Invalid (evidence itself is broken / won't run) | lead fixes it once; if still unusable, **demote to Important into deferred — never drop, never record it as "not reproduced"** (placed in `## Verified Deferred Important` for human verification) |
 
 Disposition by severity × evidence × round (every cell defined — no gaps, no ambiguity):
 
@@ -1024,7 +1026,7 @@ Disposition by severity × evidence × round (every cell defined — no gaps, no
 | --- | --- | --- | --- |
 | Critical | valid | blocking | blocking |
 | Critical | none | deferred | deferred |
-| Important | valid | blocking | **deferred** (R2 blocks on Critical only) |
+| Important | valid | blocking | **deferred** (R2 blocks on Critical only; if verified reproducible and reachable, place in `## Verified Deferred Important`) |
 | Important | none | deferred | deferred |
 | Actionable NIT | valid | non-blocking | non-blocking |
 | Actionable NIT | none | non-blocking | non-blocking |
@@ -1072,6 +1074,10 @@ group-review ({{N}}/3 voices active)
 
 ## Deferred for lack of evidence (not blocking; reason stated per item)
 1. <finding> — demoted: <reason>... (For single-voice Critical demotions, include `Grep verification: <command> → <N> hits` in the demotion reason.)
+   - Code-review source: CR-<n>
+
+## Verified Deferred Important (verified reproducible; routed after merge)
+1. <finding> — verified: <concrete reproduction or Round 2 non-blocking reason>...
    - Code-review source: CR-<n>
 
 ## Outside contract (not blocking; mapping reason stated per item)
@@ -1154,26 +1160,15 @@ Do **not** touch the `review-in-progress` label here: the fixes have not been ma
 
 ---
 
-### Step 5c — 降級 Important 批次 issue
+### Step 5c — 延後項目四路過濾（合併前禁止建票）
 
-降級的 Important（`final.md` 的 `## Deferred for lack of evidence` 段落中 severity 為 Important 者）
-需要有人承接，去處是**每個 PR 至多一張** GitHub issue，標 `deferred-from-review`，一次列出該 PR
-全部降級 Important。降級的 Actionable NIT **不開票**——它留在 Step 5b 已貼的 PR comment 裡。沒有降級
-Important 時**不建立** issue。
+PR 尚未完成合併前（含 Round 1／Round 2 結束與 circuit breaker 階段），**禁止執行 `gh issue create`**。
+所有非阻擋項目依下列四路順序分流，防止未實證雜訊或階段待辦污染外部 issue tracker：
 
-時機：Round 2 結束後建立一次。circuit breaker（人類裁決）路徑下**同樣建立**——降級 Important 與未解
-blocking 是兩回事，前者不因後者而消失。
-
-執行前先確認 label 存在。若 `gh label list --repo {{owner/repo}}` 找不到 `deferred-from-review`：
-`[FAIL] deferred-from-review label 不存在 — 請先執行 gh label create deferred-from-review，再繼續。`
-
-label 就位且有降級 Important 時，把它們彙整成單一 issue body（逐項保留原標題／描述／降級理由），建立一張：
-
-```bash
-gh issue create --repo {{owner/repo}} --label deferred-from-review --title "Deferred from review: PR #{{pr_number}}" --body-file "$REVIEW_DIR/deferred-issue.md"
-```
-
-`gh issue create` 非零退出（auth／label 不存在／網路）→ `[WARN]` 回報，不阻斷流程。
+1. **未實證與不可達項目只留 PR 留言**：`final.md` 的 `## Deferred for lack of evidence`（缺證據、格式不符、精確度挑剔、`evidence did not reproduce`、單一 voice `grep` 0 命中、現行架構不可達）與 `## Actionable NIT` 一律只保留在 Step 5b 已貼出的 PR comment，**禁止建立 GitHub issue**。
+2. **Round 2 單檔小修當場結清**：`## Verified Deferred Important` 中已確認在現行架構可觸發的 Round 2 缺陷，若修改範圍在單一檔案、**15 行以內**且不改變公開介面或 Review Contract，lead SHOULD 在進 Step 8 前直接修完、通過本地與遠端 CI 並使用 Step 6 守衛推送（不啟動 Round 3 重審，也不建立 issue）。
+3. **進行中 Spectra change 優先承接**：若已確認的延後項目隸屬當前未封存（active）的 Spectra change（如規格條文對齊、開旗標前置條件、archive 前必做項），MUST 直接**寫入該 change 的 `tasks.md`** 並隨本分支推送，交由 `spectra archive` 閘門把關，**禁止建立 GitHub issue**。
+4. **獨立跨範圍問題留待合併後具名建票**：僅通過上述三道過濾後仍需獨立追蹤的 `## Verified Deferred Important`（例如先於本 PR 存在的獨立產品缺陷或無 active change 承接的跨模組問題），整理至 `$REVIEW_DIR/deferred-issue.md` 候選檔，留待 Step 10 **確認 PR 已 `MERGED` 後**（Step 10b）建立。沒有此類項目時不建立候選檔，也不建立 issue。
 
 ---
 
@@ -1535,6 +1530,21 @@ gh pr view "{{pr_number}}" --json mergeCommit -q .mergeCommit.oid
 ```
 
 Note the SHA as `{{merge_commit_sha}}` and report it to the user.
+
+#### Step 10b — 合併後建立已實證延後 issue
+
+僅在確認 PR 已 `MERGED` 後（取得非空 `{{merge_commit_sha}}`），且 Step 5c 第 4 路留有非空 `$REVIEW_DIR/deferred-issue.md` 時執行；PR 未合併（`CLOSED` 或停在 circuit breaker）或無獨立已實證延後項時**不建立** issue。
+
+去處是**每個 PR 至多一張** GitHub issue（禁止把無關的微末雜項混裝進同一張票；雜項只留 PR comment）：
+
+- **標題必須寫明具體模組與問題症狀**（例如 `"Story Lab 重新生成失敗會誤刪舊故事"`），嚴禁使用無語意的制式標題，並在內文首段註明來源 `PR #{{pr_number}}`（merge commit `{{merge_commit_sha}}`）。
+- 標籤優先使用目標 repo 既有領域標籤（如 `bug`、`spec-gap`、`harness`、`infra`）；若該 repo 已建立 `deferred-from-review` 標籤可一併附上作為來源標記（先以 `gh label list --repo "{{owner/repo}}"` 確認標籤存在，不存在則只貼既有領域標籤，不因缺 `deferred-from-review` 阻斷）。
+
+```bash
+gh issue create --repo "{{owner/repo}}" --label "<verified-existing-labels>" --title "<concrete-module-and-symptom-title>" --body-file "$REVIEW_DIR/deferred-issue.md"
+```
+
+`gh issue create` 非零退出（auth／網路）→ `[WARN]` 回報手動指令，不回滾已完成的合併。
 
 ---
 
