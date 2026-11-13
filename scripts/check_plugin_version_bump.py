@@ -6,10 +6,13 @@ Claude Code 以 plugin 版號判斷要不要更新本機快取（`~/.claude/plug
 2026-11-11 的實例：pr-cycle-deep 的建票修正（#643）在 v1.24.2 發版後才合併，之後沒有發版，
 使用者端一直跑舊的 1.24.2，每個 PR 照舊多開一張 deferred 票，兩天後才查出原因。
 
-規則：比較 `--base` 與 `--head` 的 merge base 到 head 之間的改動。只要改到任一
-`plugins/<name>/`（該目錄有 `.claude-plugin/plugin.json`）底下的出貨檔案，head 上所有
-plugin 的 `.claude-plugin/plugin.json` 與 `package.json` 版號就必須一致（lockstep），
-而且必須大於 merge base 上的版號。
+規則：比較 `--base` 與 `--head` 的 merge base 到 head 之間的改動。
+
+1. 一律檢查：head 上所有 plugin 的 `.claude-plugin/plugin.json` 與 `package.json` 版號必須
+   一致（lockstep），而且不可小於 merge base 上的版號（不可降版）。發版 commit 只改版號檔，
+   舊版 `make release` 曾在多個 PR 各自升版後把 plugin 降版，所以這兩條不看有沒有出貨改動。
+2. 改到任一 `plugins/<name>/`（該目錄有 `.claude-plugin/plugin.json`）底下的出貨檔案時，
+   版號還必須大於 merge base 上的版號。
 
 不算出貨內容、不觸發本檢查的路徑：
 - 路徑中含 `tests` 目錄的檔案（測試不改變使用者端行為）；
@@ -21,7 +24,7 @@ plugin 的 `.claude-plugin/plugin.json` 與 `package.json` 版號就必須一致
 那個在 main 上不會再升版。CI 的 push 檢查（以 push 前後的 SHA 比較）會讓 main 轉紅，
 但那時已經 merge 了。
 
-Exit code：0 = 沒有改到出貨內容，或版號已正確升版；1 = 需要升版而沒有升，或 lockstep 不一致；
+Exit code：0 = 沒有改到出貨內容，或版號已正確升版；1 = 需要升版而沒有升、降版，或 lockstep 不一致；
 2 = 無法取得資料（git 失敗、版號檔缺失或格式錯誤）。
 """
 
@@ -119,9 +122,9 @@ def check(repo: str, base: str, head: str) -> tuple[int, list[str]]:
     plugins = plugin_names(repo, head)
     changed = _git(repo, "diff", "--name-only", f"{merge_base}..{head}").splitlines()
     shipped = [p for p in changed if is_shipped(p, set(plugins))]
-    if not shipped:
-        return 0, ["[SKIP] 沒有改到 plugin 出貨內容，不需要升版"]
 
+    # lockstep 與「不可降版」不論有沒有改到出貨內容都檢查：發版 commit 只改版號檔，
+    # 舊版 make release 曾在多個 PR 各自升版後把 plugin 降版，那種 commit 沒有出貨檔案改動。
     head_versions = versions_at(repo, head, plugins)
     distinct = sorted(set(head_versions.values()))
     if len(distinct) != 1:
@@ -133,7 +136,15 @@ def check(repo: str, base: str, head: str) -> tuple[int, list[str]]:
     base_plugins = [p for p in plugin_names(repo, merge_base) if p in plugins]
     base_max = max(versions_at(repo, merge_base, base_plugins).values())
     new = distinct[0]
-    if new <= base_max:
+    if new < base_max:
+        return 1, [
+            f"[FAIL] plugin 版號從 {_fmt(base_max)} 降為 {_fmt(new)}。",
+            "  已更新到較高版號的使用者不會降回來，較低版號也可能已對應到別的內容。",
+            "  修法：scripts/sync-plugin-versions.sh <不小於 base 的版號>",
+        ]
+    if not shipped:
+        return 0, ["[SKIP] 沒有改到 plugin 出貨內容，不需要升版"]
+    if new == base_max:
         lines = [
             f"[FAIL] 改到 plugin 出貨內容，但版號沒有升（base {_fmt(base_max)}，head {_fmt(new)}）。",
             "  版號不變時 claude plugin update 不會更新使用者的快取，合併的改動不會生效。",
