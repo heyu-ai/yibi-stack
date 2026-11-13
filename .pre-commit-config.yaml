@@ -16,6 +16,11 @@ repos:
     hooks:
       - id: markdownlint-cli2
         exclude: ^(openspec|docs/openspec)/
+        # 固定 node 版本：pre-commit 不採用裝在 home 目錄底下的 node（lang_base.exe_exists），
+        # 這時會交給 nodeenv 自己下載，而未指定版本時 nodeenv 選 nodejs.org 的最新版。
+        # 最新版是 27.0.0-alpha 時，nodeenv 1.10.0 無法解析版本號（ValueError: '0-alpha'），
+        # 整個 pre-commit 在建環境階段就失敗。主版本與 CI 的 setup-node 22 對齊。
+        language_version: "22.22.3"
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.5
