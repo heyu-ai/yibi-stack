@@ -5,11 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.3] - 2026-11-13
+
+### Changed
+
+- 收緊非阻擋項目建票閘門並改於合併後具名建票 (#643)
+
 ## [1.24.2] - 2026-11-11
 
 ### Changed
 
 - 新增 explain-to-pm，把技術決策轉成 PM 看得懂的圖文 HTML (#644)
+- V1.24.2
 
 ## [1.24.1] - 2026-11-11
 
@@ -908,6 +915,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove bash anti-patterns triggering CC confirmation dialogs (#137)
 - Remove unnecessary rm-f after git commit-F (#105)
 
+[1.24.3]: https://github.com/heyu-ai/yibi-stack/compare/v1.24.2..v1.24.3
 [1.24.2]: https://github.com/heyu-ai/yibi-stack/compare/v1.24.1..v1.24.2
 [1.24.1]: https://github.com/heyu-ai/yibi-stack/compare/v1.24.0..v1.24.1
 [1.24.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.24..v1.24.0
