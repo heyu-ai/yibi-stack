@@ -287,9 +287,13 @@ make install-all         # 等同 build-tools + install + install-project + inst
   `No module named tasks.<old_name>.__main__`. After every module rename, search both settings
   files for the old name and update manually.
 - **plugin version lockstep (package.json vs .claude-plugin/plugin.json)**: every plugin carries
-  its version in both files and no CI check compares them. Bump with
-  `scripts/sync-plugin-versions.sh <version>` (or `make release`), which writes both for all
-  plugins; do not hand-edit one file.
+  its version in both files. Bump with `scripts/sync-plugin-versions.sh <version>` (or
+  `make release`), which writes both for all plugins; do not hand-edit one file.
+  CI runs `scripts/check_plugin_version_bump.py` on every PR and push to main: when the range
+  changes a shipped file under `plugins/<name>/` (anything except files in a `tests` directory
+  and the two version files), all version files at head must be equal and greater than the
+  merge base. Without a bump, `claude plugin update` keeps the old cache and the merged change
+  never reaches users (#643 stayed unreleased for two days).
 - **`gh` CLI `--json` field names must be verified before use**: fields like `databaseId` do
   not exist in `gh pr checks` (some fields only exist in `gh pr list` or other commands).
   Passing a non-existent field name returns empty values silently — any function consuming that
