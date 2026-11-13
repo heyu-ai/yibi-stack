@@ -79,6 +79,10 @@ rollback() {
     # after a failed gate -- a half-rolled-back tree that looks clean at a glance.
     git checkout -- 'plugins/*/package.json' 2>/dev/null || true
     git checkout -- 'plugins/*/.claude-plugin/plugin.json' 2>/dev/null || true
+    # gates.sh 內的 uv run 會依 bump 後的 pyproject.toml 改寫 uv.lock 的版本行；Step 5 會
+    # commit 它，所以 gate 失敗時也要還原，否則下一次 make release 會被 dirty tree 擋下。
+    # 開跑前已確認工作樹乾淨，這裡還原的只會是本次流程造成的改動。
+    git checkout -- uv.lock 2>/dev/null || true
 }
 trap rollback ERR
 

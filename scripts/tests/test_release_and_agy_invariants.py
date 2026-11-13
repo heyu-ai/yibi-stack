@@ -910,3 +910,31 @@ class TestReleaseRollbackContract:
             assert f"git checkout -- 'plugins/*/{synced}'" in rollback_region, (
                 f"rollback() must revert {synced} -- sync_plugin_versions.py writes it"
             )
+
+    def test_release_dt_003_rollback_covers_every_committed_path(self) -> None:
+        """RELEASE-DT-003: every path Step 5 git-adds is also reverted by rollback().
+
+        Step 5 commits exactly the files the release flow mutates, so that list is the
+        authoritative set rollback() must undo. uv.lock was committed but never reverted:
+        `uv run` inside gates.sh rewrites its version line, so a failed gate left uv.lock
+        dirty and the next `make release` was refused as a dirty tree.
+        """
+        code = _code_lines(RELEASE_SH)
+        rollback_region = code.split("trap rollback ERR")[0]
+        step5_region = code.split("Step 5: Commit")[1]
+        added = [
+            path
+            for args in re.findall(r"git add ([^\n;&|]+)", step5_region)
+            for path in args.split()
+        ]
+        assert added, "precondition: Step 5 must git-add at least one path"
+        assert "uv.lock" in added, "precondition: Step 5 commits uv.lock"
+        reverted = {
+            token.strip("'\"")
+            for args in re.findall(r"git checkout -- ([^\n;&|]+)", rollback_region)
+            for token in args.split()
+            if not token.startswith("2>")
+        }
+        assert reverted, "precondition: rollback() must contain git checkout lines"
+        missing = [p for p in added if p not in reverted]
+        assert not missing, f"rollback() does not revert paths Step 5 commits: {missing}"
