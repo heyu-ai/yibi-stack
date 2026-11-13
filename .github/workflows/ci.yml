@@ -72,6 +72,24 @@ jobs:
           --base "${{ github.event.before }}"
           --head "${{ github.sha }}"
 
+      # 改到 plugin 出貨內容卻沒有升 lockstep 版號時失敗：版號不變，claude plugin update
+      # 不會更新使用者的快取，合併的改動等於沒出貨（2026-11-11 #643 合併後沒發版，使用者
+      # 端停在 1.24.2 兩天）。push 步驟抓的是「兩個 PR 從同一個 base 升到同一個版號」這種
+      # PR check 看不到的情況；全零 before 的略過理由同上方 evidence lint。
+      - name: Plugin version bump against pull request range
+        if: github.event_name == 'pull_request'
+        run: >-
+          uv run python scripts/check_plugin_version_bump.py
+          --base "${{ github.event.pull_request.base.sha }}"
+          --head "${{ github.event.pull_request.head.sha }}"
+
+      - name: Plugin version bump against pushed range
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: >-
+          uv run python scripts/check_plugin_version_bump.py
+          --base "${{ github.event.before }}"
+          --head "${{ github.sha }}"
+
       - name: Lint, format, type check, security (pre-commit)
         run: uv run pre-commit run --all-files
 
