@@ -26,6 +26,19 @@ DIRTY_BEFORE_MSG = "跑 checker 前工作樹就不乾淨"
 # checker 收到的標題會不同，argv 比對就會失敗
 HOSTILE_TITLE = 'fix(x): 位置參數改 ${N} 並處理 `touch pwned` 與 "引號"'
 
+
+@pytest.fixture(autouse=True)
+def _isolate_claude_job_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """移除外部繼承的 CLAUDE_JOB_DIR，讓測試結果不受執行環境影響。
+
+    red-first.sh 在 CLAUDE_JOB_DIR 有設定時會拒絕 job 目錄 tmp/ 以外的 --out-dir。
+    在 Claude Code background session 裡跑 pytest（例如 make release 的 gates）時，
+    這個變數會從 session 繼承下來，讓所有使用 pytest tmp_path 的測試以 exit 2 失敗。
+    需要這個變數的測試會在自己的 env 明確設定，不受此 fixture 影響。
+    """
+    monkeypatch.delenv("CLAUDE_JOB_DIR", raising=False)
+
+
 FAKE_GH = """#!/usr/bin/env bash
 # 假的 gh：只支援 `gh pr view <n> --json <field> -q .<field>`
 if [ -n "${FAKE_GH_FAIL:-}" ]; then echo "gh: simulated failure" >&2; exit 1; fi
