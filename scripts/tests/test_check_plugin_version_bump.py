@@ -121,6 +121,19 @@ class TestVersionRules:
         assert lines[0].startswith("[FAIL] head 上的 plugin 版號不一致")
         assert "  plugins/beta/package.json: 1.0.0" in lines
 
+    def test_downgrade_without_shipped_change_fails(self, repo: Path) -> None:
+        # 舊版 make release 的降版 commit 只改版號檔，也必須被擋下
+        _write_versions(repo, "0.9.9")
+        _commit(repo, "release downgrade")
+        code, lines = _run(repo)
+        assert code == 1
+        assert lines[0] == "[FAIL] plugin 版號從 1.0.0 降為 0.9.9。"
+
+    def test_broken_lockstep_without_shipped_change_fails(self, repo: Path) -> None:
+        _write_versions(repo, "1.0.1", only="alpha")
+        _commit(repo, "bump alpha only, no content")
+        assert _run(repo)[0] == 1
+
     def test_downgrade_fails(self, repo: Path) -> None:
         _edit_skill(repo)
         _write_versions(repo, "0.9.9")
