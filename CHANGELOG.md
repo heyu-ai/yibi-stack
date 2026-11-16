@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- 移除 `mycelium lessons rows` 的 200 識別碼應用層上限，保留單一 snapshot、完整 receipt 與 retired owner 讀回，避免 Hindsight 投影及 tombstone reconciliation 隨歷史累積永久降級（#634）。
+- Hindsight 協定將舊 installed CLI 的 200 識別碼錯誤辨識為版本過舊；更新前維持 degraded，不拆批、不漏 receipt，也不自動安裝或發布。
+
 ## [1.24.3] - 2026-11-13
 
 ### Changed
