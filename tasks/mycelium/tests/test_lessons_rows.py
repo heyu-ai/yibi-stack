@@ -451,6 +451,7 @@ class TestExitStatusDistinguishesFailureFromAnEmptyResult:
                 id="surrounding-whitespace-project",
             ),
             pytest.param(["--project", _PROJECT, "--id", ""], id="empty-id"),
+            pytest.param(["--project", _PROJECT, "--id", "   "], id="whitespace-id"),
         ],
     )
     def test_lrows_vl_001_invalid_arguments_exit_2(
@@ -514,7 +515,7 @@ class TestConcurrentCanonicalReadback:
         spec: lesson-canonical-readback#growing-receipts
         """
         db_path = tmp_path / "concurrent.db"
-        owners = [_make_lesson(key=f"receipt-{i:03}") for i in range(204)]
+        owners = [_make_lesson(key=f"receipt-{i:03}") for i in range(408)]
         _seed(db_path, *owners)
         connect = sqlite3.connect
         writer = connect(db_path)
@@ -545,8 +546,8 @@ class TestConcurrentCanonicalReadback:
         # 僅在 SQLite 外部邊界插入真實並行寫入；不替換 query／service／CLI。
         monkeypatch.setattr(sqlite3, "connect", open_reader)
         # 不重疊的命中集合讓第二個快照的 lifecycle 變化無法被去重掩蓋。
-        args = [arg for row in owners[:102] for arg in ("--key", row.key)]
-        args.extend(arg for row in owners[102:] for arg in ("--id", row.id))
+        args = [arg for row in owners[:204] for arg in ("--key", row.key)]
+        args.extend(arg for row in owners[204:] for arg in ("--id", row.id))
         try:
             data = _ok_json(_run(monkeypatch, db_path, "--project", _PROJECT, *args))
             assert updated, "並行寫入必須確實發生"
