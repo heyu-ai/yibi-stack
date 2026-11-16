@@ -1,16 +1,66 @@
 #!/usr/bin/env bash
 # bump.sh — 通用 project-level 版本 bump 腳本
-# 用法：bump.sh [patch|minor|major]
+# 用法：bump.sh [--dir <path>] [patch|minor|major]
 # 自動偵測 Flutter/Python/Node.js/Go 並更新對應版本檔
+#
+# --dir：monorepo 的元件目錄（例：backend、story-lab）。只升該目錄的版號檔，路徑必須在
+#        repo 內。不帶 --dir 時處理目前目錄，行為與舊版相同（scripts/release-full.sh 依賴此點）。
+# BUMP_RESULT_ENV：結果檔路徑，預設 /tmp/bump_version_result.env。
 
 set -euo pipefail
 
-BUMP_TYPE="${1:-patch}"
+BUMP_TYPE=""
+COMPONENT_DIR="."
 
-case "$BUMP_TYPE" in
-  patch|minor|major) ;;
-  *) echo "[FAIL] bump type 必須是 patch、minor 或 major" >&2; exit 1 ;;
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dir)
+      if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+        echo "[FAIL] --dir 需要一個目錄參數（用法：bump.sh [--dir <path>] [patch|minor|major]）" >&2
+        exit 1
+      fi
+      COMPONENT_DIR="$2"
+      shift 2
+      ;;
+    patch|minor|major)
+      BUMP_TYPE="$1"
+      shift
+      ;;
+    *)
+      echo "[FAIL] bump type 必須是 patch、minor 或 major（收到：${1}）" >&2
+      exit 1
+      ;;
+  esac
+done
+
+BUMP_TYPE="${BUMP_TYPE:-patch}"
+
+REPO_ROOT_PATH=$(git rev-parse --show-toplevel)
+
+if [ ! -d "$COMPONENT_DIR" ]; then
+  echo "[FAIL] --dir 目錄不存在：$COMPONENT_DIR" >&2
+  exit 1
+fi
+
+ROOT_REAL=$(cd "$REPO_ROOT_PATH" && pwd -P)
+DIR_REAL=$(cd "$COMPONENT_DIR" && pwd -P)
+
+case "$DIR_REAL/" in
+  "$ROOT_REAL"/*) ;;
+  *)
+    echo "[FAIL] --dir 不在 repo 內：${COMPONENT_DIR}（repo 根目錄：${ROOT_REAL}）" >&2
+    exit 1
+    ;;
 esac
+
+# 相對於 repo 根目錄的元件路徑；根目錄本身記為 "."
+REL_DIR="${DIR_REAL#"$ROOT_REAL"}"
+REL_DIR="${REL_DIR#/}"
+if [ -z "$REL_DIR" ]; then
+  REL_DIR="."
+fi
+
+cd "$DIR_REAL"
 
 # ---------- 偵測專案類型 ----------
 
@@ -222,7 +272,10 @@ if [ "$PROJECT_TYPE" = "flutter" ]; then
   done
 fi
 
-RESULT_ENV="/tmp/bump_version_result.env"
-REPO_ROOT_PATH=$(git rev-parse --show-toplevel)
-printf 'BUMP_VERSION=%q\nTAG_VERSION=%q\nVERSION_FILE=%q\nPROJECT_TYPE=%q\nREPO_ROOT=%q\n' "$NEW_VERSION" "$TAG_VERSION" "$VERSION_FILE" "$PROJECT_TYPE" "$REPO_ROOT_PATH" > "$RESULT_ENV"
+if [ "$REL_DIR" != "." ] && [ "$VERSION_FILE" != "git-tag-only" ]; then
+  VERSION_FILE="${REL_DIR}/${VERSION_FILE}"
+fi
+
+RESULT_ENV="${BUMP_RESULT_ENV:-/tmp/bump_version_result.env}"
+printf 'BUMP_VERSION=%q\nTAG_VERSION=%q\nVERSION_FILE=%q\nPROJECT_TYPE=%q\nREPO_ROOT=%q\nCOMPONENT_DIR=%q\n' "$NEW_VERSION" "$TAG_VERSION" "$VERSION_FILE" "$PROJECT_TYPE" "$REPO_ROOT_PATH" "$REL_DIR" > "$RESULT_ENV"
 echo "[OK] 結果寫入：$RESULT_ENV"
