@@ -59,7 +59,7 @@ The rows subcommand SHALL open the database with a read-write file URI that does
 ---
 ### Requirement: Exit status distinguishes failure from an empty result
 
-The rows subcommand SHALL exit 0 when the query succeeds, including when it returns zero rows. It SHALL NOT impose an application-level limit on the combined number of requested keys and ids. It SHALL exit 2 for invalid arguments: no key and no id, an empty project, or a key outside the pattern of letters, digits, underscore and hyphen. It SHALL exit 3 when the database is unavailable: missing file, open failure, missing lessons table, or an SQLite error during the query. On exit 3 stdout SHALL be empty and stderr SHALL contain a message starting with [FAIL].
+The rows subcommand SHALL exit 0 when the query succeeds, including when it returns zero rows. It SHALL NOT impose an application-level limit on the combined number of requested keys and ids. It SHALL exit 2 for invalid arguments: no key and no id, an empty project or one with leading or trailing whitespace, an empty or whitespace-only id, or a key outside the pattern of letters, digits, underscore and hyphen. It SHALL exit 3 when the database is unavailable: missing file, open failure, missing lessons table, or an SQLite error during the query. On exit 3 stdout SHALL be empty and stderr SHALL contain a message starting with [FAIL].
 
 #### Scenario: zero-rows-success -- Successful query with no matches
 
@@ -114,7 +114,7 @@ The Hindsight projection protocol document SHALL direct canonical readback throu
 
 #### Scenario: protocol-invalid-arguments -- Malformed arguments are not a stale installation
 
-- **WHEN** exit 2 diagnostics report an invalid key or empty project
+- **WHEN** exit 2 diagnostics report an invalid key, an empty or whitespace-only id, or an invalid project
 - **THEN** the protocol SHALL report the argument error and preserve diagnostics without recommending reinstallation.
 
 #### Scenario: protocol-missing-owner-degrades -- Missing receipt owner

@@ -92,7 +92,11 @@ Audit 留下 source IDs 與人類 recurrence 決定；回答確實使用記憶�
      `uv tool install --force "yibi-stack @ git+https://github.com/heyu-ai/yibi-stack@<fixed-release-tag>"`。
      不冒稱尚未發布的 tag 已可安裝、不自動安裝或 release、不刪減 identifiers、不拆批；更新前維持 degraded。
      其他 exit 2 才回報為參數錯誤（例如 key 格式不合、project 為空），附 stderr，不提示重裝。
-   - **3**：DB 不可用（不存在、無法開啟、缺 lessons table、查詢錯誤）→ degraded；不初始化 DB、不改用其他讀法。
+   - **3**：DB 不可用或查詢錯誤 → degraded，保留 stderr；不初始化 DB、不改用其他讀法。
+     `too many SQL variables` 表示 SQLite 原生參數上限，不等於 DB 損壞；不拆批、不刪減 identifiers，
+     回報需要另行設計同 snapshot 的可擴展介面。
+   - **其他非 0 或 CLI 未能啟動**（例如參數過長、找不到執行檔）：degraded 並停止發布，保留原始診斷；
+     不依賴特定 shell 的固定 exit code，也不拆批、刪減 identifiers 或自動安裝。
 3. 以 stdout 的 JSON（`rows`、`missing_keys`、`missing_ids`）判定 ownership 與 lifecycle：
    receipt 的 lesson_id 出現在 `missing_ids`（owner 不存在）→ 該 document degraded，不推定刪除或新 owner；
    候選 key 出現在 `missing_keys` → 該候選 degraded。先以 project＋receipt lesson_id 查明 owner，再看同 key

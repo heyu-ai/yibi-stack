@@ -552,15 +552,16 @@ def test_hsp_st_031_large_real_readback_produces_new_and_tombstone_plans(
             db.insert_lesson(row)
         monkeypatch.setenv("MYCELIUM_DB_OVERRIDE", str(db_path))
 
-        def readback(rows):
-            args = [arg for row in rows for arg in ("--key", row.key, "--id", row.id)]
+        def readback(rows, owners):
+            args = [arg for row in rows for arg in ("--key", row.key)]
+            args.extend(arg for row in owners for arg in ("--id", row.id))
             result = CliRunner().invoke(cli, ["lessons", "rows", "--project", "payments", *args])
             assert result.exit_code == 0, result.output
             data = json.loads(result.stdout)
             assert data["missing_ids"] == [] and data["missing_keys"] == []
             return data["rows"]
 
-        prior_rows = readback(records[:102])
+        prior_rows = readback(records[:102], records[:102])
         prior_items = [
             {"record": row, "summary": "Verified prior projection.", "evidence_ids": ["p#1"]}
             for row in prior_rows
@@ -583,7 +584,7 @@ def test_hsp_st_031_large_real_readback_produces_new_and_tombstone_plans(
                     else {}
                 ),
             }
-            for row in readback(records)
+            for row in readback(records, records[:102])
         ]
         plans = projection.prepare({"project": "payments", "items": items, "receipts": receipts})[
             "plans"
