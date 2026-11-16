@@ -78,8 +78,15 @@ class TestBumpDir:
         result_env = tmp_path / "result.env"
         proc = _run(monorepo, result_env, "--dir", "backend", "minor")
         assert proc.returncode == 0, proc.stderr
-        assert 'version = "0.12.0"' in (monorepo / "backend" / "pyproject.toml").read_text(encoding="utf-8")
-        assert json.loads((monorepo / "story-lab" / "package.json").read_text(encoding="utf-8"))["version"] == "0.98.0"
+        assert 'version = "0.12.0"' in (monorepo / "backend" / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+        assert (
+            json.loads((monorepo / "story-lab" / "package.json").read_text(encoding="utf-8"))[
+                "version"
+            ]
+            == "0.98.0"
+        )
         env = _read_env(result_env)
         assert env["TAG_VERSION"] == "0.12.0"
         assert env["VERSION_FILE"] == "backend/pyproject.toml"
@@ -91,11 +98,20 @@ class TestBumpDir:
         result_env = tmp_path / "result.env"
         proc = _run(monorepo, result_env, "--dir", "story-lab", "patch")
         assert proc.returncode == 0, proc.stderr
-        assert json.loads((monorepo / "story-lab" / "package.json").read_text(encoding="utf-8"))["version"] == "0.98.1"
-        assert 'version = "0.11.0"' in (monorepo / "backend" / "pyproject.toml").read_text(encoding="utf-8")
+        assert (
+            json.loads((monorepo / "story-lab" / "package.json").read_text(encoding="utf-8"))[
+                "version"
+            ]
+            == "0.98.1"
+        )
+        assert 'version = "0.11.0"' in (monorepo / "backend" / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
         assert _read_env(result_env)["VERSION_FILE"] == "story-lab/package.json"
 
-    def test_bump_vl_003_missing_dir_fails_without_change(self, monorepo: Path, tmp_path: Path) -> None:
+    def test_bump_vl_003_missing_dir_fails_without_change(
+        self, monorepo: Path, tmp_path: Path
+    ) -> None:
         """BUMP-VL-003: --dir 指向不存在的目錄時以 [FAIL] 結束，不改任何檔案"""
         result_env = tmp_path / "result.env"
         proc = _run(monorepo, result_env, "--dir", "admin", "patch")
@@ -103,7 +119,9 @@ class TestBumpDir:
         assert "[FAIL]" in proc.stderr
         assert "admin" in proc.stderr
         assert not result_env.exists()
-        assert 'version = "0.11.0"' in (monorepo / "backend" / "pyproject.toml").read_text(encoding="utf-8")
+        assert 'version = "0.11.0"' in (monorepo / "backend" / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
 
     def test_bump_vl_004_dir_without_value_fails(self, monorepo: Path, tmp_path: Path) -> None:
         """BUMP-VL-004: --dir 後面沒有值時以 [FAIL] 結束，不是 unbound variable"""
@@ -120,13 +138,17 @@ class TestBumpDir:
         proc = _run(monorepo, tmp_path / "result.env", "--dir", str(outside), "patch")
         assert proc.returncode != 0
         assert "[FAIL]" in proc.stderr
-        assert json.loads((outside / "package.json").read_text(encoding="utf-8"))["version"] == "1.0.0"
+        assert (
+            json.loads((outside / "package.json").read_text(encoding="utf-8"))["version"] == "1.0.0"
+        )
 
     def test_bump_dt_006_no_dir_keeps_root_behavior(self, tmp_path: Path) -> None:
         """BUMP-DT-006: 不帶 --dir 時照舊升根目錄的版號檔（release-full.sh 依賴此行為）"""
         repo = tmp_path / "root-repo"
         repo.mkdir()
-        (repo / "pyproject.toml").write_text('[project]\nname = "x"\nversion = "1.24.3"\n', encoding="utf-8")
+        (repo / "pyproject.toml").write_text(
+            '[project]\nname = "x"\nversion = "1.24.3"\n', encoding="utf-8"
+        )
         _git(repo, "init", "-q")
         result_env = tmp_path / "result.env"
         proc = _run(repo, result_env, "patch")
