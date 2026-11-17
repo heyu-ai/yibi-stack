@@ -153,7 +153,5 @@ construction even when the interpolated value is one of a small fixed set of
 literals; two static strings sidestep both the false positive and the need for a
 `# nosec` comment.
 
-(Source: yibi-stack PR #210 — `tasks/nightly_agent/cli.py`'s `_load_mycelium_lessons`
-read directly from mycelium's `handover.db` without going through `AgentsDB`; the
-first fix attempt ran the owning module's own migration pattern on that foreign read
-path, flagged independently by two review voices.)
+(Source: yibi-stack PR #210; current instance: `_load_mycelium_lessons` in
+`tasks/nightly_agent/cli.py`.)

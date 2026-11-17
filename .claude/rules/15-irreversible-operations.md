@@ -65,7 +65,7 @@ npm publish
 uv publish
 ```
 
-**Native auto-mode interception (Claude Code v2.1.183+)**: auto mode now natively blocks
+**Native auto-mode interception (Claude Code v2.1.183+)**: auto mode natively blocks
 `terraform destroy` / `pulumi destroy` / `cdk destroy` unless you named the specific stack.
 This is defense-in-depth on top of this doc-layer rule — see the note at the end of Category 3.
 
@@ -136,7 +136,7 @@ Criterion: whether the branch has been pushed to remote.
 
 ### Defense in Depth: Native Auto-Mode Interception (v2.1.183+)
 
-Claude Code v2.1.183+ auto mode now **natively intercepts** these destructive commands unless
+Claude Code v2.1.183+ auto mode **natively intercepts** these destructive commands unless
 you explicitly request them: `git reset --hard`, `git checkout -- .`, `git clean -fd`,
 `git stash drop`, `git commit --amend` (when the commit was not authored by the agent this
 session), and `terraform/pulumi/cdk destroy` (unless the specific stack is named).
@@ -311,21 +311,23 @@ gcloud sql instances delete prod-db
 
 ## Confirm Upstream Tracking Before `git push` (Prevent Accidental Push to Main)
 
-A feature branch created from `origin/main` defaults to tracking `origin/main`.
-Running `git push origin <feature-branch>` without `-u` pushes to `origin/main`
-per the tracking config, bypassing PR review.
+A feature branch created from `origin/main` defaults to tracking `origin/main`. Under
+`push.default=upstream` (the maintainer's global git config sets it), a push whose refspec has no
+`:<dst>` follows that tracking: `git push`, `git push origin <feature-branch>` **and** `git push -u origin
+<feature-branch>` all update `origin/main`, bypassing PR review. `-u` does not help; only an
+explicit destination does (probed 2026-11-17, git 2.56.1, local bare remote).
 
 **Standard practice: run `git branch -vv` before pushing to verify upstream**
 
 | Upstream shows | Push command |
 |---------------|--------------|
-| `[origin/main: ahead N]` | Must use `git push -u origin <branch-name>` to create a dedicated remote branch |
+| `[origin/main: ahead N]` | Must name the destination: `git push -u origin <branch-name>:<branch-name>` |
 | `[origin/<branch-name>]` | Plain `git push` is fine |
 
 ```bash
-# Verify upstream, then create remote branch with -u
+# Verify upstream, then create the remote branch with an explicit refspec
 git branch -vv
-git push -u origin chore/my-feature-branch
+git push -u origin chore/my-feature-branch:chore/my-feature-branch
 ```
 
 This is an irreversible operation affecting a shared branch: once pushed to `origin/main`,
@@ -355,10 +357,8 @@ When creating a revert PR (to undo commits that landed on a shared branch):
    base causes `git diff origin/main HEAD` to include those newer commits in the
    diff — merging silently reverts them.
 
-**Real incident (PR #55)**: After the revert branch was created, `5725b86`
-(`security(agy): replace --dangerously-skip-permissions with --sandbox`) landed
-on `origin/main`. Without rebase, the diff included 3 agy scripts. Mob review
-caught it; rebase onto `origin/main` fixed the scope back to exactly 6 rule files.
+(Incident: PR #55 — a stale revert branch would have silently reverted a security fix that
+landed on `origin/main` after the branch was created.)
 
 ## Worktree Path Resolution: `--show-toplevel` vs `--git-common-dir`
 
@@ -421,8 +421,8 @@ that session — twice, the second time after having just written this down.)
 ## A Linked Worktree Must Never Check Out `main`
 
 Git lets exactly one worktree hold a given branch. If a linked worktree checks out `main`, the
-main repo can no longer `git checkout main`, and every command that internally does so —
-`gh pr merge`, `/clean-merged`, `/clean-gone` — fails with
+main repo can no longer `git checkout main`, and every command that internally does so (for
+example `gh pr merge --delete-branch`) fails with
 `fatal: 'main' is already used by worktree at '...'`.
 
 ```bash
