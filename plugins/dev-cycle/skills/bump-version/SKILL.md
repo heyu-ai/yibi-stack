@@ -5,7 +5,7 @@ scope: global
 description: >
   Project-level 版本號 bump + CHANGELOG 生成 + git tag 發布流程。
   repo 有 process-version-policy spec 時，先讀政策，依改動路徑只升受影響元件（monorepo 的
-  backend、前端子專案等）的版號，不打 tag；沒有政策時走單一專案的 bump + release。
+  backend、前端子專案等）的版號，預設不打 tag（政策明寫由本 skill 處理時才依政策）；沒有政策時走單一專案的 bump + release。
   自動偵測 Flutter（pubspec.yaml）、Python（pyproject.toml）、Node.js（package.json）、Go（git tag only）。
   觸發情境：「bump version」「版本升級」「release」「發布」「tag」「CHANGELOG」
   「patch/minor/major」「pubspec version」「pyproject version」。
@@ -29,9 +29,12 @@ plugin 機制的 agents 使用，功能等價。
 
 ## Step 0：先讀 repo 的版本政策
 
-用 Glob 找 `**/specs/process-version-policy/spec.md`（排除 `**/changes/archive/**`）。
+先用 `git rev-parse --show-toplevel` 取得 repo 根目錄（目前目錄必須在 repo 內，否則停下回報，
+不要靜默走回主流程）。再以該根目錄為搜尋起點，用 Glob 找 `**/specs/process-version-policy/spec.md`，
+排除 `**/changes/**`（進行中與已封存的 change 都排除）與 `.claude/worktrees/**`。
+進行中 change 裡的 delta spec 不是現行政策，不可當成政策採用。
 
-- **找到** → 走下方「政策模式」，不走主流程。
+- **找到一份** → 走下方「政策模式」，不走主流程。
 - **找不到** → 走「主流程：bump + release」。
 - **找到不只一份** → 停下，列出路徑請使用者指定，不要自己挑。
 
@@ -55,9 +58,13 @@ plugin 機制的 agents 使用，功能等價。
 
 ### P2：判斷受影響的元件與級別
 
+`<base>` 是這個 PR 的 base 分支（`gh pr view --json baseRefName`）；還沒開 PR 時用 repo 的預設分支。
+
 ```bash
-git fetch origin main
+git fetch origin <base>
 ```
+
+`git fetch` 失敗就停下並回報，不要往下用過期的 `FETCH_HEAD`。成功後：
 
 ```bash
 git diff --name-only FETCH_HEAD...HEAD
@@ -66,8 +73,8 @@ git diff --name-only FETCH_HEAD...HEAD
 - 把改動檔案對到 P1 的元件對照，得到受影響的元件。版號檔與 lock 檔本身不算原始碼。
 - 級別依 PR 標題的 type 決定（還沒開 PR 時，用本分支 commit 中級別最高的 type）。
   政策規定該 type 不強制升版時，詢問使用者要不要升。
-- 每個元件讀 `FETCH_HEAD` 與目前分支的版號。目前分支已經比 `FETCH_HEAD` 高到足夠的級別時，
-  跳過該元件，不要重複升版。
+- 每個元件讀 `FETCH_HEAD` 與目前分支的版號。「已升夠」的定義：目前分支的版號 >= 把 `FETCH_HEAD`
+  版號依所需級別升版後的版號。達到就跳過該元件，不要重複升版；沒達到才升。
 
 把結果列成表給使用者確認：元件、`FETCH_HEAD` 版號、目前版號、要升的級別、新版號。
 
@@ -79,16 +86,25 @@ git diff --name-only FETCH_HEAD...HEAD
 bash "${CLAUDE_SKILL_DIR}/scripts/bump.sh" --dir <component-dir> <patch|minor|major>
 ```
 
-每次執行後讀 `bump.sh` 寫出的結果檔（預設 `/tmp/bump_version_result.env`，可用 `BUMP_RESULT_ENV`
-指定），確認 `VERSION_FILE` 與 `TAG_VERSION` 符合 P2 的預期。不符時停下回報，不要繼續下一個元件。
+**使用 `bump.sh` 時**：先確認 `bump.sh` 的 exit code 為 0，非 0 就停下回報，不要讀結果檔。成功後讀
+`bump.sh` 寫出的結果檔（預設 `/tmp/bump_version_result.env`，可用 `BUMP_RESULT_ENV` 指定，相對路徑
+相對於執行時的目錄），確認 `VERSION_FILE` 與 `TAG_VERSION` 符合 P2 的預期。建議每個元件用不同的
+`BUMP_RESULT_ENV`，避免讀到別的元件的結果。`BUMP_RESULT_ENV` 只有 `bump.sh` 認得；`gates.sh`、
+`release.sh` 與 platform hook 仍讀 `/tmp/bump_version_result.env`。
+
+**使用政策指定的指令時**：該指令不會寫 `bump.sh` 的結果檔，不要讀結果檔。改為讀政策指定的版號檔，
+與 P2 的預期新版號比對。
+
+兩種情況不符時都停下回報，不要繼續下一個元件。
 
 Python 元件若有 lock 檔（`uv.lock`）而政策沒有指定升版指令，升版後執行該元件目錄的 `uv lock`；
 Node 元件依 lock 檔種類執行對應的 lock 更新。
 
 ### P4：commit，不打 tag
 
-只 stage 版號檔與 lock 檔，commit 訊息依該 repo 的 commit 慣例。政策模式**不執行** Step 3–6
-（CHANGELOG、gates、tag、GitHub Release），除非政策明寫由本 skill 處理。
+只 stage 版號檔與 lock 檔，commit 訊息依該 repo 的 commit 慣例。政策模式**不執行**主流程的
+Step 3（CHANGELOG）、Step 4（gates）、Step 6（tag 與 GitHub Release）；Step 5 的 `git add -A` 與
+`chore(release)` 訊息也不使用，改依本段方式 commit。除非政策明寫由本 skill 處理這些動作。
 
 報告：每個元件的舊版號、新版號與版號檔路徑。
 
@@ -118,7 +134,8 @@ git-cliff --unreleased --bump 2>/dev/null | head -5
 bash "${CLAUDE_SKILL_DIR}/scripts/bump.sh" {{patch|minor|major}}
 ```
 
-腳本輸出新版本到 `/tmp/bump_version_result.env`，讀取：
+腳本輸出新版本到 `/tmp/bump_version_result.env`（主流程不設 `BUMP_RESULT_ENV`，因為 `gates.sh`、
+`release.sh` 與 platform hook 只讀這個路徑），讀取：
 
 ```bash
 source /tmp/bump_version_result.env

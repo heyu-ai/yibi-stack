@@ -4,13 +4,20 @@
 # 自動偵測 Flutter/Python/Node.js/Go 並更新對應版本檔
 #
 # --dir：monorepo 的元件目錄（例：backend、story-lab）。只升該目錄的版號檔，路徑必須在
-#        repo 內。不帶 --dir 時處理目前目錄，行為與舊版相同（scripts/release-full.sh 依賴此點）。
-# BUMP_RESULT_ENV：結果檔路徑，預設 /tmp/bump_version_result.env。
+#        repo 內。不帶 --dir 時處理目前目錄，行為與舊版相同（scripts/release-full.sh 依賴此點）：
+#        不 cd、VERSION_FILE 維持相對於目前目錄、COMPONENT_DIR 為 "."。
+# BUMP_RESULT_ENV：結果檔路徑，預設 /tmp/bump_version_result.env；相對路徑相對於執行時的目錄。
+#        只有 bump.sh 認得此變數，gates.sh / release.sh / platforms 仍讀 /tmp/bump_version_result.env。
+# Go 專案的版本只存在 git tag，無法依元件分開，所以搭配非 "." 的 --dir 會直接 [FAIL]。
 
 set -euo pipefail
+# 清掉 CDPATH：否則 cd 會先搜尋 CDPATH，命中時多印一行目的地到 stdout（見 rule 17，同 scripts/release-full.sh）
+export CDPATH=
 
 BUMP_TYPE=""
 COMPONENT_DIR="."
+DIR_GIVEN=0
+INVOKE_DIR=$(pwd -P)
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -19,10 +26,23 @@ while [ "$#" -gt 0 ]; do
         echo "[FAIL] --dir 需要一個目錄參數（用法：bump.sh [--dir <path>] [patch|minor|major]）" >&2
         exit 1
       fi
+      if [ "$DIR_GIVEN" -eq 1 ]; then
+        echo "[FAIL] --dir 只能指定一次" >&2
+        exit 1
+      fi
+      DIR_GIVEN=1
       COMPONENT_DIR="$2"
       shift 2
       ;;
+    --dir=*)
+      echo "[FAIL] --dir 與路徑之間要用空格，不是等號（用法：bump.sh --dir <path> [patch|minor|major]）" >&2
+      exit 1
+      ;;
     patch|minor|major)
+      if [ -n "$BUMP_TYPE" ]; then
+        echo "[FAIL] bump type 只能指定一次（已有：${BUMP_TYPE}，又收到：${1}）" >&2
+        exit 1
+      fi
       BUMP_TYPE="$1"
       shift
       ;;
@@ -35,32 +55,51 @@ done
 
 BUMP_TYPE="${BUMP_TYPE:-patch}"
 
-REPO_ROOT_PATH=$(git rev-parse --show-toplevel)
-
-if [ ! -d "$COMPONENT_DIR" ]; then
-  echo "[FAIL] --dir 目錄不存在：$COMPONENT_DIR" >&2
+# 結果檔：相對路徑在 cd 之前轉成絕對路徑；改任何版號檔之前先驗證可寫，並清掉過期結果檔，
+# 讓失敗的執行不會留下上一次的結果。
+RESULT_ENV="${BUMP_RESULT_ENV:-/tmp/bump_version_result.env}"
+case "$RESULT_ENV" in
+  /*) ;;
+  *) RESULT_ENV="${INVOKE_DIR}/${RESULT_ENV}" ;;
+esac
+if ! ( : >> "$RESULT_ENV" ) 2>/dev/null; then
+  echo "[FAIL] 結果檔無法寫入：${RESULT_ENV}（尚未修改任何版號檔）" >&2
   exit 1
 fi
+rm -f "$RESULT_ENV"
 
-ROOT_REAL=$(cd "$REPO_ROOT_PATH" && pwd -P)
-DIR_REAL=$(cd "$COMPONENT_DIR" && pwd -P)
+REPO_ROOT_PATH=$(git rev-parse --show-toplevel)
+REL_DIR="."
 
-case "$DIR_REAL/" in
-  "$ROOT_REAL"/*) ;;
-  *)
-    echo "[FAIL] --dir 不在 repo 內：${COMPONENT_DIR}（repo 根目錄：${ROOT_REAL}）" >&2
+if [ "$DIR_GIVEN" -eq 1 ]; then
+  if [ ! -d "$COMPONENT_DIR" ]; then
+    echo "[FAIL] --dir 目錄不存在：$COMPONENT_DIR" >&2
     exit 1
-    ;;
-esac
+  fi
 
-# 相對於 repo 根目錄的元件路徑；根目錄本身記為 "."
-REL_DIR="${DIR_REAL#"$ROOT_REAL"}"
-REL_DIR="${REL_DIR#/}"
-if [ -z "$REL_DIR" ]; then
-  REL_DIR="."
+  ROOT_REAL=$(cd "$REPO_ROOT_PATH" && pwd -P)
+  if ! DIR_REAL=$(cd "$COMPONENT_DIR" && pwd -P); then
+    echo "[FAIL] 無法進入 --dir 目錄：${COMPONENT_DIR}" >&2
+    exit 1
+  fi
+
+  case "$DIR_REAL/" in
+    "$ROOT_REAL"/*) ;;
+    *)
+      echo "[FAIL] --dir 不在 repo 內：${COMPONENT_DIR}（repo 根目錄：${ROOT_REAL}）" >&2
+      exit 1
+      ;;
+  esac
+
+  # 相對於 repo 根目錄的元件路徑；根目錄本身記為 "."
+  REL_DIR="${DIR_REAL#"$ROOT_REAL"}"
+  REL_DIR="${REL_DIR#/}"
+  if [ -z "$REL_DIR" ]; then
+    REL_DIR="."
+  fi
+
+  cd "$DIR_REAL"
 fi
-
-cd "$DIR_REAL"
 
 # ---------- 偵測專案類型 ----------
 
@@ -224,6 +263,11 @@ bump_go() {
 PROJECT_TYPE=$(detect_project)
 echo "[OK] 偵測到專案類型：$PROJECT_TYPE"
 
+if [ "$PROJECT_TYPE" = "go" ] && [ "$REL_DIR" != "." ]; then
+  echo "[FAIL] Go 專案的版本只存在 git tag，無法依元件目錄分開升版（--dir：${REL_DIR}）；請改用政策指定的指令或在 repo 根目錄手動打 tag" >&2
+  exit 1
+fi
+
 case "$PROJECT_TYPE" in
   flutter)
     NEW_VERSION=$(bump_flutter)
@@ -255,7 +299,8 @@ echo "[OK] $BUMP_TYPE bump: v${NEW_VERSION}"
 echo "[OK] 版本檔：$VERSION_FILE"
 
 # 結果輸出（供 agent 讀取）
-# 輸出變數：BUMP_VERSION、TAG_VERSION、VERSION_FILE、PROJECT_TYPE
+# 輸出變數：BUMP_VERSION、TAG_VERSION、VERSION_FILE、PROJECT_TYPE、REPO_ROOT、COMPONENT_DIR
+# VERSION_FILE 只有在帶 --dir 時才是相對於 repo 根目錄的路徑，不帶 --dir 時相對於目前目錄
 # Flutter 的 TAG_VERSION 去掉 +build，其他語言與 BUMP_VERSION 相同
 TAG_VERSION=$(echo "$NEW_VERSION" | cut -d+ -f1)
 
@@ -266,16 +311,32 @@ if [ "$PROJECT_TYPE" = "flutter" ]; then
     if [ -f "$_version_path" ]; then
       echo "$TAG_VERSION" > "$_version_path"
       echo "[OK] 同步 VERSION 檔案：$_version_path → $TAG_VERSION"
-      VERSION_FILE="pubspec.yaml + $_version_path"
+      _version_display="$_version_path"
+      if [ "$DIR_GIVEN" -eq 1 ] && [ "$REL_DIR" != "." ]; then
+        # 帶 --dir 時，複合 VERSION_FILE 內每個路徑都改成 repo 根目錄相對
+        if [ "$_version_path" = "../VERSION" ]; then
+          _parent_rel=$(dirname "$REL_DIR")
+          if [ "$_parent_rel" = "." ]; then
+            _version_display="VERSION"
+          else
+            _version_display="${_parent_rel}/VERSION"
+          fi
+        else
+          _version_display="${REL_DIR}/VERSION"
+        fi
+      fi
+      VERSION_FILE="pubspec.yaml + ${_version_display}"
       break
     fi
   done
 fi
 
-if [ "$REL_DIR" != "." ] && [ "$VERSION_FILE" != "git-tag-only" ]; then
-  VERSION_FILE="${REL_DIR}/${VERSION_FILE}"
+if [ "$DIR_GIVEN" -eq 1 ] && [ "$REL_DIR" != "." ] && [ "$VERSION_FILE" != "git-tag-only" ]; then
+  case "$VERSION_FILE" in
+    "pubspec.yaml + "*) VERSION_FILE="${REL_DIR}/pubspec.yaml + ${VERSION_FILE#pubspec.yaml + }" ;;
+    *) VERSION_FILE="${REL_DIR}/${VERSION_FILE}" ;;
+  esac
 fi
 
-RESULT_ENV="${BUMP_RESULT_ENV:-/tmp/bump_version_result.env}"
 printf 'BUMP_VERSION=%q\nTAG_VERSION=%q\nVERSION_FILE=%q\nPROJECT_TYPE=%q\nREPO_ROOT=%q\nCOMPONENT_DIR=%q\n' "$NEW_VERSION" "$TAG_VERSION" "$VERSION_FILE" "$PROJECT_TYPE" "$REPO_ROOT_PATH" "$REL_DIR" > "$RESULT_ENV"
 echo "[OK] 結果寫入：$RESULT_ENV"
