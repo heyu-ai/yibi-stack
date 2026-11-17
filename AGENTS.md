@@ -136,6 +136,8 @@ uv sync --extra ledger   # 額外裝 scripts/ 帳務工具的依賴（pandas/sql
 # Plugin 發布（lockstep 版本：所有 plugin 同步升版）
 make release TYPE=patch  # patch / minor / major
 # 流程：bump pyproject.toml -> sync plugins/*/package.json + .claude-plugin/plugin.json -> changelog -> test gates -> commit -> tag + GitHub Release
+# PR 已在 PR 內升過 plugin 版號（plugin 版號 > pyproject）時，不再升一級：沿用 plugin 版號、TYPE 不生效
+# （scripts/release_version_plan.py）；plugin 版號 < pyproject 或 plugin 之間不一致時直接失敗
 
 # 新環境一次到位
 make install-all         # 等同 build-tools + install + install-project + install-handover-hooks + install-scheduler + patch-pr-review-agents + patch-agy-allow-list
@@ -293,7 +295,11 @@ make install-all         # 等同 build-tools + install + install-project + inst
   changes a shipped file under `plugins/<name>/` (anything except files in a `tests` directory
   and the two version files), all version files at head must be equal and greater than the
   merge base. Without a bump, `claude plugin update` keeps the old cache and the merged change
-  never reaches users (#643 stayed unreleased for two days).
+  never reaches users (#643 stayed unreleased for two days). The same check fails any range
+  that lowers the version or breaks lockstep, even without shipped changes, because
+  `sync-plugin-versions.sh` does not touch `pyproject.toml`; `make release` therefore adopts
+  the plugin version when it is ahead of `pyproject.toml` instead of bumping from
+  `pyproject.toml` (the old flow downgraded plugins after two PR bumps).
 - **`gh` CLI `--json` field names must be verified before use**: fields like `databaseId` do
   not exist in `gh pr checks` (some fields only exist in `gh pr list` or other commands).
   Passing a non-existent field name returns empty values silently — any function consuming that

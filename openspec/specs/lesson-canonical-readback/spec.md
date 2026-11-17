@@ -59,7 +59,7 @@ The rows subcommand SHALL open the database with a read-write file URI that does
 ---
 ### Requirement: Exit status distinguishes failure from an empty result
 
-The rows subcommand SHALL exit 0 when the query succeeds, including when it returns zero rows. It SHALL exit 2 for invalid arguments: no key and no id, more than 200 keys and ids combined, an empty project, or a key outside the pattern of letters, digits, underscore and hyphen. It SHALL exit 3 when the database is unavailable: missing file, open failure, missing lessons table, or an SQLite error during the query. On exit 3 stdout SHALL be empty and stderr SHALL contain a message starting with [FAIL].
+The rows subcommand SHALL exit 0 when the query succeeds, including when it returns zero rows. It SHALL NOT impose an application-level limit on the combined number of requested keys and ids. It SHALL exit 2 for invalid arguments: no key and no id, an empty project or one with leading or trailing whitespace, an empty or whitespace-only id, or a key outside the pattern of letters, digits, underscore and hyphen. It SHALL exit 3 when the database is unavailable: missing file, open failure, missing lessons table, or an SQLite error during the query. On exit 3 stdout SHALL be empty and stderr SHALL contain a message starting with [FAIL].
 
 #### Scenario: zero-rows-success -- Successful query with no matches
 
@@ -73,8 +73,14 @@ The rows subcommand SHALL exit 0 when the query succeeds, including when it retu
 
 #### Scenario: invalid-arguments -- Missing or malformed identifiers
 
-- **WHEN** the command is run with no key and no id, with 201 identifiers, or with a key containing a space
+- **WHEN** the command is run with no key and no id, or with a key containing a space
 - **THEN** the command SHALL exit 2.
+
+#### Scenario: growing-receipts -- Historical receipts do not block reconciliation
+
+- **GIVEN** 102 or more accepted receipt owners and zero to five new candidate lessons
+- **WHEN** all receipt keys and ids and candidate keys are requested in one rows call
+- **THEN** all matching project rows, including inactive receipt owners, SHALL be returned in one parameterized SELECT and a single snapshot without truncation or an application-level identifier-count rejection.
 
 ---
 ### Requirement: Effective confidence parity
@@ -89,7 +95,7 @@ Each returned row SHALL include effective_confidence computed with the same deca
 ---
 ### Requirement: Hindsight protocol readback uses the rows subcommand
 
-The Hindsight projection protocol document SHALL direct canonical readback through one rows subcommand call that passes every candidate key and every previously accepted receipt key and lesson id for the invocation. It SHALL NOT instruct opening the database with a read-only SQLite URI. Any non-zero exit SHALL degrade projection; exit 2 SHALL additionally tell the operator that the installed CLI lacks the rows subcommand or is older than the release that added it, and SHALL name reinstalling from a newer release tag. A requested identifier listed as missing, an absent receipt owner, an ambiguous owner, or several active rows for one key SHALL degrade or reject as before, and readback SHALL NOT interleave with writes.
+The Hindsight projection protocol document SHALL direct canonical readback through one rows subcommand call that passes every candidate key and every previously accepted receipt key and lesson id for the invocation. It SHALL NOT instruct opening the database with a read-only SQLite URI. Any non-zero exit SHALL degrade projection. On exit 2, diagnostics indicating a missing rows subcommand or the old 200-identifier limit SHALL identify a stale installed CLI and recommend a published release tag containing the limit removal; other invalid arguments SHALL be reported without recommending reinstallation. The protocol SHALL NOT reduce identifiers, split calls, automatically install or release, or claim an unpublished tag is available. A requested identifier listed as missing, an absent receipt owner, an ambiguous owner, or several active rows for one key SHALL degrade or reject as before, and readback SHALL NOT interleave with writes.
 
 #### Scenario: protocol-single-call -- One readback call per invocation
 
@@ -99,7 +105,17 @@ The Hindsight projection protocol document SHALL direct canonical readback throu
 #### Scenario: protocol-nonzero-degrades -- Non-zero exit degrades projection
 
 - **WHEN** the rows call exits 2 or 3
-- **THEN** the protocol SHALL mark hindsight_sync degraded, publish nothing for the invocation, and for exit 2 name reinstalling the installed CLI.
+- **THEN** the protocol SHALL mark hindsight_sync degraded and publish nothing for the invocation.
+
+#### Scenario: protocol-stale-limit -- Installed CLI still enforces the removed limit
+
+- **WHEN** exit 2 diagnostics report the old 200-identifier limit or a missing rows subcommand
+- **THEN** the protocol SHALL recommend manually updating to a published release containing the fix, without reducing identifiers, splitting calls, or automatically installing or releasing.
+
+#### Scenario: protocol-invalid-arguments -- Malformed arguments are not a stale installation
+
+- **WHEN** exit 2 diagnostics report an invalid key, an empty or whitespace-only id, or an invalid project
+- **THEN** the protocol SHALL report the argument error and preserve diagnostics without recommending reinstallation.
 
 #### Scenario: protocol-missing-owner-degrades -- Missing receipt owner
 

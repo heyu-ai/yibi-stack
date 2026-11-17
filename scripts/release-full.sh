@@ -86,10 +86,33 @@ rollback() {
 }
 trap rollback ERR
 
-echo "=== Step 1: Bump $TYPE version ==="
 ENV_FILE="/tmp/bump_version_result.env"
 rm -f "$ENV_FILE"
-"$BUMP_SH" "$TYPE"
+
+# PR 改到 plugin 出貨內容時已在 PR 內 lockstep 升版（scripts/check_plugin_version_bump.py），
+# 但 sync-plugin-versions.sh 不改 pyproject.toml。bump.sh 以 pyproject.toml 為基準升一級，
+# 兩個 PR 各升一次後會算出比 plugin 小的版號、再由 Step 2 把 plugin 降版。所以先比較兩者：
+# plugin 版號較大就沿用它（不升級），相同才照舊升級；判定邏輯在 release_version_plan.py。
+if ! PLAN_OUT=$(python3 "$REPO_ROOT/scripts/release_version_plan.py" --root "$REPO_ROOT" --apply); then
+    echo "[FAIL] release_version_plan.py 判定無法發版（原因見上方訊息）" >&2
+    exit 1
+fi
+PLAN_MODE=$(printf '%s\n' "$PLAN_OUT" | sed -n 's/^MODE=//p')
+PLAN_VERSION=$(printf '%s\n' "$PLAN_OUT" | sed -n 's/^VERSION=//p')
+
+if [ "$PLAN_MODE" = "adopt" ]; then
+    echo "=== Step 1: Adopt plugin version $PLAN_VERSION (PRs already bumped; TYPE=$TYPE ignored) ==="
+    # 欄位與 bump.sh 寫出的結果檔相同，gates.sh 與 release.sh 依它運作。
+    printf 'BUMP_VERSION=%q\nTAG_VERSION=%q\nVERSION_FILE=%q\nPROJECT_TYPE=%q\nREPO_ROOT=%q\n' \
+        "$PLAN_VERSION" "$PLAN_VERSION" "pyproject.toml" "python" "$REPO_ROOT" >| "$ENV_FILE"
+elif [ "$PLAN_MODE" = "bump" ]; then
+    echo "=== Step 1: Bump $TYPE version ==="
+    "$BUMP_SH" "$TYPE"
+else
+    echo "[FAIL] release_version_plan.py 輸出無法解析：$PLAN_OUT" >&2
+    rollback
+    exit 1
+fi
 
 if [ ! -f "$ENV_FILE" ]; then
     echo "[FAIL] bump.sh did not produce $ENV_FILE" >&2
