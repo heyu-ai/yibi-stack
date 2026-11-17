@@ -20,12 +20,13 @@ claude plugin install 3rd-tools@yibi-stack
 | `codex-consult` skill | 使用 OpenAI Codex 閱讀 codebase 回答任意技術問題（第二意見）的 runbook |
 | `codex-cli` skill | 委託 OpenAI Codex 實作（`-s workspace-write`）並由 Claude 驗收的 runbook；含委託契約 `contract.md` 與 rule picker |
 | `agy-review` skill | 使用 Antigravity CLI（agy）對 diff 做輕量 code review 與對抗模式 bug hunt 的 runbook。預設模型 `gemini-3.8-flash-high` |
-| `agy-consult` skill | 使用 Antigravity CLI（agy）閱讀 codebase 回答任意技術問題（第二意見）的 runbook。預設模型 `gemini-3.8-flash-high`；把它當成跨廠商聲音前仍先讀腳本印出的 `[INFO] agy 模型`（可被 `AGY_MODEL` 覆寫回 Claude） |
+| `agy-consult` skill | 使用 Antigravity CLI（agy）閱讀 codebase 回答任意技術問題（第二意見）的 runbook。預設模型 `gemini-4-carbon-high`；把它當成跨廠商聲音前仍先讀腳本印出的 `[INFO] agy 模型`（可被 `AGY_MODEL` 覆寫回 Claude） |
 
 | `verify-gemini-models` skill | 確認 Gemini 模型列表與 API 可用性 |
 
-> `agy-review`、`agy-consult` 預設使用 `gemini-3.8-flash-high`；`/pr-cycle-deep`
+> `agy-review` 預設使用 `gemini-3.8-flash-high`，`/pr-cycle-deep`
 > 的所有 agy stages 固定使用同一模型（2026-09-03 以 agy 1.1.25 在台灣實測可用）。
+> `agy-consult` 自 2026-11-18 起預設 `gemini-4-carbon-high`（agy 1.5.10 在台灣實測可用）。
 > `/pr-cycle-deep` 使用完整 display name `Gemini 3.8 Flash (High)`，避免 auto-select
 > 選到其他模型或 Claude 而破壞預期的模型與跨廠商 review 獨立性。
 
