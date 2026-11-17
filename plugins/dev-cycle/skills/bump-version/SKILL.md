@@ -4,6 +4,8 @@ type: know
 scope: global
 description: >
   Project-level 版本號 bump + CHANGELOG 生成 + git tag 發布流程。
+  repo 有 process-version-policy spec 時，先讀政策，依改動路徑只升受影響元件（monorepo 的
+  backend、前端子專案等）的版號，預設不打 tag（政策明寫由本 skill 處理時才依政策）；沒有政策時走單一專案的 bump + release。
   自動偵測 Flutter（pubspec.yaml）、Python（pyproject.toml）、Node.js（package.json）、Go（git tag only）。
   觸發情境：「bump version」「版本升級」「release」「發布」「tag」「CHANGELOG」
   「patch/minor/major」「pubspec version」「pyproject version」。
@@ -24,6 +26,89 @@ Project-level 版本 bump、CHANGELOG 生成、git tag 標準流程。
 bump-version 由 dev-cycle plugin 提供，`make install` 不會把它連到 `~/.claude/skills/`（會與
 plugin 重複列出）。`~/.agents/skills/bump-version/scripts/` 仍由 `make install` 提供，給不走
 plugin 機制的 agents 使用，功能等價。
+
+## Step 0：先讀 repo 的版本政策
+
+先用 `git rev-parse --show-toplevel` 取得 repo 根目錄（目前目錄必須在 repo 內，否則停下回報，
+不要靜默走回主流程）。再以該根目錄為搜尋起點，用 Glob 找 `**/specs/process-version-policy/spec.md`，
+排除 `**/changes/**`（進行中與已封存的 change 都排除）與 `.claude/worktrees/**`。
+進行中 change 裡的 delta spec 不是現行政策，不可當成政策採用。
+
+- **找到一份** → 走下方「政策模式」，不走主流程。
+- **找不到** → 走「主流程：bump + release」。
+- **找到不只一份** → 停下，列出路徑請使用者指定，不要自己挑。
+
+政策是該 repo 的規格，以它為準：本 skill 的預設行為（自動偵測根目錄版號檔、打 `vX.Y.Z` tag、
+建 GitHub Release）與政策衝突時，照政策做。
+
+## 政策模式（repo 有 process-version-policy）
+
+### P1：從政策讀出四件事
+
+讀整份 spec，記下：
+
+1. **元件對照**：每個元件的原始碼路徑與版號檔（政策通常寫成表格）。
+2. **升版規則**：哪些 PR／commit type 要升哪一級（例：feat 升 MINOR、fix 升 PATCH，其他選擇性）。
+3. **升版指令**：政策若指定 repo 自己的升版指令（例：`scripts/bump-version-component.sh <component> <level>`），
+   一律用它，因為它可能同時更新 lock 檔。沒有指定時才用本 skill 的 `bump.sh --dir`。
+4. **不歸本 skill 管的元件與動作**：例如政策寫明 mobile app 走另一個發版流程、tag 由 CD 建立。
+   這些元件不升版，這些動作不做。
+
+任何一項在 spec 裡找不到或有矛盾時，停下並向使用者說明缺了什麼，不要自行補規則。
+
+### P2：判斷受影響的元件與級別
+
+`<base>` 是這個 PR 的 base 分支（`gh pr view --json baseRefName`）；還沒開 PR 時用 repo 的預設分支。
+
+```bash
+git fetch origin <base>
+```
+
+`git fetch` 失敗就停下並回報，不要往下用過期的 `FETCH_HEAD`。成功後：
+
+```bash
+git diff --name-only FETCH_HEAD...HEAD
+```
+
+- 把改動檔案對到 P1 的元件對照，得到受影響的元件。版號檔與 lock 檔本身不算原始碼。
+- 級別依 PR 標題的 type 決定（還沒開 PR 時，用本分支 commit 中級別最高的 type）。
+  政策規定該 type 不強制升版時，詢問使用者要不要升。
+- 每個元件讀 `FETCH_HEAD` 與目前分支的版號。「已升夠」的定義：目前分支的版號 >= 把 `FETCH_HEAD`
+  版號依所需級別升版後的版號。達到就跳過該元件，不要重複升版；沒達到才升。
+
+把結果列成表給使用者確認：元件、`FETCH_HEAD` 版號、目前版號、要升的級別、新版號。
+
+### P3：升版
+
+對每個要升的元件，依 P1 第 3 點執行政策指定的指令；沒有指定時：
+
+```bash
+bash "${CLAUDE_SKILL_DIR}/scripts/bump.sh" --dir <component-dir> <patch|minor|major>
+```
+
+**使用 `bump.sh` 時**：先確認 `bump.sh` 的 exit code 為 0，非 0 就停下回報，不要讀結果檔。成功後讀
+`bump.sh` 寫出的結果檔（預設 `/tmp/bump_version_result.env`，可用 `BUMP_RESULT_ENV` 指定，相對路徑
+相對於執行時的目錄），確認 `VERSION_FILE` 與 `TAG_VERSION` 符合 P2 的預期。建議每個元件用不同的
+`BUMP_RESULT_ENV`，避免讀到別的元件的結果。`BUMP_RESULT_ENV` 只有 `bump.sh` 認得；`gates.sh`、
+`release.sh` 與 platform hook 仍讀 `/tmp/bump_version_result.env`。
+
+**使用政策指定的指令時**：該指令不會寫 `bump.sh` 的結果檔，不要讀結果檔。改為讀政策指定的版號檔，
+與 P2 的預期新版號比對。
+
+兩種情況不符時都停下回報，不要繼續下一個元件。
+
+Python 元件若有 lock 檔（`uv.lock`）而政策沒有指定升版指令，升版後執行該元件目錄的 `uv lock`；
+Node 元件依 lock 檔種類執行對應的 lock 更新。
+
+### P4：commit，不打 tag
+
+只 stage 版號檔與 lock 檔，commit 訊息依該 repo 的 commit 慣例。政策模式**不執行**主流程的
+Step 3（CHANGELOG）、Step 4（gates）、Step 6（tag 與 GitHub Release）；Step 5 的 `git add -A` 與
+`chore(release)` 訊息也不使用，改依本段方式 commit。除非政策明寫由本 skill 處理這些動作。
+
+報告：每個元件的舊版號、新版號與版號檔路徑。
+
+---
 
 ## 主流程：bump + release
 
@@ -49,7 +134,8 @@ git-cliff --unreleased --bump 2>/dev/null | head -5
 bash "${CLAUDE_SKILL_DIR}/scripts/bump.sh" {{patch|minor|major}}
 ```
 
-腳本輸出新版本到 `/tmp/bump_version_result.env`，讀取：
+腳本輸出新版本到 `/tmp/bump_version_result.env`（主流程不設 `BUMP_RESULT_ENV`，因為 `gates.sh`、
+`release.sh` 與 platform hook 只讀這個路徑），讀取：
 
 ```bash
 source /tmp/bump_version_result.env
@@ -181,7 +267,8 @@ Jira 範例：`ticket_pattern: "(PROJ|MYTEAM)-[0-9]+"`
 | 問題 | 處理方式 |
 |------|---------|
 | `bump-version skill 未安裝` | 安裝 dev-cycle plugin：`claude plugin install dev-cycle@yibi-stack`；本 repo 的 `make release` 不需要安裝，它直接用 repo 內的原始碼 |
-| 無法偵測專案類型 | 確認根目錄有 pubspec.yaml / pyproject.toml / package.json / go.mod 其中之一 |
+| 無法偵測專案類型 | 確認根目錄有 pubspec.yaml / pyproject.toml / package.json / go.mod 其中之一；monorepo 改用政策模式或 `bump.sh --dir <component-dir>` |
+| `--dir` 被拒絕 | 目錄必須存在且在 repo 內；路徑相對於執行時的目錄 |
 | Python 偵測失敗 | pyproject.toml 需含頂層 `version = "x.y.z"` 行（Poetry 需使用 PEP 621 格式） |
 | Go major bump 後 module path 需更新 | 手動修改 `go.mod` 的 `module` 行，加 `/v2` 後綴 |
 | git-cliff 格式與現有 CHANGELOG 不符 | 建立 `cliff.toml` 自訂格式，見 `references/changelog-tools.md` |
