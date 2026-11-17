@@ -49,6 +49,8 @@ def test_prm_dt_002_g1_asks_hook_and_lint() -> None:
     assert "hook" in g1_row
     assert "lint" in g1_row
     assert "新增 lint" in g1_row, "G1 失敗動作必須指向 Q5「新增 lint」"
+    action = g1_row.rsplit("|", 2)[-2]
+    assert "不寫 rule" in action, "G1 失敗動作欄必須明寫「不寫 rule」，否則語意可被翻轉而錨點仍在"
 
 
 def test_prm_dt_003_mechanical_first_section_sits_inside_promotion_gate() -> None:

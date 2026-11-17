@@ -577,7 +577,7 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 
 #### Promotion Gate（3 條，全通過才路由到 rule 檔）
 
-每個 Q4 lesson 在進入 Lesson Classifier 前，先依序通過 3 條 gate。**任一失敗都不新增 rule 段落**；
+每個 Q4 lesson 在進入 Lesson Classifier 前，先依序通過 3 條 gate。**任一失敗都不新建 rule 檔**；
 各 gate 失敗後的去處不同，照下表「失敗時行動」欄執行：
 
 | Gate | 判斷問題 | 失敗時行動 |
@@ -620,7 +620,9 @@ Tier 1/2 只有在 G1+G2+G3 全通過後，才執行 Step 4b prepared script 的
 - **hook 的開發順序**：在 worktree 中途註冊新的 `PreToolUse` hook 會讓該 session 的 Bash 全部失敗
   （`.claude/rules/15-irreversible-operations.md` 的 `${CLAUDE_PROJECT_DIR}` 段落）。先用
   `echo '<payload>' | python3 .claude/hooks/<new>.py` 直接測 script，`settings.json` 的註冊放到最後。
-  這個陷阱只影響 hook 的做法，不是改寫 rule 的理由；同一個訊號能用 lint 擋，就改走 lint。
+  這個陷阱屬於 `reason: hook-cost` 的範圍（定義見 `.claude/rules/11-skill-authoring.md`
+  「Every New Rule Section Declares Whether It Could Have Been a Gate」）；宣告 `hook-cost` 前，
+  先確認同一個訊號也不能用 lint 擋。
 - **目標 repo 沒有 lint 骨架時**（沒有 `scripts/` 或 `.pre-commit-config.yaml`）：仍然先建議 lint，
   建議內容同時列出要新增的骨架（script 草稿與 pre-commit 設定）。使用者拒絕建骨架時才退回 rule，
   並在 rule 段落寫明為何沒有做成 gate。
@@ -659,6 +661,7 @@ script < append rule < 建 eval < 動 skill 邊界。每往下一階，token cos
 違反時自動失敗；rule 若沒有 `paths:` 會在每個 session 載入，要靠 agent 遵守，內容過期也不會有人發現。
 與 Promotion Gate 的「機械化優先」一致。
 
+G1 判定可機械化的 lesson 直接落在 `script helper` 階（hook 或 lint），不再往下爬。其餘 lesson
 先確認 Promotion Gate 通過、Classifier 已選定目的地，再對照下表挑最上層可行的修改面：
 
 | 修改面 | 何時選（訊號）| 成本 / 相容性 |
