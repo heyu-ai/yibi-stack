@@ -181,7 +181,8 @@ See rule 13 "AP1 auto-fix triggers" and the CLAUDE.md "Slash command bash block 
 
 ## Remediating Existing Unsafe Patterns
 
-1. Open `~/.claude/settings.local.json`; find red-flag entries in `permissions.allow`.
+1. Run `python3 scripts/lint_allowlist.py ~/.claude/settings.local.json` to list red-flag entries
+   in `permissions.allow` (pre-commit runs the same lint on tracked settings files, advisory).
 2. For each, identify the single verb you want to permit.
 3. Rewrite as "verb fixed at prefix + read-only" or "full absolute path + script".
 4. Restart Claude Code to apply.
