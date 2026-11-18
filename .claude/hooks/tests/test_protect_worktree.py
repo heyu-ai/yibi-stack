@@ -217,6 +217,52 @@ class TestCheckoutMainInsideLinkedWorktree:
         _, wt = _repo_with_linked_worktree(tmp_path)
         assert run_hook_in(_bash(cmd), wt).returncode == 0
 
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "git checkout -B main",
+            "git checkout -b main",
+            "git checkout -B master origin/master",
+            "git switch -C main",
+            "git switch -c main",
+            "git switch --force-create main",
+            "git switch --create=main",
+            "git switch -C refs/heads/main",
+            "git checkout --orphan main",
+            "git switch --orphan master",
+            "git switch --track origin/main",
+            "git checkout -t origin/main",
+            "git checkout --track=direct refs/remotes/origin/master",
+        ],
+    )
+    def test_block_create_or_track_main_in_linked_worktree(self, tmp_path: Path, cmd: str) -> None:
+        """WTHOOK-DT-021: 用建立/追蹤旗標讓新 branch 名為 main/master -> 攔截。
+
+        舊版只要看到 -b/-B/-c/-C/--orphan 等旗標就整條放行，不看新 branch 名；
+        --track 也只比對 `origin/main` 字面，沒推導出本地 branch 名 main。
+        """
+        _, wt = _repo_with_linked_worktree(tmp_path)
+        res = run_hook_in(_bash(cmd), wt)
+        assert res.returncode == 2, res.stderr
+        assert "BLOCKED" in res.stderr
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "git switch -C hotfix origin/main",
+            "git checkout -B main-fix main",
+            "git switch --track origin/feat",
+            "git checkout -t origin/main-backup",
+            "git checkout --detach main",
+            "git switch -d main",
+            "git checkout origin/main",
+        ],
+    )
+    def test_allow_create_or_track_other_names(self, tmp_path: Path, cmd: str) -> None:
+        """WTHOOK-DT-022: 新 branch 名不是 main/master，或為 detached -> 放行（負向對照）。"""
+        _, wt = _repo_with_linked_worktree(tmp_path)
+        assert run_hook_in(_bash(cmd), wt).returncode == 0
+
     def test_allow_in_main_repo(self, tmp_path: Path) -> None:
         """WTHOOK-DT-020: 主 repo 切回 main 是正常操作 -> 放行（負向對照）。"""
         main_repo, _ = _repo_with_linked_worktree(tmp_path)

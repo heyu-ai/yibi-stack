@@ -62,16 +62,29 @@ def _block(branch: str) -> None:
     sys.exit(2)
 
 
-# checkout/switch 之後出現這些旗標，代表建立新 branch 或 detached，不會佔用 main ref
-_SWITCH_SAFE_FLAGS = frozenset(
-    ("-b", "-B", "-c", "-C", "--orphan", "-d", "--detach", "--create", "--force-create")
-)
+# checkout/switch 的建立旗標：下一個 token（或 `=` 後的值）是新 branch 名。
+# 新 branch 會被這個 worktree 佔用，所以名字是 main/master 一樣要擋。
+_SWITCH_CREATE_FLAGS = frozenset(("-b", "-B", "-c", "-C", "--orphan", "--create", "--force-create"))
+
+# detached HEAD 不佔用任何 branch ref
+_SWITCH_DETACH_FLAGS = frozenset(("-d", "--detach"))
+
+# --track 不帶建立旗標時，git 從 remote ref 推導本地 branch 名（origin/main -> main）
+_SWITCH_TRACK_FLAGS = frozenset(("-t", "--track"))
+
+
+def _tracked_local_name(remote_ref: str) -> str:
+    """模擬 git --track 推導本地 branch 名：去掉 refs/remotes/ 與第一段 remote 名。"""
+    ref = remote_ref.removeprefix("refs/remotes/")
+    return ref.split("/", 1)[1] if "/" in ref else ref
 
 
 def _checkout_target(tokens: list[str]) -> tuple[str | None, str | None]:
-    """解析 `git [-C dir] checkout|switch ...`，回傳 (要切到的受保護 branch, -C 目錄)。
+    """解析 `git [-C dir] checkout|switch ...`，回傳 (會被佔用的受保護 branch, -C 目錄)。
 
-    不是切換 branch 的形式（還原檔案的 `--`、建新 branch、detached）回傳 (None, None)。
+    會佔用 main/master 的形式有三種：直接切過去、用建立旗標建名為 main 的 branch、
+    用 --track 從 origin/main 推導出本地 main。還原檔案（`--` 之後）、detached、
+    新 branch 名不是受保護名稱時回傳 (None, None)。
     """
     if not tokens or tokens[0] != "git":
         return None, None
@@ -87,10 +100,44 @@ def _checkout_target(tokens: list[str]) -> tuple[str | None, str | None]:
     if i >= len(tokens) or tokens[i] not in ("checkout", "switch"):
         return None, None
     args = tokens[i + 1 :]
-    if "--" in args or any(a.split("=", 1)[0] in _SWITCH_SAFE_FLAGS for a in args):
+    if "--" in args:
+        # `--` 之後是路徑；之前若有建立旗標仍會建 branch，只看 `--` 之前的部分
+        args = args[: args.index("--")]
+        if not any(a.split("=", 1)[0] in _SWITCH_CREATE_FLAGS for a in args):
+            return None, None
+
+    new_branch: str | None = None
+    tracking = False
+    detached = False
+    positional: list[str] = []
+    j = 0
+    while j < len(args):
+        a = args[j]
+        name, eq, value = a.partition("=")
+        if name in _SWITCH_CREATE_FLAGS:
+            if eq:
+                new_branch = value
+            elif j + 1 < len(args):
+                new_branch = args[j + 1]
+                j += 1
+        elif name in _SWITCH_TRACK_FLAGS:
+            tracking = True
+        elif name in _SWITCH_DETACH_FLAGS:
+            detached = True
+        elif not a.startswith("-"):
+            positional.append(a)
+        j += 1
+
+    if new_branch is not None:
+        if _normalize_ref(new_branch) in _PROTECTED:
+            return new_branch, git_dir
         return None, None
-    positional = [a for a in args if not a.startswith("-")]
-    if positional and _normalize_ref(positional[0]) in _PROTECTED:
+    if detached or not positional:
+        return None, None
+    if tracking:
+        local = _tracked_local_name(positional[0])
+        return (local, git_dir) if local in _PROTECTED else (None, None)
+    if _normalize_ref(positional[0]) in _PROTECTED:
         return positional[0], git_dir
     return None, None
 
