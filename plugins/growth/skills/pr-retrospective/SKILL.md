@@ -112,7 +112,7 @@ mycelium retro search --pr-number "$PR_NUMBER" --project "$ORIG_PROJECT" --limit
 #### A0 — Hindsight 一次性 preflight（可降級，不是 Mycelium gate）
 
 先讀同目錄的 [HINDSIGHT.md](HINDSIGHT.md)，依共用協定建立本次 invocation audit、檢查實際 MCP
-schema，並做一次有界限的 `hindsight_list_knowledge_pages({})` 唯讀連線探測。
+schema，並做一次有界限的 `hindsight_list_pages({})` 唯讀連線探測。
 `hindsight_diagnose({})` 只診斷本地設定，不能單憑成功就宣告 server 可用。
 把結果記為 invocation 狀態 `HINDSIGHT_AVAILABLE`，不是依賴跨 Bash call 的 shell 變數。
 
@@ -354,9 +354,9 @@ Classifier → `--type` 對照表：
 >
 > `HINDSIGHT_AVAILABLE=true` 時，再依 HINDSIGHT.md 走三階段，所有呼叫沿用同一 audit：
 >
-> 1. **Search 快篩**：`hindsight_search_knowledge_pages({query: "<lesson insight 摘要>"})`。
+> 1. **Search 快篩**：`hindsight_search_pages({query: "<lesson insight 摘要>"})`。
 >    實際 schema **沒有 `limit`**；先依下列 provenance 規則篩除污染，再取最多 3 個候選。
->    snippet 不足以判斷來源時，用 `hindsight_read_knowledge_page({page_id: "<實際 page_id>"})`
+>    snippet 不足以判斷來源時，用 `hindsight_read_page({page_id: "<實際 page_id>"})`
 >    讀全文；不能查明來源的結果不可充作獨立事件。
 > 2. **本地語意比對**：agent 判斷是否同族，列出具體事故與來源，不因措辭相似就加分。
 > 3. **Reflect 按需**：只有高價值且高度相似、結論仍模糊／矛盾的候選才呼叫
@@ -804,8 +804,8 @@ projection helper 流程執行：
 1. 將 identity 固定為 `owner/repo#<Epic/issue>` 或 `owner/repo:change/<slug>`，取自已核實的
    PR URL/body；不以 PR title 去重，也不把每個無關 `Closes` issue 自動當新 initiative。
    title 與 summary 都保留此 canonical identity。
-2. 經共用協定用 `hindsight_search_knowledge_pages({query: "<完整 identity>"})` 找候選，
-   對照 list（可用完整的 preflight 結果）並 `hindsight_read_knowledge_page({page_id})`
+2. 經共用協定用 `hindsight_search_pages({query: "<完整 identity>"})` 找候選，
+   對照 list（可用完整的 preflight 結果）並 `hindsight_read_page({page_id})`
    核對全文的**精確 identity 與 initiative 類型**。搜尋相似不等於同一個 initiative；
    搜尋未命中也不等於已證明不存在。
 3. 恰好一筆精確既有 initiative → 保留原 title 與已知歷史，整合本次已確認 Q2 outcome、

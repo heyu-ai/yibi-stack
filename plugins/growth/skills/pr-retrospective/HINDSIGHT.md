@@ -22,7 +22,7 @@ agent 執行 MCP 呼叫；helper 只產生決定性的 JSON 與觀測報表，�
 4. 呼叫 `hindsight_diagnose({})` 核對 workspace/bank 與目標 project；這只是本地設定，不是 server liveness。
    固定 `[Lesson] <key>` 在跨 project 共用 bank 會碰撞：此時只允許核實來源後的唯讀建議，
    除非已確認 bank 專屬於這個 project，否則不發布／reconcile lesson。
-5. 以 host 的有界 timeout 呼叫 `hindsight_list_knowledge_pages({})`，成功（含空清單）才表示 read 可用。
+5. 以 host 的有界 timeout 呼叫 `hindsight_list_pages({})`，成功（含空清單）才表示 read 可用。
    缺工具、錯 bank、逾時、MCP isError 或 error object 都記 `[DEGRADED] Hindsight unavailable`、
    `hindsight_sync=skipped`，繼續 Mycelium-only。快取結果，不逐 lesson 重探。
 6. transport/server failure 後停用本 invocation 剩餘呼叫。單一 optional capability 缺失只跳過該操作。
@@ -53,8 +53,8 @@ write_outcome=unknown 的同 identity 操作，未釐清前維持 degraded。
 
 ### Actual MCP argument shapes
 
-- `hindsight_search_knowledge_pages({query})`：沒有 limit 參數；先篩 provenance，再取最多三個合格候選。
-- `hindsight_read_knowledge_page({page_id})`：snippet 不足以核對 provenance/incident 時讀全文。
+- `hindsight_search_pages({query})`：沒有 limit 參數；先篩 provenance，再取最多三個合格候選。
+- `hindsight_read_page({page_id})`：snippet 不足以核對 provenance/incident 時讀全文。
 - `hindsight_reflect({query})`：限高價值且高度相似、仍模糊／衝突的候選；反思文字不是獨立事件。
 - `hindsight_ingest_document({title, content})`：沒有 native metadata、document_id、operation_id 或 append-to-page。
 - `hindsight_capture_initiative({title, summary, relates_to_page_id?})`：更新既有 initiative 要帶 page ID；建立不是原生冪等。
