@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["markdown-it-py==4.2.0"]
+# dependencies = ["markdown-it-py==4.3.0"]
 # ///
 """進入 Step 5b／Step 6 前核對來源，包含 resume 與 Step 7 重新彙整。"""
 

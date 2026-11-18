@@ -104,16 +104,20 @@ fi
 # 保護 3：worktree branch 追蹤 origin/main
 # main/master 本身由保護 2 處理；此處只處理其他 branch 追蹤 origin/main 的情況
 #
-# 只對「裸 git push（使用 tracking）」觸發；明確指定 non-main 目的地的 push 放行。
+# 凡是目的地由 tracking 決定的 push 都要查：裸 push，以及 refspec 沒有 :<dst> 的 push
+# （push.default=upstream 下，git push origin <branch> 會依該 branch 的 tracking 推送）。
+# 只有每個 refspec 都明確寫出 non-main 的 :<dst> 才直接放行。
 # 同時過濾 CMD 中只含 git push 文字（如 commit message、echo 字串）的情況。
 PUSH_MODE=$(echo "$CMD" | python3 -c "
-import re, sys
+import re, shlex, sys
 cmd = sys.stdin.read()
 parts = re.split(r'&&|\|\||[;|\n]', cmd)
 # Strip leading VAR=value env assignments (P2: handle GIT_SSH_COMMAND='...' git push)
 _env_re = re.compile(r'^(?:\w+=(?:[^\s\'\"]+|\'[^\']*\'|\"[^\"]*\")\s+)*')
 push_found = False
 bare_found = False
+# 需要查 tracking 的 branch：HEAD 代表目前所在的 branch
+track = []
 for part in parts:
     stripped = _env_re.sub('', part.strip().lstrip('(').strip())
     if not re.match(r'git\s+push\b', stripped):
@@ -122,7 +126,14 @@ for part in parts:
     # 移除 flag（以 - 開頭的 token），取 positional args：[git, push, [remote], [dest]]
     # 特別處理「需要 argument 的 flag」（如 -o / --push-option）：同時跳過其 argument token
     _arg_opts = {'-o', '--push-option', '--receive-pack', '--exec', '--repo'}
-    tokens = stripped.split()
+    # 用 shell 規則切 token：引號、跳脫字元要先拿掉，否則 'feat' 這種寫法查不到 tracking。
+    # 切不開（例如引號沒有閉合）就當成裸 push，查目前 branch 的 tracking。
+    try:
+        tokens = shlex.split(stripped)
+    except ValueError:
+        bare_found = True
+        track.append('HEAD')
+        continue
     positional = []
     i = 0
     while i < len(tokens):
@@ -138,16 +149,19 @@ for part in parts:
     if len(positional) >= 4:
         # Check ALL refspecs (positional[3], [4], ...) — multiple refspecs are valid.
         # Only mark explicit-other when every refspec is provably safe.
+        # 不在第一個可疑 refspec 就停：後面沒有 :dst 的 branch 也要查 tracking
         for dest in positional[3:]:
             # shell expansion or backtick -> unresolvable, treat as bare
             # (backtick is \x60; no bare dollar signs in this comment)
             if re.search(r'[$\x60]', dest):
                 bare_found = True
-                break
+                track.append('HEAD')
+                continue
             # glob pattern -> unsafe
             if '*' in dest or '?' in dest:
                 bare_found = True
-                break
+                track.append('HEAD')
+                continue
             if ':' in dest:
                 rhs = dest.rsplit(':', 1)[1]
                 # empty rhs (delete refspec) or main/HEAD rhs -> bare
@@ -155,25 +169,35 @@ for part in parts:
                     r'^(HEAD|main|master|refs/heads/(main|master))$', rhs
                 ):
                     bare_found = True
-                    break
+                    track.append('HEAD')
                 # else: explicit non-main rhs -> safe, continue checking
-            elif re.match(r'^(main|master|refs/heads/(main|master))$', dest):
-                # explicit main/master -> let protection 2 handle, treat as bare
-                bare_found = True
-                break
-            # HEAD resolves to current branch name (not tracking) -> safe
-            # else: explicit named non-main branch -> safe, continue
+                continue
+            # 沒有 :<dst>：push.default=upstream 下，git 依「這個 branch 的 tracking」決定
+            # 目的地，追蹤 origin/main 的 branch 會直推 main（-u 也一樣）。
+            # 正規化成 branch 名再查 tracking：去掉強制推的 +、refs/heads/ 或 heads/，@ 等於 HEAD。
+            src = re.sub(r'^(refs/heads/|heads/)', '', dest.lstrip('+'))
+            if src in ('@', ''):
+                src = 'HEAD'
+            bare_found = True
+            track.append(src)
     else:
-        # 裸 push（無明確目的地）-> 需檢查 tracking
+        # 裸 push（無明確目的地）-> 需檢查目前 branch 的 tracking
         bare_found = True
+        track.append('HEAD')
 # 所有 push parts 都明確指向 non-main -> 放行；否則交給 tracking 檢查
+# 輸出：第一行是模式，其後每行一個要查 tracking 的 branch
 if not push_found:
     print('none')
 elif not bare_found:
     print('explicit-other')
 else:
     print('bare')
+    for b in dict.fromkeys(track):
+        print(b)
 " 2>/dev/null || echo "none")
+
+TRACK_BRANCHES=$(printf '%s\n' "$PUSH_MODE" | tail -n +2)
+PUSH_MODE=$(printf '%s\n' "$PUSH_MODE" | head -n 1)
 
 # 無實際 git push 指令（僅文字）-> 放行
 [ "${PUSH_MODE:-bare}" = "none" ] && exit 0
@@ -195,26 +219,34 @@ if [ "${PR_STATE_RC:-0}" -eq 2 ]; then
     exit 2
 fi
 
-# 明確指定 non-main 目的地 -> 放行（tracking 檢查只針對裸 push）
+# 每個 refspec 都明確寫出 non-main 的 :<dst> -> 放行；其餘交給下方逐 branch 的 tracking 檢查
 [ "${PUSH_MODE:-bare}" = "explicit-other" ] && exit 0
 
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-[ -z "${BRANCH:-}" ] && exit 0
-[ "$BRANCH" = "HEAD" ] && exit 0  # detached HEAD 狀態，無 upstream 可查
-[ "$BRANCH" = "main" ] && exit 0
-[ "$BRANCH" = "master" ] && exit 0
+CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+[ -z "${TRACK_BRANCHES:-}" ] && TRACK_BRANCHES="HEAD"
 
-# 用 git config 查 upstream（不用 @{upstream}，避免 zsh brace expansion 靜默失效）
-REMOTE=$(git config "branch.${BRANCH}.remote" 2>/dev/null || true)
-MERGE=$(git config "branch.${BRANCH}.merge" 2>/dev/null || true)
+# 逐一檢查要推的 branch 是否追蹤 origin/main
+while IFS= read -r TOKEN; do
+    [ -z "${TOKEN:-}" ] && continue
+    BRANCH="$TOKEN"
+    [ "$BRANCH" = "HEAD" ] && BRANCH="${CURRENT:-}"
+    [ -z "${BRANCH:-}" ] && continue
+    [ "$BRANCH" = "HEAD" ] && continue  # detached HEAD 狀態，無 upstream 可查
+    [ "$BRANCH" = "main" ] && continue
+    [ "$BRANCH" = "master" ] && continue
 
-if [ "${REMOTE:-}" = "origin" ] && [[ "${MERGE:-}" =~ ^refs/heads/(main|master)$ ]]; then
-    echo "BLOCKED: branch '${BRANCH}' 追蹤 origin/main！" >&2
-    echo "推送會直接到 main，繞過 PR 流程。" >&2
-    echo "" >&2
-    echo "請先修正 tracking 再 push：" >&2
-    echo "  git branch --unset-upstream && git push -u origin HEAD" >&2
-    exit 2
-fi
+    # 用 git config 查 upstream（不用 @{upstream}，避免 zsh brace expansion 靜默失效）
+    REMOTE=$(git config "branch.${BRANCH}.remote" 2>/dev/null || true)
+    MERGE=$(git config "branch.${BRANCH}.merge" 2>/dev/null || true)
+
+    if [ "${REMOTE:-}" = "origin" ] && [[ "${MERGE:-}" =~ ^refs/heads/(main|master)$ ]]; then
+        echo "BLOCKED: branch '${BRANCH}' 追蹤 origin/main！" >&2
+        echo "沒有指定 :<dst> 的 push 會依 tracking 直接推到 main（-u 也一樣），繞過 PR 流程。" >&2
+        echo "" >&2
+        echo "請明確指定目的地：" >&2
+        echo "  git push -u origin ${BRANCH}:${BRANCH}" >&2
+        exit 2
+    fi
+done <<< "$TRACK_BRANCHES"
 
 exit 0

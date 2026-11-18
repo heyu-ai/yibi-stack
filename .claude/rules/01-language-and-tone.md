@@ -64,11 +64,8 @@ Three mechanisms cause the drift. Knowing them is what makes the rule actionable
 So the check must be **re-run per reply**, not per session, and it keys off the *user's message*
 only — never off the language of tool output or of your own reasoning.
 
-Evidence: the nightly self-improvement agent independently rediscovered this friction on roughly
-**26 branches across a six-day window** (2026-07-14 → 2026-07-19; the exact count comes from the
-dedup pipeline's record, not from surviving refs, which are fewer after merges/deletions), making
-it by far the most frequently observed friction in the repo's history. See PR #279 for the dedup
-pipeline that stopped the re-reporting; this rule addresses the underlying behavior.
+This is the most frequently observed friction in the repo's history (nightly-agent reports,
+about 26 branches in six days; dedup pipeline in PR #279).
 
 ## Punctuation
 
@@ -87,8 +84,7 @@ keys and commands inside code fences stay English everywhere (see the first sect
 covers only the surrounding prose.
 
 **This is a per-repo declaration, not a global default.** `~/.claude/CLAUDE.md` deliberately gives
-no default for rule-file prose (corrected 2026-08-06 — it previously mandated English for every
-repo, which matched none of them). The resolution order is: (1) the repo's own language-policy
+no default for rule-file prose. The resolution order is: (1) the repo's own language-policy
 file, if it declares one; (2) otherwise, the majority of that repo's existing rule files.
 
 Measured 2026-08-06 — this declaration matches current state, so **no existing file needs
@@ -96,16 +92,14 @@ rewriting**:
 
 | repo | `.claude/rules/` | declared |
 |------|------------------|----------|
-| yibi-stack (this repo) | 14 / 14 English | English (here) |
+| yibi-stack (this repo) | 15 / 15 English | English (here) |
 | ainization-skill | 18 / 18 Traditional Chinese | Traditional Chinese |
 | yibi-mvp | 20 zh / 6 en / 3 mixed | Traditional Chinese (`04-language-policy.md`) |
 
-**Sibling repos differ by design — do not "harmonize" across repos.** Each was already internally
-consistent; the only thing that disagreed was the old global rule, so the global rule is what
-changed.
+**Sibling repos differ by design — do not "harmonize" across repos.** Each is internally
+consistent.
 
-Why the old global rule was wrong: it used **file location** as the criterion ("it lives in
-`.claude/rules/`, so it is for agents, so English"). The working criterion is **whether the text
-is compared verbatim by a machine**. Rule files are read by humans as much as by agents — incident
+The criterion is **whether the text is compared verbatim by a machine**, not file location
+("it lives in `.claude/rules/`, so it is for agents, so English" is the wrong inference). Rule files are read by humans as much as by agents — incident
 pointers, rejected alternatives and their reasons all need to be quickly readable — so their prose
 belongs to the human-readable class, and each repo picks the language its readers use.
