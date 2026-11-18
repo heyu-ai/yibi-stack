@@ -19,11 +19,6 @@ DEFAULT_CONFIG_PATH = RUNTIME_DIR / "gmail_scan_profiles.json"
 Each `config.py` should include the following functions:
 
 ```python
-def _load_env() -> None:
-    """載入 .env 環境變數。"""
-    from dotenv import load_dotenv
-    load_dotenv(PROJECT_ROOT / ".env")
-
 def get_default_config_path() -> Path:
     return RUNTIME_DIR / "<name>.json"
 
@@ -53,10 +48,10 @@ def generate_default_config(path: Path | None = None) -> Path:
 
 ## Environment Variables
 
-Load `.env` via `_load_env()`, then access values with `os.environ.get()`:
+Read values with `os.environ.get()` and fail loud when a required one is missing
+(`python-dotenv` is not a dependency of `tasks/`):
 
 ```python
-_load_env()
 token = os.environ.get("GMAIL_TOKEN")
 if not token:
     raise RuntimeError("環境變數 GMAIL_TOKEN 未設定")

@@ -37,8 +37,8 @@ Official docs also warn that argument constraints are inherently fragile (see Re
 
 ## Advanced Rule Syntax: Tool-Parameter Matching and Tool-Name Globs (v2.1.172 / v2.1.178)
 
-Newer Claude Code versions extend permission rules beyond `Bash(...)` command prefixes. These
-apply to **any** tool, not just Bash, and are useful for `deny` rules in particular.
+Permission rules extend beyond `Bash(...)` command prefixes. These apply to **any** tool, not
+just Bash, and are useful for `deny` rules in particular.
 
 | Syntax | Meaning | Example |
 |--------|---------|---------|
@@ -51,7 +51,7 @@ Practical uses:
 - **Cap subagent model cost**: `deny: Agent(model:opus)` blocks spawning Opus subagents while
   still allowing cheaper tiers.
 - **Subdomain allow-list**: `allow: WebFetch(domain:*.anthropic.com)` instead of enumerating
-  each host — note this is the v2.1.172 fix; on older versions `*.` did not match subdomains.
+  each host.
 
 These follow the same middle-wildcard caution as Bash patterns: a `value` wildcard that is too
 broad (e.g. `Tool(arg:*)`) re-creates the over-broad-pattern problem from the Red Flags below.
@@ -65,19 +65,17 @@ Constrain the value as tightly as the use case allows.
 
 Hook `matcher` strings in `settings.json` are a **separate mechanism** from the permission
 allow-list above (which uses `Bash(...)` command prefixes), but they share the same
-"be precise, not accidentally broad" discipline. Three recent behavior changes matter:
+"be precise, not accidentally broad" discipline:
 
-1. **Comma-separated matchers silently never fired** before v2.1.191 fixed it. A matcher like
-   `"Bash,PowerShell"` did not fire at all on older versions. **Always use `|` alternation**
-   (`"Bash|PowerShell"`), never commas — this is the reliable form on every version.
-2. **Hyphenated identifiers now match exactly, not as substrings** (v2.1.195). Agent names
-   (e.g. `code-reviewer`) and MCP server names (e.g. `mcp__brave-search`) are no longer
-   substring-matched. To match all tools of a hyphenated MCP server, write the explicit suffix:
+1. **Use `|` alternation, never commas** (`"Bash|PowerShell"`). Comma-separated matchers did not
+   fire on older Claude Code versions; `|` works on every version.
+2. **Hyphenated identifiers match exactly, not as substrings.** Agent names (e.g.
+   `code-reviewer`) and MCP server names (e.g. `mcp__brave-search`) are not substring-matched.
+   To match all tools of a hyphenated MCP server, write the explicit suffix:
    `mcp__brave-search__.*`.
-3. **`Agent(type)` deny rules and `Agent(x,y)` allow-lists now apply to named subagent spawns**
-   (v2.1.186). Previously a named subagent spawn escaped these rules; now they are enforced,
-   so `Agent(...)` rules can reliably constrain which subagent types are spawnable — on the same
-   axis as the `Agent(model:opus)` example in the Advanced Rule Syntax section above.
+3. **`Agent(type)` deny rules and `Agent(x,y)` allow-lists apply to named subagent spawns**, so
+   `Agent(...)` rules can constrain which subagent types are spawnable — on the same axis as the
+   `Agent(model:opus)` example in the Advanced Rule Syntax section above.
 
 **This repo's matchers are already compliant** — `settings.json` uses only `|` alternation
 (`Edit|Write`, `Bash`, `Bash|EnterWorktree`, `compact|clear`) and no hyphenated-substring or
@@ -183,7 +181,8 @@ See rule 13 "AP1 auto-fix triggers" and the CLAUDE.md "Slash command bash block 
 
 ## Remediating Existing Unsafe Patterns
 
-1. Open `~/.claude/settings.local.json`; find red-flag entries in `permissions.allow`.
+1. Run `python3 scripts/lint_allowlist.py ~/.claude/settings.local.json` to list red-flag entries
+   in `permissions.allow` (pre-commit runs the same lint on tracked settings files, advisory).
 2. For each, identify the single verb you want to permit.
 3. Rewrite as "verb fixed at prefix + read-only" or "full absolute path + script".
 4. Restart Claude Code to apply.
@@ -222,7 +221,7 @@ Without both sides, either unexpected commands slip through or users face endles
 
 The built-in `/fewer-permission-prompts` skill scans transcripts for frequently used read-only
 Bash/MCP calls and adds a prioritized allowlist to the project `.claude/settings.json`. Review the
-resulting diff against the Red Flag criteria below before keeping it; revert and hand-rewrite any
+resulting diff against the Red Flag criteria (1–5) above before keeping it; revert and hand-rewrite any
 entry that fails.
 
 ### Common Red-Flag Patterns in Automatic Suggestions
