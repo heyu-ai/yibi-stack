@@ -35,6 +35,13 @@ AGY_CONSULT_SKILL_MD = REPO_ROOT / "plugins" / "3rd-tools" / "skills" / "agy-con
 # below runs against both -- a regression in either script must fail this suite.
 AGY_SCRIPTS = [AGY_RUN_SH, AGY_CONSULT_SH]
 
+# 兩支腳本的預設模型各自獨立：agy-consult 改用 gemini-4-carbon-high（agy 1.5.10 實測可用），
+# agy-review 仍是 gemini-3.8-flash-high。依腳本查表，避免把一支的預設誤套到另一支。
+_DEFAULT_MODEL = {
+    AGY_RUN_SH: "gemini-3.8-flash-high",
+    AGY_CONSULT_SH: "gemini-4-carbon-high",
+}
+
 # Matches a pipe into `agy --print` / `agy -p` with no prompt value of its own -- the broken
 # form. A comment line explaining the trap must not trip this, so callers strip comments first.
 _PIPED_AGY_PRINT = re.compile(r"\|\s*agy\s+(?:--print|-p)\b(?!\s+[\"'$])")
@@ -339,7 +346,7 @@ class TestAgyScriptExecutionContract:
         assert result.returncode == 0, (result.stdout, result.stderr)
         assert "a genuine agy answer" in result.stdout
         assert "[INFO]" in result.stderr and "agy 模型" in result.stderr, result.stderr
-        assert "gemini-3.8-flash-high" in result.stderr, (
+        assert _DEFAULT_MODEL[script] in result.stderr, (
             "the announcement must name the resolved model, not just say a model was used"
         )
         assert "[INFO]" not in result.stdout, (
@@ -376,7 +383,7 @@ class TestAgyScriptExecutionContract:
         assert override in result.stderr, (
             f"{script.name} must announce the overridden model; stderr={result.stderr!r}"
         )
-        assert "gemini-3.8-flash-high" not in result.stderr, (
+        assert _DEFAULT_MODEL[script] not in result.stderr, (
             f"{script.name} announced the default while AGY_MODEL was {override!r} — the "
             "line reports a hardcoded string, not the resolved model"
         )
