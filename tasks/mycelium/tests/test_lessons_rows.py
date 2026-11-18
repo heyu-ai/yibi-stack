@@ -451,6 +451,7 @@ class TestExitStatusDistinguishesFailureFromAnEmptyResult:
                 id="surrounding-whitespace-project",
             ),
             pytest.param(["--project", _PROJECT, "--id", ""], id="empty-id"),
+            pytest.param(["--project", _PROJECT, "--id", "   "], id="whitespace-id"),
         ],
     )
     def test_lrows_vl_001_invalid_arguments_exit_2(
@@ -469,7 +470,10 @@ class TestExitStatusDistinguishesFailureFromAnEmptyResult:
         receipt_count: int,
         new_count: int,
     ) -> None:
-        """LROWS-ST-002: 累積 receipt 不得擋住新投影與舊 owner 的 lifecycle 讀回。"""
+        """LROWS-ST-002: 累積 receipt 不得擋住新投影與舊 owner 的 lifecycle 讀回。
+
+        spec: lesson-canonical-readback#growing-receipts
+        """
         db_path = tmp_path / "receipts.db"
         prior = [_make_lesson(key=f"receipt-{i}") for i in range(receipt_count)]
         new = [_make_lesson(key=f"candidate-{i}") for i in range(new_count)]
@@ -478,14 +482,17 @@ class TestExitStatusDistinguishesFailureFromAnEmptyResult:
         _retire(db_path, prior[0].id, None)
         args = [arg for row in prior + new for arg in ("--key", row.key)]
         args.extend(arg for row in prior for arg in ("--id", row.id))
+        args.extend(("--key", "zzz-missing-key", "--id", "zzz-missing-owner"))
         data = _ok_json(_run(monkeypatch, db_path, "--project", _PROJECT, *args))
         rows = {row["id"]: row for row in data["rows"]}
         assert set(rows) == {row.id for row in prior + new}
         assert rows[prior[0].id]["retired_at"] is not None
-        assert data["missing_keys"] == []
-        assert data["missing_ids"] == []
-        assert data["requested"]["keys"] == sorted(row.key for row in prior + new)
-        assert data["requested"]["ids"] == sorted(row.id for row in prior)
+        assert data["missing_keys"] == ["zzz-missing-key"]
+        assert data["missing_ids"] == ["zzz-missing-owner"]
+        assert data["requested"]["keys"] == sorted(
+            [row.key for row in prior + new] + ["zzz-missing-key"]
+        )
+        assert data["requested"]["ids"] == sorted([row.id for row in prior] + ["zzz-missing-owner"])
 
     def test_lrows_dt_005_zero_rows_is_success(
         self, wal_db: Path, monkeypatch: pytest.MonkeyPatch
@@ -503,9 +510,12 @@ class TestConcurrentCanonicalReadback:
     def test_lrows_st_003_concurrent_lifecycle_update_cannot_tear_snapshot(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """LROWS-ST-003: 讀回第一列後另一條 WAL 連線同時 retire 全部 owner，結果不可前後撕裂。"""
+        """LROWS-ST-003: 讀回第一列後另一條 WAL 連線同時 retire 全部 owner，結果不可前後撕裂。
+
+        spec: lesson-canonical-readback#growing-receipts
+        """
         db_path = tmp_path / "concurrent.db"
-        owners = [_make_lesson(key=f"receipt-{i:03}") for i in range(102)]
+        owners = [_make_lesson(key=f"receipt-{i:03}") for i in range(408)]
         _seed(db_path, *owners)
         connect = sqlite3.connect
         writer = connect(db_path)
@@ -535,11 +545,14 @@ class TestConcurrentCanonicalReadback:
 
         # 僅在 SQLite 外部邊界插入真實並行寫入；不替換 query／service／CLI。
         monkeypatch.setattr(sqlite3, "connect", open_reader)
-        args = [arg for row in owners for arg in ("--key", row.key, "--id", row.id)]
+        # 不重疊的命中集合讓第二個快照的 lifecycle 變化無法被去重掩蓋。
+        args = [arg for row in owners[:204] for arg in ("--key", row.key)]
+        args.extend(arg for row in owners[204:] for arg in ("--id", row.id))
         try:
             data = _ok_json(_run(monkeypatch, db_path, "--project", _PROJECT, *args))
             assert updated, "並行寫入必須確實發生"
             assert {row["id"] for row in data["rows"]} == {row.id for row in owners}
+            assert len(data["rows"]) == len(owners)
             assert all(row["retired_at"] is None for row in data["rows"])
             assert writer.execute(
                 "SELECT count(*) FROM lessons WHERE retired_at IS NOT NULL"

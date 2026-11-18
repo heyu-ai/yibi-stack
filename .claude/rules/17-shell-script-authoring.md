@@ -10,12 +10,11 @@ paths:
 
 # Shell Script Authoring
 
-Split out of [rule 13](13-bash-anti-patterns.md) to keep the always-loaded instruction set under
-Claude Code's 150k-char limit. Rule 13 keeps what applies to **every Bash tool call** (AP1-AP3,
+[Rule 13](13-bash-anti-patterns.md) holds what applies to **every Bash tool call** (AP1-AP3,
 Quoting Rules 1-5, the self-check); this file holds what matters when **authoring or reviewing a
-shell script, hook, or CI gate**, so it loads only when a matching path is touched. The sections
-below were moved verbatim; section titles are unchanged, so older citations of the form
-"rule 13, section X" resolve here.
+shell script, hook, CI gate, or doc-guard test**, so it loads only when a matching path is touched
+(keeping the always-loaded set under Claude Code's 150k-char limit). Citations of the form
+"rule 13, section X" for the sections listed in rule 13's pointer resolve here.
 
 ## Gate Verdicts: Trust the Exit Code
 
@@ -695,10 +694,8 @@ Operationally: treat a residual note like a test. When you change the predicate,
 of the diff — if you did not re-run the scenario it describes, you do not know whether it is still
 true.
 
-**The subshell-`exit` trap is now enforced mechanically, not by memory.** After the fail-loud
-principle recurred across three dated lessons (2026-07-07, 2026-07-14, and PR #234's four
-in-PR repeats), continuing to write it down was an admission that writing it down does not work.
-`scripts/lint_shell_subshell_exit.py` (pre-commit, `types: [shell]`) parses shell scripts and
+**The subshell-`exit` trap is enforced mechanically**, because the written rule alone kept
+recurring (PR #234). `scripts/lint_shell_subshell_exit.py` (pre-commit, `types: [shell]`) parses shell scripts and
 warns on the one shape that actually fail-opens:
 
 > `exit` inside a function **and** that function is called as the first token of a `$(…)` **and**
@@ -716,14 +713,11 @@ substitution's first token clears it (see test EG-004's synthetic fixture — do
 tracked file's current contents, which drift). A lint that fires on correct code teaches people to
 disable it, so the negative controls are the important tests, not the positive one.
 
-**Ships advisory, not blocking (PR #241 mob review; correctness fixed in PR #407 / issue #282).**
-A cross-family mob review (Claude / Codex / agy) on PR #241 empirically found this lint was
-incomplete in both directions. The five correctness issues were fixed in PR #407:
-false-positives on final-position `&&`/`||`, `set -o errexit`, and if-body calls;
-false-negatives on quoted `X="$(fn)"` and `local`/`export X=$(fn)` (SC2155).
-The lint defaults to warn-only (`--fail` opts into blocking for CI) until advisory-mode runtime
-validates stability. The lesson for future mechanical guards: a lint that enforces an anti-pattern
-must itself be held to the anti-pattern's full truth table before it is allowed to block.
+**It is advisory, not blocking**: it exits 0 by default and `--fail` opts into blocking for CI,
+until advisory-mode runtime shows it is stable. A lint that enforces an anti-pattern must itself
+be held to the anti-pattern's full truth table before it is allowed to block; the shapes this one
+must get right include final-position `&&`/`||`, `set -o errexit`, if-body calls, quoted
+`X="$(fn)"`, and `local`/`export X=$(fn)` (SC2155) (PR #241, PR #407 / issue #282).
 
 **Do not run mutation tests on a shared worktree file while a review agent is reading it.**
 Mutation testing edits the real file in place; a reviewer dispatched against that path will read

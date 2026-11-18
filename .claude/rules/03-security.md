@@ -125,12 +125,11 @@ if limit is not None:
 
 ## OTEL Logs the Full Assistant Response — Disable It for Sensitive-Output Environments
 
-Claude Code (v2.1.193) added a `claude_code.assistant_response` OpenTelemetry log event
-containing the model's reply text. It is gated by `OTEL_LOG_ASSISTANT_RESPONSES`, but **when
-that variable is unset it falls back to `OTEL_LOG_USER_PROMPTS`** — meaning a deployment that
-already logs prompt content will automatically start logging reply content after upgrading.
-This is on the same axis as the existing "never `echo $VAR` a key into the transcript" rule,
-but stealthier: no command is needed; a plain version upgrade activates it.
+Claude Code emits a `claude_code.assistant_response` OpenTelemetry log event containing the
+model's reply text. It is gated by `OTEL_LOG_ASSISTANT_RESPONSES`, but **when that variable is
+unset it falls back to `OTEL_LOG_USER_PROMPTS`** — so a deployment that logs prompt content also
+logs reply content unless it opts out. This is on the same axis as the "never `echo $VAR` a key
+into the transcript" rule, but stealthier: no command is needed to leak.
 
 Any skill environment that handles decrypted billing data, account numbers, or keys
 (`gmail-billing`, `ledger-import`, `saas-*`) must explicitly set
@@ -179,9 +178,10 @@ password or token were echoed in messages, logs and `claude plugin marketplace l
 
 The `sandbox.credentials` setting (v2.1.187) blocks sandboxed commands from reading credential
 files and secret environment variables. It is double-edged: it prevents a sandboxed bash
-command from leaking secrets, but it also blocks flows that **legitimately need keys** — this
-repo's `gmail-*` / `ledger-import` / `saas-*` skills require secret env vars such as
-`GMAIL_TOKEN` and `ENCRYPT_KEY` to function.
+command from leaking secrets, but it also blocks flows that **legitimately need keys** — the
+financial skills installed from the ainization-skill repo (Gmail billing scans, ledger import,
+SaaS expense tracking) require secret env vars such as `GMAIL_TOKEN` and `ENCRYPT_KEY`
+to function.
 
 **Decision: do not enable `sandbox.credentials` globally.** This trade-off is recorded
 explicitly so nobody enables it in the name of "hardening" and silently breaks every financial

@@ -13,7 +13,7 @@ description: 管理 Skill Scheduler — 設定定期自動執行的排程、查�
 
 ```bash
 # 確認在專案根目錄
-pwd  # 應為 /Users/howie/Workspace/github/yibi-stack
+pwd  # 應為 yibi-stack repo 根目錄
 
 # 確認 Python 環境
 uv run python -m tasks.scheduler --help
@@ -103,6 +103,11 @@ uv run python -m tasks.scheduler uninstall
 | `skill` | skill 名稱（讀取 skills/{name}/SKILL.md 執行） |
 | `depends_on` | 依賴的 job id 陣列 |
 | `enabled` | 是否啟用 |
+| `day_of_week` | `weekly` 必填（`monday`…`sunday`） |
+| `day_of_month` / `months` | `monthly` / `bimonthly` / `quarterly` 必填（1-31；1-12 陣列） |
+| `timeout_seconds` | 逾時秒數（預設 300） |
+
+`command` / `claude` / `skill` 三者恰好擇一，否則驗證失敗。
 
 ### Claude job 前提：MiniShell ACP Gateway 必須正在運行
 
@@ -127,16 +132,6 @@ Scheduled job 在 Claude Code 環境中執行時，`$CLAUDE_CODE_SESSION_ID` 可
 # 在 job script 中記錄 session ID（拆兩步，避免 $() 包在外層雙引號內）
 TS=$(date -Iseconds)
 echo "job_start: $TS session=$CLAUDE_CODE_SESSION_ID" >> /tmp/ainization-scheduler.log
-```
-
-也可以在 `command` 類型的 job 中直接使用環境變數：
-
-```json
-{
-  "id": "my-job",
-  "type": "command",
-  "command": ["bash", "-c", "echo session=$CLAUDE_CODE_SESSION_ID >> /tmp/my-job.log && uv run ..."]
-}
 ```
 
 > 提示：將 session ID 記錄進 log 後，可透過 handover log 與 insight 交叉比對，

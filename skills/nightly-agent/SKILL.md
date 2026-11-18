@@ -20,7 +20,7 @@ description: 夜間自我改善 Agent — 讀取 transcript/mycelium friction ev
   failing→passing test gate 把關，full `run`（含 `git push` + `gh pr create`）是其設計行為，
   不受下列契約限制。
 - **skill / agent-invoked path（ACP Gateway `skill:`/`claude:` job、webhook、auto mode）**：
-  屬於 Claude Code v2.1.183 起的 **task notification** 情境——auto mode 下**無法 approve
+  屬於 **task notification** 情境——auto mode 下**無法 approve
   待確認動作、不能設 session 標題**（見 `.claude/rules/11-skill-authoring.md`「Scheduled Skills
   Must Be Zero-Interaction and Read-Only by Default」）。**以下四條契約套用此路徑**：
 
@@ -88,7 +88,7 @@ uv run python -m tasks.nightly_agent analyze --hours 24
 uv run python -m tasks.nightly_agent digest
 ```
 
-顯示今日的 Markdown digest（位於 `.runtime/nightly-agent/digests/digest-YYYY-MM-DD.md`）。
+顯示今日的 Markdown digest（位於 `.runtime/nightly_agent/digests/digest-YYYY-MM-DD.md`）。
 
 ## Scheduler Config（自動排程）
 
@@ -134,6 +134,6 @@ uv run python -m tasks.nightly_agent digest
 |------|------|
 | `找不到 claude CLI` | 安裝 Claude Code 並確認 `claude` 在 PATH 或 `~/.local/bin/claude` |
 | `gh pr create 失敗` | 執行 `gh auth login` 確認已登入 |
-| Artifact 草擬後 test 未通過 | 查看 `.runtime/nightly-agent/digests/` 中的 digest，確認 `after_output` 錯誤訊息 |
+| Artifact 草擬後 test 未通過 | 查看 `.runtime/nightly_agent/digests/` 中的 digest，確認 `after_output` 錯誤訊息 |
 | 沒有 eligible clusters | 過去 24h 沒有重複 friction（正常）；可用 `--hours 72` 擴大視窗 |
 | mycelium DB 不存在 | 正常（首次使用）；agent 會 skip 並繼續 |

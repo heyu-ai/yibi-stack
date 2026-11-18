@@ -16,6 +16,11 @@ repos:
     hooks:
       - id: markdownlint-cli2
         exclude: ^(openspec|docs/openspec)/
+        # 固定 node 版本：pre-commit 不採用裝在 home 目錄底下的 node（lang_base.exe_exists），
+        # 這時會交給 nodeenv 自己下載，而未指定版本時 nodeenv 選 nodejs.org 的最新版。
+        # 最新版是 27.0.0-alpha 時，nodeenv 1.10.0 無法解析版本號（ValueError: '0-alpha'），
+        # 整個 pre-commit 在建環境階段就失敗。主版本與 CI 的 setup-node 22 對齊。
+        language_version: "22.22.3"
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.5
@@ -86,6 +91,17 @@ repos:
         # files: pattern，讓這個 hook 完全不觸發——而那正是本 hook 要擋的「搬動 / 刪除
         # plugin 端而漏改頂層」失誤最常見的形狀。script 本身已是 repo-wide 掃描。
         always_run: true
+
+      - id: lint-allowlist
+        name: lint-allowlist (rule 16 Red Flags in permissions.allow, advisory)
+        entry: python3 scripts/lint_allowlist.py
+        language: system
+        files: (^|/)\.claude/settings(\.local)?\.json$
+        # advisory：預設 exit 0，所以要 verbose 才看得到警告（AGENTS.md Known Gotchas）
+        # 證據：verified on Python 3.13——scripts/tests/test_lint_allowlist.py 對 rule 16 Red Flag
+        # 1/2/3/5 的範例各有正向案例、對 Safe Pattern Examples 有負向對照；repo 的 .claude/settings.json
+        # 目前零命中（2026-11-18）。
+        verbose: true
 
       - id: lint-rule-frontmatter
         name: lint-rule-frontmatter

@@ -2,7 +2,7 @@
 name: agy-consult
 type: tool
 scope: global
-description: Antigravity CLI（agy）第二意見：讓 Gemini 讀 repo 後回答技術問題，不看 diff。預設 AGY_MODEL=gemini-3.8-flash-high（2026-09-03 實測台灣可用）。觸發須明確指名 Gemini / agy / antigravity 且是「問問題」而非「review 改動」：問 gemini、agy 第二意見、gemini 怎麼看、agy 諮詢。純粹「幫我看一下」「這樣對嗎」等未指名 Gemini/agy 的一般提問不觸發此 skill。要看 diff 或 PR 改動的 review 請改用 /agy-review；要 OpenAI Codex（而非 Gemini）的第二意見請改用 /codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
+description: Antigravity CLI（agy）第二意見：讓 Gemini 讀 repo 後回答技術問題，不看 diff。預設 AGY_MODEL=gemini-4-carbon-high（2026-11-18 實測台灣可用）。觸發須明確指名 Gemini / agy / antigravity 且是「問問題」而非「review 改動」：問 gemini、agy 第二意見、gemini 怎麼看、agy 諮詢。純粹「幫我看一下」「這樣對嗎」等未指名 Gemini/agy 的一般提問不觸發此 skill。要看 diff 或 PR 改動的 review 請改用 /agy-review；要 OpenAI Codex（而非 Gemini）的第二意見請改用 /codex-consult；跨家 mob review 請改用 /mob-code-review-only 或 /pr-cycle-deep
 ---
 
 # /agy-consult — 透過 Antigravity CLI 取得第二意見
@@ -10,11 +10,16 @@ description: Antigravity CLI（agy）第二意見：讓 Gemini 讀 repo 後回�
 讓 Antigravity CLI（agy）讀取 repo 後，回答你對 codebase 的技術問題。
 適合「這段邏輯對嗎？」「為什麼這樣設計？」「有什麼潛在問題？」等開放式諮詢。
 
-> **實際回答者是誰**：`consult.sh` 預設 `AGY_MODEL=gemini-3.8-flash-high`。腳本每次執行
+> **實際回答者是誰**：`consult.sh` 預設 `AGY_MODEL=gemini-4-carbon-high`。腳本每次執行
 > 都會把實際模型以 `[INFO] agy 模型：<model>` 印到 stderr，**不要靠猜**——尤其在要把「兩邊
 > 說法一致」當成跨廠商證據時，先讀那一行確認回答者真的不是 Claude。
 >
-> **預設值的由來（2026-09-03 實測，agy 1.1.25，台灣）**：`gemini-3.8-flash-high`、
+> **目前預設（2026-11-18 實測，agy 1.5.10，台灣）**：`agy models` 列出
+> `gemini-4-carbon-{low,medium,high}`，沿用先前的 High tier 選 `gemini-4-carbon-high`；
+> 單次請求成功且模型自報「Gemini 4 Carbon」，排除靜默 fallback。`/agy-review` 的預設未隨之更動，
+> 仍是 `gemini-3.8-flash-high`。
+>
+> **改用 Gemini 的由來（2026-09-03 實測，agy 1.1.25，台灣）**：`gemini-3.8-flash-high`、
 > `3.8-flash-low`、`3.7-flash-low`、`3.6-flash-low`、`3.1-pro-low` 五個 model id 各發一次
 > 請求**全部成功**，未出現 `FAILED_PRECONDITION: User location is not supported`；四個模型
 > 各自回報與請求一致的名稱，排除靜默 fallback 到同一模型的可能。
@@ -38,7 +43,7 @@ description: Antigravity CLI（agy）第二意見：讓 Gemini 讀 repo 後回�
 ## 觸發方式
 
 ```text
-/agy-consult <問題>      — 讓 agy 讀 repo 回答這個問題（預設模型 gemini-3.8-flash-high）
+/agy-consult <問題>      — 讓 agy 讀 repo 回答這個問題（預設模型 gemini-4-carbon-high）
 ```
 
 ---

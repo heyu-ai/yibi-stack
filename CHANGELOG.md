@@ -16,12 +16,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - pr-cycle-deep 依 R1 實際結果記錄聲部與失敗原因；外部聲部全失效時停止，Claude-only 必須取得綁定本輪的明確人類裁決，resume 不得沿用其他輪的批准（#630）。
 - PR #640 審查補強：以完整 PR identity 與本輪成果綁定 checkpoint／聲部裁決，補齊原子後期轉移及終態續接；lesson 寫後按回傳 id 驗證，保留冪等 skip 與舊 CLI 復原診斷，新增並行 snapshot 與大量 receipt 投影整合驗證。
 - 依人類 circuit-breaker 裁決修復 pass 2 三個 Critical：拒絕只有 metadata 的 review、拒絕同 id 不同 finding 轉移裁決，並讓本輪 fix 裁決的 blocking 不受重建 checkpoint 清除；未自動開第三輪 review。
+- Hindsight 協定將舊 installed CLI 的 200 識別碼錯誤辨識為版本過舊；更新前維持 degraded，不拆批、不漏 receipt，也不自動安裝或發布。
+
+## [1.24.3] - 2026-11-13
+
+### Changed
+
+- 收緊非阻擋項目建票閘門並改於合併後具名建票 (#643)
+
+## [1.24.2] - 2026-11-11
+
+### Changed
+
+- 新增 explain-to-pm，把技術決策轉成 PM 看得懂的圖文 HTML (#644)
+- V1.24.2
+
+## [1.24.1] - 2026-11-11
+
+### Changed
+
+- 模型由 sonnet 改為 haiku (#642)
+- V1.24.1
+
+### Fixed
+
+- Plugin 提供的 skill 不再依賴 ~/.claude/skills 下的自己 (#632)
+- 補上 PR #632 mob review 的兩個測試缺口 (#635)
 
 ## [1.24.0] - 2026-11-04
 
 ### Changed
 
 - 每週量出 rule 與子目錄 CLAUDE.md 實際被載入的 session 數 (#628)
+- V1.24.0
 
 ### Fixed
 
@@ -901,6 +928,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove bash anti-patterns triggering CC confirmation dialogs (#137)
 - Remove unnecessary rm-f after git commit-F (#105)
 
+[1.24.3]: https://github.com/heyu-ai/yibi-stack/compare/v1.24.2..v1.24.3
+[1.24.2]: https://github.com/heyu-ai/yibi-stack/compare/v1.24.1..v1.24.2
+[1.24.1]: https://github.com/heyu-ai/yibi-stack/compare/v1.24.0..v1.24.1
 [1.24.0]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.24..v1.24.0
 [1.23.24]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.19..v1.23.24
 [1.23.19]: https://github.com/heyu-ai/yibi-stack/compare/v1.23.18..v1.23.19

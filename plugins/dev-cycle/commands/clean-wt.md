@@ -1,6 +1,6 @@
 ---
 description: 統一清理本地分支與 worktree：自動判斷 merged / gone / 無價值的殘留，證據不足者只報告不刪。取代 clean-merged 與 clean-gone。
-model: sonnet
+model: haiku
 effort: medium
 ---
 <!-- markdownlint-disable-file MD041 -->

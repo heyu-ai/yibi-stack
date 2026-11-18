@@ -114,8 +114,8 @@ claude.ai 帳號的 skill/plugin 自動同步（2.1.275 起預設開啟）**已�
 關鍵路徑速查：
 
 - 共用路徑常數：@tasks/_paths.py
-- Bash lint 工具：@scripts/lint_skill_bash.py
-- 編碼慣例總覽：@.claude/rules/（15 個檔案；01/03/13/15/16 全量載入，02、04-11、17 依 `paths:` 觸發）
+- Bash lint 工具：`scripts/lint_skill_bash.py`
+- 編碼慣例總覽：`.claude/rules/`（15 個檔案；01/03/13/15/16 全量載入，02、04-11、17 依 `paths:` 觸發）
 
 ## Dev 指令
 
@@ -136,6 +136,8 @@ uv sync --extra ledger   # 額外裝 scripts/ 帳務工具的依賴（pandas/sql
 # Plugin 發布（lockstep 版本：所有 plugin 同步升版）
 make release TYPE=patch  # patch / minor / major
 # 流程：bump pyproject.toml -> sync plugins/*/package.json + .claude-plugin/plugin.json -> changelog -> test gates -> commit -> tag + GitHub Release
+# PR 已在 PR 內升過 plugin 版號（plugin 版號 > pyproject）時，不再升一級：沿用 plugin 版號、TYPE 不生效
+# （scripts/release_version_plan.py）；plugin 版號 < pyproject 或 plugin 之間不一致時直接失敗
 
 # 新環境一次到位
 make install-all         # 等同 build-tools + install + install-project + install-handover-hooks + install-scheduler + patch-pr-review-agents + patch-agy-allow-list
@@ -180,10 +182,13 @@ make install-all         # 等同 build-tools + install + install-project + inst
   Example: `plugins/dev-cycle/skills/pr-cycle-deep/scripts/setup-review-dir.sh`.
 - **make target names must be copied verbatim**: target names in README/CLAUDE.md must be
   copied directly from the Makefile — never rephrase as a "readable label" (e.g., abbreviating
-  `patch-pr-review-agents`) or users get a make error.
+  `patch-pr-review-agents`) or users get a make error. `scripts/tests/test_doc_make_targets.py`
+  checks every `make <target>` in a code context of the tracked Markdown against the Makefile.
 - **hook script in `.claude/hooks/` does not mean enabled**: Claude Code only runs hooks
   registered in `settings.json`'s `hooks` command strings. Evaluate hook effectiveness with a
-  double check: file exists AND registered in `settings.json`.
+  double check: file exists AND registered in `settings.json`. The reverse direction (a
+  registered command whose script or `tasks.<module>` no longer exists) is checked by
+  `scripts/tests/test_hook_entrypoints.py`.
 - **registering a new hook after entering a worktree mid-session can brick the session** —
   `${CLAUDE_PROJECT_DIR}` stays pinned at the session's start dir; see rule 15 for the mechanism
   and the Edit-tool escape.
@@ -196,11 +201,10 @@ make install-all         # 等同 build-tools + install + install-project + inst
 - **`make install` is mandatory after pulling, not optional**: skills locate this repo via
   `~/.agents/bin/resolve-skill-repo`, a symlink that only `make install` creates. Pull without
   re-installing and those skills fail with
-  `[FAIL] ... 請在 yibi-stack 目錄執行 make install` until you run it. This is deliberate: the
-  failure is loud and names its own fix, replacing the previous `~/.agents/config.json`
-  `skill_repo` lookup whose failure mode was **silence** (the key is co-written by several skill
-  repos, so the last installer won and every caller silently ran against the wrong checkout —
-  measured live in PR #224, where it pointed at `ainization-skill`). Corollary: if you **move**
+  `[FAIL] ... 請在 yibi-stack 目錄執行 make install` until you run it. The failure is
+  deliberately loud and names its own fix. Do not replace it with a lookup in a shared config key
+  such as `~/.agents/config.json` `skill_repo`: several skill repos write that key, so the last
+  installer wins and callers silently run against the wrong checkout (PR #224). Corollary: if you **move**
   a checkout, re-run `make install` — the symlink is repointed only by that run.
 - **`make install` must run from the MAIN repo, never from a worktree**: the install targets
   point global symlinks at `$(CURDIR)`, so installing from `.claude/worktrees/<name>/` aims
@@ -287,9 +291,17 @@ make install-all         # 等同 build-tools + install + install-project + inst
   `No module named tasks.<old_name>.__main__`. After every module rename, search both settings
   files for the old name and update manually.
 - **plugin version lockstep (package.json vs .claude-plugin/plugin.json)**: every plugin carries
-  its version in both files and no CI check compares them. Bump with
-  `scripts/sync-plugin-versions.sh <version>` (or `make release`), which writes both for all
-  plugins; do not hand-edit one file.
+  its version in both files. Bump with `scripts/sync-plugin-versions.sh <version>` (or
+  `make release`), which writes both for all plugins; do not hand-edit one file.
+  CI runs `scripts/check_plugin_version_bump.py` on every PR and push to main: when the range
+  changes a shipped file under `plugins/<name>/` (anything except files in a `tests` directory
+  and the two version files), all version files at head must be equal and greater than the
+  merge base. Without a bump, `claude plugin update` keeps the old cache and the merged change
+  never reaches users (#643 stayed unreleased for two days). The same check fails any range
+  that lowers the version or breaks lockstep, even without shipped changes, because
+  `sync-plugin-versions.sh` does not touch `pyproject.toml`; `make release` therefore adopts
+  the plugin version when it is ahead of `pyproject.toml` instead of bumping from
+  `pyproject.toml` (the old flow downgraded plugins after two PR bumps).
 - **`gh` CLI `--json` field names must be verified before use**: fields like `databaseId` do
   not exist in `gh pr checks` (some fields only exist in `gh pr list` or other commands).
   Passing a non-existent field name returns empty values silently — any function consuming that
@@ -310,11 +322,9 @@ make install-all         # 等同 build-tools + install + install-project + inst
   limit that resets too far away instead of waiting, so a job meant to wait for the reset must set it
   large enough; `CLAUDE_CODE_RETRY_WATCHDOG_USAGE_LIMIT_RECHECK_MS` (2.1.305) lets the watchdog notice a
   limit that was lifted before its reset. (Source: Claude Code CHANGELOG 2.1.301 / 2.1.305.)
-- **`claude -p` internal errors now exit 1 instead of hanging (v2.1.277)**: before 2.1.277,
-  an internal error caused `claude -p` to hang silently until `timeout_seconds` expired; from
-  2.1.277 it reports the error and exits with code 1. Any gate that relied on timeout as the
-  sole internal-error signal must now also check exit code (non-zero = failure) — the two
-  failure modes are no longer the same event.
+- **`claude -p` reports an internal error with exit code 1** (Claude Code 2.1.277 and later;
+  older versions hung until `timeout_seconds`). A gate around `claude -p` must check the exit
+  code (non-zero = failure), not only a timeout.
   This repo's `tasks/scheduler/runner.py` talks to `claude -p` through the ACP Gateway's HTTP
   JSON response (`success`/`timed_out` fields at the Gateway layer, not `claude -p` exit codes
   directly), so it is not directly affected for now. `nightly-self-improvement` is a `command`
