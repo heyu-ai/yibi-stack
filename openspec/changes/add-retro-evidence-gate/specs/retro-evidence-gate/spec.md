@@ -7,7 +7,7 @@
 
 ### Requirement: 每個「加 rule/hook」action item 寫入前必須分級
 
-US-001 / AC-001-1. `/pr-retro` Step 5 產出的每個「新增 rule」或「新增 hook」action item，在任何寫入 always-loaded 面（`.claude/rules/*.md`、`CLAUDE.md`）或註冊 hook 之前，MUST 被歸入且僅歸入以下三層之一：Tier 1（Probed，可機械實測的可證偽宣稱）、Tier 2（Incident-cited，有真實事件佐證但不易廉價重跑）、Tier 3（Subjective，主觀／單一次發生／無可接受證據形式）。分級 MUST 在既有 Promotion Gate（G1/G2/G3）之**上游**發生：未完成分級的 action item MUST NOT 進入 Promotion Gate。
+US-001 / AC-001-1. `/pr-retro` Step 5 產出的每個「新增 rule」、「新增 hook」或「新增 lint」action item，在任何寫入 always-loaded 面（`.claude/rules/*.md`、`CLAUDE.md`）、註冊 hook 或新增 lint 之前，MUST 被歸入且僅歸入以下三層之一：Tier 1（Probed，可機械實測的可證偽宣稱）、Tier 2（Incident-cited，有真實事件佐證但不易廉價重跑）、Tier 3（Subjective，主觀／單一次發生／無可接受證據形式）。分級 MUST 在既有 Promotion Gate（G1/G2/G3）之**上游**發生：未完成分級的 action item MUST NOT 進入 Promotion Gate。
 
 分級的依據 MUST 是「此宣稱有無可接受的證據形式」，而非來源信任度分數（`--source`）。來源分數 MUST NOT 單獨作為升級到 Tier 1 或 Tier 2 的理由。
 

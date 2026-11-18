@@ -71,6 +71,55 @@ def test_prm_dt_004_ladder_ranks_script_helper_above_reference_rule() -> None:
     assert _index_in(ladder, "| `script helper` |") < _index_in(ladder, "| `reference rule` |")
 
 
+def test_prm_dt_005_g1_mechanical_lessons_still_written_active_with_marker() -> None:
+    """PRM-DT-005: G1 判定可機械化的 lesson 照常以 active 寫入，insight 帶 gate-pending 標記"""
+    gate = _between(_skill_text(), "#### Promotion Gate", "##### 機械化優先")
+    assert "只有在 G1+G2+G3 全通過後" not in gate, "舊的耦合句仍在：G1 不得再擋 active 寫入"
+    clause = _between(gate, "Typed lesson 寫入與 G1 脫鉤", "\n\n")
+    for target in ("照常以 `state=active` 寫入", "`[gate-pending:hook]`", "`[gate-pending:lint]`"):
+        assert target in clause, f"脫鉤條款缺少 {target!r}"
+    assert "harness-weekly-review" in clause, "必須指明每週由誰確認"
+
+
+def test_prm_dt_006_step4b_note_matches_decoupling() -> None:
+    """PRM-DT-006: Step 4b 開頭的執行條件與脫鉤後的 Promotion Gate 一致"""
+    note = _between(_skill_text(), "### Step 4b", "Classifier → `--type` 對照表")
+    assert "G1+G2+G3 才正常寫入" not in note
+    assert "gate-pending" in note
+
+
+def test_prm_dt_007_reassess_exit_for_mechanical_lesson_uses_finalize_with_marker() -> None:
+    """PRM-DT-007: reassess 重評後 G1 判定可機械化 → finalize 並以 --insight 補上標記，不 re-park"""
+    exits = _between(
+        _skill_text(),
+        "| 重評結論 | 動作 | 終止狀態 | 可重試？ |",
+        "**`--park` 這兩條出口不可重試**",
+    )
+    rows = [ln for ln in exits.splitlines() if "G1 判定可機械化" in ln]
+    assert len(rows) == 1, f"reassess 出口表應恰有一列 G1 可機械化，實得 {len(rows)}"
+    assert "`lessons finalize --id`" in rows[0]
+    assert "--insight" in rows[0]
+    assert "gate-pending" in rows[0]
+
+
+WEEKLY_MD = REPO_ROOT / "plugins" / "harness" / "skills" / "harness-weekly-review" / "SKILL.md"
+
+
+def test_prm_st_001_weekly_review_confirms_gate_pending_lessons() -> None:
+    """PRM-ST-001: harness-weekly-review 每週列出 gate-pending lesson 並給出收尾指令"""
+    text = WEEKLY_MD.read_text(encoding="utf-8")
+    step = _between(text, "### Step 4b — 確認待做成 gate 的 lesson", "### Step 5")
+    for target in (
+        'mycelium lessons search "gate-pending:"',
+        "--json",
+        "mycelium lessons retire --id",
+        "需要 owner 裁決",
+    ):
+        assert target in step, f"Step 4b 缺少 {target!r}"
+    report = _between(text, "### Step 7 — 回報", "## 門檻")
+    assert "gate-pending" in report, "Step 7 回報必須列出待做成 gate 的 lesson"
+
+
 def test_prm_vl_001_lint_action_row_requires_evidence_gate() -> None:
     """PRM-VL-001: Q5 映射表的「新增 lint」列與相鄰兩列一樣，須先通過 Evidence Gate"""
     text = _skill_text()

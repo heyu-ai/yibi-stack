@@ -300,7 +300,9 @@ mycelium retro write \
 ### Step 4b — 準備 typed-lessons 寫入（Step 5 分級後才執行）
 
 > **此處只準備 metadata 與 script，不得執行。** 實際 mutation 必須等 Step 5.0 Evidence Gate
-> 分級：Tier 3 走 `--park`；Tier 1/2 還須通過 Promotion Gate G1+G2+G3 才正常寫入。
+> 分級：Tier 3 走 `--park`；Tier 1/2 中，G1 判定可機械化的照常寫入（insight 開頭加
+> `[gate-pending:hook]` 或 `[gate-pending:lint]`），其餘還須通過 Promotion Gate G2+G3 才正常寫入
+>（見 Promotion Gate 的「Typed lesson 寫入與 G1 脫鉤」）。
 > 若 Step 4 retro 寫入已失敗，此步驟與後續 mutation 都跳過。
 
 Classifier → `--type` 對照表：
@@ -545,7 +547,15 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 > `finalize` 內部是單一 transaction 的 compare-and-set：id 不存在、已 retire、仍為 parked、
 > 或沒有 `recurrence-<n>` tag（代表它不是等待重評的那一列）都直接失敗，不做部分更新。
 >
-> **重評通過 Tier 1/2、但 Promotion Gate（G1/G2/G3）沒過**：這條分支同樣需要終止轉移，
+> **重評通過 Tier 1/2、G1 判定可機械化**：與一般寫入一致（見 Promotion Gate 的「Typed lesson 寫入與
+> G1 脫鉤」），照樣用 `lessons finalize --id` 原地升級，並以 `--insight` 傳入加上 `[gate-pending:hook]`
+> 或 `[gate-pending:lint]` 開頭的內文，讓每週確認撈得到：
+>
+> ```bash
+> mycelium lessons finalize --id "$OLD_PARKED_ID" --confidence <5-10> --source <與依據一致> --insight '[gate-pending:lint] <原內文>'
+> ```
+>
+> **重評通過 Tier 1/2、G1 判定不可機械化、但 G2／G3 沒過**：這條分支同樣需要終止轉移，
 > 否則舊列會停在「已解除 park、confidence ≤ 4」的孤兒狀態，重新進入一般 recall 與 tier
 > promotion——與上面那個 bug 完全相同的後果，只是入口不同（Codex re-review Critical）。
 > 此時**不要** finalize，改為再跑一次 `--park` 把它放回 parked：
@@ -554,13 +564,14 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 > mycelium lessons add --park ...   # 同一組 metadata；只重套 parked，不再次 bump recurrence
 > ```
 >
-> 三條出口整理如下，**每條都必須落到一個明確狀態**，不得留在 reassess 中繼態：
+> 四條出口整理如下，**每條都必須落到一個明確狀態**，不得留在 reassess 中繼態：
 >
 > | 重評結論 | 動作 | 終止狀態 | 可重試？ |
 > |---|---|---|---|
 > | 仍為 Tier 3 | 再跑 `--park` | parked（recurrence 不變） | **否**——見下方 |
-> | Tier 1/2 且 Promotion Gate 全過 | `lessons finalize --id` | active（同一列升級） | 是（冪等） |
-> | Tier 1/2 但 Promotion Gate 未過 | 再跑 `--park` | parked（recurrence 不變） | **否**——見下方 |
+> | Tier 1/2 且 G1 判定可機械化 | `lessons finalize --id`，加 `--insight` 傳入 `[gate-pending:hook]`／`[gate-pending:lint]` 開頭的內文 | active（同一列升級，每週確認） | 是（冪等） |
+> | Tier 1/2、G1 判定不可機械化、G2+G3 全過 | `lessons finalize --id` | active（同一列升級） | 是（冪等） |
+> | Tier 1/2、G1 判定不可機械化、G2／G3 未過 | 再跑 `--park` | parked（recurrence 不變） | **否**——見下方 |
 >
 > **`--park` 這兩條出口不可重試**：`--park` 分不出「重試同一次 occurrence」與「這是新的一次
 > occurrence」，所以對**已經 re-park 的列**再跑一次同樣的 call，會走 `if "parked" in tags`
@@ -586,8 +597,13 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 | **G2 onboarding-relevant** | 一個剛加入的貢獻者（day-1）也會犯這個錯誤嗎？ | 若 No（只有深度 context 才會踩）→ 只存在 retro 記錄裡，不開 rule |
 | **G3 no existing rule covers it** | 搜尋現有 `.claude/rules/` 後，沒有任何 rule 已覆蓋此 pattern 嗎？ | 若已有 → extend 現有 rule（append），不建新 rule 檔 |
 
-Tier 1/2 只有在 G1+G2+G3 全通過後，才執行 Step 4b prepared script 的 `state=active` call；
-未全通過者不寫 typed lesson promotion path，也不得用 `active` 繞過 Evidence Gate。
+**Typed lesson 寫入與 G1 脫鉤**：G1 只決定「寫不寫 rule」，不決定 lesson 要不要進 Mycelium。
+G1 判定可機械化（改走 Q5「新增 hook」或「新增 lint」）的 Tier 1/2 lesson 不再跑 G2／G3（那兩條問的是
+rule 值不值得寫），照常以 `state=active` 寫入，insight 開頭加上標記 `[gate-pending:hook]` 或
+`[gate-pending:lint]`。這些 lesson 會累積在 Mycelium，照常參與 A1 的 recurrence 查詢與 distill 聚合，
+每週由 `harness-weekly-review` 的 Step 4b 以關鍵字 `gate-pending:` 撈出來，確認 gate 做了沒。
+G1 判定不可機械化的 lesson，照舊要 G2+G3 全通過才執行 Step 4b prepared script 的 `state=active` call，
+未通過者不寫 typed lesson promotion path。任何情況都不得用 `active` 繞過 Evidence Gate。
 
 ##### 機械化優先：hook／lint > rule
 
@@ -730,6 +746,8 @@ harness 改動當場寫檔＋開 PR，而是排進常設佇列 issue、每週由
    Lesson 已在 Step 5 寫入 Mycelium（`epistemic_status = "episode"`）。
    **不再自動執行 `gh issue comment`**——讓 episode 在 Mycelium 自然累積，
    由 distill 聚合成 observation 後再由人類決定是否進入 policy candidate。
+   「新增 hook」「新增 lint」的 lesson 帶 `[gate-pending:…]` 標記，另由 `harness-weekly-review`
+   Step 4b 每週列出，確認 gate 做了沒。
 
    如使用者判斷此 lesson 應立即排入 harness queue，可手動執行以下指令：
 
