@@ -104,7 +104,9 @@ fi
 # 保護 3：worktree branch 追蹤 origin/main
 # main/master 本身由保護 2 處理；此處只處理其他 branch 追蹤 origin/main 的情況
 #
-# 只對「裸 git push（使用 tracking）」觸發；明確指定 non-main 目的地的 push 放行。
+# 凡是目的地由 tracking 決定的 push 都要查：裸 push，以及 refspec 沒有 :<dst> 的 push
+# （push.default=upstream 下，git push origin <branch> 會依該 branch 的 tracking 推送）。
+# 只有每個 refspec 都明確寫出 non-main 的 :<dst> 才直接放行。
 # 同時過濾 CMD 中只含 git push 文字（如 commit message、echo 字串）的情況。
 PUSH_MODE=$(echo "$CMD" | python3 -c "
 import re, shlex, sys
@@ -217,7 +219,7 @@ if [ "${PR_STATE_RC:-0}" -eq 2 ]; then
     exit 2
 fi
 
-# 明確指定 non-main 目的地 -> 放行（tracking 檢查只針對裸 push）
+# 每個 refspec 都明確寫出 non-main 的 :<dst> -> 放行；其餘交給下方逐 branch 的 tracking 檢查
 [ "${PUSH_MODE:-bare}" = "explicit-other" ] && exit 0
 
 CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)

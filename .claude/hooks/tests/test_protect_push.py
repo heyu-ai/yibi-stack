@@ -98,7 +98,7 @@ class TestAllowed:
         assert run_hook("git push origin feature-branch") == 0
 
     def test_pp_allow_005_push_u_origin_head(self) -> None:
-        """git push -u origin HEAD → 放行"""
+        """git push -u origin HEAD，目前 branch 沒有 upstream → 放行（追蹤 main 的情況見 PP-BLOCK-021）"""
         assert run_hook("git push -u origin HEAD") == 0
 
     def test_pp_allow_006_push_set_upstream(self) -> None:
