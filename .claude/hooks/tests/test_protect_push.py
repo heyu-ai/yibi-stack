@@ -349,6 +349,10 @@ class TestRefspecWithoutDestination:
             "git push origin +feat-a",
             "git push origin heads/feat-a",
             "git push origin @",
+            "git push origin 'feat-a'",
+            'git push origin "feat-a"',
+            "git push origin feat\\-a",
+            "git push origin 'unterminated",
         ],
     )
     def test_pp_block_021_tracking_main_without_dst(self, tmp_path: Path, command: str) -> None:

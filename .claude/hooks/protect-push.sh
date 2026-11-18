@@ -107,7 +107,7 @@ fi
 # 只對「裸 git push（使用 tracking）」觸發；明確指定 non-main 目的地的 push 放行。
 # 同時過濾 CMD 中只含 git push 文字（如 commit message、echo 字串）的情況。
 PUSH_MODE=$(echo "$CMD" | python3 -c "
-import re, sys
+import re, shlex, sys
 cmd = sys.stdin.read()
 parts = re.split(r'&&|\|\||[;|\n]', cmd)
 # Strip leading VAR=value env assignments (P2: handle GIT_SSH_COMMAND='...' git push)
@@ -124,7 +124,14 @@ for part in parts:
     # 移除 flag（以 - 開頭的 token），取 positional args：[git, push, [remote], [dest]]
     # 特別處理「需要 argument 的 flag」（如 -o / --push-option）：同時跳過其 argument token
     _arg_opts = {'-o', '--push-option', '--receive-pack', '--exec', '--repo'}
-    tokens = stripped.split()
+    # 用 shell 規則切 token：引號、跳脫字元要先拿掉，否則 'feat' 這種寫法查不到 tracking。
+    # 切不開（例如引號沒有閉合）就當成裸 push，查目前 branch 的 tracking。
+    try:
+        tokens = shlex.split(stripped)
+    except ValueError:
+        bare_found = True
+        track.append('HEAD')
+        continue
     positional = []
     i = 0
     while i < len(tokens):
