@@ -110,7 +110,7 @@ if ! test -n "$HARD_ROOT"; then echo "[FAIL] 讀不到 pr-retro-hard 的 scripts
 > 因此紀律不變：`agy-consult` 的腳本每次執行都會把實際模型印到 stderr
 > （`[INFO] agy 模型：<model>`），**要把任何一致當成跨家族訊號之前，先讀那一行**。
 > 不要改成「因為預設是 Gemini 所以可以省略這步」——那正是這條警告存在的理由。
-> 實測記錄與版本戳記見 `/agy-consult` SKILL.md 的「預設值的由來」。
+> 實測記錄與版本戳記見 `/agy-consult` SKILL.md 的「目前預設」與「改用 Gemini 的由來」。
 
 記錄哪幾家回來了。**外部 voice 為 0 時不 redirect**（與 `/pr-cycle-deep` 不同——對抗 voice
 本身仍有價值），輸出：
