@@ -83,7 +83,7 @@ _RUNTIME_CASES: dict[str, tuple[Path, list[str]]] = {
     "scripts/probe-agy-sandbox.sh": (PROBE_SH, []),
 }
 _EXPECTED_SKILL_MODELS = {
-    "plugins/3rd-tools/skills/agy-consult/scripts/consult.sh": "gemini-3.8-flash-high",
+    "plugins/3rd-tools/skills/agy-consult/scripts/consult.sh": "gemini-4-carbon-high",
     "plugins/3rd-tools/skills/agy-review/scripts/run.sh": "gemini-3.8-flash-high",
     "plugins/dev-cycle/skills/pr-cycle-deep/scripts/agy-r1-stage2.sh": "Gemini 3.8 Flash (High)",
 }

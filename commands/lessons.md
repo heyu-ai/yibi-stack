@@ -79,7 +79,7 @@ Agent 直接組 `lessons add` 指令：
 `reassess`；重評仍為 Tier 3 時再次 `--park` 只重套 parked、不重複 bump。
 parked 教訓預設不進 `show` / `search` 與 tier 升降級。
 
-- `--confidence` **必須 ≤ 4**，超過時直接以 exit 1 拒絕（**不是**靜默夾到 4）。呼叫端要自己
+- 搭配 `--park` 時 `--confidence` **必須 ≤ 4**，超過時直接以 exit 1 拒絕（**不是**靜默夾到 4）。呼叫端要自己
   給對的分數，不要依賴系統幫忙修正。
 - 同一 `project` + `key` 已有**未 parked** 的教訓時，`--park` 會拒絕並保持原教訓不變——避免把已通過
   Tier 1/2 的教訓夾成低信心並掛上 parked 而從預設查詢中消失。
@@ -123,7 +123,7 @@ tombstone（含完整 snapshot + `deleted_at`）保留 audit trail：
 
 ## Skill integration contract
 
-目前只有 `/pr-retro` 與 `/investigate` 在對應時機呼叫 `lessons add`；`/handover` 列為預留介面，尚未實作：
+`/pr-retro`、`/investigate` 會在對應時機呼叫 `lessons add`，`harness-weekly-review` 的 script 則以 `--skip-if-exists` 寫入；`/handover` 列為預留介面，尚未實作：
 
 | Skill | 時機 | source | 額外參數 |
 |-------|------|--------|---------|

@@ -301,9 +301,9 @@ cat << 'ARTIFACT_EOF' | spectra new artifact --stdin
 ## content ...
 ARTIFACT_EOF
 
-# Fix: Write tool to file first; use < redirect
-spectra new artifact --stdin < /tmp/artifact_input.md
-rm -f /tmp/artifact_input.md
+# Fix: Write tool to a scratch file first; use < redirect (no rm afterwards -- scratch files
+# go in $CLAUDE_JOB_DIR/tmp/, see CLAUDE.md "Commit Message Convention")
+spectra new artifact --stdin < "$CLAUDE_JOB_DIR/tmp/artifact_input.md"
 ```
 
 ### Output filter pipeline `| grep -v "..."`
@@ -331,7 +331,7 @@ make ci 2>&1 | tail -40
 
 # Fix A (preferred): do not put a gate command upstream of a pipe. Truncation is a
 # separate concern -- write full output to a file, then Read it with the Read tool.
-make ci > /tmp/ci.log 2>&1      # exit code is make ci's; then Read /tmp/ci.log
+make ci > "$CLAUDE_JOB_DIR/tmp/ci.log" 2>&1   # exit code is make ci's; then Read that file
 
 # Fix B: when you must pipe, make the pipe fail loud on any stage.
 set -o pipefail                 # pipeline exits non-zero if ANY stage fails
@@ -353,8 +353,8 @@ Three ways a red signal turns out not to be about your change. Check these befor
 own diff — and equally, before concluding a local green means anything.
 
 **1. Stray untracked directories on disk.** `pytest` collects from any directory matching its
-discovery rules, whether or not git tracks it. Leftover generated directories (historically
-`tasks/nightly_agent/tests/`, but any `tasks/*/tests/` from an aborted run) produce failures
+discovery rules, whether or not git tracks it. Leftover generated directories (any
+`tasks/*/tests/` content left behind by an aborted run) produce failures
 indistinguishable from real ones — and they follow the checkout, not the branch.
 
 ```bash
@@ -452,7 +452,7 @@ need the subagent; just apply the corresponding fix directly.
 
 ## exec wrapper Penetrates deny rule (2026-05)
 
-Claude Code deny rules now see through `env`/`sudo`/`watch`/`ionice`/`setsid`:
+Claude Code deny rules see through `env`/`sudo`/`watch`/`ionice`/`setsid`:
 
 ```bash
 # These are also blocked by deny rules
@@ -465,8 +465,8 @@ describe the operation and ask the user to run manually.
 
 ## Moved to Rule 17 (Shell Script Authoring)
 
-These sections now live in [`17-shell-script-authoring.md`](17-shell-script-authoring.md), which
-loads only when a shell script, hook, Makefile, or CI config is touched. Titles are unchanged:
+[`17-shell-script-authoring.md`](17-shell-script-authoring.md) loads only when a shell script,
+hook, Makefile, or CI config is touched. It covers:
 
 - `|| exit 0` / `|| true`; `file:line`-only diagnostic filters; grepping a success banner
 - `realpath` on macOS; `pwd -P` and file symlinks; `GIT_DIR` / `GIT_WORK_TREE` overriding `git -C`
@@ -475,6 +475,7 @@ loads only when a shell script, hook, Makefile, or CI config is touched. Titles 
 - diagnostics to stderr; `[SKIP]` vs `[WARN]`; tracking-ID sentinels; jq `--arg` empty string
 - single-quote semantics (hook note); `\$` in skill bodies; Gemini / agy CLI gotchas
 - Quoting Rule 6 (Python comment `"`) and Quoting Rule 7 (bare `$VAR` + non-ASCII)
+- global-state install guard (`assert_not_worktree.sh`, fail-open design); doc-guard tests
 
 ## Complete Methodology
 
@@ -556,18 +557,14 @@ MAIN_REPO=$(dirname "$GIT_COMMON")
 
 Rule 2 direction: `"..." → $() → "$VAR"`. Rule 4 direction: `$() → "$(inner)"`. Same root cause.
 
-**Inside a worktree-isolated session Claude Code itself may refuse, not prompt.**
-Claude Code 2.1.274: "Fixed worktree-isolated sessions accepting Bash commands with certain
-nested shell expansions; these are now refused". The changelog does not list which expansions
-qualify, so do not assume the shapes in Rules 2 and 4 are the complete set. In this repo
-`bash-ap1-inline-check.sh` already blocks Rule 4's shape (Case 26) wherever the hook runs, so a
-main-checkout-versus-worktree difference can only show up for shapes that hook does not catch.
-Two exceptions let Rule 4's shape through the hook: its `git commit -m "$(cat <<` exemption, and
-its fail-open on internal errors (`trap 'exit 0' ERR`).
-The fix is unchanged: split into separate bash calls.
-Claude Code 2.1.309 refuses two more shapes in worktree-isolated sessions: "some locale-prefixed
-commands" and, on zsh, "some arithmetic commands". The changelog does not name them either, so the
-list of refused shapes still is not complete.
+**Inside a worktree-isolated session Claude Code itself may refuse, not prompt,** certain nested
+shell expansions, some locale-prefixed commands, and (on zsh) some arithmetic commands. Claude
+Code does not publish which shapes qualify, so do not assume the shapes in Rules 2 and 4 are the
+complete set. In this repo `bash-ap1-inline-check.sh` already blocks Rule 4's shape (Case 26)
+wherever the hook runs, so a main-checkout-versus-worktree difference can only show up for shapes
+that hook does not catch, or through its two gaps: the `git commit -m "$(cat <<` exemption and
+its fail-open on internal errors (`trap 'exit 0' ERR`). The fix is the same: split into separate
+bash calls.
 (Source: Claude Code CHANGELOG 2.1.274, read 2026-09-21 for the W39 release-note review; 2.1.309
 read 2026-10-25 for the W44 review.)
 

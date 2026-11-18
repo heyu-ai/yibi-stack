@@ -183,7 +183,7 @@ to a sibling). Before finalizing any `description`, self-check all three prompt 
 | **indirect** | Does a paraphrase / synonym of the intent still fire it (without naming the keyword)? | recall breadth — catches under-triggering |
 | **negative** | Is there a nearby prompt that must NOT fire this skill — especially one owned by a **sibling skill**? | precision — catches over-triggering |
 
-The `negative` axis is the one this repo has never required, and it is the most valuable: it
+The `negative` axis is the one authors most often skip, and it is the most valuable: it
 forces the author to name the sibling skill whose territory they must not invade, and to keep
 the two `description` fields from colliding.
 
@@ -209,7 +209,7 @@ so each member's `description` must carry an explicit negative boundary against 
   red-first gate in `pr-cycle-deep` Step 1.7. Its sibling `flutter-tdd` was removed in the same
   change; a stack-specific TDD skill is now each project's own decision, not this repo's.
 
-**Quantified detection now exists, but it is warn-only.** `scripts/lint_skill_overlap.py`
+**Quantified detection is warn-only.** `scripts/lint_skill_overlap.py`
 measures pairwise `description` keyword overlap (Jaccard, threshold 0.12) and is wired into
 pre-commit as `lint-skill-overlap` with `verbose: true` — the verbosity matters, because a
 warn-only hook exits 0 and pre-commit hides the output of any hook that does. It scans
@@ -228,12 +228,7 @@ Two consequences for authoring:
 Known limitation: warnings identify skills by directory leaf name only, so two same-named
 skills in different packs print as `recap <-> recap` and cannot be told apart.
 
-(An earlier revision of this paragraph said the script "does not exist yet — do not cite it as
-an existing gate", citing issue #186. It shipped; the text did not follow. A rule that
-describes tooling is a claim about the present, and this file is loaded by agents who cannot
-see that it went stale.)
-
-## Frontmatter — `effort` (Optional, added 2026-05)
+## Frontmatter — `effort` (Optional)
 
 Claude Code v2.1.133+ supports specifying effort in skill / slash command frontmatter,
 **overriding the caller's model effort**:
@@ -308,9 +303,9 @@ description: ...
 | `fallback` | Fallback (skill name or behavior) when the primary skill is unavailable |
 | `metadata.*` | Any custom key/value, for the agent to read or classify by |
 
-**Broken frontmatter no longer disappears silently** (v2.1.186): when the YAML frontmatter is
-malformed, the skill **body is still loaded** (metadata treated as empty) for easier debugging,
-instead of the whole skill vanishing from the list. When a skill triggers but misbehaves
+**Broken frontmatter still loads the body** (v2.1.186+): when the YAML frontmatter is
+malformed, the skill body is loaded with empty metadata, so the skill stays in the list but its
+description and keys do nothing. When a skill triggers but misbehaves
 (description trigger words stop working, `effort` not applied), check the frontmatter for a
 YAML syntax error first.
 
@@ -525,8 +520,6 @@ Correct approach:
 - `*.tf`: `terraform fmt -check`
 ```
 
-The Claude voice in mob review found the mismatch after reading the script; Gemini R1 reported
-"accurate (low confidence)" and only agreed on the fix after seeing Claude's findings in R2.
 Description accuracy cannot rely on reviewer cross-checking — verify at authoring time.
 
 ## Cross-doc Cite Must Paste the Original Quote, Not a Summary from Memory (PR #415 lesson)
@@ -588,14 +581,6 @@ the cross-doc / cross-artifact verification discipline — hook docs must match 
 rule cites must match the source, rule-to-spec relationships must match the source spec.
 Verify at authoring time; do not assume a reviewer will catch it.
 
-**Comment-analyzer catches direction errors that code-reviewer misses**: in PR #107, an Output
-Filter section cited Red Flag 5 as the rationale for avoiding output filter pipelines. The real
-reason is that pipeline sources vary at runtime (the source command is not fixed), making any
-allow-list pattern necessarily too broad. Code-reviewer passed the citation (source file exists,
-section name plausible); comment-analyzer caught the direction error by reading what Red Flag 5
-actually says. **Both ends of every cross-ref must be independently verified** — target path AND
-cited content alignment. Checking only the path is insufficient.
-
 ## Cross-Repo Citation: Doc Body Must Be Self-Contained; Lineage Goes in Commit Message
 
 When codifying a lesson / incident from another repo into a doc / skill / rule, **do not embed
@@ -632,12 +617,9 @@ Any skill that produces follow-up actions from retro / review results
 "consider", "maybe", "decide later" in the "next steps" section —
 **verb is vague + destination is absent**.
 
-Evidence: after yibi-stack PR #36 retro (handover `c88c0e9e`), the agent used a 4-option
-AskUserQuestion (A/B/C/D) to route three testing-discipline lessons to concrete destinations
-(each option mapped to an actual rule file + section name);
-the user chose A and the lesson landed within one round (this PR is that landing).
-Counter-example: if the follow-up only says "consider writing the lesson into documentation",
-the user needs another "where?" round trip — retro landing rate drops by an order of magnitude.
+A follow-up that only says "consider writing the lesson into documentation" costs the user
+another "where?" round trip; one whose options each name a rule file and section lands in one
+round (Source: PR #36 retro).
 
 Correct approach (at skill design time):
 
@@ -660,7 +642,7 @@ Source practice: `/pr-retro` Step 5 Lesson Classifier (pr-retrospective SKILL.md
 
 ## Retro-authored rule/hook 的三層證據標準（Evidence Gate）
 
-The verify-before-authoring family above ("Hook Descriptions", "Tool Output Fields", "Blanket
+The verify-before-authoring family in this file ("Hook Descriptions", "Tool Output Fields", "Blanket
 Claims", "`verified` Annotation", "Cross-doc Cite") says *what evidence a claim needs*. This
 section says *when that evidence is mandatory as a gate*: any rule or hook produced by `/pr-retro`
 must clear a three-tier Evidence Gate **before** it is written to an always-loaded surface
@@ -675,7 +657,7 @@ the always-loaded corpus.
 | **Tier 2 Incident-cited** | 有真實事件佐證但不易廉價重跑 | PR / issue 連結 + 貼原文 quote（**兩端 verify**，見上方 Cross-doc Cite） | 可寫入，附 `(Source: PR #NNN` 或 `<!-- verified: incident PR#NNN -->` |
 | **Tier 3 Subjective** | 主觀 / 單一次 / 無可接受證據形式（「措辭可更精確」「建議補充」） | **無可接受形式** | **不得寫入 always-loaded 面**；park 到 typed-lessons，執行介面是 `mycelium lessons add --park`（原子寫入 `tags` 含 `parked`；`--confidence` 須 ≤ 4，超過**直接拒絕**不夾取；`lessons add` **沒有** `--tag` 選項，不要試圖手工下標） |
 
-Four enforcement points, matching the "gate belongs at every entrance" discipline above:
+Four enforcement points, matching the "gate belongs at every entrance" discipline in [rule 17](17-shell-script-authoring.md#global-state-install-guard):
 
 1. **Write-time** — `/pr-retro` Step 5.0 Evidence Gate classifies each action item and blocks
    Tier 3 from the always-loaded surface (upstream of the existing Promotion Gate).
@@ -700,7 +682,7 @@ Four enforcement points, matching the "gate belongs at every entrance" disciplin
    written. "真且會重現" and "此修法有效" are different claims; recurrence establishes only the first.
 
 Self-constraint (dogfood): this norm lives here in rule 11 (`paths: skills/**`, loads only when
-editing skills/rules), **not** in a new always-loaded rule file — a change that treats corpus
+a path under `skills/` is touched), **not** in a new always-loaded rule file — a change that treats corpus
 inflation must not itself inflate the always-loaded surface. `scripts/check_always_loaded_growth.py`
 asserts the net line growth of the `paths:`-less rule files is 0.
 
@@ -985,7 +967,7 @@ Fix: `methodology.md` was updated to use "Scenario Slug"; the sync instruction w
 **Preflight: confirm the two paths are not a symlink before applying this doctrine.** This
 doctrine applies only to two **genuinely duplicated, independently-maintained** files. Before
 labelling one an owner and the other a summary, run `ls -la` (or `test -L`) on both paths: if one
-is a symlink to the other (e.g. `skills/pr-retrospective` → `plugins/growth/skills/pr-retrospective`),
+is a symlink to the other (e.g. `skills/harness-eval` → `plugins/harness/skills/harness-eval`),
 there is a **single physical file** on disk — editing either path edits the same bytes, so both
 stay in sync automatically and an owner/summary annotation is redundant and misleading. This is
 "single source of truth, two access paths," not dual-source ownership.
@@ -1088,7 +1070,7 @@ Two rules follow:
 that `printf 'reply ALPHA' | agy --print --add-dir . --sandbox` returns `ALPHA` (PR #156/#157). On
 agy 1.1.2 that command makes agy explain what `--add-dir` does: `--print` takes the prompt as its
 **value**, so it swallows the next flag and never reads stdin. The claim was almost certainly true
-when written. Worse, `plugins/3rd-tools/skills/agy/scripts/run.sh` had been built on that
+when written. Worse, the agy wrapper `run.sh` (now `plugins/3rd-tools/skills/agy-review/scripts/run.sh`) had been built on that
 documented form and was **silently broken in production** — piping a review prompt, receiving an
 unrelated answer, exiting 0. The rot was found only because an unrelated task re-ran the probe.
 

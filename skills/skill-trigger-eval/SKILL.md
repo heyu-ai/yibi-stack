@@ -63,7 +63,7 @@ uv run python -m tasks.skill_eval eval --skill {{skill_name}} --manifest "$CLAUD
 
 ### Step 5 — （選用）更新 baseline
 
-確認當前 pass rate 為期望基準後，寫入 baseline（`.runtime/skill_eval_baseline.json`）。
+確認當前 pass rate 為期望基準後，寫入 baseline（`tasks/skill_eval/baselines/trigger_baseline.json`，有進版控）。
 **須傳與 Step 4 相同的 `--manifest`**：
 
 ```bash
@@ -73,10 +73,8 @@ uv run python -m tasks.skill_eval baseline --skill {{skill_name}} --manifest "$C
 `baseline` 的 `--manifest` 沒有跳過選項（`eval` 才有 `--no-manifest-check`）：`eval` 算錯只是
 一次性輸出，`baseline` 卻會把錯位的 pass rate 寫成往後每次 gate 的比較基準，污染是持久的。
 
-> **已知限制**：`baseline --skill <name>` 目前會整檔覆寫，抹掉其他 skill 的既有基準
-> （issue #219）；在該問題修復前，若 baseline 已含多個 skill，請改用 `--all` 一次寫入。
-> 另外 baseline 存於 gitignore 的 `.runtime/`，未進版控，故在 CI／新 clone 上此 gate
-> 目前不會實際把關（issue #220）。
+> `baseline --skill <name>` 只合併指名 skill 的基準、保留其他 skill；`--all` 則整檔重寫，
+> 讓已刪除 fixture 的陳舊條目消失（issue #219）。
 
 ## FAQ
 
