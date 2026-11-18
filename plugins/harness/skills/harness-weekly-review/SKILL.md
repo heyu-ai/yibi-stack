@@ -253,6 +253,36 @@ plugin hook 的 silent-block（repo 的註冊清單看不到它，也沒有它�
 建議落點（具體檔案與段落，不寫「考慮」「之後再決定」）。判為「維持」的條目記下它在 `lessons-$WEEK.jsonl`
 的 `key`，Step 5 排除。
 
+### Step 4b — 確認待做成 gate 的 lesson
+
+`/pr-retro` 把判定可以做成 hook 或 lint 的 lesson 照常寫進 Mycelium，insight 開頭標
+`[gate-pending:hook]` 或 `[gate-pending:lint]`。本步驟每週把它們列出來，確認 gate 做了沒。只讀不寫。
+
+`<project>` 是目標 repo 的 Mycelium project 名稱，即 `$MAIN_REPO` 的目錄名稱：
+
+```bash
+mycelium lessons search "gate-pending:" --project <project> --no-include-legacy --json
+```
+
+| 結果 | 動作 |
+|------|------|
+| exit `0`，輸出 `[]` | 報告寫「本週沒有待做成 gate 的 lesson」 |
+| exit `0`，有資料 | 只取 `insight` 以 `[gate-pending:` 開頭的列（內文只是提到這個字串的列不算），逐列判讀，見下表 |
+| 非零 exit 或輸出不是 JSON 陣列 | 報告寫 `[FAIL] gate-pending 查詢失敗：<stderr 原文>`，列進 Step 7；不可當成「沒有待辦」 |
+
+逐列在目標 repo 找對應的 gate（`.claude/hooks/`、`scripts/lint_*.py`、`.pre-commit-config.yaml`、CI workflow），
+依下表恰好選一格：
+
+| gate 現況 | 判定 | 給 owner 的收尾指令 |
+|-----------|------|--------------------|
+| 已存在且涵蓋 lesson 所述的形狀 | **已落地** | `mycelium lessons retire --id <id> --reason "gate landed: <gate 路徑>"` |
+| 不存在，或只涵蓋一部分 | **待做** | 寫出要建的 gate：類型（hook／pre-commit lint／CI）、判定邏輯一句話、落點檔案 |
+| owner 已明文裁決不做成 gate | **改寫成 rule** | 照 `/pr-retro` 的「寫入規則文件」流程落地，再以 `mycelium lessons retire --id <id> --reason "routed to rule: <rule 路徑>"` 收尾 |
+
+結果以 `## 待做成 gate 的 lesson` 一節附加到 `$OUT_DIR/report-$WEEK.md` 末尾，每列寫：`key`、`retro_pr`、
+寫入日期（`ts`）、判定、收尾指令或要建的 gate。`ts` 距今超過 21 天仍為「待做」的列，同時列進報告最上方
+「需要 owner 裁決」的區塊。本步驟不執行 `retire`；收尾指令由 owner 自己跑，retire 後的列不會再出現在下週的查詢結果。
+
 ### Step 5 — 寫入 Mycelium（僅 `--write-lessons`）
 
 沒有 `--write-lessons` 時跳過本步驟，Step 7 註明「未寫入 Mycelium」。
@@ -308,6 +338,7 @@ Hindsight 的 bank 以 repo 區分，下週盤點時可以查「上週為什麼�
 - 週次不相鄰時的 `week_gap`；`--prev auto` 略過的版本不符快照（`skipped_incompatible`）
 - Step 1 若印出 `.gitignore` 的 `[WARN]`，提醒使用者把 `.runtime/` 加進 `.gitignore`
 - Step 2 的 `warnings`（量測不完整的部分）與 `notes`；`ci_measured` 為 `false` 時明寫「CI 未量測」
+- Step 4b 的 gate-pending lesson：已落地、待做、改寫成 rule 各幾筆；超過 21 天仍待做的列；查詢失敗時的 `[FAIL]`
 - Step 5／6 實際寫入的筆數與所有 `[FAIL]` 清單；沒帶寫入參數時註明「未寫入」
 
 ## 門檻（可用 collect 參數調整）

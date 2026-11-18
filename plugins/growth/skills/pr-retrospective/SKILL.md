@@ -190,9 +190,10 @@ gh pr diff "$PR_NUMBER" --repo "$PR_REPO" --name-only 2>/dev/null | head -30
 （依實際有幾條可重用教訓增減；下游 `/knowledge-distill` 蒸餾會聚合多 PR 的同類教訓，湊數項只會稀釋 cluster）
 
 ### Q5 Improvement Actions（依 Q4 lessons 路由）
-建議下一步動作：
-- [ ] 寫入規則文件（lesson N 是可重用規則）-> 依 Step 5 Lesson Classifier 路由到對應層
-- [ ] 新增 hook（lesson N 是應該被自動阻擋的 pattern）-> hookify:hookify
+建議下一步動作（前三項的排序就是優先序：能做成 hook／lint 就不寫 rule）：
+- [ ] 新增 hook（lesson N 在 agent 工具呼叫當下就能機械偵測）-> hookify:hookify
+- [ ] 新增 lint（lesson N 能在 commit／CI 時從檔案內容機械偵測）-> `scripts/lint_*.py` + `.pre-commit-config.yaml`
+- [ ] 寫入規則文件（lesson N 是 hook 與 lint 都擋不住的判斷題；須寫出為何不能機械化）-> 依 Step 5 Lesson Classifier 路由到對應層
 - [ ] 查歷史 lesson（驗證是否重複犯）-> /lessons find "<keyword>"
 - [ ] 產生 control log（記錄本 PR 的 AI 行為審計 entries）-> /pr-control-log
 
@@ -301,7 +302,9 @@ mycelium retro write \
 ### Step 4b — 準備 typed-lessons 寫入（Step 5 分級後才執行）
 
 > **此處只準備 metadata 與 script，不得執行。** 實際 mutation 必須等 Step 5.0 Evidence Gate
-> 分級：Tier 3 走 `--park`；Tier 1/2 還須通過 Promotion Gate G1+G2+G3 才正常寫入。
+> 分級：Tier 3 走 `--park`；Tier 1/2 中，G1 判定可機械化的照常寫入（insight 開頭加
+> `[gate-pending:hook]` 或 `[gate-pending:lint]`），其餘還須通過 Promotion Gate G2+G3 才正常寫入
+>（見 Promotion Gate 的「Typed lesson 寫入與 G1 脫鉤」）。
 > 若 Step 4 retro 寫入已失敗，此步驟與後續 mutation 都跳過。
 
 Classifier → `--type` 對照表：
@@ -460,7 +463,7 @@ add_lesson \
 #### Step 5.0 Evidence Gate（分級 + 驗證；在 Promotion Gate 之上游）
 
 **在既有三道 gate（Promotion Gate / Lesson Classifier / Patch-Surface Ladder）之前**，先對每個
-「新增 rule / 新增 hook」action item 分級並取得證據。**未完成分級的 action item 不進 Promotion
+「新增 rule / 新增 hook / 新增 lint」action item 分級並取得證據。**未完成分級的 action item 不進 Promotion
 Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--source` 分數升級**（來源信任度不等於實測）。
 
 三層分級：**Tier 1 Probed**（可機械實測的可證偽宣稱）、**Tier 2 Incident-cited**（有真實事件佐證但
@@ -534,7 +537,15 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 > `finalize` 內部是單一 transaction 的 compare-and-set：id 不存在、已 retire、仍為 parked、
 > 或沒有 `recurrence-<n>` tag（代表它不是等待重評的那一列）都直接失敗，不做部分更新。
 >
-> **重評通過 Tier 1/2、但 Promotion Gate（G1/G2/G3）沒過**：這條分支同樣需要終止轉移，
+> **重評通過 Tier 1/2、G1 判定可機械化**：與一般寫入一致（見 Promotion Gate 的「Typed lesson 寫入與
+> G1 脫鉤」），照樣用 `lessons finalize --id` 原地升級，並以 `--insight` 傳入加上 `[gate-pending:hook]`
+> 或 `[gate-pending:lint]` 開頭的內文，讓每週確認撈得到：
+>
+> ```bash
+> mycelium lessons finalize --id "$OLD_PARKED_ID" --confidence <5-10> --source <與依據一致> --insight '[gate-pending:lint] <原內文>'
+> ```
+>
+> **重評通過 Tier 1/2、G1 判定不可機械化、但 G2／G3 沒過**：這條分支同樣需要終止轉移，
 > 否則舊列會停在「已解除 park、confidence ≤ 4」的孤兒狀態，重新進入一般 recall 與 tier
 > promotion——與上面那個 bug 完全相同的後果，只是入口不同（Codex re-review Critical）。
 > 此時**不要** finalize，改為再跑一次 `--park` 把它放回 parked：
@@ -543,13 +554,14 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 > mycelium lessons add --park ...   # 同一組 metadata；只重套 parked，不再次 bump recurrence
 > ```
 >
-> 三條出口整理如下，**每條都必須落到一個明確狀態**，不得留在 reassess 中繼態：
+> 四條出口整理如下，**每條都必須落到一個明確狀態**，不得留在 reassess 中繼態：
 >
 > | 重評結論 | 動作 | 終止狀態 | 可重試？ |
 > |---|---|---|---|
 > | 仍為 Tier 3 | 再跑 `--park` | parked（recurrence 不變） | **否**——見下方 |
-> | Tier 1/2 且 Promotion Gate 全過 | `lessons finalize --id` | active（同一列升級） | 是（冪等） |
-> | Tier 1/2 但 Promotion Gate 未過 | 再跑 `--park` | parked（recurrence 不變） | **否**——見下方 |
+> | Tier 1/2 且 G1 判定可機械化 | `lessons finalize --id`，加 `--insight` 傳入 `[gate-pending:hook]`／`[gate-pending:lint]` 開頭的內文 | active（同一列升級，每週確認） | 是（冪等） |
+> | Tier 1/2、G1 判定不可機械化、G2+G3 全過 | `lessons finalize --id` | active（同一列升級） | 是（冪等） |
+> | Tier 1/2、G1 判定不可機械化、G2／G3 未過 | 再跑 `--park` | parked（recurrence 不變） | **否**——見下方 |
 >
 > **`--park` 這兩條出口不可重試**：`--park` 分不出「重試同一次 occurrence」與「這是新的一次
 > occurrence」，所以對**已經 re-park 的列**再跑一次同樣的 call，會走 `if "parked" in tags`
@@ -566,21 +578,65 @@ Gate**。分級依「此宣稱有無可接受的證據形式」，**不以 `--so
 
 #### Promotion Gate（3 條，全通過才路由到 rule 檔）
 
-每個 Q4 lesson 在進入 Lesson Classifier 前，先依序通過 3 條 gate。**任一失敗 → 只存在 retro 記錄裡，不寫規則文件**：
+每個 Q4 lesson 在進入 Lesson Classifier 前，先依序通過 3 條 gate。**任一失敗都不新建 rule 檔**；
+各 gate 失敗後的去處不同，照下表「失敗時行動」欄執行：
 
 | Gate | 判斷問題 | 失敗時行動 |
 |------|---------|-----------|
-| **G1 automation-infeasible** | 這個 lesson 能被 hook 自動阻擋嗎？（PreToolUse / PostToolUse 能機械偵測？） | 先執行 `hookify:hookify`，不寫 rule；rule 只給 hook 無法覆蓋的情境 |
+| **G1 automation-infeasible** | 這個 lesson 能被機械 gate 擋下嗎？依序問：(a) **hook**——agent 工具呼叫當下（PreToolUse / PostToolUse）能偵測？(b) **lint**——commit／CI 時能從檔案內容偵測（`scripts/lint_*.py`、pre-commit、CI、`tasks/**/tests/` 的 doc-guard test）？ | 能 → 改走 Q5「新增 hook」或「新增 lint」，不寫 rule；判斷方式見下方「機械化優先」。rule 只給兩者都擋不住的殘餘情境 |
 | **G2 onboarding-relevant** | 一個剛加入的貢獻者（day-1）也會犯這個錯誤嗎？ | 若 No（只有深度 context 才會踩）→ 只存在 retro 記錄裡，不開 rule |
 | **G3 no existing rule covers it** | 搜尋現有 `.claude/rules/` 後，沒有任何 rule 已覆蓋此 pattern 嗎？ | 若已有 → extend 現有 rule（append），不建新 rule 檔 |
 
-Tier 1/2 只有在 G1+G2+G3 全通過後，才執行 Step 4b prepared script 的 `state=active` call；
-未全通過者不寫 typed lesson promotion path，也不得用 `active` 繞過 Evidence Gate。
+**Typed lesson 寫入與 G1 脫鉤**：G1 只決定「寫不寫 rule」，不決定 lesson 要不要進 Mycelium。
+G1 判定可機械化（改走 Q5「新增 hook」或「新增 lint」）的 Tier 1/2 lesson 不再跑 G2／G3（那兩條問的是
+rule 值不值得寫），照常以 `state=active` 寫入，insight 開頭加上標記 `[gate-pending:hook]` 或
+`[gate-pending:lint]`。這些 lesson 會累積在 Mycelium，照常參與 A1 的 recurrence 查詢與 distill 聚合，
+每週由 `harness-weekly-review` 的 Step 4b 以關鍵字 `gate-pending:` 撈出來，確認 gate 做了沒。
+G1 判定不可機械化的 lesson，照舊要 G2+G3 全通過才執行 Step 4b prepared script 的 `state=active` call，
+未通過者不寫 typed lesson promotion path。任何情況都不得用 `active` 繞過 Evidence Gate。
+
+##### 機械化優先：hook／lint > rule
+
+判斷每條 lesson 的落點時，預設答案是「做成 gate」；rule 是 gate 做不出來時才退守的位置。原因有三：
+
+- rule 要靠 agent 每次讀到並遵守；hook 與 lint 不靠記性，違反時直接失敗。本 repo 的前例：
+  subshell-`exit` 的教訓以 rule 形式重複出現三次，最後才做成 `scripts/lint_shell_subshell_exit.py`
+  （見 `.claude/rules/17-shell-script-authoring.md`）。
+- 沒有 `paths:` 的 rule 每個 session 都佔 context；gate 只在觸發時有成本。
+- rule 裡描述的事實會隨程式碼改變而過期，而且沒人發現；gate 過期時會紅燈或誤報，會被注意到。
+
+依「可觀察的訊號出現在哪裡」選落點，由上往下取第一個可行的：
+
+| 訊號出現在哪裡 | 落點 | 執行方式 |
+|----------------|------|----------|
+| 只出現在 agent 的工具呼叫（Bash 指令字串、Edit／Write 的目標路徑），不會留在檔案裡 | hook：`.claude/hooks/` 的 script，再到 `settings.json` 註冊 | Q5「新增 hook」→ `hookify:hookify` 或手寫 hook script |
+| 留在 commit 進 repo 的檔案內容（SKILL.md、rule 檔、shell script、設定檔） | lint：`scripts/lint_*.py`，註冊到 `.pre-commit-config.yaml`，需要時接 CI | Q5「新增 lint」 |
+| 是程式的執行行為 | 測試：`tasks/**/tests/`（failing→passing） | 回歸測試，不必新增 rule |
+| 以上都沒有：需要語意判斷、沒有可觀察的訊號、或 hook 成本高於收益 | rule，段落標 `<!-- gate: none (reason: judgment\|no-observable-signal\|hook-cost) — <說明> -->` | Q5「寫入規則文件」 |
+
+套用時注意：
+
+- **hook 與 lint 都可行時，訊號留在檔案裡就選 lint**：pre-commit 與 CI 都會跑，人工手改的檔案也擋得到；
+  hook 只看得到 agent 的工具呼叫。
+- **gate 做好之後不再另寫一份 rule**。「為什麼要這樣做」寫進 gate 的錯誤訊息；確實需要 rule 段落補背景時，
+  段落標 `<!-- gate: <path>[::<symbol>] -->` 指向那個 gate（`scripts/lint_rule_evidence.py` 會檢查路徑存在）。
+- **新的 lint 先上線為 warn-only**（pre-commit 加 `verbose: true`，否則 exit 0 的輸出會被隱藏），
+  正樣本與負樣本對照都通過後再改成 blocking。只會誤報的 lint 會讓人想關掉它，負樣本是最重要的測試
+  （`.claude/rules/17-shell-script-authoring.md` 的 subshell-`exit` lint 段落）。
+- **hook 的開發順序**：在 worktree 中途註冊新的 `PreToolUse` hook 會讓該 session 的 Bash 全部失敗
+  （`.claude/rules/15-irreversible-operations.md` 的 `${CLAUDE_PROJECT_DIR}` 段落）。先用
+  `echo '<payload>' | python3 .claude/hooks/<new>.py` 直接測 script，`settings.json` 的註冊放到最後。
+  這個陷阱屬於 `reason: hook-cost` 的範圍（定義見 `.claude/rules/11-skill-authoring.md`
+  「Every New Rule Section Declares Whether It Could Have Been a Gate」）；宣告 `hook-cost` 前，
+  先確認同一個訊號也不能用 lint 擋。
+- **目標 repo 沒有 lint 骨架時**（沒有 `scripts/` 或 `.pre-commit-config.yaml`）：仍然先建議 lint，
+  建議內容同時列出要新增的骨架（script 草稿與 pre-commit 設定）。使用者拒絕建骨架時才退回 rule，
+  並在 rule 段落寫明為何沒有做成 gate。
 
 > 此 gate 的設計邏輯：rule 檔是每 session 全量載入的 token cost（frontmatter 內沒有 `paths:`
 > key 的 rule 永遠佔用 context；key 名寫錯——`globs:` / `glob:` / `path:`——會被靜默忽略，
 > 效果等同沒寫，該檔案變成全量載入）。
-> 只有 hook 無法解、新人也會踩、且尚無 rule 覆蓋的 lesson，才值得加進 rule。
+> 只有 hook 與 lint 都擋不住、新人也會踩、且尚無 rule 覆蓋的 lesson，才值得加進 rule。
 
 #### Lesson Classifier
 
@@ -604,9 +660,14 @@ Q4 每個 lesson 先按下表分類再決定目的地。**CLAUDE.md 是最後 fa
 
 前兩層已決定 lesson 的**去留**與**目的地**：Promotion Gate（3 條）決定「能不能寫進 rule 檔」，
 Lesson Classifier 決定「寫到哪個檔」。本階梯是第三軸——決定**改動面多大**。原則是**優先選最輕、
-相容性最高的修改面，只有上層擋不住才往下爬**：改 frontmatter 一行 < 加流程 gate < append rule <
-寫 script < 建 eval < 動 skill 邊界。每往下一階，token cost 與維護負擔就升一級。
+相容性最高的修改面，只有上層擋不住才往下爬**：改 frontmatter 一行 < 加流程 gate < 寫 hook／lint
+script < append rule < 建 eval < 動 skill 邊界。每往下一階，token cost 與維護負擔就升一級。
 
+`script helper` 排在 `reference rule` 之前，是因為兩者的成本要看長期：script 寫一次就不佔 context，
+違反時自動失敗；rule 若沒有 `paths:` 會在每個 session 載入，要靠 agent 遵守，內容過期也不會有人發現。
+與 Promotion Gate 的「機械化優先」一致。
+
+G1 判定可機械化的 lesson 直接落在 `script helper` 階（hook 或 lint），不再往下爬。其餘 lesson
 先確認 Promotion Gate 通過、Classifier 已選定目的地，再對照下表挑最上層可行的修改面：
 
 | 修改面 | 何時選（訊號）| 成本 / 相容性 |
@@ -614,8 +675,8 @@ Lesson Classifier 決定「寫到哪個檔」。本階梯是第三軸——決�
 | `no-change` | 一次性 / 環境問題，Promotion Gate 已擋下 | 零 |
 | `description` | 觸發不準（over/under-trigger）；見 rule 11「Trigger Coverage」 | 極低；只改 frontmatter 觸發詞 |
 | `workflow gate` | 流程缺一步驗證（`[FAIL]` gate / 前置檢查 / 失敗停止條件）| 低；SKILL.md 加 gate 行 |
-| `reference rule` | 跨 session 通則、day-1 新人也會踩 | 中；append `.claude/rules/` 對應子檔 |
-| `script helper` | 可機械化的重複檢查（lint / 掃描）| 中高；寫 `scripts/*.py` 或 `scripts/*.sh` |
+| `script helper` | 可機械化的檢查：lint／掃描（`scripts/*.py`、`scripts/*.sh` + pre-commit）或 hook（`.claude/hooks/`）| 中；寫一次，之後不佔 context，違反時自動失敗 |
+| `reference rule` | hook 與 lint 都擋不住的跨 session 通則，day-1 新人也會踩 | 中高；append `.claude/rules/` 對應子檔，無 `paths:` 時每 session 載入，靠 agent 遵守 |
 | `eval` | 有評分資料、需回歸保護 | 高；建 eval / regression gate（issue #186，尚未落地）|
 | `merge / split` | skill 職責過寬或過窄，邊界本身錯了 | 高；動 skill 邊界 + 更新 `skills/README.md` |
 | `deprecate / retire` | skill 已被取代，或長期 over-trigger 無法靠上層修好 | 最高；移除 symlink + 更新 index |
@@ -648,13 +709,14 @@ metadata / preference 類 lesson 本就適合 CLAUDE.md；若整體已過長，
 | 查歷史 lesson | `Skill(skill="lessons", args="find <Q1 keyword>")` **自動執行**。headless / 直接打 CLI 時用 `mycelium lessons search "<keyword>" --project "$ORIG_PROJECT"` — CLI 子指令是 **`search`**（`find` 只是 `/lessons` slash 的別名，raw CLI **無** `find` 子指令），且**不要**加 `2>/dev/null`，否則子指令打錯會被靜默吞成「無結果」 |
 | 寫入規則文件 | **須先通過 Step 5.0 Evidence Gate（Tier 1/2 帶證據；判為 Tier 3 則改 park，不寫 rule）**。通過後**先走下方「批次佇列分流」判斷**。緊急例外、或 target repo 無佇列時，才照原行為——依 Lesson Classifier 輸出建議：「lesson N 屬於 <類別>，建議 append 到 `.claude/rules/XX.md`（最相關段落後；不確定就 append 到檔尾）。草稿：`<draft text>`（附證據標記：Tier 1 標 `<!-- verified: probe -->`、Tier 2 標 `(Source: PR #NNN`；**另附機械化宣告**——Promotion Gate G1 的結論寫進草稿：已有機械 gate 者標 `<!-- gate: <path>[::<symbol>] -->`，路徑須存在於 `scripts/`、`.claude/hooks/`、`.github/workflows/`、`.pre-commit-config.yaml`、`tasks/**/tests/`，rule 檔與 SKILL.md 不算 gate；無法機械化者標 `<!-- gate: none (reason: judgment\|no-observable-signal\|hook-cost) — <說明> -->`。缺宣告或宣告為假時 `scripts/lint_rule_evidence.py` 一律 error，不分新檔或既有 rule 檔）。用 Edit 工具直接寫入 rule 檔。」|
 | 新增 hook | **須先通過 Step 5.0 Evidence Gate（Tier 1/2 帶證據；判為 Tier 3 則改 park）**。輸出建議文字：「執行 `hookify:hookify`，建議的 trigger：`<draft>`（附正 / 負樣本作為 Tier 1 證據）」|
+| 新增 lint | **須先通過 Step 5.0 Evidence Gate（Tier 1/2 帶證據；判為 Tier 3 則改 park）**。通過後走下方「批次佇列分流」（屬佇列模板的 `gate-script` 類型）。輸出建議文字：「新增 `scripts/lint_<topic>.py`（或擴充既有 lint），並註冊到 `.pre-commit-config.yaml`；先以 warn-only＋`verbose: true` 上線，正 / 負樣本對照通過後再改 blocking。附正 / 負樣本 fixture 作為 Tier 1 證據。」目標 repo 沒有 `scripts/` 或 `.pre-commit-config.yaml` 時，建議中一併列出要建立的骨架 |
 | 建立 skill | 輸出建議文字：「執行 `superpowers:writing-skills`，問題定義：`<Q4 lesson>`」|
 | 找 automation | 輸出建議文字：「執行 `/claude-code-setup:claude-automation-recommender`」|
 | 產生 control log | 執行 `Skill(skill="pr-control-log")` 紀錄本 PR 的 AI 行為審計 entries |
 
 寫檔動作**只建議**，由使用者決定是否執行。
 
-#### 批次佇列分流（「寫入規則文件」與 CLAUDE.md / memory 類落地需求適用）
+#### 批次佇列分流（「寫入規則文件」「新增 lint」與 CLAUDE.md / memory 類落地需求適用）
 
 採用 harness 批次化流程的 repo（如 yibi-mvp，design doc：該 repo
 `docs/research/2026-07-23-harness-batch-workflow-design.md`）不再對每條散文類
@@ -674,6 +736,8 @@ harness 改動當場寫檔＋開 PR，而是排進常設佇列 issue、每週由
    Lesson 已在 Step 5 寫入 Mycelium（`epistemic_status = "episode"`）。
    **不再自動執行 `gh issue comment`**——讓 episode 在 Mycelium 自然累積，
    由 distill 聚合成 observation 後再由人類決定是否進入 policy candidate。
+   「新增 hook」「新增 lint」的 lesson 帶 `[gate-pending:…]` 標記，另由 `harness-weekly-review`
+   Step 4b 每週列出，確認 gate 做了沒。
 
    如使用者判斷此 lesson 應立即排入 harness queue，可手動執行以下指令：
 
