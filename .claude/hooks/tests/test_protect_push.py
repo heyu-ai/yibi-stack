@@ -6,9 +6,11 @@
         2 = 攔截（BLOCK）
 """
 
+import functools
 import json
 import os
 import subprocess  # nosec B404
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -27,6 +29,25 @@ def _hook_env() -> dict[str, str]:
     return {**os.environ, "PROTECT_PUSH_SKIP_PR_STATE": "1"}
 
 
+@functools.lru_cache(maxsize=1)
+def _neutral_repo() -> Path:
+    """`run_hook` 的 cwd：一個 branch 沒有 upstream 的拋棄式 repo。
+
+    保護 3 會查「目前 branch」的 tracking。若直接在呼叫端的 checkout 跑，`git push -u origin HEAD`
+    這類放行案例的結果就取決於執行者當下所在 branch 是否追蹤 origin/main（從 origin/main 建立的
+    worktree branch 正是如此），測試會隨環境變紅。固定在中性 repo 跑，結果才可重現。
+    """
+    repo = Path(tempfile.mkdtemp(prefix="protect-push-neutral-")) / "repo"
+    repo.mkdir()
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+    for args in (
+        ["init", "-q", "-b", "feat-neutral"],
+        ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "s"],
+    ):
+        subprocess.run(["git", *args], cwd=repo, check=True, env=env)  # nosec B603 B607
+    return repo
+
+
 def run_hook(command: str) -> int:
     """以給定指令字串執行 hook，回傳 exit code。"""
     payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
@@ -36,6 +57,7 @@ def run_hook(command: str) -> int:
         capture_output=True,
         text=True,
         env=_hook_env(),
+        cwd=str(_neutral_repo()),
         timeout=10,
     )
     return result.returncode
@@ -280,6 +302,91 @@ class TestTrackingOriginMainBlock:
         assert res.returncode == 2
         assert "追蹤 origin/main" in res.stderr
         assert res.stdout == "", "訊息只能走 stderr：exit 2 時 stdout 不會送達 model"
+
+
+def _set_upstream_main(repo: Path, branch: str) -> None:
+    """把 branch 的 tracking 設成 origin/main（從 origin/main 建立 branch 的預設結果）。"""
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+    for key, value in (
+        (f"branch.{branch}.remote", "origin"),
+        (f"branch.{branch}.merge", "refs/heads/main"),
+    ):
+        subprocess.run(["git", "config", key, value], cwd=repo, check=True, env=env)  # nosec B603 B607
+
+
+def run_hook_in(command: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """在指定 repo 執行 hook，跳過保護 4（不打真的 gh）。"""
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+    return subprocess.run(  # nosec B603
+        [str(HOOK)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=_hook_env(),
+        cwd=str(cwd),
+        timeout=30,
+    )
+
+
+class TestRefspecWithoutDestination:
+    """保護 3：refspec 沒有 `:<dst>` 時，git 依該 branch 的 tracking 決定目的地。
+
+    在 push.default=upstream 下（2026-11-17 以本機 bare remote 實測，git 2.56.1），追蹤
+    origin/main 的 branch 執行 `git push origin <branch>` 或 `git push -u origin <branch>`
+    都會更新遠端的 main；只有 `<branch>:<branch>` 才會建立同名 branch。舊版 hook 把沒有冒號的
+    refspec 一律當成「明確指定 non-main 目的地」放行，正好漏掉這個情況。
+    """
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git push origin feat-a",
+            "git push -u origin feat-a",
+            "git push --set-upstream origin feat-a",
+            "git push -u origin HEAD",
+            "git push origin refs/heads/feat-a",
+            "git push origin feat-a:feat-a && git push origin feat-a",
+        ],
+    )
+    def test_pp_block_021_tracking_main_without_dst(self, tmp_path: Path, command: str) -> None:
+        """PP-BLOCK-021: branch 追蹤 origin/main + refspec 無 :dst → 攔截。"""
+        repo = _throwaway_repo(tmp_path)
+        _set_upstream_main(repo, "feat-a")
+        res = run_hook_in(command, repo)
+        assert res.returncode == 2, res.stderr
+        assert "追蹤 origin/main" in res.stderr
+
+    def test_pp_block_022_other_branch_tracking_main(self, tmp_path: Path) -> None:
+        """PP-BLOCK-022: 推的是另一個 branch，而它追蹤 origin/main → 攔截（查 refspec 的 branch，不是 HEAD）。"""
+        repo = _throwaway_repo(tmp_path)
+        subprocess.run(["git", "branch", "feat-b"], cwd=repo, check=True)  # nosec B603 B607
+        _set_upstream_main(repo, "feat-b")
+        res = run_hook_in("git push origin feat-b", repo)
+        assert res.returncode == 2, res.stderr
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git push -u origin feat-a:feat-a",
+            "git push origin HEAD:feat-a",
+            "git push origin other-branch",
+        ],
+    )
+    def test_pp_allow_013_explicit_dst_or_untracked_branch(
+        self, tmp_path: Path, command: str
+    ) -> None:
+        """PP-ALLOW-013: 明確的非 main 目的地，或被推的 branch 不追蹤 main → 放行。"""
+        repo = _throwaway_repo(tmp_path)
+        _set_upstream_main(repo, "feat-a")
+        assert run_hook_in(command, repo).returncode == 0
+
+    @pytest.mark.parametrize(
+        "command", ["git push -u origin feat-a", "git push -u origin HEAD", "git push"]
+    )
+    def test_pp_allow_014_no_upstream(self, tmp_path: Path, command: str) -> None:
+        """PP-ALLOW-014: 新 branch 還沒有 upstream → 推到同名 branch，放行（負向對照）。"""
+        repo = _throwaway_repo(tmp_path)
+        assert run_hook_in(command, repo).returncode == 0
 
 
 class TestMergedPrPush:

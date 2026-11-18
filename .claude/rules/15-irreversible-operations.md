@@ -316,6 +316,8 @@ A feature branch created from `origin/main` defaults to tracking `origin/main`. 
 `:<dst>` follows that tracking: `git push`, `git push origin <feature-branch>` **and** `git push -u origin
 <feature-branch>` all update `origin/main`, bypassing PR review. `-u` does not help; only an
 explicit destination does (probed 2026-11-17, git 2.56.1, local bare remote).
+`.claude/hooks/protect-push.sh` enforces this: a push whose refspec has no `:<dst>` is blocked when
+the branch it pushes tracks `origin/main`.
 
 **Standard practice: run `git branch -vv` before pushing to verify upstream**
 
