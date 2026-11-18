@@ -1,9 +1,12 @@
 """Tests for protect-worktree.py hook."""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 HOOK = Path(__file__).parent.parent / "protect-worktree.py"
 
@@ -133,3 +136,93 @@ class TestFailOpen:
     def test_other_tool_name(self) -> None:
         """WTHOOK-EG-005: non-Bash/non-EnterWorktree tool is allowed"""
         assert run_hook({"tool_name": "Read", "tool_input": {"file_path": "/tmp/a"}}) == 0
+
+
+_GIT_ENV = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+
+
+def _git(args: list[str], cwd: Path) -> None:
+    subprocess.run(  # nosec B603 B607
+        ["git", *args], cwd=cwd, check=True, env=_GIT_ENV, capture_output=True
+    )
+
+
+def _repo_with_linked_worktree(tmp_path: Path) -> tuple[Path, Path]:
+    """建立主 repo（在 main，另有 master branch）與一個 linked worktree（在 feat）。"""
+    main_repo = tmp_path / "main-repo"
+    main_repo.mkdir()
+    _git(["init", "-q", "-b", "main"], main_repo)
+    _git(
+        ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "s"],
+        main_repo,
+    )
+    _git(["branch", "master"], main_repo)
+    wt = tmp_path / "wt"
+    _git(["worktree", "add", "-q", "-b", "feat", str(wt)], main_repo)
+    return main_repo, wt
+
+
+def run_hook_in(payload: dict, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # nosec B603
+        [sys.executable, str(HOOK)],
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        cwd=str(cwd),
+    )
+
+
+class TestCheckoutMainInsideLinkedWorktree:
+    """Vector 3：linked worktree 裡 `git checkout/switch main|master` 會佔用 main ref。
+
+    rule 15「A Linked Worktree Must Never Check Out main」說 hook enforce 這條不變量，但舊版只擋
+    EnterWorktree 與 `git worktree add`，worktree 建好之後再切到 main 不受擋。
+    """
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "git checkout main",
+            "git switch main",
+            "git checkout master",
+            "git switch refs/heads/main",
+            "git fetch origin && git checkout main",
+        ],
+    )
+    def test_block_in_linked_worktree(self, tmp_path: Path, cmd: str) -> None:
+        """WTHOOK-DT-017: linked worktree 內切到 main/master -> 攔截，原因走 stderr。"""
+        _, wt = _repo_with_linked_worktree(tmp_path)
+        res = run_hook_in(_bash(cmd), wt)
+        assert res.returncode == 2
+        assert "BLOCKED" in res.stderr
+
+    def test_block_git_dash_c_into_linked_worktree(self, tmp_path: Path) -> None:
+        """WTHOOK-DT-018: 在主 repo 用 `git -C <worktree> switch main` -> 攔截（看 -C 的目標）。"""
+        main_repo, wt = _repo_with_linked_worktree(tmp_path)
+        assert run_hook_in(_bash(f"git -C {wt} switch main"), main_repo).returncode == 2
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "git checkout feat",
+            "git checkout main -- f.txt",
+            "git checkout -b main-fix",
+            "git switch -c hotfix main",
+            "git checkout -",
+            "echo git checkout main",
+        ],
+    )
+    def test_allow_other_forms_in_linked_worktree(self, tmp_path: Path, cmd: str) -> None:
+        """WTHOOK-DT-019: 切到其他 branch、從 main 還原檔案、以 main 為起點建新 branch -> 放行。"""
+        _, wt = _repo_with_linked_worktree(tmp_path)
+        assert run_hook_in(_bash(cmd), wt).returncode == 0
+
+    def test_allow_in_main_repo(self, tmp_path: Path) -> None:
+        """WTHOOK-DT-020: 主 repo 切回 main 是正常操作 -> 放行（負向對照）。"""
+        main_repo, _ = _repo_with_linked_worktree(tmp_path)
+        _git(["checkout", "-q", "-b", "other"], main_repo)
+        assert run_hook_in(_bash("git checkout main"), main_repo).returncode == 0
+
+    def test_allow_outside_git(self, tmp_path: Path) -> None:
+        """WTHOOK-EG-006: 不在 git repo 裡 -> 放行（無法判斷就不擋）。"""
+        assert run_hook_in(_bash("git checkout main"), tmp_path).returncode == 0
