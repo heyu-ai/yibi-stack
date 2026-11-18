@@ -44,10 +44,13 @@ cd "$REPO_ROOT"
 # 無 FAILED_PRECONDITION: User location is not supported。四個模型各自回報與請求
 # 一致的名稱，排除靜默 fallback。（此前的預設 claude-sonnet-4-6 是為了規避該地區
 # 限制，該前提已不成立。）
+# 2026-11-18 改為 gemini-4-carbon-high（agy 1.5.10，台灣實測）：`agy models` 列出
+# gemini-4-carbon-{low,medium,high}，沿用既有的 High tier；單次請求成功且模型自報
+# 「Gemini 4 Carbon」，排除靜默 fallback。agy-review 的預設不在這次變更範圍內。
 # 這是版本相依的實測，不是永久事實——agy 升版後若 Gemini 路徑再度失效，請重測後
 # 再改預設，並更新這段註解的版本戳記（rule 13 probe-rot）。
 # 允許透過 AGY_MODEL 環境變數覆寫（可接受值見 `agy models` 左欄）。
-AGY_MODEL="${AGY_MODEL:-gemini-3.8-flash-high}"
+AGY_MODEL="${AGY_MODEL:-gemini-4-carbon-high}"
 
 # agy print 模式的時間預算（整數秒）。`--print-timeout`（預設 5m）自 **agy 1.1.28** 起，到期時
 # 改為「回傳已產出的片段並成功退出」——changelog 1.1.28 原文：「the CLI now returns the partial
