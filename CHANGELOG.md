@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- 移除 `mycelium lessons rows` 的 200 識別碼應用層上限，保留單一 snapshot、完整 receipt 與 retired owner 讀回，避免 Hindsight 投影及 tombstone reconciliation 隨歷史累積永久降級（#634）。
+- 移除 lessons rows 的 200 識別碼上限，保留單一 snapshot 讀回全部 receipt owner 與新候選，避免投影及 tombstone reconciliation 永久停擺（#634）。
+- pr-retrospective 依 PR 所屬 repo 決定 project，跨 repo 回顧先確認目標並讀回寫入結果；保留真實 session cwd 供 token 定位（#639）。
+- pr-cycle-deep pre-merge gate 讀取 isDraft，draft 須明確人類同意轉 ready 並重新讀回，不能僅憑 CLEAN 或 ship 放行（#617）。
+- pr-cycle-deep 從 Step 1.5 原子保存 checkpoint；early resume 不要求尚未產生的 final／red-first，仍拒絕 HEAD 漂移並保留後期證據與 disputed gates（#633）。
+- pr-cycle-deep 依 R1 實際結果記錄聲部與失敗原因；外部聲部全失效時停止，Claude-only 必須取得綁定本輪的明確人類裁決，resume 不得沿用其他輪的批准（#630）。
+- PR #640 審查補強：以完整 PR identity 與本輪成果綁定 checkpoint／聲部裁決，補齊原子後期轉移及終態續接；lesson 寫後按回傳 id 驗證，保留冪等 skip 與舊 CLI 復原診斷，新增並行 snapshot 與大量 receipt 投影整合驗證。
+- 依人類 circuit-breaker 裁決修復 pass 2 三個 Critical：拒絕只有 metadata 的 review、拒絕同 id 不同 finding 轉移裁決，並讓本輪 fix 裁決的 blocking 不受重建 checkpoint 清除；未自動開第三輪 review。
 - Hindsight 協定將舊 installed CLI 的 200 識別碼錯誤辨識為版本過舊；更新前維持 degraded，不拆批、不漏 receipt，也不自動安裝或發布。
 
 ## [1.24.3] - 2026-11-13
