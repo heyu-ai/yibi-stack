@@ -140,18 +140,19 @@ for part in parts:
     if len(positional) >= 4:
         # Check ALL refspecs (positional[3], [4], ...) — multiple refspecs are valid.
         # Only mark explicit-other when every refspec is provably safe.
+        # 不在第一個可疑 refspec 就停：後面沒有 :dst 的 branch 也要查 tracking
         for dest in positional[3:]:
             # shell expansion or backtick -> unresolvable, treat as bare
             # (backtick is \x60; no bare dollar signs in this comment)
             if re.search(r'[$\x60]', dest):
                 bare_found = True
                 track.append('HEAD')
-                break
+                continue
             # glob pattern -> unsafe
             if '*' in dest or '?' in dest:
                 bare_found = True
                 track.append('HEAD')
-                break
+                continue
             if ':' in dest:
                 rhs = dest.rsplit(':', 1)[1]
                 # empty rhs (delete refspec) or main/HEAD rhs -> bare
@@ -160,19 +161,16 @@ for part in parts:
                 ):
                     bare_found = True
                     track.append('HEAD')
-                    break
                 # else: explicit non-main rhs -> safe, continue checking
-            elif re.match(r'^(main|master|refs/heads/(main|master))$', dest):
-                # explicit main/master -> let protection 2 handle, treat as bare
-                bare_found = True
-                track.append('HEAD')
-                break
-            else:
-                # 沒有 :<dst>：push.default=upstream 下，git 依「這個 branch 的 tracking」決定
-                # 目的地，追蹤 origin/main 的 branch 會直推 main（-u 也一樣）。
-                # 所以要查該 branch 的 tracking，不能當成明確目的地放行。
-                bare_found = True
-                track.append(re.sub(r'^refs/heads/', '', dest))
+                continue
+            # 沒有 :<dst>：push.default=upstream 下，git 依「這個 branch 的 tracking」決定
+            # 目的地，追蹤 origin/main 的 branch 會直推 main（-u 也一樣）。
+            # 正規化成 branch 名再查 tracking：去掉強制推的 +、refs/heads/ 或 heads/，@ 等於 HEAD。
+            src = re.sub(r'^(refs/heads/|heads/)', '', dest.lstrip('+'))
+            if src in ('@', ''):
+                src = 'HEAD'
+            bare_found = True
+            track.append(src)
     else:
         # 裸 push（無明確目的地）-> 需檢查目前 branch 的 tracking
         bare_found = True

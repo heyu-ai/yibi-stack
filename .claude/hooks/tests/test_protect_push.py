@@ -346,6 +346,9 @@ class TestRefspecWithoutDestination:
             "git push -u origin HEAD",
             "git push origin refs/heads/feat-a",
             "git push origin feat-a:feat-a && git push origin feat-a",
+            "git push origin +feat-a",
+            "git push origin heads/feat-a",
+            "git push origin @",
         ],
     )
     def test_pp_block_021_tracking_main_without_dst(self, tmp_path: Path, command: str) -> None:
@@ -362,6 +365,27 @@ class TestRefspecWithoutDestination:
         subprocess.run(["git", "branch", "feat-b"], cwd=repo, check=True)  # nosec B603 B607
         _set_upstream_main(repo, "feat-b")
         res = run_hook_in("git push origin feat-b", repo)
+        assert res.returncode == 2, res.stderr
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git push origin $X feat-b",
+            "git push origin 'v*' feat-b",
+        ],
+    )
+    def test_pp_block_023_unsafe_refspec_does_not_hide_later_ones(
+        self, tmp_path: Path, command: str
+    ) -> None:
+        """PP-BLOCK-023: 前面的 refspec 觸發 HEAD 檢查，也不能略過後面沒有 :dst 的 branch。
+
+        目前 branch（feat-a）不追蹤 main，feat-b 追蹤 main：舊版遇到第一個可疑 refspec 就
+        break，只查 HEAD 而放行。
+        """
+        repo = _throwaway_repo(tmp_path)
+        subprocess.run(["git", "branch", "feat-b"], cwd=repo, check=True)  # nosec B603 B607
+        _set_upstream_main(repo, "feat-b")
+        res = run_hook_in(command, repo)
         assert res.returncode == 2, res.stderr
 
     @pytest.mark.parametrize(
