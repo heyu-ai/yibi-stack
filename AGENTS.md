@@ -182,10 +182,13 @@ make install-all         # 等同 build-tools + install + install-project + inst
   Example: `plugins/dev-cycle/skills/pr-cycle-deep/scripts/setup-review-dir.sh`.
 - **make target names must be copied verbatim**: target names in README/CLAUDE.md must be
   copied directly from the Makefile — never rephrase as a "readable label" (e.g., abbreviating
-  `patch-pr-review-agents`) or users get a make error.
+  `patch-pr-review-agents`) or users get a make error. `scripts/tests/test_doc_make_targets.py`
+  checks every `make <target>` in a code context of the tracked Markdown against the Makefile.
 - **hook script in `.claude/hooks/` does not mean enabled**: Claude Code only runs hooks
   registered in `settings.json`'s `hooks` command strings. Evaluate hook effectiveness with a
-  double check: file exists AND registered in `settings.json`.
+  double check: file exists AND registered in `settings.json`. The reverse direction (a
+  registered command whose script or `tasks.<module>` no longer exists) is checked by
+  `scripts/tests/test_hook_entrypoints.py`.
 - **registering a new hook after entering a worktree mid-session can brick the session** —
   `${CLAUDE_PROJECT_DIR}` stays pinned at the session's start dir; see rule 15 for the mechanism
   and the Edit-tool escape.
