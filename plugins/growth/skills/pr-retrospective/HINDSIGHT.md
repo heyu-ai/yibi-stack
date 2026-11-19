@@ -25,6 +25,11 @@ agent 執行 MCP 呼叫；helper 只產生決定性的 JSON 與觀測報表，�
 5. 以 host 的有界 timeout 呼叫 `hindsight_list_pages({})`，成功（含空清單）才表示 read 可用。
    缺工具、錯 bank、逾時、MCP isError 或 error object 都記 `[DEGRADED] Hindsight unavailable`、
    `hindsight_sync=skipped`，繼續 Mycelium-only。快取結果，不逐 lesson 重探。
+   **因缺工具或 schema 不符而降級時**，把本 session 實際 advertised、名稱含 `hindsight` 的工具名稱
+   （含 deferred 清單）逐一列給使用者，並寫進該 audit event 的 reason。名稱相近但不同（例如 server
+   改名）時要明說「疑似改名」，提示修正本協定與 SKILL.md，不得自行改用那些名稱呼叫：未經修正的協定
+   不保證參數形狀相同。完全沒有 `hindsight` 工具時明寫「MCP server 未載入」。只寫 `unavailable`
+   會讓錯誤名稱變成每次都靜默跳過、看起來像暫時離線（PR #668 retro 曾因此降級，PR #669 修正名稱）。
 6. transport/server failure 後停用本 invocation 剩餘呼叫。單一 optional capability 缺失只跳過該操作。
    Hindsight 不可改變 Evidence/Promotion Gate、confidence 或 Mycelium lifecycle。
 
