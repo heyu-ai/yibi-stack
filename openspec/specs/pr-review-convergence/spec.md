@@ -279,7 +279,17 @@ changing state. Human rulings SHALL record their bounded pass. Re-checkpointing 
 blocking for a fix ruling from the current pass, even if the aggregation input has blocking=false;
 retained fix history from an earlier pass SHALL NOT automatically block a newly reviewed pass.
 Only pass 1 post-fix SHALL start pass 2 at Step 2; all prior voice approvals SHALL be invalidated.
-There SHALL be no third pass or start-based reset of pass 2. MERGED resume SHALL route read-only
+There SHALL be no third pass or start-based reset of pass 2. A pass 2 post-fix HEAD SHALL reach
+Step 8 only through an explicit human-review transition that requires Step 7 in pass 2 and a
+non-empty human reason, appends a record of the reviewed range, the mob-reviewed head and the
+reason, marks the current head reviewed with blocking=false, and revokes prior ship approval and CI.
+Voice decisions and the final report SHALL stay bound to the mob-reviewed head, never be restamped
+to the human-certified head; pass 1 Step 7 SHALL reject human-review. A human-certified head whose
+mob_head final report or aggregation evidence changed SHALL fail closed with an instruction to
+restore the original bytes, instead of routing to Step 5. Post-fix SHALL start from
+Step 6, Step 9 or Step 10, and from Step 8 only when the latest human-review record certifies the
+current head; a mob-reviewed Step 8 SHALL reject post-fix and re-enter through the Step 5 checkpoint.
+MERGED resume SHALL route read-only
 to Step 11 even after squash changes checkout HEAD; CLOSED SHALL stop. Neither terminal state
 SHALL admit start, advance or voice mutation, push or merge. Read-only reviews SHALL never write state.md.
 
@@ -294,6 +304,26 @@ SHALL admit start, advance or voice mutation, push or merge. Read-only reviews S
 - **GIVEN** a saved checkpoint and a changed live PR head or checkout HEAD
 - **WHEN** resume executes
 - **THEN** it MUST fail without rewriting the checkpoint.
+
+#### Scenario: pass2-fix-human-review -- 第 2 輪修正經人類複查才可進 Step 8
+
+- **GIVEN** pass 2 ended with blocking findings, the human chose Continue fixing, and post-fix recorded the pushed head at Step 7
+- **WHEN** the human has reviewed the fix diff and human-review runs with their statement as reason
+- **THEN** next MUST become Step 8 with the record appended and ship approval still required
+- **AND** advance to Step 8, new-pass and human-review with an empty reason MUST fail without rewriting the checkpoint.
+
+#### Scenario: pass1-human-review-rejected -- 第 1 輪不得以人類複查取代重審
+
+- **GIVEN** pass 1 post-fix recorded a new head at Step 7
+- **WHEN** human-review runs
+- **THEN** it MUST fail without rewriting the checkpoint and new-pass MUST remain the only route.
+
+#### Scenario: step8-post-fix-human-certified-only -- Step 8 post-fix 只給人類認證的 HEAD
+
+- **GIVEN** next=Step 8 and a pushed concern fix
+- **WHEN** post-fix runs
+- **THEN** it MUST route to Step 7 only when the latest human-review record certifies the current head
+- **AND** for a mob-reviewed Step 8 it MUST fail without rewriting the checkpoint, leaving the Step 5 checkpoint as the route.
 
 ### Requirement: Runtime voice exhaustion requires a human decision
 

@@ -158,6 +158,21 @@ def load(path: Path, pr: int, live: dict[str, Any], *, moved: bool = False) -> d
     for key in ("baseline", "reviewed_head"):
         if key in state and (not isinstance(state[key], str) or not SHA.fullmatch(state[key])):
             raise ValueError(f"{key} SHA 無效")
+    reviews = state.get("human_reviews", [])
+    if not isinstance(reviews, list) or (reviews and state["review_round"] != 2):
+        raise ValueError("human_reviews 只能是 pass 2 的紀錄 list")
+    for record in reviews:
+        if (
+            not isinstance(record, dict)
+            or set(record) != {"from", "head", "mob_head", "reason"}
+            or not all(
+                isinstance(record[key], str) and SHA.fullmatch(record[key])
+                for key in ("from", "head", "mob_head")
+            )
+            or not isinstance(record["reason"], str)
+            or not record["reason"].strip()
+        ):
+            raise ValueError("human_reviews 紀錄格式錯誤")
     if live["state"] == "OPEN" and state["next"] == "Step 11":
         raise ValueError("OPEN PR 不得偽造 terminal cleanup checkpoint")
     return state
@@ -452,6 +467,31 @@ def final_report(root: Path, state: dict[str, Any]) -> str:
     return digest(raw)
 
 
+def voice_head(state: dict[str, Any]) -> str:
+    """回傳本輪 voice decision／final.md 綁定的 HEAD（mob 實際審過的那個）。
+
+    三個分支：
+    1. 有 human_reviews 且位於 Step 7，或目前 head 由最後一筆 human_reviews 認證：
+       回傳最後一筆紀錄的 mob_head（人類複查過的 HEAD 不重新 mob review）。
+    2. 位於 Step 7 但沒有 human_reviews：回傳 reviewed_head（post-fix 後的新 HEAD 尚未審查）。
+    3. 其他情況：回傳目前 head，此時它就是 mob 審過的 HEAD。
+
+    前兩種都不能拿目前 head 去驗 voices，否則舊 mob 證據會被誤判為失效或被改標。
+    """
+    reviews = state.get("human_reviews") or []
+    if reviews and (state["next"] == "Step 7" or human_certified(state)):
+        return reviews[-1]["mob_head"]
+    if state["next"] == "Step 7":
+        return state["reviewed_head"]
+    return state["head"]
+
+
+def human_certified(state: dict[str, Any]) -> bool:
+    """目前 head 是否由最後一筆 human_reviews 紀錄認證。"""
+    reviews = state.get("human_reviews") or []
+    return bool(reviews) and reviews[-1]["head"] == state["head"]
+
+
 def unresolved(state: dict[str, Any]) -> bool:
     return any(not isinstance(item, dict) or not item.get("ruling") for item in state["disputed"])
 
@@ -475,15 +515,15 @@ def validate(root: Path, state: dict[str, Any], *, late: bool = True) -> dict[st
         not isinstance(state.get("ci"), dict) or state["ci"].get("head") != state["head"]
     ):
         raise ValueError("缺少本 HEAD 的 live CI completion")
+    reviewed = {**state, "head": voice_head(state)}
     if index >= STEPS.index("Step 4"):
-        reviewed = dict(state)
-        if state["next"] == "Step 7":
-            reviewed["head"] = state["reviewed_head"]
         require_voices(root, reviewed, debate=index >= STEPS.index("Step 5"))
     step = state["next"]
     if late and index >= STEPS.index("Step 5a") and step != "Step 7":
         try:
-            valid = not unresolved(state) and final_report(root, state) == state.get("final_report")
+            valid = not unresolved(state) and final_report(root, reviewed) == state.get(
+                "final_report"
+            )
             source = state.get("aggregation_source")
             valid = (
                 valid
@@ -493,6 +533,15 @@ def validate(root: Path, state: dict[str, Any], *, late: bool = True) -> dict[st
         except (OSError, ValueError):
             valid = False
         if not valid:
+            if human_certified(state):
+                # 人類認證的 HEAD 的 voices 綁 mob_head，Step 5 checkpoint 必然拒絕；
+                # 導回 Step 5 等於指向走不通的路，只能還原原始證據。
+                raise ValueError(
+                    "人類複查後 mob_head 的 final／aggregation 證據已改變；"
+                    "人類認證的 HEAD 無法由 Step 5 checkpoint 重建。"
+                    "請還原 .pr-review/final.md 與 aggregation 來源檔的原始 bytes"
+                    "（不得手改 state.md）"
+                )
             step = "Step 5"
     return {
         "next": step,
@@ -501,7 +550,8 @@ def validate(root: Path, state: dict[str, Any], *, late: bool = True) -> dict[st
         "red_first": red["result"] if red else "not-run",
         "captured_head": red["captured_head"] if red else None,
         "voice_summary": state.get("voice_decisions", {}).get("r1", {}).get("voice_summary"),
-        "final_identity": final_identity(state),
+        "final_identity": final_identity(reviewed),
+        "human_reviews": state.get("human_reviews", []),
     }
 
 
@@ -522,6 +572,7 @@ def main() -> int:
             "baseline",
             "post-fix",
             "new-pass",
+            "human-review",
             "ci",
         ),
     )
@@ -667,7 +718,8 @@ def main() -> int:
                 }
                 if target not in edges.get(current, ()):
                     raise ValueError(
-                        "不得跳過 gate；使用 checkpoint／post-fix／new-pass／ci 的原子邊界"
+                        "不得跳過 gate；使用 checkpoint／post-fix／new-pass／human-review／ci "
+                        "的原子邊界"
                     )
                 if current == "Step 3":
                     require_voices(root, state)
@@ -769,9 +821,17 @@ def main() -> int:
                 if not unresolved(state):
                     state["next"] = "Step 5a"
             elif action == "post-fix":
-                if state["next"] not in ("Step 6", "Step 9", "Step 10") or not state.get(
-                    "ci_command"
-                ):
+                reviews = state.get("human_reviews") or []
+                # 人類認證的 HEAD 在 Step 8 無法重新 checkpoint（voices 綁 mob_head），
+                # 其 concern 修正只能直接 post-fix；mob 審過的 Step 8 仍走 Step 5 checkpoint。
+                human_step8 = (
+                    state["next"] == "Step 8"
+                    and bool(reviews)
+                    and reviews[-1]["head"] == state["head"]
+                )
+                if (
+                    state["next"] not in ("Step 6", "Step 9", "Step 10") and not human_step8
+                ) or not state.get("ci_command"):
                     raise ValueError("post-fix 僅可在有 ci_command 的 fix／CI 邊界")
                 if live["headRefOid"] == state["head"]:
                     raise ValueError("post-fix 需要已推送的新 fix HEAD")
@@ -784,7 +844,10 @@ def main() -> int:
                 state.pop("ci", None)
             elif action == "new-pass":
                 if state["next"] != "Step 7" or state["review_round"] != 1:
-                    raise ValueError("只允許 pass 1 post-fix → pass 2；不存在第三輪")
+                    raise ValueError(
+                        "只允許 pass 1 post-fix → pass 2；不存在第三輪"
+                        "（pass 2 post-fix 由人類複查後走 human-review）"
+                    )
                 state.setdefault("voice_history", []).extend(
                     state.get("voice_decisions", {}).values()
                 )
@@ -798,6 +861,37 @@ def main() -> int:
                 state.pop("final_report", None)
                 state.pop("blocking", None)
                 state.pop("ci", None)
+            elif action == "human-review":
+                # pass 2 之後沒有第三輪 mob review；未審的 fix HEAD 只能由人類看過
+                # reviewed_head..head 後明確認證，且仍要回 Step 8 重新取得 ship 授權。
+                if state["next"] != "Step 7" or state["review_round"] != 2:
+                    raise ValueError(
+                        "human-review 僅可在 pass 2 post-fix 的 Step 7；pass 1 必須走 new-pass 重審"
+                    )
+                if not args.reason or not args.reason.strip():
+                    raise ValueError(
+                        "human-review 需要非空 --reason（人類複查 fix diff 的明確表態）"
+                    )
+                state.setdefault("human_reviews", []).append(
+                    {
+                        "from": state["reviewed_head"],
+                        "head": state["head"],
+                        "mob_head": voice_head(state),
+                        "reason": args.reason,
+                    }
+                )
+                state["reviewed_head"] = state["head"]
+                state["blocking"] = False
+                state["next"] = "Step 8"
+                state.pop("ship_approved_head", None)
+                state.pop("ci", None)
+                # 回傳值是 load-bearing：Step 7 起點的 pre-check 跳過 late final／aggregation
+                # 驗證，轉移後必須確認新狀態真的是可用的 Step 8，否則 fail closed 不存檔。
+                if validate(root, state)["next"] != "Step 8":
+                    raise ValueError(
+                        "human-review 後 final／aggregation 證據無效；"
+                        "請還原 mob_head 的原始 final.md／aggregation 來源後重試"
+                    )
             elif action == "ci":
                 if state["next"] != "Step 9":
                     raise ValueError("ci 只能從 Step 9 推進")

@@ -53,7 +53,7 @@ python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py resume --pr 
 Exit `2`／非零即 `[FAIL]` 停止。state.md 必須是 schema_version=1 的 JSON；舊版自由格式
 checkpoint 不推測解析，改用不帶 --resume 的流程。每個 action 都向 gh 核實 canonical PR URL／repo、
 base、live head 與 checkout HEAD；可加 `--repo owner/repo`，但仍須與實際 URL 一致。
-OPEN 的同步新 checkout/live HEAD 也不能覆寫舊 checkpoint；只能走下述 post-fix／new-pass。
+OPEN 的同步新 checkout/live HEAD 也不能覆寫舊 checkpoint；只能走下述 post-fix／new-pass（pass 2 為 post-fix／human-review）。
 MERGED 的 resume 唯讀回 Step 11（允許 squash 後 checkout 不同），CLOSED 回 terminal STOP；
 兩者均不得 start／advance／voices、push 或 merge。
 Step 1.5／1.6／1.7 不要求 red-first.md／final.md；Step 2 起固定原始 red-first bytes、
@@ -1452,7 +1452,8 @@ python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py post-fix --p
 ```
 
 只接受 checkout=live 的 fast-forward fix HEAD，原子記 current head、保留舊 reviewed_head／baseline／
-disputed／原始 red-first，next=Step 7。新 HEAD **未審查**，只能去 fresh review，不能進 Step 8／ship。
+disputed／原始 red-first，next=Step 7。新 HEAD **未審查**，不能直接進 Step 8／ship：pass 1 走
+Step 7.2 `new-pass` 重審；pass 2 已無第三輪，只能走下方 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review)。
 CI／base-update／version-bump 的任何後期 push 也走此路；不得只重跑 CI 就把未審 HEAD 當已審。
 
 ---
@@ -1514,6 +1515,7 @@ python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py new-pass --p
 只有 pass 1 post-fix 的 Step 7 可建立 pass 2（next=Step 2）；保留 baseline／disputed／failure history，
 撤銷舊 mode、outcomes、final 與 approval。完成 Step 2 才 advance 到 Step 3，再 begin-attempt 取得 fresh R1。
 pass 2 後不允許 new-pass，也不能用 start 重設本 PR 的兩輪上限；需交人類裁決／重設計，不開始第三輪。
+pass 2 post-fix 的 HEAD 只能經 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review) 進 Step 8。
 Recompute candidate blockers and disputes from the new R1; previous verdicts cannot certify the new HEAD.
 If Step 3.4 skips R2, delete every stale R2 file before Step 5 aggregation:
 
@@ -1574,8 +1576,35 @@ stay unmergeable while they decide. Wait for explicit instruction, then act on t
   提前移除、merge 從當時已不受該 label 阻擋。
 - **Continue fixing**: run `bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh add {{pr_number}}`
   and follow Step 1's exit table (exit 0 continue; exit 10 note it for the Step 8 summary; any other
-  exit: **Stop** and report to the user, do not resume fixing), then go to Step 6 (and once CI passes, run Step 5c → Step 8).
+  exit: **Stop** and report to the user, do not resume fixing). Then（resume 的 next 仍為 Step 5b 時先
+  `advance --next "Step 5c"`）**完整執行 Step 5c 四路過濾**——circuit breaker 是在 5b 之後跳出的，5c 尚未做；
+  特別是第 4 路要合併 Round 1 候選並維護 `$REVIEW_DIR/deferred-issue.md`，否則 Step 10b 合併後不會建延後票。
+  完成後 `advance --next "Step 6"`（blocking set 非空的合法路由）→ Step 6 修正、CI、guarded push、
+  live recheck → `post-fix`（next=Step 7）→ 依下方 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review)
+  取得人類複查後進 Step 8。不得 `new-pass`、不得 `advance --next "Step 8"`、不得手改 state.md。
 - **Return to redesign**: **Stop** the cycle; the label stays off.
+
+#### Pass 2 人類複查邊界（human-review）
+
+pass 2 已是最後一輪 mob review，之後任何 fix push（Continue fixing、Step 8 後的 concern 修正、
+Step 9 CI 修正、base update）的新 HEAD 都沒有第三輪可審，必須由人類看過修正 diff 後明確認證。
+post-fix 完成、`resume` 回 next=Step 7 後：
+
+1. 取得 `resume` 輸出的 `reviewed_head`（pass 2 mob 或上一次人類複查過的 HEAD），向人類展示
+   `git diff <reviewed_head>..HEAD --stat` 與完整 diff 路徑，說明每個 commit 對應哪一個 blocking finding。
+2. **等待人類對這段 diff 的明確表態**（例如「看過了，修正正確」）。沒有人類回覆、只有 agent 自評、
+   或人類只說「繼續」而沒有表示看過 diff，都不算複查，不得執行下一步。
+3. 把人類的表態原文（不是 agent 的摘要）帶入 `--reason`：
+
+```bash
+python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py human-review --pr {{pr_number}} --reason "{{human_review_statement}}"
+```
+
+helper 只接受 pass 2 的 Step 7 且 `--reason` 非空；pass 1 Step 7 一律拒絕（必須 new-pass 重審）。成功時
+append 一筆 `human_reviews`（`from`／`head`／`mob_head`／`reason`）、把 `reviewed_head` 設為目前 HEAD、
+blocking=false、next=Step 8，並撤銷舊 ship 授權與 CI 紀錄；mob voice／final 證據仍綁在 `mob_head`，
+不會被改標為目前 HEAD。exit 2 → `[FAIL]` 停止並回報 stderr，不手改 state.md。之後照常走 Step 8
+（人類 quick pass、本 HEAD 的明確 ship）→ Step 9 CI → Step 10 merge → Step 10b → Step 11。
 
 #### Gotcha: re-review must not use stale diff.patch
 
@@ -1620,6 +1649,8 @@ Write `$REVIEW_DIR/human-summary.md` with the Write tool:
 - Unavailable voices: <paste voice_failures with original reasons>
 - R2 debate unavailable: <debate_failures 原文，與有效 R1 participation 分開>
 - Previous failures: <voice_history 按 pass／phase 保留，未 retry 不說 retry failed>
+- Human-certified HEAD: <resume 的 human_reviews 非空時逐筆列 `from..head` 與 reason 原文，並明寫「目前 HEAD 由人類複查認證，
+  mob 只審到 mob_head」；空時寫 none>
 
 ## Key decisions handled during group review
 1. <Consensus Critical 1>: fix approach = ...
@@ -1666,8 +1697,13 @@ echo "$REVIEW_DIR/human-summary.md"
 Reply (substitute the echoed path for `<path>`): "Contract satisfied and blocking set empty. Three hotspots in `<path>`. Raise concerns here — I (reviewer lead) respond immediately;
 reply 'ship' to proceed to Step 9 CI."
 
-User raises a concern → lead responds directly (citing originals). 需要修復時，先更新本輪 final／blocking，
-重新 Step 5 checkpoint → 5a → 5b → 5c → Step 6，不直接手改 next；已到 pass 2 就不開始第三輪。
+User raises a concern → lead responds directly (citing originals). 需要修復時，**先檢查本 HEAD 是否由人類認證**：
+`resume` 的 `human_reviews` 最後一筆 `head` 等於目前 HEAD 時，final.md 與 blocking 綁在 `mob_head`，
+**不得修改 final.md／blocking**（改了 helper 會 fail closed，且 Step 5 checkpoint 無法為這個 HEAD 重建）；
+把 concern 記在 human-summary 與下一次 `human-review` 的 reason，直接修正、CI、guarded push、live recheck
+後執行 `post-fix`（helper 只對這種 Step 8 開放），再走 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review)。
+否則（mob 審過的 Step 8）先更新本輪 final／blocking，重新 Step 5 checkpoint → 5a → 5b → 5c → Step 6，
+不直接手改 next；已到 pass 2 就不開始第三輪。
 Concern resolved → wait for this HEAD's explicit "ship" before Step 9.
 
 **On "ship" (and not before)**, remove the `review-in-progress` label so merge is unblocked once the
@@ -1693,12 +1729,13 @@ Wait for GitHub Actions to pass:
 gh pr checks "{{pr_number}}" --watch
 ```
 
-CI fails: reproduce using the saved command → fix → commit → Step 6 guarded push → post-fix → remaining bounded new-pass.
+CI fails: reproduce using the saved command → fix → commit → Step 6 guarded push → post-fix → remaining bounded new-pass
+(pass 2: [human-review](#pass-2-人類複查邊界human-review)).
 Local CI is authoritative: when CI and local differ, trust local; check for CI environment differences.
 
 live checks 全綠後執行 `review_checkpoint.py ci --pr {{pr_number}}`，helper 重新查詢 CI 並原子推進
 Step 9 → Step 10。pending／fail／缺漏／API error 保持 Step 9；不能用 advance 跳到 Step 10。
-任何 fix push 都先 post-fix → new-pass（僅剩 pass 2 時可），不是採信舊 voices／ship。
+任何 fix push 都先 post-fix → new-pass（僅 pass 1 可；已在 pass 2 則走 human-review），不是採信舊 voices／ship。
 
 ---
 
@@ -1717,7 +1754,7 @@ bash ~/.agents/skills/pr-cycle-deep/scripts/preflight-pr-merge.sh {{pr_number}}
 | `1` | 參數／工具／API／格式錯誤 | `[FAIL]` 停止，完整回報 stderr，不採用空值或快取 |
 | `2` | MERGED／CLOSED | STOP，不 bump／merge／push；先執行 Step 1 的 `review-label.sh remove {{pr_number}}`（label 已關閉時為 no-op）；MERGED 先依下方 mergeCommit 查詢取得 `{{merge_commit_sha}}`，再 Step 10b → Step 11，CLOSED 等人裁決 |
 | `3` | OPEN 且 isDraft=true | STOP，詢問使用者是否執行 gh pr ready；既有 ship 不視為 ready 授權；未明確同意不得轉 ready 或 merge |
-| `4` | DIRTY／CONFLICTING／BEHIND | 更新 base、guarded push、post-fix → 剩餘 bounded new-pass → 本輪 CI 後重跑；沒有剩餘 pass 即停止 |
+| `4` | DIRTY／CONFLICTING／BEHIND | 更新 base、guarded push、post-fix → 剩餘 bounded new-pass → 本輪 CI 後重跑；已在 pass 2 則走 human-review（人類複查 base-update diff）後回 Step 8 |
 
 mergeable 僅接受 MERGEABLE／CONFLICTING／UNKNOWN；mergeStateStatus 僅接受 gh 的
 BEHIND／BLOCKED／CLEAN／DIRTY／DRAFT／HAS_HOOKS／UNKNOWN／UNSTABLE。
@@ -1920,6 +1957,8 @@ Report back to the user: spectra archive status, Jira ticket status.
 | A voice fails R1/R2 twice consecutively | Preserve exact phase-specific reasons. R1 external exhaustion stops for Step 3.3 human approval; R2 outage is disclosed separately without erasing valid R1 or claiming all voices completed debate. Do not invent retry failures. |
 | R2 receives r1-aggregate that is too large for voice to process | Remove raw diff from r1-aggregate; keep only findings; diff was already processed in the r1 prompt |
 | Round 2 ends with unresolved blocking findings | Trigger circuit breaker; hand remaining findings to user with the three-option decision (no third round) |
+| pass 2 修正推送後 `advance --next "Step 8"` 回 `不得跳過 gate`、`new-pass` 回 `不存在第三輪` | 預期行為：pass 2 post-fix 的 HEAD 只能經 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review) 的 `human-review --reason` 進 Step 8 |
+| `resume`／`checkpoint`／`advance` 回 `人類認證的 HEAD 無法由 Step 5 checkpoint 重建` | 人類複查後有人改了 `mob_head` 的 `.pr-review/final.md` 或 aggregation 來源檔：還原這兩個檔案的原始 bytes 後重跑 `resume`（應回 Step 8）；不得手改 state.md，也不要為人類認證的 HEAD 重跑 Step 5 checkpoint |
 | User chooses to ignore a disputed finding | Add a Known Issues section to the PR description with the reason |
 | User raises new concern during human quick pass | Reviewer lead responds immediately; unresolvable → Step 6; resolved → wait for "ship" |
 | When does R2 run? | All active voices always run independent R1. Run R2 only when Step 3.4 finds a candidate blocker the lead does not adopt as-graded, or a blocking dispute. Two legal skips: a clean R1 (`R2 skipped: no contract-blocking candidate or dispute`), and lead-adopts-all (`R2 skipped: lead adopts all blockers` — 採納 ≠ 免驗證，Evidence gate 照跑). |
