@@ -307,6 +307,7 @@ def test_identity_changes_reject_without_rewriting(tmp_path: Path, mutation: str
         "checkpoint",
         "post-fix",
         "new-pass",
+        "human-review",
         "ci",
     ],
 )
@@ -669,6 +670,7 @@ def test_r2_failure_preserves_valid_r1_and_separately_discloses_debate_failure(
         "checkpoint",
         "post-fix",
         "new-pass",
+        "human-review",
         "ci",
     ],
 )
@@ -830,3 +832,118 @@ def test_recheckpoint_cannot_erase_current_pass_human_fix_blocking(tmp_path: Pat
         _ok(_run(root, env, "advance", "--next", step))
     _unchanged_failure(root, env, "advance", "--next", "Step 8")
     assert _ok(_run(root, env, "advance", "--next", "Step 6"))["next"] == "Step 6"
+
+
+def _pass2_fix_pushed(root: Path, env: dict[str, str]) -> str:
+    """走完 pass 1 fix → pass 2 blocking → Continue fixing 推送；回傳 pass 2 mob 審過的 HEAD。"""
+    _late(root, env, blocking=True)
+    _ok(_run(root, env, "configure-ci", "--ci-command", "make ci"))
+    _route(root, env, "Step 6")
+    _move(root, env)
+    _ok(_run(root, env, "post-fix"))
+    _ok(_run(root, env, "new-pass"))
+    _ok(_run(root, env, "advance", "--next", "Step 3"))
+    _voices(root, env)
+    _ok(_run(root, env, "advance", "--next", "Step 5"))
+    mob_head = _aggregate(root, env, blocking=True)["head"]
+    _route(root, env, "Step 6")
+    _move(root, env)
+    post = _ok(_run(root, env, "post-fix"))
+    assert post["next"] == "Step 7" and post["review_round"] == 2
+    return mob_head
+
+
+def test_pass2_post_fix_reaches_merge_only_through_recorded_human_review(tmp_path: Path) -> None:
+    """RCP-ST-006: pass 2 修正後經人類複查邊界進 Step 8，仍需 ship 授權與本 HEAD CI（#675）。"""
+    root, env = _case(tmp_path)
+    mob_head = _pass2_fix_pushed(root, env)
+    fixed = _state(root)["head"]
+    _unchanged_failure(root, env, "advance", "--next", "Step 8")
+    _unchanged_failure(root, env, "new-pass")
+    _unchanged_failure(root, env, "start")
+    reason = "human read pass-2 fix diff"
+    reviewed = _ok(_run(root, env, "human-review", "--reason", reason))
+    assert reviewed["next"] == "Step 8" and reviewed["reviewed_head"] == fixed
+    assert reviewed["blocking"] is False and reviewed["review_round"] == 2
+    assert reviewed["human_reviews"] == [
+        {"from": mob_head, "head": fixed, "mob_head": mob_head, "reason": reason}
+    ]
+    resumed = _ok(_run(root, env, "resume"))
+    assert resumed["next"] == "Step 8" and resumed["human_reviews"] == reviewed["human_reviews"]
+    assert resumed["final_identity"]["head"] == mob_head
+    _unchanged_failure(root, env, "advance", "--next", "Step 9")
+    _ok(_run(root, env, "advance", "--next", "Step 9", "--ship-approved"))
+    assert _ok(_run(root, env, "ci"))["next"] == "Step 10"
+    # ship 後的 CI fix：再一次 post-fix → 人類複查，mob 證據仍綁原 pass 2 HEAD。
+    _move(root, env)
+    assert _ok(_run(root, env, "post-fix"))["next"] == "Step 7"
+    assert _ok(_run(root, env, "resume"))["next"] == "Step 7"
+    _unchanged_failure(root, env, "new-pass")
+    again = _ok(_run(root, env, "human-review", "--reason", "human read CI fix"))
+    assert [item["mob_head"] for item in again["human_reviews"]] == [mob_head, mob_head]
+    assert again["human_reviews"][1]["from"] == fixed and "ship_approved_head" not in again
+    _unchanged_failure(root, env, "advance", "--next", "Step 9")
+    # Step 8 quick pass 提出 concern 後的修正也回 Step 7，同樣只能再經人類複查。
+    _unchanged_failure(root, env, "post-fix")
+    concern = _move(root, env)
+    assert _ok(_run(root, env, "post-fix"))["next"] == "Step 7"
+    third = _ok(_run(root, env, "human-review", "--reason", "human read concern fix"))
+    assert third["head"] == concern and third["human_reviews"][2]["mob_head"] == mob_head
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["pass1-step7", "pass2-step6", "empty-reason", "missing-reason", "stale-voice-report"],
+)
+def test_human_review_rejects_outside_pass2_post_fix_boundary(tmp_path: Path, case: str) -> None:
+    """RCP-ST-007: human-review 不得取代 pass 1 重審、不得缺 reason、不得採用失效 mob 證據。"""
+    root, env = _case(tmp_path)
+    args: tuple[str, ...] = ("human-review", "--reason", "human read diff")
+    if case == "pass1-step7":
+        _late(root, env, blocking=True)
+        _ok(_run(root, env, "configure-ci", "--ci-command", "make ci"))
+        _route(root, env, "Step 6")
+        _move(root, env)
+        _ok(_run(root, env, "post-fix"))
+    elif case == "pass2-step6":
+        _late(root, env, blocking=True)
+        _ok(_run(root, env, "configure-ci", "--ci-command", "make ci"))
+        _route(root, env, "Step 6")
+        _move(root, env)
+        _ok(_run(root, env, "post-fix"))
+        _ok(_run(root, env, "new-pass"))
+        _ok(_run(root, env, "advance", "--next", "Step 3"))
+        _voices(root, env)
+        _ok(_run(root, env, "advance", "--next", "Step 5"))
+        _aggregate(root, env, blocking=True)
+        _route(root, env, "Step 6")
+    else:
+        _pass2_fix_pushed(root, env)
+        if case == "empty-reason":
+            args = ("human-review", "--reason", "  ")
+        elif case == "missing-reason":
+            args = ("human-review",)
+        else:
+            (root / ".pr-review/codex-r1.md").write_text("stale replacement\n")
+    _unchanged_failure(root, env, *args)
+
+
+@pytest.mark.parametrize("mutation", ["mob-head", "reason", "extra-key", "pass1"])
+def test_tampered_human_review_record_fails_closed(tmp_path: Path, mutation: str) -> None:
+    """RCP-ST-008: 手改 human_reviews 紀錄不能讓 Step 8 checkpoint 繼續被採信。"""
+    root, env = _case(tmp_path)
+    _pass2_fix_pushed(root, env)
+    _ok(_run(root, env, "human-review", "--reason", "human read diff"))
+    state = _state(root)
+    record = state["human_reviews"][0]
+    if mutation == "mob-head":
+        record["mob_head"] = "a" * 40
+    elif mutation == "reason":
+        record["reason"] = " "
+    elif mutation == "extra-key":
+        record["approved_by"] = "agent"
+    else:
+        state["review_round"] = 1
+    (root / ".pr-review/state.md").write_text(json.dumps(state))
+    _unchanged_failure(root, env, "resume")
+    _unchanged_failure(root, env, "advance", "--next", "Step 9", "--ship-approved")
