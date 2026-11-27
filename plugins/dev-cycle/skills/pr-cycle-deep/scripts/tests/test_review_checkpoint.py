@@ -893,7 +893,15 @@ def test_pass2_post_fix_reaches_merge_only_through_recorded_human_review(tmp_pat
 
 @pytest.mark.parametrize(
     "case",
-    ["pass1-step7", "pass2-step6", "empty-reason", "missing-reason", "stale-voice-report"],
+    [
+        "pass1-step7",
+        "pass2-step6",
+        "empty-reason",
+        "missing-reason",
+        "stale-voice-report",
+        "stale-final",
+        "stale-aggregation",
+    ],
 )
 def test_human_review_rejects_outside_pass2_post_fix_boundary(tmp_path: Path, case: str) -> None:
     """RCP-ST-007: human-review 不得取代 pass 1 重審、不得缺 reason、不得採用失效 mob 證據。"""
@@ -923,9 +931,57 @@ def test_human_review_rejects_outside_pass2_post_fix_boundary(tmp_path: Path, ca
             args = ("human-review", "--reason", "  ")
         elif case == "missing-reason":
             args = ("human-review",)
+        elif case == "stale-final":
+            _rewrite_final_body(root)
+        elif case == "stale-aggregation":
+            source = Path(_state(root)["aggregation_source"])
+            source.write_bytes(source.read_bytes() + b"\n")
         else:
             (root / ".pr-review/codex-r1.md").write_text("stale replacement\n")
     _unchanged_failure(root, env, *args)
+
+
+def _rewrite_final_body(root: Path) -> None:
+    """保留 checkpoint-final identity header，只改 final.md 正文。"""
+    final = root / ".pr-review/final.md"
+    header = final.read_text().split("\n", 1)[0]
+    final.write_text(header + "\n# Final\nTampered synthesis after the checkpoint.\n")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["mob-head", "reason", "extra-key", "pass1", "bad-from", "bad-head", "not-list"],
+)
+def test_tampered_human_review_record_fails_closed(tmp_path: Path, mutation: str) -> None:
+    """RCP-ST-008: 手改 human_reviews 紀錄不能讓 Step 8 checkpoint 繼續被採信。"""
+    root, env = _case(tmp_path)
+    _pass2_fix_pushed(root, env)
+    if mutation == "not-list":
+        # 在 human-review 前的 pass 2 Step 7 注入：falsy 的 {} 若被當成「沒有紀錄」，
+        # resume 會靜默成功，所以只有 load() 的 list 型別檢查擋得住。
+        state = _state(root)
+        state["human_reviews"] = {}
+        (root / ".pr-review/state.md").write_text(json.dumps(state))
+        _unchanged_failure(root, env, "resume")
+        return
+    _ok(_run(root, env, "human-review", "--reason", "human read diff"))
+    state = _state(root)
+    record = state["human_reviews"][0]
+    if mutation == "bad-from":
+        record["from"] = "nope"
+    elif mutation == "bad-head":
+        record["head"] = "nope"
+    elif mutation == "mob-head":
+        record["mob_head"] = "a" * 40
+    elif mutation == "reason":
+        record["reason"] = " "
+    elif mutation == "extra-key":
+        record["approved_by"] = "agent"
+    else:
+        state["review_round"] = 1
+    (root / ".pr-review/state.md").write_text(json.dumps(state))
+    _unchanged_failure(root, env, "resume")
+    _unchanged_failure(root, env, "advance", "--next", "Step 9", "--ship-approved")
 
 
 def test_mob_reviewed_step8_concern_rechecks_through_step5_not_post_fix(tmp_path: Path) -> None:
@@ -962,22 +1018,21 @@ def test_human_review_record_outside_pass2_is_rejected_by_load(tmp_path: Path) -
     _unchanged_failure(root, env, "resume")
 
 
-@pytest.mark.parametrize("mutation", ["mob-head", "reason", "extra-key", "pass1"])
-def test_tampered_human_review_record_fails_closed(tmp_path: Path, mutation: str) -> None:
-    """RCP-ST-008: 手改 human_reviews 紀錄不能讓 Step 8 checkpoint 繼續被採信。"""
+def test_human_certified_step8_final_drift_fails_closed_with_restore(tmp_path: Path) -> None:
+    """RCP-ST-011: 人類認證 HEAD 的 final 漂移不得導回走不通的 Step 5，還原原始 bytes 即恢復。"""
     root, env = _case(tmp_path)
     _pass2_fix_pushed(root, env)
     _ok(_run(root, env, "human-review", "--reason", "human read diff"))
-    state = _state(root)
-    record = state["human_reviews"][0]
-    if mutation == "mob-head":
-        record["mob_head"] = "a" * 40
-    elif mutation == "reason":
-        record["reason"] = " "
-    elif mutation == "extra-key":
-        record["approved_by"] = "agent"
-    else:
-        state["review_round"] = 1
-    (root / ".pr-review/state.md").write_text(json.dumps(state))
-    _unchanged_failure(root, env, "resume")
-    _unchanged_failure(root, env, "advance", "--next", "Step 9", "--ship-approved")
+    final = root / ".pr-review/final.md"
+    original = final.read_bytes()
+    _rewrite_final_body(root)
+    for args in (
+        ("resume",),
+        ("checkpoint", "--input", str(root / ".pr-review/aggregation.json")),
+        ("advance", "--next", "Step 9", "--ship-approved"),
+    ):
+        result = _unchanged_failure(root, env, *args)
+        assert "人類認證的 HEAD 無法由 Step 5 checkpoint 重建" in result.stderr
+        assert "還原" in result.stderr
+    final.write_bytes(original)
+    assert _ok(_run(root, env, "resume"))["next"] == "Step 8"

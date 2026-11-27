@@ -284,7 +284,9 @@ Step 8 only through an explicit human-review transition that requires Step 7 in 
 non-empty human reason, appends a record of the reviewed range, the mob-reviewed head and the
 reason, marks the current head reviewed with blocking=false, and revokes prior ship approval and CI.
 Voice decisions and the final report SHALL stay bound to the mob-reviewed head, never be restamped
-to the human-certified head; pass 1 Step 7 SHALL reject human-review. Post-fix SHALL start from
+to the human-certified head; pass 1 Step 7 SHALL reject human-review. A human-certified head whose
+mob_head final report or aggregation evidence changed SHALL fail closed with an instruction to
+restore the original bytes, instead of routing to Step 5. Post-fix SHALL start from
 Step 6, Step 9 or Step 10, and from Step 8 only when the latest human-review record certifies the
 current head; a mob-reviewed Step 8 SHALL reject post-fix and re-enter through the Step 5 checkpoint.
 MERGED resume SHALL route read-only

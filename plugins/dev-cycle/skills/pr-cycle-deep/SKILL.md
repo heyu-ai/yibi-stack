@@ -1697,11 +1697,13 @@ echo "$REVIEW_DIR/human-summary.md"
 Reply (substitute the echoed path for `<path>`): "Contract satisfied and blocking set empty. Three hotspots in `<path>`. Raise concerns here — I (reviewer lead) respond immediately;
 reply 'ship' to proceed to Step 9 CI."
 
-User raises a concern → lead responds directly (citing originals). 需要修復時，先更新本輪 final／blocking，
-重新 Step 5 checkpoint → 5a → 5b → 5c → Step 6，不直接手改 next；已到 pass 2 就不開始第三輪。
-例外：`resume` 的 `human_reviews` 最後一筆 `head` 等於目前 HEAD（本 HEAD 由人類複查認證）時，voices 綁在
-`mob_head`，Step 5 checkpoint 會拒絕；此時直接修正、CI、guarded push、live recheck 後執行 `post-fix`
-（helper 只對這種 Step 8 開放），再走 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review)。
+User raises a concern → lead responds directly (citing originals). 需要修復時，**先檢查本 HEAD 是否由人類認證**：
+`resume` 的 `human_reviews` 最後一筆 `head` 等於目前 HEAD 時，final.md 與 blocking 綁在 `mob_head`，
+**不得修改 final.md／blocking**（改了 helper 會 fail closed，且 Step 5 checkpoint 無法為這個 HEAD 重建）；
+把 concern 記在 human-summary 與下一次 `human-review` 的 reason，直接修正、CI、guarded push、live recheck
+後執行 `post-fix`（helper 只對這種 Step 8 開放），再走 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review)。
+否則（mob 審過的 Step 8）先更新本輪 final／blocking，重新 Step 5 checkpoint → 5a → 5b → 5c → Step 6，
+不直接手改 next；已到 pass 2 就不開始第三輪。
 Concern resolved → wait for this HEAD's explicit "ship" before Step 9.
 
 **On "ship" (and not before)**, remove the `review-in-progress` label so merge is unblocked once the
@@ -1956,6 +1958,7 @@ Report back to the user: spectra archive status, Jira ticket status.
 | R2 receives r1-aggregate that is too large for voice to process | Remove raw diff from r1-aggregate; keep only findings; diff was already processed in the r1 prompt |
 | Round 2 ends with unresolved blocking findings | Trigger circuit breaker; hand remaining findings to user with the three-option decision (no third round) |
 | pass 2 修正推送後 `advance --next "Step 8"` 回 `不得跳過 gate`、`new-pass` 回 `不存在第三輪` | 預期行為：pass 2 post-fix 的 HEAD 只能經 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review) 的 `human-review --reason` 進 Step 8 |
+| `resume`／`checkpoint`／`advance` 回 `人類認證的 HEAD 無法由 Step 5 checkpoint 重建` | 人類複查後有人改了 `mob_head` 的 `.pr-review/final.md` 或 aggregation 來源檔：還原這兩個檔案的原始 bytes 後重跑 `resume`（應回 Step 8）；不得手改 state.md，也不要為人類認證的 HEAD 重跑 Step 5 checkpoint |
 | User chooses to ignore a disputed finding | Add a Known Issues section to the PR description with the reason |
 | User raises new concern during human quick pass | Reviewer lead responds immediately; unresolvable → Step 6; resolved → wait for "ship" |
 | When does R2 run? | All active voices always run independent R1. Run R2 only when Step 3.4 finds a candidate blocker the lead does not adopt as-graded, or a blocking dispute. Two legal skips: a clean R1 (`R2 skipped: no contract-blocking candidate or dispute`), and lead-adopts-all (`R2 skipped: lead adopts all blockers` — 採納 ≠ 免驗證，Evidence gate 照跑). |
