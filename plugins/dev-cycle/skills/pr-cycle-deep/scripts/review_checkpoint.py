@@ -801,9 +801,17 @@ def main() -> int:
                 if not unresolved(state):
                     state["next"] = "Step 5a"
             elif action == "post-fix":
-                if state["next"] not in ("Step 6", "Step 8", "Step 9", "Step 10") or not state.get(
-                    "ci_command"
-                ):
+                reviews = state.get("human_reviews") or []
+                # 人類認證的 HEAD 在 Step 8 無法重新 checkpoint（voices 綁 mob_head），
+                # 其 concern 修正只能直接 post-fix；mob 審過的 Step 8 仍走 Step 5 checkpoint。
+                human_step8 = (
+                    state["next"] == "Step 8"
+                    and bool(reviews)
+                    and reviews[-1]["head"] == state["head"]
+                )
+                if (
+                    state["next"] not in ("Step 6", "Step 9", "Step 10") and not human_step8
+                ) or not state.get("ci_command"):
                     raise ValueError("post-fix 僅可在有 ci_command 的 fix／CI 邊界")
                 if live["headRefOid"] == state["head"]:
                     raise ValueError("post-fix 需要已推送的新 fix HEAD")

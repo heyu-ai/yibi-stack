@@ -1576,9 +1576,11 @@ stay unmergeable while they decide. Wait for explicit instruction, then act on t
   提前移除、merge 從當時已不受該 label 阻擋。
 - **Continue fixing**: run `bash ~/.agents/skills/pr-cycle-deep/scripts/review-label.sh add {{pr_number}}`
   and follow Step 1's exit table (exit 0 continue; exit 10 note it for the Step 8 summary; any other
-  exit: **Stop** and report to the user, do not resume fixing). Then `advance --next "Step 5c"`
-  （若尚未在 Step 5c）→ `advance --next "Step 6"`（blocking set 非空的合法路由）→ Step 6 修正、CI、
-  guarded push、live recheck → `post-fix`（next=Step 7）→ 依下方 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review)
+  exit: **Stop** and report to the user, do not resume fixing). Then（resume 的 next 仍為 Step 5b 時先
+  `advance --next "Step 5c"`）**完整執行 Step 5c 四路過濾**——circuit breaker 是在 5b 之後跳出的，5c 尚未做；
+  特別是第 4 路要合併 Round 1 候選並維護 `$REVIEW_DIR/deferred-issue.md`，否則 Step 10b 合併後不會建延後票。
+  完成後 `advance --next "Step 6"`（blocking set 非空的合法路由）→ Step 6 修正、CI、guarded push、
+  live recheck → `post-fix`（next=Step 7）→ 依下方 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review)
   取得人類複查後進 Step 8。不得 `new-pass`、不得 `advance --next "Step 8"`、不得手改 state.md。
 - **Return to redesign**: **Stop** the cycle; the label stays off.
 
@@ -1695,9 +1697,11 @@ echo "$REVIEW_DIR/human-summary.md"
 Reply (substitute the echoed path for `<path>`): "Contract satisfied and blocking set empty. Three hotspots in `<path>`. Raise concerns here — I (reviewer lead) respond immediately;
 reply 'ship' to proceed to Step 9 CI."
 
-User raises a concern → lead responds directly (citing originals). 需要修復時，直接在 Step 8 修正、CI、
-guarded push、live recheck，再執行 `post-fix`（Step 8 是合法起點，next=Step 7）：pass 1 → Step 7.2
-`new-pass` 重審；pass 2 不開始第三輪，走 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review)。不直接手改 next。
+User raises a concern → lead responds directly (citing originals). 需要修復時，先更新本輪 final／blocking，
+重新 Step 5 checkpoint → 5a → 5b → 5c → Step 6，不直接手改 next；已到 pass 2 就不開始第三輪。
+例外：`resume` 的 `human_reviews` 最後一筆 `head` 等於目前 HEAD（本 HEAD 由人類複查認證）時，voices 綁在
+`mob_head`，Step 5 checkpoint 會拒絕；此時直接修正、CI、guarded push、live recheck 後執行 `post-fix`
+（helper 只對這種 Step 8 開放），再走 [pass 2 人類複查邊界](#pass-2-人類複查邊界human-review)。
 Concern resolved → wait for this HEAD's explicit "ship" before Step 9.
 
 **On "ship" (and not before)**, remove the `review-in-progress` label so merge is unblocked once the

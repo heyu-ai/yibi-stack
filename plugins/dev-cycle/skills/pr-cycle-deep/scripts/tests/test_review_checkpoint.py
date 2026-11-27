@@ -928,6 +928,40 @@ def test_human_review_rejects_outside_pass2_post_fix_boundary(tmp_path: Path, ca
     _unchanged_failure(root, env, *args)
 
 
+def test_mob_reviewed_step8_concern_rechecks_through_step5_not_post_fix(tmp_path: Path) -> None:
+    """RCP-ST-009: mob 審過的 Step 8 concern 走 Step 5 checkpoint。
+
+    post-fix 的 Step 8 起點只開放給人類認證的 HEAD。
+    """
+    root, env = _case(tmp_path)
+    _late(root, env)
+    _ok(_run(root, env, "configure-ci", "--ci-command", "make ci"))
+    _route(root, env, "Step 8")
+    _move(root, env)
+    _unchanged_failure(root, env, "post-fix")
+    _git(root, env, "reset", "-q", "--hard", "HEAD~1")
+    _metadata(env, headRefOid=_git(root, env, "rev-parse", "HEAD"))
+    final = root / ".pr-review/final.md"
+    header = final.read_text().split("\n", 1)[0]
+    final.write_text(header + "\n# Final\nHuman concern at Step 8 now blocks.\n")
+    assert _ok(_run(root, env, "resume"))["next"] == "Step 5"
+    source = root / ".pr-review/concern.json"
+    source.write_text(json.dumps({"blocking": True, "disputed": []}))
+    rechecked = _ok(_run(root, env, "checkpoint", "--input", str(source)))
+    assert rechecked["next"] == "Step 5a" and rechecked["blocking"] is True
+
+
+def test_human_review_record_outside_pass2_is_rejected_by_load(tmp_path: Path) -> None:
+    """RCP-ST-010: pass 1 checkpoint 帶 human_reviews 一律無效，即使尚未進入 voice 驗證的步驟。"""
+    root, env = _case(tmp_path)
+    state = _ok(_run(root, env, "start"))
+    state["human_reviews"] = [
+        {"from": state["head"], "head": state["head"], "mob_head": state["head"], "reason": "x"}
+    ]
+    (root / ".pr-review/state.md").write_text(json.dumps(state))
+    _unchanged_failure(root, env, "resume")
+
+
 @pytest.mark.parametrize("mutation", ["mob-head", "reason", "extra-key", "pass1"])
 def test_tampered_human_review_record_fails_closed(tmp_path: Path, mutation: str) -> None:
     """RCP-ST-008: 手改 human_reviews 紀錄不能讓 Step 8 checkpoint 繼續被採信。"""
