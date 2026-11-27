@@ -284,7 +284,10 @@ Step 8 only through an explicit human-review transition that requires Step 7 in 
 non-empty human reason, appends a record of the reviewed range, the mob-reviewed head and the
 reason, marks the current head reviewed with blocking=false, and revokes prior ship approval and CI.
 Voice decisions and the final report SHALL stay bound to the mob-reviewed head, never be restamped
-to the human-certified head; pass 1 Step 7 SHALL reject human-review. MERGED resume SHALL route read-only
+to the human-certified head; pass 1 Step 7 SHALL reject human-review. Post-fix SHALL start from
+Step 6, Step 9 or Step 10, and from Step 8 only when the latest human-review record certifies the
+current head; a mob-reviewed Step 8 SHALL reject post-fix and re-enter through the Step 5 checkpoint.
+MERGED resume SHALL route read-only
 to Step 11 even after squash changes checkout HEAD; CLOSED SHALL stop. Neither terminal state
 SHALL admit start, advance or voice mutation, push or merge. Read-only reviews SHALL never write state.md.
 
@@ -312,6 +315,13 @@ SHALL admit start, advance or voice mutation, push or merge. Read-only reviews S
 - **GIVEN** pass 1 post-fix recorded a new head at Step 7
 - **WHEN** human-review runs
 - **THEN** it MUST fail without rewriting the checkpoint and new-pass MUST remain the only route.
+
+#### Scenario: step8-post-fix-human-certified-only -- Step 8 post-fix 只給人類認證的 HEAD
+
+- **GIVEN** next=Step 8 and a pushed concern fix
+- **WHEN** post-fix runs
+- **THEN** it MUST route to Step 7 only when the latest human-review record certifies the current head
+- **AND** for a mob-reviewed Step 8 it MUST fail without rewriting the checkpoint, leaving the Step 5 checkpoint as the route.
 
 ### Requirement: Runtime voice exhaustion requires a human decision
 
