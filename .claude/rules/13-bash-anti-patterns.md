@@ -156,7 +156,7 @@ find /path/to/project -name "*.py"
 
 ## Prefer Claude Built-in Tools for Code Search
 
-When searching code, **prefer Grep/Glob tools over bash `rg`/`grep`/`find`**.
+When the session provides Grep/Glob tools, **prefer them over bash `rg`/`grep`/`find`**; when it does not ("not available in this session"), use bash `grep`/`rg`/`find` with absolute paths.
 
 Common violation: `cd $(git rev-parse --show-toplevel) && rg ... 2>/dev/null | head -10`
 triggers AP3-A (CWD pollution), AP3-C (`2>/dev/null` hiding), AP1 (output filter `| head`),
@@ -187,9 +187,9 @@ check frontmatter), choose the approach by N and complexity:
 | Situation | Correct approach | Anti-pattern |
 |-----------|-----------------|--------------|
 | N ≤ 5 files, read first N lines | N parallel Read calls (`limit: N`) | `for f in ...; do head -N "$f"; done` |
-| N ≤ 5 files, search pattern | N parallel Grep calls | `for f in ...; do grep "pat" "$f"; done` |
+| N ≤ 5 files, search pattern | N parallel Grep calls (no Grep tool: one `grep -n 'pat' <abs paths>`) | `for f in ...; do grep "pat" "$f"; done` |
 | N > 5 or complex logic | Extract to `scripts/scan_<thing>.{sh,py}` + single bash call | Inline for-loop with multiple body statements |
-| Cross-repo / cross-subtree | Spawn Explore subagent; specify "use Read/Glob/Grep, no bash for-loops" in prompt | Main-session bash multi-file traversal |
+| Cross-repo / cross-subtree | Spawn Explore subagent; specify "use Read (and Glob/Grep if available), no bash for-loops" in prompt | Main-session bash multi-file traversal |
 
 **Counter-example** (the for-loop pattern that triggered AP1 + Quoting Rule 5 confirmation
 dialog when reading multiple SKILL.md files during codebase research):
@@ -229,7 +229,7 @@ yes → classify sub-type: git → `git -C`; non-git → `--directory`; with `2>
 
 - [ ] Pure search (find pattern / list files)?
 
-yes → prefer Grep/Glob tool.
+yes → prefer the Grep/Glob tool when available; otherwise bash `grep`/`rg` with absolute paths.
 
 ## AP2 Auto-Detection
 
