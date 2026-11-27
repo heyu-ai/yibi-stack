@@ -53,7 +53,7 @@ python3 ~/.agents/skills/pr-cycle-deep/scripts/review_checkpoint.py resume --pr 
 Exit `2`／非零即 `[FAIL]` 停止。state.md 必須是 schema_version=1 的 JSON；舊版自由格式
 checkpoint 不推測解析，改用不帶 --resume 的流程。每個 action 都向 gh 核實 canonical PR URL／repo、
 base、live head 與 checkout HEAD；可加 `--repo owner/repo`，但仍須與實際 URL 一致。
-OPEN 的同步新 checkout/live HEAD 也不能覆寫舊 checkpoint；只能走下述 post-fix／new-pass。
+OPEN 的同步新 checkout/live HEAD 也不能覆寫舊 checkpoint；只能走下述 post-fix／new-pass（pass 2 為 post-fix／human-review）。
 MERGED 的 resume 唯讀回 Step 11（允許 squash 後 checkout 不同），CLOSED 回 terminal STOP；
 兩者均不得 start／advance／voices、push 或 merge。
 Step 1.5／1.6／1.7 不要求 red-first.md／final.md；Step 2 起固定原始 red-first bytes、
