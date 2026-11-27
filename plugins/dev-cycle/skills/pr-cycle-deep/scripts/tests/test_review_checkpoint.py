@@ -962,7 +962,8 @@ def test_tampered_human_review_record_fails_closed(tmp_path: Path, mutation: str
         state = _state(root)
         state["human_reviews"] = {}
         (root / ".pr-review/state.md").write_text(json.dumps(state))
-        _unchanged_failure(root, env, "resume")
+        result = _unchanged_failure(root, env, "resume")
+        assert "human_reviews 只能是" in result.stderr
         return
     _ok(_run(root, env, "human-review", "--reason", "human read diff"))
     state = _state(root)
@@ -980,7 +981,10 @@ def test_tampered_human_review_record_fails_closed(tmp_path: Path, mutation: str
     else:
         state["review_round"] = 1
     (root / ".pr-review/state.md").write_text(json.dumps(state))
-    _unchanged_failure(root, env, "resume")
+    result = _unchanged_failure(root, env, "resume")
+    if mutation in ("bad-from", "bad-head"):
+        # 必須由 load() 的 SHA 檢查擋下，不能只靠下游 voice 驗證剛好失敗。
+        assert "human_reviews 紀錄格式錯誤" in result.stderr
     _unchanged_failure(root, env, "advance", "--next", "Step 9", "--ship-approved")
 
 
